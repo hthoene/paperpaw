@@ -132,8 +132,7 @@ jobs:
           shared-key: check
           save-if: false
       # Builds without runtime font rendering use bitmap font packs; the plugins of the
-      # store that carry a copy of their card files for the apps read the card without it;
-      # the kernel without panes is that of the Xteink devices.
+      # store that carry a copy of their card files for the apps read the card without it.
       - run: cargo test --no-fail-fast -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core -p paperpaw-plugin-reading-goal -p paperpaw-plugin-stats -p paperpaw-plugin-widgets -p paperpaw-plugin-vocabulary --no-default-features --features paperpaw-plugin-reading-goal/linked,paperpaw-plugin-stats/linked
       # The X4's real font set (the lean build, packs only): the tests look at what it has.
       - run: PAPERPAW_FONT_LEAN=1 cargo test --no-fail-fast -p paperpaw-plugin-fonts-default --no-default-features --features packs

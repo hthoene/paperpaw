@@ -72,30 +72,20 @@ fn two_quick_taps_are_a_double_tap_where_one_is_bound() {
     assert_eq!(*log.borrow(), ["a:core.confirm"]);
 }
 
-/// Logs the gestures it gets; takes double taps where told to (`None`:
-/// says it takes none).
+/// Logs the gestures it gets.
 struct Taps {
     log: Log,
-    doubles: Option<bool>,
 }
 
-impl crate::Layer for Taps {
+impl crate::testing::Fake for Taps {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
     }
 
-    fn takes_double_taps(&self) -> bool {
-        self.doubles.is_some()
-    }
-
     fn on_gesture(&mut self, gesture: Gesture, _: &mut Cx<'_, '_>) -> Handled {
-        let taken = match gesture.kind {
-            GestureKind::Tap => true,
-            GestureKind::DoubleTap => self.doubles == Some(true),
-            _ => false,
-        };
+        let taken = gesture.kind == GestureKind::Tap;
         if taken {
             let kind = alloc::format!("{:?}", gesture.kind);
             self.log.borrow_mut().push(kind);
@@ -104,21 +94,13 @@ impl crate::Layer for Taps {
     }
 }
 
-fn taps_plugin(
-    kept0: Log,
-    kept1: Option<bool>,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn taps_plugin(kept0: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        let (log, doubles) = (kept0.clone(), kept1);
-        r.add_layer(crate::LayerSpec::new(
+        let log = kept0.clone();
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("taps.screen"),
             "taps",
-            Box::new(move |_, _| {
-                Box::new(Taps {
-                    log: log.clone(),
-                    doubles,
-                })
-            }),
+            Box::new(move |_, _| Box::new(Taps { log: log.clone() })),
         ))?;
         r.bind_slot(
             slots::HOME,
@@ -134,26 +116,18 @@ fn taps_plugin_manifest() -> Manifest {
         .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
-/// A screen that takes double taps gets the second tap as one, as a tap
-/// where it does not take it; other screens get taps.
+/// Two quick taps reach a screen as two taps.
 #[test]
-fn screens_get_double_taps_or_taps() {
-    let cases = [
-        (Some(true), ["Tap", "DoubleTap"]),
-        (Some(false), ["Tap", "Tap"]),
-        (None, ["Tap", "Tap"]),
-    ];
-    for (doubles, seen) in cases {
-        let log = log();
-        let mut kernel = Kernel::builder(DEVICE)
-            .items(taps_plugin_manifest(), taps_plugin(log.clone(), doubles))
-            .build()
-            .unwrap();
-        kernel.start(Instant(0));
-        tap(&mut kernel, 1000, 45, 45);
-        tap(&mut kernel, 1150, 45, 45);
-        assert_eq!(*log.borrow(), seen);
-    }
+fn screens_get_two_quick_taps_as_taps() {
+    let log = log();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(taps_plugin_manifest(), taps_plugin(log.clone()))
+        .build()
+        .unwrap();
+    kernel.start(Instant(0));
+    tap(&mut kernel, 1000, 45, 45);
+    tap(&mut kernel, 1150, 45, 45);
+    assert_eq!(*log.borrow(), ["Tap", "Tap"]);
 }
 
 /// Two fingers tapped together run `tap2`; taps in a layer's own zone
@@ -182,7 +156,7 @@ fn two_fingers_and_own_zones() {
 /// actions it gets.
 struct Layered(Log);
 
-impl crate::Layer for Layered {
+impl crate::testing::Fake for Layered {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
@@ -205,7 +179,7 @@ impl crate::Layer for Layered {
 fn layer_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("lay.screen"),
             "layered",
             Box::new(move |_, _| Box::new(Layered(log.clone()))),
@@ -284,11 +258,11 @@ fn inputs_raised_and_layers_put_in_front() {
 /// it gets.
 struct Lock(Log);
 
-impl crate::Layer for Lock {
+impl crate::testing::Fake for Lock {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
-    fn guards(&self) -> bool {
-        true
+    fn flags(&self) -> u32 {
+        crate::testing::GUARDS
     }
 
     fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -300,7 +274,7 @@ impl crate::Layer for Lock {
 fn lock_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("lock.screen"),
             "lock",
             Box::new(move |_, _| Box::new(Lock(log.clone()))),
@@ -417,14 +391,10 @@ fn no_key_layer_is_laid_below_a_guard() {
     assert_eq!(kernel.stack[0].key_layer, None);
 }
 
-struct WayScreen(Log, paperpaw_sdk::lang::Direction);
+struct WayScreen(Log);
 
-impl crate::Layer for WayScreen {
+impl crate::testing::Fake for WayScreen {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-
-    fn direction(&self) -> paperpaw_sdk::lang::Direction {
-        self.1
-    }
 
     fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
         self.0.borrow_mut().push(alloc::format!("{action}"));
@@ -432,17 +402,14 @@ impl crate::Layer for WayScreen {
     }
 }
 
-/// A screen of direction `.1` bound to Home; it logs the actions it gets.
-fn way_plugin(
-    kept0: Log,
-    kept1: paperpaw_sdk::lang::Direction,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+/// A screen bound to Home; it logs the actions it gets.
+fn way_plugin(kept0: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        let (log, way) = (kept0.clone(), kept1);
-        r.add_layer(crate::LayerSpec::new(
+        let log = kept0.clone();
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("way.screen"),
             "way",
-            Box::new(move |_, _| Box::new(WayScreen(log.clone(), way))),
+            Box::new(move |_, _| Box::new(WayScreen(log.clone()))),
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("way.screen"), Priority(20))?;
         for action in ["way.left", "way.right"] {
@@ -461,10 +428,9 @@ fn way_plugin_manifest() -> Manifest {
         .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
-/// What a tap at the right and a swipe to the left run on a screen of
-/// direction `way`, in the interface of `language` (`ar` goes right to
-/// left).
-fn right_side(way: paperpaw_sdk::lang::Direction, language: &str) -> Vec<String> {
+/// What a tap at the right and a swipe to the left run on a screen in the
+/// interface of `language` (`ar` goes right to left).
+fn right_side(language: &str) -> Vec<String> {
     let log = log();
     let arabic =
         "[meta]\nlanguage = ar\nname = العربية\ndirection = rtl\n\n[messages]\nway.x = س\n";
@@ -472,7 +438,7 @@ fn right_side(way: paperpaw_sdk::lang::Direction, language: &str) -> Vec<String>
         .with("plugins/arabic/plugin.ini", "[plugin]\nname = Arabic\n")
         .with("plugins/arabic/i18n/ar.ini", arabic);
     let mut kernel = Kernel::builder(DEVICE)
-        .items(way_plugin_manifest(), way_plugin(log.clone(), way))
+        .items(way_plugin_manifest(), way_plugin(log.clone()))
         .storage(storage)
         .user_config(alloc::format!("[core]\nlanguage = {language}\n"))
         .build()
@@ -485,20 +451,12 @@ fn right_side(way: paperpaw_sdk::lang::Direction, language: &str) -> Vec<String>
     log.take()
 }
 
-/// Screens go as the interface does unless they have a way of their
-/// own: in Arabic, a tap at the right and a swipe to the left run what
-/// the left side binds; a screen that goes left to right (a book) keeps
-/// its sides, and one that goes right to left mirrors them anywhere.
+/// Screens go as the interface does: in Arabic, a tap at the right and a
+/// swipe to the left run what the left side binds.
 #[test]
-fn screens_follow_the_interfaces_direction_unless_they_have_their_own() {
-    use paperpaw_sdk::lang::Direction;
-    let ltr = ["way.right", "way.left"];
-    let rtl = ["way.left", "way.right"];
-    assert_eq!(right_side(Direction::Auto, "en"), ltr);
-    assert_eq!(right_side(Direction::Auto, "ar"), rtl);
-    assert_eq!(right_side(Direction::Ltr, "ar"), ltr);
-    assert_eq!(right_side(Direction::Rtl, "en"), rtl);
-    assert_eq!(right_side(Direction::Rtl, "ar"), rtl);
+fn screens_follow_the_interfaces_direction() {
+    assert_eq!(right_side("en"), ["way.right", "way.left"]);
+    assert_eq!(right_side("ar"), ["way.left", "way.right"]);
 }
 
 /// A pen above the screen (reserved) reaches no screen, and a tilted pen

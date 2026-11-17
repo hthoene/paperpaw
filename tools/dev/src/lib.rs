@@ -49,7 +49,6 @@ pub mod report;
 pub mod session;
 pub mod snapshot;
 pub mod target;
-pub mod ui_kit;
 pub mod variant;
 pub mod vary;
 pub mod visual;

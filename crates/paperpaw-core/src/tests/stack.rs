@@ -1,13 +1,12 @@
 //! The screen stack as plugins read and steer it:
 //! `Env::stack`, closing a screen of one's own, replacing, going back to
-//! a screen, slots chosen for the user, asking before closing, taps
-//! outside, input passed through, a screen's own row of hints, a screen
-//! opened again.
+//! a screen, slots chosen for the user, asking before closing, a screen's
+//! own row of hints, a screen opened again.
 
 use super::*;
 use crate::Items;
 use paperpaw_sdk::builtin::events;
-use paperpaw_sdk::{CloseCause, Commands, Gesture, HintVisibility, Instances, Outside, Params};
+use paperpaw_sdk::{CloseCause, Commands, Gesture, HintVisibility, Instances, Params};
 
 const SCREEN: Id = Id::new_static("s.screen");
 const HOME: Id = Id::new_static("s.home");
@@ -18,8 +17,7 @@ const MANY: Id = Id::new_static("s.many");
 const OPEN_T: Id = Id::new_static("s.open-t");
 
 /// A screen that does what its params say: `name` (logged), `overlay`
-/// (the lower half), `refuse` (to close), `outside` (`ignore`, `pass`),
-/// `pass` (input through), `hints` (`hidden`, `on-press`).
+/// (the lower half), `refuse` (to close), `hints` (`hidden`, `on-press`).
 struct Configured {
     log: Log,
     params: Params,
@@ -40,7 +38,7 @@ impl Configured {
     }
 }
 
-impl crate::Layer for Configured {
+impl crate::testing::Fake for Configured {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
@@ -54,7 +52,7 @@ impl crate::Layer for Configured {
             let slot = cx.slot().map_or("-", Id::as_str);
             let line = alloc::format!("is {} for {slot}", cx.screen_id().unwrap());
             self.note(&line);
-        } else if *action == actions::NEXT_PAGE && self.says("pass").is_none() {
+        } else if *action == actions::NEXT_PAGE {
             self.note(&alloc::format!("action {action}"));
         } else {
             return Handled::No;
@@ -65,18 +63,6 @@ impl crate::Layer for Configured {
     fn on_gesture(&mut self, gesture: Gesture, _: &mut Cx<'_, '_>) -> Handled {
         self.note(&alloc::format!("gesture {:?}", gesture.kind));
         Handled::Yes
-    }
-
-    fn outside(&self) -> Outside {
-        match self.says("outside") {
-            Some("ignore") => Outside::Ignore,
-            Some("pass") => Outside::PassThrough,
-            _ => Outside::Close,
-        }
-    }
-
-    fn passes_through(&self) -> bool {
-        self.says("pass").is_some()
     }
 
     fn hints(&self) -> Option<HintVisibility> {
@@ -119,8 +105,8 @@ fn stack_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             (MANY, false, Instances::MANY),
         ] {
             let log = kept.clone();
-            r.add_layer(
-                crate::LayerSpec::new(
+            r.add_fake(
+                crate::testing::FakeSpec::new(
                     id,
                     "screen",
                     Box::new(move |_, params| {
@@ -318,37 +304,6 @@ fn a_screen_may_keep_itself_open() {
     );
 }
 
-/// A tap outside an overlay closes it, is taken by it, or goes to the
-/// screen below, as it says; input it lets pass goes below it.
-#[test]
-fn overlays_say_what_a_tap_outside_and_input_they_leave_do() {
-    let log = log();
-    let mut kernel = stack_kernel(&log);
-    kernel.open_screen(
-        Instant(1),
-        SCREEN,
-        named("bar").with("overlay", "y").with("outside", "ignore"),
-    );
-    tap(&mut kernel, 100, 45, 10);
-    assert_eq!(names(&kernel), ["s.home", "s.screen (overlay)"]);
-    kernel.apply(Command::Replace(
-        SCREEN,
-        named("skim")
-            .with("overlay", "y")
-            .with("outside", "pass")
-            .with("pass", "y"),
-    ));
-    kernel.finish();
-    log.borrow_mut().clear();
-    tap(&mut kernel, 200, 45, 10);
-    kernel.run_action(Instant(300), actions::NEXT_PAGE);
-    assert_eq!(names(&kernel), ["s.home", "s.screen (overlay)"]);
-    assert_eq!(
-        *log.borrow(),
-        ["home gesture Tap", "home action core.next-page"]
-    );
-}
-
 /// A screen says itself that it has no row of hints: it is made for all
 /// of the screen, where its plugin said nothing.
 #[test]
@@ -382,7 +337,15 @@ fn a_screen_opened_again_is_gone_back_to() {
     assert_eq!(names(&kernel), ["s.home", "s.screen"]);
     assert_eq!(
         *log.borrow(),
-        ["u close", "t reopen t", "t show", "shown s.screen for -"]
+        // As a plugin's screen does: shown as it is opened again on top, and
+        // as the top screen.
+        [
+            "u close",
+            "t reopen t",
+            "t show",
+            "t show",
+            "shown s.screen for -"
+        ]
     );
     kernel.run_action(Instant(4), OPEN_T);
     kernel.run_action(Instant(5), OPEN_T);
@@ -419,7 +382,13 @@ fn screens_say_how_many_of_them_open() {
     assert_eq!(names(&kernel), ["s.home", "s.one"]);
     assert_eq!(
         *log.borrow(),
-        ["x close", "a reopen b", "b show", "shown s.one for -"]
+        [
+            "x close",
+            "a reopen b",
+            "b show",
+            "b show",
+            "shown s.one for -"
+        ]
     );
     kernel.run_action(Instant(4), actions::BACK);
     assert_eq!(names(&kernel), ["s.home"]);
@@ -444,7 +413,7 @@ fn a_screen_opened_again_waits_for_the_ones_above() {
 fn hidden_sleep_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
         const SLEEP: Id = Id::new_static("quiet.sleep");
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             SLEEP,
             "Sleep",
             Box::new(|_, _| {

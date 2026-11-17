@@ -9,7 +9,7 @@ use paperpaw_sdk::Params;
 /// Fills the notice slot as the interface-6 menu did.
 fn own_notice() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("on.notice"),
             "notice",
             Box::new(|_, _| Box::new(HalfOverlay)),

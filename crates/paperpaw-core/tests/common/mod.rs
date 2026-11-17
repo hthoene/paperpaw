@@ -187,7 +187,7 @@ fn driver_items(kept: Driver) -> impl Fn(&mut Items) -> Result<(), RegisterError
     move |r| {
         for (id, name) in [(BASE, "base"), (FULL, "full"), (OVERLAY, "overlay")] {
             let log = kept.log.clone();
-            r.add_layer(paperpaw_core::LayerSpec::new(
+            r.add_fake(paperpaw_core::testing::FakeSpec::new(
                 id,
                 "drv.screen",
                 Box::new(move |_, params| Box::new(LogScreen::new(name, log.clone(), params))),
@@ -284,7 +284,7 @@ fn parse_rect(text: &str) -> Option<Rect> {
     }
 }
 
-impl paperpaw_core::Layer for LogScreen {
+impl paperpaw_core::testing::Fake for LogScreen {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         let area = self.region.unwrap_or(SCREEN);
         // Overlays paint all of their region (see `Screen::draw`).
@@ -311,8 +311,8 @@ impl paperpaw_core::Layer for LogScreen {
         self.region
     }
 
-    fn dims_below(&self) -> bool {
-        self.dims
+    fn flags(&self) -> u32 {
+        u32::from(self.dims) * paperpaw_core::testing::DIMS_BELOW
     }
 
     fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {

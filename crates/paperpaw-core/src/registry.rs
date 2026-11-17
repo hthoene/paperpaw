@@ -30,7 +30,9 @@ struct SlotCandidate {
 /// and those kept in the program.
 #[derive(Default)]
 pub(crate) struct Screens {
+    /// Tests' screens (feature `testing`), with what makes each.
     titles: Vec<(Id, Cow<'static, str>)>,
+    #[cfg(any(test, feature = "testing"))]
     made: Vec<AddedMade>,
     native: Vec<paperpaw_sdk::Titled>,
     native_made: Vec<crate::native_host::native_screen_factory::NativeMade>,
@@ -43,16 +45,45 @@ pub(crate) struct Screens {
 /// One of the host's own screens (#293).
 pub(crate) type Fixed = &'static crate::host_screen::HostEntry;
 
+/// What makes a test's screen (`testing`).
+#[cfg(any(test, feature = "testing"))]
 pub(crate) struct AddedMade {
-    pub(crate) factory: crate::LayerFactory,
+    pub(crate) factory: crate::testing::FakeFactory,
+    pub(crate) flags: u32,
     pub(crate) refresh_on_open: Option<paperpaw_sdk::RefreshMode>,
     pub(crate) instances: paperpaw_sdk::Instances,
+}
+
+#[cfg(any(test, feature = "testing"))]
+impl AddedMade {
+    /// A native screen whose plugin is the test's screen made for `params`.
+    fn make(
+        &self,
+        id: &Id,
+        env: &paperpaw_sdk::Env<'_>,
+        params: &paperpaw_sdk::Params,
+    ) -> Result<crate::screen::Screen, i32> {
+        let fake = (self.factory)(env, params);
+        let flags = self.flags | fake.flags();
+        let fake = crate::testing::FakeInstance::new(fake);
+        let lease = crate::native_host::native_instances::NativeLease::try_new(fake)?;
+        let id = id
+            .try_clone()
+            .ok_or(paperpaw_native::host_glue::ERR_NO_MEMORY)?;
+        let screen =
+            crate::native_host::native_screen::NativeScreen::new(id, 0, lease).with_flags(flags);
+        Ok(crate::screen::Screen::Native(alloc::boxed::Box::new(
+            screen,
+        )))
+    }
 }
 
 /// What makes a screen of either kind.
 #[derive(Clone, Copy)]
 pub(crate) enum Maker<'a> {
-    Added(&'a AddedMade),
+    /// A test's screen, with its id.
+    #[cfg(any(test, feature = "testing"))]
+    Added(&'a Id, &'a AddedMade),
     /// With the screen's id, kept once, in the registry's titles.
     Native(
         &'a Id,
@@ -68,7 +99,8 @@ impl Maker<'_> {
         params: &paperpaw_sdk::Params,
     ) -> Result<crate::screen::Screen, i32> {
         match self {
-            Maker::Added(made) => Ok(crate::screen::Screen::Layer((made.factory)(env, params))),
+            #[cfg(any(test, feature = "testing"))]
+            Maker::Added(id, made) => made.make(id, env, params),
             Maker::Fixed(fixed) => Ok(crate::screen::Screen::Host(fixed.make(env, params))),
             Maker::Native(id, made) => made.make(id, params),
         }
@@ -92,22 +124,34 @@ impl Maker<'_> {
         env: &paperpaw_sdk::Env<'_>,
         params: &paperpaw_sdk::Params,
     ) {
-        match self {
-            Maker::Added(made) => {
-                *screen = crate::screen::Screen::Layer((made.factory)(env, params))
-            }
-            Maker::Fixed(fixed) => *screen = crate::screen::Screen::Host(fixed.make(env, params)),
-            Maker::Native(..) => {}
+        if let Maker::Fixed(fixed) = self {
+            *screen = crate::screen::Screen::Host(fixed.make(env, params));
         }
     }
 
+    /// A test's screen (`testing`): its draws count as drawn, as the host's
+    /// own do, with no plugin's callback to mark them.
+    pub(crate) fn is_fake(self) -> bool {
+        #[cfg(any(test, feature = "testing"))]
+        if let Maker::Added(..) = self {
+            return true;
+        }
+        false
+    }
+
     pub(crate) fn is_native(self) -> bool {
-        matches!(self, Maker::Native(..))
+        match self {
+            Maker::Native(..) => true,
+            #[cfg(any(test, feature = "testing"))]
+            Maker::Added(..) => true,
+            Maker::Fixed(_) => false,
+        }
     }
 
     pub(crate) fn refresh_on_open(self) -> Option<paperpaw_sdk::RefreshMode> {
         match self {
-            Maker::Added(made) => made.refresh_on_open,
+            #[cfg(any(test, feature = "testing"))]
+            Maker::Added(_, made) => made.refresh_on_open,
             Maker::Fixed(_) => None,
             Maker::Native(_, made) => made.refresh(),
         }
@@ -115,7 +159,8 @@ impl Maker<'_> {
 
     pub(crate) fn instances(self) -> paperpaw_sdk::Instances {
         match self {
-            Maker::Added(made) => made.instances,
+            #[cfg(any(test, feature = "testing"))]
+            Maker::Added(_, made) => made.instances,
             Maker::Fixed(_) => paperpaw_sdk::Instances::PER_PARAMS,
             Maker::Native(_, made) => made.instances(),
         }
@@ -153,8 +198,9 @@ impl Screens {
 
     pub(crate) fn get<Q: core::borrow::Borrow<str> + ?Sized>(&self, id: &Q) -> Option<Maker<'_>> {
         let id = id.borrow();
+        #[cfg(any(test, feature = "testing"))]
         if let Ok(at) = self.find(id) {
-            return Some(Maker::Added(&self.made[at]));
+            return Some(Maker::Added(&self.titles[at].0, &self.made[at]));
         }
         if let Ok(at) = self.find_native(id) {
             return Some(Maker::Native(self.native[at].id(), &self.native_made[at]));
@@ -197,6 +243,7 @@ impl Screens {
     fn forget(&mut self, id: &str) {
         if let Ok(at) = self.find(id) {
             self.titles.remove(at);
+            #[cfg(any(test, feature = "testing"))]
             self.made.remove(at);
         }
         if let Ok(at) = self.find_native(id) {
@@ -221,23 +268,33 @@ impl Screens {
         }
     }
 
-    /// Adds the layer `spec`, in place of a screen of its id.
-    fn insert_layer(&mut self, spec: crate::LayerSpec) {
-        let crate::LayerSpec {
+    /// No test's screen is added outside the feature `testing`.
+    #[cfg(not(any(test, feature = "testing")))]
+    fn insert_fake(&mut self, spec: crate::FakeSpec) {
+        match spec {}
+    }
+
+    /// Adds the test's screen `spec`, in place of a screen of its id.
+    #[cfg(any(test, feature = "testing"))]
+    fn insert_fake(&mut self, spec: crate::testing::FakeSpec) {
+        let crate::testing::FakeSpec {
             id,
             title,
             factory,
+            flags,
             refresh_on_open,
             instances,
         } = spec;
         let made = AddedMade {
             factory,
+            flags,
             refresh_on_open,
             instances,
         };
         self.insert_made(id, title, made);
     }
 
+    #[cfg(any(test, feature = "testing"))]
     fn insert_made(&mut self, id: Id, title: Cow<'static, str>, made: AddedMade) {
         if let Ok(at) = self.find_fixed(id.as_str()) {
             self.fixed.remove(at);
@@ -270,6 +327,7 @@ impl Screens {
         }
         if let Ok(at) = self.find(id) {
             self.titles.remove(at);
+            #[cfg(any(test, feature = "testing"))]
             self.made.remove(at);
         }
         match self.find_native(id) {
@@ -292,6 +350,7 @@ impl Screens {
         native: usize,
     ) -> Result<(), alloc::collections::TryReserveError> {
         self.titles.try_reserve(added)?;
+        #[cfg(any(test, feature = "testing"))]
         self.made.try_reserve(added)?;
         self.native.try_reserve(native)?;
         self.native_made.try_reserve(native)
@@ -304,6 +363,7 @@ impl Screens {
 
     fn shrink_to_fit(&mut self) {
         self.titles.shrink_to_fit();
+        #[cfg(any(test, feature = "testing"))]
         self.made.shrink_to_fit();
         self.native.shrink_to_fit();
         self.native_made.shrink_to_fit();
@@ -682,7 +742,8 @@ pub(crate) struct Staging {
     actions: Vec<ActionSpec>,
     /// Interface-7 plugins' actions, kept without a handler (#248).
     native_actions: Vec<paperpaw_sdk::NativeAction>,
-    layer_screens: Vec<crate::LayerSpec>,
+    /// Tests' screens (none outside the feature `testing`).
+    layer_screens: Vec<crate::FakeSpec>,
     native_screens: Vec<crate::native_host::native_screen_factory::NativeScreenSpec>,
     slots: Vec<SlotSpec>,
     candidates: Vec<SlotCandidate>,
@@ -725,7 +786,6 @@ pub(crate) struct Staging {
     pub(crate) presets: Vec<paperpaw_sdk::presets::Preset>,
     pub(crate) fixed_presets: Vec<&'static [paperpaw_sdk::presets::Preset]>,
     pub(crate) decorators: Vec<paperpaw_sdk::decorations::DecoratorSpec>,
-    pub(crate) chromes: Vec<crate::ChromeSpec>,
     /// Jobs: the steps of declared work (see [`paperpaw_sdk::work`]).
     pub(crate) works: Vec<crate::work::WorkSpec>,
     pub(crate) data_actions: Vec<DataAction>,
@@ -766,7 +826,7 @@ impl Staging {
             .native_screens
             .iter()
             .any(|other| other.titled.id() == id)
-            || self.layer_screens.iter().any(|other| &other.id == id)
+            || self.layer_screens.iter().any(|other| other.id() == id)
             || self.fixed_screens.iter().any(|other| other.id() == id)
         {
             return Err(paperpaw_native::host_glue::ERR_INVALID);
@@ -912,7 +972,7 @@ impl Staging {
             .or_else(|| {
                 self.layer_screens
                     .iter()
-                    .map(|s| &s.id)
+                    .map(crate::FakeSpec::id)
                     .chain(self.native_screens.iter().map(|s| s.titled.id()))
                     .chain(self.fixed_screens.iter().map(|s| s.id()))
                     .find(|id| registry.screens.contains_key(id.as_str()))
@@ -959,7 +1019,7 @@ impl Staging {
             actions.insert_native(action);
         }
         for screen in self.layer_screens.drain(..) {
-            registry.screens.insert_layer(screen);
+            registry.screens.insert_fake(screen);
         }
         for screen in self.native_screens.drain(..) {
             registry.screens.insert_native(screen);
@@ -990,14 +1050,12 @@ pub(crate) fn stage(
         contributions,
         kernel_screens,
         layers,
-        chromes,
         hears,
         works,
         data_actions,
     } = items.into_parts();
     staging.data_actions.extend(data_actions);
     staging.layer_screens.extend(layers);
-    staging.chromes.extend(chromes);
     staging
         .subscriptions
         .extend(hears.into_iter().map(|hear| (plugin.clone(), hear)));

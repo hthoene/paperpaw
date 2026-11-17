@@ -131,7 +131,6 @@ bluetooth = [
 [dependencies]
 paperpaw-text = { path = "../../crates/paperpaw-text", optional = true }
 paperpaw-app = { path = "../../crates/paperpaw-app", default-features = false, features = ["packs"] }
-# Without `panes`: no Xteink screen is ever wide enough for two.
 paperpaw-core = { path = "../../crates/paperpaw-core", default-features = false }
 paperpaw-sdk = { path = "../../crates/paperpaw-sdk", features = ["kernel"] }
 paperpaw-platform = { path = "../../crates/paperpaw-platform" }

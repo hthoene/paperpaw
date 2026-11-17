@@ -17,11 +17,11 @@ const READING: Id = Id::new_static("r.reading");
 /// A page that guards the device.
 struct Lock;
 
-impl crate::Layer for Lock {
+impl crate::testing::Fake for Lock {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
-    fn guards(&self) -> bool {
-        true
+    fn flags(&self) -> u32 {
+        crate::testing::GUARDS
     }
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
@@ -33,7 +33,7 @@ impl crate::Layer for Lock {
 /// mode of exactly (`r.exact`).
 struct Page;
 
-impl crate::Layer for Page {
+impl crate::testing::Fake for Page {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
@@ -58,21 +58,21 @@ impl crate::Layer for Page {
 
 fn refreshing_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             PAGE,
             "page",
             Box::new(|_, _| Box::new(Page)),
         ))?;
-        r.add_layer(
-            crate::LayerSpec::new(SHEET, "sheet", Box::new(|_, _| Box::new(Page)))
+        r.add_fake(
+            crate::testing::FakeSpec::new(SHEET, "sheet", Box::new(|_, _| Box::new(Page)))
                 .refresh_on_open(RefreshMode::Fast),
         )?;
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             LOCK,
             "lock",
             Box::new(|_, _| Box::new(Lock)),
         ))?;
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             READING,
             "reading",
             Box::new(|_, _| Box::new(Page)),
@@ -215,7 +215,7 @@ fn nothing_counts_what_is_typed_into_a_guard() {
 
 struct OverlayHomeScreen;
 
-impl crate::Layer for OverlayHomeScreen {
+impl crate::testing::Fake for OverlayHomeScreen {
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
         Some(Rect::new(0, 45, 90, 45))
     }
@@ -233,7 +233,7 @@ impl crate::Layer for OverlayHomeScreen {
 fn overlay_home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
         const HOME: Id = Id::new_static("initial.home");
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             HOME,
             "Home",
             Box::new(|_, _| Box::new(OverlayHomeScreen)),

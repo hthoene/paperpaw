@@ -533,11 +533,7 @@ impl Kernel {
             || *id == core_settings::UI_SIZE
             || (*id == core_settings::ROTATION && !self.shared.caps.rotation)
         {
-            let shown = self.shown_as_laid_out();
             self.apply_hint_height();
-            // A detail beside its list where the screen is wide at the
-            // new size, alone where it no longer is.
-            self.sync_panes(shown);
         }
         if *id == core_settings::LANGUAGE
             || *id == core_settings::NIGHT_MODE

@@ -351,8 +351,7 @@ impl Kernel {
             .map(|(s, own)| own.is_some() && s.screen.dims_below())
             .collect();
         let full = regions.iter().rposition(Option::is_none).unwrap_or(0);
-        // From the list where a detail shows beside it.
-        let (base, line) = (self.shown_base(), self.pane_line());
+        let base = self.full_base();
         // The overlays one above shows the full screen through: not
         // drawn, covering nothing (a menu left open under a picture over
         // the page).
@@ -363,10 +362,6 @@ impl Kernel {
         let mut canvas = self.framebuffer.canvas();
         let mut canvas = canvas.clipped(region);
         canvas.clear(Color::WHITE);
-        // Below the screens, which do not draw over it, and their overlays.
-        if let Some(line) = line.and_then(|line| line.intersection(&region)) {
-            canvas.fill(line, Color::BLACK);
-        }
         for (index, (active, own)) in self.stack[base..]
             .iter_mut()
             .zip(&regions[base..])
@@ -401,19 +396,6 @@ impl Kernel {
             if (at + 1..dims.len()).any(|k| dims[k] && !hidden[k]) {
                 canvas.wash(area);
             }
-        }
-        // The bars, each in its strip.
-        for &(index, strip) in &self.chrome_strips {
-            let chrome = &mut self.chromes[index];
-            let (Some(screen), Some(area)) = (chrome.screen.as_mut(), strip.intersection(&region))
-            else {
-                continue;
-            };
-            let device = env.device_within(strip);
-            let own_env = env.within(&device, strip);
-            let (x, y) = (i32::from(strip.x), i32::from(strip.y));
-            let _running = self.shared.meter.enter(chrome.spec.id.namespace());
-            screen.draw(&mut canvas.clipped(area).offset(x, y), &own_env);
         }
         if let Some(row) = row
             && let Some(area) = row.intersection(&region)
@@ -490,11 +472,8 @@ impl Kernel {
         let regions: Vec<Option<Rect>> = (0..self.stack.len()).map(|i| self.overlay(i)).collect();
         let row = self.hint_row();
         let env = self.shared.env(self.now);
-        let (base, line) = (self.shown_base(), self.pane_line());
+        let base = self.full_base();
         {
-            if let Some(line) = line {
-                canvas.fill(line, Color::BLACK);
-            }
             for (active, own) in self.stack[base..].iter_mut().zip(&regions[base..]) {
                 let area = own.unwrap_or(active.area);
                 let device = env.device_within(active.area);
@@ -505,14 +484,6 @@ impl Kernel {
                 active
                     .screen
                     .draw(&mut canvas.clipped(area).offset(x, y), &own_env);
-            }
-            for &(index, strip) in &self.chrome_strips {
-                if let Some(screen) = self.chromes[index].screen.as_mut() {
-                    let device = env.device_within(strip);
-                    let own_env = env.within(&device, strip);
-                    let (x, y) = (i32::from(strip.x), i32::from(strip.y));
-                    screen.draw(&mut canvas.clipped(strip).offset(x, y), &own_env);
-                }
             }
             if let Some(row) = row {
                 paperpaw_sdk::ui::draw_button_hints(
@@ -656,7 +627,6 @@ impl Kernel {
                 None => height,
             };
             let look = Look::of(&self.framebuffer);
-            let shown = self.shown_base();
             let before = self.framebuffer.rows();
             // The old frame goes first, the new one taking its place: beside
             // it, it would split the largest free block where memory is
@@ -669,7 +639,7 @@ impl Kernel {
                 self.shared.device.display.width = width;
                 self.shared.device.display.height = height;
                 self.hint.height = self.wanted_hint_height();
-                self.remake_screens(shown);
+                self.remake_screens();
                 self.renew_memory_notice();
                 self.display_changed();
             } else {

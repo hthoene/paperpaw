@@ -8,12 +8,12 @@ use paperpaw_core::Items;
 use paperpaw_sdk::builtin::{events, groups, menus, params};
 use paperpaw_sdk::document::Document;
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, FormatSpec, Handled, Id, Manifest, MenuEntry, MenuNeed,
-    Rect, RegisterError, SettingSpec, Version,
+    ActionSpec, Command, FormatSpec, Id, Manifest, MenuEntry, MenuNeed, RegisterError, SettingSpec,
+    Version,
 };
 
 use crate::lights::Lights;
-use paperpaw_sdk::setting::{Setting, Text};
+use paperpaw_sdk::setting::Setting;
 
 pub const PLUGIN: Id = Id::new_static("android");
 /// Asks for access to the shared storage, where the books are.
@@ -21,10 +21,7 @@ pub const ALLOW_STORAGE: Id = Id::new_static("android.allow-storage");
 /// PDF books, rendered by the system (see `pdf`).
 pub const PDF: Id = Id::new_static("android.pdf");
 /// The voice that reads aloud: opens the system's speech settings.
-pub const VOICE: Setting<Text> = Setting::new("android.voice");
-const VOICE_SCREEN: Id = Id::new_static("android.voice-screen");
-/// The settings for reading aloud, every reader's.
-const ALOUD_SECTION: &str = paperpaw_sdk::builtin::group_sections::ALOUD;
+pub const VOICE: Id = Id::new_static("android.voice");
 /// Frontlight brightness (0 switches it off).
 pub const FRONTLIGHT: Setting<i64> = Setting::new("android.frontlight");
 /// Frontlight colour temperature (higher is warmer).
@@ -127,55 +124,25 @@ impl AndroidPlugin {
     }
 }
 
-/// Opens the system's speech settings and closes at once: the editor of
-/// [`VOICE`].
-struct VoiceSettings {
-    app: AndroidApp,
-}
-
-impl paperpaw_core::Layer for VoiceSettings {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
-        Some(Rect::new(0, 0, 0, 0))
-    }
-
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
-        if !crate::speech::open_settings(&self.app) {
-            let text = cx.env().i18n().tr("android.voice.unavailable").to_string();
-            cx.command(Command::Notify(text));
-        }
-        cx.command(Command::Back);
-    }
-
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
-        Handled::No
-    }
-}
-
-/// The voice's part and editor: the system's speech settings.
-static VOICE_EXTRA: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new()
-    .section(ALOUD_SECTION)
-    .editor(VOICE_SCREEN);
 /// Set with a slider.
 static SLIDER: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new().slider();
 
 impl AndroidPlugin {
-    /// The voice for reading aloud, with its other settings; it is
-    /// chosen in the system's speech settings.
+    /// The voice for reading aloud: chosen in the system's speech settings,
+    /// which the action opens from the reader's *More* menu.
     fn register_voice(&self, r: &mut Items) -> Result<(), RegisterError> {
-        r.add_setting(
-            SettingSpec::text(VOICE.static_str(), "android.voice", "", groups::READING)
-                .with_extra(&VOICE_EXTRA)
-                .description("android.voice.help"),
-        )?;
-        r.set_menu_need(VOICE, MenuNeed::Speech)?;
-        let app = self.app.clone();
-        r.add_layer(paperpaw_core::LayerSpec::new(
-            VOICE_SCREEN,
-            "android.voice",
-            Box::new(move |_, _| Box::new(VoiceSettings { app: app.clone() })),
-        ))
+        let voice = ActionSpec::new(VOICE, "android.voice").describe("android.voice.help");
+        r.add_action(voice.handler(|env, _, out| {
+            let Some(app) = platform_app() else {
+                return;
+            };
+            if !crate::speech::open_settings(&app) {
+                let text = env.i18n().tr("android.voice.unavailable").to_string();
+                out.push(Command::Notify(text));
+            }
+        }))?;
+        r.add_menu_entry(MenuEntry::new(menus::READER_MORE, VOICE))?;
+        r.set_menu_need(VOICE, MenuNeed::Speech)
     }
 
     /// Brightness and warmth as settings, also in the reader's panel and

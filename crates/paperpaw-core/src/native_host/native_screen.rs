@@ -1,6 +1,5 @@
 //! Host screen routing for one native declaration token.
 use super::registrations::{self as wire, Record};
-use crate::Layer;
 use crate::native_host::codec;
 use crate::native_host::ui_store::Info;
 #[cfg(test)]
@@ -42,19 +41,21 @@ pub(crate) trait Dispatch {
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32>;
     /// Screen wrappers supply their own key, never a plugin-provided value.
+    /// The call's context `cx` is the kernel's: a plugin's commands come
+    /// through its own stage, a test's screen may queue them there.
     fn screen_callback(
         &self,
         instance: Option<ScreenKey>,
         token: u32,
         bytes: &[u8],
-        env: &Env<'_>,
+        cx: &mut Cx<'_, '_>,
         input: bool,
     ) -> Result<i32, i32> {
         let _ = instance;
         if input {
-            self.input(token, bytes, env)
+            self.input(token, bytes, cx.env())
         } else {
-            self.event(token, bytes, env)
+            self.event(token, bytes, cx.env())
         }
     }
     fn screen_draw(
@@ -86,6 +87,14 @@ pub(crate) trait Dispatch {
         None
     }
     fn dropped(&self, token: u32, status: i32);
+    /// A test's screen (`testing`): what it answers of the host screens'
+    /// items, which no plugin's screen has (a part of the screen of its own,
+    /// a time, its hints, a close it keeps from).
+    #[cfg(any(test, feature = "testing"))]
+    fn test_screen(&self, visit: &mut dyn FnMut(&dyn crate::testing::TestScreen)) -> bool {
+        let _ = visit;
+        false
+    }
 }
 
 #[cfg(test)]
@@ -113,10 +122,10 @@ impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
         instance: Option<ScreenKey>,
         token: u32,
         bytes: &[u8],
-        env: &Env<'_>,
+        cx: &mut Cx<'_, '_>,
         input: bool,
     ) -> Result<i32, i32> {
-        (**self).screen_callback(instance, token, bytes, env, input)
+        (**self).screen_callback(instance, token, bytes, cx, input)
     }
     fn screen_draw(
         &self,
@@ -136,6 +145,10 @@ impl<T: Dispatch + ?Sized> Dispatch for Rc<T> {
     }
     fn dropped(&self, token: u32, status: i32) {
         (**self).dropped(token, status);
+    }
+    #[cfg(any(test, feature = "testing"))]
+    fn test_screen(&self, visit: &mut dyn FnMut(&dyn crate::testing::TestScreen)) -> bool {
+        (**self).test_screen(visit)
     }
 }
 
@@ -163,10 +176,10 @@ impl<T: Dispatch> Dispatch for super::shared::Shared<T> {
         instance: Option<ScreenKey>,
         token: u32,
         bytes: &[u8],
-        env: &Env<'_>,
+        cx: &mut Cx<'_, '_>,
         input: bool,
     ) -> Result<i32, i32> {
-        (**self).screen_callback(instance, token, bytes, env, input)
+        (**self).screen_callback(instance, token, bytes, cx, input)
     }
     fn screen_draw(
         &self,
@@ -186,6 +199,10 @@ impl<T: Dispatch> Dispatch for super::shared::Shared<T> {
     }
     fn dropped(&self, token: u32, status: i32) {
         (**self).dropped(token, status);
+    }
+    #[cfg(any(test, feature = "testing"))]
+    fn test_screen(&self, visit: &mut dyn FnMut(&dyn crate::testing::TestScreen)) -> bool {
+        (**self).test_screen(visit)
     }
 }
 
@@ -250,7 +267,8 @@ impl<D: Dispatch> NativeScreen<D> {
         self
     }
 
-    fn shown(&self, env: &Env<'_>) -> bool {
+    fn shown(&self, cx: &mut Cx<'_, '_>) -> bool {
+        let env = cx.env();
         let pane = env.content();
         let record = Record::EventScreenShown(wire::EventScreenShown {
             now_ms: env.now().millis(),
@@ -268,12 +286,13 @@ impl<D: Dispatch> NativeScreen<D> {
         let mut bytes = [0; 192];
         let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {
             self.dispatch
-                .screen_callback(self.key, self.token, &bytes[..len], env, false)
+                .screen_callback(self.key, self.token, &bytes[..len], cx, false)
         });
         self.status(result)
     }
 
-    fn opened(&self, again: bool, info: Info, env: &Env<'_>) {
+    fn opened(&self, again: bool, info: Info, cx: &mut Cx<'_, '_>) {
+        let env = cx.env();
         let Some(key) = self.key else {
             return;
         };
@@ -294,15 +313,15 @@ impl<D: Dispatch> NativeScreen<D> {
                 params: info.params,
                 text_bytes: info.text_bytes,
             }),
-            env,
+            cx,
         );
     }
 
-    fn event(&self, record: Record<'_>, env: &Env<'_>) {
+    fn event(&self, record: Record<'_>, cx: &mut Cx<'_, '_>) {
         let mut bytes = [0; 384];
         let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {
             self.dispatch
-                .screen_callback(self.key, self.token, &bytes[..len], env, false)
+                .screen_callback(self.key, self.token, &bytes[..len], cx, false)
         });
         self.status(result);
     }
@@ -315,7 +334,7 @@ impl<D: Dispatch> NativeScreen<D> {
     /// frames are short), as large as one chunk needs, fallibly reserved
     /// (a refusal drops the screen's token) and wiped before it is freed (the
     /// text may be a password).
-    fn typed(&self, text: &str, done: bool, env: &Env<'_>) {
+    fn typed(&self, text: &str, done: bool, cx: &mut Cx<'_, '_>) {
         const MAX: usize = wire::EVENT_TEXT_TYPED_TEXT_MAX_BYTES;
         // Tag, length and fixed fields around the text.
         const FRAME: usize = 64;
@@ -329,11 +348,11 @@ impl<D: Dispatch> NativeScreen<D> {
             return;
         }
         bytes.resize(size, 0);
-        self.typed_chunks(text, done, env, &mut bytes);
+        self.typed_chunks(text, done, cx, &mut bytes);
         crate::native_host::secret_bytes::wipe(&mut bytes);
     }
 
-    fn typed_chunks(&self, text: &str, done: bool, env: &Env<'_>, bytes: &mut [u8]) {
+    fn typed_chunks(&self, text: &str, done: bool, cx: &mut Cx<'_, '_>, bytes: &mut [u8]) {
         const MAX: usize = wire::EVENT_TEXT_TYPED_TEXT_MAX_BYTES;
         let mut rest = text;
         loop {
@@ -346,13 +365,13 @@ impl<D: Dispatch> NativeScreen<D> {
                 return;
             }
             let record = Record::EventTextTyped(wire::EventTextTyped {
-                now_ms: env.now().millis(),
+                now_ms: cx.env().now().millis(),
                 text: chunk,
                 flags: u32::from(done && tail.is_empty()),
             });
             let result = codec::encode_batch(&[record], bytes).and_then(|len| {
                 self.dispatch
-                    .screen_callback(self.key, self.token, &bytes[..len], env, false)
+                    .screen_callback(self.key, self.token, &bytes[..len], cx, false)
             });
             if !self.status(result) || tail.is_empty() {
                 return;
@@ -376,11 +395,11 @@ impl<D: Dispatch> NativeScreen<D> {
         self.key.is_some() && self.key == cx.key() && cx.is_on_top()
     }
 
-    fn input(&self, record: Record<'_>, env: &Env<'_>) -> Handled {
+    fn input(&self, record: Record<'_>, cx: &mut Cx<'_, '_>) -> Handled {
         let mut bytes = [0; 192];
         let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {
             self.dispatch
-                .screen_callback(self.key, self.token, &bytes[..len], env, true)
+                .screen_callback(self.key, self.token, &bytes[..len], cx, true)
         });
         match result {
             Ok(0) => Handled::No,
@@ -451,35 +470,89 @@ impl<D: Dispatch> NativeScreen<D> {
     }
 }
 
-impl<D: Dispatch> crate::Layer for NativeScreen<D> {
-    fn guards(&self) -> bool {
+/// What the kernel asks of a screen on its stack (`screen::Screen`).
+impl<D: Dispatch> NativeScreen<D> {
+    /// A test's screen's time came (`testing`); a plugin's screen keeps its
+    /// own times.
+    pub(crate) fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+        #[cfg(any(test, feature = "testing"))]
+        self.dispatch.test_screen(&mut |t| t.on_timer(cx));
+        let _ = cx;
+    }
+
+    /// The hint a test's screen gives `action` (`testing`).
+    pub(crate) fn hint(&self, action: &Id) -> paperpaw_sdk::Hint {
+        #[cfg(any(test, feature = "testing"))]
+        {
+            let mut hint = None;
+            self.dispatch.test_screen(&mut |t| hint = t.hint(action));
+            if let Some(hint) = hint {
+                return hint;
+            }
+        }
+        let _ = action;
+        paperpaw_sdk::Hint::Default
+    }
+
+    /// A test's screen keeps from being closed (`testing`).
+    pub(crate) fn on_close_request(
+        &mut self,
+        why: paperpaw_sdk::CloseCause,
+        cx: &mut Cx<'_, '_>,
+    ) -> Handled {
+        let mut handled = Handled::No;
+        #[cfg(any(test, feature = "testing"))]
+        self.dispatch
+            .test_screen(&mut |t| handled = t.on_close_request(why, cx));
+        #[cfg(not(any(test, feature = "testing")))]
+        let _ = (why, cx, &mut handled);
+        handled
+    }
+
+    pub(crate) fn guards(&self) -> bool {
         self.flags & (1 << 1) != 0
     }
-    fn secret(&self) -> bool {
+    pub(crate) fn secret(&self) -> bool {
         self.guards() || self.flags & (1 << 4) != 0
     }
-    fn holds_edges(&self) -> bool {
+    pub(crate) fn holds_edges(&self) -> bool {
         self.flags & (1 << 5) != 0
     }
-    fn hints(&self) -> Option<paperpaw_sdk::HintVisibility> {
+    pub(crate) fn hints(&self) -> Option<paperpaw_sdk::HintVisibility> {
+        #[cfg(any(test, feature = "testing"))]
+        {
+            let mut hints = None;
+            self.dispatch.test_screen(&mut |t| hints = t.hints());
+            if hints.is_some() {
+                return hints;
+            }
+        }
         // Declared hidden (`screen.spec.flags` bit 8); else as its plugin said.
         (self.flags & super::declarations::SCREEN_HINTS_HIDDEN != 0)
             .then_some(paperpaw_sdk::HintVisibility::Hidden)
     }
-    fn grays(&self) -> bool {
+    pub(crate) fn grays(&self) -> bool {
         // Declared (`screen.spec.flags` bit 9); the run-time policy of
         // `ActiveScreen::grays` takes the place of it once one is set.
         self.flags & super::declarations::SCREEN_GRAYS != 0
     }
-    fn dims_below(&self) -> bool {
+    pub(crate) fn dims_below(&self) -> bool {
         // Declared (`screen.spec.flags` bit 10); only an overlay has a below.
         self.flags & super::declarations::SCREEN_DIMS_BELOW != 0
     }
-    fn region(&self, env: &Env<'_>) -> Option<Rect> {
+    pub(crate) fn region(&self, env: &Env<'_>) -> Option<Rect> {
+        #[cfg(any(test, feature = "testing"))]
+        {
+            let mut region = None;
+            self.dispatch.test_screen(&mut |t| region = t.region(env));
+            if region.is_some() {
+                return region;
+            }
+        }
         (self.flags & (1 << 2) != 0)
             .then(|| Rect::new(0, 0, env.content().width, env.content().height))
     }
-    fn shows_through(&self) -> paperpaw_sdk::ShowsThrough {
+    pub(crate) fn shows_through(&self) -> paperpaw_sdk::ShowsThrough {
         if self.flags & (1 << 2) != 0 {
             paperpaw_sdk::ShowsThrough::All
         } else {
@@ -487,7 +560,7 @@ impl<D: Dispatch> crate::Layer for NativeScreen<D> {
         }
     }
 
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+    pub(crate) fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         // Only the top screen has input, but one below overlays only is drawn as if
         // it were on top, the overlays after it (`ui.md` 1.2, bit 2 `overlay`): the
         // page under a menu or a dialog shows. Instance keys are compared, since
@@ -497,7 +570,7 @@ impl<D: Dispatch> crate::Layer for NativeScreen<D> {
         }
     }
 
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    pub(crate) fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
         self.key = cx.key();
         if !self.opened && self.key.is_some() {
             self.opened = true;
@@ -505,18 +578,18 @@ impl<D: Dispatch> crate::Layer for NativeScreen<D> {
                 params: self.params_count,
                 ..Info::NONE
             };
-            self.opened(false, info, cx.env());
+            self.opened(false, info, cx);
         }
-        self.shown(cx.env());
+        self.shown(cx);
     }
 
-    fn on_resize(&mut self, cx: &mut Cx<'_, '_>) -> Handled {
-        self.shown(cx.env());
+    pub(crate) fn on_resize(&mut self, cx: &mut Cx<'_, '_>) -> Handled {
+        self.shown(cx);
         // The host owns the viewport; native instances are never remade for size.
         Handled::Yes
     }
 
-    fn on_reopen(&mut self, params: &paperpaw_sdk::Params, cx: &mut Cx<'_, '_>) {
+    pub(crate) fn on_reopen(&mut self, params: &paperpaw_sdk::Params, cx: &mut Cx<'_, '_>) {
         let Ok(count) = u32::try_from(params.iter().count()) else {
             self.dispatch.dropped(self.token, ERR_INVALID);
             return;
@@ -530,13 +603,18 @@ impl<D: Dispatch> crate::Layer for NativeScreen<D> {
         let again = self.opened;
         self.key = cx.key();
         self.opened = self.key.is_some();
-        self.opened(again, info, cx.env());
+        self.opened(again, info, cx);
+        // A test's screen hears the params it is opened again with.
+        #[cfg(any(test, feature = "testing"))]
+        if again {
+            self.dispatch.test_screen(&mut |t| t.on_reopen(params, cx));
+        }
         if again && self.is_top(cx) {
-            self.shown(cx.env());
+            self.shown(cx);
         }
     }
 
-    fn on_close(&mut self, cx: &mut Cx<'_, '_>) {
+    pub(crate) fn on_close(&mut self, cx: &mut Cx<'_, '_>) {
         if self.opened {
             self.opened = false;
             if let Some(key) = self.key {
@@ -546,7 +624,7 @@ impl<D: Dispatch> crate::Layer for NativeScreen<D> {
                         screen: self.id.as_str(),
                         instance: key.serial(),
                     }),
-                    cx.env(),
+                    cx,
                 );
             }
         }
@@ -556,7 +634,19 @@ impl<D: Dispatch> crate::Layer for NativeScreen<D> {
     /// goes only to this screen on top when it is the one offered on slot
     /// `core.keyboard`; no other event is passed on (`screens-input.md`
     /// section 2).
-    fn on_event(&mut self, event: &Id, params: &paperpaw_sdk::Params, cx: &mut Cx<'_, '_>) {
+    pub(crate) fn on_event(
+        &mut self,
+        event: &Id,
+        params: &paperpaw_sdk::Params,
+        cx: &mut Cx<'_, '_>,
+    ) {
+        #[cfg(any(test, feature = "testing"))]
+        if self
+            .dispatch
+            .test_screen(&mut |t| t.on_event(event, params, cx))
+        {
+            return;
+        }
         if *event != events::TYPE_TEXT
             || !self.is_top(cx)
             || cx.env().slot_screen(slots::KEYBOARD.as_str()) != Some(&self.id)
@@ -566,10 +656,10 @@ impl<D: Dispatch> crate::Layer for NativeScreen<D> {
         let Some(typed) = events::TypeText::from_params(params) else {
             return;
         };
-        self.typed(&typed.text, typed.done.unwrap_or(false), cx.env());
+        self.typed(&typed.text, typed.done.unwrap_or(false), cx);
     }
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(crate) fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
         if !self.is_top(cx) {
             return Handled::No;
         }
@@ -578,15 +668,23 @@ impl<D: Dispatch> crate::Layer for NativeScreen<D> {
                 now_ms: cx.env().now().millis(),
                 action: action.as_str(),
             }),
-            cx.env(),
+            cx,
         )
     }
 
-    fn mode(&self) -> realtime::ScreenMode {
+    pub(crate) fn mode(&self) -> realtime::ScreenMode {
+        #[cfg(any(test, feature = "testing"))]
+        {
+            let mut mode = None;
+            self.dispatch.test_screen(&mut |t| mode = t.mode());
+            if let Some(mode) = mode {
+                return mode;
+            }
+        }
         realtime::ScreenMode::new().raw_keys()
     }
 
-    fn on_key(&mut self, key: &realtime::KeyEvent, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(crate) fn on_key(&mut self, key: &realtime::KeyEvent, cx: &mut Cx<'_, '_>) -> Handled {
         if !self.is_top(cx) || key.name() == buttons::POWER {
             return Handled::No;
         }
@@ -596,11 +694,11 @@ impl<D: Dispatch> crate::Layer for NativeScreen<D> {
                 key: key.name(),
                 state: u32::from(!key.is_press()),
             }),
-            cx.env(),
+            cx,
         )
     }
 
-    fn on_pointer(&mut self, event: &PointerEvent, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(crate) fn on_pointer(&mut self, event: &PointerEvent, cx: &mut Cx<'_, '_>) -> Handled {
         if !self.is_top(cx) {
             return Handled::No;
         }
@@ -620,11 +718,11 @@ impl<D: Dispatch> crate::Layer for NativeScreen<D> {
                 // Tells simultaneous contacts apart (interface 6 `PointerEvent::id`).
                 contact: Some(u32::from(event.id)),
             }),
-            cx.env(),
+            cx,
         )
     }
 
-    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
+    pub(crate) fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
         if !self.is_top(cx) {
             return Handled::No;
         }
@@ -647,7 +745,7 @@ impl<D: Dispatch> crate::Layer for NativeScreen<D> {
                 x: gesture.end.x,
                 y: gesture.end.y,
             }),
-            cx.env(),
+            cx,
         )
     }
 }

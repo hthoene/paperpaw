@@ -180,7 +180,7 @@ pub fn test_keyboard(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::Ke
     .description("Types what the test says.")
     .uses(paperpaw_sdk::Uses::NOTHING);
     builder.items(manifest, |items| {
-        items.add_layer(paperpaw_core::LayerSpec::new(
+        items.add_fake(paperpaw_core::testing::FakeSpec::new(
             KEYBOARD_SCREEN,
             "test-keyboard",
             Box::new(|_, params| {
@@ -222,7 +222,7 @@ struct Keyboard {
     params: Params,
 }
 
-impl paperpaw_core::Layer for Keyboard {
+impl paperpaw_core::testing::Fake for Keyboard {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -260,7 +260,7 @@ fn test_closer(r: &mut Items) -> Result<(), RegisterError> {
     r.add_action(
         ActionSpec::new(Id::new_static("test-closer.go"), "test-closer").handler(|_, _, _| {}),
     )?;
-    r.add_layer(paperpaw_core::LayerSpec::new(
+    r.add_fake(paperpaw_core::testing::FakeSpec::new(
         CLOSER_SCREEN,
         "test-closer",
         Box::new(|_, _| Box::new(crate::return_set::Closer)),

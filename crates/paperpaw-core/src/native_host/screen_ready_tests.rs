@@ -70,40 +70,32 @@ impl Dispatch for Probe {
 }
 
 struct Plain;
-impl crate::Layer for Plain {
+impl crate::testing::Fake for Plain {
     fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> Handled {
         Handled::No
     }
 }
 
-/// An overlay that covers all of the content: what lies below is not drawn.
+/// A full screen over another: what lies below is not drawn.
 struct Cover;
-impl crate::Layer for Cover {
+impl crate::testing::Fake for Cover {
     fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> Handled {
         Handled::No
-    }
-    fn region(&self, env: &paperpaw_sdk::Env<'_>) -> Option<paperpaw_platform::Rect> {
-        Some(paperpaw_platform::Rect::new(
-            0,
-            0,
-            env.content().width,
-            env.content().height,
-        ))
     }
 }
 
 fn screens() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
         for name in ["s.one", "s.two"] {
-            r.add_layer(crate::LayerSpec::new(
+            r.add_fake(crate::testing::FakeSpec::new(
                 Id::try_parse(name).unwrap(),
                 "screen",
                 Box::new(|_, _| Box::new(Plain)),
             ))?;
         }
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::try_parse("s.cover").unwrap(),
             "screen",
             Box::new(|_, _| Box::new(Cover)),
@@ -211,7 +203,7 @@ fn a_screen_fully_covered_when_drawn_is_told_only_once_it_is_shown() {
     let one = open(&mut kernel, "s.one");
     let cover = open(&mut kernel, "s.cover");
     draw(&mut kernel);
-    // The overlay was drawn; what it covers was not, so it is not ready yet.
+    // The cover was drawn; what it covers was not, so it is not ready yet.
     assert!(
         told.borrow()
             .iter()

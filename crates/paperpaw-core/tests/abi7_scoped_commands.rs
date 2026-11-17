@@ -486,7 +486,7 @@ fn staged_set_setting_is_read_back_in_the_next_callback() {
 }
 
 struct EmptyEditor;
-impl paperpaw_core::Layer for EmptyEditor {
+impl paperpaw_core::testing::Fake for EmptyEditor {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
         paperpaw_sdk::Handled::No
@@ -514,7 +514,7 @@ fn guarded_writer(kept: GuardedWriter) -> impl Fn(&mut Items) -> Result<(), Regi
         let owner = kept.manifest().id;
         if kept.editor {
             let screen = Id::new_static("editor.settings");
-            r.add_layer(paperpaw_core::LayerSpec::new(
+            r.add_fake(paperpaw_core::testing::FakeSpec::new(
                 screen.clone(),
                 "Editor",
                 Box::new(|_, _| Box::new(EmptyEditor)),

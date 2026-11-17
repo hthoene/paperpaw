@@ -20,7 +20,7 @@ pub(crate) const DIALOG: Id = Id::new_static("q.dialog");
 
 struct Dialog;
 
-impl crate::Layer for Dialog {
+impl crate::testing::Fake for Dialog {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
@@ -36,7 +36,7 @@ pub(crate) fn serves_manifest() -> Manifest {
 /// The stand-in dialog on both slots.
 pub(crate) fn serves() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             DIALOG,
             "q.dialog",
             Box::new(|_, _| Box::new(Dialog)),

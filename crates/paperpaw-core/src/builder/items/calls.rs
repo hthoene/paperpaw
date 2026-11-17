@@ -34,12 +34,10 @@ use paperpaw_sdk::Contribution;
 pub struct Items {
     plugin: Id,
     contributions: Vec<Contribution>,
-    /// Screens kept in the program that the kernel makes as layers.
+    /// The host's own screens.
     kernel_screens: Vec<&'static [crate::host_screen::HostEntry]>,
-    /// Screens added as layers.
-    layers: Vec<crate::LayerSpec>,
-    /// Bars along an edge.
-    chromes: Vec<crate::ChromeSpec>,
+    /// Tests' screens (feature `testing`).
+    layers: Vec<crate::FakeSpec>,
     /// Handlers of events.
     hears: Vec<crate::registry::Subscribed>,
     /// Jobs: the steps of declared work.
@@ -52,8 +50,7 @@ pub struct Items {
 pub(crate) struct Parts {
     pub(crate) contributions: Vec<Contribution>,
     pub(crate) kernel_screens: Vec<&'static [crate::host_screen::HostEntry]>,
-    pub(crate) layers: Vec<crate::LayerSpec>,
-    pub(crate) chromes: Vec<crate::ChromeSpec>,
+    pub(crate) layers: Vec<crate::FakeSpec>,
     pub(crate) hears: Vec<crate::registry::Subscribed>,
     pub(crate) works: Vec<crate::work::WorkSpec>,
     pub(crate) data_actions: Vec<crate::registry::DataAction>,
@@ -68,7 +65,6 @@ impl Items {
             contributions: Vec::new(),
             kernel_screens: Vec::new(),
             layers: Vec::new(),
-            chromes: Vec::new(),
             hears: Vec::new(),
             works: Vec::new(),
             data_actions: Vec::new(),
@@ -91,14 +87,12 @@ impl Items {
     }
 
     /// What was added, the host's own screens
-    /// ([`add_host_screens`](Self::add_host_screens)) and those added as
-    /// layers ([`add_layer`](Self::add_layer)).
+    /// ([`add_host_screens`](Self::add_host_screens)) and tests' screens.
     pub(crate) fn into_parts(self) -> Parts {
         Parts {
             contributions: self.contributions,
             kernel_screens: self.kernel_screens,
             layers: self.layers,
-            chromes: self.chromes,
             hears: self.hears,
             works: self.works,
             data_actions: self.data_actions,
@@ -171,9 +165,11 @@ impl Items {
         Ok(())
     }
 
-    /// Adds a screen the kernel makes as a layer.
-    pub fn add_layer(&mut self, screen: crate::LayerSpec) -> Result<(), RegisterError> {
-        self.check_screens(core::iter::once(&screen.id))?;
+    /// Adds a test's screen, a native screen whose plugin is the test (see
+    /// [`testing`](crate::testing)).
+    #[cfg(any(test, feature = "testing"))]
+    pub fn add_fake(&mut self, screen: crate::testing::FakeSpec) -> Result<(), RegisterError> {
+        self.check_screens(core::iter::once(screen.id()))?;
         self.layers.push(screen);
         Ok(())
     }
@@ -187,7 +183,7 @@ impl Items {
             self.kernel_screens
                 .iter()
                 .any(|list| list.iter().any(|s| s.id() == id))
-                || self.layers.iter().any(|s| s.id == *id)
+                || self.layers.iter().any(|s| s.id() == id)
         };
         for (n, id) in ids.clone().enumerate() {
             if !id.is_owned_by(&self.plugin) {
@@ -588,20 +584,6 @@ impl Items {
         decorator: paperpaw_sdk::decorations::DecoratorSpec,
     ) -> Result<(), RegisterError> {
         self.add_checked(Contribution::Decorator(Box::new(decorator)))
-    }
-
-    /// Adds a bar that stays along an edge of the screen across the
-    /// screens shown: tabs, a dock (see [`ChromeSpec`](crate::ChromeSpec)).
-    pub fn add_chrome(&mut self, chrome: crate::ChromeSpec) -> Result<(), RegisterError> {
-        let id = &chrome.id;
-        if !id.is_owned_by(&self.plugin) {
-            return Err(RegisterError::Namespace { id: id.clone() });
-        }
-        if self.chromes.iter().any(|c| c.id == *id) {
-            return Err(RegisterError::Duplicate { id: id.clone() });
-        }
-        self.chromes.push(chrome);
-        Ok(())
     }
 
     /// Adds a job: the steps of the work declared with its id (see

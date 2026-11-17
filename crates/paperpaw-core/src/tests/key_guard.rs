@@ -16,11 +16,11 @@ struct Lock {
     locked: Rc<Cell<bool>>,
 }
 
-impl crate::Layer for Lock {
+impl crate::testing::Fake for Lock {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
-    fn guards(&self) -> bool {
-        self.locked.get()
+    fn flags(&self) -> u32 {
+        u32::from(self.locked.get()) * crate::testing::GUARDS
     }
 
     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
@@ -41,7 +41,7 @@ struct GuardPlugin {
 fn guard_plugin(kept: GuardPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let locked = kept.locked.clone();
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             LOCK,
             "lock",
             Box::new(move |_, _| {
@@ -193,6 +193,9 @@ fn when_the_guard_ends_the_other_binding_runs_again() {
     press(&mut kernel, 100, "down");
     assert!(runs(&log).is_empty());
     flag.set(false);
+    // It no longer guards, as its plugin says with `command.screen_policy`.
+    let lock = kernel.stack.iter().position(|s| s.id == LOCK).unwrap();
+    kernel.stack[lock].policy = Some(0);
     press(&mut kernel, 300, "down");
     assert_eq!(runs(&log), ["other.run"]);
 }

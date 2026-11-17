@@ -46,16 +46,9 @@ pub(crate) struct InputState {
     /// (something is bound to that): its input, until when, and the
     /// screen it began on.
     pub(crate) pending: Option<(InputKey, Instant, Option<u32>)>,
-    /// Where and when the last tap was, for a double tap.
-    pub(crate) last_tap: Option<(Point, Instant)>,
     /// The screen on top when the last button was pressed or finger came
     /// down: what is held is resolved for it.
     pub(crate) pressed_on: Option<u32>,
-    /// The list shown beside the item chosen in it ([`Kernel::panes`]),
-    /// by its serial, where keys and buttons go to it (after a tap in it,
-    /// or [`actions::PANE_OTHER`](paperpaw_sdk::builtin::actions::PANE_OTHER));
-    /// else they go to the screen on top.
-    pub(crate) pane_keys: Option<u32>,
     /// The thresholds of recognition, read from the settings once until
     /// they change.
     pub(crate) thresholds: core::cell::Cell<Option<Thresholds>>,
@@ -108,7 +101,7 @@ impl Kernel {
                     let area = self.input_area();
                     let gone = p
                         .with_phase(PointerPhase::Cancel)
-                        .with_point(chrome::local(p.point, area));
+                        .with_point(areas::local(p.point, area));
                     self.with_input(|screen, cx| screen.on_pointer(&gone, cx));
                 }
             }
@@ -118,7 +111,6 @@ impl Kernel {
 
     pub(crate) fn pointer(&mut self, event: PointerEvent) {
         if event.phase == PointerPhase::Down {
-            self.pane_touched(event.point);
             self.input.pressed_on = self.input_index().map(|index| self.stack[index].serial);
         }
         // Swipes in from an edge come before the screen sees the finger.
@@ -152,11 +144,9 @@ impl Kernel {
         // is meant for it (a grip that moves a row, a handle), as apps on
         // phones keep such places from the system's gestures.
         let captured = self.input.captured.contains(&event.id);
-        // A finger on a bar is the bar's: its gestures go to it.
-        let on_bar = event.phase == PointerPhase::Down && self.chrome_at(event.point).is_some();
-        if captured || (event.phase == PointerPhase::Down && !on_bar) {
+        if captured || event.phase == PointerPhase::Down {
             let area = self.input_area();
-            let seen = event.with_point(chrome::local(event.point, area));
+            let seen = event.with_point(areas::local(event.point, area));
             let handled = self.with_input(|screen, cx| screen.on_pointer(&seen, cx));
             if captured {
                 if matches!(event.phase, PointerPhase::Up | PointerPhase::Cancel) {
@@ -170,7 +160,6 @@ impl Kernel {
             }
         }
         if event.phase == PointerPhase::Down
-            && !on_bar
             && let Some(side) = self.edge_at(event.point)
         {
             self.input.edge_touch = Some(EdgeTouch {
@@ -207,13 +196,9 @@ impl Kernel {
         {
             return None;
         }
-        // Inside the part of the screen the screen on top has (with the
-        // list beside it): not on a bar or the row of hints.
+        // Inside the part of the screen the screen on top has: not on the
+        // row of hints.
         let display = self.stack.last().map_or(self.content(), |top| top.area);
-        let display = match self.panes() {
-            Some((list, _)) => display.union(&self.stack[list].area),
-            None => display,
-        };
         if !display.contains(point) {
             return None;
         }
@@ -249,17 +234,10 @@ impl Kernel {
         bound.then_some(side)
     }
 
-    /// Whether the screen on top goes right to left
-    /// ([`Screen::direction`](paperpaw_sdk::Screen::direction)): its own
-    /// way, or by default the interface's.
+    /// Whether the screen on top goes right to left: as the interface does.
     fn mirrored(&self) -> bool {
         use paperpaw_sdk::lang::Direction as Way;
-        let input = self.input_index().map(|index| &self.stack[index]);
-        match input.map(|active| active.screen.direction()) {
-            Some(Way::Rtl) => true,
-            Some(Way::Auto) => self.shared.translator.direction() == Way::Rtl,
-            _ => false,
-        }
+        self.input_index().is_some() && self.shared.translator.direction() == Way::Rtl
     }
 
     /// `side` the other way, left for right, where the screen on top is
@@ -314,23 +292,12 @@ impl Kernel {
         )));
     }
 
-    /// Whether the screen on top takes buttons by name now.
-    pub(crate) fn takes_buttons(&self) -> bool {
-        self.input_index()
-            .is_some_and(|index| self.stack[index].screen.takes_buttons())
-    }
-
     /// Button `name` pressed (`long`: held): offered to the screen on
     /// top where it takes buttons, else through the key map.
     fn button(&mut self, name: &'static str, long: bool) {
         self.hint.pressed = self.hint.buttons.iter().position(|b| *b == name);
         if self.hint.pressed.is_some() {
             self.show_hints();
-        }
-        if self.takes_buttons()
-            && self.with_input(|screen, cx| screen.on_button(name, long, cx)) == Handled::Yes
-        {
-            return;
         }
         let name = Cow::Borrowed(name);
         if long {
@@ -359,11 +326,6 @@ impl Kernel {
                     }
                     return;
                 }
-                if let Some((index, strip)) = self.chrome_at(gesture.start) {
-                    let seen = chrome::local_gesture(gesture, strip);
-                    self.with_chrome(index, |screen, cx| screen.on_gesture(seen, cx));
-                    return;
-                }
                 let overlay = self
                     .stack
                     .len()
@@ -373,31 +335,13 @@ impl Kernel {
                     && gesture.kind == GestureKind::Tap
                     && !region.contains(gesture.start)
                 {
-                    let top = self.stack.len() - 1;
-                    match self.stack[top].screen.outside() {
-                        paperpaw_sdk::Outside::Ignore => return,
-                        paperpaw_sdk::Outside::PassThrough => {
-                            let below = top.saturating_sub(1);
-                            let seen = chrome::local_gesture(gesture, self.stack[below].area);
-                            self.with_screen(below, |screen, cx| screen.on_gesture(seen, cx));
-                            return;
-                        }
-                        _ => return self.close_top(paperpaw_sdk::CloseCause::TapOutside),
-                    }
+                    return self.close_top(paperpaw_sdk::CloseCause::TapOutside);
                 }
                 // In the coordinates of the screen input goes to.
                 let area = self.input_area();
-                let gesture = self.doubled(chrome::local_gesture(gesture, area));
+                let gesture = areas::local_gesture(gesture, area);
                 if self.offer(|screen, cx| screen.on_gesture(gesture, cx)) == Handled::Yes {
                     return;
-                }
-                // A screen that knows no double taps gets a tap.
-                if gesture.kind == GestureKind::DoubleTap {
-                    let mut tap = gesture;
-                    tap.kind = GestureKind::Tap;
-                    if self.offer(|screen, cx| screen.on_gesture(tap, cx)) == Handled::Yes {
-                        return;
-                    }
                 }
                 // Screens with gestures of their own: none from the key map.
                 if self.policy() != keymap::Policy::Standard {
@@ -504,28 +448,6 @@ impl Kernel {
         }
     }
 
-    /// `gesture` as a double tap where it is a tap close in time and place
-    /// to the tap before, for a screen on top that takes double taps.
-    fn doubled(&mut self, mut gesture: Gesture) -> Gesture {
-        let wanted = self
-            .input_index()
-            .is_some_and(|index| self.stack[index].screen.takes_double_taps());
-        if gesture.kind != GestureKind::Tap || !wanted {
-            return gesture;
-        }
-        let (window, near) = (self.double_ms(), self.thresholds().swipe_distance);
-        let now = self.now;
-        let double = self.input.last_tap.take().is_some_and(|(at, when)| {
-            now.since(when) < window && input::distance(at, gesture.start) < near
-        });
-        if double {
-            gesture.kind = GestureKind::DoubleTap;
-        } else {
-            self.input.last_tap = Some((gesture.start, now));
-        }
-        gesture
-    }
-
     /// What the tap (or long tap) at `point` in a zone of a layer's own
     /// (`[zones.<layer>]`) is bound to, if anything.
     fn own_zone(&self, point: Point, long: bool) -> Option<Id> {
@@ -619,20 +541,12 @@ impl Kernel {
         &mut self,
         f: impl Fn(&mut crate::screen::Screen, &mut Cx<'_, '_>) -> Handled,
     ) -> Handled {
-        let Some(mut index) = self.input_top() else {
+        let Some(index) = self.input_top() else {
             self.offered_down_to = 0;
             return Handled::No;
         };
-        loop {
-            self.offered_down_to = index;
-            if self.with_screen(index, &f) == Handled::Yes {
-                return Handled::Yes;
-            }
-            if index == 0 || !self.stack[index].screen.passes_through() {
-                return Handled::No;
-            }
-            index -= 1;
-        }
+        self.offered_down_to = index;
+        self.with_screen(index, &f)
     }
 
     pub(crate) fn dispatch(&mut self, action: Id) {
@@ -651,10 +565,13 @@ impl Kernel {
             return;
         }
         // The guard let it pass only where it was asked (not where a screen
-        // above it took no action and passed nothing on).
-        let passed = self
-            .guard()
-            .is_some_and(|guard| self.offered_down_to <= guard);
+        // above it took no action and passed nothing on), and could answer: a
+        // plugin's screen hears input only on top, so a guard below a screen
+        // it shuts out was never asked.
+        let passed = !self.top_shut_out()
+            && self
+                .guard()
+                .is_some_and(|guard| self.offered_down_to <= guard);
         self.run_handler(&action, &params, passed);
     }
 

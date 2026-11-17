@@ -175,7 +175,7 @@ impl Kernel {
                         && region.intersection(&bounds) == Some(bounds)
                 }
             };
-            (whole, top.grays(), top.screen.pictures_in_grays())
+            (whole, top.grays(), true)
         });
         let grays = whole && grays;
         let again = mem::take(&mut self.frame.again);
@@ -256,17 +256,8 @@ impl Kernel {
             .screenshot
             .is_some()
             .then(|| self.now.add_millis(300));
-        // Only the screen on top runs, and one below overlays alone that
-        // asks to: a covered one's time waits. Bars shown run too, and a
-        // list beside its detail.
-        let timer = [
-            self.screen_timer(),
-            self.chromes_due(),
-            self.pane_list_due(),
-        ]
-        .into_iter()
-        .flatten()
-        .min();
+        // Only the screen on top runs: a covered one's time waits.
+        let timer = self.screen_timer();
         effects.wake_at = [
             self.hint.until,
             input,
@@ -379,7 +370,6 @@ impl Kernel {
         // the screen that had it is gone (ADR 0030).
         self.sync_room();
         self.hint_escape();
-        self.show_pane_list();
         self.with_top(|screen, cx| {
             screen.on_show(cx);
             Handled::Yes
@@ -506,9 +496,6 @@ impl Kernel {
             }
             Command::KeepAwake(hold) => self.keep_awake(hold),
             Command::LetSleep(id) => self.let_sleep(&id),
-            Command::Extended { key, .. } if key == paperpaw_sdk::builtin::actions::PANE_OTHER => {
-                self.other_pane();
-            }
             // Keys of later releases: left as they are.
             Command::Extended { .. } => {}
             command @ (Command::SetSetting(..)
@@ -715,13 +702,12 @@ impl Kernel {
     /// plugins hear the event (a nested callback's route on the X4, #250).
     #[inline(never)]
     fn emit_to_screens(&mut self, event: &Id, params: &Params, hears: &dyn Fn(&str) -> bool) {
-        // A setting may change which bars show and their size, and how
-        // input is recognized.
+        // A setting may change how input is recognized, and where a list and
+        // its detail part the screen.
         if *event == events::SETTING_CHANGED {
             self.input.thresholds.set(None);
-            self.sync_chromes();
+            self.lay_out_shown();
         }
-        self.chromes_hear(event, params);
         // Screens learn that they show from `on_show`.
         if *event == events::SCREEN_SHOWN {
             return;

@@ -504,7 +504,7 @@ struct Focused {
 
 struct TwoButtons(usize, bool);
 
-impl paperpaw_core::Layer for TwoButtons {
+impl paperpaw_core::testing::Fake for TwoButtons {
     fn draw(
         &mut self,
         canvas: &mut paperpaw_core::sdk::Canvas<'_>,
@@ -519,8 +519,8 @@ impl paperpaw_core::Layer for TwoButtons {
         }
     }
 
-    fn secret(&self) -> bool {
-        self.1
+    fn flags(&self) -> u32 {
+        u32::from(self.1) * paperpaw_core::testing::SECRET
     }
 
     fn on_action(
@@ -540,7 +540,7 @@ impl paperpaw_core::Layer for TwoButtons {
 fn focused(kept: Focused) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let screen = paperpaw_core::sdk::Id::new_static("focused.home");
-        r.add_layer(paperpaw_core::LayerSpec::new(
+        r.add_fake(paperpaw_core::testing::FakeSpec::new(
             screen.clone(),
             "focused.home",
             {
@@ -811,11 +811,11 @@ fn keys() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
         use paperpaw_core::sdk::builtin::slots;
         let screen = paperpaw_core::sdk::Id::new_static("keys.screen");
-        r.add_layer(paperpaw_core::LayerSpec::new(
+        r.add_fake(paperpaw_core::testing::FakeSpec::new(
             screen.clone(),
             "keys",
             Box::new(|_, asked| {
-                Box::new(Answering(Some(asked.clone()))) as Box<dyn paperpaw_core::Layer>
+                Box::new(Answering(Some(asked.clone()))) as Box<dyn paperpaw_core::testing::Fake>
             }),
         ))?;
         r.bind_slot(
@@ -835,7 +835,7 @@ fn keys_manifest() -> Manifest {
 /// The keyboard's screen: answers as it shows, then closes.
 struct Answering(Option<Params>);
 
-impl paperpaw_core::Layer for Answering {
+impl paperpaw_core::testing::Fake for Answering {
     fn draw(&mut self, _: &mut paperpaw_core::sdk::Canvas<'_>, _: &paperpaw_core::sdk::Env<'_>) {}
 
     fn on_action(

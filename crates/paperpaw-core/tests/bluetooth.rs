@@ -53,7 +53,7 @@ struct Logged {
     log: Log,
 }
 
-impl paperpaw_core::Layer for Logged {
+impl paperpaw_core::testing::Fake for Logged {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -138,7 +138,7 @@ fn pulse(kept: Pulse) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         }
         if kept.id == "pulse" {
             let log = kept.log.clone();
-            r.add_layer(paperpaw_core::LayerSpec::new(
+            r.add_fake(paperpaw_core::testing::FakeSpec::new(
                 HOME,
                 "home",
                 Box::new(move |_, _| {

@@ -317,6 +317,8 @@ fn input_preserves_handled_and_reports_faults_without_claiming_success() {
         .build()
         .unwrap();
     let env = kernel.shared.env(Instant(123));
+    let mut output = paperpaw_sdk::Output::default();
+    let mut cx = Cx::new(&env, &mut output);
     let (mut screen, dispatch) = screen();
     let input = Record::InputAction(wire::InputAction {
         now_ms: 123,
@@ -329,7 +331,7 @@ fn input_preserves_handled_and_reports_faults_without_claiming_success() {
         (-7, Handled::No),
     ] {
         dispatch.result.set(result);
-        assert_eq!(screen.input(input, &env), expected);
+        assert_eq!(screen.input(input, &mut cx), expected);
     }
     assert_eq!(*dispatch.dropped.borrow(), [(10, ERR_INVALID), (10, -7)]);
     let calls = dispatch.calls.borrow();
@@ -534,7 +536,6 @@ fn a_screen_declared_hints_hidden_says_so_and_another_leaves_it_to_its_plugin() 
 
 #[test]
 fn a_screen_declared_to_dim_what_is_below_says_so_and_another_does_not() {
-    use crate::Layer as _;
     let (screen, _) = screen();
     assert!(!screen.dims_below());
     let screen = screen.with_flags((1 << 10) | (1 << 2));
@@ -547,7 +548,6 @@ fn a_screen_declared_to_dim_what_is_below_says_so_and_another_does_not() {
 
 #[test]
 fn a_screen_declared_grays_says_so_and_another_does_not() {
-    use crate::Layer as _;
     let (screen, _) = screen();
     assert!(!screen.grays());
     let screen = screen.with_flags(1 << 9);
@@ -585,10 +585,12 @@ fn typed_text_comes_in_chunks_of_1024_bytes_cut_between_characters_done_on_the_l
         .build()
         .unwrap();
     let env = kernel.shared.env(Instant(5));
+    let mut output = paperpaw_sdk::Output::default();
+    let mut cx = Cx::new(&env, &mut output);
     // Short: one event, as is.
     let (screen, dispatch) = fresh();
-    screen.typed("hello", false, &env);
-    screen.typed("ok", true, &env);
+    screen.typed("hello", false, &mut cx);
+    screen.typed("ok", true, &mut cx);
     assert_eq!(
         typed_calls(&dispatch),
         [("hello".into(), false), ("ok".into(), true)]
@@ -596,11 +598,11 @@ fn typed_text_comes_in_chunks_of_1024_bytes_cut_between_characters_done_on_the_l
     // Exactly the limit is one event; one more byte is two.
     let (screen, dispatch) = fresh();
     let full = "a".repeat(1024);
-    screen.typed(&full, true, &env);
+    screen.typed(&full, true, &mut cx);
     assert_eq!(typed_calls(&dispatch), [(full.clone(), true)]);
     let (screen, dispatch) = fresh();
     let over = "a".repeat(1025);
-    screen.typed(&over, true, &env);
+    screen.typed(&over, true, &mut cx);
     assert_eq!(
         typed_calls(&dispatch),
         [("a".repeat(1024), false), ("a".into(), true)]
@@ -608,7 +610,7 @@ fn typed_text_comes_in_chunks_of_1024_bytes_cut_between_characters_done_on_the_l
     // A character that straddles the limit goes whole into the next event.
     let (screen, dispatch) = fresh();
     let straddle = alloc::format!("{}é{}", "a".repeat(1023), "b".repeat(2000));
-    screen.typed(&straddle, false, &env);
+    screen.typed(&straddle, false, &mut cx);
     let calls = typed_calls(&dispatch);
     assert_eq!(calls.len(), 3);
     assert_eq!(calls[0], ("a".repeat(1023), false));
@@ -618,7 +620,7 @@ fn typed_text_comes_in_chunks_of_1024_bytes_cut_between_characters_done_on_the_l
     // Four-byte characters in a long run are never cut either.
     let (screen, dispatch) = fresh();
     let emoji = "😀".repeat(700);
-    screen.typed(&emoji, true, &env);
+    screen.typed(&emoji, true, &mut cx);
     let calls = typed_calls(&dispatch);
     let joined: alloc::string::String = calls.iter().map(|(text, _)| text.as_str()).collect();
     assert_eq!(joined, emoji);
@@ -633,16 +635,18 @@ fn empty_typed_text_confirms_only_with_done_and_a_refused_event_stops_the_rest()
         .build()
         .unwrap();
     let env = kernel.shared.env(Instant(5));
+    let mut output = paperpaw_sdk::Output::default();
+    let mut cx = Cx::new(&env, &mut output);
     let (screen, dispatch) = fresh();
-    screen.typed("", false, &env);
+    screen.typed("", false, &mut cx);
     assert!(dispatch.calls.borrow().is_empty());
-    screen.typed("", true, &env);
+    screen.typed("", true, &mut cx);
     assert_eq!(typed_calls(&dispatch), [("".into(), true)]);
     // The plugin refuses the first of several: its token is dropped, and
     // the others are not sent.
     let (screen, dispatch) = fresh();
     dispatch.result.set(-7);
-    screen.typed(&"a".repeat(3000), true, &env);
+    screen.typed(&"a".repeat(3000), true, &mut cx);
     assert_eq!(dispatch.calls.borrow().len(), 1);
     assert_eq!(*dispatch.dropped.borrow(), [(10, -7)]);
 }
@@ -675,11 +679,13 @@ fn typed_text_over_the_total_cap_is_dropped_whole_and_the_cap_itself_is_sent() {
         .build()
         .unwrap();
     let env = kernel.shared.env(Instant(5));
+    let mut output = paperpaw_sdk::Output::default();
+    let mut cx = Cx::new(&env, &mut output);
     let (screen, dispatch) = fresh();
-    screen.typed(&"a".repeat(TYPED_TOTAL_MAX + 1), true, &env);
+    screen.typed(&"a".repeat(TYPED_TOTAL_MAX + 1), true, &mut cx);
     assert!(dispatch.calls.borrow().is_empty());
     assert!(dispatch.dropped.borrow().is_empty());
-    screen.typed(&"a".repeat(TYPED_TOTAL_MAX), true, &env);
+    screen.typed(&"a".repeat(TYPED_TOTAL_MAX), true, &mut cx);
     let calls = typed_calls(&dispatch);
     assert_eq!(calls.len(), TYPED_TOTAL_MAX / 1024);
     assert_eq!(calls.iter().filter(|(_, done)| *done).count(), 1);
@@ -728,17 +734,30 @@ fn only_the_draw_that_counts_pictures_is_marked_as_one() {
     assert_eq!(*dispatch.ids.borrow(), [0, PICTURES_ONLY_ID, 0]);
 }
 
+/// A page that tells `Recorder` how it was drawn: aside for the count of its
+/// pictures, or shown.
+struct Page(Rc<Recorder>);
+
+impl crate::testing::Fake for Page {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+        let counted = canvas.is_blind() && !canvas.is_describing();
+        let frame = wire::DrawFrame {
+            id: if counted { PICTURES_ONLY_ID } else { 0 },
+            ..super::super::frames::screen(0, 0, 1, 1, (0, 1))
+        };
+        let _ = self.0.draw(10, &frame, env, canvas);
+    }
+}
+
 /// A plugin whose home screen is a native one, drawn by `Recorder`.
 fn page_plugin(kept: Rc<Recorder>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let dispatch = Rc::clone(&kept);
         const ID: Id = Id::new_static("page.screen");
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             ID,
             "page",
-            alloc::boxed::Box::new(move |_, _| {
-                alloc::boxed::Box::new(NativeScreen::new(ID, 10, Rc::clone(&dispatch)))
-            }),
+            alloc::boxed::Box::new(move |_, _| alloc::boxed::Box::new(Page(Rc::clone(&dispatch)))),
         ))?;
         r.bind_slot(slots::HOME, ID, paperpaw_sdk::Priority::DEFAULT)
     }

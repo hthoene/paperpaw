@@ -65,9 +65,6 @@ COMMANDS:
                 (the emulator) from native/metadata.json,
                 the list of the device's functions the code calls. Run it after
                 changing the list; --check only says whether they are current
-    ui-kit      Every building block of the SDK's `ui` module, as the gallery shows
-                screens (every device, look, light and dark), checked as `visual`
-                checks; a label shortened to fit is an error
 
 PATHS:
     A data plugin folder (with plugin.ini), a .ppn file or a .so library
@@ -97,7 +94,7 @@ OPTIONS:
                           while requests went unanswered is an error
     --strict              Warnings fail the run too
     --labels-whole        A label shortened to fit is an error, wherever it ends
-                          (`visual`; `ui-kit` checks its strict pages so by itself)
+                          (`visual`)
     --verbose             Notes too on the console
     --keep                Keep the emulated libraries (in <out>/work)
     --list                List profiles and looks
@@ -275,21 +272,9 @@ pub fn run(args: impl Iterator<Item = String>, add: Option<AddPlugins>) -> Resul
         return Ok(true);
     };
     context.target.add = add;
-    // The kit's pages, drawn as the gallery draws a plugin's screens.
-    // The kit's pages, drawn as the gallery draws a plugin's screens and
-    // checked as `visual` checks them, a label shortened an error.
-    let kit = command == "ui-kit";
-    if kit {
-        context.target.plugins = vec![crate::ui_kit::PLUGIN.to_string()];
-        context.target.add = Some(crate::ui_kit::add);
-        // Its blocks never cut a label.
-        context.labels_whole = true;
-    }
     let mut report = Report::default();
     let commands: Vec<&str> = if command == "check" {
         COMMANDS.to_vec()
-    } else if kit {
-        vec!["gallery", "visual"]
     } else {
         vec![command.as_str()]
     };
@@ -487,7 +472,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Option<(String, Conte
 }
 
 fn is_command(word: &str) -> bool {
-    word == "check" || word == "ui-kit" || COMMANDS.contains(&word)
+    word == "check" || COMMANDS.contains(&word)
 }
 
 #[cfg(test)]

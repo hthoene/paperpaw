@@ -14,7 +14,7 @@ use paperpaw_sdk::{Manifest, RegisterError};
 /// The notice slot's screen: a plain overlay (the kernel keeps a notice over the stack).
 struct NoticeScreen;
 
-impl crate::Layer for NoticeScreen {
+impl crate::testing::Fake for NoticeScreen {
     fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> Handled {
@@ -24,7 +24,7 @@ impl crate::Layer for NoticeScreen {
 
 fn notice_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("nt.notice"),
             "notice",
             alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(NoticeScreen)),

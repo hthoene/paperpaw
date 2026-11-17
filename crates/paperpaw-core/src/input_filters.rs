@@ -31,7 +31,6 @@ impl Kernel {
             Native::Gesture(gesture) => {
                 // The filter's gesture is the input. As a touch does: the part it is in, and the screen a long
                 // press of it belongs to.
-                self.pane_touched(gesture.start);
                 self.input.pressed_on = self.input_index().map(|index| self.stack[index].serial);
                 self.recognized(input::Recognized::Gesture(gesture));
                 self.run_commands();
@@ -74,7 +73,6 @@ impl Kernel {
             Native::Gesture(made) => {
                 // As a touch does (see `native_filtered`): the part it is in
                 // and the screen a long press of it belongs to.
-                self.pane_touched(made.start);
                 self.input.pressed_on = self.input_index().map(|index| self.stack[index].serial);
                 self.recognized(input::Recognized::Gesture(made));
             }

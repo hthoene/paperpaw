@@ -1,11 +1,8 @@
-//! Screens over their life: made anew for another size, the times they
-//! ask for (below overlays too, where they ask), a book's own settings
+//! Screens over their life: the times they ask for, a book's own settings
 //! while it is open.
 
 use super::*;
 use crate::Items;
-use core::cell::Cell;
-use paperpaw_sdk::SCREEN_REVISION;
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::{MemoryStorage, Params};
 
@@ -15,24 +12,11 @@ const FULL: Id = Id::new_static("book.full");
 const CLOSED: Id = Id::new_static("book.closed");
 const BOOK_SETTINGS: &str = "books/a/settings.ini";
 
-/// What the reader says of its time below overlays
-/// ([`Screen::times_under_overlays`]) and its revision.
-type Asks = Rc<Cell<(bool, u16)>>;
-
 struct ReaderScreen {
     log: Log,
-    asks: Asks,
 }
 
-impl crate::Layer for ReaderScreen {
-    fn revision(&self) -> u16 {
-        self.asks.get().1
-    }
-
-    fn times_under_overlays(&self) -> bool {
-        self.asks.get().0
-    }
-
+impl crate::testing::Fake for ReaderScreen {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -71,7 +55,7 @@ struct Other {
     log: Log,
 }
 
-impl crate::Layer for Other {
+impl crate::testing::Fake for Other {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
@@ -92,18 +76,13 @@ impl crate::Layer for Other {
 /// A reader that keeps a book's own settings while it is open and asks
 /// for a timer when a setting changes; a menu over the lower half of the
 /// screen and a full screen, each saying when its timer comes.
-fn book_plugin(kept0: Log, kept1: Asks) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn book_plugin(kept0: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        let (log, asks) = (kept0.clone(), kept1.clone());
-        r.add_layer(crate::LayerSpec::new(
+        let log = kept0.clone();
+        r.add_fake(crate::testing::FakeSpec::new(
             READER,
             "reader",
-            Box::new(move |_, _| {
-                Box::new(ReaderScreen {
-                    log: log.clone(),
-                    asks: asks.clone(),
-                })
-            }),
+            Box::new(move |_, _| Box::new(ReaderScreen { log: log.clone() })),
         ))?;
         r.bind_slot(slots::HOME, READER, Priority::DEFAULT)?;
         for (id, name, region) in [
@@ -111,7 +90,7 @@ fn book_plugin(kept0: Log, kept1: Asks) -> impl Fn(&mut Items) -> Result<(), Reg
             (FULL, "full", None),
         ] {
             let log = kept0.clone();
-            r.add_layer(crate::LayerSpec::new(
+            r.add_fake(crate::testing::FakeSpec::new(
                 id,
                 "other",
                 Box::new(move |_, _| {
@@ -134,15 +113,8 @@ fn book_plugin_manifest() -> Manifest {
 }
 
 fn book_kernel(log: &Log) -> Kernel {
-    book_kernel_asking(log, &Rc::new(Cell::new((false, SCREEN_REVISION))))
-}
-
-fn book_kernel_asking(log: &Log, asks: &Asks) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .items(
-            book_plugin_manifest(),
-            book_plugin(log.clone(), asks.clone()),
-        )
+        .items(book_plugin_manifest(), book_plugin(log.clone()))
         .storage(MemoryStorage::new())
         .build()
         .unwrap();
@@ -183,21 +155,6 @@ fn a_books_own_settings_last_while_it_is_open() {
     assert!(text(&kernel, BOOK_SETTINGS).contains("font-size = 15"));
 }
 
-/// A screen made anew for another size is told first, as when it is
-/// closed, so it keeps what it would lose (the reader its position); what
-/// it asks for then is not done, as it stays open.
-#[test]
-fn screens_made_anew_keep_what_they_would_lose() {
-    let log = log();
-    let mut kernel = book_kernel(&log);
-    kernel.resize(Instant(1), 80, 90);
-    assert_eq!(*log.borrow(), ["reader close"]);
-    kernel.open_screen(Instant(2), FULL, Params::new());
-    log.borrow_mut().clear();
-    kernel.resize(Instant(3), 90, 90);
-    assert_eq!(*log.borrow(), ["reader close"], "the one below too");
-}
-
 /// A timer is the screen's that asked for it, and it runs only while
 /// that screen is on top: below a menu (a quick panel, a keyboard) or a
 /// full screen it waits until the screen is on top again, also where the
@@ -232,53 +189,6 @@ fn timers_come_to_the_screen_that_asked_once_it_is_on_top() {
     kernel.run_action(Instant(220), actions::BACK);
     kernel.tick(Instant(220));
     assert_eq!(*log.borrow(), ["reader timer"]);
-}
-
-/// Below overlays alone (the menu bar over a page), a screen that asks
-/// for it has its time (the reader counting its pages, #117); one that
-/// does not, one built before the item (revision 2), and any below a full
-/// screen wait until they are on top again.
-#[test]
-fn timers_come_below_overlays_alone_to_a_screen_that_asks() {
-    let log = log();
-    let asks: Asks = Rc::new(Cell::new((true, SCREEN_REVISION)));
-    let mut kernel = book_kernel_asking(&log, &asks);
-    kernel.open_screen(Instant(1), MENU, Params::new());
-    kernel
-        .set_setting(Instant(2), "core.night-mode", "on")
-        .unwrap();
-    assert_eq!(kernel.tick(Instant(5)).wake_at(), Some(Instant(12)));
-    kernel.tick(Instant(12));
-    assert_eq!(*log.borrow(), ["reader timer"]);
-    log.borrow_mut().clear();
-    // Below a full screen, also with a menu over that: it waits.
-    kernel.run_action(Instant(15), actions::BACK);
-    kernel.open_screen(Instant(20), FULL, Params::new());
-    kernel.open_screen(Instant(21), MENU, Params::new());
-    kernel
-        .set_setting(Instant(22), "core.night-mode", "off")
-        .unwrap();
-    assert_eq!(kernel.tick(Instant(32)).wake_at(), None);
-    assert!(log.borrow().is_empty(), "{:?}", log.borrow());
-    kernel.run_action(Instant(40), actions::BACK);
-    kernel.run_action(Instant(41), actions::BACK);
-    kernel.tick(Instant(41));
-    assert_eq!(*log.borrow(), ["reader timer"]);
-    // Below the menu again, not asking, or asking but built before.
-    for (at, said) in [(100, (false, SCREEN_REVISION)), (200, (true, 2))] {
-        log.borrow_mut().clear();
-        asks.set(said);
-        kernel.open_screen(Instant(at), MENU, Params::new());
-        let value = if at == 100 { "on" } else { "off" };
-        kernel
-            .set_setting(Instant(at + 1), "core.night-mode", value)
-            .unwrap();
-        assert_eq!(kernel.tick(Instant(at + 11)).wake_at(), None, "{said:?}");
-        assert!(log.borrow().is_empty(), "{said:?}: {:?}", log.borrow());
-        kernel.run_action(Instant(at + 20), actions::BACK);
-        kernel.tick(Instant(at + 20));
-        assert_eq!(*log.borrow(), ["reader timer"], "{said:?}");
-    }
 }
 
 /// Values shown without being kept (a setting tried in a menu) last

@@ -17,7 +17,7 @@ use paperpaw_sdk::{
 };
 
 struct Quiet;
-impl crate::Layer for Quiet {
+impl crate::testing::Fake for Quiet {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
@@ -35,7 +35,7 @@ fn id(text: &str) -> Id {
 
 fn demo(kept: Demo) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             id("demo.main"),
             "demo.screen.main",
             Box::new(|_, _| Box::new(Quiet)),

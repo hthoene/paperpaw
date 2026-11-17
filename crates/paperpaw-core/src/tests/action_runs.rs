@@ -37,7 +37,7 @@ fn observing_items(kept: &Log, r: &mut Items) -> Result<(), RegisterError> {
     )?;
     // Opens a screen of its own; a step through profiles, run again
     // with the next.
-    r.add_layer(crate::LayerSpec::new(
+    r.add_fake(crate::testing::FakeSpec::new(
         Id::new_static("obs.page"),
         "page",
         Box::new(|_, _| Box::new(Lock)),
@@ -109,11 +109,11 @@ struct Lock;
 /// every other action itself.
 const PASSING: [&str; 2] = ["obs.wrapped", "obs.open"];
 
-impl crate::Layer for Lock {
+impl crate::testing::Fake for Lock {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
-    fn guards(&self) -> bool {
-        true
+    fn flags(&self) -> u32 {
+        crate::testing::GUARDS
     }
 
     fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -128,7 +128,7 @@ impl crate::Layer for Lock {
 /// A lock that takes no action itself.
 fn guarding() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        r.add_layer(crate::LayerSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             LOCK,
             "lock",
             Box::new(|_, _| Box::new(Lock)),
@@ -265,11 +265,11 @@ mod above_the_guard {
 
     struct Gate;
 
-    impl crate::Layer for Gate {
+    impl crate::testing::Fake for Gate {
         fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
-        fn guards(&self) -> bool {
-            true
+        fn flags(&self) -> u32 {
+            crate::testing::GUARDS
         }
 
         fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -283,7 +283,7 @@ mod above_the_guard {
 
     struct Top;
 
-    impl crate::Layer for Top {
+    impl crate::testing::Fake for Top {
         fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
         fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -293,7 +293,7 @@ mod above_the_guard {
 
     fn gate_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         |r| {
-            r.add_layer(crate::LayerSpec::new(
+            r.add_fake(crate::testing::FakeSpec::new(
                 Id::new_static("gate.lock"),
                 "lock",
                 Box::new(|_, _| Box::new(Gate)),
@@ -310,7 +310,7 @@ mod above_the_guard {
     fn up() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         |r| {
             for id in ["up.top", "up.evil"] {
-                r.add_layer(crate::LayerSpec::new(
+                r.add_fake(crate::testing::FakeSpec::new(
                     Id::parse(id).unwrap(),
                     "top",
                     Box::new(|_, _| Box::new(Top)),
@@ -352,12 +352,13 @@ mod above_the_guard {
         kernel.run_action(Instant(20), Id::new_static("up.raise"));
         assert_eq!(kernel.active_screen(), Some(&Id::new_static("up.top")));
         // That screen gets no input: an action run (as from a timer of
-        // plugin `up`) reaches the guard, which takes it.
+        // plugin `up`) is not the guard's to let pass (a plugin's screen
+        // hears input only on top), so what it opens opens below the guard.
         assert!(kernel.top_shut_out());
         kernel.apply(Command::run(Id::new_static("up.go")));
         kernel.finish();
         let ids: Vec<&str> = kernel.stack.iter().map(|s| s.id.as_str()).collect();
-        assert_eq!(ids, ["a.screen", "gate.lock", "up.top"]);
+        assert_eq!(ids, ["a.screen", "up.evil", "gate.lock", "up.top"]);
         // Waking, it closes; the guard is on top.
         kernel.resume(Instant(30));
         assert_eq!(kernel.active_screen(), Some(&Id::new_static("gate.lock")));
@@ -374,7 +375,7 @@ mod secrets_of_others {
     /// The settings editor: the screen of the settings slot.
     fn editor() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         |r| {
-            r.add_layer(crate::LayerSpec::new(
+            r.add_fake(crate::testing::FakeSpec::new(
                 Id::new_static("editor.screen"),
                 "editor",
                 Box::new(|_, _| Box::new(Lock)),

@@ -47,7 +47,6 @@ pub(crate) fn manifest() -> Manifest {
 pub(crate) fn items(device_name: &str, r: &mut Items) -> Result<(), RegisterError> {
     register_screen_actions(r)?;
     register_moving(r)?;
-    crate::panes::register(r)?;
     register_device_actions(r)?;
     register_library(r)?;
     register_reading_apps(r)?;

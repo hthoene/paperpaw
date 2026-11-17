@@ -288,20 +288,20 @@ fn guarded_kernel() -> crate::Kernel {
     use crate::Items;
     use paperpaw_sdk::{Manifest, Version};
     struct Plain;
-    impl crate::Layer for Plain {
+    impl crate::testing::Fake for Plain {
         fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
         fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
         }
     }
     struct Guard;
-    impl crate::Layer for Guard {
+    impl crate::testing::Fake for Guard {
         fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
         fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
         }
-        fn guards(&self) -> bool {
-            true
+        fn flags(&self) -> u32 {
+            crate::testing::GUARDS
         }
     }
     fn screens_manifest(id: &'static str) -> Manifest {
@@ -315,7 +315,7 @@ fn guarded_kernel() -> crate::Kernel {
         move |r| {
             for id in names {
                 let guard = id.ends_with(".screen");
-                r.add_layer(crate::LayerSpec::new(
+                r.add_fake(crate::testing::FakeSpec::new(
                     Id::new_static(id),
                     "t.title",
                     alloc::boxed::Box::new(move |_, _| {
