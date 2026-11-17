@@ -145,7 +145,7 @@ pub struct PageType {
     /// The language whose hyphenation patterns are used, if hyphenating.
     pub hyphenation: Option<String>,
     /// The fewest letters before and after a hyphen the reader asks for
-    /// (0: the language's own), see [`PageType::patterns`].
+    /// (0: the language's own).
     pub hyphen_minimums: (u8, u8),
     /// The script the book's language is written in
     /// ([`Lang::likely_script`](crate::Lang::likely_script)), which the tone curves
