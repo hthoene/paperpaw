@@ -185,6 +185,21 @@ impl Storage for Traced {
         )
     }
 
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        tally("write", path, data.len());
+        note(
+            || format!("write_at {path} {offset} {}", data.len()),
+            || self.0.write_at(path, offset, data),
+        )
+    }
+
+    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
+        note(
+            || format!("truncate {path} {len}"),
+            || self.0.truncate(path, len),
+        )
+    }
+
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
         note(|| format!("list {dir}"), || self.0.list(dir, visit))
     }
