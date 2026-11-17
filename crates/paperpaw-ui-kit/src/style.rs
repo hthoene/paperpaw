@@ -250,16 +250,139 @@ pub struct Style {
     pub describing: bool,
 }
 
+/// The settings the interface's look is made of, as the host holds them: read
+/// once, they make the look of any number of fonts and displays
+/// ([`Style::from_inputs`]). A screen that makes many looks in one lay-out
+/// shares them ([`SharedInputs`]); each look read alone is 17 reads.
+#[derive(Debug)]
+pub struct StyleInputs {
+    size: i64,
+    row: i64,
+    title: i64,
+    margin: i64,
+    lines: i64,
+    header: String,
+    palette: String,
+    separators: String,
+    strong: bool,
+    corners: String,
+    focus: String,
+    hard_shadow: bool,
+    frame: String,
+    button: String,
+    density: String,
+    rtl: bool,
+}
+
+impl StyleInputs {
+    /// Reads the settings of the interface's look.
+    ///
+    /// # Errors
+    /// The host's refusals and [`Error::NoMemory`].
+    pub fn read(host: &Host<'_>) -> Result<Self, Error> {
+        Ok(Self {
+            size: integer(host, UI_SIZE)?,
+            row: integer(host, UI_ROW)?,
+            title: integer(host, UI_TITLE)?,
+            margin: integer(host, UI_MARGIN)?,
+            lines: integer(host, UI_LINES)?,
+            header: setting_text(host, UI_HEADER)?,
+            palette: palette_or_none(setting_text(host, UI_PALETTE))?,
+            separators: setting_text(host, UI_SEPARATORS)?,
+            strong: setting_text(host, "core.ui-contrast")? == "core.contrast.strong",
+            corners: setting_text(host, "core.ui-corners")?,
+            focus: setting_text(host, "core.ui-focus")?,
+            hard_shadow: setting_text(host, UI_SHADOW)? == "core.shadow.hard",
+            frame: setting_text(host, UI_FRAME)?,
+            button: setting_text(host, UI_BUTTON)?,
+            density: setting_text(host, UI_DENSITY)?,
+            rtl: ui_language_is_rtl(host),
+        })
+    }
+}
+
+/// The settings of the look, kept for the looks made while a lay-out is under
+/// way ([`SharedInputs::share`]): the page, each of its widgets and the status
+/// line made one look each and read all of them nine times on the X4's first
+/// Back to Home. Outside a [`Sharing`] nothing is kept.
+#[derive(Debug, Default)]
+pub struct SharedInputs {
+    held: core::cell::RefCell<alloc::vec::Vec<StyleInputs>>,
+    open: core::cell::Cell<bool>,
+}
+
+/// The time the looks share their settings; ends, and lets them go, on drop.
+#[derive(Debug)]
+pub struct Sharing<'a>(&'a SharedInputs);
+
+impl Drop for Sharing<'_> {
+    fn drop(&mut self) {
+        self.0.open.set(false);
+        self.0.held.borrow_mut().clear();
+    }
+}
+
+impl SharedInputs {
+    /// Starts sharing: the first look reads the settings, the others use them,
+    /// until the result is dropped.
+    #[must_use]
+    pub fn share(&self) -> Sharing<'_> {
+        self.held.borrow_mut().clear();
+        self.open.set(true);
+        Sharing(self)
+    }
+
+    /// The look for `font` on `display`, from the settings shared or read now.
+    ///
+    /// # Errors
+    /// What [`Style::read`] fails with.
+    pub fn style(
+        &self,
+        host: &Host<'_>,
+        display: &Snapshot,
+        font: &Font<'_>,
+    ) -> Result<Style, Error> {
+        if let Some(inputs) = self.held.borrow().first() {
+            return Style::from_inputs(inputs, display, font);
+        }
+        let inputs = StyleInputs::read(host)?;
+        let style = Style::from_inputs(&inputs, display, font)?;
+        if self.open.get() {
+            let mut held = self.held.borrow_mut();
+            if held.try_reserve_exact(1).is_ok() {
+                held.push(inputs);
+            }
+        }
+        Ok(style)
+    }
+}
+
 impl Style {
+    /// Reads the settings and makes the look for `font` on `display`.
+    ///
+    /// # Errors
+    /// The host's refusals and [`Error::NoMemory`].
     pub fn read(host: &Host<'_>, display: &Snapshot, font: &Font<'_>) -> Result<Self, Error> {
+        Self::from_inputs(&StyleInputs::read(host)?, display, font)
+    }
+
+    /// The look `inputs` make for `font` on `display`.
+    ///
+    /// # Errors
+    /// The host's font refusals.
+    pub fn from_inputs(
+        inputs: &StyleInputs,
+        display: &Snapshot,
+        font: &Font<'_>,
+    ) -> Result<Self, Error> {
         let dpi = u32::from(display.display_dpi());
         let tenth = |value: u32| tenth_mm(dpi, value);
         let pt = |points: f32| points * dpi as f32 / 72.0;
-        let base = integer(host, UI_SIZE)?.clamp(6, 40) as f32;
+        let base = inputs.size.clamp(6, 40) as f32;
         let text = pt(base);
         let small = pt(base * 0.75);
         let line_height = crate::geometry::line_height(font, text)?;
-        let rows = integer(host, UI_ROW)?.clamp(120, 300) as f32 / 100.0;
+        let rows = inputs.row.clamp(120, 300) as f32 / 100.0;
         let control_row = line_height * rows;
         let least_line = crate::geometry::line_height(font, small * 0.7)?;
         let row = if 2.0 * least_line > control_row {
@@ -273,10 +396,10 @@ impl Style {
         };
         let finger = finger_px(display);
         let lift = finger.saturating_sub(row as u32);
-        let header = setting_text(host, UI_HEADER)?;
-        let palette = palette_or_none(setting_text(host, UI_PALETTE))?;
-        let color = |name, default| palette_color(&palette, name, default);
-        let strong = setting_text(host, "core.ui-contrast")? == "core.contrast.strong";
+        let header = inputs.header.as_str();
+        let palette = inputs.palette.as_str();
+        let color = |name, default| palette_color(palette, name, default);
+        let strong = inputs.strong;
         let faint = |name, default| {
             if strong {
                 color("text", Color::BLACK)
@@ -284,9 +407,9 @@ impl Style {
                 color(name, default)
             }
         };
-        let looks = Looks::read(host, display, tenth(10))?;
-        let corners = setting_text(host, "core.ui-corners")?;
-        let corner = match corners.as_str() {
+        let looks = Looks::of(inputs, display, tenth(10));
+        let corners = inputs.corners.as_str();
+        let corner = match corners {
             "core.corners.small" => tenth(8),
             "core.corners.round" => tenth(20),
             "core.corners.soft" => tenth(35),
@@ -295,7 +418,7 @@ impl Style {
         let gap = narrow(looks.density.scale(tenth(20)));
         Ok(Self {
             corner,
-            pill: matches!(corners.as_str(), "core.corners.round" | "core.corners.soft"),
+            pill: matches!(corners, "core.corners.round" | "core.corners.soft"),
             ring: looks.ring,
             soft: looks.soft,
             shadow: looks.shadow,
@@ -303,12 +426,12 @@ impl Style {
             button: looks.button,
             mono: display.display_gray_levels() == Some(2),
             roles: if display.display_gray_levels() == Some(2) {
-                Roles::read(&palette).for_two_grays()
+                Roles::read(palette).for_two_grays()
             } else {
-                Roles::read(&palette)
+                Roles::read(palette)
             },
             separator_dither: display.display_gray_levels() == Some(2),
-            separator_ink: if setting_text(host, UI_SEPARATORS)? == "core.separators.inset" {
+            separator_ink: if inputs.separators == "core.separators.inset" {
                 color("line-faint", Color::gray(210))
             } else {
                 color("line", Color::gray(190))
@@ -316,19 +439,19 @@ impl Style {
             text,
             small,
             title: pt(base * 1.15),
-            head: pt(base * integer(host, UI_TITLE)?.clamp(100, 200) as f32 / 100.0),
+            head: pt(base * inputs.title.clamp(100, 200) as f32 / 100.0),
             row: narrow((row as u32).max(finger)),
             header: narrow((line_height * (rows + 0.1)) as u32 + lift),
             margin: narrow(
                 looks
                     .density
-                    .scale(tenth(integer(host, UI_MARGIN)?.clamp(0, 15) as u32 * 10)),
+                    .scale(tenth(inputs.margin.clamp(0, 15) as u32 * 10)),
             ),
             gap,
-            line: narrow(tenth(integer(host, UI_LINES)?.clamp(1, 10) as u32).max(1)),
+            line: narrow(tenth(inputs.lines.clamp(1, 10) as u32).max(1)),
             dark: header == "core.header.dark",
             plain: header == "core.header.plain",
-            separators: setting_text(host, UI_SEPARATORS)?,
+            separators: crate::text::copy(&inputs.separators)?,
             ink: color("text", Color::BLACK),
             paper: color("paper", Color::WHITE),
             disabled: color("disabled", Color::gray(150)),
@@ -341,7 +464,7 @@ impl Style {
             card: color("card", Color::gray(225)),
             on_dark_muted: color("on-dark-muted", Color::gray(200)),
             strong,
-            rtl: ui_language_is_rtl(host),
+            rtl: inputs.rtl,
             describing: false,
         })
     }
@@ -650,23 +773,22 @@ struct Looks {
 
 impl Looks {
     /// `shadow` is the length of the hard shadow in pixels.
-    fn read(host: &Host<'_>, display: &Snapshot, shadow: u32) -> Result<Self, Error> {
-        let (ring, soft) = focus_look(
-            &setting_text(host, "core.ui-focus")?,
-            display.display_gray_levels(),
-        );
-        let hard = setting_text(host, UI_SHADOW)? == "core.shadow.hard";
-        let frame = setting_text(host, UI_FRAME)?;
-        Ok(Self {
+    fn of(inputs: &StyleInputs, display: &Snapshot, shadow: u32) -> Self {
+        let (ring, soft) = focus_look(&inputs.focus, display.display_gray_levels());
+        Self {
             ring,
             soft,
-            shadow: if hard { narrow(shadow) } else { 0 },
+            shadow: if inputs.hard_shadow {
+                narrow(shadow)
+            } else {
+                0
+            },
             frame: crate::widget::look::FRAMES
-                .contains(&frame.as_str())
-                .then(|| Frame::of(&frame)),
-            button: ButtonLook::of(&setting_text(host, UI_BUTTON)?),
-            density: Density::of(&setting_text(host, UI_DENSITY)?),
-        })
+                .contains(&inputs.frame.as_str())
+                .then(|| Frame::of(&inputs.frame)),
+            button: ButtonLook::of(&inputs.button),
+            density: Density::of(&inputs.density),
+        }
     }
 }
 

@@ -313,6 +313,9 @@ impl Dashboard {
     ) -> Result<Laid, Error> {
         // Laid out anew: what the host said of the books is asked again.
         self.listing.forget();
+        // The looks of the page, of each widget and of the status line read
+        // the interface's settings once between them.
+        let _sharing = self.listing.inputs().share();
         let Shown {
             mut src,
             metrics,
@@ -320,7 +323,7 @@ impl Dashboard {
             pages,
             wide,
             ..
-        } = Shown::read(host, display, font)?;
+        } = Shown::read_with(host, display, font, self.listing.inputs())?;
         let turned = self.page_after_turn(&src, &pages, wide)?;
         let nav = self.nav.get_or_insert(Nav::new(pages.len()));
         nav.resize(pages.len());
@@ -333,7 +336,7 @@ impl Dashboard {
             || Ok(Vec::new()),
             |page| native_pages::expand(&src, &page.items),
         )?;
-        Self::measure_unplaced(host, ui, &mut src, &frame.geometry, &items)?;
+        Self::measure_unplaced(host, (ui, &self.listing), &mut src, &frame.geometry, &items)?;
         let (shown, _) = grid::fit(&src, &frame.geometry, &items)?;
         let editing = self.editing;
         let pencil_on = editing || src.pencil;
@@ -381,6 +384,7 @@ impl Dashboard {
             ui,
             (font, display),
             (&cells, src.tool_labels, frame.status),
+            self.listing.inputs(),
         ) {
             Ok(both) => both,
             Err(error) => {
@@ -445,7 +449,7 @@ impl Dashboard {
     /// host cannot measure keeps the default of one row.
     fn measure_unplaced(
         host: &Host<'_>,
-        ui: &Ui,
+        (ui, listing): (&Ui, &Listing),
         src: &mut HostSource,
         geometry: &Geometry,
         items: &[grid::Item],
@@ -458,7 +462,7 @@ impl Dashboard {
             if src.declares(id) {
                 continue;
             }
-            match measure::measure_widget(host, ui, id, PLACE, geometry) {
+            match measure::measure_widget(host, ui, id, PLACE, geometry, listing) {
                 Ok(Some((rows, least))) => src.measured(id, rows, least)?,
                 Ok(None) => {}
                 Err(Error::NoMemory) => return Err(Error::NoMemory),
