@@ -51,6 +51,29 @@ fn begin_slot(id: Id) -> Slot {
 #[cfg(feature = "slot-names")]
 static LAST: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
+/// What runs when a service call knows its plugin, service and operation
+/// (`slot-names`, #294): the measurement build says which op costs how much.
+#[cfg(feature = "slot-names")]
+static NAMED: AtomicPtr<()> = AtomicPtr::new(ptr::null_mut());
+
+/// Sets what runs when a service call is named (`slot-names`).
+#[cfg(feature = "slot-names")]
+pub fn set_named(named: fn(&str, &'static str, &'static str)) {
+    NAMED.store(named as *mut (), Ordering::Release);
+}
+
+/// The service call that began last is `plugin`'s `service` `op`.
+#[cfg(feature = "slot-names")]
+pub(super) fn named(plugin: &str, service: &'static str, op: &'static str) {
+    let stored = NAMED.load(Ordering::Acquire);
+    if !stored.is_null() {
+        // SAFETY: only `set_named` stores here, a `fn` cast to a data pointer.
+        let hook =
+            unsafe { core::mem::transmute::<*mut (), fn(&str, &'static str, &'static str)>(stored) };
+        hook(plugin, service, op);
+    }
+}
+
 /// The number of slot names, `other` included (`slot-names`).
 #[cfg(feature = "slot-names")]
 pub const SLOT_NAMES: usize = NAMES.len();

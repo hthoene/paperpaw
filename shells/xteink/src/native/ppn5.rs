@@ -561,6 +561,8 @@ mod x4 {
         // hooks, set later, count them too).
         #[cfg(feature = "test-image")]
         paperpaw_core::native_host::host_slot::set(crate::hoststat::begin, crate::hoststat::end);
+        #[cfg(feature = "test-image")]
+        paperpaw_core::native_host::host_slot::set_named(crate::hoststat::named);
         let began = crate::micros();
         CREATING.store(true, core::sync::atomic::Ordering::Relaxed);
         // SAFETY: the entries are `native_plugin!(..., linked = NAME)` of crates

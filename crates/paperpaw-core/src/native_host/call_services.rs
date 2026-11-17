@@ -317,6 +317,8 @@ pub(super) unsafe fn call(
             let op = validate_op(key, op, input, out.cap)?;
             #[cfg(feature = "slot-counts")]
             super::host_slot::slot_counts::note_service(plugin, key.schema.key, op.name);
+            #[cfg(feature = "slot-names")]
+            super::host_slot::named(plugin, key.schema.key, op.name);
             let running = owner.enter_service(key)?;
             // SAFETY: the slot caller lends `out` for the call and nothing else
             // touches it while the call runs; it shares no byte with `input`

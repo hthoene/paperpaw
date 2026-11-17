@@ -26,7 +26,33 @@ const NO_CARD: CardRow = CardRow {
     write: [0; 3],
 };
 
+/// Who called which service operation (the plugin's first bytes).
+#[derive(Clone, Copy, PartialEq)]
+struct Label {
+    plugin: [u8; 12],
+    service: &'static str,
+    op: &'static str,
+}
+
+/// The service calls of one operation: how many, microseconds with the slots
+/// nested in them.
+#[derive(Clone, Copy)]
+struct Op {
+    label: Option<Label>,
+    count: u32,
+    micros: u64,
+}
+
+const OPS: usize = 32;
+const NO_OP: Op = Op {
+    label: None,
+    count: 0,
+    micros: 0,
+};
+
 struct Stat {
+    label: [Option<Label>; DEPTH],
+    ops: [Op; OPS],
     card: [CardRow; CARD_SITES],
     key: [u32; SITES],
     count: [u32; SITES],
@@ -40,6 +66,8 @@ struct Stat {
 }
 
 static STAT: Mutex<RefCell<Stat>> = Mutex::new(RefCell::new(Stat {
+    label: [None; DEPTH],
+    ops: [NO_OP; OPS],
     card: [NO_CARD; CARD_SITES],
     key: [0; SITES],
     count: [0; SITES],
@@ -65,8 +93,29 @@ pub fn begin() {
         let d = s.depth;
         if d < DEPTH {
             s.stack[d] = (site, t);
+            s.label[d] = None;
         }
         s.depth = d + 1;
+    });
+}
+
+/// The service call that began last is `plugin`'s `service` `op` (the hook of
+/// `host_slot::set_named`): the open slot is that call.
+pub fn named(plugin: &str, service: &'static str, op: &'static str) {
+    let mut key = [0_u8; 12];
+    for (to, from) in key.iter_mut().zip(plugin.bytes()) {
+        *to = from;
+    }
+    critical_section::with(|cs| {
+        let mut s = STAT.borrow_ref_mut(cs);
+        let depth = s.depth;
+        if depth > 0 && depth <= DEPTH {
+            s.label[depth - 1] = Some(Label {
+                plugin: key,
+                service,
+                op,
+            });
+        }
     });
 }
 
@@ -86,6 +135,20 @@ pub fn end() {
         if d < DEPTH {
             let (site, t0) = s.stack[d];
             let us = t.saturating_sub(t0);
+            if let Some(label) = s.label[d] {
+                let mut slot = None;
+                for i in 0..OPS {
+                    if s.ops[i].label == Some(label) || s.ops[i].label.is_none() {
+                        slot = Some(i);
+                        break;
+                    }
+                }
+                if let Some(i) = slot {
+                    s.ops[i].label = Some(label);
+                    s.ops[i].count += 1;
+                    s.ops[i].micros += us;
+                }
+            }
             let mut at = None;
             for i in 0..SITES {
                 if s.key[i] == site || s.key[i] == 0 {
@@ -141,20 +204,23 @@ pub fn clear() {
         s.calls = 0;
         s.outer_micros = 0;
         s.dropped = 0;
+        s.ops = [NO_OP; OPS];
     });
 }
 
 /// Prints what was counted since the last report and clears it.
 pub fn report(what: &str) {
-    let (calls, outer, dropped, rows, card) = critical_section::with(|cs| {
+    let (calls, outer, dropped, rows, card, ops) = critical_section::with(|cs| {
         let mut s = STAT.borrow_ref_mut(cs);
+        let ops = s.ops;
+        s.ops = [NO_OP; OPS];
         let card = s.card;
         s.card = [NO_CARD; CARD_SITES];
         let mut rows = [(0_u32, 0_u32, 0_u64); SITES];
         for i in 0..SITES {
             rows[i] = (s.key[i], s.count[i], s.micros[i]);
         }
-        let out = (s.calls, s.outer_micros, s.dropped, rows, card);
+        let out = (s.calls, s.outer_micros, s.dropped, rows, card, ops);
         s.key = [0; SITES];
         s.count = [0; SITES];
         s.micros = [0; SITES];
@@ -199,6 +265,29 @@ pub fn report(what: &str) {
             paperpaw_core::native_host::host_slot::name_of((rows[b].0 >> 24) as u8),
             rows[b].1,
             rows[b].2 / 1000
+        );
+    }    // The service calls by operation, the longest first (nested slots included).
+    let mut shown = [false; OPS];
+    for _ in 0..12 {
+        let mut best = None;
+        for i in 0..OPS {
+            if !shown[i] && ops[i].label.is_some() && best.is_none_or(|b: usize| ops[i].micros > ops[b].micros) {
+                best = Some(i);
+            }
+        }
+        let Some(b) = best else { break };
+        shown[b] = true;
+        let Some(label) = ops[b].label else { break };
+        let plugin = core::str::from_utf8(&label.plugin)
+            .unwrap_or("?")
+            .trim_end_matches('\0');
+        log::info!(
+            "hoststat {what}: call {plugin} {}.{} x{}: {} ms ({} us each)",
+            label.service,
+            label.op,
+            ops[b].count,
+            ops[b].micros / 1000,
+            ops[b].micros / u64::from(ops[b].count.max(1))
         );
     }
 }
