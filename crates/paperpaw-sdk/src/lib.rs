@@ -441,11 +441,11 @@ pub(crate) use event::{Event, EventData};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use fonts::{BuiltInFont, BuiltInFonts};
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use fonts::{FontFace, FontHandle, FontSet, FontSpec, Fonts};
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use fonts::{FontFace, FontHandle, FontSet, FontSpec, Fonts};
+#[cfg(any(test, feature = "kernel"))]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub use fonts::{FontFace, FontHandle, FontSet, FontSpec, Fonts, RoleMemo};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use fonts::{OpenError as FontOpenError, open_file as open_font_file};
@@ -537,7 +537,7 @@ pub use settings::{
 /// kernel: of each only its default and flags are kept.
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use settings::{DescribeError, Described, DescribedSettings, Pick};
+pub use settings::{DescribeError, Described, DescribedSettings, Pick, SettingMemo};
 pub use shared_str::Str;
 pub use sockets::{
     CertificateHash, Distrust, KeyHash, MAX_PINS, MAX_TLS_IDLE_MS, MAX_TLS_TIMEOUT_MS, SocketError,

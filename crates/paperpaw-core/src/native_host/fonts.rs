@@ -14,7 +14,7 @@ use paperpaw_native::host_glue::{
     buffers,
 };
 use paperpaw_platform::Color;
-use paperpaw_sdk::{FontHandle, Fonts, builtin::fonts as roles};
+use paperpaw_sdk::{FontHandle, Fonts, RoleMemo, builtin::fonts as roles};
 
 fn role(key: &str) -> Option<FontRole> {
     Some(match key {
@@ -29,21 +29,30 @@ fn role(key: &str) -> Option<FontRole> {
     })
 }
 
-fn resolve_role(fonts: &Fonts, role: FontRole) -> Option<FontHandle<'_>> {
+/// The fonts and, where the host keeps one, what it found of their roles.
+type Roles<'a> = (&'a Fonts, Option<&'a RoleMemo>);
+
+fn resolve_role(roles: Roles<'_>, role: FontRole) -> Option<FontHandle<'_>> {
+    let (fonts, memo) = roles;
+    let role_of = |name: &str| match memo {
+        Some(memo) => fonts.role_in(memo, name),
+        None => fonts.role(name),
+    };
+    let bound_of = |name: &str| match memo {
+        Some(memo) => fonts.bound_in(memo, name),
+        None => fonts.bound(name),
+    };
     match role {
-        FontRole::Ui => fonts.role(roles::UI.as_str()),
-        FontRole::Reading => fonts.role(roles::READING.as_str()),
-        FontRole::ReadingBold => fonts
-            .bound(roles::READING_BOLD.as_str())
-            .or_else(|| resolve_role(fonts, FontRole::Reading)),
-        FontRole::ReadingItalic => fonts
-            .bound(roles::READING_ITALIC.as_str())
-            .or_else(|| resolve_role(fonts, FontRole::Reading)),
-        FontRole::ReadingBoldItalic => fonts
-            .bound(roles::READING_BOLD_ITALIC.as_str())
-            .or_else(|| resolve_role(fonts, FontRole::ReadingBold)),
-        FontRole::Status => fonts.role(roles::STATUS.as_str()),
-        FontRole::Icons => fonts.bound(roles::ICONS.as_str()),
+        FontRole::Ui => role_of(roles::UI.as_str()),
+        FontRole::Reading => role_of(roles::READING.as_str()),
+        FontRole::ReadingBold => bound_of(roles::READING_BOLD.as_str())
+            .or_else(|| resolve_role(roles, FontRole::Reading)),
+        FontRole::ReadingItalic => bound_of(roles::READING_ITALIC.as_str())
+            .or_else(|| resolve_role(roles, FontRole::Reading)),
+        FontRole::ReadingBoldItalic => bound_of(roles::READING_BOLD_ITALIC.as_str())
+            .or_else(|| resolve_role(roles, FontRole::ReadingBold)),
+        FontRole::Status => role_of(roles::STATUS.as_str()),
+        FontRole::Icons => bound_of(roles::ICONS.as_str()),
     }
 }
 
@@ -57,9 +66,9 @@ fn resolve<'a>(
     if let FontKey::Data(font) = key {
         return font.handle();
     }
-    let fonts = frame.fonts().ok_or(ERR_STATE)?;
+    let (fonts, memo) = frame.fonts_memo().ok_or(ERR_STATE)?;
     match key {
-        FontKey::Role(role) => resolve_role(fonts, *role).ok_or(ERR_NOT_FOUND),
+        FontKey::Role(role) => resolve_role((fonts, memo), *role).ok_or(ERR_NOT_FOUND),
         FontKey::Named { id, acquired } => {
             if !frame.font_valid(id.namespace(), *acquired) {
                 return Err(ERR_STATE);
@@ -71,7 +80,7 @@ fn resolve<'a>(
             .then(|| fonts.get(id.as_str()))
             .flatten()
             .filter(|font| size.is_none_or(|size| widget_fonts::has_size(font, size)))
-            .or_else(|| resolve_role(fonts, FontRole::Ui))
+            .or_else(|| resolve_role((fonts, memo), FontRole::Ui))
             .ok_or(ERR_NOT_FOUND),
         FontKey::Data(_) => Err(ERR_STATE),
     }
@@ -84,26 +93,6 @@ fn with_font<R>(
     call: impl FnOnce(&FontHandle<'_>) -> Result<R, i32>,
 ) -> Result<R, i32> {
     with_bold(scope, owner, handle, None, |font, _| call(font))
-}
-
-/// Refuses a stale handle (`ERR_STATE`) or a role without a font
-/// (`ERR_NOT_FOUND`) as resolving would, but makes no handle: a call that
-/// resolves for its drawing anyway does not resolve twice.
-fn check(scope: &EnvironmentScope, owner: &OwnerResources, handle: u32) -> Result<(), i32> {
-    scope.with_frame(|frame| {
-        owner.with_font(handle, |key| match key {
-            FontKey::Data(font) => font.check(owner, frame.callback_epoch().ok()),
-            FontKey::Named { id, acquired } => frame
-                .font_valid(id.namespace(), *acquired)
-                .then_some(())
-                .ok_or(ERR_STATE),
-            FontKey::Role(role) => resolve_role(frame.fonts().ok_or(ERR_STATE)?, *role)
-                .map(|_| ())
-                .ok_or(ERR_NOT_FOUND),
-            // Not told apart: a widget's font that is gone is the menus'.
-            FontKey::Widget { .. } => Ok(()),
-        })
-    })?
 }
 
 /// The widest faux bold (as slot 41's `extra`).
@@ -214,7 +203,7 @@ fn widget_key(frame: &dyn Frame, widget: &str) -> Result<FontKey, i32> {
             }
         }
     };
-    if resolve_role(fonts, role).is_none() {
+    if resolve_role((fonts, None), role).is_none() {
         return Err(ERR_NOT_FOUND);
     }
     Ok(FontKey::Role(role))
@@ -225,7 +214,7 @@ fn named_or_role(frame: &dyn Frame, key: &str) -> Result<FontKey, i32> {
     let fonts = frame.fonts().ok_or(ERR_STATE)?;
     if key.starts_with("role:") {
         let role = role(key).ok_or(ERR_NOT_FOUND)?;
-        if !matches!(role, FontRole::Icons) && resolve_role(fonts, role).is_none() {
+        if !matches!(role, FontRole::Icons) && resolve_role((fonts, None), role).is_none() {
             return Err(ERR_NOT_FOUND);
         }
         return Ok(FontKey::Role(role));
@@ -319,7 +308,7 @@ fn icon_utf8(frame: &dyn Frame, name: &str, bytes: &mut [u8; 4]) -> Result<usize
         return Err(ERR_INVALID);
     }
     let fonts = frame.fonts().ok_or(ERR_STATE)?;
-    let font = resolve_role(fonts, FontRole::Icons).ok_or(ERR_NOT_FOUND)?;
+    let font = resolve_role((fonts, None), FontRole::Icons).ok_or(ERR_NOT_FOUND)?;
     let ch = paperpaw_sdk::icons::char(name).ok_or(ERR_NOT_FOUND)?;
     if !font.has_char(ch) {
         return Err(ERR_NOT_FOUND);
@@ -587,7 +576,7 @@ pub(crate) unsafe fn draw_inked(
 ) -> i32 {
     status((|| {
         canvas.present()?;
-        check(scope, owner, handle)?;
+        with_font(scope, owner, handle, |_| Ok(()))?;
         outputs([out])?;
         size_check(size)?;
         if color >> 24 != 0 || flags & !INKED_SHARP != 0 {

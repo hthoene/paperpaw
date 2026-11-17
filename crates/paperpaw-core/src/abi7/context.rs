@@ -257,6 +257,16 @@ pub(crate) trait Frame {
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         None
     }
+    /// [`Frame::fonts`] with what the host found of its roles, forgotten by
+    /// every change of the fonts: one call for both, as one asks for either.
+    fn fonts_memo(&self) -> Option<(&paperpaw_sdk::Fonts, Option<&paperpaw_sdk::RoleMemo>)> {
+        self.fonts().map(|fonts| (fonts, None))
+    }
+    /// What the host found of the places of settings, forgotten by every
+    /// change of the settings.
+    fn setting_memo(&self) -> Option<&paperpaw_sdk::SettingMemo> {
+        None
+    }
     fn ink_threshold(&self) -> Result<u8, i32> {
         Err(ERR_STATE)
     }

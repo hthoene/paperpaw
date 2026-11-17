@@ -388,7 +388,7 @@ fn readable(settings: &Settings, plugin: &Id, key: &str) -> Visibility {
     let own = key.split(['.', '@']).next() == Some(plugin.as_str());
     let secret = match SettingIdentity::new(key)
         .ok()
-        .and_then(|identity| identity.secret(settings))
+        .and_then(|identity| identity.secret(settings, None))
     {
         Some(secret) => secret,
         None if own => return Visibility::Redacted,
