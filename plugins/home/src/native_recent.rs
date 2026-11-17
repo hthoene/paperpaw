@@ -63,6 +63,9 @@ pub struct Listing {
     /// Whether a draw began since `page` was read by something that is no draw
     /// (what a measure or the page's check just read is used by the frame).
     by_draw: Cell<bool>,
+    /// The next frame keeps what the last one listed (a press that only moved
+    /// the focus: nothing it shows changed); one frame, not the ones after it.
+    keep_next: Cell<bool>,
     /// A draw is under way (its reads are the frame's).
     drawing: Cell<bool>,
     /// The frames begun, to let the instances of one frame agree on who begins it.
@@ -226,6 +229,12 @@ impl Listing {
         self.by_draw.set(false);
     }
 
+    /// The frame to come draws what the last one listed again, asking the host
+    /// for nothing: only the focus moved.
+    pub fn keep_for_next_frame(&self) {
+        self.keep_next.set(true);
+    }
+
     /// A draw begins (`true`) or is over.
     pub fn drawing(&self, on: bool) {
         self.drawing.set(on);
@@ -236,9 +245,10 @@ impl Listing {
     /// that is no draw read it since.
     fn begin_frame(&self, seen: &Cell<u32>) {
         if seen.get() == self.frame.get() {
-            if self.by_draw.get() {
+            if self.by_draw.get() && !self.keep_next.get() {
                 *self.page.borrow_mut() = None;
             }
+            self.keep_next.set(false);
             self.frame.set(self.frame.get().wrapping_add(1));
         }
         seen.set(self.frame.get());

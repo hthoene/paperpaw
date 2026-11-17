@@ -983,17 +983,25 @@ impl Dashboard {
     }
 
     /// Whether `input` only moves the focus on a page that is not being
-    /// arranged: no book, widget or setting can change by it, so what the
-    /// widgets read and composed for the last draw stays (no library call, no
-    /// new composition: only the two targets are drawn again).
+    /// arranged, or is the raw key the action comes after (it does nothing):
+    /// no book, widget or setting can change by it, so what the widgets read
+    /// and composed for the last draw stays (no library call, no new
+    /// composition: only the two targets are drawn again).
     #[must_use]
     pub fn is_focus_step(&self, input: &Input<'_>) -> bool {
-        !self.editing
-            && matches!(
-                *input,
-                Input::Action { action, .. }
-                    if matches!(Press::of(action), Some(press) if press != Press::Confirm)
-            )
+        match *input {
+            Input::Key { .. } => true,
+            Input::Action { action, .. } => {
+                !self.editing && matches!(Press::of(action), Some(press) if press != Press::Confirm)
+            }
+            _ => false,
+        }
+    }
+
+    /// A focus step is taken: the next frame draws the books the last one
+    /// listed, with no question to the library.
+    pub fn focus_step(&self) {
+        self.listing.keep_for_next_frame();
     }
 
     /// Takes an input: the page buttons turn the page, the others move the

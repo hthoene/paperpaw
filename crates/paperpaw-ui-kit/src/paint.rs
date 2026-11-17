@@ -384,6 +384,11 @@ pub fn replay_icons<'a>(
     // Whether anybody asks what is drawn; once not, no more is told.
     let mut asked = true;
     for op in ops {
+        // A frame is drawn in bands: an operation wholly outside this one
+        // changes no pixel and costs a host call (a text about 2 ms on the X4).
+        if outside_band(op, clip_top, clip_bottom) {
+            continue;
+        }
         match op {
             Paint::Describe { role, flags, rect } => {
                 if asked {
@@ -467,6 +472,54 @@ pub fn replay_icons<'a>(
         }
     }
     Ok(())
+}
+
+/// Whether `op` lies wholly outside the rows `top..bottom` of its frame (it
+/// draws nothing there). Texts are taken to reach a size and a half above and
+/// below their baseline, strokes their width past their line; what tells and
+/// does not draw is never outside.
+fn outside_band(op: &Paint, top: i32, bottom: i32) -> bool {
+    if top >= bottom {
+        return false;
+    }
+    let apart = |from: i32, to: i32| to <= top || from >= bottom;
+    let rows = |rect: &Rect, margin: i32| {
+        apart(
+            i32::from(rect.y).saturating_sub(margin),
+            (i32::from(rect.y) + i32::from(rect.height)).saturating_add(margin),
+        )
+    };
+    // Floats of a font size: well under `i32`.
+    #[allow(clippy::cast_possible_truncation, reason = "a size in pixels")]
+    let reach = |size: f32| (size * 1.5) as i32 + 2;
+    match op {
+        Paint::Fill(rect, _) | Paint::Stipple(rect, _) => rows(rect, 0),
+        Paint::Focus(rect, _, thickness, _) => rows(rect, thickness.map_or(0, |t| t as i32) + 2),
+        Paint::Section { clip, .. } => rows(clip, 0),
+        Paint::Line {
+            from, to, width, ..
+        } => {
+            let margin = (*width as i32).saturating_add(2);
+            apart(
+                from.y.min(to.y).saturating_sub(margin),
+                from.y.max(to.y).saturating_add(margin),
+            )
+        }
+        Paint::Bold { size, origin, .. } | Paint::Icon { size, origin, .. } => apart(
+            origin.baseline.saturating_sub(reach(*size)),
+            origin.baseline.saturating_add(reach(*size)),
+        ),
+        Paint::Text {
+            size, origin, clip, ..
+        } => {
+            clip.as_ref().is_some_and(|rect| rows(rect, 0))
+                || apart(
+                    origin.baseline.saturating_sub(reach(*size)),
+                    origin.baseline.saturating_add(reach(*size)),
+                )
+        }
+        _ => false,
+    }
 }
 
 fn replay_section(canvas: &mut Canvas<'_>, op: &Paint) -> Result<(), Error> {
