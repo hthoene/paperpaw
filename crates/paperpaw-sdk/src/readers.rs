@@ -14,20 +14,8 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::builtin::{params, settings};
+use crate::builtin::params;
 use crate::{Command, Id, Params, Storage, StorageError};
-
-/// [`settings::READING_APP`]'s value, and a format's: the reader the
-/// defaults give (the screen bound to `slots::READER`, or for a format
-/// the default reader).
-pub use settings::READING_APP_DEFAULT as DEFAULT;
-
-/// The setting of the reader for books of format `format`
-/// (`core.reading-app.<format>`); the kernel registers one for each
-/// format, offering the readers of that format.
-pub fn format_setting(format: &Id) -> String {
-    format!("{}.{format}", settings::READING_APP.as_str())
-}
 
 /// Where the choices for books are kept, a file a book (registered as
 /// book data by the kernel).
@@ -35,7 +23,7 @@ pub const DIR: &str = crate::data_path!("readers");
 
 /// Where the choices for folders are kept, a line each: reader, a tab,
 /// the folder.
-pub const FOLDERS: &str = crate::data_path!("readers-folders.txt");
+pub(crate) const FOLDERS: &str = crate::data_path!("readers-folders.txt");
 
 /// The largest file of choices read.
 const LIMIT: usize = 16 * 1024;
@@ -46,7 +34,7 @@ const PAST: &str = "readers-past";
 
 /// The parameter of a page's opening (`open_page`): *Back* is offered on
 /// it always.
-pub const PAGE: &str = "readers-page";
+pub(crate) const PAGE: &str = "readers-page";
 
 /// A path as choices are kept by: without `/` at its ends.
 fn plain(path: &str) -> &str {
@@ -159,25 +147,6 @@ pub fn folder_moved(storage: &dyn Storage, from: &str, to: &str) -> Result<(), S
     }
 }
 
-/// The reader kept for `choice`, if any (whether or not it is there).
-pub fn remembered(storage: &dyn Storage, choice: Choice<'_>) -> Option<String> {
-    match choice {
-        Choice::Book(book) => {
-            let data = crate::read_file(storage, &book_file(book), 256).ok()?;
-            let reader = String::from_utf8_lossy(&data).trim().to_string();
-            (!reader.is_empty()).then_some(reader)
-        }
-        Choice::Folder(folder) => {
-            let folder = plain(folder);
-            folders(storage)
-                .ok()?
-                .into_iter()
-                .find(|(_, f)| f == folder)
-                .map(|(reader, _)| reader)
-        }
-    }
-}
-
 /// Opens the book at `path` in the reader's slot: nothing is read before
 /// it runs.
 pub fn open(path: impl Into<String>) -> Command {
@@ -185,7 +154,7 @@ pub fn open(path: impl Into<String>) -> Command {
 }
 
 /// The readers that could not open the book opened with `params`.
-pub fn past(params: &Params) -> impl Iterator<Item = &str> {
+pub(crate) fn past(params: &Params) -> impl Iterator<Item = &str> {
     params
         .get(PAST)
         .unwrap_or_default()
@@ -208,16 +177,6 @@ pub fn opened(params: &Params) -> Params {
     opened
 }
 
-/// Asks which reading app opens the book at `path` this time (*Open
-/// with…*), nothing kept: the readers that read it, the other ways to
-/// open it plugins add ([`menus::OPEN_WITH`](crate::builtin::menus::OPEN_WITH)),
-/// and *Always open it with…*, which asks as [`ask`] does and keeps the
-/// choice.
-pub fn ask_once(path: &str) -> Command {
-    crate::builtin::events::READING_APP_WANTED
-        .emit(crate::builtin::events::ReadingAppWanted::new(path.to_string(), false).once(true))
-}
-
 /// Asks which reader `choice` gets, kept once chosen (a book is opened
 /// with it); *Standard* forgets the choice.
 pub fn ask(choice: Choice<'_>) -> Command {
@@ -231,64 +190,20 @@ pub fn ask(choice: Choice<'_>) -> Command {
     ))
 }
 
+/// Asks which reading app opens the book at `path` this time (*Open
+/// with…*), nothing kept: the readers that read it, the other ways to
+/// open it plugins add ([`menus::OPEN_WITH`](crate::builtin::menus::OPEN_WITH)),
+/// and *Always open it with…*, which asks as [`ask`] does and keeps the
+/// choice.
+pub fn ask_once(path: &str) -> Command {
+    crate::builtin::events::READING_APP_WANTED
+        .emit(crate::builtin::events::ReadingAppWanted::new(path.to_string(), false).once(true))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::MemoryStorage;
-
-    #[test]
-    fn choices_for_books_and_folders_are_kept_and_forgotten() {
-        let storage = MemoryStorage::new();
-        let comics = Id::new_static("comics.reader");
-        remember(&storage, Choice::Book("books/a.cbz"), Some(&comics)).unwrap();
-        remember(&storage, Choice::Folder("/manga/"), Some(&comics)).unwrap();
-        remember(
-            &storage,
-            Choice::Folder("novels"),
-            Some(&Id::new_static("x.reader")),
-        )
-        .unwrap();
-        assert_eq!(
-            remembered(&storage, Choice::Book("books/a.cbz")).as_deref(),
-            Some("comics.reader")
-        );
-        assert_eq!(remembered(&storage, Choice::Book("books/b.cbz")), None);
-        assert_eq!(
-            remembered(&storage, Choice::Folder("manga")).as_deref(),
-            Some("comics.reader")
-        );
-        remember(&storage, Choice::Folder("manga"), None).unwrap();
-        assert_eq!(remembered(&storage, Choice::Folder("manga")), None);
-        assert_eq!(
-            remembered(&storage, Choice::Folder("novels")).as_deref(),
-            Some("x.reader")
-        );
-        remember(&storage, Choice::Book("books/a.cbz"), None).unwrap();
-        assert_eq!(remembered(&storage, Choice::Book("books/a.cbz")), None);
-        // A book is the same with `/` at its ends or without.
-        remember(&storage, Choice::Book("/books/a.cbz"), Some(&comics)).unwrap();
-        assert!(remembered(&storage, Choice::Book("books/a.cbz")).is_some());
-        // Not the whole card.
-        assert_eq!(
-            remember(&storage, Choice::Folder("/"), Some(&comics)),
-            Err(StorageError::InvalidPath)
-        );
-    }
-
-    #[test]
-    fn folder_choices_follow_their_folders() {
-        let storage = MemoryStorage::new();
-        let comics = Id::new_static("comics.reader");
-        remember(&storage, Choice::Folder("manga"), Some(&comics)).unwrap();
-        remember(&storage, Choice::Folder("manga/old"), Some(&comics)).unwrap();
-        remember(&storage, Choice::Folder("mangaka"), Some(&comics)).unwrap();
-        folder_moved(&storage, "/manga/", "comics/manga").unwrap();
-        assert!(remembered(&storage, Choice::Folder("comics/manga")).is_some());
-        assert!(remembered(&storage, Choice::Folder("comics/manga/old")).is_some());
-        assert!(remembered(&storage, Choice::Folder("manga")).is_none());
-        // Only the folder, not one whose name starts alike.
-        assert!(remembered(&storage, Choice::Folder("mangaka")).is_some());
-    }
 
     #[test]
     fn choices_that_cannot_be_read_are_not_overwritten() {

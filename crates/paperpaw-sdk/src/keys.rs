@@ -88,7 +88,7 @@ pub enum InputMode {
 impl InputMode {
     /// What counts as used last before anything was: a touch screen is
     /// touched first, so no focus shows before a button is pressed
-    /// ([`ui::focus_shown`](crate::ui::focus_shown)); buttons elsewhere.
+    /// (`ui::focus_shown`); buttons elsewhere.
     pub fn at_start(input: &InputCaps) -> Self {
         if input.touch {
             Self::Touch

@@ -60,7 +60,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::ui::UiStyle;
-use crate::{Canvas, Color, Env, Id, Point, Rect};
+use crate::{Env, Id, Point, Rect};
 
 /// Columns at most, and rows at most.
 pub const MAX_COLUMNS: u8 = 6;
@@ -98,17 +98,17 @@ pub struct Item {
 }
 
 impl Item {
-    /// An item without a place yet.
-    pub fn new(what: What) -> Self {
-        Self { what, at: None }
-    }
-
     /// An item at `cells`.
     pub fn placed(what: What, cells: Cells) -> Self {
         Self {
             what,
             at: Some(cells),
         }
+    }
+
+    /// An item without a place yet.
+    pub fn new(what: What) -> Self {
+        Self { what, at: None }
     }
 }
 
@@ -319,16 +319,6 @@ pub fn columns_for(area: Rect, portrait_columns: u8) -> u8 {
     let (w, h) = (u32::from(area.width), u32::from(area.height.max(1)));
     let wide = (u32::from(portrait) * w + h / 2) / h;
     wide.clamp(u32::from(portrait), u32::from(MAX_COLUMNS)) as u8
-}
-
-/// The focus of a tool whose icon and name cover `ink` (as
-/// `draw_tool_lines` returns it): a frame round them, as far from
-/// their ink on every side, never through it.
-pub fn draw_tool_focus(canvas: &mut Canvas<'_>, style: &UiStyle, ink: Rect) {
-    let thick = style.line * 3;
-    let frame = ink.grow((style.gap / 2 + thick) as u16);
-    let radius = style.corner + style.line * 2;
-    canvas.stroke_round(frame, thick, radius, Color::BLACK);
 }
 
 #[cfg(test)]

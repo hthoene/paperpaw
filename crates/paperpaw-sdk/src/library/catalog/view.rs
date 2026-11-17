@@ -236,7 +236,7 @@ fn scan(
 }
 
 /// The book whose line starts at `offset` in the catalog (as
-/// [`each_at`](super::each_at) told), as noted last, seen by `visit`:
+/// `each_at` told), as noted last, seen by `visit`:
 /// `Ok(false)` for no line there, a header, or a book removed.
 ///
 /// # Errors

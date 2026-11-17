@@ -390,6 +390,7 @@ fn with_books(count: usize) -> Device {
 /// where Home has not been told it before.
 #[test]
 fn the_first_frame_of_a_return_makes_few_service_calls_with_a_full_shelf() {
+    let _shared = shared();
     let mut device = with_books(6);
     run_script(&mut device, "back").unwrap();
     run_script(&mut device, "wait:3000").unwrap();
@@ -480,6 +481,7 @@ fn entered(slot: &str) -> u32 {
 /// while its change event says it is off (one service call a return).
 #[test]
 fn a_return_with_the_same_books_does_not_measure_the_card_and_the_shelf_again() {
+    let _shared = shared();
     let mut device = with_a_full_shelf();
     let mut measured = Vec::new();
     let mut wifi = Vec::new();
@@ -517,6 +519,7 @@ fn a_return_with_the_same_books_does_not_measure_the_card_and_the_shelf_again() 
 /// the covers.
 #[test]
 fn the_covers_come_in_the_first_frame_or_the_frame_after() {
+    let _shared = shared();
     let mut device = device(true);
     run_script(&mut device, "back").unwrap();
     run_script(&mut device, "wait:3000").unwrap();
@@ -553,6 +556,7 @@ fn the_covers_come_in_the_first_frame_or_the_frame_after() {
 /// actions (their pages are service calls).
 #[test]
 fn the_first_back_to_home_reads_its_settings_and_registry_once() {
+    let _shared = shared();
     let mut device = device(true);
     let (all, settings) = counted(&mut device, &["back"]);
     assert_eq!(screen(&mut device), "home.dashboard");

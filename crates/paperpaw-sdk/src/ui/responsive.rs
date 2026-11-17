@@ -21,7 +21,7 @@ pub const EXPANDED_FROM_MM: u32 = 140;
 /// enforced:
 ///
 /// - compact: one column, as on the X4;
-/// - medium: a readable column in the middle ([`readable`](super::readable)),
+/// - medium: a readable column in the middle (`readable`),
 ///   grids with more columns;
 /// - expanded: also a list and the item chosen beside each other
 ///   ([`Pane::DETAIL`](crate::Pane::DETAIL)).

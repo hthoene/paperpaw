@@ -237,11 +237,6 @@ pub struct Services {
     events: Vec<EventSpec>,
 }
 
-/// The kernel's services a plugin may stand in for, providing its own
-/// under the same id (`Items::provide`):
-/// the library ([`library::service`](fn@crate::library::service)).
-pub const REPLACEABLE: &[&str] = &[crate::library::service::SERVICE];
-
 impl Services {
     pub fn new() -> Self {
         Self::default()

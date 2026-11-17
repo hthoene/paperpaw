@@ -5,15 +5,12 @@
 )]
 
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use super::*;
 use crate::MemoryStorage;
-use crate::library::{
-    self, Book, BookData, BookDataKind, clean_up_unused, key, move_data, moved, remove_data,
-    removed,
-};
+use crate::library::{self, BookData, BookDataKind, key};
 
 /// Where the details of the book at `path` are kept now.
 fn details(path: &str) -> String {
@@ -40,15 +37,6 @@ fn thumb(path: &str, variant: &str) -> String {
     )
 }
 
-/// Details of a book of `size` bytes titled `title`.
-fn titled(title: &str, size: u64) -> Book {
-    Book {
-        size,
-        title: Some(title.to_string()),
-        ..Book::default()
-    }
-}
-
 /// Every step of `split` until it is done; how many it took.
 fn finish(split: &mut Split, storage: &dyn Storage) -> usize {
     let mut steps = 0;
@@ -57,79 +45,6 @@ fn finish(split: &mut Split, storage: &dyn Storage) -> usize {
         assert!(steps < 10_000, "the moving does not end");
     }
     steps
-}
-
-#[test]
-fn details_and_covers_are_kept_in_the_part_of_their_key() {
-    let storage = MemoryStorage::new().with("books/a.epub", "12345");
-    library::save(&storage, "books/a.epub", &titled("Alice", 5)).unwrap();
-    assert!(storage.exists(&details("books/a.epub")));
-    assert!(!storage.exists(&old_details("books/a.epub")));
-    assert_eq!(
-        library::book(&storage, "books/a.epub").and_then(|b| b.title),
-        Some("Alice".into())
-    );
-    assert_eq!(library::split("x", "0123456789abcdef"), "x/01");
-    // A key too short for a part (none is) still has one.
-    assert_eq!(library::split("x", "1"), "x/00");
-}
-
-#[test]
-fn details_where_earlier_versions_kept_them_are_read_until_moved() {
-    let path = "books/a.epub";
-    let storage = MemoryStorage::new().with(path, "12345");
-    library::save(&storage, path, &titled("Alice", 5)).unwrap();
-    let text = storage.get(&details(path)).unwrap();
-    storage.remove(&details(path)).unwrap();
-    storage.write(&old_details(path), &text).unwrap();
-    assert_eq!(
-        library::book(&storage, path).and_then(|b| b.title),
-        Some("Alice".into())
-    );
-    // Changed: written where they go now, the old ones left to the move,
-    // which finds them out of date.
-    library::save(&storage, path, &titled("Alice II", 5)).unwrap();
-    assert!(storage.exists(&details(path)));
-    assert_eq!(
-        library::book(&storage, path).and_then(|b| b.title),
-        Some("Alice II".into())
-    );
-    assert!(wanted(&storage));
-    finish(&mut Split::new(), &storage);
-    assert!(!wanted(&storage));
-    assert!(!storage.exists(&old_details(path)));
-    assert_eq!(
-        library::book(&storage, path).and_then(|b| b.title),
-        Some("Alice II".into())
-    );
-}
-
-#[test]
-fn a_book_moved_or_removed_takes_what_earlier_versions_kept_along() {
-    let (a, b, c) = ("books/a.epub", "books/b.epub", "books/c.epub");
-    let storage = MemoryStorage::new().with(a, "12345").with(c, "123");
-    library::save(&storage, a, &titled("Alice", 5)).unwrap();
-    library::save(&storage, c, &titled("Carol", 3)).unwrap();
-    for path in [a, c] {
-        let text = storage.get(&details(path)).unwrap();
-        storage.remove(&details(path)).unwrap();
-        storage.write(&old_details(path), &text).unwrap();
-        storage.write(&old_thumb(path, ""), b"a cover").unwrap();
-    }
-    storage.rename(a, b).unwrap();
-    moved(&storage, a, b);
-    assert!(storage.exists(&details(b)));
-    assert!(storage.exists(&thumb(b, "")));
-    assert!(!storage.exists(&old_details(a)) && !storage.exists(&old_thumb(a, "")));
-    assert_eq!(
-        library::book(&storage, b).and_then(|b| b.title),
-        Some("Alice".into())
-    );
-    removed(&storage, c);
-    assert!(!storage.exists(&old_details(c)) && !storage.exists(&old_thumb(c, "")));
-    // Nothing is moved back to where the books were.
-    finish(&mut Split::new(), &storage);
-    assert!(!storage.exists(&details(a)) && !storage.exists(&details(c)));
 }
 
 #[test]
@@ -283,35 +198,6 @@ impl Storage for Refusing<'_> {
     }
 }
 
-/// A book moved while its details are where earlier versions kept them,
-/// and they cannot be moved (a full card, say): they stay, read there.
-#[test]
-fn details_that_cannot_go_with_their_book_are_kept() {
-    let (from, to) = ("books/a.epub", "books/b.epub");
-    let inner = MemoryStorage::new().with(from, "12345");
-    library::save(&inner, from, &titled("Alice", 5)).unwrap();
-    inner.rename(&details(from), &old_details(from)).unwrap();
-    let refused = key(from);
-    let storage = Refusing {
-        inner: &inner,
-        refused: &refused,
-    };
-    moved(&storage, from, to);
-    assert!(inner.exists(&old_details(from)));
-    assert_eq!(
-        library::book(&inner, from).and_then(|b| b.title),
-        Some("Alice".into())
-    );
-    // Moved where it can be: none left behind.
-    inner.rename(from, to).unwrap();
-    moved(&inner, from, to);
-    assert!(!inner.exists(&old_details(from)));
-    assert_eq!(
-        library::book(&inner, to).and_then(|b| b.title),
-        Some("Alice".into())
-    );
-}
-
 #[test]
 fn what_cannot_be_moved_stays_where_it_is_read() {
     let inner = MemoryStorage::new();
@@ -333,46 +219,6 @@ fn what_cannot_be_moved_stays_where_it_is_read() {
     assert!(wanted(&inner));
     finish(&mut Split::new(), &storage);
     assert!(inner.exists(&old_details(&paths[7])));
-}
-
-#[test]
-fn book_data_is_found_in_its_folder_and_in_the_parts_of_its_keys() {
-    let (a, b, gone) = ("books/a.epub", "books/b.epub", "books/gone.epub");
-    let (ka, kb, kg) = (key(a), key(b), key(gone));
-    let split = |k: &str| format!("cache/{}/{k}", &k[..2]);
-    let storage = MemoryStorage::new()
-        .with(a, "book")
-        // As earlier plugins keep it, and split.
-        .with(&format!("cache/{ka}.ini"), "flat")
-        .with(&format!("{}/0.txt", split(&ka)), "split")
-        .with(&format!("{}.row", split(&kg)), "gone")
-        .with(&format!("cache/{kg}"), "gone too")
-        // Not of a key, in a part: stays.
-        .with("cache/ab/notes.txt", "x");
-    let data = [BookData::new("cache", "", BookDataKind::Cache)];
-    move_data(&storage, &data, a, b);
-    assert_eq!(
-        storage.get(&format!("cache/{kb}.ini")),
-        Some(b"flat".to_vec())
-    );
-    assert_eq!(
-        storage.get(&format!("{}/0.txt", split(&kb))),
-        Some(b"split".to_vec())
-    );
-    assert!(!storage.exists(&format!("cache/{ka}.ini")));
-    assert!(!storage.exists(&format!("{}/0.txt", split(&ka))));
-    // Cleaned up: of books not there, flat and split.
-    storage.rename(a, b).unwrap();
-    assert_eq!(
-        clean_up_unused(&storage, &data, "books", BookDataKind::Cache),
-        Ok(2)
-    );
-    assert!(storage.exists(&format!("{}/0.txt", split(&kb))));
-    assert!(storage.exists("cache/ab/notes.txt"));
-    // Removed with its book.
-    remove_data(&storage, &data, b);
-    assert!(!storage.exists(&format!("cache/{kb}.ini")));
-    assert!(!storage.exists(&format!("{}/0.txt", split(&kb))));
 }
 
 #[test]

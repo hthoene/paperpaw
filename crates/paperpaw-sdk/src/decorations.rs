@@ -34,10 +34,8 @@ use core::fmt;
 
 use crate::builtin::groups;
 use crate::document::Locator;
-use crate::setting::Setting;
 use crate::{
-    Choices, Color, Env, Id, Rect, RegisterError, SettingExtra, SettingKind, SettingSpec,
-    SettingValue,
+    Choices, Color, Env, Id, RegisterError, SettingExtra, SettingKind, SettingSpec, SettingValue,
 };
 
 /// A named tone for backgrounds, ink and lines.
@@ -195,6 +193,35 @@ pub struct Decoration {
 }
 
 impl Decoration {
+    /// Whether anything is drawn over the text (lines, a frame).
+    fn has_strokes(&self) -> bool {
+        self.line.is_some() || self.frame || self.struck
+    }
+
+    /// The colour of the text, where it is not as it is.
+    pub fn ink_color(&self) -> Option<Color> {
+        self.ink.map(Tone::color)
+    }
+
+    /// This one with what `later` adds: each aspect this one leaves open
+    /// taken from `later`; frames and strikes from either; the thickness
+    /// goes with the strokes it came with.
+    pub fn combined(self, later: Decoration) -> Decoration {
+        Decoration {
+            background: self.background.or(later.background),
+            ink: self.ink.or(later.ink),
+            line: self.line.or(later.line),
+            line_tone: self.line_tone.or(later.line_tone),
+            thickness: if self.has_strokes() || !later.has_strokes() {
+                self.thickness
+            } else {
+                later.thickness
+            },
+            frame: self.frame || later.frame,
+            struck: self.struck || later.struck,
+        }
+    }
+
     /// No mark at all.
     pub const NONE: Decoration = Decoration {
         background: None,
@@ -256,43 +283,6 @@ impl Decoration {
             && !self.frame
             && !self.struck
     }
-
-    /// Whether anything is drawn over the text (lines, a frame).
-    fn has_strokes(&self) -> bool {
-        self.line.is_some() || self.frame || self.struck
-    }
-
-    /// This one with what `later` adds: each aspect this one leaves open
-    /// taken from `later`; frames and strikes from either; the thickness
-    /// goes with the strokes it came with.
-    pub fn combined(self, later: Decoration) -> Decoration {
-        Decoration {
-            background: self.background.or(later.background),
-            ink: self.ink.or(later.ink),
-            line: self.line.or(later.line),
-            line_tone: self.line_tone.or(later.line_tone),
-            thickness: if self.has_strokes() || !later.has_strokes() {
-                self.thickness
-            } else {
-                later.thickness
-            },
-            frame: self.frame || later.frame,
-            struck: self.struck || later.struck,
-        }
-    }
-
-    /// The colour of the text, where it is not as it is.
-    pub fn ink_color(&self) -> Option<Color> {
-        self.ink.map(Tone::color)
-    }
-}
-
-/// All marks of `decorations` combined, the earlier winning (see
-/// [`Decoration::combined`]).
-pub fn combine(decorations: impl IntoIterator<Item = Decoration>) -> Decoration {
-    decorations
-        .into_iter()
-        .fold(Decoration::NONE, Decoration::combined)
 }
 
 /// The options of a tone setting: `none` (no tone, or the text as it
@@ -561,25 +551,6 @@ macro_rules! role_settings {
     }};
 }
 
-/// The boxes of words as one per line: `words` are the marked words'
-/// places in reading order with their index on the page; words next to
-/// each other on a line become one box, also where the line runs right
-/// to left (the next word left of the one before).
-pub fn join_boxes(words: impl IntoIterator<Item = (usize, Rect)>) -> Vec<Rect> {
-    let mut boxes: Vec<Rect> = Vec::new();
-    let mut previous: Option<usize> = None;
-    for (index, area) in words {
-        match boxes.last_mut() {
-            Some(last) if previous == Some(index.wrapping_sub(1)) && last.y == area.y => {
-                *last = last.union(&area);
-            }
-            _ => boxes.push(area),
-        }
-        previous = Some(index);
-    }
-    boxes
-}
-
 /// A word of a page given to decorators: its text and where it is in the
 /// book. A word split over two lines (hyphenated) is two page words, each
 /// with the whole word as its text and its own part's place.
@@ -590,14 +561,6 @@ pub struct PageWord<'a> {
     pub start: Locator,
     /// Just after its last character.
     pub end: Locator,
-}
-
-impl<'a> PageWord<'a> {
-    /// The word `text`, from `start` to just after its last character
-    /// (`end`).
-    pub const fn new(text: &'a str, start: Locator, end: Locator) -> Self {
-        Self { text, start, end }
-    }
 }
 
 /// The words of a page, for decorators.
@@ -612,18 +575,6 @@ pub struct PageText<'a> {
     pub words: &'a [PageWord<'a>],
 }
 
-impl<'a> PageText<'a> {
-    /// The `words` of a page of the book at `path`, in reading order, in
-    /// `language` (e.g. `de`; empty where unknown).
-    pub const fn new(path: &'a str, language: &'a str, words: &'a [PageWord<'a>]) -> Self {
-        Self {
-            path,
-            language,
-            words,
-        }
-    }
-}
-
 /// A range a decorator marks, with its role.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -635,14 +586,9 @@ pub struct Decorated {
 }
 
 impl Decorated {
-    /// The text from `start` to just before `end`, in `role`.
-    pub fn new(start: Locator, end: Locator, role: Id) -> Self {
-        Self { start, end, role }
-    }
-
     /// The range of `words` (from the first's start to the last's end) in
     /// `role`.
-    pub fn words(words: &[PageWord<'_>], role: &Id) -> Option<Decorated> {
+    pub(crate) fn words(words: &[PageWord<'_>], role: &Id) -> Option<Decorated> {
         Some(Decorated {
             start: words.first()?.start,
             end: words.last()?.end,
@@ -652,10 +598,10 @@ impl Decorated {
 }
 
 /// What a decorator does: a page's words in, the ranges it marks out.
-pub type DecorateFn = fn(&Env<'_>, &PageText<'_>) -> Vec<Decorated>;
+pub(crate) type DecorateFn = fn(&Env<'_>, &PageText<'_>) -> Vec<Decorated>;
 /// What a decorator's marks depend on besides the page (its data, its
 /// settings): readers ask again when it changes.
-pub type DecoratorSignatureFn = fn(&Env<'_>) -> u64;
+pub(crate) type DecoratorSignatureFn = fn(&Env<'_>) -> u64;
 
 /// How a decorator marks a page: by a function, or by the rules of a
 /// [`PatternDecorator`] (a plugin without code's `marks.ini`).
@@ -716,18 +662,6 @@ impl DecoratorSpec {
         self
     }
 
-    /// Runs only while `switch` is on.
-    pub fn switch(mut self, switch: &Setting<bool>) -> Self {
-        self.switch = Some(switch.into());
-        self
-    }
-
-    /// Hears taps on what it marks.
-    pub fn taps(mut self) -> Self {
-        self.taps = true;
-        self
-    }
-
     /// What its marks depend on besides the page. Readers ask for it
     /// whenever they draw a page (on some devices once for every band of
     /// it): it says it from memory, e.g. a count of the changes to its
@@ -741,13 +675,6 @@ impl DecoratorSpec {
 /// Marks words by [patterns](crate::pattern): each found on the page's
 /// text (its words with a space between), the words it touches marked in
 /// its role. A word broken over two lines counts once, whole.
-///
-/// ```
-/// # use paperpaw_sdk::{Id, decorations::PatternDecorator, pattern::Pattern};
-/// let names = PatternDecorator::new()
-///     .rule(Pattern::new(r"\b[A-Z][a-z]+ (?:of|von) [A-Z][a-z]+\b").unwrap(), Id::new_static("my.name"))
-///     .into_spec(Id::new_static("my.names"), "my.names");
-/// ```
 #[derive(Debug, Clone, Default)]
 pub struct PatternDecorator {
     rules: Vec<(crate::pattern::Pattern, Id)>,
@@ -759,54 +686,13 @@ impl PatternDecorator {
     }
 
     /// Marks what `pattern` finds in `role`; rules are tried in order.
-    pub fn rule(mut self, pattern: crate::pattern::Pattern, role: Id) -> Self {
+    pub(crate) fn rule(mut self, pattern: crate::pattern::Pattern, role: Id) -> Self {
         self.rules.push((pattern, role));
         self
     }
 
     pub fn is_empty(&self) -> bool {
         self.rules.is_empty()
-    }
-
-    /// The marks of its rules on `page`.
-    pub fn decorate(&self, page: &PageText<'_>) -> Vec<Decorated> {
-        if self.rules.is_empty() {
-            return Vec::new();
-        }
-        // The page's text, and the words each byte range of it is: a word
-        // broken over two lines is its two page words.
-        let mut text = alloc::string::String::new();
-        let mut spans: Vec<(usize, usize, usize, usize)> = Vec::new();
-        for (i, word) in page.words.iter().enumerate() {
-            if let Some(last) = spans.last_mut() {
-                let before = &page.words[last.3];
-                if before.text == word.text && before.end == word.start {
-                    last.3 = i;
-                    continue;
-                }
-                text.push(' ');
-            }
-            let start = text.len();
-            text.push_str(word.text);
-            spans.push((start, text.len(), i, i));
-        }
-        let mut marks = Vec::new();
-        for (pattern, role) in &self.rules {
-            for (start, end) in pattern.find_iter(&text) {
-                let touched = spans.iter().filter(|s| s.0 < end && start < s.1);
-                let (first, last) = touched.fold((usize::MAX, 0), |(first, last), s| {
-                    (first.min(s.2), last.max(s.3))
-                });
-                if let Some(mark) = page
-                    .words
-                    .get(first..=last)
-                    .and_then(|words| Decorated::words(words, role))
-                {
-                    marks.push(mark);
-                }
-            }
-        }
-        marks
     }
 
     /// A decorator `id`, named `title`, marking by these rules.
@@ -925,26 +811,6 @@ impl fmt::Debug for DecoratorSpec {
     }
 }
 
-/// A range of a page that a decorator marked.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct Mark {
-    /// The decorator.
-    pub decorator: Id,
-    pub role: Id,
-    pub start: Locator,
-    pub end: Locator,
-    /// Its decorator hears taps on it.
-    pub taps: bool,
-}
-
-impl Mark {
-    /// Whether it covers some of the text from `start` to `end`.
-    pub fn overlaps(&self, start: Locator, end: Locator) -> bool {
-        self.start < end && start < self.end
-    }
-}
-
 /// The registered decorators, by order.
 #[derive(Debug, Default)]
 pub struct Decorators {
@@ -1031,103 +897,6 @@ mod tests {
     }
 
     #[test]
-    fn patterns_mark_the_words_they_touch() {
-        use crate::pattern::Pattern;
-        let at = |n: u32| Locator::new(0, n);
-        let word = |text, start, end| PageWord {
-            text,
-            start: at(start),
-            end: at(end),
-        };
-        // "The White Rabbit ran to Kaninchen-" / "-bau": the last word broken.
-        let words = [
-            word("The", 0, 3),
-            word("White", 4, 9),
-            word("Rabbit", 10, 16),
-            word("ran", 17, 20),
-            word("Kaninchenbau", 21, 30),
-            word("Kaninchenbau", 30, 33),
-        ];
-        let page = PageText {
-            path: "b.epub",
-            language: "en",
-            words: &words,
-        };
-        let name = Id::new_static("my.name");
-        let burrow = Id::new_static("my.burrow");
-        let marks = PatternDecorator::new()
-            .rule(Pattern::new(r"White Rabbit").unwrap(), name.clone())
-            .rule(Pattern::new(r"(?i)bit\b").unwrap(), name.clone())
-            .rule(Pattern::new(r"\bkaninchen").unwrap(), burrow.clone())
-            .rule(Pattern::new(r"(?i)\bkaninchen").unwrap(), burrow.clone())
-            .decorate(&page);
-        let range = |m: &Decorated| (m.start.offset, m.end.offset, m.role.clone());
-        assert_eq!(
-            marks.iter().map(range).collect::<Vec<_>>(),
-            [
-                (4, 16, name.clone()),
-                // Part of a word marks it whole.
-                (10, 16, name),
-                // The broken word once, both its parts.
-                (21, 33, burrow),
-            ]
-        );
-        assert!(PatternDecorator::new().decorate(&page).is_empty());
-    }
-
-    #[test]
-    fn marks_of_a_plugin_without_code_are_read() {
-        let source = "[names]\ntitle = Names\npattern = (?i)\\bwhite rabbit\\b\n\
-                      pattern = \\bAlice\\b\nbackground = yellow\nline = wavy\n\
-                      line-tone = red\nthickness = 6\n\n[places]\npattern = Wonderland\n\
-                      frame = on\n";
-        let plugin = Id::new_static("tale");
-        let rules = MarkRules::parse(&plugin, source).unwrap();
-        let names = Decoration::NONE
-            .background(Tone::Yellow)
-            .line(LineKind::Wavy)
-            .line_tone(Tone::Red)
-            .thickness(6);
-        assert_eq!(
-            rules.roles,
-            [
-                (Id::new_static("tale.names"), "Names".into(), names),
-                (
-                    Id::new_static("tale.places"),
-                    "places".into(),
-                    Decoration::NONE.frame()
-                ),
-            ]
-        );
-        let words = [PageWord {
-            text: "Alice",
-            start: Locator::new(0, 0),
-            end: Locator::new(0, 5),
-        }];
-        let page = PageText {
-            path: "b.epub",
-            language: "en",
-            words: &words,
-        };
-        let marks = rules.decorator.decorate(&page);
-        assert_eq!(marks.len(), 1);
-        assert_eq!(marks[0].role, Id::new_static("tale.names"));
-        for (bad, line) in [
-            ("[a]\npattern = (\n", 2),
-            ("[a]\nbackground = mauve\n", 2),
-            ("[a]\ncolour = red\n", 2),
-            ("[a]\nthickness = 99\n", 2),
-            ("[a]\nframe = maybe\n", 2),
-            ("[a]\npattern = x\n[b]\npattern = z\n[a]\npattern = y\n", 6),
-        ] {
-            match MarkRules::parse(&plugin, bad) {
-                Err(RegisterError::Parse { line: at, .. }) => assert_eq!(at, line, "{bad}"),
-                other => panic!("{bad}: {other:?}"),
-            }
-        }
-    }
-
-    #[test]
     fn tones_and_lines_by_their_ids() {
         for &tone in Tone::ALL {
             assert_eq!(Tone::from_id(tone.id()), Some(tone));
@@ -1137,41 +906,5 @@ mod tests {
         }
         assert_eq!(Tone::from_id(NONE), None);
         assert_eq!(Tone::from_id(AS_IS), None);
-    }
-
-    #[test]
-    fn the_earlier_wins_what_both_set() {
-        let first = Decoration::NONE.background(Tone::Yellow).thickness(2);
-        let second = Decoration::NONE
-            .background(Tone::Gray)
-            .line(LineKind::Wavy)
-            .thickness(8)
-            .frame();
-        let both = first.combined(second);
-        assert_eq!(both.background, Some(Tone::Yellow));
-        assert_eq!(both.line, Some(LineKind::Wavy));
-        assert!(both.frame);
-        // The thickness goes with the strokes, which came from the second.
-        assert_eq!(both.thickness, 8);
-        assert_eq!(combine([Decoration::NONE, second]), second);
-        assert!(combine([]).is_none());
-    }
-
-    #[test]
-    fn words_next_to_each_other_join() {
-        let boxes = join_boxes([
-            (0, Rect::new(0, 0, 10, 5)),
-            (1, Rect::new(12, 0, 10, 5)),
-            (3, Rect::new(40, 0, 10, 5)),
-            (4, Rect::new(0, 8, 10, 5)),
-        ]);
-        assert_eq!(
-            boxes,
-            [
-                Rect::new(0, 0, 22, 5),
-                Rect::new(40, 0, 10, 5),
-                Rect::new(0, 8, 10, 5)
-            ]
-        );
     }
 }

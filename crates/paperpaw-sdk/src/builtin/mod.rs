@@ -466,7 +466,7 @@ pub mod settings {
     /// (see [`readers`](crate::readers)): [`READING_APP_DEFAULT`] (the
     /// screen bound to [`slots::READER`](super::slots::READER)) or a
     /// reader's id. Each format has one of its own too
-    /// ([`readers::format_setting`](crate::readers::format_setting)).
+    /// (`readers::format_setting`).
     pub const READING_APP: Setting<Text> = Setting::new("core.reading-app");
     /// [`READING_APP`] and a format's: as the defaults give.
     pub const READING_APP_DEFAULT: &str = "core.reading-app.default";
@@ -703,7 +703,7 @@ pub mod settings {
     pub const CONTRAST_NORMAL: &str = "core.contrast.normal";
     pub const CONTRAST_STRONG: &str = "core.contrast.strong";
     /// The grays of the interface by what they are for, e.g. `muted=60
-    /// line=170` (see [`ui::Palette`](crate::ui::Palette)): for themes.
+    /// line=170` (see `ui::Palette`): for themes.
     pub const UI_PALETTE: Setting<Text> = Setting::new("core.ui-palette");
     /// How the edges of the interface's letters are inked, as a list of
     /// `[script=]curve` entries (see

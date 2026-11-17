@@ -106,7 +106,7 @@ pub fn asked(storage: &dyn Storage, archives: &mut Vec<String>, archive: &str) {
 /// out: there is none whole, or it is of another library, version or
 /// archive. Not where there are no books to ask for.
 pub fn wanted(env: &Env<'_>, archive: &str) -> bool {
-    let Some(version) = crate::library::service(env).version(env) else {
+    let Some(version) = index::catalog_version(env.storage()) else {
         return false;
     };
     let archive = archive.trim_matches('/');
@@ -173,9 +173,7 @@ impl Build {
     pub fn start(env: &Env<'_>, archive: &str) -> Result<Build, StorageError> {
         let storage = env.storage();
         clean_up(storage);
-        let version = crate::library::service(env)
-            .version(env)
-            .ok_or(StorageError::NotFound)?;
+        let version = index::catalog_version(storage).ok_or(StorageError::NotFound)?;
         storage.write(RUNS, b"")?;
         let (max_series, run_len) = if env.device().memory == MemoryClass::Small {
             (SMALL_SERIES, SMALL_RUN)
@@ -264,19 +262,6 @@ impl Build {
     fn read_books(&mut self, env: &Env<'_>, at: u64) -> Result<(), StorageError> {
         let storage = env.storage();
         let mut failed = None;
-        if !crate::library::service::is_kept(env) {
-            crate::library::service(env).each(env, &mut |key, record| {
-                if failed.is_none()
-                    && let Err(e) = self.take_book(storage, key, &record)
-                {
-                    failed = Some(e);
-                }
-            });
-            if let Some(e) = failed {
-                return Err(e);
-            }
-            return self.end_reading(storage);
-        }
         let mut lines = 0;
         let next = catalog::lines_from(
             storage,

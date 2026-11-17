@@ -465,8 +465,6 @@ const paperpaw_sdk::formats::COVER_FIT: paperpaw_image::Fit = Fit::side(300)
 const paperpaw_sdk::formats::IMAGE_FIT: paperpaw_image::Fit = Fit::side(1600)
 const paperpaw_sdk::formats::SNIFFED: usize = 32usize
 const paperpaw_sdk::formats::SNIFF_BYTES: usize = 512usize
-const paperpaw_sdk::help_old::POINT: &str = "help.hints"
-const paperpaw_sdk::help_old::READY: paperpaw_sdk::event::Event<paperpaw_sdk::builtin_old::events::ScreenShown> = Event::new("help.ready")
 const paperpaw_sdk::icons::BACK: &str = "core.icon.back"
 const paperpaw_sdk::icons::BUSY: &str = "core.icon.busy"
 const paperpaw_sdk::icons::DELETE: &str = "core.icon.delete"
@@ -484,31 +482,13 @@ const paperpaw_sdk::keys::SWIPES: [&str; 4] = ["left", "right", "up", "down"]
 const paperpaw_sdk::keys::ZONES: [&str; 9] = [ "top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right", ]
 const paperpaw_sdk::library_old::DIR: &str = ".paperpaw/library"
 const paperpaw_sdk::library_old::FOLDER: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = crate::builtin::settings::LIBRARY_FOLDER
-const paperpaw_sdk::library_old::NEW_DAYS: u32 = 30u32
-const paperpaw_sdk::library_old::catalog::MAX_FOUND: usize = 200usize
 const paperpaw_sdk::library_old::catalog::MAX_LOG: usize = 256usize
-const paperpaw_sdk::library_old::catalog::scan::LINE_CAP: usize = 8_192usize
 const paperpaw_sdk::library_old::catalog::view::LINE_MAX: usize = 16_384usize
 const paperpaw_sdk::library_old::catalog::view::VIEW_NUMBER: usize = 32usize
 const paperpaw_sdk::library_old::catalog::view::VIEW_PATH: usize = 512usize
 const paperpaw_sdk::library_old::fallible::KEY_LEN: usize = 16usize
-const paperpaw_sdk::library_old::index::FAVOURITE: u8 = 1u8
-const paperpaw_sdk::library_old::index::KEY: usize = 8usize
-const paperpaw_sdk::library_old::index::NEVER: u8 = 255u8
 const paperpaw_sdk::library_old::index::NONE: u8 = 255u8
-const paperpaw_sdk::library_old::index::NO_SERIES: u16 = 65_535u16
-const paperpaw_sdk::library_old::index::OPENED: u8 = 2u8
-const paperpaw_sdk::library_old::index::REMOVED: u8 = 4u8
-const paperpaw_sdk::library_old::listing::UNRANKED: u32 = 4_294_967_295u32
-const paperpaw_sdk::library_old::service::LibraryService::KEY (paperpaw_sdk::services::ServiceType): &'static str = "core.library/1"
-const paperpaw_sdk::library_old::service::SERVICE: &str = "core.library"
-const paperpaw_sdk::library_old::service::VERSION: paperpaw_sdk::version::Version = crate::Version::new(1, 0, 0)
-const paperpaw_sdk::library_old::what::COVER: u32 = 4u32
-const paperpaw_sdk::library_old::what::DETAILS: u32 = 1u32
-const paperpaw_sdk::library_old::what::FAVOURITE: u32 = 8u32
-const paperpaw_sdk::library_old::what::FIELDS: u32 = 32u32
 const paperpaw_sdk::library_old::what::PROGRESS: u32 = 2u32
-const paperpaw_sdk::library_old::what::STATUS: u32 = 16u32
 const paperpaw_sdk::logo_old::LOGO: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = Setting::new("core.logo")
 const paperpaw_sdk::memory::Memory::NONE: Self = Self { read: None }
 const paperpaw_sdk::memory::Placement::FAST: Self = Self(1)
@@ -2169,8 +2149,6 @@ const paperpaw_sdk::presets::WIDGET_LOOK: &str = "core.widget-look"
 const paperpaw_sdk::random::READABLE: &str = "acdefhkmnprtwxy347"
 const paperpaw_sdk::random::Random::NONE: Self = Self { fill: None }
 const paperpaw_sdk::readers_old::DIR: &str = ".paperpaw/readers"
-const paperpaw_sdk::readers_old::FOLDERS: &str = ".paperpaw/readers-folders.txt"
-const paperpaw_sdk::readers_old::PAGE: &str = "readers-page"
 const paperpaw_sdk::reading_old::typeset::StatusRoom::NONE: paperpaw_sdk::reading_old::typeset::StatusRoom = StatusRoom { top: false, bottom: false, height: 0.0, edge: 0.0, }
 const paperpaw_sdk::realtime::ESCAPE_HOLD: core::time::Duration = Duration::from_secs(2)
 const paperpaw_sdk::realtime::RoomSteps::BANDS: Self = Self(1 << 5)
@@ -2202,15 +2180,10 @@ const paperpaw_sdk::served::CABLE_PORT: u16 = 0u16
 const paperpaw_sdk::served::KEY_LETTERS: usize = 16usize
 const paperpaw_sdk::served::LOCKED_FOR: u64 = 60_000u64
 const paperpaw_sdk::served::WRONG_KEYS: u32 = 5u32
-const paperpaw_sdk::services::REPLACEABLE: &[&str] = &[crate::library::service::SERVICE]
 const paperpaw_sdk::sockets::MAX_PINS: usize = 4usize
 const paperpaw_sdk::sockets::MAX_TLS_IDLE_MS: u32 = 1_800_000u32
 const paperpaw_sdk::sockets::MAX_TLS_TIMEOUT_MS: u32 = 60_000u32
 const paperpaw_sdk::sound::params::FAILED: &str = "failed"
-const paperpaw_sdk::status_old::PRIORITY: u8 = 128u8
-const paperpaw_sdk::status_old::context::CHAPTER: &str = "chapter"
-const paperpaw_sdk::status_old::context::CHAPTERS: &str = "chapters"
-const paperpaw_sdk::status_old::context::PAGE: &str = "page"
 const paperpaw_sdk::time_old::AUTO: &str = "core.tz.auto"
 const paperpaw_sdk::time_old::CLOCK_12H: &str = "core.clock.12h"
 const paperpaw_sdk::time_old::CLOCK_24H: &str = "core.clock.24h"
@@ -2220,16 +2193,10 @@ const paperpaw_sdk::time_old::WEEK_STARTS: &[&str] = &["core.week.auto", "core.w
 const paperpaw_sdk::ui_old::choice::LABELS: &str = "labels"
 const paperpaw_sdk::ui_old::choice::OPTION: &str = "option"
 const paperpaw_sdk::ui_old::choice::OPTIONS: &str = "options"
-const paperpaw_sdk::ui_old::confirm::ANSWER: &str = "answer"
 const paperpaw_sdk::ui_old::confirm::FOCUS_YES: &str = "focus-yes"
 const paperpaw_sdk::ui_old::confirm::NO_LABEL: &str = "no-label"
 const paperpaw_sdk::ui_old::confirm::ONLY_YES: &str = "only-yes"
 const paperpaw_sdk::ui_old::confirm::YES_LABEL: &str = "yes-label"
-const paperpaw_sdk::ui_old::look_extra::PartKind::BADGE: Self = Self(3)
-const paperpaw_sdk::ui_old::look_extra::PartKind::DIALOG: Self = Self(5)
-const paperpaw_sdk::ui_old::look_extra::PartKind::SCROLLBAR: Self = Self(1)
-const paperpaw_sdk::ui_old::look_extra::PartKind::TAB: Self = Self(2)
-const paperpaw_sdk::ui_old::look_extra::PartKind::TOAST: Self = Self(4)
 const paperpaw_sdk::ui_old::responsive::COMPACT_BELOW_MM: u32 = 100u32
 const paperpaw_sdk::ui_old::responsive::EXPANDED_FROM_MM: u32 = 140u32
 const paperpaw_sdk::ui_old::style::Ink::ACCENT: paperpaw_sdk::ui_old::style::Ink = Ink(14)
@@ -2252,28 +2219,10 @@ const paperpaw_sdk::ui_old::style::Ink::SECTION: paperpaw_sdk::ui_old::style::In
 const paperpaw_sdk::ui_old::style::Ink::SELECTION: paperpaw_sdk::ui_old::style::Ink = Ink(17)
 const paperpaw_sdk::ui_old::style::Ink::TEXT: paperpaw_sdk::ui_old::style::Ink = Ink(0)
 const paperpaw_sdk::ui_old::style::Ink::WARNING: paperpaw_sdk::ui_old::style::Ink = Ink(18)
-const paperpaw_sdk::ui_old::style::Palette::DEFAULT: paperpaw_sdk::ui_old::style::Palette = { const GRAYS: [u8
-const paperpaw_sdk::ui_old::style::Palette::SLOTS: usize = 32
-const paperpaw_sdk::ui_old::style::TextRole::BODY: Self = Self(2)
-const paperpaw_sdk::ui_old::style::TextRole::BUTTON: Self = Self(9)
-const paperpaw_sdk::ui_old::style::TextRole::CAPTION: Self = Self(0)
-const paperpaw_sdk::ui_old::style::TextRole::DISPLAY: Self = Self(6)
-const paperpaw_sdk::ui_old::style::TextRole::HEAD: Self = Self(4)
-const paperpaw_sdk::ui_old::style::TextRole::HEADLINE: Self = Self(5)
-const paperpaw_sdk::ui_old::style::TextRole::HINT: Self = Self(8)
-const paperpaw_sdk::ui_old::style::TextRole::ICON: Self = Self(10)
-const paperpaw_sdk::ui_old::style::TextRole::NUMERAL: Self = Self(7)
-const paperpaw_sdk::ui_old::style::TextRole::SMALL: Self = Self(1)
-const paperpaw_sdk::ui_old::style::TextRole::TITLE: Self = Self(3)
-const paperpaw_sdk::ui_old::style::UiStyle::PLAIN: paperpaw_sdk::ui_old::style::UiStyle = UiStyle { text: 20.0, small: 15.0, title: 23.0, head: 23.0, row: 60, control_row: 60, header: 64, margin: 12, gap: 8, line: 2, dark_header: false, corner: 0, strong: false, pill: false, focus: Focus::Fill, separators: Separators::Line, plain_header: false, cards: false, grays: 2, finger: 0, look: super::look::Look::none(), palette: Palette::DEFAULT, direction: 0, }
-const paperpaw_sdk::ui_old::text::ICON_SCALE: f32 = 1.25f32
-const paperpaw_sdk::ui_old::text::NOTE_LINES: usize = 2usize
-const paperpaw_sdk::ui_old::text::NOTE_LINES_MOST: usize = 4usize
 const paperpaw_sdk::version::DATA_FORMATS: u32 = 5u32
 const paperpaw_sdk::version::MAX_PRE_NUMBER: u16 = 8_190u16
 const paperpaw_sdk::version::SDK_VERSION: paperpaw_sdk::version::Version = crate::package_version!()
 const paperpaw_sdk::web::USER_AGENT: &str = "PaperPaw/0.6.0-beta.3 (e-reader)"
-const paperpaw_sdk::widgets_old::ALIGNMENTS: &[&str] = &["core.align.left", "core.align.center", "core.align.right"]
 const paperpaw_sdk::widgets_old::FILL: &str = "core.fill"
 const paperpaw_sdk::widgets_old::SPACE: &str = "core.space"
 const paperpaw_sdk::widgets_old::SPACE_SIZE: paperpaw_sdk::setting::Setting<paperpaw_sdk::setting::Text> = crate::setting::Setting::new("core.space.size")
@@ -2378,7 +2327,6 @@ enum paperpaw_sdk::hyphenation::Table<'a> { Compiled(0: paperpaw_hyphen::Pattern
 enum paperpaw_sdk::hyphenation::card::Unopened { Failed, GiveUp, NoRoom }
 enum paperpaw_sdk::id::IdError { Invalid, NoMemory }
 enum paperpaw_sdk::install_old::Digest { Sha1(0: alloc::string::String), Sha256(0: alloc::string::String) }
-enum paperpaw_sdk::install_old::Received { Other, Next(0: paperpaw_sdk::install_old::Progress), Complete(0: paperpaw_sdk::install_old::Progress), Failed(0: paperpaw_sdk::install_old::Progress) }
 enum paperpaw_sdk::install_old::origin::Origin { Store, Local }
 enum paperpaw_sdk::keys::BindingOrigin { Plugin, Device, Preset, User }
 enum paperpaw_sdk::keys::InputKind { Input, Gesture }
@@ -2386,13 +2334,10 @@ enum paperpaw_sdk::keys::InputMode { Buttons, Touch, Pen }
 enum paperpaw_sdk::keys::PointerVerdict { Pass, Observe, Capture, Recognized }
 enum paperpaw_sdk::keys::Recognition { Nothing, Recognized }
 enum paperpaw_sdk::library_old::BookDataKind { UserData, Cache }
-enum paperpaw_sdk::library_old::catalog::Reading { Unread, Begun, Finished }
 enum paperpaw_sdk::library_old::catalog::Show { All, Unread, Reading, Finished, Favourites, Other(0: &'static str) }
 enum paperpaw_sdk::library_old::catalog::Sort { Title, Author, Series, Added, Other(0: &'static str) }
 enum paperpaw_sdk::library_old::catalog::State { Missing, Building, Ready { stamp: u64 } }
 enum paperpaw_sdk::library_old::catalog::view::TextColumn { Author, Title, Series, Tag, Field }
-enum paperpaw_sdk::library_old::service::Badge { Text(0: alloc::string::String), Icon(0: &'static str) }
-enum paperpaw_sdk::logo_old::Logo { Drawn, Picture(0: paperpaw_document::ImageRef) }
 enum paperpaw_sdk::memory::MemoryError { Full { bytes: usize }, TooLarge, Other(0: u16) }
 enum paperpaw_sdk::menus::MenuNeed { Speech, Sleep, Rotation, NoTouch, Touch, ButtonRow, Colors, Wifi, Firmware, BlackAndWhite, Frontlight, Bluetooth, Has(0: paperpaw_sdk::env::Capability) }
 enum paperpaw_sdk::menus::MenuPlace { Order(0: i16), After(0: paperpaw_sdk::id::Id), Before(0: paperpaw_sdk::id::Id), InSection(0: paperpaw_sdk::id::Id), First, Last, Other(0: &'static str) }
@@ -2561,30 +2506,15 @@ enum paperpaw_sdk::time_old::Day { Weekday { month: u8, week: u8, weekday: u8 },
 enum paperpaw_sdk::titled::Held { Kept(0: &'static paperpaw_sdk::titled::TitleEntry), Owned(0: alloc::boxed::Box<(paperpaw_sdk::id::Id, alloc::borrow::Cow<'static, str>)>) }
 enum paperpaw_sdk::ui_old::image::PictureKind { Gray, Color, Alpha }
 enum paperpaw_sdk::ui_old::image::Tones { Panel, Dots, Grays }
-enum paperpaw_sdk::ui_old::label::Paint { Ink(0: paperpaw_sdk::ui_old::style::Ink), Color(0: paperpaw_platform::pixel::Color) }
-enum paperpaw_sdk::ui_old::label::Size { Role(0: paperpaw_sdk::ui_old::style::TextRole), Px(0: f32) }
-enum paperpaw_sdk::ui_old::list::ListChange { None, Focus { left: paperpaw_platform::geometry::Rect, reached: paperpaw_platform::geometry::Rect }, Page }
 enum paperpaw_sdk::ui_old::look::Edge { Top, Bottom, Left, Right }
-enum paperpaw_sdk::ui_old::offline::Offer { Online, NotNow }
-enum paperpaw_sdk::ui_old::picker::DateOrder { DayMonthYear, MonthDayYear, YearMonthDay }
-enum paperpaw_sdk::ui_old::picker::PickerPart { Plus(0: usize), Minus(0: usize), Value(0: usize) }
-enum paperpaw_sdk::ui_old::reorder::ReorderStep { Changed, Same, Dropped { from: usize, to: usize } }
-enum paperpaw_sdk::ui_old::response::Response<T> { Ignored, Same, Changed, Done(0: T) }
 enum paperpaw_sdk::ui_old::responsive::ScreenClass { Compact, Medium, Expanded }
-enum paperpaw_sdk::ui_old::row::RowKind<'r> { Value(0: &'r str), Switch(0: bool), Number { value: &'r str, room: &'r str, focus: core::option::Option<bool> } }
-enum paperpaw_sdk::ui_old::row::RowPart { Row, Switch, Minus, Plus }
-enum paperpaw_sdk::ui_old::sections::Item { Heading(0: usize), Entry(0: usize) }
-enum paperpaw_sdk::ui_old::slider::SliderFocus { None, Focused, Editing }
-enum paperpaw_sdk::ui_old::slider::SliderStep { Moved(0: i64), Same, Chosen(0: i64), Cancelled }
 enum paperpaw_sdk::ui_old::style::Focus { Fill, Ring, Soft }
 enum paperpaw_sdk::ui_old::style::Separators { Line, Inset, None }
-enum paperpaw_sdk::ui_old::thumbnail::Depth { MonoGrays, Gray, Rgb }
 enum paperpaw_sdk::version::VersionError { Numbers, PreRelease }
 enum paperpaw_sdk::widgets_old::Align { Left, Center, Right, Start, End }
-enum paperpaw_sdk::widgets_old::Entry { One(0: alloc::boxed::Box<paperpaw_sdk::widgets_old::WidgetSpec>), List(0: &'static [paperpaw_sdk::widgets_old::FixedWidget]) }
+enum paperpaw_sdk::widgets_old::Entry { One(0: alloc::boxed::Box<paperpaw_sdk::widgets_old::WidgetSpec>) }
 enum paperpaw_sdk::widgets_old::Make { Factory(0: fn(&paperpaw_sdk::env::Env<'_>) -> alloc::boxed::Box<dyn paperpaw_sdk::widgets_old::Widget>), Drawn(0: paperpaw_sdk::widgets_old::Drawn) }
 enum paperpaw_sdk::widgets_old::PlaceKind { Stack, Grid }
-enum paperpaw_sdk::widgets_old::Refresh { Nothing, Remake, Read, ReadOne(0: paperpaw_sdk::id::Id), Live }
 enum paperpaw_sdk::widgets_old::SizeClass { Small, Medium, Large }
 enum paperpaw_sdk::widgets_old::WidgetInput { Swipe(0: paperpaw_sdk::gesture::Direction), Focus(0: core::option::Option<paperpaw_platform::geometry::Rect>) }
 enum paperpaw_sdk::widgets_old::colours::ColourSpec { Auto, None, Is(0: paperpaw_platform::pixel::Color) }
@@ -2689,7 +2619,6 @@ struct paperpaw_sdk::decorations_old::Decorated { start: paperpaw_document::Loca
 struct paperpaw_sdk::decorations_old::Decoration { background: core::option::Option<paperpaw_sdk::decorations_old::Tone>, ink: core::option::Option<paperpaw_sdk::decorations_old::Tone>, line: core::option::Option<paperpaw_sdk::decorations_old::LineKind>, line_tone: core::option::Option<paperpaw_sdk::decorations_old::Tone>, thickness: u8, frame: bool, struck: bool }
 struct paperpaw_sdk::decorations_old::DecoratorSpec { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, order: i16, switch: core::option::Option<paperpaw_sdk::id::Id>, taps: bool, signature: fn(&paperpaw_sdk::env::Env<'_>) -> u64, decorate: paperpaw_sdk::decorations_old::Decorate }
 struct paperpaw_sdk::decorations_old::Decorators { list: alloc::vec::Vec<paperpaw_sdk::decorations_old::DecoratorSpec> }
-struct paperpaw_sdk::decorations_old::Mark { decorator: paperpaw_sdk::id::Id, role: paperpaw_sdk::id::Id, start: paperpaw_document::Locator, end: paperpaw_document::Locator, taps: bool }
 struct paperpaw_sdk::decorations_old::MarkRules { roles: alloc::vec::Vec<(paperpaw_sdk::id::Id, alloc::string::String, paperpaw_sdk::decorations_old::Decoration)>, decorator: paperpaw_sdk::decorations_old::PatternDecorator }
 struct paperpaw_sdk::decorations_old::PageText<'a> { path: &'a str, language: &'a str, words: &'a [paperpaw_sdk::decorations_old::PageWord<'a>] }
 struct paperpaw_sdk::decorations_old::PageWord<'a> { text: &'a str, start: paperpaw_document::Locator, end: paperpaw_document::Locator }
@@ -2726,10 +2655,8 @@ struct paperpaw_sdk::hyphenation::card::Opener { open: fn(&alloc::rcs::rc::Rc<dy
 struct paperpaw_sdk::id::Id(0: paperpaw_sdk::id::Text)
 struct paperpaw_sdk::id::InvalidId
 struct paperpaw_sdk::id::Text { start: core::ptr::non_null::NonNull<u8>, len: usize }
-struct paperpaw_sdk::install_old::Installer { owner: paperpaw_sdk::id::Id, reply: paperpaw_sdk::event::Event<paperpaw_sdk::replies::HttpReply> }
 struct paperpaw_sdk::install_old::Package { plugin: alloc::string::String, name: alloc::string::String, files: alloc::vec::Vec<paperpaw_sdk::install_old::PackageFile> }
 struct paperpaw_sdk::install_old::PackageFile { path: alloc::string::String, url: alloc::string::String, size: u64, digest: paperpaw_sdk::install_old::Digest }
-struct paperpaw_sdk::install_old::Progress { plugin: alloc::string::String, name: alloc::string::String, done: usize, total: usize }
 struct paperpaw_sdk::install_old::origin::Origins { kept: alloc::vec::Vec<(alloc::string::String, paperpaw_sdk::version::Version, alloc::string::String)> }
 struct paperpaw_sdk::keys::GestureSpec { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, factory: paperpaw_sdk::keys::RecognizerFactory }
 struct paperpaw_sdk::keys::InputSpec { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, need: core::option::Option<paperpaw_sdk::menus::MenuNeed>, kind: paperpaw_sdk::keys::InputKind }
@@ -2745,15 +2672,7 @@ struct paperpaw_sdk::library_old::catalog::view::Filled { title: usize, author: 
 struct paperpaw_sdk::library_old::catalog::view::Text { total: u32, filled: usize }
 struct paperpaw_sdk::library_old::catalog::view::View<'a> { path: &'a str, number: &'a str, author_bytes: u32, title_bytes: u32, series_bytes: u32, tags: u32, fields: u32, status: paperpaw_sdk::library_old::catalog::Status, added: core::option::Option<u32>, size: core::option::Option<u64> }
 struct paperpaw_sdk::library_old::fingerprint::Fingerprint { size: u64, md5: alloc::string::String }
-struct paperpaw_sdk::library_old::index::Index { items: alloc::vec::Vec<paperpaw_sdk::library_old::index::Item>, series: alloc::vec::Vec<alloc::string::String>, total: usize, archived: usize, dirty: bool, version: core::option::Option<u64> }
 struct paperpaw_sdk::library_old::index::Item { offset: u32, hash: u32, key: [u8; 8], series: u16, number: u16, progress: u8, recent: u8, flags: u8 }
-struct paperpaw_sdk::library_old::listing::Entry { name: alloc::string::String, is_dir: bool, rank: u32, size: u64 }
-struct paperpaw_sdk::library_old::listing::Listing<'a> { storage: &'a dyn paperpaw_platform::storage::Storage, formats: &'a paperpaw_sdk::formats::Formats, dir: &'a str, folders_only: bool, rank: core::option::Option<&'a dyn core::ops::function::Fn(&str) -> u32> }
-struct paperpaw_sdk::library_old::service::BookField { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, in_catalog: bool }
-struct paperpaw_sdk::library_old::service::Deleted { commands: alloc::vec::Vec<paperpaw_sdk::command::Command>, failed: alloc::vec::Vec<(alloc::string::String, paperpaw_platform::storage::StorageError)>, refused: alloc::vec::Vec<alloc::string::String> }
-struct paperpaw_sdk::library_old::service::Kept
-struct paperpaw_sdk::library_old::service::LibraryService(0: alloc::boxed::Box<dyn paperpaw_sdk::library_old::service::Library>)
-struct paperpaw_sdk::library_old::sorted::Entry { item: paperpaw_sdk::library_old::index::Item, stack: u16 }
 struct paperpaw_sdk::library_old::sorted::View { show: paperpaw_sdk::library_old::catalog::Show, by_recent: bool, stacked: bool }
 struct paperpaw_sdk::memory::Memory { read: core::option::Option<fn() -> core::option::Option<paperpaw_sdk::memory::MemoryUse>> }
 struct paperpaw_sdk::memory::MemoryRegion { free: u32, size: u32, external: bool }
@@ -3468,10 +3387,7 @@ struct paperpaw_sdk::power::Wear { mode: paperpaw_sdk::id::Id, automatic: bool }
 struct paperpaw_sdk::presets::Preset { id: paperpaw_sdk::id::Id, kind: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, description: alloc::borrow::Cow<'static, str>, values: alloc::borrow::Cow<'static, str> }
 struct paperpaw_sdk::presets::Presets { fixed: alloc::vec::Vec<&'static paperpaw_sdk::presets::Preset>, owned: alloc::vec::Vec<paperpaw_sdk::presets::Preset> }
 struct paperpaw_sdk::random::Random { fill: core::option::Option<fn(&mut [u8]) -> bool> }
-struct paperpaw_sdk::reading_old::PageWords { path: alloc::string::String, language: alloc::string::String, start: paperpaw_document::Locator, end: paperpaw_document::Locator, words: alloc::vec::Vec<paperpaw_sdk::reading_old::Word> }
-struct paperpaw_sdk::reading_old::Word { text: alloc::string::String, start: paperpaw_document::Locator, end: paperpaw_document::Locator }
 struct paperpaw_sdk::reading_old::WordBox { area: paperpaw_platform::geometry::Rect, text: alloc::string::String, start: paperpaw_document::Locator, end: paperpaw_document::Locator, rtl: bool, bidi: paperpaw_layout::LineBidi }
-struct paperpaw_sdk::reading_old::filtered::FilteredDocument<'d, 'e> { document: &'d dyn paperpaw_document::Document, env: &'d paperpaw_sdk::env::Env<'e>, path: &'d str, language: &'d str }
 struct paperpaw_sdk::reading_old::index::PageIndex { path: alloc::string::String, pages: u32, complete: bool, found: core::cell::Cell<core::option::Option<(paperpaw_document::Locator, u32, core::option::Option<(u32, bool)>)>> }
 struct paperpaw_sdk::reading_old::typeset::EmbeddedFonts { set: paperpaw_sdk::fonts::FontSet, faces: alloc::vec::Vec<(u8, bool, bool, usize)> }
 struct paperpaw_sdk::reading_old::typeset::PageType { size: f32, weight: u8, word_spacing: f32, letter_spacing: f32, kerning: bool, ligatures: bool, ascent: f32, line_height: f32, style: paperpaw_layout::Style, x: f32, y: f32, width: f32, height: f32, top_status: core::option::Option<paperpaw_platform::geometry::Rect>, status: core::option::Option<paperpaw_platform::geometry::Rect>, rooms: alloc::vec::Vec<(paperpaw_sdk::id::Id, paperpaw_platform::geometry::Rect)>, columns: alloc::vec::Vec<paperpaw_platform::geometry::Rect>, hyphenation: core::option::Option<alloc::string::String>, hyphen_minimums: (u8, u8), script: core::option::Option<&'static str>, filters: u64, key: alloc::string::String }
@@ -3541,28 +3457,15 @@ struct paperpaw_sdk::status_old::StatusLine<'a> { area: paperpaw_platform::geome
 struct paperpaw_sdk::status_old::StatusLineSpec { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, draw: fn(&mut paperpaw_graphics::canvas::Canvas<'_>, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::status_old::StatusFrame<'_>), signature: core::option::Option<fn(&paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::params::Params) -> u64>, targets: core::option::Option<fn(&paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::status_old::StatusFrame<'_>) -> alloc::vec::Vec<paperpaw_sdk::status_old::StatusTarget>>, also: core::option::Option<paperpaw_sdk::id::Id> }
 struct paperpaw_sdk::status_old::StatusTarget { area: paperpaw_platform::geometry::Rect, command: paperpaw_sdk::command::Command }
 struct paperpaw_sdk::time_old::Clock { micros: core::option::Option<fn() -> u64> }
-struct paperpaw_sdk::time_old::Date { year: i32, month: u8, day: u8 }
 struct paperpaw_sdk::time_old::LocalTime { year: i32, month: u8, day: u8, hour: u8, minute: u8, second: u8, weekday: u8, offset: i32 }
 struct paperpaw_sdk::time_old::Rule { day: paperpaw_sdk::time_old::Day, time: i32 }
 struct paperpaw_sdk::time_old::Summer { offset: i32, start: paperpaw_sdk::time_old::Rule, end: paperpaw_sdk::time_old::Rule }
-struct paperpaw_sdk::time_old::Time { hour: u8, minute: u8, second: u8 }
 struct paperpaw_sdk::time_old::TimeZone { standard: i32, summer: core::option::Option<paperpaw_sdk::time_old::Summer> }
 struct paperpaw_sdk::time_old::UnixTime(0: i64)
 struct paperpaw_sdk::titled::TitleEntry { id: paperpaw_sdk::id::Id, title: &'static str }
 struct paperpaw_sdk::titled::Titled(0: paperpaw_sdk::titled::Held)
-struct paperpaw_sdk::ui_old::chips::Chips { cells: alloc::vec::Vec<paperpaw_platform::geometry::Rect>, labels: alloc::vec::Vec<alloc::borrow::Cow<'static, str>> }
 struct paperpaw_sdk::ui_old::choice::Picked { path: alloc::string::String, option: alloc::string::String }
-struct paperpaw_sdk::ui_old::context::Ui<'c> { canvas: paperpaw_graphics::canvas::Canvas<'c>, env: &'c paperpaw_sdk::env::Env<'c>, style: &'c paperpaw_sdk::ui_old::style::UiStyle, font: core::option::Option<paperpaw_sdk::fonts::FontHandle<'c>> }
-struct paperpaw_sdk::ui_old::dialog::Dialog { panel: paperpaw_platform::geometry::Rect, title: alloc::vec::Vec<alloc::string::String>, lines: alloc::vec::Vec<alloc::string::String>, labels: alloc::vec::Vec<alloc::string::String>, buttons: alloc::vec::Vec<paperpaw_platform::geometry::Rect>, title_line: u16, text_line: u16, room: u16, stacked: bool, small_text: bool, title_size: u8, label_line: u16, area: paperpaw_platform::geometry::Rect, gap: u16, top: usize }
-struct paperpaw_sdk::ui_old::fields::TextView { area: paperpaw_platform::geometry::Rect, lines: alloc::vec::Vec<core::ops::range::Range<u32>>, line: u16, top: usize }
-struct paperpaw_sdk::ui_old::header::Header { area: paperpaw_platform::geometry::Rect, note_focused: bool, note_button: bool, back: bool, arrows: bool }
-struct paperpaw_sdk::ui_old::header::Pager { area: paperpaw_platform::geometry::Rect, arrows: bool }
 struct paperpaw_sdk::ui_old::image::Picture<'a> { path: &'a str, kind: paperpaw_sdk::ui_old::image::PictureKind, width: u32, height: u32, scratch_max: usize, tones: paperpaw_sdk::ui_old::image::Tones }
-struct paperpaw_sdk::ui_old::label::Label<'t> { text: &'t str, font: core::option::Option<paperpaw_sdk::fonts::FontHandle<'t>>, size: paperpaw_sdk::ui_old::label::Size, min: core::option::Option<f32>, ink: paperpaw_sdk::ui_old::label::Paint, align: paperpaw_sdk::widgets_old::Align, lines: usize }
-struct paperpaw_sdk::ui_old::layout::CellGrid { area: paperpaw_platform::geometry::Rect, columns: u16, cell_height: u16, gap: u16, mirrored: bool }
-struct paperpaw_sdk::ui_old::layout::Segments { cells: alloc::vec::Vec<paperpaw_platform::geometry::Rect>, labels: alloc::vec::Vec<alloc::borrow::Cow<'static, str>> }
-struct paperpaw_sdk::ui_old::layout::Stack { area: paperpaw_platform::geometry::Rect, gap: u16, top: u16, bottom: u16, taken_top: bool, taken_bottom: bool }
-struct paperpaw_sdk::ui_old::list::ListView { area: paperpaw_platform::geometry::Rect, row: u32, focus: usize, active: bool, shown: bool, columns: u32, before: usize }
 struct paperpaw_sdk::ui_old::look::ButtonPart { rect: paperpaw_platform::geometry::Rect, on: bool, focused: bool }
 struct paperpaw_sdk::ui_old::look::CheckPart { rect: paperpaw_platform::geometry::Rect, on: bool, inverted: bool }
 struct paperpaw_sdk::ui_old::look::CoverPart { rect: paperpaw_platform::geometry::Rect, title_rect: paperpaw_platform::geometry::Rect, inverted: bool }
@@ -3572,7 +3475,7 @@ struct paperpaw_sdk::ui_old::look::HeaderPart { area: paperpaw_platform::geometr
 struct paperpaw_sdk::ui_old::look::HintRowPart { area: paperpaw_platform::geometry::Rect }
 struct paperpaw_sdk::ui_old::look::Look(0: core::option::Option<&'static paperpaw_sdk::ui_old::look::Painters>)
 struct paperpaw_sdk::ui_old::look::PaintCx<'c, 'a> { canvas: &'c mut paperpaw_graphics::canvas::Canvas<'a>, style: &'c paperpaw_sdk::ui_old::style::UiStyle, spare: [u32; 4] }
-struct paperpaw_sdk::ui_old::look::Painters { switch: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::SwitchPart) -> bool>, check: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::CheckPart) -> bool>, focus: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::FocusPart) -> bool>, separator: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::SeparatorPart) -> bool>, button: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::ButtonPart) -> core::option::Option<paperpaw_platform::pixel::Color>>, header: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::HeaderPart) -> core::option::Option<paperpaw_platform::pixel::Color>>, hints: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::HintRowPart) -> bool>, progress: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::ProgressPart) -> bool>, slider: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::SliderPart) -> bool>, frame: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::FramePart) -> bool>, sheet: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::SheetPart) -> bool>, cover: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::CoverPart) -> core::option::Option<paperpaw_platform::pixel::Color>>, pill: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::PillPart) -> core::option::Option<paperpaw_platform::pixel::Color>>, ticks: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::TicksPart) -> bool>, text: core::option::Option<for<'t> fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look_extra::TextPart<'t>) -> bool>, extras: &'static [paperpaw_sdk::ui_old::look_extra::ExtraPaint], flags: u32 }
+struct paperpaw_sdk::ui_old::look::Painters { switch: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::SwitchPart) -> bool>, check: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::CheckPart) -> bool>, focus: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::FocusPart) -> bool>, separator: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::SeparatorPart) -> bool>, button: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::ButtonPart) -> core::option::Option<paperpaw_platform::pixel::Color>>, header: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::HeaderPart) -> core::option::Option<paperpaw_platform::pixel::Color>>, hints: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::HintRowPart) -> bool>, progress: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::ProgressPart) -> bool>, slider: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::SliderPart) -> bool>, frame: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::FramePart) -> bool>, sheet: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::SheetPart) -> bool>, cover: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::CoverPart) -> core::option::Option<paperpaw_platform::pixel::Color>>, pill: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::PillPart) -> core::option::Option<paperpaw_platform::pixel::Color>>, ticks: core::option::Option<fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look::TicksPart) -> bool>, text: core::option::Option<for<'t> fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look_extra::TextPart<'t>) -> bool>, flags: u32 }
 struct paperpaw_sdk::ui_old::look::PillPart { rect: paperpaw_platform::geometry::Rect, selected: bool, inverted: bool }
 struct paperpaw_sdk::ui_old::look::ProgressPart { area: paperpaw_platform::geometry::Rect, permille: u16, ink: paperpaw_platform::pixel::Color }
 struct paperpaw_sdk::ui_old::look::SeparatorPart { row: paperpaw_platform::geometry::Rect, indent: u16 }
@@ -3580,40 +3483,17 @@ struct paperpaw_sdk::ui_old::look::SheetPart { rect: paperpaw_platform::geometry
 struct paperpaw_sdk::ui_old::look::SliderPart { track: paperpaw_platform::geometry::Rect, knob_x: i32, ink: paperpaw_platform::pixel::Color, mirrored: bool }
 struct paperpaw_sdk::ui_old::look::SwitchPart { rect: paperpaw_platform::geometry::Rect, on: bool, inverted: bool }
 struct paperpaw_sdk::ui_old::look::TicksPart { rect: paperpaw_platform::geometry::Rect, count: u16, at: u16, inverted: bool }
-struct paperpaw_sdk::ui_old::look_extra::ExtraPaint { kind: paperpaw_sdk::ui_old::look_extra::PartKind, painter: for<'t> fn(&mut paperpaw_sdk::ui_old::look::PaintCx<'_, '_>, &paperpaw_sdk::ui_old::look_extra::ExtraPart<'t>) -> bool, spare: u32 }
-struct paperpaw_sdk::ui_old::look_extra::ExtraPart<'t> { kind: paperpaw_sdk::ui_old::look_extra::PartKind, rect: paperpaw_platform::geometry::Rect, state: u32, values: [i32; 4], label: &'t str, spare: [u32; 2] }
-struct paperpaw_sdk::ui_old::look_extra::PartKind(0: u16)
 struct paperpaw_sdk::ui_old::look_extra::TextPart<'t> { text: &'t str, x: f32, baseline: i32, size: f32, color: paperpaw_platform::pixel::Color, area: paperpaw_platform::geometry::Rect, font: &'t paperpaw_sdk::fonts::FontHandle<'t>, role: paperpaw_sdk::ui_old::style::TextRole, inverted: bool, spare: [u32; 2] }
-struct paperpaw_sdk::ui_old::offline::OfflineOffer { buttons: [paperpaw_platform::geometry::Rect; 2], focus: usize, chosen: bool }
-struct paperpaw_sdk::ui_old::paging::Paging { page: usize, pages: usize }
-struct paperpaw_sdk::ui_old::picker::DatePicker { wheels: paperpaw_sdk::ui_old::picker::Wheels, given: (i32, u8, u8), year: i32, month: u8, day: u8, years: (i32, i32), order: paperpaw_sdk::ui_old::picker::DateOrder }
-struct paperpaw_sdk::ui_old::picker::TimePicker { wheels: paperpaw_sdk::ui_old::picker::Wheels, hour: u8, minute: u8, twelve: bool }
-struct paperpaw_sdk::ui_old::picker::Wheels { cells: [paperpaw_platform::geometry::Rect; 3], count: u8, button: u16, gap: u16, focus: u8, shown: bool }
-struct paperpaw_sdk::ui_old::reorder::Drag { pointer: u8, from: usize, to: usize }
-struct paperpaw_sdk::ui_old::reorder::Reorder { drag: core::option::Option<paperpaw_sdk::ui_old::reorder::Drag>, mirrored: bool }
-struct paperpaw_sdk::ui_old::row::Row<'r> { title: &'r str, kind: paperpaw_sdk::ui_old::row::RowKind<'r>, note: &'r str, focused: bool }
-struct paperpaw_sdk::ui_old::rows::Rows { area: paperpaw_platform::geometry::Rect, heights: alloc::vec::Vec<u16>, headings: alloc::vec::Vec<bool>, passed: alloc::vec::Vec<bool>, pages: alloc::vec::Vec<(core::option::Option<usize>, core::ops::range::Range<usize>)>, focus: usize, before: usize }
-struct paperpaw_sdk::ui_old::search::SearchField<'s> { hint: &'s str, text: &'s str, focused: bool }
-struct paperpaw_sdk::ui_old::sections::Section { heading: bool, count: usize }
-struct paperpaw_sdk::ui_old::sections::Sections { area: paperpaw_platform::geometry::Rect, heading: u16, row: u16, sections: alloc::vec::Vec<paperpaw_sdk::ui_old::sections::Section>, focus: usize, before: usize }
-struct paperpaw_sdk::ui_old::setting_rows::RowLines { title: paperpaw_platform::geometry::Rect, control: paperpaw_platform::geometry::Rect, height: u16 }
-struct paperpaw_sdk::ui_old::slider::Drag { pointer: u8, start: i32, from: i64, value: i64, moved: bool }
-struct paperpaw_sdk::ui_old::slider::Slider { min: i64, max: i64, step: i64, mirrored: bool }
-struct paperpaw_sdk::ui_old::slider::SliderDrag { drag: core::option::Option<paperpaw_sdk::ui_old::slider::Drag> }
-struct paperpaw_sdk::ui_old::slider::SliderParts { minus: paperpaw_platform::geometry::Rect, track: paperpaw_platform::geometry::Rect, plus: paperpaw_platform::geometry::Rect }
-struct paperpaw_sdk::ui_old::slider::SliderView<'a> { area: paperpaw_platform::geometry::Rect, value: i64, shown: &'a str, title: &'a str, note: &'a str, focus: paperpaw_sdk::ui_old::slider::SliderFocus, room: &'a str }
 struct paperpaw_sdk::ui_old::style::Ink(0: u8)
 struct paperpaw_sdk::ui_old::style::Palette { colors: [paperpaw_platform::pixel::Color; 32], set: u32 }
 struct paperpaw_sdk::ui_old::style::TextRole(0: u8)
 struct paperpaw_sdk::ui_old::style::UiStyle { text: f32, small: f32, title: f32, head: f32, row: u32, control_row: u32, header: u32, margin: u32, gap: u32, line: u32, dark_header: bool, corner: u32, strong: bool, pill: bool, focus: paperpaw_sdk::ui_old::style::Focus, separators: paperpaw_sdk::ui_old::style::Separators, plain_header: bool, cards: bool, grays: u16, finger: u32, look: paperpaw_sdk::ui_old::look::Look, palette: paperpaw_sdk::ui_old::style::Palette, direction: u8 }
-struct paperpaw_sdk::ui_old::thumbnail::Thumbnail { width: u16, height: u16, depth: paperpaw_sdk::ui_old::thumbnail::Depth, pixels: alloc::vec::Vec<u8> }
 struct paperpaw_sdk::usage::PluginUsage { plugin: paperpaw_sdk::id::Id, busy_us: u64, calls: u32, shown_ms: u32, refreshes: paperpaw_sdk::usage::Refreshes, pixels: u64, read: u32, written: u32, requests: u32, refused: u32, awake_ms: u32, awake_reason: alloc::borrow::Cow<'static, str> }
 struct paperpaw_sdk::usage::Refreshes { fast: u32, partial: u32, full: u32 }
 struct paperpaw_sdk::usage::Usage { refreshes: paperpaw_sdk::usage::Refreshes, pixels: u64, inputs: u32, sleeps: u32, panel_ms: u64, bluetooth_ms: u64 }
 struct paperpaw_sdk::version::Version { major: u16, minor: u16, patch: u16, pre: u16 }
 struct paperpaw_sdk::widgets_old::CellSpan { w: u8, h: u8, min_w: u8, min_h: u8, square: bool }
 struct paperpaw_sdk::widgets_old::Drawn { height: fn(&paperpaw_sdk::env::Env<'_>, u16) -> u16, draw: fn(&mut paperpaw_graphics::canvas::Canvas<'_>, &paperpaw_sdk::env::Env<'_>, paperpaw_platform::geometry::Rect), shows: core::option::Option<fn(&paperpaw_sdk::env::Env<'_>) -> alloc::string::String>, targets: core::option::Option<fn(&paperpaw_sdk::env::Env<'_>, paperpaw_platform::geometry::Rect) -> alloc::vec::Vec<paperpaw_sdk::widgets_old::WidgetTarget>> }
-struct paperpaw_sdk::widgets_old::FixedWidget { id: paperpaw_sdk::id::Id, title: &'static str, make: paperpaw_sdk::widgets_old::Make, category: &'static str, previews: core::option::Option<paperpaw_sdk::id::Id>, cells: core::option::Option<paperpaw_sdk::widgets_old::CellSpan>, spare: u32 }
 struct paperpaw_sdk::widgets_old::WidgetCategory { id: paperpaw_sdk::id::Id, icon: alloc::borrow::Cow<'static, str> }
 struct paperpaw_sdk::widgets_old::WidgetContext<'a> { placement: core::option::Option<&'a str>, host: core::option::Option<&'a str>, size: paperpaw_sdk::widgets_old::SizeClass }
 struct paperpaw_sdk::widgets_old::WidgetPlace { id: paperpaw_sdk::id::Id, title: alloc::borrow::Cow<'static, str>, settings: alloc::borrow::Cow<'static, [paperpaw_sdk::id::Id]>, kind: paperpaw_sdk::widgets_old::PlaceKind, shown_if: core::option::Option<(paperpaw_sdk::id::Id, &'static str)> }
@@ -3626,8 +3506,6 @@ struct paperpaw_sdk::widgets_old::grid::Geometry { columns: u8, rows: u8, area: 
 struct paperpaw_sdk::widgets_old::grid::Item { what: paperpaw_sdk::widgets_old::grid::What, at: core::option::Option<paperpaw_sdk::widgets_old::grid::Cells> }
 struct paperpaw_sdk::widgets_old::look::WidgetLook { area: paperpaw_platform::geometry::Rect, ink: paperpaw_platform::pixel::Color, faint: paperpaw_platform::pixel::Color, paper: paperpaw_platform::pixel::Color, frame: paperpaw_sdk::widgets_old::look::Frame }
 struct paperpaw_sdk::widgets_old::look::Wrapped { text: alloc::string::String, size: f32, lines: alloc::vec::Vec<alloc::string::String>, whole: bool, heading: bool }
-struct paperpaw_sdk::widgets_old::stack::Shown { id: alloc::string::String, widget: alloc::boxed::Box<dyn paperpaw_sdk::widgets_old::Widget>, area: paperpaw_platform::geometry::Rect }
-struct paperpaw_sdk::widgets_old::stack::WidgetStack { widgets: alloc::vec::Vec<paperpaw_sdk::widgets_old::stack::Shown> }
 struct paperpaw_sdk::wifi::Wifi { state: paperpaw_sdk::wifi::WifiState, networks: alloc::vec::Vec<paperpaw_sdk::wifi::WifiNetwork>, scanning: bool, wanted: bool, busy: bool }
 struct paperpaw_sdk::wifi::WifiNetwork { ssid: alloc::string::String, signal: i8, secured: bool }
 struct paperpaw_sdk::words::WordSet { text: alloc::string::String, starts: alloc::vec::Vec<u32> }
@@ -3644,7 +3522,6 @@ trait paperpaw_sdk::event::ParamValue { function to_param(&Self) -> alloc::strin
 trait paperpaw_sdk::hyphenation::card::Reader { function hyphenate(&mut Self, usize, usize, &str, &mut dyn core::ops::function::FnMut(usize)), function is_failed(&Self) -> bool, function heap(&Self) -> usize }
 trait paperpaw_sdk::keys::GestureRecognizer { function pointer(&mut Self, &paperpaw_platform::input::PointerEvent, paperpaw_platform::input::Instant) -> paperpaw_sdk::keys::PointerVerdict, function tick(&mut Self, paperpaw_platform::input::Instant) -> paperpaw_sdk::keys::Recognition, function next_tick(&Self) -> core::option::Option<paperpaw_platform::input::Instant>, function extended(&mut Self, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params) -> paperpaw_sdk::screen::Handled }
 trait paperpaw_sdk::keys::KeyBindings { function bound(&Self, &[&str], &str) -> core::option::Option<paperpaw_sdk::id::Id>, function bindings(&Self, &str) -> alloc::vec::Vec<(alloc::string::String, core::option::Option<paperpaw_sdk::id::Id>, paperpaw_sdk::keys::BindingOrigin)>, function extended(&Self, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params) -> core::option::Option<paperpaw_sdk::params::Params> }
-trait paperpaw_sdk::library_old::service::Library { function book(&Self, &paperpaw_sdk::env::Env<'_>, &str) -> core::option::Option<paperpaw_sdk::library_old::Book>, function catalog_state(&Self, &paperpaw_sdk::env::Env<'_>) -> paperpaw_sdk::library_old::catalog::State, function each(&Self, &paperpaw_sdk::env::Env<'_>, &mut dyn core::ops::function::FnMut(u64, paperpaw_sdk::library_old::catalog::Record)), function records(&Self, &paperpaw_sdk::env::Env<'_>, &[u64]) -> alloc::vec::Vec<core::option::Option<paperpaw_sdk::library_old::catalog::Record>>, function version(&Self, &paperpaw_sdk::env::Env<'_>) -> core::option::Option<u64>, function query(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library_old::catalog::Query, core::option::Option<&paperpaw_sdk::library_old::catalog::Record>, usize) -> alloc::vec::Vec<paperpaw_sdk::library_old::catalog::Record>, function found(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library_old::catalog::Query) -> usize, function index(&Self, &paperpaw_sdk::env::Env<'_>, usize, &str) -> paperpaw_sdk::library_old::index::Index, function is_current(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library_old::index::Index) -> bool, function refresh(&Self, &paperpaw_sdk::env::Env<'_>, &mut paperpaw_sdk::library_old::index::Index), function keep_index(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library_old::index::Index, &str, &str) -> bool, function kept_index(&Self, &paperpaw_sdk::env::Env<'_>, &str, &str) -> core::option::Option<paperpaw_sdk::library_old::index::Index>, function record(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::library_old::index::Index, usize) -> core::option::Option<paperpaw_sdk::library_old::catalog::Record>, function set_finished(&Self, &paperpaw_sdk::env::Env<'_>, &str, bool) -> paperpaw_sdk::command::Command, function set_favourite(&Self, &paperpaw_sdk::env::Env<'_>, &str, bool) -> paperpaw_sdk::command::Command, function can_delete(&Self, &paperpaw_sdk::env::Env<'_>, &str) -> bool, function delete(&Self, &paperpaw_sdk::env::Env<'_>, &[&str]) -> paperpaw_sdk::library_old::service::Deleted, function extended(&Self, &paperpaw_sdk::env::Env<'_>, &paperpaw_sdk::id::Id, &paperpaw_sdk::params::Params) -> core::option::Option<paperpaw_sdk::params::Params> }
 trait paperpaw_sdk::native::binding::Plugin { function make(&paperpaw_sdk::native::binding::Host<'_>) -> core::result::Result<Self, paperpaw_sdk::native::binding::Error>, function event(&mut Self, &paperpaw_sdk::native::binding::Host<'_>, u32, paperpaw_sdk::native::events::Incoming<'_>, &mut paperpaw_sdk::native::reply::Reply<'_>) -> core::result::Result<(), paperpaw_sdk::native::binding::Error>, function draw(&mut Self, &paperpaw_sdk::native::binding::Host<'_>, u32, paperpaw_sdk::native::callbacks::DrawFrame<'_>) -> core::result::Result<(), paperpaw_sdk::native::binding::Error>, function input(&mut Self, &paperpaw_sdk::native::binding::Host<'_>, u32, paperpaw_sdk::native::callbacks::Input<'_>) -> core::result::Result<paperpaw_sdk::screen::Handled, paperpaw_sdk::native::binding::Error> }
 trait paperpaw_sdk::native::declare::records_wire::WireEncode { function wire_tag(&Self) -> u32, function wire_body_len(&Self) -> core::result::Result<usize, i32>, function wire_write(&Self, &mut [u8], &mut usize, paperpaw_sdk::native::declare::records_wire::seal::Seal) }
 trait paperpaw_sdk::native::declare::records_wire::WireRecord<'a> { assoc_const TAG, function decode_body(&'a [u8]) -> core::result::Result<Self, i32> }

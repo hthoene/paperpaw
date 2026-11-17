@@ -724,7 +724,8 @@ impl crate::Kernel {
                 redraw.screen,
                 Some(owner.as_str()),
             ) else {
-                self.warn_runtime("native redraw dropped: its screen is covered");
+                // A normal state, not a fault: a screen opened or closed over it
+                // after the plugin asked, which draws itself (#308).
                 return;
             };
             if !redraw.whole {

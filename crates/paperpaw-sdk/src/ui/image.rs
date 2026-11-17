@@ -8,37 +8,6 @@ use super::*;
 
 // ---- QR codes ----------------------------------------------------------
 
-/// Draws `qr` as large as fits in `area`, centred, each module a whole
-/// number of pixels, with the four modules of white around it scanners
-/// expect; returns where it went with that white, or `None` (nothing
-/// drawn) if it does not fit.
-pub fn draw_qr(canvas: &mut Canvas<'_>, qr: &crate::qr::QrCode, area: Rect) -> Option<Rect> {
-    let modules = u16::try_from(qr.size()).ok()?.checked_add(8)?;
-    let scale = area.width.min(area.height) / modules;
-    if scale == 0 {
-        return None;
-    }
-    let side = scale * modules;
-    let x = area.x + (area.width - side) / 2;
-    let y = area.y + (area.height - side) / 2;
-    let (x0, y0) = (x + 4 * scale, y + 4 * scale);
-    canvas.fill(Rect::new(x, y, side, side), Color::WHITE);
-    for my in 0..qr.size() {
-        for mx in 0..qr.size() {
-            if qr.dark(mx, my) {
-                canvas.fill_rect(
-                    i32::from(x0 + mx as u16 * scale),
-                    i32::from(y0 + my as u16 * scale),
-                    u32::from(scale),
-                    u32::from(scale),
-                    Color::BLACK,
-                );
-            }
-        }
-    }
-    Some(Rect::new(x, y, side, side))
-}
-
 // ---- Images ------------------------------------------------------------
 
 /// Draws a decoded image (e.g. a book's cover or an illustration), gray
@@ -63,7 +32,7 @@ pub fn draw_image(canvas: &mut Canvas<'_>, storage: &dyn Storage, image: &ImageR
 /// through all of it, e.g. a picture over the page read. Any screen,
 /// widget or overlay may draw so; rows are read and blended one at a
 /// time, so little memory is taken.
-pub fn draw_image_over(
+pub(crate) fn draw_image_over(
     canvas: &mut Canvas<'_>,
     storage: &dyn Storage,
     image: &ImageRef,
@@ -236,7 +205,7 @@ pub(super) fn grab(len: usize) -> Result<Vec<u8>, crate::image::ImageError> {
     Ok(bytes)
 }
 
-/// [`draw_image_over`] for a checked picture ([`probe_picture`]) with every
+/// `draw_image_over` for a checked picture ([`probe_picture`]) with every
 /// allocation fallible and every failure said: `OutOfMemory` (nothing is
 /// drawn: the buffers are taken first), `Io` (a row that cannot be read:
 /// the bands before it are drawn, none after). Nothing is drawn on a frame

@@ -14,8 +14,8 @@
 //! buttons reach one after the other too (see [`WidgetTarget`]).
 //!
 //! A widget may have settings of its own, e.g. where its text sits
-//! ([`align_setting`]): they go in a settings group with the widget's id
-//! ([`settings_group`]). The settings list leaves such groups out; screens
+//! (`align_setting`): they go in a settings group with the widget's id
+//! (`settings_group`). The settings list leaves such groups out; screens
 //! that edit widgets open them (slot
 //! [`SETTINGS`](crate::builtin::slots::SETTINGS) with parameter
 //! [`ID`](crate::builtin::params::ID)).
@@ -24,12 +24,12 @@
 //! may hold more than once ([`repeatable`]): [`SPACE`], a gap of a set
 //! height, and [`FILL`], the room the others leave. Screens that place
 //! widgets one below the other give each fill its share of that room
-//! ([`fill_height`]); elsewhere it is not there.
+//! (`fill_height`); elsewhere it is not there.
 //!
 //! Screens that show widgets in a grid, as the home screen does, use
 //! [`grid`]: its layout as data, and a view that edits it in place.
 //! Screens that show them above each other, as the sleep screen does, use
-//! a [`WidgetStack`]. Either way the screen asks [`refresh`] what an event means
+//! a `WidgetStack`. Either way the screen asks `refresh` what an event means
 //! for the widgets it shows, and reads the live ones anew each minute
 //! (`next_minute`).
 //!
@@ -64,7 +64,6 @@ use paperpaw_platform::Rect;
 use crate::env::Env;
 use crate::id::Id;
 use crate::params::Params;
-use crate::settings::{SettingGroupSpec, SettingKind, SettingSpec, SettingValue};
 
 mod colours;
 mod elsewhere;
@@ -72,8 +71,6 @@ pub mod grid;
 pub(crate) mod look;
 mod shape;
 mod stack;
-
-pub use stack::WidgetStack;
 
 pub use shape::{
     CORNER_CHOICES, CORNERS_AUTO, GAP_LARGE, GAP_NORMAL, GAP_SMALL, GAPS, LINE_AUTO, LINE_CHOICES,
@@ -148,19 +145,9 @@ pub mod categories {
 /// kernel's.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct WidgetCategory {
+pub(crate) struct WidgetCategory {
     pub id: Id,
     pub icon: Cow<'static, str>,
-}
-
-impl WidgetCategory {
-    /// Kind `id` (its name's translation key), shown with `icon`.
-    pub fn new(id: Id, icon: impl Into<Cow<'static, str>>) -> Self {
-        Self {
-            id,
-            icon: icon.into(),
-        }
-    }
 }
 
 /// A widget as a screen shows it: made for that screen by its spec
@@ -205,7 +192,7 @@ pub trait Widget {
     /// that show it call this once they placed it, and again when its
     /// place changes. A widget that makes something for the size it is
     /// drawn at, such as a cover made small
-    /// ([`Thumbnail`](crate::ui::Thumbnail), drawn in every band without
+    /// (`Thumbnail`, drawn in every band without
     /// reading the picture again), makes it here, and anew in
     /// [`update`](Self::update) when what it shows changed. Most widgets
     /// need nothing of it.
@@ -287,27 +274,6 @@ pub struct WidgetContext<'a> {
     pub size: SizeClass,
 }
 
-impl<'a> WidgetContext<'a> {
-    /// Drawn `size` large; the rest as set with its methods.
-    pub fn new(size: SizeClass) -> Self {
-        Self {
-            placement: None,
-            host: None,
-            size,
-        }
-    }
-
-    /// Shown by screen `host`.
-    pub fn host(self, host: Option<&'a str>) -> Self {
-        Self { host, ..self }
-    }
-
-    /// As placement `placement`.
-    pub fn placement(self, placement: Option<&'a str>) -> Self {
-        Self { placement, ..self }
-    }
-}
-
 /// Input a widget may take beside taps ([`Widget::on_input`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -321,9 +287,9 @@ pub enum WidgetInput {
 }
 
 /// Makes a widget for a screen that shows it.
-pub type WidgetFactory = fn(&Env<'_>) -> Box<dyn Widget>;
+pub(crate) type WidgetFactory = fn(&Env<'_>) -> Box<dyn Widget>;
 
-/// How a widget ([`WidgetSpec`], [`FixedWidget`]) is made: by a function of
+/// How a widget ([`WidgetSpec`], `FixedWidget`) is made: by a function of
 /// its own, or as a [`Drawn`] widget from what it draws with.
 #[derive(Clone, Copy)]
 #[non_exhaustive]
@@ -341,16 +307,6 @@ impl fmt::Debug for Make {
     }
 }
 
-impl Make {
-    /// The widget, for a screen that shows it.
-    pub(crate) fn make(self, env: &Env<'_>) -> Box<dyn Widget> {
-        match self {
-            Make::Factory(factory) => factory(env),
-            Make::Drawn(drawn) => Box::new(DrawnWidget { drawn, shown: None }),
-        }
-    }
-}
-
 /// A place in a widget that does something: a tap on it, or confirm
 /// once buttons moved the focus there, runs `command` (a tap alone where
 /// it is [`touch`](Self::touch)).
@@ -365,18 +321,6 @@ pub struct WidgetTarget {
     /// What a long press on it runs, if anything (else a long press does
     /// what it does on the screen, e.g. editing the page).
     pub hold: Option<crate::Command>,
-}
-
-impl WidgetTarget {
-    /// Made of what it needs; the rest as set with its methods.
-    pub fn new(area: Rect, command: crate::Command) -> Self {
-        Self {
-            area,
-            command,
-            touch: false,
-            hold: None,
-        }
-    }
 }
 
 /// A widget contribution: its id, its name and how it is made.
@@ -430,19 +374,6 @@ impl WidgetSpec {
         }
     }
 
-    /// Made to preview the settings of `group` (see the [module
-    /// documentation](self)): what it shows follows their values, those
-    /// shown while one is chosen included. Settings pages show it above
-    /// the group's settings, as wide as the screen; it is not offered
-    /// among the widgets for other screens. Of several for one group, the
-    /// one added last is shown.
-    pub fn previews(self, group: Id) -> Self {
-        Self {
-            previews: Some(group),
-            ..self
-        }
-    }
-
     /// Of the kind `category`, one of [`categories`].
     pub fn category(self, category: impl Into<Cow<'static, str>>) -> Self {
         Self {
@@ -469,144 +400,41 @@ impl fmt::Debug for WidgetSpec {
     }
 }
 
-/// A widget kept in the program, in a `static` list of them
-/// (`Items::add_widgets`): it takes
-/// next to no memory, where each added with
-/// `Items::add_widget` takes some hundred bytes.
-/// The same as a [`WidgetSpec`], made by a function:
-///
-/// ```
-/// # use paperpaw_sdk::{Id, widgets::{FixedWidget, Widget}};
-/// # fn make(_: &paperpaw_sdk::Env<'_>) -> Box<dyn Widget> { unimplemented!() }
-/// static WIDGETS: [FixedWidget; 1] =
-///     [FixedWidget::new(Id::new_static("my.clock"), "my.clock", make)];
-/// ```
-#[non_exhaustive]
-pub struct FixedWidget {
-    id: Id,
-    title: &'static str,
-    make: Make,
-    category: &'static str,
-    previews: Option<Id>,
-    cells: Option<CellSpan>,
-    /// Reserved, as [`WidgetSpec`]'s: zero now.
-    #[allow(dead_code, reason = "reserved for later releases")]
-    spare: u32,
-}
-
-impl FixedWidget {
-    /// A widget of a type of its own ([`Widget`]), made by `factory`.
-    pub const fn new(
-        id: Id,
-        title: &'static str,
-        factory: fn(&Env<'_>) -> Box<dyn Widget>,
-    ) -> Self {
-        Self {
-            id,
-            title,
-            make: Make::Factory(factory),
-            category: categories::OTHER,
-            previews: None,
-            cells: None,
-            spare: 0,
-        }
-    }
-
-    /// A widget with nothing of its own to read ([`WidgetSpec::drawn`]).
-    pub const fn drawn(id: Id, title: &'static str, drawn: Drawn) -> Self {
-        Self {
-            id,
-            title,
-            make: Make::Drawn(drawn),
-            category: categories::OTHER,
-            previews: None,
-            cells: None,
-            spare: 0,
-        }
-    }
-
-    /// Of the kind `category`, one of [`categories`].
-    pub const fn category(mut self, category: &'static str) -> Self {
-        self.category = category;
-        self
-    }
-
-    /// Takes `cells` in a grid ([`WidgetSpec::cells`]).
-    pub const fn cells(mut self, cells: CellSpan) -> Self {
-        self.cells = Some(cells);
-        self
-    }
-
-    /// Made to preview the settings of `group` ([`WidgetSpec::previews`]).
-    pub const fn previews(mut self, group: Id) -> Self {
-        core::mem::forget(self.previews.replace(group));
-        self
-    }
-
-    pub fn id(&self) -> &Id {
-        &self.id
-    }
-}
-
-impl fmt::Debug for FixedWidget {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FixedWidget")
-            .field("id", &self.id)
-            .field("title", &self.title)
-            .field("category", &self.category)
-            .field("previews", &self.previews)
-            .finish_non_exhaustive()
-    }
-}
-
 /// A widget as the store holds it: made at the start, or one of a list
 /// kept in the program.
 #[derive(Clone, Copy)]
 enum Found<'a> {
     Spec(&'a WidgetSpec),
-    Fixed(&'a FixedWidget),
 }
 
 impl<'a> Found<'a> {
     fn id(self) -> &'a Id {
         match self {
             Found::Spec(w) => &w.id,
-            Found::Fixed(w) => &w.id,
         }
     }
 
     fn title(self) -> &'a str {
         match self {
             Found::Spec(w) => &w.title,
-            Found::Fixed(w) => w.title,
         }
     }
 
     fn category(self) -> &'a str {
         match self {
             Found::Spec(w) => &w.category,
-            Found::Fixed(w) => w.category,
         }
     }
 
     fn previews(self) -> Option<&'a Id> {
         match self {
             Found::Spec(w) => w.previews.as_ref(),
-            Found::Fixed(w) => w.previews.as_ref(),
         }
     }
 
     fn cells(self) -> Option<CellSpan> {
         match self {
             Found::Spec(w) => w.cells,
-            Found::Fixed(w) => w.cells,
-        }
-    }
-
-    fn make(self, env: &Env<'_>) -> Box<dyn Widget> {
-        match self {
-            Found::Spec(w) => w.make.make(env),
-            Found::Fixed(w) => w.make.make(env),
         }
     }
 }
@@ -616,7 +444,6 @@ impl<'a> Found<'a> {
 #[derive(Debug)]
 enum Entry {
     One(Box<WidgetSpec>),
-    List(&'static [FixedWidget]),
 }
 
 /// A widget that only draws, as functions ([`WidgetSpec::drawn`]): for
@@ -670,38 +497,6 @@ impl Drawn {
 impl fmt::Debug for Drawn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Drawn").finish_non_exhaustive()
-    }
-}
-
-/// A [`Drawn`] widget on a screen.
-struct DrawnWidget {
-    drawn: Drawn,
-    shown: Option<String>,
-}
-
-impl Widget for DrawnWidget {
-    fn update(&mut self, env: &Env<'_>) -> bool {
-        let Some(shows) = self.drawn.shows else {
-            return false;
-        };
-        let now = Some(shows(env));
-        let changed = self.shown.is_some() && now != self.shown;
-        self.shown = now;
-        changed
-    }
-
-    fn height(&self, env: &Env<'_>, width: u16) -> u16 {
-        (self.drawn.height)(env, width)
-    }
-
-    fn draw(&self, canvas: &mut Canvas<'_>, env: &Env<'_>, area: Rect) {
-        (self.drawn.draw)(canvas, env, area);
-    }
-
-    fn targets(&self, env: &Env<'_>, area: Rect) -> Vec<WidgetTarget> {
-        self.drawn
-            .targets
-            .map_or_else(Vec::new, |targets| targets(env, area))
     }
 }
 
@@ -778,25 +573,11 @@ pub enum SizeClass {
     Large,
 }
 
-impl SizeClass {
-    /// The class of `area` on this screen.
-    pub fn of(env: &Env<'_>, area: Rect) -> Self {
-        let short = u32::from(area.width.min(area.height));
-        if short < env.metrics().mm(20) {
-            Self::Small
-        } else if short <= env.metrics().mm(45) {
-            Self::Medium
-        } else {
-            Self::Large
-        }
-    }
-}
-
 /// How a place holds its widgets ([`WidgetPlace::kind`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum PlaceKind {
-    /// Above each other ([`WidgetStack`]): a setting of widget ids separated by
+    /// Above each other (`WidgetStack`): a setting of widget ids separated by
     /// commas, [`FILL`] and [`SPACE`] among them.
     Stack,
     /// In a grid of cells ([`grid`]): settings of items with their cells,
@@ -823,31 +604,6 @@ pub struct WidgetPlace {
 }
 
 impl WidgetPlace {
-    /// Made of what it needs; the rest as set with its methods.
-    pub const fn new(
-        id: Id,
-        title: &'static str,
-        settings: &'static [Id],
-        kind: PlaceKind,
-    ) -> Self {
-        Self {
-            id,
-            title: Cow::Borrowed(title),
-            settings: Cow::Borrowed(settings),
-            kind,
-            shown_if: None,
-        }
-    }
-
-    /// It shows only while setting `setting` has the value `value`, e.g.
-    /// the sleep screen's widgets only while it shows widgets: a plugin
-    /// asking [`Widgets::shown`] is told so only then.
-    pub const fn shown_if(mut self, setting: Id, value: &'static str) -> Self {
-        // Nothing to drop: made without one (`new`), in a const.
-        core::mem::forget(self.shown_if.replace((setting, value)));
-        self
-    }
-
     /// Whether it shows now (see [`WidgetPlace::shown_if`]).
     pub fn shows(&self, env: &Env<'_>) -> bool {
         self.shown_if
@@ -861,59 +617,6 @@ impl WidgetPlace {
 fn listed(text: &str) -> impl Iterator<Item = &str> {
     text.split(',')
         .filter_map(|item| item.split_whitespace().next())
-}
-
-/// What a screen showing widgets does after an event ([`refresh`]).
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Refresh {
-    /// Nothing: the event is not about them.
-    Nothing,
-    /// Makes them anew: how they are made changed (a setting of the
-    /// screen, of the look, or of a widget shown).
-    Remake,
-    /// Reads what they show anew (a setting, the library changed).
-    Read,
-    /// Reads what this one shows anew (`changed`).
-    ReadOne(Id),
-    /// Reads the live ones anew ([`Widget::live`]): the device's status
-    /// changed (the battery).
-    Live,
-}
-
-/// What a screen that shows the widgets `shown` (their ids, a
-/// placement's too), with settings of its own under `own` (e.g. `home`),
-/// does after `event` with `params`: makes them anew after a setting of
-/// its own, of the look (`core.`) or of a widget shown changed, reads
-/// them anew after any other setting or the library changed, reads the
-/// one that says so (`changed`), and the live ones after the device's
-/// status changed.
-pub fn refresh(event: &Id, params: &Params, own: &str, shown: &[String]) -> Refresh {
-    use crate::builtin::events;
-    if let Some(changed) = events::SETTING_CHANGED.read(event, params) {
-        let id = changed.id.as_str();
-        let of = |prefix: &str| {
-            id.strip_prefix(prefix)
-                .is_some_and(|rest| rest.starts_with('.'))
-        };
-        let remakes =
-            of(own) || of("core") || shown.iter().any(|widget| of(widget) || of(base(widget)));
-        return if remakes {
-            Refresh::Remake
-        } else {
-            Refresh::Read
-        };
-    }
-    if *event == events::LIBRARY_CHANGED || *event == events::BOOK_MOVED {
-        return Refresh::Read;
-    }
-    if let Some(changed) = events::WIDGET_CHANGED.read(event, params) {
-        return Refresh::ReadOne(changed.id);
-    }
-    if *event == events::STATUS_CHANGED {
-        return Refresh::Live;
-    }
-    Refresh::Nothing
 }
 
 /// The registered widgets.
@@ -946,22 +649,9 @@ impl Widgets {
         self.widgets.push(Entry::One(widget));
     }
 
-    /// Widgets kept in the program ([`FixedWidget`]), as one entry.
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn add_fixed(&mut self, list: &'static [FixedWidget]) {
-        self.widgets.push(Entry::List(list));
-    }
-
     /// Every widget, in the order they came.
     fn all(&self) -> impl DoubleEndedIterator<Item = Found<'_>> {
-        self.widgets.iter().flat_map(|entry| {
-            let (one, list) = match entry {
-                Entry::One(w) => (Some(Found::Spec(w)), &[][..]),
-                Entry::List(list) => (None, *list),
-            };
-            one.into_iter().chain(list.iter().map(Found::Fixed))
-        })
+        self.widgets.iter().map(|Entry::One(w)| Found::Spec(w))
     }
 
     #[cfg(any(test, feature = "kernel"))]
@@ -970,22 +660,6 @@ impl Widgets {
         self.widgets.shrink_to_fit();
         self.places.shrink_to_fit();
         self.categories.shrink_to_fit();
-    }
-
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn add_category(&mut self, category: WidgetCategory) {
-        self.categories.push(category);
-    }
-
-    /// Every kind of widgets, in the order screens show them: the
-    /// kernel's ([`categories::ALL`]), then plugins' own in the order they
-    /// were added.
-    pub fn kinds(&self) -> impl Iterator<Item = &str> {
-        categories::ALL
-            .iter()
-            .copied()
-            .chain(self.categories.iter().map(|c| c.id.as_str()))
     }
 
     /// The icon of kind `kind`: the kernel's, a plugin's own, or a puzzle
@@ -999,12 +673,6 @@ impl Widgets {
                     .map(|c| c.icon.as_ref())
             })
             .unwrap_or("puzzle")
-    }
-
-    #[cfg(any(test, feature = "kernel"))]
-    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-    pub fn add_place(&mut self, place: WidgetPlace) {
-        self.places.push(place);
     }
 
     /// Every place where widgets show.
@@ -1075,111 +743,11 @@ impl Widgets {
     pub fn has(&self, id: &str) -> bool {
         self.get(id).is_some()
     }
-
-    /// Widget `id` for a screen, what it shows read; `None` if there is
-    /// none. Screens keep it while they show it and
-    /// [`update`](Widget::update) it.
-    ///
-    /// For a placement of a widget (`widgets.clock@2`, see
-    /// [`Id::placement`]), the widget reads, measures and draws itself in
-    /// the placement's own values of its settings
-    /// ([`Settings::with_placement`](crate::Settings::with_placement)).
-    pub(crate) fn make(&self, id: &str, env: &Env<'_>) -> Option<Box<dyn Widget>> {
-        let spec = self.get(id)?;
-        let mut widget = if id.contains('@') {
-            let inner = env.settings.with_placement(Some(id), || spec.make(env));
-            Box::new(Placed {
-                placement: String::from(id),
-                inner,
-            })
-        } else {
-            spec.make(env)
-        };
-        widget.update(env);
-        Some(widget)
-    }
 }
 
 /// The widget a placement shows: `widgets.clock` for `widgets.clock@2`.
 pub fn base(id: &str) -> &str {
     id.split_once('@').map_or(id, |(base, _)| base)
-}
-
-/// A widget in a placement of its own, in the placement's values.
-struct Placed {
-    placement: String,
-    inner: Box<dyn Widget>,
-}
-
-impl Placed {
-    fn with<R>(&self, env: &Env<'_>, f: impl FnOnce() -> R) -> R {
-        env.settings().with_placement(Some(&self.placement), f)
-    }
-}
-
-impl Widget for Placed {
-    fn update(&mut self, env: &Env<'_>) -> bool {
-        let placement = core::mem::take(&mut self.placement);
-        let changed = env
-            .settings
-            .with_placement(Some(&placement), || self.inner.update(env));
-        self.placement = placement;
-        changed
-    }
-
-    fn live(&self) -> bool {
-        self.inner.live()
-    }
-
-    fn height(&self, env: &Env<'_>, width: u16) -> u16 {
-        self.with(env, || self.inner.height(env, width))
-    }
-
-    fn min_height(&self, env: &Env<'_>, width: u16) -> u16 {
-        self.with(env, || self.inner.min_height(env, width))
-    }
-
-    fn place(&mut self, env: &Env<'_>, area: Rect) {
-        let placement = core::mem::take(&mut self.placement);
-        env.settings()
-            .with_placement(Some(&placement), || self.inner.place(env, area));
-        self.placement = placement;
-    }
-
-    fn draw(&self, canvas: &mut Canvas<'_>, env: &Env<'_>, area: Rect) {
-        self.with(env, || self.inner.draw(canvas, env, area));
-    }
-
-    fn targets(&self, env: &Env<'_>, area: Rect) -> Vec<WidgetTarget> {
-        self.with(env, || self.inner.targets(env, area))
-    }
-
-    fn context(&mut self, env: &Env<'_>, context: &WidgetContext<'_>) {
-        let placement = core::mem::take(&mut self.placement);
-        let own = context.placement(Some(&placement));
-        env.settings()
-            .with_placement(Some(&placement), || self.inner.context(env, &own));
-        self.placement = placement;
-    }
-
-    fn on_input(
-        &mut self,
-        env: &Env<'_>,
-        input: WidgetInput,
-        area: Rect,
-        out: &mut crate::Commands,
-    ) -> bool {
-        let placement = core::mem::take(&mut self.placement);
-        let taken = env.settings().with_placement(Some(&placement), || {
-            self.inner.on_input(env, input, area, out)
-        });
-        self.placement = placement;
-        taken
-    }
-
-    fn draw_focus(&self, canvas: &mut Canvas<'_>, env: &Env<'_>, target: Rect) -> bool {
-        self.with(env, || self.inner.draw_focus(canvas, env, target))
-    }
 }
 
 /// A gap of the height [`SPACE_SIZE`] says.
@@ -1198,22 +766,14 @@ pub fn repeatable(id: &str) -> bool {
     id == SPACE || id == FILL
 }
 
-/// The height of each of `fills` fills where widgets `used` pixels high
-/// are placed in `room` pixels.
-pub fn fill_height(room: u32, used: u32, fills: usize) -> u16 {
-    if fills == 0 {
-        return 0;
-    }
-    (room.saturating_sub(used) / fills as u32).min(u32::from(u16::MAX)) as u16
-}
-
 /// The values of a widget's alignment setting ([`align_setting`]).
-pub const ALIGNMENTS: &[&str] = &["core.align.left", "core.align.center", "core.align.right"];
+pub(crate) const ALIGNMENTS: &[&str] =
+    &["core.align.left", "core.align.center", "core.align.right"];
 
 /// Where a widget's text sits in its place. [`Align::Start`] and
 /// [`Align::End`] follow the interface's direction: at the left and the
 /// right in left-to-right languages, the other way round in
-/// right-to-left ones ([`Align::resolved`]).
+/// right-to-left ones (`Align::resolved`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Align {
@@ -1227,7 +787,7 @@ pub enum Align {
 }
 
 impl Align {
-    /// The alignment a value of [`ALIGNMENTS`] names; left for others.
+    /// The alignment a value of `ALIGNMENTS` names; left for others.
     pub fn of(value: &str) -> Self {
         match ALIGNMENTS.iter().position(|a| *a == value) {
             Some(1) => Align::Center,
@@ -1236,19 +796,9 @@ impl Align {
         }
     }
 
-    /// Its value in [`ALIGNMENTS`]; [`Align::Start`] and [`Align::End`]
-    /// as left and right.
-    pub const fn value(self) -> &'static str {
-        match self {
-            Align::Left | Align::Start => ALIGNMENTS[0],
-            Align::Center => ALIGNMENTS[1],
-            Align::Right | Align::End => ALIGNMENTS[2],
-        }
-    }
-
     /// Left, centre or right: [`Align::Start`] and [`Align::End`] for an
     /// interface right to left (`rtl`) or not.
-    pub const fn resolved(self, rtl: bool) -> Align {
+    pub(crate) const fn resolved(self, rtl: bool) -> Align {
         match (self, rtl) {
             (Align::Start, false) | (Align::End, true) => Align::Left,
             (Align::Start, true) | (Align::End, false) => Align::Right,
@@ -1257,7 +807,7 @@ impl Align {
     }
 
     /// Where something `width` wide starts in `area`.
-    pub fn x(self, area: Rect, width: f32) -> f32 {
+    pub(crate) fn x(self, area: Rect, width: f32) -> f32 {
         let left = f32::from(area.x);
         let room = (f32::from(area.width) - width).max(0.0);
         match self.resolved(false) {
@@ -1266,45 +816,6 @@ impl Align {
             _ => left,
         }
     }
-}
-
-/// The settings group of `widget`'s own settings, named as the widget.
-pub fn settings_group(widget: &Id, title: impl Into<Cow<'static, str>>) -> SettingGroupSpec {
-    SettingGroupSpec {
-        id: widget.clone(),
-        title: title.into(),
-        order: 0,
-        page: None,
-        parent: None,
-    }
-}
-
-/// The setting of where `widget`'s text sits, `<widget>.align`, in the
-/// widget's settings group; read it with `align`.
-pub fn align_setting(widget: &Id, default: Align) -> SettingSpec {
-    let id = Id::parse(&alloc::format!("{widget}.align")).unwrap_or_else(|_| widget.clone());
-    SettingSpec::new(
-        id,
-        "core.setting.align",
-        SettingKind::Choice(crate::settings::Choices::Fixed(ALIGNMENTS)),
-        SettingValue::Text(Cow::Borrowed(default.value())),
-        widget.clone(),
-    )
-    .description("core.setting.align.help")
-}
-
-/// [`align_setting`] kept in the program
-/// (a `static` list), for a `static`
-/// list of the widget's settings: `id` must be `<widget>.align`.
-pub const fn align_spec(id: &'static str, widget: Id, default: Align) -> SettingSpec {
-    SettingSpec::choice(
-        id,
-        "core.setting.align",
-        ALIGNMENTS,
-        default.value(),
-        widget,
-    )
-    .description("core.setting.align.help")
 }
 
 /// Where `widget`'s text sits, by its [`align_setting`]; left without one.

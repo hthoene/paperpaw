@@ -38,9 +38,6 @@ use paperpaw_digest::fnv1a64;
 
 /// Between a book's tags (and its fields) in the catalog.
 const SEPARATOR: char = '\u{1f}';
-/// Books [`search`] finds at most: a page of them fits the smallest
-/// device (a record takes some 200 bytes).
-pub const MAX_FOUND: usize = 200;
 /// The start of the first line of a catalog of this format; its
 /// generation follows.
 pub(super) const HEADER: &str = "\tcatalog\t2";
@@ -152,14 +149,14 @@ impl Record {
     }
 
     /// With `status`.
-    pub fn with_status(mut self, status: Status) -> Self {
+    pub(crate) fn with_status(mut self, status: Status) -> Self {
         self.status = status;
         self
     }
 
     /// With the fields of `book` named by `ids` (those kept in the
     /// catalog, [`crate::library::BookField::in_catalog`]).
-    pub fn with_fields(mut self, book: &Book, ids: &[&str]) -> Self {
+    pub(crate) fn with_fields(mut self, book: &Book, ids: &[&str]) -> Self {
         self.fields = book
             .fields
             .iter()
@@ -176,6 +173,7 @@ impl Record {
     }
 
     /// The value of the field `id` kept in the catalog, if set.
+    #[cfg(test)]
     pub fn field(&self, id: &str) -> Option<&str> {
         self.fields
             .split(SEPARATOR)
@@ -185,7 +183,7 @@ impl Record {
     }
 
     /// How far it is read, as the filters tell it apart.
-    pub fn reading(&self) -> Reading {
+    pub(crate) fn reading(&self) -> Reading {
         match self.status.progress {
             Some(100) => Reading::Finished,
             Some(p) if p > 0 => Reading::Begun,
@@ -234,7 +232,7 @@ impl Record {
 
     /// Whether all of the words of `query` (lowercase) are in its title,
     /// author, series, tags or file name.
-    pub fn matches(&self, query: &[String]) -> bool {
+    pub(crate) fn matches(&self, query: &[String]) -> bool {
         let text = format!(
             "{} {} {} {} {}",
             self.title,
@@ -251,7 +249,7 @@ impl Record {
 /// How far a book is read, as filters tell it apart.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum Reading {
+pub(crate) enum Reading {
     /// Never opened.
     Unread,
     /// Opened, not finished.
@@ -312,16 +310,6 @@ impl Changes {
         Some(self.entries[at].2)
     }
 
-    /// The change noted of the book whose path's hash has these low bits
-    /// ([`super::index::hash`], which keeps no more of it).
-    pub(crate) fn get_short(&self, hash: u32) -> Option<Option<Status>> {
-        let at = self.entries.partition_point(|(low, _, _)| *low < hash);
-        self.entries
-            .get(at)
-            .filter(|(low, _, _)| *low == hash)
-            .map(|(_, _, change)| *change)
-    }
-
     fn note(&mut self, hash: u64, change: Option<Status>) {
         let key = halves(hash);
         match self
@@ -352,7 +340,7 @@ impl Changes {
 
     /// `record` as noted last: with its status, or `None` where the book
     /// was removed.
-    pub fn apply(&self, mut record: Record) -> Option<Record> {
+    pub(crate) fn apply(&self, mut record: Record) -> Option<Record> {
         if self.entries.is_empty() {
             return Some(record);
         }
@@ -480,7 +468,7 @@ fn lines(
 /// Calls `f` with each book of the catalog and where its line starts
 /// (to read it again, [`read_page`]), as noted last: those removed left
 /// out. Where the catalog cannot be read further, the books before.
-pub fn each_at(storage: &dyn Storage, f: &mut dyn FnMut(u64, Record)) {
+pub(crate) fn each_at(storage: &dyn Storage, f: &mut dyn FnMut(u64, Record)) {
     let changes = changes(storage);
     #[expect(
         clippy::let_underscore_must_use,
@@ -497,58 +485,6 @@ pub fn each_at(storage: &dyn Storage, f: &mut dyn FnMut(u64, Record)) {
 /// Calls `f` with each book of the catalog, reading it in pieces.
 pub fn each(storage: &dyn Storage, f: &mut dyn FnMut(Record)) {
     each_at(storage, &mut |_, record| f(record));
-}
-
-/// The line of the catalog at `path` that starts at `offset`, as it is
-/// written.
-fn read_line(
-    storage: &dyn Storage,
-    path: &str,
-    offset: u64,
-) -> Result<Option<Record>, StorageError> {
-    let mut buf = [0u8; 256];
-    let mut bytes = Vec::new();
-    let mut at = offset;
-    loop {
-        let n = storage.read_at(path, at, &mut buf)?;
-        if n == 0 {
-            break;
-        }
-        if let Some(end) = buf[..n].iter().position(|&b| b == b'\n') {
-            bytes.extend_from_slice(&buf[..end]);
-            break;
-        }
-        bytes.extend_from_slice(&buf[..n]);
-        at += n as u64;
-        // Values are at most a kilobyte each: a line is never this long.
-        if bytes.len() > 16 * 1024 {
-            break;
-        }
-    }
-    Ok(Record::parse(String::from_utf8_lossy(&bytes).trim_end()))
-}
-
-/// The book whose line starts at `offset` in the catalog (as [`each_at`]
-/// told), as noted last; for more than one, [`read_page`] reads the log
-/// once.
-pub fn read_at(storage: &dyn Storage, offset: u64) -> Option<Record> {
-    read_page(storage, &[offset]).pop().flatten()
-}
-
-/// The books whose lines start at `offsets` (a page of a view), as noted
-/// last: the log read once. `None` for one removed or not there.
-pub fn read_page(storage: &dyn Storage, offsets: &[u64]) -> Vec<Option<Record>> {
-    let changes = changes(storage);
-    let path = catalog_path();
-    offsets
-        .iter()
-        .map(|&offset| {
-            read_line(storage, &path, offset)
-                .ok()
-                .flatten()
-                .and_then(|r| changes.apply(r))
-        })
-        .collect()
 }
 
 /// Whether there is a catalog, and whether it is being made anew.
@@ -646,7 +582,7 @@ fn next_header(storage: &dyn Storage, first: u64) -> String {
 /// Notes the status of the book at `path` (how far it is read, favourite,
 /// opened) beside the catalog, read with it at once. The kernel calls
 /// this from the reading events and the library's setters
-/// ([`super::record`], [`super::set_finished`], [`super::set_favourite`]),
+/// ([`super::record`], `super::set_finished`, [`super::set_favourite`]),
 /// and folds the log into the catalog at a calm moment once it is long.
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
@@ -765,7 +701,7 @@ pub enum Sort {
     Other(&'static str),
 }
 
-/// What books to find in the catalog ([`query`]): all of the conditions set.
+/// What books to find in the catalog (`query`): all of the conditions set.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Query {
@@ -787,44 +723,13 @@ impl Query {
         Self::default()
     }
 
-    pub fn show(mut self, show: Show) -> Self {
-        self.show = show;
-        self
-    }
-
-    /// The words of `text` (any case).
-    pub fn words(mut self, text: &str) -> Self {
-        self.words = query_words(text);
-        self
-    }
-
     pub fn author(mut self, author: impl Into<String>) -> Self {
         self.author = Some(author.into());
         self
     }
 
-    pub fn series(mut self, series: impl Into<String>) -> Self {
-        self.series = Some(series.into());
-        self
-    }
-
-    pub fn tag(mut self, tag: impl Into<String>) -> Self {
-        self.tag = Some(tag.into());
-        self
-    }
-
     pub fn folder(mut self, folder: impl Into<String>) -> Self {
         self.folder = Some(folder.into());
-        self
-    }
-
-    pub fn added_since(mut self, day: u32) -> Self {
-        self.added_since = Some(day);
-        self
-    }
-
-    pub fn sort(mut self, sort: Sort) -> Self {
-        self.sort = sort;
         self
     }
 
@@ -861,141 +766,6 @@ impl Query {
                 .added_since
                 .is_none_or(|d| record.added.is_some_and(|a| a >= d))
     }
-
-    /// Where `record` goes in this query's order.
-    fn key(&self, record: &Record) -> (u32, String, String) {
-        let title = record.title.to_lowercase();
-        let (first, text) = match self.sort {
-            // An order of a later build: by title.
-            Sort::Title | Sort::Other(_) => (0, title),
-            Sort::Author => (0, format!("{}\u{1}{title}", record.author.to_lowercase())),
-            Sort::Series => (
-                0,
-                format!(
-                    "{}\u{1}{:010}",
-                    record.series.to_lowercase(),
-                    series_order(&record.number)
-                ),
-            ),
-            Sort::Added => (u32::MAX - record.added.unwrap_or(0), title),
-        };
-        (first, text, record.path.clone())
-    }
-}
-
-/// A library's books, each with its key ([`each_at`] for the catalog's,
-/// [`crate::library::Library::each`] for any library's): called with what
-/// to do with each.
-pub type Books<'a> = &'a mut dyn FnMut(&mut dyn FnMut(u64, Record));
-
-/// `n` books `query` finds, in its order, those after `after` (from the
-/// first without): one reading of the catalog that holds only `n` books
-/// at a time (keyset pagination).
-pub fn query(
-    storage: &dyn Storage,
-    query: &Query,
-    after: Option<&Record>,
-    n: usize,
-) -> Vec<Record> {
-    query_in(&mut |f| each_at(storage, f), query, after, n)
-}
-
-/// [`query`] in `books`.
-pub fn query_in(books: Books<'_>, query: &Query, after: Option<&Record>, n: usize) -> Vec<Record> {
-    let after = after.map(|r| query.key(r));
-    let mut page: Vec<((u32, String, String), Record)> = Vec::new();
-    books(&mut |_, record| {
-        if n == 0 || !query.finds(&record) {
-            return;
-        }
-        let key = query.key(&record);
-        if after.as_ref().is_some_and(|a| key <= *a) {
-            return;
-        }
-        let at = page.partition_point(|(k, _)| *k < key);
-        if at < n {
-            page.insert(at, (key, record));
-            page.truncate(n);
-        }
-    });
-    page.into_iter().map(|(_, record)| record).collect()
-}
-
-/// How many books `query` finds.
-pub fn found(storage: &dyn Storage, query: &Query) -> usize {
-    found_in(&mut |f| each_at(storage, f), query)
-}
-
-/// [`found`] in `books`.
-pub fn found_in(books: Books<'_>, query: &Query) -> usize {
-    let mut count = 0;
-    books(&mut |_, record| count += usize::from(query.finds(&record)));
-    count
-}
-
-/// `n` records of the catalog that `keep` keeps, by title regardless of
-/// case (then by path), those after `after` (from the first without).
-pub fn page(
-    storage: &dyn Storage,
-    keep: &dyn Fn(&Record) -> bool,
-    after: Option<&Record>,
-    n: usize,
-) -> Vec<Record> {
-    let by_title = Query::new();
-    let after = after.map(|r| by_title.key(r));
-    let mut page: Vec<((u32, String, String), Record)> = Vec::new();
-    each(storage, &mut |record| {
-        if n == 0 || !keep(&record) {
-            return;
-        }
-        let key = by_title.key(&record);
-        if after.as_ref().is_some_and(|a| key <= *a) {
-            return;
-        }
-        let at = page.partition_point(|(k, _)| *k < key);
-        if at < n {
-            page.insert(at, (key, record));
-            page.truncate(n);
-        }
-    });
-    page.into_iter().map(|(_, record)| record).collect()
-}
-
-/// How many records of the catalog `keep` keeps.
-pub fn count(storage: &dyn Storage, keep: &dyn Fn(&Record) -> bool) -> usize {
-    let mut count = 0;
-    each(storage, &mut |record| count += usize::from(keep(&record)));
-    count
-}
-
-/// The words of a query, lowercase, as [`Record::matches`] takes them.
-pub fn query_words(query: &str) -> Vec<String> {
-    query
-        .to_lowercase()
-        .split_whitespace()
-        .map(String::from)
-        .collect()
-}
-
-/// The books of the catalog matching `query` (words, any case), by
-/// title: the first [`MAX_FOUND`]. [`search_after`] pages through more.
-pub fn search(storage: &dyn Storage, query: &str) -> Vec<Record> {
-    search_after(storage, query, None, MAX_FOUND)
-}
-
-/// `n` books of the catalog matching `query` after `after`, by title (see
-/// [`page`]); none for an empty query.
-pub fn search_after(
-    storage: &dyn Storage,
-    query: &str,
-    after: Option<&Record>,
-    n: usize,
-) -> Vec<Record> {
-    let words = query_words(query);
-    if words.is_empty() {
-        return Vec::new();
-    }
-    page(storage, &|record| record.matches(&words), after, n)
 }
 
 /// Writes `records` as the catalog (emptying the log), e.g. for tests of views.

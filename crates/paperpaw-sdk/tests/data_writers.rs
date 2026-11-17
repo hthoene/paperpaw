@@ -15,8 +15,6 @@ use paperpaw_sdk::builtin::events::Reading;
 use paperpaw_sdk::secrets::{FILE, Secrets};
 use paperpaw_sdk::{MemoryStorage, annotations, library};
 
-const BOOK_RECORD: &str = ".paperpaw/library/details/0c/0c6afbf2778c9bbf.ini";
-
 #[test]
 fn favourites_of_version_1_are_read() {
     let storage = MemoryStorage::new().with(
@@ -61,31 +59,6 @@ fn opened_books_of_version_1_are_written_as_read() {
         library::opened_books(&h.storage),
         ["books/c.epub", "books/b.epub", "books/a b.txt"]
     );
-}
-
-#[test]
-fn a_book_record_of_version_1_is_written_and_read_again() {
-    let storage = MemoryStorage::new()
-        .with("books/a.epub", b"12345".to_vec())
-        .with(BOOK_RECORD, include_str!("../testdata/library-book.ini.v1"));
-    let first = library::book(&storage, "books/a.epub").unwrap();
-    library::save(&storage, "books/a.epub", &first).unwrap();
-    let again = library::book(&storage, "books/a.epub").unwrap();
-    assert_eq!(again, first);
-    // The quoted series keeps its spaces, the plugins' fields their
-    // section: as version 1 wrote them.
-    let text = String::from_utf8(storage.get(BOOK_RECORD).unwrap()).unwrap();
-    assert!(text.contains("series = \"  Classics \""), "{text}");
-    assert!(text.contains("[field]\ncalibre.rating = 4"), "{text}");
-    for key in [
-        "size = 5",
-        "tag.1 = Novel",
-        "tag.2 = Russia",
-        "cover-width = 120",
-        "progress = 42",
-    ] {
-        assert!(text.contains(key), "{key} in {text}");
-    }
 }
 
 #[test]

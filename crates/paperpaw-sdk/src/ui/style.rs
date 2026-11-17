@@ -8,7 +8,7 @@
 use super::*;
 
 /// Sizes of the standard UI elements, in pixels: made for the device and
-/// the user's settings with [`UiStyle::new`], or [`UiStyle::PLAIN`] where
+/// the user's settings with [`UiStyle::new`], or `UiStyle::PLAIN` where
 /// there is no environment (tests, pictures made beforehand).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
@@ -91,16 +91,6 @@ impl UiStyle {
         self.title
     }
 
-    /// Height of a list row.
-    pub fn row(&self) -> u16 {
-        px(self.row)
-    }
-
-    /// Height of a header bar.
-    pub fn header(&self) -> u16 {
-        px(self.header)
-    }
-
     /// Horizontal margin of content.
     pub fn margin(&self) -> u16 {
         px(self.margin)
@@ -116,127 +106,14 @@ impl UiStyle {
         px(self.line)
     }
 
-    /// Radius of the corners of highlights, buttons and boxes (0: square).
-    pub fn corner(&self) -> u16 {
-        px(self.corner)
-    }
-
-    /// The least size of what a finger sets or presses, about 7 mm, on
-    /// touch screens; 0 with buttons alone (see
-    /// [`touch_row`](Self::touch_row)).
-    pub fn finger(&self) -> u16 {
-        px(self.finger)
-    }
-
-    /// How the focus of rows and items is drawn.
-    pub fn focus(&self) -> Focus {
-        self.focus
-    }
-
-    /// The interface runs right to left (its language's catalog says so,
-    /// see [`Env::direction`]): headers, rows, switches and sliders are
-    /// mirrored, text drawn with this as its base direction.
-    pub fn is_rtl(&self) -> bool {
-        self.direction == 1
-    }
-
-    /// The same, right to left or not (see [`UiStyle::is_rtl`]).
-    pub fn with_rtl(mut self, rtl: bool) -> Self {
-        self.direction = u8::from(rtl);
-        self
-    }
-
-    /// Where a span `width` wide, laid out left to right from `x` in
-    /// `outer`, stands where the UI runs right to left: as far from the
-    /// right edge of `outer` as it was from its left one. Not moved
-    /// otherwise. For text and other parts placed in fractions of a pixel
-    /// (a label's start, its measured width); [`UiStyle::flip`] for
-    /// rectangles.
-    ///
-    /// A screen lays itself out once, from the left, and mirrors each part
-    /// with these where the interface runs right to left, so that both
-    /// directions come from one layout:
-    ///
-    /// ```ignore
-    /// let cover = style.flip(row, Rect::new(row.x + margin, row.y, side, side));
-    /// let title_x = style.flip_x(row, text_x, font.measure(style.text(), title));
-    /// ```
-    ///
-    /// A part wider than `outer` can start left of it (a negative or
-    /// smaller `x`).
-    pub fn flip_x(&self, outer: Rect, x: f32, width: f32) -> f32 {
-        if self.is_rtl() {
-            2.0 * f32::from(outer.x) + f32::from(outer.width) - x - width
-        } else {
-            x
-        }
-    }
-
-    /// `rect`, laid out left to right in `outer`, as it stands where the
-    /// UI runs right to left (see [`UiStyle::flip_x`]): its top and size
-    /// the same, its left edge as far from `outer`'s right edge as its
-    /// left edge was from `outer`'s left one, never left of 0. Not moved
-    /// otherwise. Mirrored twice, a rectangle inside `outer` is where it
-    /// was; a point mirrors as a rectangle 1 pixel wide.
-    pub fn flip(&self, outer: Rect, rect: Rect) -> Rect {
-        if !self.is_rtl() {
-            return rect;
-        }
-        let x = 2 * i32::from(outer.x) + i32::from(outer.width)
-            - i32::from(rect.x)
-            - i32::from(rect.width);
-        Rect::new(
-            x.clamp(0, i32::from(u16::MAX)) as u16,
-            rect.y,
-            rect.width,
-            rect.height,
-        )
-    }
-
     /// The look a plugin gave the parts (see [`look`](super::look)).
     pub fn look(&self) -> super::look::Look {
         self.look
     }
 
-    /// With body text `text` large.
-    pub fn with_text(mut self, text: f32) -> Self {
-        self.text = text;
-        self
-    }
-
-    /// With the parts in `look`.
-    pub fn with_look(mut self, look: super::look::Look) -> Self {
-        self.look = look;
-        self
-    }
-
     /// With corners of radius `corner`.
-    pub fn with_corner(mut self, corner: u16) -> Self {
+    pub(crate) fn with_corner(mut self, corner: u16) -> Self {
         self.corner = u32::from(corner);
-        self
-    }
-
-    /// With small shapes as pills, or not.
-    pub fn with_pill(mut self, pill: bool) -> Self {
-        self.pill = pill;
-        self
-    }
-
-    /// With gray text drawn black, or not.
-    pub fn with_strong(mut self, strong: bool) -> Self {
-        self.strong = strong;
-        self
-    }
-
-    /// With `separators` between rows.
-    pub fn with_separators(mut self, separators: Separators) -> Self {
-        self.separators = separators;
-        self
-    }
-
-    /// With the grays of `palette`.
-    pub fn with_palette(mut self, palette: Palette) -> Self {
-        self.palette = palette;
         self
     }
 }
@@ -285,6 +162,12 @@ const INKS: [&str; 19] = [
 ];
 
 impl Ink {
+    /// The role of `value`; one this release has no name for is kept, and
+    /// reads its [`fallback`](Ink::fallback).
+    pub const fn from_value(value: u8) -> Ink {
+        Ink(value)
+    }
+
     /// Text and what is drawn in its colour.
     pub const TEXT: Ink = Ink(0);
     /// What the interface is drawn on.
@@ -361,12 +244,6 @@ impl Ink {
         self.0
     }
 
-    /// The role of `value`; one this release has no name for is kept, and
-    /// reads its [`fallback`](Ink::fallback).
-    pub const fn from_value(value: u8) -> Ink {
-        Ink(value)
-    }
-
     /// Its name in the palette, e.g. `muted` (empty for a role without
     /// one).
     pub const fn name(self) -> &'static str {
@@ -428,7 +305,7 @@ impl core::fmt::Debug for Ink {
 /// twice takes the last; a name or a colour that is not understood
 /// (older releases do not read `#rrggbb`) is skipped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Palette {
+pub(crate) struct Palette {
     colors: [Color; Palette::SLOTS],
     /// Bit `n` is set where the theme set the role with number `n`.
     set: u32,
@@ -436,10 +313,10 @@ pub struct Palette {
 
 impl Palette {
     /// The number of roles the palette holds a colour for.
-    pub const SLOTS: usize = 32;
+    pub(crate) const SLOTS: usize = 32;
 
     /// The interface's own grays.
-    pub const DEFAULT: Palette = {
+    pub(crate) const DEFAULT: Palette = {
         const GRAYS: [u8; Ink::OWN as usize] = [
             0, 255, 60, 80, 90, 120, 150, 150, 190, 210, 215, 200, 225, 238,
         ];
@@ -544,48 +421,31 @@ pub fn text_ink(value: &str, language: &str) -> TextInk {
 ///
 /// The roles are constants of one type, so more can come without a new
 /// plugin interface: a role this release does not know is sized as
-/// [`TextRole::BODY`], and a look's text painter
-/// ([`Painters::text`](crate::ui::look::Painters::text)) gets the role of
+/// `TextRole::BODY`, and a look's text painter
+/// (`Painters::text`) gets the role of
 /// every run it is asked about.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TextRole(u8);
 
 impl TextRole {
     /// Smaller than small, e.g. under an icon.
-    pub const CAPTION: Self = Self(0);
+    pub(crate) const CAPTION: Self = Self(0);
     /// Hints, notes, status lines.
-    pub const SMALL: Self = Self(1);
+    pub(crate) const SMALL: Self = Self(1);
     /// Most text.
-    pub const BODY: Self = Self(2);
+    pub(crate) const BODY: Self = Self(2);
     /// Titles of dialogs and widgets.
-    pub const TITLE: Self = Self(3);
+    pub(crate) const TITLE: Self = Self(3);
     /// The titles of headers.
-    pub const HEAD: Self = Self(4);
+    pub(crate) const HEAD: Self = Self(4);
     /// Large, e.g. a widget's main line.
-    pub const HEADLINE: Self = Self(5);
+    pub(crate) const HEADLINE: Self = Self(5);
     /// Larger, e.g. a clock.
-    pub const DISPLAY: Self = Self(6);
+    pub(crate) const DISPLAY: Self = Self(6);
     /// Large numbers standing alone, e.g. a page count.
-    pub const NUMERAL: Self = Self(7);
+    pub(crate) const NUMERAL: Self = Self(7);
     /// A hint under a control (sized as [`TextRole::SMALL`]).
-    pub const HINT: Self = Self(8);
-    /// The label of a button or a list row (sized as [`TextRole::BODY`]).
-    pub const BUTTON: Self = Self(9);
-    /// A glyph of the icon font (sized as [`TextRole::BODY`]; the caller
-    /// sets an icon's own size).
-    pub const ICON: Self = Self(10);
-
-    /// The role's number, as the constants above have it: 0 to 10 are
-    /// named, the others are free.
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-
-    /// The role of a number; one this release has no name for is a role
-    /// all the same.
-    pub const fn from_value(value: u8) -> Self {
-        Self(value)
-    }
+    pub(crate) const HINT: Self = Self(8);
 
     const fn name(self) -> Option<&'static str> {
         Some(match self.0 {
@@ -617,7 +477,7 @@ impl core::fmt::Debug for TextRole {
 /// How the focus of rows and items is drawn ([`Ui::focus`](super::Ui::focus)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum Focus {
+pub(crate) enum Focus {
     /// A black bar, what is on it white.
     Fill,
     /// A thick round frame, what is in it black.
@@ -630,7 +490,7 @@ pub enum Focus {
 /// The lines between rows ([`Ui::separator`](super::Ui::separator)).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum Separators {
+pub(crate) enum Separators {
     /// Light lines within the margins.
     Line,
     /// Fainter lines, from where the text starts.
@@ -640,35 +500,6 @@ pub enum Separators {
 }
 
 impl UiStyle {
-    /// Fixed sizes for text 20 pixels high, square corners, lines between
-    /// rows, the focus a dark bar, two grays: what no device or setting
-    /// changes. Its fields can be changed as any style's.
-    pub const PLAIN: UiStyle = UiStyle {
-        text: 20.0,
-        small: 15.0,
-        title: 23.0,
-        head: 23.0,
-        row: 60,
-        control_row: 60,
-        header: 64,
-        margin: 12,
-        gap: 8,
-        line: 2,
-        dark_header: false,
-        corner: 0,
-        strong: false,
-        pill: false,
-        focus: Focus::Fill,
-        separators: Separators::Line,
-        plain_header: false,
-        cards: false,
-        grays: 2,
-        finger: 0,
-        look: super::look::Look::none(),
-        palette: Palette::DEFAULT,
-        direction: 0,
-    };
-
     pub fn new(env: &Env<'_>) -> Self {
         let m = env.metrics();
         let base = env.settings().read(&settings::UI_SIZE).clamp(6, 40) as f32;
@@ -756,7 +587,7 @@ impl UiStyle {
     /// Taller shapes (a row with a note) keep the corners, at most half a
     /// margin round: the room between their edge and their text, so the
     /// curve never comes near what is in them.
-    pub fn radius(&self, height: u32) -> u32 {
+    pub(crate) fn radius(&self, height: u32) -> u32 {
         if self.pill && height <= self.row * 5 / 4 {
             height / 2
         } else if height > self.row * 5 / 4 {
@@ -764,50 +595,6 @@ impl UiStyle {
         } else {
             self.corner
         }
-    }
-
-    /// Whether the focus is drawn dark, so what is on it is drawn white.
-    pub fn dark_focus(&self) -> bool {
-        self.focus == Focus::Fill
-    }
-
-    /// The ink of what is drawn on a row or item, `focused` or not:
-    /// white on a dark focus, else black.
-    pub fn focus_ink(&self, focused: bool) -> Color {
-        if focused && self.dark_focus() {
-            self.ink(Ink::PAPER)
-        } else {
-            self.ink(Ink::TEXT)
-        }
-    }
-
-    /// The paper of a row or item, `focused` or not: what its content may
-    /// be cleared to (black on a dark focus).
-    pub fn focus_paper(&self, focused: bool) -> Color {
-        if focused && self.dark_focus() {
-            self.ink(Ink::TEXT)
-        } else {
-            self.ink(Ink::PAPER)
-        }
-    }
-
-    /// The colour of gray text (notes) on a row or item, `focused` or not
-    /// (light on a dark focus).
-    pub fn focus_faint(&self, focused: bool, ink: Ink) -> Color {
-        if focused && self.dark_focus() {
-            self.ink(Ink::ON_FOCUS_MUTED)
-        } else {
-            self.faint(ink)
-        }
-    }
-
-    /// A row or bar of `height` for buttons: on touch screens as much
-    /// higher as its buttons ([`button_height`]) grow to be as large as a
-    /// fingertip ([`UiStyle::finger`]), so that the room above and below
-    /// them stays what it is in a row of `height`; as it is with buttons
-    /// alone. Every row or bar that holds buttons is made with it.
-    pub fn touch_row(&self, height: u32) -> u32 {
-        height.max(self.finger + (height - height * 7 / 10))
     }
 
     /// The colour of `ink` in the palette; gray text (notes, headings,
@@ -821,7 +608,7 @@ impl UiStyle {
     }
 
     /// The size of text of `role` (one this release does not know is
-    /// sized as [`TextRole::BODY`]).
+    /// sized as `TextRole::BODY`).
     pub fn size(&self, role: TextRole) -> f32 {
         match role {
             TextRole::CAPTION => self.small * 0.8,
@@ -838,158 +625,10 @@ impl UiStyle {
         }
     }
 
-    /// The colour of gray text such as hints and notes, of `ink`'s role
-    /// in the palette; black for strong contrast.
-    pub fn faint(&self, ink: Ink) -> Color {
-        if self.strong {
-            self.ink(Ink::TEXT)
-        } else {
-            self.palette.color(ink)
-        }
-    }
-
-    /// A header's background and text: the palette's text and paper, the
-    /// other way round for light headers.
-    pub fn header_colors(&self) -> (Color, Color) {
-        let (text, paper) = (self.ink(Ink::TEXT), self.ink(Ink::PAPER));
-        if self.dark_header {
-            (text, paper)
-        } else {
-            (paper, text)
-        }
-    }
-
-    /// Draws a header's background in `area`: dark, or light with a thin
-    /// line below (as the separators are; none for plain headers).
-    pub(super) fn header_background(&self, canvas: &mut Canvas<'_>, area: Rect) {
-        let (paper, ink) = self.header_colors();
-        canvas.fill(area, paper);
-        if self.dark_header || self.plain_header {
-            return;
-        }
-        let line = self.line.max(1) as u16;
-        let y = (area.y + area.height).saturating_sub(line);
-        match self.separators {
-            Separators::Line => canvas.fill(Rect::new(area.x, y, area.width, line), ink),
-            Separators::Inset => {
-                let margin = self.margin as u16;
-                let width = area.width.saturating_sub(2 * margin);
-                canvas.fill_tint(
-                    Rect::new(area.x + margin, y, width, line),
-                    self.ink(Ink::RULE),
-                );
-            }
-            Separators::None => {}
-        }
-    }
-
-    /// The part of a header's `area` its title and signs are centred in:
-    /// all of it, but the line below a light header.
-    pub(super) fn header_band(&self, area: Rect) -> Rect {
-        let lined = !self.dark_header && !self.plain_header && self.separators != Separators::None;
-        let line = if lined { self.line.max(1) as u16 } else { 0 };
-        Rect::new(area.x, area.y, area.width, area.height.saturating_sub(line))
-    }
-
     /// The UI font, inked as the setting `core.ui-text-curve` says (the
     /// kernel has made it: [`text_ink`]).
     pub fn font<'a>(&self, env: &Env<'a>) -> Option<FontHandle<'a>> {
         env.fonts().role(fonts::UI.as_str())
-    }
-
-    /// Height of a row with a note: the title line, then up to
-    /// [`NOTE_LINES`] lines of small text (see [`Row::value`](super::Row::value)).
-    pub fn noted_row(&self) -> u32 {
-        self.noted_row_of(NOTE_LINES)
-    }
-
-    /// Height of a row with a note of `lines` lines (e.g. 1 for denser
-    /// lists of many entries): a title line, then the note.
-    pub fn noted_row_of(&self, lines: usize) -> u32 {
-        let notes = (lines as f32 * self.small * NOTE_LINE_HEIGHT) as u32;
-        self.title_band() + notes + self.gap * 3 / 2
-    }
-
-    /// Height of the title line of a noted row.
-    pub(super) fn title_band(&self) -> u32 {
-        self.row * 3 / 4
-    }
-}
-
-/// Where the focus of a row or an item in `rect` is drawn: a little in
-/// from the sides, so it sits within the screen's margins as a rounded
-/// bar, and off the lines between rows.
-pub fn focus_rect(style: &UiStyle, rect: Rect) -> Rect {
-    let side = (style.margin / 2) as u16;
-    let edge = (style.line as u16).min(rect.height / 8);
-    rect.inset(side.min(rect.width / 8), edge)
-}
-
-/// Draws the focus of the row or item in `rect` (see [`focus_rect`]):
-/// black, for content drawn white on it. Every list draws its focus this
-/// way, so it looks the same everywhere.
-pub(crate) fn draw_focus(canvas: &mut Canvas<'_>, style: &UiStyle, rect: Rect) {
-    let r = focus_rect(style, rect);
-    if style
-        .look
-        .focus(canvas, style, super::look::FocusPart { rect: r })
-    {
-        return;
-    }
-    // Items taller than wide (a cover) keep the corners.
-    let radius = if r.width < r.height {
-        style.corner
-    } else {
-        style.radius(u32::from(r.height))
-    };
-    let ring = (style.line * 2).max(3);
-    match style.focus {
-        Focus::Fill => canvas.fill_round(r, radius, Color::BLACK),
-        Focus::Ring => canvas.stroke_round(r, ring, radius, Color::BLACK),
-        Focus::Soft if style.grays > 2 => {
-            // As light as the panel shows with black text reading well.
-            let gray = if style.grays >= 16 { 215 } else { 170 };
-            canvas.fill_round(r, radius, Color::gray(gray));
-        }
-        Focus::Soft => canvas.stroke_round(r, ring, radius, Color::BLACK),
-    }
-}
-
-/// Draws the line below the row in `rect` as the style's separators
-/// are: `indent` is where the row's text starts after the margin (e.g.
-/// right of an icon), where faint lines start.
-pub(crate) fn draw_separator(canvas: &mut Canvas<'_>, style: &UiStyle, rect: Rect, indent: u16) {
-    let part = super::look::SeparatorPart { row: rect, indent };
-    if style.look.separator(canvas, style, part) {
-        return;
-    }
-    let margin = style.margin as u16;
-    let line = style.line as u16;
-    let y = rect.y + rect.height - line;
-    match style.separators {
-        Separators::Line => canvas.fill_tint(
-            Rect::new(
-                rect.x + margin,
-                y,
-                rect.width.saturating_sub(2 * margin),
-                line,
-            ),
-            style.ink(Ink::LINE),
-        ),
-        Separators::Inset => {
-            let start = margin + indent;
-            let thin = (line / 2).max(1);
-            canvas.fill_tint(
-                Rect::new(
-                    rect.x + start,
-                    y,
-                    rect.width.saturating_sub(start + margin),
-                    thin,
-                ),
-                style.ink(Ink::LINE_FAINT),
-            );
-        }
-        Separators::None => {}
     }
 }
 
@@ -999,7 +638,7 @@ pub fn fill_round(canvas: &mut Canvas<'_>, style: &UiStyle, area: Rect, color: C
 }
 
 /// Draws a box's frame, `thickness` wide, with the style's corners.
-pub fn stroke_round(
+pub(crate) fn stroke_round(
     canvas: &mut Canvas<'_>,
     style: &UiStyle,
     area: Rect,

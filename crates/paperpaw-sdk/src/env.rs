@@ -117,7 +117,7 @@ impl Capability {
     /// empty, which means unknown.
     pub const RENDER_REGIONS: Self = Self(1 << 9);
     /// The SDK asks a look for parts of kinds beyond the named ones
-    /// ([`Painters::extras`](crate::ui::look::Painters::extras)); where it
+    /// (`Painters::extras`); where it
     /// is missing none is asked.
     pub const LOOK_EXTRAS: Self = Self(1 << 10);
     /// The card can be shown to a computer as a USB drive
