@@ -157,6 +157,17 @@ fn the_middle_of_a_target_is_where_a_button_press_taps() {
 fn a_press_that_only_moves_the_focus_keeps_what_the_widgets_read() {
     let mut dashboard = Dashboard::default();
     let action = |action| Input::Action { now_ms: 0, action };
+    // With no book shown (none yet, or the read refused) nothing is kept: the
+    // next press asks the library again.
+    assert!(!dashboard.is_focus_step(&action("core.right")));
+    dashboard
+        .listing
+        .hold_for_test(alloc::vec![crate::native_recent::Book {
+            key: 1,
+            generation: 1,
+            title: "a".into(),
+            progress: 0,
+        }]);
     for moving in [
         "core.up",
         "core.down",
@@ -170,6 +181,13 @@ fn a_press_that_only_moves_the_focus_keeps_what_the_widgets_read() {
     // Confirm runs a target, a page turn lays the page out again.
     assert!(!dashboard.is_focus_step(&action("core.confirm")));
     assert!(!dashboard.is_focus_step(&action("core.next-page")));
+    // The raw key before its action does nothing.
+    let key = Input::Key {
+        now_ms: 0,
+        key: "right",
+        state: paperpaw_sdk::native::callbacks::KeyState::Press,
+    };
+    assert!(dashboard.is_focus_step(&key));
     // Arranging moves cells: the widgets are told.
     dashboard.editing = true;
     assert!(!dashboard.is_focus_step(&action("core.right")));

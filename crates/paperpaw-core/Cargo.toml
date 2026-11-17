@@ -38,6 +38,12 @@ x4-gate-closed = []
 # and icons are then centred by their ink, as in the emulator. For the owner's
 # X4 test image that times it (#250); off by default.
 x4-ink = []
+# The kernel's Bluetooth radio model (`io/bluetooth`, `bluetooth.rs`, ADR 0027):
+# for the shells of devices that have Bluetooth (the X4 Pro's `bluetooth`
+# feature, the desktop, Android and web shells, the tests). Without it the
+# kernel answers every Bluetooth command as `off` and is 17-22 KB smaller
+# (#306). The SDK's Bluetooth types are there either way.
+bluetooth = []
 # What the app's and the shells' tests ask the kernel and a shell never does
 # (`Kernel::native_is_parked`): never in a firmware build (#248, D1).
 testing = []
@@ -55,7 +61,7 @@ paperpaw-sort.workspace = true
 
 [dev-dependencies]
 # Tests' screens (`testing`) for the tests in `tests/`.
-paperpaw-core = { path = ".", features = ["testing"] }
+paperpaw-core = { path = ".", features = ["testing", "bluetooth"] }
 # The library's moves on a real FAT card (native_host/lib_moves_fat_tests.rs).
 paperpaw-fat.workspace = true
 # The stack depth of the files service on that card, held to the device's (#256).

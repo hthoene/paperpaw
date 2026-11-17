@@ -222,7 +222,7 @@ paperpaw-plugin-settings.workspace = true
 
 [dev-dependencies]
 # `Kernel::native_is_parked` for the sleep tests (never in a firmware build).
-paperpaw-core = { workspace = true, features = ["testing"] }
+paperpaw-core = { workspace = true, features = ["testing", "bluetooth"] }
 paperpaw-platform.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 # Font packs made in the tests (a card font for widgets, #262).

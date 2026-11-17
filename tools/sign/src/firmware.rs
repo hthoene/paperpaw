@@ -3,7 +3,10 @@
 
 use std::io::Write;
 
-use paperpaw_update::{AppInfo, Check, PLUGINS_AT, Plugins, TRAILER_LEN, Trailer};
+use paperpaw_update::{
+    APP_HEAD_LEN, AppInfo, Check, PLUGINS_AT, PLUGINS_HEAD_LEN, Plugins, TRAILER_LEN, Trailer,
+};
+use paperpaw_x4::updates::packed;
 
 use paperpaw_native::Chip;
 use paperpaw_native::header5::Header5;
@@ -79,6 +82,35 @@ pub fn sign(image: &str, update: &str, key_file: Option<&str>) -> Result<(), Str
     Ok(())
 }
 
+/// Signs the container of `image` (`packed`) as an update file: the same
+/// image a third smaller, for firmware that inflates it as it writes.
+pub fn pack(image: &str, update: &str, key_file: Option<&str>) -> Result<(), String> {
+    let seed = secret_key(key_file)?;
+    let data = std::fs::read(image).map_err(|e| format!("{image}: {e}"))?;
+    let info = AppInfo::read(&data).map_err(|e| format!("{image}: {e}"))?;
+    // The list of plugins stays in the stored head, where updates read it
+    // without unpacking.
+    let list = data
+        .get(PLUGINS_AT..PLUGINS_AT + PLUGINS_HEAD_LEN)
+        .and_then(Plugins::text_len)
+        .map_or(0, |text| PLUGINS_AT + PLUGINS_HEAD_LEN + text);
+    let stored = list.max(APP_HEAD_LEN).next_multiple_of(16);
+    let mut container = packed::pack(&data, stored, 9)
+        .ok_or_else(|| format!("{image}: not an app image that can be packed"))?;
+    let trailer = paperpaw_update::sign(&container, &seed).map_err(|e| format!("{image}: {e}"))?;
+    container.extend_from_slice(&trailer.to_bytes());
+    std::fs::write(update, &container).map_err(|e| format!("{update}: {e}"))?;
+    println!(
+        "{update}: {} {}, {} bytes packed from {}, signed by {}",
+        info.project,
+        info.version,
+        container.len(),
+        data.len(),
+        paperpaw_update::fingerprint(&trailer.key)
+    );
+    Ok(())
+}
+
 pub fn show(update: &str) -> Result<(), String> {
     let data = std::fs::read(update).map_err(|e| format!("{update}: {e}"))?;
     let split = data
@@ -87,14 +119,29 @@ pub fn show(update: &str) -> Result<(), String> {
         .ok_or_else(|| format!("{update}: too short"))?;
     let trailer =
         Trailer::read(&data[split..], data.len() as u64).map_err(|e| format!("{update}: {e}"))?;
-    let info = AppInfo::read(&data[..split]).map_err(|e| format!("{update}: {e}"))?;
+    // A packed update's container has the image's head as it is but for the
+    // first byte (`packed`), and its length in the footer.
+    let footer = split
+        .checked_sub(packed::FOOTER_LEN)
+        .and_then(|at| packed::Footer::read(&data[at..split], split as u32));
+    let mut head = data[..footer.map_or(split, |f| f.stored as usize)].to_vec();
+    if footer.is_some() {
+        head[0] = packed::IMAGE_MAGIC;
+    }
+    let info = AppInfo::read(&head).map_err(|e| format!("{update}: {e}"))?;
     let mut check = Check::new(&trailer).map_err(|e| format!("{update}: {e}"))?;
     check.absorb(&data[..split]);
     let holds = check.finish();
     println!("firmware:    {} {}", info.project, info.version);
     println!("chip:        {}", info.chip);
-    println!("image:       {} bytes", trailer.image_len);
-    match plugins_of(&data[..split]) {
+    match footer {
+        Some(footer) => println!(
+            "image:       {} bytes (packed in {} bytes)",
+            footer.raw_len, trailer.image_len
+        ),
+        None => println!("image:       {} bytes", trailer.image_len),
+    }
+    match plugins_of(&head) {
         Some(list) => println!("plugins:     {} built in", list.iter().count()),
         None => println!("plugins:     not listed"),
     }

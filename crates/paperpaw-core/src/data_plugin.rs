@@ -66,6 +66,7 @@ use paperpaw_sdk::{Id, Manifest, RegisterError, Version};
 mod catalogs;
 pub(crate) mod formats;
 pub(crate) mod hyphenation;
+mod names;
 use formats::{actions, menus, setup_steps};
 
 /// Largest data file read (a translation catalog, a key map).
@@ -661,6 +662,7 @@ pub(crate) fn folders_of(storage: &dyn Storage, dir: &str, id: &str) -> Vec<Stri
 /// The plugin in folder `path`.
 fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin, String> {
     let storage = shared.as_ref();
+    let names = names::Names::of(storage, path);
     let manifest = read(storage, &format!("{path}/plugin.ini"), MAX_MANIFEST)
         .ok_or_else(|| format!("{path}: no plugin.ini"))?;
     let source = manifest;
@@ -673,18 +675,10 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
         problems: Vec::new(),
     };
     let catalogs = format!("{path}/i18n");
-    let mut files: Vec<String> = Vec::new();
-    let mut compiled: Vec<String> = Vec::new();
-    let _ = storage.list(&catalogs, &mut |entry| {
-        // `DE.INI` too: a file copied from a memory card may have it so.
-        if !entry.is_dir && paperpaw_sdk::files::has_extension(entry.name, "ini") {
-            files.push(entry.name.to_string());
-        }
-        // Read as needed, so not counted (ADR 0033).
-        if !entry.is_dir && paperpaw_sdk::files::has_extension(entry.name, "ppcat") {
-            compiled.push(format!("{catalogs}/{}", entry.name));
-        }
-    });
+    let (mut files, mut compiled) = match names.has("i18n") {
+        true => catalogs::names(storage, &catalogs),
+        false => (Vec::new(), Vec::new()),
+    };
     paperpaw_sort::sort(&mut files);
     paperpaw_sort::sort(&mut compiled);
     if budget.formats < FORMATS_4 {
@@ -709,7 +703,7 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
     });
     let code = paperpaw_sdk::native::CODE_FILES
         .iter()
-        .any(|file| storage.size(&format!("{path}/{file}")).is_ok());
+        .any(|file| names.has(file) && storage.size(&format!("{path}/{file}")).is_ok());
     let translations = catalogs::read_all(
         storage,
         path,
@@ -719,19 +713,30 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
         &mut compiled,
         &mut budget,
     );
-    let keymap = budget.read_now(storage, &format!("{path}/keymap.ini"));
-    let styles = budget.read_now(storage, &format!("{path}/styles.css"));
+    let mut now = |name: &str| {
+        names
+            .has(name)
+            .then(|| budget.read_now(storage, &format!("{path}/{name}")))
+            .flatten()
+    };
+    let (keymap, styles) = (now("keymap.ini"), now("styles.css"));
     let mut later: Vec<String> = LATER
         .iter()
+        .filter(|(name, _)| names.has(name))
         .map(|(name, format3)| (format!("{path}/{name}"), *format3))
         .filter(|(file, format3)| budget.allow(storage, file, *format3))
         .map(|(file, _)| file)
         .collect();
-    later.extend(point_files(storage, path, &mut budget));
+    if names.has("points") {
+        later.extend(point_files(storage, path, &mut budget));
+    }
     let roles = fonts_for_roles(&source, path, &mut budget);
     let tables = hyphenation_tables(&source, path, code, &mut budget);
     let (family, faces) = family(&source, path);
-    let mut fonts = font_files(storage, &format!("{path}/fonts"), false);
+    let mut fonts = match names.has("fonts") {
+        true => font_files(storage, &format!("{path}/fonts"), false),
+        false => Vec::new(),
+    };
     // A family's faces are not fonts of their own as well.
     fonts.retain(|file| !faces.iter().any(|(_, face)| face == file));
     Ok(DataPlugin {

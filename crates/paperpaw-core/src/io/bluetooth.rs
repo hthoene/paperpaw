@@ -6,38 +6,63 @@
 //! the cheapest power that serves everyone, and switches it on for the
 //! first request and off a little after the last.
 
+#[cfg(feature = "bluetooth")]
 mod commands;
+#[cfg(feature = "bluetooth")]
 mod reports;
 
+#[cfg(feature = "bluetooth")]
 pub use commands::Asked;
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
+#[cfg(feature = "bluetooth")]
+use alloc::string::ToString;
 use alloc::vec::Vec;
 
+#[cfg_attr(
+    not(feature = "bluetooth"),
+    allow(unused_imports, reason = "the radio model uses them")
+)]
 use paperpaw_hid::Decoder;
+#[cfg_attr(
+    not(feature = "bluetooth"),
+    allow(unused_imports, reason = "the radio model uses them")
+)]
 use paperpaw_platform::Instant;
+#[cfg_attr(
+    not(feature = "bluetooth"),
+    allow(unused_imports, reason = "the radio model uses them")
+)]
 use paperpaw_sdk::bluetooth::{
     Access, AdvertisePower, Advertising, Bluetooth, Bonded, BtError, BtEvent, BtFailure, BtOp,
     Device, DeviceId, DeviceKind, GattService, LinkPower, ManufacturerData, Properties, RadioState,
     Scan, ScanPower, Security, ServiceData, Uuid, ValueKind,
 };
+#[cfg(feature = "bluetooth")]
 use paperpaw_sdk::event::EventData;
+#[cfg(feature = "bluetooth")]
 use paperpaw_sdk::{Command, Id};
 
 /// How long the radio stays on after the last request, for the next one.
+#[cfg(feature = "bluetooth")]
 pub const RADIO_GRACE_MS: u64 = 3_000;
 /// How long the radio rests after it went off by itself (the shell's
 /// host failed) before it comes on again for what still wants it.
+#[cfg(feature = "bluetooth")]
 pub const RADIO_REST_MS: u64 = 10_000;
 /// Devices found that nobody bonded, kept at most while the radio is off
 /// (the newest).
+#[cfg(feature = "bluetooth")]
 pub const FOUND_KEPT: usize = 16;
 /// The secrets that keep the bonds: `core.bluetooth.<device number>`.
+#[cfg(feature = "bluetooth")]
 pub const BOND_PREFIX: &str = "core.bluetooth.";
 /// How long after a plugin's scan its next one waits, unless the reader
 /// asked for it.
+#[cfg(feature = "bluetooth")]
 pub const SCAN_COOLDOWN_MS: u64 = 60_000;
 /// How long a remote's link stays responsive after its last key.
+#[cfg(feature = "bluetooth")]
 pub const KEYS_IDLE_MS: u64 = 60_000;
 
 /// What the shell is to do with the radio ([`Io::Bluetooth`](super::Io)).
@@ -282,6 +307,7 @@ pub enum BtReport {
 
 /// A device the kernel knows: found this start, or bonded.
 #[derive(Debug, Clone)]
+#[cfg(feature = "bluetooth")]
 struct Known {
     id: DeviceId,
     address: String,
@@ -299,6 +325,7 @@ struct Known {
     wanted: bool,
 }
 
+#[cfg(feature = "bluetooth")]
 impl Known {
     fn name(&self) -> Option<&str> {
         self.found.name.as_deref()
@@ -376,6 +403,7 @@ impl Known {
 
 /// Who asked for something, where it goes, and while how many screens.
 #[derive(Debug, Clone)]
+#[cfg(feature = "bluetooth")]
 struct Asker {
     plugin: String,
     events: Id,
@@ -383,6 +411,7 @@ struct Asker {
 }
 
 #[derive(Debug)]
+#[cfg(feature = "bluetooth")]
 struct ScanRequest {
     asker: Asker,
     scan: Scan,
@@ -390,6 +419,7 @@ struct ScanRequest {
 }
 
 #[derive(Debug)]
+#[cfg(feature = "bluetooth")]
 struct AdvertRequest {
     asker: Asker,
     advertising: Advertising,
@@ -398,6 +428,7 @@ struct AdvertRequest {
 
 /// A plugin using a link.
 #[derive(Debug, Clone)]
+#[cfg(feature = "bluetooth")]
 struct User {
     asker: Asker,
     power: LinkPower,
@@ -406,6 +437,7 @@ struct User {
 }
 
 #[derive(Debug)]
+#[cfg(feature = "bluetooth")]
 struct Link {
     number: u32,
     device: DeviceId,
@@ -438,6 +470,7 @@ struct Link {
     security: Security,
 }
 
+#[cfg(feature = "bluetooth")]
 impl Link {
     /// The events of `plugin`'s use of it.
     fn events_of(&self, plugin: &str) -> Option<Id> {
@@ -451,6 +484,7 @@ impl Link {
 /// A characteristic of the device's own GATT server: its handle, service,
 /// UUID and the plugin's events.
 #[derive(Debug, Clone)]
+#[cfg(feature = "bluetooth")]
 struct Served {
     handle: u16,
     service: Uuid,
@@ -460,6 +494,7 @@ struct Served {
 
 /// Bluetooth, as the kernel keeps it.
 #[derive(Debug, Default)]
+#[cfg(feature = "bluetooth")]
 pub(crate) struct Radio {
     max_links: u8,
     known: Vec<Known>,
@@ -506,16 +541,19 @@ pub(crate) struct Radio {
 }
 
 /// The command that tells `events` of `event`.
+#[cfg(feature = "bluetooth")]
 fn tell(events: &Id, event: BtEvent) -> Command {
     Command::Emit(events.clone(), event.into_params())
 }
 
 /// The command that tells `events` that a command failed.
+#[cfg(feature = "bluetooth")]
 fn fail(events: &Id, failure: BtFailure) -> Command {
     tell(events, BtEvent::Failed(failure))
 }
 
 /// The device kind from a GAP appearance and the services.
+#[cfg(feature = "bluetooth")]
 fn kind_of(appearance: Option<u16>, services: &[Uuid]) -> DeviceKind {
     match appearance.map(|a| a >> 6) {
         Some(0x0F) => match appearance.map(|a| a & 0x3f) {
@@ -530,6 +568,7 @@ fn kind_of(appearance: Option<u16>, services: &[Uuid]) -> DeviceKind {
     }
 }
 
+#[cfg(feature = "bluetooth")]
 impl Radio {
     /// A radio keeping up to `max_links` links.
     pub fn new(max_links: u8) -> Self {
@@ -1142,4 +1181,5 @@ impl Radio {
 }
 
 #[cfg(test)]
+#[cfg(feature = "bluetooth")]
 mod tests;

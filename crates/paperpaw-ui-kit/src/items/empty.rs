@@ -1,5 +1,5 @@
 //! What an empty list says: a picture, a title and a few lines, centred.
-use super::{Footer, ItemList};
+use super::ItemList;
 use crate::{Paint, Style, paint, text};
 use alloc::vec::Vec;
 use paperpaw_sdk::{
@@ -84,22 +84,20 @@ pub(super) fn draw_empty(
 /// A title, a bar `permille` thousandths full with `label` under it, and the
 /// text, centred in `area`. The room of the bar and its label is returned: it
 /// is all that changes while the job runs.
+#[inline(never)]
 pub(super) fn draw_progress(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
     style: &Style,
     area: Rect,
-    footer: Footer<'_>,
+    progress: &Progress<'_>,
 ) -> Result<Rect, Error> {
-    let Footer::Progress {
+    let Progress {
         title,
         label,
         permille,
         text,
-    } = footer
-    else {
-        return Ok(area);
-    };
+    } = *progress;
     let room = f32::from(area.width.saturating_sub(4 * style.margin)).max(1.0);
     let lines = text::wrap_with(|line| font.measure_text(style.small, line), text, room, 6)?;
     let head = crate::geometry::line_px(font, style.title)?;
@@ -191,14 +189,14 @@ pub(super) fn draw_progress(
 }
 
 impl ItemList {
-    /// Asks for the bar of the [`Footer::Progress`] drawn last, and its label,
+    /// Asks for the bar of the [`super::Footer::Progress`] drawn last, and its label,
     /// to be drawn again alone (a partial refresh of that room): `false`, and
     /// nothing asked, where the last frame drew none.
     ///
     /// # Errors
     /// Propagates command queueing errors.
     pub fn redraw_progress(&self, host: &Host<'_>) -> Result<bool, Error> {
-        let Some(band) = self.band else {
+        let Spot::Band(band) = self.spot else {
             return Ok(false);
         };
         let mut scratch = [0; 64];
@@ -211,4 +209,28 @@ impl ItemList {
         CommandSender::new(host, &mut scratch).queue_redraw_area(RedrawMode::Partial, area)?;
         Ok(true)
     }
+}
+
+/// What [`super::Footer::Progress`] shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Progress<'a> {
+    /// Said larger.
+    pub title: &'a str,
+    /// The share done in words, e.g. `25 %`; empty for none.
+    pub label: &'a str,
+    /// How much is done, in thousandths.
+    pub permille: u16,
+    /// Said in small letters, wrapped.
+    pub text: &'a str,
+}
+
+/// A room of the last frame that the list remembers.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) enum Spot {
+    #[default]
+    None,
+    /// The room above the rows.
+    Head(Rect),
+    /// The bar and label of a [`super::Footer::Progress`] (kept where there is no head).
+    Band(Rect),
 }

@@ -95,11 +95,7 @@ impl<'a> SettingIdentity<'a> {
     /// Found by the settings' index, not by a walk of them: every read of a
     /// setting asks this (#250).
     pub(crate) fn secret(&self, settings: &paperpaw_sdk::Settings) -> Option<bool> {
-        let of = |plain: &str| {
-            settings
-                .defines(plain)
-                .then(|| settings.defines_secret(plain))
-        };
+        let of = |plain: &str| settings.secret_of(plain);
         if self.tail.is_empty() {
             return of(self.head);
         }

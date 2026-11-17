@@ -43,7 +43,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    Footer, Item, ItemList, ItemStep, Messages, Screens,
+    Footer, Item, ItemList, ItemStep, Messages, Progress, Screens,
     files::{read_all, replace},
     mem::{SERVICE_BUFFER, buffer, push},
     read_event,
@@ -309,13 +309,17 @@ impl Plugin for NativeUpdate {
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         let page = self.screens.top(token).ok_or(Error::State)?;
+        let bar;
         let footer = match &page.view {
-            View::Installing(share) | View::Downloading(_, share) => Footer::Progress {
-                title: &page.title,
-                label: &page.label,
-                permille: share.map_or(0, |share| (share.clamp(0, 100) * 10) as u16),
-                text: &page.help,
-            },
+            View::Installing(share) | View::Downloading(_, share) => {
+                bar = Progress {
+                    title: &page.title,
+                    label: &page.label,
+                    permille: share.map_or(0, |share| (share.clamp(0, 100) * 10) as u16),
+                    text: &page.help,
+                };
+                Footer::Progress(&bar)
+            }
             _ => Footer::Empty {
                 title: &page.title,
                 text: &page.help,
