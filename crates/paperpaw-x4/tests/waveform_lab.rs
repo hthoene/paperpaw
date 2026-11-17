@@ -51,7 +51,7 @@ fn lab_x4(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder
     .uses(Uses::NOTHING);
     builder.items(manifest, |items| {
         items.add_settings(&lab::SETTINGS)?;
-        items.add_screens(&lab::SCREENS)?;
+        items.add_kernel_screens(&lab::SCREENS)?;
         items.add_actions(&lab::ACTIONS)?;
         items.add_menu_entries(&lab::ENTRIES)?;
         items.add_translations(Cow::Borrowed(include_str!(

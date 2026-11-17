@@ -263,40 +263,6 @@ fn a_home_grid_gets_more_columns_on_its_side() {
     }
 }
 
-#[test]
-fn a_choice_on_a_wide_screen_is_a_sheet_in_the_column_and_a_tap_beside_it_closes_it() {
-    use paperpaw_sdk::event::Event;
-    use paperpaw_sdk::ui::choice::{Choice, Picked};
-    use paperpaw_sdk::{Command, Outside, Screen};
-    let h = harness(TABLET_SIDE);
-    let env = h.env();
-    let style = UiStyle::new(&env);
-    let Command::OpenSlot(_, params) =
-        paperpaw_sdk::ask::choice("Sort by", &Event::<Picked>::new("t.chosen"))
-            .options("t.option.", &["a", "b", "c"])
-            .command()
-    else {
-        panic!("not a slot");
-    };
-    let choice = Choice::new(&env, &params);
-    let region = choice.region(&env).expect("a sheet");
-    let column = ui::readable(&env, &style, whole(TABLET_SIDE));
-    // The sheet stands in the column, along the bottom.
-    assert_eq!((region.x, region.width), (column.x, column.width));
-    assert_eq!(region.bottom(), u32::from(whole(TABLET_SIDE).height));
-    // Beside it is outside the sheet, as above it: the overlay's default,
-    // a tap there closes it (the screen below is dimmed, not usable).
-    for x in [5, i32::from(region.x) - 1, region.right() as i32 + 1, 1915] {
-        assert!(!region.contains(Point::new(x, 1100)), "{x}");
-    }
-    assert_eq!(choice.outside(), Outside::Close);
-    // On the X4 the sheet is as wide as the screen: nothing beside it.
-    let x4 = harness(X4_SIDE);
-    let env = x4.env();
-    let region = Choice::new(&env, &params).region(&env).expect("a sheet");
-    assert_eq!((region.x, region.width), (0, 800));
-}
-
 fn tool(name: &str, at: Option<Cells>) -> Item {
     let what = What::Tool(Id::parse(name).unwrap());
     at.map_or_else(

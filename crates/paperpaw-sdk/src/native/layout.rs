@@ -386,7 +386,7 @@ const CROSSING: &[(u64, u64)] = &[
     OLD[18], // crate::Manifest
     OLD[19], // crate::PluginInfo
     OLD[20], // crate::Plugins
-    OLD[21], // crate::ScreenSpec
+    OLD[21], // crate::ScreenSpec (gone in #244 D6b; its frozen size stays)
     OLD[22], // crate::ActionSpec
     OLD[23], // crate::MenuEntry
     OLD[24], // crate::Menus
@@ -408,7 +408,7 @@ const CROSSING: &[(u64, u64)] = &[
     // An old plugin in its box, while the SDK had the trait (#244): two
     // words, as any boxed trait object is.
     live::<alloc::boxed::Box<dyn core::any::Any>>(),
-    OLD[32], // alloc::boxed::Box<dyn crate::Screen>
+    OLD[32], // alloc::boxed::Box<dyn crate::Screen> (gone in #244 D6b; its frozen size stays)
     live::<&'static dyn crate::Storage>(),
     // Not `Api`: it grows at its end without a raise; `TABLE` keeps
     // where its fields of interface 5 lie.

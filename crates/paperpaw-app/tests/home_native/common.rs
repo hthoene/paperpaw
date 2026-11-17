@@ -31,7 +31,7 @@ use paperpaw_core::Items;
 use paperpaw_sdk::replies::Typed;
 use paperpaw_sdk::{
     ActionSpec, Canvas, Command, Cx, Env, Handled, Manifest, MenuEntry, Priority, RegisterError,
-    Screen, ScreenSpec, Version,
+    Version,
 };
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
@@ -180,7 +180,7 @@ pub fn test_keyboard(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::Ke
     .description("Types what the test says.")
     .uses(paperpaw_sdk::Uses::NOTHING);
     builder.items(manifest, |items| {
-        items.add_screen(ScreenSpec::new(
+        items.add_layer(paperpaw_core::LayerSpec::new(
             KEYBOARD_SCREEN,
             "test-keyboard",
             Box::new(|_, params| {
@@ -222,7 +222,7 @@ struct Keyboard {
     params: Params,
 }
 
-impl Screen for Keyboard {
+impl paperpaw_core::Layer for Keyboard {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -260,7 +260,7 @@ fn test_closer(r: &mut Items) -> Result<(), RegisterError> {
     r.add_action(
         ActionSpec::new(Id::new_static("test-closer.go"), "test-closer").handler(|_, _, _| {}),
     )?;
-    r.add_screen(ScreenSpec::new(
+    r.add_layer(paperpaw_core::LayerSpec::new(
         CLOSER_SCREEN,
         "test-closer",
         Box::new(|_, _| Box::new(crate::return_set::Closer)),

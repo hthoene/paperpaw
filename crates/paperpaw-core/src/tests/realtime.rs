@@ -18,7 +18,7 @@ struct Game {
 fn game_items(kept: Game) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("game.page"),
             "page",
             Box::new(move |_, _| {
@@ -30,7 +30,7 @@ fn game_items(kept: Game) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("game.page"), Priority::DEFAULT)?;
         let (log, mode) = (kept.log.clone(), kept.mode);
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("game.play"),
             "play",
             Box::new(move |env, _| {
@@ -58,7 +58,7 @@ struct Play {
     mode: ScreenMode,
 }
 
-impl Screen for Play {
+impl crate::Layer for Play {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
     }
@@ -521,7 +521,7 @@ fn squeeze_probe() -> Option<paperpaw_sdk::memory::MemoryUse> {
 fn squeezer(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("sq.screen"),
             "squeezer",
             Box::new(move |_, _| Box::new(SqueezerScreen(log.clone()))),
@@ -537,7 +537,7 @@ fn squeezer_manifest() -> Manifest {
 
 struct SqueezerScreen(Log);
 
-impl Screen for SqueezerScreen {
+impl crate::Layer for SqueezerScreen {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -603,7 +603,7 @@ fn screens_below_are_squeezed_before_they_close() {
 /// pressed, and lets go when *down* is.
 fn holder_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             Id::new_static("holder.screen"),
             "holder",
             Box::new(|_, _| Box::new(HolderScreen)),
@@ -619,7 +619,7 @@ fn holder_manifest() -> Manifest {
 
 struct HolderScreen;
 
-impl Screen for HolderScreen {
+impl crate::Layer for HolderScreen {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn mode(&self) -> ScreenMode {

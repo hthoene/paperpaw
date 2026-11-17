@@ -47,7 +47,7 @@ impl Paned {
     }
 }
 
-impl Screen for Paned {
+impl crate::Layer for Paned {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn region(&self, _: &Env<'_>) -> Option<Rect> {
@@ -130,7 +130,7 @@ fn pane_plugin(kept: PanePlugin) -> impl Fn(&mut Items) -> Result<(), RegisterEr
     move |r| {
         let log = kept.log.clone();
         let opened = Rc::new(Cell::new(0));
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             SCREEN,
             "screen",
             Box::new(move |_, params| {

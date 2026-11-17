@@ -21,7 +21,7 @@ use paperpaw_sdk::status::{StatusItemSpec, StatusLineSpec};
 use paperpaw_sdk::widgets::WidgetSpec;
 use paperpaw_sdk::{
     ActionSpec, EventHandler, FontFace, FontSpec, FormatSpec, HintVisibility, Id, MenuEntry,
-    MenuNeed, MenuSection, Priority, RegisterError, ScreenSpec, SettingSpec, SlotSpec,
+    MenuNeed, MenuSection, Priority, RegisterError, SettingSpec, SlotSpec,
 };
 
 use paperpaw_sdk::Contribution;
@@ -37,6 +37,18 @@ pub struct Items {
     contributions: Vec<Contribution>,
     /// Screens kept in the program that the kernel makes as layers.
     kernel_screens: Vec<&'static [crate::KernelScreen]>,
+    /// Screens added as layers.
+    layers: Vec<crate::LayerSpec>,
+    /// Bars along an edge.
+    chromes: Vec<crate::ChromeSpec>,
+}
+
+/// What a plugin added, taken apart for the kernel to apply.
+pub(crate) struct Parts {
+    pub(crate) contributions: Vec<Contribution>,
+    pub(crate) kernel_screens: Vec<&'static [crate::KernelScreen]>,
+    pub(crate) layers: Vec<crate::LayerSpec>,
+    pub(crate) chromes: Vec<crate::ChromeSpec>,
 }
 
 impl Items {
@@ -47,6 +59,8 @@ impl Items {
             plugin,
             contributions: Vec::new(),
             kernel_screens: Vec::new(),
+            layers: Vec::new(),
+            chromes: Vec::new(),
         }
     }
 
@@ -65,10 +79,16 @@ impl Items {
         self.contributions
     }
 
-    /// What was added and the screens kept in the program that are made
-    /// as layers ([`add_kernel_screens`](Self::add_kernel_screens)).
-    pub(crate) fn into_parts(self) -> (Vec<Contribution>, Vec<&'static [crate::KernelScreen]>) {
-        (self.contributions, self.kernel_screens)
+    /// What was added, the screens kept in the program that are made as
+    /// layers ([`add_kernel_screens`](Self::add_kernel_screens)) and those
+    /// added as layers ([`add_layer`](Self::add_layer)).
+    pub(crate) fn into_parts(self) -> Parts {
+        Parts {
+            contributions: self.contributions,
+            kernel_screens: self.kernel_screens,
+            layers: self.layers,
+            chromes: self.chromes,
+        }
     }
 
     /// Adds `contribution`; every method below is a shorthand for one.
@@ -154,26 +174,10 @@ impl Items {
         self.add_checked(Contribution::Action(Box::new(action)))
     }
 
-    pub fn add_screen(&mut self, screen: ScreenSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Screen(screen))
-    }
-
-    /// Adds screens kept in the program (a `static` list of
-    /// [`FixedScreen`](paperpaw_sdk::FixedScreen)s): they take next to no memory,
-    /// where each added with [`add_screen`](Self::add_screen) takes some
-    /// 60 bytes.
-    pub fn add_screens(
-        &mut self,
-        screens: &'static [paperpaw_sdk::FixedScreen],
-    ) -> Result<(), RegisterError> {
-        self.check_screens(screens.iter().map(paperpaw_sdk::FixedScreen::id))?;
-        self.contributions.push(Contribution::FixedScreens(screens));
-        Ok(())
-    }
-
     /// Adds screens kept in the program that the kernel makes as layers (a
-    /// `static` list of [`KernelScreen`](crate::KernelScreen)s), as
-    /// [`add_screens`](Self::add_screens) does the old SDK's.
+    /// `static` list of [`KernelScreen`](crate::KernelScreen)s): they take
+    /// next to no memory, where each added with
+    /// [`add_layer`](Self::add_layer) takes some 60 bytes.
     pub fn add_kernel_screens(
         &mut self,
         screens: &'static [crate::KernelScreen],
@@ -183,20 +187,23 @@ impl Items {
         Ok(())
     }
 
+    /// Adds a screen the kernel makes as a layer.
+    pub fn add_layer(&mut self, screen: crate::LayerSpec) -> Result<(), RegisterError> {
+        self.check_screens(core::iter::once(&screen.id))?;
+        self.layers.push(screen);
+        Ok(())
+    }
+
     /// Each of `ids` in the plugin's namespace, once among its screens.
     fn check_screens<'a>(
         &self,
         ids: impl Iterator<Item = &'a Id> + Clone,
     ) -> Result<(), RegisterError> {
         let added = |id: &Id| {
-            self.contributions.iter().any(|c| match c {
-                Contribution::Screen(s) => s.id == *id,
-                Contribution::FixedScreens(list) => list.iter().any(|s| s.id() == id),
-                _ => false,
-            }) || self
-                .kernel_screens
+            self.kernel_screens
                 .iter()
                 .any(|list| list.iter().any(|s| s.id() == id))
+                || self.layers.iter().any(|s| s.id == *id)
         };
         for (n, id) in ids.clone().enumerate() {
             if !id.is_owned_by(&self.plugin) {
@@ -782,12 +789,17 @@ impl Items {
     }
 
     /// Adds a bar that stays along an edge of the screen across the
-    /// screens shown: tabs, a dock (see [`chrome`](paperpaw_sdk::chrome)).
-    pub fn add_chrome(
-        &mut self,
-        chrome: paperpaw_sdk::chrome::ChromeSpec,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Chrome(Box::new(chrome)))
+    /// screens shown: tabs, a dock (see [`ChromeSpec`](crate::ChromeSpec)).
+    pub fn add_chrome(&mut self, chrome: crate::ChromeSpec) -> Result<(), RegisterError> {
+        let id = &chrome.id;
+        if !id.is_owned_by(&self.plugin) {
+            return Err(RegisterError::Namespace { id: id.clone() });
+        }
+        if self.chromes.iter().any(|c| c.id == *id) {
+            return Err(RegisterError::Duplicate { id: id.clone() });
+        }
+        self.chromes.push(chrome);
+        Ok(())
     }
 
     /// Adds a job: the steps of the work declared with its id (see

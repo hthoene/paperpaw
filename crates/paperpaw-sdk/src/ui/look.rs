@@ -153,6 +153,16 @@ pub struct SliderPart {
     pub mirrored: bool,
 }
 
+/// An edge of the screen: where a sheet comes from, where a bar stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Edge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
 /// A sheet that comes up from an edge of the screen over what is below
 /// (a menu, a panel of choices).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,7 +170,7 @@ pub struct SliderPart {
 pub struct SheetPart {
     pub rect: Rect,
     /// The edge it comes from.
-    pub edge: crate::chrome::Edge,
+    pub edge: Edge,
     pub inverted: bool,
 }
 
