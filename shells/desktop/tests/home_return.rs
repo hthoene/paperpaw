@@ -83,7 +83,19 @@ fn unstarted(last: bool, ini: &str) -> Device {
             include_bytes!("../../../samples/library/books/alice-in-wonderland.epub").as_slice(),
         )
         .with(".paperpaw/plugins/setup/done", "")
-        .with("paperpaw.ini", format!("{ini}[help]\nshow = false\n"));
+        .with(
+            "paperpaw.ini",
+            // With a book open the reader would ask the store for the English
+            // pack the firmware seeds, and the dialog would cover the page.
+            format!(
+                "{}{ini}[help]\nshow = false\n",
+                if last {
+                    "[core]\nhyphenate = off\n"
+                } else {
+                    ""
+                }
+            ),
+        );
     if last {
         files = files.with(
             ".paperpaw/plugins/reader/state.ini",
@@ -302,7 +314,10 @@ fn with_books(count: usize) -> Device {
     let epub = include_bytes!("../../../samples/library/books/alice-in-wonderland.epub").as_slice();
     let mut files = MemoryStorage::new()
         .with(".paperpaw/plugins/setup/done", "")
-        .with("paperpaw.ini", "[help]\nshow = false\n")
+        .with(
+            "paperpaw.ini",
+            "[core]\nhyphenate = off\n[help]\nshow = false\n",
+        )
         .with(
             ".paperpaw/plugins/reader/state.ini",
             "[reader]\nlast = books/b0.epub\n",

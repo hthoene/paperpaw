@@ -23,6 +23,10 @@ const BOOK: &str = "books/alice-in-wonderland.txt";
 /// How a page was shown: its refresh, and whether in grays.
 type Shown = Option<(RefreshMode, bool)>;
 
+/// The card has no hyphenation pack (the firmware seeds English): the reader would
+/// ask the store for it, and the dialog would cover the page.
+const NO_TABLES: &str = "[core]\nhyphenate = off\n";
+
 /// The book open on `profile`, `settings` in its `paperpaw.ini`.
 fn reading(profile: &str, settings: &str) -> Device {
     let files = MemoryStorage::new()
@@ -35,7 +39,10 @@ fn reading(profile: &str, settings: &str) -> Device {
             ".paperpaw/plugins/reader/state.ini",
             format!("[reader]\nlast = {BOOK}\n"),
         )
-        .with("paperpaw.ini", format!("[help]\nshow = false\n{settings}"));
+        .with(
+            "paperpaw.ini",
+            format!("{NO_TABLES}[help]\nshow = false\n{settings}"),
+        );
     // Refreshes are checked here, not memory (tests/memory.rs does): the
     // budget counts every thread's allocations at once, and the tests run
     // side by side.
