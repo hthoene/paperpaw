@@ -143,8 +143,8 @@ impl crate::Kernel {
             }
             more |= store.has_delivery(owner);
         }
-        // The kernel's own questions: their answers are its reply events.
-        self.deliver_kernel_answers(&store);
+        // The kernel's own questions answered with their dialog's close.
+        self.drop_kernel_answers(&store);
         more
     }
 
@@ -248,13 +248,20 @@ impl crate::Kernel {
     /// went: up (`open`) or `not_started`. The guard's own question opens above
     /// the guard and is marked as its dialog; any other plugin's under a guard
     /// opens below it and waits there (`ui.md` 4.3), as every screen it opens.
+    fn dialog_open(&mut self, store: &super::ui_store::UiStore, start: &super::ui_requests::Start) {
+        self.dialog_open_with(store, start, Params::new());
+    }
+
+    /// [`Self::dialog_open`] with `params` the dialog keeps besides its
+    /// request and kind (the kernel's own question's, see `kernel_asks`).
     // Its own frame: its locals are not on the stack while the pump calls
     // the plugins (#250).
     #[inline(never)]
-    pub(super) fn dialog_open(
+    pub(super) fn dialog_open_with(
         &mut self,
         store: &super::ui_store::UiStore,
         start: &super::ui_requests::Start,
+        params: Params,
     ) {
         let (Some(slot), Some(request), Some(kind)) = (
             slot_of(start.kind, start.remote),
@@ -266,7 +273,7 @@ impl crate::Kernel {
         };
         // The dialog reads the question from the store with op 2; with no
         // dialog plugin on the slot the question ends as cancelled.
-        let params = Params::new()
+        let params = params
             .with("core.request", request.as_str())
             .with("core.kind", kind.as_str());
         let own = self.guard().is_some_and(|guard| {

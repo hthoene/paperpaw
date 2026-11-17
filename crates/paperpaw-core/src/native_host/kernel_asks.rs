@@ -2,11 +2,13 @@
 //! kernel's code, e.g. clean-up, pairing, the reading app): asked as a
 //! plugin's are (`docs/abi/ui.md` 3.1), with the host as the asker, so that
 //! the one dialog plugin on `core.choice` and `core.confirm` answers them.
-//! The words are formatted here (an option's label, the buttons' words); the
-//! answer comes back as the reply event the question named, with the context
-//! it was asked with, as the stock screens sent it: a [`Confirmed`] for yes or
-//! no, a `Picked` (`core.path` and the option) for a choice. A cancel sends
-//! nothing.
+//! The words are formatted here (an option's label, the buttons' words). What
+//! the question was asked with (its reply, its context, a choice's options)
+//! stays with the dialog's place on the stack, as it did with the kernel's
+//! own dialogs: no table of the kernel's keeps it. When the dialog closes,
+//! its answer is the reply event the question named, with that context, as
+//! the stock screens sent it at their close: a [`Confirmed`] for yes or no, a
+//! `Picked` (`path` and the option) for a choice. A cancel sends nothing.
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -17,44 +19,35 @@ use paperpaw_sdk::ui::choice::{LABELS, OPTION, OPTIONS};
 use paperpaw_sdk::ui::confirm::{FOCUS_YES, NO_LABEL, ONLY_YES, YES_LABEL};
 use paperpaw_sdk::{Command, Id, Params};
 
-use super::ui_requests::{Delivery, Question};
+use super::ui_requests::Question;
 use super::ui_store::{HOST_OWNER, Stamp, UiStore};
 
 /// `ask` flag bit 8 (`only_yes`) and bit 9 (`focus_yes`) of a confirm.
 const ONLY_YES_FLAG: u32 = 1 << 8;
 const FOCUS_YES_FLAG: u32 = 1 << 9;
+/// The params of a dialog the pump opens: its request and the kind.
+const REQUEST: &str = "core.request";
+const KIND: &str = "core.kind";
 
-/// One question of the kernel's, open until its answer is delivered.
-struct Asked {
-    request: u32,
-    reply: Id,
-    /// The parameters it was asked with: they come back with the answer.
-    context: Params,
-    /// A choice's options, by the index the dialog answers.
-    options: Vec<String>,
-}
-
-/// The kernel's open questions.
-#[derive(Default)]
-pub(crate) struct KernelAsks(Vec<Asked>);
-
-#[cfg(test)]
-impl KernelAsks {
-    /// The context the first open question was asked with.
-    pub(crate) fn context_of_first(&self) -> Option<&Params> {
-        self.0.first().map(|asked| &asked.context)
-    }
+/// The options of a choice, in the order the dialog answers by index.
+fn options(params: &Params) -> impl Iterator<Item = &str> {
+    params
+        .get(OPTIONS)
+        .unwrap_or_default()
+        .split(',')
+        .filter(|o| !o.is_empty())
 }
 
 impl crate::Kernel {
     /// `true` where `slot` with `params` is one of the kernel's own questions
     /// (an `ask::choice` or `ask::confirm` of its code, not the pump's open of
-    /// a dialog, which names its request): asked through the ui store. One
-    /// that cannot be asked (no ui service, no memory, a form the store
-    /// refuses) is dropped, and the log says so.
+    /// a dialog, which names its request): asked through the ui store, its
+    /// dialog opened at once. One that cannot be asked (no ui service, no
+    /// memory, a form the store refuses, inside a plugin's callback) is
+    /// dropped, and the log says so.
     pub(crate) fn ask_kernel(&mut self, slot: &Id, params: &Params) -> bool {
         let confirm = *slot == slots::CONFIRM;
-        if !(confirm || *slot == slots::CHOICE) || params.get("core.request").is_some() {
+        if !(confirm || *slot == slots::CHOICE) || params.get(REQUEST).is_some() {
             return false;
         }
         if self.ask_kernel_question(confirm, params).is_none() {
@@ -64,14 +57,17 @@ impl crate::Kernel {
     }
 
     fn ask_kernel_question(&mut self, confirm: bool, params: &Params) -> Option<()> {
+        // The dialog opens in this call: never from inside a plugin's callback.
+        if self.shared.native_instances.depth() != 0 {
+            return None;
+        }
         let store = self
             .shared
             .native_instances
             .ui_services()
             .and_then(|ui| ui.store.try_clone())?;
-        let reply = params.get(params::REPLY).and_then(|r| Id::parse(r).ok());
         let title = params.get(params::TITLE).unwrap_or_default();
-        let (options, choices, flags, text) = if confirm {
+        let (choices, flags, text) = if confirm {
             let words = match (params.get(YES_LABEL), params.get(NO_LABEL)) {
                 (None, None) => String::new(),
                 (yes, no) => alloc::format!("{}\n{}", yes.unwrap_or(""), no.unwrap_or("")),
@@ -83,25 +79,17 @@ impl crate::Kernel {
             if params.get(FOCUS_YES).is_some() {
                 flags |= FOCUS_YES_FLAG;
             }
-            let text = params.get(params::TEXT).unwrap_or_default();
-            (Vec::new(), words, flags, text)
+            (words, flags, params.get(params::TEXT).unwrap_or_default())
         } else {
-            let options: Vec<String> = params
-                .get(OPTIONS)
-                .unwrap_or_default()
-                .split(',')
-                .filter(|o| !o.is_empty())
-                .map(String::from)
-                .collect();
             let labels = params.get(LABELS).unwrap_or_default();
             let mut lines = String::new();
-            for option in &options {
+            for option in options(params) {
                 if !lines.is_empty() {
                     lines.push('\n');
                 }
                 lines.push_str(&self.option_label(labels, option));
             }
-            (options, lines, 0, "")
+            (lines, 0, "")
         };
         let question = Question {
             kind: if confirm { 2 } else { 1 },
@@ -111,27 +99,12 @@ impl crate::Kernel {
             text,
             choices: &choices,
         };
-        if reply.is_some() {
-            self.asks.0.try_reserve(1).ok()?;
-        }
         let who = Stamp::new(HOST_OWNER, 1).ok()?;
         let (request, _) = store.ask(who, None, &question, false, None, false).ok()?;
-        if let Some(reply) = reply {
-            self.asks.0.push(Asked {
-                request,
-                reply,
-                context: params.clone(),
-                options,
-            });
-        }
-        // No callback asked it: its dialog opens now, in this call, as the
-        // kernel's own screens did (inside a plugin's callback the pump opens
-        // it once the callback is over).
-        if self.shared.native_instances.depth() == 0
-            && let Some(start) = store.host_started(request)
-        {
-            self.dialog_open(&store, &start);
-        }
+        // No callback asked it: it starts at once, and its dialog keeps what it
+        // was asked with in its params.
+        let start = store.host_started(request)?;
+        self.dialog_open_with(&store, &start, params.clone());
         Some(())
     }
 
@@ -148,62 +121,58 @@ impl crate::Kernel {
         String::from(translator.tr(&alloc::format!("{labels}{option}")))
     }
 
-    /// The screen of the kernel's open question asked with `key` = `value`
-    /// in its context (e.g. the pairing question by its number), to close it
-    /// when what it asks about is over.
-    pub(crate) fn kernel_question_dialog(&self, key: &str, value: &str) -> Option<u32> {
-        let store = self.shared.native_instances.ui_store()?;
-        let request = self
-            .asks
-            .0
-            .iter()
-            .find(|asked| asked.context.get(key) == Some(value))?
-            .request;
-        self.stack
-            .iter()
-            .map(|screen| screen.serial)
-            .find(|serial| {
-                store
-                    .dialog_of(*serial)
-                    .is_some_and(|(id, ..)| id == request)
-            })
-    }
-
-    /// Hands the answers to the kernel's questions out as their reply events;
-    /// each request is freed once its event ran.
-    pub(crate) fn deliver_kernel_answers(&mut self, store: &UiStore) {
-        while let Some(delivery) = store.take_delivery(HOST_OWNER) {
-            if let Some(command) = self.kernel_answer(&delivery) {
-                self.apply(command);
-            }
-            let _ = store.delivered(delivery.request);
-            self.run_commands();
-        }
-    }
-
-    /// The reply event of one answer, `None` for a cancel or a question that
-    /// named no reply.
-    fn kernel_answer(&mut self, delivery: &Delivery) -> Option<Command> {
-        let at = self
-            .asks
-            .0
-            .iter()
-            .position(|asked| asked.request == delivery.request)?;
-        let asked = self.asks.0.swap_remove(at);
+    /// The screen instance `instance` closes (`store` told already): where it
+    /// was the dialog of one of the kernel's questions (its params name the
+    /// request and a reply), its answer goes out as that reply, and the
+    /// request is freed.
+    // Its own frame: not on the stack of every screen's close.
+    #[inline(never)]
+    pub(crate) fn kernel_question_closed(&mut self, store: &UiStore, instance: u32) {
+        let Some(screen) = self.stack.iter().find(|s| s.serial == instance) else {
+            return;
+        };
+        let (Some(reply), Some(request)) = (
+            screen
+                .params
+                .get(params::REPLY)
+                .and_then(|r| Id::parse(r).ok()),
+            screen.params.get(REQUEST).and_then(|r| r.parse().ok()),
+        ) else {
+            return;
+        };
+        let Some(delivery) = store.take_delivery_of(HOST_OWNER, request) else {
+            return;
+        };
+        let _ = store.delivered(request);
         if delivery.outcome != 0 {
-            return None;
+            return;
+        }
+        // The context as asked: without the dialog's own two params.
+        let mut context = Params::new();
+        for (key, value) in screen.params.iter() {
+            if key != REQUEST && key != KIND {
+                context.set(String::from(key), value);
+            }
         }
         let answer = if delivery.kind == 2 {
-            Confirmed::new(delivery.choice == 1, asked.context).to_params()
+            Confirmed::new(delivery.choice == 1, context).to_params()
         } else {
-            let option = asked.options.get(delivery.choice as usize)?;
+            let chosen: Vec<&str> = options(&screen.params).collect();
+            let Some(option) = chosen.get(delivery.choice as usize) else {
+                return;
+            };
             Params::new()
-                .with(
-                    params::PATH,
-                    asked.context.get(params::PATH).unwrap_or_default(),
-                )
-                .with(OPTION, option.as_str())
+                .with(params::PATH, context.get(params::PATH).unwrap_or_default())
+                .with(OPTION, *option)
         };
-        Some(Command::Emit(asked.reply, answer))
+        self.output.commands.push(Command::Emit(reply, answer));
+    }
+
+    /// Frees the answers to the kernel's questions that are left once their
+    /// dialogs closed (a question that named no reply).
+    pub(crate) fn drop_kernel_answers(&self, store: &UiStore) {
+        while let Some(delivery) = store.take_delivery(HOST_OWNER) {
+            let _ = store.delivered(delivery.request);
+        }
     }
 }

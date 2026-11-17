@@ -140,9 +140,9 @@ impl Test {
     /// The number the open pairing question was asked with.
     fn nonce(&self) -> String {
         self.kernel
-            .asks
-            .context_of_first()
-            .and_then(|context| context.get("nonce").map(ToString::to_string))
+            .stack
+            .last()
+            .and_then(|dialog| dialog.params.get("nonce").map(ToString::to_string))
             .expect("a question with its number")
     }
 }

@@ -211,7 +211,11 @@ impl Kernel {
             return;
         };
         let nonce = nonce.to_string();
-        let open = self.kernel_question_dialog(NONCE, &nonce);
+        let open = self
+            .stack
+            .iter()
+            .find(|s| s.params.get(NONCE) == Some(nonce.as_str()))
+            .map(|s| s.serial);
         if let Some(serial) = open {
             self.output
                 .commands

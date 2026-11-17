@@ -185,8 +185,6 @@ pub struct Kernel {
     /// What the core plugin's handlers keep (the catalog's job, the reading
     /// recorded).
     core: crate::core_plugin::State,
-    /// The kernel's own questions, until their answers are delivered.
-    asks: crate::native_host::kernel_asks::KernelAsks,
     /// The steps of the data plugins' actions (`actions.ini`).
     data_actions: Vec<crate::registry::DataAction>,
     /// The lowest screen the last offer of input reached ([`Kernel::offer`]).

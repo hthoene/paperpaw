@@ -749,6 +749,30 @@ impl UiStore {
         })
     }
 
+    /// [`Self::take_delivery`] for the answer to `request` of `asker` alone.
+    pub(crate) fn take_delivery_of(&self, asker: u64, request: u32) -> Option<Delivery> {
+        let waiting =
+            self.inner.try_borrow().ok()?.requests.iter().any(|r| {
+                r.id == request && r.asker == asker && r.pending.is_some() && !r.delivering
+            });
+        if !waiting {
+            return None;
+        }
+        let mut inner = self.inner().ok()?;
+        let at = Self::request_at(&inner, request)?;
+        let r = &mut inner.requests[at];
+        let answer = r.pending.take()?;
+        r.delivering = true;
+        Some(Delivery {
+            request: r.id,
+            kind: r.kind,
+            outcome: answer.outcome,
+            choice: answer.choice,
+            length: answer.length,
+            flags: answer.flags | DIALOG_CLOSED,
+        })
+    }
+
     /// Whether an answer waits for `asker`.
     pub(crate) fn has_delivery(&self, asker: u64) -> bool {
         self.inner.try_borrow().is_ok_and(|inner| {
