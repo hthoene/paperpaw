@@ -154,7 +154,7 @@ mod tests {
         // 400 by 400 at 10 a millimetre: 40 mm.
         assert_eq!(env.screen_class(), ScreenClass::Compact);
         assert!(!env.landscape());
-        let device = kernel.shared.device.clone();
+        let device = kernel.shared.device;
         let wide = env.within(&device, Rect::new(0, 0, 1500, 900));
         assert_eq!(wide.screen_class(), ScreenClass::Expanded);
         assert!(wide.landscape());

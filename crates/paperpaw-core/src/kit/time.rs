@@ -183,6 +183,12 @@ pub const WEEK_STARTS: &[&str] = &["core.week.auto", "core.week.monday", "core.w
 /// 12 hours.
 pub const CLOCK_24H: &str = "core.clock.24h";
 
+/// Now, if the device knows the time.
+fn unix_now(env: &Place<'_>) -> Option<UnixTime> {
+    let clock = env.status().clock?;
+    Some(UnixTime::from_millis(clock.unix_millis_at(env.now())))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -311,10 +317,4 @@ mod tests {
             assert!(TimeZone::parse(rule).is_some(), "{id}");
         }
     }
-}
-
-/// Now, if the device knows the time.
-fn unix_now(env: &Place<'_>) -> Option<UnixTime> {
-    let clock = env.status().clock?;
-    Some(UnixTime::from_millis(clock.unix_millis_at(env.now())))
 }
