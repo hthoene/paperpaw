@@ -260,7 +260,7 @@ pub enum MenuNeed {
 
 impl MenuNeed {
     /// Whether a device that can do `caps` has what it needs (also for
-    /// [`ChromeSpec::need`](crate::chrome::ChromeSpec::need)).
+    /// the kernel's `ChromeSpec::need`).
     pub fn met(self, caps: crate::Capabilities) -> bool {
         match self {
             MenuNeed::Speech => caps.speech,

@@ -346,6 +346,7 @@ impl PluginRemove {
                 count: 0,
                 more: false,
             },
+            old_secrets: false,
         });
         if self.question.is_none() {
             return self.end(reason::OTHER);

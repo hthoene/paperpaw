@@ -22,7 +22,7 @@ use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::replies::Confirmed;
 use paperpaw_core::sdk::{
     ActionSpec, Canvas, Command, Cx, Env, Event, EventData, Handled, Id, Manifest, MemoryStorage,
-    Params, Priority, RegisterError, Screen, ScreenSpec, Uses, Version,
+    Params, Priority, RegisterError, Uses, Version,
 };
 use paperpaw_core::{BtCall, BtReport, Found, Io, Kernel, PairQuestion};
 use paperpaw_platform::{
@@ -56,7 +56,7 @@ struct Logged {
     log: Log,
 }
 
-impl Screen for Logged {
+impl paperpaw_core::Layer for Logged {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -99,7 +99,7 @@ fn pulse(kept: Pulse) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         }
         if kept.id == "pulse" {
             let log = kept.log.clone();
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(paperpaw_core::LayerSpec::new(
                 HOME,
                 "home",
                 Box::new(move |_, _| {
@@ -111,7 +111,7 @@ fn pulse(kept: Pulse) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             ))?;
             r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)?;
             let log = kept.log.clone();
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(paperpaw_core::LayerSpec::new(
                 ASK,
                 "ask",
                 Box::new(move |_, params| {

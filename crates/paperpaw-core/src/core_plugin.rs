@@ -28,9 +28,9 @@ use paperpaw_sdk::library;
 use paperpaw_sdk::time::{self, AUTO, CLOCK_12H, CLOCK_24H, TIME_ZONES};
 use paperpaw_sdk::widgets::{self, Drawn, WidgetSpec};
 use paperpaw_sdk::{
-    ActionHint, Canvas, Command, Commands, Cx, Env, FixedAction, FixedScreen, Handled, Id,
-    Manifest, MenuEntry, Params, Priority, RegisterError, Screen, SettingExtra, SettingGroupSpec,
-    SettingKind, SettingSpec, SettingValue, SlotSpec, StatusItemSpec, StatusValue,
+    ActionHint, Canvas, Command, Commands, Cx, Env, FixedAction, Handled, Id, Manifest, MenuEntry,
+    Params, Priority, RegisterError, SettingExtra, SettingGroupSpec, SettingKind, SettingSpec,
+    SettingValue, SlotSpec, StatusItemSpec, StatusValue,
 };
 
 pub(crate) const CORE: Id = Id::new_static("core");
@@ -799,50 +799,50 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
     // question every plugin asks (`ask::choice`, `ask::confirm`), unless
     // another screen fills the slot; a folder for a setting: the folder
     // chooser's, whichever plugin fills its slot.
-    static SCREENS: [FixedScreen; 12] = [
-        FixedScreen::new(
+    static SCREENS: [crate::KernelScreen; 11] = [
+        crate::KernelScreen::new(
             screens::STATUS_ITEMS,
             "core.status.choose",
-            |env, params| Box::new(paperpaw_sdk::ui::items::ItemsScreen::open(env, params)),
+            |env, params| Box::new(crate::stock::items::ItemsScreen::open(env, params)),
         ),
-        FixedScreen::new(
+        crate::KernelScreen::new(
             screens::STATUS_LINES,
             "core.status.choose",
             |env, params| {
                 let params = params
                     .clone()
-                    .with(params::MODE, paperpaw_sdk::ui::items::LINES);
-                Box::new(paperpaw_sdk::ui::items::ItemsScreen::open(env, &params))
+                    .with(params::MODE, crate::stock::items::LINES);
+                Box::new(crate::stock::items::ItemsScreen::open(env, &params))
             },
         ),
-        FixedScreen::new(
+        crate::KernelScreen::new(
             screens::WIDGET_LIST,
             "core.widgets.edit.screen",
-            |env, params| Box::new(paperpaw_sdk::ui::widget_list::ListScreen::open(env, params)),
+            |env, params| Box::new(crate::stock::widget_list::ListScreen::open(env, params)),
         ),
-        FixedScreen::new(
+        crate::KernelScreen::new(
             screens::ADD_WIDGET,
             "core.widgets.edit.add-to-list",
-            |env, params| Box::new(paperpaw_sdk::ui::widget_list::AddScreen::open(env, params)),
+            |env, params| Box::new(crate::stock::widget_list::AddScreen::open(env, params)),
         ),
-        FixedScreen::new(screens::CHOICE, "core.choice", |env, params| {
-            Box::new(paperpaw_sdk::ui::choice::Choice::new(env, params))
+        crate::KernelScreen::new(screens::CHOICE, "core.choice", |env, params| {
+            Box::new(crate::stock::choice::Choice::new(env, params))
         }),
-        FixedScreen::new(screens::CONFIRM, "core.confirm.screen", |env, params| {
-            Box::new(paperpaw_sdk::ui::confirm::Confirm::new(env, params))
+        crate::KernelScreen::new(screens::CONFIRM, "core.confirm.screen", |env, params| {
+            Box::new(crate::stock::confirm::Confirm::new(env, params))
         }),
-        FixedScreen::new(notice::SCREEN, notice::TITLE, |env, params| {
+        crate::KernelScreen::new(notice::SCREEN, notice::TITLE, |env, params| {
             Box::new(notice::Notice::new(env, params))
         }),
-        FixedScreen::new(screens::PLACEHOLDER, placeholder::TEXT, |_, _| {
+        crate::KernelScreen::new(screens::PLACEHOLDER, placeholder::TEXT, |_, _| {
             Box::new(placeholder::PlaceholderScreen)
         }),
-        FixedScreen::new(
+        crate::KernelScreen::new(
             screens::FINISHING_UPDATE,
             "core.finishing-update.title",
             |_, params| Box::new(finishing::Finishing::new(params)),
         ),
-        FixedScreen::new(
+        crate::KernelScreen::new(
             crate::native_host::firmware_confirm::SCREEN,
             "core.firmware.title",
             |env, params| {
@@ -851,16 +851,7 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
                 ))
             },
         ),
-        FixedScreen::new(
-            crate::native_host::low_memory::SCREEN,
-            "core.low-memory.title",
-            |env, params| {
-                Box::new(crate::native_host::start_notice::StartNotice::low_memory(
-                    env, params,
-                ))
-            },
-        ),
-        FixedScreen::new(
+        crate::KernelScreen::new(
             screens::FOLDER_EDITOR,
             "core.setting.library-folder",
             |_, params| {
@@ -870,7 +861,7 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
             },
         ),
     ];
-    r.add_screens(&SCREENS)?;
+    r.add_kernel_screens(&SCREENS)?;
     r.bind_slot(slots::EDIT_WIDGETS, screens::WIDGET_LIST, Priority::DEFAULT)?;
     r.bind_slot(slots::CHOICE, screens::CHOICE, Priority::FALLBACK)?;
     r.bind_slot(slots::CONFIRM, screens::CONFIRM, Priority::FALLBACK)?;
@@ -886,7 +877,7 @@ struct FolderEditor {
     params: paperpaw_sdk::Params,
 }
 
-impl Screen for FolderEditor {
+impl crate::Layer for FolderEditor {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {

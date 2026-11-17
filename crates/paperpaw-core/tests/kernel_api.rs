@@ -373,7 +373,7 @@ struct Looks {
 
 struct LookScreen(Rc<std::cell::RefCell<String>>);
 
-impl paperpaw_core::sdk::Screen for LookScreen {
+impl paperpaw_core::Layer for LookScreen {
     fn draw(&mut self, _: &mut paperpaw_core::sdk::Canvas<'_>, env: &paperpaw_core::sdk::Env<'_>) {
         let style = paperpaw_core::sdk::ui::UiStyle::new(env);
         *self.0.borrow_mut() = format!("{:?}", style.look());
@@ -402,7 +402,7 @@ fn looks_items(kept: Looks) -> impl Fn(&mut Items) -> Result<(), RegisterError> 
         if kept.name == "looks-a" {
             let screen = paperpaw_core::sdk::Id::new_static("looks-a.home");
             let seen = kept.seen.clone();
-            r.add_screen(paperpaw_core::sdk::ScreenSpec::new(
+            r.add_layer(paperpaw_core::LayerSpec::new(
                 screen.clone(),
                 "looks-a.home",
                 Box::new(move |_, _| Box::new(LookScreen(seen.clone()))),
@@ -457,7 +457,7 @@ fn asker(kept: Asker) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         if kept.bind {
             let screen = paperpaw_core::sdk::Id::new_static("asker.choice");
             let seen = Rc::new(std::cell::RefCell::new(String::new()));
-            r.add_screen(paperpaw_core::sdk::ScreenSpec::new(
+            r.add_layer(paperpaw_core::LayerSpec::new(
                 screen.clone(),
                 "asker.choice",
                 Box::new(move |_, _| Box::new(LookScreen(seen.clone()))),
@@ -689,7 +689,7 @@ struct Focused {
 
 struct TwoButtons(usize, bool);
 
-impl paperpaw_core::sdk::Screen for TwoButtons {
+impl paperpaw_core::Layer for TwoButtons {
     fn draw(
         &mut self,
         canvas: &mut paperpaw_core::sdk::Canvas<'_>,
@@ -725,7 +725,7 @@ impl paperpaw_core::sdk::Screen for TwoButtons {
 fn focused(kept: Focused) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let screen = paperpaw_core::sdk::Id::new_static("focused.home");
-        r.add_screen(paperpaw_core::sdk::ScreenSpec::new(
+        r.add_layer(paperpaw_core::LayerSpec::new(
             screen.clone(),
             "focused.home",
             {
@@ -1037,11 +1037,11 @@ fn keys() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
         use paperpaw_core::sdk::builtin::slots;
         let screen = paperpaw_core::sdk::Id::new_static("keys.screen");
-        r.add_screen(paperpaw_core::sdk::ScreenSpec::new(
+        r.add_layer(paperpaw_core::LayerSpec::new(
             screen.clone(),
             "keys",
             Box::new(|_, asked| {
-                Box::new(Answering(Some(asked.clone()))) as Box<dyn paperpaw_core::sdk::Screen>
+                Box::new(Answering(Some(asked.clone()))) as Box<dyn paperpaw_core::Layer>
             }),
         ))?;
         r.bind_slot(
@@ -1061,7 +1061,7 @@ fn keys_manifest() -> Manifest {
 /// The keyboard's screen: answers as it shows, then closes.
 struct Answering(Option<Params>);
 
-impl paperpaw_core::sdk::Screen for Answering {
+impl paperpaw_core::Layer for Answering {
     fn draw(&mut self, _: &mut paperpaw_core::sdk::Canvas<'_>, _: &paperpaw_core::sdk::Env<'_>) {}
 
     fn on_action(

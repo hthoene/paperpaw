@@ -3,8 +3,8 @@
 
 use super::*;
 use crate::Items;
+use crate::{ChromeSpec, Edge};
 use core::mem;
-use paperpaw_sdk::chrome::{ChromeSpec, Edge};
 use paperpaw_sdk::{Direction, Gesture, Params, StackEntry};
 
 const PAGE: Id = Id::new_static("bar.page");
@@ -20,7 +20,7 @@ struct Corner {
     log: Log,
 }
 
-impl Screen for Corner {
+impl crate::Layer for Corner {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
     }
@@ -44,7 +44,7 @@ struct Bar {
     timer_asked: bool,
 }
 
-impl Screen for Bar {
+impl crate::Layer for Bar {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
     }
@@ -77,7 +77,7 @@ impl Screen for Bar {
     }
 }
 
-fn bar(log: &Log) -> paperpaw_sdk::ScreenFactory {
+fn bar(log: &Log) -> crate::LayerFactory {
     let log = log.clone();
     Box::new(move |env, _| {
         let display = env.device().display;
@@ -94,7 +94,7 @@ fn bar(log: &Log) -> paperpaw_sdk::ScreenFactory {
 /// 20 above its bottom): an overlay.
 struct Panel;
 
-impl Screen for Panel {
+impl crate::Layer for Panel {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         canvas.fill_rect(0, 0, 400, 400, Color::BLACK);
     }
@@ -116,7 +116,7 @@ impl Screen for Panel {
 /// A lock: it guards the device; black in its corner, it logs its taps.
 struct Lock(Corner);
 
-impl Screen for Lock {
+impl crate::Layer for Lock {
     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
         self.0.draw(canvas, env);
     }
@@ -139,7 +139,7 @@ impl Screen for Lock {
     }
 }
 
-fn corner(name: &'static str, log: &Log) -> paperpaw_sdk::ScreenFactory {
+fn corner(name: &'static str, log: &Log) -> crate::LayerFactory {
     let log = log.clone();
     Box::new(move |env, _| {
         let display = env.device().display;
@@ -155,15 +155,15 @@ fn corner(name: &'static str, log: &Log) -> paperpaw_sdk::ScreenFactory {
 /// A bar along `edge`, not over the book, for touch screens.
 fn bar_plugin(kept0: Log, kept1: Edge) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
-        r.add_screen(ScreenSpec::new(PAGE, "page", corner("page", &kept0)))?;
-        r.add_screen(ScreenSpec::new(BOOK, "book", corner("book", &kept0)))?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(PAGE, "page", corner("page", &kept0)))?;
+        r.add_layer(crate::LayerSpec::new(BOOK, "book", corner("book", &kept0)))?;
+        r.add_layer(crate::LayerSpec::new(
             MENU,
             "menu",
             Box::new(|_, _| Box::new(Panel)),
         ))?;
         let log = kept0.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             LOCK,
             "lock",
             Box::new(move |env, _| {

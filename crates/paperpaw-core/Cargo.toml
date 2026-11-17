@@ -28,6 +28,8 @@ native-reading = []
 # slot_counts`), for the page-turn cost guard. Needs std; never a default,
 # never in firmware.
 slot-counts = []
+# The measurement build of the X4 (`test-image`): names the slot that began last.
+slot-names = []
 # Colour framebuffers for colour e-ink panels.
 color = ["paperpaw-graphics/color"]
 # Scalable OpenType/TrueType fonts; not available on the ESP32-C3.
@@ -68,7 +70,8 @@ paperpaw-plugin-widgets = { workspace = true, features = ["linked"] }
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 png = "0.18"
 paperpaw-platform = { workspace = true, features = ["fake"] }
-paperpaw-text.workspace = true
+# Scalable fonts for the stock screens' tests that draw text (tests/stock_screens.rs).
+paperpaw-text = { workspace = true, features = ["outline"] }
 proptest.workspace = true
 
 [lints]

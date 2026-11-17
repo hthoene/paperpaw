@@ -12,7 +12,7 @@ struct Panel {
     region: Rect,
 }
 
-impl Screen for Panel {
+impl crate::Layer for Panel {
     fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
         let r = self.region;
         canvas.fill_rect(
@@ -35,7 +35,7 @@ impl Screen for Panel {
 
 struct Base;
 
-impl Screen for Base {
+impl crate::Layer for Base {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -48,7 +48,7 @@ impl Screen for Base {
 fn frames_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             BASE,
             "base",
             Box::new(move |_, _| {
@@ -57,7 +57,7 @@ fn frames_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> 
             }),
         ))?;
         r.bind_slot(slots::HOME, BASE, Priority::DEFAULT)?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             PANEL,
             "panel",
             Box::new(|_, params| {

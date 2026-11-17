@@ -17,9 +17,7 @@ use paperpaw_core::{Items, KernelBuilder};
 use paperpaw_platform::Rect;
 use paperpaw_sdk::ui::{self, UiStyle};
 use paperpaw_sdk::widgets::{Widget, WidgetSpec};
-use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, RegisterError, Screen, ScreenSpec, Version,
-};
+use paperpaw_sdk::{Canvas, Cx, Env, Handled, Id, Manifest, RegisterError, Version};
 
 use crate::AddPlugins;
 
@@ -76,7 +74,7 @@ fn probe() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         r.add_widget(WidgetSpec::new(WIDGET, "paperpaw-dev.probe", |_| {
             Box::new(Noting)
         }))?;
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(paperpaw_core::LayerSpec::new(
             HELP,
             "paperpaw-dev.help",
             Box::new(|_, _| Box::new(Measuring)),
@@ -98,7 +96,7 @@ fn probe_manifest() -> Manifest {
 /// Measures every setting's description against its row's lines.
 struct Measuring;
 
-impl Screen for Measuring {
+impl paperpaw_core::Layer for Measuring {
     fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
         let style = UiStyle::new(env);
         let width = env.device().display.width;

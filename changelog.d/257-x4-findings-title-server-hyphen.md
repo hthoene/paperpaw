@@ -1,5 +1,0 @@
-### Fixed
-
-- **A book title in letters the font lacks no longer shows as question marks on Home** (#257). Without the pack of letters (Cyrillic on the X4 before the script pack is installed) the continue card, the recent shelf and the cover frames show the title with a "…" for each run of missing letters, never "??????"; with the pack the title is drawn as before.
-- **The update server is a row of the Updates settings again** (#257). *Update server* was in the developers' settings, shown only with the developer switch on; it is now in the Updates group, as in the update page's rows, on devices that update their firmware.
-- **Hyphenation costs far fewer card reads per page turn** (#257). A small hyphenation table (English and the other tables of up to 8,192 patterns) keeps a 4.9 KiB filter of its patterns, built when the table is opened, so a word's lookups no longer read a block of the card for each key that is no pattern; the reader keeps the break places of 128 words instead of 64 (2 KiB, was 1 KiB). Reading Alice with hyphenation on, the emulator counts 63 block reads per page turn instead of 328.

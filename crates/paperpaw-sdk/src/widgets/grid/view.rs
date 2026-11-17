@@ -243,7 +243,7 @@ impl GridView {
 
     /// Lets go of the widgets and what they keep (covers made small, …)
     /// while a screen above needs the memory
-    /// ([`Screen::on_squeeze`](crate::Screen::on_squeeze)): the screen
+    /// (`on_squeeze`): the screen
     /// lays the grid out again before it draws it next.
     pub fn let_go(&mut self) {
         for shown in &mut self.items {
@@ -303,7 +303,7 @@ impl GridView {
 
     /// Lets go of the widgets and what they keep (e.g. covers made
     /// small), while the screen is hidden
-    /// ([`Screen::on_hide`](crate::Screen::on_hide)): nothing of them is
+    /// (`on_hide`): nothing of them is
     /// drawn until [`layout`](Self::layout) makes them anew.
     pub fn release(&mut self) {
         for shown in &mut self.items {
@@ -1144,7 +1144,7 @@ impl GridView {
 
     /// While editing, the edges are the grid's: items at them are dragged
     /// and sized, not the screen left (for the screen's
-    /// [`holds_edges`](crate::Screen::holds_edges)).
+    /// `holds_edges`).
     pub fn holds_edges(&self) -> bool {
         self.edit.is_some()
     }

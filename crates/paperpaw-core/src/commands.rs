@@ -86,9 +86,6 @@ impl Kernel {
                 break;
             }
         }
-        if self.offer_literata_notice() {
-            self.finish_commands();
-        }
         self.finish_frame()
     }
 
@@ -698,10 +695,6 @@ impl Kernel {
     /// typed on the keyboard), goes to those screens and their plugins
     /// alone.
     pub(crate) fn emit(&mut self, event: &Id, params: &Params) {
-        if *event == crate::native_host::literata_notice::ANSWERED {
-            self.literata_notice_answer(params);
-            return;
-        }
         self.emit_to(event, params, None);
     }
 

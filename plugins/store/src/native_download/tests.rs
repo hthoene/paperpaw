@@ -163,7 +163,6 @@ fn a_file_that_is_not_what_the_library_lists_stops_it_and_goes_away() {
         (INI, Reason::NoNetwork, false, Failure::Network),
         (INI, Reason::Timeout, false, Failure::Network),
         (INI, Reason::Full, false, Failure::Card),
-        (INI, Reason::TooLarge, false, Failure::Memory),
     ] {
         let mut wire = Fake::new();
         let mut download = Download::new();

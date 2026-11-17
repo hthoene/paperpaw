@@ -144,14 +144,14 @@ mod kernel_side {
     mod home {
         use crate::Items;
         use paperpaw_sdk::{
-            Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Screen, ScreenSpec,
-            Version, builtin::slots,
+            Canvas, Cx, Env, Handled, Id, Manifest, Priority, RegisterError, Version,
+            builtin::slots,
         };
 
         const HOME: Id = Id::new_static("h.home");
 
         struct Page;
-        impl Screen for Page {
+        impl crate::Layer for Page {
             fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
             fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
                 Handled::No
@@ -160,7 +160,7 @@ mod kernel_side {
 
         pub(super) fn home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             |r| {
-                r.add_screen(ScreenSpec::new(
+                r.add_layer(crate::LayerSpec::new(
                     HOME,
                     "home",
                     alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Page)),
@@ -366,15 +366,14 @@ mod kernel_side {
         use crate::Items;
         use core::cell::Cell;
         use paperpaw_sdk::{
-            Canvas, Cx, Env, Handled, Manifest, Priority, RegisterError, Screen, ScreenSpec,
-            Version, builtin::slots,
+            Canvas, Cx, Env, Handled, Manifest, Priority, RegisterError, Version, builtin::slots,
         };
 
         const LOCK: Id = Id::new_static("g.lock");
         const HOME: Id = Id::new_static("g.home");
 
         struct Plain;
-        impl Screen for Plain {
+        impl crate::Layer for Plain {
             fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
             fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
                 Handled::No
@@ -382,7 +381,7 @@ mod kernel_side {
         }
 
         struct Lock(alloc::rc::Rc<Cell<bool>>);
-        impl Screen for Lock {
+        impl crate::Layer for Lock {
             fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
             fn guards(&self) -> bool {
                 self.0.get()
@@ -403,14 +402,14 @@ mod kernel_side {
         ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             move |r| {
                 let locked = kept.clone();
-                r.add_screen(ScreenSpec::new(
+                r.add_layer(crate::LayerSpec::new(
                     LOCK,
                     "lock",
                     alloc::boxed::Box::new(move |_, _| {
                         alloc::boxed::Box::new(Lock(locked.clone()))
                     }),
                 ))?;
-                r.add_screen(ScreenSpec::new(
+                r.add_layer(crate::LayerSpec::new(
                     HOME,
                     "home",
                     alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Plain)),

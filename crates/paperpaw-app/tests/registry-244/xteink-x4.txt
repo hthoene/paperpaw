@@ -140,6 +140,7 @@ setting core.group.controls | reader.corner-bookmark Bool default=Bool(true) Adv
 setting core.group.controls | reader.hold-chapters Bool default=Bool(false) Advanced scoped=false guarded=false secret=false kept=false title=reader.setting.hold-chapters
 setting core.group.developer | fonts-browser.catalog Text default=Text("https://paperpaw.org/api/v1/fonts.json") Basic scoped=false guarded=false secret=false kept=false title=fonts-browser.setting.catalog
 setting core.group.developer | store.catalog Text default=Text("https://paperpaw.org/api/v1/plugins.json") Basic scoped=false guarded=false secret=false kept=false title=store.setting.catalog
+setting core.group.developer | update.server Text default=Text("https://paperpaw.org") Basic scoped=false guarded=false secret=false kept=false title=update.setting.server
 setting core.group.display | core.flash-screens Bool default=Bool(true) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.flash-screens
 setting core.group.display | core.ui-full-refresh-interval Int { min: 0, max: 1000 } default=Int(0) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.ui-full-refresh-interval
 setting core.group.display | core.rotation Choice(Fixed(["core.rotation.upright", "core.rotation.landscape", "core.rotation.upside-down", "core.rotation.landscape-flipped"])) default=Text("core.rotation.upright") Basic scoped=true guarded=false secret=false kept=false title=core.setting.rotation
@@ -542,7 +543,6 @@ setting sleep.group | sleep.overlay-position Choice(Fixed(["sleep.position.cente
 setting sleep.group | sleep.overlay-size Int { min: 10, max: 100 } default=Int(35) Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.overlay-size
 setting sleep.group | sleep.overlay-see-through Int { min: 0, max: 90 } default=Int(0) Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.overlay-see-through
 setting sleep.group | sleep.overlay-when Choice(Fixed(["sleep.when.always", "sleep.when.reading", "sleep.when.elsewhere"])) default=Text("sleep.when.always") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.overlay-when
-setting update.group | update.server Text default=Text("https://paperpaw.org") Basic scoped=false guarded=false secret=false kept=false title=update.setting.server
 setting update.group | update.look Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=update.setting.look
 setting update.group | update.betas Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=update.setting.betas
 setting vocabulary.widget.due | vocabulary.widget.due.frame Choice(Fixed(["core.frame.none", "core.frame.line", "core.frame.card", "core.frame.dark"])) default=Text("core.frame.none") Basic scoped=false guarded=false secret=false kept=false title=core.setting.frame
@@ -1049,7 +1049,6 @@ screen core.confirm-dialog | title=core.confirm.screen hints=Shown
 screen core.finishing-update | title=core.finishing-update.title hints=Shown
 screen core.firmware-confirm | title=core.firmware.title hints=Shown
 screen core.folder-editor | title=core.setting.library-folder hints=Shown
-screen core.low-memory | title=core.low-memory.title hints=Shown
 screen core.notice-box | title=core.notice-box hints=Shown
 screen core.placeholder | title=core.screen.placeholder hints=Shown
 screen core.status-items | title=core.status.choose hints=Shown
@@ -1724,7 +1723,7 @@ native Spec sleep | SettingSpec(SettingSpec { name: "overlay-see-through", kind:
 native Spec sleep | SettingSpec(SettingSpec { name: "overlay-when", kind: 2, flags: 0, group: "sleep.group", title: "sleep.setting.overlay-when", help: "sleep.setting.overlay-when.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0, 0, 0, 115, 108, 101, 101, 112, 46, 119, 104, 101, 110, 46, 97, 108, 119, 97, 121, 115], min: 0, max: 0, choices: "sleep.when.always\nsleep.when.reading\nsleep.when.elsewhere" })
 native Spec store | SettingSpec(SettingSpec { name: "catalog", kind: 3, flags: 0, group: "core.group.developer", title: "store.setting.catalog", help: "store.setting.catalog.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 40, 0… (427 bytes, 14f8d7f9e81b4ccf)
 native Spec store | SettingSpec(SettingSpec { name: "community", kind: 0, flags: 2, group: "core.group.system", title: "store.setting.community", help: "store.setting.community.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
-native Spec update | SettingSpec(SettingSpec { name: "server", kind: 3, flags: 0, group: "update.group", title: "update.setting.server", help: "update.setting.server.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 20, 0, 0, 0, 104, 116, 116, 112, 115, 58, 47, 47, 112, 97, 112, 101, 114, 112, 97, 119, 46, 111, 114, 103], min: 0, max: 0, choices: "" })
+native Spec update | SettingSpec(SettingSpec { name: "server", kind: 3, flags: 0, group: "core.group.developer", title: "update.setting.server", help: "update.setting.server.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 20, 0, 0, 0, 104, 116, 116, 112, 115, 58, 47, 47, 112, 97, 112, 101, 114, 112, 97, 119, 46, 111, 114, 103], min: 0, max: 0, choices: "" })
 native Spec update | SettingSpec(SettingSpec { name: "look", kind: 0, flags: 0, group: "update.group", title: "update.setting.look", help: "update.setting.look.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
 native Spec update | SettingSpec(SettingSpec { name: "betas", kind: 0, flags: 0, group: "update.group", title: "update.setting.betas", help: "update.setting.betas.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
 native Spec vocabulary | SettingSpec(SettingSpec { name: "collect", kind: 0, flags: 16, group: "core.group.reading", title: "vocabulary.setting.collect", help: "vocabulary.setting.collect.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })

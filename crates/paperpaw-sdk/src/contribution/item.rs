@@ -15,7 +15,7 @@ use crate::id::Id;
 use crate::menus::{MenuEntry, MenuNeed, MenuSection};
 use crate::plugin::{Priority, SlotSpec};
 use crate::presets::Preset;
-use crate::screen::{HintVisibility, ScreenSpec};
+use crate::screen::HintVisibility;
 use crate::settings::SettingSpec;
 use crate::setup::SetupStepSpec;
 use crate::status::{Place as StatusPlace, StatusItemSpec, StatusLineSpec};
@@ -28,9 +28,6 @@ pub enum Contribution {
     Action(Box<ActionSpec>),
     /// Actions kept in the program (a `static` list).
     FixedActions(&'static [crate::action::FixedAction]),
-    Screen(ScreenSpec),
-    /// Screens kept in the program (a `static` list).
-    FixedScreens(&'static [crate::screen::FixedScreen]),
     Slot(SlotSpec),
     /// A screen proposed for a slot (see `Items::bind_slot`).
     SlotBinding {
@@ -145,8 +142,6 @@ pub enum Contribution {
     /// A service of the device's own GATT server (see
     /// [`bluetooth`](crate::bluetooth)).
     GattService(Box<crate::bluetooth::ServiceSpec>),
-    /// A bar along an edge of the screen (see [`chrome`](crate::chrome)).
-    Chrome(Box<crate::chrome::ChromeSpec>),
     /// A named input (see [`keys::InputSpec`](crate::keys::InputSpec)).
     Input(crate::keys::InputSpec),
     /// A handler put in place of an action's own, of any plugin
@@ -209,7 +204,6 @@ impl Contribution {
     pub fn kind(&self) -> &'static str {
         match self {
             Contribution::Action(_) | Contribution::FixedActions(_) => "action",
-            Contribution::Screen(_) | Contribution::FixedScreens(_) => "screen",
             Contribution::Slot(_) => "slot",
             Contribution::SlotBinding { .. } => "slot-binding",
             Contribution::Setting(_) | Contribution::FixedSettings(_) => "setting",
@@ -256,7 +250,6 @@ impl Contribution {
             Contribution::InputFilter(_) => "input-filter",
             Contribution::RefreshFilter(_) => "refresh-filter",
             Contribution::GattService(_) => "gatt-service",
-            Contribution::Chrome(_) => "chrome",
             Contribution::Input(_) => "input",
             Contribution::ActionOverride(_) => "action-override",
             Contribution::ActionObserver(_) => "action-observer",
@@ -284,7 +277,6 @@ impl Contribution {
     pub fn id(&self) -> Option<&Id> {
         Some(match self {
             Contribution::Action(a) => &a.id,
-            Contribution::Screen(s) => &s.id,
             Contribution::Slot(s) => &s.id,
             Contribution::Setting(s) => &s.id,
             Contribution::SettingGroup(g) => &g.id,
@@ -311,7 +303,6 @@ impl Contribution {
             Contribution::InputFilter(f) => &f.id,
             Contribution::RefreshFilter(f) => &f.id,
             Contribution::RenderHook(h) => &h.id,
-            Contribution::Chrome(c) => &c.id,
             Contribution::Input(i) => &i.id,
             Contribution::ActionObserver(o) | Contribution::EventObserver(o) => &o.id,
             Contribution::Gesture(g) => &g.id,
