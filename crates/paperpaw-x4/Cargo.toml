@@ -46,5 +46,9 @@ paperpaw-app.workspace = true
 # The waveform lab's screen, tried on the host (`tests/waveform_lab.rs`).
 paperpaw-graphics.workspace = true
 
+[features]
+# LAB ONLY (#168): the SSD1677's power-down in four variants, chosen at run time.
+fade-lab = []
+
 [lints]
 workspace = true
