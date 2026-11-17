@@ -63,10 +63,17 @@ pub fn cap_bounds(font: &Font<'_>, size: f32) -> Result<(i32, i32), Error> {
     if let Some(ink) = font.ink(size, "H")? {
         check_ink(ink.top, ink.bottom)
     } else {
-        let (ascent, descent, _) = line_metrics(font, size)?;
-        Ok((-(ascent as i32), -(descent as i32)))
+        // A host that cannot say (the X4's, `Font::ink`): capitals reach about
+        // 0.7 of the size above the baseline and none below it. Not the line's
+        // ascent and descent, which put the capitals 7 to 10 px too low.
+        bounded(size)?;
+        Ok((-((size * CAP_HEIGHT) as i32), 0))
     }
 }
+
+/// How high capitals reach above the baseline, in parts of the size, where a
+/// host does not tell the ink.
+pub const CAP_HEIGHT: f32 = 0.7;
 
 /// The ink bounds of a font reply, each within [`MAX_PX`] in either direction.
 ///

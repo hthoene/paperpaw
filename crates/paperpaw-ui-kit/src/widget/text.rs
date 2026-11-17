@@ -84,7 +84,7 @@ pub fn ink_baseline(font: &Font<'_>, size: f32, text: &str, band: Rect) -> Resul
         Some(ink) => crate::geometry::check_ink(ink.top, ink.bottom)?,
         None => {
             let (ascent, descent, _) = crate::geometry::line_metrics(font, size)?;
-            (-(ascent as i32), -(descent as i32))
+            (-(ascent as i32), descent as i32)
         }
     };
     let room = i32::from(band.height) - (bottom - top);

@@ -314,7 +314,7 @@ fn part_ink(font: &Font<'_>, part: &Part<'_>) -> Result<(f32, f32), Error> {
             }
             None => {
                 let (ascent, descent, _) = crate::geometry::line_metrics(font, part.size)?;
-                (-ascent, -descent)
+                (-ascent, descent)
             }
         })
     };
