@@ -30,7 +30,9 @@ use paperpaw_sdk::native::{
     files::{self, Files},
     fonts::{Font, FontRole},
     registry::Registry,
+    settings::{self, SettingValue},
     storage::{DataStorage, Root},
+    text,
 };
 use paperpaw_sdk::{Storage, StorageError, read_file};
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
@@ -51,6 +53,41 @@ pub const KOREAN: &str = "script-korean";
 pub const KOREAN_EXTRA: &str = "script-korean-extra";
 /// Where Korean is in [`SCRIPTS`].
 const KOREAN_AT: usize = 4;
+
+/// The language tags that have a hyphenation pack in the store (the data
+/// plugins `hyphenation-<language>`, `tools/plugin-files/data.toml`) and the
+/// pack of each. A book in one of them, read with hyphenation on, whose
+/// language the host has no table for, is offered the pack (never installed
+/// without the reader's say: the store asks first).
+pub const HYPHENATION: [(&str, &str); 14] = [
+    ("en", "hyphenation"),
+    ("da", "hyphenation-da"),
+    ("de", "hyphenation-de"),
+    ("es", "hyphenation-es"),
+    ("fr", "hyphenation-fr"),
+    ("it", "hyphenation-it"),
+    ("nb", "hyphenation-nb"),
+    ("no", "hyphenation-nb"),
+    ("nl", "hyphenation-nl"),
+    ("pl", "hyphenation-pl"),
+    ("pt", "hyphenation-pt"),
+    ("ru", "hyphenation-ru"),
+    ("sv", "hyphenation-sv"),
+    ("uk", "hyphenation-uk"),
+];
+/// The bit of a hyphenation pack in [`Asked`] (one for all of them: a book has
+/// one language).
+const HYPHENATION_BIT: Asked = 1 << (SCRIPTS.len() + 1);
+
+/// The store's hyphenation pack for the language `tag` (BCP 47), if it has one.
+#[must_use]
+pub fn hyphenation_pack(tag: &str) -> Option<&'static str> {
+    let base = tag.split(['-', '_']).next()?;
+    HYPHENATION
+        .iter()
+        .find(|(language, _)| language.eq_ignore_ascii_case(base))
+        .map(|(_, pack)| *pack)
+}
 
 /// The text looked at: its first sections, and in them as many blocks and
 /// letters as a few pages hold, so that opening a book costs little.
@@ -433,6 +470,9 @@ pub fn bit(id: &str) -> Asked {
     if id == KOREAN_EXTRA {
         return 1 << SCRIPTS.len();
     }
+    if HYPHENATION.iter().any(|(_, pack)| *pack == id) {
+        return HYPHENATION_BIT;
+    }
     SCRIPTS
         .iter()
         .position(|(.., pack)| *pack == id)
@@ -460,6 +500,8 @@ pub struct Book<'a> {
     pub path: &'a str,
     /// The script of [`SCRIPTS`] its language is written in ([`declared`]).
     pub script: Option<&'static str>,
+    /// The language it is read in (its own, else the UI's).
+    pub language: &'a str,
 }
 
 /// A book opened (or its letters came): the packs it needs and that were not
@@ -506,8 +548,30 @@ fn decide(host: &Host<'_>, docs: &Documents, book: &Book<'_>) -> Result<(Wanted,
     };
     let kept = read_kept(host, book.path)?;
     let mut korean = || installed(host, KOREAN);
-    let wanted = needed(found, book.script, &mut covers, &mut korean, &kept)?;
+    let mut wanted = needed(found, book.script, &mut covers, &mut korean, &kept)?;
+    if let Some(pack) = hyphenation_missing(host, book.language)
+        && !was_asked(&kept, pack)
+    {
+        wanted.push(pack);
+    }
     Ok((wanted, kept))
+}
+
+/// The store's hyphenation pack for the book's language where hyphenation is on
+/// and the host has no table for it (`text.hyphenate` answers `NotFound`).
+/// Nothing where it cannot tell.
+fn hyphenation_missing(host: &Host<'_>, language: &str) -> Option<&'static str> {
+    let pack = hyphenation_pack(language)?;
+    let mut bytes = [0; 32];
+    if !matches!(
+        settings::read_setting(host, "core.hyphenate", &mut bytes),
+        Ok(SettingValue::Bool(true))
+    ) {
+        return None;
+    }
+    let mut places = [0u8; text::MAX_BREAKS];
+    let asked = text::hyphenate(host, language, "Silbentrennung", 0, 0, &mut places);
+    matches!(asked, Err(Error::NotFound)).then_some(pack)
 }
 
 /// The file of the packs asked for the book at `path`; empty where there is
