@@ -110,6 +110,9 @@ pub enum Failure {
     Damaged,
     /// The card refused the file or the job.
     Card,
+    /// The device had no memory for the connection (or the file was over its
+    /// limit, which the host tells the same way).
+    Memory,
 }
 
 /// Where a plugin's installation is.
@@ -286,7 +289,8 @@ impl Download {
             && holds(storage, &saved, &file.digest);
         if !whole {
             let failure = match done.reason {
-                Reason::Ok | Reason::TooLarge => Failure::Damaged,
+                Reason::Ok => Failure::Damaged,
+                Reason::TooLarge => Failure::Memory,
                 Reason::Io | Reason::Full => Failure::Card,
                 _ => Failure::Network,
             };
