@@ -34,7 +34,7 @@ impl Kernel {
     /// Nothing reports Bluetooth here; the call only keeps the kernel's time.
     pub fn bluetooth_event(&mut self, now: Instant, _report: BtReport) -> Effects {
         let running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         drop(running);
         self.finish()
     }
