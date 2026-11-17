@@ -8,6 +8,7 @@ use paperpaw_ui_kit::{
 };
 
 use super::*;
+use crate::native_recent::Listing;
 
 /// The host as the gallery's stage: its instances are the screen's own, and the
 /// screen's frame is what they are drawn into.
@@ -34,7 +35,7 @@ impl Stage for Live<'_, '_> {
     }
 
     fn compose(&mut self, widget: &Made, area: Rect) -> Result<(), Error> {
-        widget.draw(self.host, self.ui, self.frame, area)
+        widget.draw(self.host, self.ui, &Listing::default(), self.frame, area)
     }
 }
 
@@ -97,7 +98,14 @@ impl AddScreen {
             let Some(id) = widget_of(&self.rows, &self.entries, row) else {
                 continue;
             };
-            match measure::measure_widget(host, ui, id, measure::PLACE, &shown.frame.geometry) {
+            match measure::measure_widget(
+                host,
+                ui,
+                id,
+                measure::PLACE,
+                &shown.frame.geometry,
+                &Listing::default(),
+            ) {
                 Ok(Some((rows, least))) => shown.src.measured(id, rows, least)?,
                 Ok(None) => {}
                 Err(Error::Unsupported) => return Ok(None),

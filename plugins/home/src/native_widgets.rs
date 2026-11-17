@@ -12,21 +12,22 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose},
         commands::CommandSender,
-        image::ImageStyle,
+        fonts::Font,
+        image::{ImageId, ImageStyle},
         reply::Reply,
         ui::{Instance, Open, Param, Ui, WidgetInputKind, WidgetTarget, stages::WidgetCall},
     },
 };
 use paperpaw_ui_kit::{
-    icons,
+    Paint, icons,
     mem::buffer,
-    paint,
+    paint, status_line,
     text::copy,
-    widget::{Cx, Kept},
+    widget::{Cx, Kept, cx::widget_font},
 };
 
 use crate::declarations::{CARD, CLOCK, DATE, SHELF, STATUS_WIDGET};
-use crate::native_recent::{self, Known, Pictures};
+use crate::native_recent::{self, Ask, Known, Listing, Pictures};
 use crate::{native_card, native_clock, native_date, native_shelf, native_status};
 
 /// The most bytes of a stage reply (sizes and no targets).
@@ -53,23 +54,55 @@ pub struct Mine {
     /// style and its own are some thirty settings. Let go where a setting or the
     /// registry changes ([`Widgets::forget_looks`]).
     look: Looks,
+    /// What it composed for the bands of the frame under way: the first band
+    /// measures, wraps and paints the whole widget, the later ones draw the
+    /// same ([`Mine::draw`]).
+    banded: RefCell<Vec<Banded>>,
+}
+
+/// What a widget composed for a frame's first band, for the next ones.
+#[derive(Debug)]
+struct Banded {
+    area: Rect,
+    epoch: u32,
+    /// The rows of the last band drawn with it.
+    bottom: i32,
+    out: Vec<Paint>,
+    placed: Vec<(ImageId, Rect)>,
 }
 
 /// The look a widget kept: none or one, in a vector so that keeping it is
 /// fallible (a look not kept is read again at the next draw) and an instance
-/// that never drew holds nothing.
+/// that never drew holds nothing. With it, for the status line only, what it
+/// asked the host about its settings and registry, which only a setting or
+/// registry change alters: the first frame of a return made three service
+/// calls for it (#294).
 #[derive(Debug, Default)]
-pub struct Looks(RefCell<Vec<Kept>>);
+pub struct Looks {
+    kept: RefCell<Vec<Kept>>,
+    status: RefCell<Vec<StatusKept>>,
+}
+
+/// What the status line kept of its host answers.
+#[derive(Debug, Default)]
+pub struct StatusKept {
+    /// Whether the reader chose the widget's own paper or ink.
+    own: Option<bool>,
+    /// The whole line the `line` setting's ids (the key) show now.
+    line: Option<(String, String)>,
+    /// What the registry says of the items the lists name.
+    pub items: status_line::Memo,
+}
 
 impl Looks {
     /// The look kept, if any, handed over: the draw that takes it keeps it again.
     pub fn take(&self) -> Option<Kept> {
-        self.0.borrow_mut().pop()
+        self.kept.borrow_mut().pop()
     }
 
     /// Keeps `kept` in place of any other, if there is room.
     pub fn keep(&self, kept: Kept) {
-        let mut held = self.0.borrow_mut();
+        let mut held = self.kept.borrow_mut();
         held.clear();
         if held.try_reserve_exact(1).is_ok() {
             held.push(kept);
@@ -78,7 +111,68 @@ impl Looks {
 
     /// Lets go of what is kept.
     pub fn forget(&self) {
-        self.0.borrow_mut().clear();
+        self.kept.borrow_mut().clear();
+        self.status.borrow_mut().clear();
+    }
+
+    /// Runs `f` on what the status line kept (made empty at first).
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn with_status<R>(&self, f: impl FnOnce(&mut StatusKept) -> R) -> Result<R, Error> {
+        let mut held = self.status.borrow_mut();
+        if held.is_empty() {
+            held.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
+            held.push(StatusKept::default());
+        }
+        let kept = held.first_mut().ok_or(Error::NoMemory)?;
+        Ok(f(kept))
+    }
+
+    /// Whether the widget has a look of its own, asked of `ask` once for as
+    /// long as nothing is forgotten.
+    ///
+    /// # Errors
+    /// What `ask` returns.
+    pub fn own(&self, ask: impl FnOnce() -> Result<bool, Error>) -> Result<bool, Error> {
+        if let Some(own) = self.with_status(|kept| kept.own)? {
+            return Ok(own);
+        }
+        let own = ask()?;
+        self.with_status(|kept| kept.own = Some(own))?;
+        Ok(own)
+    }
+
+    /// The line shown for the ids `listed`: the one kept for the same ids, else
+    /// what `ask` finds, kept (`fresh`: asked in any case, to learn of a line
+    /// that came or went without an event).
+    ///
+    /// # Errors
+    /// What `ask` returns.
+    pub fn line(
+        &self,
+        listed: &str,
+        fresh: bool,
+        ask: impl FnOnce() -> Result<String, Error>,
+    ) -> Result<String, Error> {
+        if !fresh {
+            let found = self.with_status(|kept| match &kept.line {
+                Some((ids, line)) if ids == listed => Some(copy(line)),
+                _ => None,
+            })?;
+            if let Some(line) = found {
+                return line;
+            }
+        }
+        let line = ask()?;
+        let kept = (copy(listed), copy(&line));
+        self.with_status(|status| {
+            status.line = match kept {
+                (Ok(ids), Ok(line)) => Some((ids, line)),
+                _ => None,
+            };
+        })?;
+        Ok(line)
     }
 }
 
@@ -96,6 +190,8 @@ struct Item {
 #[derive(Debug, Default)]
 pub struct Widgets {
     items: Vec<Item>,
+    /// What the instances' card and shelf share of the library.
+    listing: Listing,
 }
 
 /// The token of the widget the host calls `widget` (`home.date`, or placed
@@ -128,12 +224,21 @@ impl Mine {
             known: Known::default(),
             placed: Cell::new(None),
             look: Looks::default(),
+            banded: RefCell::new(Vec::new()),
         }))
+    }
+
+    fn ask<'a>(&'a self, listing: &'a Listing) -> Ask<'a> {
+        Ask {
+            known: &self.known,
+            listing,
+        }
     }
 
     /// Lets go of the look it kept: the next draw reads it again.
     pub fn forget_look(&self) {
         self.look.forget();
+        self.banded.borrow_mut().clear();
     }
 
     /// Whether it waits for a library cover.
@@ -142,11 +247,7 @@ impl Mine {
     }
 
     pub fn covers_ready(&self) -> bool {
-        let waiting = self.waiting.replace(false);
-        if waiting {
-            self.known.forget_covers();
-        }
-        waiting
+        self.waiting.replace(false)
     }
 
     /// Where the screen placed it, for a tap on one of its items.
@@ -158,13 +259,18 @@ impl Mine {
     ///
     /// # Errors
     /// Font and host refusals, [`Error::NoMemory`].
-    pub fn measure(&self, host: &Host<'_>, width: u32) -> Result<(u16, u16), Error> {
-        let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
+    pub fn measure(
+        &self,
+        host: &Host<'_>,
+        listing: &Listing,
+        width: u32,
+    ) -> Result<(u16, u16), Error> {
+        let mut cx = Cx::open_kept_with(host, &self.widget, self.look.take(), listing.inputs())?;
         let width = u16::try_from(width).unwrap_or(u16::MAX);
         let size = match self.token {
             DATE => same(native_date::height(&mut cx, width)?),
             CARD => (native_card::height(&cx), native_card::height(&cx) / 2),
-            SHELF => native_shelf::height(&cx, &self.known, width)?,
+            SHELF => native_shelf::height(&cx, self.ask(listing), width)?,
             STATUS_WIDGET => same(native_status::height(&cx)?),
             _ => same(native_clock::height(&mut cx, width)?),
         };
@@ -181,14 +287,16 @@ impl Mine {
         &self,
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         rect: Rect,
     ) -> Result<Vec<WidgetTarget>, Error> {
         let mut found: Vec<WidgetTarget> = Vec::new();
         match self.token {
             STATUS_WIDGET => {
-                let cx = Cx::open_kept(host, &self.widget, self.look.take())?;
+                let cx =
+                    Cx::open_kept_with(host, &self.widget, self.look.take(), listing.inputs())?;
                 let inner = cx.shape.look(rect).area;
-                for (id, at) in native_status::targets(&cx, ui, inner)? {
+                for (id, at) in native_status::targets(&cx, ui, &self.look, inner)? {
                     let target = WidgetTarget::new(id, paint::frame_rect(at));
                     paperpaw_ui_kit::mem::push(&mut found, target)?;
                 }
@@ -199,8 +307,9 @@ impl Mine {
                 WidgetTarget::new(native_card::TARGET, paint::frame_rect(rect)),
             )?,
             SHELF => {
-                let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
-                for (id, at) in native_shelf::targets(&mut cx, &self.known, rect)? {
+                let mut cx =
+                    Cx::open_kept_with(host, &self.widget, self.look.take(), listing.inputs())?;
+                for (id, at) in native_shelf::targets(&mut cx, self.ask(listing), rect)? {
                     let target = WidgetTarget::new(id, paint::frame_rect(at));
                     paperpaw_ui_kit::mem::push(&mut found, target)?;
                 }
@@ -220,39 +329,119 @@ impl Mine {
         &self,
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         frame: &mut DrawFrame<'_>,
         area: Rect,
     ) -> Result<(), Error> {
         if self.token == STATUS_WIDGET {
-            return native_status::draw_widget(host, ui, frame, (&self.widget, &self.look), area);
+            return native_status::draw_widget(
+                host,
+                ui,
+                frame,
+                (&self.widget, &self.look, listing.inputs()),
+                area,
+            );
         }
-        self.known.begin_draw(frame.clip_top);
-        let mut cx = Cx::open_kept(host, &self.widget, self.look.take())?;
-        let mut out = Vec::new();
-        let mut pictures = Pictures::default();
+        self.known.begin_draw(frame.clip_top, listing);
+        listing.drawing(true);
+        let drawn = self.draw_own(host, listing, frame, area);
+        listing.drawing(false);
+        drawn
+    }
+
+    /// The rows below the widget's area, where the last band that draws it ends.
+    fn end_of(frame: &DrawFrame<'_>, area: Rect) -> i32 {
+        frame
+            .rect
+            .y
+            .saturating_add(i32::from(area.y))
+            .saturating_add(i32::from(area.height))
+    }
+
+    /// What the first band of the frame composed, for the band after it: the
+    /// first band measures and wraps the whole widget and every band after
+    /// it did it again (the X4 draws a frame in two to five bands). Only a band
+    /// that starts where the last one stopped, with nothing but draws between
+    /// them, takes it; the last band of the widget lets it go.
+    fn take_banded(&self, listing: &Listing, frame: &DrawFrame<'_>, area: Rect) -> Option<Banded> {
+        let kept = self.banded.borrow_mut().pop()?;
+        (kept.area == area && kept.epoch == listing.epoch() && kept.bottom == frame.clip_top)
+            .then_some(kept)
+    }
+
+    fn keep_banded(&self, frame: &DrawFrame<'_>, area: Rect, mut kept: Banded) {
+        if frame.clip_bottom >= Self::end_of(frame, area) {
+            return;
+        }
+        kept.bottom = frame.clip_bottom;
+        let mut held = self.banded.borrow_mut();
+        if held.try_reserve_exact(1).is_ok() {
+            held.push(kept);
+        }
+    }
+
+    fn draw_own(
+        &self,
+        host: &Host<'_>,
+        listing: &Listing,
+        frame: &mut DrawFrame<'_>,
+        area: Rect,
+    ) -> Result<(), Error> {
         let icons = if self.token == CARD {
             icons::font(host)?
         } else {
             None
         };
+        if let Some(kept) = self.take_banded(listing, frame, area) {
+            let font = widget_font(host, &self.widget)?;
+            let drawn = self.replay(listing, frame, (&font, icons.as_ref()), &kept);
+            self.keep_banded(frame, area, kept);
+            return drawn;
+        }
+        let mut cx = Cx::open_kept_with(host, &self.widget, self.look.take(), listing.inputs())?;
+        let mut out = Vec::new();
+        let mut pictures = Pictures::default();
         match self.token {
             DATE => native_date::draw(&mut cx, &mut out, area)?,
             CARD => native_card::draw(
                 &mut cx,
                 &mut out,
                 icons.as_ref(),
-                (&mut pictures, &self.known),
+                (&mut pictures, self.ask(listing)),
                 area,
             )?,
-            SHELF => native_shelf::draw(&mut cx, &mut out, (&mut pictures, &self.known), area)?,
+            SHELF => {
+                native_shelf::draw(&mut cx, &mut out, (&mut pictures, self.ask(listing)), area)?
+            }
             _ => native_clock::draw(&mut cx, &mut out, area)?,
         }
         self.waiting.set(pictures.busy);
-        paint::replay_icons(frame, &cx.font, icons.as_ref(), &out)?;
-        // The covers go where nothing else is drawn. One the host no longer has
-        // (it ended the id for room) or cannot draw is left out: the next draw asks
-        // for it again.
-        for (image, at) in &pictures.placed {
+        let kept = Banded {
+            area,
+            epoch: listing.epoch(),
+            bottom: frame.clip_top,
+            out,
+            placed: pictures.placed,
+        };
+        let drawn = self.replay(listing, frame, (&cx.font, icons.as_ref()), &kept);
+        self.keep_banded(frame, area, kept);
+        self.look.keep(cx.keep());
+        drawn
+    }
+
+    /// Replays what was composed in the band of `frame`: the paint, then the
+    /// covers, which go where nothing else is drawn. One the host no longer has
+    /// (it ended the id for room) or cannot draw is left out: the next draw asks
+    /// for it again.
+    fn replay(
+        &self,
+        listing: &Listing,
+        frame: &mut DrawFrame<'_>,
+        (font, icons): (&Font<'_>, Option<&Font<'_>>),
+        kept: &Banded,
+    ) -> Result<(), Error> {
+        paint::replay_icons(frame, font, icons, &kept.out)?;
+        for (image, at) in &kept.placed {
             let drawn = frame.draw_canvas()?.draw_image(
                 *image,
                 paint::frame_rect(*at),
@@ -260,11 +449,10 @@ impl Mine {
             );
             if drawn.is_err() {
                 // The host ended the id: the next tick draws it, asked for anew.
-                self.known.forget_covers();
+                listing.forget_all_covers();
                 self.waiting.set(true);
             }
         }
-        self.look.keep(cx.keep());
         Ok(())
     }
 
@@ -277,6 +465,7 @@ impl Mine {
         &self,
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         target: u32,
         kind: WidgetInputKind,
     ) -> Result<bool, Error> {
@@ -287,13 +476,13 @@ impl Mine {
             return status_tap(host, ui, self, target);
         }
         let book = match self.token {
-            CARD => native_recent::read(host, &self.known, 0, 1)?
-                .into_iter()
-                .next(),
+            CARD => native_recent::read(host, listing, 0, 1)?.into_iter().next(),
             SHELF => {
                 let cx = Cx::open(host, &self.widget)?;
                 let at = usize::try_from(target - 1).map_err(|_| Error::Invalid)?;
-                native_shelf::books(&cx, &self.known)?.into_iter().nth(at)
+                native_shelf::books(&cx, self.ask(listing))?
+                    .into_iter()
+                    .nth(at)
             }
             _ => return Ok(false),
         };
@@ -358,7 +547,7 @@ impl Widgets {
         let written = match call {
             WidgetCall::Measure { instance, width } => {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
-                let (height, least) = item.mine.measure(host, width)?;
+                let (height, least) = item.mine.measure(host, &self.listing, width)?;
                 call.reply_size(u32::from(height), u32::from(least), &mut out)?
             }
             WidgetCall::Place { instance, rect } => {
@@ -369,7 +558,7 @@ impl Widgets {
             WidgetCall::Targets { instance, rect } => {
                 let item = self.find(instance.get()).ok_or(Error::NotFound)?;
                 item.mine.place(to_rect(rect));
-                let found = item.mine.targets(host, ui, to_rect(rect))?;
+                let found = item.mine.targets(host, ui, &self.listing, to_rect(rect))?;
                 call.reply_targets(&found, &mut out)?
             }
             _ => return Err(Error::Unsupported),
@@ -388,7 +577,7 @@ impl Widgets {
         }
         let item = self.find(frame.id).ok_or(Error::NotFound)?;
         let area = to_rect(frame.rect);
-        item.mine.draw(host, ui, &mut frame, area)
+        item.mine.draw(host, ui, &self.listing, &mut frame, area)
     }
 
     /// A tap on a target of the card or the shelf opens the book it shows (the
@@ -405,7 +594,7 @@ impl Widgets {
         kind: WidgetInputKind,
     ) -> Result<bool, Error> {
         match self.find(instance.get()) {
-            Some(item) => item.mine.tap(host, ui, target, kind),
+            Some(item) => item.mine.tap(host, ui, &self.listing, target, kind),
             None => Ok(false),
         }
     }
@@ -413,6 +602,8 @@ impl Widgets {
     /// A call into the plugin that is no draw: the books the card and the shelf
     /// kept are asked of the library again at their next draw.
     pub fn fresh(&self) {
+        self.listing.fresh();
+        self.listing.new_epoch();
         for item in &self.items {
             item.mine.known.fresh();
         }
@@ -430,7 +621,11 @@ impl Widgets {
         let mut scratch = [0; 64];
         let mut commands = CommandSender::new(host, &mut scratch);
         for item in &mut self.items {
-            if item.mine.covers_ready() && commands.widget_changed(item.instance).is_err() {
+            let ready = item.mine.covers_ready();
+            if ready {
+                self.listing.forget_covers();
+            }
+            if ready && commands.widget_changed(item.instance).is_err() {
                 item.mine.waiting.set(true);
             }
         }
@@ -447,9 +642,8 @@ impl Widgets {
                 DATE => native_date::shows(host),
                 CARD => native_card::shows(host),
                 SHELF => native_shelf::shows(host, &item.mine.widget),
-                STATUS_WIDGET => {
-                    Cx::open(host, &item.mine.widget).and_then(|cx| native_status::shows(&cx, ui))
-                }
+                STATUS_WIDGET => Cx::open(host, &item.mine.widget)
+                    .and_then(|cx| native_status::shows(&cx, ui, &item.mine.look)),
                 _ => native_clock::shows(host),
             };
             let Ok(now) = now else {
@@ -460,12 +654,12 @@ impl Widgets {
             // the books show.
             if item.shown.is_some_and(|before| before != now) {
                 // The books changed: the card is asked about their files anew.
-                item.mine.known.forget();
+                item.mine.known.forget(&self.listing);
             }
             let waited = item.mine.waiting.replace(false);
             if waited {
                 // A cover that was being made is asked about anew.
-                item.mine.known.forget_covers();
+                self.listing.forget_covers();
             }
             if (waited || item.shown.is_some_and(|before| before != now))
                 && commands.widget_changed(instance).is_err()
@@ -523,7 +717,7 @@ fn status_tap(host: &Host<'_>, ui: &Ui, item: &Mine, target: u32) -> Result<bool
     };
     let cx = Cx::open(host, &item.widget)?;
     let inner = cx.shape.look(place).area;
-    let Some(action) = native_status::action(&cx, ui, inner, target)? else {
+    let Some(action) = native_status::action(&cx, ui, &item.look, inner, target)? else {
         return Ok(false);
     };
     let mut scratch = [0; 256];

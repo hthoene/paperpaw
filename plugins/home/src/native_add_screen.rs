@@ -38,6 +38,7 @@ use crate::native_grid::{Sizes, What};
 use crate::native_made::Made;
 use crate::native_measure as measure;
 use crate::native_pages::{self, Write};
+use crate::native_recent::Listing;
 use crate::native_shown::Shown;
 
 /// The screen this is declared as.
@@ -274,7 +275,14 @@ impl AddScreen {
             _ => None,
         };
         if let Some(What::Widget(id)) = &added {
-            match measure::measure_widget(host, ui, id, measure::PLACE, &shown.frame.geometry) {
+            match measure::measure_widget(
+                host,
+                ui,
+                id,
+                measure::PLACE,
+                &shown.frame.geometry,
+                &Listing::default(),
+            ) {
                 Ok(Some((rows, least))) => shown.src.measured(id, rows, least)?,
                 // Not measured (gone, refused): the grid's default of one row.
                 Ok(None) => {}

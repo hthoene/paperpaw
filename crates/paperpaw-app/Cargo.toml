@@ -243,5 +243,12 @@ name = "sleep_cycles"
 harness = false
 required-features = ["native-linked"]
 
+# The quick panel is the menu plugin's native screen: without `native-linked`
+# there is no slider to drag. Run with the other linked screen tests (CI,
+# check-local).
+[[test]]
+name = "slider_drag"
+required-features = ["native-linked"]
+
 [lints]
 workspace = true

@@ -202,6 +202,35 @@ impl CanvasScope {
         .unwrap_or_else(|error| error)
     }
 
+    /// Raw slot-43 patterned fill: the checker over a rectangle (see
+    /// `graphics::fill_pattern`), clipped like every fill.
+    #[must_use]
+    pub fn fill_pattern(
+        &self,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        color: u32,
+        pattern: u32,
+    ) -> i32 {
+        let color = match packed_color(color) {
+            Ok(color) => color,
+            Err(error) => return error,
+        };
+        self.with_canvas(|canvas| {
+            graphics::fill_pattern(
+                canvas,
+                (i64::from(x), i64::from(y)),
+                (u64::from(width), u64::from(height)),
+                color,
+                pattern,
+            )
+            .map_or(ERR_INVALID, |()| OK)
+        })
+        .unwrap_or_else(|error| error)
+    }
+
     /// Raw slot-11 rounded fill.
     #[allow(
         clippy::too_many_arguments,

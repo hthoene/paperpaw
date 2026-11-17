@@ -80,7 +80,10 @@
 //!                                     the functions of the crate (`prefix*`
 //!                                     for several) have at most `max` calls
 //!                                     through a register between them that
-//!                                     no `allow indirect` line lists
+//!                                     no `allow indirect` line lists, plus a
+//!                                     headroom the scan adds (16 for
+//!                                     `paperpaw_plugin_*`, 8 otherwise): `max`
+//!                                     is the count of the last CI scan
 //! include <file>                      the lines of a file beside the budget
 //! allow sp <caller> <why>             the caller changes the stack pointer
 //!                                     other than by `entry`
@@ -976,6 +979,8 @@ pub struct Report {
     pub indirect: u32,
     /// Calls through a register that an `l32r` literal gave: followed.
     pub resolved: u32,
+    /// Per `allow indirect-in` line: the family, the exact count, the ceiling.
+    pub families: Vec<(String, u32, u32)>,
     /// What the budget refuses, one line each.
     pub problems: Vec<String>,
 }
@@ -1411,6 +1416,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
             ));
         }
     }
+    report.families = family::counts(budget, &family_sites);
     report
         .problems
         .extend(family::ceilings_exceeded(budget, &family_sites));
@@ -1451,6 +1457,9 @@ pub fn run(elf: &str, budget: &str) -> Result<(), String> {
         report.resolved,
         report.indirect
     );
+    for (family, count, ceiling) in &report.families {
+        println!("indirect-in {family}: {count} counted, ceiling {ceiling}");
+    }
     if report.problems.is_empty() {
         println!("the S3 firmware's frames and calls hold");
         return Ok(());

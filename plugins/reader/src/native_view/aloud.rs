@@ -69,8 +69,8 @@ impl Pages for Stage<'_, '_> {
         if start == self.open.at {
             if self.open.page.is_none() {
                 let page = self.open.lay(self.host, self.docs, setup, start)?;
-                self.open.page = Some(page);
-                self.open.laid = Some(self.open.key(setup));
+                let key = self.open.key(setup);
+                self.open.put_page(page, key);
             }
             return self.open.page.as_ref().map(f).ok_or(Error::State);
         }

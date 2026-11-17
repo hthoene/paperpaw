@@ -969,7 +969,8 @@ impl Open {
         let from = if forward {
             if self.page.is_none() {
                 let setup = self.settings.setup(host)?;
-                self.page = Some(self.lay(host, docs, &setup, self.at)?);
+                let page = self.lay(host, docs, &setup, self.at)?;
+                self.put_page(page, self.key(&setup));
             }
             let Some(page) = &self.page else {
                 return Ok(());
@@ -1073,10 +1074,7 @@ impl Open {
         };
         if self.page.is_none() {
             match self.lay(host, docs, &setup, self.at) {
-                Ok(page) => {
-                    self.page = Some(page);
-                    self.laid = Some(self.key(&setup));
-                }
+                Ok(page) => self.put_page(page, self.key(&setup)),
                 Err(_) => return,
             }
         }
@@ -1222,6 +1220,16 @@ impl Open {
         }
     }
 
+    /// Takes `page`, laid out with `key`, as the page on show. The words (and
+    /// with them the marks, the plugins' marks and what can be chosen) are those
+    /// of the page before: they are let go of here and made again at the draw,
+    /// so a page never shows or saves a mark by another page's words (#265).
+    fn put_page(&mut self, page: Page, key: LayoutKey) {
+        self.page = Some(page);
+        self.laid = Some(key);
+        self.words = Vec::new();
+    }
+
     /// Goes to the page that starts at `to` (a followed link, or the way back).
     fn jump(&mut self, to: (u32, u32)) {
         self.at = to;
@@ -1248,9 +1256,7 @@ impl Open {
             Onto::Page(laid) => {
                 let moved = self.next()?;
                 if moved {
-                    self.page = Some(*laid);
-                    self.laid = Some(self.key(&setup));
-                    self.words = Vec::new();
+                    self.put_page(*laid, self.key(&setup));
                 }
                 Ok(moved)
             }
