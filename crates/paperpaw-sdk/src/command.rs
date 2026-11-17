@@ -679,7 +679,7 @@ pub enum Command {
     /// [`slots::READER`](crate::builtin::slots::READER): its path in
     /// `params::PATH`, and the readers that could not open it. See
     /// [`readers::open`](crate::readers::open) and
-    /// [`readers::cannot_open`](crate::readers::cannot_open), which make
+    /// `readers::cannot_open`, which make
     /// it, and `readers::resolve`, which says
     /// what it does.
     OpenBook(Params),

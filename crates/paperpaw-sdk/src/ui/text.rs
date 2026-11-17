@@ -12,7 +12,7 @@ use super::*;
 pub const NOTE_LINES: usize = 2;
 
 /// The lines a row's note takes at most, in a row made higher for it
-/// ([`UiStyle::noted_row_for`]).
+/// (`UiStyle::noted_row_for`).
 pub const NOTE_LINES_MOST: usize = 4;
 
 /// Line height of notes, relative to the small text size.

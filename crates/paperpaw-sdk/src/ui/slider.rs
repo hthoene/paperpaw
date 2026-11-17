@@ -34,7 +34,7 @@
 //!
 //! A screen keeps a [`Slider`] for each (from a setting with
 //! [`Slider::of`]), draws rows of [`row_height`] with
-//! [`Slider::draw_row`] (what it shows in a [`SliderView`]), or only the
+//! `Slider::draw_row` (what it shows in a [`SliderView`]), or only the
 //! track with [`Slider::draw_track`] where it places the buttons itself,
 //! and passes pointer samples to [`SliderDrag::on_pointer`] from
 //! `on_pointer`. While the knob
@@ -60,7 +60,7 @@ pub struct Slider {
     mirrored: bool,
 }
 
-/// How a slider shows the focus (see [`Slider::draw_row`]).
+/// How a slider shows the focus (see `Slider::draw_row`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SliderFocus {
@@ -74,14 +74,14 @@ pub enum SliderFocus {
     Editing,
 }
 
-/// What a slider shows and where (see [`Slider::draw_row`] and
-/// [`Slider::draw_band`]): made with [`SliderView::new`] and the builder
+/// What a slider shows and where (see `Slider::draw_row` and
+/// `Slider::draw_band`): made with [`SliderView::new`] and the builder
 /// methods, so that it can grow without breaking plugins.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct SliderView<'a> {
-    /// The row (for [`Slider::draw_row`]) or the band
-    /// ([`Slider::draw_band`]).
+    /// The row (for `Slider::draw_row`) or the band
+    /// (`Slider::draw_band`).
     pub area: Rect,
     pub value: i64,
     /// The value as shown, with its unit (e.g. "135 %").
@@ -92,7 +92,7 @@ pub struct SliderView<'a> {
     pub note: &'a str,
     pub focus: SliderFocus,
     /// The widest value it shows, which its title keeps clear of (as its
-    /// row was laid out with: [`row_height_for`]); empty: `shown`.
+    /// row was laid out with: `row_height_for`); empty: `shown`.
     pub room: &'a str,
 }
 
@@ -265,7 +265,7 @@ impl Slider {
     /// Draws the track in `track`: a thick line in `ink` up to `value`, a
     /// thin one after it, and a large knob at the value (round where the
     /// interface has round corners). For screens that place a slider's
-    /// buttons themselves; [`Slider::draw_row`] draws all of it.
+    /// buttons themselves; `Slider::draw_row` draws all of it.
     pub fn draw_track(
         &self,
         canvas: &mut Canvas<'_>,
@@ -372,7 +372,7 @@ pub fn band_height(style: &UiStyle) -> u16 {
     style.touch_row(style.title_band()) as u16
 }
 
-/// The height of a row with a slider (see [`Slider::draw_row`]), with
+/// The height of a row with a slider (see `Slider::draw_row`), with
 /// room for a note if `noted`.
 pub fn row_height(style: &UiStyle, noted: bool) -> u16 {
     let band = u32::from(band_height(style));
@@ -385,7 +385,7 @@ pub fn row_height(style: &UiStyle, noted: bool) -> u16 {
 }
 
 /// The slider's band in a row whose title takes `extra` more than its
-/// line ([`title_extra`]).
+/// line (`title_extra`).
 pub fn band_below(style: &UiStyle, row: Rect, extra: u16) -> Rect {
     let moved = Rect::new(
         row.x,

@@ -4,7 +4,7 @@
 //!
 //! The kernel makes the file of a view's archive folder (one for each,
 //! for two at most) after the catalog was written anew, or when a
-//! view asks for it ([`request`]): every book but those in the archive
+//! view asks for it (`request`): every book but those in the archive
 //! folder, sorted by its title's first letters
 //! ([`sort_key`](super::index::sort_key)) and where its line starts, each
 //! with its series (a hash of the name), its place among the books of
@@ -12,13 +12,13 @@
 //! and put in place whole, its end saying of which library it is
 //! ([`Library::version`](super::service::Library::version)), how many
 //! books it has and a check of them: a file of another version, cut
-//! short or damaged is not read ([`Sorted::open`] gives `None`), and the
+//! short or damaged is not read (`Sorted::open` gives `None`), and the
 //! view says the library is being prepared until the kernel made it
 //! anew.
 //!
 //! A view opens it once it shows, reads it through once (how many books
 //! each filter shows in each block of it, the books read last, the
-//! books being read) and then pages it ([`Sorted::page`]): what changed
+//! books being read) and then pages it (`Sorted::page`): what changed
 //! since it was made (how far a book is read, favourites, books removed;
 //! the catalog's log) is taken in as it is read.
 
@@ -273,7 +273,7 @@ impl View {
     }
 }
 
-/// A book of a view, as [`Sorted::page`] gives it.
+/// A book of a view, as `Sorted::page` gives it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Entry {

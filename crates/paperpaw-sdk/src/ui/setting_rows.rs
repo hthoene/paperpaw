@@ -484,7 +484,7 @@ pub fn setting_row(style: &UiStyle, spec: &SettingSpec, row: u32, noted: bool) -
 /// switch or `−` value `+`): side by side, or, where the title would be
 /// cut, the control on a line of its own below the title, at the right. A
 /// title is never cut for a control. Decided once, when the row is laid
-/// out ([`row_lines`]), for every value it may show (a choice's widest
+/// out (`row_lines`), for every value it may show (a choice's widest
 /// option), and moved to where the row is drawn ([`RowLines::at`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]

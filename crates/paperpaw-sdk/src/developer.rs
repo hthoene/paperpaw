@@ -7,8 +7,8 @@
 //! A plugin that declares [`Uses::DEVELOPER`](crate::Uses::DEVELOPER)
 //! opens the link with [`open`] and hears everything on the event it
 //! names, each a [`DevEvent`]: opened, bytes from the computer, the
-//! screen it asked for, closed, failed. It writes with [`write`](fn@write), asks
-//! for the screen with [`screen`] and closes with [`close`]. Presses,
+//! screen it asked for, closed, failed. It writes with `write`, asks
+//! for the screen with `screen` and closes with `close`. Presses,
 //! actions, files and the memory are the plugin's as for any other
 //! (`Command::Input`, `Command::RunAction`, `Env::storage`,
 //! `Env::memory`), so the tools need no commands of their own for them.

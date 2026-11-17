@@ -6,11 +6,11 @@
 //!   and a thickness, a frame, struck through. Tones ([`Tone`]) are named;
 //!   panels show them as well as they can (colours where there is colour,
 //!   their lightness elsewhere, backgrounds dithered where there are few
-//!   grays). [`draw_behind`] and [`draw_over`] draw one around the text.
+//!   grays). `draw_behind` and `draw_over` draw one around the text.
 //! - A *role* names what a mark means (`vocabulary.learning`); its look is
 //!   settings, one per aspect (see [`add_role`]), in the group
 //!   [`groups::MARKS`]: the plugin gives
-//!   the default, themes and users the rest. [`Decoration::of_role`] reads
+//!   the default, themes and users the rest. `Decoration::of_role` reads
 //!   it.
 //! - A *decorator* ([`DecoratorSpec`], `Items::add_decorator`) gets the
 //!   words of a page ([`PageText`]) and gives back ranges with their roles

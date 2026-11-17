@@ -30,7 +30,7 @@
 //!
 //! They show as the screen opens. A screen that first prepares what it
 //! shows (the reader, opening a book) has them wait instead ([`wait`]),
-//! and says when it is ready ([`ready`]): screens below another get no
+//! and says when it is ready (`ready`): screens below another get no
 //! timers, so it would not get ready under them.
 
 use alloc::format;
@@ -179,10 +179,10 @@ pub fn add(
 }
 
 /// Sent by a screen whose hints wait ([`wait`]) once it shows what it is
-/// about ([`ready`]).
+/// about (`ready`).
 pub const READY: Event<ScreenShown> = Event::new("help.ready");
 
-/// The hints of `screen` wait until it says it is ready ([`ready`]),
+/// The hints of `screen` wait until it says it is ready (`ready`),
 /// rather than show as it opens.
 pub fn wait(
     contribute: &mut dyn FnMut(Id, String) -> Result<(), RegisterError>,

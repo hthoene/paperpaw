@@ -19,7 +19,7 @@ use super::UiStyle;
 /// ([`button_width`](super::button_width)), at least as wide as high, the
 /// style's gap apart, from the left of the area. A chip that does not fit
 /// beside the others goes onto the next row: words are never shortened
-/// (only a word wider than the whole area is); [`Chips::height_for`] says
+/// (only a word wider than the whole area is); `Chips::height_for` says
 /// how tall the rows are. With the buttons, left and right move the
 /// focus, *Select* chooses.
 ///

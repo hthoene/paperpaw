@@ -47,7 +47,7 @@ pub enum RowKind<'r> {
     },
 }
 
-/// What a point of a [`Row`] is on ([`Row::hit`]).
+/// What a point of a [`Row`] is on (`Row::hit`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RowPart {

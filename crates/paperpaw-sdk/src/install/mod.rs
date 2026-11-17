@@ -8,7 +8,7 @@
 //! its size and digest. Once all are there the job is complete: the owner
 //! looks at what came if it wants (a code plugin's author, see
 //! [`native::author`](crate::native::author)) and has the kernel install it
-//! ([`Installer::install`], [`Command::InstallPlugin`]): in place of every
+//! (`Installer::install`, [`Command::InstallPlugin`]): in place of every
 //! version of it before, which stays until the new one is all there, and
 //! with what was chosen from it still chosen. Nothing is unpacked and
 //! nothing is held whole in memory: each file goes from the network
@@ -17,7 +17,7 @@
 //! What is left to do is kept in the plugin's own folder, so a download
 //! goes on while none of its screens is open: the plugin hears the
 //! answers with `Items::on` and hands them to
-//! [`Installer::received`].
+//! `Installer::received`.
 //!
 //! ```
 //! use paperpaw_sdk::event::Event;
@@ -74,12 +74,12 @@ const FILE: &str = "install-file";
 
 /// Whether a data plugin made for the SDK `sdk` (e.g. `0.5`) and the data
 /// formats `formats` is read by a PaperPaw of the SDK this is built with
-/// ([`SDK_VERSION`]); [`fits_in`] asks the PaperPaw that runs.
+/// ([`SDK_VERSION`]); `fits_in` asks the PaperPaw that runs.
 pub fn fits(sdk: &str, formats: u32) -> bool {
     fits_sdk(SDK_VERSION, sdk, formats)
 }
 
-/// [`fits_in`] for a kernel of the SDK `kernel`, where the `Env` is not at
+/// `fits_in` for a kernel of the SDK `kernel`, where the `Env` is not at
 /// hand.
 pub fn fits_sdk(kernel: Version, sdk: &str, formats: u32) -> bool {
     let sdk_fits = sdk.trim().is_empty()
@@ -268,7 +268,7 @@ pub struct Progress {
     pub total: usize,
 }
 
-/// What became of an answer handed to [`Installer::received`].
+/// What became of an answer handed to `Installer::received`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Received {
@@ -278,7 +278,7 @@ pub enum Received {
     /// A file is here; the next one is asked for.
     Next(Progress),
     /// All files are here and checked; the job waits on the storage until
-    /// the owner installs ([`Installer::install`]) or drops it
+    /// the owner installs (`Installer::install`) or drops it
     /// ([`Installer::cancel`]).
     Complete(Progress),
     /// A file did not come or came damaged: what was downloaded is gone,
@@ -324,7 +324,7 @@ impl Installer {
     }
 
     /// The event the answers come as: the owner subscribes to it and
-    /// hands them to [`received`](Self::received).
+    /// hands them to `received`.
     pub fn reply(&self) -> Event<HttpReply> {
         self.reply.clone()
     }

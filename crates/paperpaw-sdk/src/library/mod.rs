@@ -4,7 +4,7 @@
 //! are apart: any plugin may offer another view of the same books.
 //!
 //! - A book's details: title, author, series, tags and cover, read from
-//!   the book once ([`index`](fn@index)), its reading progress, and fields that
+//!   the book once (`index`), its reading progress, and fields that
 //!   plugins add (e.g. a rating or where a book came from), in
 //!   `.paperpaw/library/details/<h>/<hash>.ini`, `<h>` the first two
 //!   digits of the hash; its cover made small beside, in
@@ -126,7 +126,7 @@ pub struct Book {
     pub cover: Option<ImageRef>,
     /// Reading progress in percent, once opened.
     pub progress: Option<u8>,
-    /// The day the library first read the book ([`index`](fn@index)), in days since
+    /// The day the library first read the book (`index`), in days since
     /// 1970 (UTC); none where the device did not know the date then.
     pub added: Option<u32>,
     /// Fields plugins keep with the book: id (e.g. `myplugin.rating`)
@@ -887,10 +887,10 @@ pub(crate) fn today(env: &Env<'_>) -> Option<u32> {
 }
 
 /// Books added this many days ago or less, and never opened, are new
-/// ([`is_new`]).
+/// (`is_new`).
 pub const NEW_DAYS: u32 = 30;
 
-/// [`is_new`] on the day `today` (none where the date is not known).
+/// `is_new` on the day `today` (none where the date is not known).
 pub fn is_new_on(book: &Book, opened: bool, today: Option<u32>) -> bool {
     match (book.added, today) {
         (Some(added), Some(today)) => {
@@ -941,7 +941,7 @@ impl Provided {
 
 /// Keeps what a source knows of the book at `path`, for books that name
 /// nothing themselves (text files, PDFs): what the book names wins when
-/// it is read ([`index`](fn@index)).
+/// it is read (`index`).
 pub fn provide(storage: &dyn Storage, path: &str, provided: Provided) {
     let Ok(mut book) = book_for_update(storage, path) else {
         return;

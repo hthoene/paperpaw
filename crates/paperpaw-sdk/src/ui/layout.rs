@@ -385,7 +385,7 @@ impl Segments {
 
     /// Segments with `labels` in `area`, from its top, every word whole:
     /// side by side where each fits its share, else in more rows
-    /// ([`button_cells`]); as high as [`Segments::height_for`] says.
+    /// (`button_cells`); as high as `Segments::height_for` says.
     pub fn fitted<L: Into<Cow<'static, str>>>(
         env: &Env<'_>,
         style: &UiStyle,

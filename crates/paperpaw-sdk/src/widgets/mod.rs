@@ -4,7 +4,7 @@
 //! `Items::add_widget`; screens let
 //! the user choose which to show and where.
 //!
-//! A screen that shows a widget makes it ([`Widgets::make`]) and keeps
+//! A screen that shows a widget makes it (`Widgets::make`) and keeps
 //! it: the widget reads what it shows when the screen updates it (when
 //! it shows, about each minute, after events), and draws from that, so
 //! drawing stays quick ([`Widget`]). Widgets with nothing to read, such
@@ -31,7 +31,7 @@
 //! Screens that show them above each other, as the sleep screen does, use
 //! a [`WidgetStack`]. Either way the screen asks [`refresh`] what an event means
 //! for the widgets it shows, and reads the live ones anew each minute
-//! ([`next_minute`]).
+//! (`next_minute`).
 //!
 //! The places where widgets show are [`WidgetPlace`]s
 //! (`Items::add_widget_place`):
@@ -874,7 +874,7 @@ pub enum Refresh {
     Remake,
     /// Reads what they show anew (a setting, the library changed).
     Read,
-    /// Reads what this one shows anew ([`changed`]).
+    /// Reads what this one shows anew (`changed`).
     ReadOne(Id),
     /// Reads the live ones anew ([`Widget::live`]): the device's status
     /// changed (the battery).
@@ -886,7 +886,7 @@ pub enum Refresh {
 /// does after `event` with `params`: makes them anew after a setting of
 /// its own, of the look (`core.`) or of a widget shown changed, reads
 /// them anew after any other setting or the library changed, reads the
-/// one that says so ([`changed`]), and the live ones after the device's
+/// one that says so (`changed`), and the live ones after the device's
 /// status changed.
 pub fn refresh(event: &Id, params: &Params, own: &str, shown: &[String]) -> Refresh {
     use crate::builtin::events;
@@ -1047,7 +1047,7 @@ impl Widgets {
     }
 
     /// The widget that previews the settings of `group`, if one does
-    /// ([`WidgetSpec::previews`]); made with [`Widgets::make`].
+    /// ([`WidgetSpec::previews`]); made with `Widgets::make`.
     pub fn preview(&self, group: &str) -> Option<&Id> {
         self.all()
             .rev()
@@ -1280,7 +1280,7 @@ pub fn settings_group(widget: &Id, title: impl Into<Cow<'static, str>>) -> Setti
 }
 
 /// The setting of where `widget`'s text sits, `<widget>.align`, in the
-/// widget's settings group; read it with [`align`].
+/// widget's settings group; read it with `align`.
 pub fn align_setting(widget: &Id, default: Align) -> SettingSpec {
     let id = Id::parse(&alloc::format!("{widget}.align")).unwrap_or_else(|_| widget.clone());
     SettingSpec::new(

@@ -176,7 +176,7 @@ fn title_fits(font: &FontHandle<'_>, style: &UiStyle, high: u16, room: f32, titl
 /// right, so every screen can be left and paged without buttons or hidden
 /// gestures. Without touch the arrows are left out (the buttons do that).
 ///
-/// Screens draw it with [`Header::draw`] and pass taps to [`Header::tap`],
+/// Screens draw it with [`Header::draw`] and pass taps to `Header::tap`,
 /// which tells the action to run (`core.back`, `core.prev-page`,
 /// `core.next-page`); the screen handles paging like the page buttons.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

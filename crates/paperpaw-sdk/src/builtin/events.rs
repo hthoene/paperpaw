@@ -397,7 +397,7 @@ crate::event_data! {
 
 crate::event_data! {
     /// The words of the page shown are wanted ([`PAGE_WORDS_WANTED`],
-    /// see [`reading::ask_page_words`](crate::reading::ask_page_words)):
+    /// see `reading::ask_page_words`):
     /// the reader answers with the event `reply`.
     pub struct PageWordsWanted {
         pub reply: Id,
@@ -544,7 +544,7 @@ pub const STARTED: Event<()> = Event::new("core.started");
 /// After a setting changed: which ([`SettingChanged`]).
 pub const SETTING_CHANGED: Event<SettingChanged> = Event::new("core.setting-changed");
 /// Text typed for a setting, asked with its parameter
-/// [`ID`](super::params::ID) (as [`ui::setting_opens`](crate::ui::setting_opens)
+/// [`ID`](super::params::ID) (as `ui::setting_opens`
 /// asks): the kernel sets the setting to it, trimmed.
 pub const SETTING_TYPED: Event<crate::replies::Typed> = Event::new("core.setting-typed");
 /// Text typed from outside the screen, by keys of a keyboard or a
@@ -588,12 +588,12 @@ pub const BOOK_MOVED: Event<BookMoved> = Event::new("core.book-moved");
 pub const BOOK_REMOVED: Event<BookRemoved> = Event::new("core.book-removed");
 /// Books came into the library or left it (received, downloaded,
 /// copied, deleted): views of the library read it again. Plugins that
-/// change the library emit it ([`library::changed`](crate::library::changed));
+/// change the library emit it (`library::changed`);
 /// a move is [`BOOK_MOVED`].
 pub const LIBRARY_CHANGED: Event<()> = Event::new("core.library-changed");
 /// A book came into the library ([`BookAdded`]): received, downloaded,
 /// copied by a plugin. Whoever brings a book emits it
-/// ([`library::added`](crate::library::added)); views may show it at
+/// (`library::added`); views may show it at
 /// once, the catalog is made anew.
 pub const BOOK_ADDED: Event<BookAdded> = Event::new("core.book-added");
 /// Something of a book changed ([`BookChanged`]): its details, how far
@@ -617,12 +617,12 @@ pub const CATALOG_CHANGED: Event<()> = Event::new("core.catalog-changed");
 /// [`CATALOG_CHANGED`].
 pub const CATALOG_FAILED: Event<()> = Event::new("core.catalog-failed");
 /// The catalog is wanted ([`CatalogWanted`],
-/// [`library::request_catalog`](crate::library::request_catalog)):
+/// `library::request_catalog`):
 /// the kernel walks the library in the background where needed.
 pub const CATALOG_WANTED: Event<CatalogWanted> = Event::new("core.catalog-wanted");
 /// The library's books sorted are wanted for a view leaving an archive
 /// folder out ([`SortedWanted`],
-/// [`library::sorted::request`](crate::library::sorted::request)): the
+/// `library::sorted::request`): the
 /// kernel makes the file in the background where it is not of the
 /// library there is now, then says [`CATALOG_CHANGED`].
 pub const SORTED_WANTED: Event<SortedWanted> = Event::new("core.sorted-wanted");
@@ -694,7 +694,7 @@ pub const READ_TODAY: Event<ReadToday> = Event::new("core.read-today");
 /// already follow, e.g. a tap on it turned to another quote or ticked
 /// an item off ([`WidgetChanged`]): screens showing it read it anew
 /// ([`Widget::update`](crate::widgets::Widget::update)). See
-/// [`widgets::changed`](crate::widgets::changed).
+/// `widgets::changed`.
 pub const WIDGET_CHANGED: Event<WidgetChanged> = Event::new("core.widget-changed");
 /// A data plugin was loaded or removed while running
 /// ([`Command::LoadPlugin`](crate::Command::LoadPlugin),

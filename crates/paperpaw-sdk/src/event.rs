@@ -305,7 +305,7 @@ impl<P: EventData> Event<P> {
     }
 
     /// Its id, kept in the program: for `static` lists, e.g. of
-    /// [`FixedSubscription`]s. Takes the event, so it can be used in
+    /// `FixedSubscription`s. Takes the event, so it can be used in
     /// `const` and `static` items.
     pub const fn id_static(self) -> Id {
         let id = Id::new_static(self.id.static_text());

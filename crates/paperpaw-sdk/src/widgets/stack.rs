@@ -17,7 +17,7 @@ use crate::env::Env;
 /// gaps between them, together in the middle or where free spaces
 /// ([`FILL`]) push them. Those that do not fit below the others are left
 /// out, as are those with nothing to show. The stack keeps the widgets
-/// it made: [`update`](Self::update) reads them anew, [`draw`](Self::draw)
+/// it made: `update` reads them anew, [`draw`](Self::draw)
 /// draws them.
 pub struct WidgetStack {
     widgets: Vec<Shown>,

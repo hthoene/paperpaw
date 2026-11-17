@@ -7,14 +7,14 @@
 //!    ([`Staging::folder`]), checked by its SHA-256 before it is taken
 //!    ([`Staging::put`]): a file cut short or changed on the way is
 //!    refused, and nothing installed changes.
-//! 2. Once all are there, [`Staging::commit`] checks the folder holds the
+//! 2. Once all are there, `Staging::commit` checks the folder holds the
 //!    plugin it says and, for a plugin with code, that its code is whole
 //!    and built for this PaperPaw. Code runs only when the reader agreed
 //!    on the device to that very code ([`Commit::approved`], by its
 //!    SHA-256: code put in its place after the question is refused); the
 //!    code is then named as installed, as a store names what it installs,
 //!    once the plugin is in place ([`marks`](super::marks)).
-//! 3. The kernel installs it in one step ([`Command::InstallPlugin`]):
+//! 3. The kernel installs it in one step (`Command::InstallPlugin`):
 //!    the version before stays until the new one is all there, the
 //!    plugin's own data (in `.paperpaw/plugins/<id>`) is not touched, and
 //!    it is loaded at once (a plugin with code: after a restart, as an
@@ -70,7 +70,7 @@ pub struct Staging {
     place: &'static str,
 }
 
-/// What [`Staging::commit`] is told.
+/// What `Staging::commit` is told.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Commit {

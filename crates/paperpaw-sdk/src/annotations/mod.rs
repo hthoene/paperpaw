@@ -1,8 +1,8 @@
 //! The bookmarks and highlights of books, shared by plugins: the reader
 //! makes and shows them, others export or sync them (e.g. with KOReader).
 //! Whoever changes those of a book emits
-//! [`ANNOTATIONS_CHANGED`](events::ANNOTATIONS_CHANGED)
-//! (see [`changed`]), so readers show them anew and syncs pass them on.
+//! `ANNOTATIONS_CHANGED`
+//! (see `changed`), so readers show them anew and syncs pass them on.
 //!
 //! A book's annotations are kept in `.paperpaw/annotations/<hash>.txt`
 //! (the hash of the book's path), one per line, sorted by position: kind

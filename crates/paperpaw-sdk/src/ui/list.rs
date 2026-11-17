@@ -124,7 +124,7 @@ impl ListView {
     }
 
     /// Whether the focus shows at all: on touch screens only once a
-    /// button moved it (see [`ListView::focus_on_keys`]).
+    /// button moved it (see `ListView::focus_on_keys`).
     pub fn shown(&self) -> bool {
         self.shown
     }
@@ -152,7 +152,7 @@ impl ListView {
     }
 
     /// Makes the grid `columns` wide from now on (e.g. after the screen's
-    /// size changed: [`ListView::fit_columns`]), the focus kept on its
+    /// size changed: `ListView::fit_columns`), the focus kept on its
     /// item, which may be on another page.
     pub fn set_columns(&mut self, columns: u32) {
         self.columns = columns.clamp(1, u32::from(u16::MAX));

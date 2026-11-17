@@ -18,15 +18,15 @@
 //!   hearing only what passes its own filters.
 //! - **A GATT client**: [`connect`] (by default at [`LinkPower::Low`]),
 //!   [`discover`] the services, [`read`], [`write()`], [`subscribe`] to
-//!   notifications ([`BtEvent::Value`]), or [`subscribe_to`] a service's
+//!   notifications ([`BtEvent::Value`]), or `subscribe_to` a service's
 //!   characteristic by its UUIDs, handles found by the kernel.
 //! - **Pairing** ([`pair`]) is always confirmed by the reader, in the
 //!   kernel's own question: a plugin only asks.
 //! - **Being seen**: [`advertise`] for a while, and a GATT server of
 //!   services declared at registration
 //!   (`Items::add_gatt_service`):
-//!   centrals' reads and writes come as events, answered with [`respond`]
-//!   or [`refuse`], and [`notify_centrals`] sends to those subscribed.
+//!   centrals' reads and writes come as events, answered with `respond`
+//!   or `refuse`, and `notify_centrals` sends to those subscribed.
 //! - **Keys of a remote or a keyboard**: a bonded device that types is the
 //!   kernel's: [`remote_keys`] connects it and its keys arrive as buttons
 //!   of the key maps (`button.hid.right`, `button.hid.page-down` …), with
@@ -167,7 +167,7 @@ impl Handle {
 }
 
 /// A central's read or write of the device's GATT server, to answer with
-/// [`respond`] or [`refuse`].
+/// `respond` or `refuse`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GattRequest(u32);
 
@@ -184,7 +184,7 @@ impl GattRequest {
 
 /// An ATT error (Core Specification Vol 3, Part F, 3.4.1.1): what a
 /// device answered, or what the plugin's GATT server answers
-/// ([`refuse`]).
+/// (`refuse`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AttError(u8);
 
@@ -789,7 +789,7 @@ pub enum BtEvent {
     /// closed).
     AdvertisingEnded,
     /// A central reads a characteristic of the plugin's service: answer
-    /// with [`respond`] or [`refuse`].
+    /// with `respond` or `refuse`.
     #[non_exhaustive]
     ReadRequest {
         request: GattRequest,
@@ -832,7 +832,7 @@ pub enum BtEvent {
         report: Option<u8>,
         bytes: Vec<u8>,
     },
-    /// What a later feature tells (see [`extended`]).
+    /// What a later feature tells (see `extended`).
     #[non_exhaustive]
     Extended { key: Id, params: Params },
 }

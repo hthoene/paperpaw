@@ -4,7 +4,7 @@
 //!   catalog) opens it with [`open`] ([`Command::OpenBook`]): the kernel
 //!   opens the screen bound to [`slots::READER`](crate::builtin::slots::READER) with what [`opened`]
 //!   passes on. A reading app that cannot open a book after all says so
-//!   with [`cannot_open`].
+//!   with `cannot_open`.
 //! - The choices for a book and for a folder are kept ([`remember`]): the
 //!   book's moved and removed with it, the folders' in one small file
 //!   (moved with [`folder_moved`] by whatever moves a folder). [`ask`] lets
@@ -44,7 +44,7 @@ const LIMIT: usize = 16 * 1024;
 /// open it ([`cannot_open`]), comma-separated.
 const PAST: &str = "readers-past";
 
-/// The parameter of a page's opening ([`open_page`]): *Back* is offered on
+/// The parameter of a page's opening (`open_page`): *Back* is offered on
 /// it always.
 pub const PAGE: &str = "readers-page";
 

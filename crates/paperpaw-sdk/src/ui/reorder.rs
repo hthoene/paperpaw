@@ -4,7 +4,7 @@
 //! it there. Taps on the rest of the row work as before, and buttons keep
 //! their own ways of moving rows (e.g. *Move up*, *Move down*).
 //!
-//! A screen keeps a [`Reorder`], draws rows with [`Reorder::draw_grip`]
+//! A screen keeps a [`Reorder`], draws rows with `Reorder::draw_grip`
 //! in what [`Reorder::content`] leaves, the bar with [`Reorder::draw`],
 //! and passes pointer samples to [`Reorder::on_pointer`] from
 //! `on_pointer`.

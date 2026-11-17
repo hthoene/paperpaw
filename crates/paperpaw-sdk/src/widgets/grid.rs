@@ -7,10 +7,10 @@
 //! `home.clock 0/0 4x1, tool:files.library 0/5` ([`parse`], [`write()`]),
 //! each item its id, its column and row, and its size in cells, kept where
 //! the plugin likes (a setting, a file). An item without a place (as
-//! plugins add them) goes into the first free cells ([`place`]), as wide as
+//! plugins add them) goes into the first free cells (`place`), as wide as
 //! the grid and as high as it needs.
 //!
-//! [`GridView`] shows such a grid on a screen of the plugin's own, and edits
+//! `GridView` shows such a grid on a screen of the plugin's own, and edits
 //! it in place: drag an item to move it, by its corner to size it, tap it
 //! for its options (move or size it with the buttons, its settings, remove
 //! it). With buttons alone, the focus goes from item to item.
@@ -93,7 +93,7 @@ impl What {
 pub struct Item {
     pub what: What,
     /// Its first column and row, and its width and height in cells;
-    /// `None` until it has a place (see [`place`]).
+    /// `None` until it has a place (see `place`).
     pub at: Option<Cells>,
 }
 
@@ -322,7 +322,7 @@ pub fn columns_for(area: Rect, portrait_columns: u8) -> u8 {
 }
 
 /// The focus of a tool whose icon and name cover `ink` (as
-/// [`draw_tool_lines`] returns it): a frame round them, as far from
+/// `draw_tool_lines` returns it): a frame round them, as far from
 /// their ink on every side, never through it.
 pub fn draw_tool_focus(canvas: &mut Canvas<'_>, style: &UiStyle, ink: Rect) {
     let thick = style.line * 3;

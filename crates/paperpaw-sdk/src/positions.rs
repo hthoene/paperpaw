@@ -42,7 +42,7 @@ pub struct Position {
     /// How far into the book, in percent.
     pub percent: f32,
     /// Which conversion of the book `at` is in, as the reader names it
-    /// (its options, see [`reading::open_options`](crate::reading::open_options)):
+    /// (its options, see `reading::open_options`):
     /// offsets of one conversion need not fit another.
     pub conversion: Option<u64>,
     /// The place as an XPointer, which fits every conversion (and

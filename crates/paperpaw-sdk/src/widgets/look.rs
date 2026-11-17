@@ -538,7 +538,7 @@ fn ink_room(area: Rect) -> Rect {
 }
 
 /// Draws `text` small at the top of `look`'s area, placed as `widget`'s
-/// alignment says ([`align`](super::align)), e.g. "Today" over the
+/// alignment says (`align`), e.g. "Today" over the
 /// numbers; returns the area left below it.
 pub fn draw_caption(
     canvas: &mut Canvas<'_>,
