@@ -7,6 +7,7 @@ use paperpaw_sdk::{
     Rect,
     native::{
         Error, Host,
+        fonts::Font,
         image::ImageId,
         library::{BookRef, Library, Query, Sort},
     },
@@ -378,6 +379,58 @@ fn listed(host: &Host<'_>, rows: usize) -> Result<Vec<Book>, Error> {
     })
 }
 
+/// The title as `font` draws it: where it lacks letters (a Cyrillic title
+/// before the pack of letters is there) a run of them is one "…", never a row
+/// of question marks. A host that cannot say what the font covers changes
+/// nothing.
+pub fn drawable(font: &Font<'_>, title: &mut String) -> Result<(), Error> {
+    // Plain ASCII is in every font: no question to the host (a host call a
+    // frame of Home's cover is counted, `home_return`).
+    if title.is_ascii() {
+        return Ok(());
+    }
+    let covers = |text: &str| font.covers(text).ok();
+    let dots = if covers("…") == Some("…".len()) {
+        "…"
+    } else {
+        "..."
+    };
+    let fixed = without_missing(covers, title, dots)?;
+    if let Some(fixed) = fixed {
+        *title = fixed;
+    }
+    Ok(())
+}
+
+/// `title` with each run of characters `covers` cannot draw replaced by
+/// `dots`; `None` where all are drawn (or `covers` cannot tell).
+fn without_missing(
+    mut covers: impl FnMut(&str) -> Option<usize>,
+    title: &str,
+    dots: &str,
+) -> Result<Option<String>, Error> {
+    if covers(title).is_none_or(|n| n >= title.len()) {
+        return Ok(None);
+    }
+    let mut out = String::new();
+    out.try_reserve(title.len().saturating_add(dots.len()))
+        .map_err(|_| Error::NoMemory)?;
+    let mut missing = false;
+    for (at, ch) in title.char_indices() {
+        let one = &title[at..at + ch.len_utf8()];
+        if covers(one).is_some_and(|n| n >= one.len()) {
+            out.try_reserve(one.len()).map_err(|_| Error::NoMemory)?;
+            out.push(ch);
+            missing = false;
+        } else if !missing {
+            out.try_reserve(dots.len()).map_err(|_| Error::NoMemory)?;
+            out.push_str(dots);
+            missing = true;
+        }
+    }
+    Ok(Some(out))
+}
+
 /// Whether the file of `book` is not on the card now, the library opened only
 /// where the host has to be asked. A book the catalog no longer has (a newer
 /// generation) is not asked about again: it is kept, as the query just listed it.
@@ -640,6 +693,23 @@ mod tests {
         assert_eq!(listing.held.borrow().len(), PAGE);
         assert_eq!(listing.gone(&book(1, PAGE as u32 + 1, "A")), Some(false));
         assert_eq!(listing.gone(&book(1, 0, "A")), None);
+    }
+
+    #[test]
+    fn letters_the_font_lacks_are_one_gap_not_question_marks() {
+        let latin = |text: &str| {
+            Some(
+                text.char_indices()
+                    .find(|(_, c)| !c.is_ascii())
+                    .map_or(text.len(), |(at, _)| at),
+            )
+        };
+        let fixed = |title| without_missing(latin, title, "…").unwrap();
+        assert_eq!(fixed("Alice"), None);
+        assert_eq!(fixed("Шинель").as_deref(), Some("…"));
+        assert_eq!(fixed("Gogol: Шинель 2").as_deref(), Some("Gogol: … 2"));
+        assert_eq!(fixed("Шинель Gogol").as_deref(), Some("… Gogol"));
+        assert_eq!(without_missing(|_| None, "Шинель", "…").unwrap(), None);
     }
 
     #[test]

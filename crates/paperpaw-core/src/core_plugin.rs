@@ -787,7 +787,7 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
     // question every plugin asks (`ask::choice`, `ask::confirm`), unless
     // another screen fills the slot; a folder for a setting: the folder
     // chooser's, whichever plugin fills its slot.
-    static SCREENS: [crate::KernelScreen; 11] = [
+    static SCREENS: [crate::KernelScreen; 12] = [
         crate::KernelScreen::new(
             screens::STATUS_ITEMS,
             "core.status.choose",
@@ -835,6 +835,15 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
             "core.firmware.title",
             |env, params| {
                 Box::new(crate::native_host::firmware_confirm::HostConfirm::new(
+                    env, params,
+                ))
+            },
+        ),
+        crate::KernelScreen::new(
+            crate::native_host::low_memory::SCREEN,
+            "core.low-memory.title",
+            |env, params| {
+                Box::new(crate::native_host::start_notice::StartNotice::low_memory(
                     env, params,
                 ))
             },
