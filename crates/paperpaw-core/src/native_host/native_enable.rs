@@ -22,40 +22,26 @@
 //!   declarations: its row says off (`PluginState::Off`); switching it on
 //!   asks for a restart, as before.
 use crate::{Kernel, RESERVED_PLUGIN_ID, config::read_config};
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID};
 use paperpaw_sdk::{
     Id, PluginInfo, PluginKind, PluginProblem, PluginState, native::SafeModeReason,
 };
 
-/// What `source` says about the plugin `id` in its `[plugins]` section: `off`
-/// anywhere wins over `on`; `None` where it says nothing.
-fn switched(source: &str, id: &str) -> Option<bool> {
-    let mut found = None;
+/// Adds what `source` says in its `[plugins]` section to `switches`: `off`
+/// anywhere wins over `on`.
+fn collect_switches(source: &str, switches: &mut Vec<(String, bool)>) {
     for entry in paperpaw_config::parse(source).filter_map(Result::ok) {
-        if entry.section != "plugins" || entry.key != id {
+        if entry.section != "plugins" {
             continue;
         }
-        match entry.value.as_bool() {
-            Some(false) => return Some(false),
-            Some(true) => found = Some(true),
-            None => {}
+        let Some(on) = entry.value.as_bool() else {
+            continue;
+        };
+        match switches.iter_mut().find(|(id, _)| id == entry.key) {
+            Some((_, kept)) => *kept &= on,
+            None => switches.push((String::from(entry.key), on)),
         }
-    }
-    found
-}
-
-/// Whether the plugin `id` is on, by the configurations (`file`, then the
-/// shell's `overrides`) and the shipped default.
-pub(crate) fn decide(file: Option<&str>, overrides: &str, id: &str, default_on: bool) -> bool {
-    let (a, b) = (
-        file.and_then(|source| switched(source, id)),
-        switched(overrides, id),
-    );
-    match (a, b) {
-        (Some(false), _) | (_, Some(false)) => false,
-        (Some(true), _) | (_, Some(true)) => true,
-        (None, None) => default_on,
     }
 }
 
@@ -70,8 +56,20 @@ pub const ESSENTIAL: [&str; 4] = ["plugin-manager", "settings", "menu", "keyboar
 /// overrides.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NativeConfig {
-    file: String,
-    overrides: String,
+    /// What both sources say about each plugin they name, parsed once:
+    /// `false` where either says off, else `true`.
+    switches: Vec<(String, bool)>,
+}
+
+impl NativeConfig {
+    /// Whether the plugin `id` is on, by the configurations and the shipped
+    /// default.
+    fn decide(&self, id: &str, default_on: bool) -> bool {
+        self.switches
+            .iter()
+            .find(|(named, _)| named == id)
+            .map_or(default_on, |(_, on)| *on)
+    }
 }
 
 /// What [`Kernel::native_decide`] says about a native plugin.
@@ -141,10 +139,10 @@ impl Kernel {
             .ok()
             .flatten()
             .unwrap_or_else(|| self.keys.user.clone());
-        NativeConfig {
-            file,
-            overrides: self.keys.shell.clone(),
-        }
+        let mut switches = Vec::new();
+        collect_switches(&file, &mut switches);
+        collect_switches(&self.keys.shell, &mut switches);
+        NativeConfig { switches }
     }
 
     /// Whether, and how, the native plugin `id` runs this start. Ask before
@@ -167,7 +165,7 @@ impl Kernel {
         default_on: bool,
         from_card: bool,
     ) -> NativeDecision {
-        if !decide(Some(&config.file), &config.overrides, id, default_on) {
+        if !config.decide(id, default_on) {
             return NativeDecision::Off;
         }
         let Some(safe) = &self.shared.native_safe_mode else {

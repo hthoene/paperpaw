@@ -218,6 +218,8 @@ pub(crate) mod shared;
 #[path = "native_host/resources.rs"]
 pub mod resources;
 pub use fixed_settings::FixedTables;
+pub(crate) use native_batch::NativeBatch;
+pub use native_batch::NativeTimes;
 pub use park_linked::ParkShell;
 pub use resources::HostResources;
 
@@ -510,6 +512,8 @@ pub(crate) mod native_status;
 
 #[path = "native_host/core_events.rs"]
 pub(crate) mod core_events;
+#[path = "native_host/native_batch.rs"]
+mod native_batch;
 #[path = "native_host/native_call.rs"]
 #[allow(
     dead_code,

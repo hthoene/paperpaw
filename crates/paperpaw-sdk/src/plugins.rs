@@ -430,6 +430,14 @@ impl Plugins {
         self.list.reserve_exact(additional);
     }
 
+    /// [`reserve`](Self::reserve), without an abort where the heap has no
+    /// room: `false` then, and the list as it was.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn try_reserve(&mut self, additional: usize) -> bool {
+        self.list.try_reserve_exact(additional).is_ok()
+    }
+
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn shrink_to_fit(&mut self) {
