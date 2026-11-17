@@ -322,12 +322,6 @@ impl Painters {
         self
     }
 
-    /// The boxes of lists where several may be ticked.
-    pub const fn check(mut self, painter: Painter<CheckPart>) -> Self {
-        self.check = Some(painter);
-        self
-    }
-
     pub const fn focus(mut self, painter: Painter<FocusPart>) -> Self {
         self.focus = Some(painter);
         self
@@ -348,11 +342,6 @@ impl Painters {
         self
     }
 
-    pub const fn hints(mut self, painter: Painter<HintRowPart>) -> Self {
-        self.hints = Some(painter);
-        self
-    }
-
     pub const fn progress(mut self, painter: Painter<ProgressPart>) -> Self {
         self.progress = Some(painter);
         self
@@ -360,36 +349,6 @@ impl Painters {
 
     pub const fn slider(mut self, painter: Painter<SliderPart>) -> Self {
         self.slider = Some(painter);
-        self
-    }
-
-    /// Widgets' frames (lines, cards) on every screen.
-    pub const fn frame(mut self, painter: Painter<FramePart>) -> Self {
-        self.frame = Some(painter);
-        self
-    }
-
-    /// Sheets that come up from an edge.
-    pub const fn sheet(mut self, painter: Painter<SheetPart>) -> Self {
-        self.sheet = Some(painter);
-        self
-    }
-
-    /// Covers without a picture; the ink of the title.
-    pub const fn cover(mut self, painter: InkPainter<CoverPart>) -> Self {
-        self.cover = Some(painter);
-        self
-    }
-
-    /// Pills; the ink of their label.
-    pub const fn pill(mut self, painter: InkPainter<PillPart>) -> Self {
-        self.pill = Some(painter);
-        self
-    }
-
-    /// The ticks of scales.
-    pub const fn ticks(mut self, painter: Painter<TicksPart>) -> Self {
-        self.ticks = Some(painter);
         self
     }
 
@@ -454,41 +413,6 @@ impl Look {
     ) -> bool {
         self.0
             .and_then(|p| p.switch)
-            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
-    }
-
-    /// Paints a sheet with the look's painter; `false` where it has none.
-    pub fn sheet(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: SheetPart) -> bool {
-        self.0
-            .and_then(|p| p.sheet)
-            .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
-    }
-
-    /// Paints a cover with the look's painter: the ink of its title, or
-    /// `None` where it has none.
-    pub fn cover(
-        &self,
-        canvas: &mut Canvas<'_>,
-        style: &UiStyle,
-        part: CoverPart,
-    ) -> Option<Color> {
-        self.0
-            .and_then(|p| p.cover)
-            .and_then(|paint| paint(&mut PaintCx::new(canvas, style), &part))
-    }
-
-    /// Paints a pill with the look's painter: the ink of its label, or
-    /// `None` where it has none.
-    pub fn pill(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: PillPart) -> Option<Color> {
-        self.0
-            .and_then(|p| p.pill)
-            .and_then(|paint| paint(&mut PaintCx::new(canvas, style), &part))
-    }
-
-    /// Paints ticks with the look's painter; `false` where it has none.
-    pub fn ticks(&self, canvas: &mut Canvas<'_>, style: &UiStyle, part: TicksPart) -> bool {
-        self.0
-            .and_then(|p| p.ticks)
             .is_some_and(|paint| paint(&mut PaintCx::new(canvas, style), &part))
     }
 

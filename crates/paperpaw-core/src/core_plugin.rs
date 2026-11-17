@@ -1633,68 +1633,62 @@ fn register_time_and_battery(r: &mut Items) -> Result<(), RegisterError> {
         paperpaw_sdk::StatusLineSpec::new(
             paperpaw_sdk::builtin::status_lines::ITEMS,
             "core.status.line.items",
-            Box::new(|canvas, env, frame| {
+            |canvas, env, frame| {
                 let (Some(line), Some(font)) =
                     (items_line(env, frame), env.fonts().role(frame.font))
                 else {
                     return;
                 };
                 line.draw(canvas, env, &font, frame.context);
-            }),
+            },
         )
-        .signature(Box::new(|env, context| {
+        .signature(|env, context| {
             let lists: Vec<&str> = env
                 .status_items()
                 .places()
                 .flat_map(|p| p.lists(env))
                 .collect();
             paperpaw_sdk::status::signature(env, &lists, context)
-        }))
+        })
         // The reader's line of items before it was the kernel's.
         .also(Id::new_static("reader.status-line.items"))
-        .targets(Box::new(|env, frame| {
+        .targets(|env, frame| {
             match (items_line(env, frame), env.fonts().role(frame.font)) {
                 (Some(line), Some(font)) => line.targets(env, &font, frame.context),
                 _ => Vec::new(),
             }
-        })),
+        }),
     )?;
     // The time and the battery give way after most others.
     r.add_status_item(
-        StatusItemSpec::new(
-            status_items::CLOCK,
-            "core.status.clock",
-            Box::new(|env, _| time::clock_text(env).map(StatusValue::Text)),
-        )
+        StatusItemSpec::new(status_items::CLOCK, "core.status.clock", |env, _| {
+            time::clock_text(env).map(StatusValue::Text)
+        })
         .priority(160),
     )?;
     r.add_status_item(StatusItemSpec::new(
         status_items::DATE,
         "core.status.date",
-        Box::new(|env, _| time::date_text(env).map(StatusValue::Text)),
+        |env, _| time::date_text(env).map(StatusValue::Text),
     ))?;
     r.add_status_item(StatusItemSpec::new(
         status_items::DATE_SHORT,
         "core.status.date-short",
-        Box::new(|env, _| time::short_date_text(env).map(StatusValue::Text)),
+        |env, _| time::short_date_text(env).map(StatusValue::Text),
     ))?;
     r.add_status_item(
-        StatusItemSpec::new(
-            status_items::BATTERY,
-            "core.status.battery",
-            Box::new(|env, _| {
-                env.status().battery.map(|b| StatusValue::Level {
-                    percent: b.percent,
-                    charging: b.charging,
-                })
-            }),
-        )
+        StatusItemSpec::new(status_items::BATTERY, "core.status.battery", |env, _| {
+            env.status().battery.map(|b| StatusValue::Level {
+                percent: b.percent,
+                charging: b.charging,
+            })
+        })
         .priority(192),
     )?;
     r.add_status_item(StatusItemSpec::new(
         status_items::BATTERY_LOW,
         "core.status.battery-low",
-        Box::new(|env, _| {
+        |env, _| {
             let low = env.settings().read(&settings::BATTERY_LOW);
             env.status()
                 .battery
@@ -1703,7 +1697,7 @@ fn register_time_and_battery(r: &mut Items) -> Result<(), RegisterError> {
                     percent: b.percent,
                     charging: b.charging,
                 })
-        }),
+        },
     ))?;
     r.add_settings(&BATTERY_LOW)?;
     r.add_settings(&crate::awake::AWAKE_HOLDS)?;
@@ -1738,9 +1732,9 @@ fn register_keymaps_and_setup(r: &mut Items) -> Result<(), RegisterError> {
             paperpaw_sdk::setup::SetupPage::Setting(settings::KEYMAP_PRESET.into()),
         )
         .order(20)
-        .applies(Box::new(|env: &paperpaw_sdk::Env<'_>| {
+        .applies(|env: &paperpaw_sdk::Env<'_>| {
             env.device().input.buttons && !env.device().input.touch
-        })),
+        }),
     )?;
     r.add_setup_step(
         paperpaw_sdk::setup::SetupStepSpec::new(
@@ -1750,11 +1744,11 @@ fn register_keymaps_and_setup(r: &mut Items) -> Result<(), RegisterError> {
         )
         .help("core.setup.time-zone.help")
         .order(40)
-        .applies(Box::new(|env: &paperpaw_sdk::Env<'_>| {
+        .applies(|env: &paperpaw_sdk::Env<'_>| {
             env.status()
                 .clock
                 .is_none_or(|c| c.utc_offset_minutes.is_none())
-        })),
+        }),
     )?;
     crate::core_texts::add(r)?;
     Ok(())

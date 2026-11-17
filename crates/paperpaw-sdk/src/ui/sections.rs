@@ -216,7 +216,7 @@ impl Sections {
     /// Draws the page with the focus with `draw_row(canvas, item, rect,
     /// focused)`: the focused entry (if `focus` shows) on black, thin lines
     /// between entries but not above a heading; with
-    /// [`UiStyle::cards`](crate::ui::UiStyle::cards) the entries between headings on cards.
+    /// `UiStyle::cards` the entries between headings on cards.
     pub fn draw(
         &self,
         ui: &mut super::Ui<'_>,

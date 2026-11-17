@@ -13,11 +13,11 @@ use crate::plugin::RegisterError;
 
 /// Opens a file of a format as a [`Document`].
 pub type FormatOpener =
-    Box<dyn Fn(&dyn Storage, &str, &OpenOptions) -> Result<Box<dyn Document>, DocumentError>>;
+    fn(&dyn Storage, &str, &OpenOptions) -> Result<Box<dyn Document>, DocumentError>;
 
 /// Whether a file's first bytes are of a format (see
 /// [`FormatSpec::sniff`]).
-pub type FormatSniff = Box<dyn Fn(&[u8]) -> bool>;
+pub type FormatSniff = fn(&[u8]) -> bool;
 
 /// Bytes of a file a format's [`FormatSpec::sniff`] gets at most.
 pub const SNIFF_BYTES: usize = 512;
@@ -27,7 +27,7 @@ pub const SNIFFED: usize = 32;
 
 /// Whether a document opens at once as `options` say (see
 /// [`FormatSpec::prepared`]).
-pub type FormatPrepared = Box<dyn Fn(&dyn Storage, &str, &OpenOptions) -> bool>;
+pub type FormatPrepared = fn(&dyn Storage, &str, &OpenOptions) -> bool;
 
 /// How a document is opened.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,8 +173,8 @@ impl FormatSpec {
 
     /// Tells files of this format by their first bytes where their
     /// extension does not.
-    pub fn sniff(mut self, sniff: impl Fn(&[u8]) -> bool + 'static) -> Self {
-        self.sniff = Some(Box::new(sniff));
+    pub fn sniff(mut self, sniff: FormatSniff) -> Self {
+        self.sniff = Some(sniff);
         self
     }
 }
@@ -425,7 +425,7 @@ mod tests {
             id: Id::new_static(id),
             title: Cow::Borrowed(""),
             extensions: vec![Cow::Borrowed(ext)],
-            open: Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            open: |_, _, _| Err(DocumentError::UnsupportedFormat),
             prepared: None,
             sniff: None,
         }

@@ -34,7 +34,6 @@
 use super::declaration_store::DeclarationStore;
 use super::format_index::extensions_of;
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::{FormatSpec, Formats, Id};
@@ -188,7 +187,7 @@ impl NativeBookFormats {
                 // "Not ready" tells the walk its details come later, from the
                 // host's details job (`library::keep_native_details`), so it
                 // marks nothing as read.
-                Box::new(|_, _, _| Err(paperpaw_sdk::document::DocumentError::NotReady)),
+                |_, _, _| Err(paperpaw_sdk::document::DocumentError::NotReady),
             );
             // Within the room reserved, and its id is the kernel's own.
             let _added = formats.add(spec);

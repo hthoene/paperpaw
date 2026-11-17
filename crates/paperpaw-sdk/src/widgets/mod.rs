@@ -321,7 +321,35 @@ pub enum WidgetInput {
 }
 
 /// Makes a widget for a screen that shows it.
-pub type WidgetFactory = Box<dyn Fn(&Env<'_>) -> Box<dyn Widget>>;
+pub type WidgetFactory = fn(&Env<'_>) -> Box<dyn Widget>;
+
+/// How a widget ([`WidgetSpec`], [`FixedWidget`]) is made: by a function of
+/// its own, or as a [`Drawn`] widget from what it draws with.
+#[derive(Clone, Copy)]
+#[non_exhaustive]
+pub enum Make {
+    Factory(WidgetFactory),
+    Drawn(Drawn),
+}
+
+impl fmt::Debug for Make {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Make::Factory(_) => "Factory",
+            Make::Drawn(_) => "Drawn",
+        })
+    }
+}
+
+impl Make {
+    /// The widget, for a screen that shows it.
+    pub fn make(self, env: &Env<'_>) -> Box<dyn Widget> {
+        match self {
+            Make::Factory(factory) => factory(env),
+            Make::Drawn(drawn) => Box::new(DrawnWidget { drawn, shown: None }),
+        }
+    }
+}
 
 /// A place in a widget that does something: a tap on it, or confirm
 /// once buttons moved the focus there, runs `command` (a tap alone where
@@ -374,7 +402,8 @@ pub struct WidgetSpec {
     pub id: Id,
     /// Translation key of its name, e.g. "Clock".
     pub title: Cow<'static, str>,
-    pub factory: WidgetFactory,
+    /// How it is made.
+    pub make: Make,
     /// Which kind it is, one of [`categories`] (or a translation key of
     /// a plugin's own).
     pub category: Cow<'static, str>,
@@ -393,15 +422,15 @@ pub struct WidgetSpec {
 
 impl WidgetSpec {
     /// A widget of a type of its own ([`Widget`]), made by `factory`.
-    pub fn new(
-        id: Id,
-        title: impl Into<Cow<'static, str>>,
-        factory: impl Fn(&Env<'_>) -> Box<dyn Widget> + 'static,
-    ) -> Self {
+    pub fn new(id: Id, title: impl Into<Cow<'static, str>>, factory: WidgetFactory) -> Self {
+        Self::made(id, title, Make::Factory(factory))
+    }
+
+    fn made(id: Id, title: impl Into<Cow<'static, str>>, make: Make) -> Self {
         Self {
             id,
             title: title.into(),
-            factory: Box::new(factory),
+            make,
             category: Cow::Borrowed(categories::OTHER),
             previews: None,
             cells: None,
@@ -442,9 +471,7 @@ impl WidgetSpec {
     /// A widget with nothing of its own to read: it draws from the
     /// settings, the clock and the like (see [`Drawn`]).
     pub fn drawn(id: Id, title: impl Into<Cow<'static, str>>, drawn: Drawn) -> Self {
-        Self::new(id, title, move |_| {
-            Box::new(DrawnWidget { drawn, shown: None })
-        })
+        Self::made(id, title, Make::Drawn(drawn))
     }
 }
 
@@ -482,13 +509,6 @@ pub struct FixedWidget {
     /// Reserved, as [`WidgetSpec`]'s: zero now.
     #[allow(dead_code, reason = "reserved for later releases")]
     spare: u32,
-}
-
-/// How a [`FixedWidget`] is made.
-#[derive(Clone, Copy)]
-enum Make {
-    Factory(fn(&Env<'_>) -> Box<dyn Widget>),
-    Drawn(Drawn),
 }
 
 impl FixedWidget {
@@ -602,11 +622,8 @@ impl<'a> Found<'a> {
 
     fn make(self, env: &Env<'_>) -> Box<dyn Widget> {
         match self {
-            Found::Spec(w) => (w.factory)(env),
-            Found::Fixed(w) => match w.make {
-                Make::Factory(factory) => factory(env),
-                Make::Drawn(drawn) => Box::new(DrawnWidget { drawn, shown: None }),
-            },
+            Found::Spec(w) => w.make.make(env),
+            Found::Fixed(w) => w.make.make(env),
         }
     }
 }

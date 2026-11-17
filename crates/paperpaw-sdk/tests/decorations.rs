@@ -355,18 +355,29 @@ fn at(n: u32) -> Locator {
 }
 
 /// A decorator marking every word with `role`, and one empty range.
-fn marking(id: &'static str, role: &'static str) -> DecoratorSpec {
-    DecoratorSpec::new(Id::new_static(id), id, move |_, page: &PageText<'_>| {
-        let mut out: Vec<Decorated> = page
-            .words
-            .iter()
-            .filter_map(|w| Decorated::words(&[*w], &Id::new_static(role)))
-            .collect();
-        // Empty and backwards ranges are left out.
-        out.push(Decorated::new(at(5), at(5), Id::new_static(role)));
-        out.push(Decorated::new(at(9), at(2), Id::new_static(role)));
-        out
-    })
+fn marking(id: &'static str) -> DecoratorSpec {
+    let decorate: paperpaw_sdk::decorations::DecorateFn = match id {
+        "t.a" => |_, page| every_word(page, "t.a"),
+        "t.b" => |_, page| every_word(page, "t.b"),
+        "t.late" => |_, page| every_word(page, "t.late"),
+        "t.second" => |_, page| every_word(page, "t.second"),
+        _ => |_, page| every_word(page, "t.first"),
+    };
+    DecoratorSpec::new(Id::new_static(id), id, decorate)
+}
+
+/// Every word of `page` marked with `role`, and one empty range and one
+/// backwards.
+fn every_word(page: &PageText<'_>, role: &'static str) -> Vec<Decorated> {
+    let mut out: Vec<Decorated> = page
+        .words
+        .iter()
+        .filter_map(|w| Decorated::words(&[*w], &Id::new_static(role)))
+        .collect();
+    // Empty and backwards ranges are left out.
+    out.push(Decorated::new(at(5), at(5), Id::new_static(role)));
+    out.push(Decorated::new(at(9), at(2), Id::new_static(role)));
+    out
 }
 
 /// The decorators' signature is FNV-1a over each one's id, whether it is
@@ -378,8 +389,8 @@ fn the_signature_is_fnv1a_over_ids_switches_and_signatures() {
     h.define_bool("t.off", false);
     let off = paperpaw_sdk::Setting::<bool>::new("t.off");
     let mut list = Decorators::new();
-    list.add(marking("t.a", "t.a").order(1).signature(|_| 7));
-    list.add(marking("t.b", "t.b").order(2).switch(&off).signature(|_| 9));
+    list.add(marking("t.a").order(1).signature(|_| 7));
+    list.add(marking("t.b").order(2).switch(&off).signature(|_| 9));
     let mut bytes = Vec::new();
     bytes.extend_from_slice(b"t.a");
     bytes.push(1);
@@ -399,9 +410,9 @@ fn decorators_mark_in_their_order_and_only_while_switched_on() {
     h.define_bool("t.second-on", true);
     let switch = paperpaw_sdk::Setting::<bool>::new("t.second-on");
     let mut list = Decorators::new();
-    list.add(marking("t.late", "t.late").order(5));
-    list.add(marking("t.second", "t.second").switch(&switch).taps());
-    list.add(marking("t.first", "t.first").order(-3));
+    list.add(marking("t.late").order(5));
+    list.add(marking("t.second").switch(&switch).taps());
+    list.add(marking("t.first").order(-3));
     let words = [
         PageWord::new("one", at(0), at(3)),
         PageWord::new("two", at(4), at(7)),

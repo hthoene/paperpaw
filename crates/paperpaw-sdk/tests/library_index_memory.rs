@@ -146,7 +146,7 @@ fn harness() -> common::Harness {
             Id::new_static("test.txt"),
             "TXT",
             vec![Cow::Borrowed("txt")],
-            Box::new(|_, _, _| {
+            |_, _, _| {
                 // The book's own allocations are the fixture's, not the
                 // library's: not refused.
                 Ok(shielded(|| {
@@ -156,7 +156,7 @@ fn harness() -> common::Harness {
                     metadata.subjects = vec!["one".to_owned(), "two".to_owned()];
                     Box::new(Named { metadata }) as Box<dyn Document>
                 }))
-            }),
+            },
         ))
         .unwrap();
     h.formats = formats;

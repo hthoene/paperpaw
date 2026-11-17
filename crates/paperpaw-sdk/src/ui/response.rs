@@ -5,7 +5,7 @@
 
 use crate::env::Env;
 use crate::keys::InputMode;
-use crate::{Cx, Handled, RefreshMode};
+use crate::{Cx, RefreshMode};
 
 /// What a part did with an action or a gesture: not its own, taken with
 /// nothing to draw, taken and changed (draw it again), or taken and done
@@ -16,7 +16,6 @@ use crate::{Cx, Handled, RefreshMode};
 ///
 /// let moved: Response = Response::changed_if(true);
 /// assert!(moved.taken() && moved.changed());
-/// assert_eq!(Response::Done(3).done(), Some(3));
 /// assert!(!Response::<()>::Ignored.taken());
 /// ```
 #[must_use = "an input the part did not take is the screen's to use"]
@@ -48,33 +47,6 @@ impl<T> Response<T> {
     /// Whether the part changed and is to be drawn again.
     pub fn changed(&self) -> bool {
         matches!(self, Self::Changed)
-    }
-
-    /// The result, once the part is done.
-    pub fn done(self) -> Option<T> {
-        match self {
-            Self::Done(result) => Some(result),
-            _ => None,
-        }
-    }
-
-    /// Whether the input was handled, for a screen's answer.
-    pub fn handled(&self) -> Handled {
-        if self.taken() {
-            Handled::Yes
-        } else {
-            Handled::No
-        }
-    }
-
-    /// The same answer with the result `f` makes of it.
-    pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Response<U> {
-        match self {
-            Self::Ignored => Response::Ignored,
-            Self::Same => Response::Same,
-            Self::Changed => Response::Changed,
-            Self::Done(result) => Response::Done(f(result)),
-        }
     }
 
     /// Asks for what a change needs: the screen drawn again and
