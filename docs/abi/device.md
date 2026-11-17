@@ -456,6 +456,12 @@ Tags 1564-1592 and 1595 follow UIX's approved commands (1547-1558, 1561-1563) an
   start (`flags` bit 1). Its `install_done` (kind 2) comes only once the folder is renamed away and
   the plugin is gone from REG op 6 (event 70 raised), with `flags` bit 0 when the data was kept;
   declined or dismissed as for installs, and nothing is removed. `flags` reserved.
+- [D] **Secrets a removal left** (decision of 2026-11-16, #290): where a removal with its data
+  could not erase the plugin's secrets (its id kept in `plugins/.unforgotten`), an install of the same id is
+  always asked about (the trusted-installer grant never skips it), and the confirmation says the
+  old data is erased first. On yes the host erases them before anything is swapped in; a host that
+  cannot is reason 16 and nothing installs. Declined (2) or dismissed (3), nothing installs either,
+  so no plugin of the id ever starts with the old secrets.
 - [D] **One job at a time:** the host runs install, removal and firmware jobs one after another in
   submit order (one I/O buffer, 6.2). Firmware installs and code-plugin installs both write the code
   flash, so neither starts while the other runs; a request waits its turn (`dev_install.state` 0

@@ -656,12 +656,55 @@ pub fn note(storage: &dyn Storage, path: &str, status: Status) -> Result<(), Sto
 
 pub(crate) fn noted(storage: &dyn Storage, path: &str, status: Status) -> Result<(), StorageError> {
     if !storage.exists(&catalog_path()) {
-        // Made anew from the books' details, which have it.
-        return Ok(());
+        // Made anew from the books' details, which have it; until then the
+        // book stands for it.
+        return stand_in(storage, path, status);
     }
     let (progress, flags) = status.columns();
     let line = format!("{:016x}\t{progress}\t{flags}\n", fnv1a64(path));
     storage.append(&log_path(), line.as_bytes())
+}
+
+/// Where a catalog that stands in for one not made yet is marked
+/// ([`stand_in`]).
+fn stand_in_path() -> String {
+    format!("{DIR}/catalog.one")
+}
+
+/// No catalog and no walk making one: the book at `path` alone, with
+/// `status`, is written as the catalog, so the views list it at once (Home's
+/// first frame after the book closed shows it, #267). The next walk takes it
+/// away first ([`drop_stand_in`]) and shows the books as it finds them, as
+/// where there was none.
+fn stand_in(storage: &dyn Storage, path: &str, status: Status) -> Result<(), StorageError> {
+    if storage.exists(&building_path()) {
+        return Ok(());
+    }
+    let Some(book) = super::book(storage, path) else {
+        return Ok(());
+    };
+    let mut text = next_header(storage, 1);
+    text.push_str(&Record::of(path, &book).with_status(status).text());
+    storage.write(&stand_in_path(), b"")?;
+    match storage.remove(&log_path()) {
+        Ok(()) | Err(StorageError::NotFound) => {}
+        Err(e) => return Err(e),
+    }
+    storage.write(&catalog_path(), text.as_bytes())
+}
+
+/// Takes away a catalog that only stands in for one ([`stand_in`]).
+pub(crate) fn drop_stand_in(storage: &dyn Storage) -> Result<(), StorageError> {
+    if !storage.exists(&stand_in_path()) {
+        return Ok(());
+    }
+    for file in [catalog_path(), log_path(), stand_in_path()] {
+        match storage.remove(&file) {
+            Ok(()) | Err(StorageError::NotFound) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
 }
 
 /// Notes beside the catalog that the book at `path` is no longer there

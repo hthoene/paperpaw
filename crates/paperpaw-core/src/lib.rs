@@ -86,7 +86,6 @@ pub use chrome_spec::{ChromeSpec, Edge};
 mod tall_band;
 mod warning;
 pub use layer::{KernelFactory, KernelScreen, Layer, LayerFactory, LayerSpec};
-use screens::ActiveScreen;
 pub use warning::{Warning, WarningSource};
 #[cfg(test)]
 mod tests;
@@ -138,7 +137,7 @@ pub use crate::io::{
 use crate::keymap::{InputKey, Keymap, Origin, Zone};
 use crate::refresh::RefreshPolicy;
 use crate::registry::{Registry, Staging};
-use crate::screens::uncovered;
+use crate::screens::{ActiveScreen, uncovered};
 pub use crate::work::NetworkSettings;
 #[doc(hidden)]
 pub use crate::work::network_specs_of;
@@ -644,10 +643,9 @@ impl Kernel {
         }
     }
 
-    /// Whether what the screen shows is secret now: a PIN or a password
-    /// being entered (a layer's `secret`),
-    /// or the device guarded. Those who show the screen elsewhere (a
-    /// remote control, tools) leave out what its parts say then.
+    /// Whether what the screen shows is secret now: a PIN or a password being
+    /// entered ([`Layer::secret`]), or the device guarded. Those who show the
+    /// screen elsewhere (a remote control, tools) leave out what it says then.
     pub fn is_secret(&self) -> bool {
         self.guard().is_some() || self.stack.iter().any(ActiveScreen::secret)
     }
