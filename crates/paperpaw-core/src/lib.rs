@@ -45,6 +45,7 @@ mod builder;
 mod card;
 mod catalog_file;
 mod chrome;
+mod chrome_spec;
 mod code_plugin;
 mod commands;
 mod config;
@@ -64,6 +65,7 @@ mod input_filters;
 mod io;
 mod key_guard;
 mod keymap;
+mod layer;
 mod memory_notice;
 mod meter;
 pub mod native_host;
@@ -79,8 +81,12 @@ mod room;
 mod screens;
 mod secrets_i6;
 mod shared_env;
+pub mod stock;
+pub use chrome_spec::{ChromeSpec, Edge};
 mod tall_band;
-use screens::ActiveScreen;
+mod warning;
+pub use layer::{KernelFactory, KernelScreen, Layer, LayerFactory, LayerSpec};
+pub use warning::{Warning, WarningSource};
 #[cfg(test)]
 mod tests;
 mod timing;
@@ -110,11 +116,11 @@ use paperpaw_sdk::setting::{Setting, SettingType};
 use paperpaw_sdk::{
     Actions, Capabilities, Command, Contribution, Cx, Direction, Env, EnvParts, Fonts, Formats,
     Gesture, GestureKind, Handled, HintVisibility, Hyphenation, Id, Manifest, Menus, Metrics,
-    Output, Params, PluginInfo, PluginState, Plugins, RegisterError, RequiredFor, Screen, Settings,
+    Output, Params, PluginInfo, PluginState, Plugins, RegisterError, RequiredFor, Settings,
     ShowsThrough, StatusItems,
 };
 
-pub use crate::builder::{Items, KernelBuilder, KernelError, Plugin};
+pub use crate::builder::{Items, KernelBuilder, KernelError};
 pub use crate::card::CardTrouble;
 pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
@@ -131,7 +137,7 @@ pub use crate::io::{
 use crate::keymap::{InputKey, Keymap, Origin, Zone};
 use crate::refresh::RefreshPolicy;
 use crate::registry::{Registry, Staging};
-use crate::screens::uncovered;
+use crate::screens::{ActiveScreen, uncovered};
 pub use crate::work::NetworkSettings;
 #[doc(hidden)]
 pub use crate::work::network_specs_of;
@@ -156,40 +162,6 @@ const HINTS_MS: u64 = 4000;
 const MAX_SECRETS: usize = 64 * 1024;
 /// Default memory for glyphs rasterized at runtime.
 const DEFAULT_GLYPH_CACHE: usize = 32 * 1024;
-
-/// Where a warning comes from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum WarningSource {
-    Plugin(Id),
-    DeviceKeymap,
-    UserConfig,
-    Runtime,
-}
-
-/// A non-fatal problem. PaperPaw keeps running with sensible defaults and
-/// reports what it ignored.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Warning {
-    pub source: WarningSource,
-    pub line: Option<u32>,
-    pub message: String,
-}
-
-impl fmt::Display for Warning {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.source {
-            WarningSource::Plugin(id) => write!(f, "plugin `{id}`")?,
-            WarningSource::DeviceKeymap => f.write_str("device key map")?,
-            WarningSource::UserConfig => f.write_str("user configuration")?,
-            WarningSource::Runtime => f.write_str("runtime")?,
-        }
-        if let Some(line) = self.line {
-            write!(f, ", line {line}")?;
-        }
-        write!(f, ": {}", self.message)
-    }
-}
 
 /// An open screen kept while its task is not shown
 /// ([`Command::SwitchTask`]): its id, slot and params.
@@ -224,7 +196,7 @@ pub struct Kernel {
     /// Work plugins declared, timers among it (see [`work`]).
     works: work::Queue,
     /// The short message showing ([`Command::Notify`]) and until when.
-    notice: Option<(Box<dyn Screen>, Instant)>,
+    notice: Option<(Box<dyn Layer>, Instant)>,
     stack: Vec<ActiveScreen>,
     output: Output,
     warnings: Vec<Warning>,
@@ -675,10 +647,9 @@ impl Kernel {
         }
     }
 
-    /// Whether what the screen shows is secret now: a PIN or a password
-    /// being entered ([`Screen::secret`]),
-    /// or the device guarded. Those who show the screen elsewhere (a
-    /// remote control, tools) leave out what its parts say then.
+    /// Whether what the screen shows is secret now: a PIN or a password being
+    /// entered ([`Layer::secret`]), or the device guarded. Those who show the
+    /// screen elsewhere (a remote control, tools) leave out what it says then.
     pub fn is_secret(&self) -> bool {
         self.guard().is_some() || self.stack.iter().any(ActiveScreen::secret)
     }

@@ -12,7 +12,7 @@ const OTHER: Id = Id::new_static("g.other");
 
 struct Lock(Rc<Cell<bool>>);
 
-impl Screen for Lock {
+impl crate::Layer for Lock {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn guards(&self) -> bool {
@@ -34,7 +34,7 @@ impl Screen for Lock {
 
 struct Plain;
 
-impl Screen for Plain {
+impl crate::Layer for Plain {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
 
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
@@ -46,13 +46,13 @@ impl Screen for Plain {
 fn guard_plugin(kept: Rc<Cell<bool>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         let locked = kept.clone();
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             LOCK,
             "lock",
             Box::new(move |_, _| Box::new(Lock(locked.clone()))),
         ))?;
         for id in [CHILD, OTHER, Id::new_static("g.home")] {
-            r.add_screen(ScreenSpec::new(
+            r.add_layer(crate::LayerSpec::new(
                 id,
                 "plain",
                 Box::new(|_, _| Box::new(Plain)),

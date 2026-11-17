@@ -17,11 +17,11 @@ use alloc::vec::Vec;
 use paperpaw_sdk::filters::{InputFilterSpec, RefreshFilterSpec, TextFilterSpec};
 use paperpaw_sdk::presets::Preset;
 use paperpaw_sdk::setup::SetupStepSpec;
-use paperpaw_sdk::status::{Place as StatusPlace, StatusItemSpec, StatusLineSpec};
+use paperpaw_sdk::status::{StatusItemSpec, StatusLineSpec};
 use paperpaw_sdk::widgets::WidgetSpec;
 use paperpaw_sdk::{
-    ActionSpec, EventHandler, FontFace, FontSpec, FormatSpec, HintVisibility, HyphenationSpec, Id,
-    MenuEntry, MenuNeed, MenuSection, Priority, RegisterError, ScreenSpec, SettingSpec, SlotSpec,
+    ActionSpec, EventHandler, FontFace, FontSpec, FormatSpec, HintVisibility, Id, MenuEntry,
+    MenuNeed, MenuSection, Priority, RegisterError, SettingSpec, SlotSpec,
 };
 
 use paperpaw_sdk::Contribution;
@@ -35,6 +35,20 @@ use paperpaw_sdk::Contribution;
 pub struct Items {
     plugin: Id,
     contributions: Vec<Contribution>,
+    /// Screens kept in the program that the kernel makes as layers.
+    kernel_screens: Vec<&'static [crate::KernelScreen]>,
+    /// Screens added as layers.
+    layers: Vec<crate::LayerSpec>,
+    /// Bars along an edge.
+    chromes: Vec<crate::ChromeSpec>,
+}
+
+/// What a plugin added, taken apart for the kernel to apply.
+pub(crate) struct Parts {
+    pub(crate) contributions: Vec<Contribution>,
+    pub(crate) kernel_screens: Vec<&'static [crate::KernelScreen]>,
+    pub(crate) layers: Vec<crate::LayerSpec>,
+    pub(crate) chromes: Vec<crate::ChromeSpec>,
 }
 
 impl Items {
@@ -44,6 +58,9 @@ impl Items {
         Self {
             plugin,
             contributions: Vec::new(),
+            kernel_screens: Vec::new(),
+            layers: Vec::new(),
+            chromes: Vec::new(),
         }
     }
 
@@ -60,6 +77,18 @@ impl Items {
     /// What was added, for the kernel to apply.
     pub fn into_contributions(self) -> Vec<Contribution> {
         self.contributions
+    }
+
+    /// What was added, the screens kept in the program that are made as
+    /// layers ([`add_kernel_screens`](Self::add_kernel_screens)) and those
+    /// added as layers ([`add_layer`](Self::add_layer)).
+    pub(crate) fn into_parts(self) -> Parts {
+        Parts {
+            contributions: self.contributions,
+            kernel_screens: self.kernel_screens,
+            layers: self.layers,
+            chromes: self.chromes,
+        }
     }
 
     /// Adds `contribution`; every method below is a shorthand for one.
@@ -145,36 +174,45 @@ impl Items {
         self.add_checked(Contribution::Action(Box::new(action)))
     }
 
-    pub fn add_screen(&mut self, screen: ScreenSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Screen(screen))
+    /// Adds screens kept in the program that the kernel makes as layers (a
+    /// `static` list of [`KernelScreen`](crate::KernelScreen)s): they take
+    /// next to no memory, where each added with
+    /// [`add_layer`](Self::add_layer) takes some 60 bytes.
+    pub fn add_kernel_screens(
+        &mut self,
+        screens: &'static [crate::KernelScreen],
+    ) -> Result<(), RegisterError> {
+        self.check_screens(screens.iter().map(crate::KernelScreen::id))?;
+        self.kernel_screens.push(screens);
+        Ok(())
     }
 
-    /// Adds screens kept in the program (a `static` list of
-    /// [`FixedScreen`](paperpaw_sdk::FixedScreen)s): they take next to no memory,
-    /// where each added with [`add_screen`](Self::add_screen) takes some
-    /// 60 bytes.
-    pub fn add_screens(
-        &mut self,
-        screens: &'static [paperpaw_sdk::FixedScreen],
+    /// Adds a screen the kernel makes as a layer.
+    pub fn add_layer(&mut self, screen: crate::LayerSpec) -> Result<(), RegisterError> {
+        self.check_screens(core::iter::once(&screen.id))?;
+        self.layers.push(screen);
+        Ok(())
+    }
+
+    /// Each of `ids` in the plugin's namespace, once among its screens.
+    fn check_screens<'a>(
+        &self,
+        ids: impl Iterator<Item = &'a Id> + Clone,
     ) -> Result<(), RegisterError> {
-        // Each in the plugin's namespace, and once.
         let added = |id: &Id| {
-            self.contributions.iter().any(|c| match c {
-                Contribution::Screen(s) => s.id == *id,
-                Contribution::FixedScreens(list) => list.iter().any(|s| s.id() == id),
-                _ => false,
-            })
+            self.kernel_screens
+                .iter()
+                .any(|list| list.iter().any(|s| s.id() == id))
+                || self.layers.iter().any(|s| s.id == *id)
         };
-        for (n, screen) in screens.iter().enumerate() {
-            let id = screen.id();
+        for (n, id) in ids.clone().enumerate() {
             if !id.is_owned_by(&self.plugin) {
                 return Err(RegisterError::Namespace { id: id.clone() });
             }
-            if added(id) || screens[..n].iter().any(|s| s.id() == id) {
+            if added(id) || ids.clone().take(n).any(|other| other == id) {
                 return Err(RegisterError::Duplicate { id: id.clone() });
             }
         }
-        self.contributions.push(Contribution::FixedScreens(screens));
         Ok(())
     }
 
@@ -248,51 +286,12 @@ impl Items {
         Ok(())
     }
 
-    /// Adds default key bindings in the PaperPaw config format:
-    ///
-    /// ```ini
-    /// [keymap.global]
-    /// button.page-forward = core.next-page
-    /// long.back = core.home
-    /// tap.center = core.menu
-    /// ```
-    /// Adds a contribution of a kind that comes after this release, by its
-    /// key: what PaperPaw takes from plugins later can be given by plugins
-    /// built now, without a new plugin interface. A kernel that does not
-    /// know the key leaves it.
-    pub fn add_extended(
-        &mut self,
-        key: impl Into<Id>,
-        params: paperpaw_sdk::Params,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Extended {
-            key: key.into(),
-            params,
-        })
-    }
-
     pub fn add_keymap(
         &mut self,
         source: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
         let source = source.into();
         self.add_checked(Contribution::Keymap(source))
-    }
-
-    /// Adds key bindings (as [`Items::add_keymap`]) that apply only
-    /// while the switch `setting` is on, e.g. a held button that does
-    /// something users may turn off: with the switch off the binding is
-    /// gone, so the button acts on its short press at once again.
-    pub fn add_keymap_when(
-        &mut self,
-        setting: &paperpaw_sdk::setting::Setting<bool>,
-        source: impl Into<Cow<'static, str>>,
-    ) -> Result<(), RegisterError> {
-        let source = source.into();
-        self.add_checked(Contribution::KeymapWhen {
-            setting: setting.into(),
-            source,
-        })
     }
 
     /// A stylesheet for books, applied after a book's own (where the
@@ -359,15 +358,6 @@ impl Items {
         field: paperpaw_sdk::library::BookField,
     ) -> Result<(), RegisterError> {
         self.add_checked(Contribution::BookField(Box::new(field)))
-    }
-
-    /// Adds a badge to books' rows in every view of the library (see
-    /// [`library::service`](fn@paperpaw_sdk::library::service)).
-    pub fn add_book_badge(
-        &mut self,
-        badge: paperpaw_sdk::library::BookBadge,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::BookBadge(Box::new(badge)))
     }
 
     /// Adds a key map preset (same format as [`Items::add_keymap`]) that
@@ -620,11 +610,6 @@ impl Items {
         self.add_checked(Contribution::Format(Box::new(format)))
     }
 
-    /// Adds hyphenation patterns for a language.
-    pub fn add_hyphenation(&mut self, spec: HyphenationSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Hyphenation(spec))
-    }
-
     /// Subscribes to an event by its id, with what it carries as named
     /// strings, e.g. for events known only at run time; [`Items::on`]
     /// hears an [`Event`](paperpaw_sdk::event::Event) with its data.
@@ -715,15 +700,6 @@ impl Items {
         self.add_checked(Contribution::PageFrame(Box::new(frame)))
     }
 
-    /// Adds a lookup provider: where words are looked up, listed by the
-    /// screen that shows a word's entries (see [`lookup`](paperpaw_sdk::lookup)).
-    pub fn add_lookup_provider(
-        &mut self,
-        provider: paperpaw_sdk::lookup::LookupProviderSpec,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::LookupProvider(Box::new(provider)))
-    }
-
     /// Adds a voice: speaks text aloud in place of the system's while the
     /// setting [`VOICE`](paperpaw_sdk::builtin::settings::VOICE) chooses it (see
     /// [`voices`](paperpaw_sdk::voices)).
@@ -734,48 +710,10 @@ impl Items {
         self.add_checked(Contribution::Voice(Box::new(voice)))
     }
 
-    /// Adds a reading app: a screen of the plugin that shows books of
-    /// some formats, offered where books open (see
-    /// [`readers`](paperpaw_sdk::readers)).
-    /// Its screen is one the plugin added before.
-    pub fn add_reader(
-        &mut self,
-        reader: paperpaw_sdk::readers::ReaderSpec,
-    ) -> Result<(), RegisterError> {
-        if !reader.screen.is_owned_by(&self.plugin) {
-            return Err(RegisterError::Namespace { id: reader.screen });
-        }
-        let added = self.contributions.iter().any(|c| match c {
-            Contribution::Screen(s) => s.id == reader.screen,
-            Contribution::FixedScreens(list) => list.iter().any(|s| *s.id() == reader.screen),
-            _ => false,
-        });
-        if !added {
-            return Err(RegisterError::Invalid {
-                message: Cow::Owned(alloc::format!(
-                    "`{}` reads in `{}`, a screen not added",
-                    reader.id,
-                    reader.screen
-                )),
-            });
-        }
-        self.add_checked(Contribution::Reader(reader))
-    }
-
     /// Adds a filter of every input, before screens and key maps see it
     /// (see [`filters`](paperpaw_sdk::filters)).
     pub fn add_input_filter(&mut self, filter: InputFilterSpec) -> Result<(), RegisterError> {
         self.add_checked(Contribution::InputFilter(filter))
-    }
-
-    /// Adds a service to the device's own GATT server, whose centrals'
-    /// reads, writes and subscriptions come as the spec's events (see
-    /// [`bluetooth`](paperpaw_sdk::bluetooth)).
-    pub fn add_gatt_service(
-        &mut self,
-        service: paperpaw_sdk::bluetooth::ServiceSpec,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::GattService(Box::new(service)))
     }
 
     /// Adds a filter of how the panel is refreshed (see
@@ -851,12 +789,17 @@ impl Items {
     }
 
     /// Adds a bar that stays along an edge of the screen across the
-    /// screens shown: tabs, a dock (see [`chrome`](paperpaw_sdk::chrome)).
-    pub fn add_chrome(
-        &mut self,
-        chrome: paperpaw_sdk::chrome::ChromeSpec,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Chrome(Box::new(chrome)))
+    /// screens shown: tabs, a dock (see [`ChromeSpec`](crate::ChromeSpec)).
+    pub fn add_chrome(&mut self, chrome: crate::ChromeSpec) -> Result<(), RegisterError> {
+        let id = &chrome.id;
+        if !id.is_owned_by(&self.plugin) {
+            return Err(RegisterError::Namespace { id: id.clone() });
+        }
+        if self.chromes.iter().any(|c| c.id == *id) {
+            return Err(RegisterError::Duplicate { id: id.clone() });
+        }
+        self.chromes.push(chrome);
+        Ok(())
     }
 
     /// Adds a job: the steps of the work declared with its id (see
@@ -953,13 +896,6 @@ impl Items {
         self.add_checked(Contribution::StatusLine(Box::new(line)))
     }
 
-    /// Adds a place where status items show: a line's left, centre and
-    /// right as settings of the items listed there (see
-    /// [`status::Place`](paperpaw_sdk::status::Place)).
-    pub fn add_status_place(&mut self, place: StatusPlace) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::StatusPlace(Box::new(place)))
-    }
-
     /// Adds a place where widgets show: the settings that list them, in a
     /// grid or above each other (see
     /// [`widgets::WidgetPlace`](paperpaw_sdk::widgets::WidgetPlace)).
@@ -968,16 +904,6 @@ impl Items {
         place: paperpaw_sdk::widgets::WidgetPlace,
     ) -> Result<(), RegisterError> {
         self.add_checked(Contribution::WidgetPlace(Box::new(place)))
-    }
-
-    /// Adds a kind of widgets of the plugin's own, with its icon, for
-    /// widgets that fit none of the kernel's
-    /// ([`widgets::categories`](paperpaw_sdk::widgets::categories)).
-    pub fn add_widget_category(
-        &mut self,
-        category: paperpaw_sdk::widgets::WidgetCategory,
-    ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::WidgetCategory(Box::new(category)))
     }
 
     /// Provides `service` for other plugins as `id` in `version`: a type

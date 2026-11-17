@@ -1243,8 +1243,6 @@ PageLayerSpec::new(id, "interlinear.words", draw)
     })
 ```
 
-`samples/interlinear` is all of this as a plugin to start from.
-
 A frame (`layers::PageFrameSpec`) sets the text in columns: two
 columns, two pages side by side. The setting `core.page-frame` (each
 book may have its own) offers every frame by its id, named by the
@@ -1738,11 +1736,6 @@ reason).lasting(...))` on a screen (it ends when the screen closes), or
 `Command::KeepAwake` from work and services; renew it before it ends,
 let go with `Command::LetSleep`. The reader can switch holds off.
 
-`samples/frame-test` does all of this and shows what it measures (frames
-a second, the work as hot and as ordinary code, the drawing, the heap):
-`cargo run -p paperpaw-emulator --features frame-test`, then *Frame
-test* in the tools.
-
 ### Work in the background
 
 What a plugin does on its own, not because the reader just asked for
@@ -1901,11 +1894,17 @@ the card, which the X4 and the X4 Pro load at their
 start (ADR 0024): from the plugin store, from the web flasher with the
 firmware, or sent from a computer over the USB cable or the Wi-Fi
 transfer, where the device asks first ([USB transfer](usb-transfer.md)).
-Only code installed runs. An installer names the file by its digest
-(`native::remember_code`, kept in `.paperpaw`, which plugins' folders do
-not reach), and a file put into a plugin's folder otherwise is not run;
-the plugin manager says why. An author trying their own build sends it
-with `tools/usb-transfer.py install <folder>`. Its code is the same as that
+An installed plugin runs only the file installed. An installer names the
+file by its digest (`native::remember_code`, kept in `.paperpaw`, which
+plugins' folders do not reach), and a file put into its folder otherwise
+is not run; the plugin manager says why. Code copied to the card that was
+never installed runs without a question and unsigned (Decision 205); the
+plugin manager marks it "not signed". Three limits hold for it: an id with
+an author's key pinned (a plugin once installed signed) never runs such
+code, the file must still hold to its own header, and a plugin that
+declares `uses.install` or `uses.firmware` is not loaded until it is
+installed. An author trying their own build copies its folder to the card,
+or sends it with `tools/usb-transfer.py install <folder>`. Its code is the same as that
 of a plugin built in, and it runs as part of PaperPaw, at full speed
 and without a sandbox: it can do
 whatever PaperPaw can, also past the SDK. The X4 Pro runs it from its

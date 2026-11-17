@@ -20,8 +20,7 @@ use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
 use paperpaw_sdk::{
     ActionSpec, Canvas, Cx, Env, Handled, Id, ItemState, Manifest, MenuEntry, MenuNeed,
-    MenuSection, RegisterError, Screen, ScreenSpec, SettingKind, SettingSpec, SettingValue,
-    Version,
+    MenuSection, RegisterError, SettingKind, SettingSpec, SettingValue, Version,
     setup::{SetupPage, SetupStepSpec},
     widgets::{CellSpan, Drawn, PlaceKind, WidgetPlace, WidgetSpec, categories},
 };
@@ -31,7 +30,7 @@ fn id(text: &str) -> Id {
 }
 
 struct Quiet;
-impl Screen for Quiet {
+impl crate::Layer for Quiet {
     fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
     fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
         Handled::No
@@ -44,7 +43,7 @@ const OFF_LISTS: &[Id] = &[Id::new_static("demo.off-list")];
 /// Everything the ops read from the environment.
 fn demo() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
-        r.add_screen(ScreenSpec::new(
+        r.add_layer(crate::LayerSpec::new(
             id("demo.main"),
             "demo.screen.main",
             Box::new(|_, _| Box::new(Quiet)),
@@ -250,6 +249,7 @@ pub(super) fn declarations(rows: &[Record<'_>]) -> NativeDeclarations {
         items: Default::default(),
         item_room: Default::default(),
         refusals: Default::default(),
+        unsigned: Default::default(),
     }
 }
 

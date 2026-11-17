@@ -17,7 +17,7 @@ use std::sync::Mutex;
 
 use paperpaw_core::KernelBuilder;
 use paperpaw_core::sdk::ui::UiStyle;
-use paperpaw_core::sdk::{Canvas, Env, Id, Manifest, MemoryStorage, Screen, ScreenSpec, Version};
+use paperpaw_core::sdk::{Canvas, Env, Id, Manifest, MemoryStorage, Version};
 use paperpaw_emulator::{device::Device, headless, profiles};
 
 /// The most lines the page gives its text (`draw_empty`).
@@ -49,7 +49,7 @@ fn probe(builder: KernelBuilder) -> KernelBuilder {
     )
     .uses(paperpaw_core::sdk::Uses::NOTHING);
     builder.items(manifest, |items| {
-        items.add_screen(ScreenSpec::new(
+        items.add_layer(paperpaw_core::LayerSpec::new(
             SCREEN,
             "Notice probe",
             Box::new(|_, _| Box::new(Look)),
@@ -59,7 +59,7 @@ fn probe(builder: KernelBuilder) -> KernelBuilder {
 
 struct Look;
 
-impl Screen for Look {
+impl paperpaw_core::Layer for Look {
     fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
         paperpaw_emulator::budget::untracked(|| look(env));
     }

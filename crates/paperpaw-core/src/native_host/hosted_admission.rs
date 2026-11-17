@@ -68,6 +68,12 @@ pub fn problem_of(error: &Error) -> PluginProblem {
 }
 
 impl<S: Services + 'static, M: 'static> HostedAdmission<S, M> {
+    /// [`NativeAdmission::declares`] on the value, for a shell that wraps it.
+    #[must_use]
+    pub fn declares_feature(&self, key: &str) -> bool {
+        self.hosted.features().feature(key).is_ok()
+    }
+
     /// [`NativeAdmission::admit`] on the value: a shell that wraps the
     /// admission (to measure it) holds it without a second allocation.
     ///
@@ -92,5 +98,9 @@ impl<S: Services + 'static, M: 'static> HostedAdmission<S, M> {
 impl<S: Services + 'static, M: 'static> NativeAdmission for HostedAdmission<S, M> {
     fn admit(self: Box<Self>, kernel: &mut Kernel, folder: &str) -> Result<(), PluginProblem> {
         (*self).admit_in(kernel, folder)
+    }
+
+    fn declares(&self, key: &str) -> bool {
+        self.declares_feature(key)
     }
 }

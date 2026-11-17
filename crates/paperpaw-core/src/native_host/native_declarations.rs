@@ -47,6 +47,9 @@ pub(crate) struct NativeDeclarations {
     /// The declaration cap each plugin was last refused at (`reg_plugin`
     /// problem 14 and 15).
     pub(crate) refusals: core::cell::RefCell<super::declaration_refusals::Refusals>,
+    /// The code plugins that run code never installed (`reg_plugin.flags`
+    /// bit 6, Decision 205).
+    pub(crate) unsigned: core::cell::RefCell<alloc::vec::Vec<alloc::boxed::Box<str>>>,
 }
 impl core::fmt::Debug for NativeDeclarations {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -88,6 +91,31 @@ impl NativeDeclarations {
         if let Ok(mut refusals) = self.refusals.try_borrow_mut() {
             refusals.clear(plugin);
         }
+    }
+
+    /// Keeps that `plugin` runs code never installed; `false` when there is
+    /// no room for it.
+    pub(crate) fn mark_unsigned(&self, plugin: &str) -> bool {
+        let Ok(mut unsigned) = self.unsigned.try_borrow_mut() else {
+            return false;
+        };
+        if unsigned.iter().any(|id| &**id == plugin) {
+            return true;
+        }
+        let mut id = alloc::string::String::new();
+        if id.try_reserve_exact(plugin.len()).is_err() || unsigned.try_reserve(1).is_err() {
+            return false;
+        }
+        id.push_str(plugin);
+        unsigned.push(id.into_boxed_str());
+        true
+    }
+
+    /// Whether `plugin` runs code never installed.
+    pub(crate) fn is_unsigned(&self, plugin: &str) -> bool {
+        self.unsigned
+            .try_borrow()
+            .is_ok_and(|unsigned| unsigned.iter().any(|id| &**id == plugin))
     }
 
     /// The cap `plugin` was refused at, while it stays failed.
