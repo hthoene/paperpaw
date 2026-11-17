@@ -60,7 +60,7 @@ impl crate::Kernel {
         // Waiting for its time after a step that could not be made.
         if instances
             .doc_retry()
-            .is_some_and(|at| self.now.millis() < at)
+            .is_some_and(|at| self.shared.now.millis() < at)
         {
             return false;
         }
@@ -88,13 +88,13 @@ impl crate::Kernel {
                 // It did not drain (a plugin that cannot be called): no busy
                 // loop, a later pass looks again.
                 let failures = instances.doc_failed();
-                instances.set_doc_retry(Some(self.now.millis() + wait(failures)));
+                instances.set_doc_retry(Some(self.shared.now.millis() + wait(failures)));
                 return false;
             }
             return true;
         }
         let step = {
-            let env = self.shared.env(self.now);
+            let env = self.shared.env(self.shared.now);
             let route = HostRoute {
                 registry: instances,
                 env: &env,
@@ -119,12 +119,12 @@ impl crate::Kernel {
                 // so it goes on on an idle device and never holds the idle or
                 // the sleep timer off.
                 let gap = self.native_job_gap();
-                instances.set_doc_retry(job_only.then(|| self.now.millis() + gap));
+                instances.set_doc_retry(job_only.then(|| self.shared.now.millis() + gap));
                 !job_only
             }
             PrepareStep::Later => {
                 let failures = instances.doc_failed();
-                instances.set_doc_retry(Some(self.now.millis() + wait(failures)));
+                instances.set_doc_retry(Some(self.shared.now.millis() + wait(failures)));
                 false
             }
         }

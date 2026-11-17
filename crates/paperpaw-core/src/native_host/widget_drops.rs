@@ -119,7 +119,7 @@ impl crate::Kernel {
             };
             let handles = &ui.widgets.handles;
             let mut record = [0u8; MADE_BYTES];
-            let now = self.now;
+            let now = self.shared.now;
             let Ok(Some((notice, len))) =
                 made_record(handles, Pick::Nth(kept), now.millis(), &mut record)
             else {
@@ -165,7 +165,7 @@ impl crate::Kernel {
                 break;
             };
             let mut record = [0u8; RECORD_BYTES];
-            let now = self.now;
+            let now = self.shared.now;
             let (notice, len) = match ui.next_widget_dropped(owner, now.millis(), &mut record) {
                 Ok(Some(told)) => told,
                 other => {

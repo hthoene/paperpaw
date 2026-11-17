@@ -342,7 +342,7 @@ impl Kernel {
             .iter()
             .map(|s| s.screen.shows_through())
             .collect();
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         // Overlays that wash out what lies below them.
         let dims: Vec<bool> = self
             .stack
@@ -471,7 +471,7 @@ impl Kernel {
     fn draw_aside(&mut self, canvas: &mut paperpaw_sdk::Canvas<'_>) {
         let regions: Vec<Option<Rect>> = (0..self.stack.len()).map(|i| self.overlay(i)).collect();
         let row = self.hint_row();
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let base = self.full_base();
         {
             for (active, own) in self.stack[base..].iter_mut().zip(&regions[base..]) {
@@ -515,7 +515,7 @@ impl Kernel {
             return Vec::new();
         };
         let area = self.region_of(top);
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let active = &mut self.stack[top];
         let device = env.device_within(active.area);
         let own_env = env.within(&device, active.area);
@@ -581,7 +581,7 @@ impl Kernel {
     /// showed something of its own on the panel (e.g. a test picture).
     pub fn draw_again(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.apply(Command::Redraw(RefreshMode::Full));
         self.frame.again = true;
         self.finish()
@@ -591,7 +591,7 @@ impl Kernel {
     /// ([`events::DISPLAY_CHANGED`]).
     fn display_changed(&mut self) {
         let panel = self.framebuffer.bounds();
-        let class = paperpaw_sdk::ui::ScreenClass::of(&self.shared.env(self.now), panel);
+        let class = paperpaw_sdk::ui::ScreenClass::of(&self.shared.env(self.shared.now), panel);
         let landscape = panel.width > panel.height;
         let changed = events::DisplayChanged::new(panel.width, panel.height, class, landscape);
         self.output
@@ -606,7 +606,7 @@ impl Kernel {
     /// and the whole screen is drawn again.
     pub fn resize(&mut self, now: Instant, width: u16, height: u16) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         let panel = self.framebuffer.bounds();
         let format = self.shared.device.display.format;
         if (panel.width, panel.height) == (width, height) {

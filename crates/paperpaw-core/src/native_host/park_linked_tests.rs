@@ -473,7 +473,7 @@ fn only_no_room_or_a_busy_owner_waits_every_other_hosting_error_refuses() {
 /// Queues `event.action_run` for the parked fixture, as a menu row or a
 /// button would (`native_action::queue_run`).
 fn run_action(kernel: &crate::Kernel, key: u64) {
-    let env = kernel.shared.env(kernel.now);
+    let env = kernel.shared.env(kernel.shared.now);
     assert!(super::super::native_action::queue_run(
         &kernel.shared.native_instances,
         key,
@@ -515,7 +515,7 @@ fn an_action_of_a_plugin_that_cannot_be_made_yet_waits_and_reaches_it_after() {
     );
     // The wait over and room again: made, and the action delivered.
     MODE.with(|cell| cell.set(Mode::Parkable));
-    kernel.now = paperpaw_platform::Instant(60_000);
+    kernel.shared.now = paperpaw_platform::Instant(60_000);
     kernel.run_commands();
     assert_eq!(makes(), 3);
     assert!(!lease(&kernel, key).is_parked());
@@ -551,7 +551,7 @@ fn a_screen_of_a_plugin_without_room_does_not_open_and_opens_once_it_is_made() {
     // The wait over and room again (the plugins' clock is set each tick):
     // made as the screen opens.
     MODE.with(|cell| cell.set(Mode::Parkable));
-    kernel.now = paperpaw_platform::Instant(60_000);
+    kernel.shared.now = paperpaw_platform::Instant(60_000);
     kernel.shared.native_instances.set_now(60_000);
     open_screen(&mut kernel);
     assert_eq!(makes(), 3);
@@ -605,7 +605,7 @@ fn a_plugin_that_stays_without_room_gives_up_its_actions_and_a_later_one_reaches
     while let Some(at) = kernel.service_due() {
         wakes += 1;
         assert!(wakes <= 8, "woken without end");
-        kernel.now = at;
+        kernel.shared.now = at;
         kernel.run_commands();
     }
     // 1, 2, 4, 8, 16 and 32 s; the next wait is the longest.
@@ -623,7 +623,7 @@ fn a_plugin_that_stays_without_room_gives_up_its_actions_and_a_later_one_reaches
     // is made and the action delivered, unwoken.
     let tries = makes();
     MODE.with(|cell| cell.set(Mode::Parkable));
-    kernel.now = paperpaw_platform::Instant(kernel.now.millis() + 1);
+    kernel.shared.now = paperpaw_platform::Instant(kernel.shared.now.millis() + 1);
     run_action(&kernel, key);
     kernel.run_commands();
     assert_eq!(makes(), tries + 1);
@@ -663,7 +663,7 @@ fn a_format_that_stays_without_room_is_seen_to_give_up_once() {
     MODE.with(|cell| cell.set(Mode::NoRoom));
     let instances = &kernel.shared.native_instances;
     assert!(!instances.format_gave_up(key), "never tried yet");
-    let mut now = kernel.now.millis();
+    let mut now = kernel.shared.now.millis();
     let mut tries = 0;
     while !instances.format_gave_up(key) {
         tries += 1;
@@ -687,7 +687,7 @@ fn a_format_without_room_gives_up_at_once_when_nothing_can_be_parked_again() {
     let mut kernel = kernel(Mode::Parkable);
     let key = admit(&mut kernel);
     MODE.with(|cell| cell.set(Mode::NoRoom));
-    kernel.shared.native_instances.set_now(kernel.now.millis());
+    kernel.shared.native_instances.set_now(kernel.shared.now.millis());
     assert!(lease(&kernel, key).live().is_err());
     assert!(
         !kernel.shared.native_instances.format_gave_up(key),

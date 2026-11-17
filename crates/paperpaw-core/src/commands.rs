@@ -82,7 +82,7 @@ impl Kernel {
         for _ in 0..passes.max(1) {
             self.native_service_pump();
             self.finish_commands();
-            if self.service_due().is_none_or(|at| at > self.now) {
+            if self.service_due().is_none_or(|at| at > self.shared.now) {
                 break;
             }
         }
@@ -97,9 +97,9 @@ impl Kernel {
         self.run_commands();
         // The time since, to the screen on top.
         let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
-        let shown = self.now.since(self.shown_since);
+        let shown = self.shared.now.since(self.shown_since);
         self.shared.meter.shown(top, shown);
-        self.shown_since = self.now;
+        self.shown_since = self.shared.now;
         // A screen that set a scope may have closed.
         self.check_scope_owner();
         self.check_preview_owner();
@@ -168,7 +168,7 @@ impl Kernel {
         let bounds = self.framebuffer.bounds();
         // Whether it is shown whole, best in grays, its pictures may be.
         let (whole, grays, pictures) = self.stack.last().map_or((false, false, false), |top| {
-            let whole = match top.screen.region(&self.shared.env(self.now)) {
+            let whole = match top.screen.region(&self.shared.env(self.shared.now)) {
                 None => true,
                 Some(region) => {
                     top.screen.shows_through() != ShowsThrough::Nothing
@@ -255,7 +255,7 @@ impl Kernel {
             .frame
             .screenshot
             .is_some()
-            .then(|| self.now.add_millis(300));
+            .then(|| self.shared.now.add_millis(300));
         // Only the screen on top runs: a covered one's time waits.
         let timer = self.screen_timer();
         effects.wake_at = [
@@ -648,7 +648,7 @@ impl Kernel {
         // send: `with_screen` takes it from the confirmation screen alone.)
         // A page turned, also by itself, is use.
         if *event == events::PAGE_TURNED {
-            self.last_activity = self.now;
+            self.last_activity = self.shared.now;
         }
         // A book closed: the hyphenation tables open for it give their heap
         // back (opened again at the next word).
@@ -752,7 +752,7 @@ impl Kernel {
             work::quiet(
                 self.shared.reader,
                 top,
-                self.now,
+                self.shared.now,
                 from,
                 plugin.as_str(),
                 &mut self.output.commands,

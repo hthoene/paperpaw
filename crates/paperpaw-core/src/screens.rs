@@ -203,7 +203,7 @@ impl Kernel {
             Some(screen) => screen,
             None => {
                 // Legacy factories are infallible; this also keeps their sizing order.
-                let Ok(screen) = spec.make(&self.shared.env(self.now), params) else {
+                let Ok(screen) = spec.make(&self.shared.env(self.shared.now), params) else {
                     return;
                 };
                 screen
@@ -222,7 +222,7 @@ impl Kernel {
             hinted = !hinted;
             area = self.layout(hinted);
             set_area(&mut self.shared.device, &mut self.shared.content, area);
-            spec.remake(&mut screen, &self.shared.env(self.now), params);
+            spec.remake(&mut screen, &self.shared.env(self.shared.now), params);
         }
         drop(running);
         let active = ActiveScreen {
@@ -510,7 +510,7 @@ impl Kernel {
         let Some(spec) = self.shared.registry.screens.get(&id) else {
             return;
         };
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let params = Params::new().with(builtin_params::TEXT, text);
         let running = self.shared.meter.enter(id.namespace());
         let Ok(screen) = spec.make(&env, &params) else {
@@ -529,8 +529,8 @@ impl Kernel {
             .settings
             .int(core_settings::NOTICE_SECONDS.as_str())
             .clamp(1, 60) as u32;
-        let region = notice_area(&screen, &self.shared.env(self.now));
-        self.notice = Some((screen, self.now.add_millis(u64::from(seconds) * 1000)));
+        let region = notice_area(&screen, &self.shared.env(self.shared.now));
+        self.notice = Some((screen, self.shared.now.add_millis(u64::from(seconds) * 1000)));
         self.invalidate(region);
         self.output.request_refresh(RefreshMode::Fast);
     }
@@ -561,7 +561,7 @@ impl Kernel {
         let Some((screen, _)) = self.notice.take() else {
             return;
         };
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let region = notice_area(&screen, &env);
         self.waiting_notices.ended(screen);
         self.invalidate(region);
@@ -587,7 +587,7 @@ impl Kernel {
     /// The open screens as plugins see them ([`Env::stack`]), after the
     /// stack changed.
     pub(crate) fn sync_stack(&mut self) {
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let entries: Vec<paperpaw_sdk::StackEntry> = self
             .stack
             .iter()
@@ -974,7 +974,7 @@ impl Kernel {
     /// The region of an overlay on the screen, `None` for full screens.
     pub(crate) fn overlay(&self, index: usize) -> Option<Rect> {
         let active = self.stack.get(index)?;
-        let base = self.shared.env(self.now);
+        let base = self.shared.env(self.shared.now);
         let device = base.device_within(active.area);
         let env = base.within(&device, active.area);
         let region = active.screen.region(&env)?;
@@ -1074,7 +1074,7 @@ impl Kernel {
         });
         self.output.commands.truncate(asked);
         self.apply_area(area);
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let active = &mut self.stack[index];
         active.area = area;
         let Some(spec) = self.shared.registry.screens.get(&active.id) else {
@@ -1113,7 +1113,7 @@ impl Kernel {
         };
         let area = active.area;
         let asked_area = self.output.redraw_area.take();
-        let base = self.shared.env(self.now);
+        let base = self.shared.env(self.shared.now);
         let device = base.device_within(area);
         let env = base.within(&device, area);
         let running = self.shared.meter.enter(active.id.namespace());
@@ -1229,7 +1229,7 @@ impl Kernel {
     /// Calls [`Screen::on_timer`] of the screen on top when its time has
     /// come.
     pub(crate) fn screen_timers_due(&mut self) {
-        let now = self.now;
+        let now = self.shared.now;
         if let Some(top) = self.stack.last_mut()
             && top.timer.is_some_and(|at| at <= now)
         {

@@ -40,7 +40,7 @@ impl Kernel {
         let asked = Asked {
             screens: self.stack.len(),
             reader: self.shared.reader,
-            now: self.now,
+            now: self.shared.now,
         };
         let allowed = plugin == crate::meter::CORE
             || self
@@ -81,7 +81,7 @@ impl Kernel {
     /// go to the key maps.
     pub fn bluetooth_event(&mut self, now: Instant, report: BtReport) -> Effects {
         let running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         let keys = match &mut self.io.bluetooth {
             Some(radio) => {
                 radio.report(report, now, &mut self.output.commands);
@@ -112,7 +112,7 @@ impl Kernel {
     /// radio off.
     pub(crate) fn bluetooth_tick(&mut self) {
         if let Some(radio) = &mut self.io.bluetooth {
-            radio.tick(self.now, &mut self.output.commands);
+            radio.tick(self.shared.now, &mut self.output.commands);
             self.sync_bluetooth();
         }
     }
@@ -121,7 +121,7 @@ impl Kernel {
     pub(crate) fn bluetooth_screens_closed(&mut self) {
         let screens = self.stack.len();
         if let Some(radio) = &mut self.io.bluetooth {
-            radio.close_for_closed_screens(screens, self.now, &mut self.output.commands);
+            radio.close_for_closed_screens(screens, self.shared.now, &mut self.output.commands);
             self.sync_bluetooth();
         }
     }
@@ -129,7 +129,7 @@ impl Kernel {
     /// The device goes to sleep: Bluetooth ends.
     pub(crate) fn bluetooth_suspend(&mut self) {
         if let Some(radio) = &mut self.io.bluetooth {
-            radio.suspend(self.now, &mut self.output.commands);
+            radio.suspend(self.shared.now, &mut self.output.commands);
             self.sync_bluetooth();
         }
     }
@@ -170,7 +170,7 @@ impl Kernel {
             .shared
             .usage
             .bluetooth_ms
-            .saturating_add(radio.take_on_ms(self.now));
+            .saturating_add(radio.take_on_ms(self.shared.now));
         let state = radio.state();
         if self.shared.bluetooth.as_ref() != Some(&state) {
             self.shared.bluetooth = Some(state);
@@ -238,7 +238,7 @@ impl Kernel {
     fn ask_pairing(&mut self, device: DeviceId, question: PairQuestion, name: &str) {
         let mut bytes = [0u8; 8];
         self.shared.random.fill(&mut bytes);
-        let nonce = u64::from_le_bytes(bytes) ^ self.now.0;
+        let nonce = u64::from_le_bytes(bytes) ^ self.shared.now.0;
         self.pairing_nonce = Some(nonce);
         let i18n = &self.shared.translator;
         let name = if name.is_empty() {

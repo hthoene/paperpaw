@@ -333,7 +333,6 @@ pub struct Kernel {
     native_registering: bool,
     /// The linked plugins' built-in catalogs are added ([`Kernel::claim_native_catalogs`]).
     native_catalogs_added: bool,
-    now: Instant,
     input: gestures::InputState,
     io: network::IoState,
     frame: drawing::FrameState,
@@ -415,7 +414,7 @@ impl Kernel {
     pub fn start(&mut self, now: Instant) -> Effects {
         // The kernel's work, but for the plugins' it calls.
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         // The shell hosted its native plugins before this call: what their
         // admission kept in reserve is given back.
@@ -462,7 +461,7 @@ impl Kernel {
             return self.finish();
         }
         self.hint.pressed = None;
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.last_user_input = Some(now);
         self.gray_postpone();
@@ -587,7 +586,7 @@ impl Kernel {
     /// the busy mark ([`Effects::proceed`]).
     pub fn proceed(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         if let Some((area, _)) = self.frame.mark.take() {
             self.invalidate(area);
         }
@@ -753,7 +752,7 @@ impl Kernel {
     /// ([`events::STATUS_CHANGED`]).
     pub fn set_status(&mut self, now: Instant, status: SystemStatus) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         let old = self.shared.status;
         self.shared.status = status;
         let offset = |s: &SystemStatus| s.clock.map(|c| c.utc_offset_minutes);
@@ -815,7 +814,7 @@ impl Kernel {
     /// the plugins (a nested callback's route on the X4, #250).
     #[inline(never)]
     fn tick_due(&mut self, now: Instant) {
-        self.now = now;
+        self.shared.now = now;
         self.hide_hints();
         self.escape(now);
         self.count_awake();
@@ -1069,7 +1068,7 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         // Asked from outside (a remote control, a test): as the reader.
         self.shared.reader = true;
-        self.now = now;
+        self.shared.now = now;
         self.output.commands.push(Command::Emit(event, params));
         self.run_commands();
         self.finish()
@@ -1122,7 +1121,7 @@ impl Kernel {
     pub fn open_slot(&mut self, now: Instant, slot: Id, params: Params) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.reader = true;
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.output.commands.push(Command::OpenSlot(slot, params));
         self.run_commands();
@@ -1134,7 +1133,7 @@ impl Kernel {
     pub fn open_book(&mut self, now: Instant, path: &str) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.reader = true;
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.output.commands.push(paperpaw_sdk::readers::open(path));
         self.run_commands();
@@ -1146,7 +1145,7 @@ impl Kernel {
     pub fn open_screen(&mut self, now: Instant, screen: Id, params: Params) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.reader = true;
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.output
             .commands
@@ -1160,7 +1159,7 @@ impl Kernel {
     pub fn run_action(&mut self, now: Instant, action: Id) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.reader = true;
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.dispatch(action);
         self.run_commands(); // As a key press: a dialog's queued close first (#266).
@@ -1183,7 +1182,7 @@ impl Kernel {
         let value = spec.parse(text).ok_or("not a value of this setting")?;
         let id = Id::parse(id).map_err(|_| "no such setting")?;
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.output.commands.push(Command::SetSetting(id, value));
         // The shell's, on the reader's behalf: also while a screen guards
@@ -1199,7 +1198,7 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         // Fingers and keys held under a native filter's capture are let go.
         self.shared.native_input.clear();
-        self.now = now;
+        self.shared.now = now;
         self.suspended_at = Some(now);
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
         self.output.commands.push(events::SUSPEND.emit(()));
@@ -1221,7 +1220,7 @@ impl Kernel {
     /// no sleep: none is counted, and no work waits for it.
     pub fn stop(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.output.commands.push(events::STOPPING.emit(()));
         let effects = self.finish();
         self.keep_timing();
@@ -1247,7 +1246,7 @@ impl Kernel {
             let slept = now.0.saturating_sub(at.0);
             self.shared.slept_for = Some(core::time::Duration::from_millis(slept));
         }
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.shown_since = now; // the time asleep is no screen's
         self.close_shut_out();
@@ -1300,8 +1299,10 @@ impl Kernel {
     }
 }
 
-/// Everything plugins can read through [`Env`].
+/// The kernel's state its screens, handlers and host calls read.
 struct Shared {
+    /// The time of what the kernel is handling.
+    now: Instant,
     /// The native runtime's producer endpoint; absent before runtime installation.
     native_events: Option<Box<dyn native_host::event_producers::EventSink>>,
     native_instances: native_host::native_instances::NativeInstances,

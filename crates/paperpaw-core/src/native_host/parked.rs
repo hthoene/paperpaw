@@ -11,7 +11,7 @@ impl crate::Kernel {
     // Its own frame: off the command loop's route (#250).
     #[inline(never)]
     pub(crate) fn native_unpark_pending(&mut self) -> bool {
-        self.shared.native_instances.set_now(self.now.millis());
+        self.shared.native_instances.set_now(self.shared.now.millis());
         // Memory pressure (an unpark found no memory): one idle plugin is
         // parked again first, so the start waiting may find room (D3). Where
         // none could be (none idle, not only not now), what found no memory
@@ -35,7 +35,7 @@ impl crate::Kernel {
             instances.set_doc_retry(None);
         } else if starved && instances.doc_retry().is_some() {
             // The document loop waits: due now, so its pending open fails.
-            instances.set_doc_retry(Some(self.now.millis()));
+            instances.set_doc_retry(Some(self.shared.now.millis()));
         }
         made
     }

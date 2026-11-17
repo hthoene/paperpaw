@@ -204,7 +204,7 @@ impl crate::Kernel {
     /// gone before the other pumps call plugins (#250).
     #[inline(never)]
     fn native_event_services(&mut self) -> bool {
-        let env = self.shared.env(self.now);
+        let env = self.shared.env(self.shared.now);
         let instances = &self.shared.native_instances;
         pump(
             instances,
@@ -250,10 +250,10 @@ impl crate::Kernel {
         // clocks run: a plugin whose network was turned off loses what it
         // has open in this pass.
         self.sync_net_policy();
-        self.shared.native_instances.set_now(self.now.millis());
+        self.shared.native_instances.set_now(self.shared.now.millis());
         self.shared
             .native_instances
-            .retry_run_closes(self.now.millis());
+            .retry_run_closes(self.shared.now.millis());
         // Answers given since the last pass (a dialog Back closed after it)
         // reach their askers before any request or event is served: a
         // computer's next request never finds a cancelled question open.
@@ -345,7 +345,7 @@ impl crate::Kernel {
         // An event queued after this call's pump ran (the commands that ran
         // after it raised it) is told at once too.
         if instances.service_more() || instances.setting_events.any_waiting() {
-            return Some(self.now);
+            return Some(self.shared.now);
         }
         instances
             .event_services()

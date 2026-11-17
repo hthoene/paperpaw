@@ -125,7 +125,7 @@ fn world(outcomes: &[Result<(), Unparked>]) -> World {
     let dropped = Rc::new(Cell::new(0));
     let counts = Rc::new(RefCell::new(Vec::new()));
     let clock = kernel.shared.native_instances.unpark_clock().unwrap();
-    kernel.shared.native_instances.set_now(kernel.now.millis());
+    kernel.shared.native_instances.set_now(kernel.shared.now.millis());
     let lease = NativeLease::parked(
         Box::new(Recipe {
             outcomes: Rc::new(RefCell::new(outcomes.to_vec())),
@@ -218,7 +218,7 @@ fn no_memory_keeps_the_event_asks_no_pass_and_delivers_after_the_wait() {
     // Within the wait nothing is tried.
     assert!(!w.kernel.native_unpark_pending());
     assert_eq!(w.made.get(), 1);
-    w.kernel.now = w.kernel.now.add_millis(1_000);
+    w.kernel.shared.now = w.kernel.shared.now.add_millis(1_000);
     assert!(
         w.kernel.native_unpark_pending(),
         "made once its wait is over"
@@ -279,7 +279,7 @@ fn on_standby_an_idle_plugin_sleeps_again_and_is_made_at_its_next_use() {
     w.change_stack();
     w.kernel.native_stack_pump();
     assert!(!w.parked());
-    let now = w.kernel.now;
+    let now = w.kernel.shared.now;
     let _ = w.kernel.suspend(now);
     assert!(w.parked(), "idle on standby: parked again");
     assert_eq!(w.dropped.get(), 1, "its instance (and `destroy`) is gone");
@@ -295,7 +295,7 @@ fn a_plugin_that_holds_something_stays_running_on_standby() {
     w.change_stack();
     w.kernel.native_stack_pump();
     w.idle.set(false);
-    let now = w.kernel.now;
+    let now = w.kernel.shared.now;
     let _ = w.kernel.suspend(now);
     assert!(!w.parked());
     assert_eq!(w.dropped.get(), 0);
@@ -308,7 +308,7 @@ fn without_standby_or_pressure_nothing_sleeps_again() {
     w.change_stack();
     w.kernel.native_stack_pump();
     for _ in 0..3 {
-        w.kernel.now = w.kernel.now.add_millis(600_000);
+        w.kernel.shared.now = w.kernel.shared.now.add_millis(600_000);
         w.kernel.native_unpark_pending();
     }
     assert!(!w.parked());
@@ -339,7 +339,7 @@ fn counter_flow(may_sleep: bool) -> Vec<u32> {
     w.idle.set(may_sleep);
     w.change_stack();
     w.kernel.native_stack_pump();
-    let now = w.kernel.now;
+    let now = w.kernel.shared.now;
     let _ = w.kernel.suspend(now);
     w.change_stack();
     w.kernel.native_stack_pump();
@@ -374,7 +374,7 @@ fn screen_room_after(batch_waits: bool, standby: bool) -> (usize, bool) {
         }
     }
     if standby {
-        let now = w.kernel.now;
+        let now = w.kernel.shared.now;
         let _ = w.kernel.suspend(now);
     } else {
         let _ = w.kernel.native_repark_idle(usize::MAX);

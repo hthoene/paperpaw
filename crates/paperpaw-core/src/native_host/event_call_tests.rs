@@ -341,7 +341,7 @@ fn two_callbacks_in_one_pump_step_each_run_their_batch_before_the_next() {
             )
             .unwrap();
     }
-    w.kernel.now = Instant(1_000);
+    w.kernel.shared.now = Instant(1_000);
     w.kernel.native_work_pump();
     // The pump itself ran the first batch before it called the second
     // callback: a waiting batch refuses the next call (`ERR_BUSY`, the
@@ -384,7 +384,7 @@ fn run_work(w: &mut World) {
             1_000,
         )
         .unwrap();
-    w.kernel.now = Instant(1_000);
+    w.kernel.shared.now = Instant(1_000);
     w.kernel.native_work_pump();
 }
 
@@ -476,7 +476,7 @@ impl ServiceEvents for Svc {
 /// batch (as `native_service_pump` does).
 fn pass(kernel: &mut crate::Kernel, svc: &Svc) -> bool {
     let more = {
-        let env = kernel.shared.env(kernel.now);
+        let env = kernel.shared.env(kernel.shared.now);
         let k = &*kernel;
         pump(
             &k.shared.native_instances,
