@@ -1,4 +1,4 @@
-//! The kernel's editor of lists of widgets (the sleep screen's widgets),
+//! The editor of lists of widgets (the sleep screen's widgets; the sleep plugin's screen since #293),
 //! opened on its slot, with the real kernel and the home screen's widgets, by buttons and by touch: widgets moved up and down (by
 //! their options, or dragged by the grip), removed and added, each change
 //! kept in the setting at once and read back by a new kernel; settings it
@@ -18,7 +18,7 @@ const CONFIG: &str = "[sleep]\nwidgets = home.clock, home.date, home.continue\n"
 fn editor(device: DeviceInfo, storage: Shared) -> App {
     let mut app = App::new(device, storage);
     app.open_slot(slots::EDIT_WIDGETS, Params::new().with(params::ID, LIST));
-    assert_eq!(app.screen(), "core.widget-list");
+    assert_eq!(app.screen(), "sleep.edit-widgets");
     app
 }
 
@@ -89,11 +89,11 @@ fn a_widget_is_added_at_the_end_and_kept_after_a_restart() {
         let storage = Shared::memory(CONFIG, &[]);
         let mut app = editor(device, storage.clone());
         choose(&mut app, "Add a widget");
-        assert_eq!(app.screen(), "core.add-widget");
+        assert_eq!(app.screen(), "sleep.edit-widgets");
         // Those in the list already are not offered again.
         assert!(!app.shows("Continue reading"), "{}", app.described());
         choose(&mut app, "Recently read");
-        assert_eq!(app.screen(), "core.widget-list");
+        assert_eq!(app.screen(), "sleep.edit-widgets");
         assert_eq!(
             list(&app),
             "home.clock, home.date, home.continue, home.recent"
@@ -146,7 +146,7 @@ fn opened_for_no_setting_or_an_unknown_one_it_changes_nothing() {
             let mut app = App::new(device, storage.clone());
             let before = storage.config();
             app.open_slot(slots::EDIT_WIDGETS, Params::new().with(params::ID, id));
-            assert_eq!(app.screen(), "core.widget-list", "{id:?}");
+            assert_eq!(app.screen(), "sleep.edit-widgets", "{id:?}");
             assert_eq!(rows(&mut app), ["Add a widget"], "{id:?}");
             choose(&mut app, "Add a widget");
             choose(&mut app, "Clock");

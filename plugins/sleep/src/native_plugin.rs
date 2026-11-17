@@ -7,12 +7,17 @@
 //! device to itself. While asleep every press but *sleep* and *home* is taken.
 //!
 //! The picker of the picture or the widget over the page (`sleep.pick-overlay`,
-//! `native_picker`) is the plugin's second screen.
+//! `native_picker`) is the plugin's second screen; the editor of a list of
+//! widgets (`sleep.edit-widgets` on the slot `core.edit-widgets`,
+//! `native_widgets_edit`) its third.
 use crate::{
-    declarations::{EVENTS, IMAGE_READY, PICK, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED, STARTED},
+    declarations::{
+        EDIT, EVENTS, IMAGE_READY, PICK, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED, STARTED,
+    },
     native_picker::Picker,
     native_screen::{Sleeping, read_text},
     native_sleep,
+    native_widgets_edit::Editor,
 };
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -52,6 +57,8 @@ pub struct NativeSleep {
     screens: Screens<Sleeping>,
     /// The pickers open; each goes with its screen.
     pickers: Screens<Picker>,
+    /// The editors of lists of widgets open; each goes with its screen.
+    editors: Screens<Editor>,
     /// Opened for the slot offers the first time a foreign mode needs them,
     /// then kept for the plugin's lifetime (as `ui`).
     registry: Option<Registry>,
@@ -88,7 +95,8 @@ impl Plugin for NativeSleep {
             kinds::ScreenOpened,
             kinds::ScreenShown,
             kinds::ScreenClosed,
-            kinds::ImageReady
+            kinds::ImageReady,
+            kinds::Answered
         ) else {
             return Ok(());
         };
@@ -105,6 +113,44 @@ impl Plugin for NativeSleep {
                 };
                 let picker = Picker::read(host, registry)?;
                 self.pickers.open(instance, picker)
+            }
+            Event::ScreenOpened {
+                instance, handover, ..
+            } if token == EDIT => {
+                self.ensure_ui(host)?;
+                let registry = match self.registry(host) {
+                    Ok(_) => self.registry.as_ref(),
+                    Err(Error::NoMemory) => return Err(Error::NoMemory),
+                    Err(_) => None,
+                };
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                let editor = Editor::open(ui, host, registry, handover)?;
+                self.editors.open(instance, editor)
+            }
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == EDIT => {
+                self.editors.shown(EDIT, instance)?;
+                match self.editors.get(instance) {
+                    Some(editor) => editor.shown(host),
+                    None => Ok(()),
+                }
+            }
+            Event::ScreenClosed { instance, .. } if token == EDIT => {
+                self.editors.close(instance);
+                Ok(())
+            }
+            Event::Answered { answer, .. } => {
+                let Some(ui) = self.ui.as_ref() else {
+                    return Ok(());
+                };
+                for editor in self.editors.all() {
+                    if editor.answered(ui, host, &answer)? {
+                        break;
+                    }
+                }
+                Ok(())
             }
             Event::ScreenShown {
                 instance: Some(instance),
@@ -147,6 +193,10 @@ impl Plugin for NativeSleep {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if token == EDIT {
+            let editor = self.editors.top(token).ok_or(Error::State)?;
+            return editor.draw(host, &mut frame);
+        }
         if token == PICK {
             let picker = self.pickers.top(token).ok_or(Error::State)?;
             return picker.draw(host, &mut frame);
@@ -165,6 +215,13 @@ impl Plugin for NativeSleep {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        if token == EDIT {
+            self.ensure_ui(host)?;
+            let (Some(ui), Some(editor)) = (self.ui.as_ref(), self.editors.top(token)) else {
+                return Ok(Handled::No);
+            };
+            return editor.input(ui, host, self.registry.as_ref(), &input);
+        }
         if token == PICK {
             return match self.pickers.top(token) {
                 Some(picker) => picker.input(host, &input),
@@ -187,6 +244,15 @@ impl Plugin for NativeSleep {
             } => Handled::No,
             _ => Handled::Yes,
         })
+    }
+}
+
+impl NativeSleep {
+    fn ensure_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        Ok(())
     }
 }
 
