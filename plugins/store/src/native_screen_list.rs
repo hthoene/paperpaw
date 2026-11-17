@@ -321,6 +321,7 @@ pub fn empty_words(trouble: Trouble, touch: bool) -> (&'static str, &'static str
     match trouble {
         Trouble::Offline if touch => ("store.offline", "store.offline.help"),
         Trouble::Offline => ("store.offline", "store.offline.help.buttons"),
+        Trouble::Memory => ("store.memory", "store.memory.help"),
         Trouble::Failed if touch => ("store.unreachable", "store.unreachable.help"),
         Trouble::Failed => ("store.unreachable", "store.unreachable.help.buttons"),
         Trouble::Unsupported => ("store.unsupported", "store.unsupported.help"),
@@ -333,7 +334,7 @@ pub fn empty_words(trouble: Trouble, touch: bool) -> (&'static str, &'static str
 pub const fn empty_icon(trouble: Trouble) -> &'static str {
     match trouble {
         Trouble::Offline => "wifi-off",
-        Trouble::Failed | Trouble::Unsupported => "cloud",
+        Trouble::Failed | Trouble::Memory | Trouble::Unsupported => "cloud",
         _ => "cloud-download",
     }
 }
@@ -342,7 +343,11 @@ pub const fn empty_icon(trouble: Trouble) -> &'static str {
 /// list.
 #[must_use]
 pub fn retry(empty: bool, trouble: Trouble) -> bool {
-    empty && matches!(trouble, Trouble::Offline | Trouble::Failed)
+    empty
+        && matches!(
+            trouble,
+            Trouble::Offline | Trouble::Failed | Trouble::Memory
+        )
 }
 
 /// The screen.

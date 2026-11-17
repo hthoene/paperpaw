@@ -191,6 +191,9 @@ impl Calls {
             None => Sink::Memory(Vec::new(), call.max_response, staged),
         };
         let deadline = now_ms() + u64::from(call.timeout_ms);
+        if Url::parse(&call.url).is_some_and(|url| url.https) {
+            crate::tls_slots::ask_room();
+        }
         self.calls.push(Call {
             url: call.url.clone(),
             call,
@@ -727,6 +730,7 @@ fn error_of(reason: &str) -> HttpError {
         "no such host" | "not an address" => HttpError::Dns,
         "timed out" | SILENT => HttpError::Timeout,
         "could not connect" | "too many redirects" | "too large" => HttpError::Refused,
+        _ if reason.starts_with("not enough memory") => HttpError::Refused,
         _ if reason.contains("certificate") || reason.contains("secure") => HttpError::Tls,
         _ => HttpError::Io,
     }

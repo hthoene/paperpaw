@@ -35,6 +35,8 @@ pub enum Trouble {
     Offline,
     /// The fetch failed, or what came is no list.
     Failed,
+    /// The device had no memory for the connection.
+    Memory,
     /// The libraries have nothing made for this device.
     Unsupported,
 }
@@ -92,6 +94,7 @@ impl Loader for LoaderView<'_> {
             Load::Loading => Trouble::Loading,
             Load::Offline => Trouble::Offline,
             Load::Failed => Trouble::Failed,
+            Load::Memory => Trouble::Memory,
             Load::Unsupported => Trouble::Unsupported,
             _ => Trouble::None,
         }
