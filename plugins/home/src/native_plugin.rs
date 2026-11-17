@@ -13,7 +13,7 @@ use paperpaw_sdk::{
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input},
-        commands::CommandSender,
+        commands::{CommandSender, RedrawMode},
         events::{Event, Incoming, kinds},
         registrations,
         registry::StatusScope,
@@ -45,6 +45,13 @@ use crate::native_lines;
 use crate::native_reflow::fit;
 use crate::native_source::is_grid_setting;
 use crate::native_widgets::Widgets;
+
+/// Whether the home screen, shown again with covers ready, is drawn first with
+/// the covers' places and the covers come in the frame right after it (about
+/// 0.5 s later on the X4, as the reader does for the pictures of a page;
+/// #294): the first frame spends no time on decoding them (about 270 ms). The
+/// switch is this line.
+pub const COVERS_IN_FOLLOWUP: bool = true;
 
 /// The setting the footer's editor changes.
 const FOOTER_ITEMS: &str = "home.footer.items";
@@ -165,10 +172,7 @@ impl Plugin for NativeHome {
                 ..
             } if token == DASHBOARD => {
                 self.screens.shown(DASHBOARD, instance)?;
-                if let Some(Slot::Dashboard(dashboard)) = self.screens.get(instance) {
-                    dashboard.shown(last_input);
-                }
-                Ok(())
+                self.dashboard_shown(host, instance, last_input)
             }
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
@@ -189,6 +193,7 @@ impl Plugin for NativeHome {
                 ..
             } => self.widgets.stage(host, self.ui()?, payload, reply),
             Event::Tick { .. } if token == TICK => {
+                self.covers_now();
                 self.widgets
                     .tick(host, self.ui.as_ref().ok_or(Error::State)?);
                 self.refresh(host)
@@ -247,8 +252,21 @@ impl Plugin for NativeHome {
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
-        self.widgets.fresh();
-        self.new_epoch();
+        // A press that only moves the focus changes nothing the widgets show:
+        // what they kept of the books and composed stays for the next draw.
+        let step = match self.screens.top(token) {
+            Some(Slot::Dashboard(dashboard)) if dashboard.is_focus_step(&input) => {
+                dashboard.focus_step();
+                true
+            }
+            _ => false,
+        };
+        if step {
+            self.widgets.focus_step();
+        } else {
+            self.widgets.fresh();
+            self.new_epoch();
+        }
         self.ensure_ui(host)?;
         let ui = self.ui.as_ref().ok_or(Error::State)?;
         // A tap on a book of the card or the shelf.
@@ -291,6 +309,55 @@ impl NativeHome {
 
     fn ui(&self) -> Result<&Ui, Error> {
         self.ui.as_ref().ok_or(Error::State)
+    }
+
+    /// Nothing waits for the frame after the page's any more (a minute came):
+    /// what is drawn next has its covers.
+    fn covers_now(&mut self) {
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                dashboard.covers_later(false);
+            }
+        }
+    }
+
+    fn dashboard_shown(
+        &mut self,
+        host: &Host<'_>,
+        instance: Instance,
+        last_input: Option<paperpaw_sdk::keys::InputMode>,
+    ) -> Result<(), Error> {
+        if let Some(Slot::Dashboard(dashboard)) = self.screens.get(instance) {
+            dashboard.shown(last_input);
+        }
+        if COVERS_IN_FOLLOWUP {
+            self.covers_later(host, instance)?;
+        }
+        Ok(())
+    }
+
+    /// The page is shown again with covers ready (`COVERS_IN_FOLLOWUP`): it is
+    /// drawn with their places, and the cards' and shelves' areas again in the
+    /// frame right after, with the covers.
+    fn covers_later(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        let Some(Slot::Dashboard(dashboard)) = self.screens.get(instance) else {
+            return Ok(());
+        };
+        if !dashboard.any_cover_ready() {
+            return Ok(());
+        }
+        let areas = dashboard.cover_areas()?;
+        if areas.is_empty() {
+            return Ok(());
+        }
+        let mut scratch = [0; 128];
+        let mut sender = CommandSender::new(host, &mut scratch);
+        sender.queue_redraw(RedrawMode::Partial)?;
+        for area in areas {
+            sender.queue_redraw_area(RedrawMode::Partial, area)?;
+        }
+        dashboard.covers_later(true);
+        Ok(())
     }
 
     fn covers_ready(&mut self, host: &Host<'_>) -> Result<(), Error> {

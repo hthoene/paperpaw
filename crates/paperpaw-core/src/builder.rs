@@ -869,11 +869,14 @@ impl BuilderParts {
                 pending_weight: 0,
                 unrendered: None,
                 rendered: None,
+                stop: None,
+                stopped: false,
                 row_align: self.row_align,
                 band: self
                     .frame_rows
                     .map(|rows| u32::from(rows) * u32::from(display.width)),
                 pictures_shown: false,
+                pictures_on: None,
                 again: false,
                 screenshot: None,
                 mark: None,
@@ -971,6 +974,7 @@ impl BuilderParts {
             config_unreadable: false,
             card_trouble: None,
             after_sleep: false,
+            storage_kept: false,
             secrets_unreadable: false,
             secrets_opened: false,
             secrets_wired: None,

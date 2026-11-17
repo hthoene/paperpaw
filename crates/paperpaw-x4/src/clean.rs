@@ -12,13 +12,13 @@ pub const WHITE_BYTES: usize = 1600;
 
 /// Whether the frame about to be drawn is shown by a clean to white and a fast
 /// refresh instead of a half refresh of itself: after grays only (else the half
-/// refresh drives every pixel anyway for nothing it could overlap), for a frame
-/// whose drawing takes as long as the clean (the home screen: the others draw
-/// in well under half a second, and the extra fast refresh costs more than
-/// they gain), on a panel that can (`panel`, the SSD1677 that keeps no frame).
+/// refresh drives every pixel anyway for nothing it could overlap), whatever
+/// screen it is (the clean takes the 1.7 s a half refresh does, the drawing
+/// goes on beside it, and the fast refresh that shows the frame is 0.5 s), on a
+/// panel that can (`panel`, the SSD1677 that keeps no frame).
 #[must_use]
-pub const fn wanted(panel: bool, after_gray: bool, half: bool, home: bool) -> bool {
-    panel && after_gray && half && home
+pub const fn wanted(panel: bool, after_gray: bool, half: bool) -> bool {
+    panel && after_gray && half
 }
 
 /// The bands of white that cover a screen `width` by `height`: each a first row
@@ -62,15 +62,14 @@ mod tests {
     }
 
     #[test]
-    fn only_the_home_screen_after_grays_on_a_panel_that_can_is_cleaned_while_drawn() {
-        assert!(wanted(true, true, true, true));
-        for (panel, after_gray, half, home) in [
-            (false, true, true, true),
-            (true, false, true, true),
-            (true, true, false, true),
-            (true, true, true, false),
+    fn only_the_frame_after_grays_on_a_panel_that_can_is_cleaned_while_drawn() {
+        assert!(wanted(true, true, true));
+        for (panel, after_gray, half) in [
+            (false, true, true),
+            (true, false, true),
+            (true, true, false),
         ] {
-            assert!(!wanted(panel, after_gray, half, home));
+            assert!(!wanted(panel, after_gray, half));
         }
     }
 }

@@ -529,6 +529,7 @@ pub(super) fn build_group(
             }
         }
     }
+    font_first(&mut specs, &of);
     let has_more = !view.more && advanced_offered && !specs.iter().any(|s| s.has(flag::ADVANCED));
     let mut pool: Vec<Option<Entry>> = Vec::new();
     for s in &specs {
@@ -582,6 +583,19 @@ pub(super) fn build_group(
         view.list.set_focus(at);
     }
     Ok(())
+}
+
+/// A widget's font is what its page is opened for as often as not: first,
+/// not after the widget's own settings (a page or two of buttons away).
+fn font_first(specs: &mut [&Setting], of: &str) {
+    if let Some(at) = specs.iter().position(|s| is_font_of(of, &s.key)) {
+        specs[..=at].rotate_right(1);
+    }
+}
+
+/// Whether `key` is the font setting of widget `of` (`<widget>.font`).
+fn is_font_of(of: &str, key: &str) -> bool {
+    key.strip_prefix(of).is_some_and(|rest| rest == ".font")
 }
 
 /// The title of the page of group `of`, with "More" after it for its

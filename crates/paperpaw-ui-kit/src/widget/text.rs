@@ -82,9 +82,12 @@ pub fn fit_line(
 pub fn ink_baseline(font: &Font<'_>, size: f32, text: &str, band: Rect) -> Result<i32, Error> {
     let (top, bottom) = match font.ink(size, text)? {
         Some(ink) => crate::geometry::check_ink(ink.top, ink.bottom)?,
+        // The host tells no ink (the X4's): by the line, whose ascent and
+        // descent (both positive) reach as far as the glyphs of an icon font
+        // and as far as the text's letters, give or take a pixel.
         None => {
             let (ascent, descent, _) = crate::geometry::line_metrics(font, size)?;
-            (-(ascent as i32), -(descent as i32))
+            (-(ascent as i32), descent as i32)
         }
     };
     let room = i32::from(band.height) - (bottom - top);

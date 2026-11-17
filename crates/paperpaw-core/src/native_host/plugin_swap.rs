@@ -296,7 +296,8 @@ fn decode_removal(bytes: &[u8]) -> Option<Removal> {
 pub(crate) fn present(storage: &dyn Storage, path: &str) -> Result<bool, u8> {
     let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
     let mut found = false;
-    match storage.list_from(dir, 0, &mut |entry| {
+    // No entry read past the one found.
+    match storage.list_bounded(dir, 0, &mut |entry| {
         found = found || entry.name.eq_ignore_ascii_case(name);
         !found
     }) {

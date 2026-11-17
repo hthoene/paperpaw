@@ -212,7 +212,9 @@ fn huge_pngs_take_what_a_row_needs_whatever_their_height() {
         let mut png = Png::new(1, 1, color, depth, 0);
         png.width = 65536;
         let zlib = miniz_oxide::deflate::compress_to_vec_zlib(&[0; 64], 6);
-        png.height = 1;
+        // Enough rows that the data passes the deflate history (a smaller
+        // image inflates into a window of its own size).
+        png.height = 8;
         let (_, _, one_row, _) = measure(Format::Png, &png.with_zlib(&zlib), SCREEN, true);
         png.height = 65536;
         let (result, sink, all_rows, _) = measure(Format::Png, &png.with_zlib(&zlib), SCREEN, true);

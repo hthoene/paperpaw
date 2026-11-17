@@ -237,6 +237,10 @@ impl NativeKeyboard {
         CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
     }
 
+    // Out of line: in a plugin file the SDK's `event_core` has one caller, so the
+    // compiler folds `event` and all it opens into that one frame (2,096 B on the
+    // X4, over the packer's 2,047 B limit).
+    #[inline(never)]
     fn opened(
         &mut self,
         host: &Host<'_>,
@@ -261,6 +265,7 @@ impl NativeKeyboard {
     }
 
     /// Reads the question the host opened this dialog for, and its text.
+    #[inline(never)]
     fn open_dialog(
         &self,
         host: &Host<'_>,
@@ -910,6 +915,7 @@ fn covered(font: Option<&Font<'_>>, text: &str) -> bool {
 }
 
 /// The rows of the layout chooser and its items, from the setting.
+#[inline(never)]
 fn build_choose(host: &Host<'_>) -> Result<ChooseView, Error> {
     let font = Font::acquire_role(host, FontRole::Ui).ok();
     let drawn = |text: &str| covered(font.as_ref(), text);

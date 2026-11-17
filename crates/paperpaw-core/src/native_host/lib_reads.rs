@@ -57,6 +57,7 @@ mod fields;
 mod importer;
 mod jobs;
 mod old_reader;
+mod place_file;
 mod position;
 mod provide;
 mod query;
@@ -421,11 +422,12 @@ impl CatalogReads {
         let BookRef::Path(path) = book else {
             return self.with_path(book, f);
         };
-        match self.locate(book) {
-            Ok(_) => {}
-            // A file, not a folder (whose size the card does not give).
-            Err(ERR_NOT_FOUND) if self.storage.size(path).is_ok() => {}
-            Err(error) => return Err(error),
+        // A file the card holds first (not a folder, whose size the card
+        // does not give): the book that is open is found among the open
+        // files, and the catalog is not searched for it at every page
+        // turned (its log read twice and its lines up to the book's, #305).
+        if self.storage.size(path).is_err() {
+            self.locate(book)?;
         }
         f(path)
     }

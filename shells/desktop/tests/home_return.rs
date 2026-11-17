@@ -31,17 +31,28 @@ const BOOK: &str = "books/alice-in-wonderland.epub";
 /// names and widgets kept theirs); laid out again on every return, as before:
 /// 1,349 and 712.
 const KEPT_ALL_SLOTS: u32 = 225;
-const KEPT_SETTINGS: u32 = 20;
+const KEPT_SETTINGS: u32 = 17;
+/// From the drawer, the card and the shelf have the same lines as at the last
+/// frame: they are drawn again, not measured and wrapped again (134 slots
+/// measured, 195 before the lines were kept across returns, #294).
+const KEPT_DRAWER_SLOTS: u32 = 140;
+/// What a return with a ready cover makes more, as the step of the script counts
+/// it: the second frame, which draws the covers (`COVERS_IN_FOLLOWUP`, Decision
+/// 213): about 105 slots and one more listing (326 against 220 slots measured).
+const FOLLOWUP_EXTRA: u32 = 110;
 /// The service calls of a return from the drawer (one of Home's own screens):
-/// the wifi plugin's, the library's listing and the status line's values; the
-/// stack, the registry and the settings the page asked before are kept (#294).
-const KEPT_CALLS: usize = 3;
+/// the library's listing and the status line's values; the stack, the registry
+/// and the settings the page asked before are kept, and the wifi plugin reads
+/// the radio once and then follows its change events (#294).
+const KEPT_CALLS: usize = 2;
 /// The first frame of a return with a full shelf (six books), host slots
-/// (emulator): 289 measured, 299 before the status line kept what it asked of
+/// (emulator): 368 measured with the covers' frame after it counted (Decision
+/// 213, `COVERS_IN_FOLLOWUP`), 256 without it, 289 before the card's and the
+/// shelf's lines were kept across returns, 299 before the status line kept what it asked of
 /// the host, 615 before the bands of a frame shared what the first one
 /// composed. The emulator draws the five books' placeholders (a title wrapped
 /// by measuring its words) where the X4 draws the covers it has made.
-const FULL_SHELF_SLOTS: u32 = 295;
+const FULL_SHELF_SLOTS: u32 = 370;
 /// The step after the return from a book: the book's card has its cover in
 /// the first frame (the library lists the book at once, #267), so the page,
 /// black and white first, is drawn again in grays once it is calm (Decision
@@ -49,17 +60,17 @@ const FULL_SHELF_SLOTS: u32 = 295;
 /// measured: 284 slots, 15 settings reads). Where the cover came after the first
 /// frame, Home drew that cell alone (356 slots). The return itself is
 /// `KEPT_ALL_SLOTS`; a laid-out page costs over 1,300.
-const GRAY_PASS_SLOTS: u32 = 300;
+const GRAY_PASS_SLOTS: u32 = 235;
 /// A full redraw (five bands) of a page whose look is kept: slots, settings reads
 /// (622 and 270 before the look was kept; 188 and 11 measured).
-const STEADY_SLOTS: u32 = 200;
-const STEADY_READS: u32 = 14;
+const STEADY_SLOTS: u32 = 135;
+const STEADY_READS: u32 = 11;
 /// The first lay-out of the page (the first Back out of the start book): host
 /// slots and settings reads (emulator, X4). Measured 587 and 182; 711 and 303
 /// before the looks of the page, its widgets and its status line shared the
 /// interface's settings, and a laid-out page's return makes 520 to 530. 485 and
 /// 185 measured now: the cold page asks each of its things once.
-const COLD_SLOTS: u32 = 500;
+const COLD_SLOTS: u32 = 490;
 const COLD_SETTINGS: u32 = 190;
 /// The first redraw after a setting changed reads the look of the page and of
 /// each of its widgets again: 160 reads measured, 142 where the page forgets
@@ -180,7 +191,7 @@ fn the_home_screen_keeps_its_page_while_another_screen_covers_it() {
     let (all, settings) = back_from_the_drawer(&mut device);
     assert_eq!(screen(&mut device), "home.dashboard");
     assert!(
-        all <= KEPT_ALL_SLOTS && settings <= KEPT_SETTINGS,
+        all <= KEPT_DRAWER_SLOTS && settings <= KEPT_SETTINGS,
         "the return made {all} host slots ({settings} settings reads): the page was laid out again"
     );
     let calls = slot_counts::service_calls();
@@ -201,7 +212,7 @@ fn a_missing_hyphenation_table_does_not_make_home_read_its_look_at_every_draw() 
     let (all, settings) = back_from_the_drawer(&mut device);
     assert_eq!(screen(&mut device), "home.dashboard");
     assert!(
-        all <= KEPT_ALL_SLOTS && settings <= KEPT_SETTINGS,
+        all <= KEPT_DRAWER_SLOTS && settings <= KEPT_SETTINGS,
         "the return made {all} host slots ({settings} settings reads) in German: the look is read again"
     );
     let (steady, steady_reads) = redrawn(&mut device);
@@ -285,7 +296,7 @@ fn what_a_book_changed_under_the_cover_shows_when_it_returns() {
     let ((all, settings), (cover, cover_settings)) = returned(&mut device);
     assert_eq!(screen(&mut device), "home.dashboard");
     assert!(
-        all <= KEPT_ALL_SLOTS && settings <= KEPT_SETTINGS,
+        all <= KEPT_ALL_SLOTS + FOLLOWUP_EXTRA && settings <= KEPT_SETTINGS,
         "the return made {all} host slots ({settings} settings reads): the page was laid out again"
     );
     assert!(
@@ -328,7 +339,7 @@ fn the_return_from_a_book_does_not_ask_the_library_for_each_band() {
     // The reader's close, the wifi plugin's call, the library's listing and the
     // status line's values: Home asks the stack and the registry of nothing (#294).
     assert!(
-        calls.len() <= 4,
+        calls.len() <= 5,
         "the return made {} service calls: {calls:?}",
         calls.len()
     );
@@ -337,7 +348,8 @@ fn the_return_from_a_book_does_not_ask_the_library_for_each_band() {
         eprintln!("  service {plugin} {service}.{op}");
     }
     assert!(
-        queries == 1 && of("book") == 0 && of("cover") <= 1,
+        // The listing of the first frame and the one of the frame after it.
+        queries <= 2 && of("book") == 0 && of("cover") <= 1,
         "the return asked the library {queries} times for its books: {calls:?}"
     );
 }
@@ -414,7 +426,7 @@ fn the_first_frame_of_a_return_makes_few_service_calls_with_a_full_shelf() {
     };
     assert_eq!(screen(&mut device), "home.dashboard");
     assert!(
-        of("home core.library.query") <= 1
+        of("home core.library.query") <= 2
             && of("home core.library.book") == 0
             && of("home core.library.cover") <= 1
             && of("home core.ui.stack") == 0
@@ -432,6 +444,104 @@ fn the_first_frame_of_a_return_makes_few_service_calls_with_a_full_shelf() {
         all <= FULL_SHELF_SLOTS,
         "the first frame made {all} host slots"
     );
+}
+
+/// A six-book card and shelf, each book opened once, Home shown, the book
+/// `books/b3.epub` on the shelf.
+fn with_a_full_shelf() -> Device {
+    let mut device = with_books(6);
+    run_script(&mut device, "back").unwrap();
+    run_script(&mut device, "wait:3000").unwrap();
+    for n in (0..6).rev() {
+        run_script(
+            &mut device,
+            &format!("open:reader.screen:path=books/b{n}.epub"),
+        )
+        .unwrap();
+        run_script(&mut device, "wait:3000").unwrap();
+        run_script(&mut device, "back").unwrap();
+        run_script(&mut device, "wait:3000").unwrap();
+    }
+    device
+}
+
+/// How often `slot` was entered since the last reset.
+fn entered(slot: &str) -> u32 {
+    slot_counts::snapshot()
+        .iter()
+        .find(|(name, _)| *name == slot)
+        .map_or(0, |(_, n)| *n)
+}
+
+/// The card and the shelf measure and wrap their lines once for as long as what
+/// they show is the same (#294): the returns from the same book after the
+/// first ones do not measure them again (the X4 spent about 115 ms of a return
+/// on it), and the wifi plugin does not read the radio again at each return
+/// while its change event says it is off (one service call a return).
+#[test]
+fn a_return_with_the_same_books_does_not_measure_the_card_and_the_shelf_again() {
+    let mut device = with_a_full_shelf();
+    let mut measured = Vec::new();
+    let mut wifi = Vec::new();
+    for _ in 0..4 {
+        run_script(&mut device, "open:reader.screen:path=books/b3.epub").unwrap();
+        run_script(&mut device, "wait:3000").unwrap();
+        slot_counts::reset();
+        run_script(&mut device, "back").unwrap();
+        measured.push((entered("text_measure"), entered("text_metrics")));
+        let calls = slot_counts::service_calls();
+        wifi.push(calls.iter().filter(|(p, ..)| p == "wifi").count());
+        eprintln!(
+            "RETURN measure/metrics {:?}, slots {}, wifi calls {}",
+            measured.last().unwrap(),
+            slot_counts::snapshot().iter().map(|(_, n)| *n).sum::<u32>(),
+            wifi.last().unwrap()
+        );
+        run_script(&mut device, "wait:3000").unwrap();
+    }
+    assert_eq!(screen(&mut device), "home.dashboard");
+    let (first, last) = (measured[0], measured[3]);
+    assert!(
+        last.0 + 12 <= first.0 && last.1 <= first.1,
+        "the returns measured {measured:?} times (text_measure, text_metrics)"
+    );
+    assert_eq!(wifi[3], 0, "the last return read the radio: {wifi:?}");
+}
+
+/// Covers are never lost: with them in the first frame, or in the frame after
+/// it (`COVERS_IN_FOLLOWUP` in Home's `native_plugin.rs`, on), a return has
+/// drawn them once the frame after is done. Measured with the switch on (the
+/// steps `back` and `wait` of a script cannot tell the two frames apart): the
+/// return makes 375 host slots against 269 with it off, 3 service calls more
+/// (the library again for the second frame), and the second frame's areas draw
+/// the covers.
+#[test]
+fn the_covers_come_in_the_first_frame_or_the_frame_after() {
+    let mut device = device(true);
+    run_script(&mut device, "back").unwrap();
+    run_script(&mut device, "wait:3000").unwrap();
+    // Twice, so that the cover is made and known.
+    let (mut first, mut composed) = (0, 0);
+    for _ in 0..2 {
+        run_script(
+            &mut device,
+            "open:reader.screen:path=books/alice-in-wonderland.epub",
+        )
+        .unwrap();
+        run_script(&mut device, "wait:15000").unwrap();
+        run_script(&mut device, "wait:15000").unwrap();
+        slot_counts::reset();
+        run_script(&mut device, "back").unwrap();
+        first = entered("image_draw");
+        composed = entered("ui_compose");
+        run_script(&mut device, "wait:3000").unwrap();
+    }
+    let drawn = entered("image_draw");
+    eprintln!(
+        "COVERS first frame {first} (frames {composed}), with the frame after {drawn} (frames {})",
+        entered("ui_compose")
+    );
+    assert!(drawn > 0, "no cover was drawn");
 }
 
 /// The first Back out of the book Home was opened under lays the page out for
@@ -521,7 +631,7 @@ fn a_return_from_a_book_read_for_minutes_keeps_the_page() {
     // 1,298 slots measured); the widgets of the new minute draw a few slots
     // more than the first return does.
     assert!(
-        all <= KEPT_ALL_SLOTS + 100 && settings <= KEPT_SETTINGS,
+        all <= KEPT_ALL_SLOTS + FOLLOWUP_EXTRA + 40 && settings <= KEPT_SETTINGS,
         "the return made {all} host slots ({settings} settings reads): the page was laid out again"
     );
     assert!(

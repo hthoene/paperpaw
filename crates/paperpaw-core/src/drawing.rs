@@ -20,6 +20,12 @@ pub(crate) struct FrameState {
     pub(crate) unrendered: Option<Rect>,
     /// What [`Kernel::render`] passed last, for [`Kernel::rerender`].
     pub(crate) rendered: Option<Rect>,
+    /// Asked between bands of a frame drawn by [`Kernel::render_gray_until`]:
+    /// whether to stop (a key came).
+    pub(crate) stop: Option<fn() -> bool>,
+    /// The last [`Kernel::render_gray_until`] was stopped before its last
+    /// band.
+    pub(crate) stopped: bool,
     /// See [`KernelBuilder::row_align`].
     pub(crate) row_align: u16,
     /// The pixels of a band, where frames are drawn in bands
@@ -27,6 +33,8 @@ pub(crate) struct FrameState {
     pub(crate) band: Option<u32>,
     /// The frame shown has large pictures (see [`PICTURES_PERCENT`]).
     pub(crate) pictures_shown: bool,
+    /// The opening of the screen (`ActiveScreen::serial`) that showed them.
+    pub(crate) pictures_on: Option<u32>,
     /// The whole screen is drawn again as it was ([`Kernel::draw_again`]),
     /// in black and white after grays: not in grays for its pictures.
     pub(crate) again: bool,
@@ -103,6 +111,41 @@ impl Kernel {
     /// bytes as its own, which goes meanwhile. `false` where there is no
     /// memory for it (nothing passed then).
     pub fn render_gray(&mut self, out: &mut dyn FnMut(u16, FrameView<'_>)) -> bool {
+        self.render_gray_until(out, None)
+    }
+
+    /// [`Kernel::render_gray`] that asks `stop` before each band after the
+    /// first and ends the frame there where it says so (a key came: the rest
+    /// of a pass that long is not worth waiting for); [`Kernel::gray_stopped`]
+    /// says whether it did. The frame is then partial: the shell shows none,
+    /// and draws the screen again whole afterwards.
+    pub fn render_gray_until(
+        &mut self,
+        out: &mut dyn FnMut(u16, FrameView<'_>),
+        stop: Option<fn() -> bool>,
+    ) -> bool {
+        self.frame.stop = stop;
+        self.frame.stopped = false;
+        let drawn = self.render_gray_frame(out);
+        self.frame.stop = None;
+        drawn
+    }
+
+    /// Whether the frame being drawn is to stop here (`later`: not before its
+    /// first band): asked of [`Kernel::render_gray_until`]'s `stop`.
+    fn stop_asked(&mut self, later: bool) -> bool {
+        let stop = later && self.frame.stop.is_some_and(|stop| stop());
+        self.frame.stopped |= stop;
+        stop
+    }
+
+    /// Whether the last [`Kernel::render_gray_until`] was stopped.
+    #[must_use]
+    pub fn gray_stopped(&self) -> bool {
+        self.frame.stopped
+    }
+
+    fn render_gray_frame(&mut self, out: &mut dyn FnMut(u16, FrameView<'_>)) -> bool {
         use paperpaw_platform::PixelFormat;
         let format = self.framebuffer.format();
         let bounds = self.framebuffer.bounds();
@@ -170,6 +213,16 @@ impl Kernel {
         }
     }
 
+    /// Whether large pictures are on the screen now, and on which opening of a
+    /// screen: its `big` pictures were drawn, or they stay while less than
+    /// `most` of the screen changed.
+    fn note_pictures(&mut self, big: bool, most: bool) {
+        if big {
+            self.frame.pictures_on = self.stack.last().map(|s| s.serial);
+        }
+        self.frame.pictures_shown = big || (self.frame.pictures_shown && !most);
+    }
+
     /// Draws everything that changed since the last call and passes it to
     /// `out` as full-width rows of pixels, top to bottom: `out(top, rows)`
     /// with `top` the screen row of the first one. Call it after each
@@ -221,7 +274,7 @@ impl Kernel {
         });
         let mut gray = Vec::new();
         let mut top = region.y - region.y % rows;
-        while u32::from(top) < region.bottom() {
+        while u32::from(top) < region.bottom() && !self.stop_asked(top > region.y) {
             self.framebuffer.set_top(top);
             if let Some(part) = region.intersection(&self.framebuffer.band()) {
                 self.redraw(part);
@@ -260,7 +313,7 @@ impl Kernel {
         let screen = u32::from(bounds.width) * u32::from(bounds.height);
         let big = pictured.saturating_mul(100) >= screen.saturating_mul(PICTURES_PERCENT);
         let most = u32::from(region.width) * u32::from(region.height) * 2 >= screen;
-        self.frame.pictures_shown = big || (self.frame.pictures_shown && !most);
+        self.note_pictures(big, most);
         let all = self.framebuffer.take_all_pictured();
         self.gray_seen(all, screen);
         if let Some(path) = shot {

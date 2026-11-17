@@ -63,6 +63,9 @@ pub struct Listing {
     /// Whether a draw began since `page` was read by something that is no draw
     /// (what a measure or the page's check just read is used by the frame).
     by_draw: Cell<bool>,
+    /// The next frame keeps what the last one listed (a press that only moved
+    /// the focus: nothing it shows changed); one frame, not the ones after it.
+    keep_next: Cell<bool>,
     /// A draw is under way (its reads are the frame's).
     drawing: Cell<bool>,
     /// The frames begun, to let the instances of one frame agree on who begins it.
@@ -85,6 +88,9 @@ pub struct Listing {
     /// Counts the calls into the plugin that are no draw: what a widget kept
     /// of a frame's first band is for that count only ([`Listing::epoch`]).
     epoch: Cell<u32>,
+    /// The frame under way draws the covers' places only: the covers come in
+    /// the frame after it (`COVERS_IN_FOLLOWUP`, #294).
+    later: Cell<bool>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -100,6 +106,27 @@ impl Listing {
     /// widgets composed for the bands of a frame is not for the next one.
     pub fn new_epoch(&self) {
         self.epoch.set(self.epoch.get().wrapping_add(1));
+    }
+
+    /// Whether a cover of the books is ready to draw as far as is known.
+    #[must_use]
+    pub fn any_cover_ready(&self) -> bool {
+        self.covers
+            .borrow()
+            .iter()
+            .any(|(.., covered)| matches!(covered, Covered::Ready(_)))
+    }
+
+    /// The frames under way draw the covers' places; the covers follow
+    /// (`on`), or they are drawn as they are ready.
+    pub fn covers_later(&self, on: bool) {
+        self.later.set(on);
+    }
+
+    /// Whether the covers are to come in the frame after.
+    #[must_use]
+    pub fn later(&self) -> bool {
+        self.later.get()
     }
 
     /// The count of [`Listing::new_epoch`].
@@ -166,7 +193,7 @@ impl Listing {
         self.covers.borrow_mut().clear();
     }
 
-    fn cover_of(&self, book: &Book) -> Option<Covered> {
+    pub(crate) fn cover_of(&self, book: &Book) -> Option<Covered> {
         let title = title_hash(&book.title);
         self.covers
             .borrow()
@@ -202,6 +229,12 @@ impl Listing {
         self.by_draw.set(false);
     }
 
+    /// The frame to come draws what the last one listed again, asking the host
+    /// for nothing: only the focus moved.
+    pub fn keep_for_next_frame(&self) {
+        self.keep_next.set(true);
+    }
+
     /// A draw begins (`true`) or is over.
     pub fn drawing(&self, on: bool) {
         self.drawing.set(on);
@@ -212,9 +245,10 @@ impl Listing {
     /// that is no draw read it since.
     fn begin_frame(&self, seen: &Cell<u32>) {
         if seen.get() == self.frame.get() {
-            if self.by_draw.get() {
+            if self.by_draw.get() && !self.keep_next.get() {
                 *self.page.borrow_mut() = None;
             }
+            self.keep_next.set(false);
             self.frame.set(self.frame.get().wrapping_add(1));
         }
         seen.set(self.frame.get());
@@ -475,6 +509,67 @@ fn gone_known(host: &Host<'_>, listing: &Listing, book: &Book) -> Result<bool, E
         listing.remember(book, gone).ok();
         Ok(gone)
     })
+}
+
+/// What a widget composed from, boiled down to one number to tell a later
+/// frame that nothing changed (FNV-1a): the books, how far each is read, the
+/// state of each cover the library last said, and what else the widget
+/// reads. Nothing is asked of the host to make it.
+#[derive(Debug)]
+pub struct Content(u64);
+
+impl Default for Content {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Content {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self(0xcbf2_9ce4_8422_2325)
+    }
+
+    pub fn bytes(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.0 = (self.0 ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+
+    pub fn number(&mut self, number: u32) {
+        self.bytes(&number.to_le_bytes());
+    }
+
+    pub fn rect(&mut self, rect: Rect) {
+        for part in [rect.x, rect.y, rect.width, rect.height] {
+            self.bytes(&part.to_le_bytes());
+        }
+    }
+
+    /// The book: where it is in the catalog, its title and progress, and its
+    /// cover as the listing last knew it (0: not asked about yet).
+    pub fn book(&mut self, listing: &Listing, book: &Book) {
+        // Not its generation: the catalog's changes with every book read.
+        self.number(book.key);
+        self.bytes(book.title.as_bytes());
+        self.bytes(&[book.progress, 0xff]);
+        match listing.cover_of(book) {
+            None => self.bytes(&[0]),
+            Some(Covered::Ready(cover)) => {
+                self.bytes(&[1]);
+                self.number(cover.image.get());
+                self.number(cover.width);
+                self.number(cover.height);
+            }
+            Some(Covered::Busy) => self.bytes(&[2]),
+            Some(Covered::None) => self.bytes(&[3]),
+        }
+    }
+
+    #[must_use]
+    pub const fn finish(&self) -> u64 {
+        self.0
+    }
 }
 
 /// What `books` show, to tell when it changed: their keys, titles and how far
