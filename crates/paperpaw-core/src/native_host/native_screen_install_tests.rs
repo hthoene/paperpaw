@@ -119,8 +119,8 @@ fn declaration_batch(bytes: &mut [u8]) -> usize {
             token: 91,
             flags: FLAGS.with(Cell::get),
         }),
-        // A secret setting passes the declaration checks, and the host does
-        // not map it yet (`native_values::setting`): the whole batch is refused.
+        // A preset passes the declaration checks, and the host does not map
+        // it (`native_install::map_record`): the whole batch is refused.
         wire::Record::SettingGroup(wire::SettingGroup {
             name: "g",
             title: "factory.group",
@@ -128,17 +128,11 @@ fn declaration_batch(bytes: &mut [u8]) -> usize {
             parent: "",
             page: "",
         }),
-        wire::Record::SettingSpec(wire::SettingSpec {
-            name: "secret",
-            kind: 0,
-            flags: 1 << 3,
-            group: "factory.g",
-            title: "factory.secret",
+        wire::Record::PresetSpec(wire::PresetSpec {
+            name: "preset",
+            kind: "factory.kind",
+            title: "factory.preset",
             help: "",
-            default: &[1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
-            min: 0,
-            max: 0,
-            choices: "",
         }),
     ];
     let count = if UNSUPPORTED.with(Cell::get) { 3 } else { 1 };
@@ -204,11 +198,29 @@ fn declaration_batch(bytes: &mut [u8]) -> usize {
         }
         0 => wire::records_encode(&records[..count], bytes),
         // The group, the setting and its extra, the action and the screen;
-        // the secret setting last when the batch must be refused.
+        // the preset last when the batch must be refused.
         1 => wire::records_encode(&all[..5], bytes),
+        // The screen, the group, `factory.flag` and a secret setting.
+        3 => wire::records_encode(&[records[0], records[1], flag, secret_token()], bytes),
         _ => wire::records_encode(&[all[1], all[2], all[3], all[4], all[0], all[5]], bytes),
     }
     .unwrap()
+}
+
+/// A secret setting, `factory.token` (#81).
+fn secret_token() -> wire::Record<'static> {
+    wire::Record::SettingSpec(wire::SettingSpec {
+        name: "token",
+        kind: 3,
+        flags: 1 << 3,
+        group: "factory.g",
+        title: "factory.token",
+        help: "",
+        default: &[1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0],
+        min: 0,
+        max: 0,
+        choices: "",
+    })
 }
 
 /// Submits the callback registrations of the mode `REGS`; the refusing status
