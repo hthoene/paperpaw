@@ -253,7 +253,7 @@ fn a_highlight_saved_in_this_conversion_is_drawn_on_its_page() {
     let mut keys = turns(2);
     keys.push("{\"op\": \"run\", \"action\": \"reader.select-text\"}".to_string());
     keys.push("{\"op\": \"wait\", \"ms\": 500}".to_string());
-    for name in ["confirm", "right", "right", "confirm", "back"] {
+    for name in ["confirm", "confirm"] {
         keys.extend(press(name));
     }
     session(&card, &card.join("selecting.png"), &keys);
@@ -370,7 +370,7 @@ fn a_highlight_the_page_does_not_draw_stays_in_the_file_when_its_words_are_highl
     // The first page's words, all of them: *Highlight* over the old numbers.
     let mut keys = press("page-forward");
     keys.extend(run("reader.select-text"));
-    for name in ["confirm", "right", "right", "confirm", "back"] {
+    for name in ["confirm", "confirm"] {
         keys.extend(press(name));
     }
     session(&card, &card.join("hidden.png"), &keys);
@@ -413,7 +413,7 @@ fn the_place_and_the_marks_stay_where_they_were_when_the_page_counts_are_made_ag
     let mut keys = turns(2);
     keys.push("{\"op\": \"run\", \"action\": \"reader.select-text\"}".to_string());
     keys.push("{\"op\": \"wait\", \"ms\": 500}".to_string());
-    for name in ["confirm", "right", "right", "confirm", "back"] {
+    for name in ["confirm", "confirm"] {
         keys.extend(press(name));
     }
     session(&card, &card.join("selecting.png"), &keys);
