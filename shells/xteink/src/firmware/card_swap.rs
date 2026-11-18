@@ -69,7 +69,7 @@ impl Firmware {
 
     /// Where the card is lost, looks at it and tries to mount it anew:
     /// what came of it, logged as it changes.
-    fn remount_card(&mut self) -> Swapped {
+    pub(super) fn remount_card(&mut self) -> Swapped {
         let Some(swap) = self.card_swap.as_mut() else {
             return Swapped::No;
         };

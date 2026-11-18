@@ -37,6 +37,8 @@ mod paced;
 mod remote_commands;
 #[cfg(feature = "asleep-light")]
 mod sleeping_board;
+#[cfg(feature = "usb-drive")]
+mod usb_drive;
 mod waveform;
 
 /// How long the main loop rests when there is nothing to do.
@@ -122,6 +124,9 @@ pub struct State {
     sleep: bool,
     /// The kernel asked to switch the device off (`Effect::PowerOff`).
     power_off: bool,
+    /// The kernel asked to show the card to a computer (`Effect::UsbDrive`).
+    #[cfg(feature = "usb-drive")]
+    usb_drive: bool,
     /// Staying awake on USB, the developer's choice (`dozing`).
     stay: paperpaw_x4::stay_awake::StayAwake,
     /// When the kernel wants to be woken.
@@ -348,6 +353,11 @@ impl Firmware {
             }
             Some(paperpaw_x4::sleeping::Wanted::Sleep) => return self.sleep(true),
             None => {}
+        }
+        // The card goes to the computer: nothing else runs until it is back.
+        #[cfg(feature = "usb-drive")]
+        if self.state.usb_drive {
+            return self.usb_drive();
         }
         if self.state.stay.is_dozing() {
             return self.dozing_step();
@@ -1065,6 +1075,10 @@ impl Firmware {
             // the one-shot sleep request before taking either path.
             self.state.sleep |= effects.sleep();
             self.state.power_off |= effects.power_off();
+            #[cfg(feature = "usb-drive")]
+            {
+                self.state.usb_drive |= effects.usb_drive();
+            }
             // Anything but a paced frame waits for the one on its way.
             let paced = effects.refresh().is_some_and(|(_, mode)| self.paced(mode))
                 && !effects.restart()

@@ -686,6 +686,33 @@ impl<B: Restart + 'static, E> CardSwap<B, E> {
         self.found(now_ms)
     }
 
+    /// The card itself for `with`, as a USB drive (#32): the storage's
+    /// mount is dropped first, which writes back what it kept and clears
+    /// the volume's dirty mark, and from then on nothing reaches the card
+    /// but `with`. The card then counts as lost, the next [`Self::check`]
+    /// starts it again and mounts it anew (any card: a computer had it,
+    /// [`Swapped::Remounted`]). Until then every use of the storage fails
+    /// with [`StorageError::CARD_GONE`]. `None` where the storage or the
+    /// card is in use (never between the kernel's steps). Call it between
+    /// the kernel's steps, the kernel suspended and its work written back.
+    pub fn lend<R>(&mut self, with: impl FnOnce(&mut B) -> R) -> Option<R> {
+        let mut current = self.storage.try_borrow_mut().ok()?;
+        let mut slot = self.slot.try_borrow_mut().ok()?;
+        // The old mount goes first, while its blocks reach the card.
+        let old = core::mem::replace(&mut *current, Box::new(Gone));
+        drop(current);
+        drop(old);
+        // Then no mount's blocks do: the generation moves on.
+        slot.generation = slot.generation.wrapping_add(1);
+        let result = with(&mut slot.card);
+        slot.lost = true;
+        slot.failures = 0;
+        self.left = Seen::default();
+        self.mount_tries_left = MOUNT_TRIES;
+        self.next_try_ms = 0;
+        Some(result)
+    }
+
     /// The card counts as lost (again).
     fn lose(&mut self) {
         if let Ok(mut slot) = self.slot.try_borrow_mut() {

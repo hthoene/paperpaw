@@ -574,3 +574,5 @@ allow indirect fatfs::dir::make_room 1 new with the FAT claims (#238): a call th
 allow indirect fatfs::table::leaves_block 1 new with the FAT claims (#238): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
 allow indirect fatfs::table::hash_block 2 new with the FAT claims (#238): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
 allow indirect fatfs::table::set_in_block 1 new with the FAT claims (#238): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
+allow indirect render_reusing 7 new with the USB drive (#32): the build's layout moved calls the scan did not follow into this name (a closure or `&dyn` call; the count has 2 of headroom)
+allow indirect paperpaw_text::cache::Lru::shrink_to 4 new with the USB drive (#32): a call through a register the scan does not follow (a closure or `&dyn` call; the count has 2 of headroom)
