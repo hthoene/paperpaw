@@ -9,7 +9,7 @@ use super::{
     retained::Retained,
     shell,
 };
-use crate::kit::{action::NativeAction, contribution::item::Contribution};
+use crate::kit::action::NativeAction;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED, Services,
@@ -697,9 +697,7 @@ impl crate::Kernel {
                     .native_choice(setting, value)
                     .map_err(shell::Error::Status)?,
                 Owned::Setting(spec) => {
-                    staging
-                        .native(Contribution::Setting(spec))
-                        .map_err(shell::Error::Status)?;
+                    staging.native_setting(spec).map_err(shell::Error::Status)?;
                 }
                 Owned::FixedSettings(list, entries) => staging
                     .native_fixed_entries(list, entries)
@@ -1432,7 +1430,7 @@ mod tests {
 
     /// An interface-6 plugin that offers `vocab.card` for `host.show` (a
     /// native plugin's setting, declared after the kernel is built).
-    fn offers(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
+    fn offers(r: &mut crate::Staging) -> Result<(), paperpaw_sdk::RegisterError> {
         r.add_choice(Id::new_static("host.show"), "vocab.card")
     }
 

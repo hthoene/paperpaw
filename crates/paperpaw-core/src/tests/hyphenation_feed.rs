@@ -53,7 +53,7 @@ fn the_sink_gets_the_tables_at_start_and_follows_install_and_removal() {
 
     // Removed while running: its tables leave the sink before the plugin is
     // gone from the registry.
-    kernel.apply(Command::RemovePlugin(Id::new_static("pack-sv")));
+    kernel.apply(Ask::RemovePlugin(Id::new_static("pack-sv")));
     kernel.finish();
     assert!(sink.card().find("de").is_some());
     assert_eq!(sink.card().find("sv"), None);
@@ -71,7 +71,7 @@ fn a_plugin_installed_later_reaches_the_sink() {
         .storage
         .write("plugins/pack-nb/nb.pphp", b"PPHP")
         .unwrap();
-    kernel.apply(Command::LoadPlugin("plugins/pack-nb".into()));
+    kernel.apply(Ask::LoadPlugin("plugins/pack-nb".into()));
     kernel.finish();
     assert!(sink.card().find("nb").is_some());
 }

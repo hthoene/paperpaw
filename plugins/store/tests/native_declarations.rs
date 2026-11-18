@@ -122,3 +122,38 @@ fn the_setup_step_is_what_the_image_holds_and_the_host_admits_it() {
     assert_eq!(new.others.len(), 2, "{:?}", new.others);
     declared::assert_pinned("setup", &new);
 }
+
+/// The store hears the Wi-Fi coming up (#72): the plugins a setup template
+/// queued while offline are released then, not only at the start.
+#[test]
+fn the_store_subscribes_to_the_wifi_changing() {
+    use paperpaw_core::native_host::registrations::{Record, Registration};
+    use paperpaw_sdk::native::declare::EventKind;
+    // The tag of the wifi event, as the SDK declares it.
+    let mut one = Vec::new();
+    Declarations::new(|batch: &[u8]| {
+        one.push(batch.to_vec());
+        Ok(())
+    })
+    .subscribe_event(EventKind::WifiChanged, 99)
+    .unwrap()
+    .submit()
+    .unwrap();
+    let Some(Record::Registration(Registration::Event {
+        event_tag: wifi, ..
+    })) = records_decode(&one[0]).unwrap().iter().next()
+    else {
+        panic!("no event");
+    };
+    let mut tokens = Vec::new();
+    for batch in batches_of!(declarations::events) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::Registration(Registration::Event { event_tag, token }) = record
+                && event_tag == wifi
+            {
+                tokens.push(token);
+            }
+        }
+    }
+    assert_eq!(tokens, [declarations::WIFI_TOKEN]);
+}

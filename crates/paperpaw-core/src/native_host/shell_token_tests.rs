@@ -712,7 +712,7 @@ fn a_screen_callback_is_a_showing_screen_only_while_it_runs_on_the_stack() {
     );
     PROBE.with(|probe| *probe.borrow_mut() = Some((alloc::rc::Rc::clone(&rows), owner)));
     let env = kernel.shared.place(Instant(12));
-    let mut output = paperpaw_sdk::Output::default();
+    let mut output = crate::Output::default();
     let mut cx = crate::Turn::new(&env, &mut output);
     let key = paperpaw_sdk::ScreenKey::new(5);
     SEEN.with(|seen| seen.set(Some(0)));

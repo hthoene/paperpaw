@@ -31,12 +31,6 @@ Version 1.1:
   (https://github.com/notofonts/arabic), without Reserved Font Name
 - Noto Serif Hebrew, Copyright 2022 The Noto Project Authors
   (https://github.com/notofonts/hebrew), without Reserved Font Name
-- Noto Serif SC, Noto Serif TC and Noto Serif JP, Copyright 2017-2024
-  Adobe (http://www.adobe.com/), from github.com/google/fonts without
-  Reserved Font Name, cut to the characters of the Chinese and Japanese
-  letters plugins (tools/fonts/NotoSerif*-subset.ttf: a Modified Version,
-  not distributed itself; the plugins carry bitmap packs made from it and
-  the licence's text, NotoSerifCJK-OFL.txt)
 - Nanum Myeongjo, Copyright 2010 NHN Corporation (http://www.nhncorp.com),
   with Reserved Font Names 'Nanum', 'Naver Nanum', 'NanumMyeongjo',
   'Naver NanumMyeongjo' and the others of its family the licence names,

@@ -7,6 +7,7 @@
 )]
 use core::cell::RefCell;
 use core::ffi::c_void;
+use paperpaw_core::Ask;
 use paperpaw_core::native_host::commands::{WireCommand, commands_encode};
 use paperpaw_core::native_host::environment::{SettingValueRef, settings_decode};
 use paperpaw_core::native_host::registrations::{EventAnswered, Record};
@@ -16,7 +17,7 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_scripted_host::{ScriptedHost, Slot, event_batch, sweep};
 use paperpaw_sdk::builtin::groups;
-use paperpaw_sdk::{Command, SettingSpec, SettingValue};
+use paperpaw_sdk::{SettingSpec, SettingValue};
 
 thread_local! {
     /// What the last scenario callback saw: events return a status only, so the
@@ -274,7 +275,7 @@ fn staged_commands_are_typed_and_in_order() {
     assert_eq!(done.commands.len(), 3);
     assert!(matches!(
         &done.commands[0],
-        Command::SetSetting(id, SettingValue::Bool(true)) if id.as_str() == "probe.flag"
+        Ask::SetSetting(id, SettingValue::Bool(true)) if id.as_str() == "probe.flag"
     ));
     assert_eq!(host.calls(Slot::Commands), 3);
     // The wire bytes of each batch are there for exact assertions.

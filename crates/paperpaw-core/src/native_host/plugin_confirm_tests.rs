@@ -131,8 +131,8 @@ fn the_german_texts_cover_every_english_plugin_key() {
 
 mod kernel_side {
     use super::*;
-    use crate::Items;
     use crate::Kernel;
+    use crate::Staging;
     use paperpaw_sdk::{
         Canvas, Handled, Id, Manifest, Priority, RegisterError, Version, builtin::slots,
     };
@@ -152,7 +152,7 @@ mod kernel_side {
             Handled::No
         }
     }
-    fn home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    fn home() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
         |r| {
             const HOME: Id = Id::new_static("h.home");
             r.add_fake(crate::testing::FakeSpec::new(
@@ -498,7 +498,7 @@ mod kernel_side {
         let mut kernel = data_only_kernel();
         let changed = |kernel: &Kernel| {
             kernel.output.commands.iter().any(|c| {
-                matches!(c, crate::Command::Emit(e, _)
+                matches!(c, crate::Ask::Emit(e, _)
                     if *e == paperpaw_sdk::builtin::events::PLUGINS_CHANGED)
             })
         };
@@ -585,7 +585,7 @@ mod kernel_side {
             // commands (as the sleep's own event); finished by the stop's
             // steps, after them, it waits for the next pass.
             let waits = kernel.output.commands.iter().any(|c| {
-                matches!(c, crate::Command::Emit(e, _)
+                matches!(c, crate::Ask::Emit(e, _)
                     if *e == paperpaw_sdk::builtin::events::PLUGINS_CHANGED)
             });
             in_the_stop += usize::from(loaded && !before && waits);

@@ -34,12 +34,13 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use common::{DEVICE, Harness};
-use paperpaw_core::Items;
+use paperpaw_core::Ask;
 use paperpaw_core::Kernel;
+use paperpaw_core::Staging;
 use paperpaw_core::sdk::builtin::fonts;
 use paperpaw_core::sdk::{
-    Command, Font, FontFace, FontSpec, Id, Manifest, MemoryStorage, Priority, RegisterError,
-    SettingKind, SettingValue, Version,
+    Font, FontFace, FontSpec, Id, Manifest, MemoryStorage, Priority, RegisterError, SettingKind,
+    SettingValue, Version,
 };
 use paperpaw_platform::{DirEntry, Instant, Storage, StorageError};
 use paperpaw_text::{Glyph, LineMetrics, PackBuilder};
@@ -68,7 +69,7 @@ fn pack(sizes: &[f32], advance: f32) -> Vec<u8> {
 /// What the lean firmware has (`plugins/fonts-default`, `LEAN_FONT_PACKS`):
 /// the UI font up to 32 px, for the menus and for book text, and the
 /// name of Literata's regular face in the plugin's folder on the card.
-fn lean() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn lean() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         let font = Font::from_data(pack(&[20.0, 32.0], 6.0), &[]).unwrap();
         let sans = Id::new_static(SANS);
@@ -435,7 +436,7 @@ impl Running {
     }
 
     /// Carries `command` out; nothing may be warned of.
-    fn run(&mut self, command: Command) {
+    fn run(&mut self, command: Ask) {
         self.at += 10;
         self.harness.run(&mut self.kernel, self.at, [command]);
         let warnings = self.kernel.take_warnings();
@@ -448,7 +449,7 @@ impl Running {
         self.card
             .write("plugins/other/plugin.ini", ini.as_bytes())
             .unwrap();
-        self.run(Command::LoadPlugin("plugins/other".into()));
+        self.run(Ask::LoadPlugin("plugins/other".into()));
         assert!(self.kernel.plugins().get("other").is_some());
     }
 
@@ -493,14 +494,14 @@ fn literata_chosen_before_stays_in_the_file_until_its_plugin_comes() {
     assert_ui_font_sets_the_book(&device.kernel);
     device.another_comes();
     assert!(device.kept_in_the_file());
-    device.run(Command::RemovePlugin(Id::new_static("other")));
+    device.run(Ask::RemovePlugin(Id::new_static("other")));
     assert!(device.kernel.plugins().get("other").is_none());
     assert!(device.kept_in_the_file());
     assert_ui_font_sets_the_book(&device.kernel);
 
     // The plugin comes: Literata is offered, and the next start takes it.
     write_literata(&device.card, "plugins/.literata-styles.part");
-    device.run(Command::InstallPlugin(
+    device.run(Ask::InstallPlugin(
         Id::new_static("literata-styles"),
         "plugins/.literata-styles.part".into(),
     ));
@@ -520,7 +521,7 @@ fn the_plugin_installed_over_the_one_of_before_brings_literata() {
     assert!(warnings.is_empty(), "{warnings:?}");
     assert!(!offered(&device.kernel));
     write_literata(&device.card, "plugins/.literata-styles.part");
-    device.run(Command::InstallPlugin(
+    device.run(Ask::InstallPlugin(
         Id::new_static("literata-styles"),
         "plugins/.literata-styles.part".into(),
     ));
@@ -528,7 +529,7 @@ fn the_plugin_installed_over_the_one_of_before_brings_literata() {
     assert_eq!(plugin.manifest.version.minor, 1);
     assert!(offered(&device.kernel));
     assert_ui_font_sets_the_book(&device.kernel);
-    device.run(Command::SetSetting(
+    device.run(Ask::SetSetting(
         Id::new_static("core.reading-font"),
         SettingValue::Text("Literata".into()),
     ));
@@ -556,7 +557,7 @@ fn a_card_that_cannot_say_takes_no_choice_of_literata_away() {
     assert!(device.kept_in_the_file());
     // Gone for good, the choice gives way as ever.
     device.busy.set(false);
-    device.run(Command::RemovePlugin(Id::new_static("literata-styles")));
+    device.run(Ask::RemovePlugin(Id::new_static("literata-styles")));
     assert_eq!(device.reads_in().0, "core.font.default");
     assert!(!device.kept_in_the_file());
     assert_ui_font_sets_the_book(&device.kernel);
@@ -627,7 +628,7 @@ fn configured_wifi_offers_two_buttons_and_opens_the_literata_store_page() {
     // What the store opens the Literata page as: the plugin it is opened for.
     let store = {
         let target = target.clone();
-        move |r: &mut Items| -> Result<(), RegisterError> {
+        move |r: &mut Staging| -> Result<(), RegisterError> {
             let target = target.clone();
             r.add_fake(paperpaw_core::testing::FakeSpec::new(
                 Id::new_static("store.plugin"),

@@ -18,7 +18,6 @@
 //! second time ([`Kernel::native_reading_kernel`]).
 use super::registrations as wire;
 use crate::Kernel;
-use paperpaw_sdk::Command;
 use paperpaw_sdk::builtin::events::{self, Reading};
 
 /// Most events queued in one pass (the service holds eight at most).
@@ -107,9 +106,8 @@ impl Kernel {
         if opened_or_closed && reason == super::doc_reading::SLEPT {
             return;
         }
-        if let Command::Emit(id, params) = event.emit(reading) {
-            self.emit_from(&id, &params, None, false);
-        }
+        let params = paperpaw_sdk::event::EventData::into_params(reading);
+        self.emit_from(event.id(), &params, None, false);
     }
 }
 

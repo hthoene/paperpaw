@@ -26,7 +26,7 @@ use alloc::string::String;
 use paperpaw_platform::{Storage, StorageError};
 
 /// PaperPaw's own folder, beside the books: settings, the library, every
-/// plugin's data (`Env::plugin_dir`). A path in
+/// plugin's data (`Place::plugin_dir`). A path in
 /// the shell's storage, not on a disk: a shell may keep it elsewhere than
 /// the books (e.g. in an app's own storage), as its storage maps paths.
 /// [`data_path!`](crate::data_path) names a file in it where a constant is

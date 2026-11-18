@@ -3,7 +3,7 @@
 //! bindings of a layer with their origin.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::keys::{BindingOrigin, KeyBindings};
 use paperpaw_sdk::services::EventSpec;
 
@@ -17,7 +17,7 @@ struct Pretender(u64, u64, u64);
 
 paperpaw_sdk::service_type!(Pretender, "weather.forecast/1");
 
-fn weather() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn weather() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.provide(
             Id::new_static("weather.today"),
@@ -92,7 +92,7 @@ fn slots_and_bindings_are_readable() {
         .build()
         .unwrap();
     kernel.start(Instant(0));
-    kernel.apply(Command::bind(
+    kernel.apply(Ask::bind(
         "weather.screen",
         "long.menu",
         Some(actions::BACK),

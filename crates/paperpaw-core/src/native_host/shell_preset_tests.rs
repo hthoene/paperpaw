@@ -462,7 +462,7 @@ fn a_value_fits_a_kind_as_the_sdk_parses_it() {
 }
 
 /// The commands `plan` makes, chunk after chunk.
-fn planned(kernel: &crate::Kernel, preset: &Preset) -> std::vec::Vec<paperpaw_sdk::Command> {
+fn planned(kernel: &crate::Kernel, preset: &Preset) -> std::vec::Vec<crate::Ask> {
     let (settings, widgets) = (&kernel.shared.settings, &kernel.shared.widgets);
     let mut all = std::vec::Vec::new();
     for from in (0..).step_by(16) {
@@ -474,9 +474,9 @@ fn planned(kernel: &crate::Kernel, preset: &Preset) -> std::vec::Vec<paperpaw_sd
 }
 
 /// The commands the SDK makes of the same preset (`Preset::changes` with the
-/// covered set of its kind, then `presets::commands`): what interface 6's
+/// covered set of its kind, then `presets::writes`): what interface 6's
 /// plugins sent, which `plan` must stay equal to.
-fn sdk_commands(kernel: &crate::Kernel, preset: &Preset) -> std::vec::Vec<paperpaw_sdk::Command> {
+fn sdk_commands(kernel: &crate::Kernel, preset: &Preset) -> std::vec::Vec<crate::Ask> {
     let (settings, widgets) = (&kernel.shared.settings, &kernel.shared.widgets);
     let changes = match preset.kind.as_str() {
         presets::THEME => presets::theme_changes(settings, preset),
@@ -485,7 +485,13 @@ fn sdk_commands(kernel: &crate::Kernel, preset: &Preset) -> std::vec::Vec<paperp
         }
         _ => preset.changes(settings, &[]),
     };
-    presets::commands(settings, &changes)
+    presets::writes(settings, &changes)
+        .into_iter()
+        .map(|(id, value)| match value {
+            Some(value) => crate::Ask::SetSetting(id, value),
+            None => crate::Ask::ResetSetting(id),
+        })
+        .collect()
 }
 
 #[test]

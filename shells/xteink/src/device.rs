@@ -4,7 +4,7 @@
 //! in their group of settings); the X4 Pro's front light has its
 //! brightness and warmth, in the quick panel and the reader's panel too.
 
-use paperpaw_core::Items;
+use paperpaw_core::Staging;
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::setting::Setting;
 use paperpaw_sdk::{Id, Manifest, RegisterError, SettingSpec, Version};
@@ -382,7 +382,7 @@ pub fn manifest() -> Manifest {
 }
 
 /// The device's settings and texts (`KernelBuilder::items` with [`manifest`]).
-pub fn register(r: &mut Items) -> Result<(), RegisterError> {
+pub fn register(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_settings(&SETTINGS)?;
     #[cfg(feature = "asleep-light")]
     r.add_settings(&SLEEP_SETTINGS)?;
@@ -425,7 +425,7 @@ pub static GERMAN: paperpaw_core::LanguageSeed = paperpaw_core::LanguageSeed {
 /// The front light's settings, also first in the reader's panel and in
 /// the quick panel.
 #[cfg(feature = "x4-pro")]
-fn register_light(r: &mut Items) -> Result<(), RegisterError> {
+fn register_light(r: &mut Staging) -> Result<(), RegisterError> {
     use alloc::borrow::Cow;
     use paperpaw_core::kit::menus::MenuEntry;
     use paperpaw_sdk::builtin::menus;

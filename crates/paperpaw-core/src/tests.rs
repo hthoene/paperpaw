@@ -11,7 +11,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
-use crate::Items;
+use crate::Ask;
+use crate::Staging;
 use crate::kit::action::ActionSpec;
 use paperpaw_platform::{
     ButtonState, Color, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, PixelFormat,
@@ -19,8 +20,8 @@ use paperpaw_platform::{
 };
 use paperpaw_sdk::builtin::{actions, screens, settings, slots};
 use paperpaw_sdk::{
-    Canvas, Command, Handled, Id, Manifest, Priority, RegisterError, SettingKind, SettingSpec,
-    SettingValue, Version,
+    Canvas, Handled, Id, Manifest, Priority, RegisterError, SettingKind, SettingSpec, SettingValue,
+    Version,
 };
 
 use crate::{HttpCall, Io, Kernel, ServerCall, SpeechCall, WarningSource};
@@ -28,9 +29,9 @@ use crate::{HttpCall, Io, Kernel, ServerCall, SpeechCall, WarningSource};
 /// What the shell is asked, one kind at a time, as the parts keep it: the
 /// tests of each part look at its own.
 impl Kernel {
-    /// A plugin's request, as [`Command::Http`] makes it.
+    /// A plugin's request, as [`Ask::Http`] makes it.
     fn request(&mut self, request: paperpaw_sdk::HttpRequest) {
-        self.output.commands.push(Command::http(request));
+        self.output.commands.push(Ask::http(request));
         self.run_commands();
     }
 
@@ -102,7 +103,7 @@ impl TestPlugin {
     }
 }
 
-fn test_plugin(kept: TestPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn test_plugin(kept: TestPlugin) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
         let name = kept.id;
@@ -280,7 +281,7 @@ impl crate::testing::Fake for OpenerScreen {
 
     fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if *action == actions::CONFIRM {
-            cx.command(Command::OpenScreen(
+            cx.command(Ask::OpenScreen(
                 screens::PLACEHOLDER,
                 paperpaw_sdk::Params::new(),
             ));
@@ -291,7 +292,7 @@ impl crate::testing::Fake for OpenerScreen {
 }
 
 /// Opens the placeholder screen on *confirm*: a screen change to time.
-pub(crate) fn opener() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+pub(crate) fn opener() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("opener.screen"),
@@ -639,7 +640,7 @@ impl crate::testing::Fake for EdgeHolder {
 pub(crate) fn edge_holder_plugin(
     kept0: Log,
     kept1: bool,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let (log, holds) = (kept0.clone(), kept1);
         r.add_fake(crate::testing::FakeSpec::new(
@@ -769,7 +770,7 @@ fn reports_unknown_references_in_config() {
 }
 
 /// A plugin contributing two tiny bitmap fonts.
-pub(crate) fn font_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+pub(crate) fn font_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         for name in ["type.serif", "type.sans"] {
             let mut pack = paperpaw_text::PackBuilder::new();
@@ -856,7 +857,7 @@ impl crate::testing::Fake for LifecycleScreen {
 
 pub(crate) fn lifecycle_plugin(
     kept: LifecyclePlugin,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -870,7 +871,7 @@ pub(crate) fn lifecycle_plugin(
         ))?;
         r.subscribe(paperpaw_sdk::builtin::events::STARTED, |k, _| {
             k.with_env(|_, out| {
-                out.push(paperpaw_sdk::Command::OpenScreen(
+                out.push(crate::Ask::OpenScreen(
                     Id::new_static("life.screen"),
                     paperpaw_sdk::Params::new().with("path", "books/a.txt"),
                 ));
@@ -879,9 +880,9 @@ pub(crate) fn lifecycle_plugin(
         // Back to the screen below, and at once another over it, as a
         // menu that closes to open a screen does.
         r.add_action(crate::kit::action::ActionSpec::new(SWAP, "swap").handler(
-            |_: &crate::Place<'_>, _, out: &mut paperpaw_sdk::Commands| {
-                out.push(paperpaw_sdk::Command::Back);
-                out.push(paperpaw_sdk::Command::OpenScreen(
+            |_: &crate::Place<'_>, _, out: &mut crate::Asks| {
+                out.push(crate::Ask::Back);
+                out.push(crate::Ask::OpenScreen(
                     Id::new_static("life.screen"),
                     paperpaw_sdk::Params::new().with("path", "books/c.txt"),
                 ));
@@ -995,7 +996,7 @@ impl crate::testing::Fake for HalfOverlay {
 
 pub(crate) fn overlay_plugin(
     kept: OverlayPlugin,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -1097,7 +1098,7 @@ pub(crate) struct NoticePlugin {
 
 pub(crate) fn notice_plugin(
     kept: NoticePlugin,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -1144,7 +1145,7 @@ fn notices_show_over_everything_and_go_by_themselves() {
     kernel.start(Instant(0));
     render(&mut kernel);
 
-    kernel.apply(Command::Notify(String::from("Done")));
+    kernel.apply(Ask::Notify(String::from("Done")));
     let effects = kernel.finish();
     let region = {
         let (notice, _) = kernel.notice.as_ref().unwrap();
@@ -1191,11 +1192,11 @@ fn scheduled_events_come_at_their_time() {
     kernel.start(Instant(0));
     let event = Id::new_static("ov.later");
     let params = paperpaw_sdk::Params::new().with("id", "x");
-    kernel.apply(Command::work(
+    kernel.apply(Ask::work(
         paperpaw_sdk::work::Work::at(event.clone(), Instant(9000)).with(params.clone()),
     ));
     // Scheduled again: moved, not doubled.
-    kernel.apply(Command::work(
+    kernel.apply(Ask::work(
         paperpaw_sdk::work::Work::at(event, Instant(5000)).with(params),
     ));
     assert_eq!(kernel.finish().wake_at(), Some(Instant(5000)));
@@ -1219,7 +1220,7 @@ fn bindings_change_at_once_and_are_saved() {
         .build()
         .unwrap();
     kernel.start(Instant(0));
-    kernel.apply(Command::bind(
+    kernel.apply(Ask::bind(
         String::from("global"),
         String::from("button.menu"),
         Some(actions::TOGGLE_NIGHT_MODE),
@@ -1241,7 +1242,7 @@ fn bindings_change_at_once_and_are_saved() {
     assert!(String::from_utf8_lossy(&saved).contains("menu = core.toggle-night-mode"));
 
     // Back to what the plugins bind: the menu again.
-    kernel.apply(Command::bind(
+    kernel.apply(Ask::bind(
         String::from("global"),
         String::from("button.menu"),
         None,
@@ -1269,7 +1270,7 @@ fn screens_below_overlays_redraw_themselves() {
 
     // The base screen changes while the overlay is open: drawn again
     // where the overlay leaves it, the overlay, unchanged, not.
-    kernel.apply(Command::Emit(
+    kernel.apply(Ask::Emit(
         Id::new_static("ov.changed"),
         paperpaw_sdk::Params::new(),
     ));
@@ -1322,7 +1323,7 @@ fn open_slots_reopen_for_other_params() {
         .unwrap();
     kernel.start(Instant(0));
     let open = |kernel: &mut Kernel, menu: &str| {
-        kernel.apply(Command::OpenSlot(
+        kernel.apply(Ask::OpenSlot(
             slots::MENU,
             paperpaw_sdk::Params::new().with("menu", menu.to_string()),
         ));
@@ -1406,7 +1407,7 @@ impl crate::testing::Fake for GrayScreen {
 
 /// A home screen best in grays (a picture), and the half overlay as its
 /// menu.
-pub(crate) fn gray_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+pub(crate) fn gray_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("gray.page"),
@@ -1520,7 +1521,7 @@ full-refresh-interval = 3
         .default
         .clone();
     assert_ne!(kernel.shared.settings.get(ui_size), Some(&default));
-    kernel.apply(Command::ResetSetting(
+    kernel.apply(Ask::ResetSetting(
         paperpaw_sdk::builtin::settings::UI_SIZE.id().clone(),
     ));
     kernel.finish();
@@ -1685,7 +1686,7 @@ fn plugins_serve_through_the_shell() {
         .unwrap();
     kernel.start(Instant(0));
     let events = Id::new_static("ov.reply");
-    kernel.output.commands.push(Command::serve(
+    kernel.output.commands.push(Ask::serve(
         Id::new_static("ov.server"),
         8080,
         events.clone(),
@@ -1730,7 +1731,7 @@ fn plugins_serve_through_the_shell() {
     kernel
         .output
         .commands
-        .push(Command::respond(paperpaw_sdk::ServerResponse::new(
+        .push(Ask::respond(paperpaw_sdk::ServerResponse::new(
             7,
             200,
             "text/plain",
@@ -1744,7 +1745,7 @@ fn plugins_serve_through_the_shell() {
         .storage
         .write("served.txt", b"0123456789")
         .unwrap();
-    kernel.output.commands.push(Command::respond(response));
+    kernel.output.commands.push(Ask::respond(response));
     kernel.run_commands();
     let calls = kernel.take_server_calls();
     assert!(
@@ -1767,7 +1768,7 @@ fn plugins_serve_through_the_shell() {
     kernel
         .output
         .commands
-        .push(Command::StopServing(Id::new_static("ov.server")));
+        .push(Ask::StopServing(Id::new_static("ov.server")));
     kernel.run_commands();
     assert!(!kernel.serving());
     assert!(matches!(
@@ -1775,12 +1776,12 @@ fn plugins_serve_through_the_shell() {
         crate::ServerCall::Stop { .. }
     ));
     // A server stops with the screen it was started on.
-    kernel.output.commands.push(Command::OpenScreen(
+    kernel.output.commands.push(Ask::OpenScreen(
         Id::new_static("ov.base"),
         paperpaw_sdk::Params::new().with("n", "2"),
     ));
     kernel.run_commands();
-    kernel.output.commands.push(Command::serve(
+    kernel.output.commands.push(Ask::serve(
         Id::new_static("ov.server"),
         8080,
         events.clone(),
@@ -1788,7 +1789,7 @@ fn plugins_serve_through_the_shell() {
     kernel.run_commands();
     assert!(kernel.serving());
     kernel.take_server_calls();
-    kernel.output.commands.push(Command::Back);
+    kernel.output.commands.push(Ask::Back);
     kernel.run_commands();
     assert!(!kernel.serving());
     assert!(matches!(
@@ -1877,7 +1878,7 @@ fn copied_text_reaches_plugins_and_the_shell() {
     kernel.start(Instant(0));
     assert!(!kernel.shared.place(Instant(0)).clipboard());
     let read = |id: &str| {
-        Command::ReadClipboard(
+        Ask::ReadClipboard(
             Id::new_static("ov.reply"),
             paperpaw_sdk::Params::new().with("id", String::from(id)),
         )
@@ -1885,7 +1886,7 @@ fn copied_text_reaches_plugins_and_the_shell() {
     kernel
         .output
         .commands
-        .extend([Command::SetClipboard(String::from("Alice")), read("a")]);
+        .extend([Ask::SetClipboard(String::from("Alice")), read("a")]);
     kernel.run_commands();
     assert!(kernel.shared.place(Instant(0)).clipboard());
     assert_eq!(kernel.take_io(), [Io::Copy(String::from("Alice"))]);
@@ -1937,7 +1938,7 @@ fn secrets_are_kept_apart_and_read_at_start() {
     kernel
         .output
         .commands
-        .push(Command::set_secret(SecretChange::keep(
+        .push(Ask::set_secret(SecretChange::keep(
             "a.key", "a.label", "hunter2",
         )));
     kernel.run_commands();
@@ -1971,7 +1972,7 @@ fn secrets_are_kept_apart_and_read_at_start() {
     kernel
         .output
         .commands
-        .push(Command::set_secret(SecretChange::remove("a.key")));
+        .push(Ask::set_secret(SecretChange::remove("a.key")));
     kernel.run_commands();
     assert!(kernel.shared.secrets.is_empty());
     assert!(!kernel.shared.storage.exists(FILE));
@@ -2029,7 +2030,7 @@ fn the_sole_plugin_asking_questions_cannot_be_switched_off() {
     let mut kernel = Kernel::builder(DEVICE)
         .items(
             Manifest::new(Id::new_static("ask"), "Ask", Version::new(1, 0, 0)),
-            |r: &mut Items| {
+            |r: &mut Staging| {
                 r.add_fake(crate::testing::FakeSpec::new(
                     Id::new_static("ask.sheet"),
                     "sheet",
@@ -2100,11 +2101,11 @@ b = off
     assert_eq!(ov.required_for.iter().collect::<Vec<_>>(), [&slots::MENU]);
     assert!(!kernel.plugins().restart_needed());
 
-    kernel.apply(Command::SetPluginEnabled(Id::new_static("a"), false));
-    kernel.apply(Command::SetPluginEnabled(Id::new_static("b"), true));
+    kernel.apply(Ask::SetPluginEnabled(Id::new_static("a"), false));
+    kernel.apply(Ask::SetPluginEnabled(Id::new_static("b"), true));
     // The kernel and plugins that alone provide a slot stay on.
-    kernel.apply(Command::SetPluginEnabled(Id::new_static("core"), false));
-    kernel.apply(Command::SetPluginEnabled(Id::new_static("ov"), false));
+    kernel.apply(Ask::SetPluginEnabled(Id::new_static("core"), false));
+    kernel.apply(Ask::SetPluginEnabled(Id::new_static("ov"), false));
     assert_eq!(kernel.take_warnings().len(), 2);
     assert!(kernel.plugins().get("ov").unwrap().enabled);
     assert!(kernel.plugins().get("a").unwrap().restart_needed());
@@ -2124,7 +2125,7 @@ a = off
 "
     );
 
-    kernel.apply(Command::Restart);
+    kernel.apply(Ask::Restart);
     assert!(kernel.finish().restart());
 }
 
@@ -2225,16 +2226,16 @@ regular = round.ppfp
     storage
         .write("plugins/font-round/fonts/round.ppfp", &pack)
         .unwrap();
-    kernel.apply(Command::LoadPlugin("plugins/font-round".into()));
+    kernel.apply(Ask::LoadPlugin("plugins/font-round".into()));
     assert!(kernel.take_warnings().is_empty());
     assert_eq!(kernel.plugins().get("font-round").unwrap().state, Running);
     assert!(kernel.shared.fonts.families().contains(&"Round"));
     assert!(kernel.output.commands.iter().any(
-        |c| matches!(c, Command::Emit(e, _) if *e == paperpaw_sdk::builtin::events::PLUGINS_CHANGED)
+        |c| matches!(c, Ask::Emit(e, _) if *e == paperpaw_sdk::builtin::events::PLUGINS_CHANGED)
     ));
 
     // Chosen for reading at once.
-    kernel.apply(Command::SetSetting(
+    kernel.apply(Ask::SetSetting(
         settings::READING_FONT.id().clone(),
         SettingValue::Text("Round".into()),
     ));
@@ -2247,7 +2248,7 @@ regular = round.ppfp
     assert_eq!(reading.id().as_str(), "font-round.regular");
 
     // Removed: its folder, its fonts, and the choice gives way.
-    kernel.apply(Command::RemovePlugin(Id::new_static("font-round")));
+    kernel.apply(Ask::RemovePlugin(Id::new_static("font-round")));
     assert!(kernel.take_warnings().is_empty());
     assert!(!storage.exists("plugins/font-round/plugin.ini"));
     assert!(kernel.plugins().get("font-round").is_none());
@@ -2258,7 +2259,7 @@ regular = round.ppfp
     );
 
     // Plugins with code stay.
-    kernel.apply(Command::RemovePlugin(Id::new_static("core")));
+    kernel.apply(Ask::RemovePlugin(Id::new_static("core")));
     assert_eq!(kernel.take_warnings().len(), 1);
     assert!(kernel.plugins().get("core").is_some());
 }
@@ -2307,7 +2308,7 @@ fn data_plugins_are_installed_in_place_of_every_version() {
         .with("plugins/other/plugin.ini", "[plugin]\nname = Other\n");
     let mut kernel = Kernel::builder(DEVICE).storage(storage).build().unwrap();
     kernel.take_warnings();
-    kernel.apply(Command::SetSetting(
+    kernel.apply(Ask::SetSetting(
         settings::READING_FONT.id().clone(),
         SettingValue::Text("Round".into()),
     ));
@@ -2327,7 +2328,7 @@ fn data_plugins_are_installed_in_place_of_every_version() {
     // A newer version: in its own folder, the others gone, the font one
     // reads with still chosen.
     stage("1.1.0");
-    kernel.apply(Command::InstallPlugin(
+    kernel.apply(Ask::InstallPlugin(
         Id::new_static("font-round"),
         "plugins/.font-round.part".into(),
     ));
@@ -2386,7 +2387,7 @@ name = Other
             .unwrap();
     };
     stage("1.2.0");
-    kernel.apply(Command::InstallPlugin(
+    kernel.apply(Ask::InstallPlugin(
         Id::new_static("font-round"),
         "plugins/.font-round.part".into(),
     ));
@@ -2399,7 +2400,7 @@ name = Other
     // before stays.
     kernel.take_warnings();
     stage("2.0.0");
-    kernel.apply(Command::InstallPlugin(
+    kernel.apply(Ask::InstallPlugin(
         Id::new_static("other"),
         "plugins/.font-round.part".into(),
     ));
@@ -2713,7 +2714,7 @@ fn speech_goes_to_the_shell_and_stops_with_its_screen() {
     let speech = |id: &str, queued: bool| {
         let params = paperpaw_sdk::Params::new().with("id", String::from(id));
         let speech = paperpaw_sdk::Speech::new("Hello", Id::new_static("ov.reply"));
-        Command::speak(speech.with(params).queued(queued))
+        Ask::speak(speech.with(params).queued(queued))
     };
     // Without speech, the reply comes at once.
     let log = log();
@@ -2778,14 +2779,14 @@ fn speech_goes_to_the_shell_and_stops_with_its_screen() {
     assert!(log.borrow().contains(&String::from("event ov.reply q2")));
 
     // Started over the menu, it stops when the menu closes.
-    kernel.output.commands.push(Command::open_slot(slots::MENU));
+    kernel.output.commands.push(Ask::open_slot(slots::MENU));
     kernel.run_commands();
     kernel.output.commands.push(speech("c", false));
     kernel.run_commands();
     let Some(SpeechCall::Say { id, .. }) = kernel.take_speech().pop() else {
         panic!("no speech");
     };
-    kernel.output.commands.push(Command::Back);
+    kernel.output.commands.push(Ask::Back);
     kernel.run_commands();
     assert_eq!(kernel.take_speech(), [SpeechCall::Stop]);
     assert!(!kernel.speaking());
@@ -2811,7 +2812,7 @@ impl ServicePlugin {
     }
 }
 
-fn service_plugin(kept: ServicePlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn service_plugin(kept: ServicePlugin) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         if kept.id == "provider" {
             r.provide(
@@ -2892,7 +2893,7 @@ impl crate::testing::Fake for SizedScreen {
 /// were made for; the home one names its confirm button.
 pub(crate) fn sized_plugin(
     kept: Rc<RefCell<Vec<(&'static str, u16)>>>,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         for (name, slot) in [("home", slots::HOME), ("reader", slots::READER)] {
             let made = kept.clone();
@@ -2947,10 +2948,7 @@ fn a_row_of_hints_names_the_buttons_below_the_screen() {
 
     // The reader keeps all of the screen, as it says: made once, a plugin's
     // screen is laid out for the part it then has, not made again.
-    kernel.apply(Command::OpenSlot(
-        slots::READER,
-        paperpaw_sdk::Params::new(),
-    ));
+    kernel.apply(Ask::OpenSlot(slots::READER, paperpaw_sdk::Params::new()));
     kernel.finish();
     assert_eq!(made.borrow()[1..], [("reader", above)]);
     assert_eq!(kernel.stack.last().unwrap().area.height, 90);
@@ -2969,7 +2967,7 @@ fn a_row_of_hints_names_the_buttons_below_the_screen() {
     assert_eq!(kernel.hint_row(), None);
     // Gone, the page is drawn there again.
     assert_eq!(kernel.frame.unrendered.map(|r| r.bottom()), Some(90));
-    kernel.apply(Command::ShowHints);
+    kernel.apply(Ask::ShowHints);
     kernel.finish();
     assert_eq!(kernel.hint_row(), Some(over));
     // Back from it, the home screen has the part above the row again.
@@ -2978,7 +2976,7 @@ fn a_row_of_hints_names_the_buttons_below_the_screen() {
     assert_eq!(kernel.hint.shown[0], Hint::Hidden);
 
     // Switched off: the screens are laid out anew for all of it.
-    kernel.apply(Command::set(
+    kernel.apply(Ask::set(
         &paperpaw_sdk::builtin::settings::BUTTON_HINTS,
         false,
     ));
@@ -3009,7 +3007,7 @@ impl crate::testing::Fake for PictureScreen {
 /// A home screen that shows a picture over all of it while asked to.
 pub(crate) fn picture_plugin(
     kept: Rc<RefCell<bool>>,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let shown = kept.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -3044,13 +3042,13 @@ fn leaving_a_large_picture_refreshes_in_full() {
     // A picture shown (drawn when rendered): asked as it is; leaving it,
     // in full.
     *shown.borrow_mut() = true;
-    kernel.apply(Command::Redraw(RefreshMode::Partial));
+    kernel.apply(Ask::Redraw(RefreshMode::Partial));
     let effects = kernel.finish();
     assert_eq!(mode(effects), Some(RefreshMode::Partial));
     render(&mut kernel);
     assert!(kernel.frame.pictures_shown);
     *shown.borrow_mut() = false;
-    kernel.apply(Command::Redraw(RefreshMode::Partial));
+    kernel.apply(Ask::Redraw(RefreshMode::Partial));
     assert_eq!(mode(kernel.finish()), Some(RefreshMode::Full));
     render(&mut kernel);
     assert!(!kernel.frame.pictures_shown);
@@ -3068,7 +3066,7 @@ fn leaving_a_screen_with_a_large_picture_refreshes_as_asked() {
         .unwrap();
     kernel.start(Instant(0));
     render(&mut kernel);
-    kernel.apply(Command::Redraw(RefreshMode::Partial));
+    kernel.apply(Ask::Redraw(RefreshMode::Partial));
     kernel.finish();
     render(&mut kernel);
     assert!(kernel.frame.pictures_shown);
@@ -3078,7 +3076,7 @@ fn leaving_a_screen_with_a_large_picture_refreshes_as_asked() {
         .pictures_on
         .map(|serial| serial.wrapping_add(1));
     *shown.borrow_mut() = false;
-    kernel.apply(Command::Redraw(RefreshMode::Partial));
+    kernel.apply(Ask::Redraw(RefreshMode::Partial));
     let effects = kernel.finish();
     assert_eq!(
         effects.refresh().map(|(_, mode)| mode),
@@ -3088,7 +3086,7 @@ fn leaving_a_screen_with_a_large_picture_refreshes_as_asked() {
 
 /// Writes down the network's events, and asks for Wi-Fi on when the
 /// network is wanted (as the `wifi` plugin does).
-pub(crate) fn net_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+pub(crate) fn net_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         use paperpaw_sdk::builtin::events;
         hear_into(&kept);
@@ -3103,7 +3101,7 @@ pub(crate) fn net_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), Registe
         let hears: [(Id, crate::Hear); 6] = [
             (events::NETWORK_WANTED.into(), |k, p| {
                 note(events::NETWORK_WANTED.id().as_str(), p);
-                k.with_env(|_, out| out.push(Command::Wifi(paperpaw_sdk::wifi::WifiCommand::On)));
+                k.with_env(|_, out| out.push(Ask::Wifi(paperpaw_sdk::wifi::WifiCommand::On)));
             }),
             (events::NETWORK_IDLE.into(), |_, p| {
                 note(events::NETWORK_IDLE.id().as_str(), p)

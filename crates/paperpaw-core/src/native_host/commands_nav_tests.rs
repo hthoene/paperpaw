@@ -4,11 +4,12 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 use super::super::*;
 use super::PolicyChange;
+use crate::Ask;
 use crate::native_host::stack_rows::{GUARDS, OVERLAY, StackRow};
 use alloc::vec;
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Command, Params, ScreenKey, StackEntry};
+use paperpaw_sdk::{Params, ScreenKey, StackEntry};
 
 const OWN: u64 = 13;
 const OTHER: u64 = 12;
@@ -44,7 +45,7 @@ fn submit(
     top: u32,
     hop: u8,
     commands: &[WireCommand<'_>],
-) -> (i32, Vec<Command>) {
+) -> (i32, Vec<Ask>) {
     let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
@@ -72,11 +73,11 @@ fn close_follows_the_submitters_rights_and_the_guard() {
     for instance in [0, 3] {
         let (status, staged) = submit(&kernel, 3, 0, &[close(instance)]);
         assert_eq!(status, OK);
-        assert!(matches!(staged[..], [Command::Close(key)] if key == ScreenKey::new(3)));
+        assert!(matches!(staged[..], [Ask::Close(key)] if key == ScreenKey::new(3)));
     }
     let (status, staged) = submit(&kernel, 3, 0, &[close(2)]);
     assert_eq!(status, OK);
-    assert!(matches!(staged[..], [Command::Close(key)] if key == ScreenKey::new(2)));
+    assert!(matches!(staged[..], [Ask::Close(key)] if key == ScreenKey::new(2)));
     assert_eq!(submit(&kernel, 3, 0, &[close(1)]).0, ERR_DENIED);
     assert_eq!(submit(&kernel, 3, 0, &[close(99)]).0, ERR_NOT_FOUND);
     // Outside its own top screen, 0 is a state error.
@@ -112,7 +113,7 @@ fn back_to_names_the_topmost_open_screen_and_does_nothing_where_none_is() {
         }],
     );
     assert_eq!(status, OK);
-    assert!(matches!(&staged[..], [Command::BackTo(id)] if id.as_str() == "base.home"));
+    assert!(matches!(&staged[..], [Ask::BackTo(id)] if id.as_str() == "base.home"));
     // Nothing open: OK, nothing staged. The top itself: nothing above.
     for target in ["nowhere.screen", "probe.screen"] {
         let (status, staged) = submit(&kernel, 3, 0, &[WireCommand::BackTo { target }]);
@@ -150,10 +151,10 @@ fn a_key_layer_is_the_own_top_screens_and_an_empty_one_removes_it() {
         }],
     );
     assert_eq!(status, OK);
-    assert!(matches!(&staged[..], [Command::SetKeyLayer(key, Some(id))]
+    assert!(matches!(&staged[..], [Ask::SetKeyLayer(key, Some(id))]
         if *key == ScreenKey::new(3) && id.as_str() == "probe.book"));
     let (_, staged) = submit(&kernel, 3, 0, &[WireCommand::SetKeyLayer { layer: "" }]);
-    assert!(matches!(staged[..], [Command::SetKeyLayer(_, None)]));
+    assert!(matches!(staged[..], [Ask::SetKeyLayer(_, None)]));
     // Not from a callback of a screen that is not its own top one.
     assert_eq!(
         submit(
@@ -174,7 +175,7 @@ fn show_hints_is_always_open() {
     let kernel = kernel(&[BASE, MINE]);
     let (status, staged) = submit(&kernel, 3, 0, &[WireCommand::ShowHints {}]);
     assert_eq!(status, OK);
-    assert!(matches!(staged[..], [Command::ShowHints]));
+    assert!(matches!(staged[..], [Ask::ShowHints]));
 }
 
 #[test]
@@ -183,7 +184,7 @@ fn a_raised_input_is_the_submitters_to_raise_and_never_the_power_keys() {
     let raise = |input| submit(&kernel, 3, 0, &[WireCommand::RaiseInput { input }]);
     let (status, staged) = raise("button.menu");
     assert_eq!(status, OK);
-    assert!(matches!(&staged[..], [Command::Input(name)] if name == "button.menu"));
+    assert!(matches!(&staged[..], [Ask::Input(name)] if name == "button.menu"));
     assert_eq!(raise("input.probe.next").0, OK);
     assert_eq!(raise("gesture.probe.swirl").0, OK);
     assert_eq!(raise("input.other.next").0, ERR_DENIED);
@@ -285,7 +286,7 @@ fn more_than_sixteen_screens_fail_closed() {
 /// A kernel with the screens of plugin `lock` (`lock.screen` guards the
 /// device) and of plugin `probe`.
 fn guarded_kernel() -> crate::Kernel {
-    use crate::Items;
+    use crate::Staging;
     use paperpaw_sdk::{Manifest, Version};
     struct Plain;
     impl crate::testing::Fake for Plain {
@@ -311,7 +312,7 @@ fn guarded_kernel() -> crate::Kernel {
 
     fn screens(
         names: &'static [&'static str],
-    ) -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
+    ) -> impl Fn(&mut Staging) -> Result<(), paperpaw_sdk::RegisterError> {
         move |r| {
             for id in names {
                 let guard = id.ends_with(".screen");
@@ -344,7 +345,7 @@ fn guarded_kernel() -> crate::Kernel {
 }
 
 fn open(kernel: &mut crate::Kernel, screen: &'static str) {
-    kernel.apply(Command::OpenScreen(Id::new_static(screen), Params::new()));
+    kernel.apply(Ask::OpenScreen(Id::new_static(screen), Params::new()));
 }
 
 fn stack_of(kernel: &crate::Kernel) -> Vec<&str> {
@@ -376,7 +377,7 @@ fn the_drain_applies_the_guards_own_commands_and_holds_the_others() {
         kernel.take_warnings();
         // `back_to`: the guard's plugin closes what is above (the guard too);
         // another plugin's closes nothing.
-        kernel.drain_native_command(submitter, Command::BackTo(Id::new_static("probe.base")));
+        kernel.drain_native_command(submitter, Ask::BackTo(Id::new_static("probe.base")));
         if guard_plugin {
             assert_eq!(stack_of(&kernel), ["probe.base"]);
         } else {
@@ -393,9 +394,9 @@ fn the_drain_applies_the_guards_own_commands_and_holds_the_others() {
         open(&mut kernel, screen);
     }
     let guard_key = kernel.shared.stack.last().unwrap().key;
-    kernel.drain_native_command(&probe, Command::Close(guard_key));
+    kernel.drain_native_command(&probe, Ask::Close(guard_key));
     assert_eq!(stack_of(&kernel), ["probe.base", "lock.screen"]);
-    kernel.drain_native_command(&lock, Command::Close(guard_key));
+    kernel.drain_native_command(&lock, Ask::Close(guard_key));
     assert_eq!(stack_of(&kernel), ["probe.base"]);
     // A raised input: held for another plugin, raised for the guard's (an
     // input no key map reads is told in the log only where it was raised).
@@ -406,7 +407,7 @@ fn the_drain_applies_the_guards_own_commands_and_holds_the_others() {
         }
         kernel.take_warnings();
         let submitter = if guard_plugin { &lock } else { &probe };
-        kernel.drain_native_command(submitter, Command::Input("bogus.key".into()));
+        kernel.drain_native_command(submitter, Ask::Input("bogus.key".into()));
         let told = kernel
             .take_warnings()
             .iter()
@@ -429,7 +430,7 @@ fn the_drain_applies_the_guards_own_commands_and_holds_the_others() {
         };
         kernel.drain_native_command(
             submitter,
-            Command::OpenScreen(Id::new_static(screen), Params::new()),
+            Ask::OpenScreen(Id::new_static(screen), Params::new()),
         );
         assert_eq!(stack_of(&kernel), expected);
     }
@@ -440,7 +441,7 @@ fn submit_policy(
     kernel: &crate::Kernel,
     top: u32,
     commands: &[WireCommand<'_>],
-) -> (i32, Vec<Command>, Vec<PolicyChange>) {
+) -> (i32, Vec<Ask>, Vec<PolicyChange>) {
     let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
@@ -698,7 +699,7 @@ fn the_kernel_refuses_guards_on_above_anothers_guard_at_apply() {
     // The lock opens the keyboard (another plugin's screen) above itself.
     kernel.drain_native_command(
         &lock,
-        Command::OpenScreen(Id::new_static("probe.more"), Params::new()),
+        Ask::OpenScreen(Id::new_static("probe.more"), Params::new()),
     );
     assert_eq!(
         stack_of(&kernel),
@@ -736,7 +737,7 @@ fn the_kernel_refuses_guards_on_above_anothers_guard_at_apply() {
     assert_eq!(kernel.take_warnings().len(), 1);
     // The lock closes itself still (it was never displaced).
     let lock_key = kernel.shared.stack[1].key;
-    kernel.drain_native_command(&lock, Command::Close(lock_key));
+    kernel.drain_native_command(&lock, Ask::Close(lock_key));
     assert_eq!(stack_of(&kernel), ["probe.base", "probe.more"]);
 }
 

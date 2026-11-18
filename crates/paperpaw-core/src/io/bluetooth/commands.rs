@@ -101,7 +101,7 @@ impl Radio {
         plugin: &str,
         command: BtCommand,
         asked: Asked,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) -> Result<(), BtFailure> {
         let op = op_of(&command);
         let device = device_of(&command);
@@ -121,7 +121,7 @@ impl Radio {
         plugin: &str,
         command: BtCommand,
         asked: Asked,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) -> Result<(), BtError> {
         match command {
             BtCommand::Scan(scan) => self.scan(plugin, scan, asked, out),
@@ -198,7 +198,7 @@ impl Radio {
         plugin: &str,
         command: BtCommand,
         asked: Asked,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) -> Result<(), BtError> {
         let may_manage = asked.reader || self.manager_is(plugin);
         match command {
@@ -288,7 +288,7 @@ impl Radio {
         plugin: &str,
         command: BtCommand,
         asked: Asked,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) -> Result<(), BtError> {
         match command {
             BtCommand::Advertise(mut advertising) => {
@@ -365,7 +365,7 @@ impl Radio {
         plugin: &str,
         mut scan: Scan,
         asked: Asked,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) -> Result<(), BtError> {
         // Not again so soon, unless the reader asked.
         let last = self
@@ -423,7 +423,7 @@ impl Radio {
         plugin: &str,
         connect: Connect,
         asked: Asked,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) -> Result<(), BtError> {
         let device = connect.device;
         if !self.known.iter().any(|k| k.id == device && k.mine(plugin)) {
@@ -532,7 +532,7 @@ impl Radio {
         plugin: &str,
         device: DeviceId,
         now: Instant,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) -> Result<(), BtError> {
         let at = self
             .links

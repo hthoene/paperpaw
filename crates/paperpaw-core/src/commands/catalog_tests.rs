@@ -2,11 +2,12 @@
 
 #![allow(clippy::unwrap_used, reason = "tests fail on unexpected errors")]
 
-use crate::Items;
+use crate::Ask;
+use crate::Staging;
 use crate::kit::action::ActionSpec;
 use alloc::{format, rc::Rc, string::String, vec::Vec};
 use paperpaw_i18n::{Catalog, CatalogFile, MAX_READ};
-use paperpaw_sdk::{Command, Id, Manifest, RegisterError, Version};
+use paperpaw_sdk::{Id, Manifest, RegisterError, Version};
 
 use crate::{Kernel, tests::DEVICE};
 
@@ -29,7 +30,7 @@ impl CatalogFile for File {
 const FILL: Id = Id::new_static("cache.fill");
 const CHECK: Id = Id::new_static("cache.check");
 
-fn reader() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn reader() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_action(ActionSpec::new(FILL, "Fill").handler(|env, _, _| {
             for n in 0..1000 {
@@ -40,7 +41,7 @@ fn reader() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         r.add_action(ActionSpec::new(CHECK, "Check").handler(|env, _, out| {
             assert_eq!(env.i18n().tr("late.notice"), "Translated notice");
             assert_eq!(env.i18n().tr("late.button"), "Translated button");
-            out.push(Command::Notify(env.i18n().tr("late.notice").into()));
+            out.push(Ask::Notify(env.i18n().tr("late.notice").into()));
         }))
     }
 }
@@ -78,7 +79,7 @@ fn later_commands_translate_after_an_earlier_callback_fills_the_cache() {
     kernel
         .output
         .commands
-        .extend([Command::run(FILL), Command::run(CHECK)]);
+        .extend([Ask::run(FILL), Ask::run(CHECK)]);
     kernel.run_commands();
 }
 

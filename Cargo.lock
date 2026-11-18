@@ -1648,6 +1648,7 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-plugin-about",
  "paperpaw-plugin-aids",
+ "paperpaw-plugin-anki",
  "paperpaw-plugin-battery",
  "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-calibre",
@@ -2103,6 +2104,19 @@ dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-native",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-file-sync"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]

@@ -6,7 +6,6 @@
 
 pub mod action;
 pub mod ask;
-pub mod contribution;
 pub mod decorations;
 pub mod help;
 pub mod install;

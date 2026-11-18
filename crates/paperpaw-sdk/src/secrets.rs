@@ -1,6 +1,6 @@
 //! Passwords and keys, kept in one place for every plugin: plugins read
-//! them with `Env::secrets` and keep or remove them with
-//! [`Command::SetSecret`](crate::Command::SetSecret); the settings list
+//! them with `Place::secrets` and keep or remove them with
+//! `Ask::SetSecret`; the settings list
 //! them all under *Passwords and keys* to change or remove.
 //!
 //! They are kept in a file of their own (`.paperpaw/secrets.txt`), out of
@@ -9,7 +9,7 @@
 //! can read them.
 //!
 //! A plugin sees its own secrets alone, those in its namespace
-//! (`kosync.key` for `kosync`): `Env::secrets` is a
+//! (`kosync.key` for `kosync`): `Place::secrets` is a
 //! [`Visible`] view that hands out a value only to the plugin whose code
 //! runs. Every plugin may see which secrets there are, by name and label
 //! ([`Visible::listed`]), as the settings' list of them shows. Code a

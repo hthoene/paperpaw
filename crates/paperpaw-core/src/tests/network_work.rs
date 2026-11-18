@@ -122,7 +122,7 @@ fn wifi_commands_are_ignored_where_the_system_manages_it() {
     kernel
         .output
         .commands
-        .push(Command::Wifi(paperpaw_sdk::wifi::WifiCommand::On));
+        .push(Ask::Wifi(paperpaw_sdk::wifi::WifiCommand::On));
     kernel.finish();
     assert!(kernel.take_wifi_calls().is_empty());
     // Requests go to the shell at once.

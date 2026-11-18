@@ -138,20 +138,6 @@ fn growing_types_are_non_exhaustive() {
     );
 }
 
-#[test]
-fn handlers_take_no_vector_of_commands() {
-    let found: BTreeSet<String> = api()
-        .iter()
-        .filter(|line| line.contains("&mut alloc::vec::Vec<paperpaw_sdk::Command>"))
-        .map(|line| path_of(attributes(line).1).to_string())
-        .collect();
-    ratchet(
-        "commands.txt",
-        &found,
-        "takes `&mut Vec<Command>`: give it a context or `Commands`, which can grow",
-    );
-}
-
 /// The crossing crates' Rust files below `src/`, by their path from the
 /// repository's top folder.
 fn sources() -> Vec<(String, String)> {

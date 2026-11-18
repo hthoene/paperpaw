@@ -6,13 +6,14 @@ use crate::{Place, Turn};
 use alloc::boxed::Box;
 use alloc::string::String;
 
+use crate::Ask;
 use paperpaw_sdk::builtin::slots;
-use paperpaw_sdk::{Canvas, Command, Handled, Id, Manifest, Priority, RegisterError, Version};
+use paperpaw_sdk::{Canvas, Handled, Id, Manifest, Priority, RegisterError, Version};
 
 use crate::native_host::shared::Shared;
 use crate::native_host::ui_service::UiServices;
 use crate::native_host::ui_store::{Limits, UiStore};
-use crate::{Items, Kernel};
+use crate::{Kernel, Staging};
 
 /// The stand-in dialog's screen.
 pub(crate) const DIALOG: Id = Id::new_static("q.dialog");
@@ -33,7 +34,7 @@ pub(crate) fn serves_manifest() -> Manifest {
 }
 
 /// The stand-in dialog on both slots.
-pub(crate) fn serves() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+pub(crate) fn serves() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             DIALOG,
@@ -87,6 +88,6 @@ pub(crate) fn answer(kernel: &mut Kernel, store: &UiStore, choice: u32) {
     let top = kernel.stack.last().unwrap().serial;
     let (request, ..) = store.dialog_of(top).expect("a question's dialog on top");
     store.answer(top, request, 0, choice).unwrap();
-    kernel.apply(Command::Back);
+    kernel.apply(Ask::Back);
     let _ = kernel.finish();
 }

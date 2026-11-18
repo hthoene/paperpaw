@@ -14,7 +14,9 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use paperpaw_sdk::{Command, Id, Params};
+use paperpaw_sdk::{Id, Params};
+
+use crate::Ask;
 
 use crate::Kernel;
 use crate::io::sockets::Owner;
@@ -86,12 +88,12 @@ impl Runs {
 
     /// The commands of the run `run`: the sockets of its plugin they
     /// connect are its (not those of another plugin hearing its event).
-    pub(crate) fn claim(&mut self, run: u32, commands: &[Command]) {
+    pub(crate) fn claim(&mut self, run: u32, commands: &[Ask]) {
         let Some(owner) = self.runs.iter().find(|r| r.number == run) else {
             return;
         };
         for command in commands {
-            if let Command::Connect { socket, .. } = command
+            if let Ask::Connect { socket, .. } = command
                 && socket.namespace() == owner.owner
             {
                 self.claims.push((socket.clone(), run));
@@ -154,9 +156,9 @@ impl Kernel {
     /// Carries out a plugin's socket command: a socket that a run of
     /// background work's commands connect is the run's, any other the
     /// screens'.
-    pub(crate) fn socket_command(&mut self, command: Command) {
+    pub(crate) fn socket_command(&mut self, command: Ask) {
         let run = match &command {
-            Command::Connect { socket, .. } => self.works.runs.owner_of(socket),
+            Ask::Connect { socket, .. } => self.works.runs.owner_of(socket),
             _ => None,
         };
         let owner = run.map_or(Owner::Screens(self.stack.len()), Owner::Run);
@@ -184,8 +186,8 @@ impl Kernel {
 mod tests {
     use super::*;
 
-    fn connect(socket: &'static str) -> Command {
-        Command::connect(
+    fn connect(socket: &'static str) -> Ask {
+        Ask::connect(
             Id::new_static(socket),
             "example.org",
             993,

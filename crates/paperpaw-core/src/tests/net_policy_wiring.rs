@@ -54,7 +54,7 @@ fn asker_manifest(id: &'static str) -> Manifest {
         .uses(paperpaw_sdk::Uses::NETWORK)
 }
 
-fn asker(kept: Asker) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn asker(kept: Asker) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         crate::tests::hear_into(&kept.log);
         use paperpaw_sdk::builtin::events;
@@ -177,8 +177,8 @@ fn wired() -> (Kernel, Rc<NetPolicy>, Log) {
     (kernel, policy, log)
 }
 
-fn network_of_wk(on: bool) -> Command {
-    Command::SetSetting(Id::new_static("core.network.wk"), SettingValue::Bool(on))
+fn network_of_wk(on: bool) -> Ask {
+    Ask::SetSetting(Id::new_static("core.network.wk"), SettingValue::Bool(on))
 }
 
 #[test]

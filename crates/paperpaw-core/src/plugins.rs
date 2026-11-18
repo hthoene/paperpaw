@@ -37,7 +37,7 @@ pub(crate) struct KeySources {
     /// Plugins' key maps that apply while a switch (the id) is on.
     pub(crate) when: Vec<(Id, Cow<'static, str>)>,
     /// The user's bindings: `paperpaw.ini` as read at start and changed
-    /// since ([`Command::Bind`]), then the shell's overrides (see
+    /// since ([`Ask::Bind`]), then the shell's overrides (see
     /// [`KernelBuilder::user_config`]), which win.
     pub(crate) user: String,
     pub(crate) shell: String,
@@ -56,7 +56,7 @@ impl Shared {
 /// What adds a plugin's contributions: the kernel's own function, a plugin
 /// of data's, a closure given to the builder, or an old `Plugin`'s
 /// `register` in an adapter ([`Kernel::register_plugin`]).
-pub(crate) type Adds<'a> = &'a dyn Fn(&mut Items) -> Result<(), RegisterError>;
+pub(crate) type Adds<'a> = &'a dyn Fn(&mut Staging) -> Result<(), RegisterError>;
 
 impl Kernel {
     /// Registers what `adds` adds under `manifest`, or only lists it if the
@@ -107,11 +107,8 @@ impl Kernel {
             self.warn(source(), None, message);
             return self.list_plugin(manifest, PluginState::Failed, true);
         }
-        let mut staging = Staging::default();
-        let mut items = Items::new(id.clone());
-        let result = adds(&mut items)
-            .and_then(|()| registry::stage(&id, items, &mut staging))
-            .and_then(|()| self.merge(&id, staging));
+        let mut staging = Staging::new(id.clone());
+        let result = adds(&mut staging).and_then(|()| self.merge(&id, staging));
         match result {
             Ok(()) => self.list_plugin(manifest, PluginState::Running, true),
             Err(error) => {
@@ -140,19 +137,15 @@ impl Kernel {
         let Some(manifest) = self.copy_manifest(manifest) else {
             return;
         };
-        let mut items = Items::new(id.clone());
-        if adds(&mut items).is_ok() {
-            for contribution in items.into_contributions() {
-                match contribution {
-                    Contribution::Translations(source) => {
-                        if let Ok(catalog) = registry::catalog(source) {
-                            self.shared.translator.add(catalog);
-                        }
-                    }
-                    Contribution::TranslationFile(path) => self.add_translation_file(&id, path),
-                    _ => {}
-                }
-            }
+        // Its translations staged before anything it added failed (a key map
+        // that does not parse) are listed as well.
+        let mut staging = Staging::new(id.clone());
+        let _failed = adds(&mut staging).is_err();
+        for catalog in staging.catalogs.drain(..) {
+            self.shared.translator.add(catalog);
+        }
+        for path in staging.catalog_files.drain(..) {
+            self.add_translation_file(&id, path);
         }
         self.list_plugin(manifest, PluginState::Off, false);
     }
@@ -480,7 +473,7 @@ impl Kernel {
         self.shared.keymap = keymap;
     }
 
-    /// Redefines or resets a menu (see [`Command::SetMenu`]) and saves it,
+    /// Redefines or resets a menu (see [`Ask::SetMenu`]) and saves it,
     /// with the entries plugins contribute to it now that the user left
     /// out: those added later show in the user's list too (`[menus-known]`).
     pub(crate) fn set_menu(&mut self, menu: Id, entries: Option<Vec<Id>>) {
@@ -516,9 +509,10 @@ impl Kernel {
                 paperpaw_config::remove(&source, KNOWN, menu.as_str())
             }
         });
-        self.output
-            .commands
-            .push(events::MENU_CHANGED.emit(events::MenuChanged::new(menu.clone())));
+        self.output.commands.push(crate::Ask::emit(
+            &events::MENU_CHANGED,
+            events::MenuChanged::new(menu.clone()),
+        ));
         self.native_registry_changed(crate::native_host::REGISTRY_MENUS);
     }
 
@@ -550,7 +544,7 @@ impl Kernel {
     /// into the program (its `i18n/<language>.ini`): the texts the plugin
     /// reads through `core.i18n`. Only text with the program's lifetime
     /// (`&'static str`, `include_str!`): a catalog on the storage is
-    /// `Items::add_translation_file`. One that does not parse is reported
+    /// `Staging::add_translation_file`. One that does not parse is reported
     /// and left out.
     pub fn add_catalog(&mut self, source: &'static str) {
         match registry::catalog(alloc::borrow::Cow::Borrowed(source)) {
@@ -584,7 +578,7 @@ impl Kernel {
         self.shared.translator.reserve(plugins);
     }
 
-    /// Opens the compiled catalog `path` (`Items::add_translation_file`)
+    /// Opens the compiled catalog `path` (`Staging::add_translation_file`)
     /// and adds it; one that cannot be opened is reported.
     pub(crate) fn add_translation_file(&mut self, plugin: &Id, path: String) {
         let file =
@@ -640,7 +634,7 @@ impl Kernel {
         self.shared.fonts.set_ui_ink(ink.with_flags(flags));
     }
 
-    /// Plugin `by` asks for `plugins` ([`Command::RequestPlugins`](paperpaw_sdk::Command::RequestPlugins)):
+    /// Plugin `by` asks for `plugins` ([`Ask::RequestPlugins`](crate::Ask::RequestPlugins)):
     /// those not on the device, each once and at most
     /// [`MAX_REQUESTED_PLUGINS`](paperpaw_sdk::MAX_REQUESTED_PLUGINS),
     /// go to the store as
@@ -697,7 +691,7 @@ impl Kernel {
     }
 
     /// Loads the data plugin in `folder` while running (see
-    /// [`Command::LoadPlugin`](paperpaw_sdk::Command::LoadPlugin)).
+    /// [`Ask::LoadPlugin`](crate::Ask::LoadPlugin)).
     pub(crate) fn load_plugin(&mut self, folder: &str) {
         if self.register_folder(folder) {
             self.plugins_changed();
@@ -807,7 +801,7 @@ impl Kernel {
     }
 
     /// Removes a data plugin while running (see
-    /// [`Command::RemovePlugin`](paperpaw_sdk::Command::RemovePlugin)).
+    /// [`Ask::RemovePlugin`](crate::Ask::RemovePlugin)).
     pub(crate) fn remove_plugin(&mut self, id: &Id) {
         let Some(folder) = self.data_folder(id) else {
             return self.warn_runtime(format!("`{id}` is no data plugin; not removed"));
@@ -909,7 +903,7 @@ impl Kernel {
     }
 
     /// Installs the data plugin `id` downloaded into `folder` (see
-    /// [`Command::InstallPlugin`](paperpaw_sdk::Command::InstallPlugin)):
+    /// [`Ask::InstallPlugin`](crate::Ask::InstallPlugin)):
     /// the folder takes the place of every version of it on the storage,
     /// loaded or not, and is loaded at once.
     pub(crate) fn install_plugin(&mut self, id: &Id, folder: &str) {
@@ -1037,10 +1031,7 @@ impl Kernel {
         let version = plugin.manifest().version;
         // Registered aside first (its translations, key map, settings): one
         // that would fail leaves the version before in place.
-        let mut registrar = Items::new(id.clone());
-        let staged = plugin
-            .register(&mut registrar)
-            .and_then(|()| registry::stage(id, registrar, &mut Staging::default()));
+        let staged = plugin.register(&mut Staging::new(id.clone()));
         drop(plugin);
         if let Err(error) = staged {
             return refuse(self, format!("{folder}: not installed: {error}"));
@@ -1100,7 +1091,7 @@ impl Kernel {
         // A plugin may have brought or taken the interface's font.
         self.renew_memory_notice();
         self.rebuild_keymap();
-        self.output.commands.push(events::PLUGINS_CHANGED.emit(()));
+        self.output.emit(&events::PLUGINS_CHANGED, ());
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
         // What menus, bindings, slots, screens and the rest hold follows the set.
         self.native_registry_changed(crate::native_host::REGISTRY_ALL);

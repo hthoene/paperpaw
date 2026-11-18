@@ -69,6 +69,15 @@ pub fn caps_of(profile: &Profile) -> u64 {
         | bit(device.input.pen, caps::PEN)
 }
 
+/// Whether the device's network is up (a closure has no `Debug`).
+struct Online(Rc<dyn Fn() -> bool>);
+
+impl std::fmt::Debug for Online {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Online")
+    }
+}
+
 /// An emulated device behind `core.device`.
 #[derive(Debug)]
 pub struct DesktopDevice {
@@ -82,6 +91,9 @@ pub struct DesktopDevice {
     workshop: bool,
     clock: Instant,
     memory: ProbeCache<MemoryFacts>,
+    /// The device's own view of the network: where the pretend radio is joined
+    /// the radio is online, whatever `wifi_state` was set to.
+    online: Option<Online>,
 }
 
 impl DesktopDevice {
@@ -95,7 +107,18 @@ impl DesktopDevice {
             workshop: crate::device::wifi_online(),
             clock: Instant::now(),
             memory: ProbeCache::new(),
+            online: None,
         }
+    }
+
+    /// Reads the radio's state from the device's view of the network:
+    /// `dev_wifi.state` is online while `online` says so (the pretend radio is
+    /// joined: `--wifi online`; the setup templates and the store's start
+    /// read it).
+    #[must_use]
+    pub fn with_online(mut self, online: Rc<dyn Fn() -> bool>) -> Self {
+        self.online = Some(Online(online));
+        self
     }
 
     /// The level and mode the kernel reports now (`Kernel::power`).
@@ -163,8 +186,9 @@ impl DeviceHost for DesktopDevice {
         if !self.profile.wifi {
             return Err(paperpaw_native::host_glue::ERR_NOT_FOUND);
         }
+        let online = self.online.as_ref().is_some_and(|online| (online.0)());
         visit(&WifiFacts {
-            state: self.wifi_state.get(),
+            state: if online { 3 } else { self.wifi_state.get() },
             ssid: "",
             address: "",
             host_name: "",

@@ -1,4 +1,4 @@
-//! How much memory is free now (`Env::memory`), where the shell can
+//! How much memory is free now (`Place::memory`), where the shell can
 //! tell: for diagnostics, and for plugins that check their room before
 //! large work. A device's memory is mostly its heap; on small devices the
 //! stack's depth matters as well, as running over it is fatal.

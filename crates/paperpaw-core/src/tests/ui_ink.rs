@@ -15,7 +15,7 @@ fn ui_ink(kernel: &Kernel) -> TextInk {
 }
 
 fn set(kernel: &mut Kernel, id: &Id, value: &str) {
-    kernel.apply(Command::SetSetting(
+    kernel.apply(Ask::SetSetting(
         id.clone(),
         SettingValue::Text(value.to_string().into()),
     ));
