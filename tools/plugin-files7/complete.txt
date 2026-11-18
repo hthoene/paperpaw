@@ -50,3 +50,4 @@ picture-frame
 pomodoro
 puzzles
 file-sync
+smart-home
