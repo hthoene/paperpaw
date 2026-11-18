@@ -106,12 +106,18 @@ START_CUTS = [r"Kernel>::apply$"]
 
 
 def chain_from(elf, root, cuts=()):
+    """The deepest chain from `root` (one name, or several spellings of it: the
+    objdump of one toolchain prints `<T>::run`, another's `T::run`). Exits 1
+    when the symbol is in none of them: the check must never pass unmeasured."""
     extra = [x for cut in cuts for x in ("--cut", cut)]
-    out = frames(elf, "--top", "0", "--root", root, *extra)
-    m = re.search(r"deepest chain from .*?: (\d+) bytes", out)
-    if not m:
-        sys.exit(f"no chain from {root}")
-    return int(m.group(1))
+    names = (root,) if isinstance(root, str) else root
+    for name in names:
+        out = frames(elf, "--top", "0", "--root", name, *extra)
+        m = re.search(r"deepest chain from .*?: (\d+) bytes", out)
+        if m:
+            return int(m.group(1))
+    sys.exit(f"error: no chain from {' or '.join(names)}: the symbol is not in the ELF (renamed or "
+             "inlined?), so nothing was measured; fix the name in this script")
 
 
 def main():
@@ -136,7 +142,7 @@ def main():
     paths = {
         "start: main + start + prepare": main_f + start_f + chain_from(a.elf, "paperpaw_xteink::prepare"),
         "start: main + start + kernel + build and what it calls": main_f + start_f + chain_from(a.elf, "paperpaw_xteink::kernel", START_CUTS),
-        "main loop: main + run and what it calls": main_f + chain_from(a.elf, "paperpaw_xteink::firmware::Firmware::run" if S3 else "<paperpaw_xteink::firmware::Firmware>::run"),
+        "main loop: main + run and what it calls": main_f + chain_from(a.elf, ("<paperpaw_xteink::firmware::Firmware>::run", "paperpaw_xteink::firmware::Firmware::run")),
     }
     print(f"stack {top - end} B (end {end:#x}, top {top:#x}); band {start:#x}..{start + band:#x}; "
           f"{usable} B above it, margin {a.margin} B")
