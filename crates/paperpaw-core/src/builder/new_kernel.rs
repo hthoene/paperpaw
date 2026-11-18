@@ -267,6 +267,7 @@ impl BuilderParts {
                 .map(|rows| u32::from(rows) * u32::from(display.width)),
             pictures_shown: false,
             pictures_on: None,
+            refreshed_on: None,
             again: false,
             screenshot: None,
             mark: None,

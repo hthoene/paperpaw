@@ -57,6 +57,12 @@ impl RefreshPolicy {
         }
     }
 
+    /// The next refresh is not counted, as the first one after the start
+    /// (the first frame of another screen is no page turned).
+    pub(crate) fn skip_next(&mut self) {
+        self.skip_first = true;
+    }
+
     /// Says what the areas drawn for the refresh that is decided and done
     /// next add up to (see the field), or `None` for what lies in the
     /// region.
