@@ -229,6 +229,7 @@ fn the_cells_the_covers_the_sheet_and_the_chooser_survive_refused_allocations() 
                 finished,
                 can_archive: true,
                 can_delete: true,
+                readers: true,
             })?;
             assert!(actions.contains(&Action::Open));
         }

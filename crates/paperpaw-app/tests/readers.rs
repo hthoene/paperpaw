@@ -1,8 +1,8 @@
 //! The shipped native reader opens the books: a text and an EPUB book open in
 //! it, and a Beta 3 card whose configuration still names a reading app that is
-//! gone raises no warning and opens its books there too. (The reading-app
-//! resolver of interface 6, with its per-book, per-folder and per-format
-//! choices, is not carried to the native host: ticket #260.)
+//! gone raises no warning and opens its books there too. (The per-book,
+//! per-folder and per-format choices of a second reading app are the kernel's
+//! tests: `paperpaw-core` `tests/reading_apps.rs`, #260.)
 
 #![allow(
     clippy::unwrap_used,

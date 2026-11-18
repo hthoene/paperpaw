@@ -29,6 +29,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input},
         commands::CommandSender,
         device::{Device, DeviceClass},
+        document::{Documents, ReaderCursor},
         events::{AnswerOutcome, Answered, Event, Incoming, kinds},
         files::Files,
         formatting::Arg,
@@ -74,6 +75,7 @@ mod find;
 mod names;
 mod open;
 mod plan;
+mod readers;
 mod sheet;
 mod sources;
 
@@ -93,6 +95,14 @@ enum Asked {
     },
     /// Whether to delete the book at this path.
     Delete { path: String },
+    /// Which reading app opens the book at `path`: the screens in the
+    /// answer's order (empty: *Standard*), and the choice it keeps (`book`,
+    /// `folder`; none: this time only).
+    With {
+        path: String,
+        screens: Vec<String>,
+        keep: Option<&'static str>,
+    },
     /// The name of a new folder in the chooser.
     NewFolder,
 }
@@ -181,6 +191,8 @@ enum View {
 #[derive(Debug, Default)]
 pub struct NativeFiles {
     library: Option<Library>,
+    /// The document service, for the reading apps of a book.
+    documents: Option<Documents>,
     ui: Option<Ui>,
     screens: Screens<View>,
     /// The question that is open, and what it is for.

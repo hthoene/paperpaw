@@ -3264,6 +3264,7 @@ mod open_with;
 mod pictures_in_grays;
 mod plugins_loaded;
 pub(crate) mod questions;
+mod reading_apps;
 mod realtime;
 mod refreshes;
 mod screen_life;

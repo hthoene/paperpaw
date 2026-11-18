@@ -207,6 +207,17 @@ impl NativeFiles {
             }
             Asked::Delete { path } if answer.choice() == 1 => self.delete_book(host, &path),
             Asked::Delete { .. } => Ok(()),
+            Asked::With {
+                path,
+                screens,
+                keep,
+            } => match usize::try_from(answer.choice())
+                .ok()
+                .and_then(|at| screens.get(at))
+            {
+                Some(screen) => self.open_in(host, &path, screen, keep),
+                None => Ok(()),
+            },
             Asked::NewFolder => self.named_folder(host, request),
         }
     }
