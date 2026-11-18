@@ -192,6 +192,35 @@ fn teardown(
     heap.1.borrow_mut().push((u32::MAX, -6));
 }
 
+fn test_device() -> paperpaw_sdk::DeviceInfo {
+    paperpaw_sdk::DeviceInfo::new(
+        "test-x4",
+        "Test X4",
+        paperpaw_sdk::DisplayInfo::new(
+            480,
+            800,
+            220,
+            paperpaw_sdk::PixelFormat::Gray4,
+            Default::default(),
+            None,
+        ),
+        paperpaw_sdk::InputCaps::new(
+            true,
+            false,
+            false,
+            &[
+                "back",
+                "confirm",
+                "left",
+                "right",
+                "page-back",
+                "page-forward",
+            ],
+        ),
+        MemoryClass::Small,
+    )
+}
+
 pub struct World {
     kernel: Option<Kernel>,
     resources: Option<HostResources>,
@@ -261,32 +290,7 @@ impl World {
             )
             .unwrap();
         let reports = wired.net().unwrap().clone();
-        let device = paperpaw_sdk::DeviceInfo::new(
-            "test-x4",
-            "Test X4",
-            paperpaw_sdk::DisplayInfo::new(
-                480,
-                800,
-                220,
-                paperpaw_sdk::PixelFormat::Gray4,
-                Default::default(),
-                None,
-            ),
-            paperpaw_sdk::InputCaps::new(
-                true,
-                false,
-                false,
-                &[
-                    "back",
-                    "confirm",
-                    "left",
-                    "right",
-                    "page-back",
-                    "page-forward",
-                ],
-            ),
-            MemoryClass::Small,
-        );
+        let device = test_device();
         let config = format!(
             "[core]\nlanguage=en\n[kosync]\n{}server=https://fake.invalid/kosync\nauto=true\n[reader]\nopen-last=false\n[plugins]\nkosync={}\n",
             if signed_in { "user=test-reader\n" } else { "" },
@@ -349,16 +353,22 @@ impl World {
                 FixedTables::NONE,
             );
         }
+        world.add_catalogs();
+        world.kernel().start(Instant(0));
+        world
+    }
+
+    /// The texts the plugins ask for, with the core's (`core.on`, `core.off`).
+    fn add_catalogs(&mut self) {
         for text in [
+            include_str!("../../../../crates/paperpaw-core/i18n/en.ini"),
             include_str!("../../i18n/en.ini"),
             include_str!("../../../reader/i18n/en.ini"),
             include_str!("../../../keyboard/i18n/en.ini"),
             include_str!("../../../menu/i18n/en.ini"),
         ] {
-            world.kernel().add_catalog(text);
+            self.kernel().add_catalog(text);
         }
-        world.kernel().start(Instant(0));
-        world
     }
 
     pub fn kernel(&mut self) -> &mut Kernel {
