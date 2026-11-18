@@ -29,7 +29,7 @@ use front::{Front, Step};
 use wiki::Vault;
 
 /// Changes whenever Markdown is turned into HTML differently.
-const MD_VERSION: u32 = 3;
+const MD_VERSION: u32 = 4;
 
 /// An open Markdown file.
 #[derive(Debug)]
@@ -464,7 +464,7 @@ fn line(
         if quoted {
             state.callout = title.is_some();
             out.try_push_str(if state.callout {
-                "<blockquote style=\"text-align:left\">\n"
+                "<blockquote class=\"callout\" style=\"text-align:left\">\n"
             } else {
                 "<blockquote>\n"
             })?;
@@ -951,12 +951,12 @@ mod tests {
     fn callouts_are_quotes_that_begin_with_their_title() {
         assert_eq!(
             html("> [!warning] Careful now\n> The body."),
-            "<blockquote style=\"text-align:left\">\n<p style=\"text-indent:0\"><b>Warning · Careful now</b></p>\n\
+            "<blockquote class=\"callout\" style=\"text-align:left\">\n<p style=\"text-indent:0\"><b>Warning · Careful now</b></p>\n\
              <p style=\"text-indent:0\">The body.</p>\n</blockquote>\n"
         );
         assert_eq!(
             html("> [!note]-\n> Folded."),
-            "<blockquote style=\"text-align:left\">\n<p style=\"text-indent:0\"><b>Note</b></p>\n\
+            "<blockquote class=\"callout\" style=\"text-align:left\">\n<p style=\"text-indent:0\"><b>Note</b></p>\n\
              <p style=\"text-indent:0\">Folded.</p>\n</blockquote>\n"
         );
         // Not a callout: a quote.

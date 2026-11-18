@@ -133,14 +133,15 @@ fn record_end(next: Option<u32>, length: u32) -> Option<u32> {
     Some(next.map_or(length, |start| start.saturating_sub(HEADER)))
 }
 
-/// The runs and the inline languages a record holds after its text.
+/// The runs and the inline languages (`langs` of them) a record holds after
+/// its text.
 fn decode_lists(
     text: &[u8],
-    len: usize,
-    runs_len: usize,
+    (len, runs_len, langs): (usize, usize, usize),
     filled: usize,
 ) -> Result<(Vec<Run>, Vec<Lang>), DocumentError> {
-    let lang_bytes = text.get(len + runs_len..filled).unwrap_or_default();
+    let lang_end = filled.min(len + runs_len + langs * 4);
+    let lang_bytes = text.get(len + runs_len..lang_end).unwrap_or_default();
     let mut inline_langs: Vec<Lang> = Vec::new();
     crate::fallible::reserve_exact(&mut inline_langs, lang_bytes.len() / 4)?;
     inline_langs.extend(
@@ -166,31 +167,35 @@ fn decode_lists(
 }
 
 /// The most a record of the text file takes: its header, the text, a run of
-/// each of its bytes at worst, and the inline languages.
+/// each of its bytes at worst, the inline languages and a row's table data.
 const MAX_RECORD: usize = HEADER as usize
     + convert::LIMIT
     + convert::LIMIT * convert::RUN
-    + paperpaw_sdk::document::MAX_INLINE_LANGS as usize * 4;
+    + paperpaw_sdk::document::MAX_INLINE_LANGS as usize * 4
+    + convert::MAX_DATA;
 
 /// What a record's header and its index entry say: the length of its text, of
-/// its runs, and the number of its inline languages. A record the converter
-/// cannot have written means the cache is damaged.
+/// its runs, the number of its inline languages and the length of a row's
+/// table data. A record the converter cannot have written means the cache is
+/// damaged.
 fn record_sizes(
     header: &[u8; HEADER as usize],
     entry: Entry,
-) -> Result<(usize, usize, usize), DocumentError> {
+) -> Result<(usize, usize, usize, usize), DocumentError> {
     let len = usize::from(u16::from_le_bytes([header[4], header[5]]));
     let run_count = usize::from(u16::from_le_bytes([header[6], header[7]]));
     let langs = usize::from(entry[21]);
+    let table = usize::from(entry[23]);
     if len > convert::LIMIT
         || run_count > len
         || langs > usize::from(paperpaw_sdk::document::MAX_INLINE_LANGS)
+        || table > convert::MAX_DATA
     {
         return Err(DocumentError::Malformed(alloc::borrow::Cow::Borrowed(
             "cache record",
         )));
     }
-    Ok((len, run_count * convert::RUN, langs))
+    Ok((len, run_count * convert::RUN, langs, table))
 }
 
 /// The record `len` bytes long at `at` of the text file, in one read: its
@@ -242,20 +247,21 @@ fn read_entry(
         _ => None,
     };
     let whole = whole.filter(|record| record.len() >= header.len());
-    let (text, filled, len, runs_len) = match whole {
+    let (text, filled, (len, runs_len, langs, _)) = match whole {
         Some(mut record) => {
             header.copy_from_slice(&record[..HEADER as usize]);
             record.drain(..HEADER as usize);
-            let (len, runs_len, langs) = record_sizes(&header, entry)?;
-            let filled = record.len().min(len + runs_len + langs * 4);
+            let sizes @ (len, runs_len, langs, table) = record_sizes(&header, entry)?;
+            let filled = record.len().min(len + runs_len + langs * 4 + table);
             record.truncate(filled);
-            (record, filled, len, runs_len)
+            (record, filled, sizes)
         }
         None => {
             storage.read_at(&paths.text, u64::from(at), &mut header)?;
-            let (len, runs_len, langs) = record_sizes(&header, entry)?;
-            // The text, its runs and its inline languages after it, read at once.
-            let mut text = crate::fallible::zeroed(len + runs_len + langs * 4)?;
+            let sizes @ (len, runs_len, langs, table) = record_sizes(&header, entry)?;
+            // The text, its runs, its inline languages and its table data
+            // after it, read at once.
+            let mut text = crate::fallible::zeroed(len + runs_len + langs * 4 + table)?;
             let mut filled = 0;
             while filled < text.len() {
                 let n = storage.read_at(
@@ -268,10 +274,12 @@ fn read_entry(
                 }
                 filled += n;
             }
-            (text, filled, len, runs_len)
+            (text, filled, sizes)
         }
     };
-    let (runs, inline_langs) = decode_lists(&text, len, runs_len, filled)?;
+    let (runs, inline_langs) = decode_lists(&text, (len, runs_len, langs), filled)?;
+    let row = text.get(len + runs_len + langs * 4..filled);
+    let row = convert::read_row(row.unwrap_or_default(), len)?;
     // The block keeps its text, not the room the runs took: a copy of
     // exactly its size where the buffer held more.
     let text_bytes = &text[..filled.min(len)];
@@ -285,6 +293,7 @@ fn read_entry(
         Ok(text) => text,
         Err(e) => crate::fallible::lossy(e.as_bytes())?.into_owned(),
     };
+    let row = row_of(row, &text, &mut kind);
     let mut image = None;
     if kind == BlockKind::Image {
         // `cache name<TAB>alternative text`, the picture in either kind,
@@ -323,7 +332,27 @@ fn read_entry(
         .image(image);
     // The list as a boxed slice of exactly its size (no growth to refuse).
     block.inline_langs = (!inline_langs.is_empty()).then(|| inline_langs.into_boxed_slice());
+    block.table = row;
     Ok(block)
+}
+
+/// The row of a block of kind `kind` and `text`: one whose cells end on
+/// characters of its text, else none, and the block a paragraph.
+fn row_of(
+    row: Option<alloc::boxed::Box<paperpaw_sdk::document::TableRow>>,
+    text: &str,
+    kind: &mut BlockKind,
+) -> Option<alloc::boxed::Box<paperpaw_sdk::document::TableRow>> {
+    let row = row.filter(|r| {
+        *kind == BlockKind::TableRow
+            && r.cells
+                .iter()
+                .all(|c| text.is_char_boundary(c.end as usize))
+    });
+    if row.is_none() && *kind == BlockKind::TableRow {
+        *kind = BlockKind::Paragraph;
+    }
+    row
 }
 
 /// The block of a converted chapter containing `offset`, or the first
