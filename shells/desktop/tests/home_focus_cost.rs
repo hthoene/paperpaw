@@ -2,7 +2,10 @@
 //! and comes to draw again is drawn. A move asks the library nothing, reads
 //! nothing from the card and draws a cover only where a band holds it: the
 //! card's cover and the shelf's two, each in the band it lies in, not in every
-//! band of the frame the two areas make. Counted with the kernel's
+//! band of the frame the two areas make. Once each cover has been drawn on
+//! Home, a move reads nothing from the card at all: the covers' drawn rows
+//! are kept while Home is shown (#329; on the X4 each cover was 57 KB read
+//! and 100 ms a move). Counted with the kernel's
 //! `slot-counts` feature (the emulator counts as the device; its milliseconds
 //! are not the device's, its call counts are).
 
@@ -78,10 +81,28 @@ fn a_focus_move_on_home_asks_nothing_and_draws_each_cover_once() {
     // The first press shows the focus; the moves are the ones after it, close
     // together (a rest of thirty seconds draws the page in grays first).
     run_script(&mut device, "right,wait:1500").unwrap();
-    for step in ["right", "right", "right", "left", "left", "left", "left"] {
+    let moves = ["right", "right", "right", "left", "left", "left", "left"];
+    for (n, step) in moves.into_iter().enumerate() {
         slot_counts::reset();
+        device.shown.clear();
+        let before = paperpaw_emulator::trace::counts();
         run_script(&mut device, step).unwrap();
         run_script(&mut device, "wait:300").unwrap();
+        let card = paperpaw_emulator::trace::counts().since(&before);
+        eprintln!("move {n} {step}: card {card}, shown {:?}", device.shown);
+        // One frame a move, of the two widgets the focus leaves and comes to
+        // (the card and the shelf at most: 432 x 584 of the X4's 480 x 800).
+        assert_eq!(device.shown.len(), 1, "{step}: {:?}", device.shown);
+        let (rect, mode) = device.shown[0];
+        assert!(
+            mode == paperpaw_platform::RefreshMode::Full
+                || (rect.width <= 432 && rect.height <= 584 && rect.y >= 171),
+            "{step}: drawn {rect:?}"
+        );
+        // The covers were drawn on Home before the first move (the page, then
+        // the first press): their rows are kept, and the card is not read, nor
+        // asked anything (before, each cover's whole file was read at every move).
+        assert_eq!(card.calls(), 0, "{step} (move {n}): the card: {card}");
         let counts = slot_counts::snapshot();
         let calls = slot_counts::service_calls();
         let slots: u32 = counts.iter().map(|(_, n)| *n).sum();
