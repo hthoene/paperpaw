@@ -49,7 +49,7 @@
 //! ([`WidgetSpec::previews`]), e.g. a sample of text laid out as the
 //! reading settings say: settings pages show it above the group's
 //! settings, and while a value is being chosen it shows that one
-//! ([`Command::PreviewSettings`](paperpaw_sdk::Command::PreviewSettings)). It is
+//! ([`Ask::PreviewSettings`](crate::Ask::PreviewSettings)). It is
 //! not offered among the widgets for other screens.
 
 use alloc::borrow::Cow;
@@ -173,13 +173,13 @@ impl fmt::Debug for Make {
 #[non_exhaustive]
 pub struct WidgetTarget {
     pub area: Rect,
-    pub command: paperpaw_sdk::Command,
+    pub command: crate::Ask,
     /// Tapped only: the buttons' focus does not stop there (what it does
     /// is reached otherwise, e.g. by an action bound to a button).
     pub touch: bool,
     /// What a long press on it runs, if anything (else a long press does
     /// what it does on the screen, e.g. editing the page).
-    pub hold: Option<paperpaw_sdk::Command>,
+    pub hold: Option<crate::Ask>,
 }
 
 /// A widget contribution: its id, its name and how it is made.

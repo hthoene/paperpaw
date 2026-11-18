@@ -15,15 +15,16 @@ use paperpaw_core::{Place, Turn};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use paperpaw_core::Ask;
 use paperpaw_core::Items;
 use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::sdk::bluetooth::BtRequest;
 use paperpaw_core::sdk::bluetooth::{
     self, BtEvent, DeviceId, Handle, ScanPower, Security, Uuid, ValueKind,
 };
 use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::{
-    Canvas, Command, Event, Handled, Id, Manifest, MemoryStorage, Priority, RegisterError, Uses,
-    Version,
+    Canvas, Event, Handled, Id, Manifest, MemoryStorage, Priority, RegisterError, Uses, Version,
 };
 use paperpaw_core::{BtCall, BtReport, Found, Io, Kernel};
 use paperpaw_platform::{
@@ -45,7 +46,7 @@ const OTHER_GO: Id = Id::new_static("other.go");
 const OTHER_FOUND: Event<BtEvent> = Event::new("other.found");
 const HOME: Id = Id::new_static("pulse.home");
 
-type Queue = Rc<RefCell<Vec<Command>>>;
+type Queue = Rc<RefCell<Vec<Ask>>>;
 type Log = Rc<RefCell<Vec<String>>>;
 
 /// A screen that logs the actions it gets and the parameters it opened
@@ -73,7 +74,7 @@ std::thread_local! {
 }
 
 /// What the test queued for plugin `id`, taken.
-fn queue_of(id: &str) -> Vec<Command> {
+fn queue_of(id: &str) -> Vec<Ask> {
     PULSES.with(|pulses| {
         pulses
             .borrow()
@@ -203,8 +204,10 @@ language = en
         Instant(self.now)
     }
 
-    fn run(&mut self, action: Id, commands: impl IntoIterator<Item = Command>) {
-        self.queue.borrow_mut().extend(commands);
+    fn run(&mut self, action: Id, requests: impl IntoIterator<Item = BtRequest>) {
+        self.queue
+            .borrow_mut()
+            .extend(requests.into_iter().map(Ask::from));
         let at = self.at();
         self.kernel.run_action(at, action);
     }

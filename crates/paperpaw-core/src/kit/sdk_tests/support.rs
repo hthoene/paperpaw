@@ -22,12 +22,13 @@ use std::{
     vec::Vec,
 };
 
+use crate::Output;
 use crate::Place;
 use paperpaw_graphics::{Described, Framebuffer};
 use paperpaw_i18n::Catalog;
 use paperpaw_sdk::builtin::{fonts, settings as core_settings};
 use paperpaw_sdk::{
-    Color, DeviceInfo, DisplayInfo, Font, FontSpec, Id, InputCaps, Instant, MemoryClass, Output,
+    Color, DeviceInfo, DisplayInfo, Font, FontSpec, Id, InputCaps, Instant, MemoryClass,
     PixelFormat, Point, PointerEvent, PointerPhase, PointerTool, Priority, Rect, SettingKind,
     SettingSpec, SettingValue,
 };

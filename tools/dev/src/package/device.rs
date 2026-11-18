@@ -1,6 +1,6 @@
 //! A data plugin installed on an emulated device, as the store installs
 //! it: its folder copied into `plugins/.<id>.part`, then
-//! `Command::InstallPlugin`, so the kernel's own loader decides what it
+//! `Ask::InstallPlugin`, so the kernel's own loader decides what it
 //! takes (`crates/paperpaw-core/src/data_plugin.rs` and the plugin
 //! registration). What the kernel warns about is reported; then what the
 //! plugin set is compared with the app it joined.
@@ -11,9 +11,10 @@
 
 use std::cell::Cell;
 
+use paperpaw_core::Ask;
 use paperpaw_core::{Items, Kernel, KernelBuilder, WarningSource};
 use paperpaw_sdk::event::Event;
-use paperpaw_sdk::{Command, Id, Manifest, Params, RegisterError, SDK_VERSION, Version};
+use paperpaw_sdk::{Id, Manifest, Params, RegisterError, SDK_VERSION, Version};
 use paperpaw_sdk::{PluginState, SettingKind};
 
 use super::Release;
@@ -53,7 +54,7 @@ fn installing() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
                 if let (Some(plugin), Some(folder)) = (params.get("plugin"), params.get("folder"))
                     && let Ok(id) = Id::parse(plugin)
                 {
-                    out.push(Command::InstallPlugin(id, folder.to_string()));
+                    out.push(Ask::InstallPlugin(id, folder.to_string()));
                 }
             });
         })

@@ -231,9 +231,9 @@ impl<'a> Place<'a> {
     }
 
     /// Whether there is text on the clipboard, copied here
-    /// ([`Command::SetClipboard`](paperpaw_sdk::Command::SetClipboard)) or, where
+    /// ([`Ask::SetClipboard`](crate::Ask::SetClipboard)) or, where
     /// the system has a clipboard, in another app; read it with
-    /// [`Command::ReadClipboard`](paperpaw_sdk::Command::ReadClipboard).
+    /// [`Ask::ReadClipboard`](crate::Ask::ReadClipboard).
     pub fn clipboard(&self) -> bool {
         self.shared.system_clipboard || !self.shared.clipboard.is_empty()
     }

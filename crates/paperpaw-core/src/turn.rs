@@ -1,7 +1,9 @@
 //! A kernel handler's turn (#300, D209).
 
+use crate::ask::Ask;
+use alloc::vec::Vec;
 use paperpaw_platform::{Instant, Rect};
-use paperpaw_sdk::{Command, Id, Output, Params, RefreshMode, ScreenKey, StackEntry};
+use paperpaw_sdk::{Id, Params, RefreshMode, ScreenKey, StackEntry};
 
 use crate::place::Place;
 
@@ -39,7 +41,7 @@ impl<'a, 'e> Turn<'a, 'e> {
     }
 
     /// The params the action that `on_action` gets was run
-    /// with ([`Command::RunAction`]); none from an input, and none outside
+    /// with ([`Ask::RunAction`]); none from an input, and none outside
     /// `on_action`.
     pub fn params(&self) -> &Params {
         self.params
@@ -84,11 +86,11 @@ impl<'a, 'e> Turn<'a, 'e> {
         self.entry().and_then(|entry| entry.slot.as_ref())
     }
 
-    /// Closes this screen, wherever it is in the stack ([`Command::Close`]):
+    /// Closes this screen, wherever it is in the stack ([`Ask::Close`]):
     /// the screens above it stay. Nothing outside the stack.
     pub fn close(&mut self) {
         if let Some(key) = self.key {
-            self.output.commands.push(Command::Close(key));
+            self.output.commands.push(Ask::Close(key));
         }
     }
 
@@ -97,7 +99,7 @@ impl<'a, 'e> Turn<'a, 'e> {
     }
 
     /// Queues a command for the kernel.
-    pub fn command(&mut self, command: Command) {
+    pub fn command(&mut self, command: Ask) {
         self.output.commands.push(command);
     }
 
@@ -116,11 +118,11 @@ impl<'a, 'e> Turn<'a, 'e> {
     }
 
     /// Puts key map layer `layer` in front of the slot's for this screen
-    /// while it is on top (see [`Command::SetKeyLayer`]); `None` takes it
+    /// while it is on top (see [`Ask::SetKeyLayer`]); `None` takes it
     /// away. Nothing for a screen not of the stack.
     pub fn set_key_layer(&mut self, layer: Option<Id>) {
         if let Some(key) = self.key {
-            self.output.commands.push(Command::SetKeyLayer(key, layer));
+            self.output.commands.push(Ask::SetKeyLayer(key, layer));
         }
     }
 
@@ -148,15 +150,40 @@ impl<'a, 'e> Turn<'a, 'e> {
     /// a clock, a timer, a slideshow. It ends when the screen closes.
     pub fn keep_awake(&mut self, hold: paperpaw_sdk::power::WakeHold) {
         let hold = hold.of_screen(self.key);
-        self.output.commands.push(Command::KeepAwake(hold));
+        self.output.commands.push(Ask::KeepAwake(hold));
     }
 
     /// Lets go of the hold of `id`.
     pub fn let_sleep(&mut self, id: impl Into<Id>) {
-        self.output.commands.push(Command::LetSleep(id.into()));
+        self.output.commands.push(Ask::LetSleep(id.into()));
     }
 
     pub fn wake_at(&mut self, at: Instant) {
         self.output.wake_at = Some(self.output.wake_at.map_or(at, |w| w.min(at)));
+    }
+}
+
+/// What a plugin asked the kernel to do during an event.
+#[derive(Debug, Default)]
+pub struct Output {
+    pub commands: Vec<Ask>,
+    /// Requested refresh mode for the region drawn during the event.
+    pub refresh: Option<RefreshMode>,
+    /// The mode set exactly (`Turn::set_refresh`): it wins over requests.
+    pub refresh_set: Option<RefreshMode>,
+    /// Whether the whole screen should be redrawn.
+    pub redraw: bool,
+    /// Part of the screen to redraw, from the corner of the part of the
+    /// screen the screen has (`Place::content`).
+    pub redraw_area: Option<Rect>,
+    /// When the screen wants `on_timer` to be called (see
+    /// `Turn::wake_at`).
+    pub wake_at: Option<Instant>,
+}
+
+impl Output {
+    /// Records a refresh request; the strongest request wins.
+    pub fn request_refresh(&mut self, mode: RefreshMode) {
+        self.refresh = Some(self.refresh.map_or(mode, |m| m.max(mode)));
     }
 }

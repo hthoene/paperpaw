@@ -19,7 +19,7 @@
 //!   one before. The `−` and `+` are filled while the buttons move it.
 //!
 //! While a value moves it is best shown without being kept
-//! ([`Command::PreviewSettings`](paperpaw_sdk::Command::PreviewSettings) for a
+//! ([`Ask::PreviewSettings`](crate::Ask::PreviewSettings) for a
 //! setting), so that what it changes shows at once; it is kept when
 //! chosen.
 //!

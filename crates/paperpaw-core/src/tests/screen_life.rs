@@ -24,7 +24,7 @@ impl crate::testing::Fake for ReaderScreen {
     }
 
     fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
-        cx.command(Command::SetScope(Some(String::from(BOOK_SETTINGS))));
+        cx.command(Ask::SetScope(Some(String::from(BOOK_SETTINGS))));
     }
 
     fn on_event(&mut self, event: &Id, _: &Params, cx: &mut Turn<'_, '_>) {
@@ -39,7 +39,7 @@ impl crate::testing::Fake for ReaderScreen {
 
     fn on_close(&mut self, cx: &mut Turn<'_, '_>) {
         self.log.borrow_mut().push(String::from("reader close"));
-        cx.command(Command::Emit(CLOSED, Params::new()));
+        cx.command(Ask::Emit(CLOSED, Params::new()));
     }
 
     fn on_timer(&mut self, _: &mut Turn<'_, '_>) {
@@ -202,7 +202,7 @@ fn values_tried_end_with_the_screen_that_tried_them() {
         Id::new_static("core.night-mode"),
         Some(SettingValue::Bool(true))
     )];
-    kernel.apply(Command::PreviewSettings(tried));
+    kernel.apply(Ask::PreviewSettings(tried));
     kernel.finish();
     assert!(kernel.settings().bool("core.night-mode"));
     kernel.resize(Instant(2), 80, 90);

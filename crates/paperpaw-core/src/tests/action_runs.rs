@@ -44,10 +44,7 @@ fn observing_items(kept: &Log, r: &mut Items) -> Result<(), RegisterError> {
     ))?;
     r.add_action(
         ActionSpec::new(Id::new_static("obs.open"), "obs.open").handler(|_, _, out| {
-            out.push(Command::OpenScreen(
-                Id::new_static("obs.page"),
-                Params::new(),
-            ));
+            out.push(Ask::OpenScreen(Id::new_static("obs.page"), Params::new()));
         }),
     )?;
     r.add_action(
@@ -56,13 +53,10 @@ fn observing_items(kept: &Log, r: &mut Items) -> Result<(), RegisterError> {
             crate::tests::heard(alloc::format!("step {n}"));
             if n < 2 {
                 let next = Params::new().with("n", alloc::format!("{}", n + 1));
-                out.push(Command::RunAction(Id::new_static("obs.step"), next));
+                out.push(Ask::RunAction(Id::new_static("obs.step"), next));
             }
             // The same again: dropped.
-            out.push(Command::RunAction(
-                Id::new_static("obs.step"),
-                params.clone(),
-            ));
+            out.push(Ask::RunAction(Id::new_static("obs.step"), params.clone()));
         }),
     )?;
     r.add_action(
@@ -147,7 +141,7 @@ fn guarding_manifest() -> Manifest {
 fn a_screen_takes_an_action_run_with_params() {
     let (mut kernel, _, screen) = observed_with_screen();
     let special = Id::new_static("a.special");
-    kernel.apply(Command::RunAction(
+    kernel.apply(Ask::RunAction(
         special.clone(),
         Params::new().with("n", "1"),
     ));
@@ -161,9 +155,9 @@ fn a_screen_takes_an_action_run_with_params() {
 fn actions_run_with_params() {
     let (mut kernel, log) = observed();
     let params = Params::new().with("profile", "night");
-    kernel.apply(Command::RunAction(APPLY, params));
-    kernel.apply(Command::run(APPLY));
-    kernel.apply(Command::run(PLAIN));
+    kernel.apply(Ask::RunAction(APPLY, params));
+    kernel.apply(Ask::run(APPLY));
+    kernel.apply(Ask::run(PLAIN));
     kernel.finish();
     assert_eq!(*log.borrow(), ["apply night", "apply none", "plain"]);
 }
@@ -188,9 +182,9 @@ fn runnable_actions_are_told_from_screen_actions() {
 fn a_setting_changed_says_what_it_was() {
     let (mut kernel, log) = observed();
     let level = Id::new_static("a.level");
-    kernel.apply(Command::SetSetting(level.clone(), SettingValue::Int(4)));
+    kernel.apply(Ask::SetSetting(level.clone(), SettingValue::Int(4)));
     kernel.finish();
-    kernel.apply(Command::ResetSetting(level));
+    kernel.apply(Ask::ResetSetting(level));
     kernel.finish();
     assert_eq!(*log.borrow(), ["changed from 2", "changed from 4"]);
 }
@@ -201,7 +195,7 @@ fn a_setting_changed_says_what_it_was() {
 #[test]
 fn an_original_asked_for_is_refused() {
     let (mut kernel, log, _) = observed_with_screen();
-    kernel.apply(Command::RunOriginal(WRAPPED, Params::new()));
+    kernel.apply(Ask::RunOriginal(WRAPPED, Params::new()));
     kernel.finish();
     assert!(
         !log.borrow().contains(&String::from("inner")),
@@ -209,10 +203,7 @@ fn an_original_asked_for_is_refused() {
         log.borrow()
     );
     kernel.open_screen(Instant(10), LOCK, Params::new());
-    kernel.apply(Command::RunOriginal(
-        Id::new_static("obs.open"),
-        Params::new(),
-    ));
+    kernel.apply(Ask::RunOriginal(Id::new_static("obs.open"), Params::new()));
     kernel.finish();
     assert_eq!(kernel.active_screen(), Some(&LOCK));
     let warnings = kernel.take_warnings();
@@ -246,7 +237,7 @@ fn the_lock_takes_what_it_does_not_let_pass() {
 #[test]
 fn an_action_runs_again_with_other_params() {
     let (mut kernel, log) = observed();
-    kernel.apply(Command::run(Id::new_static("obs.step")));
+    kernel.apply(Ask::run(Id::new_static("obs.step")));
     kernel.finish();
     let log = log.borrow();
     let steps: Vec<&str> = log
@@ -318,15 +309,12 @@ mod above_the_guard {
             }
             r.add_action(
                 ActionSpec::new(Id::new_static("up.raise"), "raise").handler(|_, _, out| {
-                    out.push(Command::OpenScreen(Id::new_static("up.top"), Params::new()));
+                    out.push(Ask::OpenScreen(Id::new_static("up.top"), Params::new()));
                 }),
             )?;
             r.add_action(
                 ActionSpec::new(Id::new_static("up.go"), "go").handler(|_, _, out| {
-                    out.push(Command::OpenScreen(
-                        Id::new_static("up.evil"),
-                        Params::new(),
-                    ));
+                    out.push(Ask::OpenScreen(Id::new_static("up.evil"), Params::new()));
                 }),
             )
         }
@@ -355,7 +343,7 @@ mod above_the_guard {
         // plugin `up`) is not the guard's to let pass (a plugin's screen
         // hears input only on top), so what it opens opens below the guard.
         assert!(kernel.top_shut_out());
-        kernel.apply(Command::run(Id::new_static("up.go")));
+        kernel.apply(Ask::run(Id::new_static("up.go")));
         kernel.finish();
         let ids: Vec<&str> = kernel.stack.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, ["a.screen", "up.evil", "gate.lock", "up.top"]);
@@ -387,11 +375,7 @@ mod secrets_of_others {
             )?;
             r.add_action(
                 ActionSpec::new(Id::new_static("editor.change"), "x").handler(|_, _, out| {
-                    out.push(Command::set_secret(SecretChange::keep(
-                        "keeper.pw",
-                        "",
-                        "new",
-                    )));
+                    out.push(Ask::set_secret(SecretChange::keep("keeper.pw", "", "new")));
                 }),
             )
         }
@@ -407,30 +391,22 @@ mod secrets_of_others {
         |r| {
             r.add_action(
                 ActionSpec::new(Id::new_static("snoop.rename"), "x").handler(|_, _, out| {
-                    out.push(Command::set_secret(SecretChange::keep(
+                    out.push(Ask::set_secret(SecretChange::keep(
                         "keeper.pw",
                         "Mine",
                         "y",
                     )));
-                    out.push(Command::set_secret(SecretChange::keep(
-                        "snoop.own",
-                        "Own",
-                        "z",
-                    )));
+                    out.push(Ask::set_secret(SecretChange::keep("snoop.own", "Own", "z")));
                 }),
             )?;
             r.add_action(
                 ActionSpec::new(Id::new_static("snoop.change"), "x").handler(|_, _, out| {
-                    out.push(Command::set_secret(SecretChange::keep(
-                        "keeper.pw",
-                        "",
-                        "new",
-                    )));
+                    out.push(Ask::set_secret(SecretChange::keep("keeper.pw", "", "new")));
                 }),
             )?;
             r.subscribe(Id::new_static("snoop.when"), |k, _| {
                 k.with_env(|_, out| {
-                    out.push(Command::set_secret(SecretChange::remove("keeper.pw")));
+                    out.push(Ask::set_secret(SecretChange::remove("keeper.pw")));
                 });
             })
         }
@@ -457,7 +433,7 @@ mod secrets_of_others {
         assert_eq!(kernel.shared.secrets.get("keeper.pw"), Some("x"), "renamed");
         assert_eq!(kernel.shared.secrets.get("snoop.own"), Some("z"));
         // Not on the reader's behalf: not taken away.
-        kernel.apply(Command::Emit(Id::new_static("snoop.when"), Params::new()));
+        kernel.apply(Ask::Emit(Id::new_static("snoop.when"), Params::new()));
         kernel.finish();
         assert_eq!(kernel.shared.secrets.get("keeper.pw"), Some("x"));
         // Not on the reader's behalf either (any input starts one).
@@ -496,7 +472,7 @@ mod guarded_settings {
             )?;
             r.add_action(
                 ActionSpec::new(Id::new_static("safe.off"), "off").handler(|_, _, out| {
-                    out.push(Command::SetSetting(
+                    out.push(Ask::SetSetting(
                         Id::new_static("safe.on"),
                         SettingValue::Bool(false),
                     ));
@@ -516,11 +492,11 @@ mod guarded_settings {
             r.set_setting_default(Id::new_static("safe.on"), Cow::Borrowed("false"))?;
             r.add_action(ActionSpec::new(Id::new_static("other.off"), "off").handler(
                 |_, _, out| {
-                    out.push(Command::SetSetting(
+                    out.push(Ask::SetSetting(
                         Id::new_static("safe.on"),
                         SettingValue::Bool(false),
                     ));
-                    out.push(Command::BindSlot(
+                    out.push(Ask::BindSlot(
                         slots::SLEEP,
                         Some(Id::new_static("other.screen")),
                     ));

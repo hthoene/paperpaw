@@ -1100,9 +1100,7 @@ mod tests {
             35,
         )
         .marks(alloc::string::String::from("0,120,480"));
-        let crate::Command::Emit(event, params) = SKIMMED.emit(skimmed.clone()) else {
-            panic!("an event");
-        };
+        let (event, params) = (SKIMMED.id().clone(), skimmed.clone().into_params());
         assert_eq!(SKIMMED.read(&event, &params), Some(skimmed));
     }
 

@@ -1,9 +1,5 @@
 use alloc::string::String;
-use alloc::vec::Vec;
 
-use paperpaw_platform::{Instant, Rect, RefreshMode};
-
-use crate::command::Command;
 use crate::id::Id;
 
 /// How many of a screen may be open at once (`instances`).
@@ -232,32 +228,6 @@ impl Pane {
 impl Default for Pane {
     fn default() -> Self {
         Self::FULL
-    }
-}
-
-/// What a plugin asked the kernel to do during an event.
-#[derive(Debug, Default)]
-#[non_exhaustive]
-pub struct Output {
-    pub commands: Vec<Command>,
-    /// Requested refresh mode for the region drawn during the event.
-    pub refresh: Option<RefreshMode>,
-    /// The mode set exactly (`Cx::set_refresh`): it wins over requests.
-    pub refresh_set: Option<RefreshMode>,
-    /// Whether the whole screen should be redrawn.
-    pub redraw: bool,
-    /// Part of the screen to redraw, from the corner of the part of the
-    /// screen the screen has (`Env::content`).
-    pub redraw_area: Option<Rect>,
-    /// When the screen wants `on_timer` to be called (see
-    /// `Cx::wake_at`).
-    pub wake_at: Option<Instant>,
-}
-
-impl Output {
-    /// Records a refresh request; the strongest request wins.
-    pub fn request_refresh(&mut self, mode: RefreshMode) {
-        self.refresh = Some(self.refresh.map_or(mode, |m| m.max(mode)));
     }
 }
 

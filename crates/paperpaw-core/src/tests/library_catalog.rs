@@ -956,7 +956,7 @@ fn the_walks_hour_is_not_restarted_by_a_sleep_put_off_for_speech() {
         assert!(!kernel.tick(Instant(minute * 60_000)).sleep(), "{minute}");
     }
     let hello = paperpaw_sdk::Speech::new("Hello", Id::new_static("lib.spoken"));
-    kernel.output.commands.push(Command::speak(hello));
+    kernel.output.commands.push(Ask::speak(hello));
     kernel.run_commands();
     let Some(SpeechCall::Say { id, .. }) = kernel.take_speech().pop() else {
         panic!("not spoken");

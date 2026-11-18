@@ -68,7 +68,7 @@ fn kernel() -> crate::Kernel {
         ("other.guarded", SettingValue::Bool(true)),
         ("other.size", SettingValue::Int(6)),
     ] {
-        kernel.apply(Command::SetSetting(Id::parse(id).unwrap(), value));
+        kernel.apply(Ask::SetSetting(Id::parse(id).unwrap(), value));
     }
     kernel.finish();
     let warnings = kernel.take_warnings();

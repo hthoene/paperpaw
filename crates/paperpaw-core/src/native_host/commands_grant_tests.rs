@@ -146,7 +146,7 @@ fn a_preset_named_in_a_batch_is_no_grant_write_and_a_grant_beside_it_still_refus
         stage
             .staged()
             .iter()
-            .all(|command| !matches!(command, paperpaw_sdk::Command::SetSetting(..))),
+            .all(|command| !matches!(command, crate::Ask::SetSetting(..))),
         "no setting was staged by a preset"
     );
     // A grant write next to a preset still refuses the whole batch.

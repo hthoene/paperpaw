@@ -313,9 +313,10 @@ impl Kernel {
             .try_borrow_mut()
             .is_ok_and(|mut driver| driver.stopping(true));
         if !told {
-            self.output
-                .commands
-                .push(paperpaw_sdk::builtin::events::STOPPING.emit(()));
+            self.output.commands.push(crate::Ask::emit(
+                &paperpaw_sdk::builtin::events::STOPPING,
+                (),
+            ));
             return;
         }
         if let Ok(mut driver) = driver.try_borrow_mut() {
@@ -331,7 +332,7 @@ impl Kernel {
             // It keeps running: the plugins that heard it stop hear it is on.
             self.output
                 .commands
-                .push(paperpaw_sdk::builtin::events::RESUME.emit(()));
+                .push(crate::Ask::emit(&paperpaw_sdk::builtin::events::RESUME, ()));
         }
     }
 }

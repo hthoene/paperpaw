@@ -448,7 +448,7 @@ impl KernelBuilder {
     /// the plugin folder PaperPaw does not load, e.g. `plugins/.hello.part`:
     /// a plugin the web flasher wrote with the firmware) before plugins
     /// are found, so it loads at this start: in place of every version of
-    /// it, as [`Command::InstallPlugin`](paperpaw_sdk::Command::InstallPlugin)
+    /// it, as [`Ask::InstallPlugin`](crate::Ask::InstallPlugin)
     /// installs one while PaperPaw runs. One that is not what it says is
     /// refused, with a warning, and its folder removed.
     pub fn install_plugin(mut self, id: Id, folder: impl Into<String>) -> Self {

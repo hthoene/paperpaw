@@ -11,12 +11,13 @@ use paperpaw_core::{Place, Turn};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use paperpaw_core::Ask;
 use paperpaw_core::Items;
 use paperpaw_core::Kernel;
 use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::{
-    Canvas, Command, Gesture, Handled, Id, Manifest, Params, Priority, RegisterError, Version,
+    Canvas, Gesture, Handled, Id, Manifest, Params, Priority, RegisterError, Version,
 };
 use paperpaw_platform::{
     ButtonState, Color, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, PixelFormat,
@@ -85,7 +86,7 @@ pub const WAKE: &str = "wake";
 #[derive(Clone, Default)]
 pub struct Harness {
     pub log: Log,
-    queue: Rc<RefCell<Vec<Command>>>,
+    queue: Rc<RefCell<Vec<Ask>>>,
 }
 
 impl Harness {
@@ -118,7 +119,7 @@ impl Harness {
         &self,
         kernel: &mut Kernel,
         now: u64,
-        commands: impl IntoIterator<Item = Command>,
+        commands: impl IntoIterator<Item = Ask>,
     ) -> paperpaw_core::Effects {
         self.queue.borrow_mut().extend(commands);
         // Its kernel's queue: a test may drive two kernels at once.
@@ -165,12 +166,12 @@ pub fn describe(params: &Params) -> String {
 }
 
 /// What the driver's action carries out.
-type Queue = Rc<RefCell<Vec<Command>>>;
+type Queue = Rc<RefCell<Vec<Ask>>>;
 
 /// The test plugin `drv`.
 pub struct Driver {
     log: Log,
-    queue: Rc<RefCell<Vec<Command>>>,
+    queue: Rc<RefCell<Vec<Ask>>>,
 }
 
 pub fn manifest(id: &'static str) -> Manifest {
@@ -204,7 +205,7 @@ fn driver_items(kept: Driver) -> impl Fn(&mut Items) -> Result<(), RegisterError
             }
         }))?;
         r.add_action(ActionSpec::new(LOOP, "drv.loop").handler(|_, _, out| {
-            out.push(Command::run(LOOP));
+            out.push(Ask::run(LOOP));
         }))?;
         let hears: [(Id, paperpaw_core::Hear); 3] = [
             (REPLY, |k, p| heard(k, &REPLY, p)),
@@ -239,7 +240,7 @@ fn heard(kernel: &mut paperpaw_core::Kernel, event: &Id, params: &Params) {
         // A timer that comes again every `repeat` milliseconds.
         if let Some(every) = params.get(REPEAT).and_then(|r| r.parse().ok()) {
             let at = env.now().add_millis(every);
-            out.push(Command::work(
+            out.push(Ask::work(
                 paperpaw_core::sdk::work::Work::at(event.clone(), at).with(params.clone()),
             ));
         }

@@ -80,7 +80,7 @@ impl Scan {
         lasting.min(most)
     }
 
-    pub fn command(self) -> Command {
+    pub fn command(self) -> BtRequest {
         BtCommand::Scan(self).command()
     }
 }
@@ -98,7 +98,7 @@ impl Connect {
         self
     }
 
-    pub fn command(self) -> Command {
+    pub fn command(self) -> BtRequest {
         BtCommand::Connect(self).command()
     }
 }
@@ -110,7 +110,7 @@ impl Discover {
         self
     }
 
-    pub fn command(self) -> Command {
+    pub fn command(self) -> BtRequest {
         BtCommand::Discover(self).command()
     }
 }
@@ -122,7 +122,7 @@ impl Write {
         self
     }
 
-    pub fn command(self) -> Command {
+    pub fn command(self) -> BtRequest {
         BtCommand::Write {
             device: self.device,
             handle: self.handle,
@@ -192,7 +192,7 @@ impl Advertising {
         lasting.min(most)
     }
 
-    pub fn command(self) -> Command {
+    pub fn command(self) -> BtRequest {
         BtCommand::Advertise(self).command()
     }
 }

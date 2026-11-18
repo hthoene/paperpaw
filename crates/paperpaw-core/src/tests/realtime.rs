@@ -468,7 +468,7 @@ fn room_is_made_only_where_needed_and_given_back() {
     assert_eq!(kernel.stack.len(), 2, "the screen between closed");
     assert!(kernel.works.is_held());
     // Closed: the screen between opens again, work goes on.
-    kernel.apply(Command::Back);
+    kernel.apply(Ask::Back);
     kernel.finish();
     render(&mut kernel);
     assert_eq!(kernel.active_screen().map(Id::as_str), Some("b.screen"));

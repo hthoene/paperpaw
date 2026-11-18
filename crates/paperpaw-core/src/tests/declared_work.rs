@@ -88,12 +88,12 @@ fn work_plugin(kept: WorkPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterEr
                 .handler(|env, _, _| heard(alloc::format!("reader {}", env.reader()))),
         )?;
         r.subscribe(Id::new_static("wk.fire"), |k, _| {
-            k.with_env(|_, out| out.push(Command::run(Id::new_static("wk.who"))));
+            k.with_env(|_, out| out.push(Ask::run(Id::new_static("wk.who"))));
         })?;
         // Work that fetches: its request goes out as it runs.
         r.subscribe(Id::new_static("wk.fetch"), |k, _| {
             k.with_env(|_, out| {
-                out.push(Command::http(paperpaw_sdk::HttpRequest::get(
+                out.push(Ask::http(paperpaw_sdk::HttpRequest::get(
                     "https://example.org/",
                     Id::new_static("wk.answered"),
                 )));
@@ -132,7 +132,7 @@ fn kernel(log: &Log, network: bool) -> Kernel {
 
 fn declare(kernel: &mut Kernel, at: u64, work: Work) -> Effects {
     kernel.shared.now = Instant(at);
-    kernel.apply(Command::work(work));
+    kernel.apply(Ask::work(work));
     kernel.finish()
 }
 
@@ -274,7 +274,7 @@ fn work_taken_back_does_not_run() {
     let mut kernel = kernel(&log, false);
     let push = Work::new(Id::new_static("wk.push")).within(Duration::from_secs(1));
     declare(&mut kernel, 0, push);
-    kernel.apply(Command::CancelWork(Id::new_static("wk.push"), None));
+    kernel.apply(Ask::CancelWork(Id::new_static("wk.push"), None));
     kernel.tick(Instant(5000));
     assert!(log.borrow().is_empty());
 }
@@ -315,20 +315,20 @@ fn sayer_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             Priority(i16::MAX),
         )?;
         r.subscribe(Id::new_static("sy.say"), |k, _| {
-            k.with_env(|_, out| out.push(Command::Notify(String::from("synced"))));
+            k.with_env(|_, out| out.push(Ask::Notify(String::from("synced"))));
         })?;
         r.subscribe(Id::new_static("sy.foreign"), |k, _| {
             k.with_env(|_, out| {
                 let work = Work::new(Id::new_static("wk.push")).at_moments(Moments::NONE);
-                out.push(Command::work(work));
+                out.push(Ask::work(work));
             });
         })?;
         r.subscribe(Id::new_static("sy.remind"), |k, _| {
-            k.with_env(|_, out| out.push(Command::Announce(String::from("unplug"))));
+            k.with_env(|_, out| out.push(Ask::Announce(String::from("unplug"))));
         })?;
         r.add_action(
             ActionSpec::new(Id::new_static("sy.act"), "act")
-                .handler(|_, _, out| out.push(Command::Notify(String::from("done")))),
+                .handler(|_, _, out| out.push(Ask::Notify(String::from("done")))),
         )
     }
 }
@@ -417,7 +417,7 @@ fn a_plugin_whose_network_is_off_gets_none() {
         kernel.shared.work_states.get(&Id::new_static("wk.push")),
         None
     );
-    kernel.apply(Command::http(paperpaw_sdk::HttpRequest::get(
+    kernel.apply(Ask::http(paperpaw_sdk::HttpRequest::get(
         "https://example.org/",
         Id::new_static("wk.closed"),
     )));
@@ -678,7 +678,7 @@ fn a_full_queue_refuses_and_then_allows_again() {
         declare(&mut kernel, 1, work);
     }
     assert_eq!(*log.borrow(), ["refused"]);
-    kernel.apply(Command::CancelWork(
+    kernel.apply(Ask::CancelWork(
         Id::new_static("wk.push"),
         Some(String::from("0")),
     ));
@@ -708,7 +708,7 @@ fn work_under_another_plugins_name_is_dropped() {
 fn a_plugin_that_does_not_declare_the_network_gets_none() {
     let mut kernel = sayer();
     kernel.take_warnings();
-    kernel.apply(Command::http(paperpaw_sdk::HttpRequest::get(
+    kernel.apply(Ask::http(paperpaw_sdk::HttpRequest::get(
         "https://example.org/",
         Id::new_static("sy.answer"),
     )));
@@ -726,13 +726,13 @@ fn a_plugin_that_does_not_declare_the_network_gets_none() {
 fn requests_are_taken_back_and_answered_so() {
     let log = log();
     let mut kernel = kernel(&log, true);
-    kernel.apply(Command::http(paperpaw_sdk::HttpRequest::get(
+    kernel.apply(Ask::http(paperpaw_sdk::HttpRequest::get(
         "https://example.org/",
         Id::new_static("wk.answered"),
     )));
     kernel.finish();
     assert!(kernel.io.http.busy());
-    kernel.apply(Command::CancelHttp(Id::new_static("wk.answered")));
+    kernel.apply(Ask::CancelHttp(Id::new_static("wk.answered")));
     kernel.finish();
     assert_eq!(*log.borrow(), ["answered cancelled"]);
     assert!(!kernel.io.http.busy());
@@ -749,7 +749,7 @@ fn offline_lets_out_only_what_the_reader_went_online_for() {
         4,
     );
     let request = || {
-        Command::http(paperpaw_sdk::HttpRequest::get(
+        Ask::http(paperpaw_sdk::HttpRequest::get(
             "https://example.org/",
             Id::new_static("wk.answered"),
         ))
@@ -765,7 +765,7 @@ fn offline_lets_out_only_what_the_reader_went_online_for() {
     assert_eq!(log.borrow()[1], "answered offline");
     // Gone online on the screen in front: it goes out.
     kernel.shared.reader = true;
-    kernel.apply(Command::GoOnline);
+    kernel.apply(Ask::GoOnline);
     kernel.apply(request());
     kernel.finish();
     assert!(kernel.io.http.busy(), "{:?}", log.borrow());
@@ -785,20 +785,20 @@ fn offline_lets_out_everything_for_the_while_the_reader_went_online_for() {
         4,
     );
     let request = || {
-        Command::http(paperpaw_sdk::HttpRequest::get(
+        Ask::http(paperpaw_sdk::HttpRequest::get(
             "https://example.org/",
             Id::new_static("wk.answered"),
         ))
     };
     // Sent by background work: not taken.
     kernel.shared.reader = false;
-    kernel.apply(Command::GoOnlineFor(Duration::from_secs(60)));
+    kernel.apply(Ask::GoOnlineFor(Duration::from_secs(60)));
     kernel.apply(request());
     kernel.finish();
     assert_eq!(*log.borrow(), ["answered offline"]);
     // The reader's: background work goes out within it.
     kernel.shared.reader = true;
-    kernel.apply(Command::GoOnlineFor(Duration::from_secs(3600)));
+    kernel.apply(Ask::GoOnlineFor(Duration::from_secs(3600)));
     kernel.shared.reader = false;
     assert_eq!(
         kernel.works.online_until,

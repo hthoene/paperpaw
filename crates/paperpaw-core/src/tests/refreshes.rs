@@ -241,8 +241,8 @@ fn overlay_home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
         r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)?;
         r.on(paperpaw_sdk::builtin::events::STARTED, |k, p| {
             k.with_event(&paperpaw_sdk::builtin::events::STARTED, p, |_, _, out| {
-                out.push(Command::Sleep);
-                out.push(Command::Restart);
+                out.push(Ask::Sleep);
+                out.push(Ask::Restart);
             });
         })
     }
@@ -324,7 +324,7 @@ fn two_small_items_far_apart_are_no_page_and_keep_a_picture_in_place() {
     kernel.start(Instant(0));
     render(&mut kernel);
     let mode = |effects: crate::Effects| effects.refresh();
-    kernel.apply(Command::Redraw(RefreshMode::Partial));
+    kernel.apply(Ask::Redraw(RefreshMode::Partial));
     kernel.finish();
     render(&mut kernel);
     assert!(kernel.frame.pictures_shown);
@@ -345,7 +345,7 @@ fn two_small_items_far_apart_are_no_page_and_keep_a_picture_in_place() {
     // A whole screen drawn anew still is a page, and leaving the
     // picture still refreshes in full.
     *shown.borrow_mut() = false;
-    kernel.apply(Command::Redraw(RefreshMode::Partial));
+    kernel.apply(Ask::Redraw(RefreshMode::Partial));
     assert_eq!(mode(kernel.finish()).map(|m| m.1), Some(RefreshMode::Full));
 }
 

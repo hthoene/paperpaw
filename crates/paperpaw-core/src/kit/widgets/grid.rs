@@ -29,7 +29,7 @@
 //!         match &response {
 //!             GridResponse::Changed(items) => {
 //!                 let value = LAYOUT.value(grid::write(items).into());
-//!                 cx.command(Command::SetSetting(LAYOUT.id().clone(), value));
+//!                 cx.command(Ask::SetSetting(LAYOUT.id().clone(), value));
 //!             }
 //!             GridResponse::Editing(_) => { let env = *cx.env(); self.layout(&env) }
 //!             _ => {}

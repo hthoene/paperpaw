@@ -70,17 +70,18 @@ impl Step {
 
     /// The command of this step; a value not of the setting's kind (or a
     /// setting not there) makes none.
-    pub(crate) fn command(&self, env: &crate::Place<'_>) -> Option<paperpaw_sdk::Command> {
-        use paperpaw_sdk::{Command, Params};
+    pub(crate) fn command(&self, env: &crate::Place<'_>) -> Option<crate::Ask> {
+        use crate::Ask;
+        use paperpaw_sdk::Params;
         Some(match self {
             Step::Set(id, text) => {
                 let value = env.settings().spec(id.as_str())?.kind.parse(text)?;
-                Command::SetSetting(id.clone(), value)
+                Ask::SetSetting(id.clone(), value)
             }
-            Step::Run(action) => Command::run(action.clone()),
-            Step::Open(slot) => Command::OpenSlot(slot.clone(), Params::new()),
-            Step::Notify(key) => Command::Notify(env.i18n().tr(key).to_string()),
-            Step::Emit(event) => Command::Emit(event.clone(), Params::new()),
+            Step::Run(action) => Ask::run(action.clone()),
+            Step::Open(slot) => Ask::OpenSlot(slot.clone(), Params::new()),
+            Step::Notify(key) => Ask::Notify(env.i18n().tr(key).to_string()),
+            Step::Emit(event) => Ask::Emit(event.clone(), Params::new()),
         })
     }
 }
@@ -391,8 +392,9 @@ mod tests {
     /// in the reader's language; a text that is no key shows as it is.
     #[test]
     fn a_notification_is_said_in_the_reader_s_language() {
+        use crate::Ask;
         use paperpaw_platform::Instant;
-        use paperpaw_sdk::{Command, MemoryStorage};
+        use paperpaw_sdk::MemoryStorage;
         let storage = MemoryStorage::new()
             .with("plugins/cosy/plugin.ini", "[plugin]\nname = Cosy\nformats = 3\n")
             .with(
@@ -406,7 +408,7 @@ mod tests {
         kernel.start(Instant(0));
         let env = kernel.shared.place(Instant(0));
         let said = |key: &str| match Step::Notify(key.into()).command(&env) {
-            Some(Command::Notify(text)) => text,
+            Some(Ask::Notify(text)) => text,
             other => panic!("{other:?}"),
         };
         assert_eq!(said("cosy.good-night"), "Good night, sleep well");

@@ -930,7 +930,12 @@ pub fn take_over_old(storage: &dyn Storage) {
     let _ = storage.remove(&format!("{old}/catalog.txt"));
 }
 
-pub use paperpaw_sdk::library::changed_book;
+/// What tells everyone something of the book at `path` changed: `what`,
+/// bits of `what` ([`events::BOOK_CHANGED`](paperpaw_sdk::builtin::events::BOOK_CHANGED)).
+pub fn changed_book(path: &str, what: u32) -> crate::Ask {
+    let (event, params) = paperpaw_sdk::library::changed_book(path, what);
+    crate::Ask::Emit(event, params)
+}
 
 #[cfg(test)]
 mod fallible_tests;

@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 extern crate std;
 use super::*;
+use crate::Ask;
 use crate::Items;
 use crate::native_host::{
     declaration_store::{Allocations, ImageOwner, PendingDeclarations},
@@ -26,7 +27,7 @@ use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_platform::{DirEntry, Instant};
 use paperpaw_sdk::RegisterError;
-use paperpaw_sdk::{Command, Id, Manifest, MemoryStorage, Params, PluginState, Version};
+use paperpaw_sdk::{Id, Manifest, MemoryStorage, Params, PluginState, Version};
 
 /// The card, shared by the kernel and the hosts.
 struct Card(Rc<MemoryStorage>);
@@ -366,7 +367,7 @@ fn wanted(w: &World) -> usize {
         .commands
         .iter()
         .filter(|c| {
-            matches!(c, Command::Emit(e, p) if *e == events::CATALOG_WANTED
+            matches!(c, Ask::Emit(e, p) if *e == events::CATALOG_WANTED
                 && p.get("anew") == Some("true"))
         })
         .count()
@@ -521,7 +522,7 @@ fn a_walk_that_ends_wakes_the_idle_device_for_its_books() {
     w.kernel
         .output
         .commands
-        .push(events::CATALOG_CHANGED.emit(()));
+        .push(crate::Ask::emit(&events::CATALOG_CHANGED, ()));
     let effects = w.kernel.tick(Instant(5_000));
     assert!(w.docs.details_job().unwrap().run().armed());
     assert_eq!(w.format.opens(), 0, "armed after this round's pass");

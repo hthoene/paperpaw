@@ -121,12 +121,12 @@ pub(crate) type StatusTargetsFn = fn(&Place<'_>, &StatusFrame<'_>) -> Vec<Status
 #[non_exhaustive]
 pub struct StatusTarget {
     pub area: Rect,
-    pub command: paperpaw_sdk::Command,
+    pub command: crate::Ask,
 }
 
 impl StatusTarget {
     /// Made of what it needs; the rest as set with its methods.
-    pub fn new(area: Rect, command: paperpaw_sdk::Command) -> Self {
+    pub fn new(area: Rect, command: crate::Ask) -> Self {
         Self { area, command }
     }
 }
@@ -214,7 +214,7 @@ pub enum StatusValue {
         text: String,
     },
     /// A kind a later build adds, by its key, with its parameters (as
-    /// [`Command::Extended`](paperpaw_sdk::Command::Extended)); a build that
+    /// [`Ask::Extended`](crate::Ask::Extended)); a build that
     /// doesn't know it leaves the value out.
     Extended {
         key: paperpaw_sdk::Id,
@@ -237,7 +237,7 @@ pub struct StatusItemSpec {
     pub value: StatusFn,
     /// The action a tap on it runs, one of its own plugin's, with the
     /// context its line was drawn with (see `context`;
-    /// [`Command::RunAction`](paperpaw_sdk::Command::RunAction)): it
+    /// [`Ask::RunAction`](crate::Ask::RunAction)): it
     /// runs as that plugin, whichever screen shows the line, and can be
     /// bound to buttons too. Without it a tap does what the screen does
     /// with the line.
@@ -509,11 +509,11 @@ impl StatusItems {
     /// What a tap on item `id`, drawn with `context`, runs: its action
     /// ([`StatusItemSpec::tap`]) with the context, where the action is
     /// its own plugin's.
-    pub(crate) fn tap(&self, id: &str, context: &Params) -> Option<paperpaw_sdk::Command> {
+    pub(crate) fn tap(&self, id: &str, context: &Params) -> Option<crate::Ask> {
         let item = self.item(id)?;
         let action = item.tap.as_ref()?;
         (action.namespace() == item.id.namespace())
-            .then(|| paperpaw_sdk::Command::RunAction(action.clone(), context.clone()))
+            .then(|| crate::Ask::RunAction(action.clone(), context.clone()))
     }
 
     /// How much item `id` matters ([`StatusItemSpec::priority`]).

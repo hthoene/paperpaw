@@ -265,7 +265,7 @@ impl crate::testing::Fake for Guard {
         if *action != paperpaw_sdk::builtin::actions::CONFIRM {
             return paperpaw_sdk::Handled::No;
         }
-        cx.command(builtin::STARTED.emit(()));
+        cx.command(crate::Ask::emit(&builtin::STARTED, ()));
         paperpaw_sdk::Handled::Yes
     }
 }

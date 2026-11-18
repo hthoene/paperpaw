@@ -22,6 +22,7 @@
 //! `screen_policy` (1563) is checked here and staged apart from the commands:
 //! the host applies it first ([`Kernel::native_screen_policies`](crate::Kernel)).
 use super::{CommandBatch, CommandStage, WireCommand, ui};
+use crate::Ask;
 use crate::native_host::{
     stack_rows::StackRows,
     ui_guard::{self, Close},
@@ -29,7 +30,7 @@ use crate::native_host::{
 use crate::screens::{POLICY_BITS, POLICY_GUARDS};
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NOT_FOUND, ERR_STATE};
-use paperpaw_sdk::{Command, ScreenKey};
+use paperpaw_sdk::ScreenKey;
 
 /// One run-time change of a screen's policy bits (`command.screen_policy`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -261,14 +262,14 @@ impl CommandStage<'_> {
     }
 
     /// The staged form of a checked navigation command.
-    pub(super) fn owned_nav(&self, command: WireCommand<'_>) -> Result<Command, i32> {
+    pub(super) fn owned_nav(&self, command: WireCommand<'_>) -> Result<Ask, i32> {
         match command {
             WireCommand::Close { instance } => {
                 let nav = self.nav()?;
                 match ui_guard::close_allowed(nav.rows, nav.owner, instance)? {
                     Close::Instance(index) => {
                         let row = ui_guard::UiStackView::row(nav.rows, index).ok_or(ERR_STATE)?;
-                        Ok(Command::Close(ScreenKey::new(row.instance)))
+                        Ok(Ask::Close(ScreenKey::new(row.instance)))
                     }
                     Close::NoEffect => Err(ERR_STATE),
                 }
@@ -277,7 +278,7 @@ impl CommandStage<'_> {
                 let index = self.back_to_index(target).ok_or(ERR_NOT_FOUND)?;
                 let ui = self.ui.as_ref().ok_or(ERR_STATE)?;
                 let entry = ui.env().stack().get(index).ok_or(ERR_NOT_FOUND)?;
-                Ok(Command::BackTo(ui::copy_id(entry.screen.as_str())?))
+                Ok(Ask::BackTo(ui::copy_id(entry.screen.as_str())?))
             }
             WireCommand::SetKeyLayer { layer } => {
                 let key = self.own_top()?;
@@ -286,15 +287,15 @@ impl CommandStage<'_> {
                 } else {
                     Some(ui::copy_id(layer)?)
                 };
-                Ok(Command::SetKeyLayer(key, layer))
+                Ok(Ask::SetKeyLayer(key, layer))
             }
-            WireCommand::ShowHints {} => Ok(Command::ShowHints),
+            WireCommand::ShowHints {} => Ok(Ask::ShowHints),
             WireCommand::RaiseInput { input } => {
                 let mut name = alloc::string::String::new();
                 name.try_reserve_exact(input.len())
                     .map_err(|_| paperpaw_native::host_glue::ERR_NO_MEMORY)?;
                 name.push_str(input);
-                Ok(Command::Input(name))
+                Ok(Ask::Input(name))
             }
             _ => Err(paperpaw_native::host_glue::ERR_UNSUPPORTED),
         }

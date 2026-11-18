@@ -46,14 +46,13 @@
 //! nothing needs it.
 
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::time::Duration;
 
 use crate::event::{Event, EventData, ParamValue};
 use crate::work::Refusal;
-use crate::{Command, Id, Params};
+use crate::{Id, Params};
 
 mod builders;
 mod event;
@@ -861,11 +860,11 @@ pub use request::{BtCommand, Response};
 use request::{BtCommand, Response};
 
 impl BtCommand {
-    fn command(self) -> Command {
-        Command::Bluetooth(Box::new(BtRequest {
+    fn command(self) -> BtRequest {
+        BtRequest {
             command: self,
             from: None,
-        }))
+        }
     }
 }
 
@@ -1013,7 +1012,7 @@ pub fn discover(device: DeviceId) -> Discover {
 }
 
 /// Reads the value or descriptor at `handle` ([`BtEvent::Value`]).
-pub fn read(device: DeviceId, handle: Handle) -> Command {
+pub fn read(device: DeviceId, handle: Handle) -> BtRequest {
     BtCommand::Read { device, handle }.command()
 }
 
@@ -1031,19 +1030,19 @@ pub fn write(device: DeviceId, handle: Handle, bytes: impl Into<Vec<u8>>) -> Wri
 
 /// Notifications (or indications) of the characteristic at `handle` come
 /// as [`BtEvent::Value`].
-pub fn subscribe(device: DeviceId, handle: Handle) -> Command {
+pub fn subscribe(device: DeviceId, handle: Handle) -> BtRequest {
     BtCommand::Subscribe { device, handle }.command()
 }
 
 /// Asks the reader to pair with connected `device` ([`BtEvent::Paired`],
 /// or [`BtError::Declined`]).
-pub fn pair(device: DeviceId) -> Command {
+pub fn pair(device: DeviceId) -> BtRequest {
     BtCommand::Pair { device }.command()
 }
 
 /// Forgets bonded `device`: its keys and what it was given. The reader's
 /// own doing, or the Bluetooth manager's.
-pub fn forget(device: DeviceId, events: &Event<BtEvent>) -> Command {
+pub fn forget(device: DeviceId, events: &Event<BtEvent>) -> BtRequest {
     BtCommand::Forget {
         device,
         events: events.id().clone(),
@@ -1053,7 +1052,7 @@ pub fn forget(device: DeviceId, events: &Event<BtEvent>) -> Command {
 
 /// Gives bonded `device` to `plugin`: it may connect to it. The reader's
 /// own doing, or the Bluetooth manager's.
-pub fn give(device: DeviceId, plugin: impl Into<Id>, events: &Event<BtEvent>) -> Command {
+pub fn give(device: DeviceId, plugin: impl Into<Id>, events: &Event<BtEvent>) -> BtRequest {
     BtCommand::Give {
         device,
         plugin: plugin.into(),
@@ -1065,7 +1064,7 @@ pub fn give(device: DeviceId, plugin: impl Into<Id>, events: &Event<BtEvent>) ->
 /// The keys of bonded `device` go to the key maps: the kernel connects
 /// it, responsively. The Bluetooth manager's, a plugin's the device is
 /// given to, or the reader's own doing.
-pub fn remote_keys(device: DeviceId, events: &Event<BtEvent>) -> Command {
+pub fn remote_keys(device: DeviceId, events: &Event<BtEvent>) -> BtRequest {
     BtCommand::KeysOn {
         device,
         events: events.id().clone(),
@@ -1075,7 +1074,7 @@ pub fn remote_keys(device: DeviceId, events: &Event<BtEvent>) -> Command {
 
 /// The keys of `device` no longer go to the key maps: the kernel lets it
 /// go.
-pub fn remote_keys_off(device: DeviceId, events: &Event<BtEvent>) -> Command {
+pub fn remote_keys_off(device: DeviceId, events: &Event<BtEvent>) -> BtRequest {
     BtCommand::KeysOff {
         device,
         events: events.id().clone(),
@@ -1086,7 +1085,7 @@ pub fn remote_keys_off(device: DeviceId, events: &Event<BtEvent>) -> Command {
 /// The report map and input reports of HID `device` (given to the
 /// plugin) come as `events` ([`BtEvent::HidReportMap`],
 /// [`BtEvent::HidReport`]).
-pub fn hid_reports(device: DeviceId, events: &Event<BtEvent>) -> Command {
+pub fn hid_reports(device: DeviceId, events: &Event<BtEvent>) -> BtRequest {
     BtCommand::HidReports {
         device,
         events: events.id().clone(),

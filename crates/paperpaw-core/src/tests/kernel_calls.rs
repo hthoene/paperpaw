@@ -84,7 +84,7 @@ fn the_focus_is_said_in_place_of_what_was_said_of_it() {
     press(&mut kernel, 100, "down");
     assert_eq!(said(&mut kernel), ["Row 1", "Row 2"]);
     // A plugin reads aloud: the focus waits.
-    kernel.apply(Command::speak(paperpaw_sdk::Speech::new(
+    kernel.apply(Ask::speak(paperpaw_sdk::Speech::new(
         "A page",
         Id::new_static("rows.read"),
     )));
@@ -174,7 +174,7 @@ fn off_at_start() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     |r| {
         r.on(paperpaw_sdk::builtin::events::STARTED, |k, p| {
             k.with_event(&paperpaw_sdk::builtin::events::STARTED, p, |_, _, out| {
-                out.push(Command::PowerOff);
+                out.push(Ask::PowerOff);
             });
         })
     }
@@ -196,7 +196,7 @@ fn drive(kept: Drive) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
     move |r| {
         use paperpaw_sdk::builtin::events;
         r.on(events::STARTED, |k, p| {
-            k.with_event(&events::STARTED, p, |_, _, out| out.push(Command::UsbDrive));
+            k.with_event(&events::STARTED, p, |_, _, out| out.push(Ask::UsbDrive));
         })?;
         crate::tests::hear_into(&kept.log);
         r.subscribe(events::RESUME.id().clone(), |_, _| {
@@ -331,8 +331,8 @@ fn sounds_are_answered_not_played() {
     kernel.start(Instant(0));
     let sound = paperpaw_sdk::sound::Sound::new("plugins/ear/haus.ogg", &PLAYED)
         .with(paperpaw_sdk::Params::new().with("word", "Haus"));
-    kernel.apply(Command::play_sound(sound));
-    kernel.apply(Command::StopSound);
+    kernel.apply(Ask::play_sound(sound));
+    kernel.apply(Ask::StopSound);
     kernel.run_commands();
     assert_eq!(*log.borrow(), ["Haus played false"]);
 }

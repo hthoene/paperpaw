@@ -46,6 +46,7 @@ pub use registry::{PAGE_ROWS, Registry, row};
 pub use ui::{Answer, Dialogs, Question};
 
 use core::ffi::c_void;
+use paperpaw_core::Ask;
 use paperpaw_core::native_host::commands::{
     CALLBACK_COMMAND_BYTES, CALLBACK_COMMANDS, CommandScope, CommandStage,
 };
@@ -54,7 +55,7 @@ use paperpaw_i18n::{Catalog, CatalogError, Translator};
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes, PpEntry, PpHost, PpPlugin,
 };
-use paperpaw_sdk::{Command, Id, Settings};
+use paperpaw_sdk::{Id, Settings};
 use refusal::{Refusals, Rule};
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
@@ -421,7 +422,7 @@ pub struct Callback {
     /// The callback's status.
     pub status: i32,
     /// The commands it staged, in order; empty after a negative status.
-    pub commands: Vec<Command>,
+    pub commands: Vec<Ask>,
     /// The command batches it submitted, byte for byte, accepted or not (for
     /// exact-wire assertions; a refused-by-the-host call is not here).
     pub batches: Vec<Vec<u8>>,

@@ -31,6 +31,7 @@ use super::lib_moves_host::MoveCarry;
 use super::lib_moves_walk::Resume;
 use super::lib_service::moves::{Phase, STEP_BOOKS, own};
 use super::storage::status;
+use crate::Ask;
 use crate::Place;
 use crate::kit::library::BookData;
 use crate::kit::{library, readers};
@@ -39,7 +40,7 @@ use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{
-    Command, Editor, Formats, SettingValue, Settings,
+    Editor, Formats, SettingValue, Settings,
     builtin::{events, slots},
     files,
 };
@@ -58,16 +59,12 @@ pub(crate) struct EnvCarry<'a> {
     /// The walk kept between steps.
     resume: &'a Resume,
     /// Where the events and the setting changes go (the kernel's queue).
-    out: RefCell<&'a mut dyn FnMut(Command)>,
+    out: RefCell<&'a mut dyn FnMut(Ask)>,
 }
 
 impl<'a> EnvCarry<'a> {
     /// The catalog of `env`, sending commands to `out`.
-    pub(crate) fn new(
-        env: &'a Place<'a>,
-        resume: &'a Resume,
-        out: &'a mut dyn FnMut(Command),
-    ) -> Self {
+    pub(crate) fn new(env: &'a Place<'a>, resume: &'a Resume, out: &'a mut dyn FnMut(Ask)) -> Self {
         Self::from_parts(
             env.storage(),
             env.formats(),
@@ -84,7 +81,7 @@ impl<'a> EnvCarry<'a> {
         book_data: &'a [BookData],
         settings: &'a Settings,
         resume: &'a Resume,
-        out: &'a mut dyn FnMut(Command),
+        out: &'a mut dyn FnMut(Ask),
     ) -> Self {
         Self {
             storage,
@@ -106,7 +103,7 @@ impl<'a> EnvCarry<'a> {
         self.book_data
     }
 
-    pub(super) fn send(&self, command: Command) -> Result<(), i32> {
+    pub(super) fn send(&self, command: Ask) -> Result<(), i32> {
         let mut out = self.out.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         (*out)(command);
         Ok(())
@@ -186,7 +183,7 @@ impl<'a> EnvCarry<'a> {
             }
             let value = self.settings.text(spec.id.as_str());
             if let Some(moved) = library::moved_folder(self.storage, value, from, to) {
-                self.send(Command::SetSetting(
+                self.send(Ask::SetSetting(
                     spec.id.clone(),
                     SettingValue::Text(moved.into()),
                 ))?;
@@ -248,11 +245,14 @@ impl MoveCarry for EnvCarry<'_> {
             Phase::Events(cursor) => {
                 // A file moved is one event, whatever its name now.
                 if !files::is_dir(self.storage, to) {
-                    self.send(events::BOOK_MOVED.emit(events::BookMoved::new(
-                        from.trim_matches('/').into(),
-                        to.trim_matches('/').into(),
-                    )))?;
-                    self.send(events::LIBRARY_CHANGED.emit(()))?;
+                    self.send(crate::Ask::emit(
+                        &events::BOOK_MOVED,
+                        events::BookMoved::new(
+                            from.trim_matches('/').into(),
+                            to.trim_matches('/').into(),
+                        ),
+                    ))?;
+                    self.send(crate::Ask::emit(&events::LIBRARY_CHANGED, ()))?;
                     return Ok(Phase::Done);
                 }
                 let (books, more) = self.window(true, to, cursor)?;
@@ -265,12 +265,15 @@ impl MoveCarry for EnvCarry<'_> {
                     if self.carry_one(&old, book, &mut budget)? == Progress::More {
                         return Ok(Phase::Events(cursor + done as u64));
                     }
-                    self.send(events::BOOK_MOVED.emit(events::BookMoved::new(old, book.clone())))?;
+                    self.send(crate::Ask::emit(
+                        &events::BOOK_MOVED,
+                        events::BookMoved::new(old, book.clone()),
+                    ))?;
                 }
                 if more {
                     return Ok(Phase::Events(cursor + books.len() as u64));
                 }
-                self.send(events::LIBRARY_CHANGED.emit(()))?;
+                self.send(crate::Ask::emit(&events::LIBRARY_CHANGED, ()))?;
                 Ok(Phase::Done)
             }
             Phase::Done => Ok(Phase::Done),

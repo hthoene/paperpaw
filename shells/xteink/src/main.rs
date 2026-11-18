@@ -1013,7 +1013,7 @@ fn kernel(
         // The panel takes bands turned any way (`display`).
         .rotation(true)
         .sleep(true)
-        // A plugin may ask to switch the device off (`Command::PowerOff`);
+        // A plugin may ask to switch the device off (`Ask::PowerOff`);
         // `slept_for` stays unknown after a switch-off: the card keeps no
         // clock, so plugins hear no time asleep for such a start.
         .power_off(true)

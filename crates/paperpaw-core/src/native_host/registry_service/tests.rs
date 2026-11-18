@@ -681,7 +681,7 @@ fn generation(kernel: &crate::Kernel) -> u32 {
 }
 
 /// Whether `command` changed the generation, by the kernel's own route.
-fn bumps(kernel: &mut crate::Kernel, command: paperpaw_sdk::Command) -> bool {
+fn bumps(kernel: &mut crate::Kernel, command: crate::Ask) -> bool {
     let before = generation(kernel);
     kernel.apply(command);
     generation(kernel) != before
@@ -689,20 +689,14 @@ fn bumps(kernel: &mut crate::Kernel, command: paperpaw_sdk::Command) -> bool {
 
 #[test]
 fn every_change_of_a_list_bumps_the_generation() {
-    use paperpaw_sdk::Command;
+    use crate::Ask;
     let mut kernel = data_kernel(&[("cosy", ""), ("other", "")]);
     assert_ne!(generation(&kernel), 0);
     // Disabled, enabled.
-    assert!(bumps(
-        &mut kernel,
-        Command::SetPluginEnabled(id("cosy"), false)
-    ));
-    assert!(bumps(
-        &mut kernel,
-        Command::SetPluginEnabled(id("cosy"), true)
-    ));
+    assert!(bumps(&mut kernel, Ask::SetPluginEnabled(id("cosy"), false)));
+    assert!(bumps(&mut kernel, Ask::SetPluginEnabled(id("cosy"), true)));
     // Removed.
-    assert!(bumps(&mut kernel, Command::RemovePlugin(id("other"))));
+    assert!(bumps(&mut kernel, Ask::RemovePlugin(id("other"))));
     assert!(kernel.plugins().get("other").is_none());
     // Installed (a folder staged as the shell does), updated over itself.
     for version in ["1.0.0", "1.1.0"] {
@@ -717,7 +711,7 @@ fn every_change_of_a_list_bumps_the_generation() {
             .unwrap();
         assert!(bumps(
             &mut kernel,
-            Command::InstallPlugin(id("fresh"), "plugins/.fresh.part".into())
+            Ask::InstallPlugin(id("fresh"), "plugins/.fresh.part".into())
         ));
     }
     // Re-read from a folder.
@@ -729,22 +723,19 @@ fn every_change_of_a_list_bumps_the_generation() {
             b"[plugin]\nname = Again\nformats = 4\n",
         )
         .unwrap();
-    assert!(bumps(
-        &mut kernel,
-        Command::LoadPlugin("plugins/again".into())
-    ));
+    assert!(bumps(&mut kernel, Ask::LoadPlugin("plugins/again".into())));
     // A slot bound, a key bound, a menu set.
     assert!(bumps(
         &mut kernel,
-        Command::BindSlot(id("demo.stage"), Some(id("demo.main")))
+        Ask::BindSlot(id("demo.stage"), Some(id("demo.main")))
     ));
     assert!(bumps(
         &mut kernel,
-        Command::SetMenu(id("demo.menu"), Some(Vec::new()))
+        Ask::SetMenu(id("demo.menu"), Some(Vec::new()))
     ));
     assert!(bumps(
         &mut kernel,
-        Command::bind("base", "up", Some(id("demo.act00")))
+        Ask::bind("base", "up", Some(id("demo.act00")))
     ));
 }
 

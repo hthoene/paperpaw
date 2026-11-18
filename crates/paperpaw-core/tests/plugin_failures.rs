@@ -18,13 +18,13 @@ use common::AddDriver;
 use std::borrow::Cow;
 
 use common::{BASE, DEVICE, Harness, press};
+use paperpaw_core::Ask;
 use paperpaw_core::Items;
 use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::kit::menus::MenuEntry;
 use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::{
-    Command, Id, Manifest, MemoryStorage, Params, PluginState, Priority, RegisterError, Setting,
-    SettingSpec,
+    Id, Manifest, MemoryStorage, Params, PluginState, Priority, RegisterError, Setting, SettingSpec,
 };
 use paperpaw_core::{Kernel, Warning, WarningSource};
 use paperpaw_platform::Instant;
@@ -165,11 +165,7 @@ fn a_plugin_that_fails_leaves_none_of_its_contributions() {
         assert!(kernel.settings().get("bad.level").is_none(), "{fault:?}");
         assert!(!kernel.actions().contains("bad.act"), "{fault:?}");
         assert!(!kernel.known_screens().any(|s| s.as_str() == "bad.screen"));
-        harness.run(
-            &mut kernel,
-            10,
-            [Command::Emit(common::LATER, Params::new())],
-        );
+        harness.run(&mut kernel, 10, [Ask::Emit(common::LATER, Params::new())]);
         assert!(harness.lines("faulty").is_empty(), "{fault:?}");
         press(&mut kernel, 1000, "page-forward");
         press(&mut kernel, 2000, "page-back");
@@ -367,14 +363,14 @@ fn commands_for_plugins_that_are_not_data_plugins_are_refused() {
         &mut kernel,
         10,
         [
-            Command::RemovePlugin(Id::new_static("drv")),
-            Command::RemovePlugin(Id::new_static("core")),
-            Command::RemovePlugin(Id::new_static("nobody")),
-            Command::LoadPlugin(String::from("plugins/nothing-here")),
-            Command::LoadPlugin(String::new()),
-            Command::LoadPlugin(String::from("../../..")),
-            Command::SetPluginEnabled(Id::new_static("core"), false),
-            Command::SetPluginEnabled(Id::new_static("nobody"), true),
+            Ask::RemovePlugin(Id::new_static("drv")),
+            Ask::RemovePlugin(Id::new_static("core")),
+            Ask::RemovePlugin(Id::new_static("nobody")),
+            Ask::LoadPlugin(String::from("plugins/nothing-here")),
+            Ask::LoadPlugin(String::new()),
+            Ask::LoadPlugin(String::from("../../..")),
+            Ask::SetPluginEnabled(Id::new_static("core"), false),
+            Ask::SetPluginEnabled(Id::new_static("nobody"), true),
         ],
     );
     let warnings = kernel.take_warnings();

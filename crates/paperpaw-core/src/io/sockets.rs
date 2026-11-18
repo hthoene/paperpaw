@@ -10,11 +10,11 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use crate::Ask;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::{
-    CertificateHash, Command, Distrust, Id, KeyHash, SocketError, SocketNotice, SocketRead, Tls,
-    Trust,
+    CertificateHash, Distrust, Id, KeyHash, SocketError, SocketNotice, SocketRead, Tls, Trust,
 };
 
 /// The most a shell is asked to read at once; a file read goes in such
@@ -190,7 +190,7 @@ pub(crate) enum Owner {
     Run(u32),
 }
 
-/// A plugin's [`Command::Connect`], taken apart.
+/// A plugin's [`Ask::Connect`], taken apart.
 struct Connect {
     socket: Id,
     host: String,
@@ -228,8 +228,8 @@ pub(crate) struct Sockets {
 }
 
 /// The command that tells a plugin `notice` on `events`.
-fn emit(events: &Id, notice: SocketNotice) -> Command {
-    Command::Emit(events.clone(), notice.to_params())
+fn emit(events: &Id, notice: SocketNotice) -> Ask {
+    Ask::Emit(events.clone(), notice.to_params())
 }
 
 impl Sockets {
@@ -254,7 +254,7 @@ impl Sockets {
 
     /// The calls waited too long for a network: each fails, for `reason`
     /// (a broadcast ends).
-    pub fn fail_waiting(&mut self, reason: &str, storage: &dyn Storage, out: &mut Vec<Command>) {
+    pub fn fail_waiting(&mut self, reason: &str, storage: &dyn Storage, out: &mut Vec<Ask>) {
         for call in self.take() {
             let event = match call {
                 SocketCall::Connect { socket, .. }
@@ -286,14 +286,14 @@ impl Sockets {
     /// emit go to `out`.
     pub(crate) fn command(
         &mut self,
-        command: Command,
+        command: Ask,
         network: bool,
         owner: Owner,
         storage: &dyn Storage,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) {
         match command {
-            Command::Connect {
+            Ask::Connect {
                 socket,
                 host,
                 port,
@@ -310,7 +310,7 @@ impl Sockets {
                 };
                 self.connect(connect, network, owner, out);
             }
-            Command::SocketSend { socket, data, .. } => {
+            Ask::SocketSend { socket, data, .. } => {
                 if let Some(at) = self.at(&socket) {
                     if self.securing(at, out) {
                         return;
@@ -322,7 +322,7 @@ impl Sockets {
                     });
                 }
             }
-            Command::SocketRead { socket, read, .. } => {
+            Ask::SocketRead { socket, read, .. } => {
                 if let Some(at) = self.at(&socket) {
                     if self.securing(at, out) {
                         return;
@@ -330,17 +330,17 @@ impl Sockets {
                     self.read(at, read, storage, out);
                 }
             }
-            Command::StartTls { socket, tls, .. } => {
+            Ask::StartTls { socket, tls, .. } => {
                 if let Some(at) = self.at(&socket) {
                     self.start_tls(at, *tls, out);
                 }
             }
-            Command::Disconnect(socket) => {
+            Ask::Disconnect(socket) => {
                 if let Some(at) = self.at(&socket) {
                     self.close(at, None, out);
                 }
             }
-            Command::Broadcast(broadcast) => {
+            Ask::Broadcast(broadcast) => {
                 let (id, events) = (broadcast.id().clone(), broadcast.events().clone());
                 let (ports, wait_ms) = (broadcast.ports().to_vec(), broadcast.wait_ms());
                 let data = broadcast.into_data();
@@ -365,7 +365,7 @@ impl Sockets {
 
     /// Opens a socket, in place of one with its id; secure from the start
     /// where `tls` says, if the shell does TLS and it is set up right.
-    fn connect(&mut self, connect: Connect, network: bool, owner: Owner, out: &mut Vec<Command>) {
+    fn connect(&mut self, connect: Connect, network: bool, owner: Owner, out: &mut Vec<Ask>) {
         let Connect {
             socket,
             host,
@@ -420,7 +420,7 @@ impl Sockets {
     /// sends or reads fails it, `NotReady`, and closes it. Nothing goes
     /// out or is read until `Secured`: sent, it could go in the clear, and
     /// read, bytes from before the handshake would pass as secure.
-    fn securing(&mut self, at: usize, out: &mut Vec<Command>) -> bool {
+    fn securing(&mut self, at: usize, out: &mut Vec<Ask>) -> bool {
         if self.sockets[at].phase != Phase::Securing {
             return false;
         }
@@ -461,7 +461,7 @@ impl Sockets {
     }
 
     /// Asks socket `at` for what comes next, as `read` says.
-    fn read(&mut self, at: usize, read: SocketRead, storage: &dyn Storage, out: &mut Vec<Command>) {
+    fn read(&mut self, at: usize, read: SocketRead, storage: &dyn Storage, out: &mut Vec<Ask>) {
         let s = &mut self.sockets[at];
         // A read that cannot start fails, the socket left as it was.
         let fail = |s: &Socket, error, reason: String| {
@@ -517,7 +517,7 @@ impl Sockets {
     /// nothing being read nor come unread (the start of a character a
     /// text read ended in). Else it fails and closes: going on unsecured
     /// would send in the clear what the plugin means to send secured.
-    fn start_tls(&mut self, at: usize, tls: Tls, out: &mut Vec<Command>) {
+    fn start_tls(&mut self, at: usize, tls: Tls, out: &mut Vec<Ask>) {
         let s = &self.sockets[at];
         let refused = self.tls_refused(&tls, s.owner).or_else(|| {
             let ready = s.phase == Phase::Open && s.reading.is_none() && s.partial.is_empty();
@@ -550,7 +550,7 @@ impl Sockets {
 
     /// Closes socket `at` for the shell and tells its plugin, with why if
     /// it was not asked to.
-    fn close(&mut self, at: usize, reason: Option<String>, out: &mut Vec<Command>) {
+    fn close(&mut self, at: usize, reason: Option<String>, out: &mut Vec<Ask>) {
         let socket = self.sockets.remove(at);
         self.calls.push(SocketCall::Close {
             socket: socket.number,
@@ -561,7 +561,7 @@ impl Sockets {
 
     /// Closes the sockets opened while more than `screens` screens were
     /// open (not those of background work).
-    pub fn close_for_closed_screens(&mut self, screens: usize, out: &mut Vec<Command>) {
+    pub fn close_for_closed_screens(&mut self, screens: usize, out: &mut Vec<Ask>) {
         let closed = |s: &Socket| matches!(s.owner, Owner::Screens(n) if n > screens);
         while let Some(at) = self.sockets.iter().position(closed) {
             self.close(at, Some(String::from("screen closed")), out);
@@ -569,7 +569,7 @@ impl Sockets {
     }
 
     /// Closes the sockets of the run of background work `run`: it ended.
-    pub(crate) fn close_for_run(&mut self, run: u32, out: &mut Vec<Command>) {
+    pub(crate) fn close_for_run(&mut self, run: u32, out: &mut Vec<Ask>) {
         while let Some(at) = self.sockets.iter().position(|s| s.owner == Owner::Run(run)) {
             self.close(at, Some(String::from("work ended")), out);
         }
@@ -586,7 +586,7 @@ impl Sockets {
     }
 
     /// Turns what the shell reports into the plugins' events.
-    pub fn event(&mut self, event: SocketEvent, storage: &dyn Storage, out: &mut Vec<Command>) {
+    pub fn event(&mut self, event: SocketEvent, storage: &dyn Storage, out: &mut Vec<Ask>) {
         match event {
             SocketEvent::Connected { socket } => {
                 // A socket secure from the start says so once it is.
@@ -679,13 +679,7 @@ impl Sockets {
     }
 
     /// What a read of socket `at` brought.
-    fn received(
-        &mut self,
-        at: usize,
-        data: Vec<u8>,
-        storage: &dyn Storage,
-        out: &mut Vec<Command>,
-    ) {
+    fn received(&mut self, at: usize, data: Vec<u8>, storage: &dyn Storage, out: &mut Vec<Ask>) {
         let s = &mut self.sockets[at];
         match s.reading.take() {
             // The other side closed; half a character is no text.
@@ -770,7 +764,7 @@ fn incomplete_end(bytes: &[u8]) -> usize {
 
 impl Socket {
     /// The command that tells its plugin the notice `make` makes of its id.
-    fn notice(&self, make: impl FnOnce(Id) -> SocketNotice) -> Command {
+    fn notice(&self, make: impl FnOnce(Id) -> SocketNotice) -> Ask {
         emit(&self.events, make(self.id.clone()))
     }
 }
@@ -788,19 +782,19 @@ mod tests {
     const EVENTS: Id = Id::new_static("test.socket-events");
     const SOCKET: Id = Id::new_static("test.socket");
 
-    fn kinds(out: &[Command]) -> Vec<String> {
+    fn kinds(out: &[Ask]) -> Vec<String> {
         out.iter()
             .filter_map(|c| match c {
-                Command::Emit(_, params) => params.get(p::KIND).map(String::from),
+                Ask::Emit(_, params) => params.get(p::KIND).map(String::from),
                 _ => None,
             })
             .collect()
     }
 
-    fn connected(storage: &MemoryStorage) -> (Sockets, Vec<Command>) {
+    fn connected(storage: &MemoryStorage) -> (Sockets, Vec<Ask>) {
         let mut sockets = Sockets::new(1);
         let mut out = Vec::new();
-        let connect = Command::connect(SOCKET, String::from("calibre.local"), 9090, EVENTS);
+        let connect = Ask::connect(SOCKET, String::from("calibre.local"), 9090, EVENTS);
         sockets.command(connect, true, Owner::Screens(2), storage, &mut out);
         assert_eq!(
             sockets.calls.pop(),
@@ -819,7 +813,7 @@ mod tests {
     fn text_is_read_when_asked() {
         let storage = MemoryStorage::new();
         let (mut sockets, mut out) = connected(&storage);
-        let read = Command::socket_read(SOCKET, SocketRead::Text { max: 100 });
+        let read = Ask::socket_read(SOCKET, SocketRead::Text { max: 100 });
         sockets.command(read.clone(), true, Owner::Screens(2), &storage, &mut out);
         // A second read before the first came fails.
         sockets.command(read, true, Owner::Screens(2), &storage, &mut out);
@@ -836,7 +830,7 @@ mod tests {
         };
         sockets.event(data, &storage, &mut out);
         assert_eq!(kinds(&out), [p::CONNECTED, p::FAILED, p::RECEIVED]);
-        let Some(Command::Emit(_, params)) = out.last() else {
+        let Some(Ask::Emit(_, params)) = out.last() else {
             panic!("no event");
         };
         assert_eq!(params.get(p::TEXT), Some("12[0,{}]"));
@@ -853,7 +847,7 @@ mod tests {
         let reads: [&[u8]; 5] = [b"Gr\xc3", b"\xbc\xc3", b"\x9fe \xf0", b"\x9f\x90", b"\xbe"];
         for data in reads {
             out.clear();
-            let read = Command::socket_read(SOCKET, SocketRead::Text { max: 4 });
+            let read = Ask::socket_read(SOCKET, SocketRead::Text { max: 4 });
             if sockets.calls.is_empty() {
                 sockets.command(read, true, Owner::Screens(2), &storage, &mut out);
             }
@@ -866,20 +860,20 @@ mod tests {
                 data: data.to_vec(),
             };
             sockets.event(data, &storage, &mut out);
-            if let Some(Command::Emit(_, params)) = out.last() {
+            if let Some(Ask::Emit(_, params)) = out.last() {
                 texts.push(String::from(params.get(p::TEXT).unwrap()));
             }
         }
         assert_eq!(texts, ["Gr", "ü", "ße ", "🐾"]);
         // An invalid byte is replaced, as before.
-        let read = Command::socket_read(SOCKET, SocketRead::Text { max: 4 });
+        let read = Ask::socket_read(SOCKET, SocketRead::Text { max: 4 });
         sockets.command(read, true, Owner::Screens(2), &storage, &mut out);
         let data = SocketEvent::Data {
             socket: 1,
             data: b"a\xffb".to_vec(),
         };
         sockets.event(data, &storage, &mut out);
-        let Some(Command::Emit(_, params)) = out.last() else {
+        let Some(Ask::Emit(_, params)) = out.last() else {
             panic!("no event");
         };
         assert_eq!(params.get(p::TEXT), Some("a\u{fffd}b"));
@@ -890,7 +884,7 @@ mod tests {
         let storage = MemoryStorage::new();
         let (mut sockets, mut out) = connected(&storage);
         let len = u64::from(SOCKET_PART) + 10;
-        let read = Command::socket_read(
+        let read = Ask::socket_read(
             SOCKET,
             SocketRead::File {
                 path: String::from("books/new.epub"),
@@ -936,7 +930,7 @@ mod tests {
     fn closing_too_early_closes_the_socket() {
         let storage = MemoryStorage::new();
         let (mut sockets, mut out) = connected(&storage);
-        let read = Command::socket_read(
+        let read = Ask::socket_read(
             SOCKET,
             SocketRead::File {
                 path: String::from("b.epub"),
@@ -974,9 +968,9 @@ mod tests {
         let storage = MemoryStorage::new();
         let mut sockets = Sockets::default();
         let mut out = Vec::new();
-        let connect = Command::connect(SOCKET, String::from("h"), 1, EVENTS);
+        let connect = Ask::connect(SOCKET, String::from("h"), 1, EVENTS);
         sockets.command(connect, false, Owner::Screens(1), &storage, &mut out);
-        let broadcast = Command::broadcast(SOCKET, alloc::vec![54982], b"hi".to_vec(), 100, EVENTS);
+        let broadcast = Ask::broadcast(SOCKET, alloc::vec![54982], b"hi".to_vec(), 100, EVENTS);
         sockets.command(broadcast, false, Owner::Screens(1), &storage, &mut out);
         assert_eq!(kinds(&out), [p::FAILED, p::DONE]);
         assert!(sockets.calls.is_empty());
@@ -987,7 +981,7 @@ mod tests {
         let storage = MemoryStorage::new();
         let mut sockets = Sockets::default();
         let mut out = Vec::new();
-        let broadcast = Command::broadcast(
+        let broadcast = Ask::broadcast(
             SOCKET,
             alloc::vec![54982, 48123],
             b"hi".to_vec(),
@@ -1007,7 +1001,7 @@ mod tests {
         sockets.event(answer, &storage, &mut out);
         sockets.event(SocketEvent::Done { broadcast: 1 }, &storage, &mut out);
         assert_eq!(kinds(&out), [p::ANSWER, p::DONE]);
-        let Command::Emit(_, params) = &out[0] else {
+        let Ask::Emit(_, params) = &out[0] else {
             panic!("no answer");
         };
         assert_eq!(params.get(p::FROM), Some("192.168.1.5"));

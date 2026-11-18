@@ -9,7 +9,7 @@ use super::*;
 
 /// Largest `paperpaw.ini` read.
 const MAX_CONFIG: usize = 64 * 1024;
-/// Largest settings file of a book read (see [`Command::SetScope`]).
+/// Largest settings file of a book read (see [`Ask::SetScope`]).
 const MAX_SCOPE: usize = 16 * 1024;
 
 /// Settings that moved to the kernel, by the ids they had (the reader's
@@ -120,7 +120,7 @@ impl Kernel {
         Some(value.to_config_text())
     }
 
-    /// Forgets a setting's value (see [`Command::ResetSetting`]): from the
+    /// Forgets a setting's value (see [`Ask::ResetSetting`]): from the
     /// active scope, or from the configuration file.
     pub(crate) fn reset_setting(&mut self, id: &Id) {
         // A secret setting is kept with the secrets: reset, it goes.
@@ -159,7 +159,7 @@ impl Kernel {
         let changed = events::SettingChanged::new(id.clone()).old(old);
         self.output
             .commands
-            .push(events::SETTING_CHANGED.emit(changed));
+            .push(crate::Ask::emit(&events::SETTING_CHANGED, changed));
     }
 
     /// Writes a changed setting to the configuration file on the device,
@@ -200,13 +200,13 @@ impl Kernel {
                 let changed = events::SettingChanged::new(id.clone()).old(old);
                 self.output
                     .commands
-                    .push(events::SETTING_CHANGED.emit(changed));
+                    .push(crate::Ask::emit(&events::SETTING_CHANGED, changed));
             }
         }
     }
 
     /// Activates the scope stored at `path` for the top screen, or ends
-    /// the scope (see [`Command::SetScope`]).
+    /// the scope (see [`Ask::SetScope`]).
     pub(crate) fn set_scope(&mut self, path: Option<String>) {
         if path.as_deref() == self.scope.as_ref().map(|scope| scope.path.as_str()) {
             // Same scope (e.g. the reader shown again): keep it.
@@ -316,9 +316,10 @@ impl Kernel {
         self.announce_scope_changes(before);
         // The switch itself is not a scoped value others see change.
         if *id == core_settings::SCOPE_ONLY {
-            self.output
-                .commands
-                .push(events::SETTING_CHANGED.emit(events::SettingChanged::new(id.clone())));
+            self.output.commands.push(crate::Ask::emit(
+                &events::SETTING_CHANGED,
+                events::SettingChanged::new(id.clone()),
+            ));
         }
     }
 
@@ -388,7 +389,7 @@ impl Kernel {
     }
 
     /// Shows settings without keeping them, for the screen on top (see
-    /// [`Command::PreviewSettings`]); empty, ends that.
+    /// [`Ask::PreviewSettings`]); empty, ends that.
     pub(crate) fn preview_settings(
         &mut self,
         values: Vec<(Id, Option<paperpaw_sdk::SettingValue>)>,
@@ -403,7 +404,9 @@ impl Kernel {
         } else {
             self.stack.last().map(|top| top.serial)
         };
-        self.output.commands.push(events::PREVIEW_CHANGED.emit(()));
+        self.output
+            .commands
+            .push(crate::Ask::emit(&events::PREVIEW_CHANGED, ()));
         self.native_hint(crate::native_host::registrations::EVENT_PREVIEW_CHANGED_TAG);
     }
 
@@ -453,7 +456,7 @@ impl Kernel {
             "{CONFIG_FILE} cannot be read ({error}): {what} not saved, the file left as it is"
         ));
         let text = self.config_notice();
-        self.output.commands.push(Command::Notify(text));
+        self.output.commands.push(Ask::Notify(text));
     }
 
     /// What tells the user that the configuration file could not be read.
@@ -464,7 +467,7 @@ impl Kernel {
             .format("core.config-unreadable", &[("file", file)])
     }
 
-    /// Switches a plugin for the next start (see [`Command::SetPluginEnabled`]).
+    /// Switches a plugin for the next start (see [`Ask::SetPluginEnabled`]).
     pub(crate) fn set_plugin_enabled(&mut self, id: &Id, enabled: bool) {
         let Some(info) = self.shared.plugins.get(id.as_str()) else {
             return self.warn_runtime(format!("unknown plugin `{id}`"));

@@ -37,7 +37,7 @@ pub(crate) struct KeySources {
     /// Plugins' key maps that apply while a switch (the id) is on.
     pub(crate) when: Vec<(Id, Cow<'static, str>)>,
     /// The user's bindings: `paperpaw.ini` as read at start and changed
-    /// since ([`Command::Bind`]), then the shell's overrides (see
+    /// since ([`Ask::Bind`]), then the shell's overrides (see
     /// [`KernelBuilder::user_config`]), which win.
     pub(crate) user: String,
     pub(crate) shell: String,
@@ -480,7 +480,7 @@ impl Kernel {
         self.shared.keymap = keymap;
     }
 
-    /// Redefines or resets a menu (see [`Command::SetMenu`]) and saves it,
+    /// Redefines or resets a menu (see [`Ask::SetMenu`]) and saves it,
     /// with the entries plugins contribute to it now that the user left
     /// out: those added later show in the user's list too (`[menus-known]`).
     pub(crate) fn set_menu(&mut self, menu: Id, entries: Option<Vec<Id>>) {
@@ -516,9 +516,10 @@ impl Kernel {
                 paperpaw_config::remove(&source, KNOWN, menu.as_str())
             }
         });
-        self.output
-            .commands
-            .push(events::MENU_CHANGED.emit(events::MenuChanged::new(menu.clone())));
+        self.output.commands.push(crate::Ask::emit(
+            &events::MENU_CHANGED,
+            events::MenuChanged::new(menu.clone()),
+        ));
         self.native_registry_changed(crate::native_host::REGISTRY_MENUS);
     }
 
@@ -640,7 +641,7 @@ impl Kernel {
         self.shared.fonts.set_ui_ink(ink.with_flags(flags));
     }
 
-    /// Plugin `by` asks for `plugins` ([`Command::RequestPlugins`](paperpaw_sdk::Command::RequestPlugins)):
+    /// Plugin `by` asks for `plugins` ([`Ask::RequestPlugins`](crate::Ask::RequestPlugins)):
     /// those not on the device, each once and at most
     /// [`MAX_REQUESTED_PLUGINS`](paperpaw_sdk::MAX_REQUESTED_PLUGINS),
     /// go to the store as
@@ -697,7 +698,7 @@ impl Kernel {
     }
 
     /// Loads the data plugin in `folder` while running (see
-    /// [`Command::LoadPlugin`](paperpaw_sdk::Command::LoadPlugin)).
+    /// [`Ask::LoadPlugin`](crate::Ask::LoadPlugin)).
     pub(crate) fn load_plugin(&mut self, folder: &str) {
         if self.register_folder(folder) {
             self.plugins_changed();
@@ -807,7 +808,7 @@ impl Kernel {
     }
 
     /// Removes a data plugin while running (see
-    /// [`Command::RemovePlugin`](paperpaw_sdk::Command::RemovePlugin)).
+    /// [`Ask::RemovePlugin`](crate::Ask::RemovePlugin)).
     pub(crate) fn remove_plugin(&mut self, id: &Id) {
         let Some(folder) = self.data_folder(id) else {
             return self.warn_runtime(format!("`{id}` is no data plugin; not removed"));
@@ -909,7 +910,7 @@ impl Kernel {
     }
 
     /// Installs the data plugin `id` downloaded into `folder` (see
-    /// [`Command::InstallPlugin`](paperpaw_sdk::Command::InstallPlugin)):
+    /// [`Ask::InstallPlugin`](crate::Ask::InstallPlugin)):
     /// the folder takes the place of every version of it on the storage,
     /// loaded or not, and is loaded at once.
     pub(crate) fn install_plugin(&mut self, id: &Id, folder: &str) {
@@ -1100,7 +1101,9 @@ impl Kernel {
         // A plugin may have brought or taken the interface's font.
         self.renew_memory_notice();
         self.rebuild_keymap();
-        self.output.commands.push(events::PLUGINS_CHANGED.emit(()));
+        self.output
+            .commands
+            .push(crate::Ask::emit(&events::PLUGINS_CHANGED, ()));
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
         // What menus, bindings, slots, screens and the rest hold follows the set.
         self.native_registry_changed(crate::native_host::REGISTRY_ALL);

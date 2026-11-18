@@ -28,8 +28,8 @@
 use alloc::borrow::Cow;
 use alloc::string::String;
 
+use crate::Ask;
 use crate::kit::ui::choice::Picked;
-use paperpaw_sdk::Command;
 use paperpaw_sdk::Params;
 use paperpaw_sdk::builtin::{params, slots};
 use paperpaw_sdk::event::Event;
@@ -114,8 +114,8 @@ impl TextQuestion {
     }
 
     /// The command that asks.
-    pub fn command(self) -> Command {
-        Command::OpenSlot(slots::KEYBOARD, self.params)
+    pub fn command(self) -> Ask {
+        Ask::OpenSlot(slots::KEYBOARD, self.params)
     }
 }
 
@@ -147,8 +147,8 @@ impl FolderQuestion {
     }
 
     /// The command that asks.
-    pub fn command(self) -> Command {
-        Command::OpenSlot(slots::CHOOSE_FOLDER, self.params)
+    pub fn command(self) -> Ask {
+        Ask::OpenSlot(slots::CHOOSE_FOLDER, self.params)
     }
 }
 
@@ -204,8 +204,8 @@ impl ChoiceQuestion {
     }
 
     /// The command that asks.
-    pub fn command(self) -> Command {
-        Command::OpenSlot(slots::CHOICE, self.params)
+    pub fn command(self) -> Ask {
+        Ask::OpenSlot(slots::CHOICE, self.params)
     }
 }
 
@@ -296,7 +296,7 @@ impl ConfirmQuestion {
     }
 
     /// The command that asks.
-    pub fn command(self) -> Command {
-        Command::OpenSlot(slots::CONFIRM, self.params)
+    pub fn command(self) -> Ask {
+        Ask::OpenSlot(slots::CONFIRM, self.params)
     }
 }

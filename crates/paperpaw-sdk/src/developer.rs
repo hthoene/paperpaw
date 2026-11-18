@@ -26,7 +26,6 @@
 
 use alloc::vec::Vec;
 
-use crate::command::Command;
 use crate::event::EventData;
 use crate::id::Id;
 use crate::params::Params;
@@ -69,15 +68,15 @@ impl DevRequest {
     }
 }
 
-fn request(command: DevCommand) -> Command {
-    Command::Developer(alloc::boxed::Box::new(DevRequest {
+fn request(command: DevCommand) -> DevRequest {
+    DevRequest {
         command,
         from: None,
-    }))
+    }
 }
 
 /// Opens the link `link`, heard as `events`.
-pub fn open(link: Id, events: Id) -> Command {
+pub fn open(link: Id, events: Id) -> DevRequest {
     request(DevCommand::Open { link, events })
 }
 

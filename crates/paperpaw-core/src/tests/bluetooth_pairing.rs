@@ -7,6 +7,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
+use crate::Ask;
 use crate::kit::action::ActionSpec;
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
@@ -14,7 +15,7 @@ use paperpaw_platform::{
 use paperpaw_sdk::bluetooth::{self, BtEvent, DeviceId, Security, Uuid};
 use paperpaw_sdk::replies::Confirmed;
 use paperpaw_sdk::{
-    Command, Event, EventData, Id, Manifest, MemoryStorage, Params, RegisterError, Uses, Version,
+    Event, EventData, Id, Manifest, MemoryStorage, Params, RegisterError, Uses, Version,
 };
 
 use super::questions;
@@ -39,7 +40,7 @@ extern crate std;
 
 std::thread_local! {
     /// What the test queued for the plugin's action to run.
-    static QUEUE: RefCell<Vec<Command>> = const { RefCell::new(Vec::new()) };
+    static QUEUE: RefCell<Vec<Ask>> = const { RefCell::new(Vec::new()) };
 }
 
 fn pulse(r: &mut Items) -> Result<(), RegisterError> {
@@ -87,8 +88,12 @@ impl Test {
         Instant(self.now)
     }
 
-    fn run(&mut self, commands: impl IntoIterator<Item = Command>) {
-        QUEUE.with(|queue| queue.borrow_mut().extend(commands));
+    fn run(&mut self, requests: impl IntoIterator<Item = paperpaw_sdk::bluetooth::BtRequest>) {
+        QUEUE.with(|queue| {
+            queue
+                .borrow_mut()
+                .extend(requests.into_iter().map(Ask::from))
+        });
         let at = self.at();
         self.kernel.run_action(at, GO);
     }

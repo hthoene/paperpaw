@@ -229,18 +229,6 @@ pub enum Editor {
     Slot(Id),
 }
 
-impl Editor {
-    /// The command that opens it for setting `setting`.
-    pub fn open(&self, setting: &Id) -> crate::Command {
-        let params =
-            crate::Params::new().with(crate::builtin::params::ID, String::from(setting.as_str()));
-        match self {
-            Editor::Screen(screen) => crate::Command::OpenScreen(screen.clone(), params),
-            Editor::Slot(slot) => crate::Command::OpenSlot(slot.clone(), params),
-        }
-    }
-}
-
 /// What few settings have (see [`SettingSpec::extra`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]

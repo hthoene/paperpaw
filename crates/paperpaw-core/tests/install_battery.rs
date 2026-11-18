@@ -12,13 +12,14 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use paperpaw_core::Ask;
 use paperpaw_core::Items;
 use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::sdk::builtin::events;
 use paperpaw_core::sdk::firmware::{
     CHIP_ESP32_C3, Firmware, FirmwareCommand, FirmwareState, INSTALL_BATTERY, InstallFailure,
 };
-use paperpaw_core::sdk::{Command, Id, Manifest, MemoryStorage, RegisterError, Version};
+use paperpaw_core::sdk::{Id, Manifest, MemoryStorage, RegisterError, Version};
 use paperpaw_core::{Io, Kernel};
 use paperpaw_platform::{
     Battery, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
@@ -42,12 +43,12 @@ std::thread_local! {
 }
 
 /// The asker's queue and the firmware states it noted.
-type Asked = (Rc<RefCell<Vec<Command>>>, Rc<RefCell<Vec<FirmwareState>>>);
+type Asked = (Rc<RefCell<Vec<Ask>>>, Rc<RefCell<Vec<FirmwareState>>>);
 
 /// A plugin that sends what the test queues, and notes the firmware's
 /// state as it hears of it.
 struct Asker {
-    queue: Rc<RefCell<Vec<Command>>>,
+    queue: Rc<RefCell<Vec<Ask>>>,
     states: Rc<RefCell<Vec<FirmwareState>>>,
 }
 
@@ -82,12 +83,12 @@ fn asker_manifest() -> Manifest {
 
 struct Test {
     kernel: Kernel,
-    queue: Rc<RefCell<Vec<Command>>>,
+    queue: Rc<RefCell<Vec<Ask>>>,
     states: Rc<RefCell<Vec<FirmwareState>>>,
 }
 
 fn kernel() -> Test {
-    let queue = Rc::<RefCell<Vec<Command>>>::default();
+    let queue = Rc::<RefCell<Vec<Ask>>>::default();
     let states = Rc::<RefCell<Vec<FirmwareState>>>::default();
     let mut kernel = Kernel::builder(DEVICE)
         .storage(MemoryStorage::new())
@@ -119,7 +120,7 @@ fn battery(test: &mut Test, percent: u8, charging: bool) {
 /// The firmware commands the shell is asked for, after a plugin sent
 /// `command`.
 fn asked(test: &mut Test, command: FirmwareCommand) -> Vec<FirmwareCommand> {
-    test.queue.borrow_mut().push(Command::Firmware(command));
+    test.queue.borrow_mut().push(Ask::Firmware(command));
     test.kernel.run_action(Instant(20), GO);
     test.kernel
         .take_io()

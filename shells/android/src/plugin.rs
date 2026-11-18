@@ -4,14 +4,13 @@
 use std::borrow::Cow;
 
 use android_activity::AndroidApp;
+use paperpaw_core::Ask;
 use paperpaw_core::Items;
 use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::kit::menus::MenuEntry;
 use paperpaw_sdk::builtin::{events, groups, menus, params};
 use paperpaw_sdk::document::Document;
-use paperpaw_sdk::{
-    Command, FormatSpec, Id, Manifest, MenuNeed, RegisterError, SettingSpec, Version,
-};
+use paperpaw_sdk::{FormatSpec, Id, Manifest, MenuNeed, RegisterError, SettingSpec, Version};
 
 use crate::lights::Lights;
 use paperpaw_sdk::setting::Setting;
@@ -139,7 +138,7 @@ impl AndroidPlugin {
             };
             if !crate::speech::open_settings(&app) {
                 let text = env.i18n().tr("android.voice.unavailable").to_string();
-                out.push(Command::Notify(text));
+                out.push(Ask::Notify(text));
             }
         }))?;
         r.add_menu_entry(MenuEntry::new(menus::READER_MORE, VOICE))?;
@@ -249,7 +248,7 @@ impl AndroidPlugin {
                     let level = i64::from(level);
                     let known = env.settings().get(id.as_str()).is_some();
                     if known && env.settings().read(&id) != level {
-                        out.push(Command::set(&id, level));
+                        out.push(Ask::set(&id, level));
                     }
                 }
             });

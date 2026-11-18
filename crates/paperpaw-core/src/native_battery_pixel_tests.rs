@@ -486,7 +486,7 @@ fn native_battery_pixel_acceptance() {
             .unwrap();
         kernel.start(Instant(0));
         kernel.set_status(Instant(100), SystemStatus::new(None, case.charge));
-        kernel.apply(paperpaw_sdk::Command::OpenScreen(
+        kernel.apply(crate::Ask::OpenScreen(
             Id::new_static("battery.screen"),
             paperpaw_sdk::Params::new(),
         ));

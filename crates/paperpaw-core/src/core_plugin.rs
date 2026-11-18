@@ -20,6 +20,7 @@ use crate::kit::status::StatusValue;
 use crate::kit::time::{self, AUTO, CLOCK_12H, CLOCK_24H, TIME_ZONES};
 use crate::kit::widgets::{self, Drawn, WidgetSpec};
 use crate::native_host::book_data_steps::{follow_move, follow_removal};
+use crate::{Ask, Asks};
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -30,8 +31,8 @@ use paperpaw_sdk::builtin::{
     settings_page, slots, status_items,
 };
 use paperpaw_sdk::{
-    Command, Commands, Id, Manifest, Params, Priority, RegisterError, SettingExtra,
-    SettingGroupSpec, SettingKind, SettingSpec, SettingValue, SlotSpec,
+    Id, Manifest, Params, Priority, RegisterError, SettingExtra, SettingGroupSpec, SettingKind,
+    SettingSpec, SettingValue, SlotSpec,
 };
 
 pub(crate) const CORE: Id = Id::new_static("core");
@@ -94,7 +95,7 @@ pub(crate) fn items(device_name: &str, r: &mut Items) -> Result<(), RegisterErro
             // A secret setting's text is kept with the secrets, never in
             // the settings (see `Kernel::apply_setting`).
             let text = typed.text.trim();
-            out.push(Command::SetSetting(
+            out.push(Ask::SetSetting(
                 id,
                 paperpaw_sdk::SettingValue::Text(Cow::Owned(String::from(text))),
             ));
@@ -196,8 +197,8 @@ fn register_reading_apps(r: &mut Items) -> Result<(), RegisterError> {
                 } else if let Ok(action) = Id::parse(option) {
                     // Another way to open it, as an action of the book menu.
                     let chosen = events::BookChosen::new(action.clone(), String::from(path));
-                    out.push(events::BOOK_CHOSEN.emit(chosen));
-                    out.push(Command::run(action));
+                    out.push(crate::Ask::emit(&events::BOOK_CHOSEN, chosen));
+                    out.push(Ask::run(action));
                 }
                 return;
             }
@@ -207,7 +208,7 @@ fn register_reading_apps(r: &mut Items) -> Result<(), RegisterError> {
             };
             if readers::remember(env.storage(), choice, None).is_err() {
                 let text = env.i18n().tr("core.reading-app.not-kept");
-                out.push(Command::Notify(String::from(text)));
+                out.push(Ask::Notify(String::from(text)));
             }
             if kind == "b" {
                 out.push(readers::open(path));
@@ -280,11 +281,11 @@ fn register_moving(r: &mut Items) -> Result<(), RegisterError> {
     static MOVING: [FixedAction; 11] = [
         FixedAction::new(actions::REFRESH_SCREEN, "core.action.refresh-screen").handler(
             |_, _, out| {
-                out.push(Command::Redraw(paperpaw_sdk::RefreshMode::Full));
+                out.push(Ask::Redraw(paperpaw_sdk::RefreshMode::Full));
             },
         ),
         FixedAction::new(actions::QUICK_PANEL, "core.action.quick-panel").handler(|_, _, out| {
-            out.push(Command::OpenSlot(
+            out.push(Ask::OpenSlot(
                 slots::PANEL,
                 Params::new()
                     .with(params::MENU, String::from(menus::QUICK.as_str()))
@@ -293,13 +294,13 @@ fn register_moving(r: &mut Items) -> Result<(), RegisterError> {
         }),
         // Screens without their own meaning of next/previous turn pages.
         FixedAction::new(actions::NEXT, "core.action.next")
-            .handler(|_, _, out| out.push(Command::run(actions::NEXT_PAGE))),
+            .handler(|_, _, out| out.push(Ask::run(actions::NEXT_PAGE))),
         FixedAction::new(actions::PREVIOUS, "core.action.previous")
-            .handler(|_, _, out| out.push(Command::run(actions::PREV_PAGE))),
+            .handler(|_, _, out| out.push(Ask::run(actions::PREV_PAGE))),
         FixedAction::new(actions::MENU, "core.action.menu")
             .hint(label("core.hint.core.menu"))
             .handler(|_, _, out| {
-                out.push(Command::OpenSlot(
+                out.push(Ask::OpenSlot(
                     slots::MENU,
                     Params::new().with(params::MENU, menus::MAIN.as_str()),
                 ));
@@ -307,20 +308,20 @@ fn register_moving(r: &mut Items) -> Result<(), RegisterError> {
         // Select held: the menu, where no screen takes it for a long
         // press of its own.
         FixedAction::new(actions::LONG_CONFIRM, "core.action.long-confirm")
-            .handler(|_, _, out| out.push(Command::run(actions::MENU))),
+            .handler(|_, _, out| out.push(Ask::run(actions::MENU))),
         FixedAction::new(actions::LIBRARY, "core.action.library")
-            .handler(|_, _, out| out.push(Command::open_slot(slots::LIBRARY))),
+            .handler(|_, _, out| out.push(Ask::open_slot(slots::LIBRARY))),
         FixedAction::new(actions::SETTINGS, "core.action.settings")
-            .handler(|_, _, out| out.push(Command::open_slot(slots::SETTINGS))),
+            .handler(|_, _, out| out.push(Ask::open_slot(slots::SETTINGS))),
         FixedAction::new(actions::BACK, "core.action.back")
             .hint(label("core.hint.core.back"))
-            .handler(|_, _, out| out.push(Command::Back)),
+            .handler(|_, _, out| out.push(Ask::Back)),
         FixedAction::new(actions::NOTHING, "core.action.nothing")
             .hint(ActionHint::Hidden)
             .handler(|_, _, _| {}),
         FixedAction::new(actions::HOME, "core.action.home")
             .hint(label("core.hint.core.home"))
-            .handler(|_, _, out| out.push(Command::open_slot(slots::HOME))),
+            .handler(|_, _, out| out.push(Ask::open_slot(slots::HOME))),
     ];
     r.add_actions(&MOVING)
 }
@@ -332,10 +333,10 @@ fn register_device_actions(r: &mut Items) -> Result<(), RegisterError> {
         FixedAction::new(actions::CLEAN_UP, "core.action.clean-up")
             .handler(|env, _, out| ask_clean_up(env, out)),
         FixedAction::new(actions::SCREENSHOT, "core.action.screenshot").handler(|env, _, out| {
-            out.push(Command::Screenshot(screenshot_path(env)));
+            out.push(Ask::Screenshot(screenshot_path(env)));
         }),
         FixedAction::new(actions::TOOLS, "core.action.tools").handler(|_, _, out| {
-            out.push(Command::OpenSlot(
+            out.push(Ask::OpenSlot(
                 slots::MENU,
                 Params::new().with(params::MENU, menus::TOOLS.as_str()),
             ));
@@ -343,14 +344,14 @@ fn register_device_actions(r: &mut Items) -> Result<(), RegisterError> {
         FixedAction::new(actions::SLEEP, "core.action.sleep").handler(|env, _, out| {
             // The sleep screen first, if there is one, then sleep.
             if env.caps().sleep && env.has_slot(&slots::SLEEP) {
-                out.push(Command::open_slot(slots::SLEEP));
+                out.push(Ask::open_slot(slots::SLEEP));
             }
-            out.push(Command::Sleep);
+            out.push(Ask::Sleep);
         }),
         FixedAction::new(actions::TOGGLE_NIGHT_MODE, "core.action.toggle-night-mode").handler(
             |env, _, out| {
                 let night = env.settings().read(&settings::NIGHT_MODE);
-                out.push(Command::set(&settings::NIGHT_MODE, !night));
+                out.push(Ask::set(&settings::NIGHT_MODE, !night));
             },
         ),
     ];
@@ -391,7 +392,7 @@ impl Catalog {
     /// Wants the library walked: `now`, or at a calm moment; `anew`
     /// where what a walk under way met may have changed (it starts again),
     /// else one under way, paused or not, goes on.
-    fn want_walk(&self, now: bool, anew: bool, out: &mut Commands) {
+    fn want_walk(&self, now: bool, anew: bool, out: &mut Asks) {
         let walking = self.job.borrow().as_ref().is_some_and(CatalogJob::is_walk);
         if walking && !anew {
             self.declare(now, out);
@@ -405,7 +406,7 @@ impl Catalog {
     /// Wants the catalog caught up, with the book at `path` taken from its
     /// details: `now`, or at a calm moment (books coming one after the
     /// other, from Calibre say, caught up once).
-    fn want_catch_up(&self, path: Option<&str>, now: bool, out: &mut Commands) {
+    fn want_catch_up(&self, path: Option<&str>, now: bool, out: &mut Asks) {
         if let Some(path) = path {
             let mut fresh = self.fresh.borrow_mut();
             if !fresh.iter().any(|p| p == path) {
@@ -419,12 +420,12 @@ impl Catalog {
     /// while, a book closed, the device plugged in; within a minute at the
     /// latest), never while the device goes to sleep or opens a book. A
     /// calm request does not put off one at once.
-    fn declare(&self, now: bool, out: &mut Commands) {
+    fn declare(&self, now: bool, out: &mut Asks) {
         use paperpaw_sdk::work::{Moments, Work};
         self.urgent.set(self.urgent.get() || now);
         let calm = Moments::IDLE | Moments::BOOK_CLOSED | Moments::CHARGING;
         let within = if self.urgent.get() { 0 } else { 60 };
-        out.push(Command::work(
+        out.push(Ask::work(
             Work::new(CATALOG_WORK)
                 .at_moments(calm)
                 .within(core::time::Duration::from_secs(within)),
@@ -480,7 +481,7 @@ impl Catalog {
     }
 
     /// One step of the job.
-    fn step(&self, env: &Place<'_>, out: &mut Commands) -> paperpaw_sdk::work::Step {
+    fn step(&self, env: &Place<'_>, out: &mut Asks) -> paperpaw_sdk::work::Step {
         use paperpaw_sdk::work::Step;
         let storage = env.storage();
         let mut job = self.job.borrow_mut();
@@ -517,7 +518,7 @@ impl Catalog {
                 // sorted for each (a file made is wanted no more).
                 let sorting = self.sort_wanted(env).is_some();
                 if !sorting {
-                    out.push(events::CATALOG_CHANGED.emit(()));
+                    out.push(crate::Ask::emit(&events::CATALOG_CHANGED, ()));
                 }
                 if sorting || self.walk.get() || !self.fresh.borrow().is_empty() {
                     Step::Continue
@@ -531,7 +532,7 @@ impl Catalog {
                 // stop saying the books are being collected.
                 *job = None;
                 self.give_back(walk);
-                out.push(events::CATALOG_FAILED.emit(()));
+                out.push(crate::Ask::emit(&events::CATALOG_FAILED, ()));
                 Step::Failed(alloc::format!("catalog: {error:?}"))
             }
         }
@@ -592,7 +593,7 @@ fn register_library(r: &mut Items) -> Result<(), RegisterError> {
                 // (a walk costs a wake's time and battery on the X4), but
                 // the view that asked is told, so that it says there are
                 // no books rather than that they are being collected.
-                out.push(events::CATALOG_CHANGED.emit(()));
+                out.push(crate::Ask::emit(&events::CATALOG_CHANGED, ()));
             }
         });
     })?;
@@ -740,7 +741,7 @@ const CLEAN_UP_ANSWERED: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Confi
 /// Declares cleaning up by itself: while charging, a week after it was
 /// last done (a day after the first start). Not without a clock, which
 /// tells the time across starts (on the X4 every wake is one).
-fn declare_clean_up(env: &crate::Place<'_>, out: &mut Commands) {
+fn declare_clean_up(env: &crate::Place<'_>, out: &mut Asks) {
     use paperpaw_sdk::work::{Moments, Work};
     let Some(now) = crate::kit::time::unix_seconds(env) else {
         return;
@@ -763,7 +764,7 @@ fn declare_clean_up(env: &crate::Place<'_>, out: &mut Commands) {
         seen
     });
     let wait = (last + CLEAN_UP_EVERY - now).clamp(0, CLEAN_UP_EVERY);
-    out.push(Command::work(
+    out.push(Ask::work(
         Work::new(CLEAN_UP_WORK)
             .charging()
             .after(core::time::Duration::from_secs(wait as u64))
@@ -811,13 +812,13 @@ fn register_menus(r: &mut Items) -> Result<(), RegisterError> {
     // full the home screen is.
     static SUBMENUS: [FixedAction; 2] = [
         FixedAction::new(menus::READER_MORE, "core.action.reader-more").handler(|_, _, out| {
-            out.push(Command::OpenSlot(
+            out.push(Ask::OpenSlot(
                 slots::MENU,
                 Params::new().with(params::MENU, menus::READER_MORE.as_str()),
             ));
         }),
         FixedAction::new(menus::APPS, "core.action.apps").handler(|_, _, out| {
-            out.push(Command::OpenSlot(
+            out.push(Ask::OpenSlot(
                 slots::MENU,
                 Params::new().with(params::MENU, menus::APPS.as_str()),
             ));

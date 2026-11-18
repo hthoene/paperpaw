@@ -144,7 +144,7 @@ impl super::Catalog {
         &self,
         env: &Place<'_>,
         job: &mut Option<CatalogJob>,
-        out: &mut paperpaw_sdk::Commands,
+        out: &mut crate::Asks,
     ) -> Option<paperpaw_sdk::work::Step> {
         use paperpaw_sdk::work::Step;
         let fresh = core::mem::take(&mut *self.fresh.borrow_mut());
@@ -167,7 +167,10 @@ impl super::Catalog {
             }
             Err(error) => {
                 self.give_back(walk);
-                out.push(paperpaw_sdk::builtin::events::CATALOG_FAILED.emit(()));
+                out.push(crate::Ask::emit(
+                    &paperpaw_sdk::builtin::events::CATALOG_FAILED,
+                    (),
+                ));
                 Some(Step::Failed(alloc::format!("catalog: {error:?}")))
             }
         }
@@ -182,7 +185,7 @@ pub(super) fn after_step(
     catalog: &super::Catalog,
     env: &Place<'_>,
     job: &mut Option<CatalogJob>,
-    out: &mut paperpaw_sdk::Commands,
+    out: &mut crate::Asks,
 ) -> paperpaw_sdk::work::Step {
     use paperpaw_sdk::builtin::events;
     let published = match job {
@@ -200,13 +203,13 @@ pub(super) fn after_step(
                     CatalogJob::Shown(alloc::boxed::Box::new(walk), Some(sort))
                 }
                 None => {
-                    out.push(events::CATALOG_CHANGED.emit(()));
+                    out.push(crate::Ask::emit(&events::CATALOG_CHANGED, ()));
                     CatalogJob::Walk(walk)
                 }
             });
         }
         Some(CatalogJob::Shown(walk, None)) => {
-            out.push(events::CATALOG_CHANGED.emit(()));
+            out.push(crate::Ask::emit(&events::CATALOG_CHANGED, ()));
             *job = Some(CatalogJob::Walk(*walk));
         }
         other => *job = other,

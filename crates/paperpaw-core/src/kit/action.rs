@@ -14,11 +14,11 @@ use paperpaw_sdk::Params;
 ///
 /// ```
 /// use paperpaw_core::kit::action::{ActionHint, ActionSpec};
-/// use paperpaw_sdk::{Command, Id};
+/// use paperpaw_sdk::{Ask, Id};
 ///
 /// const OPEN: Id = Id::new_static("demo.open");
 /// let spec = ActionSpec::new(OPEN, "demo.open")
-///     .handler(|_, _, out| out.push(Command::Back))
+///     .handler(|_, _, out| out.push(Ask::Back))
 ///     .hint(ActionHint::Label("demo.open.short".into()));
 /// ```
 #[non_exhaustive]
@@ -28,7 +28,7 @@ pub struct ActionSpec {
     pub title: Cow<'static, str>,
     /// What it does where the screen shown does not take it: a plain
     /// function, called with the params it was run with
-    /// ([`Command::RunAction`](paperpaw_sdk::Command::RunAction); none from
+    /// ([`Ask::RunAction`](crate::Ask::RunAction); none from
     /// inputs), e.g. the profile to apply. It reacts by queuing commands.
     pub handler: Option<FixedHandler>,
     /// How the row of hints shows it where a screen leaves that to the
@@ -65,7 +65,7 @@ impl ActionSpec {
     }
 
     /// What it does where the screen shown does not take it, with the
-    /// params it was run with ([`Command::RunAction`](paperpaw_sdk::Command::RunAction);
+    /// params it was run with ([`Ask::RunAction`](crate::Ask::RunAction);
     /// none from inputs).
     pub fn handler(mut self, handler: FixedHandler) -> Self {
         self.handler = Some(handler);
@@ -143,7 +143,7 @@ impl fmt::Debug for ActionSpec {
 
 /// The handler of an action kept in the program ([`FixedAction`]): a
 /// function, not a closure, so the action can be in a `static` list.
-pub type FixedHandler = fn(&Place<'_>, &Params, &mut paperpaw_sdk::Commands);
+pub type FixedHandler = fn(&Place<'_>, &Params, &mut crate::Asks);
 
 /// An action kept in the program: as an [`ActionSpec`], in a `static`
 /// list (`Items::add_actions`), so
@@ -153,10 +153,10 @@ pub type FixedHandler = fn(&Place<'_>, &Params, &mut paperpaw_sdk::Commands);
 ///
 /// ```
 /// use paperpaw_core::kit::action::FixedAction;
-/// use paperpaw_sdk::{Command, Id};
+/// use paperpaw_sdk::{Ask, Id};
 ///
 /// static ACTIONS: [FixedAction; 1] = [FixedAction::new(Id::new_static("demo.open"), "demo.open")
-///     .handler(|_, _, out| out.push(Command::Back))];
+///     .handler(|_, _, out| out.push(Ask::Back))];
 /// ```
 #[derive(Debug)]
 pub struct FixedAction {
@@ -351,7 +351,7 @@ impl<'a> Action<'a> {
     /// Runs its own handler with `params` into `out`; whether it has one
     /// (a native action has none: see `Action::native`, with the `kernel`
     /// feature).
-    pub fn run(self, env: &Place<'_>, params: &Params, out: &mut paperpaw_sdk::Commands) -> bool {
+    pub fn run(self, env: &Place<'_>, params: &Params, out: &mut crate::Asks) -> bool {
         match self {
             Action::Spec(ActionSpec {
                 handler: Some(handler),

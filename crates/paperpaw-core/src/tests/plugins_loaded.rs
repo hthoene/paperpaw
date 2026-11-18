@@ -98,10 +98,7 @@ fn installed_kernel(storage: MemoryStorage, log: &Log) -> Kernel {
 }
 
 fn install(kernel: &mut Kernel, id: &'static str, folder: &str) {
-    kernel.apply(Command::InstallPlugin(
-        Id::new_static(id),
-        String::from(folder),
-    ));
+    kernel.apply(Ask::InstallPlugin(Id::new_static(id), String::from(folder)));
     kernel.finish();
 }
 
@@ -179,7 +176,7 @@ fn a_plugin_updated_or_removed_takes_its_styles_and_bindings_along() {
     install(&mut kernel, "big", "plugins/.big.part");
     assert_eq!(kernel.shared.stylesheets, ["p { line-height: 3 }"]);
     assert_ne!(kernel.resolve(&menu), Some(&actions::TOGGLE_NIGHT_MODE));
-    kernel.apply(Command::RemovePlugin(Id::new_static("big")));
+    kernel.apply(Ask::RemovePlugin(Id::new_static("big")));
     kernel.finish();
     assert!(kernel.shared.stylesheets.is_empty());
 }
@@ -417,8 +414,8 @@ fn the_kernel_answers_requests_no_store_can() {
         .unwrap();
     kernel.start(Instant(0));
     let id = Id::new_static;
-    kernel.apply(Command::request_plugins(id("reader"), [id("dictionary")]));
-    kernel.apply(Command::request_plugins(
+    kernel.apply(Ask::request_plugins(id("reader"), [id("dictionary")]));
+    kernel.apply(Ask::request_plugins(
         id("reader"),
         [id("script-arabic"), id("dictionary"), id("script-hebrew")],
     ));
@@ -461,7 +458,7 @@ fn plugins_asked_for_by_id_go_to_the_store_if_not_on_the_device() {
         .unwrap();
     kernel.start(Instant(0));
     let id = Id::new_static;
-    kernel.apply(Command::request_plugins(
+    kernel.apply(Ask::request_plugins(
         id("template-learning"),
         [
             id("vocabulary"),
@@ -477,8 +474,8 @@ fn plugins_asked_for_by_id_go_to_the_store_if_not_on_the_device() {
     // On the device (switched off too), the kernel, twice: left out.
     assert_eq!(*log.borrow(), ["template-learning asks vocabulary,quotes"]);
     log.borrow_mut().clear();
-    kernel.apply(Command::request_plugins(id("x"), [id("dictionary")]));
-    kernel.apply(Command::request_plugins(id("x"), []));
+    kernel.apply(Ask::request_plugins(id("x"), [id("dictionary")]));
+    kernel.apply(Ask::request_plugins(id("x"), []));
     kernel.run_commands();
     // All there: answered at once, nothing for the store.
     let none = "x got [] not [] declined false error \"\"";
@@ -486,7 +483,7 @@ fn plugins_asked_for_by_id_go_to_the_store_if_not_on_the_device() {
     log.borrow_mut().clear();
     // More than one request takes: the rest left out, with a warning.
     let many = (0..40).map(|i| Id::parse(&alloc::format!("p{i}")).unwrap());
-    kernel.apply(Command::request_plugins(id("x"), many));
+    kernel.apply(Ask::request_plugins(id("x"), many));
     kernel.run_commands();
     let heard = log.borrow()[0].clone();
     assert_eq!(

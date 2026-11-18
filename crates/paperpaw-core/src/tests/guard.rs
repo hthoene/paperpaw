@@ -22,9 +22,9 @@ impl crate::testing::Fake for Lock {
     fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if *action == actions::CONFIRM {
             self.0.set(false);
-            cx.command(Command::Back);
+            cx.command(Ask::Back);
         } else if *action == actions::MENU {
-            cx.command(Command::OpenScreen(CHILD, Params::new()));
+            cx.command(Ask::OpenScreen(CHILD, Params::new()));
         } else {
             return Handled::No;
         }
@@ -89,8 +89,8 @@ fn nothing_shows_above_a_guarding_screen_but_its_own() {
 
     kernel.open_screen(Instant(2), OTHER, Params::new());
     assert_eq!(kernel.active_screen(), Some(&LOCK), "waits below");
-    kernel.apply(Command::Notify(String::from("A message")));
-    kernel.apply(Command::Back);
+    kernel.apply(Ask::Notify(String::from("A message")));
+    kernel.apply(Ask::Back);
     kernel.finish();
     assert_eq!(kernel.active_screen(), Some(&LOCK), "not closed by another");
     assert!(kernel.notice.is_none(), "held");
@@ -126,7 +126,7 @@ fn no_plugins_are_asked_for_while_locked() {
         .unwrap();
     kernel.start(Instant(0));
     kernel.open_screen(Instant(1), LOCK, Params::new());
-    let asks = || Command::request_plugins(OTHER, [Id::new_static("vocabulary")]);
+    let asks = || Ask::request_plugins(OTHER, [Id::new_static("vocabulary")]);
     kernel.apply(asks());
     kernel.run_commands();
     assert!(log.borrow().is_empty(), "{:?}", log.borrow());
@@ -203,7 +203,7 @@ fn notices_held_by_a_guard_wait_in_a_queue_and_show_in_turn() {
         kernel.start(Instant(0));
         kernel.open_screen(Instant(1), LOCK, Params::new());
         for n in 1..=7 {
-            kernel.apply(Command::Notify(alloc::format!("n{n}")));
+            kernel.apply(Ask::Notify(alloc::format!("n{n}")));
         }
         kernel.finish();
         assert!(kernel.notice.is_none(), "held");

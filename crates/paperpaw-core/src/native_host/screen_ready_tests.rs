@@ -186,7 +186,7 @@ fn an_instance_closed_before_it_was_drawn_is_never_told() {
     draw(&mut kernel);
     let before = told.borrow().len();
     open(&mut kernel, "s.two");
-    kernel.apply(paperpaw_sdk::Command::Back);
+    kernel.apply(crate::Ask::Back);
     kernel.finish();
     draw(&mut kernel);
     assert!(
@@ -210,7 +210,7 @@ fn a_screen_fully_covered_when_drawn_is_told_only_once_it_is_shown() {
             .any(|(s, i)| s == "s.cover" && *i == cover)
     );
     assert!(!told.borrow().iter().any(|(_, i)| *i == one));
-    kernel.apply(paperpaw_sdk::Command::Back);
+    kernel.apply(crate::Ask::Back);
     kernel.finish();
     kernel.output.redraw = true;
     draw(&mut kernel);

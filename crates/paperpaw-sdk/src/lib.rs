@@ -94,7 +94,6 @@ pub mod collections;
 #[cfg(not(any(test, feature = "kernel")))]
 mod collections;
 mod command;
-mod commands;
 #[cfg(test)]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub mod contribution;
@@ -384,11 +383,11 @@ mod work;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use command::{
-    Broadcast, Command, HttpOptions, HttpRequest, MAX_CLIPBOARD, ServerResponse, SocketRead, Speech,
+    Broadcast, HttpOptions, HttpRequest, MAX_CLIPBOARD, ServerResponse, SocketRead, Speech,
 };
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use command::{
-    Broadcast, Command, HttpOptions, HttpRequest, MAX_CLIPBOARD, ServerResponse, SocketRead, Speech,
+    Broadcast, HttpOptions, HttpRequest, MAX_CLIPBOARD, ServerResponse, SocketRead, Speech,
 };
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
@@ -398,11 +397,6 @@ pub use command::{HttpParts, ResponseParts};
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use command::{http_params, server_params, socket_params, speech_params};
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub use commands::Commands;
-#[cfg(not(any(test, feature = "kernel")))]
-pub(crate) use commands::Commands;
 /// What a plugin added, for the kernel to apply: opaque to plugins, which
 /// add through `Items`'s methods.
 #[cfg(any(test, feature = "kernel"))]
@@ -487,12 +481,12 @@ pub use screen::Handled;
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use screen::{
-    CloseCause, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION, ScreenKey,
+    CloseCause, Hint, HintVisibility, Instances, Outside, Pane, SCREEN_REVISION, ScreenKey,
     ShowsThrough, StackEntry,
 };
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use screen::{
-    CloseCause, Hint, HintVisibility, Instances, Output, Outside, Pane, SCREEN_REVISION, ScreenKey,
+    CloseCause, Hint, HintVisibility, Instances, Outside, Pane, SCREEN_REVISION, ScreenKey,
     ShowsThrough, StackEntry,
 };
 pub use setting::{Setting, Text};

@@ -92,7 +92,7 @@ fn slots_and_bindings_are_readable() {
         .build()
         .unwrap();
     kernel.start(Instant(0));
-    kernel.apply(Command::bind(
+    kernel.apply(Ask::bind(
         "weather.screen",
         "long.menu",
         Some(actions::BACK),

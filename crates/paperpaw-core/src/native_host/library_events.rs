@@ -37,9 +37,10 @@ impl Kernel {
         // kernel walks the catalog where it was not walked since, as for an
         // interface 6 view that showed (`library::request_catalog`).
         if host.take_catalog_wanted() {
-            self.output
-                .commands
-                .push(events::CATALOG_WANTED.emit(events::CatalogWanted::new(false)));
+            self.output.commands.push(crate::Ask::emit(
+                &events::CATALOG_WANTED,
+                events::CatalogWanted::new(false),
+            ));
         }
         let mut change = None;
         host.take_changed(&mut |what, generation, path| {
