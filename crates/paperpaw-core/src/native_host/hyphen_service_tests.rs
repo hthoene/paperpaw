@@ -15,6 +15,8 @@ struct File {
     fail: Rc<Cell<bool>>,
     /// Reads this file still serves (`usize::MAX`: all).
     budget: Cell<usize>,
+    /// Reads of every file of the card.
+    reads: Rc<Cell<u32>>,
 }
 impl HyphenFile for File {
     fn size(&self) -> u64 {
@@ -24,6 +26,7 @@ impl HyphenFile for File {
         if self.fail.get() {
             return false;
         }
+        self.reads.set(self.reads.get() + 1);
         let left = self.budget.get();
         if left == 0 {
             return false;
@@ -50,6 +53,7 @@ struct Card {
     opens: Cell<u32>,
     /// The reads each file opened from now on serves.
     budget: Cell<usize>,
+    reads: Rc<Cell<u32>>,
 }
 impl Card {
     fn new() -> Rc<Self> {
@@ -59,6 +63,7 @@ impl Card {
             fail: Rc::new(Cell::new(false)),
             opens: Cell::new(0),
             budget: Cell::new(usize::MAX),
+            reads: Rc::new(Cell::new(0)),
         })
     }
     fn add(&self, tag: &str, bytes: Vec<u8>) {
@@ -85,6 +90,7 @@ impl HyphenHost for Card {
             data: Rc::clone(bytes),
             fail: self.fail.clone(),
             budget: Cell::new(self.budget.get()),
+            reads: self.reads.clone(),
         };
         let boxed: Box<dyn HyphenFile> =
             crate::native_host::shared::try_box(file).ok_or(ERR_NO_MEMORY)?;
@@ -415,4 +421,60 @@ fn every_allocation_of_a_cold_word_may_fail_and_the_language_is_not_shut_out() {
         assert_eq!(warm_call(&s), Ok(2), "nth {nth}");
     }
     assert!(failed > 0, "a cold word does allocate, fallibly");
+}
+
+/// A table of many blocks (8,000 patterns, 500 blocks of 16): its words
+/// touch more blocks than the table's own cache keeps.
+fn large_table() -> Vec<u8> {
+    let letters: Vec<char> = ('a'..='t').collect();
+    let mut patterns = String::new();
+    for x in &letters {
+        for y in &letters {
+            for z in &letters {
+                patterns.push_str(&std::format!("{x}1{y}{z} "));
+            }
+        }
+    }
+    compile(&patterns, "", 1, 1)
+}
+
+/// Words asked again (a list's names fitted in every band of a frame) read
+/// nothing from the card (#336): 20 words asked 50 times read what they
+/// read the first time.
+#[test]
+fn words_asked_again_read_nothing_from_the_card() {
+    let card = Card::new();
+    card.add("de", large_table());
+    let s = state(&card);
+    let words: Vec<String> = (0..20u32)
+        .map(|n| {
+            (0..12u32)
+                .map(|i| char::from(b'a' + ((n * 7 + i * 3 + n * i) % 20) as u8))
+                .collect()
+        })
+        .collect();
+    let first: Vec<_> = words
+        .iter()
+        .map(|w| ask(&s, "de", w, 1, 1).unwrap())
+        .collect();
+    let cold = card.reads.get();
+    assert!(cold > 20, "the words read the card ({cold})");
+    for _ in 0..50 {
+        for (word, places) in words.iter().zip(&first) {
+            assert_eq!(&ask(&s, "de", word, 1, 1).unwrap(), places, "{word}");
+        }
+    }
+    assert_eq!(card.reads.get(), cold, "1,000 more calls read nothing");
+    // Other minimums are another answer, asked of the table.
+    let other = ask(&s, "de", &words[0], 2, 2).unwrap();
+    assert!(other.iter().all(|at| (2..=10).contains(at)), "{other:?}");
+    // A kept answer is in bytes, as the table's.
+    let wide = "äbcdäefg";
+    let answer = ask(&s, "de", wide, 1, 1).unwrap();
+    assert_eq!(ask(&s, "de", wide, 1, 1).unwrap(), answer);
+    // A changed card drops what was kept with the table.
+    let kept = card.reads.get();
+    card.epoch.set(2);
+    ask(&s, "de", &words[0], 1, 1).unwrap();
+    assert!(card.reads.get() > kept);
 }

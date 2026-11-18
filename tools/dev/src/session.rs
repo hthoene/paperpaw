@@ -278,13 +278,17 @@ impl Session {
     /// Goes back to the home screen as one would: *Home*, else *Back* (a
     /// screen may keep *Home* to itself, as the keyboard does while a
     /// password is typed) and *Home* again; what was still open if that
-    /// did not reach it.
+    /// did not reach it. Back is pressed a second after what showed, as
+    /// a person would: a guarding screen (the firmware confirmation) drops
+    /// what comes at once.
     pub fn go_home(&mut self) -> Result<(), String> {
         self.run(actions::HOME.as_str())?;
         for _ in 0..self.stack().len() {
             if self.stack().len() == 1 {
                 return Ok(());
             }
+            self.device.advance(1000);
+            self.device.tick_if_due();
             self.run(actions::BACK.as_str())?;
             self.run(actions::HOME.as_str())?;
         }

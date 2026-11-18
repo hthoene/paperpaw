@@ -10,6 +10,12 @@
 //! second failure, or for a table that is not sound, the language answers
 //! `ERR_NOT_FOUND` until the card changes. Nothing is allocated per call
 //! beyond a table's own fallible open; a table is untrusted input.
+//!
+//! Each open table keeps the answers of the last [`WORDS_KEPT`] words asked
+//! of it (16 bytes each, 1 KiB a table, made with the table and gone with
+//! it): a word asked again (a name fitted in every band of a frame, a list
+//! drawn again) reads nothing from the card. Closing the table (another
+//! language, a changed card or plugin set, a failure) drops them.
 use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_hyphen::{CACHE_BLOCKS, CheckError, MAX_MINIMUM, OpenError, Source, StoredPatterns};
@@ -30,6 +36,8 @@ const OPEN_MAX: usize = 2;
 const HEAP_BUDGET: usize = 48 * 1024;
 /// Words a table must have been idle before another language may close it.
 const IDLE_WORDS: u64 = 256;
+/// Words whose answers an open table keeps.
+const WORDS_KEPT: usize = 64;
 
 /// One table file, read at a position (a card file).
 pub(crate) trait HyphenFile {
@@ -76,6 +84,82 @@ struct Open {
     epoch: u64,
     table: StoredPatterns<Card>,
     last_word: u64,
+    /// The answers of the words asked last; empty where there was no room.
+    kept: Vec<Kept>,
+    /// The entry the next answer replaces.
+    next_kept: usize,
+}
+
+/// A word's answer, by the hash of the word and its minimums: the break
+/// places as a mask of the characters they come before (a word has at most
+/// [`WORD_CHARS`]).
+#[derive(Clone, Copy)]
+struct Kept {
+    hash: u64,
+    breaks: u64,
+}
+
+impl Kept {
+    /// Not used yet: no answer breaks before the first character.
+    const EMPTY: Self = Self {
+        hash: 0,
+        breaks: u64::MAX,
+    };
+}
+
+/// FNV-1a of the word and its minimums: what a kept answer is found by.
+fn word_hash(word: &str, left: usize, right: usize) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    let minimums = [left, right].map(|m| u8::try_from(m).unwrap_or(u8::MAX));
+    let bytes = word.bytes().chain([0]).chain(minimums);
+    for byte in bytes {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    hash
+}
+
+impl Open {
+    /// The kept answer for `word` (of `hash`), into `places`; its count.
+    fn kept(&self, hash: u64, word: &str, places: &mut [u8; BREAKS_MAX]) -> Option<usize> {
+        let kept = self
+            .kept
+            .iter()
+            .find(|k| k.breaks != u64::MAX && k.hash == hash)?;
+        let mut count = 0;
+        for (i, (at, _)) in word.char_indices().enumerate().take(64) {
+            if kept.breaks >> i & 1 == 0 {
+                continue;
+            }
+            let (Some(place), Ok(byte)) = (places.get_mut(count), u8::try_from(at)) else {
+                return None;
+            };
+            *place = byte;
+            count += 1;
+        }
+        Some(count)
+    }
+
+    /// Keeps the answer `places` of `word` (of `hash`), in place of the
+    /// oldest; not where a place is no character's start.
+    fn keep(&mut self, hash: u64, word: &str, places: &[u8]) {
+        let Some(slot) = self.kept.get_mut(self.next_kept) else {
+            return;
+        };
+        let mut breaks = 0u64;
+        let mut found = 0;
+        for (i, (at, _)) in word.char_indices().enumerate().take(64) {
+            if places.contains(&u8::try_from(at).unwrap_or(u8::MAX)) {
+                breaks |= 1 << i;
+                found += 1;
+            }
+        }
+        if found != places.len() {
+            return;
+        }
+        *slot = Kept { hash, breaks };
+        self.next_kept = (self.next_kept + 1) % WORDS_KEPT;
+    }
 }
 
 struct Strike {
@@ -171,9 +255,12 @@ pub(crate) fn hyphenate(
     };
     let mut places = [0u8; BREAKS_MAX];
     let mut count = 0;
-    {
-        let entry = &mut tables.open[index];
-        entry.last_word = now;
+    let hash = word_hash(word, l, r);
+    let entry = &mut tables.open[index];
+    entry.last_word = now;
+    if let Some(kept) = entry.kept(hash, word, &mut places) {
+        count = kept;
+    } else {
         entry.table.hyphenate_with_minimums(l, r, word, &mut |at| {
             if count < BREAKS_MAX
                 && at > 0
@@ -190,6 +277,7 @@ pub(crate) fn hyphenate(
             strike(&mut tables, &closed.tag, epoch, false);
             return Ok(0);
         }
+        entry.keep(hash, word, &places[..count]);
     }
     if count > out.len() {
         return Err(ERR_NO_SPACE);
@@ -307,11 +395,18 @@ fn ensure_open(
         Ok(table) => {
             // A strike stays: a table that opens and then fails to read,
             // again and again, is shut out at the second.
+            // The answers kept: none where there is no room for them.
+            let mut kept = Vec::new();
+            if kept.try_reserve_exact(WORDS_KEPT).is_ok() {
+                kept.resize(WORDS_KEPT, Kept::EMPTY);
+            }
             tables.open.push(Open {
                 tag: owned,
                 epoch,
                 table,
                 last_word: now,
+                kept,
+                next_kept: 0,
             });
             Some(tables.open.len() - 1)
         }
