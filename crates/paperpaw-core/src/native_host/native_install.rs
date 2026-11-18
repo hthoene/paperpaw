@@ -1077,11 +1077,8 @@ fn map_declarations(
     tables: super::FixedTables,
 ) -> Result<(Id, Vec<Owned>, Vec<u32>, bool), i32> {
     // Entries are numbered in two bytes; a longer table is not used.
-    let fixed = if tables.settings.len() > usize::from(u16::MAX) {
-        &[]
-    } else {
-        tables.settings
-    };
+    let fixed = Some(tables.settings).filter(|t| t.len() <= usize::from(u16::MAX));
+    let fixed = fixed.unwrap_or(&[]);
     // The host's own id is reserved: no plugin's action passes for a host
     // one (ui.md 4.3).
     if view.plugin == crate::RESERVED_PLUGIN_ID {
@@ -1159,9 +1156,10 @@ fn map_declarations(
                     entries.push(u16::try_from(at).map_err(|_| ERR_INVALID)?);
                     return Ok(());
                 }
-                if let (Owned::Setting(_), Some(place), true) = (&value, place, fixed.is_empty()) {
-                    // Mapped, so that whatever refuses it is told as ever,
-                    // and let go: its record describes it from now on.
+                // Mapped (a refusal is told as ever), then described by its record; a secret is kept.
+                let lazy =
+                    fixed.is_empty() && !matches!(&value, Owned::Setting(s) if s.extra().secret);
+                if let (Owned::Setting(_), Some(place), true) = (&value, place, lazy) {
                     placed.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
                     placed.push(place);
                     any = true;

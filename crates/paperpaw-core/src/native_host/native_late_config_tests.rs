@@ -203,6 +203,47 @@ fn a_native_secret_setting_moves_out_of_the_file_and_is_never_announced() {
     assert_eq!(told, ["changed factory.flag"], "{told:?}");
 }
 
+/// The same of a plugin whose declarations lie in its image (a plugin of the
+/// card, as Mail is): its settings are described from there, and the secret
+/// one is a secret all the same, never a plain setting (#81).
+#[test]
+fn a_secret_setting_declared_from_the_plugin_s_image_is_a_secret() {
+    reset(NORMAL);
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .storage(MemoryStorage::new().with(CONFIG_FILE, "[factory]\ntoken = abc\nflag = off\n"))
+        .build()
+        .unwrap();
+    ARMS.with(|arms| arms.set(3));
+    let mut bytes = [0; 1024];
+    let len = super::native_screen_install::declaration_batch(&mut bytes);
+    IMAGE.with(|image| image.set(Vec::leak(bytes[..len].to_vec())));
+    let result = install(&mut kernel, 0);
+    IMAGE.with(|image| image.set(&[]));
+    ARMS.with(|arms| arms.set(0));
+    result.unwrap();
+    let settings = &kernel.shared.settings;
+    // The plain setting beside it is described from the image, not held.
+    assert_eq!(
+        settings.get("factory.flag"),
+        Some(&SettingValue::Bool(false))
+    );
+    assert!(
+        settings
+            .kept_specs()
+            .all(|spec| spec.id.as_str() != "factory.flag")
+    );
+    assert_eq!(settings.secret_of("factory.token"), Some(true));
+    assert!(settings.defines_secret("factory.token"));
+    assert_eq!(kernel.shared.secrets.get("factory.token"), Some("abc"));
+    assert_ne!(
+        kernel.shared.settings.get("factory.token"),
+        Some(&SettingValue::Text("abc".into()))
+    );
+    let file = paperpaw_sdk::read_file(kernel.storage(), CONFIG_FILE, 4096).unwrap();
+    let file = String::from_utf8(file).unwrap();
+    assert!(!file.contains("abc"), "{file}");
+}
+
 #[test]
 fn only_so_many_values_are_kept() {
     let mut config = String::from("[nobody]\n");

@@ -716,8 +716,10 @@ impl Kernel {
             self.set_secret(paperpaw_sdk::secrets::SecretChange::keep(
                 &id, &label, &value,
             ));
-            // Left in the file until it is with the secrets on the card.
+            // Left in the file until it is with the secrets on the card:
+            // tried again once a radio is on (`move_left_secrets`).
             if !self.shared.secrets.saved(&id) {
+                self.secrets_left = true;
                 continue;
             }
             if let Some((section, key)) = id.split_once('.') {
@@ -726,6 +728,28 @@ impl Kernel {
                 });
             }
         }
+    }
+
+    /// Moves the secret settings' values [`Self::move_secrets`] had to leave in
+    /// the configuration file, read from it again. On the X4 nothing is sealed
+    /// while no radio is on, so never at the start: without this the value
+    /// stayed in the file, in the clear, start after start (#81).
+    pub(crate) fn move_left_secrets(&mut self) {
+        if !mem::take(&mut self.secrets_left) {
+            return;
+        }
+        let Ok(Some(source)) = read_config(self.shared.storage.as_ref()) else {
+            self.secrets_left = true;
+            return;
+        };
+        let mut left = Vec::new();
+        for entry in paperpaw_config::parse(&source).flatten() {
+            let id = format!("{}.{}", entry.section, entry.key);
+            if self.shared.settings.defines_secret(&id) {
+                left.push((id, entry.value.as_str().into_owned()));
+            }
+        }
+        self.move_secrets(left);
     }
 
     /// Reports references to contributions that do not exist.
