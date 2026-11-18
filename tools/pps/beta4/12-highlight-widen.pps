@@ -141,5 +141,7 @@ test:12g-five-page-cap {
   expect:A selection can take in at most 5
   back
   wait:1000
+  expect-not:A selection can take in
+  expect-not:Select: actions
   no-warn
 }
