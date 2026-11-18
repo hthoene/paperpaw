@@ -582,10 +582,12 @@ fn cover_of_last(host: &Host<'_>, library: &Library, side: u32) -> Result<Found,
                     height: cover.info().height(),
                 }));
             }
-            Err(Error::NoMemory) => return Err(Error::NoMemory),
-            // Being made: asked again on the host's word (the list's size
-            // may still be at hand).
-            Err(Error::Busy) => found = Found::Busy,
+            // Being made, or no memory for it: asked again on the host's word
+            // (the list's size may still be at hand). The screen-sized cover
+            // is not in the host's cache but the list's is: the host decodes
+            // it inside this call, which the X4's heap does not hold (#346:
+            // the cat showed on the device where the emulator made it).
+            Err(Error::Busy | Error::NoMemory) => found = Found::Busy,
             // No cover.
             Err(_) => {}
         }

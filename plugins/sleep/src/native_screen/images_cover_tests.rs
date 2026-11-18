@@ -5,7 +5,7 @@ use super::*;
 use paperpaw_core::native_host::registrations::{
     EventLibraryChanged, Record, ServiceDocImage, ServiceEnd, ServiceLibEntry,
 };
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_NOT_FOUND};
 use paperpaw_scripted_host::{ScriptedHost, event_batch, row};
 use paperpaw_sdk::native::{Plugin, events::Incoming, reply::Reply};
 use std::{cell::RefCell, rc::Rc, vec, vec::Vec};
@@ -128,4 +128,20 @@ fn a_cover_busy_at_both_sizes_is_waited_for_and_none_is_none() {
     library(&host, vec![Err(ERR_NOT_FOUND), Err(ERR_NOT_FOUND)]);
     let plugin = host.load(PROBE.entry()).unwrap();
     assert_eq!(said(&plugin), 0);
+}
+
+#[test]
+fn a_screen_sized_cover_the_heap_cannot_decode_is_the_lists_one_not_the_cat() {
+    // The X4 (#346): the host has the list's cover in its cache and decodes
+    // the screen's inside the call, out of memory; the list's size is asked next.
+    let host = ScriptedHost::new();
+    let asked = library(&host, vec![Err(ERR_NO_MEMORY), Ok(())]);
+    let plugin = host.load(PROBE.entry()).unwrap();
+    assert_eq!(said(&plugin), 1);
+    assert_eq!(asked.borrow().len(), 2);
+    // No memory at either size is waited for, not an error of the screen.
+    let host = ScriptedHost::new();
+    library(&host, vec![Err(ERR_NO_MEMORY), Err(ERR_NO_MEMORY)]);
+    let plugin = host.load(PROBE.entry()).unwrap();
+    assert_eq!(said(&plugin), 2);
 }
