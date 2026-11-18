@@ -12,12 +12,11 @@ impl BuilderParts {
     /// shell said it does.
     pub(super) fn new_kernel(&mut self, framebuffer: Framebuffer) -> Kernel {
         let caps = self.device_caps();
-        let links = self.bluetooth_links;
         Kernel {
             shared: self.new_shared(caps),
             frame: self.new_frame_state(),
             input: Self::new_input_state(),
-            io: self.new_io_state(caps, links),
+            io: self.new_io_state(caps),
             keys: plugins::KeySources::default(),
             stylesheet_owners: Vec::new(),
             timing: crate::timing::Timing::new(self.busy_mark_ms),
@@ -298,7 +297,9 @@ impl BuilderParts {
     }
 
     #[inline(always)]
-    fn new_io_state(&self, caps: Capabilities, links: u8) -> network::IoState {
+    fn new_io_state(&self, caps: Capabilities) -> network::IoState {
+        #[cfg(feature = "bluetooth")]
+        let links = self.bluetooth_links;
         network::IoState {
             http: io::http::Http::for_memory(self.device.memory),
             servers: io::servers::Servers::default(),

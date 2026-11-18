@@ -184,6 +184,9 @@ impl<'a> Converter<'a> {
 
     /// Reads the chapter in `source` up to its end, or until the budget is
     /// spent or room is refused. Such a refusal is kept in `failed`.
+    // Its own frame: the tokenizer and the handler are not in `convert`'s,
+    // which stays under the firmware's frame limit (#263).
+    #[inline(never)]
     fn read(&mut self, source: &Source<'_>) -> Result<(), DocumentError> {
         let storage = self.storage;
         let mut tokenizer = match source {

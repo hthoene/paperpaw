@@ -485,6 +485,9 @@ fn read_key(
 /// The rows of image `h`, its tables made from the palette `entries`,
 /// handed to `sink` at the size `fit` asks for. Also the bytes of its
 /// data inflated.
+// Inlined into `decode` as before it was split: apart, its frame came on
+// top of `decode`'s and the picture path took 304 B more stack on the S3.
+#[inline(always)]
 fn start_rows<'s>(
     h: Header,
     mut entries: Option<Palette>,
