@@ -201,14 +201,63 @@ fn invalid_records_are_checked_before_the_id_factory_and_oom_propagates() {
     assert_eq!(calls, 1);
 }
 
+/// A secret setting is admitted (#81): a text without a default, marked
+/// secret so its value goes to the secrets. Any other kind or a default is
+/// invalid.
 #[test]
-fn secret_settings_resources_and_callback_registrations_are_unsupported() {
-    let default = encoded(SettingValueRef::Bool(true));
-    for record in [
+fn a_secret_text_setting_is_admitted_as_a_secret_and_nothing_else_is() {
+    let empty = encoded(SettingValueRef::Text(""));
+    let value = normalize(
+        "mail",
         wire::Record::SettingSpec(wire::SettingSpec {
+            name: "password",
+            kind: 3,
             flags: SECRET,
-            ..spec(&default)
+            ..spec(&empty)
         }),
+        &mut checked,
+    )
+    .unwrap();
+    let Value::Setting(value) = value else {
+        panic!("setting expected")
+    };
+    assert_eq!(value.id.as_str(), "mail.password");
+    assert!(value.extra().secret);
+    let plain = normalize(
+        "mail",
+        wire::Record::SettingSpec(wire::SettingSpec {
+            kind: 3,
+            ..spec(&empty)
+        }),
+        &mut checked,
+    )
+    .unwrap();
+    let Value::Setting(plain) = plain else {
+        panic!("setting expected")
+    };
+    assert!(!plain.extra().secret);
+    let boolean = encoded(SettingValueRef::Bool(true));
+    let word = encoded(SettingValueRef::Text("hunter2"));
+    for (kind, default) in [(0, &boolean), (3, &word)] {
+        assert_eq!(
+            normalize(
+                "mail",
+                wire::Record::SettingSpec(wire::SettingSpec {
+                    kind,
+                    flags: SECRET,
+                    ..spec(default)
+                }),
+                &mut checked,
+            )
+            .err(),
+            Some(ERR_INVALID)
+        );
+    }
+}
+
+#[test]
+fn resources_and_callback_registrations_are_unsupported() {
+    for record in [
         wire::Record::ResourceHyphenation(wire::ResourceHyphenation {
             language: "en",
             path: "data/en.pat",

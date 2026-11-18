@@ -94,6 +94,9 @@ pub const paperpaw_sdk::builtin::params::LIVE: &str
 pub const paperpaw_sdk::builtin::params::MENU: &str
 pub const paperpaw_sdk::builtin::params::MODE: &str
 pub const paperpaw_sdk::builtin::params::OFFSET: &str
+pub const paperpaw_sdk::builtin::params::OFF_ASKED: &str
+pub const paperpaw_sdk::builtin::params::OFF_REASON: &str
+pub const paperpaw_sdk::builtin::params::OFF_TIMER: &str
 pub const paperpaw_sdk::builtin::params::PAGE: &str
 pub const paperpaw_sdk::builtin::params::PAGES: &str
 pub const paperpaw_sdk::builtin::params::PATH: &str
@@ -269,6 +272,7 @@ pub const paperpaw_sdk::builtin::slots::LOOKUP: paperpaw_sdk::Id
 pub const paperpaw_sdk::builtin::slots::LOOKUP_ONLINE: paperpaw_sdk::Id
 pub const paperpaw_sdk::builtin::slots::MENU: paperpaw_sdk::Id
 pub const paperpaw_sdk::builtin::slots::NOTICE: paperpaw_sdk::Id
+pub const paperpaw_sdk::builtin::slots::OFF: paperpaw_sdk::Id
 pub const paperpaw_sdk::builtin::slots::PANEL: paperpaw_sdk::Id
 pub const paperpaw_sdk::builtin::slots::READER: paperpaw_sdk::Id
 pub const paperpaw_sdk::builtin::slots::REMOTE_KEYBOARD: paperpaw_sdk::Id

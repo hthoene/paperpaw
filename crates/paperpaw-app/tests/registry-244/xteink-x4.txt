@@ -546,6 +546,7 @@ setting power.group | power.offline-below Int { min: 0, max: 30 } default=Int(10
 setting power.group | power.normal-while-charging Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=power.setting.normal-while-charging
 setting sleep.group | core.logo Text default=Text("") Advanced scoped=false guarded=false secret=false kept=false title=core.setting.logo
 setting sleep.group | sleep.show Choice(Owned(["sleep.show.cat", "sleep.show.cover", "sleep.show.picture", "sleep.show.overlay", "sleep.show.widgets", "sleep.show.message", "sleep.show.page", "vocabulary.sleep-card"])) default=Text("sleep.show.cat") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.show
+setting sleep.group | sleep.off-show Choice(Fixed(["sleep.off-show.same", "sleep.off-show.message", "sleep.show.cat", "sleep.show.cover", "sleep.show.picture"])) default=Text("sleep.off-show.same") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.off-show
 setting sleep.group | sleep.folder Text default=Text("sleep") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.folder
 setting sleep.group | sleep.widgets List default=Text("home.date, home.continue, stats.widget.today, home.recent") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.widgets
 setting sleep.group | sleep.overlay-picture Text default=Text("") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.overlay-picture
@@ -1169,6 +1170,7 @@ slot-offer core.library | files.browser Priority(0)
 slot-offer core.menu | core.placeholder Priority(-32768)
 slot-offer core.menu | menu.list Priority(0)
 slot-offer core.notice | core.notice-box Priority(-100)
+slot-offer core.off | sleep.screen Priority(0)
 slot-offer core.panel | menu.panel Priority(0)
 slot-offer core.reader | core.placeholder Priority(-32768)
 slot-offer core.reader | reader.screen Priority(0)
@@ -1737,6 +1739,7 @@ native Spec reader | SettingSpec(SettingSpec { name: "status.bottom-right", kind
 native Spec reader | SettingSpec(SettingSpec { name: "status.battery-percent", kind: 0, flags: 0, group: "core.group.status", title: "reader.status.battery-percent", help: "reader.status.battery-percent.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1], min: 0, max: 0, choices: "" })
 native Spec settings | SettingSpec(SettingSpec { name: "advanced", kind: 0, flags: 0, group: "core.group.system", title: "settings.advanced", help: "settings.advanced.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
 native Spec sleep | SettingSpec(SettingSpec { name: "show", kind: 2, flags: 0, group: "sleep.group", title: "sleep.setting.show", help: "sleep.setting.show.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 14, 0, 0, 0, 115, 108, … (416 bytes, fc0125ecb561b70c)
+native Spec sleep | SettingSpec(SettingSpec { name: "off-show", kind: 2, flags: 0, group: "sleep.group", title: "sleep.setting.off-show", help: "sleep.setting.off-show.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 19, 0, 0, 0… (421 bytes, 4c1e4885883cb380)
 native Spec sleep | SettingSpec(SettingSpec { name: "folder", kind: 3, flags: 0, group: "sleep.group", title: "sleep.setting.folder", help: "sleep.setting.folder.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 5, 0, 0, 0, 115, 108, 101, 101, 112], min: 0, max: 0, choices: "" })
 native Spec sleep | SettingSpec(SettingSpec { name: "widgets", kind: 5, flags: 0, group: "sleep.group", title: "sleep.setting.widgets", help: "sleep.setting.widgets.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 57, 0, 0, 0, 1… (499 bytes, 8983cfdf21bab764)
 native Spec sleep | SettingSpec(SettingSpec { name: "overlay-picture", kind: 3, flags: 0, group: "sleep.group", title: "sleep.setting.overlay-picture", help: "sleep.setting.overlay-picture.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
@@ -2649,6 +2652,7 @@ native MenuNeed reader | MenuNeed(MenuNeed { item: "reader.next-status-line", ne
 native MenuNeed reader | MenuNeed(MenuNeed { item: "reader.corner-bookmark", need: 4, capability: 0 })
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.group", need: 1, capability: 0 })
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.show", need: 1, capability: 0 })
+native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.off-show", need: 1, capability: 0 })
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.folder", need: 1, capability: 0 })
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.widgets", need: 1, capability: 0 })
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.overlay-picture", need: 1, capability: 0 })
@@ -2688,6 +2692,7 @@ native SlotOffer settings | SlotOffer(SlotOffer { slot: "core.settings", screen:
 native SlotOffer settings | SlotOffer(SlotOffer { slot: "core.choose-value", screen: "settings.choose", priority: 0 })
 native SlotOffer setup | SlotOffer(SlotOffer { slot: "core.setup", screen: "setup.guide", priority: 0 })
 native SlotOffer sleep | SlotOffer(SlotOffer { slot: "core.sleep", screen: "sleep.screen", priority: 0 })
+native SlotOffer sleep | SlotOffer(SlotOffer { slot: "core.off", screen: "sleep.screen", priority: 0 })
 native SlotOffer sleep | SlotOffer(SlotOffer { slot: "core.edit-widgets", screen: "sleep.edit-widgets", priority: 0 })
 native SlotOffer transfer | SlotOffer(SlotOffer { slot: "core.remote-keyboard", screen: "transfer.phone", priority: 0 })
 native SlotOffer transfer | SlotOffer(SlotOffer { slot: "core.cable", screen: "transfer.cable", priority: 0 })

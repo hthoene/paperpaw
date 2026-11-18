@@ -157,7 +157,7 @@ pub(crate) fn forget_owner(host: &dyn SecretsHost, plugin: &str) -> Result<(), i
 
 /// The `core.secrets` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
@@ -170,7 +170,7 @@ pub(crate) fn backend(
     match op.id {
         1 => get(secrets, who, input, out),
         2 => list(secrets, who, input, out),
-        3 => keep(secrets, who, input).map(|()| 0),
+        3 => keep(secrets, frame, who, input).map(|()| 0),
         4 => remove(secrets, who, input).map(|()| 0),
         5 => random(secrets, input, out),
         _ => Err(ERR_UNSUPPORTED),
@@ -362,7 +362,12 @@ fn list(
     Ok(used + length)
 }
 
-fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
+fn keep(
+    secrets: &SecretsServices,
+    frame: &dyn Frame,
+    who: &Caller<'_>,
+    input: &[u8],
+) -> Result<(), i32> {
     let ask: wire::ServiceSecKeep<'_> = codec::single(input)?;
     if ask.flags & !CHANGEABLE != 0 {
         return Err(ERR_UNSUPPORTED);
@@ -380,10 +385,14 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
     let (owner, own) = target(who, ask.plugin)?;
     let mut file = File::new(&*secrets.host)?;
     let probe = file.probe(owner, ask.name).map_err(|e| secrets.failed(e))?;
-    if !own && !probe.readable {
+    // The editor keeps the value of a secret setting the owner declares
+    // (`secrets.md` 4) also before there is one; another secret only once
+    // its owner made it.
+    let declared = !own && !probe.readable && declares_secret(frame, owner, ask.name);
+    if !own && !probe.readable && !declared {
         return Err(ERR_NOT_FOUND);
     }
-    if !own && !probe.changeable {
+    if !own && !declared && !probe.changeable {
         return Err(ERR_DENIED);
     }
     if !probe.readable && probe.others >= PER_PLUGIN_MAX {
@@ -399,7 +408,7 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
     let changeable = if own {
         ask.flags & CHANGEABLE != 0
     } else {
-        probe.changeable
+        declared || probe.changeable
     };
     let change = Change::Put {
         owner,
@@ -409,6 +418,20 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
         value: ask.value.as_bytes(),
     };
     file.rewrite(&change).map_err(|e| secrets.failed(e))
+}
+
+/// Whether `owner` declares the secret setting `owner.name`: the secret
+/// `name` is its value. Nothing is allocated.
+fn declares_secret(frame: &dyn Frame, owner: &str, name: &str) -> bool {
+    let mut id = [0; 128];
+    let end = owner.len() + 1 + name.len();
+    let Some(room) = id.get_mut(..end) else {
+        return false;
+    };
+    room[..owner.len()].copy_from_slice(owner.as_bytes());
+    room[owner.len()] = b'.';
+    room[owner.len() + 1..].copy_from_slice(name.as_bytes());
+    core::str::from_utf8(room).is_ok_and(|id| frame.settings().secret_of(id) == Some(true))
 }
 
 fn remove(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {

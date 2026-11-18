@@ -997,6 +997,7 @@ impl Firmware {
             "sleeping: {ended:?} after {} s",
             now().0.saturating_sub(started) / 1000
         );
+        self.draw_off_screen(ended);
         if ended == Ended::Woken {
             self.wake_lightly();
         }
