@@ -58,22 +58,7 @@ pub const EXEMPT: &[(&str, &str)] = &[
          and gone by itself when all is here: with the emulator's fixtures a fetch is over \
          within the press that starts it",
     ),
-    (
-        "fonts-browser.font",
-        "a font of the list of fonts to download, and with the emulator's fixtures that \
-         list stays at \"Loading fonts\" (#366)",
-    ),
-    (
-        "widgets.todo.list",
-        "nothing opens it yet: a press on the to-do widget does not run its action \
-         `widgets.todo.open`, and no menu has it (#364)",
-    ),
-    (
-        "home.drawer",
-        "its action `home.all-tools` is bound to a swipe up on the home screen alone: with \
-         buttons nothing leads to it unless the reader binds one, and the main menu's Tools \
-         lists the same tools (#365)",
-    ),
+    ("home.drawer", "touch only by design (#365)"),
     (
         "bluetooth.search",
         "its plugin asks for a scan first and the emulator has no radio, which refuses it: \

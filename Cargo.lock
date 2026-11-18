@@ -2172,7 +2172,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-fonts-browser"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
@@ -2892,7 +2892,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-widgets"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",

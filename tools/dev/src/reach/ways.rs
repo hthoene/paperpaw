@@ -301,6 +301,47 @@ pub const WAYS: &[Way] = &[
             "confirm",
         ],
     },
+    Way {
+        screen: "fonts-browser.font",
+        needs: "a font of the list of fonts to download (the fixtures' catalog has two)",
+        settings: &[],
+        files: &[],
+        steps: &[
+            "long:confirm",
+            "to:Settings",
+            "confirm",
+            "to:Reading",
+            "confirm",
+            "to:Text",
+            "confirm",
+            "to:Discover fonts",
+            "confirm",
+            "wait:3000",
+            "confirm",
+        ],
+    },
+    Way {
+        screen: "widgets.todo.list",
+        needs: "the to-do widget placed on the home screen (Edit, +, Notes and pictures, \
+                To do), and a press on it",
+        settings: &[],
+        files: &[],
+        steps: &[
+            "to:Edit",
+            "confirm",
+            "to:+",
+            "confirm",
+            "to:Notes and pictures",
+            "confirm",
+            "right",
+            "right",
+            "confirm",
+            "to:Done",
+            "confirm",
+            "to:Nothing to do",
+            "confirm",
+        ],
+    },
 ];
 
 /// Replays a declared way in on `driver`, a device started with what the
