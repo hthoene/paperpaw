@@ -48,9 +48,18 @@
 //! one of each is ever left beside it. They are neither listed nor taken
 //! by name: one may hold the clusters of the file itself. rust-fatfs, as
 //! patched, removes a file's entry before it frees its clusters: cut off
-//! between, they stay taken by no file, never a file pointing at free
+//! between, they are taken by no file, never a file pointing at free
 //! ones. A file's size is its entry's, and reading it fails where its
 //! clusters end before (left so by an earlier version).
+//!
+//! No cluster stays taken by no file after a cut (#238, #269). A new
+//! file's entry gets its first cluster as soon as it is taken: what was
+//! appended and not written back is the file's, used by the next append,
+//! freed with the file. Where a cluster and what points at it cannot be
+//! one write, rust-fatfs, as patched, says so on the card first (the FS
+//! information sector, FAT32: see its `claim`) and [`FatStorage::new`]
+//! frees what a cut left of it: a start reads nothing for it unless the
+//! card says so and never searches the FAT. FAT12 and FAT16 keep the gap.
 //!
 //! rust-fatfs, as patched, moves an entry by adding the new one before
 //! it removes the old one: cut off between, the entry is at both
@@ -709,6 +718,13 @@ fn rename_in<IO: ReadWriteSeek + 'static>(
 
 impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
     pub fn new(fs: &'static FileSystem<IO>) -> Self {
+        // What a cut left taken by no file is freed before anything else
+        // (see the crate documentation).
+        #[expect(
+            clippy::let_underscore_must_use,
+            reason = "a card that fails here fails the first call that needs it, which tells it"
+        )]
+        let _ = fs.settle_claim();
         Self {
             fs,
             open: RefCell::new(alloc::vec::Vec::new()),
@@ -759,6 +775,12 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             disk.seek(SeekFrom::Start(was)).is_ok() && read
         }));
         self.flush_disk = Some(alloc::boxed::Box::new(move || disk.flush_all().is_ok()));
+        // What `new` freed is on the card before anything else is done.
+        #[expect(
+            clippy::let_underscore_must_use,
+            reason = "a card that fails here fails the first call that writes, which tells it"
+        )]
+        let _ = self.write_back();
         self.trust_kept();
         self
     }
@@ -977,17 +999,21 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         // Whole under one name of the moment, synced, then under another
         // (see the crate documentation): settled, a cut is told by them.
         let temps = Temps::of(name);
-        let written = dir
-            .create_file(temps.tmp())
-            .map_err(error)
-            .and_then(|mut file| {
-                // The file it replaces, as it is now: changed after a
-                // cut, it is kept (see `settled`).
-                if let Some(mark) = mark {
-                    file.set_mark(mark);
-                }
-                Self::write_all(&mut file, data)
-            });
+        // With its first cluster, where it gets content: its entry is
+        // written once, not again when the first write takes the cluster.
+        let created = if data.is_empty() {
+            dir.create_file(temps.tmp())
+        } else {
+            dir.create_file_with_cluster(temps.tmp())
+        };
+        let written = created.map_err(error).and_then(|mut file| {
+            // The file it replaces, as it is now: changed after a
+            // cut, it is kept (see `settled`).
+            if let Some(mark) = mark {
+                file.set_mark(mark);
+            }
+            Self::write_all(&mut file, data)
+        });
         if let Err(e) = written {
             // A card that is full keeps no part of the new content.
             #[expect(
@@ -1000,6 +1026,8 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         if there {
             dir.rename(temps.tmp(), &dir, temps.ready())
                 .map_err(error)?;
+            // On the card before the old file goes (see `settled`).
+            self.write_back()?;
             dir.replace(temps.ready(), name).map_err(error)?;
         } else {
             // A new file: cut off, it is not there yet, or is there whole
@@ -1253,9 +1281,10 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
             // The first append since it was opened: clusters an earlier cut left taken
             // ahead are given back when it is written back, even where the append ends
             // inside the last cluster in use.
+            // An empty file too: a cut may have left it clusters (#238).
             if !o.looked {
                 o.looked = true;
-                if o.len > 0 && self.reserve.get() {
+                if self.reserve.get() {
                     o.file.maybe_ahead();
                 }
             }
