@@ -136,6 +136,9 @@ struct Open {
     turned: bool,
     /// The pictures of the page on show: drawn a frame after its text (#252).
     pictures: pictures::Pass,
+    /// The picture of the page on show full screen: its place on the page
+    /// (`zoom.rs`).
+    zoom: Option<usize>,
     /// A jump from another screen is not yet reported to the host.
     report_due: bool,
     /// The book's title as a report carries it.
@@ -391,6 +394,7 @@ impl View {
             saved_at: None,
             turned: false,
             pictures: pictures::Pass::Whole,
+            zoom: None,
             report_due: false,
             said: false,
             title,
@@ -863,6 +867,9 @@ impl View {
         ) {
             return self.show_toc(host, ui);
         }
+        if let Some(handled) = self.zoom(host, docs, input)? {
+            return Ok(handled);
+        }
         if let Input::Action { action, .. } = input
             && let Some(handled) = self.r3_action(host, (docs, library, ui), action)?
         {
@@ -1328,6 +1335,7 @@ use setup::{Kept, LayoutKey, Setup, flag, integer};
 
 mod r3;
 mod status;
+mod zoom;
 
 /// What a forward turn finds after the page on show.
 #[derive(Debug)]

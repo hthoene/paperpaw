@@ -25,7 +25,8 @@ impl View {
         match action {
             "reader.book-info" => self.book_info(host, ui)?,
             "reader.quick-settings" => Self::quick_settings(host, ui)?,
-            "reader.toggle-bookmark" => self.toggle_bookmark(host, library)?,
+            // Holding Select on a page with no picture to show.
+            "reader.toggle-bookmark" | super::zoom::HOLD => self.toggle_bookmark(host, library)?,
             _ => return Ok(None),
         }
         Ok(Some(Handled::Yes))

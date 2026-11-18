@@ -53,7 +53,7 @@ status.top|reader.status.section.top|reader.status.top-left|reader.status.top-ce
 [keys]
 core.reader|edge.left|core.prev-page
 core.reader|edge.right|core.next-page
-core.reader|long.confirm|reader.toggle-bookmark
+core.reader|long.confirm|reader.hold-select
 core.reader|long.left|reader.select-text
 core.reader|pinch.in|reader.font-smaller
 core.reader|pinch.out|reader.font-larger
@@ -130,6 +130,7 @@ font-larger|reader.action.font-larger
 font-smaller|reader.action.font-smaller
 go-to-page|reader.go-to-page
 go-to-percent|reader.go-to-percent
+hold-select|reader.hold-select
 links|reader.links
 next-chapter|reader.next-chapter
 next-status-line|reader.next-status-line
