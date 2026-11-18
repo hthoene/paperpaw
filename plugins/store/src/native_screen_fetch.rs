@@ -237,7 +237,11 @@ pub fn settle(kind: Kind, tally: &Tally, queued: bool, list: Trouble) -> Phase {
             Trouble::None => Phase::Done,
             Trouble::Offline => Phase::Failed(Why::Offline),
             Trouble::Memory => Phase::Failed(Why::Memory),
-            Trouble::Failed | Trouble::Unsupported => Phase::Failed(Why::Unreachable),
+            Trouble::Failed
+            | Trouble::Unsupported
+            | Trouble::Unsigned
+            | Trouble::KeyChanged
+            | Trouble::TooLarge => Phase::Failed(Why::Unreachable),
         };
     }
     if queued || tally.busy {

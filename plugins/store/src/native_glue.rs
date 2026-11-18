@@ -23,6 +23,8 @@ const MOST_TYPED: usize = 256;
 const MOST_PARAMS: usize = 8;
 /// The most a query takes (`max_input` of the ui service's ops).
 const REQUEST_BYTES: usize = 512;
+/// The most a choice or a confirmation takes (the sources, the note of one).
+const NOTE_BYTES: usize = 1024;
 
 /// Asks the reader `ask`: the dialog opens after the callback returns, its end
 /// comes as an `Answered` event with the request returned here.
@@ -51,12 +53,25 @@ pub fn ask(host: &Host<'_>, ui: &Ui, ask: &Ask) -> Result<RequestId, Error> {
                 }
                 lines.push_str(option);
             }
+            // The sources' names are more than the stack block takes.
+            let mut input = buffer(NOTE_BYTES)?;
             ui.ask(
                 host,
                 Question::choice(title, "", &lines)?,
                 &mut input,
                 &mut out,
             )
+        }
+        Ask::Confirm {
+            title,
+            text,
+            yes,
+            no,
+        } => {
+            let labels = paperpaw_ui_kit::text::concat(&[yes, "\n", no])?;
+            let question = Question::confirm(title, text)?.confirm_labels(&labels)?;
+            let mut input = buffer(NOTE_BYTES)?;
+            ui.ask(host, question, &mut input, &mut out)
         }
     }
 }

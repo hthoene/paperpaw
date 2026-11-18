@@ -665,10 +665,12 @@ impl View {
             has_shots: more.is_some_and(|m| shots::count(&m.shots, small) > 0),
             has_source: more.is_some_and(|m| !m.source.is_empty()),
         };
-        let rows = native_page::rows(&input)?;
+        // Nothing is installed over a plugin another source installed (#214).
+        let rows =
+            native_page::of_source(native_page::rows(&input)?, ctx.installs.foreign(&self.id));
         let mut items = Vec::new();
         let mut targets = Vec::new();
-        let room = rows.len() + 12;
+        let room = rows.len() + 14;
         items.try_reserve_exact(room).map_err(|_| Error::NoMemory)?;
         targets
             .try_reserve_exact(room)
@@ -771,6 +773,20 @@ impl View {
                 r.disabled = true;
             }
             push(items, row)?;
+            push(targets, None)?;
+        }
+        // Where it comes from (#214): a community source nobody checked, and
+        // whether the device has it from another source.
+        let mut lines = [String::new(), String::new()];
+        if let Some(url) = ctx.loader.source() {
+            let name = crate::native_sources::name(url);
+            lines[0] = say.format(ctx.host, "store.source.from", &[text("name", name)])?;
+        }
+        if ctx.installs.foreign(&self.id) {
+            lines[1] = say.copy(ctx.host, "store.source.foreign.fact")?;
+        }
+        for line in lines.iter().filter(|line| !line.is_empty()) {
+            push(items, small(faint(Item::row(line, "")?)))?;
             push(targets, None)?;
         }
         let facts = facts(&FactInput {
