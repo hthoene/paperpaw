@@ -2,7 +2,7 @@ use core::convert::TryFrom;
 
 use crate::dir_entry::{DirEntryEditor, FileAttributes};
 use crate::error::Error;
-use crate::fs::{FileSystem, ReadWriteSeek};
+use crate::fs::{FileSystem, ReadWriteSeek, Referrer};
 use crate::io::{IoBase, Read, Seek, SeekFrom, Write};
 use crate::time::{Date, DateTime, TimeProvider};
 
@@ -374,7 +374,11 @@ impl<IO: ReadWriteSeek, TP, OCC> Drop for File<'_, IO, TP, OCC> {
         if let Err(err) = self.trim_ahead() {
             error!("trim failed {:?}", err);
         }
-        if let Err(err) = self.flush() {
+        // Modified for PaperPaw: its entry is written; the disk is not flushed for it. A disk
+        // that keeps changed blocks writes them back in the order they were changed, when its
+        // owner says so (`FatStorage` does when a call that changes the card returns): flushed
+        // here, at the end of every step of a change, each step was a write of its own.
+        if let Err(err) = self.flush_dir_entry() {
             error!("flush failed {:?}", err);
         }
     }
@@ -497,9 +501,14 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
                 // end of chain reached - allocate new cluster
                 // Modified for PaperPaw: a file (not a directory) that was asked to may take a run.
                 let new_cluster = if self.is_dir() {
-                    self.fs.alloc_cluster(self.current_cluster, true)?
+                    let referrer = self.current_cluster.map_or(Referrer::Unknown, Referrer::Link);
+                    self.fs.alloc_cluster(self.current_cluster, true, referrer)?
                 } else {
-                    let (first, count) = self.fs.alloc_clusters(self.current_cluster, 1 + self.ahead)?;
+                    let entry = self
+                        .entry
+                        .as_ref()
+                        .map_or(Referrer::Unknown, |e| Referrer::NewEntry(e.pos()));
+                    let (first, count) = self.fs.alloc_clusters(self.current_cluster, 1 + self.ahead, entry)?;
                     if count > 1 {
                         self.ahead_taken = true;
                     }
@@ -508,6 +517,11 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
                 trace!("allocated cluster {}", new_cluster);
                 if self.first_cluster.is_none() {
                     self.set_first_cluster(new_cluster);
+                    // Modified for PaperPaw: the entry gets its first cluster at once, not when
+                    // the file is flushed. Cut off before that (power lost), the clusters of a
+                    // new file were taken by no file (#238); now they are the file's, with the
+                    // size it had, and are freed with it or used by the next write.
+                    self.flush_dir_entry()?;
                 }
                 new_cluster
             }

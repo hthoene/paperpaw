@@ -8,14 +8,22 @@
 )]
 #![cfg(feature = "native-linked")]
 
+/// The languages this build has its texts in: German is a feature (the
+/// X4's firmware has it off, it is a language pack there).
+#[cfg(feature = "german")]
+const LANGUAGES: &[&str] = &["en", "de"];
+#[cfg(not(feature = "german"))]
+const LANGUAGES: &[&str] = &["en"];
+
 /// The catalogs of plugin `id` as its folder has them, each parsed.
 fn catalogs_of(id: &str) -> Vec<paperpaw_i18n::Catalog> {
     let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../plugins")
         .join(id)
         .join("i18n");
-    ["en.ini", "de.ini"]
+    LANGUAGES
         .iter()
+        .map(|language| format!("{language}.ini"))
         .filter_map(|name| std::fs::read_to_string(folder.join(name)).ok())
         .map(|source| paperpaw_i18n::Catalog::parse(source).unwrap())
         .collect()
@@ -37,7 +45,7 @@ fn tables(language: &str) -> paperpaw_i18n::Translator {
 /// beside them.
 #[test]
 fn every_text_of_a_linked_plugin_reads_the_same_without_its_keys() {
-    assert_eq!(paperpaw_app::NATIVE_MESSAGES.len(), 2);
+    assert_eq!(paperpaw_app::NATIVE_MESSAGES.len(), LANGUAGES.len());
     let (english, german) = (tables("en"), tables("de"));
     let (mut checked, mut with_texts) = (0, 0);
     for (id, _) in paperpaw_app::NATIVE_PLUGINS {
@@ -143,7 +151,7 @@ fn device() -> paperpaw_platform::DeviceInfo {
 #[test]
 fn the_kernel_reads_every_text_of_the_linked_plugins_as_their_files_say() {
     let mut checked = 0;
-    for language in ["en", "de"] {
+    for &language in LANGUAGES {
         let mut kernel = paperpaw_core::Kernel::builder(device())
             .setting_default_text("core.language", language)
             .build()

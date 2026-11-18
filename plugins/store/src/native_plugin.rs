@@ -28,7 +28,7 @@ use paperpaw_ui_kit::{read_event, screens::Screens};
 use crate::declarations::{
     DISCOVER_TOKEN, FETCH_SCREEN, HTTP_TOKEN, INSTALL_TOKEN, LETTERS_SCREEN, LIST_SCREEN,
     OFFER_SCREEN, OPEN_TOKEN, PLUGIN_SCREEN, PLUGINS_TOKEN, SHOTS_SCREEN, SOURCE_SCREEN,
-    STARTED_TOKEN, VIEW_SCREEN,
+    STARTED_TOKEN, TEMPLATES_SCREEN, VIEW_SCREEN,
 };
 use crate::native_download::Download;
 use crate::native_glue::{self, Reply as Typed};
@@ -207,6 +207,7 @@ const fn is_screen(token: u32) -> bool {
             | SHOTS_SCREEN
             | FETCH_SCREEN
             | OFFER_SCREEN
+            | TEMPLATES_SCREEN
     )
 }
 
@@ -374,6 +375,7 @@ impl NativeStore {
             StoreView::Shots(_) => SHOTS_SCREEN,
             StoreView::Fetch(_) => FETCH_SCREEN,
             StoreView::Offer(_) => OFFER_SCREEN,
+            StoreView::Templates(_) => TEMPLATES_SCREEN,
         })
     }
 

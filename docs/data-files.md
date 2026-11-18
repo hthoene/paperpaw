@@ -73,6 +73,8 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/news/feeds.txt` | news | a feed per line: address, name | version 1 |
 | `.paperpaw/plugins/browser/bookmarks.txt`, `history.txt` | browser | a page per line: title, address | version 1 |
 | `.paperpaw/plugins/kosync/device.ini`, `account.ini` | kosync | ini: the device's id; the key of earlier versions (moved to the passwords and keys) | version 1 |
+| `.paperpaw/plugins/anki/cards.txt` | anki | the cards of the last sync with Anki, a line each: Anki's card id, the front and the back as text (tab separated; `\\`, `\t` and `\n` escaped); at most 50 | version 1 |
+| `.paperpaw/plugins/anki/answers.txt` | anki | the answers not yet sent to Anki, a line each: card id, a tab, the ease (1 Again to 4 Easy); at most 32 KiB | version 1 |
 | `.paperpaw/plugins/wallabag/articles.txt`, `finished.txt` | wallabag | an article per line: id and path; ids read to the end | version 1 |
 | `.paperpaw/plugins/wallabag/account.txt` | wallabag | the server and the user name the lists belong to, one a line: another account starts them anew | |
 | `.paperpaw/plugins/read-later-cloud/articles.txt`, `finished.txt` | read-later-cloud | an article per line: id and path; ids read to the end | version 1 |
@@ -146,7 +148,7 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/fonts-browser/samples/` | fonts-browser | samples of the fonts offered; those no longer offered are removed |
 | `.paperpaw/plugins/files/index.bin` | files | the library's index while a book covers its view, read back when the view shows again |
 | `.paperpaw/plugins/android/<hash>/` | Android shell | a PDF's pages drawn; `source`: the file's size, its pages and the size drawn for |
-| `.paperpaw/plugins/browser/download.tmp`, `calibre/dropped.part`, `news/page.tmp`, `news/feed-<hash>.tmp`, `wallabag/article.tmp`, `read-later-cloud/article.tmp`, `vocabulary/words.tmp`, `stats/incoming.sqlite3` | their plugins | a download or a file being written, until it is moved where it belongs or removed |
+| `.paperpaw/plugins/browser/download.tmp`, `calibre/dropped.part`, `news/page.tmp`, `news/feed-<hash>.tmp`, `anki/cards.new`, `anki/answers.new`, `wallabag/article.tmp`, `read-later-cloud/article.tmp`, `vocabulary/words.tmp`, `stats/incoming.sqlite3` | their plugins | a download or a file being written, until it is moved where it belongs or removed |
 | `.paperpaw/plugins/stats/pages.new`, `books.new` | stats | `pages.bin` and `books.ini` while they are written anew: put in place at the start where the file itself is missing, else removed |
 | `~<hash>.TMP`, `~<hash>.NEW` beside a file (the X4's card; seven letters from the file's name) | `paperpaw-fat` | a file while it is written: `.NEW` is whole and takes the file's place when its folder is first looked at after a start, unless the file was changed after `.NEW` was made (its time, size and first cluster then are kept in `.NEW`'s creation time); neither listed nor taken by name. `~PPMOVE.BIN` in the root (hidden, kept, not listed): the move being made, cleared after it, settled at the next start where it is not; where it cannot be, its two paths wait for the next start, all else goes on. Left by earlier versions, `~pp<n>.tmp`: removed at a write in their folder where empty or the same as a file beside them, else kept |
 

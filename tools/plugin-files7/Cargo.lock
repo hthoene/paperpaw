@@ -129,6 +129,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-anki"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-battery"
 version = "1.0.10"
 dependencies = [
@@ -206,6 +214,7 @@ version = "0.0.0"
 dependencies = [
  "paperpaw-plugin-about",
  "paperpaw-plugin-aids",
+ "paperpaw-plugin-anki",
  "paperpaw-plugin-battery",
  "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-browser",
@@ -577,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
