@@ -239,6 +239,19 @@ impl Session {
         }
     }
 
+    /// Lets the requests a screen started and left under way end, up to
+    /// two seconds of real time: their answers (here the computer's
+    /// network's) are passed over when they come, and until then a
+    /// request's state is on the heap without being kept.
+    pub fn drain_requests(&mut self) {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while self.device.network_settling() && std::time::Instant::now() < end {
+            self.device
+                .poll_http(Some(std::time::Duration::from_millis(50)));
+            self.device.tick_if_due();
+        }
+    }
+
     /// Changes a setting as the settings screen would.
     pub fn set(&mut self, id: &str, value: &str) -> Result<(), String> {
         let mut result = Ok(());

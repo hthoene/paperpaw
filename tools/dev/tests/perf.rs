@@ -167,3 +167,29 @@ fn reads_while_drawing_large_screens_and_leaks_are_found() {
     assert_eq!(report.pages[0].title, "Budgets on the X4");
     let _ = std::fs::remove_dir_all(&context.out);
 }
+
+/// The store's list starts a fetch of the list each time it opens: the
+/// request left under way when it closes is not heap kept across openings
+/// (#330), so `perf` does not call it a leak.
+#[test]
+fn a_request_left_under_way_is_not_a_leak_of_the_stores_list() {
+    let out = std::env::temp_dir().join(format!("paperpaw-dev-perf-store-{}", std::process::id()));
+    let mut context = Context::new(
+        Target {
+            plugins: vec!["store".into()],
+            ..Target::default()
+        },
+        out,
+    );
+    context.quick = true;
+    let mut report = Report::default();
+    perf::run(&context, &mut report).unwrap();
+    let leaks: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.check == "perf.leak" && f.place == "store.list")
+        .map(|f| f.message.clone())
+        .collect();
+    assert!(leaks.is_empty(), "{leaks:?}");
+    let _ = std::fs::remove_dir_all(&context.out);
+}
