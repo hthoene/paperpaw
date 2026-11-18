@@ -808,3 +808,24 @@ fn a_page_with_pictures_comes_up_in_black_and_white_without_a_draw_to_count_them
     assert!(!grays);
     assert_eq!(dispatch.ids.borrow().iter().filter(marked).count(), 0);
 }
+
+/// A plugin that refuses the open of its screen (`ERR_INVALID`: wrong
+/// parameters) leaves no blank screen on the stack: it is closed again and
+/// the user is told.
+#[test]
+fn a_screen_whose_open_the_plugin_refused_is_closed_with_a_notice() {
+    let key = paperpaw_sdk::ScreenKey::new(3);
+    let kernel = kernel_with_screen(key);
+    let env = kernel.shared.place(Instant(5));
+    let (mut screen, dispatch) = screen();
+    dispatch.result.set(2);
+    let mut output = crate::Output::default();
+    let mut cx = Turn::new(&env, &mut output).for_screen(key);
+    screen.on_show(&mut cx);
+    assert_eq!(*dispatch.dropped.borrow(), [(10, ERR_INVALID)]);
+    // Closed, told, and the plugin not asked to show what it refused.
+    assert_eq!(dispatch.calls.borrow().len(), 1);
+    assert_eq!(output.commands.len(), 2);
+    assert_eq!(output.commands[0], Ask::Close(key));
+    assert!(matches!(&output.commands[1], Ask::Notify(text) if !text.is_empty()));
+}
