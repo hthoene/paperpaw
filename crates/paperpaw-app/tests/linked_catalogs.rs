@@ -36,16 +36,22 @@ fn tables(language: &str) -> paperpaw_i18n::Translator {
     for table in paperpaw_app::NATIVE_MESSAGES {
         translator.built_messages(table);
     }
+    for table in paperpaw_app::NATIVE_HOW {
+        translator.packed_messages(table);
+    }
     translator
 }
 
 /// The program carries the linked plugins' catalogs without their keys
 /// (#258): every key of every one of their files reads through the tables
 /// what the file says, in both languages, and no file is kept as a text
-/// beside them.
+/// beside them. Their *How it works* is kept compressed (#352): copied out,
+/// as a plugin reads it, never borrowed.
 #[test]
 fn every_text_of_a_linked_plugin_reads_the_same_without_its_keys() {
     assert_eq!(paperpaw_app::NATIVE_MESSAGES.len(), LANGUAGES.len());
+    assert_eq!(paperpaw_app::NATIVE_HOW.len(), LANGUAGES.len());
+    let mut packed = 0;
     let (english, german) = (tables("en"), tables("de"));
     let (mut checked, mut with_texts) = (0, 0);
     for (id, _) in paperpaw_app::NATIVE_PLUGINS {
@@ -63,11 +69,19 @@ fn every_text_of_a_linked_plugin_reads_the_same_without_its_keys() {
                 _ => &german,
             };
             for key in catalog.keys() {
-                assert_eq!(translator.get(key), catalog.get(key), "{id} {key}");
+                let copied = translator.get_copy(key);
+                assert_eq!(copied.as_deref(), catalog.get(key), "{id} {key}");
+                if key.ends_with(".plugin.how") {
+                    assert_eq!(translator.get(key), None, "{id} {key}");
+                    packed += 1;
+                } else {
+                    assert_eq!(translator.get(key), catalog.get(key), "{id} {key}");
+                }
                 checked += 1;
             }
         }
     }
+    assert!(packed > 20, "{packed} texts kept compressed");
     for id in ["keyboard", "menu", "settings", "help", "lock"] {
         assert!(
             paperpaw_app::NATIVE_PLUGINS
@@ -145,9 +159,9 @@ fn device() -> paperpaw_platform::DeviceInfo {
     )
 }
 
-/// Through the kernel, as a screen asks: once the tables are added every
-/// key of every linked plugin's files reads what the file says, in English
-/// and in German, and none did before.
+/// Through the kernel, as a plugin asks (`i18n.copy`): once the tables are
+/// added every key of every linked plugin's files reads what the file says,
+/// in English and in German, and none did before.
 #[test]
 fn the_kernel_reads_every_text_of_the_linked_plugins_as_their_files_say() {
     let mut checked = 0;
@@ -170,7 +184,8 @@ fn the_kernel_reads_every_text_of_the_linked_plugins_as_their_files_say() {
         paperpaw_app::add_native_catalogs(&mut kernel);
         for (id, file) in &files {
             for key in file.keys() {
-                assert_eq!(kernel.translator().get(key), file.get(key), "{id} {key}");
+                let copied = kernel.translator().get_copy(key);
+                assert_eq!(copied.as_deref(), file.get(key), "{id} {key}");
                 checked += 1;
             }
         }

@@ -588,6 +588,19 @@ impl Kernel {
         }
     }
 
+    /// Keeps the long texts of the linked native plugins built into the
+    /// program compressed, a table a language
+    /// ([`PackedMessages`](paperpaw_i18n::PackedMessages): their *How it
+    /// works*, #352), with the tables of [`Kernel::add_built_messages`]
+    /// (call it after that): the host's `i18n.copy` inflates one of them
+    /// when a plugin asks for it, into the text it copies out, and keeps
+    /// nothing of it.
+    pub fn add_packed_messages(&mut self, tables: &'static [paperpaw_i18n::PackedMessages]) {
+        for table in tables {
+            self.shared.translator.packed_messages(table);
+        }
+    }
+
     /// `true` the first time it is asked, `false` after: the linked plugins'
     /// catalogs are added once, whoever asks first (`add_native_catalogs`),
     /// so a shell that adds them after `register_native_plugins` has

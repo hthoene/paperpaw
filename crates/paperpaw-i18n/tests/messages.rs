@@ -239,3 +239,69 @@ fn a_language_no_source_was_added_for_makes_no_table() {
     translator.built_messages(&EMPTY);
     assert!(translator.catalogs().is_empty());
 }
+
+/// Long texts kept compressed with the messages built in: each is found by
+/// a copy, whole and in its language, after the 4 KiB history wrapped too;
+/// a borrowed lookup finds none, and other keys are the table's.
+#[cfg(feature = "kernel")]
+#[test]
+fn packed_messages_are_inflated_one_at_a_time_when_copied() {
+    let deflate = |values: &[u8]| {
+        let mut compress =
+            flate2::Compress::new_with_window_bits(flate2::Compression::best(), false, 12);
+        let mut out = Vec::with_capacity(values.len() + 1024);
+        compress
+            .compress_vec(values, &mut out, flate2::FlushCompress::Finish)
+            .unwrap();
+        out
+    };
+    // Texts that do not repeat themselves, longer together than the history.
+    let text = |seed: u32| -> String {
+        (0..3000_u32)
+            .map(|n| char::from(b'a' + u8::try_from((n * 7919 + seed * 104_729) % 26).unwrap()))
+            .collect()
+    };
+    let mut long = BuiltMessagesTable::new(&["en", "de"]);
+    let mut source = String::from("[meta]\nlanguage = en\nname = English\n[messages]\n");
+    for (n, id) in ["clock", "notes", "maps"].iter().enumerate() {
+        source.push_str(&format!("{id}.plugin.how = {}\n", text(n as u32)));
+    }
+    assert!(long.add(&source).unwrap());
+    let de = "[meta]\nlanguage = de\nname = Deutsch\n[messages]\nnotes.plugin.how = Wie\n";
+    assert!(long.add(de).unwrap());
+    let packed = long.leak_packed(&deflate);
+    let mut translator = built();
+    for language in packed {
+        translator.packed_messages(language);
+    }
+    for (n, id) in ["clock", "notes", "maps"].iter().enumerate() {
+        let key = format!("{id}.plugin.how");
+        assert_eq!(
+            translator.get_copy(&key).as_deref(),
+            Some(text(n as u32).as_str())
+        );
+        assert_eq!(translator.get(&key), None);
+    }
+    assert_eq!(translator.get_copy("clock.title").as_deref(), Some("Clock"));
+    assert_eq!(translator.get_copy("missing.plugin.how"), None);
+    translator.set_language("de");
+    assert_eq!(
+        translator.get_copy("notes.plugin.how").as_deref(),
+        Some("Wie")
+    );
+    assert_eq!(
+        translator.get_copy("clock.plugin.how").as_deref(),
+        Some(text(0).as_str())
+    );
+    // Broken data is no text, and no panic.
+    let broken: &'static [u8] = &[0xff; 16];
+    let table = Box::leak(Box::new(paperpaw_i18n::PackedMessages::new(
+        "en",
+        packed[0].keys,
+        packed[0].entries,
+        broken,
+    )));
+    let mut translator = built();
+    translator.packed_messages(table);
+    assert_eq!(translator.get_copy("clock.plugin.how"), None);
+}
