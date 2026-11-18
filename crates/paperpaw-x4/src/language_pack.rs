@@ -13,7 +13,7 @@ use miniz_oxide::inflate::core::{DecompressorOxide, decompress};
 const WINDOW: usize = 32 * 1024;
 
 /// Inflates the raw deflate stream `packed`, handing what comes out to
-/// `sink` in pieces of at most [`WINDOW`] bytes, in order; `false` where
+/// `sink` in pieces of at most 32 KiB (`WINDOW`), in order; `false` where
 /// the data is corrupt or short, `sink` said stop (`false`), or the
 /// room for the window is not there.
 pub fn inflate_to(packed: &[u8], sink: &mut dyn FnMut(&[u8]) -> bool) -> bool {
