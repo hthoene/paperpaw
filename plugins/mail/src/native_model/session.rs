@@ -238,7 +238,7 @@ pub enum Failure {
     Unsafe,
     /// The card could not be written.
     Storage,
-    /// An attachment is larger than Mail takes ([`store::MAX_PART`]).
+    /// An attachment is larger than Mail takes ([`crate::native_model::store::MAX_PART`]).
     TooLarge,
 }
 
