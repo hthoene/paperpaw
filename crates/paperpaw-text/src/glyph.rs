@@ -162,9 +162,10 @@ impl Glyph {
         }
     }
 
-    /// Approximate heap usage, for cache accounting.
+    /// Approximate heap usage, for cache accounting: the bitmap's memory,
+    /// which a glyph read into the memory of another may not fill.
     pub fn byte_size(&self) -> usize {
-        self.data.len() + core::mem::size_of::<Glyph>()
+        self.data.capacity() + core::mem::size_of::<Glyph>()
     }
 }
 
