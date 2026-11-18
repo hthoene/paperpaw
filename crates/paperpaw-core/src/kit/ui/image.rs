@@ -1,5 +1,6 @@
 //! QR codes and pictures (covers, illustrations) drawn into an area.
 
+use super::picture_look::Dither;
 #[allow(
     clippy::wildcard_imports,
     reason = "a part of the module, which shares its imports"
@@ -68,6 +69,7 @@ pub(crate) fn draw_image_over(
             height,
             scratch_max: usize::MAX,
             tones: Tones::Panel,
+            look: None,
         },
         area,
         opacity,
@@ -120,6 +122,8 @@ pub struct Picture<'a> {
     pub scratch_max: usize,
     /// How it is drawn on a panel with few grays.
     pub tones: Tones,
+    /// Its contrast, gamma and dither (`None`: today's look).
+    pub look: Option<&'a super::picture_look::PictureLook>,
 }
 
 impl<'a> Picture<'a> {
@@ -141,7 +145,16 @@ impl<'a> Picture<'a> {
             height,
             scratch_max,
             tones: Tones::Panel,
+            look: None,
         }
+    }
+
+    /// The picture drawn with `look` (a table through which its grays go
+    /// before they are dithered, and the dither).
+    #[must_use]
+    pub const fn with_look(mut self, look: &'a super::picture_look::PictureLook) -> Self {
+        self.look = Some(look);
+        self
     }
 
     /// The picture drawn in `tones` (black and white dots, or the panel's
@@ -297,7 +310,7 @@ fn draw_picture(
         area,
         opacity,
         (lenient, picture.scratch_max),
-        picture.tones,
+        (picture.tones, picture.look),
     )
 }
 
@@ -376,25 +389,52 @@ fn between(i: usize, out: usize, source: usize) -> (usize, usize, u32) {
     (first, (first + 1).min(source - 1), (at & 255) as u32)
 }
 
+/// The error diffusion of a draw: Atkinson's, which a frame keeps from band
+/// to band, or one that begins at the first row of the band (Floyd–Steinberg,
+/// ordered).
+enum Spreading {
+    Atkinson(paperpaw_graphics::diffuse::Atkinson, u8),
+    Other(super::picture_look::Spread, u8),
+}
+
+impl Spreading {
+    /// Row `grays` as grays of the frame's levels, each passed to `put`.
+    fn row(&mut self, grays: &[u8], put: impl FnMut(usize, u8)) {
+        match self {
+            Spreading::Atkinson(atkinson, levels) => atkinson.row(grays, *levels, put),
+            Spreading::Other(spread, levels) => spread.row(grays, *levels, put),
+        }
+    }
+}
+
 /// Where the diffusion of a call starts: where the band above left it, from
 /// the first row on, or, where memory for it is short, none for a `lenient`
-/// call (the frame dithers in place) and `OutOfMemory` for any other.
+/// call (the frame dithers in place) and `OutOfMemory` for any other. Other
+/// dithers than Atkinson's start at the first shown row (`from` is the
+/// picture column and row there): they keep nothing between bands.
 fn start_diffusion(
     canvas: &mut Canvas<'_>,
     levels: Option<u8>,
     (key, shown, top): (u64, i32, i32),
-    (vw, lenient): (usize, bool),
-) -> Result<
-    (i32, Option<(paperpaw_graphics::diffuse::Atkinson, u8)>),
-    paperpaw_sdk::image::ImageError,
-> {
+    (vw, lenient, dither, from): (usize, bool, Dither, (usize, i32)),
+) -> Result<(i32, Option<Spreading>), paperpaw_sdk::image::ImageError> {
     let Some(levels) = levels else {
         return Ok((shown, None));
     };
+    if dither != Dither::Atkinson {
+        let at = (from.0, usize::try_from(from.1).unwrap_or(0));
+        return match super::picture_look::Spread::new(dither, vw, at) {
+            Some(spread) => Ok((shown, Some(Spreading::Other(spread, levels)))),
+            None if lenient => Ok((shown, None)),
+            None => Err(paperpaw_sdk::image::ImageError::OutOfMemory),
+        };
+    }
     match canvas.take_diffusion(key, shown) {
-        Some(atkinson) if atkinson.width() == vw => Ok((shown, Some((atkinson, levels)))),
+        Some(atkinson) if atkinson.width() == vw => {
+            Ok((shown, Some(Spreading::Atkinson(atkinson, levels))))
+        }
         _ => match paperpaw_graphics::diffuse::Atkinson::new(vw) {
-            Some(atkinson) => Ok((top, Some((atkinson, levels)))),
+            Some(atkinson) => Ok((top, Some(Spreading::Atkinson(atkinson, levels)))),
             None if lenient => Ok((shown, None)),
             None => Err(paperpaw_sdk::image::ImageError::OutOfMemory),
         },
@@ -414,7 +454,7 @@ fn draw_source(
     area: Rect,
     opacity: u8,
     (lenient, budget): (bool, usize),
-    tones: Tones,
+    (tones, look): (Tones, Option<&super::picture_look::PictureLook>),
 ) -> Result<(), paperpaw_sdk::image::ImageError> {
     let (left, top) = (i32::from(area.x), i32::from(area.y));
     let (w, h) = (usize::from(area.width), usize::from(area.height));
@@ -446,6 +486,10 @@ fn draw_source(
         Tones::Dots => (!blended).then_some(2),
         _ => canvas.picture_levels().filter(|_| !blended),
     };
+    // The look is for grays drawn as they are, not UI dots or what shows
+    // through.
+    let look = look.filter(|_| tones != Tones::Dots && !blended);
+    let (dither, curve) = look.map_or((Dither::Atkinson, None), |l| (l.dither(), l.curve()));
     let buffers = |vw| scratch_bytes(source, (sw, vw), (wider, taller), blended, levels.is_some());
     let (mx0, mx1) = made_columns(levels.is_some(), (left, w), (vx0, vx1), (budget, buffers));
     let (skip, vw) = ((mx0 - left) as usize, (mx1 - mx0) as usize);
@@ -458,7 +502,12 @@ fn draw_source(
     if wanted > budget {
         return Err(paperpaw_sdk::image::ImageError::OutOfMemory);
     }
-    let (first, mut diffusion) = start_diffusion(canvas, levels, (key, shown, top), (vw, lenient))?;
+    let (first, mut diffusion) = start_diffusion(
+        canvas,
+        levels,
+        (key, shown, top),
+        (vw, lenient, dither, (skip, shown - top)),
+    )?;
     let mut diffused = grab(if diffusion.is_some() { vw } else { 0 })?;
     let mut rows = RowChunk::new(sw * source.bytes())?;
     // The source row a screen row comes from, as gray and opacity; made
@@ -501,11 +550,12 @@ fn draw_source(
             }
             let line: &[u8] = if between_rows { &mixed } else { &upper };
             made_row(line, &columns, blended, &mut row);
+            through(curve, &mut row);
             made = Some((above, below, ty));
         }
         match &mut diffusion {
-            Some((atkinson, levels)) => {
-                atkinson.row(&row, *levels, |x, gray| diffused[x] = gray);
+            Some(spreading) => {
+                spreading.row(&row, |x, gray| diffused[x] = gray);
                 if y >= shown {
                     let at = (vx0 - mx0) as usize;
                     canvas.draw_gray_row(vx0, y, &diffused[at..at + (vx1 - vx0) as usize]);
@@ -514,7 +564,7 @@ fn draw_source(
             None => draw_row(canvas, vx0, y, &row, blended, opacity),
         }
     }
-    if let Some((atkinson, _)) = diffusion
+    if let Some(Spreading::Atkinson(atkinson, _)) = diffusion
         && last < top + h as i32
     {
         canvas.keep_diffusion(key, last, atkinson);
@@ -683,6 +733,15 @@ fn made_row(line: &[u8], columns: &Columns, blended: bool, out: &mut [u8]) {
             out[x * 2 + 1] = (opaque / count).min(255) as u8;
         } else {
             out[x] = gray;
+        }
+    }
+}
+
+/// The grays of `row` through the look's table, if it has one.
+fn through(curve: Option<&[u8; 256]>, row: &mut [u8]) {
+    if let Some(curve) = curve {
+        for gray in row {
+            *gray = curve[usize::from(*gray)];
         }
     }
 }
