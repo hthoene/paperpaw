@@ -91,6 +91,7 @@ members = [
     "plugins/about",
     "plugins/anki",
     "plugins/picture-frame",
+    "plugins/file-sync",
     "plugins/setup",
     "plugins/update",
     "plugins/widgets",
@@ -200,6 +201,7 @@ paperpaw-plugin-wallabag = { path = "plugins/wallabag", version = "1.0.2" }
 paperpaw-plugin-about = { path = "plugins/about", version = "1.0.3" }
 paperpaw-plugin-anki = { path = "plugins/anki", version = "1.0.0" }
 paperpaw-plugin-picture-frame = { path = "plugins/picture-frame", version = "1.0.0" }
+paperpaw-plugin-file-sync = { path = "plugins/file-sync", version = "1.0.0" }
 paperpaw-plugin-setup = { path = "plugins/setup", version = "1.0.4" }
 paperpaw-plugin-update = { path = "plugins/update", version = "1.0.2" }
 paperpaw-plugin-news = { path = "plugins/news", version = "1.0.5" }
