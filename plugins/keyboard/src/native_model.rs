@@ -102,6 +102,14 @@ pub struct Look {
     pub status: u16,
 }
 
+/// How much of the screen's top the keyboard leaves free: a status line at
+/// least, and a whole header of the menus' look (`header`), which at a large
+/// text size is taller than the status line and would show cut off.
+#[must_use]
+pub fn status_strip(header: u16, status_line: u16) -> u16 {
+    header.max(status_line)
+}
+
 /// The keyboard's own settings.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Own<'a> {
