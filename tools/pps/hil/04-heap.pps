@@ -1,0 +1,26 @@
+# HIL run (tools/pps/hil, #37), limit: the largest free block at Home is at least 40,000 B (exact, no repeat). The text page is recorded only.
+include:../beta4/common.pps
+
+test:04-heap {
+  repeat:2 {
+    reset:22
+    wifi:off
+    wait:300
+    back
+    wait:2000
+    back
+    wait:30000
+    measure:home-heap:n=1:settle=0:heap=on {
+    }
+  }
+  assert:home-heap.heap_block.min>=40000:largest free block at Home >= 40 KB
+  repeat:2 {
+    reset:22
+    wifi:off
+    wait:300
+    open:$book
+    wait:12000
+    measure:text-heap:n=1:settle=0:heap=on {
+    }
+  }
+}

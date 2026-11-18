@@ -1,0 +1,12 @@
+# HIL run (tools/pps/hil, #37): leave the test device as the owner wants it: night mode off, sleep 0, switch-off never (not restored later).
+include:../beta4/common.pps
+
+test:99-leave {
+  set:core.night-mode=off
+  set:core.sleep-after=0
+  if:$target==x4 {
+    try {
+      set:x4.power-off-after=never
+    }
+  }
+}

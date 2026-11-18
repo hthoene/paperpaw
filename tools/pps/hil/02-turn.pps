@@ -1,0 +1,14 @@
+# HIL run (tools/pps/hil, #37), limit: a text page turn is first drawn within 1 s. n=10 and the median: the planned Full refresh
+# (every few turns) is a single slow sample and does not move the median.
+include:../beta4/common.pps
+
+test:02-turn {
+  call:home
+  open:$book
+  wait:5000
+  measure:turn:n=10:warm=1:settle=3000 {
+    page-forward
+  }
+  assert:turn.first_ms.median<=1000:text page turn within 1 s (planned Full not counted)
+  call:home
+}

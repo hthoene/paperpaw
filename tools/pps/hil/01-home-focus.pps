@@ -1,0 +1,16 @@
+# HIL run (tools/pps/hil, #37), limit: a Home focus move is first drawn within 1 s, with one frame (a partial redraw).
+include:../beta4/common.pps
+
+test:01-home-focus {
+  # hints off, a book read once so Home has its Continue card (00-settle did it on a run; this keeps the file usable alone)
+  call:quiet-device
+  call:home
+  expect:Continue reading
+  focus:Edit
+  left
+  measure:home-focus:n=6:warm=1:settle=3000 {
+    right
+  }
+  assert:home-focus.first_ms.median<=1000:Home focus move within 1 s
+  assert:home-focus.frames.max<=1:one frame per focus move
+}
