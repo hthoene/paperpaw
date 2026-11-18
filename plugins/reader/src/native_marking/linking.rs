@@ -332,8 +332,25 @@ fn link_bar(
         }
         None => messages.copy(host, "reader.link.none")?,
     };
+    bottom_line(ops, font, style, display, (&said, false))
+}
+
+/// A line of text on a strip at the bottom of the display, over the page: as
+/// high as a button (a link's bar), or only as high as the line (`compact`: the
+/// selection's legend, which covers as little of the page as it can).
+pub(super) fn bottom_line(
+    ops: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &UiStyle,
+    display: &Snapshot,
+    (said, compact): (&str, bool),
+) -> Result<(), Error> {
     let finger = Chips::finger(display);
-    let height = Chips::height(style, finger).saturating_add(2 * style.margin);
+    let height = if compact {
+        (style.small * 1.5) as u16 + style.margin
+    } else {
+        Chips::height(style, finger).saturating_add(2 * style.margin)
+    };
     let (width, tall) = (display.display_width(), display.display_height());
     let bar = Rect::new(0, tall.saturating_sub(height), width, height);
     paint::push(ops, Paint::Fill(bar, style.paper))?;
@@ -346,7 +363,7 @@ fn link_bar(
     )?;
     let margin = f32::from(style.margin);
     let room = f32::from(width) - 2.0 * margin;
-    let fitted = text::fit(font, style.small, &said, room)?;
+    let fitted = text::fit(font, style.small, said, room)?;
     text::label(
         ops,
         font,
