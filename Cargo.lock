@@ -1687,6 +1687,7 @@ dependencies = [
  "paperpaw-plugin-pomodoro",
  "paperpaw-plugin-power",
  "paperpaw-plugin-profiles",
+ "paperpaw-plugin-puzzles",
  "paperpaw-plugin-reader",
  "paperpaw-plugin-reading-goal",
  "paperpaw-plugin-rules",
@@ -2559,6 +2560,20 @@ dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
+]
+
+[[package]]
+name = "paperpaw-plugin-puzzles"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]

@@ -98,6 +98,7 @@ members = [
     "plugins/news",
     "plugins/weather",
     "plugins/pomodoro",
+    "plugins/puzzles",
     "plugins/plugin-manager",
     "plugins/settings",
     "plugins/home",
@@ -207,6 +208,7 @@ paperpaw-plugin-update = { path = "plugins/update", version = "1.0.2" }
 paperpaw-plugin-news = { path = "plugins/news", version = "1.0.5" }
 paperpaw-plugin-weather = { path = "plugins/weather", version = "1.0.2" }
 paperpaw-plugin-pomodoro = { path = "plugins/pomodoro", version = "1.0.0" }
+paperpaw-plugin-puzzles = { path = "plugins/puzzles", version = "1.0.0" }
 paperpaw-plugin-widgets = { path = "plugins/widgets", version = "1.0.3" }
 paperpaw-plugin-keyboard = { path = "plugins/keyboard", version = "1.1.0" }
 paperpaw-plugin-plugin-manager = { path = "plugins/plugin-manager", version = "1.0.4" }

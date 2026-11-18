@@ -191,6 +191,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "puzzles"
+path = "src/bin/puzzles.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "reading-goal"
 path = "src/bin/reading-goal.rs"
 test = false
@@ -417,6 +423,7 @@ paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview", featur
 paperpaw-plugin-opds = { path = "../../plugins/opds", features = ["native-entry"] }
 paperpaw-plugin-plugin-manager = { path = "../../plugins/plugin-manager", features = ["native-entry"] }
 paperpaw-plugin-pomodoro = { path = "../../plugins/pomodoro", features = ["native-entry"] }
+paperpaw-plugin-puzzles = { path = "../../plugins/puzzles", features = ["native-entry"] }
 paperpaw-plugin-power = { path = "../../plugins/power", features = ["native-entry"] }
 paperpaw-plugin-profiles = { path = "../../plugins/profiles", features = ["native-entry"] }
 paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", features = ["native-entry"] }
