@@ -2,9 +2,12 @@
 
 #![allow(clippy::unwrap_used, reason = "tests fail on unexpected errors")]
 
+use crate::Ask;
+use crate::Staging;
+use crate::kit::action::ActionSpec;
 use alloc::{format, rc::Rc, string::String, vec::Vec};
 use paperpaw_i18n::{Catalog, CatalogFile, MAX_READ};
-use paperpaw_sdk::{ActionSpec, Command, Id, Manifest, Plugin, RegisterError, Registrar, Version};
+use paperpaw_sdk::{Id, Manifest, RegisterError, Version};
 
 use crate::{Kernel, tests::DEVICE};
 
@@ -27,14 +30,8 @@ impl CatalogFile for File {
 const FILL: Id = Id::new_static("cache.fill");
 const CHECK: Id = Id::new_static("cache.check");
 
-struct Reader;
-
-impl Plugin for Reader {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("cache"), "Cache", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn reader() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         r.add_action(ActionSpec::new(FILL, "Fill").handler(|env, _, _| {
             for n in 0..1000 {
                 let _ = env.i18n().tr(&format!("filler.{n}"));
@@ -44,9 +41,14 @@ impl Plugin for Reader {
         r.add_action(ActionSpec::new(CHECK, "Check").handler(|env, _, out| {
             assert_eq!(env.i18n().tr("late.notice"), "Translated notice");
             assert_eq!(env.i18n().tr("late.button"), "Translated button");
-            out.push(Command::Notify(env.i18n().tr("late.notice").into()));
+            out.push(Ask::Notify(env.i18n().tr("late.notice").into()));
         }))
     }
+}
+
+/// What [`reader`] registers under.
+fn reader_manifest() -> Manifest {
+    Manifest::new(Id::new_static("cache"), "Cache", Version::new(1, 0, 0))
 }
 
 fn kernel() -> Kernel {
@@ -59,7 +61,10 @@ fn kernel() -> Kernel {
         ));
     }
     let bytes = Catalog::compile(&source).unwrap();
-    let mut kernel = Kernel::builder(DEVICE).plugin(Reader).build().unwrap();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(reader_manifest(), reader())
+        .build()
+        .unwrap();
     kernel
         .shared
         .translator
@@ -74,7 +79,7 @@ fn later_commands_translate_after_an_earlier_callback_fills_the_cache() {
     kernel
         .output
         .commands
-        .extend([Command::run(FILL), Command::run(CHECK)]);
+        .extend([Ask::run(FILL), Ask::run(CHECK)]);
     kernel.run_commands();
 }
 

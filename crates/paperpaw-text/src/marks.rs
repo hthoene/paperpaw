@@ -1,7 +1,13 @@
 //! Mark anchors read from OpenType fonts: the GPOS `mark` (mark to base)
-//! and `mkmk` (mark to mark) lookups of Arabic and Hebrew, as packs keep
-//! them (see [`crate::anchors`]). Other scripts get none: their marks stay
-//! where their glyphs put them.
+//! and `mkmk` (mark to mark) lookups of Arabic and Hebrew, and of Bengali,
+//! Devanagari, Khmer, Lao and Tibetan with their `abvm` and `blwm`, as
+//! packs keep them (see
+//! [`crate::anchors`]); for an Indic font also of its glyphs without code
+//! point (`crate::indic::GLYPHS`). Other scripts get none: their marks
+//! stay where their glyphs put them. Thai's tone marks and vowels above or
+//! below a letter take their places from the font's anchors, a tone mark
+//! over an upper vowel on the vowel; the forms a font gives a tone mark
+//! over a tall letter by contextual substitution (`ccmp`) are not applied.
 //!
 //! A font's classes are numbered per lookup and subtable, in the order of
 //! the lookups. A mark tries its mark-to-mark classes first, as a shaper
@@ -50,6 +56,9 @@ pub(crate) struct Marks<'a> {
     store: Option<ItemVariationStore<'a>>,
     arab: Script,
     hebr: Script,
+    /// Bengali and Devanagari, those the font has.
+    indic: Script,
+    thai: Script,
     /// Per GPOS lookup and subtable, the number of its first class
     /// (`None`: past what a pack holds).
     first: Vec<(u16, usize, Option<u8>)>,
@@ -78,6 +87,13 @@ impl<'a> Marks<'a> {
             {
                 s.mark = lookups(&scripts, &features, tag, b"mark");
                 s.mkmk = lookups(&scripts, &features, tag, b"mkmk");
+                if INDIC.iter().flatten().any(|t| Tag::new(t) == tag) {
+                    for feature in [b"abvm", b"blwm"] {
+                        s.mark.extend(lookups(&scripts, &features, tag, feature));
+                    }
+                    paperpaw_sort::sort(&mut s.mark);
+                    s.mark.dedup();
+                }
             }
             if let Ok(gsub) = font.gsub()
                 && let (Ok(scripts), Ok(features)) = (gsub.script_list(), gsub.feature_list())
@@ -90,40 +106,33 @@ impl<'a> Marks<'a> {
             }
             s
         };
-        let (arab, hebr) = (script(b"arab"), script(b"hebr"));
-        let mut all: Vec<u16> = [&arab, &hebr]
+        let (arab, hebr, thai) = (script(b"arab"), script(b"hebr"), script(b"thai"));
+        // An Indic script the font has: its second version's lookups, else
+        // the first's.
+        let mut indic = Script::default();
+        if let Ok(scripts) = font.gpos().and_then(|g| g.script_list()) {
+            for tags in INDIC {
+                if let Some(tag) = tags
+                    .iter()
+                    .find(|t| scripts.index_for_tag(Tag::new(t)).is_some())
+                {
+                    let s = script(tag);
+                    indic.mark.extend(s.mark);
+                    indic.mkmk.extend(s.mkmk);
+                }
+            }
+        }
+        for list in [&mut indic.mark, &mut indic.mkmk] {
+            paperpaw_sort::sort(list);
+            list.dedup();
+        }
+        let mut all: Vec<u16> = [&arab, &hebr, &indic, &thai]
             .iter()
             .flat_map(|s| s.mark.iter().chain(&s.mkmk).copied())
             .collect();
         paperpaw_sort::sort(&mut all);
         all.dedup();
-        let mut first = Vec::new();
-        let mut next = 0usize;
-        if let Ok(list) = font.gpos().and_then(|g| g.lookup_list()) {
-            for &index in &all {
-                let Ok(lookup) = list.lookups().get(usize::from(index)) else {
-                    continue;
-                };
-                let counts: Vec<usize> = match lookup.subtables() {
-                    Ok(PositionSubtables::MarkToBase(subtables)) => subtables
-                        .iter()
-                        .take(MAX_SUBTABLES)
-                        .map(|t| t.map_or(0, |t| usize::from(t.mark_class_count())))
-                        .collect(),
-                    Ok(PositionSubtables::MarkToMark(subtables)) => subtables
-                        .iter()
-                        .take(MAX_SUBTABLES)
-                        .map(|t| t.map_or(0, |t| usize::from(t.mark_class_count())))
-                        .collect(),
-                    _ => Vec::new(),
-                };
-                for (subtable, count) in counts.into_iter().enumerate() {
-                    let fits = next + count <= usize::from(Anchor::OWN);
-                    first.push((index, subtable, fits.then_some(next as u8)));
-                    next += count;
-                }
-            }
-        }
+        let first = first_classes(&font, &all);
         let em = font
             .head()
             .map_or(1000.0, |h| f32::from(h.units_per_em().max(1)));
@@ -133,6 +142,8 @@ impl<'a> Marks<'a> {
             store,
             arab,
             hebr,
+            indic,
+            thai,
             first,
             scale: 1.0 / em,
         }
@@ -145,8 +156,7 @@ impl<'a> Marks<'a> {
         let Some(script) = script_of(ch) else {
             return out;
         };
-        let charmap = skrifa::MetadataProvider::charmap(&self.font);
-        let Some(glyph) = charmap.map(ch).and_then(short) else {
+        let Some(glyph) = glyph_of(&self.font, ch) else {
             return out;
         };
         let px = |p: Point| -> Option<(i8, i8)> {
@@ -159,7 +169,12 @@ impl<'a> Marks<'a> {
                 out.push(Anchor { class, x, y });
             }
         };
-        let script = if script { &self.arab } else { &self.hebr };
+        let script = match script {
+            Of::Arabic => &self.arab,
+            Of::Hebrew => &self.hebr,
+            Of::Indic => &self.indic,
+            Of::Thai => &self.thai,
+        };
         let own = self.own(script, glyph);
         if !own.is_empty() {
             for (class, p) in own {
@@ -455,6 +470,39 @@ impl<'a> Marks<'a> {
     }
 }
 
+/// Per GPOS lookup and subtable among `all`, the number of its first
+/// class (`None`: past what a pack holds).
+fn first_classes(font: &FontRef<'_>, all: &[u16]) -> Vec<(u16, usize, Option<u8>)> {
+    let mut first = Vec::new();
+    let mut next = 0usize;
+    if let Ok(list) = font.gpos().and_then(|g| g.lookup_list()) {
+        for &index in all {
+            let Ok(lookup) = list.lookups().get(usize::from(index)) else {
+                continue;
+            };
+            let counts: Vec<usize> = match lookup.subtables() {
+                Ok(PositionSubtables::MarkToBase(subtables)) => subtables
+                    .iter()
+                    .take(MAX_SUBTABLES)
+                    .map(|t| t.map_or(0, |t| usize::from(t.mark_class_count())))
+                    .collect(),
+                Ok(PositionSubtables::MarkToMark(subtables)) => subtables
+                    .iter()
+                    .take(MAX_SUBTABLES)
+                    .map(|t| t.map_or(0, |t| usize::from(t.mark_class_count())))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            for (subtable, count) in counts.into_iter().enumerate() {
+                let fits = next + count <= usize::from(Anchor::OWN);
+                first.push((index, subtable, fits.then_some(next as u8)));
+                next += count;
+            }
+        }
+    }
+    first
+}
+
 /// A mark subtable of GPOS.
 enum Sub<'a> {
     Base(read_fonts::tables::gpos::MarkBasePosFormat1<'a>),
@@ -467,16 +515,51 @@ fn number(first: u8, class: u16) -> Option<u8> {
     u8::try_from(n).ok().filter(|&n| n < Anchor::OWN)
 }
 
-/// Whether `ch` is Arabic (`Some(true)`) or Hebrew (`Some(false)`).
-fn script_of(ch: char) -> Option<bool> {
+/// The Indic scripts' tags: the second version first.
+const INDIC: [[&[u8; 4]; 2]; 5] = [
+    [b"bng2", b"beng"],
+    [b"dev2", b"deva"],
+    [b"khmr", b"khmr"],
+    [b"lao ", b"lao "],
+    [b"tibt", b"tibt"],
+];
+
+/// The scripts marks are read for.
+enum Of {
+    Thai,
+    Arabic,
+    Hebrew,
+    /// Bengali, Devanagari, Khmer, Lao, Tibetan and the keys of glyphs
+    /// without code point.
+    Indic,
+}
+
+/// The script of `ch`, if marks are read for it.
+fn script_of(ch: char) -> Option<Of> {
     match ch {
         '\u{600}'..='\u{6ff}'
         | '\u{750}'..='\u{77f}'
         | '\u{8a0}'..='\u{8ff}'
         | '\u{fb50}'..='\u{fdff}'
-        | '\u{fe70}'..='\u{feff}' => Some(true),
-        '\u{590}'..='\u{5ff}' | '\u{fb1d}'..='\u{fb4f}' => Some(false),
+        | '\u{fe70}'..='\u{feff}' => Some(Of::Arabic),
+        '\u{590}'..='\u{5ff}' | '\u{fb1d}'..='\u{fb4f}' => Some(Of::Hebrew),
+        '\u{900}'..='\u{9ff}'
+        | '\u{e80}'..='\u{eff}'
+        | '\u{f00}'..='\u{fff}'
+        | '\u{1780}'..='\u{17ff}' => Some(Of::Indic),
+        '\u{e01}'..='\u{e5b}' => Some(Of::Thai),
+        _ if crate::indic::glyph_of_key(ch).is_some() => Some(Of::Indic),
         _ => None,
+    }
+}
+
+/// The glyph of key `ch`: by the font's character map, or the glyph a
+/// key without code point names.
+pub(crate) fn glyph_of(font: &FontRef<'_>, ch: char) -> Option<GlyphId16> {
+    let charmap = skrifa::MetadataProvider::charmap(font);
+    match charmap.map(ch) {
+        Some(glyph) => short(glyph),
+        None => crate::indic::glyph_of_key(ch).map(GlyphId16::new),
     }
 }
 
@@ -492,7 +575,7 @@ fn short(glyph: GlyphId) -> Option<GlyphId16> {
 
 /// The lookups of feature `feature` for `script` (its own language
 /// system, else the default script's), in the order they apply.
-fn lookups(
+pub(crate) fn lookups(
     scripts: &ScriptList<'_>,
     features: &FeatureList<'_>,
     script: Tag,
@@ -539,6 +622,7 @@ mod tests {
 
     const HEBREW: &[u8] = include_bytes!("../../../tools/fonts/NotoSerifHebrew.ttf");
     const ARABIC: &[u8] = include_bytes!("../../../tools/fonts/NotoNaskhArabic.ttf");
+    const THAI: &[u8] = include_bytes!("../../../tools/fonts/NotoSerifThai.ttf");
 
     /// The ink of `ch` at 20 px moved by `by`: left, top, right, bottom.
     fn ink(font: &OutlineFont, ch: char, by: (i32, i32)) -> (i32, i32, i32, i32) {
@@ -608,6 +692,41 @@ mod tests {
         .unwrap();
         let (low, high) = (ink(&font, shadda, on), ink(&font, fatha, by));
         assert!(high.1 < low.1 && high.3 < low.3, "{high:?} {low:?}");
+    }
+
+    #[test]
+    fn thai_vowels_and_tone_marks_stack_on_their_letters() {
+        let font = OutlineFont::new(THAI, &[]).unwrap();
+        // Ko kai with sara i and mai tho, and with sara u.
+        let (ko, sara_i, mai_tho, sara_u) = ('\u{e01}', '\u{e34}', '\u{e49}', '\u{e38}');
+        let letter = ink(&font, ko, (0, 0));
+        let vowel = placed(&font, sara_i, ko);
+        // The vowel over the letter, within its width.
+        assert!(
+            vowel.3 <= letter.1 + 2 && vowel.0 >= letter.0 - 2 && vowel.2 <= letter.2 + 2,
+            "{vowel:?} {letter:?}"
+        );
+        // The tone mark on the vowel, not on the letter: it clears the
+        // vowel's top (the glyphs alone overlap).
+        let held = font.anchors(sara_i, 20.0);
+        let on = anchors::place(&held, None, &font.anchors(ko, 20.0)).unwrap();
+        let by = anchors::place(
+            &font.anchors(mai_tho, 20.0),
+            Some((&held, on)),
+            &Anchors::NONE,
+        )
+        .unwrap();
+        let (low, high) = (ink(&font, sara_i, on), ink(&font, mai_tho, by));
+        assert!(high.3 <= low.1 + 1, "{high:?} {low:?}");
+        let alone = ink(&font, mai_tho, (0, 0));
+        let glyph = ink(&font, sara_i, (0, 0));
+        assert!(
+            alone.3 > glyph.1,
+            "the glyphs alone overlap: {alone:?} {glyph:?}"
+        );
+        // A vowel below a letter, under its ink.
+        let under = placed(&font, sara_u, ko);
+        assert!(under.1 >= letter.3 - 2, "{under:?} {letter:?}");
     }
 
     #[test]

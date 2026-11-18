@@ -182,8 +182,6 @@ fn a_data_plugin_found_wanting() {
 
 /// A community plugin whose setting's description is longer than its
 /// row's two lines.
-struct Wordy;
-
 static WORDY: [paperpaw_sdk::SettingSpec; 1] = [paperpaw_sdk::SettingSpec::switch(
     "wordy.long",
     "Long",
@@ -192,28 +190,21 @@ static WORDY: [paperpaw_sdk::SettingSpec; 1] = [paperpaw_sdk::SettingSpec::switc
 )
 .description("wordy.long.help")];
 
-impl paperpaw_sdk::Plugin for Wordy {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            paperpaw_sdk::Id::new_static("wordy"),
-            "Wordy",
-            paperpaw_sdk::Version::new(0, 1, 0),
-        )
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
-        r.add_settings(&WORDY)?;
-        r.add_translations(std::borrow::Cow::Borrowed(
+fn add_wordy(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = paperpaw_sdk::Manifest::new(
+        paperpaw_sdk::Id::new_static("wordy"),
+        "Wordy",
+        paperpaw_sdk::Version::new(0, 1, 0),
+    )
+    .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
+        items.add_settings(&WORDY)?;
+        items.add_translations(std::borrow::Cow::Borrowed(
             "[meta]\nlanguage = en\nname = English\nplural = one-other\n[messages]\n\
              wordy.long.help = A description that goes on and on, far longer than the two lines \
              a row of the settings gives it on a small screen, so the end of it is cut.\n",
         ))
-    }
-}
-
-fn add_wordy(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
-    builder.plugin(Wordy)
+    })
 }
 
 /// A description longer than its row is a warning: the row would cut it.

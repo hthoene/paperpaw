@@ -85,20 +85,23 @@ fn the_action_menu_entries_and_event_are_what_the_image_holds_and_the_host_admit
     }
 }
 
-/// The seven screens are what the image holds, the host admits them, and each
+/// The nine screens are what the image holds, the host admits them, and each
 /// has the id and the title pinned (those of the interface-6 registration).
 #[test]
 fn the_screens_are_what_the_image_holds_and_were_pinned() {
     let screens = batches_of!(declarations::screens);
     assert_eq!(screens.len(), image::SCREENS.len());
+    // A batch holds at most eight records: the ninth screen is a batch of its own.
+    let mut declared_screens = 0;
     for (built, image) in screens.iter().zip(image::SCREENS) {
         assert_eq!(built.as_slice(), *image);
         let records = records_decode(built).unwrap();
-        assert_eq!(records.iter().count(), 8);
+        declared_screens += records.iter().count();
         validate_batch("store", &records).unwrap();
     }
+    assert_eq!(declared_screens, 9);
     let new = declared::native("store", &screens);
-    assert_eq!(new.screens.len(), 8);
+    assert_eq!(new.screens.len(), 9);
     declared::assert_pinned("screens", &new);
 }
 
@@ -112,10 +115,45 @@ fn the_setup_step_is_what_the_image_holds_and_the_host_admits_it() {
     for (built, image) in setup.iter().zip(image::SETUP) {
         assert_eq!(built.as_slice(), *image);
         let records = records_decode(built).unwrap();
-        assert_eq!(records.iter().count(), 1);
+        assert_eq!(records.iter().count(), 2);
         validate_batch("store", &records).unwrap();
     }
     let new = declared::native("store", &setup);
-    assert_eq!(new.others.len(), 1, "{:?}", new.others);
+    assert_eq!(new.others.len(), 2, "{:?}", new.others);
     declared::assert_pinned("setup", &new);
+}
+
+/// The store hears the Wi-Fi coming up (#72): the plugins a setup template
+/// queued while offline are released then, not only at the start.
+#[test]
+fn the_store_subscribes_to_the_wifi_changing() {
+    use paperpaw_core::native_host::registrations::{Record, Registration};
+    use paperpaw_sdk::native::declare::EventKind;
+    // The tag of the wifi event, as the SDK declares it.
+    let mut one = Vec::new();
+    Declarations::new(|batch: &[u8]| {
+        one.push(batch.to_vec());
+        Ok(())
+    })
+    .subscribe_event(EventKind::WifiChanged, 99)
+    .unwrap()
+    .submit()
+    .unwrap();
+    let Some(Record::Registration(Registration::Event {
+        event_tag: wifi, ..
+    })) = records_decode(&one[0]).unwrap().iter().next()
+    else {
+        panic!("no event");
+    };
+    let mut tokens = Vec::new();
+    for batch in batches_of!(declarations::events) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::Registration(Registration::Event { event_tag, token }) = record
+                && event_tag == wifi
+            {
+                tokens.push(token);
+            }
+        }
+    }
+    assert_eq!(tokens, [declarations::WIFI_TOKEN]);
 }

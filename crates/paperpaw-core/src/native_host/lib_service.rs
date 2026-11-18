@@ -77,6 +77,9 @@ pub(crate) fn owner_stopped(host: &dyn LibHost, owner: u64, parking: bool) -> Re
     if !parking {
         host.receipts_ended(owner);
     }
+    // The place op 5 kept is a cache (`library.md` 2.1): a stopped plugin
+    // leaves none on the heap.
+    host.facets_ended();
     closed
 }
 

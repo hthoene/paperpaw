@@ -20,6 +20,12 @@ pub(crate) struct FrameState {
     pub(crate) unrendered: Option<Rect>,
     /// What [`Kernel::render`] passed last, for [`Kernel::rerender`].
     pub(crate) rendered: Option<Rect>,
+    /// Asked between bands of a frame drawn by [`Kernel::render_gray_until`]:
+    /// whether to stop (a key came).
+    pub(crate) stop: Option<fn() -> bool>,
+    /// The last [`Kernel::render_gray_until`] was stopped before its last
+    /// band.
+    pub(crate) stopped: bool,
     /// See [`KernelBuilder::row_align`].
     pub(crate) row_align: u16,
     /// The pixels of a band, where frames are drawn in bands
@@ -27,6 +33,8 @@ pub(crate) struct FrameState {
     pub(crate) band: Option<u32>,
     /// The frame shown has large pictures (see [`PICTURES_PERCENT`]).
     pub(crate) pictures_shown: bool,
+    /// The opening of the screen (`ActiveScreen::serial`) that showed them.
+    pub(crate) pictures_on: Option<u32>,
     /// The whole screen is drawn again as it was ([`Kernel::draw_again`]),
     /// in black and white after grays: not in grays for its pictures.
     pub(crate) again: bool,
@@ -35,22 +43,16 @@ pub(crate) struct FrameState {
     /// The mark shown while slow work waits, and the hint cell it is.
     pub(crate) mark: Option<(Rect, Option<usize>)>,
     pub(crate) refresh: RefreshPolicy,
-    /// What a refresh filter deferred ([`RefreshVerdict::Defer`]): it goes
-    /// with the next refresh.
-    pub(crate) deferred: Option<Rect>,
-    /// Refreshes deferred in a row (see [`MAX_DEFERS`]).
-    pub(crate) defers: u8,
     /// Areas a native screen asked for with the whole screen, drawn in the
     /// frame after it (`commands_redraw.rs`).
     pub(crate) followup: Option<crate::native_host::commands::Followup>,
     /// The screen whose follow-up the frame to draw is (its draws are marked,
     /// also when it is drawn again for the panel).
     pub(crate) followup_frame: Option<paperpaw_sdk::ScreenKey>,
+    /// The grays a screen with pictures gets after its frame in black and
+    /// white, once calm (`gray_later.rs`).
+    pub(crate) gray_later: crate::gray_later::GrayLater,
 }
-
-/// Refreshes deferred in a row at most: the next is made whatever the
-/// filters say.
-pub(crate) const MAX_DEFERS: u8 = 3;
 
 /// How a framebuffer draws, kept while it is made anew.
 #[derive(Debug, Clone, Copy)]
@@ -109,6 +111,41 @@ impl Kernel {
     /// bytes as its own, which goes meanwhile. `false` where there is no
     /// memory for it (nothing passed then).
     pub fn render_gray(&mut self, out: &mut dyn FnMut(u16, FrameView<'_>)) -> bool {
+        self.render_gray_until(out, None)
+    }
+
+    /// [`Kernel::render_gray`] that asks `stop` before each band after the
+    /// first and ends the frame there where it says so (a key came: the rest
+    /// of a pass that long is not worth waiting for); [`Kernel::gray_stopped`]
+    /// says whether it did. The frame is then partial: the shell shows none,
+    /// and draws the screen again whole afterwards.
+    pub fn render_gray_until(
+        &mut self,
+        out: &mut dyn FnMut(u16, FrameView<'_>),
+        stop: Option<fn() -> bool>,
+    ) -> bool {
+        self.frame.stop = stop;
+        self.frame.stopped = false;
+        let drawn = self.render_gray_frame(out);
+        self.frame.stop = None;
+        drawn
+    }
+
+    /// Whether the frame being drawn is to stop here (`later`: not before its
+    /// first band): asked of [`Kernel::render_gray_until`]'s `stop`.
+    fn stop_asked(&mut self, later: bool) -> bool {
+        let stop = later && self.frame.stop.is_some_and(|stop| stop());
+        self.frame.stopped |= stop;
+        stop
+    }
+
+    /// Whether the last [`Kernel::render_gray_until`] was stopped.
+    #[must_use]
+    pub fn gray_stopped(&self) -> bool {
+        self.frame.stopped
+    }
+
+    fn render_gray_frame(&mut self, out: &mut dyn FnMut(u16, FrameView<'_>)) -> bool {
         use paperpaw_platform::PixelFormat;
         let format = self.framebuffer.format();
         let bounds = self.framebuffer.bounds();
@@ -119,27 +156,34 @@ impl Kernel {
         let gray_rows = (((u32::from(rows) * bits / 2) as u16) / align * align)
             .max(align)
             .min(bounds.height);
-        // The band goes first, the gray one taking its place.
+        // The band's memory is the gray one's (as many bytes) and then the
+        // band's again: one block kept, nothing allocated between them
+        // (#306).
         let Ok(none) = Framebuffer::new(1, 1, format) else {
             return false;
         };
-        self.framebuffer = none;
+        let room = core::mem::replace(&mut self.framebuffer, none).into_data();
+        let mut room = Some(room);
         let gray = with_fewer_rows(gray_rows, align, |rows| {
-            Framebuffer::banded(bounds.width, bounds.height, rows, PixelFormat::Gray2)
+            Framebuffer::banded_in(
+                bounds.width,
+                bounds.height,
+                rows,
+                PixelFormat::Gray2,
+                room.take().unwrap_or_default(),
+            )
         });
-        let drawn = match gray {
+        let (drawn, room) = match gray {
             Some(gray) => {
-                self.framebuffer = look.on(gray);
+                let none = core::mem::replace(&mut self.framebuffer, look.on(gray));
                 self.frame.unrendered = Some(bounds);
                 self.render(out);
-                true
+                let gray = core::mem::replace(&mut self.framebuffer, none);
+                (true, gray.into_data())
             }
-            None => false,
+            None => (false, Vec::new()),
         };
-        if let Ok(none) = Framebuffer::new(1, 1, format) {
-            self.framebuffer = none;
-        }
-        self.restore_frame(look, bounds.width, bounds.height, rows, format);
+        self.restore_frame(look, bounds.width, bounds.height, rows, format, room);
         drawn
     }
 
@@ -154,10 +198,12 @@ impl Kernel {
         height: u16,
         rows: u16,
         format: paperpaw_platform::PixelFormat,
+        room: Vec<u8>,
     ) -> bool {
         let align = self.frame.row_align;
+        let mut room = Some(room);
         match with_fewer_rows(rows, align, |rows| {
-            Framebuffer::banded(width, height, rows, format)
+            Framebuffer::banded_in(width, height, rows, format, room.take().unwrap_or_default())
         }) {
             Some(framebuffer) => {
                 if framebuffer.rows() < rows {
@@ -174,6 +220,16 @@ impl Kernel {
                 false
             }
         }
+    }
+
+    /// Whether large pictures are on the screen now, and on which opening of a
+    /// screen: its `big` pictures were drawn, or they stay while less than
+    /// `most` of the screen changed.
+    fn note_pictures(&mut self, big: bool, most: bool) {
+        if big {
+            self.frame.pictures_on = self.stack.last().map(|s| s.serial);
+        }
+        self.frame.pictures_shown = big || (self.frame.pictures_shown && !most);
     }
 
     /// Draws everything that changed since the last call and passes it to
@@ -194,7 +250,7 @@ impl Kernel {
         let bounds = self.framebuffer.bounds();
         // Rows are passed whole: drawn in bands, the rest of a row would be
         // left from another band. And aligned as the shell asks.
-        let rows = self.framebuffer.rows();
+        let (narrow, rows) = self.widen_band(region);
         let region = if rows < bounds.height {
             Rect::new(0, region.y, bounds.width, region.height)
         } else {
@@ -227,7 +283,7 @@ impl Kernel {
         });
         let mut gray = Vec::new();
         let mut top = region.y - region.y % rows;
-        while u32::from(top) < region.bottom() {
+        while u32::from(top) < region.bottom() && !self.stop_asked(top > region.y) {
             self.framebuffer.set_top(top);
             if let Some(part) = region.intersection(&self.framebuffer.band()) {
                 self.redraw(part);
@@ -246,7 +302,7 @@ impl Kernel {
                         }
                     }
                 }
-                out(part.y, view);
+                self.pass_pieces(part, narrow, out);
                 // A row not written: no more of them, a picture with a
                 // gap is none.
                 if failed.is_some() {
@@ -258,7 +314,7 @@ impl Kernel {
                 break;
             }
         }
-        self.framebuffer.end_frame();
+        self.end_frame_narrow(narrow);
         self.shared.stack_rows.set_followup(None);
         // Large pictures on the screen now: the next change of most of it
         // refreshes in full.
@@ -266,7 +322,9 @@ impl Kernel {
         let screen = u32::from(bounds.width) * u32::from(bounds.height);
         let big = pictured.saturating_mul(100) >= screen.saturating_mul(PICTURES_PERCENT);
         let most = u32::from(region.width) * u32::from(region.height) * 2 >= screen;
-        self.frame.pictures_shown = big || (self.frame.pictures_shown && !most);
+        self.note_pictures(big, most);
+        let all = self.framebuffer.take_all_pictured();
+        self.gray_seen(all, screen);
         if let Some(path) = shot {
             let saved = writer.is_some_and(|w| w.is_complete());
             if !saved {
@@ -288,7 +346,7 @@ impl Kernel {
                 .shared
                 .translator
                 .format(key, &[("path", paperpaw_sdk::Arg::Str(&path))]);
-            self.output.commands.push(Command::Notify(text));
+            self.output.commands.push(Ask::Notify(text));
         }
         // Read once for all the bands; not kept past the frame.
         self.shared.recall.clear();
@@ -346,7 +404,7 @@ impl Kernel {
             .iter()
             .map(|s| s.screen.shows_through())
             .collect();
-        let env = self.shared.env(self.now);
+        let env = self.shared.place(self.shared.now);
         // Overlays that wash out what lies below them.
         let dims: Vec<bool> = self
             .stack
@@ -355,8 +413,7 @@ impl Kernel {
             .map(|(s, own)| own.is_some() && s.screen.dims_below())
             .collect();
         let full = regions.iter().rposition(Option::is_none).unwrap_or(0);
-        // From the list where a detail shows beside it.
-        let (base, line) = (self.shown_base(), self.pane_line());
+        let base = self.full_base();
         // The overlays one above shows the full screen through: not
         // drawn, covering nothing (a menu left open under a picture over
         // the page).
@@ -364,13 +421,10 @@ impl Kernel {
             .map(|k| k > full && through[k + 1..].contains(&ShowsThrough::FullScreen))
             .collect();
         let row = self.hint_row();
+        let dev_mark = self.developer.on.then(|| self.developer_mark_area().0);
         let mut canvas = self.framebuffer.canvas();
         let mut canvas = canvas.clipped(region);
         canvas.clear(Color::WHITE);
-        // Below the screens, which do not draw over it, and their overlays.
-        if let Some(line) = line.and_then(|line| line.intersection(&region)) {
-            canvas.fill(line, Color::BLACK);
-        }
         for (index, (active, own)) in self.stack[base..]
             .iter_mut()
             .zip(&regions[base..])
@@ -406,24 +460,11 @@ impl Kernel {
                 canvas.wash(area);
             }
         }
-        // The bars, each in its strip.
-        for &(index, strip) in &self.chrome_strips {
-            let chrome = &mut self.chromes[index];
-            let (Some(screen), Some(area)) = (chrome.screen.as_mut(), strip.intersection(&region))
-            else {
-                continue;
-            };
-            let device = env.device_within(strip);
-            let own_env = env.within(&device, strip);
-            let (x, y) = (i32::from(strip.x), i32::from(strip.y));
-            let _running = self.shared.meter.enter(chrome.spec.id.namespace());
-            screen.draw(&mut canvas.clipped(area).offset(x, y), &own_env);
-        }
         if let Some(row) = row
             && let Some(area) = row.intersection(&region)
         {
             let pressed = self.frame.mark.and_then(|(_, cell)| cell);
-            paperpaw_sdk::ui::draw_button_hints(
+            crate::kit::ui::draw_button_hints(
                 &mut canvas.clipped(area),
                 &env,
                 row,
@@ -435,18 +476,21 @@ impl Kernel {
         if let Some((mark, None)) = self.frame.mark
             && mark.intersection(&region).is_some()
         {
-            let style = paperpaw_sdk::ui::UiStyle::new(&env);
+            let style = crate::kit::ui::UiStyle::new(&env);
             let mut canvas = canvas.clipped(mark);
-            paperpaw_sdk::ui::fill_round(&mut canvas, &style, mark, Color::BLACK);
+            crate::kit::ui::fill_round(&mut canvas, &style, mark, Color::BLACK);
             let size = f32::from(mark.height) * 0.6;
             let sign = paperpaw_sdk::icons::PAW;
             let x = f32::from(mark.x)
-                + (f32::from(mark.width) - paperpaw_sdk::ui::icon_width(&env, sign, size)) / 2.0;
-            paperpaw_sdk::ui::draw_icon(&mut canvas, &env, sign, size, x, mark, Color::WHITE);
+                + (f32::from(mark.width) - crate::kit::ui::icon_width(&env, sign, size)) / 2.0;
+            crate::kit::ui::draw_icon(&mut canvas, &env, sign, size, x, mark, Color::WHITE);
+        }
+        if let Some(mark) = dev_mark {
+            Self::draw_developer_mark(&mut canvas, &env, mark, &region);
         }
         // A message over everything.
         if let Some((notice, _)) = &mut self.notice
-            && let Some(area) = screens::notice_area(notice.as_ref(), &env).intersection(&region)
+            && let Some(area) = screens::notice_area(notice, &env).intersection(&region)
         {
             let corner = (i32::from(env.content().x), i32::from(env.content().y));
             notice.draw(&mut canvas.clipped(area).offset(corner.0, corner.1), &env);
@@ -478,7 +522,11 @@ impl Kernel {
     /// Whether the screen as it is now has pictures enough to be shown in
     /// grays ([`PICTURES_GRAY_PERCENT`] of it): drawn aside, where only
     /// pictures are counted, nothing drawn and nothing read.
+    /// No pass where no screen shown holds a live picture (#267).
     pub(crate) fn pictures_drawn(&mut self) -> bool {
+        if !self.pictures_held() {
+            return false;
+        }
         let bounds = self.framebuffer.bounds();
         let mut aside = Framebuffer::blind(bounds.width, bounds.height);
         self.draw_aside(&mut aside.canvas());
@@ -487,18 +535,30 @@ impl Kernel {
             >= screen.saturating_mul(PICTURES_GRAY_PERCENT)
     }
 
+    /// Whether a screen drawn whole now (from the last one seen whole) may
+    /// show a picture: a plugin's screen only with an image of its own in
+    /// the table (all its pictures are drawn from there), any other always.
+    fn pictures_held(&self) -> bool {
+        let instances = &self.shared.native_instances;
+        let images = instances.hosts().map(|hosts| hosts.images());
+        self.stack[self.full_base()..].iter().any(|screen| {
+            match (instances.key_of(screen.id.namespace()), images) {
+                (Some(key), Some(images)) => images.owner_holds(key).unwrap_or(true),
+                (Some(_), None) => false,
+                (None, _) => true,
+            }
+        })
+    }
+
     /// Draws everything on the screen into `canvas`, aside: the screens
     /// from the last one seen whole, the chrome, the row of hints and a
     /// notice over them.
     fn draw_aside(&mut self, canvas: &mut paperpaw_sdk::Canvas<'_>) {
         let regions: Vec<Option<Rect>> = (0..self.stack.len()).map(|i| self.overlay(i)).collect();
         let row = self.hint_row();
-        let env = self.shared.env(self.now);
-        let (base, line) = (self.shown_base(), self.pane_line());
+        let env = self.shared.place(self.shared.now);
+        let base = self.full_base();
         {
-            if let Some(line) = line {
-                canvas.fill(line, Color::BLACK);
-            }
             for (active, own) in self.stack[base..].iter_mut().zip(&regions[base..]) {
                 let area = own.unwrap_or(active.area);
                 let device = env.device_within(active.area);
@@ -510,16 +570,8 @@ impl Kernel {
                     .screen
                     .draw(&mut canvas.clipped(area).offset(x, y), &own_env);
             }
-            for &(index, strip) in &self.chrome_strips {
-                if let Some(screen) = self.chromes[index].screen.as_mut() {
-                    let device = env.device_within(strip);
-                    let own_env = env.within(&device, strip);
-                    let (x, y) = (i32::from(strip.x), i32::from(strip.y));
-                    screen.draw(&mut canvas.clipped(strip).offset(x, y), &own_env);
-                }
-            }
             if let Some(row) = row {
-                paperpaw_sdk::ui::draw_button_hints(
+                crate::kit::ui::draw_button_hints(
                     &mut canvas.clipped(row),
                     &env,
                     row,
@@ -529,7 +581,7 @@ impl Kernel {
             }
             // A message over everything, last.
             if let Some((notice, _)) = &mut self.notice {
-                let area = screens::notice_area(notice.as_ref(), &env);
+                let area = screens::notice_area(notice, &env);
                 let corner = (i32::from(env.content().x), i32::from(env.content().y));
                 notice.draw(&mut canvas.clipped(area).offset(corner.0, corner.1), &env);
             }
@@ -548,7 +600,7 @@ impl Kernel {
             return Vec::new();
         };
         let area = self.region_of(top);
-        let env = self.shared.env(self.now);
+        let env = self.shared.place(self.shared.now);
         let active = &mut self.stack[top];
         let device = env.device_within(active.area);
         let own_env = env.within(&device, active.area);
@@ -614,8 +666,8 @@ impl Kernel {
     /// showed something of its own on the panel (e.g. a test picture).
     pub fn draw_again(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
-        self.apply(Command::Redraw(RefreshMode::Full));
+        self.shared.now = now;
+        self.apply(Ask::Redraw(RefreshMode::Full));
         self.frame.again = true;
         self.finish()
     }
@@ -624,12 +676,12 @@ impl Kernel {
     /// ([`events::DISPLAY_CHANGED`]).
     fn display_changed(&mut self) {
         let panel = self.framebuffer.bounds();
-        let class = paperpaw_sdk::ui::ScreenClass::of(&self.shared.env(self.now), panel);
+        let class = crate::kit::ui::class_of(&self.shared.place(self.shared.now), panel);
         let landscape = panel.width > panel.height;
         let changed = events::DisplayChanged::new(panel.width, panel.height, class, landscape);
         self.output
             .commands
-            .push(events::DISPLAY_CHANGED.emit(changed));
+            .push(crate::Ask::emit(&events::DISPLAY_CHANGED, changed));
     }
 
     /// The screen has another size, e.g. turned (see
@@ -639,14 +691,14 @@ impl Kernel {
     /// and the whole screen is drawn again.
     pub fn resize(&mut self, now: Instant, width: u16, height: u16) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         let panel = self.framebuffer.bounds();
         let format = self.shared.device.display.format;
         if (panel.width, panel.height) == (width, height) {
             let row = self.hint.height;
             self.apply_hint_height();
             if self.hint.height == row {
-                self.apply(Command::Redraw(RefreshMode::Full));
+                self.apply(Ask::Redraw(RefreshMode::Full));
             }
         } else if width > 0 && height > 0 {
             // Bands take as much memory as before: fewer rows where the
@@ -660,7 +712,6 @@ impl Kernel {
                 None => height,
             };
             let look = Look::of(&self.framebuffer);
-            let shown = self.shown_base();
             let before = self.framebuffer.rows();
             // The old frame goes first, the new one taking its place: beside
             // it, it would split the largest free block where memory is
@@ -668,16 +719,16 @@ impl Kernel {
             if let Ok(none) = Framebuffer::new(1, 1, format) {
                 self.framebuffer = none;
             }
-            let turned = self.restore_frame(look, width, height, rows, format);
+            let turned = self.restore_frame(look, width, height, rows, format, Vec::new());
             if turned {
                 self.shared.device.display.width = width;
                 self.shared.device.display.height = height;
                 self.hint.height = self.wanted_hint_height();
-                self.remake_screens(shown);
+                self.remake_screens();
                 self.renew_memory_notice();
                 self.display_changed();
             } else {
-                self.restore_frame(look, panel.width, panel.height, before, format);
+                self.restore_frame(look, panel.width, panel.height, before, format, Vec::new());
             }
         }
         self.finish()

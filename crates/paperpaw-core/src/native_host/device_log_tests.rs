@@ -62,7 +62,7 @@ fn the_builders_sink_reaches_a_frame_and_a_frame_line_is_cut_whole() {
         .device_log(capture)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let frame = CoreFrame {
         callback: None,
         instance: None,

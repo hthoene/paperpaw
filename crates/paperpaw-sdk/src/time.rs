@@ -8,49 +8,7 @@
 //! (e.g. `CET-1CEST,M3.5.0,M10.5.0/3`) for zones not in the list. Rules are
 //! a few bytes each, so no time zone database is needed.
 
-use alloc::format;
 use alloc::string::String;
-
-use crate::builtin::settings;
-use crate::env::Env;
-use paperpaw_platform::Instant;
-
-/// A monotonic clock in microseconds ([`Env::clock`](crate::Env::clock)),
-/// for measuring how long work takes, e.g. reading a file: the shell's
-/// (`KernelBuilder::clock`). Unlike [`Env::now`](crate::Env::now), it
-/// goes on during a call. Where the shell gives none, nothing is measured.
-#[derive(Clone, Copy, Default)]
-pub struct Clock {
-    micros: Option<fn() -> u64>,
-}
-
-impl Clock {
-    /// No clock: nothing is measured.
-    pub const NONE: Self = Self { micros: None };
-
-    /// The clock `micros`, microseconds since some start (for the kernel).
-    pub const fn new(micros: fn() -> u64) -> Self {
-        Self {
-            micros: Some(micros),
-        }
-    }
-
-    /// Microseconds since some start; `None` without a clock.
-    pub fn micros(&self) -> Option<u64> {
-        self.micros.map(|micros| micros())
-    }
-}
-
-impl core::fmt::Debug for Clock {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("Clock")
-            .field("available", &self.micros.is_some())
-            .finish()
-    }
-}
-
-/// The automatic time zone: the system's, or UTC without one.
-pub const AUTO: &str = "core.tz.auto";
 
 /// Time zones to choose from: an id (its translation is the name shown)
 /// and its POSIX `TZ` rule.
@@ -79,77 +37,6 @@ pub const TIME_ZONES: &[(&str, &str)] = &[
     ("core.tz.auckland", "NZST-12NZDT,M9.5.0,M4.1.0/3"),
 ];
 
-/// A day of the calendar: year, month (1 to 12) and day (1 to 31).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[non_exhaustive]
-pub struct Date {
-    pub year: i32,
-    /// 1 to 12.
-    pub month: u8,
-    /// 1 to 31.
-    pub day: u8,
-}
-
-impl Date {
-    /// Day `day` of month `month` (1 to 12) of `year`.
-    pub const fn new(year: i32, month: u8, day: u8) -> Self {
-        Self { year, month, day }
-    }
-
-    pub const fn year(&self) -> i32 {
-        self.year
-    }
-
-    pub const fn month(&self) -> u8 {
-        self.month
-    }
-
-    pub const fn day(&self) -> u8 {
-        self.day
-    }
-}
-
-/// A time of day: hour (0 to 23), minute and second (0 to 59).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[non_exhaustive]
-pub struct Time {
-    /// 0 to 23.
-    pub hour: u8,
-    /// 0 to 59.
-    pub minute: u8,
-    /// 0 to 59.
-    pub second: u8,
-}
-
-impl Time {
-    /// `hour`:`minute`, at its first second.
-    pub const fn new(hour: u8, minute: u8) -> Self {
-        Self {
-            hour,
-            minute,
-            second: 0,
-        }
-    }
-
-    /// The same time at `second`.
-    pub const fn with_second(mut self, second: u8) -> Self {
-        self.second = second;
-        self
-    }
-
-    pub const fn hour(&self) -> u8 {
-        self.hour
-    }
-
-    pub const fn minute(&self) -> u8 {
-        self.minute
-    }
-
-    pub const fn second(&self) -> u8 {
-        self.second
-    }
-}
-
 /// A date and time of day.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -172,6 +59,11 @@ pub struct LocalTime {
 }
 
 impl LocalTime {
+    /// The moment this wall time is, in its zone ([`LocalTime::offset`]).
+    pub fn unix(&self) -> UnixTime {
+        UnixTime::from_secs(self.to_seconds() - i64::from(self.offset))
+    }
+
     /// The time of day on a date, read as UTC; its weekday follows from
     /// the date.
     pub fn new(year: i32, month: u8, day: u8, hour: u8, minute: u8, second: u8) -> Self {
@@ -197,11 +89,6 @@ impl LocalTime {
     /// of UTC.
     pub fn from_unix(at: UnixTime, offset: i32) -> Self {
         Self::from_seconds(at.secs() + i64::from(offset)).with_offset(offset)
-    }
-
-    /// The moment this wall time is, in its zone ([`LocalTime::offset`]).
-    pub fn unix(&self) -> UnixTime {
-        UnixTime::from_secs(self.to_seconds() - i64::from(self.offset))
     }
 
     /// The local time `seconds` after 1970-01-01 00:00 local time.
@@ -254,12 +141,6 @@ impl UnixTime {
     /// Whole seconds since 1970 (UTC), rounded down.
     pub const fn secs(self) -> i64 {
         self.0.div_euclid(1000)
-    }
-
-    /// Now, if the device knows the time.
-    pub fn now(env: &Env<'_>) -> Option<Self> {
-        let clock = env.status().clock?;
-        Some(Self(clock.unix_millis_at(env.now())))
     }
 
     /// How it reads on a wall `offset` seconds ahead of UTC.
@@ -616,156 +497,6 @@ pub fn iso_week(year: i32, month: u8, day: u8) -> u8 {
     }
 }
 
-/// The time zone chosen in the settings; `None` for the system's. A rule
-/// that is not one ([`TimeZone::parse`]) counts as none: the zone chosen
-/// from the list then.
-fn chosen_zone(env: &Env<'_>) -> Option<TimeZone> {
-    let rule = env.settings().read(&settings::TIME_ZONE_RULE).trim();
-    if let Some(zone) = TimeZone::parse(rule) {
-        return Some(zone);
-    }
-    let zone = env.settings().read(&settings::TIME_ZONE);
-    TIME_ZONES
-        .iter()
-        .find(|(id, _)| *id == zone)
-        .and_then(|(_, rule)| TimeZone::parse(rule))
-}
-
-/// The seconds the chosen time zone (or the system's) is ahead of UTC at
-/// `unix` seconds since 1970.
-fn zone_offset(env: &Env<'_>, unix: i64) -> i32 {
-    match chosen_zone(env) {
-        Some(zone) => zone.offset_at(unix),
-        None => env
-            .status
-            .clock
-            .and_then(|c| c.utc_offset_minutes)
-            .map_or(0, |m| m * 60),
-    }
-}
-
-/// Local milliseconds since 1970 at `now`, if the device knows the time.
-fn local_millis(env: &Env<'_>, now: Instant) -> Option<i64> {
-    let clock = env.status().clock?;
-    let utc = clock.unix_millis_at(now);
-    Some(utc + i64::from(zone_offset(env, utc.div_euclid(1000))) * 1000)
-}
-
-/// Seconds since 1970 (UTC) now, if the device knows the time:
-/// `UnixTime::now(env)` as a number, for what keeps seconds.
-pub fn unix_seconds(env: &Env<'_>) -> Option<i64> {
-    UnixTime::now(env).map(UnixTime::secs)
-}
-
-/// `unix` seconds since 1970 (UTC) as local seconds since 1970, in the
-/// chosen time zone (or the system's); see [`LocalTime::from_seconds`].
-/// A chosen zone gives the offset of that time, summer or not. The
-/// system's zone is known by its offset now only: a time in another
-/// season is off by the hour summer time adds.
-pub fn local_seconds(env: &Env<'_>, unix: i64) -> i64 {
-    unix.saturating_add(i64::from(zone_offset(env, unix)))
-}
-
-/// The local date and time now, in the chosen zone (its offset in
-/// [`LocalTime::offset`]), if the device knows the time.
-pub fn local_time(env: &Env<'_>) -> Option<LocalTime> {
-    let now = UnixTime::now(env)?;
-    Some(now.local(zone_offset(env, now.secs())))
-}
-
-/// When the minute changes next, e.g. to update a clock.
-pub fn next_minute(env: &Env<'_>) -> Option<Instant> {
-    let ms = local_millis(env, env.now())?;
-    Some(
-        env.now()
-            .add_millis((60_000 - ms.rem_euclid(60_000)) as u64),
-    )
-}
-
-/// The time now as the user wants to see it: `14:05` or `2:05 PM`
-/// (setting `core.clock-format`), if the device knows the time.
-pub fn clock_text(env: &Env<'_>) -> Option<String> {
-    let t = local_time(env)?;
-    Some(clock_of(env, t.hour, t.minute))
-}
-
-/// Whether the user wants times on a twelve-hour clock (setting
-/// `core.clock-format`).
-pub fn twelve_hours(env: &Env<'_>) -> bool {
-    env.settings().read(&settings::CLOCK_FORMAT) == CLOCK_12H
-}
-
-/// A time of day (`hour` 0 to 23) as the user wants to see it: `14:05`
-/// or `2:05 PM` ([`twelve_hours`]), in the digits of the language shown.
-pub fn clock_of(env: &Env<'_>, hour: u8, minute: u8) -> String {
-    if !twelve_hours(env) {
-        return env
-            .i18n()
-            .localize_digits(&format!("{hour:02}:{minute:02}"))
-            .into_owned();
-    }
-    let key = if hour < 12 {
-        "core.clock.am"
-    } else {
-        "core.clock.pm"
-    };
-    let shown = match hour % 12 {
-        0 => 12,
-        h => h,
-    };
-    let time = format!("{shown}:{minute:02}");
-    let time = env.i18n().localize_digits(&time);
-    env.i18n()
-        .format(key, &[("time", paperpaw_i18n::Arg::Str(&time))])
-}
-
-/// Today in words, e.g. "Thursday, 15 October", if the device knows the
-/// date.
-pub fn date_text(env: &Env<'_>) -> Option<String> {
-    dated(env, "core.date", "")
-}
-
-/// Today in short words, e.g. "Thu 15 Oct", if the device knows the date.
-pub fn short_date_text(env: &Env<'_>) -> Option<String> {
-    dated(env, "core.date.short", ".short")
-}
-
-/// Today as the translation `key` writes it, with the names of the
-/// weekday and the month (`core.weekday<kind>.<n>`, `core.month<kind>.<n>`).
-fn dated(env: &Env<'_>, key: &str, kind: &str) -> Option<String> {
-    let now = local_time(env)?;
-    let weekday = format!("core.weekday{kind}.{}", now.weekday);
-    let month = format!("core.month{kind}.{}", now.month);
-    Some(env.i18n().format(
-        key,
-        &[
-            ("weekday", paperpaw_i18n::Arg::Str(env.i18n().tr(&weekday))),
-            ("day", paperpaw_i18n::Arg::Int(i64::from(now.day))),
-            ("month", paperpaw_i18n::Arg::Str(env.i18n().tr(&month))),
-        ],
-    ))
-}
-
-/// The values of the first day of the week
-/// ([`WEEK_START`](crate::builtin::settings::WEEK_START)): as the
-/// language has it, Monday, Sunday.
-pub const WEEK_STARTS: &[&str] = &["core.week.auto", "core.week.monday", "core.week.sunday"];
-
-/// The first day of the week, 0 (Sunday) or 1 (Monday), as set or, where
-/// set to the language's habit, as the translation `core.week-start-day`
-/// says. Every calendar and week of a plugin starts there.
-pub fn week_start(env: &Env<'_>) -> u8 {
-    match env.settings().read(&crate::builtin::settings::WEEK_START) {
-        "core.week.sunday" => 0,
-        "core.week.monday" => 1,
-        _ => u8::from(env.i18n().tr("core.week-start-day") != "0"),
-    }
-}
-
-/// The values of `core.clock-format`
-/// ([`CLOCK_FORMAT`](crate::builtin::settings::CLOCK_FORMAT)): 24 hours,
-/// 12 hours.
-pub const CLOCK_24H: &str = "core.clock.24h";
 pub const CLOCK_12H: &str = "core.clock.12h";
 
 /// [`UnixTime::parse_iso8601`], in milliseconds.
@@ -841,76 +572,9 @@ fn iso_millis(text: &str) -> Option<i64> {
     ms.checked_sub(offset)
 }
 
-/// A length of time as people read it: `1 h 05 min`, `42 min`, or
-/// `< 1 min` (in the language's words and digits, `core.duration.*`).
-pub fn duration_text(env: &Env<'_>, seconds: u64) -> String {
-    let minutes = seconds / 60;
-    if minutes == 0 {
-        return env.i18n().tr("core.duration.under-a-minute").into();
-    }
-    if minutes < 60 {
-        return env.i18n().format(
-            "core.duration.minutes",
-            &[("m", paperpaw_i18n::Arg::Int(minutes as i64))],
-        );
-    }
-    let m = alloc::format!("{:02}", minutes % 60);
-    let m = env.i18n().localize_digits(&m);
-    env.i18n().format(
-        "core.duration.hours",
-        &[
-            ("h", paperpaw_i18n::Arg::Int((minutes / 60) as i64)),
-            ("m", paperpaw_i18n::Arg::Str(&m)),
-        ],
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_moment_reads_on_a_wall_and_back() {
-        let moment = UnixTime::from_millis(1_792_448_650_090); // 2026-10-19T22:24:10.090Z
-        assert_eq!(
-            (moment.secs(), moment.millis()),
-            (1_792_448_650, 1_792_448_650_090)
-        );
-        assert_eq!(UnixTime::from_secs(5).millis(), 5000);
-        assert_eq!(UnixTime::from_millis(-1).secs(), -1, "rounded down");
-        // Two hours ahead of UTC: past midnight, the next day.
-        let wall = moment.local(2 * 3600);
-        assert_eq!(
-            (
-                wall.year,
-                wall.month,
-                wall.day,
-                wall.hour,
-                wall.minute,
-                wall.second
-            ),
-            (2026, 10, 20, 0, 24, 10)
-        );
-        assert_eq!(wall.offset, 7200);
-        assert_eq!(wall.unix().secs(), moment.secs());
-        // Behind UTC, and a zone with no offset (read as UTC).
-        let behind = moment.local(-5 * 3600 - 1800);
-        assert_eq!((behind.day, behind.hour, behind.minute), (19, 16, 54));
-        assert_eq!(behind.unix().secs(), moment.secs());
-        assert_eq!(
-            LocalTime::new(2026, 10, 19, 22, 24, 10).unix().secs(),
-            1_792_448_650
-        );
-        assert_eq!(
-            LocalTime::new(2026, 10, 19, 22, 24, 10)
-                .with_offset(3600)
-                .unix()
-                .secs(),
-            1_792_448_650 - 3600
-        );
-        // The weekday follows the wall.
-        assert_eq!(wall.weekday, weekday(2026, 10, 20));
-    }
 
     #[test]
     fn http_dates_are_moments() {

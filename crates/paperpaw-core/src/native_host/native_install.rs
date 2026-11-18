@@ -9,11 +9,12 @@ use super::{
     retained::Retained,
     shell,
 };
+use crate::kit::action::NativeAction;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE, ERR_UNSUPPORTED, Services,
 };
-use paperpaw_sdk::{Contribution, Id, NativeAction, RegisterError};
+use paperpaw_sdk::{Id, RegisterError};
 
 /// Owned mapping results; future declaration families extend this one dispatch.
 pub(super) enum Owned {
@@ -233,6 +234,11 @@ impl crate::Kernel {
         fixed: super::FixedTables,
         park: Option<super::park_linked::ParkArgs<S>>,
     ) -> Result<(), shell::Error> {
+        if self.native_batch.is_some() {
+            // One of a batch: what looks at all the plugins is done once,
+            // when it ends (`native_batch.rs`).
+            return self.admit_in_batch(host, depth, folder, report, fixed, park);
+        }
         let fonts_before = self.shared.fonts.ids().count();
         let offers_before = self.shared.registry.offers();
         let keys_before = self.native_key_count();
@@ -245,7 +251,7 @@ impl crate::Kernel {
             self.rebuild_keymap();
         }
         if self.shared.registry.offers() != offers_before {
-            // The slots now bound are known to plugins (`Env::has_slot`).
+            // The slots now bound are known to plugins (`Place::has_slot`).
             self.refresh_slots();
         }
         if self.shared.fonts.ids().count() != fonts_before {
@@ -319,7 +325,7 @@ impl crate::Kernel {
 
     /// [`Self::admit_native`] for a plugin with a table of settings kept in the
     /// program (`fixed`, empty for none).
-    fn admit_native_with<S: Services + 'static, M: 'static>(
+    pub(super) fn admit_native_with<S: Services + 'static, M: 'static>(
         &mut self,
         host: shell::Hosted<S, M>,
         depth: &FlatDepth,
@@ -444,10 +450,10 @@ impl crate::Kernel {
     }
 
     /// The slots some screen is bound to, as plugins read them
-    /// ([`paperpaw_sdk::Env::has_slot`]), made anew where offers came or went:
+    /// ([`crate::Place::has_slot`]), made anew where offers came or went:
     /// where the heap has no room for the list the one known stays, and a
     /// warning says so.
-    fn refresh_slots(&mut self) {
+    pub(super) fn refresh_slots(&mut self) {
         match self.shared.registry.try_bound_slots() {
             Some(slots) => self.shared.slots = slots,
             None => {
@@ -525,11 +531,11 @@ impl crate::Kernel {
         match self.shared.native_instances.retire(key) {
             Ok(replacement) => replacement,
             Err(status) => {
-                if self
-                    .shared
-                    .native_instances
-                    .retirement_failed(key, status, self.now.millis())
-                {
+                if self.shared.native_instances.retirement_failed(
+                    key,
+                    status,
+                    self.shared.now.millis(),
+                ) {
                     self.warn_runtime("native owner cleanup failed; retry delayed");
                 }
                 None
@@ -607,7 +613,7 @@ impl crate::Kernel {
         if let Err(status) = self
             .shared
             .native_instances
-            .retry_orphaned_retirements(self.now.millis())
+            .retry_orphaned_retirements(self.shared.now.millis())
             && status != paperpaw_native::host_glue::ERR_BUSY
         {
             self.warn_runtime(if status == paperpaw_native::host_glue::ERR_FULL {
@@ -622,7 +628,7 @@ impl crate::Kernel {
             if !self
                 .shared
                 .native_instances
-                .retirement_ready(key, self.now.millis())
+                .retirement_ready(key, self.shared.now.millis())
             {
                 continue;
             }
@@ -635,11 +641,11 @@ impl crate::Kernel {
 
     pub(crate) fn native_unload_due(&self) -> Option<paperpaw_platform::Instant> {
         if self.shared.stack_rows.closes_pending() {
-            return Some(self.now);
+            return Some(self.shared.now);
         }
         self.shared
             .native_instances
-            .retirement_due(self.now.millis())
+            .retirement_due(self.shared.now.millis())
             .map(paperpaw_platform::Instant)
     }
 
@@ -691,9 +697,7 @@ impl crate::Kernel {
                     .native_choice(setting, value)
                     .map_err(shell::Error::Status)?,
                 Owned::Setting(spec) => {
-                    staging
-                        .native(owner, Contribution::Setting(spec))
-                        .map_err(shell::Error::Status)?;
+                    staging.native_setting(spec).map_err(shell::Error::Status)?;
                 }
                 Owned::FixedSettings(list, entries) => staging
                     .native_fixed_entries(list, entries)
@@ -705,10 +709,10 @@ impl crate::Kernel {
                     );
                 }
                 Owned::FixedGroup(group) => staging
-                    .native_group(owner, paperpaw_sdk::SettingGroup::from(group))
+                    .native_group(paperpaw_sdk::SettingGroup::from(group))
                     .map_err(shell::Error::Status)?,
                 Owned::Group(group) => staging
-                    .native_group(owner, paperpaw_sdk::SettingGroup::from_boxed(group))
+                    .native_group(paperpaw_sdk::SettingGroup::from_boxed(group))
                     .map_err(shell::Error::Status)?,
             }
         }
@@ -1073,11 +1077,8 @@ fn map_declarations(
     tables: super::FixedTables,
 ) -> Result<(Id, Vec<Owned>, Vec<u32>, bool), i32> {
     // Entries are numbered in two bytes; a longer table is not used.
-    let fixed = if tables.settings.len() > usize::from(u16::MAX) {
-        &[]
-    } else {
-        tables.settings
-    };
+    let fixed = Some(tables.settings).filter(|t| t.len() <= usize::from(u16::MAX));
+    let fixed = fixed.unwrap_or(&[]);
     // The host's own id is reserved: no plugin's action passes for a host
     // one (ui.md 4.3).
     if view.plugin == crate::RESERVED_PLUGIN_ID {
@@ -1155,9 +1156,10 @@ fn map_declarations(
                     entries.push(u16::try_from(at).map_err(|_| ERR_INVALID)?);
                     return Ok(());
                 }
-                if let (Owned::Setting(_), Some(place), true) = (&value, place, fixed.is_empty()) {
-                    // Mapped, so that whatever refuses it is told as ever,
-                    // and let go: its record describes it from now on.
+                // Mapped (a refusal is told as ever), then described by its record; a secret is kept.
+                let lazy =
+                    fixed.is_empty() && !matches!(&value, Owned::Setting(s) if s.extra().secret);
+                if let (Owned::Setting(_), Some(place), true) = (&value, place, lazy) {
                     placed.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
                     placed.push(place);
                     any = true;
@@ -1426,21 +1428,17 @@ mod tests {
 
     /// An interface-6 plugin that offers `vocab.card` for `host.show` (a
     /// native plugin's setting, declared after the kernel is built).
-    struct Offers;
-    impl paperpaw_sdk::Plugin for Offers {
-        fn manifest(&self) -> paperpaw_sdk::Manifest {
-            paperpaw_sdk::Manifest::new(
-                Id::new_static("vocab"),
-                "Vocab",
-                paperpaw_sdk::Version::new(1, 0, 0),
-            )
-        }
-        fn register(
-            &self,
-            r: &mut paperpaw_sdk::Registrar,
-        ) -> Result<(), paperpaw_sdk::RegisterError> {
-            r.add_choice(Id::new_static("host.show"), "vocab.card")
-        }
+    fn offers(r: &mut crate::Staging) -> Result<(), paperpaw_sdk::RegisterError> {
+        r.add_choice(Id::new_static("host.show"), "vocab.card")
+    }
+
+    /// What [`offers`] registers under.
+    fn offers_manifest() -> paperpaw_sdk::Manifest {
+        paperpaw_sdk::Manifest::new(
+            Id::new_static("vocab"),
+            "Vocab",
+            paperpaw_sdk::Version::new(1, 0, 0),
+        )
     }
 
     /// The choice waits for the setting a native plugin declares later
@@ -1450,7 +1448,7 @@ mod tests {
         use paperpaw_sdk::{SettingKind, SettingSpec, SettingValue};
         static MODES: [&str; 1] = ["host.plain"];
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-            .plugin(Offers)
+            .items(offers_manifest(), offers)
             .build()
             .unwrap();
         // As `publish_native` defines the setting and adds the choices.
@@ -1477,7 +1475,7 @@ mod tests {
     #[test]
     fn a_choice_for_a_setting_nobody_declares_goes_at_the_start() {
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-            .plugin(Offers)
+            .items(offers_manifest(), offers)
             .build()
             .unwrap();
         assert_eq!(

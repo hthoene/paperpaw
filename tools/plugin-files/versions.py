@@ -67,6 +67,20 @@ version). `--built <dir>` takes HEAD's files from a build already made
 (`build.sh <device> <dir>`, unsigned), `--baseline <dir>` the release's;
 `--device` is the device they are built for (x4, where not given).
 
+Published bytes of the data plugins (`--published`, the release's check):
+
+    gh api --paginate --slurp repos/<owner>/<repo>/releases > releases.json
+    python3 tools/plugin-files/versions.py --release --published releases.json [--data-dir <dir>]
+
+A trailer or a commit message says what its author believes; the releases'
+own assets say what readers have. This builds the data plugins' folders
+(data.py, or `--data-dir <dir>` where they are built already), zips each as
+catalogue.py does, and fails for each whose `<id>-<version>.zip` is published
+already (GitHub's list of the releases) with other bytes: the text of a
+store page, a file, anything in the folder changed under the same version
+(`Plugin-unchanged:` and unchanged.txt do not excuse it). The message names
+the plugin and its next patch version.
+
 A commit that changed a data plugin's inputs without changing what the
 build writes, and that is in shared history (its message cannot take the
 trailer any more), is listed in unchanged.txt: its hash and the plugins,
@@ -86,6 +100,7 @@ import tempfile
 import tomllib
 
 HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
 ROOT = HERE.parent.parent
 VERSION = re.compile(r"\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?")
 TRAILER = re.compile(r"^Plugin-unchanged:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
@@ -410,11 +425,24 @@ def build_store(root, out, device, target=None):
     env = {k: v for k, v in os.environ.items() if k not in ("RUSTFLAGS", "PAPERPAW_ALLOW_UNREMAPPED")}
     if target:
         env["CARGO_TARGET_DIR"] = str(target)
-    done = subprocess.run(["bash", "tools/plugin-files7/build.sh", device, str(out)], cwd=root,
+    done = subprocess.run(["bash", BUILD, device, str(out)], cwd=root,
                           env=env, capture_output=True, text=True, encoding="utf-8")
     if done.returncode != 0:
         tail = "\n".join((done.stdout + done.stderr).strip().splitlines()[-25:])
         raise RuntimeError(f"build.sh {device} in {root} failed:\n{tail}")
+
+
+BUILD = "tools/plugin-files7/build.sh"
+
+
+def baseline_builds(since):
+    """Whether the tree at `since` has the build `build_store` runs: a release
+    before interface 7 has not, and its files are another firmware's."""
+    try:
+        git("cat-file", "-e", f"{since}:{BUILD}")
+    except subprocess.CalledProcessError:
+        return False
+    return True
 
 
 def baseline_cache():
@@ -459,9 +487,67 @@ def sign_tool():
     return ROOT / "target" / "release" / "paperpaw-sign"
 
 
+def published_data_problems(source, releases_text, fetch=None):
+    """The data plugins of data.toml whose folder, zipped as catalogue.py
+    zips it from `source` (data.py's output), differs from the zip of the
+    same name a release published: [(id, version)]. `releases_text` is
+    GitHub's list of the releases; `fetch` downloads an asset that has no
+    digest there."""
+    import catalogue
+    import data
+    import published
+
+    checksum = published.checksums(releases_text, fetch)
+    known = published.details(releases_text)
+    wrong = []
+    with tempfile.TemporaryDirectory(prefix="data-zips-") as scratch:
+        for plugin, fields in data.plugins().items():
+            name = f"{plugin}-{fields['version']}.zip"
+            if name not in known:
+                continue
+            folder = pathlib.Path(source) / plugin
+            ini = (folder / "plugin.ini").read_text(encoding="utf-8")
+            files = [
+                (path.relative_to(folder).as_posix(), path.read_bytes())
+                for path in sorted(folder.rglob("*"))
+                if path.is_file() and path.name != "plugin.ini"
+            ]
+            zipped = pathlib.Path(scratch) / name
+            catalogue.folder_zip(zipped, ini, files)
+            if hashlib.sha256(zipped.read_bytes()).hexdigest() != checksum(name):
+                wrong.append((plugin, fields["version"]))
+    return wrong
+
+
+def published_check(releases_json, data_dir=None):
+    """`--published`: prints what is wrong, says whether nothing is."""
+    text = pathlib.Path(releases_json).read_text(encoding="utf-8")
+    with tempfile.TemporaryDirectory(prefix="data-built-") as scratch:
+        source = data_dir
+        if source is None:
+            source = pathlib.Path(scratch) / "data"
+            subprocess.run([sys.executable, str(HERE / "data.py"), str(source)],
+                           cwd=ROOT, check=True, stdout=subprocess.DEVNULL)
+        wrong = published_data_problems(source, text)
+    for plugin, version in wrong:
+        suggest = next_patch(version)
+        advice = f"raise it to {suggest}" if suggest else "raise it"
+        print(f"::error file={DATA}::{plugin}: its folder at {version} has other bytes than the "
+              f"{plugin}-{version}.zip a release published, which readers have: a version is "
+              f"published once, {advice} in {DATA}")
+    if not wrong:
+        print("every data plugin's folder is the published one or has a newer version")
+    return not wrong
+
+
 def bytes_check(since, device, built=None, baseline=None, sign=None):
     """Compares HEAD's built store files with the release's (see the head
     of this file); prints what is wrong, and says whether nothing is."""
+    if baseline is None and not baseline_builds(since):
+        print(f"no byte comparison with {since}: that release has no interface-7 store "
+              f"build ({BUILD}), its files were built for another firmware, so their "
+              f"bytes cannot be compared; the version rules (--release) hold")
+        return True
     with tempfile.TemporaryDirectory(prefix="store-built-") as scratch:
         if built is None:
             built = pathlib.Path(scratch) / "now"
@@ -503,6 +589,8 @@ def main():
     parser.add_argument("--baseline")
     parser.add_argument("--device", default="x4")
     parser.add_argument("--sign")
+    parser.add_argument("--published")
+    parser.add_argument("--data-dir")
     given = parser.parse_args(sys.argv[1:])
     args = [given.since] if given.since else []
     release = given.release
@@ -548,6 +636,8 @@ def main():
     if given.bytes or given.built:
         failed = not bytes_check(since, given.device, given.built, given.baseline,
                                  given.sign) or failed
+    if given.published:
+        failed = not published_check(given.published, given.data_dir) or failed
     if failed:
         sys.exit(1)
     print(f"every plugin that changed since {since} or its own release has a newer version")

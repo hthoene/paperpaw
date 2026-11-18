@@ -427,7 +427,11 @@ pub fn mark(say: &mut dyn Say, installs: &dyn Installs, entry: &Entry) -> Result
         Some(have) if have.kind == Kind::BuiltIn && !have.enabled => "store.state.off",
         None if entry.waits_author => "store.no-build",
         None if entry.needs_newer => "store.needs-newer",
-        Some(have) if newer(entry, have, installs.takes_betas()) => "store.state.update",
+        Some(have)
+            if newer(entry, have, installs.takes_betas()) && !installs.foreign(&entry.id) =>
+        {
+            "store.state.update"
+        }
         Some(_) => "store.state.installed",
         None => {
             let mark = decimal_mark(say)?;
@@ -574,9 +578,21 @@ impl Source<'_> {
     }
 }
 
+/// The rows of the page shown, made before the draw: a draw reads nothing from
+/// the card (the X4 draws a frame in bands, each a `draw`). A page of rows is
+/// about 1.5 KiB.
+#[derive(Debug)]
+struct Page {
+    first: usize,
+    max: usize,
+    rows: Vec<RowItem>,
+}
+
 /// The rows of a list for the window of a screen.
 struct Rows<'a> {
     source: Source<'a>,
+    /// The rows made ahead, used when they are those asked for.
+    page: Option<&'a Page>,
 }
 
 impl RowSource for Rows<'_> {
@@ -591,22 +607,37 @@ impl RowSource for Rows<'_> {
         max: usize,
         out: &mut Vec<RowItem>,
     ) -> Result<(), Error> {
+        if let Some(page) = self.page.filter(|p| p.first == first && p.max == max) {
+            out.try_reserve_exact(page.rows.len())
+                .map_err(|_| Error::NoMemory)?;
+            out.extend(page.rows.iter().cloned());
+            return Ok(());
+        }
         let mut say = HostSay::new(host)?;
-        // Below the order of a list of more than a page: how to go to a page.
-        let jump = self.source.len() > max && self.source.top.contains(&Top::Sort);
-        let help = if jump && first == 0 {
-            let touch = snapshot::capture_snapshot(host)?.has_touch();
-            say.copy(if touch {
-                "store.jump.help"
-            } else {
-                "store.jump.help.buttons"
-            })?
-        } else {
-            String::new()
-        };
+        let help = jump_help(host, &mut say, &self.source, first, max)?;
         *out = self.source.rows(&mut say, first, max, &help)?;
         Ok(())
     }
+}
+
+/// Below the order of a list of more than a page: how to go to a page.
+fn jump_help(
+    host: &Host<'_>,
+    say: &mut HostSay<'_>,
+    source: &Source<'_>,
+    first: usize,
+    max: usize,
+) -> Result<String, Error> {
+    let jump = source.len() > max && source.top.contains(&Top::Sort);
+    if !jump || first != 0 {
+        return Ok(String::new());
+    }
+    let touch = snapshot::capture_snapshot(host)?.has_touch();
+    say.copy(if touch {
+        "store.jump.help"
+    } else {
+        "store.jump.help.buttons"
+    })
 }
 
 /// What the lists of the index are, to tell when a fresh list took the place of
@@ -656,6 +687,9 @@ pub struct View {
     /// The lists taken and the index's stamp when the plugins were picked.
     generation: u32,
     stamp: Option<u64>,
+    /// The rows of the page shown; `None` before they are made or when what
+    /// they show changed.
+    page: Option<Page>,
 }
 
 impl View {
@@ -673,6 +707,7 @@ impl View {
 
     /// Picks the plugins of the list anew.
     fn pick(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
+        self.page = None;
         let Some(index) = ctx.loader.index() else {
             self.hits = 0;
             self.updates = false;
@@ -686,17 +721,61 @@ impl View {
         self.updates = picked.updates;
         self.stamp = Some(stamp(index));
         self.generation = ctx.loader.generation();
-        self.retop(ctx)?;
+        // Before a page was drawn, the display says how many rows it holds.
+        let per = match self.list.per_page() {
+            0 => self.list.page_of(ctx.host, 0)?.1,
+            per => per,
+        };
+        self.retop(ctx, per)?;
+        Ok(())
+    }
+
+    /// Makes the rows of the page the focus is on, unless they are there, so
+    /// that the draw reads nothing.
+    fn prepare(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
+        let focus = self.list.focus();
+        if self.page.as_ref().is_some_and(|p| {
+            self.list.per_page() == p.max
+                && (p.first..p.first.saturating_add(p.max)).contains(&focus)
+        }) {
+            return Ok(());
+        }
+        let Some(index) = ctx.loader.index().filter(|_| self.len() > 0) else {
+            self.page = None;
+            return Ok(());
+        };
+        let (first, max) = self.list.page_of(ctx.host, self.len())?;
+        if self
+            .page
+            .as_ref()
+            .is_some_and(|p| p.first == first && p.max == max)
+        {
+            return Ok(());
+        }
+        let source = Source {
+            index,
+            storage: ctx.data,
+            installs: ctx.installs,
+            top: &self.top,
+            hits: self.hits,
+            order: self.order,
+        };
+        let mut say = HostSay::new(ctx.host)?;
+        let help = jump_help(ctx.host, &mut say, &source, first, max)?;
+        let mut rows = source.rows(&mut say, first, max, &help)?;
+        // Cut once here: a draw is made again for every band of a frame.
+        self.list.fit_notes(ctx.host, &mut rows)?;
+        self.page = Some(Page { first, max, rows });
         Ok(())
     }
 
     /// The rows above the plugins again (the rows a page holds are known once
     /// a page was drawn); whether they changed. The focus stays on its plugin.
-    fn retop(&mut self, ctx: &Ctx<'_>) -> Result<bool, Error> {
+    fn retop(&mut self, ctx: &Ctx<'_>, per_page: usize) -> Result<bool, Error> {
         let top = tops(
             &self.which,
             self.hits,
-            self.list.per_page(),
+            per_page,
             ctx.installs.has_action(FONTS),
             self.updates,
         )?;
@@ -841,8 +920,10 @@ impl Screen for View {
             empty: ItemList::new(Vec::new()),
             generation: 0,
             stamp: None,
+            page: None,
         };
         view.pick(ctx)?;
+        view.prepare(ctx)?;
         Ok(view)
     }
 
@@ -851,12 +932,15 @@ impl Screen for View {
         if self.which == Which::Installed || self.stale(ctx) {
             self.pick(ctx)?;
         }
-        Ok(())
+        // What is installed may have changed: the marks of the rows.
+        self.page = None;
+        self.prepare(ctx)
     }
 
     fn draw(&mut self, ctx: &Ctx<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
         if self.stale(ctx) {
             self.pick(ctx)?;
+            self.prepare(ctx)?;
         }
         // The words are made and put away before the page is drawn: the draw
         // has a catalog buffer of its own.
@@ -894,11 +978,13 @@ impl Screen for View {
                 hits: self.hits,
                 order: self.order,
             },
+            page: self.page.as_ref(),
         };
         self.list.draw(ctx.host, frame, &title, &mut rows, true)?;
         // Now the rows a page holds are known: *Go to letter* is for more
         // than one page.
-        if self.retop(ctx)? {
+        if self.retop(ctx, self.list.per_page())? {
+            self.page = None;
             redraw(ctx.host)?;
         }
         Ok(())
@@ -923,7 +1009,11 @@ impl Screen for View {
         {
             return Ok((Handled::Yes, self.ask_page(ctx)?));
         }
+        let focus = self.list.focus();
         let step = self.list.input(ctx.host, len, input)?;
+        if self.list.focus() != focus {
+            self.prepare(ctx)?;
+        }
         let next = match step {
             // The list may have shrunk since the frame: only a row that is there.
             ItemStep::Chosen(row) if row < self.len() => self.activate(ctx, row)?,
@@ -937,9 +1027,13 @@ impl Screen for View {
         let changed = matches!(event, Event::PluginsChanged { .. } | Event::InstallDone(_));
         if self.stale(ctx) || (changed && self.which == Which::Installed) {
             self.pick(ctx)?;
-            return Ok(Next::Redraw);
+        } else if changed {
+            self.page = None;
+        } else {
+            return Ok(Next::None);
         }
-        Ok(if changed { Next::Redraw } else { Next::None })
+        self.prepare(ctx)?;
+        Ok(Next::Redraw)
     }
 
     fn answered(&mut self, ctx: &Ctx<'_>, tag: u8, reply: Reply<'_>) -> Result<Next, Error> {
@@ -955,10 +1049,12 @@ impl Screen for View {
                 self.order = order;
                 self.list.set_focus(0);
                 self.pick(ctx)?;
+                self.prepare(ctx)?;
                 Ok(Next::Redraw)
             }
             (JUMPED, Reply::Text(typed)) => {
                 self.jump(typed);
+                self.prepare(ctx)?;
                 Ok(Next::Redraw)
             }
             _ => Ok(Next::None),
@@ -970,6 +1066,7 @@ impl Screen for View {
             return Ok(Next::None);
         }
         self.go_to_letter(ctx, value)?;
+        self.prepare(ctx)?;
         Ok(Next::Redraw)
     }
 }

@@ -1,10 +1,10 @@
 //! What follows a library move in the catalog ([`MoveCarry`] over the
-//! kernel's [`Env`]): the books' details and place in the lists, the data
+//! kernel's [`Place`]): the books' details and place in the lists, the data
 //! plugins keep by a book's path, the reader chosen for a folder, folder
 //! settings, and the library's book-moved events (`files.md` 2.6,
 //! `library.md` 6).
 //!
-//! It is bound to one step of the main loop: the kernel's `Env` (the
+//! It is bound to one step of the main loop: the kernel's `Place` (the
 //! storage, the formats, the plugins' book-data folders, the settings) and
 //! the queue the events go to. Every step is idempotent:
 //!
@@ -31,16 +31,18 @@ use super::lib_moves_host::MoveCarry;
 use super::lib_moves_walk::Resume;
 use super::lib_service::moves::{Phase, STEP_BOOKS, own};
 use super::storage::status;
+use crate::Ask;
+use crate::Place;
+use crate::kit::library::BookData;
+use crate::kit::{library, readers};
 use alloc::{format, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::{
-    Command, Editor, Env, Formats, SettingValue, Settings,
-    builtin::{events, screens, slots},
-    files, library,
-    library::BookData,
-    readers,
+    Editor, Formats, SettingValue, Settings,
+    builtin::{events, slots},
+    files,
 };
 
 /// Pieces of removals (a replaced book's data, the document caches of old
@@ -57,16 +59,12 @@ pub(crate) struct EnvCarry<'a> {
     /// The walk kept between steps.
     resume: &'a Resume,
     /// Where the events and the setting changes go (the kernel's queue).
-    out: RefCell<&'a mut dyn FnMut(Command)>,
+    out: RefCell<&'a mut dyn FnMut(Ask)>,
 }
 
 impl<'a> EnvCarry<'a> {
     /// The catalog of `env`, sending commands to `out`.
-    pub(crate) fn new(
-        env: &'a Env<'a>,
-        resume: &'a Resume,
-        out: &'a mut dyn FnMut(Command),
-    ) -> Self {
+    pub(crate) fn new(env: &'a Place<'a>, resume: &'a Resume, out: &'a mut dyn FnMut(Ask)) -> Self {
         Self::from_parts(
             env.storage(),
             env.formats(),
@@ -83,7 +81,7 @@ impl<'a> EnvCarry<'a> {
         book_data: &'a [BookData],
         settings: &'a Settings,
         resume: &'a Resume,
-        out: &'a mut dyn FnMut(Command),
+        out: &'a mut dyn FnMut(Ask),
     ) -> Self {
         Self {
             storage,
@@ -105,7 +103,7 @@ impl<'a> EnvCarry<'a> {
         self.book_data
     }
 
-    pub(super) fn send(&self, command: Command) -> Result<(), i32> {
+    pub(super) fn send(&self, command: Ask) -> Result<(), i32> {
         let mut out = self.out.try_borrow_mut().map_err(|_| ERR_BUSY)?;
         (*out)(command);
         Ok(())
@@ -177,22 +175,15 @@ impl<'a> EnvCarry<'a> {
     fn follow_folders(&self, from: &str, to: &str) -> Result<(), i32> {
         // An editor is in a setting's extra: those are kept as they are.
         for spec in self.settings.kept_specs() {
-            let folder = spec
-                .extra()
-                .editor
-                .as_ref()
-                .is_some_and(|editor| match editor {
-                    Editor::Slot(slot) => *slot == slots::CHOOSE_FOLDER,
-                    Editor::Screen(screen) => *screen == screens::FOLDER_EDITOR,
-                    // A kind of editor added later is not a folder one.
-                    _ => false,
-                });
+            let folder = spec.extra().editor.as_ref().is_some_and(
+                |editor| matches!(editor, Editor::Slot(slot) if *slot == slots::CHOOSE_FOLDER),
+            );
             if !folder {
                 continue;
             }
             let value = self.settings.text(spec.id.as_str());
             if let Some(moved) = library::moved_folder(self.storage, value, from, to) {
-                self.send(Command::SetSetting(
+                self.send(Ask::SetSetting(
                     spec.id.clone(),
                     SettingValue::Text(moved.into()),
                 ))?;
@@ -254,11 +245,14 @@ impl MoveCarry for EnvCarry<'_> {
             Phase::Events(cursor) => {
                 // A file moved is one event, whatever its name now.
                 if !files::is_dir(self.storage, to) {
-                    self.send(events::BOOK_MOVED.emit(events::BookMoved::new(
-                        from.trim_matches('/').into(),
-                        to.trim_matches('/').into(),
-                    )))?;
-                    self.send(events::LIBRARY_CHANGED.emit(()))?;
+                    self.send(crate::Ask::emit(
+                        &events::BOOK_MOVED,
+                        events::BookMoved::new(
+                            from.trim_matches('/').into(),
+                            to.trim_matches('/').into(),
+                        ),
+                    ))?;
+                    self.send(crate::Ask::emit(&events::LIBRARY_CHANGED, ()))?;
                     return Ok(Phase::Done);
                 }
                 let (books, more) = self.window(true, to, cursor)?;
@@ -271,12 +265,15 @@ impl MoveCarry for EnvCarry<'_> {
                     if self.carry_one(&old, book, &mut budget)? == Progress::More {
                         return Ok(Phase::Events(cursor + done as u64));
                     }
-                    self.send(events::BOOK_MOVED.emit(events::BookMoved::new(old, book.clone())))?;
+                    self.send(crate::Ask::emit(
+                        &events::BOOK_MOVED,
+                        events::BookMoved::new(old, book.clone()),
+                    ))?;
                 }
                 if more {
                     return Ok(Phase::Events(cursor + books.len() as u64));
                 }
-                self.send(events::LIBRARY_CHANGED.emit(()))?;
+                self.send(crate::Ask::emit(&events::LIBRARY_CHANGED, ()))?;
                 Ok(Phase::Done)
             }
             Phase::Done => Ok(Phase::Done),

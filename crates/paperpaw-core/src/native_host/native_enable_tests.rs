@@ -334,19 +334,16 @@ fn a_plugin_whose_manifest_has_no_room_is_not_listed() {
 }
 
 /// A plugin with one action, to see whether anything of it is registered.
-struct Acting;
+fn acting() -> Manifest {
+    Manifest::new(Id::new_static("acting"), "Acting", Version::new(1, 0, 0))
+}
 
-impl paperpaw_sdk::Plugin for Acting {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("acting"), "Acting", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
-        r.add_action(paperpaw_sdk::ActionSpec::new(
-            Id::new_static("acting.go"),
-            "Go",
-        ))
-    }
+/// What it adds.
+fn acting_adds(r: &mut crate::Staging) -> Result<(), paperpaw_sdk::RegisterError> {
+    r.add_action(crate::kit::action::ActionSpec::new(
+        Id::new_static("acting.go"),
+        "Go",
+    ))
 }
 
 /// A plugin whose row's copy the heap refuses is not loaded at all, rather
@@ -356,10 +353,10 @@ impl paperpaw_sdk::Plugin for Acting {
 fn a_plugin_without_room_for_its_row_is_not_loaded() {
     use crate::native_host::shell::tests::FAIL_NTH;
     let mut k = kernel("", "");
-    let manifest = paperpaw_sdk::Plugin::manifest(&Acting);
+    let manifest = acting();
     // The first allocation of the registration: the row's copy.
     FAIL_NTH.with(|n| n.set(1));
-    k.register_plugin(&Acting, manifest);
+    k.register_items(manifest, &acting_adds);
     let left = FAIL_NTH.with(|n| n.replace(0));
     assert_eq!(left, 0, "the refusal was used");
     assert!(k.plugins().get("acting").is_none());
@@ -367,7 +364,7 @@ fn a_plugin_without_room_for_its_row_is_not_loaded() {
         k.actions().get("acting.go").is_none(),
         "loaded without a row"
     );
-    k.register_plugin(&Acting, paperpaw_sdk::Plugin::manifest(&Acting));
+    k.register_items(acting(), &acting_adds);
     assert!(k.plugins().get("acting").is_some());
     assert!(k.actions().get("acting.go").is_some());
 }
@@ -395,9 +392,9 @@ fn a_switched_off_plugin_without_room_for_its_row_is_not_listed() {
     use crate::native_host::shell::tests::FAIL_NTH;
     let mut k = kernel("", "");
     let _ = k.take_warnings();
-    let manifest = paperpaw_sdk::Plugin::manifest(&Acting);
+    let manifest = acting();
     FAIL_NTH.with(|n| n.set(1));
-    k.register_off(&Acting, manifest);
+    k.list_off(manifest, &acting_adds);
     let left = FAIL_NTH.with(|n| n.replace(0));
     assert_eq!(left, 0, "the refusal was used");
     assert!(k.plugins().get("acting").is_none());
@@ -405,7 +402,7 @@ fn a_switched_off_plugin_without_room_for_its_row_is_not_listed() {
         matches!(&w.source, crate::WarningSource::Plugin(id) if id.as_str() == "acting")
             && w.message.contains("not loaded: no memory")
     }));
-    k.register_off(&Acting, paperpaw_sdk::Plugin::manifest(&Acting));
+    k.list_off(acting(), &acting_adds);
     let listed = k.plugins().get("acting").expect("listed");
     assert!(!listed.enabled);
     assert!(k.actions().get("acting.go").is_none());

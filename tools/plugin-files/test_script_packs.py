@@ -27,7 +27,8 @@ class Faces(unittest.TestCase):
         for name, entry in script_pack.SETS.items():
             if name in ADDS_TO_ANOTHER:
                 continue
-            extended = [face[3] for face in entry[1]]
+            extended = [f for face in entry[1]
+                        for f in (face[3] if isinstance(face[3], list) else [face[3]])]
             self.assertIn(INTERFACE, extended, name)
 
     def test_every_face_names_a_font_file_and_its_licence(self):

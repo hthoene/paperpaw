@@ -12,15 +12,13 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+use paperpaw_core::Place;
 use std::rc::Rc;
 use std::sync::Mutex;
 
 use paperpaw_core::KernelBuilder;
-use paperpaw_core::sdk::ui::UiStyle;
-use paperpaw_core::sdk::{
-    Canvas, Env, Id, Manifest, MemoryStorage, Plugin, RegisterError, Registrar, Screen, ScreenSpec,
-    Version,
-};
+use paperpaw_core::kit::ui::UiStyle;
+use paperpaw_core::sdk::{Canvas, Id, Manifest, MemoryStorage, Version};
 use paperpaw_emulator::{device::Device, headless, profiles};
 
 /// The most lines the page gives its text (`draw_empty`).
@@ -44,45 +42,40 @@ fn catalogue(language: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-struct Probe;
-
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("notice-probe"),
-            "Notice probe",
-            Version::new(0, 1, 0),
-        )
-        .uses(paperpaw_core::sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn probe(builder: KernelBuilder) -> KernelBuilder {
+    let manifest = Manifest::new(
+        Id::new_static("notice-probe"),
+        "Notice probe",
+        Version::new(0, 1, 0),
+    )
+    .uses(paperpaw_core::sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
+        items.add_fake(paperpaw_core::testing::FakeSpec::new(
             SCREEN,
             "Notice probe",
             Box::new(|_, _| Box::new(Look)),
         ))
-    }
+    })
 }
 
 struct Look;
 
-impl Screen for Look {
-    fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
+impl paperpaw_core::testing::Fake for Look {
+    fn draw(&mut self, _: &mut Canvas<'_>, env: &Place<'_>) {
         paperpaw_emulator::budget::untracked(|| look(env));
     }
 
     fn on_action(
         &mut self,
         _: &Id,
-        _: &mut paperpaw_core::sdk::Cx<'_, '_>,
+        _: &mut paperpaw_core::Turn<'_, '_>,
     ) -> paperpaw_core::sdk::Handled {
         paperpaw_core::sdk::Handled::No
     }
 }
 
 /// How many lines each refusal reason of the update plugin takes on the page.
-fn look(env: &Env<'_>) {
+fn look(env: &Place<'_>) {
     let style = UiStyle::new(env);
     let Some(font) = style.font(env) else {
         return;
@@ -100,7 +93,7 @@ fn look(env: &Env<'_>) {
 }
 
 fn add(builder: KernelBuilder) -> KernelBuilder {
-    builder.plugin(Probe)
+    probe(builder)
 }
 
 #[test]

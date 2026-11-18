@@ -239,6 +239,13 @@ impl Progress {
     }
 }
 
+/// [`check`] for the reading ops `list` and `stat`, which also take the book
+/// root (3) inside a `core.format` call of a folder or siblings document
+/// (`files.md` 1.1); the host answers Unsupported outside one.
+fn check_read(root: Root, path: &str) -> Result<(), Error> {
+    check(if root == Root::Book { Root::Data } else { root }, path)
+}
+
 fn check(root: Root, path: &str) -> Result<(), Error> {
     // Roots 3 and above are reserved: the service answers Unsupported, and so
     // does this check, without a call.
@@ -323,9 +330,11 @@ impl Files {
     /// # Errors
     /// NotFound for a missing folder, Invalid for a file or a malformed reply
     /// (also a page that does not go on), NoSpace for a long path, Unsupported
-    /// for a root the service does not have (the book, user CSS and cache
-    /// roots), Denied for the card without `uses.storage`, Busy while the host
-    /// uses the folder; otherwise the host's refusal.
+    /// for a root the service does not have (the user CSS and cache roots) and
+    /// for the book root ([`Root::Book`]) outside a `core.format` call of a
+    /// folder or siblings document, where a format lists its book's folder,
+    /// Denied for the card without `uses.storage`, Busy while the host uses the
+    /// folder; otherwise the host's refusal.
     pub fn list<'a>(
         &self,
         host: &Host<'_>,
@@ -335,7 +344,7 @@ impl Files {
         input: &mut [u8],
         out: &'a mut [u8],
     ) -> Result<Listing<'a>, Error> {
-        check(root, path)?;
+        check_read(root, path)?;
         let record = wire::ServiceFsList {
             root: root.wire(),
             path,
@@ -358,7 +367,7 @@ impl Files {
         input: &mut [u8],
         out: &'a mut [u8],
     ) -> Result<Entry<'a>, Error> {
-        check(root, path)?;
+        check_read(root, path)?;
         let record = wire::ServiceFsPath {
             root: root.wire(),
             path,

@@ -1,9 +1,11 @@
 //! Native screen wrappers encode scoped input without fabricating subscriptions.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 use super::*;
+use crate::Staging;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_platform::{Instant, PixelFormat};
+use paperpaw_sdk::{Manifest, RegisterError};
 
 type DrawCall = (u32, u32, u32, i32, i32, Rect);
 
@@ -24,18 +26,18 @@ struct Recorder {
     secret_now: Cell<Option<bool>>,
 }
 impl Dispatch for Recorder {
-    fn event(&self, token: u32, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, token: u32, bytes: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         self.calls.borrow_mut().push((token, bytes.to_vec()));
         Ok(self.result.get())
     }
-    fn input(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, token: u32, bytes: &[u8], env: &Place<'_>) -> Result<i32, i32> {
         self.event(token, bytes, env)
     }
     fn draw(
         &self,
         token: u32,
         frame: &wire::DrawFrame<'_>,
-        env: &Env<'_>,
+        env: &Place<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         assert_eq!((frame.x, frame.y, frame.purpose), (0, 0, 0));
@@ -53,7 +55,7 @@ impl Dispatch for Recorder {
                 height: 8,
             };
             let area = Rect::new(10, 10, 60, 60);
-            paperpaw_sdk::ui::draw_image(canvas, env.storage(), &image, area);
+            crate::kit::ui::draw_image(canvas, env.storage(), &image, area);
         }
         self.draws.borrow_mut().push((
             token,
@@ -85,13 +87,13 @@ fn shown_and_resize_use_declared_screen_token_and_full_pane_size() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(123));
+    let env = kernel.shared.place(Instant(123));
     let pane = Rect::new(5, 7, 30, 80);
     let device = env.device_within(pane);
     let env = env.within(&device, pane);
     let (mut screen, dispatch) = screen();
-    let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output);
+    let mut output = crate::Output::default();
+    let mut cx = Turn::new(&env, &mut output);
     screen.on_show(&mut cx);
     assert_eq!(screen.on_resize(&mut cx), Handled::Yes);
     for (token, bytes) in dispatch.calls.borrow().iter() {
@@ -110,7 +112,7 @@ fn draw_keeps_full_pane_dimensions_separate_from_band_clip() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(123));
+    let env = kernel.shared.place(Instant(123));
     let pane = Rect::new(5, 7, 30, 80);
     let device = env.device_within(pane);
     let env = env.within(&device, pane);
@@ -164,7 +166,7 @@ fn drawn(
     screen: &mut NativeScreen<Rc<Recorder>>,
     dispatch: &Recorder,
 ) -> usize {
-    let env = kernel.shared.env(Instant(1));
+    let env = kernel.shared.place(Instant(1));
     let mut frame = paperpaw_graphics::Framebuffer::new(40, 100, PixelFormat::Gray8).unwrap();
     let mut canvas = frame.canvas();
     let before = dispatch.draws.borrow().len();
@@ -314,7 +316,9 @@ fn input_preserves_handled_and_reports_faults_without_claiming_success() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(123));
+    let env = kernel.shared.place(Instant(123));
+    let mut output = crate::Output::default();
+    let mut cx = Turn::new(&env, &mut output);
     let (mut screen, dispatch) = screen();
     let input = Record::InputAction(wire::InputAction {
         now_ms: 123,
@@ -327,7 +331,7 @@ fn input_preserves_handled_and_reports_faults_without_claiming_success() {
         (-7, Handled::No),
     ] {
         dispatch.result.set(result);
-        assert_eq!(screen.input(input, &env), expected);
+        assert_eq!(screen.input(input, &mut cx), expected);
     }
     assert_eq!(*dispatch.dropped.borrow(), [(10, ERR_INVALID), (10, -7)]);
     let calls = dispatch.calls.borrow();
@@ -338,8 +342,8 @@ fn input_preserves_handled_and_reports_faults_without_claiming_success() {
     };
     assert_eq!(action.action, "core.next-page");
     drop(calls);
-    let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output);
+    let mut output = crate::Output::default();
+    let mut cx = Turn::new(&env, &mut output);
     assert!(screen.mode().takes_raw_keys());
     assert_eq!(
         screen.on_key(
@@ -407,10 +411,10 @@ fn decoded_pointers(dispatch: &Recorder) -> Vec<(i32, i32, u32, Option<u32>)> {
 fn interleaved_contacts_keep_their_ids_from_down_to_up() {
     let key = paperpaw_sdk::ScreenKey::new(3);
     let kernel = kernel_with_screen(key);
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = screen();
-    let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output).for_screen(key);
+    let mut output = crate::Output::default();
+    let mut cx = Turn::new(&env, &mut output).for_screen(key);
     screen.on_show(&mut cx);
     dispatch.calls.borrow_mut().clear();
     dispatch.result.set(1);
@@ -445,10 +449,10 @@ fn interleaved_contacts_keep_their_ids_from_down_to_up() {
 fn cancel_keeps_the_contact_id_and_the_extremes_pass_through() {
     let key = paperpaw_sdk::ScreenKey::new(3);
     let kernel = kernel_with_screen(key);
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = screen();
-    let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output).for_screen(key);
+    let mut output = crate::Output::default();
+    let mut cx = Turn::new(&env, &mut output).for_screen(key);
     screen.on_show(&mut cx);
     dispatch.calls.borrow_mut().clear();
     // Contact 0 (a single-contact device) is sent as 0, not left out; 255 is
@@ -480,15 +484,15 @@ fn cancel_keeps_the_contact_id_and_the_extremes_pass_through() {
 fn a_screen_below_the_top_gets_no_pointer_at_all() {
     let key = paperpaw_sdk::ScreenKey::new(3);
     let mut kernel = kernel_with_screen(key);
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = screen();
-    let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output).for_screen(key);
+    let mut output = crate::Output::default();
+    let mut cx = Turn::new(&env, &mut output).for_screen(key);
     screen.on_show(&mut cx);
     dispatch.calls.borrow_mut().clear();
     // Outside the stack (no key), and with another screen over it.
-    let mut aside = paperpaw_sdk::Output::default();
-    let mut outside = Cx::new(&env, &mut aside);
+    let mut aside = crate::Output::default();
+    let mut outside = Turn::new(&env, &mut aside);
     assert_eq!(
         screen.on_pointer(&pointer(1, PointerPhase::Down, 1, 1), &mut outside),
         Handled::No
@@ -499,9 +503,9 @@ fn a_screen_below_the_top_gets_no_pointer_at_all() {
         false,
         paperpaw_sdk::ScreenKey::new(4),
     ));
-    let env = kernel.shared.env(Instant(6));
-    let mut covered = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut covered).for_screen(key);
+    let env = kernel.shared.place(Instant(6));
+    let mut covered = crate::Output::default();
+    let mut cx = Turn::new(&env, &mut covered).for_screen(key);
     assert_eq!(
         screen.on_pointer(&pointer(1, PointerPhase::Down, 1, 1), &mut cx),
         Handled::No
@@ -532,7 +536,6 @@ fn a_screen_declared_hints_hidden_says_so_and_another_leaves_it_to_its_plugin() 
 
 #[test]
 fn a_screen_declared_to_dim_what_is_below_says_so_and_another_does_not() {
-    use paperpaw_sdk::Screen as _;
     let (screen, _) = screen();
     assert!(!screen.dims_below());
     let screen = screen.with_flags((1 << 10) | (1 << 2));
@@ -545,7 +548,6 @@ fn a_screen_declared_to_dim_what_is_below_says_so_and_another_does_not() {
 
 #[test]
 fn a_screen_declared_grays_says_so_and_another_does_not() {
-    use paperpaw_sdk::Screen as _;
     let (screen, _) = screen();
     assert!(!screen.grays());
     let screen = screen.with_flags(1 << 9);
@@ -582,11 +584,13 @@ fn typed_text_comes_in_chunks_of_1024_bytes_cut_between_characters_done_on_the_l
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
+    let mut output = crate::Output::default();
+    let mut cx = Turn::new(&env, &mut output);
     // Short: one event, as is.
     let (screen, dispatch) = fresh();
-    screen.typed("hello", false, &env);
-    screen.typed("ok", true, &env);
+    screen.typed("hello", false, &mut cx);
+    screen.typed("ok", true, &mut cx);
     assert_eq!(
         typed_calls(&dispatch),
         [("hello".into(), false), ("ok".into(), true)]
@@ -594,11 +598,11 @@ fn typed_text_comes_in_chunks_of_1024_bytes_cut_between_characters_done_on_the_l
     // Exactly the limit is one event; one more byte is two.
     let (screen, dispatch) = fresh();
     let full = "a".repeat(1024);
-    screen.typed(&full, true, &env);
+    screen.typed(&full, true, &mut cx);
     assert_eq!(typed_calls(&dispatch), [(full.clone(), true)]);
     let (screen, dispatch) = fresh();
     let over = "a".repeat(1025);
-    screen.typed(&over, true, &env);
+    screen.typed(&over, true, &mut cx);
     assert_eq!(
         typed_calls(&dispatch),
         [("a".repeat(1024), false), ("a".into(), true)]
@@ -606,7 +610,7 @@ fn typed_text_comes_in_chunks_of_1024_bytes_cut_between_characters_done_on_the_l
     // A character that straddles the limit goes whole into the next event.
     let (screen, dispatch) = fresh();
     let straddle = alloc::format!("{}é{}", "a".repeat(1023), "b".repeat(2000));
-    screen.typed(&straddle, false, &env);
+    screen.typed(&straddle, false, &mut cx);
     let calls = typed_calls(&dispatch);
     assert_eq!(calls.len(), 3);
     assert_eq!(calls[0], ("a".repeat(1023), false));
@@ -616,7 +620,7 @@ fn typed_text_comes_in_chunks_of_1024_bytes_cut_between_characters_done_on_the_l
     // Four-byte characters in a long run are never cut either.
     let (screen, dispatch) = fresh();
     let emoji = "😀".repeat(700);
-    screen.typed(&emoji, true, &env);
+    screen.typed(&emoji, true, &mut cx);
     let calls = typed_calls(&dispatch);
     let joined: alloc::string::String = calls.iter().map(|(text, _)| text.as_str()).collect();
     assert_eq!(joined, emoji);
@@ -630,17 +634,19 @@ fn empty_typed_text_confirms_only_with_done_and_a_refused_event_stops_the_rest()
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
+    let mut output = crate::Output::default();
+    let mut cx = Turn::new(&env, &mut output);
     let (screen, dispatch) = fresh();
-    screen.typed("", false, &env);
+    screen.typed("", false, &mut cx);
     assert!(dispatch.calls.borrow().is_empty());
-    screen.typed("", true, &env);
+    screen.typed("", true, &mut cx);
     assert_eq!(typed_calls(&dispatch), [("".into(), true)]);
     // The plugin refuses the first of several: its token is dropped, and
     // the others are not sent.
     let (screen, dispatch) = fresh();
     dispatch.result.set(-7);
-    screen.typed(&"a".repeat(3000), true, &env);
+    screen.typed(&"a".repeat(3000), true, &mut cx);
     assert_eq!(dispatch.calls.borrow().len(), 1);
     assert_eq!(*dispatch.dropped.borrow(), [(10, -7)]);
 }
@@ -650,10 +656,10 @@ fn only_type_text_reaches_a_screen_on_top_and_never_before_it_is_shown() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = fresh();
-    let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output);
+    let mut output = crate::Output::default();
+    let mut cx = Turn::new(&env, &mut output);
     let typed = events::TypeText::new("x".into()).done(true).to_params();
     // Not shown yet (no instance key): nothing, whatever the event.
     screen.on_event(events::TYPE_TEXT.id(), &typed, &mut cx);
@@ -672,12 +678,14 @@ fn typed_text_over_the_total_cap_is_dropped_whole_and_the_cap_itself_is_sent() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
+    let mut output = crate::Output::default();
+    let mut cx = Turn::new(&env, &mut output);
     let (screen, dispatch) = fresh();
-    screen.typed(&"a".repeat(TYPED_TOTAL_MAX + 1), true, &env);
+    screen.typed(&"a".repeat(TYPED_TOTAL_MAX + 1), true, &mut cx);
     assert!(dispatch.calls.borrow().is_empty());
     assert!(dispatch.dropped.borrow().is_empty());
-    screen.typed(&"a".repeat(TYPED_TOTAL_MAX), true, &env);
+    screen.typed(&"a".repeat(TYPED_TOTAL_MAX), true, &mut cx);
     let calls = typed_calls(&dispatch);
     assert_eq!(calls.len(), TYPED_TOTAL_MAX / 1024);
     assert_eq!(calls.iter().filter(|(_, done)| *done).count(), 1);
@@ -687,10 +695,10 @@ fn typed_text_over_the_total_cap_is_dropped_whole_and_the_cap_itself_is_sent() {
 fn a_shown_top_screen_not_offered_on_the_keyboard_slot_gets_no_typed_text() {
     let key = paperpaw_sdk::ScreenKey::new(3);
     let kernel = kernel_with_screen(key);
-    let env = kernel.shared.env(Instant(5));
+    let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = fresh();
-    let mut output = paperpaw_sdk::Output::default();
-    let mut cx = Cx::new(&env, &mut output).for_screen(key);
+    let mut output = crate::Output::default();
+    let mut cx = Turn::new(&env, &mut output).for_screen(key);
     screen.on_show(&mut cx);
     dispatch.calls.borrow_mut().clear();
     // It is shown and on top (a pointer reaches it), but no screen is
@@ -709,7 +717,7 @@ fn only_the_draw_that_counts_pictures_is_marked_as_one() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let pane = Rect::new(5, 7, 30, 80);
     let device = env.device_within(pane);
     let env = env.within(&device, pane);
@@ -726,28 +734,40 @@ fn only_the_draw_that_counts_pictures_is_marked_as_one() {
     assert_eq!(*dispatch.ids.borrow(), [0, PICTURES_ONLY_ID, 0]);
 }
 
-/// A plugin whose home screen is a native one, drawn by `Recorder`.
-struct PagePlugin(Rc<Recorder>);
+/// A page that tells `Recorder` how it was drawn: aside for the count of its
+/// pictures, or shown.
+struct Page(Rc<Recorder>);
 
-impl paperpaw_sdk::Plugin for PagePlugin {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        let id = Id::new_static("page");
-        paperpaw_sdk::Manifest::new(id, "Page", paperpaw_sdk::Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
+impl crate::testing::Fake for Page {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
+        let counted = canvas.is_blind() && !canvas.is_describing();
+        let frame = wire::DrawFrame {
+            id: if counted { PICTURES_ONLY_ID } else { 0 },
+            ..super::super::frames::screen(0, 0, 1, 1, (0, 1))
+        };
+        let _ = self.0.draw(10, &frame, env, canvas);
     }
+}
 
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
-        let dispatch = Rc::clone(&self.0);
+/// A plugin whose home screen is a native one, drawn by `Recorder`.
+fn page_plugin(kept: Rc<Recorder>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        let dispatch = Rc::clone(&kept);
         const ID: Id = Id::new_static("page.screen");
-        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             ID,
             "page",
-            alloc::boxed::Box::new(move |_, _| {
-                alloc::boxed::Box::new(NativeScreen::new(ID, 10, Rc::clone(&dispatch)))
-            }),
+            alloc::boxed::Box::new(move |_, _| alloc::boxed::Box::new(Page(Rc::clone(&dispatch)))),
         ))?;
         r.bind_slot(slots::HOME, ID, paperpaw_sdk::Priority::DEFAULT)
     }
+}
+
+/// What [`page_plugin`] registers under.
+fn page_plugin_manifest() -> Manifest {
+    let id = Id::new_static("page");
+    paperpaw_sdk::Manifest::new(id, "Page", paperpaw_sdk::Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// A black and white panel coming up with [`PagePlugin`]'s page, with a
@@ -767,7 +787,7 @@ fn page_comes_up(picture: bool) -> (bool, Rc<Recorder>) {
     dispatch.picture.set(picture);
     let mut kernel = crate::Kernel::builder(device)
         .storage(storage)
-        .plugin(PagePlugin(Rc::clone(&dispatch)))
+        .items(page_plugin_manifest(), page_plugin(Rc::clone(&dispatch)))
         .build()
         .unwrap();
     let effects = kernel.start(Instant(0));
@@ -776,16 +796,15 @@ fn page_comes_up(picture: bool) -> (bool, Rc<Recorder>) {
 }
 
 #[test]
-fn a_page_that_draws_only_its_pictures_when_told_still_comes_up_in_grays() {
+fn a_page_with_pictures_comes_up_in_black_and_white_without_a_draw_to_count_them() {
+    // Black and white first (the grays follow after a calm, `gray_later`): no
+    // draw aside to find out whether there are pictures, which was the
+    // slowest part of the frame.
     let (grays, dispatch) = page_comes_up(true);
-    assert!(grays);
-    // Counted in one draw marked for it, where the page left its text out.
+    assert!(!grays);
     let marked = |id: &&u32| **id == PICTURES_ONLY_ID;
-    assert_eq!(dispatch.ids.borrow().iter().filter(marked).count(), 1);
-    let unmarked = dispatch.ids.borrow().len() - 1;
-    assert_eq!(dispatch.texts.get(), unmarked);
-    // A page without a picture is asked the same and comes up without.
+    assert_eq!(dispatch.ids.borrow().iter().filter(marked).count(), 0);
     let (grays, dispatch) = page_comes_up(false);
     assert!(!grays);
-    assert_eq!(dispatch.ids.borrow().iter().filter(marked).count(), 1);
+    assert_eq!(dispatch.ids.borrow().iter().filter(marked).count(), 0);
 }

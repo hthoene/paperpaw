@@ -3,6 +3,7 @@
 //! whole batch is checked and every reservation is made; the kernel gives it
 //! to the instance when the open applies (`Kernel::drain_native_opens`).
 use super::{CommandBatch, CommandStage, WireCommand, ui};
+use crate::Ask;
 use crate::native_host::{
     shared::Shared,
     ui_store::{Claims, Stamp, UiStore},
@@ -11,7 +12,7 @@ use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
-use paperpaw_sdk::{Command, Id, Params, ScreenKey};
+use paperpaw_sdk::{Id, Params, ScreenKey};
 
 /// The hand-over store and the host stamp of the callback the stage serves.
 #[derive(Clone, Copy)]
@@ -120,9 +121,7 @@ impl<'a> CommandStage<'a> {
     /// As `into_ui_output`, with the opens the drain needs (hand-overs and
     /// the screens they replace). Without them the claims are rolled back
     /// when the stage is dropped.
-    pub(crate) fn into_ui_output_with_opens(
-        mut self,
-    ) -> (Vec<Command>, Option<ui::Redraw>, u8, Opens) {
+    pub(crate) fn into_ui_output_with_opens(mut self) -> (Vec<Ask>, Option<ui::Redraw>, u8, Opens) {
         self.take_ui_output_with_opens()
     }
 
@@ -131,7 +130,7 @@ impl<'a> CommandStage<'a> {
     /// rolls nothing back: its claims went with the opens.
     pub(crate) fn take_ui_output_with_opens(
         &mut self,
-    ) -> (Vec<Command>, Option<ui::Redraw>, u8, Opens) {
+    ) -> (Vec<Ask>, Option<ui::Redraw>, u8, Opens) {
         let opens = self.take_opens();
         let (commands, redraw, hop) = self.take_ui_output();
         (commands, redraw, hop, opens)
@@ -311,12 +310,12 @@ pub(super) fn named(
 }
 
 /// An open's wire fields as the kernel command that applies it.
-pub(super) fn command(target: &str, mode: u32, slot: &str) -> Result<Command, i32> {
+pub(super) fn command(target: &str, mode: u32, slot: &str) -> Result<Ask, i32> {
     let target = ui::copy_id(target)?;
     Ok(match mode {
-        0 => Command::OpenScreen(target, Params::new()),
-        1 => Command::OpenSlot(target, Params::new()),
-        2 => Command::Replace(target, Params::new()),
-        _ => Command::OpenInSlot(ui::copy_id(slot)?, target, Params::new()),
+        0 => Ask::OpenScreen(target, Params::new()),
+        1 => Ask::OpenSlot(target, Params::new()),
+        2 => Ask::Replace(target, Params::new()),
+        _ => Ask::OpenInSlot(ui::copy_id(slot)?, target, Params::new()),
     })
 }

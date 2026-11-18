@@ -7,8 +7,26 @@ use miniz_oxide::inflate::core::{DecompressorOxide, decompress, inflate_flags};
 
 use crate::{Downscaler, Fit, ImageError, ImageSink, Reader, zeroed};
 
-/// The deflate history.
+/// The deflate history (a power of two: the window wraps).
 const WINDOW: usize = 32 * 1024;
+
+/// The inflate flag for a window that holds all the data and does not wrap.
+fn non_wrapping(whole: bool) -> u32 {
+    if whole {
+        inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF
+    } else {
+        0
+    }
+}
+
+/// Where the window is written next after `written` bytes at `position`.
+fn advance(position: usize, written: usize, whole: bool) -> usize {
+    if whole {
+        position + written
+    } else {
+        (position + written) & (WINDOW - 1)
+    }
+}
 
 struct Header {
     width: u32,
@@ -356,6 +374,12 @@ pub(crate) fn decode(
     let mut decoder: Vec<DecompressorOxide> = Vec::new();
     let mut window: Vec<u8> = Vec::new();
     let mut position = 0usize;
+    // Inflating into a window of exactly the image's data (it fits the
+    // history): the output never wraps.
+    let mut whole = false;
+    // The data went on past the rows of an image whose window holds just
+    // them: nothing more is inflated.
+    let mut surplus = false;
     let mut zlib_header = 2usize;
     // Read from the stream a piece at a time: made with the window.
     let mut chunk: Vec<u8> = Vec::new();
@@ -469,6 +493,12 @@ pub(crate) fn decode(
                     let scaler = Downscaler::new(h.width, h.height, size, channels)?;
                     sink.start(scaler.out_width(), scaler.out_height())?;
                     let row_len = h.row_bytes() + 1;
+                    // An image whose rows fit the deflate history inflates
+                    // whole into a window of its size (a 6 KiB icon no
+                    // longer asks for a 32 KiB piece); a larger one wraps
+                    // through the full history.
+                    let data = u64::from(h.height).saturating_mul(row_len as u64);
+                    whole = data <= WINDOW as u64;
                     rows = Some(Rows {
                         palette,
                         colors,
@@ -491,7 +521,11 @@ pub(crate) fn decode(
                     // Made in place: pushed, its 11 KB went over the stack
                     // first.
                     decoder.resize_with(1, DecompressorOxide::default);
-                    window = zeroed(WINDOW)?;
+                    window = zeroed(if whole {
+                        (data as usize).max(1)
+                    } else {
+                        WINDOW
+                    })?;
                     chunk = zeroed(1024)?;
                 }
                 let Some(state) = rows.as_mut() else {
@@ -507,17 +541,24 @@ pub(crate) fn decode(
                     let skip = zlib_header.min(input.len());
                     input = &input[skip..];
                     zlib_header -= skip;
-                    while !input.is_empty() {
+                    while !input.is_empty() && !surplus {
                         let (status, used, written) = decompress(
                             &mut decoder[0],
                             input,
                             &mut window,
                             position,
-                            inflate_flags::TINFL_FLAG_HAS_MORE_INPUT,
+                            inflate_flags::TINFL_FLAG_HAS_MORE_INPUT | non_wrapping(whole),
                         );
                         input = &input[used..];
                         state.push(&window[position..position + written])?;
-                        position = (position + written) & (WINDOW - 1);
+                        position = advance(position, written, whole);
+                        if whole && status == TINFLStatus::HasMoreOutput && position == window.len()
+                        {
+                            // More data than the rows: the rest is left
+                            // unread, as a wrapping window's is.
+                            surplus = true;
+                            input = &[];
+                        }
                         match status {
                             TINFLStatus::Done => {
                                 input = &[];
@@ -535,10 +576,21 @@ pub(crate) fn decode(
                 let state = rows.as_mut().ok_or(ImageError::Invalid("no image data"))?;
                 // Flush what the decoder still holds.
                 loop {
-                    let (status, _, written) =
-                        decompress(&mut decoder[0], &[], &mut window, position, 0);
+                    if surplus {
+                        break;
+                    }
+                    let (status, _, written) = decompress(
+                        &mut decoder[0],
+                        &[],
+                        &mut window,
+                        position,
+                        non_wrapping(whole),
+                    );
                     state.push(&window[position..position + written])?;
-                    position = (position + written) & (WINDOW - 1);
+                    position = advance(position, written, whole);
+                    if whole && status == TINFLStatus::HasMoreOutput && position == window.len() {
+                        break;
+                    }
                     if written == 0 || status != TINFLStatus::HasMoreOutput {
                         break;
                     }

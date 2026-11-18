@@ -4,8 +4,8 @@
 use super::*;
 use crate::native_host::firmware_install::{Answer, KIND_FIRMWARE};
 use paperpaw_platform::firmware::{Signer, Text};
+use paperpaw_sdk::Instant;
 use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::{Command, Instant};
 
 fn ask(foreign: bool, restart: bool, older: bool, signer: Signer) -> Ask {
     Ask {
@@ -131,7 +131,7 @@ mod kernel_side {
         );
         let mut kernel = Kernel::builder(crate::tests::DEVICE)
             .random(fill)
-            .plugin(home::Home)
+            .items(home::home_manifest(), home::home())
             .firmware_host(alloc::boxed::Box::new(fake))
             .build()
             .unwrap();
@@ -142,35 +142,36 @@ mod kernel_side {
     /// A home screen to lie under the confirmation (a screen cannot be
     /// closed where it is the only one).
     mod home {
+        use crate::{Place, Staging, Turn};
         use paperpaw_sdk::{
-            Canvas, Cx, Env, Handled, Id, Manifest, Plugin, Priority, RegisterError, Registrar,
-            Screen, ScreenSpec, Version, builtin::slots,
+            Canvas, Handled, Id, Manifest, Priority, RegisterError, Version, builtin::slots,
         };
 
         const HOME: Id = Id::new_static("h.home");
 
         struct Page;
-        impl Screen for Page {
-            fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-            fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+        impl crate::testing::Fake for Page {
+            fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+            fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
                 Handled::No
             }
         }
 
-        pub(super) struct Home;
-        impl Plugin for Home {
-            fn manifest(&self) -> Manifest {
-                Manifest::new(Id::new_static("h"), "Home", Version::new(1, 0, 0))
-                    .uses(paperpaw_sdk::Uses::NOTHING)
-            }
-            fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-                r.add_screen(ScreenSpec::new(
+        pub(super) fn home() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+            |r| {
+                r.add_fake(crate::testing::FakeSpec::new(
                     HOME,
                     "home",
                     alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Page)),
                 ))?;
                 r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)
             }
+        }
+
+        /// What [`home`] registers under.
+        pub(super) fn home_manifest() -> Manifest {
+            Manifest::new(Id::new_static("h"), "Home", Version::new(1, 0, 0))
+                .uses(paperpaw_sdk::Uses::NOTHING)
         }
     }
 
@@ -361,33 +362,33 @@ mod kernel_side {
 
     mod lock {
         use super::*;
+        use crate::{Place, Staging, Turn};
         use core::cell::Cell;
         use paperpaw_sdk::{
-            Canvas, Cx, Env, Handled, Manifest, Plugin, Priority, RegisterError, Registrar, Screen,
-            ScreenSpec, Version, builtin::slots,
+            Canvas, Handled, Manifest, Priority, RegisterError, Version, builtin::slots,
         };
 
         const LOCK: Id = Id::new_static("g.lock");
         const HOME: Id = Id::new_static("g.home");
 
         struct Plain;
-        impl Screen for Plain {
-            fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-            fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+        impl crate::testing::Fake for Plain {
+            fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+            fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
                 Handled::No
             }
         }
 
         struct Lock(alloc::rc::Rc<Cell<bool>>);
-        impl Screen for Lock {
-            fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-            fn guards(&self) -> bool {
-                self.0.get()
+        impl crate::testing::Fake for Lock {
+            fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+            fn flags(&self) -> u32 {
+                u32::from(self.0.get()) * crate::testing::GUARDS
             }
-            fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+            fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
                 if *action == paperpaw_sdk::builtin::actions::CONFIRM {
                     self.0.set(false);
-                    cx.command(Command::Back);
+                    cx.command(crate::ask::Ask::Back);
                     Handled::Yes
                 } else {
                     Handled::No
@@ -395,28 +396,31 @@ mod kernel_side {
             }
         }
 
-        struct LockPlugin(alloc::rc::Rc<Cell<bool>>);
-        impl Plugin for LockPlugin {
-            fn manifest(&self) -> Manifest {
-                Manifest::new(Id::new_static("g"), "Guard", Version::new(1, 0, 0))
-                    .uses(paperpaw_sdk::Uses::NOTHING)
-            }
-            fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-                let locked = self.0.clone();
-                r.add_screen(ScreenSpec::new(
+        fn lock_plugin(
+            kept: alloc::rc::Rc<Cell<bool>>,
+        ) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+            move |r| {
+                let locked = kept.clone();
+                r.add_fake(crate::testing::FakeSpec::new(
                     LOCK,
                     "lock",
                     alloc::boxed::Box::new(move |_, _| {
                         alloc::boxed::Box::new(Lock(locked.clone()))
                     }),
                 ))?;
-                r.add_screen(ScreenSpec::new(
+                r.add_fake(crate::testing::FakeSpec::new(
                     HOME,
                     "home",
                     alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Plain)),
                 ))?;
                 r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)
             }
+        }
+
+        /// What [`lock_plugin`] registers under.
+        fn lock_plugin_manifest() -> Manifest {
+            Manifest::new(Id::new_static("g"), "Guard", Version::new(1, 0, 0))
+                .uses(paperpaw_sdk::Uses::NOTHING)
         }
 
         #[test]
@@ -430,7 +434,7 @@ mod kernel_side {
             );
             let mut kernel = Kernel::builder(crate::tests::DEVICE)
                 .random(super::fill)
-                .plugin(LockPlugin(locked.clone()))
+                .items(lock_plugin_manifest(), lock_plugin(locked.clone()))
                 .firmware_host(alloc::boxed::Box::new(fake))
                 .build()
                 .unwrap();

@@ -18,7 +18,23 @@ name: Store plugin update
 #
 # `plugins`: the ids, separated by commas or spaces (tools/plugin-files/
 # plugins.txt or data.toml): a batch is built, checked and published
-# together, or not at all.
+# together, or not at all. `changed` names every code plugin of plugins.txt
+# with something to publish (not published at the version it has, or changed
+# since the commit that published it, or published for another plugin
+# interface) and `all` every one of them (store_consistency.py select; data
+# plugins are named by id).
+#
+# The released interface (interface 7, #171): a format-5 file has no
+# fingerprint; the base firmware takes it by its chip, ABI major and
+# `needs_minor`, never by draft. store_consistency.py holds each plugin of
+# the batch to that, with what is published: the source's interface is the
+# base's; the plugin's metadata (what its file's header will say) needs no
+# newer minor than the base's ABI `7.<minor>`; a changed plugin has a newer
+# version than the one published; and, with the built files before they are
+# signed and with the catalogue entries before they are uploaded, the same
+# of what was really made. Nothing of it needs a branch cut at the base's
+# tag: `main` (or the integration branch the base was cut from) is built
+# against the released firmware's interface as it is.
 #
 # `ref`: `main` (the default) publishes what main has of the plugins now,
 # built against the base release's fingerprint and core libraries: a plugin
@@ -64,7 +80,9 @@ on:
   workflow_dispatch:
     inputs:
       plugins:
-        description: The plugins' ids, separated by commas or spaces (tools/plugin-files/plugins.txt or data.toml)
+        description: >-
+          The plugins' ids, separated by commas or spaces (tools/plugin-files/plugins.txt or data.toml),
+          or `changed` (every code plugin with something to publish) or `all` (every code plugin of plugins.txt)
         required: true
       base:
         description: The release whose firmware it is for (e.g. v0.6.0-beta.2)
@@ -111,6 +129,7 @@ jobs:
       plugins: ${{ steps.source.outputs.plugins }}
       code: ${{ steps.source.outputs.code }}
       store: ${{ steps.source.outputs.store }}
+      abi: ${{ steps.source.outputs.abi }}
     steps:
       # This workflow's own scripts.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -144,15 +163,26 @@ jobs:
               exit 1
             fi
           fi
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" > "$RUNNER_TEMP/releases.json"
+          # `changed` and `all` name code plugins (this workflow's script reads
+          # the source's list, the base's interface and what is published).
+          requested=()
+          for word in ${PLUGINS//,/ }; do
+            if [[ "$word" == changed || "$word" == all ]]; then
+              requested+=($(python3 -I "$trusted/tools/plugin-files/store_consistency.py" select "$word" \
+                --base "$BASE" --source "$PWD" --releases "$RUNNER_TEMP/releases.json")) || exit 1
+            else
+              requested+=("$word")
+            fi
+          done
           ids=()
-          for id in ${PLUGINS//,/ }; do
+          for id in "${requested[@]}"; do
             [[ "$id" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] || { echo "::error::$id is no plugin id"; exit 1; }
             [[ " ${ids[*]} " == *" $id "* ]] || ids+=("$id")
           done
-          [[ ${#ids[@]} -gt 0 ]] || { echo "::error::no plugin named"; exit 1; }
+          [[ ${#ids[@]} -gt 0 ]] || { echo "::error::no plugin named, or none with something to publish"; exit 1; }
           [[ ${#ids[@]} -le 20 ]] || { echo "::error::at most 20 plugins at a time"; exit 1; }
-          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases" > "$RUNNER_TEMP/releases.json"
-          list="[]" code=0 pairs=()
+          list="[]" code=0 pairs=() codes=()
           for id in "${ids[@]}"; do
             if sed -e 's/#.*//' tools/plugin-files/plugins.txt | awk 'NF { print $1 }' | grep -qx "$id"; then
               kind=code
@@ -176,6 +206,7 @@ jobs:
               version="$(python3 -I "$trusted/tools/plugin-files/store_update.py" "$id" "$BASE" \
                 --source "$PWD" --accept "$ACCEPT" "${main[@]}")" || exit 1
               code=1
+              codes+=("$id")
             fi
             tag="$id-v$version"
             if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" > /dev/null 2>&1; then
@@ -189,6 +220,16 @@ jobs:
           # not older than a version that is (this workflow's script).
           python3 -I "$trusted/tools/plugin-files/store_release.py" versions \
             --releases "$RUNNER_TEMP/releases.json" "${pairs[@]}"
+          # The released interface (interface 7): each code plugin of the batch
+          # fits the base firmware's interface and ABI minor, and is newer than
+          # what is published where it changed; prints the base's ABI `7.<minor>`,
+          # which the signing job holds the built files to (this workflow's
+          # script, the source is data to it).
+          abi=""
+          if [[ ${#codes[@]} -gt 0 ]]; then
+            abi="$(python3 -I "$trusted/tools/plugin-files/store_consistency.py" check "${codes[@]}" \
+              --base "$BASE" --source "$PWD" --releases "$RUNNER_TEMP/releases.json")" || exit 1
+          fi
           # The store release the files are added to: the same for the whole
           # batch, fixed here so that the catalogue entries say where they are.
           # Each plugin brings a file for three devices, its folder's ZIP, the
@@ -200,6 +241,7 @@ jobs:
             echo "plugins=$list"
             echo "code=$code"
             echo "store=$store"
+            echo "abi=$abi"
           } >> "$GITHUB_OUTPUT"
           echo "$list"
           echo "The store release: $store"
@@ -223,23 +265,17 @@ jobs:
         with:
           ref: ${{ needs.check.outputs.commit }}
           persist-credentials: false
-      # The base's toolchain (its actions), its core libraries and its
-      # firmware's fingerprint, so its firmware loads the plugins.
+      # The base's toolchain (its actions) and its core libraries, so its
+      # firmware loads the plugins (an interface-7 file has no fingerprint).
       - uses: ./.github/actions/xteink-tools
         with:
           device: ${{ matrix.device }}
-      - name: The base release's fingerprint and core libraries
+      - name: The base release's core libraries
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           base="${BASE#v}"
           dir="$RUNNER_TEMP/base"
-          # The X4 Classic has the X4 Pro's chip: its plugins are the
-          # Pro's, fingerprint and all, and a release names the Pro's only.
-          abi="$DEVICE"
-          [[ "$DEVICE" == x4-classic ]] && abi=x4-pro
-          gh release download "$BASE" -R "$GITHUB_REPOSITORY" -D "$dir" -p "paperpaw-$abi-$base-abi.txt"
-          echo "FINGERPRINT=$(awk 'NR == 1 { print $1 }' "$dir/paperpaw-$abi-$base-abi.txt")" >> "$GITHUB_ENV"
           if [[ "$DEVICE" != x4 ]]; then
             gh release download "$BASE" -R "$GITHUB_REPOSITORY" -D "$dir" \
               -p "paperpaw-xtensa-std-$base.tar.gz" -p "paperpaw-xtensa-std-$base.tar.gz.sha256"
@@ -274,6 +310,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       LIST: ${{ needs.check.outputs.plugins }}
+      ABI: ${{ needs.check.outputs.abi }}
     steps:
       # Nothing of the source here: this workflow's own checkout builds the
       # signing tool, checks the build's files and signs them (audit O-17:
@@ -303,6 +340,11 @@ jobs:
               tools/plugin-files/check_files.sh "dist/unsigned/unsigned-$device" target/release/paperpaw-sign \
                 "$chip" none "$id-$version-$device.ppn"
             done < <(jq -r '.[] | select(.kind == "code") | "\(.id) \(.version)"' <<< "$LIST")
+            # What the base firmware accepts of the header: its ABI major and
+            # minor (the files' own `needs_minor`, not the sources').
+            mapfile -t made < <(jq -r '.[] | select(.kind == "code") | "\(.id)=\(.version)"' <<< "$LIST")
+            python3 tools/plugin-files/store_consistency.py files "dist/unsigned/unsigned-$device" \
+              --abi "$ABI" --device "$device" "${made[@]}"
           done
       # A dry run signs with keys made for the job (the real one is for a
       # real run only).
@@ -409,6 +451,7 @@ jobs:
     env:
       LIST: ${{ needs.check.outputs.plugins }}
       STORE: ${{ needs.check.outputs.store }}
+      ABI: ${{ needs.check.outputs.abi }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -449,6 +492,15 @@ jobs:
           # Every address of the entries has a file, with the checksum of the planned one.
           python3 tools/plugin-files/release_assets.py catalogue --repo "$GITHUB_REPOSITORY" \
             --plan "$RUNNER_TEMP/store-plan.json" --releases "$RUNNER_TEMP/releases.json" dist/out/paperpaw-*-catalogue.zip
+          # The code plugins' entries say the batch's versions, newer than what is
+          # published, with builds of an ABI the base firmware accepts.
+          mapfile -t codes < <(jq -r '.[] | select(.kind == "code") | "\(.id)=\(.version)"' <<< "$LIST")
+          if [[ ${#codes[@]} -gt 0 ]]; then
+            entries=()
+            for zip in dist/out/paperpaw-*-catalogue.zip; do entries+=(--catalogue "$zip"); done
+            python3 tools/plugin-files/store_consistency.py entries --abi "$ABI" \
+              --releases "$RUNNER_TEMP/releases.json" "${entries[@]}" "${codes[@]}"
+          fi
       - name: Add them to the store release and tag the commits
         env:
           GH_TOKEN: ${{ github.token }}

@@ -5,6 +5,7 @@
 //! tests are in `tests/`.
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::services_wire::{self, ServiceOp};
 use crate::native_host::{
     admitted_features::AdmittedFeatures,
@@ -15,7 +16,7 @@ use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_i18n::Translator;
 use paperpaw_platform::{DirEntry, Instant, StorageError};
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 
 #[path = "tests/book.rs"]
 mod book;
@@ -87,6 +88,9 @@ pub(super) struct Card {
     pub(super) total: Cell<Option<u64>>,
     /// Counts of the storage calls that change the card.
     pub(super) changes: Cell<u32>,
+    /// A storage that answers the listings instead of the tables (a real FAT
+    /// card, for the stack depth of the route, #256).
+    pub(super) backing: Cell<Option<&'static dyn Storage>>,
 }
 
 fn parent(path: &str) -> &str {
@@ -104,6 +108,7 @@ impl Card {
             free: Cell::new(Some(100 << 20)),
             total: Cell::new(Some(1 << 30)),
             changes: Cell::new(0),
+            backing: Cell::new(None),
         }
     }
 
@@ -289,6 +294,9 @@ impl Storage for Card {
         from: u64,
         visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
     ) -> Result<Option<u64>, StorageError> {
+        if let Some(backing) = self.backing.get() {
+            return backing.list_from(dir, from, visit);
+        }
         self.check()?;
         self.folder(dir)?;
         let mut at = from;
@@ -620,12 +628,12 @@ impl MoveHost for Library<'_> {
 
 /// A frame whose storage view is the fake card.
 pub(super) struct TestFrame<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     card: Option<&'a Card>,
     plugin: &'static str,
     hosts: crate::native_host::host_services::HostServices,
     pub(super) granted: bool,
-    /// Whether the frame gives the kernel's `Env` (its formats).
+    /// Whether the frame gives the kernel's `Place` (its formats).
     kernel: bool,
 }
 
@@ -639,7 +647,7 @@ impl Frame for TestFrame<'_> {
     fn storage(&self) -> Option<&dyn Storage> {
         self.card.map(|card| card as &dyn Storage)
     }
-    fn kernel_env(&self) -> Option<&Env<'_>> {
+    fn kernel_env(&self) -> Option<&Place<'_>> {
         self.kernel.then_some(self.env)
     }
 }
@@ -698,13 +706,11 @@ pub(super) fn with<R>(
                 paperpaw_sdk::Id::new_static("test.epub"),
                 "EPUB",
                 std::vec![alloc::borrow::Cow::Borrowed("epub")],
-                alloc::boxed::Box::new(|_, _, _| {
-                    Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat)
-                }),
+                |_, _, _| Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat),
             ))
             .unwrap();
     }
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     if setup.wired {
         hosts.wire_files(host.clone()).unwrap();

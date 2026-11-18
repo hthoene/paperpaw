@@ -69,7 +69,7 @@ fn with_adapter<R>(
                 .ok_or(ERR_INVALID)?
                 .with_card(Card {
                     files: format.files,
-                    formats: frame.kernel_env().map(paperpaw_sdk::Env::formats),
+                    formats: frame.kernel_env().map(crate::Place::formats),
                 });
             return call(&adapter);
         }

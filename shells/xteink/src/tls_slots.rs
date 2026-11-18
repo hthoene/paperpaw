@@ -4,7 +4,7 @@
 //! first: a [`Waiter`] asks, and is given a [`Slot`] once one is free; the
 //! slot goes back when it is dropped, with the session that holds it.
 
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 
 use critical_section::Mutex;
 use paperpaw_x4::tls_gate::Gate;
@@ -14,6 +14,20 @@ use paperpaw_x4::tls_gate::Gate;
 pub const SESSIONS: u8 = if cfg!(feature = "esp32c3") { 1 } else { 2 };
 
 static GATE: Mutex<RefCell<Gate>> = Mutex::new(RefCell::new(Gate::new(SESSIONS)));
+
+/// A secure request was started and the heap not yet looked at for it.
+static ROOM_ASKED: Mutex<Cell<bool>> = Mutex::new(Cell::new(false));
+
+/// A secure request starts: the main loop makes room for its session before
+/// it opens, where the heap is short ([`take_room_asked`]).
+pub fn ask_room() {
+    critical_section::with(|cs| ROOM_ASKED.borrow(cs).set(true));
+}
+
+/// Whether a secure request started since the last call.
+pub fn take_room_asked() -> bool {
+    critical_section::with(|cs| ROOM_ASKED.borrow(cs).replace(false))
+}
 
 /// One of the device's TLS sessions, held.
 #[derive(Debug)]

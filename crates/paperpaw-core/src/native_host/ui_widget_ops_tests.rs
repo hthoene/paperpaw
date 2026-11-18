@@ -3,6 +3,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::{
     context::{ComposeKind, HostStatus, ui_views::Declared},
     services_wire,
@@ -23,7 +24,7 @@ use core::cell::{Cell, RefCell};
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 
 const ME: u64 = 1;
 const A: u64 = 2;
@@ -63,7 +64,7 @@ impl UiDirectory for Dir {
 }
 
 struct World<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     hosts: HostServices,
     dir: Dir,
     rows: RefCell<Vec<Row>>,
@@ -298,7 +299,7 @@ fn world<R>(f: impl FnOnce(&World<'_>) -> R) -> R {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = HostServices::new();
     hosts
         .wire_ui(UiServices::new(

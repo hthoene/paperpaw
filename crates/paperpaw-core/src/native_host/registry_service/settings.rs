@@ -222,7 +222,9 @@ fn with_row<R>(
     .unwrap_or_else(|_| (extra.slider, settings.shows(spec)));
     // Not for this device (a front light it lacks): as the settings screen of
     // interface 6 left it out, so does this row say it is not shown.
-    let shown = shown && env.menus().available(id);
+    let shown = shown && env.menus().available(id) && native_need_met(sources, id);
+    // A reading app to choose where only one reads the books (#260).
+    let shown = shown && !crate::reading_apps::nothing_to_choose(spec);
     let mut flags = 0;
     for (on, bit) in [
         (spec.guarded, GUARDED),
@@ -400,8 +402,9 @@ fn settings(
 }
 
 /// Op 3: the values of choice setting `scope`, the setting's own first and
-/// then those other plugins added (the setting keeps them in that order).
-/// Nothing for a setting that is not there or is no choice.
+/// then those other plugins added (the setting keeps them in that order);
+/// of a language setting, the languages there are ([`languages`]).
+/// Nothing for a setting that is not there or is neither.
 fn choices(
     sources: &Sources<'_>,
     scope: &str,
@@ -410,19 +413,43 @@ fn choices(
     let Some(spec) = exact(sources, scope)? else {
         return Ok(());
     };
-    let SettingKind::Choice(values) = &spec.kind else {
-        return Ok(());
-    };
-    for value in values.iter() {
-        let row = Record::ServiceRegChoice(wire::ServiceRegChoice {
+    let i18n = sources.env.i18n();
+    let mut row = |value: &str, title: &str| {
+        visit(&Record::ServiceRegChoice(wire::ServiceRegChoice {
             value,
-            title: translated(sources.env.i18n(), value, caps::TITLE),
-        });
-        if visit(&row).is_break() {
-            break;
+            title,
+        }))
+    };
+    match &spec.kind {
+        SettingKind::Choice(values) => {
+            for value in values.iter() {
+                if row(value, translated(i18n, value, caps::TITLE)).is_break() {
+                    break;
+                }
+            }
         }
+        SettingKind::Language => languages(i18n, &mut row),
+        _ => {}
     }
     Ok(())
+}
+
+/// The languages a `reg_choice` row can carry, in the translator's order
+/// (English first, then by tag), until `visit` breaks: the tag, which is
+/// the setting's value, and the language's name in that language as its
+/// catalog gives it (`Deutsch`; a language pack's own), or the tag where the
+/// catalog gives none. Nothing is allocated.
+fn languages(
+    i18n: &paperpaw_i18n::Translator,
+    visit: &mut dyn FnMut(&str, &str) -> ControlFlow<()>,
+) {
+    i18n.each_language(&mut |tag, name| {
+        if tag.len() > CHOICE_VALUE {
+            return ControlFlow::Continue(());
+        }
+        let name = if name.is_empty() { tag } else { name };
+        visit(tag, clip(name, caps::TITLE))
+    });
 }
 
 /// The setting `id` itself (a placement's id names no setting here).
@@ -436,11 +463,19 @@ pub(super) fn exact<'a>(sources: &Sources<'a>, id: &str) -> Result<Option<&'a Se
 }
 
 /// How many values of `spec` a `reg_choice` row can carry.
-fn choice_count(spec: &SettingSpec) -> u32 {
+fn choice_count(spec: &SettingSpec, i18n: &paperpaw_i18n::Translator) -> u32 {
     match &spec.kind {
         SettingKind::Choice(values) => {
             let count = values.iter().filter(|v| v.len() <= CHOICE_VALUE).count();
             u32::try_from(count).unwrap_or(u32::MAX)
+        }
+        SettingKind::Language => {
+            let mut count = 0_u32;
+            languages(i18n, &mut |_, _| {
+                count = count.saturating_add(1);
+                ControlFlow::Continue(())
+            });
+            count
         }
         _ => 0,
     }
@@ -456,7 +491,8 @@ pub(super) fn detail(
     let spec = exact(sources, key)?.ok_or(ERR_NOT_FOUND)?;
     native_extra::ready(sources)?;
     with_row(sources, asker, spec, None, |row| visit(row))?;
-    native_extra::with_extra(sources, spec, |shown| extra_row(spec, shown, visit))??;
+    let i18n = sources.env.i18n();
+    native_extra::with_extra(sources, spec, |shown| extra_row(spec, shown, i18n, visit))??;
     let help = spec.description.as_deref().unwrap_or("");
     if help.is_empty() {
         return Ok(());
@@ -472,6 +508,7 @@ pub(super) fn detail(
 fn extra_row(
     spec: &SettingSpec,
     shown: &Shown<'_>,
+    i18n: &paperpaw_i18n::Translator,
     visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
 ) -> Result<(), i32> {
     let (min, max) = match &spec.kind {
@@ -499,9 +536,21 @@ fn extra_row(
             shown_value: clip(shown.shown_value, caps::ID),
             editor_kind: shown.editor_kind,
             editor: shown.editor,
-            choices: choice_count(spec),
+            choices: choice_count(spec, i18n),
         },
     ))
+}
+
+/// Whether the device meets the `menu.need` rows a native plugin declared for
+/// the setting `id`; a store that is busy or absent asks nothing of it.
+fn native_need_met(sources: &Sources<'_>, id: &str) -> bool {
+    let Some(directory) = sources.directory else {
+        return true;
+    };
+    let Ok(store) = directory.store.try_borrow() else {
+        return true;
+    };
+    super::menu_native::Native::new(&store, sources.env.caps()).need_met(id, false)
 }
 
 /// How many rows [`with_row`] built on this thread, for the tests that hold

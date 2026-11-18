@@ -38,14 +38,15 @@ impl Shared {
         &self,
         active: &mut ActiveScreen,
         canvas: &mut paperpaw_graphics::Canvas<'_>,
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
     ) {
         if active.drawn || active.ready {
             // Counted already: nothing to note, no lookup.
             active.screen.draw(canvas, env);
             return;
         }
-        let native = (self.registry.screens.get(&active.id)).is_some_and(|spec| spec.is_native());
+        let native = (self.registry.screens.get(&active.id))
+            .is_some_and(|spec| spec.is_native() && !spec.is_fake());
         self.native_instances.take_drew();
         active.screen.draw(canvas, env);
         active.drawn |= !native || self.native_instances.take_drew();

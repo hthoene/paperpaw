@@ -4,6 +4,7 @@
 //! layouts. Drawing goes through owned [`Paint`](paperpaw_ui_kit::paint::Paint) operations.
 use crate::keys::Key;
 use crate::layouts::{AUTO, Added, LAYOUTS, all_drawn, chosen_drawn};
+use crate::native_ask::AskView;
 use crate::native_layouts;
 use crate::native_model::{
     Asked, Board, FIELD_ROW, FieldButton, Look, Move, Own, Pressed, known_shape, known_size,
@@ -47,6 +48,8 @@ mod image {
 pub const SCREEN: u32 = 10;
 /// The screen that chooses the layouts.
 pub const CHOOSE: u32 = 11;
+/// The choice and the yes or no question (slots `core.choice`, `core.confirm`).
+pub const ASK: u32 = 12;
 /// The action that finishes typing.
 pub const DONE: u32 = 1;
 
@@ -57,6 +60,7 @@ const SIZE_KEY: &str = "keyboard.size";
 const CAPITALS_KEY: &str = "keyboard.auto-capitals";
 const LANGUAGE_KEY: &str = "core.language";
 const SCREEN_ID: &str = "keyboard.screen";
+const ASK_ID: &str = "keyboard.ask";
 const REMOTE: &str = "core.remote-keyboard";
 /// A host text, in bytes, at most.
 const TEXT_LIMIT: usize = 24_576;
@@ -110,6 +114,7 @@ struct ChooseView {
 enum View {
     Dialog(Dialog),
     Choose(ChooseView),
+    Ask(AskView),
 }
 
 /// The interface-7 keyboard plugin.
@@ -194,6 +199,7 @@ impl Plugin for NativeKeyboard {
                 v.list
                     .draw_with(host, &mut frame, &title, true, Footer::None)
             }
+            View::Ask(v) => v.draw(host, &mut frame),
         }
     }
 
@@ -202,6 +208,13 @@ impl Plugin for NativeKeyboard {
         match token {
             SCREEN => self.dialog_input(host, &input),
             CHOOSE => self.choose_input(host, &input),
+            ASK => {
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                match self.screens.top(token) {
+                    Some(View::Ask(v)) => v.input(ui, host, &input),
+                    _ => Ok(Handled::No),
+                }
+            }
             _ => Ok(Handled::No),
         }
     }
@@ -224,6 +237,10 @@ impl NativeKeyboard {
         CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
     }
 
+    // Out of line: in a plugin file the SDK's `event_core` has one caller, so the
+    // compiler folds `event` and all it opens into that one frame (2,096 B on the
+    // X4, over the packer's 2,047 B limit).
+    #[inline(never)]
     fn opened(
         &mut self,
         host: &Host<'_>,
@@ -231,10 +248,10 @@ impl NativeKeyboard {
         instance: Instance,
         handover: Option<paperpaw_sdk::native::ui::HandoverId>,
     ) -> Result<(), Error> {
-        let view = if screen == SCREEN_ID {
-            View::Dialog(self.open_dialog(host, handover)?)
-        } else {
-            View::Choose(build_choose(host)?)
+        let view = match screen {
+            SCREEN_ID => View::Dialog(self.open_dialog(host, handover)?),
+            ASK_ID => View::Ask(AskView::open(self.ui()?, host, handover)?),
+            _ => View::Choose(build_choose(host)?),
         };
         // A secret question: edges wait and nothing is told about the focus.
         if let View::Dialog(d) = &view
@@ -248,6 +265,7 @@ impl NativeKeyboard {
     }
 
     /// Reads the question the host opened this dialog for, and its text.
+    #[inline(never)]
     fn open_dialog(
         &self,
         host: &Host<'_>,
@@ -438,7 +456,7 @@ impl NativeKeyboard {
     fn dialog_mut(&mut self) -> Option<&mut Dialog> {
         match self.screens.top(SCREEN)? {
             View::Dialog(d) => Some(d),
-            View::Choose(_) => None,
+            View::Choose(_) | View::Ask(_) => None,
         }
     }
 
@@ -897,6 +915,7 @@ fn covered(font: Option<&Font<'_>>, text: &str) -> bool {
 }
 
 /// The rows of the layout chooser and its items, from the setting.
+#[inline(never)]
 fn build_choose(host: &Host<'_>) -> Result<ChooseView, Error> {
     let font = Font::acquire_role(host, FontRole::Ui).ok();
     let drawn = |text: &str| covered(font.as_ref(), text);

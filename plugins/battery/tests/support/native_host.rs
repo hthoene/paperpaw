@@ -41,7 +41,7 @@ use std::{
 };
 
 use paperpaw_core::{
-    Kernel,
+    Kernel, KernelBuilder,
     native_host::{
         environment::{EnvironmentScope, SNAPSHOT_BYTES},
         registrations::{Record, ServiceEnd, ServiceUsage, record_encode_one},
@@ -52,7 +52,7 @@ use paperpaw_platform::{
     Battery, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
     SystemStatus, WallClock,
 };
-use paperpaw_sdk::{ActionSpec, Id, Manifest, Plugin, RegisterError, Registrar, SettingSpec};
+use paperpaw_sdk::{Id, Manifest, SettingSpec};
 
 pub const LOG: &str = "log.csv";
 pub const OLD: &str = "log.old.csv";
@@ -81,47 +81,53 @@ pub fn environment(
     enabled: bool,
 ) -> EnvironmentBytes {
     let result = Rc::new(RefCell::new(None));
-    let mut kernel = Kernel::builder(DEVICE)
-        .user_config(format!(
-            "[battery]\nenabled = {}\n",
-            if enabled { "on" } else { "off" }
-        ))
-        .plugin(Capture(Rc::clone(&result)))
-        .build()
-        .unwrap();
+    let builder = Kernel::builder(DEVICE).user_config(format!(
+        "[battery]\nenabled = {}\n",
+        if enabled { "on" } else { "off" }
+    ));
+    let mut kernel = capture(builder, Rc::clone(&result)).build().unwrap();
     kernel.start(Instant(0));
     let clock = unix.map(|seconds| WallClock::new(Instant(at), seconds * 1000, Some(0)));
     kernel.set_status(Instant(at), SystemStatus::new(clock, battery));
-    kernel.run_action(Instant(at), CAPTURE);
-    result.borrow_mut().take().expect("capture action ran")
+    let _ = kernel.send_event(Instant(at), CAPTURE, paperpaw_sdk::Params::default());
+    result.borrow_mut().take().expect("capture event heard")
 }
 
-struct Capture(Rc<RefCell<Option<EnvironmentBytes>>>);
-impl Plugin for Capture {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("battery"),
-            "Wire fixture",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_setting(SettingSpec::switch(
+std::thread_local! {
+    /// Where the capture of the test running copies to (the hearing
+    /// handler is a plain function and holds nothing).
+    static RESULT: RefCell<Option<Rc<RefCell<Option<EnvironmentBytes>>>>> =
+        const { RefCell::new(None) };
+}
+
+/// Registers a setting and hears an event of its own that copies the live `Place` through a
+/// pinned scope into `result`.
+fn capture(builder: KernelBuilder, result: Rc<RefCell<Option<EnvironmentBytes>>>) -> KernelBuilder {
+    let manifest = Manifest::new(
+        Id::new_static("battery"),
+        "Wire fixture",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    );
+    RESULT.with(|kept| *kept.borrow_mut() = Some(result));
+    builder.items(manifest, move |items| {
+        items.add_setting(SettingSpec::switch(
             ENABLED,
             "battery.fixture-enabled",
             true,
             Id::new_static("power.group"),
         ))?;
-        let result = Rc::clone(&self.0);
-        r.add_action(ActionSpec::new(CAPTURE, "battery.fixture-capture").handler(
-            move |env, _, _| {
+        items.subscribe(CAPTURE, |k, _| {
+            k.with_env(|env, _| {
+                let Some(result) = RESULT.with(|result| result.borrow().clone()) else {
+                    return;
+                };
                 let scope = Box::pin(EnvironmentScope::new());
                 scope
                     .as_ref()
                     .scope(env, || {
                         let mut snapshot = vec![0; SNAPSHOT_BYTES];
                         let mut enabled = vec![0; 32];
-                        // SAFETY: the pinned scope borrows this live Env. Outputs are
+                        // SAFETY: the pinned scope borrows this live Place. Outputs are
                         // exclusive local vectors, disjoint from the static key.
                         unsafe {
                             assert_eq!(scope.copy(snapshot.as_mut_ptr(), snapshot.len()), OK);
@@ -139,9 +145,9 @@ impl Plugin for Capture {
                         *result.borrow_mut() = Some(EnvironmentBytes { snapshot, enabled });
                     })
                     .unwrap();
-            },
-        ))
-    }
+            });
+        })
+    })
 }
 
 pub fn record(record: Record<'_>) -> Vec<u8> {

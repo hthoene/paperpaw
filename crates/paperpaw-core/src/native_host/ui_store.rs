@@ -234,7 +234,7 @@ impl Wiped {
 }
 
 /// The owner of what the host made itself (no plugin has this key).
-const HOST_OWNER: u64 = u64::MAX;
+pub(crate) const HOST_OWNER: u64 = u64::MAX;
 /// Whether `owner` is the host's own key (no plugin's).
 pub(crate) const fn is_host_owner(owner: u64) -> bool {
     owner == HOST_OWNER
@@ -314,8 +314,6 @@ pub(super) struct Inner {
     pub(super) secret_memory: usize,
     /// The questions kept.
     pub(super) question_memory: usize,
-    /// Answers of a host dialog the store did not take, not yet logged.
-    pub(super) refused: u32,
     /// The clipboard (`core.ui` ops 18 and 19).
     pub(super) clipboard: super::ui_clipboard::ClipboardState,
 }
@@ -473,7 +471,6 @@ impl UiStore {
                 text_memory: 0,
                 secret_memory: 0,
                 question_memory: 0,
-                refused: 0,
                 clipboard: super::ui_clipboard::ClipboardState::default(),
             }),
         }
@@ -1055,6 +1052,22 @@ impl UiStore {
         let ((new, new_count), (old, old_count)) = (framed(made, false), framed(None, true));
         // The same keys with the same values, in any order (keys are unique).
         new_count == old_count && params_in(new, |key, value| value_of(old, key) == Some(value))
+    }
+
+    /// Each param of hand-over `id` (made or claimed, whether or not it is
+    /// attached yet), seen in place: `visit` must not reenter the store. False
+    /// for no such hand-over or a store in use.
+    pub(crate) fn each_param(&self, id: u32, visit: &mut dyn FnMut(&str, &str)) -> bool {
+        let Ok(inner) = self.inner.try_borrow() else {
+            return false;
+        };
+        let Some(entry) = inner.entries.iter().find(|entry| entry.id == id) else {
+            return false;
+        };
+        params_in(&entry.params.0, |key, value| {
+            visit(key, value);
+            true
+        })
     }
 
     /// What the opened event says about `instance`'s hand-over, if it has one.

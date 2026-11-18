@@ -16,14 +16,56 @@ pub const MESSAGE: &str = "sleep.show.message";
 pub const PAGE: &str = "sleep.show.page";
 pub const WIDGETS: &str = "sleep.show.widgets";
 pub const OVERLAY: &str = "sleep.show.overlay";
-const BUILT_IN: [&str; 7] = [CAT, COVER, PICTURE, OVERLAY, WIDGETS, MESSAGE, PAGE];
+/// The off screen's own choice of `sleep.off-show`: what the sleep screen
+/// shows (`sleep.show`), with a page that stayed turned into the message.
+/// The other choices of the off screen are the sleep modes above.
+pub const SAME: &str = "sleep.off-show.same";
+/// The off screen's message: the logo and *Switched off* (as [`MESSAGE`], which
+/// says *Sleeping* for the sleep screen).
+pub const OFF_MESSAGE: &str = "sleep.off-show.message";
+/// The device's own start and restart screens (`sleep.start-show`,
+/// `sleep.restart-show`): the slots `core.start`, `core.restart` unbound.
+pub const START_BUILT_IN: &str = "sleep.start-show.built-in";
+pub const RESTART_BUILT_IN: &str = "sleep.restart-show.built-in";
+const BUILT_IN: [&str; 11] = [
+    CAT,
+    COVER,
+    PICTURE,
+    OVERLAY,
+    WIDGETS,
+    MESSAGE,
+    PAGE,
+    SAME,
+    OFF_MESSAGE,
+    START_BUILT_IN,
+    RESTART_BUILT_IN,
+];
 
 /// The slot the sleep screen is shown in, and the plugin's own screen for it.
 pub const SLOT: &str = "core.sleep";
+/// The slot the off screen is shown in; the plugin's own screen fills it too.
+pub const OFF_SLOT: &str = "core.off";
 pub const OWN_SCREEN: &str = "sleep.screen";
+/// The slots of the start and the restart screen: another plugin's screen,
+/// chosen, or none (the device's own).
+pub const START_SLOT: &str = "core.start";
+pub const RESTART_SLOT: &str = "core.restart";
+/// The settings that choose what each slot shows.
+pub const SHOW: &str = "sleep.show";
+pub const OFF_SHOW: &str = "sleep.off-show";
+pub const START_SHOW: &str = "sleep.start-show";
+pub const RESTART_SHOW: &str = "sleep.restart-show";
 
-/// Whether `value` of `sleep.show` is another plugin's mode: not one of the
-/// seven of the plugin's own and not empty.
+/// Whether the off screen shows what `off_show` (the setting
+/// `sleep.off-show`) names rather than what the sleep screen shows
+/// (`sleep.show`): not when it is empty or [`SAME`].
+#[must_use]
+pub fn has_own_mode(off_show: &str) -> bool {
+    !off_show.is_empty() && off_show != SAME
+}
+
+/// Whether `value` of `sleep.show` (or `sleep.off-show`) is another plugin's
+/// mode: not one of the plugin's own and not empty.
 #[must_use]
 pub fn is_foreign(value: &str) -> bool {
     !value.is_empty() && !BUILT_IN.contains(&value)

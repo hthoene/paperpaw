@@ -6,7 +6,8 @@
 //! when the language or the size of the interface changes, and kept: showing
 //! it allocates nothing, and it comes back when it ends.
 use super::*;
-use crate::native_host::notice::Notice;
+use crate::host_screen::{HostScreen, Notice};
+use crate::screen::Screen;
 use paperpaw_sdk::builtin::params as notice_params;
 
 /// Its words, in the host's catalog.
@@ -19,7 +20,8 @@ impl Kernel {
         self.waiting_notices.keep_memory_notice(None);
         let words = self.shared.translator.tr(KEY);
         let params = Params::new().with(notice_params::TEXT, words);
-        let notice: Box<dyn Screen> = Box::new(Notice::new(&self.shared.env(self.now), &params));
+        let notice = Notice::new(&self.shared.place(self.shared.now), &params);
+        let notice = Screen::Host(HostScreen::Notice(Box::new(notice)));
         self.waiting_notices.keep_memory_notice(Some(notice));
     }
 

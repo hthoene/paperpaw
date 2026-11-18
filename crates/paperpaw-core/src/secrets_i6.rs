@@ -5,7 +5,7 @@
 //! ones. Without a sealer nothing changes: the veiled file as ever.
 //!
 //! The sealed lines of the file are opened into the kernel's list (a plugin
-//! reads its values with `Env::secrets` as before) and every save writes the
+//! reads its values with `Place::secrets` as before) and every save writes the
 //! whole list sealed ([`native_host::secrets_text`]). A save that cannot seal
 //! (on the X4 every seal needs the radio's noise for its nonce) is not
 //! written: the change applies until the end and is not

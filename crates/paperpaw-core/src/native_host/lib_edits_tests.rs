@@ -17,7 +17,7 @@ const OWNER: u64 = 7;
 
 /// The card's facts and a clock the test sets.
 struct Clocked {
-    inner: Rc<crate::native_host::lib_reads::tests::Env>,
+    inner: Rc<crate::native_host::lib_reads::tests::Facts>,
     now: Cell<u64>,
 }
 
@@ -667,7 +667,7 @@ fn beta_3s_own_annotations_are_moved_at_the_first_edit_and_the_next_edit_goes_to
     let t = fixture();
     let old = std::format!(
         ".paperpaw/plugins/reader/books/{}/annotations.txt",
-        paperpaw_sdk::library::key(BOOK)
+        crate::kit::library::key(BOOK)
     );
     t.card
         .storage

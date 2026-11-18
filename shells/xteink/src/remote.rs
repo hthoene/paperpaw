@@ -269,6 +269,9 @@ impl Remote {
             Command::Time => {
                 let now = crate::now();
                 match crate::clock::unix_ms(now) {
+                    Some(ms) if crate::clock::approximate() => {
+                        println!("PP:TIME {ms} {} approximate", now.0)
+                    }
                     Some(ms) => println!("PP:TIME {ms} {}", now.0),
                     None => println!("PP:TIME - {}", now.0),
                 }

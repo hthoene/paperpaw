@@ -329,9 +329,10 @@ if [[ "$native_wanted" == 1 ]]; then
         cargo test --no-fail-fast -j"$1" -p paperpaw-app --no-default-features --features native-linked-reading,packs --test linked_catalogs || rc=1
         cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading --test linked_settings_tables || rc=1
         cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked,native-linked-store --test linked_settings_tables || rc=1
-        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last --test bands || rc=1
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading,native-linked-store --test menu_entries --test native_registers --test screens --test sets --test home_native --test raw_ids --test open_last --test bands --test registry_golden --test slider_drag || rc=1
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked,native-linked-reading,native-linked-store --test kernel_screens || rc=1
         cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading --test sets --test standard || rc=1
-        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading --test readers || rc=1
+        cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading,native-linked-store --test readers || rc=1
         cargo test --no-fail-fast -j"$1" -p paperpaw-app --features native-linked-reading --test partial_redraw -- --exact table_of_contents || rc=1
         exit $rc' _ "$jobs"
 elif ! wanted test-native; then
@@ -339,7 +340,14 @@ elif ! wanted test-native; then
 else
     skipped+=("test-native (no core, app, native or plugin package selected)")
 fi
-pkg_step doc env RUSTDOCFLAGS="-D warnings" cargo doc -j"$jobs" --no-deps "${pkgs[@]}"
+# The SDK's kernel part is documented only when the kernel enables its `kernel`
+# feature, so with the SDK among the packages the whole workspace is documented,
+# as CI does (the SDK alone has private-link errors).
+doc_pkgs=("${pkgs[@]}")
+for crate in "${crates[@]}"; do
+    [[ $crate == paperpaw-sdk ]] && doc_pkgs=(--workspace)
+done
+pkg_step doc env RUSTDOCFLAGS="-D warnings" cargo doc -j"$jobs" --no-deps "${doc_pkgs[@]}"
 step changelog python3 tools/changelog.py check
 # shellcheck disable=SC2086 # lock_args is one option or nothing
 step lockfiles python3 tools/check-lockfiles.py $lock_args

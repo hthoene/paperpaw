@@ -68,6 +68,9 @@ pub(crate) const KIND_CHECK: u32 = 3;
 const DECLINED: u8 = 2;
 const DISMISSED: u8 = 3;
 const RESTART_PENDING: u8 = 21;
+/// What a [`FirmwareHost`] says for a step that found no room on the heap
+/// (`paperpaw_x4::updates::NO_MEMORY_REASON`): the kernel's own, never sent.
+pub(crate) const NO_MEMORY: u8 = 22;
 /// Reason 14: an older or the same version, not allowed.
 const OLDER: u8 = 14;
 
@@ -858,6 +861,13 @@ impl FirmwareInstall {
     /// Ends `job`: a check keeps its result (`facts` and `bits`), an install
     /// that failed is state 4. The job's buffers are freed with it.
     fn finish(&mut self, job: Job, reason: u8, facts: Option<CheckFacts>, bits: Bits) -> Outcome {
+        // The device's "no room" has no number of its own on the wire
+        // (`device.md` 5.5): plugins read it as reason 1.
+        let reason = if reason == NO_MEMORY {
+            Reason::OTHER.0
+        } else {
+            reason
+        };
         let ended = outcome(&job, reason);
         // A check that failed partway (`facts` is `None`) and one of an image
         // that is damaged or for another chip tell nothing true about the

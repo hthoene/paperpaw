@@ -40,6 +40,8 @@ const OVERLAY_PLACE: &str = "sleep.overlay";
 const READER: &str = "core.reader";
 /// The parameter of `core.sleep`: the device is switched off after the screen.
 const OFF: &str = "off";
+/// The parameter of `core.off`: why it is, whatever the reason.
+const OFF_REASON: &str = "off-reason";
 /// Most pages of the screen stack read for the page below.
 const MOST_STACK_PAGES: usize = 8;
 /// Room for the longest text setting and its frame: the most `settings.read`
@@ -172,7 +174,15 @@ impl Sleeping {
             None => false,
         };
         let mut view = Self::plain(off);
-        view.setting = read_text(host, "sleep.show")?;
+        view.setting = read_text(host, model::SHOW)?;
+        if off {
+            let off_show = read_text(host, model::OFF_SHOW)?;
+            if off_show == model::OFF_MESSAGE {
+                view.setting = String::from(model::MESSAGE);
+            } else if model::has_own_mode(&off_show) {
+                view.setting = off_show;
+            }
+        }
         view.facts = facts_before(off);
         let effective = model::effective(&view.setting, view.facts);
         if effective == model::WIDGETS {
@@ -678,14 +688,18 @@ fn drop_all(host: &Host<'_>, ui: &Ui, widgets: impl IntoIterator<Item = WidgetHa
     }
 }
 
-/// Whether the open says the device is switched off (`off` = `1`).
+/// Whether the open says the device is switched off (`off` = `1`, or a
+/// reason for `core.off`).
 fn off_param(host: &Host<'_>, ui: &Ui, handover: HandoverId) -> Result<bool, Error> {
     let (mut input, mut out) = (buffer(QUERY_INPUT)?, buffer(SERVICE_BUFFER)?);
     let params = ui.params(host, handover, &mut input, &mut out)?;
     for param in params {
         let param = param?;
-        if param.key() == OFF {
-            return Ok(param.value() == "1");
+        match param.key() {
+            OFF if param.value() == "1" => return Ok(true),
+            // Whatever the reason: the device is being switched off.
+            OFF_REASON => return Ok(true),
+            _ => {}
         }
     }
     Ok(false)

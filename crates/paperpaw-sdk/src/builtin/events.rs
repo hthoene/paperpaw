@@ -170,14 +170,14 @@ crate::event_data! {
     /// What changed of a book ([`BOOK_CHANGED`]).
     pub struct BookChanged {
         pub path: String,
-        /// What changed: bits of [`library::what`](crate::library::what).
+        /// What changed: bits of `library::what`.
         pub what: u32,
     }
 }
 
 crate::event_data! {
     /// Plugins asked for by id ([`PLUGINS_REQUESTED`], sent with
-    /// [`Command::RequestPlugins`](crate::Command::RequestPlugins)).
+    /// `Ask::RequestPlugins`).
     pub struct PluginsRequested {
         /// The plugin that asks, as it names itself.
         pub by: Id,
@@ -397,7 +397,7 @@ crate::event_data! {
 
 crate::event_data! {
     /// The words of the page shown are wanted ([`PAGE_WORDS_WANTED`],
-    /// see [`reading::ask_page_words`](crate::reading::ask_page_words)):
+    /// see `reading::ask_page_words`):
     /// the reader answers with the event `reply`.
     pub struct PageWordsWanted {
         pub reply: Id,
@@ -436,7 +436,7 @@ impl DecorationTapped {
 
 crate::event_data! {
     /// The room of a page layer that was tapped, or one of the items it
-    /// drew ([`PageLayerSpec::items`](crate::layers::PageLayerSpec::items)),
+    /// drew (`PageLayerSpec::items`),
     /// or chosen with the buttons ([`PAGE_LAYER_TAPPED`]).
     pub struct PageLayerTapped {
         pub layer: Id,
@@ -449,11 +449,11 @@ crate::event_data! {
     }
     optional {
         /// The start of the line beside it, if any (see
-        /// [`PageView::line_at`](crate::layers::PageView::line_at)).
+        /// `PageView::line_at`).
         pub section: u32,
         pub offset: u32,
         /// The item tapped or chosen, by the id the layer gave it
-        /// ([`LayerItem::id`](crate::layers::LayerItem)); none for its
+        /// (`LayerItem::id`); none for its
         /// room.
         pub item: u32,
     }
@@ -479,7 +479,7 @@ crate::event_data! {
     }
     optional {
         /// The screen that shows more of it
-        /// ([`LookupEntry::more`](crate::lookup::LookupEntry::more)).
+        /// (`LookupEntry::more`).
         pub more: Id,
     }
 }
@@ -487,14 +487,14 @@ crate::event_data! {
 crate::event_data! {
     /// The reading app of a book or a folder is to be chosen
     /// ([`READING_APP_WANTED`], see
-    /// [`readers::ask`](crate::readers::ask)).
+    /// `readers::ask`).
     pub struct ReadingAppWanted {
         pub path: String,
         pub folder: bool,
     }
     optional {
         /// Only to open the book this time, not kept
-        /// ([`readers::ask_once`](crate::readers::ask_once)).
+        /// (`readers::ask_once`).
         pub once: bool,
     }
 }
@@ -544,7 +544,7 @@ pub const STARTED: Event<()> = Event::new("core.started");
 /// After a setting changed: which ([`SettingChanged`]).
 pub const SETTING_CHANGED: Event<SettingChanged> = Event::new("core.setting-changed");
 /// Text typed for a setting, asked with its parameter
-/// [`ID`](super::params::ID) (as [`ui::setting_opens`](crate::ui::setting_opens)
+/// [`ID`](super::params::ID) (as `ui::setting_opens`
 /// asks): the kernel sets the setting to it, trimmed.
 pub const SETTING_TYPED: Event<crate::replies::Typed> = Event::new("core.setting-typed");
 /// Text typed from outside the screen, by keys of a keyboard or a
@@ -582,18 +582,18 @@ pub const BOOK_FINISHED: Event<Reading> = Event::new("core.book-finished");
 /// data by a book's path move it along (progress, notes, statistics).
 pub const BOOK_MOVED: Event<BookMoved> = Event::new("core.book-moved");
 /// A book file was deleted ([`BookRemoved`]): what plugins keep for it
-/// goes ([`Registrar::add_book_data`](crate::Registrar::add_book_data)
+/// goes (`Staging::add_book_data`
 /// folders by the kernel; other data by the plugin). Whoever deletes a
 /// book emits it.
 pub const BOOK_REMOVED: Event<BookRemoved> = Event::new("core.book-removed");
 /// Books came into the library or left it (received, downloaded,
 /// copied, deleted): views of the library read it again. Plugins that
-/// change the library emit it ([`library::changed`](crate::library::changed));
+/// change the library emit it (`library::changed`);
 /// a move is [`BOOK_MOVED`].
 pub const LIBRARY_CHANGED: Event<()> = Event::new("core.library-changed");
 /// A book came into the library ([`BookAdded`]): received, downloaded,
 /// copied by a plugin. Whoever brings a book emits it
-/// ([`library::added`](crate::library::added)); views may show it at
+/// (`library::added`); views may show it at
 /// once, the catalog is made anew.
 pub const BOOK_ADDED: Event<BookAdded> = Event::new("core.book-added");
 /// Something of a book changed ([`BookChanged`]): its details, how far
@@ -607,7 +607,7 @@ pub const BOOK_CHANGED: Event<BookChanged> = Event::new("core.book-changed");
 /// plugin whose action it is does it for that book.
 pub const BOOK_CHOSEN: Event<BookChosen> = Event::new("core.book-chosen");
 /// The catalog of the library was made anew
-/// ([`library::catalog`](crate::library::catalog)): views of it read it
+/// (`library::catalog`): views of it read it
 /// again.
 pub const CATALOG_CHANGED: Event<()> = Event::new("core.catalog-changed");
 /// The catalog of the library could not be made: the library folder or
@@ -617,17 +617,17 @@ pub const CATALOG_CHANGED: Event<()> = Event::new("core.catalog-changed");
 /// [`CATALOG_CHANGED`].
 pub const CATALOG_FAILED: Event<()> = Event::new("core.catalog-failed");
 /// The catalog is wanted ([`CatalogWanted`],
-/// [`library::request_catalog`](crate::library::request_catalog)):
+/// `library::request_catalog`):
 /// the kernel walks the library in the background where needed.
 pub const CATALOG_WANTED: Event<CatalogWanted> = Event::new("core.catalog-wanted");
 /// The library's books sorted are wanted for a view leaving an archive
 /// folder out ([`SortedWanted`],
-/// [`library::sorted::request`](crate::library::sorted::request)): the
+/// `library::sorted::request`): the
 /// kernel makes the file in the background where it is not of the
 /// library there is now, then says [`CATALOG_CHANGED`].
 pub const SORTED_WANTED: Event<SortedWanted> = Event::new("core.sorted-wanted");
 /// The values shown without being kept changed, or ended (see
-/// [`Command::PreviewSettings`](crate::Command::PreviewSettings)).
+/// `Ask::PreviewSettings`).
 pub const PREVIEW_CHANGED: Event<()> = Event::new("core.preview-changed");
 /// The bookmarks or highlights of a book changed
 /// ([`annotations`](crate::annotations), [`AnnotationsChanged`]).
@@ -652,7 +652,7 @@ pub const TEXT_CHOSEN: Event<TextChosen> = Event::new("core.text-chosen");
 pub const DECORATION_TAPPED: Event<DecorationTapped> = Event::new("core.decoration-tapped");
 /// The room of a page layer was tapped, or an item it drew, or either
 /// was chosen with the buttons ([`PageLayerTapped`]); sent for layers
-/// that take taps or have items (see [`layers`](crate::layers)), whose
+/// that take taps or have items (see `layers`), whose
 /// plugin answers.
 pub const PAGE_LAYER_TAPPED: Event<PageLayerTapped> = Event::new("core.page-layer-tapped");
 /// A lookup provider that answered later ([`LookupAnswered`], see
@@ -680,7 +680,7 @@ pub const SKIMMED: Event<Skimmed> = Event::new("core.skimmed");
 pub const FOLLOW_LINK: Event<FollowLink> = Event::new("core.follow-link");
 /// The words of the page shown are wanted ([`PageWordsWanted`]):
 /// a reader with a book open answers with
-/// [`reading::PageWords`](crate::reading::PageWords).
+/// `reading::PageWords`.
 pub const PAGE_WORDS_WANTED: Event<PageWordsWanted> = Event::new("core.page-words-wanted");
 /// A word of a book was looked up ([`WordLookedUp`]).
 pub const WORD_LOOKED_UP: Event<WordLookedUp> = Event::new("core.word-looked-up");
@@ -693,16 +693,16 @@ pub const READ_TODAY: Event<ReadToday> = Event::new("core.read-today");
 /// What a widget shows changed by other means than the events screens
 /// already follow, e.g. a tap on it turned to another quote or ticked
 /// an item off ([`WidgetChanged`]): screens showing it read it anew
-/// ([`Widget::update`](crate::widgets::Widget::update)). See
-/// [`widgets::changed`](crate::widgets::changed).
+/// (`Widget::update`). See
+/// `widgets::changed`.
 pub const WIDGET_CHANGED: Event<WidgetChanged> = Event::new("core.widget-changed");
 /// A data plugin was loaded or removed while running
-/// ([`Command::LoadPlugin`](crate::Command::LoadPlugin),
-/// [`Command::RemovePlugin`](crate::Command::RemovePlugin)): lists of
+/// (`Ask::LoadPlugin`,
+/// `Ask::RemovePlugin`): lists of
 /// plugins, fonts and presets read them anew.
 pub const PLUGINS_CHANGED: Event<()> = Event::new("core.plugins-changed");
 /// A plugin asked for plugins by id that are not on the device
-/// ([`Command::RequestPlugins`](crate::Command::RequestPlugins)): for the
+/// (`Ask::RequestPlugins`): for the
 /// plugin that installs plugins (the store), which asks the reader
 /// before it downloads any, and answers each request with
 /// [`PLUGINS_ANSWERED`] once it is done: installed, declined or failed.
@@ -715,8 +715,8 @@ pub const PLUGINS_REQUESTED: Event<PluginsRequested> = Event::new("core.plugins-
 pub const PLUGINS_ANSWERED: Event<PluginsAnswered> = Event::new("core.plugins-answered");
 /// Another screen is shown on top ([`ScreenShown`]): one opened, or
 /// the one below a screen closed. The whole stack is in
-/// [`Env::stack`](crate::Env::stack). For plugins that subscribe:
-/// screens learn that they show from [`Screen::on_show`](crate::Screen::on_show).
+/// `Place::stack`. For plugins that subscribe:
+/// screens learn that they show from `on_show`.
 pub const SCREEN_SHOWN: Event<ScreenShown> = Event::new("core.screen-shown");
 /// A menu was redefined or reset ([`MenuChanged`]).
 pub const MENU_CHANGED: Event<MenuChanged> = Event::new("core.menu-changed");
@@ -729,7 +729,7 @@ pub const SUSPEND: Event<()> = Event::new("core.suspend");
 /// more; a power-up with no sleep before it sends [`STARTED`] alone.
 pub const RESUME: Event<()> = Event::new("core.resume");
 /// The card is PaperPaw's again after a computer had it as a USB drive
-/// ([`Command::UsbDrive`](crate::Command::UsbDrive)): files may have come,
+/// (`Ask::UsbDrive`): files may have come,
 /// gone or changed; what a plugin keeps of the card it reads anew. The
 /// kernel walks the library anew too.
 pub const USB_DRIVE_ENDED: Event<()> = Event::new("core.usb-drive-ended");
@@ -739,15 +739,15 @@ pub const USB_DRIVE_ENDED: Event<()> = Event::new("core.usb-drive-ended");
 pub const STOPPING: Event<()> = Event::new("core.stopping");
 /// The battery or the time zone changed; status lines redraw.
 pub const STATUS_CHANGED: Event<()> = Event::new("core.status-changed");
-/// The battery was measured again ([`Env::status`](crate::Env::status)),
+/// The battery was measured again (`Place::status`),
 /// about once a minute where the device measures it: for plugins that
 /// record its use. Nothing need be drawn anew.
 pub const BATTERY_MEASURED: Event<()> = Event::new("core.battery-measured");
-/// The Wi-Fi state changed ([`Env::wifi`](crate::Env), see
+/// The Wi-Fi state changed (`Place::wifi`, see
 /// [`wifi`](crate::wifi)).
 pub const WIFI_CHANGED: Event<()> = Event::new("core.wifi-changed");
 /// Bluetooth changed: the radio, a bonded device, a link
-/// ([`Env::bluetooth`](crate::Env::bluetooth)).
+/// (`Place::bluetooth`).
 pub const BLUETOOTH_CHANGED: Event<()> = Event::new("core.bluetooth-changed");
 /// Networks were found ([`Wifi::networks`](crate::wifi::Wifi)).
 pub const WIFI_SCANNED: Event<()> = Event::new("core.wifi-scanned");
@@ -783,7 +783,7 @@ pub const WORK_ALLOWED: Event<()> = Event::new("core.work-allowed");
 pub const WORK_CHANGED: Event<()> = Event::new("core.work-changed");
 /// The display changed its size, e.g. the device turned or a window was
 /// resized ([`DisplayChanged`]): sent once, after the screens open were
-/// laid out for it ([`Screen::on_resize`](crate::Screen::on_resize)). For
+/// laid out for it (`on_resize`). For
 /// what a plugin keeps outside its screens at a size, e.g. pictures made
 /// for a cell. Screens need not listen: they are laid out anew.
 pub const DISPLAY_CHANGED: Event<DisplayChanged> = Event::new("core.display-changed");

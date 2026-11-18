@@ -65,8 +65,8 @@ pub(super) fn cap_baseline(font: &Font<'_>, size: f32, area: Rect) -> Result<i32
     let (top, bottom) = if let Some(ink) = font.ink(size, "H")? {
         (ink.top, ink.bottom)
     } else {
-        let m = font.read_line_metrics(size)?;
-        (-(m.ascent as i32), -(m.descent as i32))
+        // No ink from the host (the X4's): capitals as high as 0.7 of the size.
+        (-((size * 0.7) as i32), 0)
     };
     Ok(i32::from(area.y) + (i32::from(area.height) - (bottom - top)).div_euclid(2) - top)
 }

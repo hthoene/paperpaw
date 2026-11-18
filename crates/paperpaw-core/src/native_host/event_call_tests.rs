@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::*;
+use crate::Staging;
 use crate::native_host::{
     commands::{WireCommand, commands_decode, commands_encode},
     native_instances::{NativeInstance, NativeLease},
@@ -17,6 +18,7 @@ use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{Id, ScreenKey, StackEntry};
+use paperpaw_sdk::{Manifest, RegisterError};
 
 /// A plugin that submits a redraw in every callback and returns `answer`.
 struct Probe {
@@ -41,14 +43,14 @@ impl NativeInstance for Probe {
     fn subscribed(&self, tag: u32) -> bool {
         tag == 103 || tag == wire::EVENT_IMAGE_READY_TAG
     }
-    fn service_event(&self, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         self.calls.set(self.calls.get() + 1);
         self.answer.get()
     }
     fn service_event_staged(
         &self,
         _: &[u8],
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         stage: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.calls.set(self.calls.get() + 1);
@@ -108,17 +110,17 @@ impl NativeInstance for Probe {
 }
 
 impl Dispatch for Probe {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -126,32 +128,21 @@ impl Dispatch for Probe {
     fn dropped(&self, _: u32, _: i32) {}
 }
 
-/// A plugin that binds the notice slot to a plain overlay, so that a notice
-/// can show.
-struct NoticeSlot;
-
 struct Overlay;
 
-impl paperpaw_sdk::Screen for Overlay {
-    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+impl crate::testing::Fake for Overlay {
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+    fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
         paperpaw_sdk::Handled::No
     }
 }
 
-impl paperpaw_sdk::Plugin for NoticeSlot {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            Id::new_static("nt"),
-            "Notice",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
-        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+/// A plugin that binds the notice slot to a plain overlay, so that a notice
+/// can show.
+fn notice_slot() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("nt.notice"),
             "notice",
             alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Overlay)),
@@ -162,6 +153,16 @@ impl paperpaw_sdk::Plugin for NoticeSlot {
             paperpaw_sdk::Priority::DEFAULT,
         )
     }
+}
+
+/// What [`notice_slot`] registers under.
+fn notice_slot_manifest() -> Manifest {
+    paperpaw_sdk::Manifest::new(
+        Id::new_static("nt"),
+        "Notice",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    )
+    .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 struct World {
@@ -180,7 +181,7 @@ fn world(submits: bool) -> World {
 
 fn world_with(submits: bool, order: Option<Rc<RefCell<Vec<char>>>>) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(NoticeSlot)
+        .items(notice_slot_manifest(), notice_slot())
         .build()
         .unwrap();
     // The plugin's screen is on the stack: a redraw is for it.
@@ -275,8 +276,8 @@ fn a_callback_that_stages_nothing_leaves_the_outbox_empty() {
     assert!(!w.kernel.shared.native_instances.outbox.full());
 }
 
-struct Env;
-impl WorkEnv for Env {
+struct Subscribed;
+impl WorkEnv for Subscribed {
     fn subscribed(&self, _: u64, _: u32) -> bool {
         true
     }
@@ -316,7 +317,7 @@ fn two_callbacks_in_one_pump_step_each_run_their_batch_before_the_next() {
         .hosts()
         .wire_work(WorkServices {
             sched: sched.try_clone().unwrap(),
-            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Env)
+            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Subscribed)
                 as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>)
             .unwrap(),
         })
@@ -340,7 +341,7 @@ fn two_callbacks_in_one_pump_step_each_run_their_batch_before_the_next() {
             )
             .unwrap();
     }
-    w.kernel.now = Instant(1_000);
+    w.kernel.shared.now = Instant(1_000);
     w.kernel.native_work_pump();
     // The pump itself ran the first batch before it called the second
     // callback: a waiting batch refuses the next call (`ERR_BUSY`, the
@@ -361,7 +362,7 @@ fn run_work(w: &mut World) {
         .hosts()
         .wire_work(WorkServices {
             sched: sched.try_clone().unwrap(),
-            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Env)
+            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Subscribed)
                 as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>)
             .unwrap(),
         })
@@ -383,7 +384,7 @@ fn run_work(w: &mut World) {
             1_000,
         )
         .unwrap();
-    w.kernel.now = Instant(1_000);
+    w.kernel.shared.now = Instant(1_000);
     w.kernel.native_work_pump();
 }
 
@@ -475,7 +476,7 @@ impl ServiceEvents for Svc {
 /// batch (as `native_service_pump` does).
 fn pass(kernel: &mut crate::Kernel, svc: &Svc) -> bool {
     let more = {
-        let env = kernel.shared.env(kernel.now);
+        let env = kernel.shared.place(kernel.shared.now);
         let k = &*kernel;
         pump(
             &k.shared.native_instances,
@@ -563,7 +564,7 @@ fn a_runs_network_events_are_quiet_too() {
         .hosts()
         .wire_work(WorkServices {
             sched: sched.try_clone().unwrap(),
-            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Env)
+            env: crate::native_host::shared::Shared::try_new(alloc::boxed::Box::new(Subscribed)
                 as alloc::boxed::Box<dyn crate::native_host::work_sched::WorkEnv>)
             .unwrap(),
         })

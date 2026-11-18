@@ -15,7 +15,8 @@ use paperpaw_native::host_glue::{
 use paperpaw_sdk::{Id, SettingValue};
 
 /// Generic slot 5 uses this host-bound caller path. Output is published only
-/// after framing, identity and visibility checks succeed.
+/// after framing, identity and visibility checks succeed. A secret setting
+/// reads as absent.
 ///
 /// # Safety
 /// The same pointer and alias rules as `settings_read` apply.
@@ -74,7 +75,9 @@ fn read_for(
         let granted = matches!(frame.settings().get(full), Some(SettingValue::Bool(true)));
         return encode(SettingValueRef::Bool(granted), out);
     }
-    let secret = identity.secret(frame.settings()).unwrap_or(false);
+    let secret = identity
+        .secret(frame.settings(), frame.setting_memo())
+        .unwrap_or(false);
     let visible = if identity.head.len() == key.len() {
         visibility(caller, key, secret, frame.settings_editor())
     } else {
@@ -83,7 +86,10 @@ fn read_for(
     match visible {
         Visibility::Hidden => ERR_DENIED,
         Visibility::Redacted if key.split(['.', '@']).next() != Some(caller.as_str()) => ERR_DENIED,
-        Visibility::Redacted | Visibility::Readable => copy_value(frame, key, out),
+        // A secret's value is the owner's secret (`secrets.md` 4), read with
+        // `core.secrets`: never given here, also not to its owner.
+        Visibility::Redacted => encode(SettingValueRef::Absent, out),
+        Visibility::Readable => copy_value(frame, key, out),
     }
 }
 
@@ -124,8 +130,17 @@ pub(crate) unsafe fn settings_read(slot: &FrameSlot, key: PpBytes, out: PpBuffer
         Ok(out) => out,
         Err(error) => return error,
     };
-    slot.with(|frame| copy_value(frame, key, out))
-        .unwrap_or(ERR_STATE)
+    slot.with(|frame| {
+        let secret = SettingIdentity::new(key)
+            .ok()
+            .and_then(|identity| identity.secret(frame.settings(), frame.setting_memo()));
+        if secret == Some(true) {
+            encode(SettingValueRef::Absent, out)
+        } else {
+            copy_value(frame, key, out)
+        }
+    })
+    .unwrap_or(ERR_STATE)
 }
 
 /// # Safety
@@ -142,7 +157,7 @@ pub(crate) unsafe fn i18n_copy(slot: &FrameSlot, key: PpBytes, out: PpBuffer) ->
         Err(error) => return error,
     };
     slot.with(|frame| {
-        let Some(message) = frame.translator().get(key) else {
+        let Some(message) = frame.translator().get_copy(key) else {
             return ERR_NOT_FOUND;
         };
         buffers::copy_required(message.as_bytes(), out, buffers::TEXT_MAX)

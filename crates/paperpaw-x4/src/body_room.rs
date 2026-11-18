@@ -4,7 +4,9 @@
 //! once. The room a request may take is already reserved from the device's
 //! network pool (`max_body`), so the buffer is taken once, up to the most the
 //! request may keep, or in exact steps for a limit that is large; never past
-//! the limit, never by doubling.
+//! the limit, never by doubling. Where the answer says how long its body is
+//! (`Content-Length`), that is the size taken, not [`FIRST`]: an 8 KiB answer
+//! no longer asks the heap for a 32 KiB piece.
 
 /// The most reserved at once for the first piece; a larger limit is reached in
 /// steps of [`STEP`].
@@ -27,19 +29,25 @@ pub const fn fit(len: usize, piece: usize, limit: usize) -> usize {
 /// are added to a body of `len` bytes that has `capacity`, or `None` where
 /// they fit. The result holds `len + piece`, never exceeds `limit` (unless
 /// the body already holds more), and is never more than `FIRST` or `STEP`
-/// beyond what the body had.
+/// beyond what the body had; where the answer says its length (`expected`) the
+/// first piece taken is that long (cut at `limit`), whatever it is.
 #[must_use]
 pub const fn capacity_for(
     capacity: usize,
     len: usize,
     piece: usize,
     limit: usize,
+    expected: Option<usize>,
 ) -> Option<usize> {
     let need = len.saturating_add(piece);
     if need <= capacity {
         return None;
     }
-    let step = if capacity == 0 { FIRST } else { STEP };
+    let step = match expected {
+        Some(length) if capacity == 0 => length,
+        _ if capacity == 0 => FIRST,
+        _ => STEP,
+    };
     let mut target = capacity.saturating_add(step);
     if target < need {
         target = need;
@@ -98,7 +106,7 @@ mod tests {
             if n == 0 {
                 continue;
             }
-            if let Some(target) = capacity_for(cap, len, n, limit) {
+            if let Some(target) = capacity_for(cap, len, n, limit, None) {
                 assert!(target >= len + n);
                 assert!(target <= limit.max(len + n));
                 takes += 1;
@@ -141,16 +149,33 @@ mod tests {
         // No step is more than STEP past what the body had.
         let mut cap = FIRST;
         while cap < limit {
-            let next = capacity_for(cap, cap, 1, limit).unwrap();
+            let next = capacity_for(cap, cap, 1, limit, None).unwrap();
             assert!(next <= cap + STEP);
             cap = next;
         }
     }
 
     #[test]
+    fn a_body_of_known_length_is_taken_at_that_length() {
+        // An 8 KiB answer under a 1 MiB limit: 8 KiB, not 32.
+        assert_eq!(capacity_for(0, 0, 1460, 1 << 20, Some(8192)), Some(8192));
+        // A longer one is cut at the limit, and never below what is needed.
+        assert_eq!(
+            capacity_for(0, 0, 1460, 23 * 1024, Some(1 << 20)),
+            Some(23 * 1024)
+        );
+        assert_eq!(capacity_for(0, 0, 4096, 1 << 20, Some(100)), Some(4096));
+        // The length counts for the first piece only.
+        assert_eq!(
+            capacity_for(8192, 8192, 1, 1 << 20, Some(8192)),
+            Some(8192 + STEP)
+        );
+    }
+
+    #[test]
     fn a_piece_that_fits_takes_nothing() {
-        assert_eq!(capacity_for(4096, 1000, 3096, 8192), None);
-        assert_eq!(capacity_for(0, 0, 0, 8192), None);
+        assert_eq!(capacity_for(4096, 1000, 3096, 8192, None), None);
+        assert_eq!(capacity_for(0, 0, 0, 8192, None), None);
     }
 
     #[test]
@@ -164,7 +189,7 @@ mod tests {
     #[test]
     fn a_zero_limit_takes_nothing() {
         assert_eq!(fit(0, 10, 0), 0);
-        assert_eq!(capacity_for(0, 0, 0, 0), None);
+        assert_eq!(capacity_for(0, 0, 0, 0, None), None);
     }
 
     #[test]

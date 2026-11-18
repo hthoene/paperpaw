@@ -4,11 +4,10 @@
 //! in their group of settings); the X4 Pro's front light has its
 //! brightness and warmth, in the quick panel and the reader's panel too.
 
-use alloc::borrow::Cow;
-
+use paperpaw_core::Staging;
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::setting::Setting;
-use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, SettingSpec, Version};
+use paperpaw_sdk::{Id, Manifest, RegisterError, SettingSpec, Version};
 
 pub const PLUGIN: Id = Id::new_static("x4");
 /// The processor sleeps lightly while idle on battery (see `power`).
@@ -135,9 +134,6 @@ pub const WARMTH: Setting<i64> = Setting::new("x4.warmth");
 )]
 pub const LIGHT_OFF_AFTER: Setting<paperpaw_sdk::setting::Text> =
     Setting::new("x4.light-off-after");
-
-#[derive(Debug, Default)]
-pub struct X4;
 
 /// How quickly presses are answered; whether it sleeps lightly between
 /// button reads.
@@ -364,58 +360,74 @@ static LIGHT_SETTINGS: [SettingSpec; 3] = {
     ]
 };
 
-impl Plugin for X4 {
-    fn manifest(&self) -> Manifest {
-        #[cfg(feature = "x4")]
-        let (name, description) = ("Xteink X4", "What only the Xteink X4 has to set.");
-        #[cfg(feature = "x4-pro")]
-        let (name, description) = (
-            "Xteink X4 Pro",
-            "What only the Xteink X4 Pro has to set: its front light.",
-        );
-        #[cfg(feature = "x4-classic")]
-        let (name, description) = (
-            "Xteink X4 Classic",
-            "What only the Xteink X4 Classic has to set.",
-        );
-        #[cfg(feature = "x3")]
-        let (name, description) = ("Xteink X3", "What only the Xteink X3 has to set.");
-        Manifest::new(PLUGIN, name, Version::new(0, 1, 0))
-            .description(description)
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_settings(&SETTINGS)?;
-        #[cfg(feature = "asleep-light")]
-        r.add_settings(&SLEEP_SETTINGS)?;
-        #[cfg(feature = "x4")]
-        if SSD1677.load(core::sync::atomic::Ordering::Relaxed) {
-            r.add_settings(&FAST_SETTINGS)?;
-        }
-        if uc8179() {
-            r.add_settings(&UC_SETTINGS)?;
-        }
-        #[cfg(feature = "x4-pro")]
-        register_light(r)?;
-        #[cfg(feature = "waveform-lab")]
-        {
-            r.add_settings(&crate::lab::SETTINGS)?;
-            r.add_screens(&crate::lab::SCREENS)?;
-            r.add_actions(&crate::lab::ACTIONS)?;
-            r.add_menu_entries(&crate::lab::ENTRIES)?;
-        }
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
-        Ok(())
-    }
+/// What [`register`] registers under.
+pub fn manifest() -> Manifest {
+    #[cfg(feature = "x4")]
+    let (name, description) = ("Xteink X4", "What only the Xteink X4 has to set.");
+    #[cfg(feature = "x4-pro")]
+    let (name, description) = (
+        "Xteink X4 Pro",
+        "What only the Xteink X4 Pro has to set: its front light.",
+    );
+    #[cfg(feature = "x4-classic")]
+    let (name, description) = (
+        "Xteink X4 Classic",
+        "What only the Xteink X4 Classic has to set.",
+    );
+    #[cfg(feature = "x3")]
+    let (name, description) = ("Xteink X3", "What only the Xteink X3 has to set.");
+    Manifest::new(PLUGIN, name, Version::new(0, 1, 0))
+        .description(description)
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
+
+/// The device's settings and texts (`KernelBuilder::items` with [`manifest`]).
+pub fn register(r: &mut Staging) -> Result<(), RegisterError> {
+    r.add_settings(&SETTINGS)?;
+    #[cfg(feature = "asleep-light")]
+    r.add_settings(&SLEEP_SETTINGS)?;
+    #[cfg(feature = "x4")]
+    if SSD1677.load(core::sync::atomic::Ordering::Relaxed) {
+        r.add_settings(&FAST_SETTINGS)?;
+    }
+    if uc8179() {
+        r.add_settings(&UC_SETTINGS)?;
+    }
+    #[cfg(feature = "x4-pro")]
+    register_light(r)?;
+    Ok(())
+}
+
+/// The device's texts, English and German, without their keys (made by
+/// `build.rs` from `i18n/*.ini`, #306): handed to the builder
+/// (`KernelBuilder::built_messages`), not added as sources.
+pub static MESSAGES: &[paperpaw_i18n::BuiltMessages] =
+    include!(concat!(env!("OUT_DIR"), "/device_messages.rs"));
+
+/// German as a language pack the firmware carries (#251): compressed, and
+/// written to the card as the data plugin `language-de` where German is the
+/// language (`KernelBuilder::language_seed`).
+#[cfg(not(feature = "built-german"))]
+pub static GERMAN: paperpaw_core::LanguageSeed = paperpaw_core::LanguageSeed {
+    tag: "de",
+    name: "Deutsch",
+    plural: "one-other",
+    plugin: "language-de",
+    plugin_ini: include_str!(concat!(env!("OUT_DIR"), "/german_pack.ini")),
+    catalog: |sink| {
+        paperpaw_x4::language_pack::inflate_to(
+            include_bytes!(concat!(env!("OUT_DIR"), "/german_pack.deflate")),
+            sink,
+        )
+    },
+};
 
 /// The front light's settings, also first in the reader's panel and in
 /// the quick panel.
 #[cfg(feature = "x4-pro")]
-fn register_light(r: &mut Registrar) -> Result<(), RegisterError> {
-    use paperpaw_sdk::MenuEntry;
+fn register_light(r: &mut Staging) -> Result<(), RegisterError> {
+    use alloc::borrow::Cow;
+    use paperpaw_core::kit::menus::MenuEntry;
     use paperpaw_sdk::builtin::menus;
     r.add_settings(&LIGHT_SETTINGS)?;
     for (n, item) in [FRONTLIGHT, WARMTH].into_iter().enumerate() {

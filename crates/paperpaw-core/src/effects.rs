@@ -3,9 +3,9 @@
 use paperpaw_platform::{Instant, Rect, RefreshMode};
 
 #[cfg(doc)]
-use crate::{Kernel, KernelBuilder};
+use crate::screen::Screen;
 #[cfg(doc)]
-use paperpaw_sdk::Screen;
+use crate::{Kernel, KernelBuilder};
 
 /// Something the shell has to do after an event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,7 +65,7 @@ impl Effects {
     }
 
     /// Whether the frame is best shown in grays (the screen on top, with
-    /// nothing over it, says so: [`Screen::grays`]):
+    /// nothing over it, says so):
     /// shells whose panel shows more grays with a refresh of its own draw
     /// the whole screen with [`Kernel::render_gray`] and refresh it so;
     /// others refresh as [`Effects::refresh`] says.
@@ -104,7 +104,7 @@ impl Effects {
     }
 
     /// Whether the shell should show the card to a computer as a USB drive
-    /// once the frame is shown ([`paperpaw_sdk::Command::UsbDrive`]): it
+    /// once the frame is shown ([`crate::Ask::UsbDrive`]): it
     /// calls [`Kernel::suspend`] first, leaves the card to the computer
     /// alone, and calls [`Kernel::usb_drive_ended`] when the computer
     /// ejected it or the cable went (checking the card's file system

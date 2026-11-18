@@ -5,12 +5,13 @@ use super::{
     native_screen::Dispatch,
     registrations::{self as wire, Record},
 };
+use crate::Place;
 use crate::native_host::codec;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE,
 };
-use paperpaw_sdk::{Env, Id};
+use paperpaw_sdk::Id;
 
 const SUBSCRIBERS: usize = 32;
 const CALL_BYTES: usize = 4096;
@@ -207,7 +208,7 @@ impl<'a> Run<'a> {
     pub(crate) fn apply<T>(
         mut self,
         target: &mut T,
-        env: &Env<'_>,
+        env: &Place<'_>,
         prepare: impl FnOnce(&T) -> Result<T, i32>,
         mut apply: impl FnMut(&mut T, Reply<'_>) -> Result<(), i32>,
     ) -> Result<Outcome, i32> {

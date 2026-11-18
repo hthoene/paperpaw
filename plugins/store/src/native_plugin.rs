@@ -16,7 +16,7 @@ use paperpaw_sdk::native::{
     Error, Host, Plugin,
     callbacks::{DrawFrame, Input},
     commands::CommandSender,
-    events::{Event, Incoming, kinds},
+    events::{Event, Incoming, WifiLinkState, kinds},
     image::ImageStatus,
     registrations,
     reply::Reply,
@@ -28,7 +28,7 @@ use paperpaw_ui_kit::{read_event, screens::Screens};
 use crate::declarations::{
     DISCOVER_TOKEN, FETCH_SCREEN, HTTP_TOKEN, INSTALL_TOKEN, LETTERS_SCREEN, LIST_SCREEN,
     OFFER_SCREEN, OPEN_TOKEN, PLUGIN_SCREEN, PLUGINS_TOKEN, SHOTS_SCREEN, SOURCE_SCREEN,
-    STARTED_TOKEN, VIEW_SCREEN,
+    STARTED_TOKEN, TEMPLATES_SCREEN, VIEW_SCREEN, WIFI_TOKEN,
 };
 use crate::native_download::Download;
 use crate::native_glue::{self, Reply as Typed};
@@ -84,8 +84,12 @@ pub struct NativeStore {
     pub(crate) want_retried: bool,
     /// The removal the host was asked for: its request and the plugin's name.
     pub(crate) removing: Option<(u32, String)>,
-    /// What the install under way needs of the page it comes from.
-    pub(crate) installing: Option<crate::native_list::Page>,
+    /// What the install under way needs of the page it comes from (on the heap:
+    /// the S3's frame limit counts `make`'s stack, #214).
+    pub(crate) installing: Option<alloc::boxed::Box<crate::native_list::Page>>,
+    /// The key of the community source the install under way comes from
+    /// (`None`: PaperPaw's library).
+    pub(crate) installing_from: Option<[u8; 32]>,
     /// Counts the removals asked.
     pub(crate) remove_count: u32,
     /// A value a screen handed to the one below it, which is not on top yet.
@@ -121,7 +125,7 @@ impl Plugin for NativeStore {
         incoming: Incoming<'_>,
         _reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Started, kinds::HttpDone, kinds::HttpProgress, kinds::InstallDone, kinds::PluginsChanged, kinds::ImageReady, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::PluginsRequested)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Started, kinds::HttpDone, kinds::HttpProgress, kinds::InstallDone, kinds::PluginsChanged, kinds::ImageReady, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::PluginsRequested, kinds::WifiChanged)
         else {
             return Ok(());
         };
@@ -158,6 +162,14 @@ impl Plugin for NativeStore {
                 ..
             } if is_screen(token) => self.shown(host, *instance),
             Event::Started { .. } if token == STARTED_TOKEN => self.started(host),
+            // The connection came: what a setup template waited to install
+            // goes on (no radio is switched on for this, no read of Wi-Fi).
+            Event::WifiChanged { state, .. } if token == WIFI_TOKEN => {
+                if *state == WifiLinkState::Connected {
+                    self.release_template(host, false)?;
+                }
+                Ok(())
+            }
             Event::ScreenClosed { instance, .. } => self.closed(host, *instance),
             Event::PluginsRequested {
                 now_ms,
@@ -207,6 +219,7 @@ const fn is_screen(token: u32) -> bool {
             | SHOTS_SCREEN
             | FETCH_SCREEN
             | OFFER_SCREEN
+            | TEMPLATES_SCREEN
     )
 }
 
@@ -225,9 +238,22 @@ impl NativeStore {
             let snapshot = Snapshot::read(host)?;
             self.refresh_activity(host)?;
             self.activity.read_facts(host, &storage, Some(&snapshot))?;
+            self.activity.origins = crate::native_sources::Origins::read(&storage)?;
+            self.activity.listed = self.handles.trust();
             self.snapshot = Some(snapshot);
         }
         Ok(())
+    }
+
+    /// The data folder, with the list files of the source listed (#214).
+    pub(crate) fn list_files<'a, 'h>(
+        &self,
+        host: &'a Host<'h>,
+    ) -> crate::native_sources::SourceFiles<DataStorage<'a, 'h>> {
+        crate::native_sources::SourceFiles::new(
+            DataStorage::new(host),
+            self.handles.source.is_some(),
+        )
     }
 
     /// What was read of the device is stale (a plugin came or went).
@@ -264,11 +290,16 @@ impl NativeStore {
     ) -> Result<R, Error> {
         self.ensure_snapshot(host)?;
         let small = self.small_memory(host);
-        let storage = DataStorage::new(host);
+        let storage = self.list_files(host);
         let loader = LoaderView {
             loader: &self.loader,
             generation: self.generation,
             small_memory: small,
+            source: self
+                .handles
+                .source
+                .as_ref()
+                .map(|source| source.url.as_str()),
         };
         let snapshot = self.snapshot.as_ref().ok_or(Error::State)?;
         let installs = HostInstalls::new(snapshot, &self.activity);
@@ -303,12 +334,17 @@ impl NativeStore {
         }
         self.ensure_snapshot(host)?;
         let small = self.small_memory(host);
-        let storage = DataStorage::new(host);
+        let storage = self.list_files(host);
         let view = {
             let loader = LoaderView {
                 loader: &self.loader,
                 generation: self.generation,
                 small_memory: small,
+                source: self
+                    .handles
+                    .source
+                    .as_ref()
+                    .map(|source| source.url.as_str()),
             };
             let snapshot = self.snapshot.as_ref().ok_or(Error::State)?;
             let installs = HostInstalls::new(snapshot, &self.activity);
@@ -374,6 +410,7 @@ impl NativeStore {
             StoreView::Shots(_) => SHOTS_SCREEN,
             StoreView::Fetch(_) => FETCH_SCREEN,
             StoreView::Offer(_) => OFFER_SCREEN,
+            StoreView::Templates(_) => TEMPLATES_SCREEN,
         })
     }
 
@@ -407,6 +444,10 @@ impl NativeStore {
         }
         // Nothing of the device is kept while no screen is open.
         self.release_idle();
+        // The store is left: PaperPaw's library is listed the next time.
+        if self.screens_empty() {
+            self.leave_source(host);
+        }
         result
     }
 

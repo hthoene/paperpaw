@@ -86,10 +86,10 @@ pub fn layout_text(
     filtered: u64,
 ) -> Result<String, Error> {
     let mut text = String::new();
-    text.try_reserve(112).map_err(|_| Error::NoMemory)?;
+    text.try_reserve(128).map_err(|_| Error::NoMemory)?;
     write!(
         text,
-        "{}/{}/{}/{}/{}/{}/{}x{}x{}/{}/{}-{}/{}:{}/{}:{}/{}/{:x}/{:x}",
+        "{}/{}/{}/{}/{}/{}/{}x{}x{}/{}/{}-{}/{}:{}/{}:{}/{}/{:x}/{:x}/t{}:{}{}",
         (reading.size_pt * 10.0) as u32,
         reading.line_spacing,
         reading.word_spacing,
@@ -112,6 +112,10 @@ pub fn layout_text(
         reading.book,
         // The font and the hyphenation: other letters, other pages.
         reading.text,
+        // The letters: the space, kerning and ligatures set other widths.
+        reading.letters.spacing,
+        u8::from(reading.letters.kerning),
+        u8::from(reading.letters.ligatures),
     )
     .map_err(|_| Error::NoMemory)?;
     // The text filters' rules (none: the name stays as it was).
@@ -205,11 +209,54 @@ pub fn keep(storage: &dyn Storage, name: &str) {
     }
 }
 
+/// Entries of the index read at once where a search has come near its page
+/// (a block of a card): the last steps of the search, and the pages turned
+/// to next, are then answered from them, not by a read of 8 bytes each
+/// (each is a call of the storage, about a millisecond on the X4, and a
+/// page turn looks several positions up).
+const WINDOW: u32 = 64;
+/// Bytes of an entry of the index.
+const ENTRY: usize = 8;
+
+/// Entries of the index kept from the read made last (see [`WINDOW`]). The
+/// index only grows at its end, so what was read stays as it is. Its bytes
+/// are taken from the heap at the first read; where there is no memory for
+/// them nothing is kept, and every entry is read by itself as before.
+#[derive(Default)]
+struct Window {
+    /// The page of its first entry.
+    first: u32,
+    /// Its entries.
+    count: u32,
+    bytes: alloc::vec::Vec<u8>,
+}
+
+impl Window {
+    /// Where page `page` starts, where it is kept.
+    fn get(&self, page: u32) -> Option<Locator> {
+        let i = page.checked_sub(self.first).filter(|i| *i < self.count)? as usize;
+        let entry = self.bytes.get(i * ENTRY..(i + 1) * ENTRY)?;
+        let word =
+            |i: usize| u32::from_le_bytes([entry[i], entry[i + 1], entry[i + 2], entry[i + 3]]);
+        Some(Locator::new(word(0), word(4)))
+    }
+}
+
+impl core::fmt::Debug for Window {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Window")
+            .field("first", &self.first)
+            .field("count", &self.count)
+            .finish_non_exhaustive()
+    }
+}
+
 /// The count of one open book in one layout.
 #[derive(Debug)]
 pub struct Counter {
     index: PageIndex,
     name: String,
+    window: core::cell::RefCell<Window>,
     /// Where the next step goes on (none: after the last page counted).
     next: Option<Locator>,
     stopped: bool,
@@ -230,6 +277,7 @@ impl Counter {
         Ok(Self {
             index: PageIndex::open(storage, copy),
             name,
+            window: core::cell::RefCell::default(),
             next: None,
             stopped: false,
             failures: 0,
@@ -256,7 +304,7 @@ impl Counter {
         if !self.index.is_complete() {
             return None;
         }
-        let (page, exact) = self.index.locate(storage, Locator::new(at.0, at.1))?;
+        let (page, exact) = self.search(storage, Locator::new(at.0, at.1))?;
         exact.then(|| (page + 1, self.index.pages()))
     }
 
@@ -267,7 +315,85 @@ impl Counter {
         if !self.index.is_complete() {
             return None;
         }
-        self.index.locate(storage, Locator::new(at.0, at.1))
+        self.search(storage, Locator::new(at.0, at.1))
+    }
+
+    /// Where page `page` starts: from the entries kept, else read by itself.
+    fn entry(&self, storage: &dyn Storage, page: u32) -> Option<Locator> {
+        let kept = self.window.borrow().get(page);
+        kept.or_else(|| self.index.entry(storage, page))
+    }
+
+    /// Reads up to [`WINDOW`] entries from page `first` on into the window
+    /// (none past the pages there are); nothing is kept where they cannot be
+    /// read or there is no memory for them.
+    fn keep_from(&self, storage: &dyn Storage, first: u32) {
+        let mut window = self.window.borrow_mut();
+        window.count = 0;
+        let bytes = WINDOW as usize * ENTRY;
+        if window.bytes.len() < bytes {
+            if window.bytes.try_reserve_exact(bytes).is_err() {
+                return;
+            }
+            window.bytes.resize(bytes, 0);
+        }
+        let want = self.index.pages().saturating_sub(first).min(WINDOW) as usize * ENTRY;
+        let read = storage
+            .read_at(
+                &self.name,
+                u64::from(first) * ENTRY as u64,
+                &mut window.bytes[..want],
+            )
+            .unwrap_or(0);
+        window.first = first;
+        window.count = (read / ENTRY) as u32;
+    }
+
+    /// The page `at` is on (the last that starts at or before it) and whether
+    /// it starts there: `PageIndex::locate`, with the entries near the page
+    /// read at once and kept (see [`WINDOW`]).
+    fn search(&self, storage: &dyn Storage, at: Locator) -> Option<(u32, bool)> {
+        let pages = self.index.pages();
+        let (mut low, mut high) = (0u32, pages);
+        // Where the entries kept tell on which side of them the page is, the
+        // search starts there: a page turned to after the one found last is
+        // found among them without a read.
+        {
+            let window = self.window.borrow();
+            let count = window.count.min(pages.saturating_sub(window.first));
+            if count > 0 {
+                let last = window.first + count - 1;
+                if window.get(window.first).is_some_and(|start| start <= at) {
+                    low = window.first + 1;
+                }
+                if window.get(last).is_some_and(|start| start > at) {
+                    high = last;
+                }
+            }
+        }
+        while low < high {
+            // Near its page: the entries left to look at, the one before them
+            // (the page itself, where the search ends on `low`) and as many
+            // after them (the pages turned to next) are read at once.
+            if high - low < WINDOW / 2 {
+                let first = low.saturating_sub(1);
+                let kept = {
+                    let window = self.window.borrow();
+                    window.first <= first && high <= window.first + window.count
+                };
+                if !kept {
+                    self.keep_from(storage, first);
+                }
+            }
+            let mid = low + (high - low) / 2;
+            if self.entry(storage, mid)? <= at {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        let page = low.checked_sub(1)?;
+        Some((page, self.entry(storage, page)? == at))
     }
 
     /// The pages counted so far and whether they are all.
@@ -282,7 +408,7 @@ impl Counter {
         if page >= self.index.pages() {
             return None;
         }
-        let at = self.index.entry(storage, page)?;
+        let at = self.entry(storage, page)?;
         Some((at.section, at.offset))
     }
 
@@ -415,6 +541,108 @@ mod tests {
         assert_eq!(counter.page_at(&storage, (0, 195)), None);
     }
 
+    /// A storage that counts the reads it is asked for.
+    struct Counting(MemoryStorage, core::cell::Cell<usize>);
+
+    impl Storage for Counting {
+        fn read_at(
+            &self,
+            path: &str,
+            at: u64,
+            buf: &mut [u8],
+        ) -> Result<usize, paperpaw_sdk::StorageError> {
+            self.1.set(self.1.get() + 1);
+            self.0.read_at(path, at, buf)
+        }
+        fn size(&self, path: &str) -> Result<u64, paperpaw_sdk::StorageError> {
+            self.0.size(path)
+        }
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+            self.0.write(path, data)
+        }
+        fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+            self.0.append(path, data)
+        }
+        fn list(
+            &self,
+            dir: &str,
+            visit: &mut dyn FnMut(paperpaw_sdk::DirEntry<'_>),
+        ) -> Result<(), paperpaw_sdk::StorageError> {
+            self.0.list(dir, visit)
+        }
+        fn remove(&self, path: &str) -> Result<(), paperpaw_sdk::StorageError> {
+            self.0.remove(path)
+        }
+    }
+
+    /// A page is found with a few reads, not one for each step of the search,
+    /// and the pages turned to after it with none (#305): in 4,000 pages every
+    /// position looked up was 13 reads of 8 bytes.
+    #[test]
+    fn a_page_is_found_with_few_reads_and_the_next_ones_with_none() {
+        let storage = Counting(MemoryStorage::new(), core::cell::Cell::new(0));
+        let mut counter = Counter::open(&storage, String::from("pages-w.bin")).unwrap();
+        while counter.step(&storage, 500, &mut book(4000)) == Step::More {}
+        assert_eq!(counter.pages(), Some(4000));
+        let counter = Counter::open(&storage, String::from("pages-w.bin")).unwrap();
+        let reads = |run: &dyn Fn()| {
+            let before = storage.1.get();
+            run();
+            storage.1.get() - before
+        };
+        let found = reads(&|| {
+            assert_eq!(counter.locate(&storage, (0, 27_185)), Some((2718, false)));
+        });
+        assert!(found <= 8, "{found} reads");
+        // Asked again (the status line, the chapter), and turned on from
+        // there page after page.
+        let turned = reads(&|| {
+            assert_eq!(counter.locate(&storage, (0, 27_185)), Some((2718, false)));
+            for page in 2719..2750u32 {
+                assert_eq!(counter.locate(&storage, (0, page * 10)), Some((page, true)));
+                assert_eq!(
+                    counter.page_at(&storage, (0, page * 10)),
+                    Some((page + 1, 4000))
+                );
+                assert_eq!(counter.start(&storage, page), Some((0, page * 10)));
+            }
+        });
+        assert_eq!(turned, 0);
+        // Back past where it began, and anywhere: found as before.
+        for page in (0..4000u32).rev().step_by(7).chain([0, 1, 3998, 3999]) {
+            assert_eq!(counter.locate(&storage, (0, page * 10)), Some((page, true)));
+            assert_eq!(
+                counter.locate(&storage, (0, page * 10 + 3)),
+                Some((page, false))
+            );
+        }
+        assert_eq!(counter.locate(&storage, (9, 0)), Some((3999, false)));
+    }
+
+    /// Pages counted after some were read are found too.
+    #[test]
+    fn pages_counted_after_a_read_are_found() {
+        let storage = MemoryStorage::new();
+        let mut counter = Counter::open(&storage, String::from("pages-v.bin")).unwrap();
+        let mut lay = book(50);
+        assert_eq!(counter.step(&storage, 20, &mut lay), Step::More);
+        let (so_far, _) = counter.counted();
+        assert!((1..50).contains(&so_far), "{so_far}");
+        let last = so_far - 1;
+        assert_eq!(counter.start(&storage, last), Some((0, last * 10)));
+        assert_eq!(
+            counter.search(&storage, Locator::new(0, last * 10 + 5)),
+            Some((last, false))
+        );
+        while counter.step(&storage, 20, &mut lay) == Step::More {}
+        assert_eq!(
+            counter.locate(&storage, (0, last * 10 + 5)),
+            Some((last, false))
+        );
+        assert_eq!(counter.locate(&storage, (0, 485)), Some((48, false)));
+        assert_eq!(counter.locate(&storage, (0, 9999)), Some((49, false)));
+    }
+
     #[test]
     fn goes_on_from_the_file_after_a_new_open() {
         let storage = MemoryStorage::new();
@@ -530,6 +758,26 @@ mod tests {
             name(&sans),
             name(&base.with_text("Source Sans 3", (true, 0, 3)))
         );
+    }
+
+    #[test]
+    fn the_name_follows_the_letters_so_old_page_counts_are_left() {
+        use crate::native_typeset::Letters;
+        let base = Reading::new(12, 120, 100, 4, 4, true);
+        let name = |letters: Letters| {
+            let layout =
+                layout_text(&base.with_letters(letters), (480, 800, 220), false, 0).unwrap();
+            file_name("/b.epub", 1, &layout).unwrap()
+        };
+        let default = name(Letters::DEFAULT);
+        assert_eq!(default, name(Letters::DEFAULT));
+        assert_ne!(default, name(Letters::new(8, true, true)));
+        assert_ne!(default, name(Letters::new(0, false, true)));
+        assert_ne!(default, name(Letters::new(0, true, false)));
+        // A count made before the letters were laid is no count of today's pages.
+        let before = layout_text(&base, (480, 800, 220), false, 0).unwrap();
+        assert!(before.ends_with("/t0:11"), "{before}");
+        assert!(!before.is_empty());
     }
 
     #[test]

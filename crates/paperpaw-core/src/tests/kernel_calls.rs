@@ -2,18 +2,16 @@
 //! back, readings that make no sense.
 
 use super::*;
+use crate::Staging;
 use paperpaw_platform::{SystemStatus, WallClock};
 use paperpaw_sdk::semantics::Role;
-
-/// Rows of which one has the focus, moved by *Down*.
-struct RowsPlugin;
 
 struct Rows {
     focus: usize,
 }
 
-impl Screen for Rows {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+impl crate::testing::Fake for Rows {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         for row in 0..3u16 {
             let label = alloc::format!("Row {row}");
             let area = Rect::new(0, row * 20, 90, 20);
@@ -23,7 +21,7 @@ impl Screen for Rows {
         }
     }
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if *action == actions::DOWN {
             self.focus = (self.focus + 1) % 3;
             cx.request_redraw();
@@ -33,14 +31,10 @@ impl Screen for Rows {
     }
 }
 
-impl Plugin for RowsPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("rows"), "Rows", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+/// Rows of which one has the focus, moved by *Down*.
+fn rows_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("rows.screen"),
             "rows",
             Box::new(|_, _| Box::new(Rows { focus: 0 })),
@@ -52,6 +46,12 @@ impl Plugin for RowsPlugin {
         )?;
         Ok(())
     }
+}
+
+/// What [`rows_plugin`] registers under.
+fn rows_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("rows"), "Rows", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// What the shell is asked to say.
@@ -72,7 +72,7 @@ fn said(kernel: &mut Kernel) -> Vec<String> {
 #[test]
 fn the_focus_is_said_in_place_of_what_was_said_of_it() {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(RowsPlugin)
+        .items(rows_plugin_manifest(), rows_plugin())
         .speech(true)
         .setting_default(&settings::SPEAK_FOCUS, true)
         .build()
@@ -84,7 +84,7 @@ fn the_focus_is_said_in_place_of_what_was_said_of_it() {
     press(&mut kernel, 100, "down");
     assert_eq!(said(&mut kernel), ["Row 1", "Row 2"]);
     // A plugin reads aloud: the focus waits.
-    kernel.apply(Command::speak(paperpaw_sdk::Speech::new(
+    kernel.apply(Ask::speak(paperpaw_sdk::Speech::new(
         "A page",
         Id::new_static("rows.read"),
     )));
@@ -170,56 +170,20 @@ fn wall_clock_readings_that_make_no_sense_do_not_panic() {
 }
 
 /// Switches the device off as soon as PaperPaw started.
-struct OffAtStart;
-
-impl Plugin for OffAtStart {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("off"), "Off", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.on(paperpaw_sdk::builtin::events::STARTED, |_, _, out| {
-            out.push(Command::PowerOff);
+fn off_at_start() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.on(paperpaw_sdk::builtin::events::STARTED, |k, p| {
+            k.with_event(&paperpaw_sdk::builtin::events::STARTED, p, |_, _, out| {
+                out.push(Ask::PowerOff);
+            });
         })
     }
 }
 
-/// The same, its subscription kept in the program.
-struct OffAtStartFixed;
-
-impl Plugin for OffAtStartFixed {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("off"), "Off", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        static HEARS: [paperpaw_sdk::FixedSubscription; 2] = [
-            paperpaw_sdk::hears!(paperpaw_sdk::builtin::events::STARTED, |_, _, out| {
-                out.push(Command::PowerOff);
-            }),
-            // Another event: not called at the start.
-            paperpaw_sdk::hears!(
-                paperpaw_sdk::builtin::events::CATALOG_CHANGED,
-                |_, _, out| {
-                    out.push(Command::Sleep);
-                }
-            ),
-        ];
-        r.add_subscriptions(&HEARS)
-    }
-}
-
-#[test]
-fn subscriptions_kept_in_the_program_are_heard() {
-    let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OffAtStartFixed)
-        .power_off(true)
-        .build()
-        .unwrap();
-    let effects = kernel.start(Instant(0));
-    assert!(effects.power_off() && !effects.sleep());
+/// What [`off_at_start`] registers under.
+fn off_at_start_manifest() -> Manifest {
+    Manifest::new(Id::new_static("off"), "Off", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// Asks for the card as a USB drive at the start, and notes what it
@@ -228,27 +192,28 @@ struct Drive {
     log: Log,
 }
 
-impl Plugin for Drive {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("drive"), "Drive", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn drive(kept: Drive) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
         use paperpaw_sdk::builtin::events;
-        r.on(events::STARTED, |_, _, out| out.push(Command::UsbDrive))?;
-        for (event, name) in [
-            (events::RESUME.id(), "resume"),
-            (events::USB_DRIVE_ENDED.id(), "ended"),
-            (events::LIBRARY_CHANGED.id(), "library"),
-        ] {
-            let log = self.log.clone();
-            r.subscribe(
-                event.clone(),
-                Box::new(move |_, _, _| log.borrow_mut().push(String::from(name))),
-            )?;
-        }
-        Ok(())
+        r.on(events::STARTED, |k, p| {
+            k.with_event(&events::STARTED, p, |_, _, out| out.push(Ask::UsbDrive));
+        })?;
+        crate::tests::hear_into(&kept.log);
+        r.subscribe(events::RESUME.id().clone(), |_, _| {
+            crate::tests::heard("resume")
+        })?;
+        r.subscribe(events::USB_DRIVE_ENDED.id().clone(), |_, _| {
+            crate::tests::heard("ended")
+        })?;
+        r.subscribe(events::LIBRARY_CHANGED.id().clone(), |_, _| {
+            crate::tests::heard("library")
+        })
     }
+}
+
+/// What [`drive`] registers under.
+fn drive_manifest() -> Manifest {
+    Manifest::new(Id::new_static("drive"), "Drive", Version::new(1, 0, 0))
 }
 
 #[test]
@@ -256,19 +221,19 @@ fn the_card_goes_to_a_computer_as_a_drive_where_the_device_can() {
     // Where it cannot, nothing happens.
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Drive { log: log.clone() })
+        .items(drive_manifest(), drive(Drive { log: log.clone() }))
         .build()
         .unwrap();
     assert!(!kernel.start(Instant(0)).usb_drive());
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Drive { log: log.clone() })
+        .items(drive_manifest(), drive(Drive { log: log.clone() }))
         .capability(paperpaw_sdk::Capability::USB_DRIVE)
         .build()
         .unwrap();
     assert!(
         kernel
             .shared
-            .env(Instant(0))
+            .place(Instant(0))
             .caps()
             .has(paperpaw_sdk::Capability::USB_DRIVE)
     );
@@ -286,14 +251,17 @@ fn the_card_goes_to_a_computer_as_a_drive_where_the_device_can() {
 #[test]
 fn plugins_switch_the_device_off_where_the_shell_can() {
     // Where the system decides (Android), nothing happens.
-    let mut kernel = Kernel::builder(DEVICE).plugin(OffAtStart).build().unwrap();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(off_at_start_manifest(), off_at_start())
+        .build()
+        .unwrap();
     assert!(!kernel.start(Instant(0)).power_off());
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OffAtStart)
+        .items(off_at_start_manifest(), off_at_start())
         .power_off(true)
         .build()
         .unwrap();
-    assert!(kernel.shared.env(Instant(0)).caps().power_off);
+    assert!(kernel.shared.place(Instant(0)).caps().power_off);
     let effects = kernel.start(Instant(0));
     assert!(effects.power_off() && !effects.sleep());
     assert!(effects.iter().any(|e| e == crate::Effect::PowerOff));
@@ -302,11 +270,11 @@ fn plugins_switch_the_device_off_where_the_shell_can() {
 #[test]
 fn plugins_see_what_the_shell_changes_by_the_power_level() {
     let kernel = Kernel::builder(DEVICE).build().unwrap();
-    assert!(!kernel.shared.env(Instant(0)).caps().power.any());
+    assert!(!kernel.shared.place(Instant(0)).caps().power.any());
     let mut controls = paperpaw_sdk::power::PowerControls::default();
     controls.buttons = true;
     let kernel = Kernel::builder(DEVICE).power(controls).build().unwrap();
-    let power = kernel.shared.env(Instant(0)).caps().power;
+    let power = kernel.shared.place(Instant(0)).caps().power;
     assert!(power.any() && power.buttons && !power.cpu_clock && !power.system_saver);
 }
 
@@ -314,10 +282,10 @@ fn plugins_see_what_the_shell_changes_by_the_power_level() {
 fn plugins_hear_how_long_the_device_slept() {
     let mut kernel = Kernel::builder(DEVICE).build().unwrap();
     kernel.start(Instant(0));
-    assert_eq!(kernel.shared.env(Instant(0)).slept_for(), None);
+    assert_eq!(kernel.shared.place(Instant(0)).slept_for(), None);
     kernel.suspend(Instant(1_000));
     kernel.resume(Instant(61_000));
-    let slept = kernel.shared.env(Instant(61_000)).slept_for();
+    let slept = kernel.shared.place(Instant(61_000)).slept_for();
     assert_eq!(slept, Some(core::time::Duration::from_secs(60)));
     // A start after a sleep with the device switched off, where the shell
     // knows how long.
@@ -326,29 +294,29 @@ fn plugins_hear_how_long_the_device_slept() {
         .slept_for(core::time::Duration::from_secs(3_600))
         .build()
         .unwrap();
-    let slept = kernel.shared.env(Instant(0)).slept_for();
+    let slept = kernel.shared.place(Instant(0)).slept_for();
     assert_eq!(slept, Some(core::time::Duration::from_secs(3_600)));
 }
-
-/// Hears whether its sound played.
-struct Listener(Log);
 
 const PLAYED: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Played> =
     paperpaw_sdk::event::Event::new("ear.played");
 
-impl Plugin for Listener {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("ear"), "Ear", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
-        r.on(PLAYED, move |_, played, _| {
-            let word = played.context.get("word").unwrap_or_default();
-            log.borrow_mut()
-                .push(alloc::format!("{word} played {}", played.played));
+/// Hears whether its sound played.
+fn listener(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        crate::tests::hear_into(&kept);
+        r.on(PLAYED, |_, p| {
+            if let Some(played) = crate::hear::data::<paperpaw_sdk::replies::Played>(p) {
+                let word = played.context.get("word").unwrap_or_default();
+                crate::tests::heard(alloc::format!("{word} played {}", played.played));
+            }
         })
     }
+}
+
+/// What [`listener`] registers under.
+fn listener_manifest() -> Manifest {
+    Manifest::new(Id::new_static("ear"), "Ear", Version::new(1, 0, 0))
 }
 
 /// No shell plays sound yet (reserved): a sound asked for is answered at
@@ -357,14 +325,14 @@ impl Plugin for Listener {
 fn sounds_are_answered_not_played() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Listener(log.clone()))
+        .items(listener_manifest(), listener(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
     let sound = paperpaw_sdk::sound::Sound::new("plugins/ear/haus.ogg", &PLAYED)
         .with(paperpaw_sdk::Params::new().with("word", "Haus"));
-    kernel.apply(Command::play_sound(sound));
-    kernel.apply(Command::StopSound);
+    kernel.apply(Ask::play_sound(sound));
+    kernel.apply(Ask::StopSound);
     kernel.run_commands();
     assert_eq!(*log.borrow(), ["Haus played false"]);
 }

@@ -7,6 +7,8 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 extern crate std;
 use super::*;
+use crate::Ask;
+use crate::Staging;
 use crate::native_host::{
     declaration_store::{Allocations, ImageOwner, PendingDeclarations},
     doc_host::DocState,
@@ -24,7 +26,8 @@ use alloc::{rc::Rc, string::ToString, vec, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_platform::{DirEntry, Instant};
-use paperpaw_sdk::{Command, Id, Manifest, MemoryStorage, Params, PluginState, Version};
+use paperpaw_sdk::RegisterError;
+use paperpaw_sdk::{Id, Manifest, MemoryStorage, Params, PluginState, Version};
 
 /// The card, shared by the kernel and the hosts.
 struct Card(Rc<MemoryStorage>);
@@ -94,6 +97,8 @@ struct Format {
     ops: RefCell<Vec<u32>>,
     /// The state its open answers (and its status).
     open: Cell<u32>,
+    /// The state a step of its preparation answers.
+    prepare: Cell<u32>,
     status: Cell<i32>,
     /// The title its `meta` answers.
     title: RefCell<std::string::String>,
@@ -119,17 +124,17 @@ fn encoded(record: local::Record<'_>, out: &mut [u8]) -> usize {
 }
 
 impl Dispatch for Probe {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -140,7 +145,7 @@ impl Dispatch for Probe {
         token: u32,
         bytes: &[u8],
         out: &mut [u8],
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
     ) -> Result<i32, i32> {
         assert_eq!(token, 5, "the token of the format's declaration");
         let Record::StageCall(call) = wire::records_decode_single(bytes).unwrap() else {
@@ -168,7 +173,7 @@ impl Dispatch for Probe {
         let authors = u32::from(!title.is_empty());
         let n = match call.op {
             2 => encoded(state(self.0.open.get(), self.0.status.get()), out),
-            3 => encoded(state(READY, 0), out),
+            3 => encoded(state(self.0.prepare.get(), 0), out),
             5 => encoded(
                 local::Record::FmtMeta(local::FmtMeta::new(
                     &title, "en", "", "", 0, 0, 3, authors, 0, 0, 0,
@@ -185,28 +190,23 @@ impl Dispatch for Probe {
     }
 }
 
-/// A plugin with home's screen (offered for slot `core.home`) and a page of
-/// its own (offered for none), as the store's.
-struct Shelf;
 const HOME_SCREEN: Id = Id::new_static("shelf.home");
 const PAGE: Id = Id::new_static("shelf.page");
 
 struct Blank;
-impl paperpaw_sdk::Screen for Blank {
-    fn draw(&mut self, _: &mut paperpaw_sdk::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+impl crate::testing::Fake for Blank {
+    fn draw(&mut self, _: &mut paperpaw_sdk::Canvas<'_>, _: &crate::Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
         paperpaw_sdk::Handled::No
     }
 }
 
-impl paperpaw_sdk::Plugin for Shelf {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("shelf"), "Shelf", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+/// A plugin with home's screen (offered for slot `core.home`) and a page of
+/// its own (offered for none), as the store's.
+fn shelf() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         for id in [HOME_SCREEN, PAGE] {
-            r.add_screen(paperpaw_sdk::ScreenSpec::new(
+            r.add_fake(crate::testing::FakeSpec::new(
                 id,
                 "shelf.screen",
                 alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Blank)),
@@ -214,6 +214,12 @@ impl paperpaw_sdk::Plugin for Shelf {
         }
         r.bind_slot(slots::HOME, HOME_SCREEN, paperpaw_sdk::Priority::DEFAULT)
     }
+}
+
+/// What [`shelf`] registers under.
+fn shelf_manifest() -> Manifest {
+    Manifest::new(Id::new_static("shelf"), "Shelf", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// No walk runs, no clock.
@@ -245,7 +251,7 @@ fn world(books: &[&str]) -> World {
     let card = Rc::new(card);
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .storage(Card(card.clone()))
-        .plugin(Shelf)
+        .items(shelf_manifest(), shelf())
         .build()
         .unwrap();
     kernel.open(HOME_SCREEN, Some(slots::HOME), &Params::default());
@@ -320,14 +326,16 @@ fn catalog(w: &World, books: &[(&str, bool)]) {
     let records: Vec<catalog::Record> = books
         .iter()
         .map(|(path, read)| {
-            let mut book = paperpaw_sdk::library::Book::default();
-            book.size = if *read { 6 } else { 0 };
+            let book = crate::kit::library::Book {
+                size: if *read { 6 } else { 0 },
+                ..Default::default()
+            };
             catalog::Record::of(path, &book)
         })
         .collect();
     // Through the kernel's storage, as a walk writes it: what the kernel
     // read before is not looked at again.
-    let env = w.kernel.shared.env(w.kernel.now);
+    let env = w.kernel.shared.place(w.kernel.shared.now);
     catalog::write(env.storage(), &records).unwrap();
 }
 
@@ -338,8 +346,18 @@ fn started(w: &mut World) {
 }
 
 fn pump(w: &mut World, now: u64) {
-    w.kernel.now = Instant(now);
+    w.kernel.shared.now = Instant(now);
     w.kernel.native_service_pump();
+    // No source of the pump's wake leaves one in the past: it would wake the
+    // device again at once, round after round. "Now" is the pump's own way
+    // to ask for another pass (`service_more`).
+    if !w.kernel.shared.native_instances.service_more() {
+        let due = w.kernel.service_due();
+        assert!(
+            due.is_none_or(|at| at.millis() > now),
+            "a wake at {due:?} is left in the past after the pass at {now}"
+        );
+    }
 }
 
 /// How many `core.catalog-wanted` (made anew) the kernel has to run.
@@ -349,7 +367,7 @@ fn wanted(w: &World) -> usize {
         .commands
         .iter()
         .filter(|c| {
-            matches!(c, Command::Emit(e, p) if *e == events::CATALOG_WANTED
+            matches!(c, Ask::Emit(e, p) if *e == events::CATALOG_WANTED
                 && p.get("anew") == Some("true"))
         })
         .count()
@@ -420,7 +438,7 @@ fn while_it_runs_the_catalog_is_wanted_at_most_once_in_two_minutes_and_none_when
     let mut w = world(&books);
     catalog(&w, &books.map(|book| (book, false)));
     started(&mut w);
-    w.kernel.now = Instant(0);
+    w.kernel.shared.now = Instant(0);
     w.kernel.native_details_arm();
     pump(&mut w, 10_000);
     assert_eq!(wanted(&w), 0);
@@ -492,6 +510,95 @@ fn a_book_whose_job_an_open_took_is_looked_at_again_and_never_holds_the_device_a
     assert_eq!(w.format.opens(), 3);
     assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
     assert_eq!(kept_title(&w, "books/b.epub").as_deref(), Some("Dune"));
+}
+
+#[test]
+fn a_walk_that_ends_wakes_the_idle_device_for_its_books() {
+    let mut w = world(&["books/a.epub"]);
+    catalog(&w, &[("books/a.epub", false)]);
+    started(&mut w);
+    // The walk's end as the kernel hears it: an event among the round's
+    // commands, which run after the round's pass of the pump.
+    w.kernel
+        .output
+        .commands
+        .push(crate::Ask::emit(&events::CATALOG_CHANGED, ()));
+    let effects = w.kernel.tick(Instant(5_000));
+    assert!(w.docs.details_job().unwrap().run().armed());
+    assert_eq!(w.format.opens(), 0, "armed after this round's pass");
+    // No key is pressed: the kernel itself asks to be woken, and at once.
+    assert_eq!(w.kernel.native_details_due(), Some(5_000));
+    let mut at = effects.wake_at().expect("a wake for the first look");
+    assert!(at <= Instant(5_000), "at once, not at some later timer");
+    for _ in 0..4 {
+        if kept_title(&w, "books/a.epub").is_some() {
+            break;
+        }
+        at = w.kernel.tick(at).wake_at().expect("the next look's wake");
+    }
+    assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
+}
+
+#[test]
+fn a_wake_is_spent_while_a_job_has_the_slot_and_none_is_left_in_the_past() {
+    let mut w = world(&["books/a.epub", "books/b.epub"]);
+    catalog(&w, &[("books/a.epub", false), ("books/b.epub", false)]);
+    started(&mut w);
+    w.format.open.set(PREPARING);
+    w.format.prepare.set(PREPARING);
+    w.kernel.native_details_arm();
+    pump(&mut w, 1_000);
+    assert!(w.docs.cover_job_active());
+    assert_eq!(w.kernel.service_due(), Some(Instant(1_100)));
+    // The first step: the book still prepares and has the slot. The look's
+    // wake is spent; the job goes on by the preparing loop's own gap.
+    pump(&mut w, 1_100);
+    assert!(w.docs.cover_job_active());
+    assert_eq!(w.kernel.native_details_due(), None, "spent");
+    assert_eq!(
+        w.kernel.service_due(),
+        Some(Instant(1_200)),
+        "a wake left in the past would wake the device round after round"
+    );
+    // The job's end comes in a pass of the pump, and the next book's look
+    // follows it: both are read by the timed wakes alone.
+    w.format.prepare.set(READY);
+    w.format.open.set(READY);
+    for _ in 0..6 {
+        let Some(at) = w.kernel.service_due() else {
+            break;
+        };
+        pump(&mut w, at.millis());
+    }
+    assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
+    assert_eq!(kept_title(&w, "books/b.epub").as_deref(), Some("Dune"));
+}
+
+#[test]
+fn a_look_due_inside_a_callback_waits_a_gap_and_leaves_no_wake_in_the_past() {
+    let mut w = world(&["books/a.epub"]);
+    catalog(&w, &[("books/a.epub", false)]);
+    started(&mut w);
+    w.kernel.shared.now = Instant(5_000);
+    w.kernel.native_details_arm();
+    assert_eq!(w.kernel.native_details_due(), Some(5_000));
+    // A pass of the pump while a callback is on the stack makes no look.
+    w.kernel.shared.native_instances.test_enter_callback();
+    pump(&mut w, 5_000);
+    assert_eq!(w.format.opens(), 0, "never inside a callback");
+    assert_eq!(
+        w.kernel.native_details_due(),
+        Some(5_100),
+        "a wake left in the past would wake the device round after round"
+    );
+    // A wake that is not due yet stays as it is.
+    pump(&mut w, 5_050);
+    assert_eq!(w.kernel.native_details_due(), Some(5_100));
+    w.kernel.shared.native_instances.test_leave_callback();
+    // Between callbacks again, the look is made at its wake.
+    pump(&mut w, 5_100);
+    assert_eq!(w.format.opens(), 1);
+    assert_eq!(kept_title(&w, "books/a.epub").as_deref(), Some("Dune"));
 }
 
 #[test]
@@ -935,7 +1042,7 @@ fn a_job_of_the_install_queue_holds_the_job_until_it_ends() {
     // The details job's own pump alone: the queue's pump would run the check.
     // The documents' clock as the service pump sets it (the quiet second
     // after the start, `job_may_begin`).
-    w.kernel.now = Instant(2_000);
+    w.kernel.shared.now = Instant(2_000);
     w.docs.set_now(2_000);
     w.kernel.native_details_job_pump();
     assert_eq!(w.format.opens(), 0, "a check waits in the queue");
@@ -943,7 +1050,7 @@ fn a_job_of_the_install_queue_holds_the_job_until_it_ends() {
     // A queue its own pump holds borrowed counts as busy too.
     {
         let _held = driver.borrow_mut();
-        w.kernel.now = Instant(3_000);
+        w.kernel.shared.now = Instant(3_000);
         w.docs.set_now(3_000);
         w.kernel.native_details_job_pump();
         assert_eq!(w.format.opens(), 0, "the queue is borrowed");
@@ -951,7 +1058,7 @@ fn a_job_of_the_install_queue_holds_the_job_until_it_ends() {
     }
     driver.borrow_mut().cancel(9, 1);
     w.kernel.shared.recall.clear();
-    w.kernel.now = Instant(5_000);
+    w.kernel.shared.now = Instant(5_000);
     w.docs.set_now(5_000);
     w.kernel.native_details_job_pump();
     assert_eq!(w.format.opens(), 1, "the queue is empty");

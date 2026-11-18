@@ -58,7 +58,7 @@ const _: () = {
 
 /// Bytes received and not yet taken by mbedTLS, at most: the socket is
 /// read no further meanwhile.
-const IN_LIMIT: usize = 4096;
+const IN_LIMIT: usize = 2048;
 /// Bytes mbedTLS gave to send and not yet sent, at most.
 const OUT_LIMIT: usize = 4096;
 
@@ -313,7 +313,9 @@ fn dates(from: mbedtls_x509_time, to: mbedtls_x509_time) -> Option<u32> {
 
 /// `Ok` for mbedTLS's results that are not errors; `Err` with the code.
 fn check(code: c_int) -> Result<c_int, Error> {
-    if code < 0 {
+    if paperpaw_x4::tls_gate::alloc_failed(code) {
+        Err(Error::Memory)
+    } else if code < 0 {
         Err(Error::Tls(code))
     } else {
         Ok(code)
@@ -325,6 +327,12 @@ impl Session {
     /// certificate, which `trust` says how to check, and SNI).
     pub fn new(name: &str, trust: &Trust, slot: Slot) -> Result<Self, Error> {
         init();
+        // The session takes what the heap has to its last bytes, and the
+        // screens cannot draw then: it is not made where it would, nor
+        // where no block holds its input buffer.
+        if !paperpaw_x4::tls_gate::session_fits(esp_alloc::HEAP.free(), crate::largest_block()) {
+            return Err(Error::Memory);
+        }
         let host = CString::new(name).map_err(|_| Error::Tls(0))?;
         let mut session = Self {
             contexts: zeroed_contexts().ok_or(Error::Memory)?,
@@ -439,6 +447,11 @@ impl Session {
                 } else if flags & (MBEDTLS_X509_BADCERT_EXPIRED | MBEDTLS_X509_BADCERT_FUTURE) != 0
                 {
                     Error::Dates
+                } else if paperpaw_x4::tls_gate::alloc_failed(code) {
+                    // A handshake that found no memory for its certificates
+                    // or its arithmetic: said so, not "secure connection
+                    // failed".
+                    Error::Memory
                 } else {
                     Error::Tls(code)
                 })

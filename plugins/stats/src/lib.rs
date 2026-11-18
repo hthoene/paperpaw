@@ -51,6 +51,17 @@ mod native_widgets;
 pub use native_entry::NATIVE_ENTRY;
 /// The interface-7 plugin.
 pub mod native_plugin;
+// The reply Reading goal asks for (a copy of `plugins/reading-goal/src/read_today.rs`,
+// kept equal by the test below): a package holds nothing outside its own folder.
+mod read_today;
+#[cfg(test)]
+#[test]
+fn read_today_is_reading_goals_file() {
+    assert_eq!(
+        include_str!("read_today.rs"),
+        include_str!("../../reading-goal/src/read_today.rs")
+    );
+}
 
 mod book_list;
 mod book_rows;

@@ -3,7 +3,7 @@
 //!
 //! A linked (built-in) plugin declares its settings as wire records, and the
 //! kernel would make one heap-owned `SettingSpec` of each. Beta 3 kept them in
-//! flash instead (`Registrar::add_settings`): this makes the same table from
+//! flash instead (`Staging::add_settings`): this makes the same table from
 //! the very records the plugin declares, in a build script, so a plugin keeps
 //! one source of truth. The kernel takes a spec from the table only after it
 //! equals the one the record makes; any other spec is made as before.

@@ -64,3 +64,47 @@ fn the_host_checks_the_format_and_names_what_it_refuses() {
         }
     }
 }
+
+fn setting_batches() -> Vec<Vec<u8>> {
+    let mut out: Vec<Vec<u8>> = Vec::new();
+    {
+        let mut d = paperpaw_sdk::native::declare::Declarations::new(|batch: &[u8]| {
+            out.push(batch.to_vec());
+            Ok(())
+        });
+        declarations::settings(&mut d).unwrap();
+    }
+    out
+}
+
+/// The reading settings: the way pages run and panel by panel, each book's
+/// own, named in both languages.
+#[test]
+fn the_settings_are_the_direction_and_panels_each_books_own() {
+    let built = setting_batches();
+    assert_eq!(built.len(), image::SETTINGS.len());
+    for (built, image) in built.iter().zip(image::SETTINGS) {
+        assert_eq!(built.as_slice(), *image);
+    }
+    let en = paperpaw_i18n::Catalog::parse(include_str!("../i18n/en.ini")).unwrap();
+    let de = paperpaw_i18n::Catalog::parse(include_str!("../i18n/de.ini")).unwrap();
+    let mut names = Vec::new();
+    for batch in &built {
+        for record in records_decode(batch).unwrap().iter() {
+            assert_eq!(validate_record("format-cbz", &record), Ok(()), "{record:?}");
+            if let Record::SettingSpec(spec) = record {
+                names.push(spec.name.to_string());
+                for key in [spec.title, spec.help] {
+                    assert!(en.get(key).is_some() && de.get(key).is_some(), "{key}");
+                }
+            }
+        }
+    }
+    assert_eq!(names, ["direction", "panels"]);
+    for choice in declarations::DIRECTIONS {
+        assert!(
+            en.get(choice).is_some() && de.get(choice).is_some(),
+            "{choice}"
+        );
+    }
+}

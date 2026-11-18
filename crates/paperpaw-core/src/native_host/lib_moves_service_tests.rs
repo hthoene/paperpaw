@@ -1,8 +1,9 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 //! The library's move job as the device holds it: started by a move, carried
-//! by the pump with the kernel's `Env`, a busy source, once at wiring.
+//! by the pump with the kernel's `Place`, a busy source, once at wiring.
 extern crate std;
 use super::*;
+use crate::kit::library;
 use crate::{
     Instant, Kernel,
     native_host::{
@@ -14,7 +15,7 @@ use crate::{
 };
 use alloc::{borrow::Cow, vec::Vec};
 use paperpaw_platform::{DirEntry, StorageError};
-use paperpaw_sdk::{FormatSpec, Id, MemoryStorage, document::DocumentError, library};
+use paperpaw_sdk::{FormatSpec, Id, MemoryStorage, document::DocumentError};
 
 /// One card in memory, shared by the kernel and the job (as on a device).
 struct Card(Rc<MemoryStorage>);
@@ -66,15 +67,15 @@ fn device() -> (Kernel, Rc<MemoryStorage>) {
             Id::new_static("test.epub"),
             "EPUB",
             alloc::vec![Cow::Borrowed("epub")],
-            alloc::boxed::Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            |_, _, _| Err(DocumentError::UnsupportedFormat),
         ))
         .unwrap();
     (kernel, card)
 }
 
-fn pump_all(moves: &LibraryMoves, kernel: &Kernel) -> (Vec<Command>, usize) {
+fn pump_all(moves: &LibraryMoves, kernel: &Kernel) -> (Vec<Ask>, usize) {
     let mut sent = Vec::new();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut pumps = 0;
     loop {
         pumps += 1;
@@ -94,7 +95,7 @@ fn a_move_is_carried_by_the_pump_with_the_kernels_catalog() {
     library::set_favourite(&*card, "Books/old/a.epub", true);
     let moves = LibraryMoves::new(Rc::new(Card(card.clone())));
     // Nothing runs before a move.
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     assert_eq!(moves.pump(&env, &mut |_| ()), Pump::Idle);
     moves.begin("Books/old", "Books/new", false).unwrap();
     assert!(moves.moves().active(), "the entry is open until carried");

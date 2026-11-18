@@ -6,7 +6,7 @@ use crate::native_host::format_call::tests::{Behavior, Harness};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND};
 
 fn run(h: &Harness, kernel: &crate::Kernel, plugin: u64, out: &mut [u8]) -> Result<usize, i32> {
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     HostRoute {
         registry: &h.registry,
         env: &env,

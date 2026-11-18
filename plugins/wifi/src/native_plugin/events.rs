@@ -489,9 +489,14 @@ impl NativeWifi {
     /// off now. The radio is read first, and the stack only while it is on:
     /// nothing else is read while it is off.
     pub(super) fn stack_changed(&mut self, host: &Host<'_>, now_ms: u64) -> Result<(), Error> {
+        // Known off (the radio's change event said so): nothing to ask.
+        if self.radio_off {
+            return Ok(());
+        }
         self.ensure(host)?;
         let info = self.read_info(host)?;
         if !info.radio.is_on() {
+            self.radio_off = true;
             return Ok(());
         }
         let need = Need {

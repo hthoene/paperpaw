@@ -4,8 +4,8 @@ use paperpaw_sdk::{
     Color, Point, Rect,
     native::{
         Error,
-        callbacks::{DrawFrame, FrameRect},
-        canvas::{PartFlags, PartRole},
+        callbacks::{DrawFrame, DrawPurpose, FrameRect},
+        canvas::{Canvas, PartFlags, PartRole},
         fonts::{Font, IconGlyph, Ink, TextOrigin},
     },
 };
@@ -21,6 +21,14 @@ pub enum Paint {
     Stipple(Rect, Color),
     /// A rounded rectangle: bounds, radius, stroke thickness (`None`: filled), colour.
     Focus(Rect, u32, Option<u32>, Color),
+    /// A section card extended past a page cut, clipped to its visible rows.
+    Section {
+        rect: FrameRect,
+        clip: Rect,
+        radius: u32,
+        thickness: Option<u32>,
+        color: Color,
+    },
     /// A straight line from one point to the other, `width` pixels thick.
     Line {
         /// Where it starts.
@@ -370,12 +378,20 @@ pub fn replay_icons<'a>(
     icons: Option<&Font<'_>>,
     ops: impl IntoIterator<Item = &'a Paint>,
 ) -> Result<(), Error> {
-    let clip_top = frame.clip_top - frame.rect.y;
-    let clip_bottom = frame.clip_bottom - frame.rect.y;
+    let (clip_top, clip_bottom) = band_rows(
+        frame.purpose == DrawPurpose::Widget,
+        frame.rect.y,
+        (frame.clip_top, frame.clip_bottom),
+    );
     let mut canvas = frame.draw_canvas()?;
     // Whether anybody asks what is drawn; once not, no more is told.
     let mut asked = true;
     for op in ops {
+        // A frame is drawn in bands: an operation wholly outside this one
+        // changes no pixel and costs a host call (a text about 2 ms on the X4).
+        if outside_band(op, clip_top, clip_bottom) {
+            continue;
+        }
         match op {
             Paint::Describe { role, flags, rect } => {
                 if asked {
@@ -402,17 +418,7 @@ pub fn replay_icons<'a>(
             }
             Paint::Fill(rect, color) => canvas.fill_rectangle(frame_rect(*rect), *color)?,
             Paint::Stipple(rect, color) => {
-                for y in rect.y..rect.y.saturating_add(rect.height) {
-                    if i32::from(y) < clip_top || i32::from(y) >= clip_bottom {
-                        continue;
-                    }
-                    for x in rect.x..rect.x.saturating_add(rect.width) {
-                        if stipple_ink(x, y, *color) {
-                            canvas
-                                .fill_rectangle(frame_rect(Rect::new(x, y, 1, 1)), Color::BLACK)?;
-                        }
-                    }
-                }
+                stipple(&canvas, *rect, *color, (clip_top, clip_bottom))?
             }
             Paint::Focus(rect, radius, thickness, color) => match thickness {
                 Some(thickness) => {
@@ -425,6 +431,7 @@ pub fn replay_icons<'a>(
                 }
                 None => canvas.fill_rounded_rectangle(frame_rect(*rect), *radius, *color)?,
             },
+            section @ Paint::Section { .. } => replay_section(&mut canvas, section)?,
             Paint::Line {
                 from,
                 to,
@@ -470,14 +477,105 @@ pub fn replay_icons<'a>(
     Ok(())
 }
 
+/// The rows of a frame's band in the coordinates of its operations. A screen's
+/// are relative to its pane, whose top is `rect_y` in screen pixels; a widget's
+/// rectangle, clip and operations are all in the coordinates of the pane it
+/// stands in (the widget draws at its own `rect.y`), so its band is the clip as
+/// it is: taking the rectangle's top off it left every operation of a widget
+/// below the first band outside the band, and nothing of it was drawn.
+const fn band_rows(widget: bool, rect_y: i32, (top, bottom): (i32, i32)) -> (i32, i32) {
+    if widget {
+        (top, bottom)
+    } else {
+        (top - rect_y, bottom - rect_y)
+    }
+}
+
+/// Whether `op` lies wholly outside the rows `top..bottom` of its frame (it
+/// draws nothing there). Texts are taken to reach a size and a half above and
+/// below their baseline, strokes their width past their line; what tells and
+/// does not draw is never outside.
+fn outside_band(op: &Paint, top: i32, bottom: i32) -> bool {
+    if top >= bottom {
+        return false;
+    }
+    let apart = |from: i32, to: i32| to <= top || from >= bottom;
+    let rows = |rect: &Rect, margin: i32| {
+        apart(
+            i32::from(rect.y).saturating_sub(margin),
+            (i32::from(rect.y) + i32::from(rect.height)).saturating_add(margin),
+        )
+    };
+    // Floats of a font size: well under `i32`.
+    #[allow(clippy::cast_possible_truncation, reason = "a size in pixels")]
+    let reach = |size: f32| (size * 1.5) as i32 + 2;
+    match op {
+        Paint::Fill(rect, _) | Paint::Stipple(rect, _) => rows(rect, 0),
+        Paint::Focus(rect, _, thickness, _) => rows(rect, thickness.map_or(0, |t| t as i32) + 2),
+        Paint::Section { clip, .. } => rows(clip, 0),
+        Paint::Line {
+            from, to, width, ..
+        } => {
+            let margin = (*width as i32).saturating_add(2);
+            apart(
+                from.y.min(to.y).saturating_sub(margin),
+                from.y.max(to.y).saturating_add(margin),
+            )
+        }
+        Paint::Bold { size, origin, .. } | Paint::Icon { size, origin, .. } => apart(
+            origin.baseline.saturating_sub(reach(*size)),
+            origin.baseline.saturating_add(reach(*size)),
+        ),
+        Paint::Text {
+            size, origin, clip, ..
+        } => {
+            clip.as_ref().is_some_and(|rect| rows(rect, 0))
+                || apart(
+                    origin.baseline.saturating_sub(reach(*size)),
+                    origin.baseline.saturating_add(reach(*size)),
+                )
+        }
+        _ => false,
+    }
+}
+
+fn replay_section(canvas: &mut Canvas<'_>, op: &Paint) -> Result<(), Error> {
+    if let Paint::Section {
+        rect,
+        clip,
+        radius,
+        thickness,
+        color,
+    } = op
+    {
+        let clipped = canvas.clip_region(frame_rect(*clip))?;
+        match thickness {
+            Some(line) => clipped.stroke_rounded_rectangle(*rect, *radius, *line, *color)?,
+            None => clipped.fill_rounded_rectangle(*rect, *radius, *color)?,
+        }
+        clipped.restore()?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Paint, bold_extra, describe};
+    use super::{Paint, band_rows, bold_extra, describe};
     use alloc::vec::Vec;
     use paperpaw_sdk::{
         Rect,
         native::canvas::{PartFlags, PartRole},
     };
+
+    #[test]
+    fn a_widget_below_the_first_band_is_drawn_in_its_own_rows() {
+        // A widget at y 312, its first band 312..384: its operations lie at 312 and
+        // below, in the pane's coordinates, as its clip does.
+        assert_eq!(band_rows(true, 312, (312, 384)), (312, 384));
+        // A screen's operations are relative to its pane, whose top is at 40.
+        assert_eq!(band_rows(false, 40, (240, 490)), (200, 450));
+        assert_eq!(band_rows(false, 0, (0, 250)), (0, 250));
+    }
 
     #[test]
     fn a_part_is_queued_with_its_flags_and_only_where_somebody_asks() {
@@ -546,6 +644,37 @@ mod tests {
             assert_eq!(bold_extra(size), extra, "size {size}");
         }
     }
+}
+
+/// A stippled rectangle, ink black: one host call (a checker whose corner
+/// pixel is inked where the rectangle's own is: `x ^ y` even), or one pixel at
+/// a time on a host without the slot (#291: a separator is 200 pixels, and on
+/// the X4 every host call costs about a millisecond).
+fn stipple(
+    canvas: &Canvas<'_>,
+    rect: Rect,
+    color: Color,
+    (clip_top, clip_bottom): (i32, i32),
+) -> Result<(), Error> {
+    if color.luma() < 128 {
+        return canvas.fill_rectangle(frame_rect(rect), Color::BLACK);
+    }
+    let odd = (rect.x ^ rect.y) & 1 == 1;
+    match canvas.fill_checker(frame_rect(rect), Color::BLACK, odd) {
+        Err(Error::Unsupported) => {}
+        other => return other,
+    }
+    for y in rect.y..rect.y.saturating_add(rect.height) {
+        if i32::from(y) < clip_top || i32::from(y) >= clip_bottom {
+            continue;
+        }
+        for x in rect.x..rect.x.saturating_add(rect.width) {
+            if stipple_ink(x, y, color) {
+                canvas.fill_rectangle(frame_rect(Rect::new(x, y, 1, 1)), Color::BLACK)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 // Beta 3's fill_tint uses an alternating pattern for every light monochrome tint.

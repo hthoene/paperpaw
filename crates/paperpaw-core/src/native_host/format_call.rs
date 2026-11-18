@@ -21,12 +21,12 @@ use super::{
     registrations::{self as wire, Record},
     stage_wire,
 };
+use crate::Place;
 use crate::native_host::codec;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE,
 };
-use paperpaw_sdk::Env;
 
 /// The host-defined stage key and its major.
 pub(crate) const STAGE: &str = "core.format";
@@ -104,7 +104,7 @@ pub(crate) fn call(
     target: Target,
     payload: &[u8],
     out: &mut [u8],
-    (env, entered): (&Env<'_>, &core::cell::Cell<bool>),
+    (env, entered): (&Place<'_>, &core::cell::Cell<bool>),
 ) -> Result<usize, i32> {
     let framed = framed(payload)?;
     let room = out.len().min(PAYLOAD_MAX);

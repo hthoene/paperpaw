@@ -17,7 +17,7 @@ use paperpaw_epub_family::{CbzDocument, cbz_provider};
 use paperpaw_sdk::document::{BlockKind, Document, Locator};
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
-use paperpaw_sdk::{DirEntry, Env, MemoryStorage, Storage, StorageError};
+use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
 use paperpaw_zip::testing::ZipBuilder;
 
 /// Root 3 (the folder of the book) and root 6 (below the plugin's folder).
@@ -30,7 +30,7 @@ impl Roots {
     fn new(name: &str, book: &[u8]) -> Self {
         Self {
             mem: MemoryStorage::new().with(&format!("book/{name}"), book.to_vec()),
-            prefix: Env::plugin_dir("format-epub"),
+            prefix: paperpaw_sdk::data::plugin_dir("format-epub"),
         }
     }
     fn map(&self, path: &str) -> String {
@@ -65,6 +65,9 @@ impl Storage for Roots {
     }
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         self.mem.remove(&self.map(path))
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        self.mem.rename(&self.map(from), &self.map(to))
     }
 }
 
@@ -232,4 +235,73 @@ fn every_allocation_of_a_read_may_be_refused() {
     panic!(
         "acceptance case: refuse each allocation of open, sections and block; NoMemory, never a panic"
     );
+}
+
+/// Panel by panel, through the provider: a page is sixteen positions, the
+/// panels' pictures are numbered after the sections and asked for by number,
+/// and a manga is told as pages that run right to left.
+#[test]
+fn panels_are_numbered_and_asked_for_through_the_provider() {
+    use paperpaw_sdk::image::PngWriter;
+    let scratch = MemoryStorage::new();
+    let mut png = PngWriter::new(&scratch, "p.png", 200, 300).unwrap();
+    for y in 0..300u32 {
+        let mut row = vec![255u8; 200];
+        if (10..140).contains(&y) {
+            row[10..95].fill(10);
+            row[105..190].fill(100);
+        }
+        if (150..290).contains(&y) {
+            row[10..190].fill(50);
+        }
+        png.row(&scratch, "p.png", &row).unwrap();
+    }
+    let page = paperpaw_sdk::read_file(&scratch, "p.png", 1 << 20).unwrap();
+    let info = "<ComicInfo><Manga>YesAndRightToLeft</Manga></ComicInfo>";
+    let zip = ZipBuilder::new()
+        .stored("1.png", page)
+        .deflated("ComicInfo.xml", info.as_bytes())
+        .build();
+    let io = Roots::new("c.cbz", &zip);
+    let mut p = cbz_provider();
+    p.set_settings(vec![(paperpaw_epub_family::PANELS.into(), "true".into())]);
+    let reply = run(&mut p, &io, &call(2, |c| c.text = "c.cbz")).unwrap();
+    let stage::Record::FmtState(state) = rows(&reply)[0] else {
+        panic!("state")
+    };
+    // Whole pages (bit 0), right to left (bit 5).
+    assert_eq!((state.state, state.flags & 0b10_0001), (0, 0b10_0001));
+    let reply = run(&mut p, &io, &call(7, |_| {})).unwrap();
+    let lengths: Vec<u32> = rows(&reply)
+        .into_iter()
+        .filter_map(|r| match r {
+            stage::Record::FmtSection(s) => Some(s.length),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(lengths, [16]);
+    let mut numbers = Vec::new();
+    for offset in 0..3u32 {
+        let reply = run(&mut p, &io, &call(8, |c| c.offset = offset)).unwrap();
+        let (path, index) = rows(&reply)
+            .into_iter()
+            .find_map(|r| match r {
+                stage::Record::FmtImage(i) => Some((i.path.to_string(), i.index)),
+                _ => None,
+            })
+            .expect("an image row");
+        // Its own number, and its picture made when a page shows it.
+        assert_eq!(index, offset, "panel {offset} (one section: its offset)");
+        let reply = run(&mut p, &io, &call(18, |c| c.index = index)).unwrap();
+        match rows(&reply)[0] {
+            stage::Record::FmtImage(i) => assert_eq!(i.path, path),
+            other => panic!("not an image: {other:?}"),
+        }
+        numbers.push(path);
+    }
+    numbers.sort();
+    numbers.dedup();
+    assert_eq!(numbers.len(), 3, "three pictures");
+    // After the last panel there is none.
+    assert!(run(&mut p, &io, &call(8, |c| c.offset = 3)).is_err());
 }

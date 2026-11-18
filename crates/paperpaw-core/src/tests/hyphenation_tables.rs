@@ -92,11 +92,11 @@ fn installed_plugins_add_their_tables_and_removed_ones_give_them_back() {
     storage
         .write("plugins/hyphenation-sv/hyphenation/sv.pphp", b"PPHP")
         .unwrap();
-    kernel.apply(Command::LoadPlugin("plugins/hyphenation-sv".into()));
+    kernel.apply(Ask::LoadPlugin("plugins/hyphenation-sv".into()));
     kernel.finish();
     assert_eq!(found(&kernel, "sv-FI").unwrap().0, "hyphenation-sv");
 
-    kernel.apply(Command::RemovePlugin(Id::new_static("hyphenation-en-gb")));
+    kernel.apply(Ask::RemovePlugin(Id::new_static("hyphenation-en-gb")));
     kernel.finish();
     assert_eq!(
         found(&kernel, "en-GB"),
@@ -105,7 +105,7 @@ fn installed_plugins_add_their_tables_and_removed_ones_give_them_back() {
             "plugins/hyphenation/hyphenation/en.pphp".into()
         ))
     );
-    kernel.apply(Command::RemovePlugin(Id::new_static("hyphenation-sv")));
+    kernel.apply(Ask::RemovePlugin(Id::new_static("hyphenation-sv")));
     kernel.finish();
     assert_eq!(found(&kernel, "sv"), None);
 }
@@ -174,13 +174,13 @@ fn open_tables_are_closed_for_network_store_and_firmware_work() {
             .hyphenate("abab", &mut |_| {});
     };
     let closing = [
-        Command::Wifi(WifiCommand::On),
-        Command::Wifi(WifiCommand::Join {
+        Ask::Wifi(WifiCommand::On),
+        Ask::Wifi(WifiCommand::Join {
             ssid: String::from("home"),
             password: String::new(),
         }),
-        Command::Firmware(FirmwareCommand::install("update.bin", None, false)),
-        Command::InstallPlugin(Id::new_static("absent"), String::from("plugins/absent")),
+        Ask::Firmware(FirmwareCommand::install("update.bin", None, false)),
+        Ask::InstallPlugin(Id::new_static("absent"), String::from("plugins/absent")),
     ];
     for command in closing {
         hyphenate(&kernel);
@@ -189,6 +189,6 @@ fn open_tables_are_closed_for_network_store_and_firmware_work() {
         assert_eq!(open(&kernel), 0);
     }
     hyphenate(&kernel);
-    kernel.apply(Command::Wifi(WifiCommand::Off));
+    kernel.apply(Ask::Wifi(WifiCommand::Off));
     assert_eq!(open(&kernel), 1, "the radio off wants no heap");
 }

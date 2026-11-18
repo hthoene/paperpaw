@@ -23,6 +23,8 @@ const MOST_TYPED: usize = 256;
 const MOST_PARAMS: usize = 8;
 /// The most a query takes (`max_input` of the ui service's ops).
 const REQUEST_BYTES: usize = 512;
+/// The most a choice or a confirmation takes (the sources, the note of one).
+const NOTE_BYTES: usize = 1024;
 
 /// Asks the reader `ask`: the dialog opens after the callback returns, its end
 /// comes as an `Answered` event with the request returned here.
@@ -30,7 +32,8 @@ const REQUEST_BYTES: usize = 512;
 /// # Errors
 /// `NoMemory`, or what the host refuses.
 pub fn ask(host: &Host<'_>, ui: &Ui, ask: &Ask) -> Result<RequestId, Error> {
-    let mut input = [0; REQUEST_BYTES];
+    // On the heap: the S3's frame limit counts what `entry` inlines (#214).
+    let mut input = buffer(NOTE_BYTES)?;
     let mut out = buffer(SERVICE_BUFFER)?;
     match ask {
         Ask::Text { title, number } => {
@@ -58,6 +61,16 @@ pub fn ask(host: &Host<'_>, ui: &Ui, ask: &Ask) -> Result<RequestId, Error> {
                 &mut out,
             )
         }
+        Ask::Confirm {
+            title,
+            text,
+            yes,
+            no,
+        } => {
+            let labels = paperpaw_ui_kit::text::concat(&[yes, "\n", no])?;
+            let question = Question::confirm(title, text)?.confirm_labels(&labels)?;
+            ui.ask(host, question, &mut input, &mut out)
+        }
     }
 }
 
@@ -67,7 +80,7 @@ pub fn ask(host: &Host<'_>, ui: &Ui, ask: &Ask) -> Result<RequestId, Error> {
 /// # Errors
 /// `NoMemory`, or what the host refuses.
 pub fn confirm(host: &Host<'_>, ui: &Ui, question: Question<'_>) -> Result<RequestId, Error> {
-    let mut input = [0; REQUEST_BYTES];
+    let mut input = buffer(REQUEST_BYTES)?;
     let mut out = buffer(SERVICE_BUFFER)?;
     ui.ask(host, question, &mut input, &mut out)
 }
@@ -105,7 +118,7 @@ pub fn reply(
     if !text {
         return Ok(Reply::Choice(answer.choice() as usize));
     }
-    let mut input = [0; REQUEST_BYTES];
+    let mut input = buffer(REQUEST_BYTES)?;
     let mut out = buffer(SERVICE_BUFFER)?;
     let part = ui.text_read(host, answer.request().text(), 0, &mut input, &mut out)?;
     if part.data().len() > MOST_TYPED {

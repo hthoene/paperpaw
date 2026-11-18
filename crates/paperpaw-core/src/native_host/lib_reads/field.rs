@@ -1,13 +1,13 @@
 //! Op 23 `set_field` over the catalog on the card (`docs/abi/library.md` 4):
 //! a field `<plugin>.<name>` the plugin declared, kept with the book's data.
 //! The service has checked the record (own field, the 64 bytes of an
-//! in-catalog value); this maps it to `paperpaw_sdk::library::try_set_field`,
+//! in-catalog value); this maps it to `crate::kit::library::try_set_field`,
 //! the one implementation, so an interface 6 reader sees the same details.
 //! An error of the memory or the card is the answer, never a silent OK.
 use super::{CatalogReads, fail};
+use crate::kit::library;
 use crate::native_host::lib_service::{BookRef, FieldKind};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND};
-use paperpaw_sdk::library;
 
 /// Op 23's declared-field lookup: `ERR_NOT_FOUND` for a field no plugin
 /// declared.

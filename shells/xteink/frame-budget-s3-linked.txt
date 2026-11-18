@@ -9,27 +9,29 @@
 # directly. What the scan cannot follow (a closure, a `&dyn` call, a `match` jump table) is a call
 # through a register; the callees of those are not scanned (device test S4). They are listed by crate,
 # not by function: each line is a ceiling for the calls through a register in the functions of that
-# crate (or of a prefix, `paperpaw_plugin_*`) that no `allow indirect` line of their own lists. The
-# ceilings are what both devices measured at the head of PR #1447 plus 5 % and 2 (the two S3 builds
-# differ by a call or two; a layout change of the build moves them as little). Above a ceiling is a
-# new unfollowed call: read it, then raise the line with the reason.
+# crate (or of a prefix, `paperpaw_plugin_*`) that no `allow indirect` line of their own lists.
+# Each number is the count of the last CI scan (the scan prints the exact count per crate); the
+# scan adds a headroom to it (16 for `paperpaw_plugin_*`, 8 for any other crate; `family.rs`,
+# `headroom`), because branches counted apart land 1..6 calls apart (#296). Above the ceiling is a
+# new unfollowed call: read it, then set the line to the new count. The frame limits have no
+# headroom.
 root paperpaw_sdk::native::binding::entry
-allow indirect-in paperpaw_plugin_* 1127 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4); 1124 in train t44b: the reader's `draw_pictures_only` (#1497) is a second caller of `draw_images`, one more call through a register; 1126 on the place conversion (#1514, #265/#270: +3 over 1123); 1127 in train t45 where both lands together
-allow indirect-in paperpaw_sdk 404 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_ui_kit 118 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in core 84 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_layout 30 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_stardict 23 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_qr 20 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_text 18 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_digest 14 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_epub_family 14 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_sort 11 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_xml 11 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in alloc 6 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_config 6 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_lang 5 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
-allow indirect-in paperpaw_document 4 calls through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table) in this crate's functions that the linked plugins reach; their callees are not scanned here (device test S4)
+allow indirect-in paperpaw_plugin_* 1209 (1119 -> 1209: CI counts 1138 on the base with the reader's zoom of #92, and the scan of the branch 1173 on both S3 devices, 35 more for #214: the store's community sources read their files through `&dyn Storage` and say their words through `&dyn Say`; 36 more with the 16:03 train, CI counts 1209 on both S3 devices) calls through a register the scan does not follow, in the plugins' own code (device test S4)
+allow indirect-in paperpaw_sdk 419 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_ui_kit 163 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in core 85 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_layout 30 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_stardict 23 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_qr 20 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_text 18 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_digest 14 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_epub_family 14 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_sort 11 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_xml 11 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in alloc 6 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_config 6 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_lang 5 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_document 4 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 # ROM routines only the plugins' code calls (the host's own code does not): see frame-budget-s3-rom.txt.
 allow rom __floatundisf the chip's ROM `__floatundisf`: not scanned here (device test S4)
 allow rom __floatundidf the chip's ROM `__floatundidf`: not scanned here (device test S4)
@@ -57,7 +59,6 @@ frames-in paperpaw_config settings the plugins read: every function under the 2,
 frames-in paperpaw_lang language tables: every function under the 2,048 B frame limit (Senior #2897 C1)
 frames-in paperpaw_document documents the reader opens: every function under the 2,048 B frame limit (Senior #2897 C1)
 frames-in paperpaw_core::native_host the host side of the plugin callbacks (event, action, widget input, services): every function under the 2,048 B frame limit (Senior #2897 C1)
-frames-in paperpaw_core::chrome `sync_chromes`, run after a plugin's event: every function under the 2,048 B frame limit (Senior #2897 C1)
 frames-in paperpaw_core::core_plugin the core plugin's closures (`register_library`): every function under the 2,048 B frame limit (Senior #2897 C1)
 frames-in core the standard library's code in the image (formatting, iterators): every function under the 2,048 B frame limit (Senior #2899 M2)
 frames-in alloc the allocator's collections: every function under the 2,048 B frame limit (Senior #2899 M2)

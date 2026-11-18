@@ -29,12 +29,15 @@ mod native_asks;
 pub mod native_device;
 #[doc(hidden)]
 pub mod native_download;
+#[doc(hidden)]
+pub mod native_ed25519;
 mod native_entry;
 mod native_folders;
 #[doc(hidden)]
 pub mod native_fonts;
 mod native_fonts_host;
 mod native_glue;
+mod native_hints;
 #[doc(hidden)]
 pub mod native_index;
 #[doc(hidden)]
@@ -77,11 +80,17 @@ pub mod native_screen_shots;
 #[doc(hidden)]
 pub mod native_screen_source;
 #[doc(hidden)]
+pub mod native_screen_templates;
+#[doc(hidden)]
 pub mod native_screen_view;
 #[doc(hidden)]
 pub mod native_screens;
 #[doc(hidden)]
 pub mod native_sort;
+#[doc(hidden)]
+pub mod native_sources;
+#[doc(hidden)]
+pub mod native_template;
 #[doc(hidden)]
 pub mod native_wire;
 

@@ -4,11 +4,16 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
-use paperpaw_sdk::Storage;
+use paperpaw_sdk::{Storage, StorageError};
 
 use paperpaw_sdk::document::DocumentError;
 
+use crate::provider::NO_MEMORY;
 use crate::{MAX_NAME, MAX_PAGES, pictures};
+
+/// Names that wait while a folder is listed, at most: a list of this many
+/// is the largest the vector holds without growing again.
+const HOLD: usize = 512;
 
 /// Whether `name` is a picture PaperPaw shows (hidden files, such as the
 /// `._` copies macOS leaves on cards, are not).
@@ -72,9 +77,10 @@ pub(crate) fn copy(text: &str) -> Result<String, DocumentError> {
 
 /// The pictures of the folder `dir` that come from the picture `first` on
 /// (it first), in reading order: at most [`MAX_PAGES`], the first of them,
-/// whatever the folder holds. Names wait in no more than twice that many
-/// pieces of memory; a folder that cannot be read has `first` alone; memory
-/// that runs out is an error.
+/// whatever the folder holds. Names wait in no more than [`HOLD`] pieces of
+/// memory. A folder that is not there to list (not found, not offered) has
+/// `first` alone; memory that runs out and any other failure of the listing
+/// are errors, never a book of one page without a word.
 pub(crate) fn pages_from(
     storage: &dyn Storage,
     dir: &str,
@@ -107,15 +113,19 @@ pub(crate) fn pages_from(
                 return;
             }
         }
-        if pages.len() > 2 * MAX_PAGES {
+        if pages.len() >= HOLD {
             keep(&mut pages);
         }
     });
     if short {
         return Err(DocumentError::OutOfMemory);
     }
-    if listed.is_err() {
-        pages.clear();
+    match listed {
+        Ok(()) => {}
+        // No folder to list here (a book that is one file): the picture alone.
+        Err(StorageError::NotFound | StorageError::Unsupported) => pages.clear(),
+        Err(StorageError::Other(NO_MEMORY)) => return Err(DocumentError::OutOfMemory),
+        Err(error) => return Err(DocumentError::Storage(error)),
     }
     pages
         .try_reserve(1)
@@ -123,4 +133,63 @@ pub(crate) fn pages_from(
     pages.push((copy(&first.0)?, first.1));
     keep(&mut pages);
     Ok(pages)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Page, pages_from};
+    use crate::provider::NO_MEMORY;
+    use alloc::string::ToString;
+    use paperpaw_sdk::document::DocumentError;
+    use paperpaw_sdk::{DirEntry, Storage, StorageError};
+
+    /// A folder whose listing fails with `error`.
+    struct Refusing(StorageError);
+
+    impl Storage for Refusing {
+        fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+            Err(StorageError::NotFound)
+        }
+        fn size(&self, _: &str) -> Result<u64, StorageError> {
+            Err(StorageError::NotFound)
+        }
+        fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+        fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            Err(self.0)
+        }
+        fn remove(&self, _: &str) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+    }
+
+    fn first() -> Page {
+        ("01.png".to_string(), 10)
+    }
+
+    #[test]
+    fn a_folder_that_is_not_there_to_list_leaves_the_picture_alone() {
+        for error in [StorageError::NotFound, StorageError::Unsupported] {
+            let pages = pages_from(&Refusing(error), "", &first()).unwrap();
+            assert_eq!(pages, [first()], "{error:?}");
+        }
+    }
+
+    #[test]
+    fn a_listing_that_fails_otherwise_is_an_error_not_a_book_of_one_page() {
+        assert_eq!(
+            pages_from(&Refusing(StorageError::Other(NO_MEMORY)), "", &first()),
+            Err(DocumentError::OutOfMemory)
+        );
+        for error in [StorageError::Io, StorageError::Full] {
+            assert_eq!(
+                pages_from(&Refusing(error), "", &first()),
+                Err(DocumentError::Storage(error))
+            );
+        }
+    }
 }

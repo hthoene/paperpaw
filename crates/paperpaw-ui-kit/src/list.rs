@@ -121,6 +121,7 @@ impl ListRenderer {
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
         let mut style = Style::read(host, &display, &font)?;
+        let cards = crate::cards::Cards::read(host, &display)?;
         style.describing = paint::asking(frame);
         let width = display.display_width();
         let height = display.display_height();
@@ -147,6 +148,21 @@ impl ListRenderer {
         let mut body = Vec::new();
         body.try_reserve(1).map_err(|_| Error::NoMemory)?;
         body.push(Paint::Fill(style.page(area), style.paper));
+        let first = index * per_page;
+        let end = rows.len().min(first.saturating_add(per_page));
+        if let Some(cards) = cards.filter(|_| end > first) {
+            cards.run(
+                &mut body,
+                &style,
+                Rect::new(
+                    0,
+                    top,
+                    width,
+                    ((end - first) * usize::from(style.row)).min(usize::from(u16::MAX)) as u16,
+                ),
+                (first > 0, end < rows.len()),
+            )?;
+        }
         for (slot, (label, value)) in rows
             .iter()
             .skip(index * per_page)
@@ -160,7 +176,14 @@ impl ListRenderer {
                 style.row,
             );
             let focused = shown && index * per_page + slot == focus;
-            row(&mut body, &font, &style, rect, label, value, focused)?;
+            row_as(
+                &mut body,
+                &font,
+                &style,
+                rect,
+                (label, value),
+                (focused, cards.map(|_| first + slot + 1 < end)),
+            )?;
         }
 
         paint::replay(frame, &font, header.paint.iter().chain(body.iter()))?;
@@ -250,7 +273,22 @@ pub fn row(
     value: &str,
     focused: bool,
 ) -> Result<(), Error> {
-    backdrop(paint, style, rect, focused)?;
+    row_as(paint, font, style, rect, (title, value), (focused, None))
+}
+
+fn row_as(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    rect: Rect,
+    (title, value): (&str, &str),
+    (focused, cards): (bool, Option<bool>),
+) -> Result<(), Error> {
+    if let Some(more) = cards {
+        crate::cards::backdrop(paint, style, rect, focused, more)?;
+    } else {
+        backdrop(paint, style, rect, focused)?;
+    }
     paint::describe(paint, style.describing, PartRole::Row, rect, focused, false)?;
     columns(paint, font, style, rect, title, value, ink(style, focused))
 }

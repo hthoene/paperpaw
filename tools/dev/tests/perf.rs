@@ -9,29 +9,26 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+use paperpaw_core::{Place, Turn};
 use std::sync::Mutex;
 
-use paperpaw_core::KernelBuilder;
+use paperpaw_core::kit::widgets::{Drawn, WidgetSpec};
+use paperpaw_core::{KernelBuilder, Staging};
 use paperpaw_dev::cli::Context;
 use paperpaw_dev::perf;
 use paperpaw_dev::report::{Level, Report};
 use paperpaw_dev::target::Target;
-use paperpaw_platform::Rect;
-use paperpaw_sdk::widgets::{Widget, WidgetSpec};
-use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, Plugin, RegisterError, Registrar, SDK_VERSION, Screen,
-    ScreenSpec,
-};
+use paperpaw_sdk::{Canvas, Handled, Id, Manifest, RegisterError, SDK_VERSION};
 
 /// Reads a file whenever it is drawn.
 struct Reads;
 
-impl Screen for Reads {
-    fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
+impl paperpaw_core::testing::Fake for Reads {
+    fn draw(&mut self, _: &mut Canvas<'_>, env: &Place<'_>) {
         let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -45,10 +42,10 @@ struct Big(
     Vec<u8>,
 );
 
-impl Screen for Big {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl paperpaw_core::testing::Fake for Big {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -58,52 +55,35 @@ static LEAKED: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
 
 struct Leaks;
 
-impl Screen for Leaks {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl paperpaw_core::testing::Fake for Leaks {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
-    }
-}
-
-/// A widget reading a file whenever it is drawn.
-struct ReadsWidget;
-
-impl Widget for ReadsWidget {
-    fn live(&self) -> bool {
-        false
-    }
-
-    fn height(&self, _: &Env<'_>, _: u16) -> u16 {
-        1
-    }
-
-    fn draw(&self, _: &mut Canvas<'_>, env: &Env<'_>, _: Rect) {
-        let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
     }
 }
 
 struct Probe;
 
-impl Plugin for Probe {
+impl Probe {
     fn manifest(&self) -> Manifest {
         Manifest::new(Id::new_static("perf-probe"), "Perf probe", SDK_VERSION)
             .description("Screens that break the X4's budgets.")
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+    fn register(&self, r: &mut Staging) -> Result<(), RegisterError> {
+        r.add_fake(paperpaw_core::testing::FakeSpec::new(
             Id::new_static("perf-probe.reads"),
             "perf-probe.reads",
             Box::new(|_, _| Box::new(Reads)),
         ))?;
-        r.add_screen(ScreenSpec::new(
+        r.add_fake(paperpaw_core::testing::FakeSpec::new(
             Id::new_static("perf-probe.big"),
             "perf-probe.big",
             Box::new(|_, _| Box::new(Big(vec![1; 200 * 1024]))),
         ))?;
-        r.add_screen(ScreenSpec::new(
+        r.add_fake(paperpaw_core::testing::FakeSpec::new(
             Id::new_static("perf-probe.leaks"),
             "perf-probe.leaks",
             Box::new(|_, _| {
@@ -111,16 +91,22 @@ impl Plugin for Probe {
                 Box::new(Leaks)
             }),
         ))?;
-        r.add_widget(WidgetSpec::new(
+        // A widget reading a file whenever it is drawn.
+        r.add_widget(WidgetSpec::drawn(
             Id::new_static("perf-probe.widget"),
             "perf-probe.widget",
-            |_| Box::new(ReadsWidget),
+            Drawn::new(
+                |_, _| 1,
+                |_, env, _| {
+                    let _ = paperpaw_sdk::read_file(env.storage(), "notes.txt", 1024);
+                },
+            ),
         ))
     }
 }
 
 fn add(builder: KernelBuilder) -> KernelBuilder {
-    builder.plugin(Probe)
+    builder.items(Probe.manifest(), |r| Probe.register(r))
 }
 
 #[test]
@@ -179,5 +165,31 @@ fn reads_while_drawing_large_screens_and_leaks_are_found() {
     );
     assert!(context.out.join("perf/index.html").is_file());
     assert_eq!(report.pages[0].title, "Budgets on the X4");
+    let _ = std::fs::remove_dir_all(&context.out);
+}
+
+/// The store's list starts a fetch of the list each time it opens: the
+/// request left under way when it closes is not heap kept across openings
+/// (#330), so `perf` does not call it a leak.
+#[test]
+fn a_request_left_under_way_is_not_a_leak_of_the_stores_list() {
+    let out = std::env::temp_dir().join(format!("paperpaw-dev-perf-store-{}", std::process::id()));
+    let mut context = Context::new(
+        Target {
+            plugins: vec!["store".into()],
+            ..Target::default()
+        },
+        out,
+    );
+    context.quick = true;
+    let mut report = Report::default();
+    perf::run(&context, &mut report).unwrap();
+    let leaks: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.check == "perf.leak" && f.place == "store.list")
+        .map(|f| f.message.clone())
+        .collect();
+    assert!(leaks.is_empty(), "{leaks:?}");
     let _ = std::fs::remove_dir_all(&context.out);
 }

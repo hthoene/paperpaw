@@ -17,9 +17,9 @@ use super::native_instances::InstanceState;
 use super::native_screen::Dispatch;
 use super::registrations::{self as wire, Record};
 use super::ui_handles::{Dropped, Pick, UiHandles};
+use crate::Place;
 use core::cell::RefCell;
 use paperpaw_native::host_glue::ERR_BUSY;
-use paperpaw_sdk::Env;
 
 /// The room of one record of event 85: a batch of one, the largest values
 /// included, takes well under half of it (the test
@@ -44,7 +44,7 @@ pub(crate) fn tell_made(
     handles: &RefCell<UiHandles>,
     lease: &dyn Dispatch,
     instance: u32,
-    env: &Env<'_>,
+    env: &Place<'_>,
 ) {
     let mut record = [0u8; MADE_BYTES];
     let Ok(Some((notice, len))) = made_record(
@@ -119,7 +119,7 @@ impl crate::Kernel {
             };
             let handles = &ui.widgets.handles;
             let mut record = [0u8; MADE_BYTES];
-            let now = self.now;
+            let now = self.shared.now;
             let Ok(Some((notice, len))) =
                 made_record(handles, Pick::Nth(kept), now.millis(), &mut record)
             else {
@@ -128,7 +128,7 @@ impl crate::Kernel {
             };
             match instances.state(notice.owner) {
                 Ok(InstanceState::Running(lease)) => {
-                    let env = self.shared.env(now);
+                    let env = self.shared.place(now);
                     let _ = lease.event(notice.token, record.get(..len).unwrap_or(&[]), &env);
                     called = true;
                 }
@@ -165,7 +165,7 @@ impl crate::Kernel {
                 break;
             };
             let mut record = [0u8; RECORD_BYTES];
-            let now = self.now;
+            let now = self.shared.now;
             let (notice, len) = match ui.next_widget_dropped(owner, now.millis(), &mut record) {
                 Ok(Some(told)) => told,
                 other => {
@@ -180,7 +180,7 @@ impl crate::Kernel {
                 }
             };
             if let Ok(InstanceState::Running(lease)) = self.shared.native_instances.state(owner) {
-                let env = self.shared.env(now);
+                let env = self.shared.place(now);
                 // The outcome is the plugin's own: the entry ends either way.
                 let _ = lease.event(notice.token, &record[..len], &env);
                 called = true;

@@ -30,7 +30,7 @@ pub(crate) struct Meter {
     clock: Option<fn() -> u64>,
     generation: Cell<u32>,
     /// By plugin, `core` first; plugins read it through
-    /// `Env::plugin_usage`, the one copy kept.
+    /// `Place::plugin_usage`, the one copy kept.
     pub(crate) table: RefCell<Vec<PluginUsage>>,
     /// The plugins whose code runs, the innermost last, with when it began
     /// (or went on after an inner one), in microseconds. Made with
@@ -117,12 +117,10 @@ impl Meter {
         self.clock.map(|clock| clock())
     }
 
-    /// The clock as plugins get it ([`Env::clock`](paperpaw_sdk::Env::clock)).
-    pub(crate) fn clock(&self) -> paperpaw_sdk::time::Clock {
-        self.clock.map_or(
-            paperpaw_sdk::time::Clock::NONE,
-            paperpaw_sdk::time::Clock::new,
-        )
+    /// The clock as plugins get it ([`Place::clock`](crate::Place::clock)).
+    pub(crate) fn clock(&self) -> crate::kit::time::Clock {
+        self.clock
+            .map_or(crate::kit::time::Clock::NONE, crate::kit::time::Clock::new)
     }
 
     /// The row of `plugin`, added the first time.
@@ -409,7 +407,7 @@ impl Storage for Metered {
 }
 
 /// The plugin whose code runs now is the innermost entered: whose
-/// secrets [`Env::secrets`](paperpaw_sdk::Env) hands out.
+/// secrets [`Place::secrets`](crate::Place) hands out.
 impl paperpaw_sdk::secrets::Running for Meter {
     fn runs(&self, plugin: &str) -> bool {
         let Some(&(index, _)) = self.running.borrow().last() else {

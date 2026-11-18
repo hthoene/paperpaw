@@ -5,6 +5,7 @@
 //! forward from the section's start). The interface-6 screen is the
 //! reference until it goes at activation. Everything is allocation-free
 //! or fallible.
+use crate::native_typeset::Letters;
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     layout::{BookStyles, ScriptOptions, Style},
@@ -68,6 +69,13 @@ pub struct Reading {
     /// between words only (`core.korean-breaks.word`; Korean books only,
     /// see [`script_options`]).
     pub scripts: (bool, bool),
+    /// The space between letters, kerning and ligatures (`core.letter-spacing`,
+    /// `core.kerning`, `core.ligatures`).
+    pub letters: Letters,
+    /// Words broken at line ends (`core.hyphenate`), keeping at least so many
+    /// letters before and after the break (`core.hyphen-min-left`, `-right`;
+    /// 0: the table's own), 0 to 16.
+    pub hyphens: (bool, u8, u8),
     /// A signature of the reading font's name and the hyphenation settings
     /// (`core.reading-font`, `core.hyphenate`, `core.hyphen-min-left`,
     /// `core.hyphen-min-right`): other letters or other breaks, other pages
@@ -111,6 +119,8 @@ impl Reading {
             balanced: false,
             book: u16::MAX,
             scripts: (false, false),
+            letters: Letters::DEFAULT,
+            hyphens: (false, 0, 0),
             text: 0,
         }
     }
@@ -156,6 +166,23 @@ impl Reading {
                 self.text = paperpaw_sdk::digest::fnv1a64(&key).max(1);
             }
         }
+        self
+    }
+
+    /// The same with the letters set as `letters` says: other widths, other
+    /// pages (see [`layout_text`](crate::native_index::layout_text)).
+    #[must_use]
+    pub const fn with_letters(mut self, letters: Letters) -> Self {
+        self.letters = letters;
+        self
+    }
+
+    /// The same breaking words at line ends where `on`, keeping `left` and
+    /// `right` letters at least (0 to 16; 0 leaves it to the language's table).
+    #[must_use]
+    pub fn with_hyphens(mut self, on: bool, (left, right): (i64, i64)) -> Self {
+        let kept = |v: i64| u8::try_from(v.clamp(0, 16)).unwrap_or(0);
+        self.hyphens = (on, kept(left), kept(right));
         self
     }
 
@@ -286,11 +313,16 @@ pub enum Turn {
 
 /// What `input` asks: the page actions and the arrows (right and down on, left
 /// and up back), as the keys and edge swipes of the reader's layer and the
-/// host's tap zones are mapped to them.
+/// host's tap zones are mapped to them. In a book that runs right to left
+/// (`rtl`: manga) the sides and the page keys are mirrored: what goes on in
+/// a book that runs left to right goes back, and the other way round; up and
+/// down stay.
 #[must_use]
-pub fn turn(input: &Input<'_>) -> Turn {
+pub fn turn(input: &Input<'_>, rtl: bool) -> Turn {
     match *input {
         Input::Action { action, .. } => match action {
+            "core.next-page" | "core.right" if rtl => Turn::Previous,
+            "core.prev-page" | "core.left" if rtl => Turn::Next,
             "core.next-page" | "core.right" | "core.down" => Turn::Next,
             "core.prev-page" | "core.left" | "core.up" => Turn::Previous,
             _ => Turn::Ignored,
@@ -303,7 +335,7 @@ pub fn turn(input: &Input<'_>) -> Turn {
 pub const TRAIL: usize = 64;
 
 /// Whether a change of the setting `key` changes how a page is laid out (its
-/// size, spacing, margins, justification, fonts or hyphenation): the page on
+/// size, spacing, margins, justification, fonts, letters or hyphenation): the page on
 /// show is laid out again and the page before it is found anew.
 #[must_use]
 pub fn affects_layout(key: &str) -> bool {
@@ -321,6 +353,9 @@ pub fn affects_layout(key: &str) -> bool {
                 | "core.hyphenate"
                 | "core.hyphen-min-left"
                 | "core.hyphen-min-right"
+                | "core.letter-spacing"
+                | "core.kerning"
+                | "core.ligatures"
                 | "core.indent"
                 | "core.indent-size"
                 | "core.paragraph-spacing"

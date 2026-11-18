@@ -1,7 +1,7 @@
 //! The `frames-in` family match and the `allow frame` exceptions (todo 637:
 //! Senior #2899 M1, M2, R1).
 
-use super::tests::{RETW_N, entry, f, run, sym};
+use super::tests::{RETW_N, callx, entry, f, run, sym};
 
 /// The symbol of a trait-impl method (`<type as trait>::method`): its path is
 /// the method's name, the impl's type is only in the symbol.
@@ -165,4 +165,24 @@ fn a_fn_nested_in_a_trait_impl_method_is_in_the_crate_of_the_impl() {
         held.len() == 1 && held[0].contains("takes a frame"),
         "{held:?}"
     );
+}
+
+#[test]
+fn an_allow_indirect_line_is_a_ceiling_two_above_its_count() {
+    let (e, c) = (entry(32), callx(8));
+    let with = |n: usize| {
+        let mut parts: Vec<&[u8]> = vec![&e];
+        parts.extend(std::iter::repeat_n(&c as &[u8], n));
+        parts.push(&RETW_N);
+        f(&parts)
+    };
+    let line = "allow indirect root 2 vtable of Storage, device test S4\n";
+    // Fewer, the same and up to two more calls fit; three more fail (#309).
+    for n in 1..=4 {
+        let report = run(&[("root", with(n))], &["root"], line);
+        assert!(report.problems.is_empty(), "{n}: {:?}", report.problems);
+        assert!(report.warnings.is_empty(), "{n}: {:?}", report.warnings);
+    }
+    let grown = run(&[("root", with(5))], &["root"], line);
+    assert_eq!(grown.problems.len(), 1, "{:?}", grown.problems);
 }

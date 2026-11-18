@@ -250,8 +250,13 @@ def source_stages(schema):
             f'        {field}: {module}::{constant},\n' for field, constant in TABLE_FIELDS) + '    },\n')
     source += '\n/// Every host-defined stage schema, sorted by key and major.\npub static STAGES: &[StageSchema] = &[\n' + ''.join(entries) + '];\n'
     kernel = {item['name']: item['id'] for item in schema.get('records', [])}
+    # The host's stages share one table interpreter; a plugin's own few records keep
+    # their own steps (`plugin_stages_source`).
+    from abi_records import shared_codec_source
+    shared, defaults = shared_codec_source(stages)
+    source += shared
     for stage in stages:
-        source += _stage_source(stage, kernel)
+        source += _stage_source(stage, kernel, defaults)
     return source
 
 
@@ -335,7 +340,7 @@ pub struct StageSchema {
 '''
 
 
-def _stage_source(stage, kernel):
+def _stage_source(stage, kernel, tables=None):
     declared = local_records(stage['records'], stage['revision'])
     consts = ''
     for field, _ in TABLE_FIELDS:
@@ -358,7 +363,7 @@ def _stage_source(stage, kernel):
         consts += ('    /// Schema input_rows: the most records of one input batch.\n'
                    f'    pub const INPUT_ROWS: usize = {stage["input_rows"]};\n')
     source = f'\n/// Local records of `{stage["key"]}` major {stage["major"]}.\npub mod {_module_name(stage["key"], stage["major"])} {{\n' + consts
-    codec = local_codec_source(stage)
+    codec = local_codec_source(stage, tables)
     if 'input_rows' in stage:
         for old, new, count in INPUT_ROWS_EDITS:
             _require(codec.count(old) == count, f'input_rows emitter drift: {old}')

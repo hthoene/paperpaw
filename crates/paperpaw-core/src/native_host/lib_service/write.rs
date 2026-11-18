@@ -140,6 +140,9 @@ pub(crate) trait LibWrite {
     /// The device woke: the next view to read the library wants the catalog
     /// again (books may have been copied while it slept).
     fn catalog_ask_again(&self) {}
+    /// Another card is in, or a computer changed this one: what is kept of
+    /// its books is forgotten (#151).
+    fn card_changed(&self) {}
     /// The kernel's catalog changed (a walk or a catch-up ended): the plugins
     /// read the library again (`event.library_changed`).
     fn catalog_changed(&self) {}

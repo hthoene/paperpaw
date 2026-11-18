@@ -4,40 +4,41 @@
 //! its plugin ends it, and it ends with its screen and with the sleep.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 use super::*;
+use crate::Place;
 use crate::abi7::settings_wire::settings_encode;
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Params, builtin::groups};
+use paperpaw_sdk::{Params, builtin::groups};
 
 /// A kernel with two plugins: `probe` (a number, a text, a secret, two
 /// screens) and `other` (a guarded switch, a number, a screen).
 fn kernel() -> crate::Kernel {
-    use paperpaw_sdk::{Manifest, Plugin, Registrar, Screen, ScreenSpec, Version};
+    use crate::Staging;
+    use paperpaw_sdk::{Manifest, Version};
     struct Empty;
-    impl Screen for Empty {
-        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}
-        fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+    impl crate::testing::Fake for Empty {
+        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Place<'_>) {}
+        fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
         }
     }
-    struct Screens(
-        &'static str,
-        &'static [&'static str],
-        fn() -> Vec<SettingSpec>,
-    );
-    impl Plugin for Screens {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static(self.0), "Probe", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-        fn register(&self, r: &mut Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
-            for id in self.1 {
-                r.add_screen(ScreenSpec::new(
+    fn screens_manifest(id: &'static str) -> Manifest {
+        Manifest::new(Id::new_static(id), "Probe", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn screens(
+        names: &'static [&'static str],
+        settings: fn() -> Vec<SettingSpec>,
+    ) -> impl Fn(&mut Staging) -> Result<(), paperpaw_sdk::RegisterError> {
+        move |r| {
+            for id in names {
+                r.add_fake(crate::testing::FakeSpec::new(
                     Id::new_static(id),
                     "probe.title",
                     alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Empty)),
                 ))?;
             }
-            for setting in (self.2)() {
+            for setting in settings() {
                 r.add_setting(setting)?;
             }
             Ok(())
@@ -57,14 +58,14 @@ fn kernel() -> crate::Kernel {
         ]
     };
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Screens("probe", &["probe.base", "probe.second"], probe))
-        .plugin(Screens("other", &["other.base"], other))
+        .items(
+            screens_manifest("probe"),
+            screens(&["probe.base", "probe.second"], probe),
+        )
+        .items(screens_manifest("other"), screens(&["other.base"], other))
         .build()
         .unwrap();
-    kernel.apply(Command::OpenScreen(
-        Id::new_static("probe.base"),
-        Params::new(),
-    ));
+    kernel.apply(Ask::OpenScreen(Id::new_static("probe.base"), Params::new()));
     kernel
 }
 
@@ -102,7 +103,7 @@ pub(super) fn submit(
     let owner = Id::parse(owner).unwrap();
     let held = kernel.preview_held(owner.as_str());
     let (status, commands, redraw) = {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let top = env.stack().last().map(|top| top.key);
         let mut stage =
             CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(&env, top, 0, 0);
@@ -154,7 +155,7 @@ fn the_rows_of_a_batch_are_one_set_that_replaces_the_one_before() {
         encoded(SettingValueRef::Int(8)),
         encoded(SettingValueRef::Text("Ada")),
     );
-    kernel.apply(Command::SetSetting(
+    kernel.apply(Ask::SetSetting(
         Id::new_static("probe.size"),
         SettingValue::Int(4),
     ));
@@ -240,10 +241,7 @@ fn only_a_screen_on_top_previews_and_never_a_work_run() {
     assert_eq!(submit(&mut kernel, "probe", true, &set), ERR_STATE);
     assert_eq!(submit(&mut kernel, "probe", true, &[END]), ERR_STATE);
     // Another plugin's screen is on top: not the submitter's to preview on.
-    kernel.apply(Command::OpenScreen(
-        Id::new_static("other.base"),
-        Params::new(),
-    ));
+    kernel.apply(Ask::OpenScreen(Id::new_static("other.base"), Params::new()));
     assert_eq!(submit(&mut kernel, "probe", false, &set), ERR_STATE);
     assert!(!kernel.settings().previewing());
     // The plugin on top may, also a setting of another plugin (not guarded).
@@ -265,24 +263,17 @@ fn another_plugins_preview_is_replaced_but_not_ended() {
     // Not the other plugin's to end, at submit and when a staged end applies.
     assert_eq!(submit(&mut kernel, "other", false, &[END]), ERR_STATE);
     let other = Id::new_static("other");
-    kernel.drain_native_ui(
-        &other,
-        alloc::vec![Command::PreviewSettings(Vec::new())],
-        None,
-    );
+    kernel.drain_native_ui(&other, alloc::vec![Ask::PreviewSettings(Vec::new())], None);
     kernel.finish();
     assert_eq!(kernel.settings().int("probe.size"), 7, "still shown");
     let warnings = kernel.take_warnings();
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].message.contains("native preview dropped"));
     // A set staged for a screen that is no longer on top does not apply.
-    kernel.apply(Command::OpenScreen(
-        Id::new_static("other.base"),
-        Params::new(),
-    ));
+    kernel.apply(Ask::OpenScreen(Id::new_static("other.base"), Params::new()));
     let probe = Id::new_static("probe");
     let late = alloc::vec![(Id::new_static("probe.size"), Some(SettingValue::Int(9)))];
-    kernel.drain_native_ui(&probe, alloc::vec![Command::PreviewSettings(late)], None);
+    kernel.drain_native_ui(&probe, alloc::vec![Ask::PreviewSettings(late)], None);
     kernel.finish();
     assert_eq!(kernel.settings().int("probe.size"), 7, "the set before");
     assert_eq!(kernel.take_warnings().len(), 1);
@@ -313,14 +304,14 @@ fn a_preview_ends_with_its_screen_and_when_the_device_sleeps() {
     assert_eq!(kernel.preview_held("probe"), PreviewHeld::Nobody);
     kernel.resume(Instant(20));
     // Its screen closes: over as well.
-    kernel.apply(Command::OpenScreen(
+    kernel.apply(Ask::OpenScreen(
         Id::new_static("probe.second"),
         Params::new(),
     ));
     assert_eq!(submit(&mut kernel, "probe", false, &set), OK);
     assert_eq!(kernel.settings().int("probe.size"), 7);
     let top = kernel.shared.stack.last().unwrap().key;
-    kernel.apply(Command::Close(top));
+    kernel.apply(Ask::Close(top));
     kernel.finish();
     assert_eq!(kernel.settings().int("probe.size"), 3);
     assert!(!kernel.settings().previewing());

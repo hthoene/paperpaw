@@ -6,15 +6,18 @@
     dead_code,
     reason = "shared by the tests; not every test file uses every helper"
 )]
+use paperpaw_core::{Place, Turn};
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use paperpaw_core::Ask;
 use paperpaw_core::Kernel;
+use paperpaw_core::Staging;
+use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Gesture, Handled, Id, Manifest, Params, Plugin, Priority,
-    RegisterError, Registrar, Screen, ScreenSpec, Version,
+    Canvas, Gesture, Handled, Id, Manifest, Params, Priority, RegisterError, Version,
 };
 use paperpaw_platform::{
     ButtonState, Color, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, PixelFormat,
@@ -83,7 +86,7 @@ pub const WAKE: &str = "wake";
 #[derive(Clone, Default)]
 pub struct Harness {
     pub log: Log,
-    queue: Rc<RefCell<Vec<Command>>>,
+    queue: Rc<RefCell<Vec<Ask>>>,
 }
 
 impl Harness {
@@ -102,7 +105,7 @@ impl Harness {
     /// A kernel with the driver, started at 0, its log empty.
     pub fn kernel(&self) -> Kernel {
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(self.plugin())
+            .driver(self.plugin())
             .build()
             .expect("kernel");
         kernel.start(Instant(0));
@@ -116,9 +119,15 @@ impl Harness {
         &self,
         kernel: &mut Kernel,
         now: u64,
-        commands: impl IntoIterator<Item = Command>,
+        commands: impl IntoIterator<Item = Ask>,
     ) -> paperpaw_core::Effects {
         self.queue.borrow_mut().extend(commands);
+        // Its kernel's queue: a test may drive two kernels at once.
+        DRIVER.with(|driver| {
+            if let Some((_, queue)) = driver.borrow_mut().as_mut() {
+                *queue = self.queue.clone();
+            }
+        });
         kernel.run_action(Instant(now), GO)
     }
 
@@ -156,10 +165,13 @@ pub fn describe(params: &Params) -> String {
     told.join(" ")
 }
 
+/// What the driver's action carries out.
+type Queue = Rc<RefCell<Vec<Ask>>>;
+
 /// The test plugin `drv`.
 pub struct Driver {
     log: Log,
-    queue: Rc<RefCell<Vec<Command>>>,
+    queue: Rc<RefCell<Vec<Ask>>>,
 }
 
 pub fn manifest(id: &'static str) -> Manifest {
@@ -167,15 +179,17 @@ pub fn manifest(id: &'static str) -> Manifest {
         .uses(paperpaw_sdk::Uses::NETWORK)
 }
 
-impl Plugin for Driver {
+impl Driver {
     fn manifest(&self) -> Manifest {
         manifest("drv")
     }
+}
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn driver_items(kept: Driver) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
         for (id, name) in [(BASE, "base"), (FULL, "full"), (OVERLAY, "overlay")] {
-            let log = self.log.clone();
-            r.add_screen(ScreenSpec::new(
+            let log = kept.log.clone();
+            r.add_fake(paperpaw_core::testing::FakeSpec::new(
                 id,
                 "drv.screen",
                 Box::new(move |_, params| Box::new(LogScreen::new(name, log.clone(), params))),
@@ -184,36 +198,53 @@ impl Plugin for Driver {
         r.bind_slot(slots::HOME, BASE, Priority::DEFAULT)?;
         r.bind_slot(slots::MENU, OVERLAY, Priority::DEFAULT)?;
         r.bind_slot(slots::NOTICE, OVERLAY, Priority::DEFAULT)?;
-        let queue = self.queue.clone();
-        r.add_action(ActionSpec::new(GO, "drv.go").handler(move |_, _, out| {
-            out.extend(queue.borrow_mut().drain(..));
+        DRIVER.with(|driver| *driver.borrow_mut() = Some((kept.log.clone(), kept.queue.clone())));
+        r.add_action(ActionSpec::new(GO, "drv.go").handler(|_, _, out| {
+            if let Some((_, queue)) = DRIVER.with(|driver| driver.borrow().clone()) {
+                out.extend(queue.borrow_mut().drain(..));
+            }
         }))?;
         r.add_action(ActionSpec::new(LOOP, "drv.loop").handler(|_, _, out| {
-            out.push(Command::run(LOOP));
+            out.push(Ask::run(LOOP));
         }))?;
-        for event in [REPLY, LATER, LATER2] {
-            let log = self.log.clone();
-            r.subscribe(
-                event.clone(),
-                Box::new(move |env, params, out| {
-                    log.borrow_mut().push(format!(
-                        "event {event} at {} {}",
-                        env.now().millis(),
-                        describe(params)
-                    ));
-                    // A timer that comes again every `repeat` milliseconds.
-                    if let Some(every) = params.get(REPEAT).and_then(|r| r.parse().ok()) {
-                        let at = env.now().add_millis(every);
-                        out.push(Command::work(
-                            paperpaw_core::sdk::work::Work::at(event.clone(), at)
-                                .with(params.clone()),
-                        ));
-                    }
-                }),
-            )?;
+        let hears: [(Id, paperpaw_core::Hear); 3] = [
+            (REPLY, |k, p| heard(k, &REPLY, p)),
+            (LATER, |k, p| heard(k, &LATER, p)),
+            (LATER2, |k, p| heard(k, &LATER2, p)),
+        ];
+        for (event, run) in hears {
+            r.subscribe(event, run)?;
         }
         Ok(())
     }
+}
+
+std::thread_local! {
+    /// The driver's log and queue, in the test running (its handlers are
+    /// plain functions and hold neither).
+    static DRIVER: RefCell<Option<(Log, Queue)>> = const { RefCell::new(None) };
+}
+
+/// The driver heard `event`: logged, and asked again every `repeat`
+/// milliseconds where it says.
+fn heard(kernel: &mut paperpaw_core::Kernel, event: &Id, params: &Params) {
+    let Some((log, _)) = DRIVER.with(|driver| driver.borrow().clone()) else {
+        return;
+    };
+    kernel.with_env(|env, out| {
+        log.borrow_mut().push(format!(
+            "event {event} at {} {}",
+            env.now().millis(),
+            describe(params)
+        ));
+        // A timer that comes again every `repeat` milliseconds.
+        if let Some(every) = params.get(REPEAT).and_then(|r| r.parse().ok()) {
+            let at = env.now().add_millis(every);
+            out.push(Ask::work(
+                paperpaw_core::sdk::work::Work::at(event.clone(), at).with(params.clone()),
+            ));
+        }
+    });
 }
 
 /// A screen that logs what reaches it: `<name>:<what>`.
@@ -255,8 +286,8 @@ fn parse_rect(text: &str) -> Option<Rect> {
     }
 }
 
-impl Screen for LogScreen {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+impl paperpaw_core::testing::Fake for LogScreen {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         let area = self.region.unwrap_or(SCREEN);
         // Overlays paint all of their region (see `Screen::draw`).
         if self.region.is_some() {
@@ -278,15 +309,15 @@ impl Screen for LogScreen {
         );
     }
 
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
+    fn region(&self, _: &Place<'_>) -> Option<Rect> {
         self.region
     }
 
-    fn dims_below(&self) -> bool {
-        self.dims
+    fn flags(&self) -> u32 {
+        u32::from(self.dims) * paperpaw_core::testing::DIMS_BELOW
     }
 
-    fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, _: &mut Turn<'_, '_>) -> Handled {
         if action.namespace() == "drv" {
             return Handled::No;
         }
@@ -307,23 +338,23 @@ impl Screen for LogScreen {
         }
     }
 
-    fn on_gesture(&mut self, gesture: Gesture, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_gesture(&mut self, gesture: Gesture, _: &mut Turn<'_, '_>) -> Handled {
         self.note(format!("gesture {:?}", gesture.kind));
         Handled::No
     }
 
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         self.note(String::from("show"));
         if let Some(at) = self.wake {
             cx.wake_at(Instant(at));
         }
     }
 
-    fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_timer(&mut self, cx: &mut Turn<'_, '_>) {
         self.note(format!("timer at {}", cx.env().now().millis()));
     }
 
-    fn on_close(&mut self, _: &mut Cx<'_, '_>) {
+    fn on_close(&mut self, _: &mut Turn<'_, '_>) {
         self.note(String::from("close"));
     }
 }
@@ -382,4 +413,15 @@ pub fn within(inner: Rect, outer: Rect) -> bool {
         && inner.y >= outer.y
         && inner.right() <= outer.right()
         && inner.bottom() <= outer.bottom()
+}
+
+/// Adds the fixtures that keep their fields (`TestPlugin`, `ServicePlugin`) to a builder.
+pub trait AddDriver {
+    fn driver(self, plugin: Driver) -> Self;
+}
+
+impl AddDriver for paperpaw_core::KernelBuilder {
+    fn driver(self, plugin: Driver) -> Self {
+        self.items(plugin.manifest(), driver_items(plugin))
+    }
 }

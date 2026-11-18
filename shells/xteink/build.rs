@@ -36,7 +36,11 @@ fn main() {
     println!("cargo::rustc-env=PAPERPAW_VERSION={version}");
     println!("cargo::rerun-if-changed=../../Cargo.toml");
     println!("cargo::rerun-if-changed=memory-x4.x");
+    println!("cargo::rerun-if-changed=rwtext-x4.x");
+    println!("cargo::rerun-if-changed=wifi-flash-x4.x");
     plugins();
+    device_messages();
+    german_pack();
     compiler();
     frame_flags();
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
@@ -44,11 +48,22 @@ fn main() {
         println!("cargo::rustc-link-arg=-nostartfiles");
         println!("cargo::rustc-link-arg=-Wl,-Tlinkall.x");
         stack_floor(&out);
+        no_rodata_gap(&out);
         return;
     }
     std::fs::copy("memory-x4.x", out.join("memory.x")).expect("memory-x4.x");
+    // esp-hal's `rwtext.x` less the Wi-Fi send and receive code, which
+    // `wifi-flash-x4.x` puts in flash (found first as it is in `out`).
+    std::fs::copy("rwtext-x4.x", out.join("rwtext.x")).expect("rwtext-x4.x");
+    std::fs::copy("wifi-flash-x4.x", out.join("wifi-flash-x4.x")).expect("wifi-flash-x4.x");
     println!("cargo::rustc-link-search={}", out.display());
     println!("cargo::rustc-link-arg=-Tlinkall.x");
+    // The linker folds functions with identical code (#304): 12 KB at
+    // least. A crash trace may name the other of two such functions; the
+    // address and the caller's frames still lead to the place. LLD's.
+    println!("cargo::rustc-link-arg=--icf=all");
+    println!("cargo::rustc-link-arg=-Twifi-flash-x4.x");
+    no_rodata_gap(&out);
     if std::env::var_os("CARGO_FEATURE_PPN5").is_some() {
         stack_floor_x4(&out);
     }
@@ -128,6 +143,27 @@ fn stack_floor(out: &std::path::Path) {
     println!("cargo::rustc-link-arg={}", script.display());
 }
 
+/// Fails the link where a gap is left between the application descriptor's
+/// section (with the plugin list: `plugins()` pads it) and `.rodata`: esp-hal's
+/// script pads there (`.rodata_merge`) to the alignment `.rodata` asks for,
+/// and `espflash` then makes two data segments of the image, of which the
+/// ESP32-S3's bootloader maps the last only: the firmware would read its
+/// own plugin list from the wrong flash page (`paperpaw-sign check-image`
+/// finds the two segments in an image). Where `.rodata` asks for more than
+/// the list's padding (`paperpaw_update::Plugins::record`, 64 bytes) keeps, the link
+/// fails here, at once, and the padding is raised.
+fn no_rodata_gap(out: &std::path::Path) {
+    let script = out.join("rodata-gap.x");
+    // By addresses, not by the gap section's size: a renamed or dropped
+    // `.rodata_merge` would read 0 and pass; a missing section named here
+    // fails the link instead.
+    let text = "ASSERT(ADDR(.rodata) == ADDR(.flash.appdesc) + SIZEOF(.flash.appdesc), \
+                \"a gap is left between the application descriptor's section and \
+                .rodata: raise SECTION_END_ALIGN in crates/paperpaw-update/src/plugins.rs\");\n";
+    std::fs::write(&script, text).expect("rodata-gap.x");
+    println!("cargo::rustc-link-arg={}", script.display());
+}
+
 /// Gives the firmware the release of the compiler that builds it, as
 /// plugin files name theirs (`paperpaw_native::compiler::release`).
 fn compiler() {
@@ -140,6 +176,31 @@ fn compiler() {
     let first = words.lines().next().unwrap_or_default();
     let release = paperpaw_native::compiler::release(first).expect("rustc -vV names its release");
     println!("cargo::rustc-env=PAPERPAW_RUSTC={release}");
+}
+
+/// Writes `device_messages.rs`: the device's texts (`i18n/*.ini`), English and
+/// German, without their keys (`paperpaw_i18n::BuiltMessages`, as the
+/// plugins' and the kernel's are): the firmware carries a hash of each key
+/// and the messages, not the sources (#306). `device.rs` hands them to the
+/// builder.
+fn device_messages() {
+    let german = std::env::var_os("CARGO_FEATURE_BUILT_GERMAN").is_some();
+    let mut table = paperpaw_i18n::BuiltMessagesTable::new(if german { &["en", "de"] } else { &["en"] });
+    for file in ["i18n/en.ini", "i18n/de.ini"] {
+        if !german && file.ends_with("de.ini") {
+            continue;
+        }
+        println!("cargo::rerun-if-changed={file}");
+        let source = std::fs::read_to_string(file).expect("a catalog");
+        assert!(
+            table.add(&source).unwrap_or(false),
+            "{file}: a device text catalog the keyless table cannot hold: {:?}",
+            table.clashes()
+        );
+    }
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
+    std::fs::write(out.join("device_messages.rs"), table.to_rust())
+        .expect("device_messages.rs written");
 }
 
 /// Writes `plugins.rs`: the list of the plugin crates built in, the
@@ -186,4 +247,87 @@ fn plugins() {
     );
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     std::fs::write(out.join("plugins.rs"), code).expect("plugins.rs");
+}
+
+/// Writes `german_pack.deflate` and `german_pack.ini`: German's texts as a
+/// language pack the firmware carries and writes to the card (#251,
+/// `paperpaw_core::LanguageSeed`), unless German is built in
+/// (`built-german`). The pack is the compiled catalog of the German
+/// `i18n/de.ini` of the kernel, the app, the device and every plugin crate
+/// built in (as one catalog, `Catalog::merge_sources`), raw-deflated; its
+/// `plugin.ini` is that of the store's `language-de` entry
+/// (`tools/plugin-files/data.toml`), so that the store sees the pack it
+/// would install as installed.
+fn german_pack() {
+    println!("cargo::rerun-if-changed=../../tools/plugin-files/data.toml");
+    println!("cargo::rerun-if-env-changed=CARGO_FEATURE_BUILT_GERMAN");
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
+    if std::env::var_os("CARGO_FEATURE_BUILT_GERMAN").is_some() {
+        return;
+    }
+    let root = std::path::Path::new("../..");
+    let mut folders = vec![
+        root.join("crates/paperpaw-core/i18n"),
+        root.join("crates/paperpaw-app/i18n"),
+    ];
+    let built = std::env::var("DEP_PAPERPAW_APP_CRATES").expect("paperpaw-app names its crates");
+    folders.extend(
+        built
+            .split(',')
+            .filter_map(|name| name.strip_prefix("paperpaw-plugin-"))
+            .map(|id| root.join("plugins").join(id).join("i18n")),
+    );
+    let mut files = Vec::new();
+    for folder in &folders {
+        german_files(folder, &mut files);
+    }
+    files.sort();
+    files.push(PathBuf::from("i18n/de.ini"));
+    let mut sources = Vec::new();
+    for file in &files {
+        println!("cargo::rerun-if-changed={}", file.display());
+        sources.push(std::fs::read_to_string(file).expect("a German catalog"));
+    }
+    let merged = paperpaw_i18n::Catalog::merge_sources(sources.iter().map(String::as_str));
+    let compiled = paperpaw_i18n::Catalog::compile(&merged).expect("the German catalogs compile");
+    let packed = miniz_oxide::deflate::compress_to_vec(&compiled, 10);
+    std::fs::write(out.join("german_pack.deflate"), packed).expect("german_pack.deflate");
+    let data = std::fs::read_to_string("../../tools/plugin-files/data.toml").expect("data.toml");
+    let section = data
+        .split("\n[language-de]\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n[").next())
+        .expect("data.toml lists language-de");
+    let field = |key: &str| {
+        section
+            .lines()
+            .find_map(|line| line.strip_prefix(key)?.strip_prefix(" = \""))
+            .and_then(|value| value.strip_suffix('"'))
+            .unwrap_or_else(|| panic!("language-de has no `{key}` in data.toml"))
+    };
+    let ini = format!(
+        "[plugin]\nid = language-de\nname = {}\ndescription = {}\nversion = {}\nformats = {}\n",
+        field("name"),
+        field("description"),
+        field("version"),
+        section
+            .lines()
+            .find_map(|line| line.strip_prefix("formats = "))
+            .expect("language-de has formats"),
+    );
+    std::fs::write(out.join("german_pack.ini"), ini).expect("german_pack.ini");
+}
+
+/// The `de.ini` files in `folder` and the folders in it.
+fn german_files(folder: &std::path::Path, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return;
+    };
+    for path in entries.flatten().map(|entry| entry.path()) {
+        if path.is_dir() {
+            german_files(&path, files);
+        } else if path.file_name().is_some_and(|name| name == "de.ini") {
+            files.push(path);
+        }
+    }
 }

@@ -405,23 +405,6 @@ const API_SHAPE: &str = "struct paperpaw_native::interface::Api";
 const API_FIELD: &str = "pub paperpaw_native::Api::";
 const API_LAST: &str = ", build_len: u32";
 
-/// Whether `path` is a constant that `tools/shared-table.py` derives from
-/// `shared.list` and the signatures (`paperpaw_table::index`): the
-/// revisions, the hash of the tables and the number of entries of a
-/// family. They change where entries are appended or a family is bumped,
-/// which the pinned list and signatures (`shared.list`, `table.sig`:
-/// lines only appended) guard.
-fn table_index_derived(crate_: &str, path: &str) -> bool {
-    let Some(name) = path.strip_prefix("const paperpaw_table::index::") else {
-        return false;
-    };
-    crate_ == "paperpaw-table"
-        && matches!(
-            name.rsplit("::").next(),
-            Some("REVISIONS" | "OLDEST" | "HASH" | "COUNT")
-        )
-}
-
 /// Whether `after` is `before`, the table's shape, with fields appended
 /// after the last of interface 5.
 fn api_appended(path: &str, before: &str, after: &str) -> bool {
@@ -446,85 +429,6 @@ const GROWING: [&str; 3] = [
     "trait paperpaw_text::cache::Cache",
     "trait paperpaw_sdk::screen::Screen",
 ];
-
-/// The calls of `Screen`'s items newer than revision 1, as code writes
-/// them: every item appended to `Screen` goes into this list. A screen
-/// built before an item has no such item to call, so each call goes
-/// through `paperpaw_sdk::call_since`, which checks the screen's
-/// revision first.
-const NEWER_SCREEN_ITEMS: [&str; 3] = [".on_resize(", ".pane()", ".times_under_overlays()"];
-
-/// The Rust files under `dir` (of the repository), tests left out: files
-/// of a `tests` folder, `tests.rs` and `*_tests.rs`.
-fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if path.is_dir() {
-            if name != "tests" {
-                sources(&path, out);
-            }
-        } else if name.ends_with(".rs") && name != "tests.rs" && !name.ends_with("_tests.rs") {
-            out.push(path);
-        }
-    }
-}
-
-/// The lines of `text` that call a newer item of `Screen` without
-/// `call_since` on them or on the line before, up to its tests (the first
-/// `#[cfg(test)]`); comments left out.
-fn direct_calls(text: &str) -> Vec<(usize, &str)> {
-    let mut found = Vec::new();
-    let mut before = "";
-    for (index, line) in text.lines().enumerate() {
-        let code = line.trim_start();
-        if code.starts_with("#[cfg(test)]") {
-            break;
-        }
-        let calls = NEWER_SCREEN_ITEMS.iter().any(|item| code.contains(item));
-        if calls
-            && !code.starts_with("//")
-            && !line.contains("call_since")
-            && !before.contains("call_since")
-        {
-            found.push((index + 1, line));
-        }
-        before = line;
-    }
-    found
-}
-
-#[test]
-fn newer_screen_items_are_called_only_through_call_since() {
-    let mut files = Vec::new();
-    sources(&here("src"), &mut files);
-    sources(&here("../paperpaw-core/src"), &mut files);
-    let mut direct = Vec::new();
-    for file in &files {
-        let text = std::fs::read_to_string(file).unwrap();
-        for (line, code) in direct_calls(&text) {
-            direct.push(format!("{}:{line}: {}", file.display(), code.trim()));
-        }
-    }
-    assert!(
-        direct.is_empty(),
-        "items of Screen newer than revision 1 called without `call_since`:\n{}",
-        direct.join("\n")
-    );
-}
-
-#[test]
-fn a_direct_call_of_a_newer_screen_item_is_found() {
-    let text = "fn a(s: &mut dyn Screen) {\n    s.pane();\n    call_since(s, 2, Handled::No, |s| s.on_resize(cx));\n    let p = call_since(s, 2, Pane::FULL,\n        |s| s.pane());\n    // s.pane() in a comment\n}\n#[cfg(test)]\nmod tests { fn t() { s.pane(); } }\n";
-    let found: Vec<usize> = direct_calls(text)
-        .into_iter()
-        .map(|(line, _)| line)
-        .collect();
-    assert_eq!(found, [2]);
-}
 
 /// Whether `after` is `before`, the shape of a trait of [`GROWING`], with
 /// items appended.
@@ -553,9 +457,6 @@ fn api_field_appended(line: &str, kept: &BTreeMap<String, &str>) -> bool {
 
 /// The lists that the plugin interface pins beside the crates, as
 /// `interface/<name>` keeps them: they only grow at their end.
-/// - `shared.list`: the shared function tables (`paperpaw-table`), whose
-///   order is where plugins find each function;
-/// - `table.sig`: the signature of each of those functions;
 /// - `lang.list`: the scripts and regions whose index a `Lang` keeps;
 /// - `i18n.list`: the plural rules, digits and calendars whose index a
 ///   catalog keeps (in these two, each kind of name grows at its own end:
@@ -567,13 +468,6 @@ fn api_field_appended(line: &str, kept: &BTreeMap<String, &str>) -> bool {
 ///   is an interface change. A list of lines, not of entries in order: see
 ///   [`pin_set_changes`].
 fn pins() -> Option<Vec<(&'static str, String)>> {
-    let lines = |text: String| -> String {
-        text.lines()
-            .map(|l| l.split('#').next().unwrap_or_default().trim())
-            .filter(|l| !l.is_empty())
-            .map(|l| format!("{l}\n"))
-            .collect()
-    };
     let lang: String = paperpaw_lang::scripts()
         .map(|s| format!("script {s}\n"))
         .chain(paperpaw_lang::regions().map(|r| format!("region {r}\n")))
@@ -584,8 +478,6 @@ fn pins() -> Option<Vec<(&'static str, String)>> {
         .chain(paperpaw_i18n::calendars().map(|c| format!("calendar {c}\n")))
         .collect();
     Some(vec![
-        ("shared.list", lines(read("../paperpaw-table/shared.list")?)),
-        ("table.sig", lines(read("../paperpaw-table/table.sig")?)),
         ("lang.list", lang),
         ("i18n.list", i18n),
         ("crate-pins.list", crate_pins()?),
@@ -698,8 +590,7 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
                     && !layout_cache_revision(crate_, path, line, now)
                     && !api_appended(path, line, now)
                     && !trait_appended(path, line, now)
-                    && !(screen_grew && screen_revision_grew(path, line, now))
-                    && !table_index_derived(crate_, path) =>
+                    && !(screen_grew && screen_revision_grew(path, line, now)) =>
             {
                 out.breaking
                     .push(format!("{crate_}: changed: {line}\n  now: {now}"));
@@ -816,27 +707,6 @@ fn layout_cache_revision(crate_: &str, path: &str, before: &str, after: &str) ->
         value.parse().ok()
     };
     matches!((revision(before), revision(after)), (Some(old), Some(new)) if new > old)
-}
-
-#[test]
-fn only_what_the_table_list_derives_may_change_in_the_table_index() {
-    for name in ["REVISIONS", "OLDEST", "HASH", "text::COUNT", "ui::COUNT"] {
-        let path = format!("const paperpaw_table::index::{name}");
-        assert!(table_index_derived("paperpaw-table", &path), "{name}");
-        assert!(
-            !table_index_derived("paperpaw-sdk", &path),
-            "{name}, other crate"
-        );
-    }
-    // An index is the plugin interface: it never changes its number.
-    assert!(!table_index_derived(
-        "paperpaw-table",
-        "const paperpaw_table::index::text::TEXT_MEASURE"
-    ));
-    assert!(!table_index_derived(
-        "paperpaw-table",
-        "const paperpaw_table::FAMILIES"
-    ));
 }
 
 #[test]
@@ -1254,11 +1124,7 @@ fn the_toolchains_named_are_the_releases() {
         "native::TOOLCHAIN names esp {esp}"
     );
     assert!(!TOOLCHAIN.is_empty());
-    for project in [
-        "../..",
-        "../../samples/hello-native",
-        "../../tools/plugin-files7",
-    ] {
+    for project in ["../..", "../../tools/plugin-files7"] {
         let pinned = value(
             &read(&format!("{project}/rust-toolchain.toml")).unwrap(),
             "channel",
@@ -1280,22 +1146,6 @@ fn the_toolchains_named_are_the_releases() {
             "tool: cargo-public-api\n          version: {public_api}\n"
         )),
         "tools/interface.py and ci.yml name the same cargo-public-api"
-    );
-}
-
-/// Every plugin project of the repository links with the format's own
-/// linker script.
-#[test]
-fn plugin_projects_link_with_the_formats_script() {
-    let Some(script) = read("../paperpaw-native/paperpaw-plugin.x") else {
-        return;
-    };
-    let project = "../../samples/hello-native";
-    let copy = read(&format!("{project}/paperpaw-plugin.x"));
-    assert_eq!(
-        copy.as_deref(),
-        Some(script.as_str()),
-        "{project}/paperpaw-plugin.x"
     );
 }
 

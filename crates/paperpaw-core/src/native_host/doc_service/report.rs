@@ -5,7 +5,7 @@
 //! A report of a book the format has not counted yet asks the format for its
 //! `meta` once (op 3, which keeps the section count in the table): the call
 //! of a page turn after that costs no plugin call.
-use super::{Ask, DocHost, Document, op, prepare, run, settle, verify};
+use super::{DocAsk, DocHost, Document, op, prepare, run, settle, verify};
 use crate::native_host::{codec, registrations as wire};
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE};
 
@@ -54,7 +54,7 @@ fn sections_of(host: &dyn DocHost, document: &Document, out: &mut [u8]) -> Resul
     if let Some(sections) = document.sections {
         return Ok(sections);
     }
-    let ask = Ask::Ref(wire::ServiceDocRef {
+    let ask = DocAsk::Ref(wire::ServiceDocRef {
         document: document.id,
     });
     let (call, check) = prepare(op::META, document, &ask)?;

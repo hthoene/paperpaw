@@ -3,9 +3,11 @@
 //! recorded answers (the route the emulator sends its requests through instead
 //! of the network). Driven through the buttons: the list, the install of a
 //! plugin (download, the host's confirmation, the install), a declined install
-//! and the stage a power cut left. Not run here (gaps, see the PR's coverage
-//! table): the update, the removal, what other plugins ask for, *Discover
-//! fonts*; they are tested on the pieces (`tests/native_*.rs`).
+//! and the stage a power cut left, the update of an installed plugin and its
+//! removal (#273: the host jobs the X4 family's firmware wires the same way,
+//! `paperpaw_x4::host_jobs`). Not run here (gaps, see the PR's coverage
+//! table): what other plugins ask for, *Discover fonts*; they are tested on the
+//! pieces (`tests/native_*.rs`).
 #![cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
 #![allow(
     clippy::unwrap_used,
@@ -15,6 +17,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::Path;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -75,6 +78,9 @@ struct Offered {
     version: &'static str,
     manifest: String,
     summary: &'static str,
+    /// The files of its folder beside `plugin.ini`, by path.
+    files: Vec<(String, Vec<u8>)>,
+    formats: u32,
 }
 
 impl Offered {
@@ -87,7 +93,53 @@ impl Offered {
             version,
             manifest,
             summary: "A pack.",
+            files: Vec::new(),
+            formats: 4,
         }
+    }
+
+    /// A plugin of format 5 made of the files of `folder` (as a release
+    /// holds a data plugin).
+    fn folder(id: &'static str, name: &'static str, version: &'static str, folder: &Path) -> Self {
+        fn walk(dir: &Path, base: &Path, into: &mut Vec<(String, Vec<u8>)>) {
+            let mut entries: Vec<_> = std::fs::read_dir(dir).unwrap().flatten().collect();
+            entries.sort_by_key(std::fs::DirEntry::path);
+            for entry in entries {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, base, into);
+                } else {
+                    let name = path.strip_prefix(base).unwrap().to_str().unwrap();
+                    into.push((name.replace('\\', "/"), std::fs::read(&path).unwrap()));
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(folder, folder, &mut files);
+        let at = files
+            .iter()
+            .position(|(path, _)| path == "plugin.ini")
+            .unwrap();
+        let manifest = String::from_utf8(files.remove(at).1).unwrap();
+        Self {
+            id,
+            name,
+            version,
+            manifest,
+            summary: "Hyphenation patterns.",
+            files,
+            formats: 5,
+        }
+    }
+
+    /// The bytes of the folder together.
+    fn size(&self) -> usize {
+        self.manifest.len()
+            + self
+                .files
+                .iter()
+                .map(|(_, bytes)| bytes.len())
+                .sum::<usize>()
     }
 
     /// The same plugin with another summary in the library.
@@ -114,30 +166,46 @@ impl Offered {
         format!(
             r#"{{"id": "{}", "name": "{}", "summary": "{}", "group": "reading",
   "author": "PaperPaw", "licence": "OFL-1.1", "kind": "data",
-  "added": "2026-01-01", "latest": {{"version": "{}", "sdk": "0.4", "formats": 4,
+  "added": "2026-01-01", "latest": {{"version": "{}", "sdk": "0.4", "formats": {},
   "size": {}, "date": "2026-01-02"}}}}"#,
             self.id,
             self.name,
             self.summary,
             self.version,
-            self.manifest.len()
+            self.formats,
+            self.size()
         )
     }
 
     fn page(&self) -> String {
+        let mut files = format!(
+            r#"{{"path": "plugin.ini", "url": "{}/{}/plugin.ini", "size": {}, "sha1": "{}"}}"#,
+            self.id,
+            self.version,
+            self.manifest.len(),
+            paperpaw_digest::sha1::hex(self.manifest.as_bytes())
+        );
+        for (path, bytes) in &self.files {
+            files.push_str(&format!(
+                r#", {{"path": "{path}", "url": "{}/{}/{path}", "size": {}, "sha1": "{}"}}"#,
+                self.id,
+                self.version,
+                bytes.len(),
+                paperpaw_digest::sha1::hex(bytes)
+            ));
+        }
         format!(
             r#"{{"format": 2, "plugin": {{"id": "{id}", "name": "{name}",
   "summary": "{summary}", "group": "reading", "author": "PaperPaw",
   "licence": "OFL-1.1", "kind": "data",
-  "latest": {{"version": "{version}", "sdk": "0.4", "formats": 4, "size": {size},
-    "files": [{{"path": "plugin.ini", "url": "{id}/{version}/plugin.ini",
-                "size": {size}, "sha1": "{sha}"}}]}}}}}}"#,
+  "latest": {{"version": "{version}", "sdk": "0.4", "formats": {formats}, "size": {size},
+    "files": [{files}]}}}}}}"#,
             id = self.id,
             name = self.name,
             summary = self.summary,
             version = self.version,
-            size = self.manifest.len(),
-            sha = paperpaw_digest::sha1::hex(self.manifest.as_bytes()),
+            formats = self.formats,
+            size = self.size(),
         )
     }
 }
@@ -155,6 +223,12 @@ fn serve(library: &Library, plugins: &[Offered]) {
             &format!("{BASE}plugins/{}/{}/plugin.ini", plugin.id, plugin.version),
             plugin.manifest.clone(),
         );
+        for (path, bytes) in &plugin.files {
+            library.put(
+                &format!("{BASE}plugins/{}/{}/{path}", plugin.id, plugin.version),
+                bytes.clone(),
+            );
+        }
     }
 }
 
@@ -171,9 +245,12 @@ impl Shop {
     }
 
     fn on(card: MemoryStorage, plugins: &[Offered]) -> Self {
+        let ini = card
+            .get("paperpaw.ini")
+            .unwrap_or_else(|| b"[help]\nshow = false\n".to_vec());
         let card = Rc::new(
             card.with(".paperpaw/plugins/setup/done", "")
-                .with("paperpaw.ini", "[help]\nshow = false\n"),
+                .with("paperpaw.ini", ini),
         );
         let library = Library::default();
         serve(&library, plugins);
@@ -538,6 +615,93 @@ impl Route for Unreachable {
     }
 }
 
+/// A community source's signature file for `list`, signed with `seed`
+/// (`plugins/store/src/native_sources.rs`).
+fn source_signature(list: &[u8], seed: &[u8; 32]) -> String {
+    use paperpaw_native::signature::{public_key, sign_message};
+    let mut message = b"PaperPaw plugin source\0".to_vec();
+    message.extend_from_slice(&paperpaw_digest::sha256::digest(list));
+    format!(
+        "{}\n{}\n",
+        paperpaw_digest::hex::encode(&public_key(seed)),
+        paperpaw_digest::hex::encode(&sign_message(&message, seed))
+    )
+}
+
+/// A community source (#214) named in `sources.txt` on the card is offered
+/// under *Sources*, added once the reader was told nobody checks it, and its
+/// key is kept; PaperPaw's own list stays on the card, leaving the store lists
+/// it again, and a list of the source signed by another key is not read.
+#[test]
+fn a_community_source_is_added_listed_and_refused_with_another_key() {
+    const SOURCE: &str = "https://plugins.example/plugins.json";
+    const KEPT: &str = ".paperpaw/plugins/store/sources.txt";
+    let card = MemoryStorage::new().with(KEPT, format!("{SOURCE}\n"));
+    let mut shop = Shop::on(card, &[Offered::data("pack-a", "Pack A", "1.0.0")]);
+    let theirs = Offered::data("their-pack", "Their Pack", "1.0.0");
+    let list = format!(r#"{{"format": 2, "plugins": [{}]}}"#, theirs.entry());
+    shop.library.put(SOURCE, list.clone());
+    shop.library.put(
+        &format!("{SOURCE}.sig"),
+        source_signature(list.as_bytes(), &[3; 32]),
+    );
+    shop.run("store.open");
+    shop.settle(2000);
+    let shown = shop.shown();
+    assert!(shown.contains("Sources"), "{shown}");
+    shop.choose("Sources");
+    answer_dialog(&mut shop, "New: plugins.example/plugins.json");
+    shop.settle(1500);
+    let asked = shop.shown();
+    assert!(asked.contains("PaperPaw does not check"), "{asked}");
+    assert!(asked.contains("who runs it."), "{asked}");
+    // The focus starts on *Not now*.
+    assert!(asked.contains("*Not now"), "{asked}");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    let shown = shop.shown();
+    assert_eq!(shop.screen(), "store.list", "{shown}");
+    assert!(shown.contains("plugins.example/plugins.json"), "{shown}");
+    // The key of the first list is kept with the address.
+    let key = paperpaw_digest::hex::encode(&paperpaw_native::signature::public_key(&[3; 32]));
+    assert_eq!(
+        String::from_utf8(shop.card.get(KEPT).unwrap()).unwrap(),
+        format!("{SOURCE} {key}\n")
+    );
+    // Its plugins are in files of their own; PaperPaw's list is as it was.
+    let index = |shop: &Shop, name: &str| {
+        let path = format!(".paperpaw/plugins/store/{name}");
+        String::from_utf8(shop.card.get(&path).unwrap_or_default()).unwrap()
+    };
+    assert!(index(&shop, "source-index.txt").contains("their-pack"));
+    assert!(index(&shop, "index.txt").contains("pack-a"));
+    assert!(!index(&shop, "index.txt").contains("their-pack"));
+    // Leaving the store lists PaperPaw's library again.
+    shop.keys("run:core.back");
+    shop.run("store.open");
+    shop.settle(2000);
+    let shown = shop.shown();
+    assert!(!shown.contains("plugins.example"), "{shown}");
+    // The source's server now sends a list another key signed: not read.
+    shop.library.put(
+        &format!("{SOURCE}.sig"),
+        source_signature(list.as_bytes(), &[4; 32]),
+    );
+    shop.choose("Sources");
+    answer_dialog(&mut shop, "plugins.example/plugins.json");
+    shop.settle(3000);
+    let shown = shop.shown();
+    assert!(shown.contains("This source has another key"), "{shown}");
+    assert!(index(&shop, "source-index.head").is_empty());
+    assert_eq!(
+        String::from_utf8(shop.card.get(KEPT).unwrap()).unwrap(),
+        format!("{SOURCE} {key}\n"),
+        "the key kept is the first one"
+    );
+    assert!(index(&shop, "index.txt").contains("pack-a"));
+}
+
 /// What the panel shows once the store was opened and the library answered
 /// `never` or refused the connection.
 fn panel_of_the_store(never: bool) -> Vec<u8> {
@@ -631,4 +795,161 @@ fn the_list_of_the_store_is_drawn_in_part_as_it_is_drawn_whole() {
     }
     // Each step moved the focus and drew something.
     assert!(changed >= 10, "{changed} of 12 steps changed the panel");
+}
+
+/// The card of a device that has `pack-a` installed at `version` (its manifest
+/// as the library serves it).
+fn card_with_pack_a(version: &str) -> MemoryStorage {
+    let manifest = Offered::data("pack-a", "Pack A", "0").manifest;
+    let manifest = manifest.replace("version = 0", &format!("version = {version}"));
+    MemoryStorage::new().with("plugins/pack-a/plugin.ini", manifest)
+}
+
+/// An installed plugin whose library has a newer version is updated from its
+/// page: downloaded, confirmed by the user, and replaced whole (the plugin
+/// folder is the new version's, the staged files are gone).
+#[test]
+fn an_installed_plugin_is_updated_to_the_newer_version_of_the_library() {
+    let mut shop = Shop::on(
+        card_with_pack_a("1.0.0"),
+        &[Offered::data("pack-a", "Pack A", "1.1.0")],
+    );
+    shop.run("store.open");
+    shop.settle(2000);
+    shop.keys("open:store.plugin:id=pack-a");
+    shop.settle(3000);
+    shop.choose("Update");
+    shop.settle(3000);
+    assert_eq!(confirm_screen(&mut shop), "core.firmware-confirm");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    let shown = shop.shown();
+    assert!(shown.contains("Installed: version 1.1.0"), "{shown}");
+    let mut ini = [0_u8; 512];
+    let n = shop
+        .card
+        .read_at("plugins/pack-a/plugin.ini", 0, &mut ini)
+        .unwrap();
+    assert!(String::from_utf8_lossy(&ini[..n]).contains("version = 1.1.0"));
+    assert!(
+        !shop
+            .card
+            .exists(".paperpaw/plugins/store/stage/pack-a/plugin.ini")
+    );
+}
+
+/// Removing asks first (*Remove* or *Keep*), then the host asks again before
+/// it touches the card; a *Keep* at the first question changes nothing, a
+/// confirmed removal takes the plugin's folder away.
+#[test]
+fn an_installed_plugin_is_removed_after_the_reader_confirmed_twice() {
+    let mut shop = Shop::on(
+        card_with_pack_a("1.0.0"),
+        &[Offered::data("pack-a", "Pack A", "1.0.0")],
+    );
+    shop.run("store.open");
+    shop.settle(2000);
+    shop.keys("open:store.plugin:id=pack-a");
+    shop.settle(3000);
+    shop.choose("Remove");
+    answer_dialog(&mut shop, "Keep");
+    assert!(shop.card.exists("plugins/pack-a/plugin.ini"));
+    shop.choose("Remove");
+    answer_dialog(&mut shop, "Remove");
+    assert_eq!(confirm_screen(&mut shop), "core.firmware-confirm");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    assert!(!shop.card.exists("plugins/pack-a/plugin.ini"));
+}
+
+/// The German hyphenation pack as the release builds it (data.toml: the
+/// folder `tools/hyphenation-data.py` writes), in a folder of its own.
+fn german_pack() -> std::path::PathBuf {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let out = std::env::temp_dir().join(format!("paperpaw-store-hyphen-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
+    std::fs::create_dir_all(&out).unwrap();
+    let german = paperpaw_hyphenation_packs::PACKAGES
+        .iter()
+        .find(|package| package.id == "hyphenation-de")
+        .unwrap();
+    paperpaw_hyphenation_packs::build(&root, &out, german).unwrap()
+}
+
+/// The card of a German reader: the book, hyphenation on, text set justified.
+fn german_card() -> MemoryStorage {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let book = std::fs::read(root.join("samples/library/books/die-verwandlung.epub")).unwrap();
+    MemoryStorage::new()
+        .with("books/die-verwandlung.epub", book)
+        .with(
+            "paperpaw.ini",
+            "[core]\nfont-size = 12\njustify = on\nhyphenate = on\n[help]\nshow = false\n",
+        )
+}
+
+/// The screen of `shop` with the German book opened and turned to a page
+/// that is set with breaks where there is a table: whether the reader asked
+/// for the hyphenation pack on opening (the store's dialog, answered *Not
+/// now*), the screen's name and its pixels.
+fn german_page(shop: &mut Shop) -> (bool, String, Vec<u8>) {
+    shop.keys("open:reader.screen:path=books/die-verwandlung.epub");
+    shop.settle(4000);
+    let asked = shop.screen() == "keyboard.ask";
+    if asked {
+        let dialog = shop.shown();
+        assert!(dialog.contains("hyphenation-de"), "{dialog}");
+        shop.choose("Not now");
+        shop.settle(1500);
+    }
+    for _ in 0..13 {
+        shop.keys("page-forward,wait:1200");
+    }
+    shop.settle(1500);
+    (asked, shop.screen(), shop.device.panel.rgb_bytes())
+}
+
+/// #295: the store lists the German hyphenation pack, installs it as the
+/// reader asks, and a German book is then set with breaks at line ends (it
+/// is set whole until then).
+#[test]
+fn the_german_hyphenation_pack_is_listed_installed_and_breaks_a_german_page() {
+    let folder = german_pack();
+    let pack = || Offered::folder("hyphenation-de", "Hyphenation (German)", "2.0.0", &folder);
+    let mut without = Shop::on(german_card(), &[pack()]);
+    let (asked, screen, whole) = german_page(&mut without);
+    assert!(asked, "the reader did not offer the pack for a German book");
+    assert_eq!(screen, "reader.screen", "{}", without.shown());
+    let mut shop = Shop::on(german_card(), &[pack()]);
+    shop.run("store.open");
+    shop.settle(2000);
+    // The list groups: Reading holds the pack, and its group shows it.
+    let listed = shop.shown();
+    assert!(listed.contains("Reading, 1"), "{listed}");
+    shop.choose("Reading");
+    shop.settle(2000);
+    let group = shop.shown();
+    assert!(group.contains("Hyphenation (German)"), "{group}");
+    // Never put on the card by itself (decision 195).
+    assert!(!shop.card.exists("plugins/hyphenation-de/plugin.ini"));
+    shop.keys("open:store.plugin:id=hyphenation-de");
+    shop.settle(3000);
+    shop.choose("Install");
+    // 346 KB: the download takes longer than a one-file plugin's.
+    shop.settle(15000);
+    assert_eq!(confirm_screen(&mut shop), "core.firmware-confirm");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    assert!(shop.card.exists("plugins/hyphenation-de/plugin.ini"));
+    assert!(
+        shop.card
+            .exists("plugins/hyphenation-de/hyphenation/de.pphp")
+    );
+    let (asked, screen, broken) = german_page(&mut shop);
+    assert!(!asked, "the pack is on the card and the reader asked again");
+    assert_eq!(screen, "reader.screen", "{}", shop.shown());
+    assert_ne!(whole, broken, "the German pack changed nothing on the page");
 }

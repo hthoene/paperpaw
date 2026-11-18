@@ -88,7 +88,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             check(dir)?;
         }
         // The sizes in the folders, as appended.
-        self.sync()?;
+        self.sync_files()?;
         let folder = self.dir(dir)?;
         if from == 0 {
             let mut read = Scan::of(&folder);
@@ -137,7 +137,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             check(dir)?;
         }
         // The sizes in the folders, as appended.
-        self.sync()?;
+        self.sync_files()?;
         let folder = self.dir(dir)?;
         let (before, slot) = (from >> 32, from & u64::from(u32::MAX));
         if from != 0 && folder.begins_entry(slot * SLOT).map_err(error)? {
@@ -164,7 +164,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         }
         self.settle_moves()?;
         // The sizes in the folders, as appended.
-        self.sync()?;
+        self.sync_files()?;
         let folder = self.dir(dir)?;
         // The entry `list_head` shows first: at the place, or at the start
         // where the place no longer begins an entry.

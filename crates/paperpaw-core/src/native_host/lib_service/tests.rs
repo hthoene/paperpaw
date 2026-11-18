@@ -3,13 +3,14 @@
 //! shared harness; the ops' tests are in `tests/query.rs` and `tests/write.rs`.
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::services_wire::{self, ServiceOp};
 use crate::native_host::call_services::validate_reply;
 use alloc::vec::Vec;
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::ERR_DENIED;
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 
 #[path = "tests/catalog_reads.rs"]
 mod catalog_reads;
@@ -42,7 +43,7 @@ const WIRED: &[paperpaw_native::metadata::Feature<'static>] = &[
 /// A frame, and the caller plugin `files` (owner 7) with the library host
 /// wired (or not) and `uses.library` / `uses.storage` as the fields say.
 pub(super) struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     /// The settings the frame shows: `files.archive` as the test set it.
     settings: Settings,
     hosts: crate::native_host::host_services::HostServices,
@@ -97,7 +98,7 @@ pub(super) fn with<R>(host: Rc<dyn LibHost>, body: impl FnOnce(&View<'_>) -> R) 
             ))
             .unwrap();
     }
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_library(host).unwrap();
     body(&View {
@@ -153,7 +154,7 @@ fn a_frame_without_the_host_refuses_the_family() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let view = View {
         env: &env,
         settings: Settings::new(),

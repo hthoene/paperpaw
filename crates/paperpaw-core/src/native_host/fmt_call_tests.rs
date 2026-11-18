@@ -106,7 +106,7 @@ fn go_sized(
     let mut h = Harness::new();
     let plugin = h.add("format-test", behavior);
     let k = kernel();
-    let env = k.shared.env(paperpaw_platform::Instant(0));
+    let env = k.shared.place(paperpaw_platform::Instant(0));
     let stage = Stage {
         route: &Registry {
             registry: &h.registry,
@@ -359,7 +359,7 @@ fn the_formats_own_failures_pass_through() {
     let plugin = h.add("format-test", Behavior::Good);
     h.registry.stop(plugin).unwrap();
     let k = kernel();
-    let env = k.shared.env(paperpaw_platform::Instant(0));
+    let env = k.shared.place(paperpaw_platform::Instant(0));
     let stage = Stage {
         route: &Registry {
             registry: &h.registry,
@@ -451,7 +451,7 @@ fn sniff_says_yes_or_not_mine_and_close_never_fails() {
         let mut h = Harness::new();
         let plugin = h.add("format-test", behavior);
         let k = kernel();
-        let env = k.shared.env(paperpaw_platform::Instant(0));
+        let env = k.shared.place(paperpaw_platform::Instant(0));
         let mapper = images(Ok(None));
         let stage = Stage {
             route: &Registry {

@@ -158,6 +158,10 @@
     {
       "key": "uses.power",
       "required": false
+    },
+    {
+      "key": "uses.registry",
+      "required": false
     }
   ]
 }

@@ -23,7 +23,7 @@ impl Kernel {
     // Its own frame: the pump keeps the services' passes apart.
     #[inline(never)]
     pub(crate) fn native_library_pump(&mut self) -> bool {
-        let now_ms = self.now.millis();
+        let now_ms = self.shared.now.millis();
         let Some(host) = self
             .shared
             .native_instances
@@ -38,8 +38,7 @@ impl Kernel {
         // interface 6 view that showed (`library::request_catalog`).
         if host.take_catalog_wanted() {
             self.output
-                .commands
-                .push(events::CATALOG_WANTED.emit(events::CatalogWanted::new(false)));
+                .emit(&events::CATALOG_WANTED, events::CatalogWanted::new(false));
         }
         let mut change = None;
         host.take_changed(&mut |what, generation, path| {
@@ -80,6 +79,26 @@ impl Kernel {
             .and_then(|hosts| hosts.library())
         {
             library.0.catalog_changed();
+        }
+    }
+
+    /// Another card is in, or a computer changed this one: nothing kept of
+    /// the card stands (#151). The hyphenation tables open on it are
+    /// checked again, the texts read from catalogs on it are forgotten, and
+    /// so is what the library host kept of its books. The storage's own
+    /// (folders, the free space) went with the old mount; waking counts the
+    /// free space again (`Kernel::usb_drive_ended`).
+    pub(crate) fn card_changed(&mut self) {
+        self.shared.hyphenation.card_changed();
+        self.shared.hyphen_feed.card_changed();
+        self.shared.translator.forget_read();
+        if let Some(library) = self
+            .shared
+            .native_instances
+            .hosts()
+            .and_then(|hosts| hosts.library())
+        {
+            library.0.card_changed();
         }
     }
 

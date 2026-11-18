@@ -86,7 +86,7 @@ fn open_statuses_unique_keys_and_generic_release_preserve_other_families() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     // SAFETY: all nonnull fixture pairs are live and disjoint.
     unsafe {
         assert_eq!(
@@ -177,7 +177,7 @@ fn call_checks_schema_and_owner_before_publishing_a_reply() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     scope
         .as_ref()
         .scope(&env, || {
@@ -282,7 +282,7 @@ fn service_failure_leaves_no_reply_and_does_not_stick_busy() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     scope
         .as_ref()
         .scope(&env, || {
@@ -346,7 +346,7 @@ fn generic_schema_validation_accepts_multiplicity_but_echo_requires_one_record()
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut out = [0xa5; 512];
     let hosts = crate::native_host::host_services::HostServices::new();
     let who = Caller {
@@ -401,7 +401,7 @@ fn broken_backend_replies_preserve_output_and_clear_busy_before_recovery() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     scope
         .as_ref()
         .scope(&env, || {
@@ -532,7 +532,7 @@ fn a_failed_reply_is_wiped_and_a_kept_one_has_no_tail_left() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     scope
         .as_ref()
         .scope(&env, || {

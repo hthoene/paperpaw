@@ -24,7 +24,9 @@ use paperpaw_ui_kit::{
     paint, read_event,
 };
 
-use crate::declarations::{NOW, RESUME, SCREEN, STARTED};
+use crate::declarations::{
+    NOW, RESUME, SCREEN, STARTED, TOUCH_FILTER, TOUCH_HINT, TOUCH_LOCK, TOUCH_TOGGLE,
+};
 use crate::native_clock;
 use crate::native_flow::{Context, Effect, Effects, Flow, Lockstate, Step};
 use crate::native_gate::{self as gate, Bare, Device, Door};
@@ -32,6 +34,7 @@ use crate::native_input::Act;
 use crate::native_model::{self as model, Code};
 use crate::native_screen::{Clock, View, prepare};
 use crate::native_store as store;
+use crate::native_touch_lock::{self as touch_lock, TouchLock};
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/lock_declarations.rs"));
@@ -83,6 +86,8 @@ pub struct NativeLock {
     door: Door,
     /// A screen opened without a view (`gate::recover`).
     bare: Bare<Instance>,
+    /// The touch lock's way out (touch devices).
+    touch: TouchLock,
 }
 
 impl Plugin for NativeLock {
@@ -92,6 +97,8 @@ impl Plugin for NativeLock {
             .chain(image::SCREENS)
             .chain(image::NAVIGATION)
             .chain(image::EVENTS)
+            .chain(image::TOUCH_UI)
+            .chain(image::TOUCH_EVENTS)
         {
             registrations::submit(host, batch)?;
         }
@@ -103,13 +110,22 @@ impl Plugin for NativeLock {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Started, kinds::Resume, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Started, kinds::Resume, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::StageCall)
         else {
             return Ok(());
         };
         match event {
+            Event::StageCall { payload, .. } if token == TOUCH_FILTER => {
+                self.touch.filter(host, payload, reply)
+            }
+            Event::StageCall { payload, .. } if touch_lock::is_status(token) => {
+                TouchLock::status(host, payload, reply)
+            }
+            Event::ActionRun { .. } if matches!(token, TOUCH_TOGGLE | TOUCH_LOCK | TOUCH_HINT) => {
+                TouchLock::action(host, token)
+            }
             Event::ActionRun { .. } if token == NOW => self.lock_now(host),
             Event::Started { now_ms, .. } if token == STARTED => self.started(host, now_ms),
             Event::Resume { .. } if token == RESUME => {
@@ -390,6 +406,14 @@ impl Device for HostDevice<'_, '_> {
         store::on_wake(self.0)
     }
 
+    fn keep_tries(&self, tries: u8) -> Result<(), Error> {
+        store::keep_tries(self.0, tries)
+    }
+
+    fn notice(&self, key: &'static str) -> Result<(), Error> {
+        notify(self.0, key)
+    }
+
     fn open_unlock(&self) -> Result<(), Error> {
         let host = self.0;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
@@ -620,9 +644,10 @@ impl NativeLock {
                 // The end of a wait is seen at the next input (and drawn from
                 // the clock); an exact wake needs the work service.
                 Effect::WakeAt(_) => {}
-                // Not kept, the count still holds until PaperPaw starts anew.
+                // Not kept, the count still holds until PaperPaw starts anew;
+                // that is said, and the effects after it go on.
                 Effect::KeepTries(tries) => {
-                    let _ = store::keep_tries(host, tries);
+                    gate::keep_tries(&HostDevice(host), tries, &mut self.door);
                 }
             }
         }

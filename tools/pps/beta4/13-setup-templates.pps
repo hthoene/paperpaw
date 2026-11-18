@@ -1,0 +1,95 @@
+# Beta 4 suite 13: setup templates (#72), the page "Choose a setup" of the setup guide (Settings > Set up PaperPaw).
+# Runs on the emulator, which links every plugin of the store: a template switches them on and needs no fetch.
+include:common.pps
+
+# The guide, page by page (Next is focused on each) to the template page, and the page open.
+define:to-template-page {
+  slot:core.setup
+  until:Language:10000
+  repeat:8 {
+    if:not-shows:Choose a setup {
+      confirm
+      wait:700
+    }
+  }
+  expect:Choose a setup
+  # Open is left of Next.
+  left
+  confirm
+  until:Keep the defaults:8000
+}
+
+test:13a-template-page {
+  call:home
+  call:to-template-page
+  expect:Minimal
+  expect:Reading statistics
+  expect:Language learning
+  expect:Notes
+  expect:Keep the defaults
+  expect-not:Chosen
+  no-warn
+}
+
+# Keeping the defaults changes nothing and leaves no notice.
+test:13b-keep-the-defaults {
+  call:home
+  call:to-template-page
+  select:Keep the defaults
+  wait:1500
+  expect-not:Setup applied
+  expect-not:Chosen
+  expect-not:Error
+  no-warn
+}
+
+# A template without plugins sets its settings at once and says so.
+test:13c-minimal-applies-at-once {
+  call:home
+  call:to-template-page
+  select:Minimal
+  until:Setup applied:5000
+  expect-not:Error
+  # Back as it was: the suite finds Home by its Edit pencil.
+  set:home.footer.pencil=on
+  set:home.footer.dots=on
+  # The page shows what was chosen when it is opened again.
+  call:home
+  call:to-template-page
+  expect:Chosen
+  no-warn
+}
+
+# A template with plugins that are built in switches them on: they run after the restart the notice names.
+test:13d-statistics-switches-plugins-on {
+  call:home
+  call:to-template-page
+  select:Reading statistics
+  until:Setup applied. The plugins start:5000
+  expect-not:Error
+  restart
+  wait:6000
+  call:home
+  no-warn
+}
+
+# Language learning brings Anki (the next file's tests need it) and the translate plugin.
+test:13e-language-learning {
+  call:home
+  call:to-template-page
+  select:Language learning
+  until:Setup applied. The plugins start:5000
+  expect-not:Error
+  restart
+  wait:6000
+  run:anki.open
+  until:Sync with Anki:8000
+  no-warn
+}
+
+# Offline: the plugins a template needs that the device does not have wait for a connection
+# (`template-pending.txt`, a notice says so) and go into the queue when the store reaches the library.
+# Not for the emulator, which has all of them built in; on the X4 it needs a card without Anki.
+test:13f-offline-plugins-wait {
+  skip:needs a device that has to fetch the plugins (the host tests of the store cover the rules)
+}

@@ -4,6 +4,7 @@
 //! told to a native plugin once.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
+use crate::kit::library;
 use crate::native_host::{
     commands::CommandStage,
     doc_reading::{Edge, Facts, Reading},
@@ -19,7 +20,7 @@ use core::cell::RefCell;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::{DirEntry, Storage, StorageError};
-use paperpaw_sdk::{Id, MemoryStorage, library};
+use paperpaw_sdk::{Id, MemoryStorage};
 
 const ALICE: &str = "books/alice.epub";
 const BOB: &str = "books/bob.epub";
@@ -77,7 +78,7 @@ impl NativeInstance for Probe {
     fn subscribed(&self, tag: u32) -> bool {
         [OPENED, TURNED, FINISHED, CLOSED].contains(&tag)
     }
-    fn service_event(&self, bytes: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         let tag = wire::RawRecord::single(bytes)
             .map_err(|_| ERR_INVALID)?
             .tag();
@@ -87,7 +88,7 @@ impl NativeInstance for Probe {
     fn service_event_staged(
         &self,
         bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         _: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.service_event(bytes, env)
@@ -95,17 +96,17 @@ impl NativeInstance for Probe {
 }
 
 impl Dispatch for Probe {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)

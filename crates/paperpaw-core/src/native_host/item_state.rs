@@ -39,7 +39,7 @@
 use alloc::{boxed::Box, string::String, vec::Vec};
 use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, ERR_NO_MEMORY};
 
-/// Items with a state per plugin and on the device.
+/// Staging with a state per plugin and on the device.
 pub(crate) const PER_PLUGIN_ITEMS: usize = 16;
 pub(crate) const DEVICE_ITEMS: usize = 128;
 /// Bytes of ids, keys and arguments per plugin, and on the device (what an

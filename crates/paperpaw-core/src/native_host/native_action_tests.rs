@@ -1,9 +1,11 @@
 //! A native plugin's action reaches its plugin in the call that ran it, with
-//! the callback's command stage, whoever ran it: `Command::RunAction` (menu
+//! the callback's command stage, whoever ran it: `Ask::RunAction` (menu
 //! rows, rules, widgets) runs inside `run_commands`, after the pump.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::*;
+use crate::Ask;
+use crate::Place;
 use crate::native_host::{
     native_instances::NativeInstance, native_screen::Dispatch, registrations as wire,
 };
@@ -11,7 +13,7 @@ use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Command, Env, Id, Params};
+use paperpaw_sdk::{Id, Params};
 
 struct Again {
     queue: crate::native_host::shared::Shared<ActionQueue>,
@@ -41,7 +43,7 @@ impl NativeInstance for Noting {
         &self,
         token: u32,
         bytes: &[u8],
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut crate::native_host::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         if let Ok(wire::Record::EventActionRun(run)) = wire::records_decode_single(bytes) {
@@ -62,17 +64,17 @@ impl NativeInstance for Noting {
 }
 
 impl Dispatch for Noting {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -130,7 +132,7 @@ fn world(status: Result<i32, i32>) -> World {
 /// without a handler, run by the plugin's key and token (#248).
 fn declare(w: &mut World) {
     let id = Id::try_parse("n.open").unwrap();
-    let action = paperpaw_sdk::NativeAction::new(owned(id), w.owner, 7);
+    let action = crate::kit::action::NativeAction::new(owned(id), w.owner, 7);
     w.kernel.shared.actions.insert_native(action);
 }
 
@@ -139,7 +141,7 @@ fn an_action_run_by_a_command_reaches_its_plugin_in_the_same_run() {
     let mut w = world(Ok(0));
     declare(&mut w);
     // What a menu row, a rule or a widget asks for.
-    w.kernel.output.commands.push(Command::RunAction(
+    w.kernel.output.commands.push(Ask::RunAction(
         Id::try_parse("n.open").unwrap(),
         Params::new(),
     ));
@@ -213,7 +215,7 @@ fn an_action_that_runs_itself_does_not_hang_the_run() {
         lease: w.lease.try_clone().unwrap(),
         owner: w.owner,
     });
-    w.kernel.output.commands.push(Command::RunAction(
+    w.kernel.output.commands.push(Ask::RunAction(
         Id::try_parse("n.open").unwrap(),
         Params::new(),
     ));
@@ -233,7 +235,7 @@ fn an_action_that_runs_itself_does_not_hang_the_run() {
 fn the_action_of_a_plugin_not_installed_does_nothing() {
     let mut w = world(Ok(0));
     let id = Id::try_parse("gone.open").unwrap();
-    let action = paperpaw_sdk::NativeAction::new(owned(id.clone()), w.owner + 1, 7);
+    let action = crate::kit::action::NativeAction::new(owned(id.clone()), w.owner + 1, 7);
     w.kernel.shared.actions.insert_native(action);
     let _ = w.kernel.run_action(Instant(10), id);
     assert!(w.seen.borrow().is_empty());

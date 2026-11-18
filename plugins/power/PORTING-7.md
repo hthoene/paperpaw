@@ -25,10 +25,11 @@ The interface-6 plugin and its Kernel tests are gone.
   differs. The 5-point margin, Normal while charging and the system saver are
   as before (`model` tests).
 - The power menu is a host question (`core.ui` choice); its answer is delivered
-  as `event.answered`. Sleep, switch off, restart, lock/unlock touch (the lock
+  as `event.answered`. Sleep, switch off, restart, lock touch (the lock
   plugin's setting `lock.touch` and action `lock.touch-toggle`, only on a touch
-  device when they exist). Sleeping and switching off put the sleep screen
-  (slot `core.sleep`, parameter `off=1` for switching off) and the power command
+  device when they exist). While touch is locked the held button runs
+  `lock.touch-toggle` at once, with no menu (a menu needs a tap, #234). Sleeping and switching off put the sleep screen
+  (slot `core.sleep`; for switching off the slot `core.off`, parameter `off-reason=asked`) and the power command
   in one batch (`CommandSender::show_then`), so the host draws the frame before
   power is cut. Without a sleep screen the command acts alone.
 - Declares `uses.power`; services `core.device`, `core.ui`.

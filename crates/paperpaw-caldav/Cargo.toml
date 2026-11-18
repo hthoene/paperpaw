@@ -1,0 +1,17 @@
+[package]
+name = "paperpaw-caldav"
+description = "CalDAV, CardDAV and iCalendar for PaperPaw's plugins: content lines, VTODO and VEVENT read as they stream, recurrence rules, time zones, vCard birthdays, multistatus answers, addresses and ETags (no_std)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+categories = ["no-std", "parser-implementations"]
+keywords = ["caldav", "icalendar", "rrule", "no-std"]
+
+[dependencies]
+
+[lints]
+workspace = true

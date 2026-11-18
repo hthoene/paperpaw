@@ -1,12 +1,22 @@
 //! The core plugin's translation catalogs.
 
+use crate::Staging;
+#[cfg(any(test, feature = "testing"))]
 use alloc::borrow::Cow;
-use paperpaw_sdk::{RegisterError, Registrar};
+use paperpaw_sdk::RegisterError;
 
 /// Adds the catalogs. Each stays under the 15-bit static catalog-index limit
 /// (32 KiB): the host prompts and the `core.setting.*` texts have catalogs
 /// of their own.
-pub(crate) fn add(r: &mut Registrar) -> Result<(), RegisterError> {
+///
+/// Only where the kernel is tested (`cfg(test)`, the `testing` feature): a
+/// program carries the kernel's texts without their keys, as tables its
+/// build script makes of these same files and its shell hands to the
+/// builder ([`KernelBuilder::built_messages`](crate::KernelBuilder::built_messages),
+/// `paperpaw_app::CORE_MESSAGES`), not the sources too (about 30 KB of flash
+/// less, #306).
+#[cfg(any(test, feature = "testing"))]
+pub(crate) fn add(r: &mut Staging) -> Result<(), RegisterError> {
     for source in [
         include_str!("../i18n/en.ini"),
         include_str!("../i18n/de.ini"),
@@ -17,6 +27,16 @@ pub(crate) fn add(r: &mut Registrar) -> Result<(), RegisterError> {
     ] {
         r.add_translations(Cow::Borrowed(source))?;
     }
+    Ok(())
+}
+
+/// The sources are not carried (see above): the shell's tables are.
+#[cfg(not(any(test, feature = "testing")))]
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "the same signature as the one that adds the sources"
+)]
+pub(crate) fn add(_: &mut Staging) -> Result<(), RegisterError> {
     Ok(())
 }
 

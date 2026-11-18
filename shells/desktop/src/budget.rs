@@ -37,6 +37,12 @@ static PROFILE: AtomicBool = AtomicBool::new(false);
 static LAST_REFUSED: AtomicUsize = AtomicUsize::new(0);
 /// Live tracked allocations: address → (size, where it was made).
 static SITES: Mutex<Option<HashMap<usize, Site>>> = Mutex::new(None);
+/// Whether tracked allocations and their ends are kept ([`record_events`]).
+static EVENTS_ON: AtomicBool = AtomicBool::new(false);
+/// What [`take_events`] gives: made or ended, the address, the size asked.
+static EVENTS: Mutex<Vec<(bool, usize, usize)>> = Mutex::new(Vec::new());
+/// Whether the memory probe says the largest block ([`tell_largest_free`]).
+static LARGEST_TOLD: AtomicBool = AtomicBool::new(false);
 /// What was live at the peak (within [`PEAK_STEP`] of it), while
 /// profiling: the heap then and its allocations.
 static AT_PEAK: Mutex<Option<(usize, Vec<Site>)>> = Mutex::new(None);
@@ -124,6 +130,9 @@ unsafe impl GlobalAlloc for BudgetAllocator {
                 );
                 TRACKING.with(|t| t.set(tracking));
             }
+            if EVENTS_ON.load(Ordering::Relaxed) {
+                note_event(true, ptr as usize, layout.size());
+            }
             if PROFILE.load(Ordering::Relaxed) {
                 // Untracked: the bookkeeping is not part of the budget.
                 let tracking = TRACKING.with(|t| t.replace(false));
@@ -152,6 +161,9 @@ unsafe impl GlobalAlloc for BudgetAllocator {
         // SAFETY: as above; this is the start of the allocation.
         unsafe { System.dealloc(ptr.sub(offset), outer) };
         if charged {
+            if EVENTS_ON.load(Ordering::Relaxed) {
+                note_event(false, ptr as usize, layout.size());
+            }
             if PROFILE.load(Ordering::Relaxed) {
                 let tracking = TRACKING.with(|t| t.replace(false));
                 if let Ok(mut sites) = SITES.lock()
@@ -175,8 +187,26 @@ unsafe impl GlobalAlloc for BudgetAllocator {
     }
 }
 
+/// Keeps a tracked allocation (`made`) or its end for [`take_events`].
+fn note_event(made: bool, address: usize, size: usize) {
+    // Untracked: the bookkeeping is not part of the budget.
+    let tracking = TRACKING.with(|t| t.replace(false));
+    if let Ok(mut events) = EVENTS.lock() {
+        events.push((made, address, size));
+    }
+    TRACKING.with(|t| t.set(tracking));
+}
+
 /// Runs `f` with allocation tracking enabled.
 pub fn track<R>(f: impl FnOnce() -> R) -> R {
+    // The counters are the whole process's: a test that runs a kernel takes
+    // `one_device_at_a_time` (the lock the budget's own tests take), or its
+    // allocations change what another test measures.
+    #[cfg(test)]
+    assert!(
+        accounting_tests::held(),
+        "a tracked call in a test without `crate::one_device_at_a_time()`"
+    );
     struct Restore(bool);
     impl Drop for Restore {
         fn drop(&mut self) {
@@ -249,6 +279,32 @@ pub fn trace(bytes: usize) {
 /// Slow; for analysing memory use only.
 pub fn profile() {
     PROFILE.store(true, Ordering::Relaxed);
+}
+
+/// Keeps every tracked allocation and its end from now on, in order, for
+/// [`take_events`]: what a test replays through a model of a device's heap
+/// (the budget counts bytes; where the blocks lie it does not model).
+pub fn record_events() {
+    EVENTS_ON.store(true, Ordering::Relaxed);
+}
+
+/// The tracked allocations and their ends since the last call
+/// ([`record_events`]): whether made (or ended), its address, the size asked.
+pub fn take_events() -> Vec<(bool, usize, usize)> {
+    let tracking = TRACKING.with(|t| t.replace(false));
+    let events = EVENTS
+        .lock()
+        .map(|mut events| std::mem::take(&mut *events))
+        .unwrap_or_default();
+    TRACKING.with(|t| t.set(tracking));
+    events
+}
+
+/// The memory probe ([`memory_use`]) says a largest block from now on, all
+/// that is free: the kernel then takes what it takes on a device that tells
+/// one (a frame's taller band), which it does not where none is told.
+pub fn tell_largest_free() {
+    LARGEST_TOLD.store(true, Ordering::Relaxed);
 }
 
 /// The first frames in PaperPaw code below the allocator, e.g.
@@ -391,10 +447,13 @@ pub fn memory_use() -> Option<paperpaw_core::sdk::memory::MemoryUse> {
     let stats = stats();
     let size = stats.limit?;
     let bytes = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
-    Some(paperpaw_core::sdk::memory::MemoryUse::new(
-        bytes(size.saturating_sub(stats.live)),
-        bytes(size),
-    ))
+    let free = bytes(size.saturating_sub(stats.live));
+    let used = paperpaw_core::sdk::memory::MemoryUse::new(free, bytes(size));
+    Some(if LARGEST_TOLD.load(Ordering::Relaxed) {
+        used.with_largest_free(free)
+    } else {
+        used
+    })
 }
 
 impl std::fmt::Display for Stats {

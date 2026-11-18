@@ -33,7 +33,7 @@ impl NativeInstance for Probe {
     fn subscribed(&self, tag: u32) -> bool {
         self.subscribed && tag == wire::EVENT_IMAGE_READY_TAG
     }
-    fn service_event(&self, bytes: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         match wire::records_decode_single(bytes)? {
             wire::Record::EventImageReady(e) => {
                 self.told
@@ -47,17 +47,17 @@ impl NativeInstance for Probe {
 }
 
 impl Dispatch for Probe {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -80,6 +80,11 @@ fn world(subscribed: bool) -> World {
         writer
             .row(&storage, ".paperpaw/plugins/a/p.png", &[90_u8; 40])
             .unwrap();
+    }
+    // Its install folder (root 2) holds the one it ships, of another size.
+    let mut writer = PngWriter::new(&storage, BUNDLED, 30, 10).unwrap();
+    for _ in 0..10 {
+        writer.row(&storage, BUNDLED, &[200_u8; 30]).unwrap();
     }
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .storage(storage)
@@ -105,6 +110,26 @@ fn world(subscribed: bool) -> World {
         told,
         answer,
     }
+}
+
+/// The picture the plugin `a` ships, in its install folder.
+const BUNDLED: &str = "plugins/a/pictures/cat.png";
+
+/// Wires the files host that says which plugins are linked: `linked` ones.
+fn wire_files(w: &World, linked: &[&'static str]) {
+    use crate::native_host::{linked_plugins::LinkedPlugins, storage_files::StorageFiles};
+    let set = Rc::new(LinkedPlugins::default());
+    for id in linked {
+        set.add(id).unwrap();
+    }
+    let storage: Rc<dyn paperpaw_platform::Storage> = Rc::new(MemoryStorage::new());
+    w.kernel
+        .shared
+        .native_instances
+        .hosts()
+        .unwrap()
+        .wire_files(Rc::new(StorageFiles::new(storage, Rc::default(), set)))
+        .unwrap();
 }
 
 fn prepare(root: u32, path: &str, cookie: u32) -> ImageCommand {
@@ -178,10 +203,45 @@ fn root_one_never_reaches_the_plugins_folder_or_the_hosts() {
     let mut told = w.told();
     told.sort_unstable();
     // Each is answered with the card status (4), none was decoded; the
-    // folder of a plugin that is no running data plugin is not there (6).
+    // folder of a plugin that is no running data plugin is not there (6),
+    // and neither is a file its own install folder does not hold.
     assert_eq!(
         told.iter().map(|t| (t.0, t.1)).collect::<Vec<_>>(),
-        [(1, 6), (2, 4), (3, 4), (4, 4)]
+        [(1, 6), (2, 4), (3, 4), (4, 6)]
+    );
+}
+
+#[test]
+fn a_picture_a_plugin_ships_is_decoded_from_its_own_install_folder() {
+    let mut w = world(true);
+    wire_files(&w, &[]);
+    w.apply(std::vec![
+        prepare(2, "pictures/cat.png", 1),
+        // Not there, and nothing above the folder or of another plugin.
+        prepare(2, "pictures/dog.png", 2),
+        prepare(2, "../a/pictures/cat.png", 3),
+        prepare(2, "../../.paperpaw/plugins/a/p.png", 4),
+    ]);
+    while w.kernel.native_image_pump() {}
+    let mut told = w.told();
+    told.sort_unstable();
+    // The shipped one is ready with its own size (not root 0's 40x20).
+    assert_eq!(told[0], (1, 0, 30, 10));
+    assert_eq!(
+        told[1..].iter().map(|t| (t.0, t.1)).collect::<Vec<_>>(),
+        [(2, 6), (3, 4), (4, 4)]
+    );
+}
+
+#[test]
+fn a_linked_plugin_has_no_install_folder_whatever_the_card_holds() {
+    let mut w = world(true);
+    wire_files(&w, &["a"]);
+    w.apply(std::vec![prepare(2, "pictures/cat.png", 1)]);
+    while w.kernel.native_image_pump() {}
+    assert_eq!(
+        w.told().iter().map(|t| (t.0, t.1)).collect::<Vec<_>>(),
+        [(1, 6)]
     );
 }
 
@@ -236,7 +296,7 @@ fn root_one_reaches_a_running_data_plugins_files_only() {
 #[test]
 fn a_full_table_keeps_the_command_and_applies_it_at_its_own_time() {
     let mut w = world(true);
-    w.kernel.now = Instant(1_000);
+    w.kernel.shared.now = Instant(1_000);
     // Four wait at most; the fifth is kept, in order.
     w.apply((1..=5).map(|cookie| prepare(0, "p.png", cookie)).collect());
     assert_eq!(w.pending(), 1);
@@ -251,7 +311,7 @@ fn a_full_table_keeps_the_command_and_applies_it_at_its_own_time() {
     assert_eq!(cookies, [1, 2, 3, 4]);
     assert_eq!(w.pending(), 1, "not applied before its time");
     assert_eq!(w.kernel.service_due(), Some(Instant(3_000)));
-    w.kernel.now = Instant(3_000);
+    w.kernel.shared.now = Instant(3_000);
     while w.kernel.native_image_pump() {}
     assert_eq!(w.pending(), 0);
     assert_eq!(w.told().iter().map(|t| t.0).collect::<Vec<_>>(), [5]);
@@ -261,13 +321,13 @@ fn a_full_table_keeps_the_command_and_applies_it_at_its_own_time() {
 #[test]
 fn a_command_that_finds_no_room_after_its_tries_fails_to_its_plugin() {
     let mut w = world(true);
-    w.kernel.now = Instant(1_000);
+    w.kernel.shared.now = Instant(1_000);
     w.apply((1..=5).map(|cookie| prepare(0, "p.png", cookie)).collect());
     // Nothing decodes meanwhile, so the table stays full: three tries, 2 s
     // apart, then the plugin is told (status 5, no memory now).
     for at in [3_000, 5_000, 7_000] {
         assert_eq!(w.pending(), 1);
-        w.kernel.now = Instant(at);
+        w.kernel.shared.now = Instant(at);
         w.kernel.image_retry();
     }
     assert_eq!(w.pending(), 0);

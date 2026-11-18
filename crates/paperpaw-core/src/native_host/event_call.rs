@@ -17,15 +17,15 @@ use super::{
     native_instances::NativeLease,
     screen_stage::ScreenStage,
 };
+use crate::Ask;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_STATE};
-use paperpaw_sdk::Command;
 
 /// The commands one callback staged, for its plugin.
 pub(crate) struct Staged {
     pub(crate) owner: u64,
-    pub(crate) commands: Vec<Command>,
+    pub(crate) commands: Vec<Ask>,
     pub(crate) redraw: Option<Redraw>,
     pub(crate) images: Vec<ImageCommand>,
     /// The hand-overs its opens name, and the screens they replace: for the
@@ -83,7 +83,7 @@ impl Staged {
     /// A batch of commands and pictures, with no screen effects.
     pub(crate) fn new(
         owner: u64,
-        commands: Vec<Command>,
+        commands: Vec<Ask>,
         redraw: Option<Redraw>,
         images: Vec<ImageCommand>,
     ) -> Self {
@@ -138,7 +138,7 @@ impl crate::Kernel {
         lease: &NativeLease,
         bytes: &[u8],
     ) -> Result<i32, i32> {
-        let status = self.native_staged_call(owner, |env, stage| {
+        let status = self.native_staged_call(owner, false, |env, stage| {
             lease.service_event_staged(bytes, env, stage)
         });
         // A failure of the plugin's callback is noted, for a warning
@@ -166,24 +166,30 @@ impl crate::Kernel {
         token: u32,
         bytes: &[u8],
     ) -> Result<i32, i32> {
-        self.native_staged_call(owner, |env, stage| {
+        self.native_staged_call(owner, false, |env, stage| {
             lease.input_staged(token, bytes, env, stage)
         })
     }
 
-    /// The staged call of `owner`'s callback that `call` makes.
+    /// The staged call of `owner`'s callback that `call` makes. An action's
+    /// (`navigates`) may also stage the navigation commands (`close` ...,
+    /// `commands_nav.rs`): it has the stack as a screen's callback has.
     fn native_staged_call(
         &self,
         owner: u64,
-        call: impl FnOnce(&paperpaw_sdk::Env<'_>, &mut CommandStage<'_>) -> Result<i32, i32>,
+        navigates: bool,
+        call: impl FnOnce(&crate::Place<'_>, &mut CommandStage<'_>) -> Result<i32, i32>,
     ) -> Result<i32, i32> {
         let instances = &self.shared.native_instances;
         if instances.outbox.full() {
             return Err(ERR_BUSY);
         }
         let id = instances.id(owner).ok_or(ERR_STATE)?;
-        let env = self.shared.env(self.now);
+        let env = self.shared.place(self.shared.now);
         let mut stage = self.callback_stage(owner, id, &env);
+        if navigates {
+            stage = stage.with_stack(&self.shared.stack_rows, owner);
+        }
         let status = call(&env, &mut stage);
         self.callback_staged(owner, status, &mut stage)
     }
@@ -196,7 +202,7 @@ impl crate::Kernel {
         &'a self,
         owner: u64,
         id: &'a paperpaw_sdk::Id,
-        env: &'a paperpaw_sdk::Env<'a>,
+        env: &'a crate::Place<'a>,
     ) -> CommandStage<'a> {
         let instances = &self.shared.native_instances;
         let mut stage = CommandStage::new(
@@ -338,7 +344,7 @@ impl crate::Kernel {
     /// there go deep, the X4's stack is small (#250).
     #[inline(never)]
     fn deliver_action(&mut self, pending: super::native_action::Pending) {
-        let status = self.native_staged_call(pending.owner, |env, stage| {
+        let status = self.native_staged_call(pending.owner, true, |env, stage| {
             pending
                 .lease
                 .event_staged(pending.token, &pending.bytes, env, stage)

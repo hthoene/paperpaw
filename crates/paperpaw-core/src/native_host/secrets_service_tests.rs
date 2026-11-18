@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::services_wire;
 use crate::native_host::admitted_features::AdmittedFeatures;
 use crate::native_host::call_services::validate_reply;
@@ -13,7 +14,7 @@ use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::{DirEntry, Instant, StorageError};
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 use std::collections::BTreeMap;
 
 static WIRED: &[Feature<'static>] = &[Feature {
@@ -250,7 +251,7 @@ impl SecretsHost for Host {
 type Page = (Vec<(String, String, String, u32)>, u32, bool);
 
 struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     hosts: crate::native_host::host_services::HostServices,
     host: Rc<Host>,
     /// The nth allocation inside the backend fails (0: none).
@@ -428,7 +429,16 @@ fn with_host<R>(host: Rc<Host>, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    with_kernel(&kernel, host, wire_it, f)
+}
+
+fn with_kernel<R>(
+    kernel: &crate::Kernel,
+    host: Rc<Host>,
+    wire_it: bool,
+    f: impl FnOnce(&View<'_>) -> R,
+) -> R {
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     if wire_it {
         hosts
@@ -936,6 +946,39 @@ fn only_the_owner_reads_a_value_the_editor_lists_and_changes_what_the_feature_al
         v.remove("settings", "kosync", "key").unwrap();
         v.remove("settings", "kosync", "key").unwrap();
         assert_eq!(v.get("kosync", "key").err(), Some(ERR_NOT_FOUND));
+    });
+}
+
+/// The editor keeps the value of a secret setting its owner declares
+/// before there is one, changeable, and clears it (#81, `secrets.md` 4); a
+/// plain setting's name gives it no such right.
+#[test]
+fn the_editor_keeps_and_clears_a_declared_secret_settings_value() {
+    static SECRET: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new().secret();
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    use paperpaw_sdk::builtin::groups::OTHER;
+    for spec in [
+        paperpaw_sdk::SettingSpec::text("mail.password", "mail.password", "", OTHER)
+            .with_extra(&SECRET),
+        paperpaw_sdk::SettingSpec::text("mail.user", "mail.user", "", OTHER),
+    ] {
+        kernel.shared.settings.define(spec).unwrap();
+    }
+    with_kernel(&kernel, host(Seal::new(0x5a)), true, |v| {
+        assert_eq!(
+            v.keep_flags("settings", "mail", "user", "", "x", 0).err(),
+            Some(ERR_NOT_FOUND)
+        );
+        v.keep_flags("settings", "mail", "password", "Password", "pw", 0)
+            .unwrap();
+        assert_eq!(
+            v.get("mail", "password").unwrap(),
+            ("pw".into(), "Password".into(), 1)
+        );
+        v.remove("settings", "mail", "password").unwrap();
+        assert_eq!(v.get("mail", "password").err(), Some(ERR_NOT_FOUND));
     });
 }
 

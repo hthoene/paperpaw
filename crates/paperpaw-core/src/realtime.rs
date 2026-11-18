@@ -4,9 +4,10 @@
 
 use core::time::Duration;
 
+use crate::Ask;
 use paperpaw_platform::{ButtonState, Instant, Rect, RefreshMode, buttons};
 use paperpaw_sdk::realtime::{ESCAPE_HOLD, FrameReport, KeyEvent, ScreenMode};
-use paperpaw_sdk::{Command, Handled, ScreenKey};
+use paperpaw_sdk::{Handled, ScreenKey};
 
 use crate::Kernel;
 
@@ -72,13 +73,6 @@ impl Kernel {
         self.stack
             .last()
             .map_or_else(ScreenMode::new, |top| top.screen.mode())
-    }
-
-    /// Whether open screen `index` has all of the panel: no bars over it.
-    pub(crate) fn full_screen(&self, index: usize) -> bool {
-        self.stack
-            .get(index)
-            .is_some_and(|s| s.screen.mode().is_full_screen())
     }
 
     /// Keeps which buttons are held down, as they physically are.
@@ -174,7 +168,7 @@ impl Kernel {
         }
         if let Some(top) = self.stack.last() {
             let key = ScreenKey::new(top.serial);
-            self.output.commands.push(Command::Close(key));
+            self.output.commands.push(Ask::Close(key));
         }
     }
 
@@ -203,7 +197,7 @@ impl Kernel {
 
     /// The frame last rendered was shown: `area` in `mode`, drawn and
     /// sent in `drawn`, on the panel for `shown`, done at `at`. Plugins
-    /// read it ([`Env::panel`](paperpaw_sdk::Env::panel)), and the mode's
+    /// read it ([`Place::panel`](crate::Place::panel)), and the mode's
     /// time counts as measured.
     pub fn frame_shown(
         &mut self,

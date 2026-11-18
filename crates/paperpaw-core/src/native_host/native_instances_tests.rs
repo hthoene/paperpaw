@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 use super::*;
+use crate::Place;
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::ERR_CANCELLED;
-use paperpaw_sdk::Env;
 struct Fake {
     active: Cell<bool>,
     drops: Rc<Cell<u32>>,
@@ -30,17 +30,17 @@ impl NativeInstance for Fake {
     }
 }
 impl Dispatch for Fake {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         panic!("not called after stop")
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         panic!("not called after stop")
     }
     fn draw(
         &self,
         _: u32,
         _: &super::super::registrations::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         panic!("not called after stop")
@@ -71,7 +71,7 @@ fn frozen_lease_keeps_instance_alive_but_cannot_call_after_registry_stop() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     assert_eq!(lease.event(1, &[], &env), Err(ERR_CANCELLED));
     assert_eq!(drops.get(), 0, "frozen lease retains the old owner");
     drop(lease);
@@ -94,17 +94,17 @@ impl NativeInstance for Subscribing {
     }
 }
 impl Dispatch for Subscribing {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Ok(0)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Ok(0)
     }
     fn draw(
         &self,
         _: u32,
         _: &super::super::registrations::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Ok(0)

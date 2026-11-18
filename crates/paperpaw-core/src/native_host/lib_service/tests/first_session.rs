@@ -4,7 +4,7 @@
 //! Beta 3; a path the card does not hold is still `ERR_NOT_FOUND`.
 use super::*;
 use crate::native_host::lib_host::LibraryHost;
-use crate::native_host::lib_reads::tests::{Env, card};
+use crate::native_host::lib_reads::tests::{Facts, card};
 use crate::native_host::registrations::{
     ServiceLibEdit as Edit, ServiceLibEditHead as Head, ServiceLibPosition as Position,
     ServiceLibPositionSet as PositionSet, ServiceLibRef as Ref, ServiceLibTransactionRef as TRef,
@@ -12,6 +12,7 @@ use crate::native_host::registrations::{
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND};
 use paperpaw_platform::Storage as _;
 use paperpaw_sdk::MemoryStorage;
+use std::string::{String, ToString as _};
 
 const BOOK: &str = "books/new.epub";
 
@@ -86,7 +87,7 @@ fn place(host: &Rc<dyn LibHost>, path: &str) -> Result<u32, i32> {
 }
 
 fn host_on(storage: Rc<MemoryStorage>) -> Rc<dyn LibHost> {
-    let env = Rc::new(Env {
+    let env = Rc::new(Facts {
         walking: core::cell::Cell::new(None),
         today: core::cell::Cell::new(None),
     });
@@ -108,6 +109,61 @@ fn a_book_of_a_librarys_first_session_keeps_its_marks_and_place() {
         assert_eq!(mark(&host, "books/gone.epub"), Err(ERR_NOT_FOUND));
         assert_eq!(place(&host, "books/gone.epub"), Err(ERR_NOT_FOUND));
     }
+}
+
+/// The book key (op 25): its key, fingerprint and size.
+fn key(host: &Rc<dyn LibHost>, path: &str) -> Result<(String, String, u64), i32> {
+    let reply = call(host, 25, &[by_path(path)])?;
+    let Record::ServiceLibKey(k) = wire::record_decode_one(&reply).unwrap() else {
+        panic!("a key")
+    };
+    Ok((k.key.to_string(), k.fingerprint.to_string(), k.size))
+}
+
+#[test]
+fn an_uncatalogued_book_has_its_key_and_fingerprint() {
+    let fresh = Rc::new(
+        MemoryStorage::new()
+            .with(BOOK, std::vec![7_u8; 100])
+            .with(".paperpaw/x.epub", std::vec![7_u8; 10])
+            .with("plugins/p/a.epub", std::vec![7_u8; 10])
+            .with("books/folder/x.epub", std::vec![7_u8; 10]),
+    );
+    let behind = card().storage;
+    behind.write(BOOK, &[7_u8; 100]).unwrap();
+    for storage in [fresh, behind] {
+        let host = host_on(storage.clone());
+        let (hex, fingerprint, size) = key(&host, BOOK).unwrap();
+        assert_eq!(hex.len(), 16);
+        assert_eq!(
+            Some(fingerprint),
+            paperpaw_sdk::digest::md5::partial(&*storage, BOOK)
+        );
+        assert_eq!(size, 100);
+        // No file, a folder, and the path rules as for any `path`.
+        assert_eq!(key(&host, "books/gone.epub"), Err(ERR_NOT_FOUND));
+        assert_eq!(key(&host, "books/folder"), Err(ERR_NOT_FOUND));
+        for path in [".paperpaw/x.epub", "plugins/p/a.epub", "books/a\nb.epub"] {
+            assert_eq!(key(&host, path), Err(ERR_INVALID), "{path}");
+        }
+    }
+}
+
+#[test]
+fn an_uncatalogued_path_a_pending_delete_holds_has_no_key() {
+    use crate::native_host::lib_moves_service::LibraryMoves;
+    let card = card();
+    card.storage.write(BOOK, &[7_u8; 100]).unwrap();
+    let moves = Rc::new(LibraryMoves::new(card.storage.clone()));
+    let host = LibraryHost::new(card.storage.clone(), card.env.clone(), Some(moves.clone()));
+    let host: Rc<dyn LibHost> = Rc::new(host);
+    assert!(key(&host, BOOK).is_ok());
+    assert_eq!(host.delete(&[BOOK], false).unwrap()[0], 0);
+    assert!(moves.pending_delete(BOOK));
+    // Hidden while the job is open, also when a file is at the path again.
+    assert_eq!(key(&host, BOOK), Err(ERR_NOT_FOUND));
+    card.storage.write(BOOK, &[7_u8; 100]).unwrap();
+    assert_eq!(key(&host, BOOK), Err(ERR_NOT_FOUND));
 }
 
 #[test]

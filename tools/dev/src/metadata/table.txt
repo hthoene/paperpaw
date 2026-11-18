@@ -1,0 +1,1693 @@
+# Written by tools/abi-metadata-table.py from abi/abi.json; not by hand.
+abi 7 1
+metadata magic=PPAM format=2 max_bytes=2048 max_key_bytes=128 max_exports=1 max_services=32 max_features=32
+layout prefix magic:bytes4 layout:u16 prefix_bytes:u16 total_bytes:u32 abi_major:u16 needs_minor:u16 entry_layout:u16 entry_bytes:u16 flags:u32 target_bytes:u16 services:u16 features:u16 exports:u16
+layout export record_bytes:u16 kind:u8 reserved:u8 expected_bytes:u32 name_bytes:u16
+layout service record_bytes:u16 key_bytes:u16 major:u16 semantic_revision:u16 min_table_bytes:u32
+layout feature record_bytes:u16 key_bytes:u16 revision:u16 flags:u16
+profile linux-x86_64-sysv64-le entry_layout=1 entry_bytes=32 pointer_bits=64
+profile esp32c3-riscv32imc-ilp32-soft-le entry_layout=1 entry_bytes=20 pointer_bits=32
+profile esp32s3-xtensa-lx7-ilp32-windowed-le entry_layout=1 entry_bytes=20 pointer_bits=32
+profile windows-x86_64-win64-le entry_layout=1 entry_bytes=32 pointer_bits=64
+profile macos-x86_64-sysv64-le entry_layout=1 entry_bytes=32 pointer_bits=64
+profile macos-aarch64-darwinpcs-le entry_layout=1 entry_bytes=32 pointer_bits=64
+profile android-aarch64-aapcs64-le entry_layout=1 entry_bytes=32 pointer_bits=64
+profile web-wasm32-c-le entry_layout=1 entry_bytes=20 pointer_bits=32
+export PAPERPAW_ENTRY kind=1 size_source=entry_bytes
+service core.plugin since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.plugin-usage since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.usage since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.work-note since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.test-echo since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.registry since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.ui since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.document since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.library since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.lookup since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.device since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.files since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.net since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.secrets since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.work since=1 major=1 semantic_revision=0 min_table_bytes=0
+service core.sockets since=1 major=1 semantic_revision=0 min_table_bytes=0
+feature uses.registry since=1 revision=1
+feature uses.library since=1 revision=1
+feature uses.wifi since=1 revision=1
+feature uses.power since=1 revision=1
+feature uses.install since=1 revision=1
+feature uses.firmware since=1 revision=1
+feature uses.bluetooth since=1 revision=1
+feature uses.storage since=1 revision=1
+feature uses.network since=1 revision=1
+feature uses.secrets since=1 revision=1
+host heap.alloc 1
+host heap.dealloc 1
+host heap.realloc 1
+host clock.micros 1
+host env.snapshot 1
+host settings.read 1
+host i18n.copy 1
+host font.acquire 1
+host handle.release 1
+host canvas.fill_rect 1
+host canvas.draw_line 1
+host canvas.fill_round 1
+host canvas.stroke_round 1
+host text.measure 1
+host text.draw 1
+host commands.submit 1
+host registrations.submit 1
+host services.query 1
+host blob.read 1
+host blob.release 1
+host storage.size 1
+host storage.read_at 1
+host storage.write 1
+host storage.append 1
+host storage.rename 1
+host storage.remove 1
+host storage.sync 1
+host i18n.format 1
+host i18n.digits 1
+host text.metrics 1
+host text.ink 1
+host canvas.clip 1
+host stage.run 1
+host service.open 1
+host service.call 1
+host ui.compose 1
+host image.info 1
+host canvas.draw_image 1
+host text.hyphenate 1
+host text.covers 1
+host icon.glyph 1
+host text.draw_inked 1
+host canvas.describe 1
+host canvas.fill_pattern 1
+callback drop 1
+callback dispatch_event 1
+callback draw 1
+callback input 1
+record registration.event 1
+field registration.event event_tag 1
+field registration.event token 1
+record registration.draw 1
+field registration.draw token 1
+record event.tick 1
+field event.tick now_ms 1
+record command.set_setting 1
+field command.set_setting key 1
+field command.set_setting value 1
+record setting.group 1
+field setting.group name 1
+field setting.group title 1
+field setting.group order 1
+field setting.group page 1
+field setting.group parent 1
+record setting.spec 1
+field setting.spec name 1
+field setting.spec kind 1
+field setting.spec flags 1
+field setting.spec group 1
+field setting.spec title 1
+field setting.spec help 1
+field setting.spec default 1
+field setting.spec min 1
+field setting.spec max 1
+field setting.spec choices 1
+record setting.extra 1
+field setting.extra name 1
+field setting.extra unit 1
+field setting.extra section 1
+field setting.extra follows 1
+field setting.extra shown_id 1
+field setting.extra shown_value 1
+field setting.extra editor_kind 1
+field setting.extra editor 1
+field setting.extra step 1
+field setting.extra flags 1
+field setting.extra check 1
+record resource.hyphenation 1
+field resource.hyphenation language 1
+field resource.hyphenation path 1
+record resource.font_face 1
+field resource.font_face name 1
+field resource.font_face path 1
+field resource.font_face family 1
+field resource.font_face style 1
+field resource.font_face weight 1
+field resource.font_face role 1
+field resource.font_face priority 1
+record resource.font_extension 1
+field resource.font_extension name 1
+field resource.font_extension path 1
+field resource.font_extension extends 1
+record event.started 1
+field event.started now_ms 1
+record event.resume 1
+field event.resume now_ms 1
+record event.suspend 1
+field event.suspend now_ms 1
+record event.stopping 1
+field event.stopping now_ms 1
+record event.battery_measured 1
+field event.battery_measured now_ms 1
+record event.page_turned 1
+field event.page_turned now_ms 1
+field event.page_turned section 1
+field event.page_turned offset 1
+field event.page_turned progress_ppm 1
+field event.page_turned path 1
+field event.page_turned title 1
+field event.page_turned chapter 1
+field event.page_turned page 1
+field event.page_turned pages 1
+field event.page_turned insert 1
+field event.page_turned chapter_left 1
+record service.usage 1
+field service.usage fast 1
+field service.usage partial 1
+field service.usage full 1
+field service.usage pixels 1
+field service.usage inputs 1
+field service.usage sleeps 1
+field service.usage panel_ms 1
+field service.usage bluetooth_ms 1
+record service.plugin_usage 1
+field service.plugin_usage plugin 1
+field service.plugin_usage busy_us 1
+field service.plugin_usage calls 1
+field service.plugin_usage shown_ms 1
+field service.plugin_usage fast 1
+field service.plugin_usage partial 1
+field service.plugin_usage full 1
+field service.plugin_usage pixels 1
+field service.plugin_usage read 1
+field service.plugin_usage written 1
+field service.plugin_usage syncs 1
+field service.plugin_usage requests 1
+field service.plugin_usage refused 1
+field service.plugin_usage awake_ms 1
+field service.plugin_usage awake_reason 1
+record service.plugin 1
+field service.plugin name 1
+record service.work_note 1
+field service.work_note at_ms 1
+field service.work_note text 1
+record service.end 1
+field service.end flags 1
+field service.end total 1
+field service.end generation 1
+field service.end next 1
+field service.end cursor 1
+record screen.spec 1
+field screen.spec name 1
+field screen.spec title 1
+field screen.spec token 1
+field screen.spec flags 1
+record action.spec 1
+field action.spec name 1
+field action.spec title 1
+field action.spec token 1
+field action.spec flags 1
+record event.screen_shown 1
+field event.screen_shown now_ms 1
+field event.screen_shown screen 1
+field event.screen_shown width 1
+field event.screen_shown height 1
+field event.screen_shown instance 1
+field event.screen_shown last_input 1
+record event.action_run 1
+field event.action_run now_ms 1
+field event.action_run action 1
+field event.action_run flags 1
+record input.key 1
+field input.key now_ms 1
+field input.key key 1
+field input.key state 1
+record input.pointer 1
+field input.pointer now_ms 1
+field input.pointer x 1
+field input.pointer y 1
+field input.pointer phase 1
+field input.pointer contact 1
+record input.gesture 1
+field input.gesture now_ms 1
+field input.gesture kind 1
+field input.gesture x 1
+field input.gesture y 1
+record input.action 1
+field input.action now_ms 1
+field input.action action 1
+record i18n.arg_str 1
+field i18n.arg_str name 1
+field i18n.arg_str value 1
+record i18n.arg_int 1
+field i18n.arg_int name 1
+field i18n.arg_int value 1
+record i18n.count 1
+field i18n.count value 1
+record draw.frame 1
+field draw.frame purpose 1
+field draw.frame x 1
+field draw.frame y 1
+field draw.frame width 1
+field draw.frame height 1
+field draw.frame clip_top 1
+field draw.frame clip_bottom 1
+field draw.frame id 1
+field draw.frame payload 1
+record command.open_screen 1
+field command.open_screen screen 1
+record command.run_action 1
+field command.run_action action 1
+record command.redraw 1
+field command.redraw mode 1
+record command.close_screen 1
+record menu.entry 1
+field menu.entry menu 1
+field menu.entry item 1
+field menu.entry order 1
+field menu.entry place 1
+field menu.entry anchor 1
+record icon.spec 1
+field icon.spec item 1
+field icon.spec icon 1
+record menu.need 1
+field menu.need item 1
+field menu.need need 1
+field menu.need capability 1
+record menu.section 1
+field menu.section name 1
+field menu.section title 1
+field menu.section menu 1
+field menu.section order 1
+record menu.hide 1
+field menu.hide menu 1
+field menu.hide item 1
+record menu.describe 1
+field menu.describe item 1
+field menu.describe key 1
+record command.set_item_state 1
+field command.set_item_state item 1
+field command.set_item_state flags 1
+field command.set_item_state label 1
+field command.set_item_state label_args 1
+field command.set_item_state badge 1
+field command.set_item_state badge_args 1
+record stage.spec 1
+field stage.spec name 1
+field stage.spec schema 1
+field stage.spec flags 1
+field stage.spec max_input 1
+field stage.spec max_reply 1
+field stage.spec max_records 1
+record registration.stage 1
+field registration.stage stage 1
+field registration.stage token 1
+field registration.stage order 1
+field registration.stage signature 1
+record stage.call 1
+field stage.call stage 1
+field stage.call schema 1
+field stage.call payload 1
+record stage.reply 1
+field stage.reply subscriber 1
+field stage.reply index 1
+field stage.reply status 1
+field stage.reply flags 1
+field stage.reply signature 1
+field stage.reply payload 1
+record service.echo 1
+field service.echo text 1
+record event.setting_changed 1
+field event.setting_changed now_ms 1
+field event.setting_changed key 1
+field event.setting_changed old 1
+record event.book_opened 1
+field event.book_opened now_ms 1
+field event.book_opened section 1
+field event.book_opened offset 1
+field event.book_opened progress_ppm 1
+field event.book_opened path 1
+field event.book_opened title 1
+field event.book_opened chapter 1
+field event.book_opened reason 1
+field event.book_opened page 1
+field event.book_opened pages 1
+field event.book_opened insert 1
+field event.book_opened chapter_left 1
+record event.book_closed 1
+field event.book_closed now_ms 1
+field event.book_closed section 1
+field event.book_closed offset 1
+field event.book_closed progress_ppm 1
+field event.book_closed path 1
+field event.book_closed title 1
+field event.book_closed chapter 1
+field event.book_closed reason 1
+field event.book_closed page 1
+field event.book_closed pages 1
+field event.book_closed insert 1
+field event.book_closed chapter_left 1
+record event.book_finished 1
+field event.book_finished now_ms 1
+field event.book_finished section 1
+field event.book_finished offset 1
+field event.book_finished progress_ppm 1
+field event.book_finished path 1
+field event.book_finished title 1
+field event.book_finished chapter 1
+field event.book_finished reason 1
+field event.book_finished page 1
+field event.book_finished pages 1
+field event.book_finished insert 1
+field event.book_finished chapter_left 1
+record event.book_moved 1
+field event.book_moved now_ms 1
+field event.book_moved from 1
+field event.book_moved path 1
+record event.book_removed 1
+field event.book_removed now_ms 1
+field event.book_removed path 1
+record event.plugins_changed 1
+field event.plugins_changed now_ms 1
+record event.wifi_changed 1
+field event.wifi_changed now_ms 1
+field event.wifi_changed state 1
+record event.power_changed 1
+field event.power_changed now_ms 1
+field event.power_changed level 1
+field event.power_changed flags 1
+field event.power_changed stretch 1
+field event.power_changed mode 1
+record event.status_changed 1
+field event.status_changed now_ms 1
+record event.charge_changed 1
+field event.charge_changed now_ms 1
+field event.charge_changed flags 1
+record setup.step 1
+field setup.step name 1
+field setup.step title 1
+field setup.step help 1
+field setup.step order 1
+field setup.step page_kind 1
+field setup.step page 1
+field setup.step applies_key 1
+field setup.step applies_value 1
+field setup.step need 1
+field setup.step capability 1
+field setup.step flags 1
+record slot.spec 1
+field slot.spec name 1
+field slot.spec title 1
+record slot.offer 1
+field slot.offer slot 1
+field slot.offer screen 1
+field slot.offer priority 1
+record key.bind 1
+field key.bind layer 1
+field key.bind input 1
+field key.bind action 1
+field key.bind when_key 1
+field key.bind when_value 1
+record setting.default 1
+field setting.default key 1
+field setting.default value 1
+record setting.choice 1
+field setting.choice key 1
+field setting.choice value 1
+field setting.choice title 1
+record preset.spec 1
+field preset.spec name 1
+field preset.spec kind 1
+field preset.spec title 1
+field preset.spec help 1
+record preset.value 1
+field preset.value preset 1
+field preset.value key 1
+field preset.value value 1
+field preset.value flags 1
+record event.registry_changed 1
+field event.registry_changed now_ms 1
+field event.registry_changed what 1
+record event.preview_changed 1
+field event.preview_changed now_ms 1
+record event.plugins_requested 1
+field event.plugins_requested now_ms 1
+field event.plugins_requested request 1
+field event.plugins_requested by 1
+field event.plugins_requested plugins 1
+record event.plugin_answered 1
+field event.plugin_answered now_ms 1
+field event.plugin_answered request 1
+field event.plugin_answered plugin 1
+field event.plugin_answered outcome 1
+record service.reg_query 1
+field service.reg_query scope 1
+field service.reg_query cursor 1
+field service.reg_query generation 1
+field service.reg_query flags 1
+record service.reg_key 1
+field service.reg_key key 1
+record service.reg_setting 1
+field service.reg_setting key 1
+field service.reg_setting group 1
+field service.reg_setting kind 1
+field service.reg_setting flags 1
+field service.reg_setting source 1
+field service.reg_setting title 1
+field service.reg_setting value 1
+record service.reg_setting_extra 1
+field service.reg_setting_extra min 1
+field service.reg_setting_extra max 1
+field service.reg_setting_extra step 1
+field service.reg_setting_extra unit 1
+field service.reg_setting_extra section 1
+field service.reg_setting_extra follows 1
+field service.reg_setting_extra shown_id 1
+field service.reg_setting_extra shown_value 1
+field service.reg_setting_extra editor_kind 1
+field service.reg_setting_extra editor 1
+field service.reg_setting_extra choices 1
+record service.reg_choice 1
+field service.reg_choice value 1
+field service.reg_choice title 1
+record service.reg_text 1
+field service.reg_text text 1
+record service.reg_group 1
+field service.reg_group id 1
+field service.reg_group parent 1
+field service.reg_group page 1
+field service.reg_group order 1
+field service.reg_group title 1
+field service.reg_group icon 1
+record service.reg_plugin 1
+field service.reg_plugin id 1
+field service.reg_plugin name 1
+field service.reg_plugin version 1
+field service.reg_plugin kind 1
+field service.reg_plugin state 1
+field service.reg_plugin flags 1
+field service.reg_plugin problem 1
+field service.reg_plugin problem_arg 1
+field service.reg_plugin update 1
+record service.reg_need 1
+field service.reg_need kind 1
+field service.reg_need key 1
+field service.reg_need version 1
+field service.reg_need flags 1
+record service.reg_item 1
+field service.reg_item id 1
+field service.reg_item plugin 1
+field service.reg_item flags 1
+field service.reg_item title 1
+record service.reg_slot 1
+field service.reg_slot id 1
+field service.reg_slot screen 1
+field service.reg_slot default 1
+field service.reg_slot flags 1
+field service.reg_slot title 1
+record service.reg_menu_row 1
+field service.reg_menu_row item 1
+field service.reg_menu_row kind 1
+field service.reg_menu_row flags 1
+field service.reg_menu_row order 1
+field service.reg_menu_row by 1
+field service.reg_menu_row title 1
+field service.reg_menu_row icon 1
+field service.reg_menu_row badge 1
+field service.reg_menu_row describe 1
+record service.reg_binding 1
+field service.reg_binding layer 1
+field service.reg_binding input 1
+field service.reg_binding action 1
+field service.reg_binding origin 1
+record service.reg_setup_step 1
+field service.reg_setup_step id 1
+field service.reg_setup_step page_kind 1
+field service.reg_setup_step page 1
+field service.reg_setup_step order 1
+field service.reg_setup_step flags 1
+field service.reg_setup_step title 1
+record service.reg_value 1
+field service.reg_value key 1
+field service.reg_value value 1
+field service.reg_value flags 1
+record service.reg_widget 1
+field service.reg_widget id 1
+field service.reg_widget plugin 1
+field service.reg_widget kind 1
+field service.reg_widget icon 1
+field service.reg_widget flags 1
+field service.reg_widget title 1
+field service.reg_widget cells 1
+field service.reg_widget previews 1
+record service.reg_status 1
+field service.reg_status id 1
+field service.reg_status plugin 1
+field service.reg_status kind 1
+field service.reg_status flags 1
+field service.reg_status priority 1
+field service.reg_status size 1
+field service.reg_status tap 1
+field service.reg_status title 1
+record command.reset_setting 1
+field command.reset_setting key 1
+field command.reset_setting flags 1
+record command.preview_setting 1
+field command.preview_setting key 1
+field command.preview_setting value 1
+field command.preview_setting flags 1
+record command.preview_end 1
+field command.preview_end flags 1
+record command.set_scope 1
+field command.set_scope path 1
+record command.set_menu 1
+field command.set_menu menu 1
+field command.set_menu items 1
+field command.set_menu flags 1
+record command.bind_key 1
+field command.bind_key layer 1
+field command.bind_key input 1
+field command.bind_key action 1
+field command.bind_key flags 1
+record command.bind_slot 1
+field command.bind_slot slot 1
+field command.bind_slot screen 1
+record command.set_plugin_enabled 1
+field command.set_plugin_enabled plugin 1
+field command.set_plugin_enabled enabled 1
+record command.request_plugins 1
+field command.request_plugins plugins 1
+record command.answer_plugin 1
+field command.answer_plugin request 1
+field command.answer_plugin plugin 1
+field command.answer_plugin outcome 1
+record command.apply_preset 1
+field command.apply_preset preset 1
+field command.apply_preset flags 1
+record input.spec 1
+field input.spec name 1
+field input.spec title 1
+field input.spec kind 1
+field input.spec need 1
+field input.spec capability 1
+field input.spec flags 1
+record help.hint 1
+field help.hint screen 1
+field help.hint input 1
+field help.hint x 1
+field help.hint y 1
+field help.hint width 1
+field help.hint height 1
+field help.hint text 1
+record widget.spec 1
+field widget.spec name 1
+field widget.spec title 1
+field widget.spec category 1
+field widget.spec previews 1
+field widget.spec cells 1
+field widget.spec token 1
+field widget.spec flags 1
+record widget.place 1
+field widget.place name 1
+field widget.place title 1
+field widget.place list_keys 1
+field widget.place layout 1
+field widget.place shown_if_key 1
+field widget.place shown_if_value 1
+record status.item 1
+field status.item name 1
+field status.item title 1
+field status.item tap 1
+field status.item priority 1
+field status.item min_width 1
+field status.item token 1
+field status.item flags 1
+record status.line 1
+field status.line name 1
+field status.line title 1
+field status.line height 1
+field status.line token 1
+field status.line flags 1
+record status.place 1
+field status.place name 1
+field status.place title 1
+field status.place left 1
+field status.place center 1
+field status.place right 1
+record event.screen_opened 1
+field event.screen_opened now_ms 1
+field event.screen_opened screen 1
+field event.screen_opened instance 1
+field event.screen_opened slot 1
+field event.screen_opened flags 1
+field event.screen_opened handover 1
+field event.screen_opened params 1
+field event.screen_opened text_bytes 1
+record event.screen_closed 1
+field event.screen_closed now_ms 1
+field event.screen_closed screen 1
+field event.screen_closed instance 1
+record event.stack_changed 1
+field event.stack_changed now_ms 1
+record event.answered 1
+field event.answered now_ms 1
+field event.answered request 1
+field event.answered kind 1
+field event.answered outcome 1
+field event.answered choice 1
+field event.answered length 1
+field event.answered flags 1
+record event.widget_made 1
+field event.widget_made now_ms 1
+field event.widget_made widget 1
+field event.widget_made instance 1
+field event.widget_made place 1
+record event.widget_dropped 1
+field event.widget_dropped now_ms 1
+field event.widget_dropped instance 1
+record event.widget_changed 1
+field event.widget_changed now_ms 1
+field event.widget_changed instance 1
+record event.screen_ready 1
+field event.screen_ready now_ms 1
+field event.screen_ready screen 1
+field event.screen_ready instance 1
+record event.spoken 1
+field event.spoken now_ms 1
+field event.spoken cookie 1
+field event.spoken status 1
+record input.widget 1
+field input.widget now_ms 1
+field input.widget instance 1
+field input.widget target 1
+field input.widget x 1
+field input.widget y 1
+field input.widget kind 1
+record service.ui_screen 1
+field service.ui_screen screen 1
+field service.ui_screen instance 1
+field service.ui_screen slot 1
+field service.ui_screen owner 1
+field service.ui_screen flags 1
+record service.ui_request 1
+field service.ui_request request 1
+record service.ui_question 1
+field service.ui_question kind 1
+field service.ui_question flags 1
+field service.ui_question max_bytes 1
+field service.ui_question title 1
+field service.ui_question text 1
+field service.ui_question choices 1
+record service.ui_hint 1
+field service.ui_hint input 1
+field service.ui_hint x 1
+field service.ui_hint y 1
+field service.ui_hint width 1
+field service.ui_hint height 1
+field service.ui_hint text 1
+field service.ui_hint owner 1
+record service.ui_widget_ref 1
+field service.ui_widget_ref widget 1
+field service.ui_widget_ref place 1
+record service.ui_instance 1
+field service.ui_instance instance 1
+field service.ui_instance flags 1
+record service.ui_widget_input 1
+field service.ui_widget_input instance 1
+field service.ui_widget_input target 1
+field service.ui_widget_input x 1
+field service.ui_widget_input y 1
+field service.ui_widget_input kind 1
+record service.ui_target 1
+field service.ui_target target 1
+field service.ui_target x 1
+field service.ui_target y 1
+field service.ui_target width 1
+field service.ui_target height 1
+record service.ui_ask 1
+field service.ui_ask kind 1
+field service.ui_ask flags 1
+field service.ui_ask slot 1
+field service.ui_ask title 1
+field service.ui_ask text 1
+field service.ui_ask choices 1
+record service.ui_text 1
+field service.ui_text text 1
+field service.ui_text offset 1
+field service.ui_text total 1
+field service.ui_text flags 1
+field service.ui_text data 1
+record service.ui_text_at 1
+field service.ui_text_at text 1
+field service.ui_text_at offset 1
+record service.ui_answer 1
+field service.ui_answer request 1
+field service.ui_answer outcome 1
+field service.ui_answer choice 1
+record service.ui_widget_area 1
+field service.ui_widget_area instance 1
+field service.ui_widget_area x 1
+field service.ui_widget_area y 1
+field service.ui_widget_area width 1
+field service.ui_widget_area height 1
+record service.ui_size 1
+field service.ui_size height 1
+field service.ui_size min_height 1
+record service.ui_status_ask 1
+field service.ui_status_ask items 1
+field service.ui_status_ask context 1
+record service.ui_status_value 1
+field service.ui_status_value item 1
+field service.ui_status_value flags 1
+field service.ui_status_value handle 1
+field service.ui_status_value text 1
+record service.ui_param 1
+field service.ui_param key 1
+field service.ui_param value 1
+record service.ui_handle 1
+field service.ui_handle handle 1
+record command.open 1
+field command.open target 1
+field command.open mode 1
+field command.open slot 1
+field command.open handover 1
+record command.close 1
+field command.close instance 1
+record command.back_to 1
+field command.back_to target 1
+record command.set_key_layer 1
+field command.set_key_layer layer 1
+record command.show_hints 1
+record command.raise_input 1
+field command.raise_input input 1
+record command.widget_changed 1
+field command.widget_changed instance 1
+record command.screen_ready 1
+record command.notify 1
+field command.notify text 1
+field command.notify flags 1
+record command.speak 1
+field command.speak cookie 1
+field command.speak text 1
+field command.speak language 1
+field command.speak rate 1
+field command.speak flags 1
+record command.stop_speaking 1
+record command.screen_policy 1
+field command.screen_policy instance 1
+field command.screen_policy flags 1
+record format.spec 1
+field format.spec name 1
+field format.spec title 1
+field format.spec extensions 1
+field format.spec flags 1
+field format.spec priority 1
+field format.spec token 1
+record reader.spec 1
+field reader.spec name 1
+field reader.spec screen 1
+field reader.spec formats 1
+field reader.spec flags 1
+record service.doc_open 1
+field service.doc_open root 1
+field service.doc_open path 1
+field service.doc_open format 1
+field service.doc_open flags 1
+field service.doc_open image_side 1
+field service.doc_open cover_side 1
+field service.doc_open css_root 1
+field service.doc_open css_path 1
+record service.doc_option 1
+field service.doc_option key 1
+field service.doc_option value 1
+record service.doc_state 1
+field service.doc_state document 1
+field service.doc_state state 1
+field service.doc_state progress_ppm 1
+field service.doc_state status 1
+field service.doc_state flags 1
+field service.doc_state conversion 1
+field service.doc_state format 1
+record service.doc_ref 1
+field service.doc_ref document 1
+record service.doc_meta 1
+field service.doc_meta title 1
+field service.doc_meta language 1
+field service.doc_meta series 1
+field service.doc_meta series_index 1
+field service.doc_meta direction 1
+field service.doc_meta writing_mode 1
+field service.doc_meta sections 1
+field service.doc_meta authors 1
+field service.doc_meta subjects 1
+field service.doc_meta description_bytes 1
+field service.doc_meta flags 1
+record service.doc_text 1
+field service.doc_text kind 1
+field service.doc_text index 1
+field service.doc_text total 1
+field service.doc_text text 1
+record service.doc_text_at 1
+field service.doc_text_at document 1
+field service.doc_text_at kind 1
+field service.doc_text_at index 1
+field service.doc_text_at offset 1
+record service.doc_page 1
+field service.doc_page document 1
+field service.doc_page scope 1
+field service.doc_page cursor 1
+field service.doc_page generation 1
+record service.doc_section 1
+field service.doc_section index 1
+field service.doc_section length 1
+field service.doc_section flags 1
+record service.doc_at 1
+field service.doc_at document 1
+field service.doc_at section 1
+field service.doc_at offset 1
+field service.doc_at insert 1
+field service.doc_at cursor 1
+field service.doc_at generation 1
+record service.doc_toc 1
+field service.doc_toc index 1
+field service.doc_toc level 1
+field service.doc_toc section 1
+field service.doc_toc offset 1
+field service.doc_toc flags 1
+field service.doc_toc title 1
+record service.doc_index 1
+field service.doc_index document 1
+field service.doc_index index 1
+record service.doc_label 1
+field service.doc_label text 1
+record service.doc_xpointer 1
+field service.doc_xpointer document 1
+field service.doc_xpointer text 1
+record service.doc_span 1
+field service.doc_span document 1
+field service.doc_span section 1
+field service.doc_span from 1
+field service.doc_span to 1
+field service.doc_span cursor 1
+field service.doc_span generation 1
+record service.doc_link 1
+field service.doc_link start 1
+field service.doc_link end 1
+field service.doc_link kind 1
+field service.doc_link href 1
+record service.doc_href 1
+field service.doc_href document 1
+field service.doc_href href 1
+record service.doc_font 1
+field service.doc_font index 1
+field service.doc_font family 1
+field service.doc_font flags 1
+field service.doc_font bytes 1
+record service.doc_format 1
+field service.doc_format id 1
+field service.doc_format title 1
+field service.doc_format extensions 1
+field service.doc_format flags 1
+field service.doc_format priority 1
+record service.doc_path 1
+field service.doc_path root 1
+field service.doc_path path 1
+field service.doc_path flags 1
+record service.doc_reader 1
+field service.doc_reader id 1
+field service.doc_reader screen 1
+field service.doc_reader formats 1
+field service.doc_reader title 1
+record service.doc_progress 1
+field service.doc_progress progress_ppm 1
+record service.doc_block 1
+field service.doc_block kind 1
+field service.doc_block level 1
+field service.doc_block flags 1
+field service.doc_block start 1
+field service.doc_block end 1
+field service.doc_block align 1
+field service.doc_block indent 1
+field service.doc_block space 1
+field service.doc_block size 1
+field service.doc_block margin_start 1
+field service.doc_block margin_end 1
+field service.doc_block line_height 1
+field service.doc_block dir 1
+field service.doc_block writing_mode 1
+field service.doc_block lang 1
+field service.doc_block drop_cap 1
+field service.doc_block text_bytes 1
+record service.doc_text_part 1
+field service.doc_text_part text 1
+record service.doc_columns 1
+field service.doc_columns weights 1
+record service.doc_run 1
+field service.doc_run start 1
+field service.doc_run end 1
+field service.doc_run style 1
+record service.doc_map 1
+field service.doc_map text 1
+field service.doc_map source 1
+record service.doc_cell 1
+field service.doc_cell end 1
+field service.doc_cell span 1
+field service.doc_cell rows 1
+field service.doc_cell align 1
+field service.doc_cell vertical 1
+field service.doc_cell width 1
+record service.doc_ruby 1
+field service.doc_ruby start 1
+field service.doc_ruby end 1
+field service.doc_ruby kind 1
+field service.doc_ruby size 1
+field service.doc_ruby text 1
+record service.doc_inline_lang 1
+field service.doc_inline_lang lang 1
+record service.doc_image 1
+field service.doc_image image 1
+field service.doc_image index 1
+field service.doc_image width 1
+field service.doc_image height 1
+field service.doc_image flags 1
+record service.doc_image_ask 1
+field service.doc_image_ask document 1
+field service.doc_image_ask index 1
+field service.doc_image_ask side 1
+record command.image_prepare 1
+field command.image_prepare root 1
+field command.image_prepare path 1
+field command.image_prepare side 1
+field command.image_prepare cookie 1
+field command.image_prepare flags 1
+field command.image_prepare tone 1
+record command.image_release 1
+field command.image_release image 1
+record event.image_ready 1
+field event.image_ready now_ms 1
+field event.image_ready cookie 1
+field event.image_ready status 1
+field event.image_ready image 1
+field event.image_ready width 1
+field event.image_ready height 1
+field event.image_ready luma 1
+record lookup.spec 1
+field lookup.spec name 1
+field lookup.spec title 1
+field lookup.spec languages 1
+field lookup.spec flags 1
+field lookup.spec token 1
+record service.lookup_ask 1
+field service.lookup_ask text 1
+field service.lookup_ask language 1
+field service.lookup_ask context 1
+field service.lookup_ask cursor 1
+record service.lookup_entry 1
+field service.lookup_entry provider 1
+field service.lookup_entry title 1
+field service.lookup_entry text 1
+field service.lookup_entry flags 1
+field service.lookup_entry opens 1
+record book_field.spec 1
+field book_field.spec name 1
+field book_field.spec title 1
+field book_field.spec flags 1
+record book_badge.spec 1
+field book_badge.spec name 1
+field book_badge.spec token 1
+field book_badge.spec flags 1
+record book_data.spec 1
+field book_data.spec name 1
+field book_data.spec kind 1
+record event.library_changed 1
+field event.library_changed now_ms 1
+field event.library_changed what 1
+field event.library_changed generation 1
+field event.library_changed path 1
+record service.lib_state 1
+field service.lib_state state 1
+field service.lib_state books 1
+field service.lib_state generation 1
+field service.lib_state walk_ppm 1
+record service.lib_query 1
+field service.lib_query show 1
+field service.lib_query sort 1
+field service.lib_query flags 1
+field service.lib_query words 1
+field service.lib_query author 1
+field service.lib_query series 1
+field service.lib_query tag 1
+field service.lib_query folder 1
+field service.lib_query added_since 1
+field service.lib_query cursor 1
+field service.lib_query generation 1
+field service.lib_query facet 1
+record service.lib_entry 1
+field service.lib_entry key 1
+field service.lib_entry title 1
+field service.lib_entry author 1
+field service.lib_entry series 1
+field service.lib_entry number 1
+field service.lib_entry progress 1
+field service.lib_entry flags 1
+field service.lib_entry added 1
+field service.lib_entry badges 1
+record service.lib_ref 1
+field service.lib_ref path 1
+field service.lib_ref generation 1
+field service.lib_ref key 1
+record service.lib_book 1
+field service.lib_book key 1
+field service.lib_book generation 1
+field service.lib_book path 1
+field service.lib_book title 1
+field service.lib_book author 1
+field service.lib_book series 1
+field service.lib_book number 1
+field service.lib_book progress 1
+field service.lib_book flags 1
+field service.lib_book added 1
+field service.lib_book size 1
+field service.lib_book format 1
+field service.lib_book tags 1
+field service.lib_book fields 1
+field service.lib_book title_bytes 1
+field service.lib_book author_bytes 1
+field service.lib_book series_bytes 1
+record service.lib_text_at 1
+field service.lib_text_at kind 1
+field service.lib_text_at index 1
+field service.lib_text_at offset 1
+record service.lib_text 1
+field service.lib_text kind 1
+field service.lib_text index 1
+field service.lib_text total 1
+field service.lib_text text 1
+record service.lib_facet 1
+field service.lib_facet text 1
+field service.lib_facet count 1
+field service.lib_facet first 1
+record service.lib_cover 1
+field service.lib_cover side 1
+record service.lib_status 1
+field service.lib_status set 1
+field service.lib_status clear 1
+record service.lib_paths 1
+field service.lib_paths paths 1
+field service.lib_paths flags 1
+record service.lib_result 1
+field service.lib_result path 1
+field service.lib_result status 1
+field service.lib_result flags 1
+record service.lib_move 1
+field service.lib_move from 1
+field service.lib_move to 1
+field service.lib_move flags 1
+record service.lib_import 1
+field service.lib_import from 1
+field service.lib_import folder 1
+field service.lib_import name 1
+field service.lib_import flags 1
+record service.lib_position 1
+field service.lib_position section 1
+field service.lib_position offset 1
+field service.lib_position insert 1
+field service.lib_position progress_ppm 1
+field service.lib_position conversion 1
+field service.lib_position updated 1
+field service.lib_position xpointer 1
+field service.lib_position flags 1
+record service.lib_position_set 1
+field service.lib_position_set flags 1
+record service.lib_page 1
+field service.lib_page cursor 1
+field service.lib_page annotation_generation 1
+record service.lib_annotation 1
+field service.lib_annotation id 1
+field service.lib_annotation kind 1
+field service.lib_annotation start_section 1
+field service.lib_annotation start_offset 1
+field service.lib_annotation end_section 1
+field service.lib_annotation end_offset 1
+field service.lib_annotation flags 1
+field service.lib_annotation percent 1
+field service.lib_annotation conversion 1
+field service.lib_annotation created 1
+field service.lib_annotation updated 1
+field service.lib_annotation client_key 1
+field service.lib_annotation text 1
+field service.lib_annotation note 1
+record service.lib_anchor 1
+field service.lib_anchor id 1
+field service.lib_anchor flags 1
+field service.lib_anchor conversion 1
+field service.lib_anchor start 1
+field service.lib_anchor end 1
+record service.lib_edit_head 1
+field service.lib_edit_head annotation_generation 1
+record service.lib_transaction 1
+field service.lib_transaction transaction 1
+record service.lib_transaction_ref 1
+field service.lib_transaction_ref transaction 1
+record service.lib_edit 1
+field service.lib_edit action 1
+field service.lib_edit id 1
+field service.lib_edit kind 1
+field service.lib_edit start_section 1
+field service.lib_edit start_offset 1
+field service.lib_edit end_section 1
+field service.lib_edit end_offset 1
+field service.lib_edit flags 1
+field service.lib_edit percent 1
+field service.lib_edit conversion 1
+field service.lib_edit created 1
+field service.lib_edit updated 1
+field service.lib_edit client_key 1
+field service.lib_edit text 1
+field service.lib_edit note 1
+field service.lib_edit text_bytes 1
+field service.lib_edit note_bytes 1
+record service.lib_edit_text 1
+field service.lib_edit_text transaction 1
+field service.lib_edit_text edit 1
+field service.lib_edit_text field 1
+field service.lib_edit_text offset 1
+field service.lib_edit_text flags 1
+field service.lib_edit_text data 1
+record service.lib_committed 1
+field service.lib_committed transaction 1
+field service.lib_committed annotation_generation 1
+field service.lib_committed edits 1
+field service.lib_committed added 1
+record service.lib_field 1
+field service.lib_field id 1
+field service.lib_field title 1
+field service.lib_field value 1
+record service.lib_field_set 1
+field service.lib_field_set field 1
+field service.lib_field_set value 1
+record service.lib_provided 1
+field service.lib_provided title 1
+field service.lib_provided author 1
+field service.lib_provided series 1
+field service.lib_provided number 1
+field service.lib_provided tags 1
+field service.lib_provided flags 1
+record service.lib_key 1
+field service.lib_key key 1
+field service.lib_key fingerprint 1
+field service.lib_key size 1
+record service.lib_receipt_ask 1
+field service.lib_receipt_ask transaction 1
+field service.lib_receipt_ask cursor 1
+record service.lib_receipt 1
+field service.lib_receipt edit 1
+field service.lib_receipt id 1
+field service.lib_receipt action 1
+record service.dev_device 1
+field service.dev_device id 1
+field service.dev_device model 1
+field service.dev_device catalog 1
+field service.dev_device class 1
+field service.dev_device caps 1
+field service.dev_device controls 1
+field service.dev_device tls_sessions 1
+field service.dev_device start 1
+field service.dev_device slept_ms 1
+field service.dev_device flags 1
+record service.dev_value 1
+field service.dev_value name 1
+field service.dev_value value 1
+record service.dev_firmware 1
+field service.dev_firmware version 1
+field service.dev_firmware project 1
+field service.dev_firmware chip 1
+field service.dev_firmware room 1
+field service.dev_firmware undone 1
+field service.dev_firmware state 1
+field service.dev_firmware done 1
+field service.dev_firmware total 1
+field service.dev_firmware reason 1
+field service.dev_firmware request 1
+field service.dev_firmware flags 1
+record service.dev_builtin 1
+field service.dev_builtin id 1
+field service.dev_builtin version 1
+record service.dev_native 1
+field service.dev_native abi_major 1
+field service.dev_native abi_draft 1
+field service.dev_native target 1
+field service.dev_native code_file 1
+field service.dev_native safe_mode 1
+field service.dev_native crashed 1
+field service.dev_native last_loaded 1
+field service.dev_native pending 1
+field service.dev_native not_installed 1
+field service.dev_native room_free 1
+field service.dev_native room_largest 1
+record service.dev_check 1
+field service.dev_check reason 1
+field service.dev_check needs_draft 1
+field service.dev_check bytes 1
+field service.dev_check signer 1
+field service.dev_check key 1
+field service.dev_check id 1
+field service.dev_check version 1
+field service.dev_check flags 1
+field service.dev_check sha256 1
+record service.dev_memory 1
+field service.dev_memory heap_free 1
+field service.dev_memory heap_size 1
+field service.dev_memory largest 1
+field service.dev_memory stack_free 1
+field service.dev_memory stack_size 1
+field service.dev_memory external_free 1
+field service.dev_memory external_size 1
+field service.dev_memory flags 1
+record service.dev_wifi 1
+field service.dev_wifi state 1
+field service.dev_wifi ssid 1
+field service.dev_wifi address 1
+field service.dev_wifi host_name 1
+field service.dev_wifi guests 1
+field service.dev_wifi flags 1
+record service.dev_network 1
+field service.dev_network ssid 1
+field service.dev_network signal 1
+field service.dev_network flags 1
+record service.dev_bluetooth 1
+field service.dev_bluetooth radio 1
+field service.dev_bluetooth max_links 1
+field service.dev_bluetooth flags 1
+record service.dev_bonded 1
+field service.dev_bonded device 1
+field service.dev_bonded name 1
+field service.dev_bonded kind 1
+field service.dev_bonded flags 1
+field service.dev_bonded given 1
+record service.dev_interval 1
+field service.dev_interval base_ms 1
+record service.dev_power 1
+field service.dev_power level 1
+field service.dev_power mode 1
+field service.dev_power flags 1
+field service.dev_power stretch 1
+field service.dev_power every_ms 1
+record service.dev_request 1
+field service.dev_request request 1
+record service.dev_install 1
+field service.dev_install request 1
+field service.dev_install kind 1
+field service.dev_install state 1
+field service.dev_install status 1
+field service.dev_install reason 1
+field service.dev_install flags 1
+field service.dev_install done 1
+field service.dev_install total 1
+field service.dev_install id 1
+record service.dev_not_installed 1
+field service.dev_not_installed plugin 1
+field service.dev_not_installed reason 1
+record service.dev_key 1
+field service.dev_key name 1
+record command.wifi_on 1
+record command.wifi_off 1
+record command.wifi_scan 1
+record command.wifi_join 1
+field command.wifi_join request 1
+field command.wifi_join ssid 1
+field command.wifi_join password 1
+field command.wifi_join flags 1
+record command.wifi_leave 1
+record command.wifi_host 1
+field command.wifi_host request 1
+field command.wifi_host ssid 1
+field command.wifi_host password 1
+record command.network_none 1
+record command.go_online 1
+field command.go_online for_ms 1
+record command.sleep 1
+record command.power_off 1
+record command.restart 1
+record command.wear 1
+field command.wear mode 1
+field command.wear flags 1
+record command.install_plugin 1
+field command.install_plugin request 1
+field command.install_plugin root 1
+field command.install_plugin path 1
+field command.install_plugin flags 1
+record command.remove_plugin 1
+field command.remove_plugin request 1
+field command.remove_plugin plugin 1
+field command.remove_plugin flags 1
+record command.install_firmware 1
+field command.install_firmware request 1
+field command.install_firmware root 1
+field command.install_firmware path 1
+field command.install_firmware key 1
+field command.install_firmware flags 1
+record command.firmware_restart 1
+record command.install_author 1
+field command.install_author request 1
+field command.install_author author 1
+field command.install_author recovery 1
+field command.install_author sha256 1
+record command.install_rotation 1
+field command.install_rotation request 1
+field command.install_rotation to 1
+field command.install_rotation signature 1
+record command.trust_revoked 1
+field command.trust_revoked plugin 1
+field command.trust_revoked key 1
+field command.trust_revoked signature 1
+record command.check_file 1
+field command.check_file request 1
+field command.check_file root 1
+field command.check_file path 1
+field command.check_file kind 1
+record command.bt_scan 1
+field command.bt_scan lasting_ms 1
+record command.bt_stop_scan 1
+record command.bt_pair 1
+field command.bt_pair device 1
+record command.bt_connect 1
+field command.bt_connect device 1
+record command.bt_disconnect 1
+field command.bt_disconnect device 1
+record command.bt_forget 1
+field command.bt_forget device 1
+record command.bt_give 1
+field command.bt_give device 1
+field command.bt_give plugin 1
+record command.bt_take_back 1
+field command.bt_take_back device 1
+record command.bt_keys 1
+field command.bt_keys device 1
+field command.bt_keys on 1
+record event.wifi_scanned 1
+field event.wifi_scanned now_ms 1
+field event.wifi_scanned networks 1
+record event.wifi_done 1
+field event.wifi_done now_ms 1
+field event.wifi_done request 1
+field event.wifi_done ssid 1
+field event.wifi_done status 1
+field event.wifi_done reason 1
+field event.wifi_done state 1
+record event.network_wanted 1
+field event.network_wanted now_ms 1
+record event.network_idle 1
+field event.network_idle now_ms 1
+record event.firmware_changed 1
+field event.firmware_changed now_ms 1
+field event.firmware_changed request 1
+field event.firmware_changed state 1
+record event.install_done 1
+field event.install_done now_ms 1
+field event.install_done request 1
+field event.install_done kind 1
+field event.install_done status 1
+field event.install_done reason 1
+field event.install_done flags 1
+field event.install_done id 1
+record event.bluetooth 1
+field event.bluetooth now_ms 1
+field event.bluetooth kind 1
+field event.bluetooth device 1
+field event.bluetooth name 1
+field event.bluetooth device_kind 1
+field event.bluetooth signal 1
+field event.bluetooth reason 1
+record service.fs_path 1
+field service.fs_path root 1
+field service.fs_path path 1
+record service.fs_list 1
+field service.fs_list root 1
+field service.fs_list path 1
+field service.fs_list cursor 1
+field service.fs_list flags 1
+record service.fs_move 1
+field service.fs_move from_root 1
+field service.fs_move from 1
+field service.fs_move to_root 1
+field service.fs_move to 1
+field service.fs_move flags 1
+record service.fs_entry 1
+field service.fs_entry name 1
+field service.fs_entry flags 1
+field service.fs_entry size 1
+field service.fs_entry modified 1
+record service.fs_space 1
+field service.fs_space flags 1
+field service.fs_space free 1
+field service.fs_space total 1
+record service.fs_progress 1
+field service.fs_progress removed 1
+field service.fs_progress flags 1
+field service.fs_progress next 1
+record event.http_done 1
+field event.http_done now_ms 1
+field event.http_done id 1
+field event.http_done token 1
+field event.http_done status 1
+field event.http_done reason 1
+field event.http_done flags 1
+field event.http_done body_len 1
+record event.http_progress 1
+field event.http_progress now_ms 1
+field event.http_progress id 1
+field event.http_progress token 1
+field event.http_progress received 1
+field event.http_progress total 1
+field event.http_progress flags 1
+record event.server 1
+field event.server now_ms 1
+field event.server server 1
+field event.server state 1
+field event.server reason 1
+field event.server address 1
+record event.served_request 1
+field event.served_request now_ms 1
+field event.served_request server 1
+field event.served_request request 1
+field event.served_request method 1
+field event.served_request target 1
+field event.served_request flags 1
+field event.served_request body_len 1
+record service.net_request 1
+field service.net_request token 1
+field service.net_request method 1
+field service.net_request url 1
+field service.net_request flags 1
+field service.net_request timeout_ms 1
+field service.net_request max_body 1
+field service.net_request max_file 1
+record service.net_header 1
+field service.net_header name 1
+field service.net_header value 1
+record service.net_file 1
+field service.net_file role 1
+field service.net_file root 1
+field service.net_file path 1
+record service.net_body 1
+field service.net_body data 1
+record service.net_started 1
+field service.net_started id 1
+record service.net_token 1
+field service.net_token token 1
+record service.net_id 1
+field service.net_id id 1
+record service.net_answer 1
+field service.net_answer status 1
+field service.net_answer flags 1
+field service.net_answer body_len 1
+field service.net_answer etag 1
+field service.net_answer content_type 1
+field service.net_answer final_url 1
+record service.net_read 1
+field service.net_read id 1
+field service.net_read offset 1
+record service.net_bytes 1
+field service.net_bytes data 1
+record service.net_serve 1
+field service.net_serve token 1
+field service.net_serve port 1
+field service.net_serve flags 1
+field service.net_serve max_body 1
+record service.net_response 1
+field service.net_response request 1
+field service.net_response status 1
+field service.net_response content_type 1
+record service.sec_name 1
+field service.sec_name plugin 1
+field service.sec_name name 1
+record service.sec_value 1
+field service.sec_value flags 1
+field service.sec_value label 1
+field service.sec_value value 1
+record service.sec_list 1
+field service.sec_list flags 1
+field service.sec_list cursor 1
+record service.sec_entry 1
+field service.sec_entry flags 1
+field service.sec_entry plugin 1
+field service.sec_entry name 1
+field service.sec_entry label 1
+record service.sec_keep 1
+field service.sec_keep plugin 1
+field service.sec_keep name 1
+field service.sec_keep label 1
+field service.sec_keep flags 1
+field service.sec_keep value 1
+record service.sec_random 1
+field service.sec_random len 1
+record service.sec_bytes 1
+field service.sec_bytes flags 1
+field service.sec_bytes data 1
+record event.work_due 1
+field event.work_due now_ms 1
+field event.work_due token 1
+field event.work_due why 1
+field event.work_due key 1
+record event.work_refused 1
+field event.work_refused now_ms 1
+field event.work_refused token 1
+field event.work_refused reason 1
+field event.work_refused key 1
+record event.work_allowed 1
+field event.work_allowed now_ms 1
+record service.work_spec 1
+field service.work_spec token 1
+field service.work_spec needs 1
+field service.work_spec flags 1
+field service.work_spec moments 1
+field service.work_spec after_ms 1
+field service.work_spec within_ms 1
+field service.work_spec every_ms 1
+field service.work_spec at_ms 1
+field service.work_spec key 1
+record service.work_key 1
+field service.work_key key 1
+record service.work_row 1
+field service.work_row token 1
+field service.work_row state 1
+field service.work_row reason 1
+field service.work_row due_ms 1
+field service.work_row key 1
+record event.socket 1
+field event.socket now_ms 1
+field event.socket socket 1
+field event.socket token 1
+field event.socket kind 1
+field event.socket reason 1
+field event.socket len 1
+record event.broadcast 1
+field event.broadcast now_ms 1
+field event.broadcast socket 1
+field event.broadcast token 1
+field event.broadcast kind 1
+field event.broadcast reason 1
+field event.broadcast len 1
+field event.broadcast from 1
+record service.sock_connect 1
+field service.sock_connect token 1
+field service.sock_connect port 1
+field service.sock_connect flags 1
+field service.sock_connect timeout_ms 1
+field service.sock_connect idle_ms 1
+field service.sock_connect host 1
+field service.sock_connect server_name 1
+record service.sock_pin 1
+field service.sock_pin kind 1
+field service.sock_pin hash 1
+record service.sock_started 1
+field service.sock_started socket 1
+record service.sock_send 1
+field service.sock_send socket 1
+field service.sock_send data 1
+record service.sock_read 1
+field service.sock_read socket 1
+field service.sock_read mode 1
+field service.sock_read flags 1
+field service.sock_read max 1
+field service.sock_read len 1
+field service.sock_read root 1
+field service.sock_read path 1
+record service.sock_at 1
+field service.sock_at socket 1
+field service.sock_at offset 1
+record service.sock_bytes 1
+field service.sock_bytes data 1
+record service.sock_tls 1
+field service.sock_tls socket 1
+field service.sock_tls timeout_ms 1
+field service.sock_tls idle_ms 1
+field service.sock_tls server_name 1
+record service.sock_ref 1
+field service.sock_ref socket 1
+record service.sock_peer 1
+field service.sock_peer flags 1
+field service.sock_peer reason 1
+field service.sock_peer certificate 1
+field service.sock_peer key 1
+record service.sock_broadcast 1
+field service.sock_broadcast token 1
+field service.sock_broadcast wait_ms 1
+field service.sock_broadcast data 1
+record service.sock_port 1
+field service.sock_port port 1
+record event.document_closed 1
+field event.document_closed now_ms 1
+field event.document_closed document 1
+field event.document_closed reason 1
+record service.lib_field_page 1
+field service.lib_field_page cursor 1
+field service.lib_field_page generation 1
+record event.text_typed 1
+field event.text_typed now_ms 1
+field event.text_typed text 1
+field event.text_typed flags 1
+record event.lookup_ready 1
+field event.lookup_ready now_ms 1
+field event.lookup_ready provider 1
+record event.screen_hidden 1
+field event.screen_hidden now_ms 1
+field event.screen_hidden screen 1
+field event.screen_hidden instance 1
+record command.lookup_ready 1
+field command.lookup_ready text 1
+field command.lookup_ready language 1
+record command.set_hint 1
+field command.set_hint action 1
+field command.set_hint kind 1
+field command.set_hint label 1
+record event.document_changed 1
+field event.document_changed now_ms 1
+field event.document_changed document 1
+field event.document_changed state 1
+field event.document_changed progress_ppm 1
+record command.firmware_dual_boot 1
+field command.firmware_dual_boot request 1
+field command.firmware_dual_boot mode 1
+record service.doc_report 1
+field service.doc_report document 1
+field service.doc_report section 1
+field service.doc_report offset 1
+field service.doc_report insert 1
+field service.doc_report progress_ppm 1
+field service.doc_report flags 1
+field service.doc_report title 1
+field service.doc_report chapter 1
+field service.doc_report page 1
+field service.doc_report pages 1
+field service.doc_report chapter_left 1
+record command.redraw_area 1
+field command.redraw_area mode 1
+field command.redraw_area x 1
+field command.redraw_area y 1
+field command.redraw_area width 1
+field command.redraw_area height 1

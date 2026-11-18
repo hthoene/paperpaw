@@ -75,6 +75,7 @@ pub paperpaw_native::host_glue::PpHost::canvas_clip: fn(*mut core::ffi::c_void, 
 pub paperpaw_native::host_glue::PpHost::canvas_describe: fn(*mut core::ffi::c_void, u32, u32, paperpaw_native::host_glue::PpBytes, i32, i32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_draw_image: fn(*mut core::ffi::c_void, u32, i32, i32, u32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_draw_line: fn(*mut core::ffi::c_void, i32, i32, i32, i32, u32, u32) -> i32
+pub paperpaw_native::host_glue::PpHost::canvas_fill_pattern: fn(*mut core::ffi::c_void, i32, i32, u32, u32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_fill_rect: fn(*mut core::ffi::c_void, i32, i32, u32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_fill_round: fn(*mut core::ffi::c_void, i32, i32, u32, u32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_stroke_round: fn(*mut core::ffi::c_void, i32, i32, u32, u32, u32, u32, u32) -> i32
@@ -348,7 +349,6 @@ pub paperpaw_native::Header::patches: u32
 pub paperpaw_native::Header::relocs: u32
 pub paperpaw_native::Header::sha256: [u8; 32]
 impl paperpaw_native::Header
-pub fn paperpaw_native::Header::check_file(&[u8]) -> core::result::Result<(paperpaw_native::Header, core::option::Option<paperpaw_native::signature::Signature>), paperpaw_native::Problem>
 pub fn paperpaw_native::Header::digest(&self) -> paperpaw_digest::sha256::Sha256
 pub fn paperpaw_native::Header::digest_prefix(&self) -> [u8; 84]
 pub fn paperpaw_native::Header::file_len(&self) -> u64
@@ -369,12 +369,6 @@ pub fn paperpaw_native::ImageExtent::read(&mut dyn core::ops::function::FnMut(u3
 pub paperpaw_native::Older::chip: core::option::Option<paperpaw_native::Chip>
 pub paperpaw_native::Older::fingerprint: u64
 pub paperpaw_native::Older::format: u16
-pub struct paperpaw_native::Relocator<'a>
-impl<'a> paperpaw_native::Relocator<'a>
-pub fn paperpaw_native::Relocator<'a>::apply(&self, u32, &mut [u8]) -> core::result::Result<(), paperpaw_native::Problem>
-pub fn paperpaw_native::Relocator<'a>::apply_with(&self, u32, &mut [u8], &[u32; 8]) -> core::result::Result<(), paperpaw_native::Problem>
-pub fn paperpaw_native::Relocator<'a>::hot_at(self, u32) -> core::result::Result<Self, paperpaw_native::Problem>
-pub fn paperpaw_native::Relocator<'a>::new(&'a paperpaw_native::Header, &'a [u32], u32, u32) -> core::result::Result<Self, paperpaw_native::Problem>
 pub struct paperpaw_native::Signature
 pub paperpaw_native::Signature::key: [u8; 32]
 pub paperpaw_native::Signature::signature: [u8; 64]
@@ -395,4 +389,3 @@ pub const paperpaw_native::LINK_BASE: u32
 pub const paperpaw_native::MAGIC: [u8; 4]
 pub const paperpaw_native::MAX_IMAGE_LEN: u32
 pub const paperpaw_native::TABLE_SYMBOLS: [&str; 8]
-pub fn paperpaw_native::check_relocations(&paperpaw_native::Header, &[u32]) -> core::result::Result<(), paperpaw_native::Problem>

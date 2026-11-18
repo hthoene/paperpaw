@@ -319,6 +319,28 @@ the host shows it from memory, so a menu never runs plugin code and a plugin tha
   `on` needs `switch`), the keys (at most 128 bytes, UTF-8) and the argument batches (at most 256
   bytes, none without a key); the host decodes the argument batches with the records codec.
 
+### 6.2 A checker fill (slot 43, #291)
+
+```
+canvas.fill_pattern(ctx, x: i32, y: i32, width: u32, height: u32, color: u32, pattern: u32)
+    -> status   // slot 43
+```
+
+`canvas.fill_rect` for the pixels of a checker: the Beta 3 tint of a faint separator on a black
+and white display is every other pixel, and one call for each pixel cost a screen of rows 800
+host calls on the X4.
+
+- [D] Only inside a draw callback (`ERR_STATE` elsewhere); `color` is `0x00RRGGBB` like slot 9
+  (`ERR_INVALID` with a high byte). The area is in the canvas's pixels like slot 9 and is clipped
+  like it (the frame's clip and `canvas.clip`): the clip cuts pixels off, it does not move the checker.
+- [D] `pattern` 0: the pixels an even number of steps (columns plus rows) from the rectangle's
+  own top-left corner are filled, the corner among them; `pattern` 1: those an odd number of steps
+  away. Any other value is `ERR_INVALID` and nothing is drawn. A pattern is relative to the
+  rectangle, not to the screen, so a frame's origin does not change it.
+- [D] One host call whatever the size. The slot announces itself in the X4 frame gate like the
+  other canvas slots; it needs no buffer of its own. A host without the slot answers
+  `ERR_UNSUPPORTED` (the SDK's `Canvas::fill_checker`): the plugin draws the pixels one by one.
+
 ## 4. Fonts and text
 
 - [D] `font.acquire(key)` keys: a registered font id (`Fonts::get` grammar) or a **role key**,

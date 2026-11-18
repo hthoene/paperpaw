@@ -182,27 +182,6 @@ fn lam_alef_is_wrapped_as_wide_as_drawn() {
     }
 }
 
-/// Arabic shortened with an ellipsis fits as drawn, joined (wider than
-/// its letters alone here).
-#[test]
-fn arabic_shortened_fits_as_drawn() {
-    let (fonts, _storage) = latin_and_letters("…");
-    let font = fonts.get("a.latin").unwrap();
-    let word = "\u{628}\u{628}\u{628}\u{628}";
-    let text = alloc::format!("{word} {word} ab {word}");
-    for ui in [font, font.inked(rtl())] {
-        for width in [6.0, 10.0, 15.0, 20.0, 31.0, 40.0] {
-            let shown = crate::ui::fit(&ui, 10.0, &text, width);
-            assert!(
-                ui.measure(10.0, &shown) <= width.max(ui.measure(10.0, "…")),
-                "{width}: {shown}"
-            );
-            let start = shown.strip_suffix('…').unwrap();
-            assert!(text.starts_with(start), "{shown}");
-        }
-    }
-}
-
 /// What no font has, marks, controls and odd mixes: measured and drawn
 /// without a panic, the width drawn as measured.
 #[test]

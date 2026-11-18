@@ -21,6 +21,8 @@ pub const SETTING_CHANGED: u32 = 14;
 pub const IMAGE_READY: u32 = 16;
 /// The picker of the picture or the widget over the page (`native_picker`).
 pub const PICK: u32 = 17;
+/// The editor of a list of widgets above each other (slot `core.edit-widgets`).
+pub const EDIT: u32 = 18;
 
 const GROUP: &str = "sleep.group";
 const SHOW: [&str; 7] = [
@@ -32,6 +34,20 @@ const SHOW: [&str; 7] = [
     "sleep.show.message",
     "sleep.show.page",
 ];
+/// The choices of the off screen: what the sleep screen shows, or one of its
+/// modes that show a fixed picture (a page or the widgets would look like a
+/// device that is on).
+const OFF_SHOW: [&str; 5] = [
+    "sleep.off-show.same",
+    "sleep.off-show.message",
+    "sleep.show.cat",
+    "sleep.show.cover",
+    "sleep.show.picture",
+];
+/// The start and the restart screen (slots `core.start`, `core.restart`):
+/// the device's own, or a screen another plugin adds as a choice.
+const START_SHOW: [&str; 1] = ["sleep.start-show.built-in"];
+const RESTART_SHOW: [&str; 1] = ["sleep.restart-show.built-in"];
 const POSITIONS: [&str; 7] = [
     "sleep.position.center",
     "sleep.position.top",
@@ -48,9 +64,12 @@ const WHEN: [&str; 3] = [
 ];
 
 /// The settings that need a device that sleeps (the group too).
-const NEEDS: [&str; 10] = [
+const NEEDS: [&str; 13] = [
     "sleep.group",
     "sleep.show",
+    "sleep.off-show",
+    "sleep.start-show",
+    "sleep.restart-show",
     "sleep.folder",
     "sleep.widgets",
     "sleep.overlay-picture",
@@ -60,6 +79,46 @@ const NEEDS: [&str; 10] = [
     "sleep.overlay-see-through",
     "sleep.overlay-when",
 ];
+
+/// What the off, the start and the restart screen show (the slots
+/// `core.off`, `core.start`, `core.restart`).
+fn screen_specs<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    for (name, choices, title, help) in [
+        (
+            "off-show",
+            &OFF_SHOW[..],
+            "sleep.setting.off-show",
+            "sleep.setting.off-show.help",
+        ),
+        (
+            "start-show",
+            &START_SHOW[..],
+            "sleep.setting.start-show",
+            "sleep.setting.start-show.help",
+        ),
+        (
+            "restart-show",
+            &RESTART_SHOW[..],
+            "sleep.setting.restart-show",
+            "sleep.setting.restart-show.help",
+        ),
+    ] {
+        let mut spec = SpecDecl::new(
+            name,
+            Kind::Choice {
+                default: choices[0],
+                choices,
+            },
+            GROUP,
+            title,
+        );
+        spec.help = help;
+        d.spec(spec)?;
+    }
+    Ok(())
+}
 
 /// What the sleep screen shows, the folder of its pictures, its widgets and
 /// its picture over the page.
@@ -80,6 +139,7 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     );
     show.help = "sleep.setting.show.help";
     d.spec(show)?;
+    screen_specs(d)?;
     let mut folder = SpecDecl::new("folder", Kind::Text("sleep"), GROUP, "sleep.setting.folder");
     folder.help = "sleep.setting.folder.help";
     d.spec(folder)?;
@@ -168,7 +228,8 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The picker of what goes over the page and the sleep screen.
+/// The picker of what goes over the page, the editor of a list of widgets
+/// and the sleep screen.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
@@ -176,6 +237,13 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
         "pick-overlay",
         "sleep.setting.overlay-picture",
         PICK,
+    ))?;
+    // The list of a setting's widgets, and what can be added to it: one
+    // screen, opened again in its adding mode.
+    d.screen(ScreenDecl::new(
+        "edit-widgets",
+        "core.widgets.edit.screen",
+        EDIT,
     ))?;
     // An overlay: the host draws the page below first, which the modes that
     // leave it (`page`, `overlay`) need; the screen never draws it itself. A
@@ -205,7 +273,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The slot, the icon, the needs and the places the widgets go.
+/// The slots, the icon, the needs and the places the widgets go.
 pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
@@ -214,6 +282,11 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
         d.menu_need(item, MenuNeed::Sleep)?;
     }
     d.slot_offer(SlotOfferDecl::new("core.sleep", "sleep.screen"))?;
+    d.slot_offer(SlotOfferDecl::new("core.off", "sleep.screen"))?;
+    d.slot_offer(SlotOfferDecl::new(
+        "core.edit-widgets",
+        "sleep.edit-widgets",
+    ))?;
     for (name, key, value) in [
         ("widgets", "sleep.widgets", "sleep.show.widgets"),
         ("overlay", "sleep.overlay-widget", "sleep.show.overlay"),

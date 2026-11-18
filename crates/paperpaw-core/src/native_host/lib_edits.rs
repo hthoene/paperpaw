@@ -158,8 +158,8 @@ impl LibEdits {
     /// The identity of the book at `path` for as long as a transaction on it
     /// lives: its key, the number the annotation file is named by.
     pub(crate) fn book_id(&self, path: &str) -> Result<BookId, i32> {
-        let mut digits = [0_u8; paperpaw_sdk::library::KEY_LEN];
-        let key = paperpaw_sdk::library::key_into(path, &mut digits);
+        let mut digits = [0_u8; crate::kit::library::KEY_LEN];
+        let key = crate::kit::library::key_into(path, &mut digits);
         let id = u64::from_str_radix(key, 16).map_err(|_| paperpaw_native::host_glue::ERR_IO)?;
         self.remember(id, path)?;
         Ok(BookId(id))

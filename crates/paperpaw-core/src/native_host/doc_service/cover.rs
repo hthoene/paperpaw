@@ -17,8 +17,8 @@
 //! format call is the document service's own, through the caller's frame
 //! (a nested callback like the reader's own `doc_open`).
 use super::{
-    Caller, Cx, DocHost, Frame, READY, Record, close, codec, op, open, read, table::BACKGROUND,
-    wire,
+    Caller, DocHost, Frame, OwnedHost, READY, Record, close, codec, op, open, read,
+    table::BACKGROUND, wire,
 };
 use crate::abi7::services_wire;
 use crate::native_host::doc_host::CoverAt;
@@ -87,7 +87,7 @@ pub(crate) fn make(
     let mut scratch = bytes(COVER_REPLY)?;
     let mut result = Err(ERR_STATE);
     services.0.serve(frame, caller, &mut |bound| {
-        let host = Cx {
+        let host = OwnedHost {
             host: bound,
             owner: caller.owner,
             library: true,

@@ -5,6 +5,7 @@
     clippy::expect_used,
     reason = "fixture failures fail acceptance"
 )]
+use crate::Staging;
 use crate::{
     Kernel,
     native_host::{DispatchDepth, HostResources, shell},
@@ -23,7 +24,7 @@ use paperpaw_sdk::native::{
     events::{Event, Incoming},
     reply::Reply,
 };
-use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, SettingSpec, Version};
+use paperpaw_sdk::{Id, Manifest, RegisterError, SettingSpec, Version};
 extern crate std;
 use std::eprintln;
 use std::{
@@ -141,19 +142,11 @@ fn report(_: &Heap, _: &str, s: crate::native_host::TeardownStep, e: crate::nati
     eprintln!("native teardown {s:?}: {e:?}");
 }
 // Test-only catalog/settings installation, never a Battery behavior adapter.
-struct Catalogs;
-impl Plugin for Catalogs {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("battery"),
-            "Battery catalogs",
-            Version::new(1, 0, 8),
-        )
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn catalogs() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         // The test shell supplies an actual stack entry for command authority.
         // Pixels still come only from native callbacks on the shared host table.
-        r.add_screen(paperpaw_sdk::ScreenSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("battery.screen"),
             "battery.title",
             alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(AcceptanceShell)),
@@ -181,12 +174,21 @@ impl Plugin for Catalogs {
         Ok(())
     }
 }
+
+/// What [`catalogs`] registers under.
+fn catalogs_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static("battery"),
+        "Battery catalogs",
+        Version::new(1, 0, 8),
+    )
+}
 struct AcceptanceShell;
-impl paperpaw_sdk::Screen for AcceptanceShell {
-    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+impl crate::testing::Fake for AcceptanceShell {
+    fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
         paperpaw_sdk::Handled::No
     }
-    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
 }
 
 fn declared_services() -> shell::DeclaredServices {
@@ -479,12 +481,12 @@ fn native_battery_pixel_acceptance() {
                 if case.developer { "on" } else { "off" }
             ))
             .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
-            .plugin(Catalogs)
+            .items(catalogs_manifest(), catalogs())
             .build()
             .unwrap();
         kernel.start(Instant(0));
         kernel.set_status(Instant(100), SystemStatus::new(None, case.charge));
-        kernel.apply(paperpaw_sdk::Command::OpenScreen(
+        kernel.apply(crate::Ask::OpenScreen(
             Id::new_static("battery.screen"),
             paperpaw_sdk::Params::new(),
         ));

@@ -225,13 +225,23 @@ pub fn draw(
 }
 
 /// What the offer of the statistics says, by their state: the labels' keys of
-/// its choices, in order.
+/// its choices, in order. Where this plugin may not switch plugins (a plugin
+/// file on the card) the first choice of the off statistics says it opens the
+/// list of plugins.
 #[must_use]
-pub const fn offer(statistics: Statistics) -> Option<[&'static str; 2]> {
-    match statistics {
-        Statistics::Counting => None,
-        Statistics::Off => Some(["reading-goal.offer.switch-on", "reading-goal.offer.not-now"]),
-        Statistics::Missing => Some(["reading-goal.offer.store", "reading-goal.offer.not-now"]),
+pub const fn offer(statistics: Statistics, may_switch: bool) -> Option<[&'static str; 2]> {
+    match (statistics, may_switch) {
+        (Statistics::Counting, _) => None,
+        (Statistics::Off, true) => {
+            Some(["reading-goal.offer.switch-on", "reading-goal.offer.not-now"])
+        }
+        (Statistics::Off, false) => Some([
+            "reading-goal.offer.open-plugins",
+            "reading-goal.offer.not-now",
+        ]),
+        (Statistics::Missing, _) => {
+            Some(["reading-goal.offer.store", "reading-goal.offer.not-now"])
+        }
     }
 }
 
@@ -267,13 +277,20 @@ mod tests {
 
     #[test]
     fn the_offer_is_made_only_where_the_statistics_do_not_count() {
-        assert_eq!(offer(Statistics::Counting), None);
+        assert_eq!(offer(Statistics::Counting, true), None);
         assert_eq!(
-            offer(Statistics::Off),
+            offer(Statistics::Off, true),
             Some(["reading-goal.offer.switch-on", "reading-goal.offer.not-now"])
         );
         assert_eq!(
-            offer(Statistics::Missing),
+            offer(Statistics::Off, false),
+            Some([
+                "reading-goal.offer.open-plugins",
+                "reading-goal.offer.not-now"
+            ])
+        );
+        assert_eq!(
+            offer(Statistics::Missing, false),
             Some(["reading-goal.offer.store", "reading-goal.offer.not-now"])
         );
     }

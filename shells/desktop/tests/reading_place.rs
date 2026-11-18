@@ -60,6 +60,16 @@ fn new_card(name: &str) -> PathBuf {
     let setup = dir.join(".paperpaw/plugins/setup");
     fs::create_dir_all(&setup).unwrap();
     fs::write(setup.join("done"), "").unwrap();
+    // English is hyphenated as on a device (the firmware seeds the pack): the
+    // reader would ask the store for it otherwise.
+    for (path, bytes) in paperpaw_default_packs::english() {
+        let target = dir
+            .join("plugins")
+            .join(paperpaw_default_packs::HYPHENATION)
+            .join(path);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(target, bytes).unwrap();
+    }
     dir
 }
 
@@ -243,7 +253,7 @@ fn a_highlight_saved_in_this_conversion_is_drawn_on_its_page() {
     let mut keys = turns(2);
     keys.push("{\"op\": \"run\", \"action\": \"reader.select-text\"}".to_string());
     keys.push("{\"op\": \"wait\", \"ms\": 500}".to_string());
-    for name in ["confirm", "right", "right", "confirm", "back"] {
+    for name in ["confirm", "confirm"] {
         keys.extend(press(name));
     }
     session(&card, &card.join("selecting.png"), &keys);
@@ -360,7 +370,7 @@ fn a_highlight_the_page_does_not_draw_stays_in_the_file_when_its_words_are_highl
     // The first page's words, all of them: *Highlight* over the old numbers.
     let mut keys = press("page-forward");
     keys.extend(run("reader.select-text"));
-    for name in ["confirm", "right", "right", "confirm", "back"] {
+    for name in ["confirm", "confirm"] {
         keys.extend(press(name));
     }
     session(&card, &card.join("hidden.png"), &keys);
@@ -376,4 +386,124 @@ fn a_highlight_the_page_does_not_draw_stays_in_the_file_when_its_words_are_highl
             .any(|r| r.contains("\t6\t") && r.contains("the use of anyone anywhere")),
         "the old row was changed:\n{saved}"
     );
+}
+
+/// The page-count files of the reader on `card` (`pages-<hash>.bin`).
+fn page_counts(dir: &Path, found: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            page_counts(&path, found);
+        } else if path.file_name().is_some_and(|name| {
+            let name = name.to_string_lossy();
+            name.starts_with("pages-") && name.ends_with(".bin")
+        }) {
+            found.push(path);
+        }
+    }
+}
+
+#[test]
+fn the_place_and_the_marks_stay_where_they_were_when_the_page_counts_are_made_again() {
+    // An update of the letter settings names the page counts anew: the old
+    // ones are left, the new ones made. Places and marks are by text position,
+    // not by page number, so the book opens on the same page with the same
+    // highlight. The counts are taken away here, as the new name finds none.
+    let card = new_card("recount");
+    let mut keys = turns(2);
+    keys.push("{\"op\": \"run\", \"action\": \"reader.select-text\"}".to_string());
+    keys.push("{\"op\": \"wait\", \"ms\": 500}".to_string());
+    for name in ["confirm", "confirm"] {
+        keys.extend(press(name));
+    }
+    session(&card, &card.join("selecting.png"), &keys);
+    let place = fs::read_to_string(positions(&card)).unwrap();
+    let before = opens_at(&card, "before");
+    let mut counts = Vec::new();
+    page_counts(&card.join(".paperpaw"), &mut counts);
+    assert!(
+        !counts.is_empty(),
+        "the reader kept no page count to take away"
+    );
+    for file in &counts {
+        fs::remove_file(file).unwrap();
+    }
+    let after = opens_at(&card, "after");
+    assert_eq!(before, after, "the book opened on another page");
+    assert_eq!(place, fs::read_to_string(positions(&card)).unwrap());
+    // The highlight is still drawn on it.
+    let marks = card.join(".paperpaw/annotations");
+    fs::rename(&marks, card.join("kept")).unwrap();
+    let without = opens_at(&card, "without");
+    assert_ne!(
+        after, without,
+        "the highlight is not drawn after the recount"
+    );
+}
+
+/// The highlight rows of the book's annotation file on `card`.
+fn highlight_rows(card: &Path) -> usize {
+    fs::read_to_string(card.join(format!(".paperpaw/annotations/{HASH}.txt"))).map_or(0, |file| {
+        file.lines().filter(|l| l.starts_with("h\t")).count()
+    })
+}
+
+#[test]
+fn the_marks_of_a_page_are_its_own_after_a_turn_back() {
+    // The first word of the fourth page, highlighted with the selection's own
+    // action (#265: the action was answered and nothing was saved).
+    let card = new_card("back");
+    let mut keys = turns(3);
+    keys.extend(run("reader.select-text"));
+    keys.extend(run("reader.selection.highlight"));
+    keys.push("{\"op\": \"wait\", \"ms\": 1000}".to_string());
+    session(&card, &card.join("made.png"), &keys);
+    assert_eq!(highlight_rows(&card), 1, "the highlight was not saved");
+    // Every look starts on the fourth page again: a turn saves its place.
+    let place = fs::read(positions(&card)).unwrap();
+    let look = |name: &str, keys: &[String]| {
+        fs::write(positions(&card), &place).unwrap();
+        let shot = card.join(format!("{name}.png"));
+        session(&card, &shot, keys);
+        page(&shot)
+    };
+    let back = press("page-back");
+    let mut on_and_back = press("page-forward");
+    on_and_back.extend(press("page-back"));
+    let own = look("own", &[]);
+    let returned = look("returned", &on_and_back);
+    let before = look("before", &back);
+    fs::rename(card.join(".paperpaw/annotations"), card.join("kept")).unwrap();
+    let plain_own = look("plain-own", &[]);
+    let plain_before = look("plain-before", &back);
+    assert_ne!(own, plain_own, "the highlight is not drawn on its page");
+    // #265: after a turn back the page was marked (and its words chosen) by
+    // the words of the page left, so the highlight was missing on its own page
+    // and stood on the page before it, over other text.
+    assert!(
+        returned == own,
+        "the highlight is not drawn on its page after a turn back to it"
+    );
+    assert!(
+        before == plain_before,
+        "the highlight is drawn on the page before its own"
+    );
+}
+
+#[test]
+fn a_highlight_of_one_word_a_beta3_card_wrote_is_drawn_on_its_page() {
+    // "the" of "the use of anyone anywhere": a highlight of a word or two
+    // was too short to be looked for and never drawn (#265).
+    let row = BETA3_HIGHLIGHT
+        .replace("\t1\t97\t1\t123\t", "\t1\t97\t1\t100\t")
+        .replace("text()[1].44", "text()[1].21")
+        .replace("the use of anyone any- where", "the");
+    assert!(row.contains("\t100\t") && row.ends_with("\tthe\t\n"));
+    let (card, marked, file) = beta3_marks("word", &row);
+    let plain = plain_pages("word-plain");
+    assert_ne!(marked[1], plain[1], "the highlight is not drawn");
+    let other = (0..8).filter(|k| marked[*k] != plain[*k]).count();
+    assert_eq!(other, 1, "the highlight is drawn on pages without its text");
+    let path = card.join(format!(".paperpaw/annotations/{HASH}.txt"));
+    assert_eq!(fs::read_to_string(path).unwrap(), file);
 }

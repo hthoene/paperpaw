@@ -204,6 +204,23 @@ impl LibQuery for LibraryHost {
             visit,
         )
     }
+    fn facets(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.view_asked();
+        self.reads.facets_hiding(
+            query,
+            archive,
+            &|path| self.deleted(BookRef::Path(path)),
+            visit,
+        )
+    }
+    fn facets_ended(&self) {
+        self.reads.names_ended();
+    }
     fn next_in_series(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
         self.visible(book)?;
         self.reads
@@ -405,7 +422,7 @@ impl LibWrite for LibraryHost {
         // The status went to the log beside the catalog: a long log is folded
         // in, as the kernel's own status notes ask (`core_plugin`), so that a
         // catalog read never reserves for more than its lines (#248).
-        if paperpaw_sdk::library::catalog::log_is_long(&*self.storage) {
+        if crate::kit::library::catalog::log_is_long(&*self.storage) {
             self.catalog_wanted.set(true);
         }
         Ok(())
@@ -564,6 +581,14 @@ impl LibWrite for LibraryHost {
 
     fn catalog_ask_again(&self) {
         self.catalog_asked.set(false);
+    }
+
+    fn card_changed(&self) {
+        self.reads.card_changed();
+        self.cover_retries.set(0);
+        self.cover_failed.set([0; COVER_FAILED]);
+        self.cover_failed_next.set(0);
+        self.cover_job_fails.set(0);
     }
 
     fn catalog_changed(&self) {

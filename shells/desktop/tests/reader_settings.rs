@@ -48,10 +48,16 @@ fn card(name: &str, book: &str, ini: &str) -> PathBuf {
         format!("[reader]\nlast = books/{book}\n"),
     )
     .unwrap();
-    // The first-run hints would cover the page.
+    // The first-run hints would cover the page, and so would the question for
+    // a hyphenation pack the card lacks: off, unless the test sets it.
+    let tables = if ini.contains("hyphenate") {
+        ""
+    } else {
+        "[core]\nhyphenate = off\n"
+    };
     fs::write(
         dir.join("paperpaw.ini"),
-        format!("{ini}[help]\nshow = off\n"),
+        format!("{tables}{ini}[help]\nshow = off\n"),
     )
     .unwrap();
     dir
@@ -59,9 +65,15 @@ fn card(name: &str, book: &str, ini: &str) -> PathBuf {
 
 /// Runs the emulator on `card` through `requests`, then shoots the page.
 fn session(card: &Path, shot: &Path, requests: &[String]) {
+    session_on("xteink-x4", card, shot, requests);
+}
+
+/// [`session`] on the device `profile`.
+fn session_on(profile: &str, card: &Path, shot: &Path, requests: &[String]) {
     let path = paperpaw_core::sdk::json::string(&card.display().to_string());
     let target = paperpaw_core::sdk::json::string(&shot.display().to_string());
-    let mut child = Command::new(env!("CARGO_BIN_EXE_paperpaw-emu"))
+    let emu = std::env::var("PP_EMU").unwrap_or_else(|_| env!("CARGO_BIN_EXE_paperpaw-emu").into());
+    let mut child = Command::new(emu)
         .arg("--stdio")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -69,7 +81,7 @@ fn session(card: &Path, shot: &Path, requests: &[String]) {
         .spawn()
         .unwrap();
     let mut lines = format!(
-        "{{\"op\": \"start\", \"profile\": \"xteink-x4\", \"library\": {path}}}\n\
+        "{{\"op\": \"start\", \"profile\": \"{profile}\", \"library\": {path}}}\n\
          {{\"op\": \"wait\", \"ms\": 2500}}\n"
     );
     for request in requests {
@@ -132,18 +144,20 @@ fn shown(name: &str, book: &str, ini: &str, requests: &[String]) -> Vec<u8> {
 #[test]
 fn hanging_punctuation_moves_commas_and_quotes_into_the_margin() {
     // A page of the story (past the cover and the contents), justified: the
-    // comma that ends a line hangs out of the text's edge.
+    // comma that ends a line hangs out of the text's edge. The page is one
+    // where a line ends in one: kerning moved the line breaks, and the page
+    // after 14 turns has none now.
     let ini = |hanging: &str| {
         format!("[core]\nfont-size = 12\njustify = on\nhanging-punctuation = {hanging}\n")
     };
     let book = "alice-in-wonderland.epub";
-    let off = shown("hang-off", book, &ini("off"), &turns(14));
+    let off = shown("hang-off", book, &ini("off"), &turns(13));
     assert_eq!(
         off,
-        shown("hang-off2", book, &ini("off"), &turns(14)),
+        shown("hang-off2", book, &ini("off"), &turns(13)),
         "the page is not steady"
     );
-    let on = shown("hang-on", book, &ini("on"), &turns(14));
+    let on = shown("hang-on", book, &ini("on"), &turns(13));
     assert_ne!(off, on, "hanging punctuation changed nothing on the page");
 }
 
@@ -180,4 +194,215 @@ fn turning_the_styles_off_opens_the_book_again_where_it_was() {
         after, before,
         "the setting changed nothing on the open book"
     );
+}
+
+/// The gray rows of a shot above its status line, and the width of a row.
+fn gray_page(path: &Path, rows: usize) -> (Vec<u8>, usize) {
+    let decoder = png::Decoder::new(std::io::BufReader::new(fs::File::open(path).unwrap()));
+    let mut reader = decoder.read_info().unwrap();
+    let mut bytes = vec![0; reader.output_buffer_size().unwrap()];
+    let frame = reader.next_frame(&mut bytes).unwrap();
+    // One channel of each pixel is its gray: the shots are equal in all three.
+    let step = frame.line_size / frame.width as usize;
+    let gray = bytes[..rows * frame.line_size]
+        .iter()
+        .step_by(step)
+        .copied()
+        .collect();
+    (gray, frame.width as usize)
+}
+
+/// The ink of each line of text, as (first, last) dark column: the rows of a shot
+/// split at the empty rows (a band under 8 rows is a rule or a stray mark and is
+/// left out).
+fn line_ink(gray: &[u8], width: usize) -> Vec<(usize, usize)> {
+    let dark = |row: &[u8]| {
+        Some((
+            row.iter().position(|&g| g < 140)?,
+            row.iter().rposition(|&g| g < 140)?,
+        ))
+    };
+    let mut lines = Vec::new();
+    let mut band: Option<(usize, (usize, usize))> = None;
+    for row in gray
+        .chunks(width)
+        .chain(std::iter::once(&vec![255u8; width][..]))
+    {
+        match (dark(row), band) {
+            (Some((a, z)), Some((rows, (first, last)))) => {
+                band = Some((rows + 1, (first.min(a), last.max(z))));
+            }
+            (Some(ink), None) => band = Some((1, ink)),
+            (None, Some((rows, ink))) => {
+                if rows >= 8 {
+                    lines.push(ink);
+                }
+                band = None;
+            }
+            (None, None) => {}
+        }
+    }
+    lines
+}
+
+/// The ink of the lines of the Lines book (regular, bold and italic text,
+/// justified) on the device `profile` at `size` points, `turned` pages in.
+fn lines_of(profile: &str, size: u32, turned: usize) -> Vec<(usize, usize)> {
+    let rows = if profile == "xteink-x4" { 740 } else { 1400 };
+    let ini = format!("[core]\nfont-size = {size}\njustify = on\n");
+    // A card of its own for each test (they run side by side in one process).
+    let name = format!("lines-{:?}", std::thread::current().id());
+    let card = card(&name, "lines.html", &ini);
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures-lines/lines.html"),
+        card.join("books/lines.html"),
+    )
+    .unwrap();
+    let shot = card.join("page.png");
+    session_on(profile, &card, &shot, &turns(turned));
+    let (gray, width) = gray_page(&shot, rows);
+    let lines = line_ink(&gray, width);
+    assert!(lines.len() >= 6, "{profile} {size}: {lines:?}");
+    lines
+}
+
+#[test]
+fn no_line_is_drawn_past_the_margin() {
+    // The layout measures the pairs the host draws kerned, so a line is never
+    // drawn wider than its measure: ink past the right margin (2 px for the
+    // side of a letter) would be clipped text. The X4 and a Boox, two sizes.
+    for (profile, margin, size) in [
+        ("xteink-x4", 444, 12),
+        ("xteink-x4", 444, 10),
+        ("boox-go-7", 1216, 12),
+        ("boox-go-7", 1216, 16),
+    ] {
+        for turned in [0usize, 1] {
+            let lines = lines_of(profile, size, turned);
+            for (_, last) in &lines {
+                assert!(
+                    *last <= margin + 2,
+                    "{profile} {size}: ink at {last}, past {margin}: {lines:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn stretched_lines_of_a_boox_reach_the_margin() {
+    // Not short of it either: where the layout measured more than was drawn the
+    // edge was ragged (12 px short on a Boox before the pairs were measured).
+    // A paragraph starts with an indent: the line before one is its last and is
+    // not stretched. A stretched line ends at the margin within the room at the
+    // side of its last letter (up to 6 px); a line of three words may keep the
+    // most its gaps can grow and fall short, so one such line is left out.
+    let margin = 1216;
+    for size in [12, 10] {
+        for turned in [0usize, 1] {
+            let lines = lines_of("boox-go-7", size, turned);
+            let left = lines.iter().map(|l| l.0).min().unwrap();
+            let (mut stretched, mut short) = (0, 0);
+            for (at, &(first, last)) in lines.iter().enumerate() {
+                let ends_paragraph = lines.get(at + 1).is_none_or(|next| next.0 > left + 8);
+                if !ends_paragraph && first <= left + 8 {
+                    stretched += 1;
+                    short += usize::from(last + 7 < margin);
+                }
+            }
+            assert!(
+                stretched >= 3 && short <= 1,
+                "{size}: {short} of {stretched} stretched lines end short of {margin}: {lines:?}"
+            );
+        }
+    }
+}
+
+/// `card` with the English hyphenation pack installed (as the firmware seeds
+/// it: the stdio emulator does not).
+fn with_english_pack(card: &Path) {
+    for (path, bytes) in paperpaw_default_packs::english() {
+        let target = card
+            .join("plugins")
+            .join(paperpaw_default_packs::HYPHENATION)
+            .join(path);
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        fs::write(target, bytes).unwrap();
+    }
+}
+
+/// `card` with the German hyphenation pack installed (as the store puts it).
+fn with_german_pack(card: &Path) {
+    let german = paperpaw_hyphenation_packs::PACKAGES
+        .iter()
+        .find(|package| package.id == "hyphenation-de")
+        .unwrap();
+    let plugins = card.join("plugins");
+    fs::create_dir_all(&plugins).unwrap();
+    paperpaw_hyphenation_packs::build(&root(), &plugins, german).unwrap();
+}
+
+/// The page of `book` after `turned` turns, justified (the gaps show a break),
+/// with the hyphenation `on` or off keeping `left` and `right` letters at least
+/// (0: the table's own), the German pack on the card or not.
+fn broken(book: &str, german: bool, (on, left, right): (bool, u32, u32), turned: usize) -> Vec<u8> {
+    let ini = format!(
+        "[core]\nfont-size = 12\njustify = on\nhyphenate = {}\n\
+         hyphen-min-left = {left}\nhyphen-min-right = {right}\n",
+        if on { "on" } else { "off" }
+    );
+    let name = format!(
+        "hyphens-{:?}-{on}-{left}-{right}",
+        std::thread::current().id()
+    );
+    let card = card(&name, book, &ini);
+    with_english_pack(&card);
+    if german {
+        with_german_pack(&card);
+    }
+    let shot = card.join("page.png");
+    let mut requests = Vec::new();
+    if on && !german && book.starts_with("die-") {
+        // The reader asks the store for the German pack it lacks: declined.
+        for pressed in ["true", "false"] {
+            requests.push(format!(
+                "{{\"op\": \"button\", \"name\": \"back\", \"pressed\": {pressed}}}"
+            ));
+        }
+        requests.push("{\"op\": \"wait\", \"ms\": 1500}".to_string());
+    }
+    requests.extend(turns(turned));
+    session(&card, &shot, &requests);
+    page(&shot)
+}
+
+#[test]
+fn english_words_break_at_the_line_end_where_the_setting_is_on() {
+    let book = "alice-in-wonderland.epub";
+    let off = broken(book, false, (false, 0, 0), 13);
+    let on = broken(book, false, (true, 0, 0), 13);
+    assert_eq!(on, broken(book, false, (true, 0, 0), 13), "not steady");
+    assert_ne!(off, on, "hyphenation on changed nothing on the page");
+    // Keeping more letters on both sides of a break allows fewer breaks.
+    let wide = broken(book, false, (true, 5, 5), 13);
+    assert_ne!(on, wide, "the minimums changed nothing on the page");
+}
+
+#[test]
+fn german_words_break_at_the_line_end_with_the_german_pack() {
+    let book = "die-verwandlung.epub";
+    let off = broken(book, true, (false, 0, 0), 13);
+    let on = broken(book, true, (true, 0, 0), 13);
+    assert_ne!(off, on, "hyphenation on changed nothing on the page");
+    let wide = broken(book, true, (true, 5, 5), 13);
+    assert_ne!(on, wide, "the minimums changed nothing on the page");
+}
+
+#[test]
+fn a_book_in_a_language_without_a_table_is_set_whole() {
+    // No German pack on the card: the setting changes nothing and nothing fails.
+    let book = "die-verwandlung.epub";
+    let off = broken(book, false, (false, 0, 0), 13);
+    let on = broken(book, false, (true, 0, 0), 13);
+    assert_eq!(off, on, "a page was broken without a table");
 }

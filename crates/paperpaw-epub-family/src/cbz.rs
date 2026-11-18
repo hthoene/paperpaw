@@ -1,7 +1,11 @@
 //! Comic book archives (`.cbz`): a ZIP of pictures, one page each, in the
 //! order of their names (numbers counted as numbers, so `2.jpg` comes
 //! before `10.jpg`). A `ComicInfo.xml` gives title, series, number,
-//! writers and summary.
+//! writers, summary and whether the book is manga (read from right to left).
+//!
+//! In panel mode (the setting [`PANELS`]) a page is as many positions as it
+//! has panels (found by `cbz_panels`), each a picture of its own, the panel
+//! as large as the page's size allows; a page without panels is one position.
 //!
 //! Each picture is a section of one image block; it is decoded when its
 //! page is first shown and kept in the cache, so only one page is ever
@@ -14,13 +18,15 @@ use core::cmp::Ordering;
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{
     Align, Block, BlockKind, Document, DocumentError, ImageRef, Locator, Metadata, OffsetMap,
+    PageProgression,
 };
-use paperpaw_sdk::image::Fit;
+use paperpaw_sdk::image::{Fit, GrayFile, ImageFile};
 use paperpaw_sdk::xml::{Token, Tokenizer, local_name};
 use paperpaw_sdk::zip::ZipArchive;
 
 use crate::PLUGIN;
 use crate::cached;
+use crate::cbz_panels::{self, MAX_PANELS, Panel};
 use crate::convert;
 use crate::fallible;
 use crate::package::error;
@@ -35,8 +41,22 @@ const ENTRY: usize = 16;
 const MAX_NAME: usize = 1024;
 /// Marks a book without `ComicInfo.xml` in `pages.bin`.
 const NO_INFO: u32 = u32::MAX;
-/// Largest `ComicInfo.xml` read.
-const MAX_INFO: usize = 64 * 1024;
+/// Most of `ComicInfo.xml` read (more is left unread).
+const MAX_INFO: usize = 256 * 1024;
+/// Most of a field's text kept (a longer summary is cut).
+const MAX_FIELD: usize = 4096;
+/// The longest element name looked at.
+const MAX_FIELD_NAME: usize = 32;
+
+/// The setting that makes pages panels (a switch, off to begin with).
+pub const PANELS: &str = "format-cbz.panels";
+/// The setting of the way pages run: from the book (`ComicInfo.xml`'s
+/// `Manga`), left to right or right to left.
+pub const DIRECTION: &str = "format-cbz.direction";
+/// The choice of [`DIRECTION`] that reads right to left.
+pub const RIGHT_TO_LEFT: &str = "format-cbz.direction.rtl";
+/// The choice of [`DIRECTION`] that reads left to right.
+pub const LEFT_TO_RIGHT: &str = "format-cbz.direction.ltr";
 
 /// An open comic book.
 #[derive(Debug)]
@@ -53,6 +73,10 @@ pub struct CbzDocument {
     /// Pages decoded at most this large.
     image_fit: Fit,
     cover_fit: Fit,
+    /// Pages are shown panel by panel.
+    panels: bool,
+    /// Pages and panels run from right to left.
+    rtl: bool,
 }
 
 /// Whether `name` is a picture PaperPaw shows.
@@ -146,6 +170,17 @@ impl CbzDocument {
             Some(entry) => comic_info(storage, &archive, &entry)?.unwrap_or_default(),
             None => Metadata::default(),
         };
+        // The setting wins over the book's `Manga`.
+        let rtl = match options.setting(DIRECTION) {
+            Some(RIGHT_TO_LEFT) => true,
+            Some(LEFT_TO_RIGHT) => false,
+            _ => metadata.direction == PageProgression::RightToLeft,
+        };
+        metadata.direction = if rtl {
+            PageProgression::RightToLeft
+        } else {
+            PageProgression::LeftToRight
+        };
         if metadata.title.is_none() {
             let name = path.rsplit('/').next().unwrap_or(path);
             metadata.title = Some(fallible::string(
@@ -160,6 +195,8 @@ impl CbzDocument {
             color: options.color,
             image_fit: options.image_fit,
             cover_fit: options.cover_fit,
+            panels: matches!(options.setting(PANELS), Some("true" | "on" | "1")),
+            rtl,
         })
     }
 
@@ -221,6 +258,92 @@ impl CbzDocument {
     }
 }
 
+impl CbzDocument {
+    /// The letter that tells the lists and pictures of a direction apart.
+    fn way(&self) -> char {
+        if self.rtl { 'r' } else { 'l' }
+    }
+
+    /// The panels of page `index`, in reading order, from its list or found
+    /// now in `page` (its decoded gray picture) and kept; none where the
+    /// page has none (or is in colour).
+    fn panels_of(
+        &self,
+        storage: &dyn Storage,
+        index: usize,
+        page: &ImageRef,
+    ) -> Result<Vec<Panel>, DocumentError> {
+        if !page.path.ends_with(".gray") {
+            return Ok(Vec::new());
+        }
+        let list = fallible::try_format!("{}/p{index}.{}.panels", self.cache, self.way())?;
+        let size = storage.size(&list).unwrap_or(0);
+        if size > 0
+            && size <= 1 + (MAX_PANELS * 8) as u64
+            && let Ok(bytes) = paperpaw_sdk::read_file(storage, &list, 1 + MAX_PANELS * 8)
+        {
+            return cbz_panels::decode(&bytes);
+        }
+        let Some(file) = GrayFile::open(storage, &page.path) else {
+            return Ok(Vec::new());
+        };
+        let found = match cbz_panels::find(storage, &file, self.rtl) {
+            Ok(found) => found,
+            Err(DocumentError::OutOfMemory) => return Err(DocumentError::OutOfMemory),
+            // A page that cannot be read has no panels now; tried again later.
+            Err(_) => return Ok(Vec::new()),
+        };
+        // Not kept where there is no room: found again next time.
+        let _ = storage.write(&list, &cbz_panels::encode(&found)?);
+        Ok(found)
+    }
+
+    /// The picture file of panel `k` of page `index`.
+    fn crop_path(&self, index: usize, k: usize) -> Result<String, DocumentError> {
+        fallible::try_format!("{}/q{index}.{k}{}.gray", self.cache, self.way())
+    }
+
+    /// Draws the panel `image` names (a file made by [`Self::crop_path`]): the
+    /// pictures of the page shown before go, so a book keeps the panels of
+    /// one page.
+    fn make_crop(&self, storage: &dyn Storage, image: &ImageRef) -> Option<ImageRef> {
+        let name = image
+            .path
+            .strip_prefix(self.cache.as_str())?
+            .strip_prefix("/q")?;
+        let name = name.strip_suffix(".gray")?;
+        let (index, rest) = name.split_once('.')?;
+        let (k, way) = rest.split_at(rest.len().checked_sub(1)?);
+        let (index, k): (usize, usize) = (index.parse().ok()?, k.parse().ok()?);
+        if way != self.way().encode_utf8(&mut [0; 4]) || index >= self.pages as usize {
+            return None;
+        }
+        let base = fallible::try_format!("{}/p{index}", self.cache).ok()?;
+        let page = crate::pictures::open(storage, &base, false)?;
+        let panel = *self.panels_of(storage, index, &page).ok()?.get(k)?;
+        let file = GrayFile::open(storage, &page.path)?;
+        let marker = fallible::try_format!("{}/q.page", self.cache).ok()?;
+        let shown = paperpaw_sdk::read_file(storage, &marker, 16).ok();
+        let number = fallible::try_format!("{index}").ok()?;
+        if shown.as_deref() != Some(number.as_bytes()) {
+            if let Some(old) = shown
+                .as_deref()
+                .and_then(|b| core::str::from_utf8(b).ok())
+                .and_then(|t| t.parse::<usize>().ok())
+            {
+                for k in 0..MAX_PANELS {
+                    if let Ok(path) = self.crop_path(old, k) {
+                        let _ = storage.remove(&path);
+                    }
+                }
+            }
+            storage.write(&marker, number.as_bytes()).ok()?;
+        }
+        cbz_panels::crop(storage, &file, panel, &image.path).ok()?;
+        crate::pictures::open_path(storage, &image.path)
+    }
+}
+
 /// Writes `pages.bin` to `list`: the record of `ComicInfo.xml`, then those
 /// of the pictures in reading order, the first [`MAX_PAGES`]. Their names
 /// are held in [`MAX_NAMES`] bytes: past that, the last in reading order
@@ -277,78 +400,138 @@ fn list_pages(
     Ok(pages.len() as u32)
 }
 
-/// Title, series and number, writers, summary, language and genres from
-/// `ComicInfo.xml`; none where it cannot be read, `OutOfMemory` where it
-/// finds no room.
-fn comic_info(
-    storage: &dyn Storage,
-    archive: &ZipArchive,
-    entry: &paperpaw_sdk::zip::Entry,
-) -> Result<Option<Metadata>, DocumentError> {
-    let mut data: Vec<u8> = Vec::new();
-    let mut refused = None;
-    let read = archive.stream(storage, entry, &mut |chunk| {
-        if let Err(e) = fallible::reserve(&mut data, chunk.len()) {
-            refused = Some(e);
-            return false;
-        }
-        data.extend_from_slice(chunk);
-        data.len() < MAX_INFO
-    });
-    if let Some(e) = refused {
-        return Err(e);
-    }
-    if read.is_err() {
-        return Ok(None);
-    }
-    let mut metadata = Metadata::default();
-    let mut field = String::new();
-    let mut text = String::new();
-    let list = |text: &str| -> Result<Vec<String>, DocumentError> {
+/// What is read of `ComicInfo.xml` while it is streamed: the text of the
+/// element being read among the root's children, and the metadata so far.
+struct Info {
+    metadata: Metadata,
+    depth: usize,
+    field: String,
+    text: String,
+}
+
+impl Info {
+    fn list(text: &str) -> Result<Vec<String>, DocumentError> {
         let mut out = Vec::new();
         for item in text.split(',').map(str::trim).filter(|s| !s.is_empty()) {
             fallible::push(&mut out, fallible::string(item)?)?;
         }
         Ok(out)
-    };
-    let mut fill = |token: Token<'_>| -> Result<(), DocumentError> {
+    }
+
+    /// Adds text of the field being read, cut at [`MAX_FIELD`] bytes.
+    fn add(&mut self, text: &str) -> Result<(), DocumentError> {
+        if self.depth != 2 || self.field.is_empty() {
+            return Ok(());
+        }
+        let room = MAX_FIELD.saturating_sub(self.text.len());
+        let mut end = text.len().min(room);
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        fallible::push_str(&mut self.text, &text[..end])
+    }
+
+    fn token(&mut self, token: Token<'_>) -> Result<(), DocumentError> {
         match token {
-            Token::Start { name, .. } => {
-                field = fallible::string(local_name(name))?;
-                text.clear();
+            Token::Start {
+                name, self_closing, ..
+            } => {
+                if !self_closing {
+                    self.depth += 1;
+                }
+                self.field.clear();
+                self.text.clear();
+                let name = local_name(name);
+                if self.depth == 2 && !self_closing && name.len() <= MAX_FIELD_NAME {
+                    fallible::push_str(&mut self.field, name)?;
+                }
             }
             Token::Text(t) => {
                 let decoded = paperpaw_sdk::xml::try_decode(&t).map_err(|_| fallible::OOM)?;
-                fallible::push_str(&mut text, &decoded)?;
+                self.add(&decoded)?;
             }
+            Token::CData(t) => self.add(t)?,
             Token::End { name } => {
-                let value = text.trim();
-                if local_name(name) == field && !value.is_empty() {
-                    match field.as_str() {
-                        "Title" => metadata.title = Some(fallible::string(value)?),
-                        "Series" => metadata.series = Some(fallible::string(value)?),
-                        "Number" => metadata.series_index = Some(fallible::string(value)?),
-                        "Writer" => metadata.authors = list(value)?,
-                        "Summary" => metadata.description = Some(fallible::string(value)?),
-                        "LanguageISO" => metadata.language = Some(fallible::string(value)?),
-                        "Genre" | "Tags" => {
-                            for subject in list(value)? {
-                                fallible::push(&mut metadata.subjects, subject)?;
-                            }
-                        }
-                        _ => {}
-                    }
+                if self.depth == 2 && local_name(name) == self.field {
+                    self.commit()?;
                 }
-                text.clear();
+                self.depth = self.depth.saturating_sub(1);
+                self.field.clear();
+                self.text.clear();
+            }
+        }
+        Ok(())
+    }
+
+    fn commit(&mut self) -> Result<(), DocumentError> {
+        let value = self.text.trim();
+        if value.is_empty() {
+            return Ok(());
+        }
+        let metadata = &mut self.metadata;
+        match self.field.as_str() {
+            "Title" => metadata.title = Some(fallible::string(value)?),
+            "Series" => metadata.series = Some(fallible::string(value)?),
+            "Number" => metadata.series_index = Some(fallible::string(value)?),
+            "Writer" => metadata.authors = Self::list(value)?,
+            "Summary" => metadata.description = Some(fallible::string(value)?),
+            "LanguageISO" => metadata.language = Some(fallible::string(value)?),
+            "Manga" if value.eq_ignore_ascii_case("YesAndRightToLeft") => {
+                metadata.direction = PageProgression::RightToLeft;
+            }
+            "Genre" | "Tags" => {
+                for subject in Self::list(value)? {
+                    fallible::push(&mut metadata.subjects, subject)?;
+                }
             }
             _ => {}
         }
         Ok(())
+    }
+}
+
+/// Title, series and number, writers, summary, language, genres and
+/// whether it is manga from `ComicInfo.xml`; none where it cannot be read,
+/// `OutOfMemory` where it finds no room. The file is streamed through the
+/// XML tokenizer: no more than a few KiB are held, whatever its size, and
+/// no more than [`MAX_INFO`] bytes are read.
+fn comic_info(
+    storage: &dyn Storage,
+    archive: &ZipArchive,
+    entry: &paperpaw_sdk::zip::Entry,
+) -> Result<Option<Metadata>, DocumentError> {
+    let mut info = Info {
+        metadata: Metadata::default(),
+        depth: 0,
+        field: String::new(),
+        text: String::new(),
     };
+    let mut tokenizer = Tokenizer::new();
     let mut failed = None;
-    Tokenizer::parse(&data, &mut |token| {
+    let mut read = 0;
+    let streamed = archive.stream(storage, entry, &mut |chunk| {
+        read += chunk.len();
+        let fed = tokenizer.try_feed(chunk, &mut |token| {
+            if failed.is_none()
+                && let Err(e) = info.token(token)
+            {
+                failed = Some(e);
+            }
+        });
+        if fed.is_err() {
+            failed = Some(fallible::OOM);
+        }
+        failed.is_none() && read < MAX_INFO
+    });
+    if let Some(e) = failed {
+        return Err(e);
+    }
+    if streamed.is_err() {
+        return Ok(None);
+    }
+    tokenizer.finish(&mut |token| {
         if failed.is_none()
-            && let Err(e) = fill(token)
+            && let Err(e) = info.token(token)
         {
             failed = Some(e);
         }
@@ -356,6 +539,7 @@ fn comic_info(
     if let Some(e) = failed {
         return Err(e);
     }
+    let mut metadata = info.metadata;
     // An issue's title alone says little: with its series.
     if let (Some(series), Some(title)) = (&metadata.series, &metadata.title)
         && !title.contains(series.as_str())
@@ -386,16 +570,38 @@ impl Document for CbzDocument {
     }
 
     fn section_len(&self, _: u32) -> u32 {
-        1
+        if self.panels { MAX_PANELS as u32 } else { 1 }
+    }
+
+    fn pictures_deferred(&self) -> bool {
+        self.panels
     }
 
     fn block_at(&self, storage: &dyn Storage, at: Locator) -> Result<Option<Block>, DocumentError> {
         let index = at.section as usize;
-        if index >= self.pages as usize || at.offset >= 1 {
+        if index >= self.pages as usize || (!self.panels && at.offset >= 1) {
             return Ok(None);
         }
         let cache = fallible::try_format!("{}/p{index}", self.cache)?;
-        let image = self.picture(storage, index, &cache, self.image_fit)?;
+        let page = self.picture(storage, index, &cache, self.image_fit)?;
+        let panels = match (&page, self.panels) {
+            (Some(page), true) => self.panels_of(storage, index, page)?,
+            _ => Vec::new(),
+        };
+        let k = at.offset as usize;
+        if k >= panels.len().max(1) {
+            return Ok(None);
+        }
+        // A panel is a picture of its own, of the page's size, made when a
+        // page shows it (`prepare_image`).
+        let image = match (panels.get(k), &page) {
+            (Some(_), Some(page)) => Some(ImageRef {
+                path: self.crop_path(index, k)?,
+                width: page.width,
+                height: page.height,
+            }),
+            _ => page,
+        };
         // A picture that cannot be shown is named instead.
         let (kind, text) = match &image {
             Some(_) => (BlockKind::Image, String::new()),
@@ -407,11 +613,18 @@ impl Document for CbzDocument {
             ),
         };
         Ok(Some(
-            Block::new(kind, 0, 1, text)
+            Block::new(kind, k as u32, k as u32 + 1, text)
                 .map(OffsetMap::IDENTITY)
                 .align(Align::Center)
                 .image(image),
         ))
+    }
+
+    fn prepare_image(&self, storage: &dyn Storage, image: &ImageRef) -> Option<ImageRef> {
+        if !self.panels || ImageFile::open(storage, &image.path).is_some() {
+            return None;
+        }
+        self.make_crop(storage, image)
     }
 
     fn cover(&self, storage: &dyn Storage) -> Result<Option<ImageRef>, DocumentError> {

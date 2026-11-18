@@ -511,49 +511,38 @@ fn wired_services(wired: &WiredHosts, on_card: Wired) -> Wired {
     }
 }
 
-/// What a plugin file for the emulated device is checked against: the loader
-/// of its chip and the metadata profile of its firmware (`device.md` 5.1), as
-/// the device's firmware has them. `None` for a device PaperPaw installs no
-/// plugin files on. The emulator runs no such file itself (an installed
-/// plugin is the device's from its next start), but its store installs,
-/// checks and removes them as the device's does.
-pub fn card_plugins(
-    profile: &Profile,
-) -> Option<(
-    paperpaw_native::header5::Host,
-    metadata::Profile<'static>,
-    u16,
-)> {
-    use crate::no_firmware::{CHIP_ESP32_C3, CHIP_ESP32_S3};
-    use paperpaw_native::header5::{Host, S3_PROFILE, X4_PROFILE};
-    let minor = paperpaw_native::host_glue::MINOR;
+/// The chip family of the emulated device, for the devices PaperPaw installs
+/// plugin files on: what its plugin jobs check a file against is the firmware's
+/// ([`paperpaw_x4::host_jobs`]). `None` for a device that installs none. The
+/// emulator runs no such file itself (an installed plugin is the device's from
+/// its next start), but its store installs, checks and removes them as the
+/// device's does.
+pub fn card_plugins(profile: &Profile) -> Option<paperpaw_x4::host_jobs::Family> {
+    use paperpaw_x4::host_jobs::Family;
     match profile.catalog_device? {
-        "x4" => Some((Host::x4(minor), X4_PROFILE, CHIP_ESP32_C3)),
-        "x4-pro" | "x4-classic" => Some((Host::x4_pro(minor), S3_PROFILE, CHIP_ESP32_S3)),
+        "x4" => Some(Family::Riscv),
+        "x4-pro" | "x4-classic" => Some(Family::Xtensa),
         _ => None,
     }
 }
 
-/// Tells `kernel` what plugin jobs check a plugin file against: the services
-/// and features wired here (`on`, with `uses.install`), for the chip of
-/// `profile` ([`card_plugins`]). Whether plugin jobs are taken (the device
-/// installs plugins and the kernel has its firmware host, `device::build`).
+/// Tells `kernel` what plugin jobs check a plugin file against, as the
+/// firmware does (`paperpaw_x4::host_jobs::offer_plugin_jobs`): what the
+/// loader of the device's chip reads and offers a card plugin for the services
+/// wired here (`on`). Whether plugin jobs are taken (the device installs
+/// plugins and the kernel has its firmware host, `device::build`).
 fn take_plugin_jobs(kernel: &mut Kernel, profile: &Profile, on: Wired) -> bool {
-    let Some((loader, card, _)) = card_plugins(profile) else {
+    let Some(family) = card_plugins(profile) else {
         return false;
     };
-    let on = Wired {
-        install: true,
-        ..on
+    let wired = paperpaw_x4::native_offer::Wired {
+        work: on.work,
+        card: on.files && on.library && on.documents,
+        secrets: on.secrets,
+        lookup: false,
+        wifi: on.wifi,
     };
-    let offered = metadata::Host {
-        abi_major: 7,
-        minor: paperpaw_native::host_glue::MINOR,
-        profile: card,
-        services: offered(on),
-        features: features(on),
-    };
-    kernel.set_plugin_host(loader, offered, &[])
+    paperpaw_x4::host_jobs::offer_plugin_jobs(kernel, family.loader(), family, wired)
 }
 
 /// What the services wired for the device are, before the kernel is built:
@@ -593,7 +582,10 @@ pub fn prepare(
     let resources = pool
         .resources(profile.device.memory)
         .ok_or(Unavailable::NoRoom)?;
-    let device: Rc<DesktopDevice> = Rc::new(DesktopDevice::new(profile));
+    let device: Rc<DesktopDevice> = Rc::new({
+        let view = inputs.view.clone();
+        DesktopDevice::new(profile).with_online(Rc::new(move || view.network_up()))
+    });
     let mut wiring = HostWiring::new()
         .device(device)
         .lookup()

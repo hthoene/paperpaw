@@ -13,9 +13,10 @@
 //!
 //! Plugins' book data and the document caches are the job's own.
 use super::{importer, kept_file, position};
+use crate::kit::library;
+use crate::kit::library::catalog;
 use crate::native_host::lib_jobs::carry_status;
 use paperpaw_platform::Storage;
-use paperpaw_sdk::{library, library::catalog};
 
 /// The folder of the annotation files (`paperpaw_sdk::annotations::file`).
 const ANNOTATIONS: &str = ".paperpaw/annotations";

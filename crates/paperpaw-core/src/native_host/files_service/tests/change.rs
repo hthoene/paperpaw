@@ -524,7 +524,7 @@ fn a_file_that_is_no_book_moves_without_the_librarys_job() {
     // whose format is off): `.paperpaw/library/details/<h>/<key>.ini`.
     card.file("Books/b.mobi", 4);
     card.file("Books/c.mobi", 4);
-    let key = paperpaw_sdk::library::key("Books/b.mobi");
+    let key = crate::kit::library::key("Books/b.mobi");
     let details = alloc::format!(".paperpaw/library/details/{}/{key}.ini", &key[..2]);
     card.file(&details, 9);
     let before = host.library_moves.get();

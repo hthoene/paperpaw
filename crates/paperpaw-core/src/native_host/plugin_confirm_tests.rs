@@ -8,6 +8,7 @@ use crate::native_host::firmware_install::Answer;
 use crate::native_host::plugin_job::{
     KIND_INSTALL, USE_KEY_MAX, USES_SHOWN, Uses, reason as job_reason,
 };
+use crate::{Place, Turn};
 use alloc::string::ToString;
 use paperpaw_platform::firmware::{Text, WRITE_BLOCK};
 use paperpaw_platform::firmware_fake::{FakeFirmware, paperpaw_facts};
@@ -37,6 +38,7 @@ fn question() -> PluginQuestion {
             count: 0,
             more: false,
         },
+        old_secrets: false,
     }
 }
 
@@ -130,9 +132,9 @@ fn the_german_texts_cover_every_english_plugin_key() {
 mod kernel_side {
     use super::*;
     use crate::Kernel;
+    use crate::Staging;
     use paperpaw_sdk::{
-        Canvas, Cx, Env, Handled, Id, Manifest, Plugin, Priority, RegisterError, Registrar, Screen,
-        ScreenSpec, Version, builtin::slots,
+        Canvas, Handled, Id, Manifest, Priority, RegisterError, Version, builtin::slots,
     };
 
     fn fill(buf: &mut [u8]) -> bool {
@@ -144,27 +146,28 @@ mod kernel_side {
 
     /// A home screen to lie under the confirmation.
     struct Page;
-    impl Screen for Page {
-        fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-        fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    impl crate::testing::Fake for Page {
+        fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+        fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
             Handled::No
         }
     }
-    struct Home;
-    impl Plugin for Home {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("h"), "Home", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn home() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+        |r| {
             const HOME: Id = Id::new_static("h.home");
-            r.add_screen(ScreenSpec::new(
+            r.add_fake(crate::testing::FakeSpec::new(
                 HOME,
                 "home",
                 alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Page)),
             ))?;
             r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)
         }
+    }
+
+    /// What [`home`] registers under.
+    fn home_manifest() -> Manifest {
+        Manifest::new(Id::new_static("h"), "Home", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
     fn kernel(random: bool) -> Kernel {
@@ -185,7 +188,7 @@ mod kernel_side {
         }
         let mut kernel = builder
             .storage(card)
-            .plugin(Home)
+            .items(home_manifest(), home())
             .firmware_host(alloc::boxed::Box::new(fake))
             .plugin_host(loader, offered, &[])
             .build()
@@ -343,7 +346,7 @@ mod kernel_side {
         let mut kernel = Kernel::builder(crate::tests::DEVICE)
             .random(fill)
             .storage(paperpaw_sdk::MemoryStorage::new())
-            .plugin(Home)
+            .items(home_manifest(), home())
             .firmware_host(alloc::boxed::Box::new(fake))
             .plugin_host(loader, offered, &[])
             .build()
@@ -476,7 +479,7 @@ mod kernel_side {
         let mut kernel = Kernel::builder(crate::tests::DEVICE)
             .random(fill)
             .storage(paperpaw_sdk::MemoryStorage::new())
-            .plugin(Home)
+            .items(home_manifest(), home())
             .firmware_host(alloc::boxed::Box::new(FakeFirmware::new(
                 "0.5.0",
                 "paperpaw-x4",
@@ -495,7 +498,7 @@ mod kernel_side {
         let mut kernel = data_only_kernel();
         let changed = |kernel: &Kernel| {
             kernel.output.commands.iter().any(|c| {
-                matches!(c, crate::Command::Emit(e, _)
+                matches!(c, crate::Ask::Emit(e, _)
                     if *e == paperpaw_sdk::builtin::events::PLUGINS_CHANGED)
             })
         };
@@ -582,7 +585,7 @@ mod kernel_side {
             // commands (as the sleep's own event); finished by the stop's
             // steps, after them, it waits for the next pass.
             let waits = kernel.output.commands.iter().any(|c| {
-                matches!(c, crate::Command::Emit(e, _)
+                matches!(c, crate::Ask::Emit(e, _)
                     if *e == paperpaw_sdk::builtin::events::PLUGINS_CHANGED)
             });
             in_the_stop += usize::from(loaded && !before && waits);

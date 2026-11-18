@@ -153,7 +153,7 @@ impl Kernel {
             return false;
         };
         self.firmware_wire(&cell);
-        let now = self.now.millis();
+        let now = self.shared.now.millis();
         if self.shared.native_instances.depth() > 0 {
             return cell.resume_wanted()
                 || cell.driver().is_some_and(|driver| {
@@ -284,7 +284,14 @@ impl Kernel {
         let Some(id) = driver.try_borrow().ok().and_then(|d| d.peek_forget()) else {
             return;
         };
-        let ok = self.forget_removed(id.as_str());
+        // An id on the list of `plugin_unforgotten` (an install that erases
+        // what a removal left) needs the secrets host itself.
+        let storage = self.shared.storage.clone();
+        let ok = if super::plugin_unforgotten::has(storage.as_ref(), id.as_str()) {
+            self.forget_listed(id.as_str())
+        } else {
+            self.forget_removed(id.as_str())
+        };
         if let Ok(mut driver) = driver.try_borrow_mut() {
             driver.plugin_forgotten(ok);
         }
@@ -474,7 +481,7 @@ impl Kernel {
             };
             let state = driver.try_borrow().map_or(0, |driver| driver.state());
             let record = Record::EventFirmwareChanged(wire::EventFirmwareChanged {
-                now_ms: self.now.millis(),
+                now_ms: self.shared.now.millis(),
                 request,
                 state,
             });
@@ -510,7 +517,7 @@ impl Kernel {
                 .id(outcome.owner)
                 .map_or("", |id| id.as_str());
             let record = Record::EventInstallDone(wire::EventInstallDone {
-                now_ms: self.now.millis(),
+                now_ms: self.shared.now.millis(),
                 request: outcome.request,
                 kind: outcome.kind,
                 status: status_of(outcome),
@@ -546,7 +553,7 @@ impl Kernel {
     /// device may idle meanwhile (`Kernel::firmware_due` is the deadline).
     fn firmware_hold_back(&self, driver: &super::firmware_cell::DriverRef) {
         if let Ok(mut driver) = driver.try_borrow_mut() {
-            driver.hold_back(self.now.millis().saturating_add(RETRY_MS));
+            driver.hold_back(self.shared.now.millis().saturating_add(RETRY_MS));
         }
     }
 

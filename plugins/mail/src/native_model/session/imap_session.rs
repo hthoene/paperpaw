@@ -55,6 +55,19 @@ pub enum Task {
         /// The file.
         out: String,
     },
+    /// One part of the message `uid` of `folder` (`part` as IMAP numbers the
+    /// parts, `2` or `1.2`), as the server has it, still in its transfer
+    /// encoding, to `out`: an attachment's bytes before they are decoded.
+    Part {
+        /// The folder.
+        folder: String,
+        /// The message.
+        uid: u32,
+        /// The part's number.
+        part: String,
+        /// The file.
+        out: String,
+    },
     /// Sets (`on`) or clears a flag (`\Seen`, `\Flagged`) of a message.
     Flag {
         /// The folder.
@@ -72,9 +85,10 @@ impl Task {
     fn folder(&self) -> Option<&str> {
         match self {
             Task::Folders { .. } => None,
-            Task::Sync { folder, .. } | Task::Body { folder, .. } | Task::Flag { folder, .. } => {
-                Some(folder)
-            }
+            Task::Sync { folder, .. }
+            | Task::Body { folder, .. }
+            | Task::Part { folder, .. }
+            | Task::Flag { folder, .. } => Some(folder),
         }
     }
 }
@@ -92,6 +106,7 @@ enum Command {
     Status,
     FetchHeaders,
     FetchBody,
+    FetchPart,
     Store,
     Logout,
 }
@@ -674,7 +689,9 @@ impl Imap {
                     keep: len <= MAX_HEADERS_LITERAL,
                 });
             }
-            Some(Command::FetchBody) => return self.body_literal(len, io, storage, events),
+            Some(Command::FetchBody | Command::FetchPart) => {
+                return self.body_literal(len, io, storage, events);
+            }
             _ => self.literal = Some(Literal::Skip { left: len }),
         }
         Ok(true)
@@ -691,6 +708,13 @@ impl Imap {
     ) -> Result<bool, Fail> {
         let out = match &self.task {
             Some(Task::Body { out, .. }) if len <= store::MAX_FETCH + 1024 => words(out)?,
+            // An attachment is the reader's to ask for: one over what it may
+            // be is said so, and the connection goes no further.
+            Some(Task::Part { .. }) if len > store::MAX_PART => {
+                self.fail(io, events, Failure::TooLarge)?;
+                return Ok(false);
+            }
+            Some(Task::Part { out, .. }) => words(out)?,
             _ => {
                 self.fail(io, events, Failure::Protocol)?;
                 return Ok(false);
@@ -799,7 +823,7 @@ impl Imap {
 
     /// The scratch file of a literal's rest joined to the message's file.
     fn join(&mut self, storage: &dyn Storage, scratch: &str) -> Result<(), Fail> {
-        let Some(Task::Body { out, .. }) = &self.task else {
+        let (Some(Task::Body { out, .. }) | Some(Task::Part { out, .. })) = &self.task else {
             return Err(StorageError::InvalidPath.into());
         };
         let mut chunk = vec_with(JOIN_PIECE)?;
@@ -891,7 +915,7 @@ impl Imap {
                 }
                 self.finish_sync(io, storage, events)?;
             }
-            Command::FetchBody | Command::Store => {
+            Command::FetchBody | Command::FetchPart | Command::Store => {
                 if !ok {
                     return self.fail(io, events, Failure::Refused(reply));
                 }
@@ -959,7 +983,7 @@ impl Imap {
         let stage = match task {
             Task::Folders { .. } => Stage::Folders,
             Task::Sync { .. } => Stage::Headers,
-            Task::Body { .. } => Stage::Message,
+            Task::Body { .. } | Task::Part { .. } => Stage::Message,
             Task::Flag { .. } => Stage::Updating,
         };
         let folder = match task.folder() {
@@ -1001,6 +1025,10 @@ impl Imap {
                     store::MAX_FETCH
                 ))?;
                 self.command(io, events, Command::FetchBody, &[&line])?;
+            }
+            Some(Task::Part { uid, part, .. }) => {
+                let line = text::format(format_args!("UID FETCH {uid} BODY.PEEK[{part}]"))?;
+                self.command(io, events, Command::FetchPart, &[&line])?;
             }
             Some(Task::Flag { uid, flag, on, .. }) => {
                 let sign = if *on { '+' } else { '-' };

@@ -152,9 +152,11 @@ pub fn list(storage: &dyn Storage, dir: &str, hidden: bool) -> Result<Vec<Entry>
     Ok(entries)
 }
 
-/// Whether `path` is a folder.
+/// Whether `path` is a folder: listed as far as its first entry, not
+/// whole (a folder of thousands of books is not read to learn that it is
+/// there).
 pub fn is_dir(storage: &dyn Storage, path: &str) -> bool {
-    !storage.exists(path) && storage.list(path, &mut |_| {}).is_ok()
+    !storage.exists(path) && storage.list_bounded(path, 0, &mut |_| false).is_ok()
 }
 
 /// Names tried by [`free_path`]: more than a folder on a memory card
@@ -454,7 +456,7 @@ pub fn for_each_line(
 }
 
 /// A size as people read it: `820 B`, `14 KB`, `2,3 MB` (with the
-/// decimal mark given, in Latin digits). To show one, see [`shown_size`].
+/// decimal mark given, in Latin digits). To show one, see `shown_size`.
 pub fn size(bytes: u64, decimal: &str) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
     let mut value = bytes as f64;
@@ -469,13 +471,6 @@ pub fn size(bytes: u64, decimal: &str) -> String {
         let tenths = (value * 10.0 + 0.5) as u64;
         format!("{}{decimal}{} {}", tenths / 10, tenths % 10, UNITS[unit])
     }
-}
-
-/// A size as the language shown writes it: [`size`] with its decimal mark
-/// ([`decimal_mark`](crate::numbers::decimal_mark)) and its digits.
-pub fn shown_size(env: &crate::env::Env<'_>, bytes: u64) -> String {
-    let text = size(bytes, crate::numbers::decimal_mark(env));
-    env.i18n().localize_digits(&text).into_owned()
 }
 
 #[cfg(test)]

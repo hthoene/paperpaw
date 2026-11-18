@@ -705,9 +705,11 @@ impl NativeSettings {
             let Some(view) = self.screens.get(top) else {
                 continue;
             };
-            // A value of a row alone changes that row; anything else, the page.
+            // A value of a row alone changes that row; anything else, the page:
+            // the language changes the words of every row.
             if let View::Group(v) = view
                 && !key.is_empty()
+                && key != model::LANGUAGE
                 && v.editing.is_none()
                 && refresh_row(host, v, key)?
             {

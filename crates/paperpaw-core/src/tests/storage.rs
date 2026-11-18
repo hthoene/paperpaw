@@ -41,7 +41,7 @@ fn the_storage_says_whether_it_ignores_case() {
         .build()
         .unwrap();
     assert!(kernel.storage().ignores_case());
-    assert!(kernel.shared.env(Instant(0)).storage().ignores_case());
+    assert!(kernel.shared.place(Instant(0)).storage().ignores_case());
     let kernel = Kernel::builder(DEVICE)
         .storage(MemoryStorage::new())
         .build()

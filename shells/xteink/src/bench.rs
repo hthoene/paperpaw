@@ -1,9 +1,9 @@
 //! How much faster code runs from internal RAM than from flash (and, on
 //! the X4 Pro, than from PSRAM, where code plugins run), measured once at
 //! start in test builds (feature `remote`) and logged: what hot code in
-//! internal RAM gains on this chip (ADR 0030). The work is the frame
-//! test's (`samples/frame-test`): a small interpreter over its memory,
-//! fetching, decoding and branching as an emulator's core does.
+//! internal RAM gains on this chip (ADR 0030). The work is a small
+//! interpreter over its memory, fetching, decoding and branching as an
+//! emulator's core does.
 
 use alloc::vec;
 use alloc::vec::Vec;

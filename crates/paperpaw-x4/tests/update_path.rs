@@ -711,10 +711,16 @@ impl Device {
         }
         let path = format!("updates/{}-{}.bin", firmware.project, version_of(&file));
         self.card.write(&path, &received).unwrap();
+        self.install_card_file(&path)
+    }
+
+    /// Installs the update file at `path` of the card, as the firmware does
+    /// for one the update page downloaded or the owner put there.
+    fn install_card_file(&mut self, path: &str) -> Taken {
         let card = self.card.clone();
         let updates = self.updates.as_mut().unwrap();
         FAIL_NEXT_PAGE.with(|armed| armed.set(self.fail_buffer));
-        let begun = updates.begin(&card, &path, None, false);
+        let begun = updates.begin(&card, path, None, false);
         FAIL_NEXT_PAGE.with(|armed| armed.set(false));
         if let Err(why) = begun {
             return Taken::Failed(why);
@@ -770,6 +776,47 @@ fn updates_install_start_and_are_kept() {
         }
         // Up to date now.
         assert_eq!(device.update_online(), Taken::UpToDate, "{name}");
+    }
+}
+
+/// A signed update already on the card (put there by the owner, no server
+/// offer) installs through the firmware's own path, starts on trial and is
+/// kept; the old slot and the books on the card stay. The update page of the
+/// firmware only names such a file and starts this (`shells/xteink/src/ota.rs`).
+#[test]
+fn a_signed_card_update_installs_and_is_kept_without_network() {
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        device
+            .card
+            .write("updates/qualification.bin", &files.new)
+            .unwrap();
+        device
+            .card
+            .write("books/sentinel.txt", b"synced book")
+            .unwrap();
+        assert_eq!(
+            device.install_card_file("updates/qualification.bin"),
+            Taken::Installed,
+            "{name}"
+        );
+        assert!(device.holds(0, &files.old), "{name}: old slot retained");
+        assert!(device.holds(1, &files.new), "{name}: target slot complete");
+        device.restart();
+        assert_eq!(device.running(), 1, "{name}");
+        assert!(device.updates.as_ref().unwrap().on_trial(), "{name}");
+        device.run_for(TRIAL_MS + 1_000);
+        device.restart();
+        assert_eq!(device.running(), 1, "{name}: kept after restart");
+        assert!(!device.updates.as_ref().unwrap().on_trial(), "{name}");
+        assert!(device.untouched(), "{name}: unrelated flash retained");
+        let mut sentinel = [0; 11];
+        assert_eq!(
+            device.card.read_at("books/sentinel.txt", 0, &mut sentinel),
+            Ok(11)
+        );
+        assert_eq!(&sentinel, b"synced book");
     }
 }
 
@@ -969,6 +1016,41 @@ fn sleep_during_a_trial_keeps_its_time() {
         assert_eq!(device.running(), 1, "{name}: kept");
         assert!(!device.updates.as_ref().unwrap().on_trial(), "{name}");
         assert!(device.untouched(), "{name}");
+    }
+}
+
+/// On trial the other slot holds the firmware to go back to: the kernel's write
+/// (`FirmwareHost::begin_write`) is refused, and writes nothing, until the
+/// trial is over (#273).
+#[test]
+fn the_kernels_write_is_refused_while_a_trial_runs() {
+    use paperpaw_platform::firmware::{FirmwareHost, Reason};
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        device.server.updates = vec![files.new.clone()];
+        assert_eq!(device.update_online(), Taken::Installed, "{name}");
+        device.restart();
+        assert!(device.updates.as_ref().unwrap().on_trial(), "{name}");
+        let refused = FirmwareHost::begin_write(
+            device.updates.as_mut().unwrap(),
+            "update.bin",
+            [0; 32],
+            None,
+            false,
+        );
+        assert_eq!(refused, Err(Reason::OTHER), "{name}");
+        assert!(device.untouched(), "{name}");
+        // Kept: the write may begin again.
+        device.run_for(TRIAL_MS + 1_000);
+        let again = FirmwareHost::begin_write(
+            device.updates.as_mut().unwrap(),
+            "update.bin",
+            [0; 32],
+            None,
+            false,
+        );
+        assert_eq!(again, Ok(()), "{name}");
     }
 }
 

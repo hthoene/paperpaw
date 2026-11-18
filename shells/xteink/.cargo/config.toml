@@ -15,9 +15,9 @@ target = "riscv32imc-unknown-none-elf"
 rustc-wrapper = ""
 
 [alias]
-x4pro = "build --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote,waveform-lab -Zbuild-std=core,alloc"
-x4pro-run = "run --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote,waveform-lab -Zbuild-std=core,alloc"
-x4pro-clippy = "clippy --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote,waveform-lab -Zbuild-std=core,alloc"
+x4pro = "build --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote -Zbuild-std=core,alloc"
+x4pro-run = "run --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote -Zbuild-std=core,alloc"
+x4pro-clippy = "clippy --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote -Zbuild-std=core,alloc"
 # Compatibility aliases: Bluetooth is included in x4-pro now.
 x4pro-bt = "build --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote,bluetooth -Zbuild-std=core,alloc"
 x4pro-bt-run = "run --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote,bluetooth -Zbuild-std=core,alloc"

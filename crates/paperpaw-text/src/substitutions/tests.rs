@@ -182,7 +182,7 @@ fn a_lookup_of_an_unknown_kind_is_skipped_and_one_key_becomes_several() {
 fn another_version_or_a_short_table_is_not_read() {
     let mut data = sample();
     assert!(Substitutions::new(&data[..data.len() - 1]).is_none());
-    data[0] = 2;
+    data[0] = 3;
     assert!(Substitutions::new(&data).is_none());
     assert!(Substitutions::new(&[]).is_none());
 }

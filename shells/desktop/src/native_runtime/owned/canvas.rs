@@ -4,7 +4,7 @@
 //! synchronous draw dispatch. Colour is generated `0x00RRGGBB`; this module
 //! forwards the scalars unchanged and does no conversion of its own.
 use super::*;
-use paperpaw_core::sdk::Env;
+use paperpaw_core::Place;
 use paperpaw_graphics::Canvas;
 
 pub(super) unsafe extern "C" fn fill_rect<S>(
@@ -22,14 +22,14 @@ pub(super) unsafe extern "C" fn fill_rect<S>(
     context.canvas.fill_rect_raw(x, y, width, height, color)
 }
 
-/// Draw dispatch with a frame: the Env (slots 4/5) and the Canvas (slot 9)
+/// Draw dispatch with a frame: the Place (slots 4/5) and the Canvas (slot 9)
 /// are both borrowed for this one synchronous callback and cleared on every
 /// exit, including unwind. Nested installation is refused by the scopes.
 pub(super) fn dispatch_draw<S>(
     batch: &Batch<'_, S, Registration>,
     index: usize,
     depth: &DispatchDepth,
-    env: &Env<'_>,
+    env: &Place<'_>,
     canvas: &mut Canvas<'_>,
 ) -> Result<i32, Error> {
     // The screen frame (N2): the canvas's visible region, drawn in one pass.

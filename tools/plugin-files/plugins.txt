@@ -4,34 +4,45 @@
 # out (crates/paperpaw-app, feature `store-plugins`). The two are no longer
 # kept in step, by design: a plugin that became a data plugin (data.toml)
 # leaves this list and stays in `store-plugins` until its code is removed.
-# aids reading  (no file until the store build moves to interface 7, #228)
-# battery system  (no file until the store build moves to interface 7, #228)
-# browser news  (no file until the store build moves to interface 7, #228)
-# calibre library  (no file until the store build moves to interface 7, #228)
-# diagnostics system  (no file until the store build moves to interface 7, #228)
-# end-of-book reading  (no file until the store build moves to interface 7, #228)
+aids reading
+anki learning
+battery system
+browser news
+calibre library
+diagnostics system
+edge-light system
+end-of-book reading
+file-sync sync
 # fonts-browser look  (no file until the store build moves to interface 7, #228)
 # format-mobi reading  (no file until the store build moves to interface 7, #228)
 # format-docx reading  (no file until the store build moves to interface 7, #228)
 # format-images reading  (no file until the store build moves to interface 7, #228)
-# joplin notes  (no file until the store build moves to interface 7, #228)
-# keys system  (no file until the store build moves to interface 7, #228)
-# kosync sync  (no file until the store build moves to interface 7, #228)
-# koreader sync  (no file until the store build moves to interface 7, #228)
-# mail news  (no file until the store build moves to interface 7, #228)
-# menu-editor look  (no file until the store build moves to interface 7, #228)
+format-rtf reading
+joplin notes
+keys system
+kosync sync
+koreader sync
+mail news
+menu-editor look
 # news news  (removed with interface 6; its store file comes with the interface-7 store build, #244)
-# notes-overview notes  (no file until the store build moves to interface 7, #228)
-# notes-vault notes  (no file until the store build moves to interface 7, #228)
+notes-overview notes
+notes-vault notes
+picture-frame look
 # picture-home look  (removed with interface 6; its store file comes with the interface-7 store build, #244)
-# profiles reading  (no file until the store build moves to interface 7, #228)
-# reading-goal reading  (no file until the store build moves to interface 7, #228)
-# readwise notes  (no file until the store build moves to interface 7, #228)
-# read-later-cloud news  (no file until the store build moves to interface 7, #228)
-# rules system  (no file until the store build moves to interface 7, #228)
-# translate reading  (no file until the store build moves to interface 7, #228)
-# stats reading  (no file until the store build moves to interface 7, #228)
+pomodoro home
+puzzles home
+profiles reading
+reading-goal reading
+readwise notes
+read-later-cloud news
+rules system
+translate reading
+smart-home home
+stats reading
+tasks home
+calendar home
 vocabulary learning
-# wallabag news  (no file until the store build moves to interface 7, #228)
-# weather home  (no file until the store build moves to interface 7, #228)
+wallabag news
+weather home
 # widgets home  (no file until the store build moves to interface 7, #228)
+wikipedia reading

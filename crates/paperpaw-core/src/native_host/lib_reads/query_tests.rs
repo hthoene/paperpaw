@@ -3,7 +3,7 @@
 //! by cursor under a generation, and what a changing catalog does.
 extern crate std;
 use super::*;
-use crate::native_host::lib_reads::tests::Env;
+use crate::native_host::lib_reads::tests::Facts;
 use crate::native_host::lib_service::{BookRef, LibQuery};
 use alloc::rc::Rc;
 use alloc::string::ToString;
@@ -47,7 +47,7 @@ fn line(
 
 struct Shelf {
     storage: Rc<MemoryStorage>,
-    env: Rc<Env>,
+    env: Rc<Facts>,
     /// Where each line starts, in the order they were given.
     at: Vec<u64>,
 }
@@ -63,7 +63,7 @@ fn shelf(lines: &[String]) -> Shelf {
         storage: Rc::new(
             MemoryStorage::new().with(".paperpaw/library/catalog.txt", text.into_bytes()),
         ),
-        env: Rc::new(Env {
+        env: Rc::new(Facts {
             walking: Cell::new(None),
             today: Cell::new(Some(20_000)),
         }),
@@ -408,7 +408,7 @@ fn a_named_generation_that_is_not_the_catalogs_is_state_and_zero_is_the_current_
     q.generation = generation ^ 0x5555;
     assert_eq!(page(&reads, &q, 1).err(), Some(ERR_STATE));
     // The catalog changed: the old generation is stale.
-    paperpaw_sdk::library::catalog::forget(&*s.storage, "books/00.epub").unwrap();
+    crate::kit::library::catalog::forget(&*s.storage, "books/00.epub").unwrap();
     q.generation = generation;
     assert_eq!(page(&reads, &q, 1).err(), Some(ERR_STATE));
     let (_, end) = page(&reads, &ask(), 1).unwrap();
@@ -478,7 +478,7 @@ fn a_book_by_the_handle_a_query_gave_is_that_book() {
 fn an_empty_or_missing_catalog_has_no_books() {
     let s = Shelf {
         storage: Rc::new(MemoryStorage::new()),
-        env: Rc::new(Env {
+        env: Rc::new(Facts {
             walking: Cell::new(None),
             today: Cell::new(None),
         }),
@@ -536,4 +536,98 @@ fn a_nul_in_a_title_is_left_out_of_its_sort_key() {
     let (rows, _) = page(&s.reads(), &ask(), 9).unwrap();
     let keys: Vec<u64> = rows.iter().map(|r| u64::from(r.key)).collect();
     assert_eq!(keys, [s.at[1], s.at[2], s.at[0]]);
+}
+
+/// A card that counts the looks at details files (`.ini`).
+struct Details {
+    inner: Rc<MemoryStorage>,
+    looks: Cell<u32>,
+}
+
+impl Details {
+    fn look(&self, path: &str) {
+        if path.ends_with(".ini") {
+            self.looks.set(self.looks.get() + 1);
+        }
+    }
+}
+
+impl Storage for Details {
+    fn read_at(
+        &self,
+        path: &str,
+        at: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        self.look(path);
+        self.inner.read_at(path, at, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        self.look(path);
+        self.inner.size(path)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.append(p, d)
+    }
+    fn list(
+        &self,
+        d: &str,
+        v: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.list(d, v)
+    }
+    fn list_from(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, paperpaw_platform::StorageError> {
+        self.inner.list_from(dir, from, visit)
+    }
+    fn remove(&self, p: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.remove(p)
+    }
+    fn rename(&self, f: &str, t: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.rename(f, t)
+    }
+    fn create_dir(&self, p: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.create_dir(p)
+    }
+    fn remove_dir_all(&self, p: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.remove_dir_all(p)
+    }
+    fn sync(&self) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.sync()
+    }
+}
+
+#[test]
+fn a_book_is_checked_for_its_index_once_in_a_generation() {
+    let s = many();
+    let card = Rc::new(Details {
+        inner: s.storage.clone(),
+        looks: Cell::new(0),
+    });
+    let reads = CatalogReads::new(card.clone(), s.env.clone());
+    let looks = || card.looks.get();
+    let (first, _) = page(&reads, &ask(), 8).unwrap();
+    let after_first = looks();
+    assert!(after_first >= 8, "each row is checked the first time");
+    let (again, _) = page(&reads, &ask(), 8).unwrap();
+    assert_eq!(again, first, "the same rows");
+    assert_eq!(looks(), after_first, "none is checked again");
+    // The library changed: its generation is another, so they are checked.
+    crate::kit::library::catalog::forget(&*s.storage, "books/00.epub").unwrap();
+    page(&reads, &ask(), 8).unwrap();
+    assert!(looks() > after_first, "a new generation asks again");
+    // While the catalog is made nothing is kept.
+    s.env.walking.set(Some(1));
+    let before = looks();
+    page(&reads, &ask(), 8).unwrap();
+    let during = looks();
+    page(&reads, &ask(), 8).unwrap();
+    assert!(during > before && looks() > during, "asked every time");
 }

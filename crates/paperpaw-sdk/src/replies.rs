@@ -2,12 +2,12 @@
 //! request ([`HttpReply`]), what happens to its server ([`ServerNotice`])
 //! or its sockets ([`SocketNotice`]), and what the reader typed, chose or
 //! answered when asked ([`Typed`], [`FolderChosen`], [`Confirmed`], see
-//! [`ask`](crate::ask)).
+//! `ask`).
 //!
 //! A plugin names the event that brings it, e.g.
 //! `const FETCHED: Event<HttpReply> = Event::new("news.fetched")`, passes
 //! it with the request, and hears it with
-//! [`Registrar::on`](crate::Registrar::on) or reads it on a screen with
+//! `Staging::on` or reads it on a screen with
 //! [`Event::read`](crate::event::Event::read). The parameters it gave the
 //! request come back as [`HttpReply::context`] (and so on), to tell its
 //! requests apart.
@@ -133,9 +133,9 @@ impl core::fmt::Display for HttpError {
     }
 }
 
-/// The answer to an HTTP request ([`Command::Http`](crate::Command::Http)).
+/// The answer to an HTTP request (`Ask::Http`).
 ///
-/// Heard with [`Registrar::on`](crate::Registrar::on), its body comes as
+/// Heard with `Staging::on`, its body comes as
 /// the shell gave it, without a copy. Observers of events see its other
 /// values, not the body.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -380,7 +380,7 @@ impl EventData for HttpProgress {
     }
 }
 
-/// The reply to [`Command::Speak`](crate::Command::Speak): whether the
+/// The reply to `Ask::Speak`: whether the
 /// text was spoken, and the speech's own parameters
 /// ([`Speech::with`](crate::Speech::with)).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -417,7 +417,7 @@ impl EventData for Spoken {
     }
 }
 
-/// The reply to [`Command::PlaySound`](crate::Command::PlaySound): whether
+/// The reply to `Ask::PlaySound`: whether
 /// the sound was played, and its own parameters
 /// ([`Sound::with`](crate::sound::Sound::with)).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -453,7 +453,7 @@ impl EventData for Played {
     }
 }
 
-/// What happened to a plugin's server ([`Command::Serve`](crate::Command::Serve)).
+/// What happened to a plugin's server (`Ask::Serve`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ServerNotice {
@@ -463,7 +463,7 @@ pub enum ServerNotice {
         address: String,
     },
     /// A request came: answer it with
-    /// [`Command::Respond`](crate::Command::Respond) and its `request`
+    /// `Ask::Respond` and its `request`
     /// number.
     Request {
         server: Id,
@@ -552,8 +552,8 @@ impl EventData for ServerNotice {
     }
 }
 
-/// What happened to a plugin's socket ([`Command::Connect`](crate::Command::Connect))
-/// or broadcast ([`Command::Broadcast`](crate::Command::Broadcast)).
+/// What happened to a plugin's socket (`Ask::Connect`)
+/// or broadcast (`Ask::Broadcast`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SocketNotice {
@@ -600,8 +600,8 @@ pub enum SocketNotice {
         reason: String,
     },
     /// The socket is encrypted (TLS) from now on: what is sent and
-    /// received goes so ([`Command::connect_tls`](crate::Command::connect_tls),
-    /// [`Command::start_tls`](crate::Command::start_tls)). `certificate`
+    /// received goes so (`Ask::connect_tls`,
+    /// `Ask::start_tls`). `certificate`
     /// and `key` are the server's, trusted; `time_checked` is false where
     /// the device did not know the time, and so not whether the
     /// certificate is valid now (see [`Tls`](crate::Tls)).
@@ -764,14 +764,14 @@ impl EventData for SocketNotice {
     }
 }
 
-/// What the reader typed when asked ([`ask::text`](crate::ask::text)).
+/// What the reader typed when asked (`ask::text`).
 /// Made with [`Typed::new`] (a keyboard of one's own answers so).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Typed {
     pub text: String,
     /// The text so far, while the reader still types: an answer to a
-    /// question asked [`live`](crate::ask::TextQuestion::live).
+    /// question asked `live`.
     pub typing: bool,
     /// The parameters the question was asked with.
     pub context: Params,
@@ -815,7 +815,7 @@ impl EventData for Typed {
     }
 }
 
-/// The folder the reader chose when asked ([`ask::folder`](crate::ask::folder)).
+/// The folder the reader chose when asked (`ask::folder`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct FolderChosen {
@@ -847,7 +847,7 @@ impl EventData for FolderChosen {
     }
 }
 
-/// The answer to a yes or no question ([`ask::confirm`](crate::ask::confirm)).
+/// The answer to a yes or no question (`ask::confirm`).
 /// Made with [`Confirmed::new`] (a screen of one's own on slot
 /// [`CONFIRM`](crate::builtin::slots::CONFIRM) answers so). No answer
 /// comes when the reader goes back.

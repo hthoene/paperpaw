@@ -9,9 +9,9 @@
 //! The early cycles grow lasting state once: the storage recall cache
 //! (`recall::Recall`, at most 64 paths) learns each path the first time it
 //! is read, the catalog check after the first standby and, with books, the
-//! cover and page caches made later in the quiet time (each cycle has a quiet
-//! moment at home before its standby, so every opened book has its cover
-//! long before [`SETTLED`]); the same with every plugin awake (#248). That
+//! cover and page caches. Before the cycles, each book is opened and left as
+//! Home's newest book in a quiet moment so its cover is made before measuring;
+//! the same with every plugin awake (#248). That
 //! growth from cycle 2 to [`SETTLED`] must stay under [`ONCE_MAX`]; from
 //! [`SETTLED`] on the heap must not change.
 //! Each frame is drawn as a shell draws it: the recall cache keeps what a
@@ -37,12 +37,13 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
 use card::Card;
+use paperpaw_core::kit::action::Action;
 use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation, Storage,
 };
 use paperpaw_sdk::builtin::{actions, slots};
-use paperpaw_sdk::{Action, Id, Params};
+use paperpaw_sdk::{Id, Params};
 
 /// Whether this allocation is left out: the card's own files (a test's
 /// storage, not the kernel's heap).
@@ -311,7 +312,7 @@ fn card_bytes(card: &Card, dir: &str) -> u64 {
 const _: () = assert!(CYCLES > SETTLED);
 
 /// Keeps cycle 2's heap and handles, checks the once-growth at [`SETTLED`]
-/// and that nothing changed from there to the last cycle.
+/// and that nothing changes in any cycle from there to the last.
 fn compare(first: &mut Option<(isize, usize)>, cycle: usize, now: (isize, usize)) {
     match *first {
         None if cycle == 2 => *first = Some(now),
@@ -325,7 +326,7 @@ fn compare(first: &mut Option<(isize, usize)>, cycle: usize, now: (isize, usize)
             );
             *first = Some(now);
         }
-        Some((heap, handles)) if cycle == CYCLES => {
+        Some((heap, handles)) if cycle > SETTLED => {
             assert_eq!(
                 now.1, handles,
                 "handles after cycle {cycle} vs cycle {SETTLED}"
@@ -383,6 +384,13 @@ fn main() {
         .collect();
     // An empty list would pass with nothing tested (CR on #1365).
     assert!(!ways.is_empty(), "no plugin may sleep: nothing to cycle");
+    for (_, way) in &ways {
+        if matches!(way, Use::Book(_)) {
+            run.reach(way);
+            run.quiet();
+            run.quiet();
+        }
+    }
     let mut first = None;
     for cycle in 1..=CYCLES {
         for (plugin, way) in &ways {
@@ -394,10 +402,8 @@ fn main() {
             );
         }
         run.run(&actions::HOME);
-        // The library makes the cover of a book opened before only in a
-        // quiet moment at home, and keeps its picture's id. Without this one
-        // the cycles leave it such a moment only now and then, and the last
-        // cover came after [`SETTLED`] (#258: in cycle 33, 96 B).
+        // The warm-up made each book's cover while it was Home's newest.
+        // Keep the usual quiet moment before standby for any pending work.
         run.quiet();
         run.standby();
         for (plugin, _) in &ways {

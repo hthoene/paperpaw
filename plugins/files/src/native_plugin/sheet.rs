@@ -37,23 +37,29 @@ impl NativeFiles {
         let reference = BookRef::catalog(book.key, view.window.generation)?;
         let library = self.library.as_ref().ok_or(Error::State)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-        let (path, finished, title) = match library.book(host, reference, &mut input, &mut out) {
-            Ok(book) => {
-                let (title, cut) = native_shelves::short(book.title(), MOST_TITLE);
-                let title = if cut {
-                    paperpaw_ui_kit::text::concat(&[title, "…"])?
-                } else {
-                    copy(title)?
-                };
-                (copy(book.path())?, book.finished(), title)
-            }
-            Err(Error::State | Error::NotFound) => {
-                // The book is gone: the list is read again and the user is told.
-                self.reread(host)?;
-                return self.notify(host, "files.list.gone");
-            }
-            Err(error) => return Err(error),
-        };
+        let (path, finished, title, format) =
+            match library.book(host, reference, &mut input, &mut out) {
+                Ok(book) => {
+                    let (title, cut) = native_shelves::short(book.title(), MOST_TITLE);
+                    let title = if cut {
+                        paperpaw_ui_kit::text::concat(&[title, "…"])?
+                    } else {
+                        copy(title)?
+                    };
+                    (
+                        copy(book.path())?,
+                        book.finished(),
+                        title,
+                        copy(book.format())?,
+                    )
+                }
+                Err(Error::State | Error::NotFound) => {
+                    // The book is gone: the list is read again and the user is told.
+                    self.reread(host)?;
+                    return self.notify(host, "files.list.gone");
+                }
+                Err(error) => return Err(error),
+            };
         let can_delete = match library.can_delete(host, &[&path], &mut input, &mut out) {
             Ok(report) => report.rows().next().is_some_and(|row| row.status().is_ok()),
             Err(Error::NoMemory) => return Err(Error::NoMemory),
@@ -61,10 +67,12 @@ impl NativeFiles {
             Err(_) => false,
         };
         let archive = Self::archive_folder(host)?;
+        let readers = self.readers_for(host, &format)?.len() > 1;
         let actions = native_sheet::actions(Facts {
             finished,
             can_archive: native_sheet::can_archive(&archive, &path),
             can_delete,
+            readers,
         })?;
         let mut say = Messages::new()?;
         let mut words = Vec::new();
@@ -86,6 +94,9 @@ impl NativeFiles {
     pub(super) fn act(&mut self, host: &Host<'_>, path: &str, action: Action) -> Result<(), Error> {
         match action {
             Action::Open => self.open_path(host, path),
+            Action::OpenWith => self.ask_reader(host, path, None),
+            Action::AlwaysWith => self.ask_reader(host, path, Some("book")),
+            Action::ForFolder => self.ask_reader(host, path, Some("folder")),
             Action::Info => self.open_info(host, path),
             Action::Finish => self.finish(host, path, true),
             Action::Unfinish => self.finish(host, path, false),

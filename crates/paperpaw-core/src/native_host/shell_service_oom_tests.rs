@@ -50,7 +50,7 @@ fn failed_handle_allocation_recovers_and_a_call_allocates_nothing() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut input = [0; 64];
     let length = registrations::records_encode(
         &[registrations::Record::ServiceEcho(

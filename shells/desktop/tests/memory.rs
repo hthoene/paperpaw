@@ -316,6 +316,66 @@ fn arabic_card_files() -> [(&'static str, Vec<u8>); 2] {
     ]
 }
 
+/// The German language pack of the X4 firmware (#251): every `de.ini` of the
+/// repository merged and compiled, as `plugins/language-de`.
+fn german_pack_files() -> [(&'static str, Vec<u8>); 2] {
+    fn walk(dir: &std::path::Path, found: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for path in entries.flatten().map(|e| e.path()) {
+            if path.is_dir() {
+                walk(&path, found);
+            } else if path.file_name().is_some_and(|n| n == "de.ini") {
+                found.push(std::fs::read_to_string(&path).unwrap());
+            }
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut texts = Vec::new();
+    for group in ["crates", "plugins", "shells"] {
+        for member in std::fs::read_dir(root.join(group)).unwrap().flatten() {
+            walk(&member.path().join("i18n"), &mut texts);
+        }
+    }
+    let merged = paperpaw_i18n::Catalog::merge_sources(texts.iter().map(String::as_str));
+    let compiled = paperpaw_i18n::Catalog::compile(&merged).unwrap();
+    [
+        (
+            "plugins/language-de/plugin.ini",
+            b"[plugin]\nid = language-de\nname = German\nversion = 1.0.0\nformats = 4\n".to_vec(),
+        ),
+        ("plugins/language-de/i18n/de.ppcat", compiled),
+    ]
+}
+
+/// German from its pack on the card (#251; the emulator also has German
+/// built in, which the pack's messages precede) starts within
+/// [`CARD_LANGUAGE_EXTRA_KIB`] of English's peak, as any card language.
+#[test]
+fn starting_in_german_from_its_language_pack_peaks_little_above_english() {
+    let files = german_pack_files();
+    let peak = |language: &str| {
+        let language = format!("core.language={language}");
+        heap(&emulator_with(
+            "x4-german-pack",
+            "xteink-x4",
+            None,
+            &files,
+            &["--set", &language, "--script", "wait:300"],
+        ))
+        .peak
+    };
+    let (english, german) = (peak("en"), peak("de"));
+    eprintln!(
+        "start (emulator): peak {english} KiB in English, {german} KiB in German from its pack"
+    );
+    assert!(
+        german <= english + CARD_LANGUAGE_EXTRA_KIB,
+        "start: peak {german} KiB in German from its pack, {english} KiB in English"
+    );
+}
+
 /// The start with the card language and the book read last an EPUB (the
 /// largest first screen): the peak stays within the X4's budget (#243).
 #[test]
@@ -366,6 +426,118 @@ fn starting_in_a_large_language_from_the_card_peaks_little_above_english() {
     assert!(
         arabic <= english + CARD_LANGUAGE_EXTRA_KIB,
         "start: peak {arabic} KiB in a language from the card, {english} KiB in English"
+    );
+}
+
+/// The most reading in Hindi may peak at here (#157): with Devanagari's
+/// substitutions in their compact form (15.9 KiB, not 28.4), measured at
+/// 217.8 KiB, 230.3 KiB before. This build has more than the X4's
+/// (diagnostics, the store's plugins): in the X4's (the heap reference
+/// set, #248) the same case peaks at 193.6 KiB, 206.1 before, 63.9 KB
+/// below its 256 KiB.
+const INDIC_PEAK_KIB: f64 = 222.0;
+
+/// The packs of Bengali and Devanagari letters (#157) as the store's are
+/// made (`tools/script-pack.py`): a regular and a bold pack of each, at the
+/// sizes `paperpaw-fontgen` renders; the interface in Hindi from its pack;
+/// a Hindi EPUB and a Bangla book.
+fn indic_files() -> Vec<(&'static str, Vec<u8>)> {
+    let fonts = root().join("tools/fonts");
+    let sizes = [20.0, 24.0, 28.0, 32.0, 36.0, 40.0, 48.0];
+    let pack = |file: &str, set: &str, weight: f32| {
+        let data = fs::read(fonts.join(file)).unwrap();
+        let font = paperpaw_text::OutlineFont::new(data, &[("wght", weight)]).unwrap();
+        let chars = paperpaw_text::charset::chars(paperpaw_text::charset::named(set).unwrap());
+        paperpaw_text::build_pack(&font, &sizes, chars)
+    };
+    let ini = |id: &str, file: &str| {
+        format!(
+            "[plugin]\nid = script-{id}\nname = {id}\nversion = 1.0.0\nformats = 5\n\n[extends]\n\
+             {file}.ppfp = fonts-default.literata, literata-styles.italic, fonts-default.source-sans\n\
+             {file}-bold.ppfp = literata-styles.bold, literata-bold-italic.bold-italic\n"
+        )
+        .into_bytes()
+    };
+    let hindi = fs::read_to_string(root().join("tools/plugin-files/languages/hi.ini")).unwrap();
+    let text = "हमारे गाँव के पास एक छोटी-सी नदी बहती है। बरसात में वह किनारों तक भर जाती है, \
+        और सुबह स्कूल जाने से पहले बच्चे उसके किनारे खेलते हैं। दादाजी कहते थे कि प्रकृति से ही \
+        हम धैर्य और क्षमा सीखते हैं; त्योहार के दिन सब नए कपड़े पहनते हैं और गीत गाते हैं।";
+    let mut zip = paperpaw_zip::testing::ZipBuilder::new()
+        .stored("mimetype", "application/epub+zip")
+        .deflated(
+            "META-INF/container.xml",
+            "<?xml version=\"1.0\"?><container version=\"1.0\" \
+             xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\"><rootfiles>\
+             <rootfile full-path=\"content.opf\" media-type=\"application/oebps-package+xml\"/>\
+             </rootfiles></container>",
+        )
+        .deflated(
+            "content.opf",
+            "<?xml version=\"1.0\"?><package xmlns=\"http://www.idpf.org/2007/opf\" \
+             version=\"3.0\" unique-identifier=\"id\"><metadata \
+             xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:identifier id=\"id\">hi</dc:identifier>\
+             <dc:title>नदी की कहानी</dc:title><dc:language>hi</dc:language></metadata>\
+             <manifest><item id=\"c1\" href=\"c1.xhtml\" media-type=\"application/xhtml+xml\"/>\
+             <item id=\"c2\" href=\"c2.xhtml\" media-type=\"application/xhtml+xml\"/></manifest>\
+             <spine><itemref idref=\"c1\"/><itemref idref=\"c2\"/></spine></package>",
+        );
+    for n in 1..=2 {
+        let body = format!("<h1>अध्याय {n}</h1>{}", format!("<p>{text}</p>").repeat(40));
+        zip = zip.deflated(
+            &format!("c{n}.xhtml"),
+            format!("<html xml:lang=\"hi\"><body>{body}</body></html>"),
+        );
+    }
+    let bangla = "নদীর গল্প\n\nআমাদের গ্রামের পাশ দিয়ে একটি ছোট্ট নদী বয়ে গেছে। ".repeat(20);
+    vec![
+        ("plugins/script-bengali/plugin.ini", ini("bengali", "bengali")),
+        ("plugins/script-bengali/fonts/bengali.ppfp", pack("NotoSerifBengali.ttf", "bengali", 400.0)),
+        ("plugins/script-bengali/fonts/bengali-bold.ppfp", pack("NotoSerifBengali.ttf", "bengali", 700.0)),
+        ("plugins/script-devanagari/plugin.ini", ini("devanagari", "devanagari")),
+        ("plugins/script-devanagari/fonts/devanagari.ppfp", pack("NotoSerifDevanagari.ttf", "devanagari", 400.0)),
+        ("plugins/script-devanagari/fonts/devanagari-bold.ppfp", pack("NotoSerifDevanagari.ttf", "devanagari", 700.0)),
+        (
+            "plugins/language-hi/plugin.ini",
+            b"[plugin]\nid = language-hi\nname = Hindi\nversion = 1.0.0\nformats = 4\nrequires = script-devanagari\n".to_vec(),
+        ),
+        ("plugins/language-hi/i18n/hi.ppcat", paperpaw_i18n::Catalog::compile(&hindi).unwrap()),
+        ("books/nadi.epub", zip.build()),
+        ("books/nadi-bangla.txt", bangla.into_bytes()),
+    ]
+}
+
+/// Reading a Hindi book with the interface in Hindi and a Bangla book in
+/// the library (both scripts' packs open), the X4's worst case of #157,
+/// peaks at most [`INDIC_PEAK_KIB`], with no allocation refused.
+#[test]
+fn reading_hindi_with_bangla_in_the_library_peaks_within_its_ceiling() {
+    let files = indic_files();
+    let run = |extra: &[&str]| {
+        let mut args = vec!["--set", "core.language=hi"];
+        args.extend_from_slice(extra);
+        let flow = reading_flow();
+        args.extend_from_slice(&["--script", &flow]);
+        heap(&emulator_with(
+            "x4-indic",
+            "xteink-x4",
+            Some("books/nadi.epub"),
+            &files,
+            &args,
+        ))
+    };
+    let (budgeted, free) = (run(&[]), run(&["--heap-budget", "none"]));
+    eprintln!("x4 Hindi: peak {} KiB", free.peak);
+    assert_eq!(budgeted.screen, "home.dashboard", "the flow went home");
+    assert!(
+        (budgeted.peak - free.peak).abs() < 0.05,
+        "Hindi: peak {} KiB under the budget, {} KiB without",
+        budgeted.peak,
+        free.peak
+    );
+    assert!(
+        free.peak <= INDIC_PEAK_KIB,
+        "Hindi: peak {} KiB, over {INDIC_PEAK_KIB} KiB",
+        free.peak
     );
 }
 
@@ -483,8 +655,23 @@ fn the_store_with_the_devices_tls_stays_within_the_x4_budget() {
 /// the old one beside it. 12.6 KiB with the store's own changes (#1452), 13.4 KiB
 /// with the font change of #1457 beside them (its install peak is 0.8 KiB
 /// higher): the line is that plus a margin of 0.2 KiB. The second install
-/// measures 13.6 KiB since T41: on the line.
-const INSTALL_GROWTH_KIB: f64 = 13.6;
+/// measured 13.6 KiB since T41: on the line. The line is 13.8 KiB since 2026-11-16
+/// (#271): on integration `e2c186c66` one binary gave 13.6 / 13.4 KiB (install /
+/// install2) in 20 runs, 10 and 10 with 32 busy loops beside it (the machine's
+/// load was above 40 in both), the live heap after each step the same in all of
+/// them (see [`INSTALL_LIVE_GROWTH_KIB`]): no spread from load. The 13.7 KiB seen
+/// on the train tree comes with the source of #1547, not with the build (QA's
+/// bisect). The 0.2 KiB over the highest peak seen is the margin of the line; a
+/// member that grows the live heap more than the pins below is named and the pin
+/// set to what was measured.
+const INSTALL_GROWTH_KIB: f64 = 13.8;
+
+/// What an install leaves live after it, over what was live before it (KiB, as
+/// printed): the same in every run measured (#271), no margin but the printed
+/// tenth. `install` is 2.7 KiB with the source of #1547 (2.6 without it; QA's train 51
+/// smoke, bisected: #1569 and #1551 leave 2.6): the member is named, the pin set
+/// to what was measured.
+const INSTALL_LIVE_GROWTH_KIB: [(&str, f64); 2] = [("install", 2.7), ("install2", 0.9)];
 
 /// The run prints tenths of a KiB, and the difference of two of them is not
 /// exact as a float (137.3 - 123.7 is 13.600000000000009): half a tenth is
@@ -551,15 +738,26 @@ fn each_step_of_the_store_stays_within_the_x4_budget() {
     assert_eq!(names[1..], steps, "{stdout}");
     let allowed = 256.0 * MARGIN_PERCENT / 100.0;
     for pair in measured.windows(2) {
-        let ((_, _, before), (name, peak, _)) = (&pair[0], &pair[1]);
+        let ((_, _, before), (name, peak, live)) = (&pair[0], &pair[1]);
         eprintln!(
-            "x4 store {name}: peak {peak} KiB (+{:.1} KiB), + {STORE_DEVICE_EXTRA_KIB} KiB of the device of {allowed} KiB",
-            peak - before
+            "x4 store {name}: peak {peak} KiB (+{:.1} KiB), live {live} KiB (+{:.1} KiB), + {STORE_DEVICE_EXTRA_KIB} KiB of the device of {allowed} KiB",
+            peak - before,
+            live - before
         );
         assert!(
             peak + STORE_DEVICE_EXTRA_KIB <= allowed,
             "store {name}: peak {peak} KiB + {STORE_DEVICE_EXTRA_KIB} KiB of the device, over {allowed} KiB"
         );
+        if let Some((_, growth)) = INSTALL_LIVE_GROWTH_KIB
+            .iter()
+            .find(|(step, _)| step == name)
+        {
+            assert!(
+                live - before <= growth + PRINTED_TENTH_KIB,
+                "{name} left {:.1} KiB live, more than the {growth} KiB measured",
+                live - before
+            );
+        }
         if name.starts_with("install") {
             assert!(
                 peak - before <= INSTALL_GROWTH_KIB + PRINTED_TENTH_KIB,
@@ -987,4 +1185,164 @@ fn pictures_as_a_book_stay_within_the_x4_budget() {
         &[],
     );
     eprintln!("pictures as a book: peak {} KiB", heap.peak);
+}
+
+/// What a book page with a large PNG may peak at, in KiB: 40 KiB under the
+/// X4's 256 (#316). The 1600 x 1000 picture (RGB, 36 KiB as a file) is a
+/// deflated entry of its EPUB, as packers that deflate everything make
+/// them: its two inflate windows (the archive's and the PNG's, 32 KiB and a
+/// decompressor each) were held at once, 260.1 KiB without a budget, so the
+/// X4's refused the second and the picture came by a copy in a file after
+/// 230.1 KiB. It is copied first now, one window at a time: 214.1 KiB.
+const LARGE_PNG_PEAK_KIB: f64 = 216.0;
+
+/// A book page showing a 1600 x 1000 PNG on the X4: decoded to the page's
+/// size without a refused allocation (the same peak with and without the
+/// budget) and within [`LARGE_PNG_PEAK_KIB`].
+#[test]
+fn a_page_with_a_large_png_stays_within_the_x4_budget() {
+    let book =
+        fs::read(root().join("shells/desktop/tests/fixtures-pictures/large-picture.epub")).unwrap();
+    let heap = flow_stays_within_budget(
+        "x4-large-png",
+        "xteink-x4",
+        "books/large-picture.epub",
+        "wait:3000,run:core.home,wait:300",
+        &[("books/large-picture.epub", book)],
+        &[],
+    );
+    eprintln!("a large PNG on the page: peak {} KiB", heap.peak);
+    assert!(
+        heap.peak <= LARGE_PNG_PEAK_KIB,
+        "peak {} KiB, over {LARGE_PNG_PEAK_KIB} KiB",
+        heap.peak
+    );
+}
+
+/// The most reading in Thai may peak at here (#313), the table of words
+/// (16.0 KiB) held: measured at 213.1 KiB, 197.1 without it, in this
+/// build (more than the X4's: diagnostics, the store's plugins).
+const THAI_PEAK_KIB: f64 = 218.0;
+
+/// The packs of Thai letters as the store's are made (`tools/script-pack.py`,
+/// the words put into the regular and the interface's pack by
+/// `tools/thai-dictionary.py` where `words`), the interface in Thai from
+/// its pack and a Thai EPUB whose sentences have no spaces between their
+/// words.
+fn thai_files(words: bool) -> Vec<(&'static str, Vec<u8>)> {
+    let fonts = root().join("tools/fonts");
+    let sizes = [20.0, 24.0, 28.0, 32.0, 36.0, 40.0, 48.0];
+    let pack = |name: &str, file: &str, weight: f32| {
+        let data = fs::read(fonts.join(file)).unwrap();
+        let font = paperpaw_text::OutlineFont::new(data, &[("wght", weight)]).unwrap();
+        let chars = ('\u{E01}'..='\u{E3A}').chain('\u{E3F}'..='\u{E5B}');
+        let built = paperpaw_text::build_pack(&font, &sizes, chars);
+        if !words || name == "thai-bold" {
+            return built;
+        }
+        let path = std::env::temp_dir().join(format!(
+            "paperpaw-memory-{name}-{}.ppfp",
+            std::process::id()
+        ));
+        fs::write(&path, built).unwrap();
+        let added = Command::new("python3")
+            .arg(root().join("tools/thai-dictionary.py"))
+            .arg("add")
+            .arg(&path)
+            .status()
+            .unwrap();
+        assert!(added.success(), "tools/thai-dictionary.py add");
+        let made = fs::read(&path).unwrap();
+        let _ = fs::remove_file(&path);
+        made
+    };
+    let ini = "[plugin]\nid = script-thai\nname = thai\nversion = 1.0.0\nformats = 3\n\n[extends]\n\
+               thai.ppfp = fonts-default.literata\nthai-bold.ppfp = literata-styles.bold\n\
+               thai-sans.ppfp = fonts-default.source-sans\n";
+    let thai = fs::read_to_string(root().join("tools/plugin-files/languages/th.ini")).unwrap();
+    let text = "หมู่บ้านของเราอยู่ใกล้แม่น้ำสายเล็กๆ ในฤดูฝนน้ำจะไหลแรงจนเต็มตลิ่ง \
+        ตอนเช้าก่อนไปโรงเรียนเด็กๆชอบไปเล่นริมน้ำ คุณยายเคยบอกว่าธรรมชาติสอนให้เรารู้จักความอดทนและการให้อภัย \
+        ในวันเทศกาลทุกคนจะใส่เสื้อผ้าใหม่และร้องเพลงด้วยกันอย่างมีความสุข";
+    let mut zip = paperpaw_zip::testing::ZipBuilder::new()
+        .stored("mimetype", "application/epub+zip")
+        .deflated(
+            "META-INF/container.xml",
+            "<?xml version=\"1.0\"?><container version=\"1.0\" \
+             xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\"><rootfiles>\
+             <rootfile full-path=\"content.opf\" media-type=\"application/oebps-package+xml\"/>\
+             </rootfiles></container>",
+        )
+        .deflated(
+            "content.opf",
+            "<?xml version=\"1.0\"?><package xmlns=\"http://www.idpf.org/2007/opf\" \
+             version=\"3.0\" unique-identifier=\"id\"><metadata \
+             xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:identifier id=\"id\">th</dc:identifier>\
+             <dc:title>เรื่องของแม่น้ำ</dc:title><dc:language>th</dc:language></metadata>\
+             <manifest><item id=\"c1\" href=\"c1.xhtml\" media-type=\"application/xhtml+xml\"/>\
+             <item id=\"c2\" href=\"c2.xhtml\" media-type=\"application/xhtml+xml\"/></manifest>\
+             <spine><itemref idref=\"c1\"/><itemref idref=\"c2\"/></spine></package>",
+        );
+    for n in 1..=2 {
+        let body = format!("<h1>บทที่ {n}</h1>{}", format!("<p>{text}</p>").repeat(40));
+        zip = zip.deflated(
+            &format!("c{n}.xhtml"),
+            format!("<html xml:lang=\"th\"><body>{body}</body></html>"),
+        );
+    }
+    vec![
+        ("plugins/script-thai/plugin.ini", ini.as_bytes().to_vec()),
+        ("plugins/script-thai/fonts/thai.ppfp", pack("thai", "NotoSerifThai.ttf", 400.0)),
+        ("plugins/script-thai/fonts/thai-bold.ppfp", pack("thai-bold", "NotoSerifThai.ttf", 700.0)),
+        ("plugins/script-thai/fonts/thai-sans.ppfp", pack("thai-sans", "NotoSansThai.ttf", 400.0)),
+        (
+            "plugins/language-th/plugin.ini",
+            b"[plugin]\nid = language-th\nname = Thai\nversion = 1.0.0\nformats = 4\nrequires = script-thai\n".to_vec(),
+        ),
+        ("plugins/language-th/i18n/th.ppcat", paperpaw_i18n::Catalog::compile(&thai).unwrap()),
+        ("books/maenam.epub", zip.build()),
+    ]
+}
+
+/// Reading a Thai book with the interface in Thai, its lines broken
+/// between words (#313), peaks at most [`THAI_PEAK_KIB`], with no
+/// allocation refused; the table of words is held while reading, and no
+/// more than it.
+#[test]
+fn reading_thai_with_its_words_peaks_within_its_ceiling() {
+    let run = |words: bool, extra: &[&str]| {
+        let mut args = vec!["--set", "core.language=th"];
+        args.extend_from_slice(extra);
+        let flow = reading_flow();
+        args.extend_from_slice(&["--script", &flow]);
+        heap(&emulator_with(
+            if words { "x4-thai" } else { "x4-thai-plain" },
+            "xteink-x4",
+            Some("books/maenam.epub"),
+            &thai_files(words),
+            &args,
+        ))
+    };
+    let (budgeted, free) = (run(true, &[]), run(true, &["--heap-budget", "none"]));
+    let plain = run(false, &["--heap-budget", "none"]);
+    eprintln!(
+        "x4 Thai: peak {} KiB, {} KiB without words",
+        free.peak, plain.peak
+    );
+    assert_eq!(budgeted.screen, "home.dashboard", "the flow went home");
+    assert!(
+        (budgeted.peak - free.peak).abs() < 0.05,
+        "Thai: peak {} KiB under the budget, {} KiB without",
+        budgeted.peak,
+        free.peak
+    );
+    assert!(
+        free.peak <= THAI_PEAK_KIB,
+        "Thai: peak {} KiB, over {THAI_PEAK_KIB} KiB",
+        free.peak
+    );
+    let held = free.peak - plain.peak;
+    assert!(
+        (10.0..=20.0).contains(&held),
+        "the words add {held} KiB to the peak (18.7 KiB held)"
+    );
 }

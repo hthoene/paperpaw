@@ -54,7 +54,7 @@ pub type Flash = alloc::rc::Rc<core::cell::RefCell<FlashStorage<'static>>>;
 /// The flash as `paperpaw_x4::updates` reads and writes it, in the chip's
 /// addresses. A handle somebody else holds is a flash error, never a
 /// panic: a panic before the trial mark would repeat on every start.
-struct Chip(Flash);
+pub(crate) struct Chip(Flash);
 
 impl ota::Flash for Chip {
     fn read(&mut self, at: u32, buf: &mut [u8]) -> Result<(), FlashError> {
@@ -84,7 +84,9 @@ impl ota::Flash for Chip {
 
 /// Updates on this device.
 pub struct Ota {
-    updates: Updates<Chip>,
+    /// Shared with the kernel's firmware jobs (`paperpaw_x4::host_jobs`): one
+    /// OTA state, used in turn on the main loop, never at once.
+    updates: alloc::rc::Rc<core::cell::RefCell<Updates<Chip>>>,
     /// The milliseconds a trial ran before it failed (`Ota::failed_trial`).
     failed: Option<u32>,
     /// The bootloader marked the start pending (`Ota::marked_by_bootloader`).
@@ -138,7 +140,7 @@ impl Ota {
         )
         .ok()?;
         let mut this = Self {
-            updates,
+            updates: alloc::rc::Rc::new(core::cell::RefCell::new(updates)),
             failed: None,
             marked: false,
             going_back: matches!(plan, Start::Failed { .. }),
@@ -150,7 +152,7 @@ impl Ota {
         // hang in the board's start would leave it unmarked for good; not
         // where the bootloader already carries a dual-boot marker (#222),
         // nothing is written to the OTA data then.
-        if plan != Start::Kept && !this.updates.start_pending() {
+        if plan != Start::Kept && !this.updates.try_borrow().is_ok_and(|u| u.start_pending()) {
             this.settle(None);
         }
         Some(this)
@@ -178,9 +180,13 @@ impl Ota {
     /// the OTA data is written, an update put on trial, one undone or marked
     /// bad, only where it is not (see `Updates::settle`).
     pub fn settle(&mut self, source: Option<paperpaw_x4::dual_boot::Source>) {
-        let running = self.updates.running();
+        let Ok(mut updates) = self.updates.try_borrow_mut() else {
+            warn!("OTA: the OTA state is in use at the start");
+            return;
+        };
+        let running = updates.running();
         self.settled = true;
-        let start = self.updates.settle(source);
+        let start = updates.settle(source);
         if source.is_some() {
             warn!("OTA: a declared dual-boot setup: the OTA data is left as it is");
         }
@@ -215,7 +221,11 @@ impl Ota {
     /// Nothing where none is on trial.
     #[cfg_attr(not(feature = "x3"), expect(dead_code, reason = "the X3's"))]
     pub fn give_up(&mut self, why: &str) {
-        match self.updates.give_up() {
+        let given = match self.updates.try_borrow_mut() {
+            Ok(mut updates) => updates.give_up(),
+            Err(_) => return,
+        };
+        match given {
             Ok(false) => return,
             Ok(true) => warn!("OTA: {why}: back to the firmware before"),
             Err(_) => warn!("OTA: {why}: could not mark the update as bad"),
@@ -257,19 +267,25 @@ impl Ota {
 
     /// Whether the running firmware is on trial.
     pub fn on_trial(&self) -> bool {
-        self.updates.on_trial()
+        self.updates.try_borrow().is_ok_and(|u| u.on_trial())
     }
 
     /// How long the running firmware is still on trial, at `now` (ms
     /// since the start); `None` where it is not.
     pub fn trial_left(&self, now: u64) -> Option<u64> {
-        self.updates.trial_left(now)
+        self.updates
+            .try_borrow()
+            .ok()
+            .and_then(|u| u.trial_left(now))
     }
 
     /// The running firmware on trial ran long enough, at `now` (ms since
     /// the start): it is marked as good, if the mark could be written.
     pub fn check_trial(&mut self, now: u64) -> paperpaw_x4::updates::TrialEnd {
-        let end = self.updates.end_of_trial(now);
+        let end = match self.updates.try_borrow_mut() {
+            Ok(mut updates) => updates.end_of_trial(now),
+            Err(_) => paperpaw_x4::updates::TrialEnd::Running,
+        };
         match end {
             paperpaw_x4::updates::TrialEnd::Running => {}
             paperpaw_x4::updates::TrialEnd::Kept => info!("OTA: the update works"),
@@ -283,7 +299,11 @@ impl Ota {
     /// The running firmware goes to sleep or restarts at `now`, ending
     /// cleanly: on trial, the next start goes on with the trial.
     pub fn pause_trial(&mut self, now: u64) {
-        if self.updates.pause_trial(now).is_err() {
+        if self
+            .updates
+            .try_borrow_mut()
+            .map_or(true, |mut u| u.pause_trial(now).is_err())
+        {
             warn!("OTA: could not note the time on trial");
         }
     }
@@ -291,42 +311,77 @@ impl Ota {
     /// Awake again at `now` after pending work cancelled sleep: on
     /// trial again.
     pub fn resume_trial(&mut self, now: u64) {
-        if self.updates.resume_trial(now).is_err() {
+        if self
+            .updates
+            .try_borrow_mut()
+            .map_or(true, |mut u| u.resume_trial(now).is_err())
+        {
             warn!("OTA: could not put the update on trial again");
         }
     }
 
     /// The firmware running, for `core.device` (interface 7 builds).
     #[cfg(feature = "ppn5")]
-    pub fn running(&self) -> paperpaw_platform::firmware::Running<'_> {
-        paperpaw_platform::firmware::FirmwareHost::running(&self.updates)
+    pub fn running(&self) -> paperpaw_platform::firmware::Running<'static> {
+        use paperpaw_platform::firmware::{FirmwareHost, Running};
+        let (version, project) = (env!("PAPERPAW_VERSION"), PROJECT);
+        match self.updates.try_borrow() {
+            Ok(updates) => {
+                let now = FirmwareHost::running(&*updates);
+                Running::new(version, project, now.chip, now.room, now.undone)
+            }
+            Err(_) => Running::new(version, project, CHIP, 0, false),
+        }
+    }
+
+    /// What the kernel runs firmware jobs on: this OTA state, shared
+    /// (`paperpaw_x4::host_jobs::SharedUpdates`); its restart is asked of the
+    /// main loop ([`restart_asked`]), which restarts cleanly.
+    pub(crate) fn host(
+        &self,
+        room: alloc::rc::Rc<paperpaw_x4::update_room::Gate>,
+    ) -> paperpaw_x4::host_jobs::SharedUpdates<Chip> {
+        if let Ok(mut updates) = self.updates.try_borrow_mut() {
+            updates.set_restarter(ask_restart);
+        }
+        paperpaw_x4::host_jobs::SharedUpdates::new(
+            self.updates.clone(),
+            env!("PAPERPAW_VERSION"),
+            PROJECT,
+        )
+        .with_room(room)
     }
 
     /// The firmware as plugins see it.
     pub fn firmware(&self) -> Firmware {
-        self.updates.firmware()
+        match self.updates.try_borrow() {
+            Ok(updates) => updates.firmware(),
+            Err(_) => Firmware::new(env!("PAPERPAW_VERSION"), PROJECT, CHIP),
+        }
     }
 
     /// Whether an install goes on (the device neither sleeps nor waits
     /// meanwhile).
     pub fn installing(&self) -> bool {
-        self.updates.installing()
+        self.updates.try_borrow().is_ok_and(|u| u.installing())
     }
 
     /// Whether, and by what, the setup is a declared dual-boot one.
     pub fn dual(&self) -> Option<paperpaw_x4::dual_boot::Source> {
-        self.updates.dual()
+        self.updates.try_borrow().ok().and_then(|u| u.dual())
     }
 
     /// The setup is declared a dual-boot one, or not, again (before an
     /// install, `dual::guard`): nothing is written to the OTA data by it.
     pub fn declare(&mut self, source: Option<paperpaw_x4::dual_boot::Source>) {
-        self.updates.settle(source);
+        if let Ok(mut updates) = self.updates.try_borrow_mut() {
+            updates.settle(source);
+        }
     }
 
     /// The partition running, 0 or 1.
     pub fn slot(&self) -> u32 {
-        self.updates.slot()
+        self.updates.try_borrow().map_or(0, |u| u.slot())
     }
 
     /// Starts installing the update file at `path`, with the `key` the
@@ -345,7 +400,10 @@ impl Ota {
                 Err(InstallFailure::Other(paperpaw_x4::dual_boot::REFUSED)),
             );
         }
-        let begun = self.updates.begin(storage, path, key, older);
+        let begun = match self.updates.try_borrow_mut() {
+            Ok(mut updates) => updates.begin(storage, path, key, older),
+            Err(_) => Err(InstallFailure::Other(paperpaw_x4::updates::BUSY)),
+        };
         said(path, begun)
     }
 
@@ -358,20 +416,21 @@ impl Ota {
                 Err(InstallFailure::Other(paperpaw_x4::dual_boot::REFUSED)),
             );
         }
-        let begun = self
-            .updates
-            .begin_foreign(storage, path)
-            .map(|(installing, what)| {
-                info!("OTA: {path} is another firmware ({what}), not signed");
-                installing
-            });
+        let begun = match self.updates.try_borrow_mut() {
+            Ok(mut updates) => updates.begin_foreign(storage, path),
+            Err(_) => Err(InstallFailure::Other(paperpaw_x4::updates::BUSY)),
+        }
+        .map(|(installing, what)| {
+            info!("OTA: {path} is another firmware ({what}), not signed");
+            installing
+        });
         said(path, begun)
     }
 
     /// Writes the next part; the new state when the install went on (every
     /// 5 %: the page shows each with a refresh), ended or failed.
     pub fn step(&mut self, storage: &dyn Storage) -> Option<FirmwareState> {
-        let state = self.updates.step(storage)?;
+        let state = self.updates.try_borrow_mut().ok()?.step(storage)?;
         match &state {
             FirmwareState::Installed => info!("OTA: installed, started at the next start"),
             FirmwareState::Failed(why) => warn!("OTA: the install failed: {why:?}"),
@@ -466,4 +525,21 @@ fn partitions_of(flash: &mut FlashStorage<'static>) -> Option<Partitions> {
                 .and_then(|p| slots.slot_at(p.offset()))
         })?;
     Some(Partitions { slots, running })
+}
+
+/// Set when the kernel's firmware job asked for the restart that starts the
+/// image it chose (`FirmwareHost::restart`): the main loop restarts at its
+/// next turn the way it always does (the screen settled, the kernel stopped),
+/// not in the middle of the kernel's own call.
+static RESTART_ASKED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
+/// What `FirmwareHost::restart` does on this device: asks the main loop.
+fn ask_restart() -> Result<(), paperpaw_platform::firmware::Reason> {
+    RESTART_ASKED.store(true, core::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+/// Whether a firmware job asked for the restart ([`ask_restart`]).
+pub fn restart_asked() -> bool {
+    RESTART_ASKED.load(core::sync::atomic::Ordering::Relaxed)
 }

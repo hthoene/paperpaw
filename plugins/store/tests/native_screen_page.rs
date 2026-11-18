@@ -10,8 +10,8 @@ use paperpaw_plugin_store::native_item::More;
 use paperpaw_plugin_store::native_model::Entry;
 use paperpaw_plugin_store::native_page::{Installed, Kind, Origin, Row};
 use paperpaw_plugin_store::native_screen_page::{
-    Check, Choice, Fact, FactInput, Go, Note, Value, facts, first_action, go, how_text, note,
-    progress_text, short_key, size_text, title_key, value_of,
+    Check, Choice, Fact, FactInput, Go, LEAD_BYTES, Note, Value, facts, first_action, go, how_text,
+    lead, note, progress_text, short_key, size_text, title_key, value_of,
 };
 use paperpaw_plugin_store::native_screens::{Step, Trouble};
 
@@ -316,8 +316,12 @@ fn sizes_and_progress_are_written_without_floats() {
     assert_eq!(size_text(14 * 1024, ".").unwrap(), "14 KB");
     assert_eq!(size_text(2_411_724, ",").unwrap(), "2,3 MB");
     assert!(size_text(u64::MAX, ".").is_ok());
-    assert_eq!(progress_text(1024, 4096, ".").unwrap(), "1.0 KB / 4.0 KB");
-    assert_eq!(progress_text(100, 0, ".").unwrap(), "100 B");
+}
+
+#[test]
+fn download_progress_counts_files_never_bytes() {
+    assert_eq!(progress_text(2, 4).unwrap(), "2 / 4");
+    assert_eq!(progress_text(0, 1).unwrap(), "0 / 1");
 }
 
 #[test]
@@ -326,6 +330,20 @@ fn how_it_works_opens_the_name_and_the_description() {
         how_text("Clock", "It ticks.").unwrap(),
         "Clock\n\nIt ticks.\n"
     );
+}
+
+#[test]
+fn the_page_shows_the_first_paragraph_of_the_description() {
+    assert_eq!(lead("").unwrap(), "");
+    assert_eq!(
+        lead("It ticks\nonce a second.\n\nSecond paragraph.").unwrap(),
+        "It ticks once a second."
+    );
+    let long = "word ".repeat(200);
+    let cut = lead(&long).unwrap();
+    assert!(cut.len() <= LEAD_BYTES && cut.ends_with("word") && cut.len() > LEAD_BYTES - 6);
+    // A single word longer than the lead is left out, never cut in two.
+    assert!(lead(&"\u{e4}".repeat(400)).unwrap().is_empty());
 }
 
 #[test]
@@ -392,6 +410,8 @@ fn every_row_and_text_has_both_languages() {
         "store.heap.tight",
         "store.installed-version",
         "store.preparing",
+        "store.progress.files.one",
+        "store.progress.files.other",
         "store.downloading",
         "store.busy",
         "store.restart.help",

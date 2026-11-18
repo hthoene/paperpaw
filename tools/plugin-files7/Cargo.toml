@@ -89,6 +89,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "format-rtf"
+path = "src/bin/format-rtf.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "format-txt"
 path = "src/bin/format-txt.rs"
 test = false
@@ -181,6 +187,42 @@ bench = false
 [[bin]]
 name = "profiles"
 path = "src/bin/profiles.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "pomodoro"
+path = "src/bin/pomodoro.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "smart-home"
+path = "src/bin/smart-home.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "puzzles"
+path = "src/bin/puzzles.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "edge-light"
+path = "src/bin/edge-light.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "tasks"
+path = "src/bin/tasks.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "calendar"
+path = "src/bin/calendar.rs"
 test = false
 bench = false
 
@@ -335,6 +377,24 @@ test = false
 bench = false
 
 [[bin]]
+name = "anki"
+path = "src/bin/anki.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "picture-frame"
+path = "src/bin/picture-frame.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "file-sync"
+path = "src/bin/file-sync.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "home"
 path = "src/bin/home.rs"
 test = false
@@ -378,6 +438,7 @@ paperpaw-plugin-format-fb2 = { path = "../../plugins/format-fb2", features = ["n
 paperpaw-plugin-format-markdown = { path = "../../plugins/format-markdown", features = ["native-entry"] }
 paperpaw-plugin-format-cbz = { path = "../../plugins/format-cbz", features = ["native-entry"] }
 paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi", features = ["native-entry"] }
+paperpaw-plugin-format-rtf = { path = "../../plugins/format-rtf", features = ["native-entry"] }
 paperpaw-plugin-format-txt = { path = "../../plugins/format-txt", features = ["native-entry"] }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images", features = ["native-entry"] }
 paperpaw-plugin-format-xtc = { path = "../../plugins/format-xtc", features = ["native-entry"] }
@@ -392,6 +453,12 @@ paperpaw-plugin-news = { path = "../../plugins/news", features = ["native-entry"
 paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview", features = ["native-entry"] }
 paperpaw-plugin-opds = { path = "../../plugins/opds", features = ["native-entry"] }
 paperpaw-plugin-plugin-manager = { path = "../../plugins/plugin-manager", features = ["native-entry"] }
+paperpaw-plugin-pomodoro = { path = "../../plugins/pomodoro", features = ["native-entry"] }
+paperpaw-plugin-smart-home = { path = "../../plugins/smart-home", features = ["native-entry"] }
+paperpaw-plugin-puzzles = { path = "../../plugins/puzzles", features = ["native-entry"] }
+paperpaw-plugin-edge-light = { path = "../../plugins/edge-light", features = ["native-entry"] }
+paperpaw-plugin-tasks = { path = "../../plugins/tasks", features = ["native-entry"] }
+paperpaw-plugin-calendar = { path = "../../plugins/calendar", features = ["native-entry"] }
 paperpaw-plugin-power = { path = "../../plugins/power", features = ["native-entry"] }
 paperpaw-plugin-profiles = { path = "../../plugins/profiles", features = ["native-entry"] }
 paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", features = ["native-entry"] }
@@ -419,6 +486,9 @@ paperpaw-plugin-transfer = { path = "../../plugins/transfer", features = ["nativ
 paperpaw-plugin-sleep = { path = "../../plugins/sleep", features = ["native-entry"] }
 paperpaw-plugin-translate = { path = "../../plugins/translate", features = ["native-entry"] }
 paperpaw-plugin-aids = { path = "../../plugins/aids", features = ["native-entry"] }
+paperpaw-plugin-anki = { path = "../../plugins/anki", features = ["native-entry"] }
+paperpaw-plugin-picture-frame = { path = "../../plugins/picture-frame", features = ["native-entry"] }
+paperpaw-plugin-file-sync = { path = "../../plugins/file-sync", features = ["native-entry"] }
 paperpaw-plugin-home = { path = "../../plugins/home", features = ["native-entry"] }
 paperpaw-plugin-mail = { path = "../../plugins/mail", features = ["native-entry"] }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault", features = ["native-entry"] }

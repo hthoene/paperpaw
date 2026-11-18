@@ -27,70 +27,14 @@
 //! Underneath, what an event carries travels as [`Params`] (named
 //! strings), so it can cross to plugins in other languages and be
 //! declared as work ([`work`](crate::work)); events of other plugins, known only
-//! at run time, are heard by id ([`Registrar::subscribe`](crate::Registrar::subscribe)).
+//! at run time, are heard by id (`Staging::subscribe`).
 
-use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use core::fmt;
 use core::marker::PhantomData;
 
-use crate::command::Command;
-use crate::env::Env;
 use crate::id::Id;
 use crate::params::Params;
-
-/// Reacts to an event by emitting commands.
-///
-/// Events are notifications: the kernel and plugins emit them with
-/// [`Command::Emit`], and every subscriber is called in registration order.
-/// Any plugin can define its own events (namespaced ids such as
-/// `reader.page-turned`), which other plugins may subscribe to.
-pub type EventHandler = Box<dyn Fn(&Env<'_>, &Params, &mut crate::Commands)>;
-
-/// A subscription kept in the program, in a `static` list of them
-/// ([`Registrar::add_subscriptions`](crate::Registrar::add_subscriptions)):
-/// it takes next to no memory, where each added with
-/// [`Registrar::on`](crate::Registrar::on) or
-/// [`subscribe`](crate::Registrar::subscribe) takes some thirty bytes.
-/// Its handler reads what the event carries itself (e.g.
-/// [`Event::read`]):
-///
-/// ```
-/// # use paperpaw_sdk::{builtin::events, event::FixedSubscription};
-/// static HEARS: [FixedSubscription; 1] = [FixedSubscription::new(
-///     events::STARTED.id_static(),
-///     |_env, _params, _out| {},
-/// )];
-/// ```
-#[non_exhaustive]
-pub struct FixedSubscription {
-    event: Id,
-    handler: fn(&Env<'_>, &Params, &mut crate::Commands),
-}
-
-impl FixedSubscription {
-    /// `handler` hears `event`.
-    pub const fn new(event: Id, handler: fn(&Env<'_>, &Params, &mut crate::Commands)) -> Self {
-        Self { event, handler }
-    }
-
-    pub fn event(&self) -> &Id {
-        &self.event
-    }
-
-    /// Calls its handler.
-    pub fn call(&self, env: &Env<'_>, params: &Params, out: &mut crate::Commands) {
-        (self.handler)(env, params, out);
-    }
-}
-
-impl core::fmt::Debug for FixedSubscription {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("FixedSubscription")
-            .field("event", &self.event)
-            .finish_non_exhaustive()
-    }
-}
 
 /// What an event carries, written as and read from [`Params`]; made with
 /// [`event_data!`](crate::event_data) for structs of named values.
@@ -266,23 +210,6 @@ pub fn take<T: ParamValue>(params: &Params, key: &str) -> Option<T> {
 /// let read = Read::new(String::from("books/a.epub")).page(12);
 /// assert_eq!(read.page, Some(12));
 /// ```
-/// A [`FixedSubscription`] of `event` (an [`Event`] constant) calling
-/// `handler` with what it carries, as [`Registrar::on`](crate::Registrar::on)
-/// would; `handler` a function or a closure that captures nothing:
-///
-/// ```
-/// # use paperpaw_sdk::{builtin::events, hears, FixedSubscription};
-/// static HEARS: [FixedSubscription; 1] = [hears!(events::STARTED, |_env, _, _out| {})];
-/// ```
-#[macro_export]
-macro_rules! hears {
-    ($event:expr, $handler:expr $(,)?) => {
-        $crate::FixedSubscription::new($event.id_static(), |env, params, out| {
-            $event.hear(env, params, out, $handler)
-        })
-    };
-}
-
 #[macro_export]
 macro_rules! event_data {
     (
@@ -377,7 +304,7 @@ impl<P: EventData> Event<P> {
     }
 
     /// Its id, kept in the program: for `static` lists, e.g. of
-    /// [`FixedSubscription`]s. Takes the event, so it can be used in
+    /// `FixedSubscription`s. Takes the event, so it can be used in
     /// `const` and `static` items.
     pub const fn id_static(self) -> Id {
         let id = Id::new_static(self.id.static_text());
@@ -389,41 +316,8 @@ impl<P: EventData> Event<P> {
         self.id.as_str()
     }
 
-    /// The command that emits the event with `data`.
-    pub fn emit(&self, data: P) -> Command {
-        Command::Emit(self.id.clone(), data.into_params())
-    }
-
-    /// The command that emits it with `data` at `at`: work at a time
-    /// ([`Work::at`](crate::work::Work::at)), in place of the one before.
-    pub fn schedule(&self, data: P, at: paperpaw_platform::Instant) -> Command {
-        Command::work(crate::work::Work::at(self.id.clone(), at).with(data.to_params()))
-    }
-
-    /// Calls `handler` with what `params` carry, without a copy where they
-    /// carry it as it is ([`Registrar::on`](crate::Registrar::on) does the
-    /// same): for handlers kept in the program ([`FixedSubscription`],
-    /// [`hears!`](crate::hears)). Not called where they lack what it
-    /// needs.
-    pub fn hear(
-        &self,
-        env: &Env<'_>,
-        params: &Params,
-        out: &mut crate::Commands,
-        handler: impl FnOnce(&Env<'_>, &P, &mut crate::Commands),
-    ) {
-        match params.carried::<P>() {
-            Some(data) => handler(env, data, out),
-            None => {
-                if let Some(data) = P::from_params(params) {
-                    handler(env, &data, out);
-                }
-            }
-        }
-    }
-
     /// What it carries, if `event` is this event (for screens'
-    /// [`on_event`](crate::Screen::on_event)).
+    /// `on_event`).
     pub fn read(&self, event: &Id, params: &Params) -> Option<P> {
         if *event != self.id {
             return None;
@@ -480,8 +374,6 @@ impl<P: EventData> PartialEq for Event<P> {
     }
 }
 
-impl<P: EventData> Eq for Event<P> {}
-
 impl<P: EventData> PartialEq<Event<P>> for Id {
     fn eq(&self, other: &Event<P>) -> bool {
         *self == other.id
@@ -513,9 +405,7 @@ mod tests {
             note: None,
             done: true,
         };
-        let Command::Emit(id, params) = MOVED.emit(moved.clone()) else {
-            panic!("an emit");
-        };
+        let (id, params) = (MOVED.id().clone(), moved.clone().into_params());
         assert_eq!(id, MOVED);
         assert_eq!(params.get("from"), Some("a b.epub"));
         assert_eq!(params.get("note"), None, "absent, not empty");

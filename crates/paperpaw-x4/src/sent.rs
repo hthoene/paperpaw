@@ -167,6 +167,11 @@ impl Sent {
         });
     }
 
+    /// Whether the bands did not all fit: the frame is to be drawn anew.
+    pub fn lost(&self) -> bool {
+        self.lost
+    }
+
     fn lose(&mut self) {
         self.lost = true;
         self.bands = Vec::new();

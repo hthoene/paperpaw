@@ -29,7 +29,7 @@ use super::{
     host_services::HostServices,
     image_service::{
         commands::{ImageCommand, ImageRoots},
-        prepare::{Env as DecodeEnv, NO_MEMORY, Ready, SweepCursor, UNSUPPORTED},
+        prepare::{NO_MEMORY, Ready, SweepCursor, UNSUPPORTED, Within as DecodeEnv},
     },
     native_instances::InstanceState,
     registrations::{self as wire},
@@ -41,7 +41,7 @@ use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
 };
 
-/// Commands kept for a later pass: four requests a plugin may have waiting
+/// Asks kept for a later pass: four requests a plugin may have waiting
 /// and a release or two, for the few plugins that ask at once.
 const PENDING_MAX: usize = 16;
 
@@ -96,7 +96,7 @@ impl ImagePump {
     }
 }
 
-/// Where a plugin's root 0 and root 1 paths are on the card.
+/// Where a plugin's root 0, root 1 and root 2 paths are on the card.
 struct Roots<'a> {
     plugin: &'a str,
     hosts: &'a HostServices,
@@ -104,6 +104,16 @@ struct Roots<'a> {
 
 impl ImageRoots for Roots<'_> {
     fn resolve(&self, _owner: u64, root: u32, path: &str) -> Result<String, i32> {
+        if root == 2 {
+            // The plugin's own install folder, by the id the host stamped. One
+            // linked into the firmware has none (`files.md` 1.1), and neither
+            // has any plugin where no files host says which are linked.
+            let built_in = self
+                .hosts
+                .files()
+                .is_none_or(|files| files.0.built_in(self.plugin));
+            return super::image_service::commands::bundle_source(self.plugin, built_in, path);
+        }
         let first = path.split('/').next().unwrap_or_default();
         // The storage folder `first` is in, as the files service names it.
         let parent = if root == 0 {
@@ -251,7 +261,7 @@ impl crate::Kernel {
             // Tried again later, not at once.
             let pump = &self.shared.native_instances.image_pump;
             if pump.retry_at.get().is_none() {
-                pump.retry_at.set(Some(self.now.millis() + RETRY_MS));
+                pump.retry_at.set(Some(self.shared.now.millis() + RETRY_MS));
             }
         } else {
             self.warn_runtime("a plugin's picture command could not be kept for later; it failed");
@@ -334,7 +344,7 @@ impl crate::Kernel {
             }
         }
         self.image_retry();
-        let env = decode_env(self.shared.env(self.now).device());
+        let env = decode_env(self.shared.place(self.shared.now).device());
         let mut more = self.shared.native_instances.hosts().is_some_and(|hosts| {
             // One request a turn, decoded to the end.
             hosts.images().prepare_step(storage.as_ref(), env).is_err()
@@ -356,7 +366,7 @@ impl crate::Kernel {
     /// Kept commands, oldest first, once more, when their time came. One that
     /// still finds no room after [`TRIES_MAX`] tries fails.
     fn image_retry(&mut self) {
-        let now = self.now.millis();
+        let now = self.shared.now.millis();
         let pump = &self.shared.native_instances.image_pump;
         if pump.retry_at.get().is_none_or(|at| now < at) {
             return;
@@ -483,7 +493,8 @@ impl crate::Kernel {
             return None;
         };
         let mut record = [0u8; RECORD_BYTES];
-        let len = codec::encode_batch(&[ready.record(self.now.millis())], &mut record).ok()?;
+        let len =
+            codec::encode_batch(&[ready.record(self.shared.now.millis())], &mut record).ok()?;
         self.native_event_call(owner, &lease, &record[..len]).err()
     }
 }

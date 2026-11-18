@@ -64,9 +64,9 @@ impl Secure {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Env(Arc<Gate>);
+pub(crate) struct TlsContext(Arc<Gate>);
 
-impl Env {
+impl TlsContext {
     pub(crate) fn system() -> Self {
         Self(Arc::new(Gate::new(0)))
     }

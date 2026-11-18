@@ -435,6 +435,26 @@ impl UiStore {
         Ok(())
     }
 
+    /// A question the host asked itself (no callback asked it, so none has to
+    /// return first): starting at once, for the host to open its dialog.
+    /// `None` where `request` is not one just asked.
+    pub(crate) fn host_started(&self, request: u32) -> Option<Start> {
+        let mut inner = self.inner().ok()?;
+        let at = Self::request_at(&inner, request)?;
+        let r = &mut inner.requests[at];
+        if !matches!(r.phase, Phase::Asked { .. }) {
+            return None;
+        }
+        r.phase = Phase::Starting;
+        Some(Start {
+            request: r.id,
+            asker: r.asker,
+            kind: r.kind,
+            remote: r.remote,
+            secret: r.secret,
+        })
+    }
+
     /// The oldest request whose dialog the stack has yet to open.
     pub(crate) fn next_starting(&self) -> Option<Start> {
         let inner = self.inner.try_borrow().ok()?;
@@ -729,6 +749,30 @@ impl UiStore {
         })
     }
 
+    /// [`Self::take_delivery`] for the answer to `request` of `asker` alone.
+    pub(crate) fn take_delivery_of(&self, asker: u64, request: u32) -> Option<Delivery> {
+        let waiting =
+            self.inner.try_borrow().ok()?.requests.iter().any(|r| {
+                r.id == request && r.asker == asker && r.pending.is_some() && !r.delivering
+            });
+        if !waiting {
+            return None;
+        }
+        let mut inner = self.inner().ok()?;
+        let at = Self::request_at(&inner, request)?;
+        let r = &mut inner.requests[at];
+        let answer = r.pending.take()?;
+        r.delivering = true;
+        Some(Delivery {
+            request: r.id,
+            kind: r.kind,
+            outcome: answer.outcome,
+            choice: answer.choice,
+            length: answer.length,
+            flags: answer.flags | DIALOG_CLOSED,
+        })
+    }
+
     /// Whether an answer waits for `asker`.
     pub(crate) fn has_delivery(&self, asker: u64) -> bool {
         self.inner.try_borrow().is_ok_and(|inner| {
@@ -736,6 +780,17 @@ impl UiStore {
                 .requests
                 .iter()
                 .any(|r| r.asker == asker && r.pending.is_some() && !r.delivering)
+        })
+    }
+
+    /// Whether a question waits for its dialog to open: asked by a callback
+    /// that returned, or starting (the dialog pump opens it).
+    pub(crate) fn any_to_open(&self) -> bool {
+        self.inner.try_borrow().is_ok_and(|inner| {
+            inner
+                .requests
+                .iter()
+                .any(|r| matches!(r.phase, Phase::Asked { .. } | Phase::Starting))
         })
     }
 
@@ -779,45 +834,6 @@ impl UiStore {
             }
         }
         Ok(())
-    }
-
-    /// A host dialog's answer was not taken (a choice outside its list): the
-    /// pump logs it.
-    pub(crate) fn note_refused(&self) {
-        if let Ok(mut inner) = self.inner.try_borrow_mut() {
-            inner.refused = inner.refused.saturating_add(1);
-        }
-    }
-
-    /// How many answers were refused since the last call.
-    pub(crate) fn take_refused(&self) -> u32 {
-        self.inner
-            .try_borrow_mut()
-            .map_or(0, |mut inner| core::mem::take(&mut inner.refused))
-    }
-
-    /// The question of a request whose dialog the host is about to open: for
-    /// the host's own dialogs, which are made with it.
-    pub(crate) fn starting_question<R>(
-        &self,
-        request: u32,
-        f: impl FnOnce(&Shown<'_>) -> R,
-    ) -> Result<R, i32> {
-        let inner = self.inner.try_borrow().map_err(|_| ERR_STATE)?;
-        let at = Self::request_at(&inner, request).ok_or(ERR_NOT_FOUND)?;
-        let r = &inner.requests[at];
-        if r.phase != Phase::Starting {
-            return Err(ERR_STATE);
-        }
-        let max = if r.secret { SECRET_TEXT_MAX } else { TEXT_MAX };
-        Ok(f(&Shown {
-            kind: r.kind,
-            flags: r.flags,
-            max_bytes: u32::try_from(max).unwrap_or(u32::MAX),
-            title: as_str(&r.title),
-            text: as_str(&r.question),
-            choices: as_str(&r.choices),
-        }))
     }
 
     /// Op 10 on a request: the dialog while it is open, the asker in the

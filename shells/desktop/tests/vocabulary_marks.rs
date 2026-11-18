@@ -53,8 +53,10 @@ fn card(name: &str, marks: bool) -> PathBuf {
     let setup = dir.join(".paperpaw/plugins/setup");
     fs::create_dir_all(&setup).unwrap();
     fs::write(setup.join("done"), "").unwrap();
+    // No hyphenation pack on the card: the reader would ask the store for it,
+    // and the question would cover the page.
     let ini = format!(
-        "[core]\nfont-size = 12\n[vocabulary]\nmark = {}\n",
+        "[core]\nfont-size = 12\nhyphenate = off\n[vocabulary]\nmark = {}\n",
         if marks { "on" } else { "off" }
     );
     fs::write(dir.join("paperpaw.ini"), ini).unwrap();
@@ -68,15 +70,16 @@ fn card(name: &str, marks: bool) -> PathBuf {
     dir
 }
 
-/// Runs the emulator on `card` through `requests`, then shoots the page.
-fn session(card: &Path, shot: &Path, requests: &[String]) {
+/// Runs the emulator on `card` through `requests`, then shoots the page. What
+/// the emulator told on its standard error (a plugin's refused call among it).
+fn session(card: &Path, shot: &Path, requests: &[String]) -> String {
     let path = paperpaw_core::sdk::json::string(&card.display().to_string());
     let target = paperpaw_core::sdk::json::string(&shot.display().to_string());
     let mut child = Command::new(env!("CARGO_BIN_EXE_paperpaw-emu"))
         .arg("--stdio")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .unwrap();
     let mut lines = format!(
@@ -98,6 +101,7 @@ fn session(card: &Path, shot: &Path, requests: &[String]) {
     let out = child.wait_with_output().unwrap();
     assert!(out.status.success(), "the emulator failed");
     assert!(shot.exists(), "no shot of the page");
+    String::from_utf8_lossy(&out.stderr).into_owned()
 }
 
 /// Turns the page forward `times` times.
@@ -146,4 +150,17 @@ fn words_of_the_vocabulary_list_are_marked_on_the_page_when_marks_are_on() {
         plain, marked,
         "no word of the list is marked on a page full of them"
     );
+}
+
+/// With nothing to mark the plugin answers with a batch of no records: bytes
+/// of none are no batch, and the host refused them on every page, logging
+/// "call 8 ended with -2" for the plugin.
+#[test]
+fn the_plugin_answers_every_page_without_a_refused_call() {
+    for (name, marks) in [("quiet-off", false), ("quiet-on", true)] {
+        let card = card(name, marks);
+        let told = session(&card, &card.join("page.png"), &turns(5));
+        let refused: Vec<&str> = told.lines().filter(|l| l.contains("ended with")).collect();
+        assert!(refused.is_empty(), "marks {marks}: {refused:?}");
+    }
 }

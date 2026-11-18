@@ -1,0 +1,10 @@
+screen keyboard.ask
+Button "Start reading, Choose a book from your library." at 47,377 1170x283
+Button "Edit" at 1134,1597 83x83
+Dialog "" at 0,1226 1264x454
+Heading "Sort by" at 0,1258 1264x66
+Row "Title" at 0,1324 1264x83
+Row "Author" at 0,1407 1264x83
+Row "Recently read" at 0,1490 1264x83
+Row "Size" at 0,1573 1264x83
+frame 1680 rows, fnv1a64 e7cde05424040091

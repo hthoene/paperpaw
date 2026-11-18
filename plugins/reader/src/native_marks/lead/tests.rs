@@ -45,9 +45,12 @@ fn a_page_with_the_text_has_the_mark_wherever_the_text_is_on_it() {
 fn a_page_that_ends_in_the_text_has_the_mark_by_what_it_has() {
     let stored = "Alice was beginning to get very tired of sitting by her sister";
     assert!(found_in(stored, "and then Alice was beginning to get ve"));
-    // Not enough of it to tell: the last seven bytes only.
-    assert!(!found_in(stored, "and so on. Alice w"));
-    assert!(!found_in(stored, "and so on. Alice"));
+    // From a word's start four bytes tell (the place is on the page too).
+    assert!(found_in(stored, "and so on. Alic"));
+    // Not enough of it to tell: three bytes, or a word's middle, or no word.
+    assert!(!found_in(stored, "and so on. Ali"));
+    assert!(!found_in(stored, "and so on. Malice w"));
+    assert!(!found_in(stored, "and so on. Alice w, no"));
 }
 
 #[test]
@@ -79,4 +82,47 @@ fn a_word_broken_at_the_end_of_a_line_is_whole_on_both_sides() {
         "the rabbit-hole went on",
         "all the rabbit-hole went on and on"
     ));
+}
+
+#[test]
+fn a_soft_hyphen_or_a_hyphen_sign_does_not_tell_one_conversion_from_another() {
+    let lead = Lead::of("an extra\u{ad}ordinary thing").unwrap();
+    assert!(lead.is_in("what an extraordinary thing it was"));
+    let plain = Lead::of("an extraordinary thing").unwrap();
+    assert!(plain.is_in("what an extra\u{ad}ordinary thing it was"));
+    let lead = Lead::of("a well\u{2010}known place").unwrap();
+    assert!(lead.is_in("so a well-known place"));
+}
+
+#[test]
+fn a_mark_that_starts_a_word_a_few_bytes_before_the_page_end_is_found() {
+    let lead = Lead::of("rabbit hole she fell").unwrap();
+    // Four bytes of it are on the page, from a word's start.
+    assert!(lead.is_in("down the rabb"));
+    // Not fewer than four bytes, not from the middle of a word.
+    assert!(!lead.is_in("down the rab"));
+    assert!(!lead.is_in("down the burrabb"));
+}
+
+#[test]
+fn a_short_text_is_said_by_its_very_words_and_no_others() {
+    // Too short for a lead that is looked for near a place (#265).
+    assert!(Lead::of("Om").is_none());
+    let om = Lead::of_any("Om").unwrap();
+    assert!(om.is_short());
+    assert!(om.says("Om", false));
+    assert!(!om.says("Om forfatteren", false));
+    assert!(!om.says("O", false));
+    assert!(!om.says("om", false));
+    assert!(!om.says("", true));
+    // White space as one space; a page that ends inside the text says its
+    // start, word by word.
+    let two = Lead::of_any("to  be").unwrap();
+    assert!(two.says("to be", false));
+    assert!(two.says("to", true));
+    assert!(!two.says("to", false));
+    assert!(!two.says("t", true));
+    // A text of no letters has no lead at all; a long one is not short.
+    assert!(Lead::of_any("  ").is_none());
+    assert!(!Lead::of_any("rabbit hole").unwrap().is_short());
 }

@@ -11,7 +11,7 @@
 //! the default.
 //!
 //! Plugins give their menu entries icons by name
-//! ([`Registrar::add_icon`](crate::Registrar::add_icon)); an icon without
+//! (`Staging::add_icon`); an icon without
 //! a drawing draws nothing.
 //!
 //! A native plugin file (ADR 0024) built with `--cfg paperpaw_plugin`
@@ -21,23 +21,13 @@
 include!("icon_table.rs");
 
 /// What an icon says rather than which it is: drawn with the icon a
-/// plugin names for it ([`Registrar::add_icon`](crate::Registrar::add_icon),
+/// plugin names for it (`Staging::add_icon`,
 /// e.g. `r.add_icon(icons::BACK, "arrow-big-left".into())`), else with
 /// its default ([`default_of`]), else as PaperPaw draws it itself (the
 /// arrows of headers and the keyboard's keys).
 pub const BACK: &str = "core.icon.back";
 pub const PREV: &str = "core.icon.prev";
 pub const NEXT: &str = "core.icon.next";
-
-/// The semantic arrow icon pointing the other way, for a UI that runs
-/// right to left: back and previous point right, next points left.
-pub(crate) fn turned(icon: &str) -> &str {
-    match icon {
-        BACK | PREV => NEXT,
-        NEXT => PREV,
-        other => other,
-    }
-}
 
 /// Beside a button's hint where holding it does something too.
 pub const HOLD: &str = "core.icon.hold";
@@ -134,13 +124,6 @@ pub fn as_text(icon: char) -> Option<alloc::string::String> {
     text.push(AS_TEXT);
     text.push(icon);
     Some(text)
-}
-
-/// The icon a text of `as_text` is; `None` for any other text.
-pub(crate) fn of_text(text: &str) -> Option<char> {
-    let mut rest = text.strip_prefix(AS_TEXT)?.chars();
-    let icon = rest.next()?;
-    rest.next().is_none().then_some(icon)
 }
 
 /// The names of all icons, sorted: 64 KB, for tools and tests. The

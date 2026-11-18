@@ -490,6 +490,16 @@ impl<B: Storage, M: Storage> Storage for Mounted<B, M> {
         storage.append(path, data)
     }
 
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        let (storage, path) = self.route(path);
+        storage.write_at(path, offset, data)
+    }
+
+    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
+        let (storage, path) = self.route(path);
+        storage.truncate(path, len)
+    }
+
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
         if dir.is_empty() {
             // The root lists the mount point next to the base's entries;
@@ -778,6 +788,61 @@ mod tests {
         fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
             Some(a.eq_ignore_ascii_case(self.0) && b.eq_ignore_ascii_case(self.0))
         }
+    }
+
+    /// A storage that takes in-place writes and cuts, and says it did.
+    struct InPlace(core::cell::Cell<u32>);
+
+    impl Storage for InPlace {
+        fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+            Ok(0)
+        }
+
+        fn size(&self, _: &str) -> Result<u64, StorageError> {
+            Ok(0)
+        }
+
+        fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+
+        fn write_at(&self, _: &str, _: u64, _: &[u8]) -> Result<(), StorageError> {
+            self.0.set(self.0.get() + 1);
+            Ok(())
+        }
+
+        fn truncate(&self, _: &str, _: u64) -> Result<(), StorageError> {
+            self.0.set(self.0.get() + 10);
+            Ok(())
+        }
+
+        fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            Ok(())
+        }
+
+        fn remove(&self, _: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+    }
+
+    /// A save in place (the position file, #305) must reach the card on both
+    /// sides of the mount: a wrapper that says `Unsupported` sends every turn
+    /// to the whole-file write (12 commands instead of 1 block, #308).
+    #[test]
+    fn mounted_storage_forwards_writes_in_place() {
+        let storage = Mounted::new(
+            InPlace(Default::default()),
+            "books",
+            InPlace(Default::default()),
+        );
+        assert_eq!(storage.write_at("positions/a", 512, b"x"), Ok(()));
+        assert_eq!(storage.write_at("books/a", 0, b"x"), Ok(()));
+        assert_eq!(storage.truncate("books/a", 1), Ok(()));
+        assert_eq!((storage.base.0.get(), storage.mounted.0.get()), (1, 11));
     }
 
     /// Paths on both sides of the mount are never one entry; paths on one

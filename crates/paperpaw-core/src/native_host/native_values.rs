@@ -17,6 +17,10 @@ const KEPT: u32 = 1 << 2;
 const SECRET: u32 = 1 << 3;
 const ADVANCED: u32 = 1 << 4;
 
+/// What makes a declared setting a secret: its value goes to the secrets, not
+/// the settings (kept in the program, no heap).
+static SECRET_EXTRA: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new().secret();
+
 /// Data for a callback factory; both names are the host's own (copied, or
 /// kept in the program: [`Source`]).
 #[derive(Debug)]
@@ -220,8 +224,11 @@ pub(super) fn setting(
     spec: wire::SettingSpec<'_>,
     id: &mut impl Source,
 ) -> Result<SettingSpec, i32> {
-    if spec.flags & SECRET != 0 {
-        return Err(ERR_UNSUPPORTED);
+    let secret = spec.flags & SECRET != 0;
+    // A secret setting is a text whose value is the owner's secret named by
+    // the key (`secrets.md` 4): it has no other default than none.
+    if secret && (spec.kind != 3 || settings_decode(spec.default)? != SettingValueRef::Text("")) {
+        return Err(ERR_INVALID);
     }
     let kind = match spec.kind {
         0 => SettingKind::Bool,
@@ -262,6 +269,9 @@ pub(super) fn setting(
     } else {
         Level::Basic
     };
+    if secret {
+        value = value.with_extra(&SECRET_EXTRA);
+    }
     Ok(value)
 }
 

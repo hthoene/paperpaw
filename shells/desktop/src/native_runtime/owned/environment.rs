@@ -1,6 +1,6 @@
 //! Typed environment bridges for the inactive owner integration.
 use super::*;
-use paperpaw_core::sdk::Env;
+use paperpaw_core::Place;
 use paperpaw_native::host_glue::PpBuffer;
 
 pub(super) unsafe extern "C" fn snapshot<S>(ctx: *mut c_void, out: PpBuffer) -> i32 {
@@ -36,7 +36,7 @@ pub(super) fn invoke<S>(
     context: Pin<&Context<S>>,
     record: Registration,
     invocation: Invocation<'_>,
-    env: &Env<'_>,
+    env: &Place<'_>,
 ) -> Result<i32, Error> {
     // SAFETY: the owner structurally pins this field; no API moves it.
     let scope = unsafe { context.map_unchecked(|value| &value.environment) };
@@ -44,13 +44,13 @@ pub(super) fn invoke<S>(
 }
 
 /// Admission retains the owner/module before installing borrowed services.
-/// Each synchronous callback clears its Env on every exit, including unwind.
+/// Each synchronous callback clears its Place on every exit, including unwind.
 pub(super) fn dispatch<S>(
     batch: &Batch<'_, S, Registration>,
     index: usize,
     depth: &DispatchDepth,
     invocation: Invocation<'_>,
-    env: &Env<'_>,
+    env: &Place<'_>,
 ) -> Result<i32, Error> {
     batch.dispatch(index, depth, |context, record| {
         invoke(context, *record, invocation, env)

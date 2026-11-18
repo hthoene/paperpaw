@@ -52,7 +52,7 @@ impl super::Inner {
 
 /// What a decode runs within: the device's.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct Env {
+pub(crate) struct Within {
     /// The longest side `side` 0 stands for (the screen's).
     pub(crate) screen: u32,
     /// Whether the screen keeps colour at all.
@@ -83,7 +83,7 @@ pub(crate) struct SweepCursor {
     removed: bool,
 }
 
-impl Env {
+impl Within {
     /// The X4's: the longest side a prepared picture may have is 1,600
     /// pixels and a PNG's source row at most 8 KiB.
     pub(crate) const fn x4(screen: u32, colour: bool) -> Self {
@@ -435,7 +435,7 @@ impl ImageTable {
     ///
     /// # Errors
     /// `ERR_BUSY`: the table is borrowed; nothing was taken, call again.
-    pub(crate) fn prepare_step(&self, storage: &dyn Storage, env: Env) -> Result<bool, i32> {
+    pub(crate) fn prepare_step(&self, storage: &dyn Storage, env: Within) -> Result<bool, i32> {
         let (job, garbage, number) = {
             let mut inner = self.lock()?;
             // One file a turn; the list keeps the room it was given.
@@ -630,7 +630,7 @@ impl ImageTable {
         }
     }
 
-    fn decode(&self, storage: &dyn Storage, job: Waiting, number: u32, env: Env) -> Ready {
+    fn decode(&self, storage: &dyn Storage, job: Waiting, number: u32, env: Within) -> Ready {
         let fail = |status| Ready {
             owner: job.owner,
             cookie: job.cookie,
@@ -662,17 +662,17 @@ impl ImageTable {
             return fail(status);
         }
         // What the decoder wrote must be whole: its size is its header's.
-        let Ok((kind, width, height)) = paperpaw_sdk::ui::probe_picture(storage, &path) else {
+        let Ok((kind, width, height)) = crate::kit::ui::probe_picture(storage, &path) else {
             let _ = storage.remove(&path);
             return fail(CARD);
         };
         let channels = match kind {
-            paperpaw_sdk::ui::PictureKind::Color => 3,
-            paperpaw_sdk::ui::PictureKind::Alpha => 2,
+            crate::kit::ui::PictureKind::Color => 3,
+            crate::kit::ui::PictureKind::Alpha => 2,
             _ => 1,
         };
         let luma = recipe::luma_grid(storage, &path, (width as usize, height as usize, channels));
-        let colour = kind == paperpaw_sdk::ui::PictureKind::Color;
+        let colour = kind == crate::kit::ui::PictureKind::Color;
         match self.add_prepared(job.owner, number, width, height, colour) {
             Ok(image) => Ready {
                 owner: job.owner,
@@ -775,7 +775,7 @@ fn make(
     (path, number): (&str, u32),
     side: u32,
     colour: bool,
-    env: Env,
+    env: Within,
 ) -> Result<(), u32> {
     let tone = job.recipe.tone.as_deref();
     // The orientation is read before the decode, so that a picture that is

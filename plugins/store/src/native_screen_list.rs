@@ -30,12 +30,20 @@ use crate::native_index::Index;
 use crate::native_model::{Entry, GROUPS, SECTIONS};
 use crate::native_page::{Kind, newer};
 use crate::native_screen_view::Which;
-use crate::native_screens::{Ask, Ctx, Installs, Next, Reply, Screen, Trouble};
+use crate::native_screens::{Ask, Ctx, Installs, Next, Reply, Screen, SourceAct, Trouble};
+use crate::native_sources::{self as sources, Sources};
 
 /// The fonts browser's action: the *Fonts* row of the looks runs it.
 pub const FONTS: &str = "fonts-browser.open";
 /// The question the *Search* row asks: the text to look for.
 pub const SEARCH: u8 = 1;
+/// The questions of *Sources* (#214): which source to list or what to do, the
+/// address of a new one, whether to add a source nobody checked, which to
+/// remove.
+pub const SOURCES: u8 = 2;
+pub const ADD: u8 = 3;
+pub const TRUST: u8 = 4;
+pub const REMOVE: u8 = 5;
 
 /// The words of the screens, said by the catalog (or by a test).
 pub trait Say {
@@ -132,6 +140,8 @@ pub enum Row {
     /// What the library picked (of [`SECTIONS`]).
     Section(usize),
     Group(usize),
+    /// Where the plugins come from: PaperPaw's library or a community source.
+    Sources,
 }
 
 /// How many plugins the start counts: per group, installed, with an update.
@@ -154,7 +164,8 @@ pub fn here(installs: &dyn Installs, entry: &Entry) -> Option<bool> {
     if have.kind == Kind::BuiltIn && !have.enabled {
         return None;
     }
-    Some(newer(entry, &have, installs.takes_betas()))
+    // A plugin another source installed gets its updates from there.
+    Some(newer(entry, &have, installs.takes_betas()) && !installs.foreign(&entry.id))
 }
 
 /// Counts the plugins of `index`: per group (from the runs), those installed
@@ -260,7 +271,121 @@ pub fn item(say: &mut dyn Say, row: Row, counts: &Counts) -> Result<Item, Error>
                 n => Item::row(&name, &number(say, n)?),
             }
         }
+        Row::Sources => Item::row(&say.copy("store.sources")?, more),
     }
+}
+
+/// What *Sources* offers, in order: PaperPaw's library, each community source
+/// (one not read yet is marked), *Add a source* and, where there is one,
+/// *Remove a source*.
+///
+/// # Errors
+/// `NoMemory`, or what the catalog says.
+pub fn source_options(say: &mut dyn Say, kept: &Sources) -> Result<Vec<String>, Error> {
+    let mut options = Vec::new();
+    options
+        .try_reserve_exact(kept.all().len() + 3)
+        .map_err(|_| Error::NoMemory)?;
+    options.push(say.copy("store.source.official")?);
+    for source in kept.all() {
+        let name = sources::name(&source.url);
+        options.push(match source.key {
+            Some(_) => text::copy(name)?,
+            None => say.format(
+                "store.source.new",
+                &[Arg::Text {
+                    name: "name",
+                    value: name,
+                }],
+            )?,
+        });
+    }
+    options.push(say.copy("store.source.add")?);
+    if !kept.all().is_empty() {
+        options.push(say.copy("store.source.remove")?);
+    }
+    Ok(options)
+}
+
+/// What the reader chose under *Sources*.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Picked {
+    /// PaperPaw's library.
+    Official,
+    /// A community source with its key: it is listed.
+    List(String),
+    /// A community source not read yet: the reader is told first that nobody
+    /// checks it.
+    Unread(String),
+    /// *Add a source*.
+    Add,
+    /// *Remove a source*.
+    Remove,
+    Nothing,
+}
+
+/// Option `chosen` of [`source_options`].
+///
+/// # Errors
+/// `NoMemory`.
+pub fn picked(kept: &Sources, chosen: usize) -> Result<Picked, Error> {
+    let count = kept.all().len();
+    Ok(match chosen.checked_sub(1) {
+        None => Picked::Official,
+        Some(n) if n == count => Picked::Add,
+        Some(n) if n == count + 1 && count > 0 => Picked::Remove,
+        Some(n) => match kept.all().get(n) {
+            Some(source) if source.key.is_some() => Picked::List(text::copy(&source.url)?),
+            Some(source) => Picked::Unread(text::copy(&source.url)?),
+            None => Picked::Nothing,
+        },
+    })
+}
+
+/// The address typed for *Add a source*: `https://` is put before one typed
+/// without it. `Err` with the text to say where it is none.
+///
+/// # Errors
+/// `NoMemory` (as the outer error).
+pub fn typed_source(typed: &str) -> Result<Result<String, &'static str>, Error> {
+    let typed = typed.trim();
+    let url = if typed.contains("://") {
+        text::copy(typed)?
+    } else {
+        text::concat(&["https://", typed])?
+    };
+    Ok(if sources::is_official(&url) {
+        Err("store.source.is-official")
+    } else if sources::address(&url).is_none() {
+        Err("store.source.invalid")
+    } else {
+        Ok(url)
+    })
+}
+
+/// The question before a community source is added: nobody checked it.
+///
+/// # Errors
+/// `NoMemory`, or what the catalog says.
+pub fn trust_question(say: &mut dyn Say, url: &str) -> Result<Next, Error> {
+    // The address is in the text, which wraps: a title would cut it.
+    let note = say.format(
+        "store.source.note",
+        &[Arg::Text {
+            name: "name",
+            value: sources::name(url),
+        }],
+    )?;
+    Ok(Next::Ask {
+        tag: TRUST,
+        ask: Ask::Confirm {
+            title: say.copy("store.sources")?,
+            text: note,
+            yes: say.copy("store.source.add")?,
+            no: say.copy("store.not-now")?,
+        },
+    })
 }
 
 /// The rows of the screen, one for each entry.
@@ -294,6 +419,7 @@ pub fn choose(say: &mut dyn Say, row: Row) -> Result<Next, Error> {
                 },
             });
         }
+        Row::Sources => return Ok(Next::None),
         Row::Installed => Which::Installed,
         Row::New => Which::New,
         Row::Section(section) => Which::Section(section),
@@ -321,9 +447,13 @@ pub fn empty_words(trouble: Trouble, touch: bool) -> (&'static str, &'static str
     match trouble {
         Trouble::Offline if touch => ("store.offline", "store.offline.help"),
         Trouble::Offline => ("store.offline", "store.offline.help.buttons"),
+        Trouble::Memory => ("store.memory", "store.memory.help"),
         Trouble::Failed if touch => ("store.unreachable", "store.unreachable.help"),
         Trouble::Failed => ("store.unreachable", "store.unreachable.help.buttons"),
         Trouble::Unsupported => ("store.unsupported", "store.unsupported.help"),
+        Trouble::Unsigned => ("store.source.unsigned", "store.source.unsigned.help"),
+        Trouble::KeyChanged => ("store.source.key-changed", "store.source.key-changed.help"),
+        Trouble::TooLarge => ("store.source.too-large", "store.source.refused.help"),
         _ => ("store.loading", ""),
     }
 }
@@ -333,7 +463,12 @@ pub fn empty_words(trouble: Trouble, touch: bool) -> (&'static str, &'static str
 pub const fn empty_icon(trouble: Trouble) -> &'static str {
     match trouble {
         Trouble::Offline => "wifi-off",
-        Trouble::Failed | Trouble::Unsupported => "cloud",
+        Trouble::Failed
+        | Trouble::Memory
+        | Trouble::Unsupported
+        | Trouble::Unsigned
+        | Trouble::KeyChanged
+        | Trouble::TooLarge => "cloud",
         _ => "cloud-download",
     }
 }
@@ -342,7 +477,11 @@ pub const fn empty_icon(trouble: Trouble) -> &'static str {
 /// list.
 #[must_use]
 pub fn retry(empty: bool, trouble: Trouble) -> bool {
-    empty && matches!(trouble, Trouble::Offline | Trouble::Failed)
+    empty
+        && matches!(
+            trouble,
+            Trouble::Offline | Trouble::Failed | Trouble::Memory
+        )
 }
 
 /// The screen.
@@ -355,6 +494,10 @@ pub struct View {
     generation: u32,
     /// Whether the list kept was there when they were.
     had_index: bool,
+    /// Whether the row of hints says *Try again* for *Select* (#235).
+    retry_hint: bool,
+    /// The community source the reader is asked about (#214).
+    asked: Option<String>,
 }
 
 impl View {
@@ -371,13 +514,41 @@ impl View {
         } else {
             Vec::new()
         };
-        let items = items(&mut HostSay::new(ctx.host)?, &rows, &counts)?;
+        let mut rows = rows;
+        let mut say = HostSay::new(ctx.host)?;
+        let mut items = items(&mut say, &rows, &counts)?;
+        if index.is_some() {
+            // Where the plugins come from, last: its value names the source.
+            let listed = match ctx.loader.source() {
+                Some(url) => text::copy(sources::name(url))?,
+                None => say.copy("store.source.official")?,
+            };
+            push(&mut items, Item::row(&say.copy("store.sources")?, &listed)?)?;
+            push(&mut rows, Row::Sources)?;
+        }
+        drop(say);
         self.list.replace(items);
         self.rows = rows;
         self.counts = counts;
         self.generation = ctx.loader.generation();
         self.had_index = index.is_some();
         Ok(())
+    }
+
+    /// *Select* says *Try again* while it does (an empty list that could not be
+    /// fetched), else its usual name; told to the host when that changes.
+    fn sync_hint(&mut self, ctx: &Ctx<'_>) {
+        let retry = retry(self.rows.is_empty(), ctx.loader.list_state());
+        if retry == self.retry_hint {
+            return;
+        }
+        self.retry_hint = retry;
+        if !retry {
+            crate::native_hints::usual(ctx.host, "core.confirm");
+        } else if let Ok(words) = Messages::new().and_then(|mut m| m.copy(ctx.host, "store.retry"))
+        {
+            crate::native_hints::say(ctx.host, "core.confirm", &words);
+        }
     }
 
     /// Whether what the rows were made from has changed.
@@ -387,8 +558,78 @@ impl View {
 
     fn activate(&self, ctx: &Ctx<'_>, entry: usize) -> Result<Next, Error> {
         match self.rows.get(entry).copied() {
+            Some(Row::Sources) => {
+                let mut say = HostSay::new(ctx.host)?;
+                Ok(Next::Ask {
+                    tag: SOURCES,
+                    ask: Ask::Choice {
+                        title: say.copy("store.sources")?,
+                        options: source_options(&mut say, &Sources::read(ctx.data)?)?,
+                    },
+                })
+            }
             Some(row) => choose(&mut HostSay::new(ctx.host)?, row),
             None => Ok(Next::None),
+        }
+    }
+
+    /// The reader answered one of the questions of *Sources*.
+    fn source_answered(&mut self, ctx: &Ctx<'_>, tag: u8, reply: Reply<'_>) -> Result<Next, Error> {
+        let mut say = HostSay::new(ctx.host)?;
+        match (tag, reply) {
+            (SOURCES, Reply::Choice(chosen)) => match picked(&Sources::read(ctx.data)?, chosen)? {
+                Picked::Official => Ok(Next::Source(SourceAct::Official)),
+                Picked::List(url) => Ok(Next::Source(SourceAct::List(url))),
+                Picked::Unread(url) => {
+                    let question = trust_question(&mut say, &url)?;
+                    self.asked = Some(url);
+                    Ok(question)
+                }
+                Picked::Add => Ok(Next::Ask {
+                    tag: ADD,
+                    ask: Ask::Text {
+                        title: say.copy("store.source.address")?,
+                        number: false,
+                    },
+                }),
+                Picked::Remove => {
+                    let kept = Sources::read(ctx.data)?;
+                    let mut options = Vec::new();
+                    for source in kept.all() {
+                        push(&mut options, text::copy(sources::name(&source.url))?)?;
+                    }
+                    Ok(Next::Ask {
+                        tag: REMOVE,
+                        ask: Ask::Choice {
+                            title: say.copy("store.source.remove")?,
+                            options,
+                        },
+                    })
+                }
+                Picked::Nothing => Ok(Next::None),
+            },
+            (ADD, Reply::Text(typed)) => match typed_source(typed)? {
+                Ok(url) => {
+                    let question = trust_question(&mut say, &url)?;
+                    self.asked = Some(url);
+                    Ok(question)
+                }
+                Err(key) => Ok(Next::Notify(key)),
+            },
+            // Yes: the source is added and listed; its key is kept once its
+            // first list is read.
+            (TRUST, Reply::Choice(1)) => Ok(match self.asked.take() {
+                Some(url) => Next::Source(SourceAct::List(url)),
+                None => Next::None,
+            }),
+            (REMOVE, Reply::Choice(chosen)) => {
+                let kept = Sources::read(ctx.data)?;
+                Ok(match kept.all().get(chosen) {
+                    Some(source) => Next::Source(SourceAct::Remove(text::copy(&source.url)?)),
+                    None => Next::None,
+                })
+            }
+            _ => Ok(Next::None),
         }
     }
 }
@@ -401,11 +642,14 @@ impl Screen for View {
     }
 
     fn shown(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
-        self.refresh(ctx)
+        self.refresh(ctx)?;
+        self.sync_hint(ctx);
+        Ok(())
     }
 
     /// A fresh list is fetched while the one kept shows.
-    fn started(&mut self, _: &Ctx<'_>) -> Result<Next, Error> {
+    fn started(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+        self.sync_hint(ctx);
         Ok(Next::FetchList)
     }
 
@@ -474,21 +718,24 @@ impl Screen for View {
             }
             _ => Next::None,
         };
+        self.sync_hint(ctx);
         Ok((ItemList::handled(step), next))
     }
 
     fn event(&mut self, ctx: &Ctx<'_>, event: &Event<'_>) -> Result<Next, Error> {
         // A plugin installed, updated or removed, or a fresh list: counted anew.
-        if matches!(event, Event::PluginsChanged { .. }) || self.stale(ctx) {
+        let anew = matches!(event, Event::PluginsChanged { .. }) || self.stale(ctx);
+        if anew {
             self.refresh(ctx)?;
-            return Ok(Next::Redraw);
         }
-        Ok(Next::None)
+        self.sync_hint(ctx);
+        Ok(if anew { Next::Redraw } else { Next::None })
     }
 
-    fn answered(&mut self, _: &Ctx<'_>, tag: u8, reply: Reply<'_>) -> Result<Next, Error> {
+    fn answered(&mut self, ctx: &Ctx<'_>, tag: u8, reply: Reply<'_>) -> Result<Next, Error> {
         match (tag, reply) {
             (SEARCH, Reply::Text(typed)) => searched(typed),
+            (SOURCES | ADD | TRUST | REMOVE, reply) => self.source_answered(ctx, tag, reply),
             _ => Ok(Next::None),
         }
     }

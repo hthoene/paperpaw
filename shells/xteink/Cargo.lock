@@ -838,6 +838,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "524eb3c489760508f71360112bca70f6e53173e6fe48fc5f0efd0f5ab217751d"
 
 [[package]]
+name = "embassy-net-driver-channel"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a07d2eb9f05a6fc876500949856ea1be40773d866d8cb99384f72d0ae4568c16"
+dependencies = [
+ "embassy-futures",
+ "embassy-net-driver",
+ "embassy-sync 0.8.0",
+]
+
+[[package]]
 name = "embassy-sync"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -902,6 +913,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ee71af1b3a0deaa53eaf2d39252f83504c853646e472400b763060389b9fcc9"
 dependencies = [
  "document-features",
+]
+
+[[package]]
+name = "embassy-usb"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a25746d8b152b72fbf2a217f489a083dbbe243f281f09184a1f2cfbe9bbb245f"
+dependencies = [
+ "bitflags 2.13.2",
+ "embassy-futures",
+ "embassy-net-driver-channel",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "embassy-usb-driver",
+ "embedded-io-async 0.7.0",
+ "heapless 0.9.3",
 ]
 
 [[package]]
@@ -2311,7 +2338,6 @@ name = "paperpaw-config"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-sort",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -2319,14 +2345,18 @@ name = "paperpaw-core"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-config",
+ "paperpaw-digest",
+ "paperpaw-document",
  "paperpaw-graphics",
  "paperpaw-hid",
  "paperpaw-hyphen",
  "paperpaw-i18n",
+ "paperpaw-lang",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sdk",
  "paperpaw-sort",
+ "paperpaw-text",
 ]
 
 [[package]]
@@ -2374,7 +2404,6 @@ name = "paperpaw-graphics"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -2403,7 +2432,6 @@ dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
  "paperpaw-sort",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -2419,7 +2447,6 @@ name = "paperpaw-json"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -2581,7 +2608,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.9"
+version = "1.0.15"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2629,7 +2656,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-plugin-manager"
-version = "1.0.7"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2637,14 +2664,14 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-power"
-version = "1.1.3"
+version = "1.1.4"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.17"
+version = "1.1.0"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2668,7 +2695,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-sleep"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2676,7 +2703,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.10"
+version = "1.0.15"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2693,7 +2720,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2701,7 +2728,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-vocabulary"
-version = "1.1.9"
+version = "1.1.10"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",
@@ -2723,13 +2750,6 @@ name = "paperpaw-qr"
 version = "0.6.0-beta.3"
 
 [[package]]
-name = "paperpaw-sample-frame-test"
-version = "0.6.0-beta.3"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
 name = "paperpaw-sdk"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -2747,7 +2767,6 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-qr",
  "paperpaw-sort",
- "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-xml",
@@ -2774,10 +2793,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-table"
-version = "0.6.0-beta.3"
-
-[[package]]
 name = "paperpaw-text"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -2786,7 +2801,6 @@ dependencies = [
  "paperpaw-lang",
  "paperpaw-platform",
  "paperpaw-sort",
- "paperpaw-table",
  "read-fonts",
  "skrifa",
 ]
@@ -2810,6 +2824,7 @@ name = "paperpaw-x4"
 version = "0.6.0-beta.3"
 dependencies = [
  "embedded-hal 1.0.0",
+ "miniz_oxide",
  "paperpaw-config",
  "paperpaw-core",
  "paperpaw-native",
@@ -2820,9 +2835,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-xml"
 version = "0.6.0-beta.3"
-dependencies = [
- "paperpaw-table",
-]
 
 [[package]]
 name = "paperpaw-xteink"
@@ -2835,6 +2847,7 @@ dependencies = [
  "embassy-sync 0.8.0",
  "embassy-time",
  "embassy-time-driver",
+ "embassy-usb",
  "embedded-hal 1.0.0",
  "embedded-hal-bus",
  "esp-alloc",
@@ -2847,6 +2860,7 @@ dependencies = [
  "esp-storage",
  "log",
  "mbedtls-rs",
+ "miniz_oxide",
  "nb 1.1.0",
  "paperpaw-app",
  "paperpaw-core",
@@ -2855,12 +2869,11 @@ dependencies = [
  "paperpaw-fat",
  "paperpaw-graphics",
  "paperpaw-http",
+ "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-wifi",
- "paperpaw-sample-frame-test",
  "paperpaw-sdk",
- "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-x4",

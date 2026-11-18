@@ -3,10 +3,10 @@ use super::{
     Error, FlatHost, flat::FlatDepth, native_screen::Dispatch, registrations::DrawFrame,
     retained::Retained, shell,
 };
+use crate::Place;
 use crate::abi7::core_frame::CoreFrame;
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{self, Services};
-use paperpaw_sdk::Env;
 
 pub(crate) struct NativeDispatch<S: Services + 'static, M: 'static> {
     instance: Retained<S, M>,
@@ -60,7 +60,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
 
     fn frame<'a>(
         &'a self,
-        env: &'a Env<'a>,
+        env: &'a Place<'a>,
         epoch: u64,
         instance: Option<paperpaw_sdk::ScreenKey>,
         directory: Option<&'a super::native_declarations::NativeDeclarations>,
@@ -88,7 +88,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
     fn invoke(
         &self,
         token: u32,
-        env: &Env<'_>,
+        env: &Place<'_>,
         instance: Option<paperpaw_sdk::ScreenKey>,
         invocation: shell::TokenInvocation<'_>,
         stage: Option<&mut super::commands::CommandStage<'_>>,
@@ -146,7 +146,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         queue: &super::screen_stage::ScreenStage,
         inputs: super::screen_stage::StageInputs,
         token: u32,
-        env: &Env<'_>,
+        env: &Place<'_>,
         instance: Option<paperpaw_sdk::ScreenKey>,
         invocation: shell::TokenInvocation<'_>,
         input: bool,
@@ -184,7 +184,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
     fn service_call(
         &self,
         bytes: &[u8],
-        env: &Env<'_>,
+        env: &Place<'_>,
         stage: Option<&mut super::commands::CommandStage<'_>>,
     ) -> Result<i32, i32> {
         let tag = super::registrations::RawRecord::single(bytes)?.tag();
@@ -220,7 +220,7 @@ impl<S: Services + 'static, M: 'static> NativeDispatch<S, M> {
         &self,
         token: u32,
         frame: &DrawFrame<'_>,
-        env: &Env<'_>,
+        env: &Place<'_>,
         canvas: &mut Canvas<'_>,
         instance: Option<paperpaw_sdk::ScreenKey>,
     ) -> Result<i32, i32> {
@@ -275,11 +275,11 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         self.identity.take_open_info()
     }
 
-    fn event(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, token: u32, bytes: &[u8], env: &Place<'_>) -> Result<i32, i32> {
         self.invoke(token, env, None, shell::TokenInvocation::Event(bytes), None)
     }
 
-    fn input(&self, token: u32, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, token: u32, bytes: &[u8], env: &Place<'_>) -> Result<i32, i32> {
         self.invoke(token, env, None, shell::TokenInvocation::Input(bytes), None)
     }
 
@@ -287,7 +287,7 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         &self,
         token: u32,
         frame: &DrawFrame<'_>,
-        env: &Env<'_>,
+        env: &Place<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         self.render(token, frame, env, canvas, None)
@@ -297,9 +297,10 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         instance: Option<paperpaw_sdk::ScreenKey>,
         token: u32,
         bytes: &[u8],
-        env: &Env<'_>,
+        cx: &mut crate::Turn<'_, '_>,
         input: bool,
     ) -> Result<i32, i32> {
+        let env = cx.env();
         let invocation = if input {
             shell::TokenInvocation::Input(bytes)
         } else {
@@ -324,13 +325,13 @@ impl<S: Services + 'static, M: 'static> Dispatch for NativeDispatch<S, M> {
         instance: Option<paperpaw_sdk::ScreenKey>,
         token: u32,
         frame: &DrawFrame<'_>,
-        env: &Env<'_>,
+        env: &Place<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         self.render(token, frame, env, canvas, instance)
     }
 
-    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Env<'_>) -> Result<i32, i32> {
+    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], env: &Place<'_>) -> Result<i32, i32> {
         let directory = self.host.upgrade_directory()?;
         let epoch = self.identity.callback()?;
         let batch = self.instance.batch().map_err(|e| status(e.into()))?;
@@ -391,13 +392,13 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
     fn holds_nothing(&self) -> bool {
         self.instance.host().holds_nothing()
     }
-    fn service_event(&self, bytes: &[u8], env: &Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], env: &Place<'_>) -> Result<i32, i32> {
         self.service_call(bytes, env, None)
     }
     fn service_event_staged(
         &self,
         bytes: &[u8],
-        env: &Env<'_>,
+        env: &Place<'_>,
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.service_call(bytes, env, Some(stage))
@@ -406,7 +407,7 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
         &self,
         token: u32,
         bytes: &[u8],
-        env: &Env<'_>,
+        env: &Place<'_>,
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.invoke(
@@ -421,7 +422,7 @@ impl<S: Services + 'static, M: 'static> super::native_instances::NativeInstance
         &self,
         token: u32,
         bytes: &[u8],
-        env: &Env<'_>,
+        env: &Place<'_>,
         stage: &mut super::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.invoke(

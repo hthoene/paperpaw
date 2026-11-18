@@ -2,7 +2,7 @@
 //! while the interface-6 registration was still compared with them, record by
 //! record). They name what the interface-6 registration named:
 //! the eight settings (kinds, defaults, bounds, titles, help, groups,
-//! units, steps), the six screens and the slots they fill, the 29 actions,
+//! units, steps), the six screens and the slots they fill, the 35 actions,
 //! the 34 menu entries, the 13 icons, the device needs, the key bindings
 //! (the two that hold while a switch is on decoded apart) and, native only,
 //! the two events; the first run (the reading screen's help hints, the setup
@@ -89,11 +89,11 @@ fn the_decoded_batches_are_the_pinned_ones() {
         .collect();
     assert_eq!(flags, [256, 0, 0, 4, 4, 0]);
     assert_eq!(native.slots.len(), 6);
-    assert_eq!(native.actions.len(), 29);
+    assert_eq!(native.actions.len(), 35);
     assert_eq!(native.menu_entries.len(), 34);
     assert_eq!(native.icons.len(), 13);
     assert_eq!(native.needs.len(), 10);
-    assert_eq!(native.keys.len(), 6);
+    assert_eq!(native.keys.len(), 12);
     assert!(native.groups.is_empty() && native.widget_places.is_empty());
     assert_eq!(native.status_places.len(), 2);
     // The reading app, and the four items and the two lines of the reader,

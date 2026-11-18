@@ -5,7 +5,7 @@
 //! `core.files` as a busy source (`register_library_moves`).
 //!
 //! The kernel calls [`HostServices::pump_library_moves`] from its service
-//! pump with the `Env` and the queue the events go to; the first call also
+//! pump with the `Place` and the queue the events go to; the first call also
 //! starts the machine (`Moves::start`: the open journal entry, if any, is
 //! decided and its job finished), so nothing else has to run at start. A
 //! step that fails (the card, memory) keeps the job and is retried
@@ -21,11 +21,12 @@ use super::{
     lib_reads::CatalogJobs,
     lib_service::moves::Moves,
 };
+use crate::Ask;
+use crate::Place;
 use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_STATE};
 use paperpaw_platform::Storage;
-use paperpaw_sdk::{Command, Env};
 
 /// What a pump found.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -156,7 +157,7 @@ impl LibraryMoves {
 
     /// One step of the job with the catalog of `env`; events and setting
     /// changes go to `out`.
-    pub(crate) fn pump(&self, env: &Env<'_>, out: &mut dyn FnMut(Command)) -> Pump {
+    pub(crate) fn pump(&self, env: &Place<'_>, out: &mut dyn FnMut(Ask)) -> Pump {
         let carry = EnvCarry::new(env, &self.resume, out);
         let step = StepHost::new(&self.card, &carry);
         if !self.started.get() {
@@ -218,8 +219,8 @@ impl HostServices {
     }
 
     /// One step of the library's move job, if wired (`Pump::Idle` if not):
-    /// the kernel's service pump calls it with its `Env` and command queue.
-    pub(crate) fn pump_library_moves(&self, env: &Env<'_>, out: &mut dyn FnMut(Command)) -> Pump {
+    /// the kernel's service pump calls it with its `Place` and command queue.
+    pub(crate) fn pump_library_moves(&self, env: &Place<'_>, out: &mut dyn FnMut(Ask)) -> Pump {
         self.library_moves
             .get()
             .map_or(Pump::Idle, |moves| moves.pump(env, out))

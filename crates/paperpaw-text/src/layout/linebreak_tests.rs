@@ -270,6 +270,81 @@ fn korean_breaks_between_syllables_unless_keep_all() {
     }
 }
 
+/// Amharic (#159): a line ends after the wordspace ፡ (U+1361) and at a space,
+/// never inside a word, and the full stop ። (U+1362) stays with its word.
+#[test]
+fn ethiopic_breaks_after_the_wordspace_and_at_spaces() {
+    let text = "ሰላም፡ዓለም፡እንዴት";
+    assert_eq!(
+        texts(text, &lines_of(text, 50.0, 0)),
+        vec!["ሰላም፡", "ዓለም፡", "እንዴት"]
+    );
+    // Two words fit: the line is as full as it can be.
+    assert_eq!(
+        texts(text, &lines_of(text, 80.0, 0)),
+        vec!["ሰላም፡ዓለም፡", "እንዴት"]
+    );
+    let spaced = "ሰላም ዓለም እንዴት";
+    assert_eq!(
+        texts(spaced, &lines_of(spaced, 50.0, 0)),
+        vec!["ሰላም", "ዓለም", "እንዴት"]
+    );
+}
+
+#[test]
+fn the_ethiopic_full_stop_stays_with_the_word_before_it() {
+    let text = "ሰላም፡ዓለም። እንዴት፡ነህ።";
+    // (Widths that hold the longest word: a word wider than the line is cut
+    // where the line is full, in any script.)
+    for width in [50.0, 60.0, 90.0, 120.0, 150.0] {
+        let lines = lines_of(text, width, 0);
+        let shown = texts(text, &lines);
+        assert!(
+            shown.iter().all(|line| !line.starts_with('።')),
+            "{width}: {shown:?}"
+        );
+        assert!(
+            shown.iter().any(|line| line.contains("ዓለም።")),
+            "{width}: {shown:?}"
+        );
+    }
+    assert_eq!(
+        texts(text, &lines_of(text, 50.0, 0)),
+        vec!["ሰላም፡", "ዓለም።", "እንዴት፡", "ነህ።"]
+    );
+}
+
+/// No hyphenation in Ethiopic: where a table would allow a place inside a
+/// word (here after every letter), no line ends there with a hyphen.
+#[test]
+fn ethiopic_words_are_not_hyphenated() {
+    let anywhere = |word: &str, found: &mut dyn FnMut(usize)| {
+        for (at, _) in word.char_indices().skip(1) {
+            found(at);
+        }
+    };
+    let wrapped = |text: &str, width: f32| {
+        wrap_lines_kerned_in(
+            text,
+            &|_| width,
+            &|_, _| 10.0,
+            &|_, _, _| 0.0,
+            Some(&anywhere),
+            0,
+        )
+    };
+    // The table is asked: a Latin word that does not fit is hyphenated.
+    assert!(wrapped("abcdef abcdefghij", 120.0)[0].hyphen);
+    let text = "ሰላምታዎች፡እንኳንደህናመጡ፡ኢትዮጵያ";
+    for width in [100.0, 110.0, 120.0] {
+        let lines = wrapped(text, width);
+        assert!(lines.iter().all(|l| !l.hyphen), "{width}");
+        assert_eq!(texts(text, &lines), vec!["ሰላምታዎች፡", "እንኳንደህናመጡ፡", "ኢትዮጵያ"]);
+    }
+    // Nor where a word is wider than the line and has to be cut.
+    assert!(wrapped(text, 30.0).iter().all(|l| !l.hyphen));
+}
+
 #[test]
 fn keep_all_keeps_hanja_words_together_too() {
     let text = "大韓民國 大韓民國";
@@ -293,6 +368,38 @@ fn a_zero_width_space_is_a_break_and_takes_no_room() {
     let word = "สวัสดีครับขอบคุณ";
     let one = wrap_lines_kerned_in(word, &|_| 1000.0, &|_, _| 10.0, &|_, _, _| 0.0, None, 0);
     assert_eq!(one.len(), 1);
+}
+
+/// A text of the Thai language pack (`tools/thai-segment.py` marks its
+/// words): lines break at the marks between words and nowhere else, never
+/// before a vowel or tone mark, and the marks take no room.
+#[test]
+fn thai_text_with_marked_words_breaks_only_between_them() {
+    let text = "เปิด\u{200B}ใช้\u{200B}ตั้งค่า\u{200B}หน้า\u{200B}จอ\u{200B}และ\u{200B}ปุ่ม\u{200B}กด\u{200B}เมื่อ\u{200B}ต้องการ";
+    let plain = text.replace('\u{200B}', "");
+    // Wider than the longest word (a word wider than a line is cut).
+    for width in [80.0, 100.0, 140.0, 200.0] {
+        let lines = lines_of(text, width, 0);
+        assert!(lines.len() >= 2, "{width}: {lines:?}");
+        for line in &lines {
+            assert!(line.width <= width + 0.01, "{width}: {line:?}");
+            let start = text[line.range.clone()].chars().next().unwrap();
+            assert!(
+                !"\u{0E31}\u{0E34}\u{0E48}".contains(start),
+                "{width}: mark first"
+            );
+        }
+        for line in lines.iter().skip(1) {
+            assert!(
+                text[..line.range.start].ends_with('\u{200B}'),
+                "{width}: a line starts inside a word at {}",
+                line.range.start
+            );
+        }
+        // No letter lost or moved.
+        let all: String = texts(text, &lines).concat().replace('\u{200B}', "");
+        assert_eq!(all, plain);
+    }
 }
 
 #[test]
@@ -414,5 +521,224 @@ fn the_state_at_a_line_start_is_that_of_one_pass() {
                 );
             }
         }
+    }
+}
+
+/// A pack of one letter with the table of Thai words of the store's
+/// `script-thai` (slot 6), opened: the line breaker reads its words.
+fn thai_pack() -> crate::StoredPack {
+    let table = crate::linebreak::thai::tests::table(&crate::linebreak::thai::tests::dictionary());
+    words_pack('ก', &table)
+}
+
+/// A pack of letter `letter` with the table of words `table` (slot 6),
+/// opened.
+fn words_pack(letter: char, table: &[u8]) -> crate::StoredPack {
+    struct Bytes(Vec<u8>);
+    impl crate::PackSource for Bytes {
+        fn read_at(&self, at: u64, buf: &mut [u8]) -> bool {
+            let at = at as usize;
+            match self.0.get(at..at + buf.len()) {
+                Some(bytes) => {
+                    buf.copy_from_slice(bytes);
+                    true
+                }
+                None => false,
+            }
+        }
+    }
+    let mut builder = crate::PackBuilder::new();
+    let metrics = crate::LineMetrics::fallback(10.0);
+    builder.add_strike(
+        10.0,
+        metrics,
+        vec![(letter, crate::glyph::Glyph::empty(10.0))],
+    );
+    builder.table(6, 1, &table[8..]);
+    // The script in the table's head, as tools/word-table.py writes it (the
+    // builder writes a head of its own).
+    let mut bytes = builder.build();
+    let strikes = usize::from(u16::from_le_bytes([bytes[8], bytes[9]]));
+    let slot = 12 + 32 * strikes + 4 * 6;
+    let at = u32::from_le_bytes(bytes[slot..slot + 4].try_into().unwrap()) as usize;
+    bytes[at + 1] = table[1];
+    crate::StoredPack::open(alloc::rc::Rc::new(Bytes(bytes))).unwrap()
+}
+
+/// Two Thai sentences without spaces between their words, and where
+/// their words start.
+const THAI: &str = "ฉันชอบกินอาหารไทยมาก เด็กๆเล่นในสวนสาธารณะ";
+const THAI_WORDS: [&str; 11] = [
+    "ฉัน",
+    "ชอบ",
+    "กิน",
+    "อาหาร",
+    "ไทย",
+    "มาก",
+    "เด็กๆ",
+    "เล่น",
+    "ใน",
+    "สวน",
+    "สาธารณะ",
+];
+
+fn word_starts() -> Vec<usize> {
+    let mut starts = Vec::new();
+    let mut from = 0;
+    for word in THAI_WORDS {
+        let at = from + THAI[from..].find(word).unwrap();
+        starts.push(at);
+        from = at + word.len();
+    }
+    starts
+}
+
+/// With a Thai pack open, lines of Thai break between its words (#313),
+/// greedily and balanced; without one, only at the space (a line is cut
+/// where a run does not fit).
+#[test]
+fn thai_breaks_between_the_words_of_the_open_pack() {
+    let starts = word_starts();
+    let balanced = |text: &str| {
+        wrap_lines_balanced_in(
+            text,
+            &|_| 100.0,
+            &|_, _| 10.0,
+            &|_, _, _| 0.0,
+            None,
+            &|_, _| 0.0,
+            0,
+        )
+    };
+    let plain = lines_of(THAI, 100.0, 0);
+    assert!(
+        plain.iter().any(|l| !starts.contains(&l.range.start)),
+        "without words: {:?}",
+        texts(THAI, &plain)
+    );
+    let pack = thai_pack();
+    for lines in [lines_of(THAI, 100.0, 0), balanced(THAI)] {
+        assert!(lines.len() >= 3, "{:?}", texts(THAI, &lines));
+        for line in &lines {
+            assert!(
+                starts.contains(&line.range.start),
+                "{:?}",
+                texts(THAI, &lines)
+            );
+            assert!(line.width <= 100.0, "{:?}", texts(THAI, &lines));
+        }
+    }
+    // Laid out from a line's start, the lines after it are the same.
+    let all = lines_of(THAI, 100.0, 0);
+    let rest = lines_of(&THAI[all[1].range.start..], 100.0, 0);
+    assert_eq!(
+        texts(THAI, &all[1..]),
+        texts(&THAI[all[1].range.start..], &rest)
+    );
+    drop(pack);
+    assert_eq!(
+        lines_of(THAI, 100.0, 0),
+        plain,
+        "the words go with the pack"
+    );
+}
+
+/// Thai the words do not explain breaks between clusters only: never
+/// before a vowel or tone mark, nor after a vowel written before its
+/// letter (in lines as wide as the longest word, 15 letters; one wider
+/// than its line is cut where it overflows); and no letter is lost.
+/// Without the words, a run is cut where it overflows, inside clusters.
+#[test]
+fn thai_lines_never_break_inside_a_cluster() {
+    let text = "กรุงเทพมหานครอมรรัตนโกสินทร์มหินทรายุธยามหาดิลกภพนพรัตนราชธานีบุรีรมย์ \
+                เปลี่ยนแปลงไม่ได้ก็ไม่เป็นไรน้ำใจเก่งที่สุดศัพท์ภาษาไทยกำลังใจ";
+    let follows = "\u{E2F}\u{E30}\u{E31}\u{E32}\u{E33}\u{E34}\u{E35}\u{E36}\u{E37}\u{E38}\
+                   \u{E39}\u{E3A}\u{E45}\u{E46}\u{E47}\u{E48}\u{E49}\u{E4A}\u{E4B}\u{E4C}\u{E4D}\u{E4E}";
+    let leads = "\u{E40}\u{E41}\u{E42}\u{E43}\u{E44}";
+    let inside = |width: f32| -> Option<String> {
+        let lines = lines_of(text, width, 0);
+        assert_eq!(
+            texts(text, &lines).concat().replace(' ', ""),
+            text.replace(' ', ""),
+            "{width}"
+        );
+        texts(text, &lines).into_iter().find_map(|line| {
+            let (first, last) = (line.chars().next()?, line.chars().last()?);
+            (follows.contains(first) || leads.contains(last)).then(|| line.into())
+        })
+    };
+    let widths = [150.0, 160.0, 170.0, 190.0, 230.0, 300.0];
+    assert!(widths.iter().any(|&w| inside(w).is_some()), "without words");
+    let _pack = thai_pack();
+    for width in widths {
+        assert_eq!(
+            inside(width),
+            None,
+            "{width}: a line starts or ends inside a cluster"
+        );
+    }
+}
+
+/// Lao and Khmer break between the words of their packs' tables (#314),
+/// each script by its own while Thai's is open too, and only at spaces
+/// without them; Tibetan after its syllables' tsheg (U+0F0B), which a
+/// line ends with.
+#[test]
+fn lao_khmer_and_tibetan_break_between_their_words() {
+    use crate::linebreak::thai::{Script, tests};
+    let lao = "ຂ້ອຍຮັກປະເທດລາວ ຄົນເວົ້າພາສາລາວ";
+    let khmer = "ប្រទេសកម្ពុជាមានប្រជាជនច្រើន ខ្ញុំចង់ទៅសាលារៀន";
+    let lao_words = ["ຂ້ອຍ", "ຮັກ", "ປະເທດ", "ລາວ", "ຄົນ", "ເວົ້າ", "ພາສາ"];
+    let khmer_words = [
+        "ប្រទេស",
+        "កម្ពុជា",
+        "មាន",
+        "ប្រជាជន",
+        "ច្រើន",
+        "ខ្ញុំ",
+        "ចង់",
+        "ទៅ",
+        "សាលារៀន",
+    ];
+    let starts = |text: &str, words: &[&str]| -> Vec<usize> {
+        words
+            .iter()
+            .flat_map(|w| text.match_indices(w).map(|(at, _)| at))
+            .collect()
+    };
+    let breaks_between = |text: &str, words: &[&str]| {
+        let lines = lines_of(text, 100.0, 0);
+        lines.len() > 2
+            && lines
+                .iter()
+                .all(|l| starts(text, words).contains(&l.range.start))
+    };
+    assert!(!breaks_between(lao, &lao_words) && !breaks_between(khmer, &khmer_words));
+    let _thai = thai_pack();
+    let _lao = words_pack(
+        'ກ',
+        &tests::table_of(Script::Lao, &tests::words_of(Script::Lao)),
+    );
+    let _khmer = words_pack(
+        'ក',
+        &tests::table_of(Script::Khmer, &tests::words_of(Script::Khmer)),
+    );
+    for (text, words) in [(lao, &lao_words[..]), (khmer, &khmer_words[..])] {
+        assert!(
+            breaks_between(text, words),
+            "{:?}",
+            texts(text, &lines_of(text, 100.0, 0))
+        );
+    }
+    // "Tibet's language", syllables with their tsheg.
+    let tibetan = "བོད་ཀྱི་སྐད་ཡིག་ནི་བོད་མིའི་སྐད་ཡིན།";
+    let lines = lines_of(tibetan, 100.0, 0);
+    assert!(lines.len() > 2, "{:?}", texts(tibetan, &lines));
+    for line in &lines[..lines.len() - 1] {
+        assert!(
+            tibetan[line.range.clone()].ends_with('\u{F0B}'),
+            "{:?}",
+            texts(tibetan, &lines)
+        );
     }
 }

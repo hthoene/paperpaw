@@ -9,6 +9,7 @@
 //! not manage Wi-Fi. A work with a step function ([`WorkSpec`]) is a job,
 //! stepped in [`Kernel::tick`], one step a call.
 
+use crate::Place;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::mem;
@@ -17,18 +18,16 @@ mod native_network;
 pub(crate) use native_network::USES_NETWORK;
 mod runs;
 
+use crate::Ask;
 use paperpaw_platform::Instant;
 use paperpaw_sdk::builtin::{events, params};
 use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::power::{self, Power, PowerLevel, Wear};
 use paperpaw_sdk::work::Needs;
 use paperpaw_sdk::work::{
-    Importance, Moments, Progress, Reason, Refusal, Retry, Step, Why, Work, WorkRefused, WorkSpec,
-    WorkState,
+    Importance, Moments, Progress, Reason, Refusal, Retry, Step, Why, Work, WorkRefused, WorkState,
 };
-use paperpaw_sdk::{
-    Command, Env, HttpReply, Id, Params, ServerNotice, SocketError, SocketNotice, Uses,
-};
+use paperpaw_sdk::{HttpReply, Id, Params, ServerNotice, SocketError, SocketNotice, Uses};
 
 use crate::Kernel;
 
@@ -197,6 +196,38 @@ pub const fn network_specs_of(network: Id, saving: Id) -> [paperpaw_sdk::Setting
     network_specs(network, saving)
 }
 
+/// A job of a built-in: the steps of the work declared with its id.
+pub struct WorkSpec {
+    pub id: Id,
+    /// Translation key of its name, shown on the Power page and in the
+    /// battery view ("Syncing catalogs").
+    pub title: alloc::borrow::Cow<'static, str>,
+    pub step: crate::Stepper,
+}
+
+impl WorkSpec {
+    pub fn new(
+        id: impl Into<Id>,
+        title: impl Into<alloc::borrow::Cow<'static, str>>,
+        step: crate::Stepper,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            step,
+        }
+    }
+}
+
+impl core::fmt::Debug for WorkSpec {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("WorkSpec")
+            .field("id", &self.id)
+            .field("title", &self.title)
+            .finish_non_exhaustive()
+    }
+}
+
 /// The work plugins declared, and the jobs' steps.
 #[derive(Debug, Default)]
 pub(crate) struct Queue {
@@ -233,12 +264,12 @@ pub(crate) struct Queue {
     /// services is made again when it changes).
     policy_version: u32,
     /// The screen the reader chose *Go online* on while Offline: the
-    /// network for it until it closes ([`Command::GoOnline`]).
+    /// network for it until it closes ([`Ask::GoOnline`]).
     online_for: Option<Id>,
     /// Until when the reader chose *Go online* outside such a screen
-    /// ([`Command::GoOnlineFor`]).
+    /// ([`Ask::GoOnlineFor`]).
     pub(crate) online_until: Option<Instant>,
-    /// Works or their states changed since `Env::work` was made.
+    /// Works or their states changed since `Place::work` was made.
     changed: bool,
     /// Plugins refused for a full queue, told `WORK_ALLOWED` once there is
     /// room again.
@@ -320,7 +351,7 @@ impl Queue {
     }
 
     /// Declares `work`, in place of one with the same id and key.
-    fn declare(&mut self, work: Work, now: Instant, out: &mut Vec<Command>) {
+    fn declare(&mut self, work: Work, now: Instant, out: &mut Vec<Ask>) {
         self.changed = true;
         let owner = String::from(work.id.namespace());
         let same = |e: &Entry| e.work.id == work.id && e.work.key == work.key;
@@ -344,20 +375,20 @@ impl Queue {
             }
             let refused =
                 WorkRefused::new(work.id, Refusal::new(Reason::TooOften, Retry::WhenAllowed));
-            out.push(events::WORK_REFUSED.emit(refused));
+            out.push(crate::Ask::emit(&events::WORK_REFUSED, refused));
             return;
         }
         self.entries.push(Entry::new(work, owner, now));
     }
 
     /// Tells plugins refused for a full queue that there is room again.
-    fn allow_full(&mut self, out: &mut Vec<Command>) {
+    fn allow_full(&mut self, out: &mut Vec<Ask>) {
         let (entries, per_plugin) = (&self.entries, self.per_plugin);
         let before = self.full.len();
         self.full
             .retain(|owner| entries.iter().filter(|e| e.owner == *owner).count() >= per_plugin);
         if self.full.len() < before {
-            out.push(events::WORK_ALLOWED.emit(()));
+            out.push(crate::Ask::emit(&events::WORK_ALLOWED, ()));
         }
     }
 
@@ -472,7 +503,7 @@ impl Queue {
 
     /// The moments since the last run, with the radio, charging and idle
     /// looked at now.
-    fn take_moments(&mut self, env: &Env<'_>, last_activity: Instant) -> Moments {
+    fn take_moments(&mut self, env: &Place<'_>, last_activity: Instant) -> Moments {
         let mut moments = mem::take(&mut self.moments);
         let online = env
             .wifi()
@@ -494,7 +525,7 @@ impl Queue {
     }
 
     /// Why `entry` runs now, if it does.
-    fn why(&self, entry: &Entry, moments: Moments, env: &Env<'_>, base: &Power) -> Option<Why> {
+    fn why(&self, entry: &Entry, moments: Moments, env: &Place<'_>, base: &Power) -> Option<Why> {
         let power = &self.power_of(base, &entry.owner);
         if entry.job.is_some() || entry.held(power) {
             return None;
@@ -538,38 +569,43 @@ impl Entry {
 }
 
 impl Kernel {
-    /// Declares or takes back work ([`Command::Work`],
-    /// [`Command::CancelWork`]), takes back requests
-    /// ([`Command::CancelHttp`]), wears a power mode ([`Command::Wear`]),
-    /// goes online for the screen in front ([`Command::GoOnline`]).
-    pub(crate) fn apply_work(&mut self, command: Command) {
+    /// Declares or takes back work ([`Ask::Work`],
+    /// [`Ask::CancelWork`]), takes back requests
+    /// ([`Ask::CancelHttp`]), wears a power mode ([`Ask::Wear`]),
+    /// goes online for the screen in front ([`Ask::GoOnline`]).
+    pub(crate) fn apply_work(&mut self, command: Ask) {
         match command {
-            Command::Work(work) => self
-                .works
-                .declare(*work, self.now, &mut self.output.commands),
-            Command::CancelWork(id, key) => {
+            Ask::Work(work) => {
+                self.works
+                    .declare(*work, self.shared.now, &mut self.output.commands)
+            }
+            Ask::CancelWork(id, key) => {
                 self.works.cancel(&id, key.as_deref());
                 self.close_ended_runs();
             }
-            Command::CancelHttp(reply) => self.io.http.cancel(&reply, &mut self.output.commands),
-            Command::Wear(wear) => {
+            Ask::CancelHttp(reply) => self.io.http.cancel(&reply, &mut self.output.commands),
+            Ask::Wear(wear) => {
                 self.wear(wear);
                 self.sync_net_policy();
             }
-            Command::GoOnline => {
+            Ask::GoOnline => {
                 self.works.online_for = self.stack.last().map(|top| top.id.clone());
                 self.sync_net_policy();
                 // What waited may go on this connection.
-                self.output.commands.push(events::WORK_ALLOWED.emit(()));
+                self.output
+                    .commands
+                    .push(crate::Ask::emit(&events::WORK_ALLOWED, ()));
             }
             // The reader's choice alone: what background work sends is
             // not (it would lift Offline for itself).
-            Command::GoOnlineFor(how_long) if self.shared.reader => {
+            Ask::GoOnlineFor(how_long) if self.shared.reader => {
                 let how_long = how_long.min(paperpaw_sdk::power::MAX_ONLINE_FOR);
                 let millis = u64::try_from(how_long.as_millis()).unwrap_or(u64::MAX);
-                self.works.online_until = Some(self.now.add_millis(millis));
+                self.works.online_until = Some(self.shared.now.add_millis(millis));
                 self.sync_net_policy();
-                self.output.commands.push(events::WORK_ALLOWED.emit(()));
+                self.output
+                    .commands
+                    .push(crate::Ask::emit(&events::WORK_ALLOWED, ()));
             }
             _ => {}
         }
@@ -692,14 +728,18 @@ impl Kernel {
             let changed = events::SettingChanged::new(id);
             self.output
                 .commands
-                .push(events::SETTING_CHANGED.emit(changed));
+                .push(crate::Ask::emit(&events::SETTING_CHANGED, changed));
         }
         if self.shared.power != before {
-            self.output.commands.push(events::POWER_CHANGED.emit(()));
+            self.output
+                .commands
+                .push(crate::Ask::emit(&events::POWER_CHANGED, ()));
             self.native_hint(crate::native_host::registrations::EVENT_POWER_CHANGED_TAG);
         }
         if before.level == PowerLevel::Offline && level != PowerLevel::Offline {
-            self.output.commands.push(events::WORK_ALLOWED.emit(()));
+            self.output
+                .commands
+                .push(crate::Ask::emit(&events::WORK_ALLOWED, ()));
         }
     }
 
@@ -728,12 +768,14 @@ impl Kernel {
             || self
                 .works
                 .online_until
-                .is_some_and(|until| self.now < until)
+                .is_some_and(|until| self.shared.now < until)
     }
 
     /// When the while the reader went online for ends, to look again.
     pub(crate) fn online_ends(&self) -> Option<Instant> {
-        self.works.online_until.filter(|until| self.now < *until)
+        self.works
+            .online_until
+            .filter(|until| self.shared.now < *until)
     }
 
     /// The power work goes by: the mode's, but while the reader went
@@ -846,7 +888,7 @@ impl Kernel {
                 );
                 self.output
                     .commands
-                    .push(events::WORK_REFUSED.emit(refused));
+                    .push(crate::Ask::emit(&events::WORK_REFUSED, refused));
             } else {
                 index += 1;
             }
@@ -857,7 +899,7 @@ impl Kernel {
         let mut notes: Vec<(Id, paperpaw_sdk::work::Note)> = Vec::new();
         let mut stepped = false;
         {
-            let env = self.shared.env(self.now);
+            let env = self.shared.place(self.shared.now);
             let moments = self.works.take_moments(&env, self.last_activity);
             if moments.contains(Moments::SLEEP) {
                 self.works.keep = true;
@@ -893,18 +935,15 @@ impl Kernel {
                     entry.work.key.clone(),
                     entry.owner.clone(),
                 ));
-                if again(entry, self.now) {
+                if again(entry, self.shared.now) {
                     index += 1;
                 } else {
                     self.works.entries.remove(index);
                 }
             }
-            if mem::take(&mut self.works.ticking) {
-                let meter = &self.shared.meter;
-                let top = self.stack.last().map(|s| s.id.namespace());
-                let out = &mut self.output.commands;
-                stepped = step_job(&mut self.works, top, &env, meter, out, &mut notes);
-            }
+        }
+        if mem::take(&mut self.works.ticking) {
+            stepped = self.step_job(&mut notes);
         }
         self.works.allow_full(&mut self.output.commands);
         if mem::take(&mut self.works.keep) {
@@ -937,12 +976,12 @@ impl Kernel {
     /// ([`Uses::NETWORK`]): refused and answered as such. The command
     /// back where it may go on. A request's plugin is its reply's (a
     /// server's, a socket's): their ids are in the plugin's namespace.
-    pub(crate) fn declared_network(&mut self, command: Command) -> Option<Command> {
+    pub(crate) fn declared_network(&mut self, command: Ask) -> Option<Ask> {
         let owner = match &command {
-            Command::Http(request) => request.reply().namespace(),
-            Command::Serve { server, .. } => server.namespace(),
-            Command::Connect { socket, .. } => socket.namespace(),
-            Command::Broadcast(broadcast) => broadcast.id().namespace(),
+            Ask::Http(request) => request.reply().namespace(),
+            Ask::Serve { server, .. } => server.namespace(),
+            Ask::Connect { socket, .. } => socket.namespace(),
+            Ask::Broadcast(broadcast) => broadcast.id().namespace(),
             _ => return Some(command),
         };
         // The kernel's own, and what no plugin it knows asked for, go on.
@@ -974,15 +1013,15 @@ impl Kernel {
         self.shared.meter.network(&owner, true);
         let reason = String::from(refusal.reason.as_str());
         let (event, params) = match command {
-            Command::Http(request) => {
+            Ask::Http(request) => {
                 let request = request.into_parts();
                 let reply = HttpReply::refused(refusal, request.params);
                 (request.reply, reply.into_params())
             }
-            Command::Serve { server, events, .. } => {
+            Ask::Serve { server, events, .. } => {
                 (events, ServerNotice::Failed { server, reason }.to_params())
             }
-            Command::Connect { socket, events, .. } => (
+            Ask::Connect { socket, events, .. } => (
                 events,
                 SocketNotice::Failed {
                     socket,
@@ -991,7 +1030,7 @@ impl Kernel {
                 }
                 .to_params(),
             ),
-            Command::Broadcast(broadcast) => {
+            Ask::Broadcast(broadcast) => {
                 let socket = broadcast.id().clone();
                 let failed = SocketNotice::Failed {
                     socket,
@@ -1002,7 +1041,7 @@ impl Kernel {
             }
             _ => return None,
         };
-        self.output.commands.push(Command::Emit(event, params));
+        self.output.commands.push(Ask::Emit(event, params));
         if refusal.reason == Reason::NotDeclared {
             self.warn_runtime(alloc::format!(
                 "{owner}: uses the network without declaring it (`Manifest::uses`)"
@@ -1034,100 +1073,142 @@ impl Kernel {
     }
 }
 
-/// One step of the first job ready.
-fn step_job(
-    works: &mut Queue,
-    top: Option<&str>,
-    env: &Env<'_>,
-    meter: &alloc::rc::Rc<crate::meter::Meter>,
-    out: &mut Vec<Command>,
-    notes: &mut Vec<(Id, paperpaw_sdk::work::Note)>,
-) -> bool {
-    let now = env.now();
-    for entry in &mut works.entries {
-        if let Some(Job::Until(at)) = entry.job
-            && at <= now
+impl Kernel {
+    /// One step of the first job ready.
+    fn step_job(&mut self, notes: &mut Vec<(Id, paperpaw_sdk::work::Note)>) -> bool {
+        let now = self.shared.now;
+        let Some((index, step, params)) = self.works.ready_job(now) else {
+            return false;
+        };
+        let from = self.output.commands.len();
+        let owner = self.works.entries[index].owner.clone();
+        let step = {
+            let meter = alloc::rc::Rc::clone(&self.shared.meter);
+            let _running = meter.enter(&owner);
+            step(self, &params)
+        };
+        // The step may have ended its own work: what is left of it is not
+        // this job's.
+        if self
+            .works
+            .entries
+            .get(index)
+            .is_none_or(|e| e.owner != owner)
         {
-            entry.job = Some(Job::Ready);
+            return true;
         }
+        let top = self.stack.last().map(|s| s.id.namespace());
+        let random = &self.shared.random;
+        let out = &mut self.output.commands;
+        self.works
+            .after_step(index, from, top, now, step, random, out, notes);
+        true
     }
-    let Some(index) = works.entries.iter().position(|e| e.job == Some(Job::Ready)) else {
-        return false;
-    };
-    works.changed = true;
-    let Some(spec) = works
-        .specs
-        .iter()
-        .find(|s| s.id == works.entries[index].work.id)
-    else {
-        works.entries.remove(index);
-        return false;
-    };
-    let entry = &mut works.entries[index];
-    let from = out.len();
-    let step = {
-        let _running = meter.enter(&entry.owner);
-        crate::commands::handing(out, |out| (spec.step)(env, &entry.work.params, out))
-    };
-    // A job is background work: its notices become its plugin's note.
-    let mut said = Queue::default();
-    quiet(false, top, now, from, &entry.owner, out, &mut said);
-    if let Some(run) = works.runs.of(&entry.work.id, &entry.work.key) {
-        works.runs.claim(run, out.get(from..).unwrap_or_default());
-    }
-    works.foreign.append(&mut said.foreign);
-    for (owner, note) in said.notes {
-        if let Ok(owner) = Id::parse(&owner) {
-            notes.push((owner, note));
+}
+
+impl Queue {
+    /// The first job ready (one whose time came is), with its step and
+    /// params; a job whose spec is gone is dropped.
+    fn ready_job(&mut self, now: Instant) -> Option<(usize, crate::Stepper, Params)> {
+        for entry in &mut self.entries {
+            if let Some(Job::Until(at)) = entry.job
+                && at <= now
+            {
+                entry.job = Some(Job::Ready);
+            }
         }
+        let index = self
+            .entries
+            .iter()
+            .position(|e| e.job == Some(Job::Ready))?;
+        self.changed = true;
+        let id = &self.entries[index].work.id;
+        let Some(spec) = self.specs.iter().find(|s| s.id == *id) else {
+            self.entries.remove(index);
+            return None;
+        };
+        Some((index, spec.step, self.entries[index].work.params.clone()))
     }
-    let tell = |entry: &mut Entry, out: &mut Vec<Command>| {
-        entry.told = Some(now);
-        let params = Params::new().with(params::ID, String::from(entry.work.id.as_str()));
-        out.push(Command::Emit(events::WORK_CHANGED.id().clone(), params));
-    };
-    match step {
-        Step::Continue => {}
-        Step::Progress(progress) => {
-            entry.progress = Some(progress);
-            if entry.told.is_none_or(|t| now.since(t) >= PROGRESS_MS) {
+
+    /// What follows job `index`'s step `step` (its commands from `from` on in
+    /// `out`): its notices become its plugin's note, its progress is told,
+    /// it waits, ends or tries again later (`random` spreads the tries).
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the parts of the kernel a step's end touches, borrowed apart"
+    )]
+    fn after_step(
+        &mut self,
+        index: usize,
+        from: usize,
+        top: Option<&str>,
+        now: Instant,
+        step: Step,
+        random: &paperpaw_sdk::random::Random,
+        out: &mut Vec<Ask>,
+        notes: &mut Vec<(Id, paperpaw_sdk::work::Note)>,
+    ) {
+        let works = self;
+        let entry = &mut works.entries[index];
+        // A job is background work: its notices become its plugin's note.
+        let mut said = Queue::default();
+        quiet(false, top, now, from, &entry.owner, out, &mut said);
+        if let Some(run) = works.runs.of(&entry.work.id, &entry.work.key) {
+            works.runs.claim(run, out.get(from..).unwrap_or_default());
+        }
+        works.foreign.append(&mut said.foreign);
+        for (owner, note) in said.notes {
+            if let Ok(owner) = Id::parse(&owner) {
+                notes.push((owner, note));
+            }
+        }
+        let tell = |entry: &mut Entry, out: &mut Vec<Ask>| {
+            entry.told = Some(now);
+            let params = Params::new().with(params::ID, String::from(entry.work.id.as_str()));
+            out.push(Ask::Emit(events::WORK_CHANGED.id().clone(), params));
+        };
+        match step {
+            Step::Continue => {}
+            Step::Progress(progress) => {
+                entry.progress = Some(progress);
+                if entry.told.is_none_or(|t| now.since(t) >= PROGRESS_MS) {
+                    tell(entry, out);
+                }
+            }
+            Step::Wait(at) => entry.job = Some(Job::Until(at)),
+            Step::WaitFor(event) => entry.job = Some(Job::For(event)),
+            Step::Done => {
+                works.runs.end_work(&entry.work.id, Some(&entry.work.key));
+                entry.job = None;
+                entry.attempt = 0;
                 tell(entry, out);
+                if !again(entry, now) {
+                    works.entries.remove(index);
+                }
             }
-        }
-        Step::Wait(at) => entry.job = Some(Job::Until(at)),
-        Step::WaitFor(event) => entry.job = Some(Job::For(event)),
-        Step::Done => {
-            works.runs.end_work(&entry.work.id, Some(&entry.work.key));
-            entry.job = None;
-            entry.attempt = 0;
-            tell(entry, out);
-            if !again(entry, now) {
-                works.entries.remove(index);
+            Step::Failed(text) => {
+                works.runs.end_work(&entry.work.id, Some(&entry.work.key));
+                entry.job = None;
+                entry.attempt = entry.attempt.saturating_add(1);
+                entry.declared = now;
+                let mut jitter = [0u8];
+                random.fill(&mut jitter);
+                let jitter = jitter[0];
+                let wait = paperpaw_sdk::work::backoff(entry.attempt, jitter);
+                // A timed job tries again at a new time, others after the wait.
+                if entry.work.at.is_some() {
+                    entry.work.at = Some(now.add_millis(millis(Some(wait))));
+                } else {
+                    entry.work.after = Some(wait);
+                }
+                let owner = Id::parse(&entry.owner).unwrap_or_else(|_| entry.work.id.clone());
+                tell(entry, out);
+                notes.push((owner, paperpaw_sdk::work::Note::new(now, text)));
             }
+            // A step this kernel does not know yet: the job goes on.
+            _ => {}
         }
-        Step::Failed(text) => {
-            works.runs.end_work(&entry.work.id, Some(&entry.work.key));
-            entry.job = None;
-            entry.attempt = entry.attempt.saturating_add(1);
-            entry.declared = now;
-            let mut jitter = [0u8];
-            env.random().fill(&mut jitter);
-            let jitter = jitter[0];
-            let wait = paperpaw_sdk::work::backoff(entry.attempt, jitter);
-            // A timed job tries again at a new time, others after the wait.
-            if entry.work.at.is_some() {
-                entry.work.at = Some(now.add_millis(millis(Some(wait))));
-            } else {
-                entry.work.after = Some(wait);
-            }
-            let owner = Id::parse(&entry.owner).unwrap_or_else(|_| entry.work.id.clone());
-            tell(entry, out);
-            notes.push((owner, paperpaw_sdk::work::Note::new(now, text)));
-        }
-        // A step this kernel does not know yet: the job goes on.
-        _ => {}
     }
-    true
 }
 
 /// What a plugin's handler sent, from `from` on in `out`: work declared
@@ -1143,12 +1224,12 @@ pub(crate) fn quiet(
     now: Instant,
     from: usize,
     owner: &str,
-    out: &mut Vec<Command>,
+    out: &mut Vec<Ask>,
     works: &mut Queue,
 ) {
     let mut index = from;
     while index < out.len() {
-        if matches!(&out[index], Command::Work(work) if work.id.namespace() != owner) {
+        if matches!(&out[index], Ask::Work(work) if work.id.namespace() != owner) {
             out.remove(index);
             works.foreign.push(String::from(owner));
         } else {
@@ -1160,7 +1241,7 @@ pub(crate) fn quiet(
     }
     let mut index = from;
     while index < out.len() {
-        if let Command::Notify(text) = &out[index] {
+        if let Ask::Notify(text) = &out[index] {
             let note = paperpaw_sdk::work::Note::new(now, text.clone());
             works.notes.push((String::from(owner), note));
             out.remove(index);
@@ -1217,9 +1298,7 @@ impl crate::Shared {
 /// wants one (`event.network_wanted`/`idle` go to it alone): the Wi-Fi plugin,
 /// as in Beta 3. Where there is none by that id the events go nowhere; empty
 /// (or another id) is the user's choice, and a reset brings the default back.
-pub(crate) fn register_network(
-    r: &mut paperpaw_sdk::Registrar,
-) -> Result<(), paperpaw_sdk::RegisterError> {
+pub(crate) fn register_network(r: &mut crate::Staging) -> Result<(), paperpaw_sdk::RegisterError> {
     use paperpaw_sdk::{Id, SettingGroupSpec, SettingSpec, builtin::groups};
     // Each plugin's network (its settings made by the kernel).
     static NETWORK: SettingGroupSpec = SettingGroupSpec::new(NETWORK_GROUP, "core.group.network")

@@ -337,11 +337,15 @@ pub fn code_plugins(
     )
 }
 
-/// The installed file, read: only the file installed may run.
+/// The installed file, read: only the file installed may run (a file never
+/// installed runs as it lies, Decision 205).
 fn read_installed(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Vec<u8>, PluginProblem> {
     let bytes = paperpaw_core::sdk::read_file(storage, code.path, MAX_FILE)
         .map_err(|_| PluginProblem::Damaged)?;
-    if paperpaw_core::sdk::digest::sha256::digest(&bytes) != code.sha256 {
+    if code
+        .sha256
+        .is_some_and(|installed| paperpaw_core::sdk::digest::sha256::digest(&bytes) != installed)
+    {
         return Err(PluginProblem::Changed);
     }
     Ok(bytes)
@@ -352,6 +356,7 @@ fn read_installed(storage: &dyn Storage, code: &CodeFile<'_>) -> Result<Vec<u8>,
 /// `/proc/self/fd/N` is the same for every file that gets the number N: so
 /// the file stays open as long as the library is loaded, and a number in use
 /// by a loaded library is never given to another.
+#[cfg(all(target_os = "linux", any(test, target_arch = "x86_64")))]
 pub(super) struct HeldLibrary {
     /// First, so it is unloaded before its file is closed.
     pub(super) library: libloading::Library,
@@ -359,6 +364,7 @@ pub(super) struct HeldLibrary {
     _file: std::fs::File,
 }
 
+#[cfg(all(target_os = "linux", any(test, target_arch = "x86_64")))]
 impl HeldLibrary {
     /// Loads the library from `file`, the one that was read and checked.
     ///
@@ -372,7 +378,6 @@ impl HeldLibrary {
     ) -> Result<Self, libloading::Error> {
         // SAFETY: as documented. Every symbol is bound while loading (`RTLD_NOW`),
         // so nothing is resolved lazily later, and none is shared with the process.
-        #[cfg(unix)]
         let library = unsafe {
             libloading::os::unix::Library::open(
                 Some(load_path(path, &file)),
@@ -380,9 +385,6 @@ impl HeldLibrary {
             )
         }?
         .into();
-        // SAFETY: as documented.
-        #[cfg(not(unix))]
-        let library = unsafe { libloading::Library::new(load_path(path, &file)) }?;
         Ok(Self {
             library,
             _file: file,
@@ -392,17 +394,11 @@ impl HeldLibrary {
 
 /// What the system loader is given to load the checked file: on Linux the
 /// open file itself (`/proc/self/fd/N`), so a name that now leads elsewhere
-/// changes nothing; elsewhere its path.
-#[cfg(target_os = "linux")]
+/// changes nothing. Linux only, as the code loader that uses it.
+#[cfg(all(target_os = "linux", any(test, target_arch = "x86_64")))]
 fn load_path(_path: &std::path::Path, file: &std::fs::File) -> std::path::PathBuf {
     use std::os::fd::AsRawFd;
     std::path::PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()))
-}
-
-/// See the Linux version: the path, until the other platforms hold the file.
-#[cfg(not(target_os = "linux"))]
-fn load_path(path: &std::path::Path, _file: &std::fs::File) -> std::path::PathBuf {
-    path.to_path_buf()
 }
 
 /// Installs every code plugin built for this computer on the card in

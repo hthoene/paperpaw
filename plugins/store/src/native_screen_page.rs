@@ -33,7 +33,7 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, Input},
         events::Event,
-        formatting::{self, Arg},
+        formatting::Arg,
     },
 };
 use paperpaw_ui_kit::{
@@ -64,6 +64,9 @@ pub const HOW_FILE: &str = "how.txt";
 /// A plugin that takes more memory than this while it runs is said to be
 /// tight on devices with little.
 pub const TIGHT_HEAP: u64 = 32 * 1024;
+/// The most of the description's first paragraph the page itself shows, in
+/// bytes (four lines of body text, wrapped with an ellipsis where longer).
+pub const LEAD_BYTES: usize = 320;
 /// The mark between the facts of the version line.
 const DOT: &str = " \u{b7} ";
 
@@ -418,17 +421,42 @@ pub fn size_text(bytes: u64, mark: &str) -> Result<String, Error> {
     }
 }
 
-/// How far a download came: `1.2 MB / 3.4 MB`, or the bytes so far where the
-/// total is not known.
+/// How far a download came: `2 / 4`. The numbers are files (the download
+/// knows its files, not their bytes), so they are never written as sizes.
 ///
 /// # Errors
 /// `NoMemory`.
-pub fn progress_text(done: u32, total: u32, mark: &str) -> Result<String, Error> {
-    let done = size_text(u64::from(done), mark)?;
-    if total == 0 {
-        return Ok(done);
+pub fn progress_text(done: u32, total: u32) -> Result<String, Error> {
+    let (mut a, mut b) = ([0; 20], [0; 20]);
+    concat(&[
+        decimal_u64(u64::from(done), &mut a),
+        " / ",
+        decimal_u64(u64::from(total), &mut b),
+    ])
+}
+
+/// What the page shows of the plugin's description: its first paragraph on one
+/// line, cut at a character's end. Empty where there is none. The whole text is
+/// one row away (*How it works*).
+///
+/// # Errors
+/// `NoMemory`.
+pub fn lead(description: &str) -> Result<String, Error> {
+    let first = description.trim().split("\n\n").next().unwrap_or_default();
+    let mut out = String::new();
+    out.try_reserve(first.len().min(LEAD_BYTES))
+        .map_err(|_| Error::NoMemory)?;
+    for word in first.split_whitespace() {
+        let room = LEAD_BYTES.saturating_sub(out.len() + usize::from(!out.is_empty()));
+        if word.len() > room {
+            break;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
     }
-    concat(&[&done, " / ", &size_text(u64::from(total), mark)?])
+    Ok(out)
 }
 
 /// The text *How it works* opens in the reader: the name, a blank line, the
@@ -638,10 +666,12 @@ impl View {
             has_shots: more.is_some_and(|m| shots::count(&m.shots, small) > 0),
             has_source: more.is_some_and(|m| !m.source.is_empty()),
         };
-        let rows = native_page::rows(&input)?;
+        // Nothing is installed over a plugin another source installed (#214).
+        let rows =
+            native_page::of_source(native_page::rows(&input)?, ctx.installs.foreign(&self.id));
         let mut items = Vec::new();
         let mut targets = Vec::new();
-        let room = rows.len() + 12;
+        let room = rows.len() + 14;
         items.try_reserve_exact(room).map_err(|_| Error::NoMemory)?;
         targets
             .try_reserve_exact(room)
@@ -733,6 +763,33 @@ impl View {
         }
         push(items, summary)?;
         push(targets, None)?;
+        // What it does at more length (the library's description, in the
+        // reader's language): its first paragraph, in the same text.
+        let lead = lead(page.map_or("", |p| &p.more.description))?;
+        if !lead.is_empty() && lead != entry.summary {
+            let mut row = Item::row(&lead, "")?;
+            if let Item::Row(r) = &mut row {
+                r.whole = true;
+                r.plain = true;
+                r.disabled = true;
+            }
+            push(items, row)?;
+            push(targets, None)?;
+        }
+        // Where it comes from (#214): a community source nobody checked, and
+        // whether the device has it from another source.
+        let mut lines = [String::new(), String::new()];
+        if let Some(url) = ctx.loader.source() {
+            let name = crate::native_sources::name(url);
+            lines[0] = say.format(ctx.host, "store.source.from", &[text("name", name)])?;
+        }
+        if ctx.installs.foreign(&self.id) {
+            lines[1] = say.copy(ctx.host, "store.source.foreign.fact")?;
+        }
+        for line in lines.iter().filter(|line| !line.is_empty()) {
+            push(items, small(faint(Item::row(line, "")?)))?;
+            push(targets, None)?;
+        }
         let facts = facts(&FactInput {
             entry,
             more: page.map(|p| &p.more),
@@ -766,9 +823,7 @@ impl View {
             }
             Value::Arrow => copy("\u{203a}")?,
             Value::Progress => match *look.step {
-                Step::Downloading { done, total } => {
-                    say.digits(host, &progress_text(done, total, look.mark)?)?
-                }
+                Step::Downloading { done, total } => progress_files(host, say, done, total)?,
                 _ => say.copy(host, "store.preparing")?,
             },
             Value::Preparing => say.copy(host, "store.preparing")?,
@@ -976,31 +1031,29 @@ impl View {
         let Some(at) = self.targets.iter().position(|row| *row == Some(Row::Stop)) else {
             return Ok(false);
         };
-        let value = progress_value(ctx.host, done, total)?;
+        let value = progress_files(ctx.host, &mut Messages::default(), done, total)?;
         Ok(self.list.set_value(at, value))
     }
 }
 
-/// The value of the progress row, said through stack arrays: no 4 KiB buffer
-/// is made for a progress event (one comes many times a second). A text that
-/// does not fit them (it does not happen for a size) falls back to `Messages`.
-fn progress_value(host: &Host<'_>, done: u32, total: u32) -> Result<String, Error> {
-    let mut mark = [0; 16];
-    let mut out = [0; 96];
-    let mark = match formatting::copy_message(host, "core.decimal", &mut mark) {
-        Ok(found) => copy(found)?,
-        Err(Error::NoSpace) => Messages::default().copy(host, "core.decimal")?,
-        Err(error) => return Err(error),
-    };
-    let text = progress_text(done, total, &mark)?;
-    match formatting::digits(host, &text, &mut out) {
-        Ok(length) => {
-            let bytes = out.get(..length).ok_or(Error::NoSpace)?;
-            copy(core::str::from_utf8(bytes).map_err(|_| Error::Utf8)?)
-        }
-        Err(Error::NoSpace) => Messages::default().digits(host, &text),
-        Err(error) => Err(error),
+/// The value of the progress row: `2 / 4 files`, the files of the download
+/// that are here. Before the files are known (`total` 0) it is *Preparing*.
+fn progress_files(
+    host: &Host<'_>,
+    say: &mut Messages,
+    done: u32,
+    total: u32,
+) -> Result<String, Error> {
+    if total == 0 {
+        return say.copy(host, "store.preparing");
     }
+    let progress = progress_text(done.min(total), total)?;
+    let line = say.format(
+        host,
+        "store.progress.files",
+        &[text("progress", &progress), Arg::Count(i64::from(total))],
+    )?;
+    say.digits(host, &line)
 }
 
 fn text<'a>(name: &'a str, value: &'a str) -> Arg<'a> {

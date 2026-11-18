@@ -138,6 +138,25 @@ pub(super) fn on_off(messages: &mut Messages, host: &Host<'_>, on: bool) -> Resu
     messages.copy(host, if on { "core.on" } else { "core.off" })
 }
 
+/// A list keeps ids in storage and shows their catalogue names in order.
+fn list_value_text(messages: &mut Messages, host: &Host<'_>, value: &str) -> Result<String, Error> {
+    let mut text = String::new();
+    for id in value.split(',').map(str::trim).filter(|id| !id.is_empty()) {
+        let name = translate(messages, host, id)?;
+        text.try_reserve(name.len().saturating_add(2))
+            .map_err(|_| Error::NoMemory)?;
+        if !text.is_empty() {
+            text.push_str(", ");
+        }
+        text.push_str(&name);
+    }
+    if text.is_empty() {
+        messages.copy(host, "core.list.none")
+    } else {
+        Ok(text)
+    }
+}
+
 /// The value of a setting as its row shows it.
 pub(super) fn value_text(
     messages: &mut Messages,
@@ -150,6 +169,9 @@ pub(super) fn value_text(
         (_, Some(now)) => messages.with_unit(host, now, &entry.detail.unit)?,
         (Some(Val::Bool(on)), _) => on_off(messages, host, *on)?,
         (Some(Val::Int(v)), _) => messages.with_unit(host, *v, &entry.detail.unit)?,
+        (Some(Val::Text(v)), _) if setting.kind == Kind::List => {
+            list_value_text(messages, host, v)?
+        }
         (Some(Val::Text(v)), _) => match entry.options.iter().find(|(value, _)| value == v) {
             Some((_, name)) => copy(name)?,
             None => copy(v)?,
@@ -507,6 +529,7 @@ pub(super) fn build_group(
             }
         }
     }
+    font_first(&mut specs, &of);
     let has_more = !view.more && advanced_offered && !specs.iter().any(|s| s.has(flag::ADVANCED));
     let mut pool: Vec<Option<Entry>> = Vec::new();
     for s in &specs {
@@ -560,6 +583,19 @@ pub(super) fn build_group(
         view.list.set_focus(at);
     }
     Ok(())
+}
+
+/// A widget's font is what its page is opened for as often as not: first,
+/// not after the widget's own settings (a page or two of buttons away).
+fn font_first(specs: &mut [&Setting], of: &str) {
+    if let Some(at) = specs.iter().position(|s| is_font_of(of, &s.key)) {
+        specs[..=at].rotate_right(1);
+    }
+}
+
+/// Whether `key` is the font setting of widget `of` (`<widget>.font`).
+fn is_font_of(of: &str, key: &str) -> bool {
+    key.strip_prefix(of).is_some_and(|rest| rest == ".font")
 }
 
 /// The title of the page of group `of`, with "More" after it for its

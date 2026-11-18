@@ -71,6 +71,16 @@ fn the_letters_of_each_script_are_beta_3s() {
     assert_eq!(script_of('א'), Some("Hebr"));
     assert_eq!(script_of('한'), Some("Kore"));
     assert_eq!(script_of('ᄀ'), Some("Kore"));
+    // Amharic (#159): a syllable, the wordspace, a letter of Ethiopic Extended.
+    assert_eq!(script_of('አ'), Some("Ethi"));
+    assert_eq!(script_of('፡'), Some("Ethi"));
+    assert_eq!(script_of('ⶀ'), Some("Ethi"));
+    // Khmer, Lao and Tibetan (#314): a consonant, a vowel sign, a tsheg.
+    assert_eq!(script_of('ខ'), Some("Khmr"));
+    assert_eq!(script_of('\u{17B6}'), Some("Khmr"));
+    assert_eq!(script_of('ລ'), Some("Laoo"));
+    assert_eq!(script_of('\u{F0B}'), Some("Tibt"));
+    assert_eq!(script_of('ก'), None);
     assert_eq!(script_of('a'), None);
     assert_eq!(script_of('é'), None);
     assert_eq!(script_of('中'), None);
@@ -89,6 +99,12 @@ fn the_declared_language_names_its_script() {
     assert_eq!(declared("fa"), Some("Arab"));
     assert_eq!(declared("he"), Some("Hebr"));
     assert_eq!(declared("ko"), Some("Kore"));
+    assert_eq!(declared("am"), Some("Ethi"));
+    assert_eq!(declared("ti-ER"), Some("Ethi"));
+    assert_eq!(declared("km"), Some("Khmr"));
+    assert_eq!(declared("lo"), Some("Laoo"));
+    assert_eq!(declared("bo"), Some("Tibt"));
+    assert_eq!(declared("dz"), Some("Tibt"));
     // Written in Latin letters, or in a script the table has no pack of.
     assert_eq!(declared("sr-Latn"), None);
     assert_eq!(declared("en"), None);
@@ -287,6 +303,23 @@ fn the_packs_are_those_of_the_scripts_lacking_and_not_asked_before() {
 }
 
 #[test]
+fn an_amharic_book_asks_for_the_ethiopic_letters() {
+    // #159: by its text, or by its language where its first blocks are Latin.
+    assert_eq!(
+        wanted(found("ሰላም፡ዓለም።"), None, false, ""),
+        ["script-ethiopic"]
+    );
+    assert_eq!(
+        wanted(found("Plain"), Some("Ethi"), false, ""),
+        ["script-ethiopic"]
+    );
+    assert_eq!(
+        wanted(found("ሰላም"), None, false, "script-ethiopic\n"),
+        [] as [&str; 0]
+    );
+}
+
+#[test]
 fn korean_asks_for_the_rare_syllables_only_once_its_letters_are_there() {
     let syllables = found("한국어");
     let jamo = found("ᄀᄂ");
@@ -332,7 +365,10 @@ fn each_pack_has_its_own_bit_so_an_answer_reaches_only_the_book_that_asked() {
         .map(|(.., pack)| bit(pack))
         .chain([bit(KOREAN_EXTRA)])
         .collect();
-    assert_eq!(all.iter().fold(0, |set, b| set | b).count_ones(), 6);
+    assert_eq!(all.iter().fold(0, |set, b| set | b).count_ones(), 10);
+    // The hyphenation packs' bit is none of them.
+    let hyphenation = bit("hyphenation-de");
+    assert!(hyphenation != 0 && all.iter().all(|b| b & hyphenation == 0));
     assert!(all.iter().all(|b| b.count_ones() == 1));
     assert_eq!(bit("dictionary"), 0);
     assert!(!is_pack("dictionary") && is_pack(KOREAN_EXTRA));
@@ -378,4 +414,20 @@ fn every_allocation_may_be_refused() {
         lacking(1, |_, _| None, &mut font)?;
         Ok(())
     });
+}
+
+#[test]
+fn a_language_of_the_store_has_its_hyphenation_pack() {
+    assert_eq!(hyphenation_pack("de"), Some("hyphenation-de"));
+    assert_eq!(hyphenation_pack("de-AT"), Some("hyphenation-de"));
+    assert_eq!(hyphenation_pack("PT_br"), Some("hyphenation-pt"));
+    assert_eq!(hyphenation_pack("no"), Some("hyphenation-nb"));
+    assert_eq!(hyphenation_pack("nb"), Some("hyphenation-nb"));
+    assert_eq!(hyphenation_pack("en"), Some("hyphenation"));
+    assert_eq!(hyphenation_pack("ja"), None);
+    assert_eq!(hyphenation_pack(""), None);
+    // An answer for one is told to the books that asked for it.
+    assert!(is_pack("hyphenation-uk"));
+    assert_ne!(bit("hyphenation-de"), bit(KOREAN_EXTRA));
+    assert_ne!(bit("hyphenation-de"), 0);
 }

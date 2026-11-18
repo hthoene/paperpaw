@@ -4,11 +4,11 @@
 //! A preset has a kind, which the plugin that offers them names (e.g.
 //! `core.power-mode`): that plugin lists the presets of its kind
 //! ([`Presets::of_kind`], through `env.settings().presets()`), shows each
-//! as it would look ([`Command::PreviewSettings`] with
-//! [`Preset::changes`]) and applies the one chosen ([`commands`]). Any
+//! as it would look (`Ask::PreviewSettings` with
+//! [`Preset::changes`]) and applies the one chosen ([`writes`]). Any
 //! plugin adds presets, also for another plugin's kind: kept in the
-//! program ([`Registrar::add_presets`], costing next to no memory) or made
-//! at start ([`Registrar::add_preset`]). A data plugin brings them in a
+//! program (`Staging::add_presets`, costing next to no memory) or made
+//! at start (`Staging::add_preset`). A data plugin brings them in a
 //! `presets.ini`, so that anyone can make one and share it:
 //!
 //! ```ini
@@ -26,13 +26,12 @@
 //! its kind that it leaves out go back to their defaults when it is
 //! applied ([`Preset::changes`]).
 //!
-//! [`Registrar::add_presets`]: crate::Registrar::add_presets
-//! [`Registrar::add_preset`]: crate::Registrar::add_preset
+//! `Staging::add_presets`: crate::Staging::add_presets
+//! `Staging::add_preset`: crate::Staging::add_preset
 
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
 
-use crate::command::Command;
 use crate::id::Id;
 use crate::settings::{SettingValue, Settings};
 
@@ -73,7 +72,7 @@ impl Preset {
     }
 
     /// A preset kept in the program, for a `static` list
-    /// ([`Registrar::add_presets`](crate::Registrar::add_presets)).
+    /// (`Staging::add_presets`).
     pub const fn fixed(
         id: &'static str,
         kind: &'static str,
@@ -190,10 +189,10 @@ pub const WIDGET_LOOK: &str = "core.widget-look";
 
 /// The settings a widget look covers: each registered widget's frame,
 /// padding, size, alignment, colours and shape (`<widget>.frame` …, of
-/// `widgets`), and those of all and the gap between widgets
+/// each id `is_widget` says is a widget's), and those of all and the gap between widgets
 /// ([`WIDGET_FRAME`](crate::builtin::settings::WIDGET_FRAME) …); not the
 /// settings of other things that end so (the status lines' size).
-pub fn widget_look_settings(settings: &Settings, widgets: &crate::widgets::Widgets) -> Vec<Id> {
+pub fn widget_look_settings(settings: &Settings, is_widget: &dyn Fn(&str) -> bool) -> Vec<Id> {
     use crate::builtin::settings as s;
     const PARTS: [&str; 9] = [
         ".frame",
@@ -217,10 +216,9 @@ pub fn widget_look_settings(settings: &Settings, widgets: &crate::widgets::Widge
         s::WIDGET_GAP.static_str(),
     ];
     let of_widget = |id: &str| {
-        PARTS.iter().any(|part| {
-            id.strip_suffix(part)
-                .is_some_and(|widget| widgets.has(widget))
-        })
+        PARTS
+            .iter()
+            .any(|part| id.strip_suffix(part).is_some_and(is_widget))
     };
     let mut covered = Vec::new();
     let walked = settings.each_spec(crate::settings::Pick::All, |spec| {
@@ -237,26 +235,27 @@ pub fn widget_look_settings(settings: &Settings, widgets: &crate::widgets::Widge
 /// What `look` changes among [`widget_look_settings`].
 pub fn widget_look_changes(
     settings: &Settings,
-    widgets: &crate::widgets::Widgets,
+    is_widget: &dyn Fn(&str) -> bool,
     look: &Preset,
 ) -> Vec<(Id, Option<SettingValue>)> {
-    let covered = widget_look_settings(settings, widgets);
+    let covered = widget_look_settings(settings, is_widget);
     let mut changes = look.changes(settings, &covered);
     changes.retain(|(id, _)| covered.contains(id));
     changes
 }
 
-/// The commands that give the settings the values of `changes` (see
-/// [`Preset::changes`]): those that have them already are left alone, and
-/// a setting's default is not written down but the setting reset.
-pub fn commands(settings: &Settings, changes: &[(Id, Option<SettingValue>)]) -> Vec<Command> {
+/// What gives the settings the values of `changes` (see
+/// [`Preset::changes`]): a value to set, or `None` to reset the setting.
+/// Those that have them already are left alone, and a setting's default
+/// is not written down but the setting reset.
+pub fn writes(
+    settings: &Settings,
+    changes: &[(Id, Option<SettingValue>)],
+) -> Vec<(Id, Option<SettingValue>)> {
     changes
         .iter()
         .filter(|(id, value)| !has(settings, id, value.as_ref()))
-        .map(|(id, value)| match kept(settings, id, value.as_ref()) {
-            Some(value) => Command::SetSetting(id.clone(), value.clone()),
-            None => Command::ResetSetting(id.clone()),
-        })
+        .map(|(id, value)| (id.clone(), kept(settings, id, value.as_ref()).cloned()))
         .collect()
 }
 
@@ -434,21 +433,18 @@ mod tests {
                 ),
             ]
         );
-        let commands = commands(&s, &changes);
-        assert_eq!(commands.len(), 3);
+        let writes = writes(&s, &changes);
+        assert_eq!(writes.len(), 3);
         assert!(!applied(&s, &changes));
         s.set("a.size", SettingValue::Int(3)).unwrap();
         s.set_from_text("a.name", "calm").unwrap();
         s.reset("a.dots").unwrap();
         assert!(applied(&s, &changes));
-        assert!(super::commands(&s, &changes).is_empty());
+        assert!(super::writes(&s, &changes).is_empty());
         // A default is not written down: the setting is reset.
         s.set("a.size", SettingValue::Int(4)).unwrap();
         let back = [(Id::new_static("a.size"), Some(SettingValue::Int(1)))];
-        assert_eq!(
-            super::commands(&s, &back),
-            [Command::ResetSetting(Id::new_static("a.size"))]
-        );
+        assert_eq!(super::writes(&s, &back), [(Id::new_static("a.size"), None)]);
         s.reset("a.size").unwrap();
         assert!(applied(&s, &back));
         // A value that does not fit is left out.

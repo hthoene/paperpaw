@@ -39,46 +39,83 @@ extern crate alloc;
 
 #[allow(dead_code, reason = "M1 adapters compile before host table activation")]
 mod abi7;
+mod areas;
+pub mod ask;
 mod awake;
+#[cfg(feature = "bluetooth")]
+mod bluetooth;
+#[cfg(not(feature = "bluetooth"))]
+#[path = "bluetooth_off.rs"]
 mod bluetooth;
 mod builder;
 mod card;
 mod catalog_file;
-mod chrome;
 mod code_plugin;
 mod commands;
 mod config;
 mod core_plugin;
 mod core_texts;
 mod data_plugin;
+mod developer_link;
+mod developer_link_run;
 mod drawing;
 mod effects;
 mod font_refresh;
 mod free_count;
 mod gestures;
+mod gray_later;
+pub mod hear;
 mod hints;
+mod host_screen;
 mod hyphen_feed;
 mod input;
 mod input_filters;
 mod io;
 mod key_guard;
 mod keymap;
+pub mod kit;
+mod language_seed;
 mod memory_notice;
 mod meter;
 pub mod native_host;
 mod network;
 mod notices;
-mod panes;
+mod place;
 mod plugins;
+mod reading_apps;
 mod realtime;
 mod recall;
 mod refresh;
 mod registry;
+mod screen_names;
+mod shell_asks;
+pub mod start_picture;
+pub use screen_names::ScreenNames;
 mod room;
+mod screen;
 mod screens;
 mod secrets_i6;
-mod shared_env;
-use screens::ActiveScreen;
+mod turn;
+pub use crate::place::Place;
+pub use crate::turn::Turn;
+mod tall_band;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+#[cfg(any(test, feature = "testing"))]
+pub(crate) use testing::FakeSpec;
+/// No test's screen outside the feature `testing`.
+#[cfg(not(any(test, feature = "testing")))]
+#[derive(Debug)]
+pub(crate) enum FakeSpec {}
+#[cfg(not(any(test, feature = "testing")))]
+impl FakeSpec {
+    pub(crate) fn id(&self) -> &Id {
+        match *self {}
+    }
+}
+mod warning;
+pub use hear::{Hear, Stepper};
+pub use warning::{Warning, WarningSource};
 #[cfg(test)]
 mod tests;
 mod timing;
@@ -92,6 +129,9 @@ use alloc::vec::Vec;
 use core::fmt;
 use core::mem;
 
+pub use crate::ask::{Ask, Asks};
+use crate::kit::{action::Actions, menus::Menus, status::StatusItems};
+pub use crate::turn::Output;
 use paperpaw_graphics::{Framebuffer, GraphicsError};
 use paperpaw_i18n::Translator;
 use paperpaw_platform::{
@@ -106,18 +146,18 @@ use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::native::{Native, SafeMode};
 use paperpaw_sdk::setting::{Setting, SettingType};
 use paperpaw_sdk::{
-    Actions, Capabilities, Command, Contribution, Cx, Direction, Env, EnvParts, Fonts, Formats,
-    Gesture, GestureKind, Handled, HintVisibility, Hyphenation, Id, Manifest, Menus, Metrics,
-    Output, Params, Plugin, PluginInfo, PluginState, Plugins, RegisterError, RequiredFor, Screen,
-    Settings, ShowsThrough, StatusItems,
+    Capabilities, Direction, Fonts, Formats, Gesture, GestureKind, Handled, HintVisibility,
+    Hyphenation, Id, Manifest, Metrics, Params, PluginInfo, PluginState, Plugins, RegisterError,
+    RequiredFor, Settings, ShowsThrough,
 };
 
-pub use crate::builder::{KernelBuilder, KernelError};
+pub use crate::builder::{KernelBuilder, KernelError, Staging};
 pub use crate::card::CardTrouble;
 pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
-use crate::core_plugin::{CORE, CorePlugin};
+use crate::core_plugin::CORE;
 pub use crate::data_plugin::hyphenation::{ManifestRefusal, hyphenation_tables};
+pub use crate::developer_link::PREFIX as DEVELOPER_PREFIX;
 pub use crate::effects::{Effect, Effects};
 use crate::input::{Recognized, Recognizer, Thresholds};
 pub use crate::io::cable::PREFIX as CABLE_PREFIX;
@@ -127,29 +167,33 @@ pub use crate::io::{
     ServerEvent, SocketCall, SocketEvent, SpeechCall, TlsSetup, WifiEvent,
 };
 use crate::keymap::{InputKey, Keymap, Origin, Zone};
+pub use crate::language_seed::{LanguageSeed, Sink};
 use crate::refresh::RefreshPolicy;
-use crate::registry::{Registry, Staging};
-use crate::screens::uncovered;
-pub use crate::work::NetworkSettings;
+use crate::registry::Registry;
+use crate::screens::{ActiveScreen, uncovered};
 #[doc(hidden)]
 pub use crate::work::network_specs_of;
-use paperpaw_sdk::Registrar;
-use paperpaw_sdk::filters::InputVerdict;
+pub use crate::work::{NetworkSettings, WorkSpec};
 pub use paperpaw_sdk::firmware::{Firmware, FirmwareCommand, FirmwareState, InstallFailure};
 pub use paperpaw_sdk::wifi::{JoinFailure, WifiCommand, WifiNetwork, WifiState};
 
 pub use paperpaw_sdk as sdk;
 
-/// Commands may trigger further commands; this bounds runaway loops.
+/// Asks may trigger further commands; this bounds runaway loops.
 const MAX_COMMAND_ROUNDS: usize = 16;
 /// A frame with pictures over this share of the screen (percent) is left
 /// with a full refresh: e-paper keeps ghosts of large pictures where text
 /// leaves none. Covers in a list stay below it.
 const PICTURES_PERCENT: u32 = 15;
-/// Of the screen, in percent, pictures of any size cover at least for it
-/// to be shown in grays when drawn whole
-/// ([`settings::PICTURES_IN_GRAYS`](paperpaw_sdk::builtin::settings::PICTURES_IN_GRAYS)):
-/// a cover or two, not an icon.
+/// Whether leaving a screen that showed such pictures (Back from a cover page
+/// to Home) is a full refresh (1.7 s on the X4, a flash) where the next frame
+/// is most of the screen. `false` (Decision 212, #294): the next frame is
+/// refreshed as it asked (fast, 0.5 s) and keeps some ghost of the pictures,
+/// which the grays pass after it cleans. Turning pages on the same screen
+/// still refreshes in full after pictures, whatever this says.
+const FULL_AFTER_LEAVING_PICTURES: bool = false;
+/// Of the screen, in percent, pictures cover at least for grays to follow a whole
+/// screen ([`settings::PICTURES_IN_GRAYS`](paperpaw_sdk::builtin::settings::PICTURES_IN_GRAYS)): a cover or two.
 const PICTURES_GRAY_PERCENT: u32 = 2;
 /// How long the row of hints shows on a screen that has it on a press.
 const HINTS_MS: u64 = 4000;
@@ -158,42 +202,8 @@ const MAX_SECRETS: usize = 64 * 1024;
 /// Default memory for glyphs rasterized at runtime.
 const DEFAULT_GLYPH_CACHE: usize = 32 * 1024;
 
-/// Where a warning comes from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum WarningSource {
-    Plugin(Id),
-    DeviceKeymap,
-    UserConfig,
-    Runtime,
-}
-
-/// A non-fatal problem. PaperPaw keeps running with sensible defaults and
-/// reports what it ignored.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Warning {
-    pub source: WarningSource,
-    pub line: Option<u32>,
-    pub message: String,
-}
-
-impl fmt::Display for Warning {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.source {
-            WarningSource::Plugin(id) => write!(f, "plugin `{id}`")?,
-            WarningSource::DeviceKeymap => f.write_str("device key map")?,
-            WarningSource::UserConfig => f.write_str("user configuration")?,
-            WarningSource::Runtime => f.write_str("runtime")?,
-        }
-        if let Some(line) = self.line {
-            write!(f, ", line {line}")?;
-        }
-        write!(f, ": {}", self.message)
-    }
-}
-
 /// An open screen kept while its task is not shown
-/// ([`Command::SwitchTask`]): its id, slot and params.
+/// ([`Ask::SwitchTask`]): its id, slot and params.
 type KeptScreen = (Id, Option<Id>, Params);
 
 /// A finger that came down at an edge (see [`Kernel::edge_lifted`]).
@@ -210,33 +220,37 @@ pub struct Kernel {
     shared: Shared,
     framebuffer: Framebuffer,
     subscriptions: crate::registry::Subscriptions,
+    /// What the core plugin's handlers keep (the catalog's job, the reading
+    /// recorded).
+    core: crate::core_plugin::State,
+    /// The steps of the data plugins' actions (`actions.ini`).
+    data_actions: Vec<crate::registry::DataAction>,
     /// The lowest screen the last offer of input reached ([`Kernel::offer`]).
     offered_down_to: usize,
     /// The params of the action offered to the screens now, for their
-    /// context ([`Cx::params`](paperpaw_sdk::Cx::params)); none else.
+    /// context ([`Turn::params`](crate::Turn::params)); none else.
     action_params: Params,
-    /// What sees every action run and every event emitted.
-    action_observers: Vec<paperpaw_sdk::ObserverSpec>,
-    event_observers: Vec<paperpaw_sdk::ObserverSpec>,
     /// The screen on top changed: it is told ([`Screen::on_show`]) once
     /// the commands of the call are done, so that one shown for a moment
     /// (e.g. below a menu that closes to open another screen) is not.
     show_pending: bool,
     /// Work plugins declared, timers among it (see [`work`]).
     works: work::Queue,
-    /// The short message showing ([`Command::Notify`]) and until when.
-    notice: Option<(Box<dyn Screen>, Instant)>,
+    /// The short message showing ([`Ask::Notify`]) and until when.
+    notice: Option<(screen::Screen, Instant)>,
     stack: Vec<ActiveScreen>,
     output: Output,
     warnings: Vec<Warning>,
-    /// A restart was requested (see [`Command::Restart`]).
+    /// A restart was requested (see [`Ask::Restart`]).
     restart: bool,
-    /// Sleep was requested (see [`Command::Sleep`]).
+    /// Sleep was requested (see [`Ask::Sleep`]).
     sleep: bool,
-    /// Switching off was requested (see [`Command::PowerOff`]).
+    /// Switching off was requested (see [`Ask::PowerOff`]).
     power_off: bool,
-    /// The card as a USB drive was requested (see [`Command::UsbDrive`]).
+    /// The card as a USB drive was requested (see [`Ask::UsbDrive`]).
     usb_drive: bool,
+    /// The developer link over USB (`developer_link.rs`): RAM only, off at every start.
+    developer: developer_link::Link,
     /// When the device went to sleep ([`Kernel::suspend`]): how long it
     /// slept is told on waking.
     suspended_at: Option<Instant>,
@@ -247,7 +261,7 @@ pub struct Kernel {
     /// See [`KernelBuilder::busy_mark`].
     busy_mark: bool,
     /// The work held back while the mark is shown ([`Kernel::proceed`]).
-    withheld: Vec<Command>,
+    withheld: Vec<Ask>,
     /// Of `withheld`, the commands of a guarding screen (see `trusted`).
     withheld_trusted: Vec<usize>,
     /// Of `withheld`, those of the guard itself (see `own_trusted`).
@@ -265,8 +279,7 @@ pub struct Kernel {
     /// Of the commands asked for, those of a screen guarding the device or
     /// one it opened: what they open above it is its own.
     own_trusted: Vec<usize>,
-    /// Notices given while a screen guarded the device, shown in turn once it
-    /// lets go (`notices`).
+    /// Notices held back by a guarding screen (`notices`).
     waiting_notices: notices::Waiting,
     /// When the device was last used (input, a page turned), for sleeping
     /// by itself ([`settings::SLEEP_AFTER`](core_settings::SLEEP_AFTER)).
@@ -289,9 +302,9 @@ pub struct Kernel {
     /// The active settings scope: a book's own settings.
     scope: Option<config::Scope>,
     /// The screen that asked for the values shown without being kept
-    /// ([`Command::PreviewSettings`]), if any (its `serial`).
+    /// ([`Ask::PreviewSettings`]), if any (its `serial`).
     preview_owner: Option<u32>,
-    /// The task shown ([`Command::SwitchTask`]); `None` the home slot's.
+    /// The task shown ([`Ask::SwitchTask`]); `None` the home slot's.
     task: Option<Id>,
     /// The screens of the tasks not shown, by their ids, slots and params.
     tasks: Vec<(Id, Vec<KeptScreen>)>,
@@ -300,16 +313,18 @@ pub struct Kernel {
     /// The screen on top when the messages read from the card were last
     /// forgotten (`forget_read_messages`).
     read_top: Option<u32>,
-    /// `paperpaw.ini` is there but could not be read at start: the user
-    /// is told once the first screen shows.
+    /// Unreadable `paperpaw.ini`, reported after the first screen shows.
     config_unreadable: bool,
-    /// The shell found no card it can use: the reader is told why at
-    /// each start.
+    /// No usable card, reported at each start.
     card_trouble: Option<CardTrouble>,
     /// This start ends a sleep that restarted the device (see
     /// [`KernelBuilder::after_sleep`]): [`events::RESUME`] follows
     /// [`events::STARTED`].
     after_sleep: bool,
+    /// The wake told last was one the storage came through as it was left
+    /// ([`Kernel::resume_storage_kept`]): the library is not walked again
+    /// for it.
+    storage_kept: bool,
     /// The file of passwords and keys is there but could not be read at
     /// start: it is not written over.
     secrets_unreadable: bool,
@@ -319,7 +334,10 @@ pub struct Kernel {
     /// The `core.secrets` host the shell gave [`Kernel::wire_secrets`]: the
     /// kernel seals through it with or without a native plugin admitted.
     secrets_wired: Option<alloc::rc::Rc<dyn crate::native_host::secrets_service::SecretsHost>>,
+    /// A secret setting's value is still in `paperpaw.ini`: not sealed yet.
+    secrets_left: bool,
     /// The number a pairing question's answer must bring back.
+    #[cfg(feature = "bluetooth")]
     pairing_nonce: Option<u64>,
     /// A screen was opened or closed since the last call ended; then the
     /// frame drawn for it is not shown yet (see [`Kernel::shown`]).
@@ -349,16 +367,15 @@ pub struct Kernel {
     native_registering: bool,
     /// The linked plugins' built-in catalogs are added ([`Kernel::claim_native_catalogs`]).
     native_catalogs_added: bool,
-    now: Instant,
+    /// Open while the shell hosts its native plugins as one batch (`native_batch.rs`).
+    native_batch: Option<crate::native_host::NativeBatch>,
+    /// The clock hosting is timed with, and the times taken (`native_batch.rs`).
+    native_clock: Option<fn() -> u32>,
+    native_times: crate::native_host::NativeTimes,
     input: gestures::InputState,
     io: network::IoState,
     frame: drawing::FrameState,
     keys: plugins::KeySources,
-    /// The bars along the edges of the screen plugins added
-    /// ([`paperpaw_sdk::chrome`]), the outermost first.
-    chromes: Vec<chrome::Chrome>,
-    /// Those shown now, by their place in `chromes`, with their strips.
-    chrome_strips: Vec<(usize, Rect)>,
     /// The plugin of each of `Shared::stylesheets`, to drop them with it.
     stylesheet_owners: Vec<Id>,
     timing: timing::Timing,
@@ -436,8 +453,11 @@ impl Kernel {
     pub fn start(&mut self, now: Instant) -> Effects {
         // The kernel's work, but for the plugins' it calls.
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
+        // The reading-app settings of the hosted apps, before the values no
+        // plugin declared are let go: a format's choice in the file is one.
+        self.offer_reading_apps();
         // The shell hosted its native plugins before this call: what their
         // admission kept in reserve is given back.
         self.native_hosted();
@@ -447,15 +467,18 @@ impl Kernel {
         // any plugin runs, whether or not a native plugin was admitted since
         // the services were wired (`secrets_i6.rs`).
         self.open_sealed_secrets();
+        // The reading apps kept for books and folders: read once.
+        self.read_reading_apps();
         // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());
-        self.output.commands.push(Command::open_slot(slots::HOME));
-        self.output.commands.push(events::STARTED.emit(()));
+        self.output.commands.push(Ask::open_slot(slots::HOME));
+        self.output.emit(&events::STARTED, ());
         self.count_free_again(now);
         // The device slept and restarted: it wakes as it would elsewhere.
         if mem::take(&mut self.after_sleep) {
-            self.output.commands.push(events::RESUME.emit(()));
+            self.output.emit(&events::RESUME, ());
         }
+        #[cfg(feature = "bluetooth")]
         if let Some(radio) = &mut self.io.bluetooth {
             radio.start();
         }
@@ -463,11 +486,11 @@ impl Kernel {
         self.sync_bluetooth();
         if mem::take(&mut self.config_unreadable) {
             let text = self.config_notice();
-            self.output.commands.push(Command::Notify(text));
+            self.output.commands.push(Ask::Notify(text));
         }
         if let Some(trouble) = self.card_trouble {
             let text = String::from(self.shared.translator.tr(trouble.key()));
-            self.output.commands.push(Command::Notify(text));
+            self.output.commands.push(Ask::Notify(text));
         }
         self.finish_start()
     }
@@ -483,9 +506,10 @@ impl Kernel {
             return self.finish();
         }
         self.hint.pressed = None;
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.last_user_input = Some(now);
+        self.gray_postpone();
         // No cover work begins beside what the user does now.
         self.native_cover_input();
         // Not counted while a screen guards the device: it would tell a typed code's length.
@@ -547,7 +571,7 @@ impl Kernel {
                 }
                 // Without a long press to tell apart, at once.
                 let long = InputKey::LongButton(Cow::Borrowed(name));
-                let at_once = self.resolve(&long).is_none() && !self.takes_buttons();
+                let at_once = self.resolve(&long).is_none();
                 if let Some(recognized) = self.input.recognizer.button(name, state, now, at_once) {
                     self.recognized_filtered(recognized);
                 }
@@ -607,7 +631,7 @@ impl Kernel {
     /// the busy mark ([`Effects::proceed`]).
     pub fn proceed(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         if let Some((area, _)) = self.frame.mark.take() {
             self.invalidate(area);
         }
@@ -632,15 +656,15 @@ impl Kernel {
 
     /// What the commands of an input start that may be slow: a screen
     /// opened or closed, or an action run; the key its time is kept by.
-    fn work_key(&self, command: &Command) -> Option<String> {
+    fn work_key(&self, command: &Ask) -> Option<String> {
         match command {
-            Command::OpenSlot(slot, _) => Some(format!("slot:{slot}")),
-            Command::OpenScreen(screen, _) => Some(format!("screen:{screen}")),
-            Command::Back => {
+            Ask::OpenSlot(slot, _) => Some(format!("slot:{slot}")),
+            Ask::OpenScreen(screen, _) => Some(format!("screen:{screen}")),
+            Ask::Back => {
                 let below = self.stack.len().checked_sub(2)?;
                 Some(format!("back:{}", self.stack[below].id))
             }
-            Command::RunAction(action, _) | Command::RunOriginal(action, _) => {
+            Ask::RunAction(action, _) | Ask::RunOriginal(action, _) => {
                 Some(format!("run:{action}"))
             }
             _ => None,
@@ -675,10 +699,9 @@ impl Kernel {
         }
     }
 
-    /// Whether what the screen shows is secret now: a PIN or a password
-    /// being entered ([`Screen::secret`]),
-    /// or the device guarded. Those who show the screen elsewhere (a
-    /// remote control, tools) leave out what its parts say then.
+    /// Whether what the screen shows is secret now: a PIN or a password being
+    /// entered (a screen on the stack says so), or the device guarded. Those who show the
+    /// screen elsewhere (a remote control, tools) leave out what it says then.
     pub fn is_secret(&self) -> bool {
         self.guard().is_some() || self.stack.iter().any(ActiveScreen::secret)
     }
@@ -732,7 +755,7 @@ impl Kernel {
                 );
                 told.on = part.on;
                 self.io.focus_told = focus;
-                self.output.commands.push(events::FOCUS_CHANGED.emit(told));
+                self.output.emit(&events::FOCUS_CHANGED, told);
                 self.run_commands();
             } else {
                 self.io.focus_told = None;
@@ -774,7 +797,7 @@ impl Kernel {
     /// ([`events::STATUS_CHANGED`]).
     pub fn set_status(&mut self, now: Instant, status: SystemStatus) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         let old = self.shared.status;
         self.shared.status = status;
         let offset = |s: &SystemStatus| s.clock.map(|c| c.utc_offset_minutes);
@@ -793,7 +816,7 @@ impl Kernel {
         // every reading.
         let shown = |s: &SystemStatus| s.battery.map(|b| (b.percent, b.charging));
         if shown(&old) != shown(&status) || offset(&old) != offset(&status) || jumped {
-            self.output.commands.push(events::STATUS_CHANGED.emit(()));
+            self.output.emit(&events::STATUS_CHANGED, ());
             self.native_hint(native_host::registrations::EVENT_STATUS_CHANGED_TAG);
         }
         // Without a shell external-power fact, charging is the only known source.
@@ -802,7 +825,7 @@ impl Kernel {
             self.native_hint(native_host::registrations::EVENT_CHARGE_CHANGED_TAG);
         }
         if status.battery.is_some() {
-            self.output.commands.push(events::BATTERY_MEASURED.emit(()));
+            self.output.emit(&events::BATTERY_MEASURED, ());
         }
         self.finish()
     }
@@ -836,7 +859,7 @@ impl Kernel {
     /// the plugins (a nested callback's route on the X4, #250).
     #[inline(never)]
     fn tick_due(&mut self, now: Instant) {
-        self.now = now;
+        self.shared.now = now;
         self.hide_hints();
         self.escape(now);
         self.count_awake();
@@ -851,7 +874,7 @@ impl Kernel {
             if !busy {
                 self.output
                     .commands
-                    .push(Command::run(paperpaw_sdk::builtin::actions::SLEEP));
+                    .push(Ask::run(paperpaw_sdk::builtin::actions::SLEEP));
             }
         }
         if self.network_deadline().is_some_and(|at| at <= now) {
@@ -879,9 +902,6 @@ impl Kernel {
             self.shared.reader = true;
             self.route_key_pending();
         }
-        self.tick_recognizers();
-        self.tick_chromes();
-        self.tick_pane_list();
         self.screen_timers_due();
         if self.notice.as_ref().is_some_and(|(_, until)| *until <= now) {
             self.end_notice();
@@ -924,7 +944,7 @@ impl Kernel {
         &self.shared.settings
     }
 
-    /// The device's name as others see it (`Env::device_name`), e.g. for
+    /// The device's name as others see it (`Place::device_name`), e.g. for
     /// a shell that gives it to the router as its host name.
     pub fn device_name(&self) -> String {
         let value = self
@@ -940,7 +960,7 @@ impl Kernel {
         &self.shared.secrets
     }
 
-    /// Keeps or removes a password or key, as [`Command::SetSecret`] of a
+    /// Keeps or removes a password or key, as [`Ask::SetSecret`] of a
     /// plugin does (e.g. a network's password a shell was given).
     ///
     /// The file is read again first: where it is there but cannot be
@@ -985,7 +1005,7 @@ impl Kernel {
                 .shared
                 .translator
                 .format("core.secrets-unreadable", &[("file", file)]);
-            self.output.commands.push(Command::Notify(text));
+            self.output.commands.push(Ask::Notify(text));
             return;
         }
         let previous = read
@@ -1037,14 +1057,14 @@ impl Kernel {
     }
 
     /// The widgets every plugin added (e.g. for a test that draws each).
-    pub fn widgets(&self) -> &paperpaw_sdk::widgets::Widgets {
+    pub fn widgets(&self) -> &crate::kit::widgets::Widgets {
         &self.shared.widgets
     }
 
     /// The menus every plugin added to, with their icons (e.g. for a tool
     /// that checks a plugin's).
-    pub fn menus(&self) -> paperpaw_sdk::MenuView<'_> {
-        paperpaw_sdk::MenuView::new(
+    pub fn menus(&self) -> crate::kit::menus::MenuView<'_> {
+        crate::kit::menus::MenuView::new(
             &self.shared.menus,
             &self.shared.actions,
             &self.shared.settings,
@@ -1082,7 +1102,7 @@ impl Kernel {
     }
 
     /// Every action plugins added.
-    pub fn actions(&self) -> &paperpaw_sdk::Actions {
+    pub fn actions(&self) -> &crate::kit::action::Actions {
         &self.shared.actions
     }
 
@@ -1093,8 +1113,8 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         // Asked from outside (a remote control, a test): as the reader.
         self.shared.reader = true;
-        self.now = now;
-        self.output.commands.push(Command::Emit(event, params));
+        self.shared.now = now;
+        self.output.commands.push(Ask::Emit(event, params));
         self.run_commands();
         self.finish()
     }
@@ -1140,56 +1160,6 @@ impl Kernel {
         mem::take(&mut self.warnings)
     }
 
-    /// Opens the screen bound to `slot` with `params`, e.g. the reader with
-    /// a book's path: for a shell asked to open a file (Android's "open
-    /// with", a remote control).
-    pub fn open_slot(&mut self, now: Instant, slot: Id, params: Params) -> Effects {
-        let _running = self.shared.meter.enter(meter::CORE);
-        self.shared.reader = true;
-        self.now = now;
-        self.last_activity = now;
-        self.output.commands.push(Command::OpenSlot(slot, params));
-        self.run_commands();
-        self.finish()
-    }
-
-    /// Opens the book at `path` with the reading app chosen for it (see
-    /// `paperpaw_sdk::readers`): for a shell asked to open a file.
-    pub fn open_book(&mut self, now: Instant, path: &str) -> Effects {
-        let _running = self.shared.meter.enter(meter::CORE);
-        self.shared.reader = true;
-        self.now = now;
-        self.last_activity = now;
-        self.output.commands.push(paperpaw_sdk::readers::open(path));
-        self.run_commands();
-        self.finish()
-    }
-
-    /// Opens the screen `screen` with `params`, as a plugin would, e.g.
-    /// asked by a shell's remote control or a test.
-    pub fn open_screen(&mut self, now: Instant, screen: Id, params: Params) -> Effects {
-        let _running = self.shared.meter.enter(meter::CORE);
-        self.shared.reader = true;
-        self.now = now;
-        self.last_activity = now;
-        self.output
-            .commands
-            .push(Command::OpenScreen(screen, params));
-        self.run_commands();
-        self.finish()
-    }
-
-    /// Runs `action` as a button bound to it would (the screen shown has it
-    /// first), e.g. asked by a shell's remote control or a test.
-    pub fn run_action(&mut self, now: Instant, action: Id) -> Effects {
-        let _running = self.shared.meter.enter(meter::CORE);
-        self.shared.reader = true;
-        self.now = now;
-        self.last_activity = now;
-        self.dispatch(action);
-        self.finish()
-    }
-
     /// Sets setting `id` from its text as configuration files write it
     /// (`on`, `12`, a choice's value), as the settings screen would: saved,
     /// what follows from it done, plugins told. E.g. for a shell's remote
@@ -1206,9 +1176,9 @@ impl Kernel {
         let value = spec.parse(text).ok_or("not a value of this setting")?;
         let id = Id::parse(id).map_err(|_| "no such setting")?;
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
-        self.output.commands.push(Command::SetSetting(id, value));
+        self.output.commands.push(Ask::SetSetting(id, value));
         // The shell's, on the reader's behalf: also while a screen guards
         // the device.
         self.trusted.push(self.output.commands.len() - 1);
@@ -1222,10 +1192,11 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         // Fingers and keys held under a native filter's capture are let go.
         self.shared.native_input.clear();
-        self.now = now;
+        self.shared.now = now;
         self.suspended_at = Some(now);
+        self.developer_suspend();
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
-        self.output.commands.push(events::SUSPEND.emit(()));
+        self.output.emit(&events::SUSPEND, ());
         self.end_at_suspend();
         let effects = self.finish();
         // Standby: the plugins that may sleep and run idle are parked again
@@ -1244,8 +1215,9 @@ impl Kernel {
     /// no sleep: none is counted, and no work waits for it.
     pub fn stop(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
-        self.output.commands.push(events::STOPPING.emit(()));
+        self.shared.now = now;
+        self.developer_suspend();
+        self.output.emit(&events::STOPPING, ());
         let effects = self.finish();
         self.keep_timing();
         // What plugins saved, and what storage kept back, written.
@@ -1254,7 +1226,7 @@ impl Kernel {
     }
 
     /// Back from [`Kernel::suspend`]. How long the device slept, for
-    /// plugins ([`Env::slept_for`](paperpaw_sdk::Env::slept_for)), is the
+    /// plugins ([`Place::slept_for`](crate::Place::slept_for)), is the
     /// time between the two by the shell's clock: `now` counts the time
     /// asleep.
     pub fn resume(&mut self, now: Instant) -> Effects {
@@ -1264,19 +1236,34 @@ impl Kernel {
         self.finish()
     }
 
+    /// [`Kernel::resume`], for a shell that knows that nothing changed the
+    /// storage while the device slept: a memory card that kept its power
+    /// through a light sleep (a card taken out loses it, and is told with
+    /// [`Kernel::usb_drive_ended`] once it is mounted anew). Nothing can
+    /// have been copied onto it, so the library is not walked again for
+    /// this wake, and a walk under way goes on where it was (#305).
+    pub fn resume_storage_kept(&mut self, now: Instant) -> Effects {
+        let _running = self.shared.meter.enter(meter::CORE);
+        self.shared.native_input.clear();
+        self.woke(now);
+        self.storage_kept = true;
+        self.finish()
+    }
+
     /// What waking does before the frame: the time asleep, plugins told.
     fn woke(&mut self, now: Instant) {
+        self.storage_kept = false;
         if let Some(at) = self.suspended_at.take() {
             let slept = now.0.saturating_sub(at.0);
             self.shared.slept_for = Some(core::time::Duration::from_millis(slept));
         }
-        self.now = now;
+        self.shared.now = now;
         self.last_activity = now;
         self.shown_since = now; // the time asleep is no screen's
         self.close_shut_out();
         self.count_free_again(now);
         self.native_work_woke();
-        self.output.commands.push(events::RESUME.emit(()));
+        self.output.emit(&events::RESUME, ());
     }
 
     /// The card is PaperPaw's again after a computer had it as a USB drive
@@ -1287,11 +1274,20 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.woke(now);
         // A computer may have changed the card, or another card is in.
-        self.shared.hyphenation.card_changed();
-        self.shared.hyphen_feed.card_changed();
-        self.output.commands.push(events::USB_DRIVE_ENDED.emit(()));
-        self.output.commands.push(events::LIBRARY_CHANGED.emit(()));
+        self.card_changed();
+        self.output.emit(&events::USB_DRIVE_ENDED, ());
+        self.output.emit(&events::LIBRARY_CHANGED, ());
         self.finish()
+    }
+
+    /// The card lost its power and has it back, and is the card it was,
+    /// as it was left (a loose contact; the shell's `Swapped::Back`): what
+    /// the kernel kept of it is read again, as what was not written back
+    /// is gone. Unlike [`Kernel::usb_drive_ended`] nothing wakes: no
+    /// library is walked, no plugin told, and the time to sleep stays.
+    pub fn card_back(&mut self) {
+        let _running = self.shared.meter.enter(meter::CORE);
+        self.card_changed();
     }
 
     /// Closes the screens above a guard that it did not open (a sleep
@@ -1323,8 +1319,10 @@ impl Kernel {
     }
 }
 
-/// Everything plugins can read through [`Env`].
+/// The kernel's state its screens, handlers and host calls read.
 struct Shared {
+    /// The time of what the kernel is handling.
+    now: Instant,
     /// The native runtime's producer endpoint; absent before runtime installation.
     native_events: Option<Box<dyn native_host::event_producers::EventSink>>,
     native_instances: native_host::native_instances::NativeInstances,
@@ -1338,12 +1336,12 @@ struct Shared {
     /// plugin: the host's own stage runs enter it at depth 0.
     native_depth: Option<native_host::flat::FlatDepth>,
     /// The screens and slots plugins added (in here so that a screen can
-    /// make another to host it: [`Env::make_screen`]).
+    /// make another to host it: [`Place::make_screen`]).
     registry: Registry,
     device: DeviceInfo,
-    settings: Settings,
+    settings: native_host::host_memos::Watched<Settings>,
     translator: Translator,
-    fonts: Fonts,
+    fonts: native_host::host_memos::Watched<Fonts>,
     stack_rows: alloc::rc::Rc<native_host::stack_rows::StackRows>,
     /// The refused bindings told of while a screen guarded ([`key_guard`]).
     key_guard_warned: key_guard::Warned,
@@ -1361,31 +1359,15 @@ struct Shared {
     /// What the device did since start (see [`paperpaw_sdk::usage`]).
     usage: paperpaw_sdk::usage::Usage,
     status_items: StatusItems,
-    widgets: paperpaw_sdk::widgets::Widgets,
-    setup: paperpaw_sdk::setup::SetupSteps,
+    widgets: crate::kit::widgets::Widgets,
+    setup: crate::kit::setup::SetupSteps,
     services: paperpaw_sdk::services::Services,
-    text_filters: paperpaw_sdk::filters::TextFilters,
     /// Marks on the words of book pages, from every plugin.
-    decorators: paperpaw_sdk::decorations::Decorators,
-    /// Layers on book pages and frames of their text, from every plugin.
-    page_layers: paperpaw_sdk::layers::PageLayers,
-    /// Where words are looked up, from every plugin.
-    lookup: paperpaw_sdk::lookup::LookupProviders,
-    /// Plugins' voices (the kernel's alone: plugins speak with
-    /// `Command::Speak`).
-    voices: paperpaw_sdk::voices::Voices,
-    /// The reading apps, from every plugin.
-    readers: paperpaw_sdk::readers::Readers,
-    /// Filters of every input and of every refresh, from every plugin.
-    input_filters: paperpaw_sdk::filters::InputFilters,
-    refresh_filters: paperpaw_sdk::filters::RefreshFilters,
+    decorators: crate::kit::decorations::Decorators,
     /// Plugins' stylesheets for books.
     stylesheets: Vec<Cow<'static, str>>,
     /// Folders of what plugins keep for each book.
-    book_data: Vec<paperpaw_sdk::library::BookData>,
-    /// Fields kept with books, badges on their rows, from every plugin.
-    book_fields: Vec<paperpaw_sdk::library::BookField>,
-    book_badges: Vec<paperpaw_sdk::library::BookBadge>,
+    book_data: Vec<crate::kit::library::BookData>,
     /// What the device and its shell can do.
     caps: Capabilities,
     /// Wi-Fi, where PaperPaw manages it (see [`KernelBuilder::wifi`]).
@@ -1412,7 +1394,7 @@ struct Shared {
     work_states: paperpaw_sdk::work::WorkStates,
     /// The call comes from the reader (input, what the shell opens or
     /// runs for them, the answer to a request made so): what plugins say
-    /// shows, and they may act at once (`Env::reader`). Otherwise it is
+    /// shows, and they may act at once (`Place::reader`). Otherwise it is
     /// background work, whose notices become notes (see [`work`]).
     reader: bool,
     /// Text copied here.
@@ -1420,15 +1402,12 @@ struct Shared {
     /// The system's clipboard has text (see
     /// [`Kernel::set_clipboard_available`]).
     system_clipboard: bool,
-    /// What the reader used last ([`Env::last_input`]).
+    /// What the reader used last ([`Place::last_input`]).
     last_input: paperpaw_sdk::keys::InputMode,
-    /// The inputs plugins added, those the device can make
-    /// ([`Env::inputs`]).
-    inputs: Vec<paperpaw_sdk::keys::InputSpec>,
-    /// The open screens as plugins see them ([`Env::stack`]), kept in
+    /// The open screens as plugins see them ([`Place::stack`]), kept in
     /// step with the kernel's stack.
     stack: Vec<paperpaw_sdk::StackEntry>,
-    /// The part of the screen the screen on top has ([`Env::content`]).
+    /// The part of the screen the screen on top has ([`Place::content`]).
     content: Rect,
     /// Slots some screen is bound to.
     slots: Vec<Id>,
@@ -1438,6 +1417,8 @@ struct Shared {
     data_folders: Vec<(Id, String)>,
     /// The folders data plugins are found in.
     plugin_dirs: Vec<String>,
+    /// The language pack the program carries (see [`LanguageSeed`]).
+    language_seed: Option<&'static crate::language_seed::LanguageSeed>,
     /// What plugin libraries call this kind of device (see
     /// [`KernelBuilder::catalog_device`]).
     catalog_device: Option<&'static str>,
@@ -1465,8 +1446,8 @@ struct Shared {
     recall: alloc::rc::Rc<recall::Recall>,
     keymap: Keymap,
     /// The look of the parts of screens a plugin set, and its priority
-    /// (see [`Registrar::set_ui_look`](paperpaw_sdk::Registrar::set_ui_look)).
-    look: (paperpaw_sdk::ui::look::Look, Option<paperpaw_sdk::Priority>),
+    /// (see `Staging::set_ui_look`).
+    look: (crate::kit::ui::look::Look, Option<paperpaw_sdk::Priority>),
     /// What each plugin takes.
     meter: alloc::rc::Rc<meter::Meter>,
 }
@@ -1494,6 +1475,6 @@ mod native_battery_pixel_tests;
 /// The host's own plugin id: no installed, linked or native plugin may take
 /// it, so no plugin's action passes for a host `core.*` one (`ui.md` 4.3).
 /// The same literal is refused by `paperpaw_native::bundle` (`Bundle::read`),
-/// `paperpaw_sdk::install::is_plugin_name` and the hyphenation-packs check;
+/// `crate::kit::install::is_plugin_name` and the hyphenation-packs check;
 /// change them together.
 pub(crate) const RESERVED_PLUGIN_ID: &str = "core";

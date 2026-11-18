@@ -53,21 +53,34 @@ fn a_status_line_keeps_the_text_from_its_edge() {
 }
 
 #[test]
+fn a_book_that_runs_right_to_left_mirrors_the_sides_and_page_keys() {
+    for a in ["core.next-page", "core.right"] {
+        assert_eq!(turn(&action(a), true), Turn::Previous);
+    }
+    for a in ["core.prev-page", "core.left"] {
+        assert_eq!(turn(&action(a), true), Turn::Next);
+    }
+    // Up and down stay.
+    assert_eq!(turn(&action("core.down"), true), Turn::Next);
+    assert_eq!(turn(&action("core.up"), true), Turn::Previous);
+}
+
+#[test]
 fn page_actions_and_arrows_turn_the_page() {
     for a in ["core.next-page", "core.right", "core.down"] {
-        assert_eq!(turn(&action(a)), Turn::Next);
+        assert_eq!(turn(&action(a), false), Turn::Next);
     }
     for a in ["core.prev-page", "core.left", "core.up"] {
-        assert_eq!(turn(&action(a)), Turn::Previous);
+        assert_eq!(turn(&action(a), false), Turn::Previous);
     }
-    assert_eq!(turn(&action("core.confirm")), Turn::Ignored);
-    assert_eq!(turn(&action("")), Turn::Ignored);
+    assert_eq!(turn(&action("core.confirm"), false), Turn::Ignored);
+    assert_eq!(turn(&action(""), false), Turn::Ignored);
     let key = Input::Key {
         now_ms: 0,
         key: "page-forward",
         state: paperpaw_sdk::native::callbacks::KeyState::Press,
     };
-    assert_eq!(turn(&key), Turn::Ignored);
+    assert_eq!(turn(&key, false), Turn::Ignored);
 }
 
 #[test]
@@ -256,6 +269,14 @@ fn hanging_punctuation_and_korean_by_word_are_options_of_the_line_breaker() {
     assert!(script_options("ko", (false, true)).has(ScriptOptions::KEEP_ALL));
     assert!(script_options("KO-KR", (false, true)).has(ScriptOptions::KEEP_ALL));
     assert!(!script_options("ko", (false, false)).has(ScriptOptions::KEEP_ALL));
+}
+
+#[test]
+fn a_change_of_letter_spacing_kerning_or_ligatures_lays_the_page_out_again() {
+    for key in ["core.letter-spacing", "core.kerning", "core.ligatures"] {
+        assert!(affects_layout(key), "{key}");
+        assert!(!affects_ink(key), "{key}");
+    }
 }
 
 #[test]

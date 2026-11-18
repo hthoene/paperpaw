@@ -9,20 +9,25 @@ use super::{
     schema,
     tests::{call_in, page, query_flags, read},
 };
+use crate::Staging;
+use crate::kit::action::ActionSpec;
+use crate::kit::menus::ItemState;
+use crate::kit::menus::MenuEntry;
+use crate::kit::menus::MenuSection;
+use crate::kit::setup::{SetupPage, SetupStepSpec};
+use crate::kit::widgets::{CellSpan, Drawn, WidgetSpec, categories};
 use crate::native_host::{
     declaration_store::{Allocations, DeclarationStore, ImageOwner, PendingDeclarations},
     native_declarations::NativeDeclarations,
     registrations::{self as wire, Record},
 };
+use crate::{Place, Turn};
 use alloc::{borrow::Cow, boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Cx, Env, Handled, Id, ItemState, Manifest, MenuEntry, MenuNeed,
-    MenuSection, Plugin, RegisterError, Registrar, Screen, ScreenSpec, SettingKind, SettingSpec,
-    SettingValue, Version,
-    setup::{SetupPage, SetupStepSpec},
-    widgets::{CellSpan, Drawn, PlaceKind, WidgetPlace, WidgetSpec, categories},
+    Canvas, Handled, Id, Manifest, MenuNeed, RegisterError, SettingKind, SettingSpec, SettingValue,
+    Version,
 };
 
 fn id(text: &str) -> Id {
@@ -30,26 +35,17 @@ fn id(text: &str) -> Id {
 }
 
 struct Quiet;
-impl Screen for Quiet {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+impl crate::testing::Fake for Quiet {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
 
-const LISTS: &[Id] = &[Id::new_static("demo.list")];
-const OFF_LISTS: &[Id] = &[Id::new_static("demo.off-list")];
-
 /// Everything the ops read from the environment.
-struct Demo;
-impl Plugin for Demo {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("demo"), "Demo", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn demo() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
             id("demo.main"),
             "demo.screen.main",
             Box::new(|_, _| Box::new(Quiet)),
@@ -93,7 +89,13 @@ impl Plugin for Demo {
     }
 }
 
-fn register_menus(r: &mut Registrar) -> Result<(), RegisterError> {
+/// What [`demo`] registers under.
+fn demo_manifest() -> Manifest {
+    Manifest::new(Id::new_static("demo"), "Demo", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
+fn register_menus(r: &mut Staging) -> Result<(), RegisterError> {
     let menu = id("demo.menu");
     for (item, order) in [
         ("demo.open", 10),
@@ -121,13 +123,12 @@ fn register_menus(r: &mut Registrar) -> Result<(), RegisterError> {
     r.set_item_state(id("demo.long"), |_| {
         ItemState::new().enabled(false).label("é".repeat(100))
     })?;
-    r.describe_item(id("demo.open"), "demo.line.open")?;
     r.add_icon(id("demo.open"), "gear")?;
     r.add_keymap("[keymap.global]\ntap.center = demo.open\nswipe.left = none\n[keymap.demo.main]\ntap.center = demo.save\n[keymap.demo.custom]\nswipe.up = demo.open\n")?;
     Ok(())
 }
 
-fn register_ui(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_ui(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_widget(
         WidgetSpec::drawn(
             id("demo.clock"),
@@ -145,21 +146,6 @@ fn register_ui(r: &mut Registrar) -> Result<(), RegisterError> {
         )
         .cells(CellSpan::new(2, 2).square()),
     )?;
-    r.add_widget_place(WidgetPlace::new(
-        id("demo.home"),
-        "demo.place.home",
-        LISTS,
-        PlaceKind::Grid,
-    ))?;
-    r.add_widget_place(
-        WidgetPlace::new(
-            id("demo.off"),
-            "demo.place.off",
-            OFF_LISTS,
-            PlaceKind::Stack,
-        )
-        .shown_if(id("demo.mode"), "on"),
-    )?;
     r.add_setup_step(
         SetupStepSpec::new(
             id("demo.two"),
@@ -171,7 +157,7 @@ fn register_ui(r: &mut Registrar) -> Result<(), RegisterError> {
     r.add_setup_step(
         SetupStepSpec::new(id("demo.one"), "", SetupPage::Screen(id("demo.main")))
             .order(10)
-            .applies(Box::new(|_| true)),
+            .applies(|_| true),
     )?;
     r.add_setup_step(
         SetupStepSpec::new(
@@ -180,20 +166,15 @@ fn register_ui(r: &mut Registrar) -> Result<(), RegisterError> {
             SetupPage::Screen(id("demo.main")),
         )
         .order(5)
-        .applies(Box::new(|_| false)),
+        .applies(|_| false),
     )?;
     Ok(())
 }
 
 /// The actions of the plugin the native rows belong to: its `action.spec`
 /// rows are merged into the registries when it installs.
-struct Nat;
-impl Plugin for Nat {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("nat"), "Nat", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn nat() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         for name in ["first", "go", "last", "speaks", "future"] {
             r.add_action(ActionSpec::new(id(&format!("nat.{name}")), "nat.action"))?;
         }
@@ -201,11 +182,17 @@ impl Plugin for Nat {
     }
 }
 
+/// What [`nat`] registers under.
+fn nat_manifest() -> Manifest {
+    Manifest::new(Id::new_static("nat"), "Nat", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn kernel() -> crate::Kernel {
     crate::Kernel::builder(crate::tests::DEVICE)
         .device_keymap("[keymap.global]\nswipe.right = demo.save\n")
-        .plugin(Demo)
-        .plugin(Nat)
+        .items(demo_manifest(), demo())
+        .items(nat_manifest(), nat())
         .build()
         .unwrap()
 }
@@ -248,6 +235,7 @@ pub(super) fn declarations(rows: &[Record<'_>]) -> NativeDeclarations {
         items: Default::default(),
         item_room: Default::default(),
         refusals: Default::default(),
+        unsigned: Default::default(),
     }
 }
 
@@ -422,10 +410,10 @@ fn op_12_default_view_is_the_declared_rows_the_device_shows() {
         ]
     );
     // checked 1, enabled 2, declared 32, switch 64; the label and badge are
-    // the pushed state, the line and the icon the declarations'.
+    // the pushed state, the icon the declarations'.
     assert_eq!(
         row(&rows, "demo.open"),
-        "row demo.open kind=0 flags=34 order=10 by=demo title=demo.action.open icon=gear badge= describe=demo.line.open"
+        "row demo.open kind=0 flags=34 order=10 by=demo title=demo.action.open icon=gear badge= describe="
     );
     assert_eq!(
         row(&rows, "demo.switchy"),
@@ -612,13 +600,8 @@ fn op_12_unknown_or_empty_scope_is_an_empty_page() {
 
 #[test]
 fn op_12_pages_by_cursor_and_a_stale_generation_is_a_state_error() {
-    struct Many;
-    impl Plugin for Many {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("many"), "Many", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn many() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+        |r| {
             for at in 0..40 {
                 let item = id(&format!("many.item{at:02}"));
                 r.add_action(ActionSpec::new(item.clone(), "many.action"))?;
@@ -627,8 +610,14 @@ fn op_12_pages_by_cursor_and_a_stale_generation_is_a_state_error() {
             Ok(())
         }
     }
+
+    /// What [`many`] registers under.
+    fn many_manifest() -> Manifest {
+        Manifest::new(Id::new_static("many"), "Many", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Many)
+        .items(many_manifest(), many())
         .build()
         .unwrap();
     let first = call_in(
@@ -692,7 +681,7 @@ fn op_12_titles_follow_the_users_language() {
     );
     kernel.shared.translator.set_language("de");
     let rows = rows_of(&kernel, None, schema::OP_MENU, "demo.menu", 0);
-    assert!(row(&rows, "demo.open").contains("title=Oeffnen icon=gear badge= describe=Eine Zeile"));
+    assert!(row(&rows, "demo.open").contains("title=Oeffnen icon=gear badge= describe="));
 }
 
 /// What `plugin` pushed for `item`, stored as the host does after a callback.
@@ -742,7 +731,7 @@ fn op_12_shows_what_the_plugin_pushed_and_the_pushed_state_wins() {
     let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
     assert_eq!(
         row(&rows, "demo.open"),
-        "row demo.open kind=0 flags=32 order=10 by=demo title=Eine Zeile icon=gear badge=Oeffnen describe=Eine Zeile"
+        "row demo.open kind=0 flags=32 order=10 by=demo title=Eine Zeile icon=gear badge=Oeffnen describe="
     );
     // A switch that is on: checked and switch.
     push(&directory, "demo", "open", SWITCH | ON, "", "");
@@ -951,15 +940,14 @@ fn op_19_lists_widgets_with_kind_icon_cells_and_whether_a_place_shows_them() {
     ]);
     let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "", 0);
     // The environment's (the host's own first), then the declared ones in
-    // the store's order; `demo.note@2` is listed by an environment place that
-    // shows, `demo.clock` by one that does not.
+    // the store's order.
     assert_eq!(
         rows,
         [
             "widget core.space core core.widgets.layout layout 0 cells=0 Space",
             "widget core.fill core core.widgets.layout layout 0 cells=0 Free space",
             "widget demo.clock demo core.widgets.time clock 0 cells=16843010 demo.widget.clock",
-            "widget demo.note demo core.widgets.other puzzle 5 cells=16843266 demo.widget.note",
+            "widget demo.note demo core.widgets.other puzzle 4 cells=16843266 demo.widget.note",
             // The place `nat.home` lists demo.list: `demo.note@2` only. The
             // declared ones in declaration order (#2390).
             "widget nat.quote nat core.widgets.words letter-case 2 cells=16843010 nat.widget",
@@ -1097,21 +1085,16 @@ fn op_19_shown_follows_the_settings_a_place_lists() {
         .settings
         .set("demo.flag", SettingValue::Bool(true))
         .unwrap();
-    kernel
-        .shared
-        .settings
-        .set("demo.mode", SettingValue::Text(Cow::Borrowed("on")))
-        .unwrap();
     let (quote, clock) = flags(&kernel);
     assert!(quote.contains(" letter-case 1 "), "{quote}");
-    assert!(clock.contains(" clock 1 "), "{clock}");
+    assert!(clock.contains(" clock 0 "), "{clock}");
 }
 
 #[test]
 fn op_21_lists_the_kernels_items_between_the_declared_items_and_lines() {
     let kernel = kernel();
     // The kernel's own (todo 598): Beta 3's priorities, the battery with room
-    // for its symbol and percentage. Items: never the drawn bit (a line's).
+    // for its symbol and percentage. Staging: never the drawn bit (a line's).
     let kernels = [
         "status core.status.clock core kind=0 flags=0 priority=160 size=0 tap= Time",
         "status core.status.date core kind=0 flags=0 priority=128 size=0 tap= Date",

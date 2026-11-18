@@ -8,8 +8,10 @@
 //! - `allow indirect-in <crate> <max> <why>`: the functions of the crate (a
 //!   trailing `*` is a prefix: `paperpaw_plugin_*`) have at most `max` calls
 //!   through a register between them that no `allow indirect` line of their
-//!   own lists. The callees of such a call are not scanned (device test S4), as
-//!   with the per-function line; what is lost is the exact count of each
+//!   own lists (`max` is the count of the last CI scan; the scan adds
+//!   [`headroom`] so that branches counted apart still land together). The
+//!   callees of such a call are not scanned (device test S4), as with the
+//!   per-function line; what is lost is the exact count of each
 //!   function, what stays is a ceiling for the family, and the line fails when
 //!   no function of the family is reached.
 //! - `include <file>`: the lines of a file beside the budget (both S3 devices
@@ -17,6 +19,9 @@
 
 use super::{Allow, Around, Budget, Function, Image, read_function};
 use std::collections::BTreeMap;
+
+/// Per `allow indirect-in` line: the calls counted so far, and each function's.
+pub(super) type Sites = BTreeMap<usize, (u32, Vec<(String, u32)>)>;
 
 /// The crate a function belongs to: the first segment of its path, or, for a
 /// method of a trait impl (whose path is the method's name), the crate of the
@@ -144,7 +149,7 @@ pub fn expand_includes(text: &str, base: &std::path::Path) -> Result<String, Str
     Ok(out)
 }
 
-/// An `allow rom` or `allow indirect-in` line, with its reason.
+/// An `allow rom`, `allow indirect-in` or `allow jx` line, with its reason.
 pub(super) fn parse_line(words: &[&str]) -> Option<(Allow, String)> {
     match words {
         ["allow", "rom", callee, why @ ..] if !why.is_empty() => Some((
@@ -160,6 +165,12 @@ pub(super) fn parse_line(words: &[&str]) -> Option<(Allow, String)> {
             },
             why.join(" "),
         )),
+        ["allow", "jx", caller, why @ ..] if !why.is_empty() => Some((
+            Allow::Jx {
+                caller: (*caller).to_string(),
+            },
+            why.join(" "),
+        )),
         _ => None,
     }
 }
@@ -169,7 +180,7 @@ pub(super) fn parse_line(words: &[&str]) -> Option<(Allow, String)> {
 pub(super) fn in_a_family(
     budget: &Budget,
     used: &mut [bool],
-    sites: &mut BTreeMap<usize, u32>,
+    sites: &mut Sites,
     f: &Function,
     count: u32,
 ) -> bool {
@@ -181,22 +192,53 @@ pub(super) fn in_a_family(
             && family_matches(family, &krate)
         {
             used[n] = true;
-            *sites.entry(n).or_default() += count;
+            let (total, of) = sites.entry(n).or_default();
+            *total += count;
+            of.push((f.shown.clone(), count));
             return true;
         }
     }
     false
 }
 
+/// What an `allow indirect-in` line allows above its counted `max`: independently counted
+/// branches land 1..6 calls apart (#296), so the ceiling is the count plus this headroom.
+/// 16 for the plugins' own code, 8 for any other crate. Frame limits have none.
+pub(super) fn headroom(family: &str) -> u32 {
+    if family.starts_with("paperpaw_plugin_") {
+        16
+    } else {
+        8
+    }
+}
+
+/// Per `allow indirect-in` line that was reached: the family, the exact count, the ceiling.
+pub(super) fn counts(budget: &Budget, sites: &Sites) -> Vec<(String, u32, u32)> {
+    sites
+        .iter()
+        .filter_map(|(&n, (count, _))| match &budget.allow[n].0 {
+            Allow::IndirectIn { family, max } => {
+                Some((family.clone(), *count, max + headroom(family)))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// The families whose calls through a register are more than their line allows.
-pub(super) fn ceilings_exceeded(budget: &Budget, sites: &BTreeMap<usize, u32>) -> Vec<String> {
+pub(super) fn ceilings_exceeded(budget: &Budget, sites: &Sites) -> Vec<String> {
     let mut out = Vec::new();
-    for (&n, &count) in sites {
+    for (&n, (count, of)) in sites {
         if let Allow::IndirectIn { family, max } = &budget.allow[n].0
-            && count > *max
+            && *count > max + headroom(family)
         {
+            let max = max + headroom(family);
+            // Each function with its count, to set against the base's list.
+            let mut list: Vec<_> = of.iter().map(|(f, c)| format!("  `{f}` {c}")).collect();
+            list.sort();
             out.push(format!(
-                "the functions of `{family}` have {count} call(s) through a register that no line of their own lists, above the {max} `allow indirect-in` allows"
+                "the functions of `{family}` have {count} call(s) through a register that no line of their own lists, above the {max} `allow indirect-in` allows; by function:\n{}",
+                list.join("\n")
             ));
         }
     }

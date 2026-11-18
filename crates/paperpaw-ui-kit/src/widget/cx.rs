@@ -2,7 +2,7 @@
 //! font chosen for it, the look its settings make, the clock and the catalog.
 //! Nothing here outlives the callback.
 use crate::{
-    Messages, Style,
+    Messages, SharedInputs, Style,
     widget::{Settings, Shape, settings::text_of},
 };
 use alloc::string::String;
@@ -20,6 +20,14 @@ use paperpaw_sdk::{
 /// a zone from the list.
 const ZONE_RULE: &str = "core.time-zone-rule";
 const ZONE: &str = "core.time-zone";
+
+/// The look a widget's context was made with, kept for the next one of the
+/// same display ([`Cx::open_kept`], [`Cx::keep`]).
+#[derive(Debug)]
+pub struct Kept {
+    display: (u16, u16),
+    shape: Shape,
+}
 
 /// One widget's drawing context.
 #[derive(Debug)]
@@ -50,6 +58,62 @@ impl<'a> Cx<'a> {
             snapshot,
             messages: Messages::new()?,
         })
+    }
+
+    /// As [`Cx::open`], with the look (the interface's style and the widget's
+    /// own, some thirty settings) taken from `kept` where it is for this
+    /// display, read and made again where it is not. The widget's owner keeps
+    /// the look with [`Cx::keep`] and lets it go where a setting changes.
+    ///
+    /// # Errors
+    /// The host's refusals and [`Error::NoMemory`].
+    pub fn open_kept(
+        host: &'a Host<'a>,
+        widget: &'a str,
+        kept: Option<Kept>,
+    ) -> Result<Self, Error> {
+        Self::open_kept_with(host, widget, kept, &SharedInputs::default())
+    }
+
+    /// As [`Cx::open_kept`], with the interface's settings taken from `shared`
+    /// where a lay-out shares them ([`SharedInputs::share`]).
+    ///
+    /// # Errors
+    /// The host's refusals and [`Error::NoMemory`].
+    pub fn open_kept_with(
+        host: &'a Host<'a>,
+        widget: &'a str,
+        kept: Option<Kept>,
+        shared: &SharedInputs,
+    ) -> Result<Self, Error> {
+        let settings = Settings::new(host, widget);
+        let font = widget_font(host, widget)?;
+        let snapshot = snapshot::capture_snapshot(host)?;
+        let display = (snapshot.display_width(), snapshot.display_height());
+        let shape = match for_display(kept.map(|kept| (kept.display, kept.shape)), display) {
+            Some(shape) => shape,
+            None => Shape::read(&settings, shared.style(host, &snapshot, &font)?)?,
+        };
+        Ok(Self {
+            host,
+            settings,
+            shape,
+            font,
+            snapshot,
+            messages: Messages::new()?,
+        })
+    }
+
+    /// The look of this context, to be kept for the next one ([`Cx::open_kept`]).
+    #[must_use]
+    pub fn keep(self) -> Kept {
+        Kept {
+            display: (
+                self.snapshot.display_width(),
+                self.snapshot.display_height(),
+            ),
+            shape: self.shape,
+        }
     }
 
     /// The style the widget draws in.
@@ -290,9 +354,28 @@ pub fn face_font<'a>(host: &'a Host<'a>, face: &str) -> Result<Font<'a>, Error> 
     Font::acquire_role(host, role)
 }
 
+/// What was kept for the display it was kept for, none for another one (the
+/// look depends on the display's size).
+fn for_display<S>(kept: Option<((u16, u16), S)>, display: (u16, u16)) -> Option<S> {
+    kept.filter(|(was, _)| *was == display)
+        .map(|(_, kept)| kept)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::chosen_or_system;
+    use super::{chosen_or_system, for_display};
+
+    #[test]
+    fn a_kept_look_is_for_the_display_it_was_made_for() {
+        assert_eq!(
+            for_display(Some(((480, 800), "look")), (480, 800)),
+            Some("look")
+        );
+        // Turned, or another panel: read again.
+        assert_eq!(for_display(Some(((480, 800), "look")), (800, 480)), None);
+        assert_eq!(for_display(Some(((480, 800), "look")), (480, 480)), None);
+        assert_eq!(for_display::<&str>(None, (480, 800)), None);
+    }
 
     #[test]
     fn with_no_zone_chosen_the_systems_offset_counts() {

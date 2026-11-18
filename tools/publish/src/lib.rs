@@ -22,9 +22,11 @@
 //! Each [`Problem`] says what is wrong and what to change, in plain words.
 
 pub mod ini;
+pub mod kernel;
 pub mod release;
 pub mod repo;
 pub mod rules;
+pub mod source;
 
 pub use rules::Rules;
 

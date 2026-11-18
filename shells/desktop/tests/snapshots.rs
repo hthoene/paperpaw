@@ -83,6 +83,51 @@ const CASES: &[Case] = &[
         fixtures: false,
     },
     Case {
+        name: "x4-letters-default",
+        profile: "xteink-x4",
+        book: Some("books/letters.html"),
+        sets: &[],
+        script: "",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-letters-no-kerning",
+        profile: "xteink-x4",
+        book: Some("books/letters.html"),
+        sets: &["core.kerning=false"],
+        script: "",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-letters-no-ligatures",
+        profile: "xteink-x4",
+        book: Some("books/letters.html"),
+        sets: &["core.ligatures=false"],
+        script: "",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-letters-spaced",
+        profile: "xteink-x4",
+        book: Some("books/letters.html"),
+        sets: &["core.letter-spacing=8"],
+        script: "",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
+        name: "x4-letters-tight",
+        profile: "xteink-x4",
+        book: Some("books/letters.html"),
+        sets: &["core.letter-spacing=-3"],
+        script: "",
+        colour: 0,
+        fixtures: false,
+    },
+    Case {
         name: "x4-reader-epub",
         profile: "xteink-x4",
         book: Some("books/alice-in-wonderland.epub"),
@@ -377,8 +422,7 @@ const CASES: &[Case] = &[
         profile: "xteink-x4",
         book: Some("books/alice-in-wonderland.epub"),
         sets: &[],
-        script: "page-forward,page-forward,run:reader.select-text,wait:500,confirm,right,right,\
-                 confirm,wait:400,back,wait:300",
+        script: "page-forward,page-forward,run:reader.select-text,wait:500,confirm,confirm,wait:400",
         colour: 0,
         fixtures: false,
     },
@@ -625,7 +669,8 @@ const CASES: &[Case] = &[
         profile: "xteink-x4-pro",
         book: Some("books/alice-in-wonderland.epub"),
         sets: &[],
-        script: "run:core.quick-panel,wait:300,down:300:318,move:330:320,move:360:322,wait:100",
+        // The grays of the page under it follow once calm (3 s).
+        script: "run:core.quick-panel,wait:300,down:300:318,move:330:320,move:360:322,wait:100,wait:31000",
         colour: 0,
         fixtures: false,
     },
@@ -801,6 +846,9 @@ fn library(case: &Case) -> PathBuf {
     if case.name.contains("docx") {
         sources.push(fixtures.with_file_name("fixtures-docx"));
     }
+    if case.name.contains("letters") {
+        sources.push(fixtures.with_file_name("fixtures-letters"));
+    }
     if case.name.contains("pictures") {
         sources.push(fixtures.with_file_name("fixtures-pictures"));
     }
@@ -842,7 +890,9 @@ fn library(case: &Case) -> PathBuf {
     }
     // Hyphenation is data: the German names of the drawer break only where
     // the German pack is installed (built from the sources, as shipped).
-    if case.name == "x4-drawer-de" {
+    // The German book of the bookmarks case would make the reader ask the store
+    // for the pack, and the question would cover the list.
+    if case.name == "x4-drawer-de" || case.name == "x4-bookmarks" {
         let german = paperpaw_hyphenation_packs::PACKAGES
             .iter()
             .find(|package| package.id == "hyphenation-de")

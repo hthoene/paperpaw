@@ -202,6 +202,18 @@ fn the_menu_unlocks_touch_by_the_buttons_while_it_is_locked() {
     assert_eq!(options.get(4), None);
 }
 
+/// While touch is locked the held button unlocks it with no menu (a menu
+/// needs a tap); unlocked, on a touch device without the lock about, or on a
+/// device without touch it does not.
+#[test]
+fn the_held_button_unlocks_a_locked_touch_without_a_menu() {
+    let touch = caps(true, true, true);
+    assert!(unlocks_touch(touch, Some(true)));
+    assert!(!unlocks_touch(touch, Some(false)));
+    assert!(!unlocks_touch(touch, None));
+    assert!(!unlocks_touch(caps(true, true, false), Some(true)));
+}
+
 #[test]
 fn each_option_does_what_it_says() {
     let all = caps(true, true, true);

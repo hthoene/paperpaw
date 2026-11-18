@@ -19,7 +19,7 @@ use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::native::{
     Error, Host,
-    device::{Device as Dev, DeviceCapability},
+    device::{Device as Dev, DeviceCapability, WifiState},
     files::{Files, INPUT_BYTES, OUTPUT_BYTES},
     registry::{PageCursor, Registry, RegistryNeedKind, RegistryPluginKind},
     settings::{self, SettingValue},
@@ -295,12 +295,19 @@ pub struct Activity {
     pub restart_needed: Vec<String>,
     /// The device loads code plugins and there is a network.
     pub can_install: bool,
+    /// The device is connected to a network now (`dev_wifi.state` online).
+    pub online: bool,
     /// The device takes betas as updates.
     pub takes_betas: bool,
     /// The bytes free on the card, where the host says.
     pub free: Option<u64>,
     /// The actions registered (the fonts browser's, for one).
     pub actions: Vec<String>,
+    /// The plugins community sources installed (#214), read with the
+    /// snapshot.
+    pub origins: crate::native_sources::Origins,
+    /// Whose list is shown: PaperPaw's library or a community source.
+    pub listed: crate::native_sources::Trust,
 }
 
 /// The bytes free on the medium of the plugin's data folder (the card), if the
@@ -327,6 +334,8 @@ struct HostFacts {
     network: bool,
     /// The store declares `uses.install` (signed metadata, `device.md` 1).
     install: bool,
+    /// The device is online (`dev_wifi.state`).
+    online: bool,
     /// The firmware is a pre-release.
     beta_firmware: bool,
     /// The reader asked for betas (`update.betas`).
@@ -391,6 +400,7 @@ impl Activity {
         drop(out);
         let facts = facts?;
         self.can_install = facts.code && facts.network && facts.install;
+        self.online = facts.online;
         self.takes_betas = facts.beta_setting || facts.beta_firmware;
         self.free = read_free(host);
         self.flash_hint = facts.code
@@ -493,6 +503,9 @@ fn read_device(
     if let Some(identity) = soft(dev.device(host, input, out))? {
         facts.network = identity.supports(DeviceCapability::Network);
     }
+    if let Some(wifi) = soft(dev.wifi(host, input, out))? {
+        facts.online = wifi.state() == WifiState::Online;
+    }
     if let Some(native) = soft(dev.native(host, input, out))? {
         facts.code = !native.code_file().is_empty();
     }
@@ -579,6 +592,14 @@ impl Installs for HostInstalls<'_> {
         self.snapshot.have(id)
     }
 
+    fn foreign(&self, id: &str) -> bool {
+        let by_store = self
+            .snapshot
+            .have(id)
+            .map(|installed| installed.origin == Origin::Store);
+        crate::native_sources::foreign(self.activity.origins.of(id), by_store, self.activity.listed)
+    }
+
     fn takes_betas(&self) -> bool {
         self.activity.takes_betas
     }
@@ -618,7 +639,27 @@ impl Installs for HostInstalls<'_> {
         self.activity.can_install
     }
 
+    fn online(&self) -> bool {
+        self.activity.online
+    }
+
     fn restart_needed(&self, id: &str) -> bool {
         listed(&self.activity.restart_needed, id)
     }
+}
+
+/// Whether the device is connected to a network now (`dev_wifi.state`): not
+/// where the host does not say.
+///
+/// # Errors
+/// `NoMemory`.
+pub fn is_online(host: &Host<'_>) -> Result<bool, Error> {
+    let mut out = buffer(SERVICE_BUFFER)?;
+    let mut input = [0; REQUEST_BYTES];
+    let Some(dev) = soft(Dev::open(host))? else {
+        return Ok(false);
+    };
+    let wifi = soft(dev.wifi(host, &mut input, &mut out));
+    dev.release(host).ok();
+    Ok(wifi?.is_some_and(|wifi| wifi.state() == WifiState::Online))
 }

@@ -13,7 +13,40 @@
 
 mod common;
 
-use std::cell::Cell;
+/// A heap that cannot give a large piece while a test says so: the radio's
+/// buffers of the device, which leave no room for a packed update's window.
+mod tight {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    /// Pieces this large and larger are refused while [`SHORT`] is set.
+    const LARGE: usize = 32 * 1024;
+
+    thread_local! {
+        pub static SHORT: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub struct Heap;
+
+    // SAFETY: every call goes to the system allocator, or refuses (null).
+    unsafe impl GlobalAlloc for Heap {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            if layout.size() >= LARGE && SHORT.try_with(Cell::get).unwrap_or(false) {
+                return std::ptr::null_mut();
+            }
+            unsafe { System.alloc(layout) }
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(ptr, layout) }
+        }
+    }
+}
+
+#[global_allocator]
+static HEAP: tight::Heap = tight::Heap;
+
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 use common::{FLASH, table};
 use paperpaw_platform::firmware::{FirmwareHost, Reason, Signer, Step, WRITE_BLOCK};
@@ -23,6 +56,7 @@ use paperpaw_sdk::firmware::{
     CHIP_ESP32_C3, CHIP_ESP32_S3, Firmware, InstallFailure, PLUGINS_AT, PluginCrate, Plugins,
 };
 use paperpaw_x4::dual_boot::Source;
+use paperpaw_x4::host_jobs::SharedUpdates;
 use paperpaw_x4::ota::{Flash, FlashError, OtaData, State};
 use paperpaw_x4::partitions::{Slots, TABLE_AT, TABLE_LEN, entries};
 use paperpaw_x4::updates::Updates;
@@ -741,5 +775,231 @@ fn the_interface_6_install_refuses_while_a_job_is_open() {
         // Given up, interface 6 may go on.
         device.updates.abandon();
         assert!(device.updates.begin(&card, UPDATE, None, false).is_ok());
+    }
+}
+
+/// The kernel's side and the shell's side of one OTA state (`host_jobs`).
+fn shared(device: Device) -> (SharedUpdates<Chip>, Rc<RefCell<Updates<Chip>>>) {
+    let updates = Rc::new(RefCell::new(device.updates));
+    (
+        SharedUpdates::new(updates.clone(), "0.5.0", PROJECT),
+        updates,
+    )
+}
+
+/// What the firmware hands the kernel is the OTA state the shell drives: a
+/// check and an install through it are the `Updates`' own, and the shell sees
+/// the job while it runs (it does not sleep or start another meanwhile).
+#[test]
+fn the_shared_host_installs_as_the_updates_own_and_the_shell_sees_the_job() {
+    let key = paperpaw_update::public_key(&SEED);
+    let device = Device::started(vec![key]);
+    let slots = device.slots;
+    let (mut host, shell) = shared(device);
+    let image = image_0_6(&["paperpaw-plugin-stats"]);
+    let card = Card::with(UPDATE, &signed(&image, &SEED));
+    let (seen, facts, _) = check(&mut host, &card, UPDATE);
+    assert_eq!(seen, ["stats"]);
+    let digest = facts.unwrap().sha256;
+    host.begin_write(UPDATE, digest, None, false).unwrap();
+    assert!(shell.borrow().installing(), "the shell sees the write open");
+    while !matches!(host.write_step(&card), Step::Done(())) {}
+    while !matches!(host.readback_step(), Step::Done(())) {}
+    host.commit().unwrap();
+    assert!(!shell.borrow().installing());
+    let (at, _) = slots.apps[1];
+    assert_eq!(
+        &shell.borrow().flash().bytes[at as usize..at as usize + image.len()],
+        &image[..]
+    );
+}
+
+/// The two sides run in turn on the main loop; if one ever finds the other
+/// in use, it is a refusal that says so, never a panic (a panic here would
+/// repeat on every start that finds the same state).
+#[test]
+fn a_step_while_the_shell_holds_the_state_is_a_refusal_not_a_panic() {
+    let key = paperpaw_update::public_key(&SEED);
+    let (mut host, shell) = shared(Device::started(vec![key]));
+    let image = image_0_6(&[]);
+    let card = Card::with(UPDATE, &signed(&image, &SEED));
+    let held = shell.borrow_mut();
+    assert_eq!(host.begin_check(UPDATE), Err(Reason::OTHER));
+    assert_eq!(
+        host.begin_write(UPDATE, [0; 32], None, false),
+        Err(Reason::OTHER)
+    );
+    assert!(matches!(
+        host.check_step(&card, &mut |_| {}),
+        Step::Failed(Reason::OTHER)
+    ));
+    assert!(matches!(
+        host.write_step(&card),
+        Step::Failed(Reason::OTHER)
+    ));
+    assert!(matches!(host.readback_step(), Step::Failed(Reason::OTHER)));
+    assert_eq!(host.commit(), Err(Reason::OTHER));
+    assert_eq!(host.restart(), Err(Reason::OTHER));
+    host.abandon();
+    assert!(!host.dual_boot_capable());
+    // Told as nothing installable, not as a firmware that has room.
+    assert_eq!(host.running().room, 0);
+    drop(held);
+    assert_eq!(host.begin_check(UPDATE), Ok(()));
+}
+
+/// The kernel is told the firmware the shell runs, and its restart is the
+/// one the shell set (it asks the main loop, which restarts cleanly).
+#[test]
+fn the_shared_host_tells_the_running_firmware_and_restarts_as_the_shell_set() {
+    let device = Device::started(Vec::new());
+    let room = u64::from(device.slots.room(0));
+    let (mut host, shell) = shared(device);
+    let running = host.running();
+    assert_eq!(running.version, "0.5.0");
+    assert_eq!(running.project, PROJECT);
+    assert_eq!(running.chip, CHIP_ESP32_C3);
+    assert_eq!(running.room, room);
+    assert!(!running.undone);
+    assert_eq!(host.restart(), Err(Reason::NOT_HERE));
+    shell.borrow_mut().set_restarter(|| Ok(()));
+    assert_eq!(host.restart(), Ok(()));
+}
+
+/// A packed update file (`updates::packed`): the container of `image`, signed.
+fn packed(image: &[u8], seed: &[u8; 32]) -> Vec<u8> {
+    let container = paperpaw_x4::updates::packed::pack(image, 512, 6).unwrap();
+    assert!(container.len() < image.len(), "the image compresses");
+    signed(&container, seed)
+}
+
+/// A packed update is checked and written as the image it unpacks to: its
+/// list, size, digest and the slot's bytes are the image's, and the signature
+/// is the container's. It is a third smaller, and no firmware that reads
+/// update files as images (the interface-6 install) takes it.
+#[test]
+fn a_packed_update_is_checked_and_written_as_the_image_it_unpacks_to() {
+    let key = paperpaw_update::public_key(&SEED);
+    let mut device = Device::started(vec![key]);
+    let image = image_0_6(&["paperpaw-plugin-stats", "paperpaw-plugin-weather"]);
+    let file = packed(&image, &SEED);
+    assert!(file.len() < image.len() * 9 / 10);
+    let card = Card::with(UPDATE, &file);
+    let (seen, facts, _) = check(&mut device.updates, &card, UPDATE);
+    assert_eq!(seen, ["stats", "weather"]);
+    let facts = facts.unwrap();
+    assert!(facts.chip_ok && !facts.foreign);
+    assert_eq!(facts.size as usize, image.len());
+    assert_eq!(facts.version.as_str(), "0.6.0");
+    assert_eq!(facts.sha256, paperpaw_digest_sha256(&image));
+    write(
+        &mut device.updates,
+        &card,
+        UPDATE,
+        facts.sha256,
+        None,
+        false,
+    )
+    .unwrap();
+    device.updates.commit().unwrap();
+    assert_eq!(device.target(image.len()), &image[..]);
+    assert_eq!(device.data().booted(), 1);
+}
+
+/// A packed file that is damaged (anywhere in its deflate data, its head or
+/// its footer) is reason 4 and writes nothing the boot loader starts.
+#[test]
+fn a_damaged_packed_update_is_reason_4_and_nothing_is_chosen() {
+    let key = paperpaw_update::public_key(&SEED);
+    let image = image_0_6(&["paperpaw-plugin-stats"]);
+    let file = packed(&image, &SEED);
+    let footer_at = file.len() - paperpaw_x4::updates::packed::FOOTER_LEN - 128;
+    for at in [600, file.len() / 2, footer_at - 1, footer_at + 9, 40] {
+        let mut changed = file.clone();
+        changed[at] ^= 0x55;
+        let mut device = Device::started(vec![key]);
+        let card = Card::with(UPDATE, &changed);
+        let (_, facts, _) = check(&mut device.updates, &card, UPDATE);
+        assert_eq!(facts.unwrap_err(), Reason::DAMAGED, "byte {at}");
+        assert_eq!(device.data().booted(), 0);
+    }
+}
+
+/// The interface-6 install reads an update file as an image: the first byte of
+/// a container is not an app image's, and it is refused unwritten.
+#[test]
+fn the_interface_6_install_refuses_a_packed_update() {
+    let key = paperpaw_update::public_key(&SEED);
+    let mut device = Device::started(vec![key]);
+    let image = image_0_6(&[]);
+    let card = Card::with(UPDATE, &packed(&image, &SEED));
+    assert!(device.updates.begin(&card, UPDATE, None, false).is_err());
+    assert!(!device.updates.installing());
+}
+
+/// Steps of a check until it ends (a gate that asks is answered by `give`,
+/// once, at the first step that waits).
+fn check_with_room(
+    host: &mut impl FirmwareHost,
+    card: &Card,
+    gate: &paperpaw_x4::update_room::Gate,
+    give: impl Fn(),
+) -> Result<paperpaw_platform::CheckFacts, Reason> {
+    host.begin_check(UPDATE)?;
+    for _ in 0..100_000 {
+        if gate.take_asked() {
+            give();
+            gate.shed();
+        }
+        match host.check_step(card, &mut |_| {}) {
+            Step::Progress { .. } => {}
+            Step::Done(facts) => return Ok(facts),
+            Step::Failed(reason) => return Err(reason),
+        }
+    }
+    panic!("the check never ended");
+}
+
+/// The window of a packed file that the heap cannot give is asked for from the
+/// main loop: the check waits, and goes on from its start once room is given.
+#[test]
+fn a_packed_check_without_room_asks_for_it_and_goes_on_once_it_is_given() {
+    let key = paperpaw_update::public_key(&SEED);
+    let device = Device::started(vec![key]);
+    let image = image_0_6(&["paperpaw-plugin-stats"]);
+    let card = Card::with(UPDATE, &packed(&image, &SEED));
+    let gate = Rc::new(paperpaw_x4::update_room::Gate::new());
+    let (mut host, _) = shared(device);
+    host = host.with_room(gate.clone());
+    tight::SHORT.with(|short| short.set(true));
+    let facts = check_with_room(&mut host, &card, &gate, || {
+        tight::SHORT.with(|short| short.set(false));
+    });
+    tight::SHORT.with(|short| short.set(false));
+    let facts = facts.unwrap();
+    assert_eq!(facts.sha256, paperpaw_digest_sha256(&image));
+}
+
+/// No room, and none given: the check ends with the device's reason for it,
+/// not "other", whether there is a gate that is answered or none.
+#[test]
+fn a_packed_check_that_finds_no_room_ends_with_the_no_memory_reason() {
+    let key = paperpaw_update::public_key(&SEED);
+    let image = image_0_6(&["paperpaw-plugin-stats"]);
+    let card = Card::with(UPDATE, &packed(&image, &SEED));
+    for with_gate in [false, true] {
+        let (mut host, _) = shared(Device::started(vec![key]));
+        let gate = Rc::new(paperpaw_x4::update_room::Gate::new());
+        if with_gate {
+            host = host.with_room(gate.clone());
+        }
+        tight::SHORT.with(|short| short.set(true));
+        let ended = check_with_room(&mut host, &card, &gate, || {});
+        tight::SHORT.with(|short| short.set(false));
+        assert_eq!(
+            ended.err(),
+            Some(paperpaw_x4::updates::NO_MEMORY_REASON),
+            "gate: {with_gate}"
+        );
     }
 }

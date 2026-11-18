@@ -57,6 +57,9 @@ pub struct Script {
     /// is refused.
     pub smtp_extensions: Vec<String>,
     pub refuse_rcpt: Option<String>,
+    /// Parts of messages the server gives for `UID FETCH uid BODY.PEEK[part]`:
+    /// (uid, part number, bytes).
+    pub parts: Vec<(u32, String, Vec<u8>)>,
 }
 
 impl Default for Script {
@@ -79,6 +82,7 @@ impl Default for Script {
                 "SIZE 1000000".into(),
             ],
             refuse_rcpt: None,
+            parts: Vec::new(),
         }
     }
 }
@@ -367,6 +371,34 @@ impl Fake {
             }
             text.push_str(&format!("{tag} OK done\r\n"));
             self.say(&text);
+        } else if upper.starts_with("UID FETCH")
+            && rest.contains("PEEK[")
+            && !rest.contains("PEEK[]")
+        {
+            let uid: u32 = rest.split(' ').nth(2).unwrap().parse().unwrap();
+            let part = rest
+                .split("PEEK[")
+                .nth(1)
+                .and_then(|s| s.split(']').next())
+                .unwrap()
+                .to_string();
+            let found = self
+                .script
+                .parts
+                .iter()
+                .find(|(u, p, _)| *u == uid && *p == part)
+                .map(|(_, _, bytes)| bytes.clone());
+            match found {
+                Some(bytes) => {
+                    self.say(&format!(
+                        "* 1 FETCH (UID {uid} BODY[{part}] {{{}}}\r\n",
+                        bytes.len()
+                    ));
+                    self.out.extend(bytes.iter().copied());
+                    self.say(&format!(")\r\n{tag} OK done\r\n"));
+                }
+                None => self.say(&format!("{tag} NO no such part\r\n")),
+            }
         } else if upper.starts_with("UID FETCH") {
             let uid: u32 = rest.split(' ').nth(2).unwrap().parse().unwrap();
             let found = self

@@ -48,9 +48,18 @@
 //! one of each is ever left beside it. They are neither listed nor taken
 //! by name: one may hold the clusters of the file itself. rust-fatfs, as
 //! patched, removes a file's entry before it frees its clusters: cut off
-//! between, they stay taken by no file, never a file pointing at free
+//! between, they are taken by no file, never a file pointing at free
 //! ones. A file's size is its entry's, and reading it fails where its
 //! clusters end before (left so by an earlier version).
+//!
+//! No cluster stays taken by no file after a cut (#238, #269). A new
+//! file's entry gets its first cluster as soon as it is taken: what was
+//! appended and not written back is the file's, used by the next append,
+//! freed with the file. Where a cluster and what points at it cannot be
+//! one write, rust-fatfs, as patched, says so on the card first (the FS
+//! information sector, FAT32: see its `claim`) and [`FatStorage::new`]
+//! frees what a cut left of it: a start reads nothing for it unless the
+//! card says so and never searches the FAT. FAT12 and FAT16 keep the gap.
 //!
 //! rust-fatfs, as patched, moves an entry by adding the new one before
 //! it removes the old one: cut off between, the entry is at both
@@ -86,15 +95,17 @@ mod damaged;
 mod disk;
 mod found;
 mod free;
+mod in_place;
 mod listed;
+mod owned;
 mod settle;
 mod swap;
 mod walk;
 
 pub use disk::{BLOCK, BlockDisk, Blocks, DiskError, SharedDisk, VolumeError};
 pub use swap::{
-    CardSwap, LOST_AFTER, MOUNT_TRIES, Mount, PROBE_MS, REMOUNTS, RETRY_MS, Restart, Swappable,
-    Swapped, Watched,
+    AGAIN_MS, CALM_MS, CardSwap, LOST_AFTER, MOUNT_TRIES, Mount, PROBE_MS, RETRY_MS, Restart,
+    Swappable, Swapped, Watched,
 };
 
 use alloc::format;
@@ -103,8 +114,8 @@ use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 
 use fatfs::{
-    DefaultTimeProvider, Dir, File, FileAttributes, FileSystem, LossyOemCpConverter, Read,
-    ReadWriteSeek, Seek, SeekFrom, Write,
+    DefaultTimeProvider, Dir, File, FileAttributes, FileSystem, FsOptions, LossyOemCpConverter,
+    Read, ReadWriteSeek, Seek, SeekFrom, Write,
 };
 use paperpaw_platform::storage::is_valid_path;
 use paperpaw_platform::{DirEntry, Storage, StorageError};
@@ -170,8 +181,8 @@ impl<IO: ReadWriteSeek + 'static> Open<IO> {
     }
 }
 
-/// PaperPaw's storage on a FAT file system that lives as long as the
-/// device runs (`Box::leak` it).
+/// PaperPaw's storage on a FAT file system, owned with [`Self::owned`]
+/// (see [`mount`]) or borrowed for the device's lifetime with [`Self::new`].
 pub struct FatStorage<IO: ReadWriteSeek + 'static> {
     fs: &'static FileSystem<IO>,
     /// The files used last, the latest last.
@@ -184,6 +195,9 @@ pub struct FatStorage<IO: ReadWriteSeek + 'static> {
     /// free space a part at a time ([`free`]).
     read: Option<alloc::boxed::Box<free::Read>>,
     free: RefCell<free::Free>,
+    /// The card holds the free space as this storage keeps it there
+    /// (`keep_free`), as far as the FAT was not written since.
+    kept: Cell<bool>,
     /// A move recorded in [`JOURNAL`] was looked for since the start
     /// (`settle_moves`).
     moves_settled: Cell<bool>,
@@ -199,6 +213,23 @@ pub struct FatStorage<IO: ReadWriteSeek + 'static> {
     cleaned: RefCell<Vec<u64>>,
     /// Whether a file that grows takes clusters ahead (see `append`).
     reserve: Cell<bool>,
+    // Must remain last: Rust drops fields in declaration order. Every
+    // cached file and folder above borrows this allocation. No borrowed
+    // FAT handle or file-system reference may escape this storage.
+    owner: Option<owned::FileSystemOwner<IO>>,
+}
+
+/// The FAT file system on `blocks` (the whole disk or its first partition)
+/// as PaperPaw's storage, its disk shared ([`FatStorage::with_disk`]). It
+/// owns the file system ([`FatStorage::owned`]): dropped, as when a card
+/// taken out is mounted anew, it gives back everything it took.
+///
+/// # Errors
+/// Why there is no FAT file system PaperPaw can read on `blocks`.
+pub fn mount<B: Blocks + 'static>(blocks: B) -> Result<FatStorage<SharedDisk<B>>, VolumeError> {
+    let disk = SharedDisk::new(BlockDisk::volume(blocks)?);
+    let fs = FileSystem::new(disk.clone(), FsOptions::new()).map_err(|_| VolumeError::NoFat)?;
+    Ok(FatStorage::owned(fs).with_disk(disk))
 }
 
 impl<IO: ReadWriteSeek + 'static> core::fmt::Debug for FatStorage<IO> {
@@ -687,6 +718,13 @@ fn rename_in<IO: ReadWriteSeek + 'static>(
 
 impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
     pub fn new(fs: &'static FileSystem<IO>) -> Self {
+        // What a cut left taken by no file is freed before anything else
+        // (see the crate documentation).
+        #[expect(
+            clippy::let_underscore_must_use,
+            reason = "a card that fails here fails the first call that needs it, which tells it"
+        )]
+        let _ = fs.settle_claim();
         Self {
             fs,
             open: RefCell::new(alloc::vec::Vec::new()),
@@ -694,13 +732,24 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             flush_disk: None,
             read: None,
             free: RefCell::new(free::Free::new(fs.cluster_changes())),
+            kept: Cell::new(false),
             moves_settled: Cell::new(false),
             settled_folders: RefCell::new(Vec::new()),
             settling: Cell::new(false),
             stuck: RefCell::new(None),
             cleaned: RefCell::new(Vec::new()),
             reserve: Cell::new(true),
+            owner: None,
         }
+    }
+
+    /// Owns the file system and releases it after its cached files and
+    /// folders on drop. Moving the storage does not move the file system.
+    /// Call [`Storage::sync`] before dropping a card that is still present
+    /// to report write errors. A removed card must reject old-mount I/O,
+    /// as [`Watched`] does, including writes attempted by destructors.
+    pub fn owned(fs: FileSystem<IO>) -> Self {
+        owned::storage(fs)
     }
 
     /// Whether a file that grows by appends takes its clusters ahead, a run
@@ -726,6 +775,13 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             disk.seek(SeekFrom::Start(was)).is_ok() && read
         }));
         self.flush_disk = Some(alloc::boxed::Box::new(move || disk.flush_all().is_ok()));
+        // What `new` freed is on the card before anything else is done.
+        #[expect(
+            clippy::let_underscore_must_use,
+            reason = "a card that fails here fails the first call that writes, which tells it"
+        )]
+        let _ = self.write_back();
+        self.trust_kept();
         self
     }
 
@@ -906,6 +962,23 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         result.and(back)
     }
 
+    /// Writes back what was appended to the open files, and the disk's
+    /// changed blocks.
+    fn sync_files(&self) -> Result<(), StorageError> {
+        let mut result = Ok(());
+        for o in self.open.borrow_mut().iter_mut() {
+            if let Err(e) = o.flush() {
+                result = Err(e);
+            }
+        }
+        // Any block still changed: a file's flush writes back all of the
+        // disk's, but there may be no file appended to.
+        if let Err(e) = self.write_back() {
+            result = Err(e);
+        }
+        result
+    }
+
     /// [`Storage::write`], its blocks not yet written back.
     fn write_whole(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         self.close(path)?;
@@ -926,17 +999,21 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         // Whole under one name of the moment, synced, then under another
         // (see the crate documentation): settled, a cut is told by them.
         let temps = Temps::of(name);
-        let written = dir
-            .create_file(temps.tmp())
-            .map_err(error)
-            .and_then(|mut file| {
-                // The file it replaces, as it is now: changed after a
-                // cut, it is kept (see `settled`).
-                if let Some(mark) = mark {
-                    file.set_mark(mark);
-                }
-                Self::write_all(&mut file, data)
-            });
+        // With its first cluster, where it gets content: its entry is
+        // written once, not again when the first write takes the cluster.
+        let created = if data.is_empty() {
+            dir.create_file(temps.tmp())
+        } else {
+            dir.create_file_with_cluster(temps.tmp())
+        };
+        let written = created.map_err(error).and_then(|mut file| {
+            // The file it replaces, as it is now: changed after a
+            // cut, it is kept (see `settled`).
+            if let Some(mark) = mark {
+                file.set_mark(mark);
+            }
+            Self::write_all(&mut file, data)
+        });
         if let Err(e) = written {
             // A card that is full keeps no part of the new content.
             #[expect(
@@ -949,6 +1026,8 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         if there {
             dir.rename(temps.tmp(), &dir, temps.ready())
                 .map_err(error)?;
+            // On the card before the old file goes (see `settled`).
+            self.write_back()?;
             dir.replace(temps.ready(), name).map_err(error)?;
         } else {
             // A new file: cut off, it is not there yet, or is there whole
@@ -1202,9 +1281,10 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
             // The first append since it was opened: clusters an earlier cut left taken
             // ahead are given back when it is written back, even where the append ends
             // inside the last cluster in use.
+            // An empty file too: a cut may have left it clusters (#238).
             if !o.looked {
                 o.looked = true;
-                if o.len > 0 && self.reserve.get() {
+                if self.reserve.get() {
                     o.file.maybe_ahead();
                 }
             }
@@ -1228,19 +1308,14 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
         })
     }
 
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        self.write_in_place(path, offset, data)
+    }
+
+    /// The free space, once counted, is kept on the card too (see `free`).
     fn sync(&self) -> Result<(), StorageError> {
-        let mut result = Ok(());
-        for o in self.open.borrow_mut().iter_mut() {
-            if let Err(e) = o.flush() {
-                result = Err(e);
-            }
-        }
-        // Any block still changed: a file's flush writes back all of the
-        // disk's, but there may be no file appended to.
-        if let Err(e) = self.write_back() {
-            result = Err(e);
-        }
-        result
+        self.sync_files()?;
+        self.keep_free()
     }
 
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
@@ -1248,7 +1323,7 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
             check(dir)?;
         }
         // The sizes in the folders, as appended.
-        self.sync()?;
+        self.sync_files()?;
         let folder = self.dir(dir)?;
         let mut read = Scan::of(&folder);
         for entry in entries(&folder) {

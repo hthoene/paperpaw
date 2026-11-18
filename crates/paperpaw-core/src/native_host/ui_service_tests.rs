@@ -3,6 +3,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::services_wire;
 use crate::native_host::admitted_features::AdmittedFeatures;
 use crate::native_host::call_services::validate_reply;
@@ -13,7 +14,7 @@ use core::cell::Cell;
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 
 struct Stack {
     epoch: Cell<u64>,
@@ -23,7 +24,7 @@ struct Stack {
     closed: core::cell::RefCell<Vec<u32>>,
 }
 struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     hosts: crate::native_host::host_services::HostServices,
     store: Shared<UiStore>,
     stack: Rc<Stack>,
@@ -161,7 +162,7 @@ fn with_view<R>(limits: Limits, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let store = Shared::try_new(UiStore::new(limits)).unwrap();
     store.bind_clipboard(&Rc::default());
     let stack = Rc::new(Stack {

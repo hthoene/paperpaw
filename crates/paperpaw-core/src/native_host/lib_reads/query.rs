@@ -27,6 +27,7 @@
 use super::book::{self, flag};
 use super::{CatalogReads, fail, valid_prefix, zeroed};
 use crate::abi7::context::RowsEnd;
+use crate::kit::library::{self, catalog};
 use crate::native_host::lib_service::Rows;
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::string::String;
@@ -36,16 +37,15 @@ use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
 use paperpaw_sdk::data;
 use paperpaw_sdk::digest::fnv1a64;
-use paperpaw_sdk::library::{self, catalog};
 
 /// Slots a pass keeps: the page, or a step towards the cursor.
-const WINDOW: usize = 32;
+pub(super) const WINDOW: usize = 32;
 /// Bytes of the lowercase text a key holds.
-const KEY_TEXT: usize = 96;
+pub(super) const KEY_TEXT: usize = 96;
 /// Books the opened list names at most (the SDK's `MAX_OPENED`).
 const OPENED_MAX: usize = 100;
 /// Tries at a catalog that changes under the call.
-const TRIES: usize = 3;
+pub(super) const TRIES: usize = 3;
 /// Bytes of the cut forms in a `lib_entry`.
 const TITLE: usize = 128;
 const AUTHOR: usize = 96;
@@ -61,9 +61,9 @@ const NEVER_OPENED: u32 = 255;
 /// Compared as they are laid out; the text holds no NUL ([`push_lower`] drops
 /// it), so the buffer orders as the text and then the path would.
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
-struct Key {
-    first: u32,
-    text: String,
+pub(super) struct Key {
+    pub(super) first: u32,
+    pub(super) text: String,
 }
 
 impl Key {
@@ -136,7 +136,7 @@ impl Selection {
 /// `text` appended to `out` in lowercase, reserved as it grows, until `out`
 /// is `cap` bytes (a character may pass it by two). A NUL is left out: it ends
 /// the text of a [`Key`].
-fn push_lower(out: &mut String, text: &str, cap: usize) -> Result<(), i32> {
+pub(super) fn push_lower(out: &mut String, text: &str, cap: usize) -> Result<(), i32> {
     for ch in text.chars() {
         if out.len() >= cap {
             break;
@@ -152,14 +152,14 @@ fn push_lower(out: &mut String, text: &str, cap: usize) -> Result<(), i32> {
     Ok(())
 }
 
-fn push(out: &mut String, text: &str) -> Result<(), i32> {
+pub(super) fn push(out: &mut String, text: &str) -> Result<(), i32> {
     out.try_reserve(text.len()).map_err(|_| ERR_NO_MEMORY)?;
     out.push_str(text);
     Ok(())
 }
 
 /// A copy of `text`, reserved fallibly.
-fn copy(text: &str) -> Result<String, i32> {
+pub(super) fn copy(text: &str) -> Result<String, i32> {
     let mut out = String::new();
     push(&mut out, text)?;
     Ok(out)
@@ -186,8 +186,8 @@ enum Order {
 
 /// What the call asks, made ready: the conditions of the books, the order,
 /// and the opened list for sort 4.
-struct Engine<'a> {
-    reads: &'a CatalogReads,
+pub(super) struct Engine<'a> {
+    pub(super) reads: &'a CatalogReads,
     /// Show (but `new`), author, series, tag, folder and day.
     base: catalog::Query,
     new_only: bool,
@@ -198,10 +198,13 @@ struct Engine<'a> {
     opened: Vec<u64>,
     /// A book a pending delete holds is not listed.
     hide: &'a dyn Fn(&str) -> bool,
+    /// The log of changes, read once for the whole call: every scan of the
+    /// catalog and every row is under it.
+    pub(super) changes: catalog::Changes,
 }
 
 impl<'a> Engine<'a> {
-    fn new(
+    pub(super) fn new(
         reads: &'a CatalogReads,
         q: &wire::ServiceLibQuery<'_>,
         archive: &str,
@@ -263,11 +266,12 @@ impl<'a> Engine<'a> {
             order,
             opened,
             hide,
+            changes: catalog::try_changes(&*reads.storage).map_err(fail)?,
         })
     }
 
     /// Whether the book is found.
-    fn keeps(&self, record: &catalog::Record, words: &mut String) -> Result<bool, i32> {
+    pub(super) fn keeps(&self, record: &catalog::Record, words: &mut String) -> Result<bool, i32> {
         if (self.hide)(&record.path) || !self.base.finds(record) {
             return Ok(false);
         }
@@ -310,7 +314,7 @@ impl<'a> Engine<'a> {
 
     /// Where the book goes in the order, made in `key` (its buffers are
     /// reused, and the text stops at [`KEY_TEXT`] bytes).
-    fn fill(&self, record: &catalog::Record, key: &mut Key) -> Result<(), i32> {
+    pub(super) fn fill(&self, record: &catalog::Record, key: &mut Key) -> Result<(), i32> {
         key.text.clear();
         key.first = 0;
         let text = &mut key.text;
@@ -361,23 +365,27 @@ impl<'a> Engine<'a> {
         // The key of the book being looked at and the text the words are
         // looked for in: made once, filled for each book.
         let (mut scratch, mut words) = (Key::default(), String::new());
-        catalog::try_each_at(&*self.reads.storage, &mut |offset, record| {
-            if failure.is_some() {
-                return;
-            }
-            let outcome = self.keeps(&record, &mut words).and_then(|kept| {
-                if kept {
-                    let offset = u32::try_from(offset).map_err(|_| ERR_NO_SPACE)?;
-                    self.fill(&record, &mut scratch)?;
-                    selection.offer(&mut scratch, offset, after);
+        catalog::try_each_at_with(
+            &*self.reads.storage,
+            &self.changes,
+            &mut |offset, record| {
+                if failure.is_some() {
+                    return;
                 }
-                Ok(kept)
-            });
-            match outcome {
-                Ok(kept) => found = found.saturating_add(u32::from(kept)),
-                Err(status) => failure = Some(status),
-            }
-        })
+                let outcome = self.keeps(&record, &mut words).and_then(|kept| {
+                    if kept {
+                        let offset = u32::try_from(offset).map_err(|_| ERR_NO_SPACE)?;
+                        self.fill(&record, &mut scratch)?;
+                        selection.offer(&mut scratch, offset, after);
+                    }
+                    Ok(kept)
+                });
+                match outcome {
+                    Ok(kept) => found = found.saturating_add(u32::from(kept)),
+                    Err(status) => failure = Some(status),
+                }
+            },
+        )
         .map_err(fail)?;
         failure.map_or(Ok(found), Err)
     }
@@ -438,7 +446,12 @@ pub(super) fn query(
             }
             continue;
         }
-        let rows = emit(reads, &slots, visit)?;
+        // Held while the rows are made, and not while the catalog is: its
+        // books are indexed under it with no generation to tell.
+        reads
+            .indexed
+            .begin(reads.env.walking().is_none().then_some(generation));
+        let rows = emit(reads, &engine.changes, &slots, visit)?;
         return Ok(RowsEnd {
             total,
             generation,
@@ -476,17 +489,21 @@ fn select(
 }
 
 /// The `lib_entry` of each slot, until the page is full; how many were taken.
-fn emit(reads: &CatalogReads, slots: &[Slot], visit: Rows<'_>) -> Result<u32, i32> {
+fn emit(
+    reads: &CatalogReads,
+    changes: &catalog::Changes,
+    slots: &[Slot],
+    visit: Rows<'_>,
+) -> Result<u32, i32> {
     if slots.is_empty() {
         return Ok(0);
     }
-    let changes = catalog::try_changes(&*reads.storage).map_err(fail)?;
     let mut buffer = zeroed(ENTRY_BUFFER)?;
     let mut rows = 0_u32;
     for slot in slots {
         if row(
             reads,
-            &changes,
+            changes,
             (u64::from(slot.offset), slot.key.path()),
             &mut buffer,
             visit,
@@ -578,7 +595,7 @@ pub(super) fn row(
     );
     let status = line.status;
     let opened = status.opened || status.progress.is_some();
-    let indexed = book::indexed(reads, path, line.size)?;
+    let indexed = book::indexed_kept(reads, path, line.size)?;
     let mut flags = 0;
     for (set, bit) in [
         (status.favourite, flag::FAVOURITE),

@@ -1,6 +1,6 @@
 //! A data plugin installed on an emulated device, as the store installs
 //! it: its folder copied into `plugins/.<id>.part`, then
-//! `Command::InstallPlugin`, so the kernel's own loader decides what it
+//! `Ask::InstallPlugin`, so the kernel's own loader decides what it
 //! takes (`crates/paperpaw-core/src/data_plugin.rs` and the plugin
 //! registration). What the kernel warns about is reported; then what the
 //! plugin set is compared with the app it joined.
@@ -11,11 +11,10 @@
 
 use std::cell::Cell;
 
-use paperpaw_core::{Kernel, KernelBuilder, WarningSource};
+use paperpaw_core::Ask;
+use paperpaw_core::{Kernel, KernelBuilder, Staging, WarningSource};
 use paperpaw_sdk::event::Event;
-use paperpaw_sdk::{
-    Command, Id, Manifest, Params, Plugin, RegisterError, Registrar, SDK_VERSION, Version,
-};
+use paperpaw_sdk::{Id, Manifest, Params, RegisterError, SDK_VERSION, Version};
 use paperpaw_sdk::{PluginState, SettingKind};
 
 use super::Release;
@@ -41,36 +40,36 @@ thread_local! {
 
 /// The installing plugin and the target's plugins.
 fn add(builder: KernelBuilder) -> KernelBuilder {
-    let builder = builder.plugin(Installing);
+    let builder = builder.items(installing_manifest(), installing());
     match TARGET.get() {
         Some(add) => add(builder),
         None => builder,
     }
 }
 
-#[derive(Debug)]
-struct Installing;
-
-impl Plugin for Installing {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static(PLUGIN),
-            "paperpaw-dev install",
-            Version::new(0, 1, 0),
-        )
-        .description("Installs data plugins as the store does, for paperpaw-dev.")
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.on(INSTALL, |_, params, out| {
-            if let (Some(plugin), Some(folder)) = (params.get("plugin"), params.get("folder"))
-                && let Ok(id) = Id::parse(plugin)
-            {
-                out.push(Command::InstallPlugin(id, folder.to_string()));
-            }
+fn installing() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.on(INSTALL, |k, p| {
+            k.with_event(&INSTALL, p, |_, params, out| {
+                if let (Some(plugin), Some(folder)) = (params.get("plugin"), params.get("folder"))
+                    && let Ok(id) = Id::parse(plugin)
+                {
+                    out.push(Ask::InstallPlugin(id, folder.to_string()));
+                }
+            });
         })
     }
+}
+
+/// What [`installing`] registers under.
+fn installing_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static(PLUGIN),
+        "paperpaw-dev install",
+        Version::new(0, 1, 0),
+    )
+    .description("Installs data plugins as the store does, for paperpaw-dev.")
+    .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// A context for sessions without the data plugins looked at (they are
@@ -107,7 +106,7 @@ pub fn check(
         return Ok(());
     };
     let id = folder.id(plugin).to_string();
-    if Id::parse(&id).is_err() || !paperpaw_sdk::install::is_plugin_name(&id) {
+    if Id::parse(&id).is_err() || !paperpaw_core::kit::install::is_plugin_name(&id) {
         report.add(
             Finding::info(
                 "package.device",

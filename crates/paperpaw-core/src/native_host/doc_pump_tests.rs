@@ -34,7 +34,7 @@ impl NativeInstance for Probe {
     fn subscribed(&self, tag: u32) -> bool {
         tag == wire::EVENT_DOCUMENT_CHANGED_TAG
     }
-    fn service_event(&self, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         match wire::records_decode_single(bytes)? {
             Record::EventDocumentChanged(e) => {
                 let heard = (e.document, e.state, e.progress_ppm);
@@ -47,23 +47,23 @@ impl NativeInstance for Probe {
 }
 
 impl Dispatch for Probe {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn dropped(&self, _: u32, _: i32) {}
-    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], _: &Place<'_>) -> Result<i32, i32> {
         assert_eq!(token, 5, "the token of the format's declaration");
         let Record::StageCall(call) = wire::records_decode_single(bytes).unwrap() else {
             panic!("not a stage.call")
@@ -210,7 +210,7 @@ fn the_cover_job_goes_on_by_timed_wakes_on_an_idle_device_and_holds_no_timer_off
         let (mut kernel, opener) = kernel(w, &log);
         let document = open(w, &kernel, opener, "books/a.epub");
         assert!(w.state.table.start_cover_job(opener, document));
-        kernel.now = Instant(10_000);
+        kernel.shared.now = Instant(10_000);
         let asleep_at = kernel.sleep_due();
         *log.reply.borrow_mut() = fmt_state(PREPARING, 100_000);
         // A step of the job: no "more" (the pump does not ask for a pass at
@@ -223,10 +223,10 @@ fn the_cover_job_goes_on_by_timed_wakes_on_an_idle_device_and_holds_no_timer_off
         // for the step may ask earlier).
         assert!(kernel.service_due().is_some_and(|at| at.millis() <= 10_100));
         // Before then no step; at the wake the next one.
-        kernel.now = Instant(10_099);
+        kernel.shared.now = Instant(10_099);
         assert!(!kernel.native_doc_pump());
         assert_eq!(log.calls.borrow().len(), 1);
-        kernel.now = Instant(10_100);
+        kernel.shared.now = Instant(10_100);
         assert!(!kernel.native_doc_pump());
         assert_eq!(log.calls.borrow().len(), 2);
         assert_eq!(kernel.shared.native_instances.doc_retry(), Some(10_200));
@@ -235,7 +235,7 @@ fn the_cover_job_goes_on_by_timed_wakes_on_an_idle_device_and_holds_no_timer_off
         assert_eq!(kernel.sleep_due(), asleep_at);
         assert!(!kernel.busy_at_sleep(Instant(10_200)));
         *log.reply.borrow_mut() = fmt_state(READY, 1_000_000);
-        kernel.now = Instant(10_200);
+        kernel.shared.now = Instant(10_200);
         // Ready: the step that finished it asks for the next pass (the end
         // is looked at), and no wait is left.
         assert!(kernel.native_doc_pump());
@@ -250,7 +250,7 @@ fn a_cover_job_held_for_a_list_wakes_the_device_when_the_quiet_moment_is_over() 
         let (mut kernel, opener) = kernel(w, &log);
         let document = open(w, &kernel, opener, "books/a.epub");
         assert!(w.state.table.start_cover_job(opener, document));
-        kernel.now = Instant(10_000);
+        kernel.shared.now = Instant(10_000);
         w.state.now.set(10_000);
         // The list was up a moment ago (the test kernel has no stack, so the
         // pass finds it gone): the job waits for the quiet moment, and the
@@ -262,7 +262,7 @@ fn a_cover_job_held_for_a_list_wakes_the_device_when_the_quiet_moment_is_over() 
         assert_eq!(kernel.shared.native_instances.doc_retry(), Some(12_000));
         assert!(kernel.service_due().is_some_and(|at| at.millis() == 12_000));
         // At the wake the job takes its step.
-        kernel.now = Instant(12_000);
+        kernel.shared.now = Instant(12_000);
         w.state.now.set(12_000);
         *log.reply.borrow_mut() = fmt_state(PREPARING, 100_000);
         kernel.native_cover_list();
@@ -276,7 +276,7 @@ fn a_cover_held_for_the_users_quiet_time_wakes_the_device_when_it_is_over() {
     world(|w| {
         let log = Rc::new(Log::default());
         let (mut kernel, _opener) = kernel(w, &log);
-        kernel.now = Instant(10_000);
+        kernel.shared.now = Instant(10_000);
         w.state.now.set(10_000);
         w.state.allow_cover_jobs();
         // The user's last input was at 10,000; a cover was asked for since
@@ -287,7 +287,7 @@ fn a_cover_held_for_the_users_quiet_time_wakes_the_device_when_it_is_over() {
         kernel.native_cover_list();
         assert_eq!(kernel.shared.native_instances.doc_retry(), Some(11_000));
         assert!(kernel.service_due().is_some_and(|at| at.millis() == 11_000));
-        kernel.now = Instant(11_000);
+        kernel.shared.now = Instant(11_000);
         w.state.now.set(11_000);
         kernel.native_cover_list();
         assert!(w.state.cover_jobs_released(), "the screens ask again");
@@ -300,7 +300,7 @@ fn a_book_that_is_not_the_cover_job_is_stepped_at_once_again() {
         let log = Rc::new(Log::default());
         let (mut kernel, opener) = kernel(w, &log);
         open(w, &kernel, opener, "books/a.epub");
-        kernel.now = Instant(10_000);
+        kernel.shared.now = Instant(10_000);
         *log.reply.borrow_mut() = fmt_state(PREPARING, 100_000);
         assert!(kernel.native_doc_pump(), "more to come");
         assert_eq!(kernel.shared.native_instances.doc_retry(), None);
@@ -323,7 +323,7 @@ fn the_cover_job_waits_ten_times_longer_where_the_device_saves_power() {
             let document = open(w, &kernel, opener, "books/a.epub");
             assert!(w.state.table.start_cover_job(opener, document));
             kernel.shared.power.level = level;
-            kernel.now = Instant(10_000);
+            kernel.shared.now = Instant(10_000);
             *log.reply.borrow_mut() = fmt_state(PREPARING, 100_000);
             assert!(!kernel.native_doc_pump());
             assert_eq!(

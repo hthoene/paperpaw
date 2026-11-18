@@ -1,8 +1,8 @@
 //! The shipped native reader opens the books: a text and an EPUB book open in
 //! it, and a Beta 3 card whose configuration still names a reading app that is
-//! gone raises no warning and opens its books there too. (The reading-app
-//! resolver of interface 6, with its per-book, per-folder and per-format
-//! choices, is not carried to the native host: ticket #260.)
+//! gone raises no warning and opens its books there too. (The per-book,
+//! per-folder and per-format choices of a second reading app are the kernel's
+//! tests: `paperpaw-core` `tests/reading_apps.rs`, #260.)
 
 #![allow(
     clippy::unwrap_used,
@@ -70,6 +70,21 @@ impl App {
         }
     }
 
+    /// `ms` of time going by, the kernel ticked as a shell does.
+    fn wait(&mut self, ms: u64) {
+        for _ in 0..ms / 500 {
+            self.now += 500;
+            let effects = self.kernel.tick(Instant(self.now));
+            self.settle(effects);
+        }
+    }
+
+    fn run(&mut self, action: paperpaw_sdk::Id) {
+        self.now += 100;
+        let effects = self.kernel.run_action(Instant(self.now), action);
+        self.settle(effects);
+    }
+
     /// The screen the book at `path` opens in, as a shell opens it.
     fn book(&mut self, path: &str) -> String {
         self.now += 100;
@@ -131,4 +146,32 @@ fn a_book_gone_from_the_card_says_its_file_is_no_longer_there() {
         labels.iter().any(|l| l.contains("no longer there")),
         "{labels:?}"
     );
+}
+
+/// A folder of pictures is one book, as in Beta 3: the opened picture and those
+/// after it in name order are its pages. One page forward in a book of three
+/// is a third of the way (a picture alone has no page to turn to). #277: the
+/// format reads its book's folder through `core.files` root 3.
+#[test]
+#[cfg_attr(
+    not(all(feature = "native-linked-reading", feature = "native-linked-store")),
+    ignore = "needs the native reader and the picture format: they run with `native-linked-reading` and `native-linked-store` (the test-native step)"
+)]
+fn a_picture_opens_as_a_book_of_the_pictures_after_it() {
+    let picture = &include_bytes!("../../../crates/paperpaw-image/tests/data/colors-rgb.png")[..];
+    let card = MemoryStorage::new()
+        .with("books/pics/01.png", picture)
+        .with("books/pics/02.png", picture)
+        .with("books/pics/03.png", picture)
+        .with("books/pics/notes.txt", "not a picture");
+    let mut app = App::new(card, "");
+    assert_eq!(app.book("books/pics/01.png"), SHIPPED);
+    app.wait(20_000);
+    app.run(paperpaw_sdk::builtin::actions::NEXT_PAGE);
+    app.wait(5_000);
+    app.run(paperpaw_sdk::builtin::actions::HOME);
+    // Home's first frame already shows the book just closed (#267).
+    app.kernel.render(&mut |_, _| {});
+    let labels: Vec<String> = app.kernel.describe().into_iter().map(|p| p.label).collect();
+    assert!(labels.iter().any(|l| l.contains("33 %")), "{labels:?}");
 }

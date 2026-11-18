@@ -1,4 +1,5 @@
 use super::*;
+use alloc::vec;
 use paperpaw_sdk::native::callbacks::FrameRect;
 
 /// What a focus step asked of the host, and the areas it refuses.
@@ -460,4 +461,92 @@ fn a_head_as_high_as_the_page_leaves_room_for_the_first_row() {
     assert_eq!(head_fit(700, 700, Some(80)), 620);
     // No rows: nothing to keep.
     assert_eq!(head_fit(900, 700, None), 700);
+}
+
+fn measured_list() -> ItemList {
+    let mut list = ItemList::new(items("hrrr"));
+    list.kept = vec![10, 20, 30, 40];
+    list
+}
+
+#[test]
+fn kept_heights_are_dropped_by_whatever_changes_an_item() {
+    let mut list = measured_list();
+    list.replace(items("hrr"));
+    assert!(list.kept.is_empty());
+    let mut list = measured_list();
+    list.push(items("r").remove(0)).unwrap();
+    assert!(list.kept.is_empty());
+    let mut list = measured_list();
+    assert!(list.set_value(1, String::from("3")));
+    assert!(list.kept.is_empty());
+    let mut list = measured_list();
+    list.wipe();
+    assert!(list.kept.is_empty());
+}
+
+fn noted(notes: &[&str]) -> ItemList {
+    ItemList::new(
+        notes
+            .iter()
+            .map(|n| Item::noted("net", "", n).unwrap())
+            .collect(),
+    )
+}
+
+/// Swaps the rows of `list` (drawn as in [`drawn`]) for `notes`, as a plugin
+/// does that frees the old rows before it makes the new.
+fn swapped(list: &mut ItemList, notes: &[&str]) -> RowsChange {
+    let keys = list.row_keys();
+    list.free_rows();
+    list.swap_rows(noted(notes), keys.as_deref())
+}
+
+#[test]
+fn a_scan_that_changes_some_rows_asks_for_those_rows_alone() {
+    // Rows 0 to 2 are on the page, 61 px each from y 75; the region began 10 px down.
+    let drawn_list = || {
+        let mut list = noted(&["a", "b", "c", "d"]);
+        list.hits = (0..3)
+            .map(|i| (Rect::new(0, 75 + 61 * i as u16, 480, 61), i))
+            .collect();
+        list.origin = (0, 10);
+        list
+    };
+    // One signal that moved: its row, and no other (61 px of a 183 px page).
+    let mut list = drawn_list();
+    assert_eq!(
+        swapped(&mut list, &["a", "B", "c", "d"]),
+        RowsChange::Rows(FrameRect::new(0, 65 + 61, 480, 61))
+    );
+    // Two rows at the ends: the area between them.
+    let mut list = drawn_list();
+    assert_eq!(
+        swapped(&mut list, &["A", "b", "C", "d"]),
+        RowsChange::Rows(FrameRect::new(0, 65, 480, 183))
+    );
+    // Nothing on the page said something else: nothing is drawn (a row off
+    // the page changed, or none).
+    let mut list = drawn_list();
+    assert_eq!(swapped(&mut list, &["a", "b", "c", "D"]), RowsChange::None);
+    let mut list = drawn_list();
+    assert_eq!(swapped(&mut list, &["a", "b", "c", "d"]), RowsChange::None);
+    // A row more or less, or a list not drawn yet: the whole list.
+    let mut list = drawn_list();
+    assert_eq!(swapped(&mut list, &["a", "b", "c"]), RowsChange::All);
+    let mut list = noted(&["a", "b"]);
+    assert_eq!(swapped(&mut list, &["a", "c"]), RowsChange::All);
+}
+
+#[test]
+fn rows_that_were_freed_keep_the_focus_and_the_places() {
+    let mut list = noted(&["a", "b", "c"]);
+    list.hits = Vec::from([(Rect::new(0, 0, 10, 10), 1)]);
+    list.set_focus(2);
+    let keys = list.row_keys();
+    list.free_rows();
+    assert!(list.items().is_empty());
+    assert_eq!(list.rect_of(1), Some(Rect::new(0, 0, 10, 10)));
+    list.swap_rows(noted(&["a", "b", "c"]), keys.as_deref());
+    assert_eq!(list.focus, 2);
 }

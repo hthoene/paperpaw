@@ -136,6 +136,14 @@ fn latin_typography_does_not_need_bidi() {
     assert!(needs_bidi("PaperPaw \u{627}"));
     assert!(needs_bidi("abc \u{2067}x\u{2069}"));
     assert!(needs_bidi("\u{5D0}"));
+    // Thai letters alone are placed by their pens; a vowel or tone mark
+    // above or below one is placed by anchors (see `marks`).
+    assert!(!needs_bidi("\u{E01}\u{E33}\u{E32}"));
+    assert!(needs_bidi("\u{E01}\u{E34}"));
+    assert!(needs_bidi("\u{E01}\u{E48}"));
+    // A zero width space between Thai words is drawn as nothing, not as a
+    // missing letter.
+    assert!(needs_bidi("\u{E01}\u{200B}\u{E02}"));
 }
 
 #[test]

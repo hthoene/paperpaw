@@ -109,8 +109,10 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
 - [D] `sec_keep`: `plugin`, `name`, `label`, `value`, `flags` (bit 0 `changeable`). Adds the secret
   or replaces its value (and its label unless `""`). The owner keeps any of its own; the editor
   (`uses.secrets`) only replaces an **existing changeable** secret of another plugin
-  (`ERR_NOT_FOUND`, `ERR_DENIED` when not changeable) and cannot change `changeable`. An empty
-  `value` is a value (an open Wi-Fi network's).
+  (`ERR_NOT_FOUND`, `ERR_DENIED` when not changeable) and cannot change `changeable`; the one
+  exception is the value of a secret setting the other plugin declares (section 4), which the
+  editor may keep before there is one (kept changeable). An empty `value` is a value (an open
+  Wi-Fi network's).
 - [D] `OK` means saved on the card. Otherwise nothing changed and the call answers `ERR_IO` (card
   away or unwritable) or `ERR_FULL` (1.2); the old value stays.
 
@@ -198,10 +200,13 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
 ## 4. Settings, Wi-Fi, uninstall
 
 - [D] **Secret settings.** A setting declared secret (`reg_setting` flag, `registry.md`) is the
-  owner's secret named by the setting's key (mail's `password`). The plugin reads it with `get`;
+  owner's secret named by the setting's key (mail's `password`): a text with an empty default
+  (`ERR_INVALID` otherwise), never read with slot 5 (absent there, also for its owner). The
+  plugin reads it with `get`;
   the settings editor changes it with `keep` (slot 15 keeps refusing it, `commands.md`); resetting
   the setting removes the secret. A value found in `paperpaw.ini` for such a setting moves into
-  secrets at load (interface 6). Secret settings are never announced to other plugins
+  secrets at load (interface 6), or, on a device that cannot seal then (the X4 without a radio
+  on, 3.1), as soon as Wi-Fi is on; it stays in the file until it is saved sealed. Secret settings are never announced to other plugins
   (`core-events.md`).
 - [D] **Wi-Fi.** Known networks are the Wi-Fi plugin's secrets, named by SSID. DEV's `join` with
   `remember` keeps the password there for the plugin; `dev_network.flags` bit 1 `known` is set for

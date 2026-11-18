@@ -3,6 +3,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::services_wire;
 use crate::native_host::admitted_features::AdmittedFeatures;
 use crate::native_host::call_services::validate_reply;
@@ -14,7 +15,7 @@ use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL, ERR_STATE};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 
 static WIRED: &[Feature<'static>] = &[Feature {
     key: "uses.network",
@@ -56,7 +57,7 @@ impl WorkEnv for Clock {
 }
 
 struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     hosts: crate::native_host::host_services::HostServices,
     clock: Rc<Clock>,
     sched: crate::native_host::shared::Shared<WorkSched>,
@@ -108,7 +109,7 @@ fn with_view<R>(wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -> R {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let clock = Rc::new(Clock {
         now: Cell::new(1_000),
         allowed: Cell::new(true),
@@ -350,7 +351,7 @@ fn a_table_cannot_overflow_the_state_reply() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let clock = Rc::new(Clock {
         now: Cell::new(1_000),
         allowed: Cell::new(true),

@@ -1,0 +1,45 @@
+# Beta 4 suite 09: the update page (#232, #302): the page, then on the X4 the online search and the progress bar.
+include:common.pps
+
+test:09a-update-page {
+  call:home
+  run:update.open
+  until:Update:15000
+  expect:Update
+  expect-not:Error
+  back
+  wait:1500
+  no-warn
+}
+
+# X4, Wi-Fi "Hannes" (WIFI_PASSWORD_HANNES), a newer PaperPaw offered by the update server: Search online, Download,
+# a progress bar and "%" while it downloads, the page opened again during the download shows it too (#232, #302),
+# a second Download press joins it with no "Error" screen. No offer: NOT TESTABLE.
+test:09b-update-download-progress {
+  if:$target==emu {
+    skip:the emulator does not install updates
+  }
+  call:home
+  wifi-connect:Hannes:${env:WIFI_PASSWORD_HANNES}
+  run:update.open
+  until:Update:15000
+  select:Search online:12
+  until:Download:60000
+  if:not-shows:Download {
+    skip:the update server offers no newer PaperPaw (or Wi-Fi did not come up)
+  }
+  select:Download:12
+  until:Downloading PaperPaw:30000
+  wait:6000
+  expect:%
+  expect-not:Error
+  back
+  wait:2000
+  run:update.open
+  until:Update:15000
+  wait:2000
+  expect:Downloading PaperPaw
+  expect:%
+  expect-not:Error
+  no-warn
+}

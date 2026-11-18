@@ -4,21 +4,24 @@
 extern crate std;
 
 use super::*;
+use crate::Staging;
 use crate::abi7::services_wire::service_schema;
+use crate::kit::action::ActionSpec;
 use crate::native_host::host_services::{Caller, HostServices};
+use crate::{Place, Turn};
 use alloc::{borrow::Cow, boxed::Box, format, string::String, vec::Vec};
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Cx, Env, Handled, Id, Manifest, Plugin, Priority, RegisterError, Registrar,
-    Screen, ScreenSpec, SettingGroupSpec, Settings, SlotSpec, Version, keys::InputSpec,
+    Canvas, Handled, Id, Manifest, Priority, RegisterError, SettingGroupSpec, Settings, SlotSpec,
+    Version,
 };
 
 struct Quiet;
-impl Screen for Quiet {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+impl crate::testing::Fake for Quiet {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -32,15 +35,9 @@ fn id(text: &str) -> Id {
     Id::parse(text).unwrap()
 }
 
-impl Plugin for Demo {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("demo"), "Demo name", Version::new(1, 2, 3))
-            .description("Shows things.")
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn demo(kept: Demo) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
             id("demo.main"),
             "demo.screen.main",
             Box::new(|_, _| Box::new(Quiet)),
@@ -48,7 +45,7 @@ impl Plugin for Demo {
         r.add_slot(SlotSpec::new(id("demo.stage"), "demo.slot.stage"))?;
         r.bind_slot(id("demo.stage"), id("demo.main"), Priority::DEFAULT)?;
         r.add_action(ActionSpec::new(id("demo.sealed"), "demo.action.sealed").sealed())?;
-        for index in 0..self.actions {
+        for index in 0..kept.actions {
             r.add_action(ActionSpec::new(
                 id(&format!("demo.act{index:02}")),
                 "demo.action.other",
@@ -59,33 +56,38 @@ impl Plugin for Demo {
         r.add_setting_group(SettingGroupSpec::new(id("demo.top"), "demo.group.top").order(1))?;
         r.add_setting_group(child)?;
         r.add_icon(id("demo.top"), "book")?;
-        r.add_input(InputSpec::new(id("demo.chord"), "demo.input.chord"))?;
         Ok(())
     }
 }
 
+/// What [`demo`] registers under.
+fn demo_manifest() -> Manifest {
+    Manifest::new(Id::new_static("demo"), "Demo name", Version::new(1, 2, 3))
+        .description("Shows things.")
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// A second, bare plugin.
-struct Bare;
-impl Plugin for Bare {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("bare"), "Bare", Version::new(0, 1, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, _: &mut Registrar) -> Result<(), RegisterError> {
-        Ok(())
-    }
+fn bare() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |_| Ok(())
+}
+
+/// What [`bare`] registers under.
+fn bare_manifest() -> Manifest {
+    Manifest::new(Id::new_static("bare"), "Bare", Version::new(0, 1, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 fn kernel(actions: usize) -> crate::Kernel {
     crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Demo { actions })
-        .plugin(Bare)
+        .items(demo_manifest(), demo(Demo { actions }))
+        .items(bare_manifest(), bare())
         .build()
         .unwrap()
 }
 
 struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     sources: Sources<'a>,
     hosts: HostServices,
     registry: bool,
@@ -144,7 +146,7 @@ pub(super) fn call_failing(
     nth: u32,
 ) -> (Result<Vec<u8>, i32>, bool) {
     use crate::native_host::shell::tests::FAIL_NTH;
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let view = View {
         env: &env,
         sources: Sources {
@@ -291,7 +293,7 @@ pub(super) fn pages(kernel: &crate::Kernel, id: u32, scope: &str) -> Vec<String>
 #[test]
 fn a_frame_without_a_registry_refuses_every_op() {
     let kernel = kernel(0);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let view = View {
         env: &env,
         sources: Sources {
@@ -475,7 +477,7 @@ fn a_slot_shows_its_bound_screen_and_its_offers() {
 }
 
 #[test]
-fn inputs_list_the_device_then_the_plugins_own() {
+fn inputs_list_the_devices_own() {
     let kernel = kernel(0);
     let rows = pages(&kernel, schema::OP_INPUTS, "");
     // The test device has a touch screen and no named buttons.
@@ -484,10 +486,6 @@ fn inputs_list_the_device_then_the_plugins_own() {
         "{rows:?}"
     );
     assert!(rows.contains(&"item swipe.left  4 swipe.left".into()));
-    assert_eq!(
-        rows.last().unwrap(),
-        "item input.demo.chord demo 16 demo.input.chord"
-    );
 }
 
 #[test]
@@ -523,7 +521,7 @@ fn pages_continue_by_cursor_under_one_generation() {
 #[test]
 fn a_stale_generation_or_a_bare_cursor_is_a_state_error_and_touches_nothing() {
     let kernel = kernel(2);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let current = Sources {
         env: &env,
         directory: None,
@@ -534,7 +532,7 @@ fn a_stale_generation_or_a_bare_cursor_is_a_state_error_and_touches_nothing() {
         query("demo", 1, 0),
         query("demo", 0, current.wrapping_add(1)),
     ] {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let view = View {
             env: &env,
             sources: Sources {
@@ -606,24 +604,23 @@ fn the_generation_is_the_kernels_counter_and_a_change_of_the_same_size_bumps_it(
 
 /// A plugin whose id does not fit `reg_plugin.id` (64 bytes): no check of the
 /// manifest bounds it.
-struct LongId;
-impl Plugin for LongId {
-    fn manifest(&self) -> Manifest {
-        let id = format!("long-{}", "x".repeat(70));
-        Manifest::new(Id::parse(&id).unwrap(), "Long", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, _: &mut Registrar) -> Result<(), RegisterError> {
-        Ok(())
-    }
+fn long_id() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |_| Ok(())
+}
+
+/// What [`long_id`] registers under.
+fn long_id_manifest() -> Manifest {
+    let id = format!("long-{}", "x".repeat(70));
+    Manifest::new(Id::parse(&id).unwrap(), "Long", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 #[test]
 fn a_row_that_cannot_be_framed_is_skipped_by_every_walk() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Bare)
-        .plugin(LongId)
-        .plugin(Demo { actions: 0 })
+        .items(bare_manifest(), bare())
+        .items(long_id_manifest(), long_id())
+        .items(demo_manifest(), demo(Demo { actions: 0 }))
         .build()
         .unwrap();
     let rows = pages(&kernel, schema::OP_PLUGINS, "");
@@ -673,7 +670,7 @@ fn data_kernel(plugins: &[(&str, &str)]) -> crate::Kernel {
         storage = storage.with(&format!("plugins/{name}/plugin.ini"), ini);
     }
     crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Demo { actions: 1 })
+        .items(demo_manifest(), demo(Demo { actions: 1 }))
         .storage(storage)
         .build()
         .unwrap()
@@ -684,7 +681,7 @@ fn generation(kernel: &crate::Kernel) -> u32 {
 }
 
 /// Whether `command` changed the generation, by the kernel's own route.
-fn bumps(kernel: &mut crate::Kernel, command: paperpaw_sdk::Command) -> bool {
+fn bumps(kernel: &mut crate::Kernel, command: crate::Ask) -> bool {
     let before = generation(kernel);
     kernel.apply(command);
     generation(kernel) != before
@@ -692,20 +689,14 @@ fn bumps(kernel: &mut crate::Kernel, command: paperpaw_sdk::Command) -> bool {
 
 #[test]
 fn every_change_of_a_list_bumps_the_generation() {
-    use paperpaw_sdk::Command;
+    use crate::Ask;
     let mut kernel = data_kernel(&[("cosy", ""), ("other", "")]);
     assert_ne!(generation(&kernel), 0);
     // Disabled, enabled.
-    assert!(bumps(
-        &mut kernel,
-        Command::SetPluginEnabled(id("cosy"), false)
-    ));
-    assert!(bumps(
-        &mut kernel,
-        Command::SetPluginEnabled(id("cosy"), true)
-    ));
+    assert!(bumps(&mut kernel, Ask::SetPluginEnabled(id("cosy"), false)));
+    assert!(bumps(&mut kernel, Ask::SetPluginEnabled(id("cosy"), true)));
     // Removed.
-    assert!(bumps(&mut kernel, Command::RemovePlugin(id("other"))));
+    assert!(bumps(&mut kernel, Ask::RemovePlugin(id("other"))));
     assert!(kernel.plugins().get("other").is_none());
     // Installed (a folder staged as the shell does), updated over itself.
     for version in ["1.0.0", "1.1.0"] {
@@ -720,7 +711,7 @@ fn every_change_of_a_list_bumps_the_generation() {
             .unwrap();
         assert!(bumps(
             &mut kernel,
-            Command::InstallPlugin(id("fresh"), "plugins/.fresh.part".into())
+            Ask::InstallPlugin(id("fresh"), "plugins/.fresh.part".into())
         ));
     }
     // Re-read from a folder.
@@ -732,22 +723,19 @@ fn every_change_of_a_list_bumps_the_generation() {
             b"[plugin]\nname = Again\nformats = 4\n",
         )
         .unwrap();
-    assert!(bumps(
-        &mut kernel,
-        Command::LoadPlugin("plugins/again".into())
-    ));
+    assert!(bumps(&mut kernel, Ask::LoadPlugin("plugins/again".into())));
     // A slot bound, a key bound, a menu set.
     assert!(bumps(
         &mut kernel,
-        Command::BindSlot(id("demo.stage"), Some(id("demo.main")))
+        Ask::BindSlot(id("demo.stage"), Some(id("demo.main")))
     ));
     assert!(bumps(
         &mut kernel,
-        Command::SetMenu(id("demo.menu"), Some(Vec::new()))
+        Ask::SetMenu(id("demo.menu"), Some(Vec::new()))
     ));
     assert!(bumps(
         &mut kernel,
-        Command::bind("base", "up", Some(id("demo.act00")))
+        Ask::bind("base", "up", Some(id("demo.act00")))
     ));
 }
 
@@ -763,11 +751,11 @@ fn a_plugin_listed_by_the_host_and_a_declaration_batch_bump_the_generation() {
     );
     let listed = generation(&kernel);
     assert_ne!(listed, before);
-    // A batch of declarations, inputs among them.
+    // A batch of declarations, an icon among them.
     let mut staging = crate::registry::Staging::default();
     staging
-        .inputs
-        .push(InputSpec::new(id("later.chord"), "later.input.chord"));
+        .icons
+        .push((id("later.thing"), Cow::Borrowed("gear")));
     kernel.merge(&id("later"), staging).unwrap();
     assert_ne!(generation(&kernel), listed);
 }
@@ -850,6 +838,34 @@ fn a_removed_plugin_leaves_no_refusal_behind() {
     assert!(!kept(&kernel));
 }
 
+/// Code never installed runs unsigned, and its row says so (bit 6).
+#[test]
+fn a_plugin_running_unsigned_code_says_so() {
+    let kernel = kernel(0);
+    let declared = crate::native_host::native_declarations::NativeDeclarations::default();
+    let rows = |declared| {
+        read(
+            &call_in(
+                &kernel,
+                Some(declared),
+                schema::OP_PLUGINS,
+                &query("", 0, 0),
+                4096,
+            )
+            .unwrap(),
+        )
+        .0
+    };
+    let demo = |rows: Vec<String>| {
+        rows.into_iter()
+            .find(|row| row.starts_with("plugin demo "))
+            .unwrap()
+    };
+    assert!(demo(rows(&declared)).contains(" flags=9 "));
+    assert!(declared.mark_unsigned("demo"));
+    assert!(demo(rows(&declared)).contains(" flags=73 "));
+}
+
 #[test]
 fn a_plugin_a_store_installed_says_so_with_its_release_as_the_store_named_it() {
     // The host's record: a store put in place cosy 2.1 and mine 1.0.0 (since
@@ -863,7 +879,7 @@ fn a_plugin_a_store_installed_says_so_with_its_release_as_the_store_named_it() {
         storage = storage.with(&format!("plugins/{name}/plugin.ini"), ini);
     }
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Demo { actions: 1 })
+        .items(demo_manifest(), demo(Demo { actions: 1 }))
         .storage(storage)
         .build()
         .unwrap();
@@ -912,7 +928,7 @@ fn the_first_plugin_rows_take_a_device_without_a_record_for_the_stores() {
     let ini = "[plugin]\nname = cosy\nversion = 2.1\nformats = 4\n";
     let storage = paperpaw_sdk::MemoryStorage::new().with("plugins/cosy/plugin.ini", ini);
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Demo { actions: 1 })
+        .items(demo_manifest(), demo(Demo { actions: 1 }))
         .storage(storage)
         .build()
         .unwrap();

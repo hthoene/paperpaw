@@ -674,6 +674,9 @@ fn measure(session: &mut Session, case: &Case, cycles: usize) -> Result<Option<M
         let peak = budget::stats().peak.saturating_sub(base);
         measured.peak = measured.peak.max(peak);
         case.hide(session)?;
+        // A request the screen started (a list fetched on opening) is not
+        // kept: it is let end before the heap is looked at.
+        session.drain_requests();
         measured.after.push(live());
     }
     drop(session.frames());
@@ -1169,6 +1172,7 @@ mod tests {
             op,
             path: path.to_string(),
             bytes,
+            cost: 0,
         }
     }
 

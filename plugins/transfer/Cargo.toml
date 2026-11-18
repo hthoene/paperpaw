@@ -32,6 +32,8 @@ paperpaw-native.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-platform = { workspace = true, features = ["fake"] }
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
+# The dialog plugin: the reader allows a computer's books on its question.
+paperpaw-plugin-keyboard = { workspace = true, features = ["linked"] }
 proptest.workspace = true
 # A FAT card for the tests of hostile paths.
 paperpaw-fat.workspace = true

@@ -327,7 +327,9 @@ impl Item {
                     self.more.source = cut(value, MAX_ADDRESS)?;
                 }
                 "author_since" => self.more.author_since = date(value),
-                "description" => self.more.description = cut(value, MAX_DESCRIPTION)?,
+                // The library's page says it as `how` (already in the device's
+                // language); `description` is the older name.
+                "how" | "description" => self.more.description = cut(value, MAX_DESCRIPTION)?,
                 "author_plugins" => self.more.author_plugins = value.parse().unwrap_or(0),
                 _ => {}
             },

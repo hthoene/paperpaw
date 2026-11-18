@@ -4,6 +4,7 @@
 """
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -158,6 +159,67 @@ class BuiltFiles(unittest.TestCase):
             identity = lambda path: path.read_bytes().split(b"|")[0]  # noqa: E731
             self.assertEqual(versions.built_problems(then, now, identity), ([], ["kosync"], []))
             self.assertEqual(versions.built_problems(then, now), ([("kosync", "1.0.2")], [], []))
+
+
+class PublishedData(unittest.TestCase):
+    """A data plugin's folder against the zip a release published."""
+
+    def folder(self, root, text="description = One\n"):
+        folder = pathlib.Path(root) / "p"
+        (folder / "i18n").mkdir(parents=True)
+        (folder / "plugin.ini").write_text(f"id = p\nversion = 1.0.0\n{text}", encoding="utf-8")
+        (folder / "i18n" / "en.ini").write_text(text, encoding="utf-8")
+        return pathlib.Path(root)
+
+    def releases(self, root, name="p-1.0.0.zip"):
+        """GitHub's list with the zip of the folder as `folder` made it, by its digest."""
+        import catalogue
+        zipped = pathlib.Path(root) / "published.zip"
+        folder = pathlib.Path(root) / "p"
+        files = [(f.relative_to(folder).as_posix(), f.read_bytes())
+                 for f in sorted(folder.rglob("*")) if f.is_file() and f.name != "plugin.ini"]
+        catalogue.folder_zip(zipped, (folder / "plugin.ini").read_text(encoding="utf-8"), files)
+        digest = hashlib.sha256(zipped.read_bytes()).hexdigest()
+        return json.dumps([[{
+            "tag_name": "v0.6.0-beta.1", "created_at": "2026-11-01T00:00:00Z",
+            "assets": [{"name": name, "state": "uploaded", "browser_download_url": "https://x/" + name,
+                        "digest": f"sha256:{digest}"}]}]])
+
+    def wrong(self, source, text):
+        with unittest.mock.patch("data.plugins", return_value={"p": {"version": "1.0.0"}}):
+            return versions.published_data_problems(source, text)
+
+    def test_the_published_folder_is_right(self):
+        with tempfile.TemporaryDirectory() as a:
+            self.folder(a)
+            self.assertEqual(self.wrong(a, self.releases(a)), [])
+
+    def test_another_text_under_the_same_version_is_wrong(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            self.folder(a, "description = One\n")
+            text = self.releases(a)
+            self.folder(b, "description = One, and choose it in Settings\n")
+            self.assertEqual(self.wrong(b, text), [("p", "1.0.0")])
+
+    def test_a_version_not_published_before_is_not_compared(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            self.folder(a, "description = One\n")
+            text = self.releases(a, name="p-0.9.0.zip")
+            self.folder(b, "description = Two\n")
+            self.assertEqual(self.wrong(b, text), [])
+
+    def test_the_message_names_the_next_patch(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            self.folder(a, "description = One\n")
+            (pathlib.Path(b) / "releases.json").write_text(self.releases(a), encoding="utf-8")
+            data_dir = self.folder(pathlib.Path(b) / "built", "description = Two\n")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), \
+                    unittest.mock.patch("data.plugins", return_value={"p": {"version": "1.0.0"}}):
+                ok = versions.published_check(pathlib.Path(b) / "releases.json", data_dir)
+            self.assertFalse(ok)
+            self.assertIn("p: its folder at 1.0.0", out.getvalue())
+            self.assertIn("raise it to 1.0.1", out.getvalue())
 
 
 class Repository(unittest.TestCase):
@@ -495,6 +557,16 @@ echo "fingerprint: $(head -1 "$2")"; echo "interface: 6"; echo "compiler: abc"
         self.write("fingerprint.txt", "fp2\n")
         self.commit("the firmware's fingerprint changed")
         self.assertTrue(self.bytes_check())
+
+    def test_a_release_before_interface_7_has_no_bytes_to_compare(self):
+        self.released_with_a_dependency()
+        self.assertTrue(self.bytes_check())
+        # The release's tree has no interface-7 build: nothing to compare, not a failure.
+        self.git("rm", "-q", "tools/plugin-files7/build.sh")
+        self.git("commit", "-q", "-m", "an old tree")
+        self.git("tag", "v0.5.0-beta.4")
+        self.git("revert", "--no-edit", "HEAD")
+        self.assertTrue(self.check("--release", "--bytes", "--sign", str(self.sign), "v0.5.0-beta.4"))
 
     def test_the_release_s_build_is_kept_and_not_made_twice(self):
         self.released_with_a_dependency()

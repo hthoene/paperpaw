@@ -115,6 +115,12 @@ impl Screen for View {
         })
     }
 
+    /// Only Back does anything here: the other buttons' hints go.
+    fn started(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+        crate::native_hints::hide(ctx.host, &["core.confirm", "core.left", "core.right"]);
+        Ok(Next::None)
+    }
+
     fn draw(&mut self, ctx: &Ctx<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
         let footer = match &self.qr {
             Some(code) => Footer::Code {

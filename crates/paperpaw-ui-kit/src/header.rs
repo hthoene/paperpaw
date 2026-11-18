@@ -32,16 +32,8 @@ pub fn prepare(
     } else {
         (s.paper, s.ink)
     };
-    page.paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
-    page.paint.push(Paint::Fill(area, paper));
+    background(&mut page.paint, s, area, paper)?;
     let lined = !s.dark && !s.plain && s.separators != "core.separators.none";
-    if lined {
-        page.paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
-        page.paint.push(Paint::Fill(
-            Rect::new(0, s.header.saturating_sub(s.line), width, s.line),
-            s.rule,
-        ));
-    }
     let band = Rect::new(
         0,
         0,
@@ -265,4 +257,62 @@ fn arrow(
         }
     }
     Ok(())
+}
+
+/// The header plate and its separator, as Beta 3: full ink for lines,
+/// an inset tint for inset separators, none for plain or dark headers.
+fn background(paint: &mut Vec<Paint>, s: &Style, area: Rect, paper: Color) -> Result<(), Error> {
+    paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
+    paint.push(Paint::Fill(area, paper));
+    if s.dark || s.plain || s.separators == "core.separators.none" {
+        return Ok(());
+    }
+    let inset = s.separators == "core.separators.inset";
+    let margin = if inset {
+        s.margin.min(area.width / 2)
+    } else {
+        0
+    };
+    let rect = Rect::new(
+        area.x.saturating_add(margin),
+        area.y.saturating_add(area.height).saturating_sub(s.line),
+        area.width.saturating_sub(2 * margin),
+        s.line,
+    );
+    let line = if inset && s.mono {
+        Paint::Stipple(rect, s.rule)
+    } else {
+        Paint::Fill(rect, if inset { s.rule } else { s.ink })
+    };
+    paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
+    paint.push(line);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_light_inset_header_keeps_its_rule_on_monochrome() {
+        let mut s = Style::themed(Color::BLACK, Color::WHITE);
+        s.mono = true;
+        s.rule = Color::gray(150);
+        s.separators = alloc::string::String::from("core.separators.inset");
+        s.margin = 36;
+        s.line = 3;
+        let mut paint = Vec::new();
+        background(&mut paint, &s, Rect::new(0, 0, 480, 58), s.paper).unwrap();
+        assert!(matches!(paint.get(1), Some(Paint::Stipple(rect, ink))
+            if *rect == Rect::new(36, 55, 408, 3) && *ink == s.rule));
+        // A grayscale panel keeps the tint, while plain headers stay bare.
+        s.mono = false;
+        paint.clear();
+        background(&mut paint, &s, Rect::new(0, 0, 480, 58), s.paper).unwrap();
+        assert!(matches!(paint.get(1), Some(Paint::Fill(_, ink)) if *ink == s.rule));
+        s.plain = true;
+        paint.clear();
+        background(&mut paint, &s, Rect::new(0, 0, 480, 58), s.paper).unwrap();
+        assert_eq!(paint.len(), 1);
+    }
 }

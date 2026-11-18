@@ -125,34 +125,35 @@ fn fixed_stack_and_deferred_cleanup_have_a_bounded_resident_size() {
 
 #[test]
 fn cleanup_sweep_recovers_more_than_sixteen_closures_and_preserves_live_instances() {
+    use crate::Staging;
     use alloc::boxed::Box;
-    use paperpaw_sdk::{
-        Manifest, Params, Plugin, RegisterError, Registrar, Screen, ScreenSpec, Version,
-    };
+    use paperpaw_sdk::{Manifest, Params, RegisterError, Version};
     struct Live;
-    impl Screen for Live {
-        fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+    impl crate::testing::Fake for Live {
+        fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
         }
-        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
+        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
     }
-    impl Plugin for Live {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("live"), "Live", Version::new(1, 0, 0))
-        }
-        fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
-            registrar.add_screen(ScreenSpec::new(
+    fn live() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+        |registrar| {
+            registrar.add_fake(crate::testing::FakeSpec::new(
                 Id::new_static("live.screen"),
                 "Live",
                 Box::new(|_, _| Box::new(Live)),
             ))
         }
     }
+
+    /// What [`live`] registers under.
+    fn live_manifest() -> Manifest {
+        Manifest::new(Id::new_static("live"), "Live", Version::new(1, 0, 0))
+    }
     let store = Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap();
     let pool = pool(&store);
     let owner = pool.try_owner().unwrap();
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Live)
+        .items(live_manifest(), live())
         .build()
         .unwrap();
     kernel.open_screen(

@@ -1,29 +1,32 @@
 //! Bluetooth with the real kernel (ADR 0027): a plugin that declares it
-//! scans, connects and subscribes; one that does not is refused; pairing
-//! asks the reader in the kernel's own question, whose answer only counts
-//! with the question's number, and the bond is kept with the secrets; a
+//! scans, connects and subscribes; one that does not is refused; a
 //! bonded remote's keys run what the key maps bind; a closed screen and
-//! sleep end what was asked.
+//! sleep end what was asked. (Pairing, which asks the reader in the
+//! kernel's own question, is tested with the kernel's unit tests:
+//! `src/tests/bluetooth_pairing.rs`.)
 
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
     reason = "tests panic on purpose when something is wrong"
 )]
+use paperpaw_core::{Place, Turn};
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use paperpaw_core::Ask;
+use paperpaw_core::Staging;
+use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::sdk::bluetooth::BtRequest;
 use paperpaw_core::sdk::bluetooth::{
     self, BtEvent, DeviceId, Handle, ScanPower, Security, Uuid, ValueKind,
 };
 use paperpaw_core::sdk::builtin::{actions, slots};
-use paperpaw_core::sdk::replies::Confirmed;
 use paperpaw_core::sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Event, EventData, Handled, Id, Manifest, MemoryStorage,
-    Params, Plugin, Priority, RegisterError, Registrar, Screen, ScreenSpec, Uses, Version,
+    Canvas, Event, Handled, Id, Manifest, MemoryStorage, Priority, RegisterError, Uses, Version,
 };
-use paperpaw_core::{BtCall, BtReport, Found, Io, Kernel, PairQuestion};
+use paperpaw_core::{BtCall, BtReport, Found, Io, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
@@ -42,10 +45,8 @@ const GO: Id = Id::new_static("pulse.go");
 const OTHER_GO: Id = Id::new_static("other.go");
 const OTHER_FOUND: Event<BtEvent> = Event::new("other.found");
 const HOME: Id = Id::new_static("pulse.home");
-const ASK: Id = Id::new_static("pulse.ask");
-const ANSWERED: &str = "core.bluetooth-pair-answered";
 
-type Queue = Rc<RefCell<Vec<Command>>>;
+type Queue = Rc<RefCell<Vec<Ask>>>;
 type Log = Rc<RefCell<Vec<String>>>;
 
 /// A screen that logs the actions it gets and the parameters it opened
@@ -55,15 +56,49 @@ struct Logged {
     log: Log,
 }
 
-impl Screen for Logged {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl paperpaw_core::testing::Fake for Logged {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, _: &mut Turn<'_, '_>) -> Handled {
         self.log
             .borrow_mut()
             .push(format!("{} action {action}", self.name));
         Handled::No
     }
+}
+
+std::thread_local! {
+    /// Each pulse plugin of the test running: its id, queue and log (its
+    /// handlers are plain functions and hold neither).
+    static PULSES: RefCell<Vec<(&'static str, Queue, Log)>> = const { RefCell::new(Vec::new()) };
+}
+
+/// What the test queued for plugin `id`, taken.
+fn queue_of(id: &str) -> Vec<Ask> {
+    PULSES.with(|pulses| {
+        pulses
+            .borrow()
+            .iter()
+            .find(|(of, ..)| *of == id)
+            .map(|(_, queue, _)| queue.borrow_mut().drain(..).collect())
+            .unwrap_or_default()
+    })
+}
+
+/// Logs `event` heard, in its plugin's log.
+fn note(event: &Event<BtEvent>, params: &paperpaw_sdk::Params) {
+    let Some(heard) = paperpaw_core::hear::data::<BtEvent>(params) else {
+        return;
+    };
+    PULSES.with(|pulses| {
+        if let Some((_, _, log)) = pulses
+            .borrow()
+            .iter()
+            .find(|(of, ..)| *of == event.id().namespace())
+        {
+            log.borrow_mut().push(format!("{}: {heard:?}", event.id()));
+        }
+    });
 }
 
 /// A plugin that runs what the test queues, and logs what it hears.
@@ -74,29 +109,39 @@ struct Pulse {
     log: Log,
 }
 
-impl Plugin for Pulse {
+impl Pulse {
     fn manifest(&self) -> Manifest {
         Manifest::new(Id::new_static(self.id), "Pulse", Version::new(1, 0, 0)).uses(self.uses)
     }
+}
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let go = Id::parse(&format!("{}.go", self.id)).unwrap();
-        let queue = self.queue.clone();
-        r.add_action(ActionSpec::new(go, "go").handler(move |_, _, out| {
-            out.extend(queue.borrow_mut().drain(..));
-        }))?;
-        for event in [FOUND, LINK, OTHER_FOUND] {
-            if event.id().namespace() != self.id {
-                continue;
+fn pulse(kept: Pulse) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        let go = Id::parse(&format!("{}.go", kept.id)).unwrap();
+        // A kernel made again (as after a restart) is the one driven.
+        PULSES.with(|pulses| {
+            let mut pulses = pulses.borrow_mut();
+            pulses.retain(|(id, ..)| *id != kept.id);
+            pulses.push((kept.id, kept.queue.clone(), kept.log.clone()));
+        });
+        let run: paperpaw_core::kit::action::FixedHandler = match kept.id {
+            "pulse" => |_, _, out| out.extend(queue_of("pulse")),
+            _ => |_, _, out| out.extend(queue_of("other")),
+        };
+        r.add_action(ActionSpec::new(go, "go").handler(run))?;
+        let hears: [(&Event<BtEvent>, paperpaw_core::Hear); 3] = [
+            (&FOUND, |_, p| note(&FOUND, p)),
+            (&LINK, |_, p| note(&LINK, p)),
+            (&OTHER_FOUND, |_, p| note(&OTHER_FOUND, p)),
+        ];
+        for (event, run) in hears {
+            if event.id().namespace() == kept.id {
+                r.subscribe(event.id().clone(), run)?;
             }
-            let log = self.log.clone();
-            r.on(event.clone(), move |_, heard: &BtEvent, _| {
-                log.borrow_mut().push(format!("{}: {heard:?}", event.id()));
-            })?;
         }
-        if self.id == "pulse" {
-            let log = self.log.clone();
-            r.add_screen(ScreenSpec::new(
+        if kept.id == "pulse" {
+            let log = kept.log.clone();
+            r.add_fake(paperpaw_core::testing::FakeSpec::new(
                 HOME,
                 "home",
                 Box::new(move |_, _| {
@@ -107,21 +152,6 @@ impl Plugin for Pulse {
                 }),
             ))?;
             r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)?;
-            let log = self.log.clone();
-            r.add_screen(ScreenSpec::new(
-                ASK,
-                "ask",
-                Box::new(move |_, params| {
-                    let told: Vec<String> =
-                        params.iter().map(|(k, v)| format!("{k}={v}")).collect();
-                    log.borrow_mut().push(format!("asked {}", told.join(" ")));
-                    Box::new(Logged {
-                        name: "ask",
-                        log: log.clone(),
-                    })
-                }),
-            ))?;
-            r.bind_slot(slots::CONFIRM, ASK, Priority::DEFAULT)?;
         }
         Ok(())
     }
@@ -152,8 +182,8 @@ language = en
 ",
             ))
             .bluetooth(2)
-            .plugin(plugin("pulse", Uses::BLUETOOTH))
-            .plugin(plugin("other", Uses::NOTHING))
+            .pulse(plugin("pulse", Uses::BLUETOOTH))
+            .pulse(plugin("other", Uses::NOTHING))
             .build()
             .unwrap();
         kernel.start(Instant(0));
@@ -174,8 +204,10 @@ language = en
         Instant(self.now)
     }
 
-    fn run(&mut self, action: Id, commands: impl IntoIterator<Item = Command>) {
-        self.queue.borrow_mut().extend(commands);
+    fn run(&mut self, action: Id, requests: impl IntoIterator<Item = BtRequest>) {
+        self.queue
+            .borrow_mut()
+            .extend(requests.into_iter().map(Ask::from));
         let at = self.at();
         self.kernel.run_action(at, action);
     }
@@ -306,89 +338,6 @@ fn another_plugin_cannot_use_a_device_it_did_not_find() {
 }
 
 #[test]
-fn the_pairing_question_closes_when_the_link_drops() {
-    let mut test = Test::new();
-    let belt = test.belt();
-    let link = test.link(belt);
-    test.run(GO, [bluetooth::pair(belt)]);
-    test.report(BtReport::Ask {
-        link,
-        question: PairQuestion::Show(123_456),
-    });
-    assert_eq!(test.kernel.active_screen(), Some(&ASK));
-    test.report(BtReport::Disconnected { link, reason: None });
-    assert_ne!(
-        test.kernel.active_screen(),
-        Some(&ASK),
-        "the question closed"
-    );
-}
-
-#[test]
-fn pairing_asks_the_reader_and_keeps_the_bond() {
-    let mut test = Test::new();
-    let belt = test.belt();
-    let link = test.link(belt);
-    test.run(GO, [bluetooth::pair(belt)]);
-    assert!(test.calls().contains(&BtCall::Pair { link }));
-    test.report(BtReport::Ask {
-        link,
-        question: PairQuestion::Compare(123_456),
-    });
-    // The kernel asks, in its own words.
-    let heard = test.heard();
-    let asked = heard
-        .iter()
-        .find(|h| h.starts_with("asked"))
-        .expect("asked");
-    assert!(
-        asked.contains("Pair with Belt?") && asked.contains("123456"),
-        "{asked}"
-    );
-    let context = |nonce: &str| {
-        let nonce = nonce.to_string();
-        let mut context = Params::new().with("device", "1");
-        context.set("nonce", nonce);
-        Confirmed::new(true, context).to_params()
-    };
-    // An answer without the question's number does nothing.
-    let at = test.at();
-    test.kernel
-        .send_event(at, Id::new_static(ANSWERED), context("1"));
-    assert!(
-        !test
-            .calls()
-            .iter()
-            .any(|c| matches!(c, BtCall::Answer { .. }))
-    );
-    let nonce = asked
-        .split(' ')
-        .find_map(|p| p.strip_prefix("nonce="))
-        .expect("its number");
-    let at = test.at();
-    test.kernel
-        .send_event(at, Id::new_static(ANSWERED), context(nonce));
-    assert!(
-        test.calls()
-            .contains(&BtCall::Answer { link, accept: true })
-    );
-    test.report(BtReport::Paired {
-        link,
-        keys: "ab12".into(),
-    });
-    assert!(test.heard().iter().any(|h| h.contains("Paired")));
-    let kept = test
-        .kernel
-        .secrets()
-        .get("core.bluetooth.1")
-        .unwrap_or_default();
-    assert!(
-        kept.starts_with("11:22\tBelt\t") && kept.ends_with("\tpulse\tab12"),
-        "{kept}"
-    );
-}
-
-#[test]
 fn a_bonded_remotes_keys_run_what_the_key_maps_bind() {
     let mut test = Test::new();
     test.kernel
@@ -405,7 +354,7 @@ fn a_bonded_remotes_keys_run_what_the_key_maps_bind() {
         let mut kernel = Kernel::builder(DEVICE)
             .storage(MemoryStorage::new().with(paperpaw_core::sdk::secrets::FILE, storage_secrets))
             .bluetooth(2)
-            .plugin(Pulse {
+            .pulse(Pulse {
                 id: "pulse",
                 uses: Uses::BLUETOOTH,
                 queue: queue.clone(),
@@ -459,4 +408,15 @@ fn a_bonded_remotes_keys_run_what_the_key_maps_bind() {
             .any(|h| *h == format!("home action {}", actions::NEXT_PAGE)),
         "{heard:?}"
     );
+}
+
+/// Adds the fixtures that keep their fields (`TestPlugin`, `ServicePlugin`) to a builder.
+trait AddFixture {
+    fn pulse(self, plugin: Pulse) -> Self;
+}
+
+impl AddFixture for paperpaw_core::KernelBuilder {
+    fn pulse(self, plugin: Pulse) -> Self {
+        self.items(plugin.manifest(), pulse(plugin))
+    }
 }

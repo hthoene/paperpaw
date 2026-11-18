@@ -336,16 +336,16 @@ impl NativeStats {
             _ => return Err(Error::Invalid),
         };
         let today = with_cx(host, 0, |cx| self.recorder.read_today(cx));
-        if let Some((day, seconds)) = today {
+        use crate::read_today::reading_goal_read_today_reply_v1::TodayReading;
+        let reading = if let Some((day, seconds)) = today {
             if asked.is_some_and(|asked| asked != day) {
                 return Err(Error::NotFound);
             }
-            let mut bytes = [0u8; 8];
-            bytes[..4].copy_from_slice(&day.to_le_bytes());
-            bytes[4..].copy_from_slice(&seconds.to_le_bytes());
-            reply.write(&bytes)?;
-        }
-        Ok(())
+            TodayReading::new(1, day, seconds)
+        } else {
+            TodayReading::new(0, 0, 0)
+        };
+        reply.write_with(|out| reading.encode(out).map_err(|_| Error::NoSpace))
     }
 
     /// Hands a net or answer event to the WebDAV sync with its screen.

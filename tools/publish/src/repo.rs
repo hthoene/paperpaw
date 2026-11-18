@@ -131,6 +131,7 @@ pub fn check(dir: &Path, rules: &Rules) -> Found {
     files(&folder, &at, rules, &mut add);
     if code {
         code_checks(dir, &folder, &at, &store, &long, rules, &mut add);
+        crate::kernel::check(dir, &id, &mut add);
     }
     around(dir, rules, &mut add);
     found.plugin = (!id.is_empty() && !version.is_empty()).then_some(Plugin {

@@ -25,9 +25,9 @@ use paperpaw_ui_kit::{
 
 use crate::declarations::{
     CARDS_TOKEN, DECKS_TOKEN, DECORATE_STAGE, DECORATE_TOKEN, EVENTS_TOKEN, OPEN_TOKEN,
-    PHONE_TOKEN, REQUEST_TOKEN, RESUME_TOKEN, REVIEW_TOKEN, SD_CARD_TOKEN, SD_MENU_TOKEN,
-    SERVER_TOKEN, SLEEP_CARD, SLEEP_TOKEN, TICK_TOKEN, WORD_STAGE, WORD_TOKEN, WORDS_TOKEN,
-    WORK_TOKEN,
+    PHONE_TOKEN, REQUEST_TOKEN, RESUME_TOKEN, REVIEW_TOKEN, SCAN_TOKEN, SD_CARD_TOKEN,
+    SD_MENU_TOKEN, SERVER_TOKEN, SLEEP_CARD, SLEEP_TOKEN, TICK_TOKEN, WORD_STAGE, WORD_TOKEN,
+    WORDS_TOKEN, WORK_TOKEN,
 };
 use crate::files::DataFolder;
 use crate::native_decks::{self, DecksView, Numbers};
@@ -210,6 +210,7 @@ impl State {
             Event::ActionRun { action, .. } if token == CARDS_TOKEN || token == OPEN_TOKEN => {
                 Self::action(host, token, action)
             }
+            Event::ActionRun { .. } if token == SCAN_TOKEN => self.scan_card(host),
             Event::Answered { answer, .. } => self.answered(host, answer),
             Event::ScreenOpened { instance, .. } if token == WORDS_TOKEN => {
                 self.opened_words(host, instance)
@@ -253,6 +254,18 @@ impl State {
             _ => return Ok(()),
         };
         CommandSender::new(host, &mut [0; 128]).open_screen(screen)
+    }
+
+    /// *Scan the SD card for cards*: the update screen, which reads every file
+    /// anew (the `force` hand-over).
+    fn scan_card(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.ensure(host)?;
+        crate::native_sd_shell::open_with(
+            host,
+            self.ui.as_ref().ok_or(Error::State)?,
+            crate::native_sd::CARD,
+            &[(crate::native_sd::FORCE, "1")],
+        )
     }
 
     /// A card that cannot be read leaves the screen saying that none is due:
@@ -597,7 +610,11 @@ impl State {
         };
         let data = DataStorage::new(host);
         let screen = ReviewScreen::new(host, &DataFolder(&data), deck, first)?;
-        self.reviews.open(instance, screen)
+        self.reviews.open(instance, screen)?;
+        if let Some(screen) = self.reviews.top(REVIEW_TOKEN) {
+            screen.sync_hint(host);
+        }
+        Ok(())
     }
 
     /// A screen came on top: the decks are counted again (a review changed

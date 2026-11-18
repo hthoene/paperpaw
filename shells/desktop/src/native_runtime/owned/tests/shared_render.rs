@@ -1,13 +1,13 @@
 //! A freestanding loaded plugin draws through core's actual shared host table.
 use super::super::dev::Loaded;
 use super::{environment::DEVICE, foreign::fixture_custom};
+use paperpaw_core::KernelBuilder;
+use paperpaw_core::Place;
 use paperpaw_core::native_host::{
     DispatchDepth,
     registrations::{self, Registration},
 };
-use paperpaw_core::sdk::{
-    Env, Font, FontSpec, Id, Manifest, Plugin, Priority, RegisterError, Registrar, Version, builtin,
-};
+use paperpaw_core::sdk::{Font, FontSpec, Id, Manifest, Priority, Version, builtin};
 use paperpaw_graphics::Framebuffer;
 use paperpaw_platform::{Color, Instant, PixelFormat, Rect};
 use std::{borrow::Cow, cell::Cell, rc::Rc};
@@ -40,36 +40,39 @@ const DRAW: &str = r#"
     if result != OK { return result; }
 "#;
 
-type Run = Rc<dyn Fn(&Env<'_>)>;
-struct Renderer(Run);
-
-impl Plugin for Renderer {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("render-fixture"),
-            "Render fixture",
-            Version::new(1, 0, 0),
-        )
-    }
-
-    fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
+type Run = Rc<dyn Fn(&Place<'_>)>;
+std::thread_local! {
+    /// What runs with the live `Place` once the kernel has started, in the
+    /// test running (the handler is a plain function and holds nothing).
+    static CAPTURE: std::cell::RefCell<Option<Run>> = const { std::cell::RefCell::new(None) };
+}
+/// Binds a font of its own as the UI's and runs `run` with the live `Place` when the kernel has
+/// started.
+fn renderer(builder: KernelBuilder, run: Run) -> KernelBuilder {
+    let manifest = Manifest::new(
+        Id::new_static("render-fixture"),
+        "Render fixture",
+        Version::new(1, 0, 0),
+    );
+    CAPTURE.with(|capture| *capture.borrow_mut() = Some(run));
+    builder.items(manifest, move |items| {
         let data: &'static [u8] = include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../plugins/fonts-default/fonts/SourceSans3.ttf"
         ));
         let font = Font::from_data(Cow::Borrowed(data), &[]).unwrap();
-        registrar.add_font(FontSpec::new(Id::new_static("render-fixture.face"), font))?;
-        registrar.bind_font(
+        items.add_font(FontSpec::new(Id::new_static("render-fixture.face"), font))?;
+        items.bind_font(
             builtin::fonts::UI,
             Id::new_static("render-fixture.face"),
             Priority::DEFAULT,
         )?;
-        let run = Rc::clone(&self.0);
-        registrar.subscribe(
-            builtin::events::STARTED,
-            Box::new(move |env, _, _| run(env)),
-        )
-    }
+        items.subscribe(builtin::events::STARTED, |k, _| {
+            if let Some(run) = CAPTURE.with(|capture| capture.borrow().clone()) {
+                k.with_env(|env, _| run(env));
+            }
+        })
+    })
 }
 
 #[test]
@@ -82,7 +85,7 @@ fn loaded_plugin_draws_text_with_metrics_and_clip_through_shared_table() {
     let fixture = Rc::new(fixture_custom(wire, &[], false, DRAW, ""));
     let calls = Rc::new(Cell::new(0));
     let observed = Rc::clone(&calls);
-    let run = Rc::new(move |env: &Env<'_>| {
+    let run = Rc::new(move |env: &Place<'_>| {
         let library = std::fs::read(&fixture.path).unwrap();
         let loaded = Loaded::from_bytes("render-fixture", &library).unwrap();
         let mut actual = Framebuffer::new(WIDTH, HEIGHT, PixelFormat::Gray8).unwrap();
@@ -117,8 +120,7 @@ fn loaded_plugin_draws_text_with_metrics_and_clip_through_shared_table() {
         }
         observed.set(observed.get() + 1);
     });
-    let mut kernel = paperpaw_core::Kernel::builder(DEVICE)
-        .plugin(Renderer(run))
+    let mut kernel = renderer(paperpaw_core::Kernel::builder(DEVICE), run)
         .build()
         .unwrap();
     let _effects = kernel.start(Instant(17));

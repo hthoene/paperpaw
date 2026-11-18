@@ -60,22 +60,27 @@ fn kernel(text: &str, wired: bool) -> (Kernel, Rc<Host>) {
         seal: Fake::new(9),
     });
     if wired {
-        kernel
-            .shared
-            .native_instances
-            .test_insert(Id::new_static("probe"), None, true)
-            .unwrap();
-        let hosts = kernel
-            .shared
-            .native_instances
-            .test_resources()
-            .unwrap()
-            .hosts();
-        hosts
-            .wire_secrets(SecretsServices::new(host.clone()))
-            .unwrap();
+        wire(&mut kernel, &host);
     }
     (kernel, host)
+}
+
+/// Wires `core.secrets` with `host`'s sealer, a native plugin admitted.
+fn wire(kernel: &mut Kernel, host: &Rc<Host>) {
+    kernel
+        .shared
+        .native_instances
+        .test_insert(Id::new_static("probe"), None, true)
+        .unwrap();
+    let hosts = kernel
+        .shared
+        .native_instances
+        .test_resources()
+        .unwrap()
+        .hosts();
+    hosts
+        .wire_secrets(SecretsServices::new(host.clone()))
+        .unwrap();
 }
 
 #[test]
@@ -140,6 +145,62 @@ fn a_save_that_cannot_seal_writes_nothing_and_is_not_saved() {
     assert!(!kernel.secrets().saved("wifi.Home"));
     // The change applies until the end.
     assert_eq!(kernel.secrets().get("wifi.Home"), Some("two"));
+}
+
+/// On the X4 nothing is sealed at the start (no radio, so no nonce): a secret
+/// setting's value in `paperpaw.ini` stays there then, and moves to the
+/// secrets as soon as a radio is on, not at some later start (#81).
+#[test]
+fn a_secret_setting_s_value_the_start_could_not_seal_moves_once_a_radio_is_on() {
+    use paperpaw_sdk::{
+        SettingExtra, SettingSpec,
+        builtin::{CONFIG_FILE, groups::OTHER},
+        wifi::WifiState,
+    };
+    static SECRET: SettingExtra = SettingExtra::new().secret();
+    let ini = "[mail]\npassword = abc\nuser = me\n";
+    let mut kernel = Kernel::builder(crate::tests::DEVICE)
+        .storage(MemoryStorage::new().with(CONFIG_FILE, ini))
+        .wifi(true)
+        .build()
+        .unwrap();
+    let host = Rc::new(Host {
+        storage: MemoryStorage::new(),
+        seal: Fake::new(9),
+    });
+    wire(&mut kernel, &host);
+    host.seal.fails.set(true);
+    // Mail registers once the file was read, as every native plugin.
+    let password = SettingSpec::text("mail.password", "mail.password", "", OTHER);
+    kernel
+        .shared
+        .settings
+        .define(password.with_extra(&SECRET))
+        .unwrap();
+    kernel.apply_late_config();
+    let config = |kernel: &Kernel| {
+        let file = paperpaw_sdk::read_file(kernel.storage(), CONFIG_FILE, 4096).unwrap();
+        String::from_utf8(file).unwrap()
+    };
+    assert_eq!(config(&kernel), ini);
+    assert_eq!(file(&kernel), "");
+    // Wi-Fi comes on: the value is sealed now and out of the file.
+    host.seal.fails.set(false);
+    kernel.wifi_event(
+        paperpaw_platform::Instant(1),
+        crate::WifiEvent::State(WifiState::On),
+    );
+    let (left, sealed) = (config(&kernel), file(&kernel));
+    assert!(
+        !left.contains("abc") && left.contains("user = me"),
+        "{left}"
+    );
+    assert!(!sealed.contains("abc"), "{sealed}");
+    let sealer: Rc<dyn SecretsHost> = host.clone();
+    let kept = Kernel::decode_secrets(&sealed, Some(&sealer));
+    assert_eq!(kept.get("mail.password"), Some("abc"));
+    // Nothing is left to move: the next change of the radio reads no file.
+    assert!(!kernel.secrets_left);
 }
 
 #[test]
@@ -229,9 +290,12 @@ fn a_card_from_another_device_is_told_once_per_start() {
     let theirs = seal_text(&veiled(&[("mail.pw", "one")]), "", &Fake::new(3)).unwrap();
     let mut kernel = Kernel::builder(crate::tests::DEVICE)
         .storage(MemoryStorage::new().with(FILE, theirs.as_bytes()))
-        .plugin(crate::tests::NoticePlugin {
-            log: crate::tests::log(),
-        })
+        .items(
+            crate::tests::notice_plugin_manifest(),
+            crate::tests::notice_plugin(crate::tests::NoticePlugin {
+                log: crate::tests::log(),
+            }),
+        )
         .build()
         .unwrap();
     kernel.start(paperpaw_platform::Instant(0));
@@ -258,9 +322,12 @@ fn told_kernel(text: &str, sealer: Fake) -> Kernel {
     use crate::native_host::shell_wiring::{SecretsInputs, SecretsLifecycle};
     let mut kernel = Kernel::builder(crate::tests::DEVICE)
         .storage(MemoryStorage::new().with(FILE, text.as_bytes()))
-        .plugin(crate::tests::NoticePlugin {
-            log: crate::tests::log(),
-        })
+        .items(
+            crate::tests::notice_plugin_manifest(),
+            crate::tests::notice_plugin(crate::tests::NoticePlugin {
+                log: crate::tests::log(),
+            }),
+        )
         .build()
         .unwrap();
     kernel.start(paperpaw_platform::Instant(0));

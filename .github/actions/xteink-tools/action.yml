@@ -5,9 +5,7 @@ description: >
   for the X4 Pro and the X4 Classic), and espflash if asked. Sets
   FIRMWARE_TOOLCHAIN, FIRMWARE_TARGET, FIRMWARE_CHIP (as espflash names
   it), FIRMWARE_CHIP_ID (as images do), FIRMWARE_CARGO (the arguments
-  every build takes, the features left to add) and PLUGIN_ALIAS (the
-  alias code plugins build with, as samples/hello-native names it; for
-  the ESP32-S3 after the action xtensa-std).
+  every build takes, the features left to add).
 inputs:
   device:
     description: x4, x3, x4-pro or x4-classic.
@@ -26,7 +24,7 @@ runs:
   steps:
     - name: The versions
       shell: bash
-      run: grep -E '^[A-Z_]+=' shells/xteink/versions.env >> "$GITHUB_ENV"
+      run: grep -E '^[A-Z0-9_]+=' shells/xteink/versions.env >> "$GITHUB_ENV"
     # tools/check-x4-start-stack.py reads the firmware's symbols with rustup's
     # llvm-nm, which is in the `llvm-tools` component of the repository's
     # toolchain (rust-toolchain.toml); no step of any device adds it otherwise.
@@ -79,7 +77,6 @@ runs:
           echo "FIRMWARE_CHIP=esp32c3"
           echo "FIRMWARE_CHIP_ID=5"
           echo "FIRMWARE_CARGO=--release --target $target --no-default-features"
-          echo "PLUGIN_ALIAS=x4"
         } >> "$GITHUB_ENV"
     # Restored by every run, saved only by a push to abi7/integration or main
     # (a pull request's copy would be one more of the 10 GB the repository may keep).
@@ -100,7 +97,14 @@ runs:
       env:
         GITHUB_TOKEN: ${{ github.token }}
       run: |
-        cargo install espup --version "$ESPUP_VERSION" --locked
+        # The release's binary, not `cargo install` (3.5 minutes of compiling on
+        # every run that has no toolchain cache): checked against the SHA-256
+        # in versions.env, which is GitHub's digest of the release asset.
+        mkdir -p "$HOME/.cargo/bin"
+        curl -sSfL --retry 3 -o "$HOME/.cargo/bin/espup" \
+          "https://github.com/esp-rs/espup/releases/download/v${ESPUP_VERSION}/espup-x86_64-unknown-linux-gnu"
+        echo "$ESPUP_SHA256_X86_64  $HOME/.cargo/bin/espup" | sha256sum -c -
+        chmod +x "$HOME/.cargo/bin/espup"
         espup install --targets esp32s3 --toolchain-version "$ESP_RUST_VERSION" \
           --crosstool-toolchain-version "$ESP_GCC_VERSION" --export-file "$HOME/export-esp.sh"
     - name: Keep espup's toolchain
@@ -133,7 +137,6 @@ runs:
           # library is built for Xtensa here.
           echo "FIRMWARE_CARGO=--release --target $target --no-default-features -Zbuild-std=core,alloc"
           # Code plugins link with the release's core libraries instead.
-          echo "PLUGIN_ALIAS=x4pro"
         } >> "$GITHUB_ENV"
     - name: espflash
       if: inputs.espflash == 'true'
