@@ -8,7 +8,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use paperpaw_platform::{Storage, StorageError};
-use paperpaw_text::{Font, FontError, StoredPack};
+use paperpaw_text::{Font, FontError, LARGE_SCRIPT, StoredPack};
 
 use super::{Fonts, Stored, is_pack, read_font};
 
@@ -207,6 +207,7 @@ impl Fonts {
                         self.entries[index].font = None;
                     }
                 }
+                self.fit_cache();
                 Ok(failed)
             }
             Err(error) => {
@@ -215,6 +216,28 @@ impl Fonts {
                 }
                 Err(error)
             }
+        }
+    }
+
+    /// Sets the glyph cache for the packs open: while one holds thousands
+    /// of characters (Hangul, ideographs), whose glyphs are read from the
+    /// card one by one, the device's larger cache for them
+    /// ([`PackLimits::glyph_cache_bytes`], never smaller than the shell's);
+    /// else the shell's own, so that Latin and the alphabets cost no
+    /// memory more.
+    pub(super) fn fit_cache(&self) {
+        let large = self.entries.iter().any(
+            |entry| matches!(&entry.font, Some(Font::Stored(pack)) if pack.chars() >= LARGE_SCRIPT),
+        );
+        let wanted = match large {
+            true => self.base_cache.max(self.pack_limits.glyph_cache_bytes()),
+            false => self.base_cache,
+        };
+        // Busy only if a glyph is being drawn: the next load sets it.
+        if let Ok(mut cache) = self.cache.try_borrow_mut()
+            && cache.capacity() != wanted
+        {
+            cache.set_capacity(wanted);
         }
     }
 

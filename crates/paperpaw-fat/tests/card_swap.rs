@@ -14,9 +14,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use common::{Card, names, read};
+use paperpaw_fat::fatfs::{FatType, FormatVolumeOptions, Write as _, format_volume};
 use paperpaw_fat::{
-    BLOCK, Blocks, CardSwap, DiskError, LOST_AFTER, MOUNT_TRIES, PROBE_MS, RETRY_MS, Restart,
-    Swappable, Swapped, VolumeError, Watched,
+    AGAIN_MS, BLOCK, BlockDisk, Blocks, CALM_MS, CardSwap, DiskError, LOST_AFTER, MOUNT_TRIES,
+    PROBE_MS, RETRY_MS, Restart, Swappable, Swapped, VolumeError, Watched,
 };
 use paperpaw_platform::{Storage, StorageError};
 
@@ -130,16 +131,58 @@ fn mount(blocks: Watched<Sim>) -> Result<Box<dyn Storage>, VolumeError> {
     Ok(Box::new(paperpaw_fat::mount(blocks)?))
 }
 
-/// A FAT card of 4 MB with `files` on it, as a computer left it.
+thread_local! {
+    /// The serial number of the card made next: each card its own, as
+    /// formatting gives them.
+    static SERIAL: std::cell::Cell<u32> = const { std::cell::Cell::new(0x5a5a_0001) };
+}
+
+fn serial() -> u32 {
+    SERIAL.with(|next| next.replace(next.get() + 1))
+}
+
+/// A FAT card of 4 MB (FAT12: no FS information sector) with `files` on
+/// it, as a computer left it.
 fn card_with(files: &[(&str, &[u8])]) -> Rc<RefCell<Vec<u8>>> {
     let card = Card::new(4 << 20);
     for (path, data) in files {
         card.storage.write(path, data).unwrap();
     }
     card.storage.sync().unwrap();
+    let mut bytes = card.bytes.0.borrow().clone();
+    // Its serial number, where FAT12 and FAT16 keep it.
+    bytes[0x27..0x2b].copy_from_slice(&serial().to_le_bytes());
+    Rc::new(RefCell::new(bytes))
+}
+
+/// A FAT32 card of 40 MB with `files` on it, as a computer left it.
+fn card32_with(files: &[(&str, &[u8])]) -> Rc<RefCell<Vec<u8>>> {
+    let bytes = common::Bytes(Rc::new(RefCell::new(vec![0u8; 40 << 20])));
+    let mut disk = BlockDisk::new(bytes.clone()).unwrap();
+    let options = FormatVolumeOptions::new()
+        .fat_type(FatType::Fat32)
+        .volume_id(serial());
+    format_volume(&mut disk, options).unwrap();
+    disk.flush().unwrap();
+    let card = Card::mount(bytes);
+    for (path, data) in files {
+        card.storage.write(path, data).unwrap();
+    }
+    card.storage.sync().unwrap();
+    // `Card` clears its bytes as it goes: kept first.
     let bytes = card.bytes.0.borrow().clone();
     Rc::new(RefCell::new(bytes))
 }
+
+/// The card loses its power and has it back (a loose contact, or taken
+/// out and put back), found at the next use.
+fn power_lost(sim: &Sim, card: &Rc<RefCell<Vec<u8>>>, storage: &Swappable, swap: &Swap) {
+    sim.take_out();
+    sim.put_in(card);
+    until_lost(storage, swap);
+}
+
+type Swap = CardSwap<Sim, VolumeError>;
 
 fn mounted(sim: &Sim) -> (CardSwap<Sim, VolumeError>, Swappable) {
     CardSwap::mount(sim.clone(), mount, clock).unwrap()
@@ -481,4 +524,107 @@ fn the_old_mount_going_writes_nothing_to_the_card_started_again() {
     assert_eq!(*new.borrow(), before, "the old mount wrote to the new card");
     assert_eq!(storage.size("dropped.txt"), Err(StorageError::NotFound));
     assert_eq!(read(&storage, "a.txt"), b"new");
+}
+
+#[test]
+fn a_card_that_failed_for_a_while_and_never_left_keeps_its_mount_and_tells_no_one() {
+    let card = card_with(&[("a.txt", b"a")]);
+    let sim = Sim::with(&card);
+    let (mut swap, storage) = mounted(&sim);
+    // Appended, kept back in the caches: a new mount would lose it.
+    storage.append("log.txt", b"kept back").unwrap();
+    // What the shell does of a check: only `Remounted` has the kernel walk
+    // the library and start the time to sleep anew.
+    let mut told = 0;
+    for round in 0..20u64 {
+        // The card is in, started, and fails for a while: by the look at
+        // it after a pause (twice), or by reads in a row.
+        sim.0.borrow_mut().fail_next = 2;
+        until_lost(&storage, &swap);
+        let said = swap.check(round);
+        told += u32::from(said == Swapped::Remounted);
+        assert_eq!(said, Swapped::Kept, "round {round}");
+        assert!(!swap.lost());
+        assert_eq!(swap.check(round), Swapped::No);
+    }
+    assert_eq!(told, 0, "a card that never left was mounted anew");
+    // Its mount is the one it had: what it kept back reaches the card.
+    assert_eq!(read(&storage, "log.txt"), b"kept back");
+    storage.sync().unwrap();
+    let after = Card::mount(common::Bytes(Rc::new(RefCell::new(card.borrow().clone()))));
+    assert_eq!(read(after.storage, "log.txt"), b"kept back");
+}
+
+#[test]
+fn the_same_card_back_as_it_was_left_is_not_walked_and_is_left_longer_each_time() {
+    let card = card32_with(&[("books/a.epub", b"a")]);
+    let sim = Sim::with(&card);
+    let (mut swap, storage) = mounted(&sim);
+    assert_eq!(names(&storage, "books"), ["a.epub"]);
+    let mut told = 0;
+    let mut at = 0u64;
+    // A loose contact: the card loses its power again and again.
+    for (round, wait) in AGAIN_MS.iter().chain(&[AGAIN_MS[3]; 2]).enumerate() {
+        power_lost(&sim, &card, &storage, &swap);
+        let said = swap.check(at);
+        told += u32::from(said == Swapped::Remounted);
+        assert_eq!(said, Swapped::Back, "round {round}");
+        assert_eq!(read(&storage, "books/a.epub"), b"a");
+        // Lost again at once: left for longer each time.
+        power_lost(&sim, &card, &storage, &swap);
+        at += wait;
+        assert_eq!(swap.check(at - 1), Swapped::Waiting, "round {round}");
+    }
+    assert_eq!(told, 0, "the same card was told as another one");
+    // Another card in its place is told, and ends the row.
+    let other = card32_with(&[("books/b.epub", b"b")]);
+    sim.take_out();
+    sim.put_in(&other);
+    assert_eq!(swap.check(at), Swapped::Remounted);
+    assert_eq!(names(&storage, "books"), ["b.epub"]);
+    power_lost(&sim, &other, &storage, &swap);
+    assert_eq!(swap.check(at + RETRY_MS), Swapped::Back);
+    // A mount that held for long ends the row too.
+    power_lost(&sim, &other, &storage, &swap);
+    assert_eq!(swap.check(at + RETRY_MS + CALM_MS), Swapped::Back);
+    power_lost(&sim, &other, &storage, &swap);
+    let then = at + RETRY_MS + CALM_MS + RETRY_MS;
+    assert_eq!(swap.check(then - 1), Swapped::Waiting);
+    assert_eq!(swap.check(then), Swapped::Back);
+}
+
+#[test]
+fn the_same_card_written_elsewhere_or_by_this_mount_since_is_told() {
+    let card = card32_with(&[("books/a.epub", b"a")]);
+    let sim = Sim::with(&card);
+    let (mut swap, storage) = mounted(&sim);
+    assert_eq!(names(&storage, "books"), ["a.epub"]);
+    // On a computer: a book added. It takes clusters and says so in the FS
+    // information sector (Linux moves its hint, 4 bytes at 492; Windows
+    // and macOS write their count).
+    sim.take_out();
+    {
+        let elsewhere = Card::mount(common::Bytes(card.clone()));
+        elsewhere.storage.write("books/b.epub", b"b").unwrap();
+        elsewhere.storage.sync().unwrap();
+        let mut bytes = elsewhere.bytes.0.borrow().clone();
+        drop(elsewhere);
+        let hint = BLOCK + 492;
+        bytes[hint] = bytes[hint].wrapping_add(1);
+        *card.borrow_mut() = bytes;
+    }
+    sim.put_in(&card);
+    until_lost(&storage, &swap);
+    assert_eq!(swap.check(0), Swapped::Remounted);
+    assert_eq!(names(&storage, "books"), ["a.epub", "b.epub"]);
+    // What this mount wrote to the sector is the card as it was left: the
+    // card back after it is the same card.
+    storage.write("books/c.epub", b"c").unwrap();
+    // The free space, counted (a part of the FAT at each ask), is kept in
+    // the sector by the sync.
+    assert!((0..8).any(|_| storage.free_space().is_some()));
+    storage.sync().unwrap();
+    power_lost(&sim, &card, &storage, &swap);
+    assert_eq!(swap.check(AGAIN_MS[0]), Swapped::Back);
+    assert_eq!(names(&storage, "books"), ["a.epub", "b.epub", "c.epub"]);
 }
