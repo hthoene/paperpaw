@@ -13,6 +13,9 @@ use paperpaw_sdk::builtin::{settings, slots};
 pub(super) enum CatalogJob {
     Walk(library::catalog::Walk),
     Rewrite(library::catalog::Rewrite),
+    /// The books opened last that the catalog lacks, appended to it before
+    /// the first walk after a start ([`library::catalog::CatchUp`]).
+    CatchUp(library::catalog::CatchUp),
     Split(library::split::Split),
     /// The books sorted for the view of them ([`library::sorted`]), after
     /// the catalog was made anew.
@@ -31,6 +34,7 @@ impl CatalogJob {
         match self {
             CatalogJob::Walk(walk) => walk.step(env),
             CatalogJob::Rewrite(rewrite) => rewrite.step(env),
+            CatalogJob::CatchUp(catch_up) => catch_up.step(env),
             CatalogJob::Split(split) => split.step(env.storage(), env.book_data()),
             CatalogJob::Sort(sort) => sort.step(env),
             CatalogJob::Shown(_, sort) => {
@@ -70,7 +74,7 @@ impl CatalogJob {
             CatalogJob::Walk(walk) => walk.abort(storage),
             CatalogJob::Rewrite(rewrite) => rewrite.abort(storage),
             // Each move is whole: the next goes on from what is left.
-            CatalogJob::Split(_) => {}
+            CatalogJob::Split(_) | CatalogJob::CatchUp(_) => {}
             CatalogJob::Sort(sort) => sort.abort(storage),
             CatalogJob::Shown(walk, sort) => {
                 if let Some(sort) = sort {
@@ -85,7 +89,7 @@ impl CatalogJob {
         match self {
             CatalogJob::Walk(walk) => walk.pause(),
             CatalogJob::Rewrite(rewrite) => rewrite.pause(),
-            CatalogJob::Split(_) => {}
+            CatalogJob::Split(_) | CatalogJob::CatchUp(_) => {}
             CatalogJob::Sort(sort) | CatalogJob::Shown(_, Some(sort)) => sort.pause(storage),
             CatalogJob::Shown(_, None) => {}
         }
@@ -148,8 +152,16 @@ impl super::Catalog {
     ) -> Option<paperpaw_sdk::work::Step> {
         use paperpaw_sdk::work::Step;
         let fresh = core::mem::take(&mut *self.fresh.borrow_mut());
-        let walk = self.walk.replace(false);
-        let started = if walk {
+        // The first walk after a start: the books opened last that a
+        // catalog there lacks are appended to it first, so that they show
+        // before the walk ends. The walk stays wanted.
+        let catch_up = self.walk.get()
+            && !self.caught.replace(true)
+            && library::catalog::state(env.storage()) != library::catalog::State::Missing;
+        let walk = !catch_up && self.walk.replace(false);
+        let started = if catch_up {
+            library::catalog::CatchUp::start(env).map(CatalogJob::CatchUp)
+        } else if walk {
             library::catalog::Walk::start(env, fresh.clone()).map(CatalogJob::Walk)
         } else if !fresh.is_empty() || library::catalog::log_is_long(env.storage()) {
             library::catalog::Rewrite::start(env, fresh.clone()).map(CatalogJob::Rewrite)
