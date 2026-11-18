@@ -7,6 +7,7 @@ the firmware holds none of them.
 |---|---|---|---|
 | `NotoNaskhArabic.ttf` | Noto Naskh Arabic, variable (`wght` 400 to 700) | SIL OFL 1.1, no Reserved Font Name (`NotoNaskhArabic-OFL.txt`) | `ofl/notonaskharabic/NotoNaskhArabic[wght].ttf` of github.com/google/fonts at 6c1dbe27 |
 | `NotoSerifHebrew.ttf` | Noto Serif Hebrew, variable (`wdth`, `wght`) | SIL OFL 1.1, no Reserved Font Name (`NotoSerifHebrew-OFL.txt`) | `ofl/notoserifhebrew/NotoSerifHebrew[wdth,wght].ttf` of github.com/google/fonts at 6c1dbe27 |
+| `NotoSerifSC-subset.ttf`, `NotoSerifTC-subset.ttf`, `NotoSerifJP-subset.ttf` | Noto Serif SC, TC and JP, static at weight 400, cut to the characters of the packs (6,921, 5,559 and 3,345 code points: GB 2312, Big5 level 1, the Joyo kanji and JIS X 0208 level 1 with kana, CJK punctuation, full-width forms; layout tables dropped) | SIL OFL 1.1, no Reserved Font Name (`NotoSerifCJK-OFL.txt`, the text google/fonts ships) | `ofl/notoserifsc/NotoSerifSC[wght].ttf`, `ofl/notoseriftc/NotoSerifTC[wght].ttf`, `ofl/notoserifjp/NotoSerifJP[wght].ttf` of github.com/google/fonts at 6c1dbe27, made with fontTools (`varLib.instancer` wght=400, `subset` with the sets of `tools/fontgen/sets`: `hanzi-gb2312.txt`, `hanzi-big5.txt`, `kanji-japanese.txt`) |
 | `NanumMyeongjo-Regular.ttf` | Nanum Myeongjo Regular, static | SIL OFL 1.1, **with** Reserved Font Names (`NanumMyeongjo-OFL.txt`): packs made from it are not named after it (NOTICE) | `ofl/nanummyeongjo/NanumMyeongjo-Regular.ttf` of github.com/google/fonts at 6c1dbe27 (SHA-256 `7ed9e865…`) |
 
 Greek (`script-greek`) and Cyrillic (`script-cyrillic`) have no file
@@ -43,3 +44,5 @@ letters, not sizes: the reader's largest size stays Literata's (32 px,
 with that plugin. Text asked for at a size between two is drawn at the
 nearer one (at the smaller where both are as near: 22 px at 20), Latin
 and Arabic or Hebrew alike, its marks by that size's anchors.
+
+Chinese and Japanese (#3645) are drawn in Noto Serif: `script-chinese-simplified` (the 6,763 ideographs of GB 2312), `script-chinese-traditional` (the 5,401 frequently used characters of Big5) and `script-japanese` (hiragana, katakana, the 2,998 kanji of the Joyo list and JIS X 0208 level 1), each with CJK punctuation and the full-width forms, in four sizes (20, 24, 28, 32 px: what the firmware's fonts have; larger text is drawn at 32) and two faces as Korean's (Literata's regular and the interface's font, so 19.8, 16.0 and 9.4 MiB on the card). The lists come from the national standards through Python's codecs (`gb2312`, `big5`, `euc_jp`) and Unicode's Unihan (`kJoyoKanji`), so they hold no copied tables. A character a book uses outside a list shows as a box, as in Korean.
