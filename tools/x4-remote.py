@@ -136,6 +136,8 @@ The script language (`.pps` files, or `--script "a,b,c"`; steps above, and):
     assert:turn.first_ms.median<=1000[:why]   METRIC[.STAT] OP NUMBER; OP one of
       <= >= < > == !=; STAT: median (default) min max mean p90 n last sum; the number may
       be baseline, baseline*1.1, baseline+50 (the same metric in --baseline; no value: SKIP)
+    fill:PATH:SIZE:SEED  grow:PATH:ADD:SEED  check-file:PATH:SIZE:SEED   a card file of known bytes (saved or replaced;
+      extended, whole rewrite; checked by MD5); used by tools/pps/soak/
     record:name=5  note:name=text  heap (also records heap.used/free/block/peak/stack)
     usage  clock (records clock.known, clock.skew_s)  fail:why  skip:why  abort:why  on-fail:stop
   On the emulator a step it cannot do says SKIP; so do asserts on its times and gray

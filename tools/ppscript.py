@@ -888,7 +888,57 @@ class Engine:
         self.record("clock.known", 1 if known else 0)
         if known:
             self.record("clock.skew_s", round(int(answer[1]) / 1000 - time.time(), 1))
+        if len(answer) > 2 and answer[2].isdigit():
+            self.record("clock.uptime_s", int(answer[2]) / 1000)
         self.say("clock: " + (f"{time.strftime('%F %T', time.localtime(int(answer[1]) / 1000))}" if known else "unknown (--:--)"))
+
+    # -- card workloads: files of known content (no real append exists on the remote: `grow` rewrites)
+    @staticmethod
+    def pattern(size, seed):
+        """`size` bytes that depend on `seed` only, so a file can be checked later without keeping it."""
+        out, n = bytearray(), 0
+        while len(out) < size:
+            out += hashlib.sha256(f"{seed}:{n}".encode()).digest()
+            n += 1
+        return bytes(out[:size])
+
+    def card_file_args(self, rest, st, usage):
+        parts = rest.split(":")
+        if len(parts) != 3 or number(parts[1]) is None:
+            raise ScriptError(f"{st.file}:{st.line}: {usage}")
+        return parts[0], self.int(parts[1]), parts[2]
+
+    def card_check(self, path, data):
+        got = self.x4.ask(f"md5 {path}", "MD5")[-1].split()
+        ok = got[1] == hashlib.md5(data).hexdigest() and int(got[2]) == len(data)
+        self.check("card", ok, f"{path}: {len(data)} bytes as written" + ("" if ok else f" (card says MD5 {got[1]}, {got[2]} bytes)"))
+
+    def do_fill(self, rest, st):
+        """fill:PATH:SIZE:SEED - save (or replace) a file of SIZE bytes made from SEED; read back by MD5."""
+        path, size, seed = self.card_file_args(rest, st, "fill:PATH:SIZE:SEED")
+        data = self.pattern(size, seed)
+        self.x4.write(path, data)
+        self.record("card.writes", 1)
+        self.card_check(path, data)
+
+    def do_grow(self, rest, st):
+        """grow:PATH:ADD:SEED - the file gets ADD more bytes at its end (it is read and written whole again; missing: created, above 1 MB: starts again)."""
+        path, add, seed = self.card_file_args(rest, st, "grow:PATH:ADD:SEED")
+        try:
+            old = self.x4.read(path)
+        except StepError:
+            old = b""                 # not there yet: it starts now
+        if len(old) > 1_000_000:
+            old = b""                 # a soak does not fill the card: start again at 1 MB
+        data = old + self.pattern(add, seed)
+        self.x4.write(path, data)
+        self.record("card.writes", 1)
+        self.card_check(path, data)
+
+    def do_check_file(self, rest, st):
+        """check-file:PATH:SIZE:SEED - the file on the card is what `fill` made from SEED (SIZE bytes)."""
+        path, size, seed = self.card_file_args(rest, st, "check-file:PATH:SIZE:SEED")
+        self.card_check(path, self.pattern(size, seed))
 
     def do_crashes(self, rest, st):
         kind = self.x4.ask(f"stat .paperpaw/crashes.txt", "STAT")[-1].split()[1]

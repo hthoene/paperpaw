@@ -89,8 +89,13 @@ esp32c3 = [
 # `ESP_LOG = "info"` anyway) are not compiled into the release image, to
 # keep room in CrossPoint's slot. A developer build wanting them takes it
 # out.
-x4-pro = ["esp32s3", "asleep-light", "bluetooth", "log/release_max_level_info", "native-on"]
-x4-classic = ["esp32s3", "native-on"]
+x4-pro = ["esp32s3", "asleep-light", "bluetooth", "usb-drive", "log/release_max_level_info", "native-on"]
+x4-classic = ["esp32s3", "usb-drive", "native-on"]
+# The card shown to a computer as a USB drive (`src/usb_drive.rs`, #32): the
+# ESP32-S3's USB OTG core on the cable's pins, embassy-usb's device stack and
+# a mass-storage class of our own (`paperpaw_x4::usb_drive`). Not on the
+# ESP32-C3 devices, which have no OTG core: they do not set the capability.
+usb-drive = ["dep:embassy-usb", "dep:embassy-futures"]
 # What both ESP32-S3 devices build with; chosen by `x4-pro` or
 # `x4-classic`, not by hand.
 esp32s3 = [
@@ -187,6 +192,9 @@ embassy-net-driver = "0.2"
 trouble-host = { version = "0.7", default-features = false, features = ["central", "scan", "gatt", "security", "log", "log-quiet", "gatt-client-notification-queue-size-4"], optional = true }
 bt-hci = { version = "0.9", optional = true }
 embassy-futures = { version = "0.1", optional = true }
+# The USB device stack of the drive mode (feature `usb-drive`): blocking
+# polls of its futures, no executor, no timer.
+embassy-usb = { version = "0.6", default-features = false, optional = true }
 embassy-time = { version = "0.5", optional = true }
 # Its clock, ours (`src/bluetooth.rs`): no executor.
 embassy-time-driver = { version = "0.2", optional = true }

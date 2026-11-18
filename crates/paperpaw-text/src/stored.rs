@@ -163,12 +163,14 @@ pub struct PackLimits {
     /// that they are read when needed, [`ON_DEMAND`] at a time, as many
     /// kept as half of it holds.
     advances: usize,
-    /// The glyph cache while a pack of thousands of characters is open
-    /// ([`LARGE_SCRIPT`]): glyphs read from a card cost a read each, and a
-    /// page of such text has some hundred. 0: the cache is as the device
-    /// made it.
-    glyph_cache: usize,
 }
+
+/// The glyph cache while a pack of thousands of characters is open
+/// ([`LARGE_SCRIPT`]) on a device of [`PackLimits::SMALL`]: glyphs read
+/// from a card cost a read each, and a page of such text has some hundred.
+/// Not a field of [`PackLimits`], whose size is part of the plugin
+/// interface's fingerprint: it follows from the index's limit.
+const SMALL_GLYPH_CACHE: usize = 24 * 1024;
 
 /// How many characters a pack has to hold for the glyph cache to be
 /// [`PackLimits::glyph_cache_bytes`]: Hangul and ideographs, not an alphabet's
@@ -181,14 +183,12 @@ impl PackLimits {
     pub const SMALL: PackLimits = PackLimits {
         index: 8 * 1024,
         advances: 4 * 1024,
-        glyph_cache: 24 * 1024,
     };
     /// For devices of megabytes (PSRAM, phones, computers): 32 KiB and
     /// 16 KiB.
     pub const LARGE: PackLimits = PackLimits {
         index: 32 * 1024,
         advances: 16 * 1024,
-        glyph_cache: 0,
     };
 
     /// The limits of a device of `memory`.
@@ -214,7 +214,11 @@ impl PackLimits {
     /// 256 KiB of heap, against its 12 KiB for glyphs of built-in
     /// packs, which are read in place); 0: no change.
     pub const fn glyph_cache_bytes(self) -> usize {
-        self.glyph_cache
+        if self.index <= PackLimits::SMALL.index {
+            SMALL_GLYPH_CACHE
+        } else {
+            0
+        }
     }
 }
 
@@ -1157,7 +1161,6 @@ mod tests {
         let limits = PackLimits {
             index: 8 * 1024,
             advances: 0,
-            glyph_cache: 0,
         };
         let memory = Rc::new(Memory(proportional(5000), Cell::new(0)));
         let pack = Paged::open(memory.clone(), limits).unwrap();

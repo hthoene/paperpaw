@@ -41,6 +41,12 @@ pub(crate) struct Fake {
     broken: BTreeSet<String>,
     /// The card refuses a rename (a card that went).
     no_rename: bool,
+    /// The card finds a file by a name of another case (FAT, the X4's card).
+    ignores_case: bool,
+    /// Folders the server lists and then answers `404` for.
+    gone: BTreeSet<String>,
+    /// What the server answers to every listing instead: a status and a body.
+    answer: Option<(u32, String)>,
 }
 
 impl Fake {
@@ -57,6 +63,9 @@ impl Fake {
             etags: true,
             broken: BTreeSet::new(),
             no_rename: false,
+            ignores_case: false,
+            gone: BTreeSet::new(),
+            answer: None,
         };
         fake.server_dirs.insert(String::new());
         fake.card_dirs.insert("Notes".into());
@@ -140,6 +149,18 @@ impl Fake {
             .collect()
     }
 
+    /// The card's name of the file at `path`.
+    fn on_card(&self, path: &str) -> Option<String> {
+        if self.card.contains_key(path) {
+            return Some(path.into());
+        }
+        let upper = path.to_uppercase();
+        self.card
+            .keys()
+            .find(|k| self.ignores_case && k.to_uppercase() == upper)
+            .cloned()
+    }
+
     fn rel(url: &str) -> String {
         let rest = url.strip_prefix(BASE).unwrap_or("");
         paperpaw_sdk::web::percent_decode(rest.trim_end_matches('/'))
@@ -172,6 +193,9 @@ impl Fake {
                     return Self::done(404);
                 };
                 let t = self.tick();
+                if let Some(old) = self.on_card(&path) {
+                    self.card.remove(&old);
+                }
                 self.card.insert(path, (text, t));
                 Done {
                     saved: true,
@@ -188,6 +212,7 @@ impl Fake {
                 if !self.server_dirs.contains(parent) {
                     return Self::done(409);
                 }
+                let path = self.on_card(&path).unwrap();
                 let (text, _) = self.card.get(&path).cloned().unwrap();
                 let t = self.tick();
                 self.server.insert(rel, (text, t));
@@ -227,7 +252,14 @@ impl Fake {
 
     fn propfind(&mut self, url: &str) -> Done {
         let rel = Self::rel(url);
-        if !self.server_dirs.contains(&rel) {
+        if let Some((status, body)) = &self.answer {
+            self.data.write("listing.xml", body.as_bytes()).unwrap();
+            return Done {
+                saved: true,
+                ..Self::done(*status)
+            };
+        }
+        if !self.server_dirs.contains(&rel) || self.gone.contains(&rel) {
             return Self::done(404);
         }
         let own = if rel.is_empty() {
@@ -318,7 +350,8 @@ impl Link for Fake {
         Ok(())
     }
     fn stat(&mut self, path: &str) -> Result<Option<Side>, Error> {
-        Ok(self.card.get(path).map(|(t, m)| Side {
+        let path = self.on_card(path);
+        Ok(path.and_then(|p| self.card.get(&p)).map(|(t, m)| Side {
             size: t.len() as u64,
             stamp: *m,
         }))
@@ -339,15 +372,17 @@ impl Link for Fake {
         if self.no_rename {
             return Err(Error::Io);
         }
-        if self.card.contains_key(to) {
+        if self.on_card(to).is_some() {
             return Err(Error::State);
         }
-        let file = self.card.remove(from).ok_or(Error::NotFound)?;
+        let from = self.on_card(from).ok_or(Error::NotFound)?;
+        let file = self.card.remove(&from).ok_or(Error::NotFound)?;
         self.card.insert(to.into(), file);
         Ok(())
     }
     fn trash(&mut self, from: &str, to: &str) -> Result<(), Error> {
-        let (text, _) = self.card.remove(from).ok_or(Error::NotFound)?;
+        let from = self.on_card(from).ok_or(Error::NotFound)?;
+        let (text, _) = self.card.remove(&from).ok_or(Error::NotFound)?;
         self.data.write(to, text.as_bytes())
     }
     fn remove(&mut self, path: &str) -> Result<(), Error> {
@@ -378,6 +413,10 @@ impl Link for Fake {
     }
 }
 
+fn of() -> state::Of {
+    state::Of::new(1, "Notes", BASE).unwrap()
+}
+
 fn job(mode: Mode) -> Job {
     Job {
         pair: 1,
@@ -399,8 +438,12 @@ enum Run {
 /// Runs a sync; `cut` is the number of requests answered before the power
 /// goes, `arrives` whether the request then under way reached the server.
 fn run_with(fake: &mut Fake, mode: Mode, cut: Option<usize>, arrives: bool) -> Run {
+    run_job(fake, job(mode), cut, arrives)
+}
+
+fn run_job(fake: &mut Fake, job: Job, cut: Option<usize>, arrives: bool) -> Run {
     let mut sync = Sync::default();
-    let mut step = sync.start(fake, job(mode)).unwrap();
+    let mut step = sync.start(fake, job).unwrap();
     let mut answered = 0;
     loop {
         match step {
@@ -422,6 +465,13 @@ fn run_with(fake: &mut Fake, mode: Mode, cut: Option<usize>, arrives: bool) -> R
 
 fn sync(fake: &mut Fake, mode: Mode) -> Finish {
     match run_with(fake, mode, None, false) {
+        Run::Finished(finish) => finish,
+        Run::Cut => unreachable!(),
+    }
+}
+
+fn sync_job(fake: &mut Fake, job: Job) -> Finish {
+    match run_job(fake, job, None, false) {
         Run::Finished(finish) => finish,
         Run::Cut => unreachable!(),
     }
@@ -628,14 +678,17 @@ fn the_trash_keeps_the_last_hundred() {
     let finish = sync(&mut fake, Mode::TwoWay);
     assert_eq!(finish.totals.up, 240);
     // Four folders, each lost 30 of its 60 files on the server: more than half
-    // is not (it is half), so they are deleted, a few at a time through the guard.
-    for d in 0..4 {
-        for n in 0..30 {
-            fake.server.remove(&format!("d{d}/n{n:02}.md"));
+    // is not (it is half), so they are deleted, a few at a time through the
+    // guard; two folders at a sync, and the second sync's push out the first's.
+    for half in [0..2, 2..4] {
+        for d in half {
+            for n in 0..30 {
+                fake.server.remove(&format!("d{d}/n{n:02}.md"));
+            }
         }
+        let finish = sync(&mut fake, Mode::TwoWay);
+        assert_eq!(finish.totals.deleted, 60);
     }
-    let finish = sync(&mut fake, Mode::TwoWay);
-    assert_eq!(finish.totals.deleted, 120);
     let trash = state::trash(&fake.data).unwrap();
     assert_eq!(trash.len(), TRASH_MAX);
     assert_eq!(fake.trashed().len(), TRASH_MAX);
@@ -805,7 +858,7 @@ fn the_network_going_ends_the_sync_and_the_next_one_goes_on() {
 fn the_look_counts_what_changed_on_the_card_since_the_last_sync() {
     let mut fake = two();
     assert_eq!(
-        crate::native_look::pending(&mut fake, 1, "Notes").unwrap(),
+        crate::native_look::pending(&mut fake, of(), "Notes").unwrap(),
         0
     );
     fake.write_card("a.md", "changed");
@@ -813,12 +866,211 @@ fn the_look_counts_what_changed_on_the_card_since_the_last_sync() {
     fake.card.remove("Notes/c.md");
     fake.write_card("sub/e.md", "new in a folder");
     assert_eq!(
-        crate::native_look::pending(&mut fake, 1, "Notes").unwrap(),
+        crate::native_look::pending(&mut fake, of(), "Notes").unwrap(),
         4
     );
     sync(&mut fake, Mode::TwoWay);
     assert_eq!(
-        crate::native_look::pending(&mut fake, 1, "Notes").unwrap(),
+        crate::native_look::pending(&mut fake, of(), "Notes").unwrap(),
         0
     );
+}
+
+// --- what a review found (#134) -------------------------------------------
+
+#[test]
+fn a_file_the_server_renamed_in_case_only_stays_on_both_sides() {
+    let mut fake = two();
+    fake.ignores_case = true;
+    let (text, version) = fake.server.remove("a.md").unwrap();
+    fake.server.insert("A.md".into(), (text, version));
+    fake.write_card("b.md", "B on the card");
+    for _ in 0..3 {
+        sync(&mut fake, Mode::TwoWay);
+    }
+    assert_eq!(fake.server("A.md"), Some("A"));
+    assert_eq!(fake.card("a.md").or(fake.card("A.md")), Some("A"));
+    assert!(fake.trashed().is_empty(), "{:?}", fake.trashed());
+    assert_eq!(fake.server("b.md"), Some("B on the card"));
+    assert_eq!(sync(&mut fake, Mode::TwoWay).totals, Totals::default());
+}
+
+#[test]
+fn a_change_of_the_card_is_not_lost_to_a_name_of_another_case_on_the_server() {
+    let mut fake = two();
+    fake.ignores_case = true;
+    fake.write_card("a.md", "A changed on the card");
+    fake.write_server("A.md", "another file");
+    for _ in 0..2 {
+        sync(&mut fake, Mode::TwoWay);
+    }
+    assert!(
+        fake.texts().contains("A changed on the card"),
+        "{:?}",
+        fake.texts()
+    );
+    assert_eq!(fake.server("A.md"), Some("another file"));
+}
+
+#[test]
+fn two_files_of_the_server_that_differ_in_case_only_are_left_as_they_are() {
+    let mut fake = two();
+    fake.ignores_case = true;
+    fake.write_server("README.md", "one");
+    fake.write_server("Readme.md", "two");
+    for _ in 0..2 {
+        let finish = sync(&mut fake, Mode::TwoWay);
+        assert_eq!(finish.problem, "file-sync.failed");
+    }
+    assert_eq!(fake.server("README.md"), Some("one"));
+    assert_eq!(fake.server("Readme.md"), Some("two"));
+    assert_eq!(fake.card("a.md"), Some("A"));
+}
+
+#[test]
+fn the_state_of_a_pair_is_not_that_of_another_folder_or_server() {
+    // The pair's folder of the card is set to another one.
+    let mut fake = two();
+    fake.card_dirs.insert("Other".into());
+    let other = Job {
+        root: "Other".into(),
+        ..job(Mode::TwoWay)
+    };
+    let finish = sync_job(&mut fake, other);
+    assert_eq!(finish.totals.deleted, 0);
+    for (name, text) in [
+        ("a.md", "A"),
+        ("b.md", "B"),
+        ("c.md", "C"),
+        ("sub/d.md", "D"),
+    ] {
+        assert_eq!(fake.server(name), Some(text));
+        assert_eq!(fake.card(name), Some(text));
+    }
+    // The pair's server folder is set to another one.
+    let mut fake = two();
+    fake.server_dirs.insert("new".into());
+    let moved = Job {
+        url: format!("{BASE}new/"),
+        ..job(Mode::TwoWay)
+    };
+    let finish = sync_job(&mut fake, moved);
+    assert_eq!(finish.totals.deleted, 0);
+    assert!(fake.trashed().is_empty(), "{:?}", fake.trashed());
+    for (name, text) in [
+        ("a.md", "A"),
+        ("b.md", "B"),
+        ("c.md", "C"),
+        ("sub/d.md", "D"),
+    ] {
+        assert_eq!(fake.card(name), Some(text));
+        assert_eq!(fake.server(&format!("new/{name}")), Some(text));
+    }
+}
+
+#[test]
+fn an_answer_that_is_no_whole_listing_is_no_empty_folder() {
+    let whole = "<?xml version=\"1.0\"?><d:multistatus xmlns:d=\"DAV:\"><d:response><d:href>/dav/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/></d:resourcetype></d:prop></d:propstat></d:response><d:response><d:href>/dav/a.md</d:href><d:propstat><d:prop><d:resourcetype/><d:getcontentlength>1</d:getcontentlength></d:prop></d:propstat></d:response>";
+    for (status, body) in [
+        (200, "<html><body><form>Sign in</form></body></html>"),
+        (207, ""),
+        // Cut off after the first file.
+        (207, whole),
+    ] {
+        let mut fake = two();
+        fake.write_card("b.md", "B on the card");
+        fake.log.clear();
+        fake.answer = Some((status, body.into()));
+        let finish = sync(&mut fake, Mode::TwoWay);
+        assert_eq!(finish.problem, "file-sync.failed", "{status} {body}");
+        assert_eq!(
+            finish.totals,
+            Totals {
+                errors: finish.totals.errors,
+                ..Totals::default()
+            }
+        );
+        assert!(fake.trashed().is_empty(), "{status} {body}");
+        assert!(fake.log.iter().all(|l| !l.starts_with("PUT b.md")));
+        assert_eq!(fake.card("c.md"), Some("C"));
+        assert_eq!(fake.card("sub/d.md"), Some("D"));
+    }
+}
+
+#[test]
+fn a_folder_the_server_lists_and_then_does_not_find_is_left_alone() {
+    let mut fake = two();
+    fake.write_card("sub/e.md", "new on the card");
+    fake.log.clear();
+    fake.gone.insert("sub".into());
+    let finish = sync(&mut fake, Mode::TwoWay);
+    assert_eq!(finish.problem, "file-sync.not-found");
+    assert!(fake.trashed().is_empty(), "{:?}", fake.trashed());
+    assert_eq!(fake.card("sub/d.md"), Some("D"));
+    assert!(
+        fake.log.iter().all(|l| !l.starts_with("PUT")),
+        "{:?}",
+        fake.log
+    );
+    // The folder is back: the sync goes on.
+    fake.gone.clear();
+    let finish = sync(&mut fake, Mode::TwoWay);
+    assert_eq!((finish.problem, finish.totals.up), ("", 1));
+}
+
+#[test]
+fn a_file_whose_address_the_listing_cannot_hold_is_not_taken_as_deleted() {
+    let mut fake = Fake::new();
+    // A path the card holds (under 512 bytes) and an address of over 900.
+    let long = format!("{}/{}.md", "\u{0416}".repeat(80), "\u{0416}".repeat(120));
+    fake.write_card(&long, "long");
+    let finish = sync(&mut fake, Mode::TwoWay);
+    assert_eq!((finish.problem, finish.totals.up), ("", 1));
+    let finish = sync(&mut fake, Mode::TwoWay);
+    assert_eq!(finish.totals, Totals::default());
+    assert!(fake.trashed().is_empty(), "{:?}", fake.trashed());
+    assert_eq!(fake.card(&long), Some("long"));
+}
+
+#[test]
+fn the_cards_folder_gone_that_was_synced_before_is_no_reason_to_empty_the_server() {
+    let mut fake = two();
+    fake.card.clear();
+    fake.card_dirs.clear();
+    let finish = sync(&mut fake, Mode::TwoWay);
+    assert_eq!(finish.totals.deleted, 0);
+    for (name, text) in [
+        ("a.md", "A"),
+        ("b.md", "B"),
+        ("c.md", "C"),
+        ("sub/d.md", "D"),
+    ] {
+        assert_eq!(fake.server(name), Some(text));
+        assert_eq!(fake.card(name), Some(text));
+    }
+}
+
+#[test]
+fn folders_within_a_folder_without_files_are_made_on_the_server() {
+    let mut fake = Fake::new();
+    fake.write_card("year/month/note.md", "deep");
+    let finish = sync(&mut fake, Mode::TwoWay);
+    assert_eq!((finish.problem, finish.totals.up), ("", 1));
+    assert_eq!(fake.server("year/month/note.md"), Some("deep"));
+}
+
+#[test]
+fn a_sync_never_removes_from_the_trash_what_it_put_there() {
+    let mut fake = Fake::new();
+    for d in 0..40 {
+        for n in 0..4 {
+            fake.write_card(&format!("d{d:02}/n{n}.md"), &format!("{d} {n}"));
+        }
+    }
+    assert_eq!(sync(&mut fake, Mode::TwoWay).totals.up, 160);
+    // The server lost every file: its folders are there and empty.
+    fake.server.clear();
+    let finish = sync(&mut fake, Mode::TwoWay);
+    assert_eq!(finish.totals.deleted, 160);
+    assert_eq!(fake.trashed().len(), 160);
 }

@@ -1,0 +1,7 @@
+Wische am Bildschirmrand nach oben oder unten, um das Frontlicht wie mit einem Regler einzustellen: Das Licht folgt deinem Finger in Schritten von 5 %, eine kleine Meldung zeigt die Stufe. Am linken Rand stellst du die Helligkeit ein, am rechten die Wärme. Zum Beenden hebst du den Finger.
+
+Der Streifen an jedem Rand ist wenige Millimeter breit. Ein Tippen dort und Wische an jeder anderen Stelle (Seiten, Listen) funktionieren wie immer; ebenso ein Wisch zur Seite, auch wenn er im Streifen beginnt.
+
+Unter Randlicht in den Einstellungen wählst du, was jeder Rand einstellt (Helligkeit, Wärme oder nichts) und wie breit die Streifen sind. Randlicht ist für Geräte mit Touchscreen und Frontlicht; anderswo zeigt es nichts an.
+
+Das Widget Frontlicht auf dem Startbildschirm zeigt die Stufe; tippe darauf, um das Licht aus- und mit der alten Stufe wieder einzuschalten. Dasselbe tut die Aktion Frontlicht: an oder aus, die du auf eine Taste oder in ein Menü legen kannst.

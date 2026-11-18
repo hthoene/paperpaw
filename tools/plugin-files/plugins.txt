@@ -10,6 +10,7 @@ battery system
 browser news
 calibre library
 diagnostics system
+edge-light system
 end-of-book reading
 file-sync sync
 # fonts-browser look  (no file until the store build moves to interface 7, #228)
@@ -37,6 +38,7 @@ rules system
 translate reading
 smart-home home
 stats reading
+tasks home
 vocabulary learning
 wallabag news
 weather home

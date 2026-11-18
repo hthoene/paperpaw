@@ -1,8 +1,11 @@
 //! What is kept between syncs, in the plugin's data folder: for each folder
 //! of a pair the state of its files at the last sync (`s<pair>-<hash>.txt`: a
-//! first line `dir=<folder>`, then a line each: name, the card's size and time,
-//! the server's size and `ETag` as hex, tab separated), the summary of the
-//! last sync (`last.txt`) and the files in the trash (`trash.txt`).
+//! first line `dir=<sides>/<folder>`, then a line each: name, the card's size
+//! and time, the server's size and `ETag` as hex, tab separated), the summary
+//! of the last sync (`last.txt`) and the files in the trash (`trash.txt`).
+//! `<sides>` is a number made of the pair's two folders ([`Of`]): a pair whose
+//! folder or server is set anew has no state, so nothing is deleted by what
+//! was synced somewhere else.
 //! Every file is written whole under another name and renamed, so a cut leaves
 //! the old or the new one.
 use alloc::string::String;
@@ -17,12 +20,38 @@ use paperpaw_ui_kit::{
     text::{concat, copy, format},
 };
 
+use crate::native_names::order;
 use crate::native_plan::{Kept, Side};
 
 /// Files of a folder kept at most; the state's own, listings and the engine's
 /// tables stay within it.
 pub const MOST: usize = 200;
 const TEMP: &str = ".new";
+
+/// Whose state: the pair's number and a number made of the card's folder and
+/// the server's address it was synced between.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Of {
+    pub pair: usize,
+    pub sides: u64,
+}
+
+impl Of {
+    /// The state of pair `pair` between the card's folder `root` and the
+    /// server's folder at `url`.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn new(pair: usize, root: &str, url: &str) -> Result<Self, Error> {
+        let sides = hash(&concat(&[root, "\n", url])?);
+        Ok(Self { pair, sides })
+    }
+
+    /// The first line of the state of the folder `rel`, after `dir=`.
+    fn head(self, rel: &str) -> Result<String, Error> {
+        format(format_args!("{:016x}/{rel}", self.sides))
+    }
+}
 
 /// The state file of the folder `rel` of pair `pair`.
 ///
@@ -58,21 +87,23 @@ fn parse(line: &str) -> Option<Kept> {
     })
 }
 
-/// The state of the folder `rel`, sorted by name; none where there is no file
-/// or it is another folder's (a cut or odd file keeps nothing: never a reason
-/// to delete).
+/// The state of the folder `rel`, sorted by name as the card tells names
+/// apart ([`order`]); none where there is no file or it is another folder's
+/// or another pair of folders' (a cut or odd file keeps nothing: never a
+/// reason to delete).
 ///
 /// # Errors
 /// [`Error::NoMemory`].
-pub fn read(volume: &dyn Volume, pair: usize, rel: &str) -> Result<Vec<Kept>, Error> {
-    let name = file(pair, rel)?;
+pub fn read(volume: &dyn Volume, of: Of, rel: &str) -> Result<Vec<Kept>, Error> {
+    let name = file(of.pair, rel)?;
+    let head = of.head(rel)?;
     let mut kept = Vec::new();
     let mut first = true;
     let mut ours = false;
     let result = for_each_line_on(volume, &name, &mut |line| {
         if first {
             first = false;
-            ours = line.strip_prefix("dir=") == Some(rel);
+            ours = line.strip_prefix("dir=") == Some(head.as_str());
             return Ok(if ours {
                 ControlFlow::Continue(())
             } else {
@@ -95,7 +126,7 @@ pub fn read(volume: &dyn Volume, pair: usize, rel: &str) -> Result<Vec<Kept>, Er
     if !ours {
         return Ok(Vec::new());
     }
-    paperpaw_sdk::sort::sort_by(&mut kept, |a, b| a.name.cmp(&b.name));
+    paperpaw_sdk::sort::sort_by(&mut kept, |a, b| order(&a.name, &b.name));
     Ok(kept)
 }
 
@@ -103,14 +134,15 @@ pub fn read(volume: &dyn Volume, pair: usize, rel: &str) -> Result<Vec<Kept>, Er
 ///
 /// # Errors
 /// What writing says; [`Error::NoMemory`].
-pub fn write(volume: &dyn Volume, pair: usize, rel: &str, kept: &[Kept]) -> Result<(), Error> {
-    let name = file(pair, rel)?;
+pub fn write(volume: &dyn Volume, of: Of, rel: &str, kept: &[Kept]) -> Result<(), Error> {
+    let name = file(of.pair, rel)?;
     let temp = concat(&[&name, TEMP])?;
+    let head = of.head(rel)?;
     let done = (|| {
         let mut part = String::new();
         part.try_reserve(MAX_DATA).map_err(|_| Error::NoMemory)?;
         part.push_str("dir=");
-        part.push_str(rel);
+        part.push_str(&head);
         part.push('\n');
         let mut first = true;
         for entry in kept {
@@ -253,6 +285,10 @@ mod tests {
     use super::*;
     use crate::test_volume::Mem;
 
+    fn of(pair: usize) -> Of {
+        Of::new(pair, "Notes", "http://h/dav/").unwrap()
+    }
+
     fn entry(name: &str, n: u64) -> Kept {
         Kept {
             name: name.into(),
@@ -267,18 +303,30 @@ mod tests {
     #[test]
     fn a_state_is_kept_and_read_back_sorted_and_another_folders_file_is_none() {
         let volume = Mem::default();
-        assert!(read(&volume, 1, "a").unwrap().is_empty());
-        let kept = [entry("b.md", 2), entry("a ü.md", 1)];
-        write(&volume, 1, "a", &kept).unwrap();
-        let back = read(&volume, 1, "a").unwrap();
-        assert_eq!(back, [entry("a ü.md", 1), entry("b.md", 2)]);
+        let (one, two) = (of(1), of(2));
+        assert!(read(&volume, one, "a").unwrap().is_empty());
+        let kept = [entry("b.md", 2), entry("a ü.md", 1), entry("B2.md", 3)];
+        write(&volume, one, "a", &kept).unwrap();
+        let back = read(&volume, one, "a").unwrap();
+        // Sorted as the card tells names apart: without case.
+        assert_eq!(
+            back,
+            [entry("a ü.md", 1), entry("b.md", 2), entry("B2.md", 3)]
+        );
         // A file of another folder (a hash that met another) says nothing.
         let name = file(1, "a").unwrap();
         let bytes = volume.get(&name).unwrap();
         volume.write(&file(1, "b").unwrap(), &bytes).unwrap();
-        assert!(read(&volume, 1, "b").unwrap().is_empty());
+        assert!(read(&volume, one, "b").unwrap().is_empty());
         // The other pair has its own.
-        assert!(read(&volume, 2, "a").unwrap().is_empty());
+        assert!(read(&volume, two, "a").unwrap().is_empty());
+        // A pair set to another folder of the card, or of the server, has none.
+        for other in [
+            Of::new(1, "Books", "http://h/dav/").unwrap(),
+            Of::new(1, "Notes", "http://h/other/").unwrap(),
+        ] {
+            assert!(read(&volume, other, "a").unwrap().is_empty());
+        }
     }
 
     #[test]
@@ -287,15 +335,15 @@ mod tests {
         let many: Vec<Kept> = (0..MOST)
             .map(|n| entry(&alloc::format!("{}{n:03}.md", "x".repeat(60)), n as u64))
             .collect();
-        write(&volume, 1, "", &many).unwrap();
-        assert_eq!(read(&volume, 1, "").unwrap().len(), MOST);
+        write(&volume, of(1), "", &many).unwrap();
+        assert_eq!(read(&volume, of(1), "").unwrap().len(), MOST);
         assert!(*volume.longest.borrow() <= MAX_DATA);
         // A temp file a cut left is no state.
         let name = file(1, "").unwrap();
         volume
             .write(&concat(&[&name, TEMP]).unwrap(), b"dir=\nbroken")
             .unwrap();
-        assert_eq!(read(&volume, 1, "").unwrap().len(), MOST);
+        assert_eq!(read(&volume, of(1), "").unwrap().len(), MOST);
     }
 
     #[test]

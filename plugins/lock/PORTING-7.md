@@ -18,7 +18,8 @@ cannot take yet is listed under *What is pending*; each has an ignored case in
 | `native_screen` | what the screen draws (prepared operations), `native_clock` the time and the date |
 | `native_store` | the host calls: the code among the secrets (`core.secrets`, name `code`, not changeable, salt from `random`), the tries file `tries.txt` in the data folder, the two settings |
 | `native_plugin` | `NativeLock`: carries the effects out, routes events and inputs |
-| `native_touch` | the touch lock's way out (pure; see below) |
+| `native_touch` | the touch lock's way out (pure) |
+| `native_touch_lock` | the touch lock on the host: the `core.input-filter` subscriber (takes every finger while `lock.touch` is on, answers run `lock.touch-toggle` for the way out and `lock.touch-hint` for the hint, passes keys and gestures), the actions `lock.touch-toggle`, `lock.touch-lock` (*Lock touch*, the entry in the quick panel and the reader's menu: an action, so the panel closes; a switch would leave it open on a screen no longer touchable, #234) and `lock.touch-hint`, and the status item `lock.touch-status` |
 
 ## Behaviour as interface 6
 
@@ -38,6 +39,10 @@ cannot take yet is listed under *What is pending*; each has an ignored case in
 - Every callback allocates fallibly (refusal sweeps in `tests/native_alloc_refusal.rs`); a
   code, a hash and the typed password are wiped as soon as they are done with (buffers of the secrets
   and ui calls too); no `Debug` shows a code.
+
+## The touch lock
+
+Wired (#234). Ways out, none of which needs touch except the last: the power button held (the power plugin runs `lock.touch-toggle` at once while touch is locked, with no menu), the home key held (`long.home` while `lock.touch` is true), tapping twice and holding the second tap. The host does not call the filter while the screen lock guards, and a secret top screen is filtered by its own plugin only, so no overlay can take touch from the lock's own screen. Declared everywhere (`make` has no snapshot to tell touch); the entries carry the need for touch. Costs a filter callback per key press on devices without touch (decode and pass).
 
 ## Differences
 
@@ -65,11 +70,6 @@ cannot take yet is listed under *What is pending*; each has an ignored case in
   group registry reply still needs to carry the icon to the Settings plugin (#268).
 - **The first-run step** (order 70, page = the kind setting) needs host op 22
   (Host todo 99), so it is not submitted.
-- **The touch lock**: the input filter that takes taps, swipes and the pen, the hint, the status
-  item, the quick-panel and reader menu entries, the menu need for touch, the key map (`long.home`)
-  and its actions. `native_touch` holds the pure part (the way out: tap twice and hold the second;
-  the hint every 10 s) with its tests, ready for the filter (H4). Until it is wired the *Lock touch*
-  setting is declared and does nothing.
 - **Host acceptance** (draw, input, secrets, ui and storage through a scripted host, H1/H3/H4): the
   scripted host answers none of `core.secrets`, `core.ui` and storage yet.
 - "How it works" (`how/`): the help plugin's text slot.

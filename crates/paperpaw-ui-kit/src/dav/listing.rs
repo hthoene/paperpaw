@@ -3,8 +3,10 @@
 //! Every file and folder of it becomes an [`Item`] with its address, name, size
 //! and a number that changes when the server's file does (a hash of its
 //! `ETag`, else of its last-modified time); the folder itself is left out. A
-//! refused allocation ends the reading with what was read (and says so); an
-//! address too long to keep is left out.
+//! refused allocation ends the reading with what was read (and says so), and
+//! so does an entry whose address is too long to read: a listing that is not
+//! all there must never be taken for the folder. An answer that is no whole
+//! listing (a page of a proxy, a body cut off) is an error.
 use alloc::string::String;
 
 use paperpaw_sdk::{
@@ -27,8 +29,6 @@ pub const LISTING: &str = "listing.xml";
 const CHUNK: usize = 2048;
 /// An address or a number in a listing is read up to this many bytes.
 const MAX_TEXT: usize = 1500;
-/// The longest address kept.
-pub const HREF_MAX: usize = 900;
 
 /// A file or folder of the listing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,8 +105,10 @@ struct Reader<'a, 'f> {
     field: Option<Field>,
     text: String,
     cut: bool,
-    /// Memory refused: said at the end.
+    /// Memory refused, or an entry was left out: said at the end.
     more: bool,
+    /// The listing's last tag came: the answer is a whole listing.
+    whole: bool,
     failed: bool,
     /// What the callback said where it failed.
     error: Option<Error>,
@@ -174,7 +176,11 @@ impl Reader<'_, '_> {
             if let Some(r) = &mut self.current {
                 let value = self.text.trim();
                 match self.field {
-                    Some(Field::Href) if self.cut => r.href.clear(),
+                    Some(Field::Href) if self.cut => {
+                        // Its name is not known: the listing is not all there.
+                        r.href.clear();
+                        self.more = true;
+                    }
                     Some(Field::Href) => r.href = copy(value)?,
                     Some(Field::Size) => r.size = value.parse().unwrap_or(0),
                     Some(Field::Etag) => r.version = etag_hash(value),
@@ -187,6 +193,9 @@ impl Reader<'_, '_> {
             && let Some(r) = self.current.take()
         {
             self.response(r)?;
+        }
+        if name == "multistatus" {
+            self.whole = true;
         }
         Ok(())
     }
@@ -205,7 +214,7 @@ impl Reader<'_, '_> {
             return Ok(());
         }
         let url = resolve(self.base, &r.href)?;
-        if url.len() > HREF_MAX || url.bytes().any(|b| b.is_ascii_control()) {
+        if url.bytes().any(|b| b.is_ascii_control()) {
             return Ok(());
         }
         (self.each)(Item {
@@ -224,11 +233,14 @@ impl Reader<'_, '_> {
 
 /// Calls `each` with every file and folder of the listing saved as `name` on
 /// `volume`, for the folder at `base`, in the order of the listing. The flag
-/// says memory ran short (the reading stopped); an error of `each` ends the
+/// says the listing is not all there: memory ran short (the reading stopped)
+/// or an entry's address was too long to read. An error of `each` ends the
 /// reading and is the result.
 ///
 /// # Errors
-/// What reading the file says; [`Error::NoMemory`]; what `each` says.
+/// What reading the file says; [`Error::NoMemory`]; what `each` says;
+/// [`Error::Invalid`] for a file that is no whole listing (it never closed
+/// its `multistatus`).
 pub fn read_each(
     volume: &dyn Volume,
     name: &str,
@@ -245,12 +257,14 @@ pub fn read_each(
         text: String::new(),
         cut: false,
         more: false,
+        whole: false,
         failed: false,
         error: None,
     };
     let mut tokenizer = Tokenizer::new();
     let mut buf = buffer(CHUNK)?;
     let mut offset = 0u64;
+    let mut stopped = false;
     loop {
         let n = volume.read_at(name, offset, &mut buf)?;
         if n == 0 {
@@ -261,7 +275,7 @@ pub fn read_each(
             .try_feed(piece, &mut |token| reader.token(token))
             .is_err()
         {
-            reader.more = true;
+            stopped = true;
             break;
         }
         if reader.failed {
@@ -269,12 +283,13 @@ pub fn read_each(
         }
         offset += n as u64;
     }
-    if !reader.more {
+    if !reader.failed && !stopped {
         tokenizer.finish(&mut |token| reader.token(token));
     }
     match reader.error {
         // The callback's own refusal of an item is not memory running short.
         Some(error) if error != Error::NoMemory => Err(error),
-        _ => Ok(reader.more),
+        _ if !reader.failed && !stopped && !reader.whole => Err(Error::Invalid),
+        _ => Ok(reader.more || stopped),
     }
 }

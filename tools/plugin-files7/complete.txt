@@ -49,5 +49,7 @@ anki
 picture-frame
 pomodoro
 puzzles
+tasks
 file-sync
+edge-light
 smart-home

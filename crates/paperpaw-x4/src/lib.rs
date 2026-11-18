@@ -20,7 +20,8 @@
 //! ([`slept`]), and what the firmware's TLS sessions for plugins' sockets
 //! decide: who holds the few slots ([`tls_gate`]), which certificates are
 //! trusted and what a failed handshake comes to ([`tls_trust`]), and how
-//! long they may take ([`tls_watch`]).
+//! long they may take ([`tls_watch`]), and the card shown as a USB drive
+//! ([`usb_drive`]).
 //!
 //! PaperPaw draws the screen upright, 480 × 800, in bands of rows; the
 //! display writes them turned into the controller's memory, which keeps
@@ -95,5 +96,6 @@ pub mod uc8179;
 pub mod uc8253;
 pub mod updates;
 pub mod upload;
+pub mod usb_drive;
 pub mod usb_link;
 pub mod waveform;

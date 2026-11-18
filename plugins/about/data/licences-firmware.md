@@ -280,11 +280,13 @@ Crates in the firmware of the Xteink readers used under the MIT License:
 - embassy-futures 0.1.2: Copyright the embassy-futures contributors (https://github.com/embassy-rs/embassy)
 - embassy-hal-internal 0.4.0: Copyright the embassy-hal-internal contributors (https://github.com/embassy-rs/embassy)
 - embassy-net-driver 0.2.0: Copyright the embassy-net-driver contributors (https://github.com/embassy-rs/embassy)
+- embassy-net-driver-channel 0.4.0: Copyright the embassy-net-driver-channel contributors (https://github.com/embassy-rs/embassy)
 - embassy-sync 0.6.2: Copyright the embassy-sync contributors (https://github.com/embassy-rs/embassy)
 - embassy-sync 0.7.2: Copyright the embassy-sync contributors (https://github.com/embassy-rs/embassy)
 - embassy-sync 0.8.0: Copyright the embassy-sync contributors (https://github.com/embassy-rs/embassy)
 - embassy-time 0.5.1: Copyright the embassy-time contributors (https://github.com/embassy-rs/embassy)
 - embassy-time-driver 0.2.2: Copyright the embassy-time-driver contributors (https://github.com/embassy-rs/embassy)
+- embassy-usb 0.6.0: Copyright the embassy-usb contributors (https://github.com/embassy-rs/embassy)
 - embassy-usb-driver 0.2.2: Copyright the embassy-usb-driver contributors (https://github.com/embassy-rs/embassy)
 - embassy-usb-synopsys-otg 0.4.0: Copyright the embassy-usb-synopsys-otg contributors (https://github.com/embassy-rs/embassy)
 - embedded-can 0.4.1: Copyright (c) 2021-2022 The Rust embedded HAL team and contributors.
