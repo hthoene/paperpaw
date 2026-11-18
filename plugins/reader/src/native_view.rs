@@ -68,7 +68,7 @@ enum Body {
     /// Why there is no page (the key of the text).
     Message(&'static str),
     /// The book, open.
-    Open(Open),
+    Open(Box<Open>),
     /// The book opened for the first time, its document still prepared by the
     /// format (`preparing.rs`): kept open until it is ready or failed, or the
     /// screen closes.
@@ -373,7 +373,9 @@ impl View {
         )
         .map_err(fail)?;
         let marks = Self::load_marks(host, library, &found.path, conversion);
-        let mut open = Open {
+        // On the heap at once, apart from the screen: the many moves of an `Open` on
+        // the stack are what the S3's frame limit counts (`open`, `wake`; #92).
+        let mut open = paperpaw_ui_kit::mem::boxed(Open {
             id,
             sections,
             whole_pages,
@@ -414,7 +416,8 @@ impl View {
             ask_marks: false,
             packs_asked: 0,
             settings: Kept::default(),
-        };
+        })
+        .map_err(fail)?;
         open.ask_filters(host);
         open.begin(host, root == Root::Library);
         open.load_bookmarks(host, library);
