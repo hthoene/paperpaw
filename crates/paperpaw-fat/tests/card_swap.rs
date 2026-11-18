@@ -628,3 +628,33 @@ fn the_same_card_written_elsewhere_or_by_this_mount_since_is_told() {
     assert_eq!(swap.check(AGAIN_MS[0]), Swapped::Back);
     assert_eq!(names(&storage, "books"), ["a.epub", "b.epub", "c.epub"]);
 }
+
+#[test]
+fn a_card_lent_as_a_usb_drive_is_unmounted_for_the_computer_and_mounted_anew_after() {
+    let card = card_with(&[("a.txt", b"a")]);
+    let sim = Sim::with(&card);
+    let (mut swap, storage) = mounted(&sim);
+    storage.write("kept.txt", b"before").unwrap();
+    // The computer has the card: what the reader kept is on it, the storage
+    // reaches nothing, and a block the computer writes is on the card.
+    let seen = swap
+        .lend(|blocks| {
+            let mut block = [0u8; BLOCK];
+            blocks.read_block(0, &mut block).unwrap();
+            blocks.write_block(100, &[0x5a; BLOCK]).unwrap();
+            block
+        })
+        .unwrap();
+    assert_eq!(&seen[510..512], &[0x55, 0xaa]);
+    assert_eq!(card.borrow()[100 * BLOCK], 0x5a);
+    assert!(swap.lost());
+    assert_eq!(
+        storage.read_at("a.txt", 0, &mut [0; 1]),
+        Err(StorageError::CARD_GONE)
+    );
+    // Then it is mounted anew, as any card, and what was written before is read.
+    assert_eq!(swap.check(0), Swapped::Remounted);
+    assert_eq!(read(&storage, "a.txt"), b"a");
+    assert_eq!(read(&storage, "kept.txt"), b"before");
+    assert!(!swap.lost());
+}

@@ -984,6 +984,7 @@ action core.sleep | title=core.action.sleep sealed=false runs-itself=true native
 action core.toggle-night-mode | title=core.action.toggle-night-mode sealed=false runs-itself=true native=None
 action core.tools | title=core.action.tools sealed=false runs-itself=true native=None
 action core.up | title=core.action.up sealed=false runs-itself=false native=None
+action core.usb-drive | title=core.action.usb-drive sealed=false runs-itself=true native=None
 action file-manager.open | title=file-manager.title sealed=false runs-itself=true native=Some(1)
 action files.by-author | title=files.by-author sealed=false runs-itself=true native=Some(22)
 action files.by-series | title=files.by-series sealed=false runs-itself=true native=Some(23)
@@ -1212,6 +1213,7 @@ menu core.quick | core.settings order=Some(90) section=false hidden-by=None
 menu core.settings-pages | core.settings-section.reading order=Some(0) section=true hidden-by=None
 menu core.settings-pages | core.settings-section.device order=Some(50) section=true hidden-by=None
 menu core.settings-pages | core.settings-section.customise order=Some(200) section=true hidden-by=None
+menu core.tools | core.usb-drive order=Some(80) section=false hidden-by=None
 menu core.tools | core.apps order=Some(90) section=false hidden-by=None
 menu core.tools | core.screenshot order=Some(95) section=false hidden-by=None
 setup-step | core.setup.language title= order=10 page=Setting(Id(core.language))

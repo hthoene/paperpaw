@@ -99,6 +99,8 @@ mod tls;
 mod tls_slots;
 #[cfg(feature = "remote")]
 mod traced;
+#[cfg(feature = "usb-drive")]
+mod usb_drive;
 mod usb_lines;
 mod usb_power;
 mod volume;
@@ -1023,6 +1025,10 @@ fn kernel(
         // TLS sockets (and HTTPS with them): one session at a time on the
         // X4's 256 KiB, two on the X4 Pro and Classic (`tls_slots`).
         .tls_sessions(tls_slots::SESSIONS);
+    // The S3 devices show the card to a computer (`usb_drive`, #32); the
+    // ESP32-C3 devices have no OTG core and do not say they can.
+    #[cfg(feature = "usb-drive")]
+    let builder = builder.capability(paperpaw_sdk::Capability::USB_DRIVE);
     // The X4's row of hints under the screen (the X4 Classic has its
     // buttons); the X4 Pro is touched.
     #[cfg(feature = "x4")]

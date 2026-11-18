@@ -28,6 +28,11 @@ pub trait Swap {
         expect(dead_code, reason = "used on waking from light sleep")
     )]
     fn probe(&mut self) -> bool;
+    /// The card itself for `with`, its file system dropped first (see
+    /// `CardSwap::lend`); the next `check` mounts it anew. `false` where
+    /// it could not be lent.
+    #[cfg(feature = "usb-drive")]
+    fn lend(&mut self, with: &mut dyn FnMut(&mut dyn Blocks)) -> bool;
 }
 
 impl<B: Restart + 'static> Swap for CardSwap<B, CardTrouble> {
@@ -37,6 +42,11 @@ impl<B: Restart + 'static> Swap for CardSwap<B, CardTrouble> {
 
     fn probe(&mut self) -> bool {
         CardSwap::probe(self)
+    }
+
+    #[cfg(feature = "usb-drive")]
+    fn lend(&mut self, with: &mut dyn FnMut(&mut dyn Blocks)) -> bool {
+        CardSwap::lend(self, |card| with(card)).is_some()
     }
 }
 
