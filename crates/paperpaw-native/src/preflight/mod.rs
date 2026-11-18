@@ -5,14 +5,27 @@
 //! file's bytes, before it is loaded, from the structures the system's
 //! loader itself reads (not from section names, which can be absent or
 //! wrong). Nothing here runs plugin code or allocates.
+//!
+//! ELF (Linux) is what the desktop shell loads today; the Mach-O (macOS)
+//! and PE (Windows) checks hold the same zero-entrypoint rule for the
+//! shells' loaders on those systems. WebAssembly has no check: the web
+//! shell loads no code plugins, only data plugins.
 
 mod elf;
+#[cfg(feature = "kernel")]
+mod macho;
+#[cfg(feature = "kernel")]
+mod pe;
 #[cfg(test)]
 mod tests;
 
 pub use elf::{DataExport, check_elf64_le, data_export};
 #[cfg(feature = "kernel")]
 pub use elf::{FreestandingRefusal, check_freestanding};
+#[cfg(feature = "kernel")]
+pub use macho::check_macho64;
+#[cfg(feature = "kernel")]
+pub use pe::check_pe32plus;
 
 /// The dynamic symbols a host plugin library may define, and no others: the
 /// metadata locator and the entry. The one list for the loader and for the
