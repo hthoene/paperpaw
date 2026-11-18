@@ -45,6 +45,8 @@ mod hangul;
 pub use hangul::has_jamo;
 mod hinting;
 pub use hinting::Hinting;
+mod indic;
+pub use indic::{has_indic, shaped_at};
 mod ink;
 mod kern_table;
 #[cfg(feature = "outline")]
@@ -67,13 +69,6 @@ mod packed;
 mod raster;
 pub mod sfnt;
 mod stored;
-#[cfg_attr(
-    not(any(test, fuzzing)),
-    allow(
-        dead_code,
-        reason = "read by the shaper that comes with Indic scripts (#92, D5)"
-    )
-)]
 mod substitutions;
 
 pub use around::{Around, draw_text_in, measure_in};
@@ -382,6 +377,20 @@ fn build_pack_with(
         .copied()
         .filter(|&ch| font.has_char(ch))
         .collect();
+    // Bengali, Devanagari: the font's substitutions, and the glyphs they
+    // draw that have no code point.
+    let indic = font.indic_substitutions(&keys);
+    let drawn: alloc::vec::Vec<char> = indic
+        .as_ref()
+        .map_or(alloc::vec::Vec::new(), |m| m.keys.clone());
+    if let Some(made) = &indic {
+        builder.table(
+            BitmapFont::SUBSTITUTIONS,
+            1,
+            made.table.get(8..).unwrap_or_default(),
+        );
+    }
+    keys.extend_from_slice(&drawn);
     paperpaw_sort::sort(&mut keys);
     keys.dedup();
     let anchored: alloc::vec::Vec<_> = sizes
@@ -393,7 +402,11 @@ fn build_pack_with(
     }
     for &size in sizes {
         let glyphs = font.rasterize_chars(
-            chars.clone().into_iter().filter(|&ch| font.has_char(ch)),
+            chars
+                .clone()
+                .into_iter()
+                .filter(|&ch| font.has_char(ch))
+                .chain(drawn.iter().copied()),
             size,
             hinting,
         );

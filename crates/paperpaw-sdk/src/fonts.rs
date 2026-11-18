@@ -1122,8 +1122,9 @@ impl<'a> FontHandle<'a> {
         if let Some(larger) = self.larger_for(size) {
             return larger.measure(size, text);
         }
-        // Hangul in jamo: set as its syllables.
-        if paperpaw_text::has_jamo(text) {
+        // Hangul in jamo: set as its syllables; Bengali and Devanagari
+        // shaped.
+        if paperpaw_text::has_jamo(text) || paperpaw_text::has_indic(text) {
             return self.measure_in(size, text, &paperpaw_text::Around::NONE);
         }
         // Right to left, or both ways: as drawn (see `FontHandle::line`).
@@ -1230,9 +1231,19 @@ impl<'a> FontHandle<'a> {
     /// within each line as drawn; Arabic letters as wide as drawn joined.
     pub fn wrap(&self, size: f32, text: &str, max_width: f32) -> Vec<Range<usize>> {
         let joined = paperpaw_text::bidi::needs_bidi(text);
+        let indic = paperpaw_text::has_indic(text);
         let line = self.line();
         let shown = |c: &char| !paperpaw_text::is_mark(*c);
         let advance = |at: usize, ch: char| {
+            // A Bengali or Devanagari word as wide as drawn, on its first
+            // character.
+            if indic && matches!(ch, '\u{900}'..='\u{9FF}' | '\u{200C}' | '\u{200D}') {
+                let part = paperpaw_text::shaped_at(text, at);
+                return match part.start == at {
+                    true => self.measure(size, text.get(part).unwrap_or_default()),
+                    false => 0.0,
+                };
+            }
             let mut buffer = [0u8; 4];
             let one = ch.encode_utf8(&mut buffer);
             if !joined {
@@ -1246,7 +1257,11 @@ impl<'a> FontHandle<'a> {
                 .and_then(|t| t.chars().find(shown));
             self.measure_in(size, one, &line.with_context(before, after))
         };
-        let kern = |_: usize, left: char, right: char| self.kern(size, left, right);
+        let indic_char = |c: char| matches!(c, '\u{900}'..='\u{9FF}');
+        let kern = |_: usize, left: char, right: char| match indic_char(left) || indic_char(right) {
+            true => 0.0,
+            false => self.kern(size, left, right),
+        };
         paperpaw_text::wrap_lines_kerned(text, |_| max_width, advance, kern, None)
             .into_iter()
             .map(|line| line.range)
@@ -1319,8 +1334,9 @@ impl<'a> FontHandle<'a> {
         if canvas.is_blind() || self.drawing.describing.get() {
             return self.measure(size, text);
         }
-        // Hangul in jamo: set as its syllables.
-        if paperpaw_text::has_jamo(text) {
+        // Hangul in jamo: set as its syllables; Bengali and Devanagari
+        // shaped.
+        if paperpaw_text::has_jamo(text) || paperpaw_text::has_indic(text) {
             let none = &paperpaw_text::Around::NONE;
             return self.draw_in(canvas, size, x, baseline, text, color, (extra, tone), none);
         }
