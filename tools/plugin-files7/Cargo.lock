@@ -129,6 +129,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-anki"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-battery"
 version = "1.0.10"
 dependencies = [
@@ -206,6 +214,7 @@ version = "0.0.0"
 dependencies = [
  "paperpaw-plugin-about",
  "paperpaw-plugin-aids",
+ "paperpaw-plugin-anki",
  "paperpaw-plugin-battery",
  "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-browser",
@@ -241,8 +250,10 @@ dependencies = [
  "paperpaw-plugin-notes-overview",
  "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-opds",
+ "paperpaw-plugin-picture-frame",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-plugin-manager",
+ "paperpaw-plugin-pomodoro",
  "paperpaw-plugin-power",
  "paperpaw-plugin-profiles",
  "paperpaw-plugin-read-later-cloud",
@@ -399,7 +410,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-kosync"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -471,6 +482,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-picture-frame"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-picture-home"
 version = "1.0.3"
 dependencies = [
@@ -481,6 +500,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-plugin-manager"
 version = "1.0.9"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-pomodoro"
+version = "1.0.0"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -568,7 +595,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

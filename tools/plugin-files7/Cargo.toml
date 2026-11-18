@@ -185,6 +185,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "pomodoro"
+path = "src/bin/pomodoro.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "reading-goal"
 path = "src/bin/reading-goal.rs"
 test = false
@@ -335,6 +341,18 @@ test = false
 bench = false
 
 [[bin]]
+name = "anki"
+path = "src/bin/anki.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "picture-frame"
+path = "src/bin/picture-frame.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "home"
 path = "src/bin/home.rs"
 test = false
@@ -392,6 +410,7 @@ paperpaw-plugin-news = { path = "../../plugins/news", features = ["native-entry"
 paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview", features = ["native-entry"] }
 paperpaw-plugin-opds = { path = "../../plugins/opds", features = ["native-entry"] }
 paperpaw-plugin-plugin-manager = { path = "../../plugins/plugin-manager", features = ["native-entry"] }
+paperpaw-plugin-pomodoro = { path = "../../plugins/pomodoro", features = ["native-entry"] }
 paperpaw-plugin-power = { path = "../../plugins/power", features = ["native-entry"] }
 paperpaw-plugin-profiles = { path = "../../plugins/profiles", features = ["native-entry"] }
 paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", features = ["native-entry"] }
@@ -419,6 +438,8 @@ paperpaw-plugin-transfer = { path = "../../plugins/transfer", features = ["nativ
 paperpaw-plugin-sleep = { path = "../../plugins/sleep", features = ["native-entry"] }
 paperpaw-plugin-translate = { path = "../../plugins/translate", features = ["native-entry"] }
 paperpaw-plugin-aids = { path = "../../plugins/aids", features = ["native-entry"] }
+paperpaw-plugin-anki = { path = "../../plugins/anki", features = ["native-entry"] }
+paperpaw-plugin-picture-frame = { path = "../../plugins/picture-frame", features = ["native-entry"] }
 paperpaw-plugin-home = { path = "../../plugins/home", features = ["native-entry"] }
 paperpaw-plugin-mail = { path = "../../plugins/mail", features = ["native-entry"] }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault", features = ["native-entry"] }

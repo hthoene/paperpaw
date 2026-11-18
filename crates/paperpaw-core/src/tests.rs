@@ -3253,6 +3253,7 @@ mod input_kinds;
 mod kept_groups;
 mod kernel_calls;
 mod key_guard;
+mod language_seed;
 mod library_catalog;
 mod library_catalog_native;
 mod low_memory_notice;

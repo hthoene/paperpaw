@@ -332,8 +332,27 @@ fn link_bar(
         }
         None => messages.copy(host, "reader.link.none")?,
     };
+    bottom_line(ops, font, style, display, (&[said.as_str()], false))
+}
+
+/// Lines of text on a strip at the bottom of the display, over the page: as
+/// high as a button (a link's bar), or only as high as the lines (`compact`: the
+/// selection's legend, which covers as little of the page as it can).
+pub(super) fn bottom_line(
+    ops: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &UiStyle,
+    display: &Snapshot,
+    (lines, compact): (&[&str], bool),
+) -> Result<(), Error> {
     let finger = Chips::finger(display);
-    let height = Chips::height(style, finger).saturating_add(2 * style.margin);
+    let each = (style.small * 1.5) as u16;
+    let count = u16::try_from(lines.len()).unwrap_or(1).max(1);
+    let height = if compact {
+        each.saturating_mul(count) + style.margin
+    } else {
+        Chips::height(style, finger).saturating_add(2 * style.margin)
+    };
     let (width, tall) = (display.display_width(), display.display_height());
     let bar = Rect::new(0, tall.saturating_sub(height), width, height);
     paint::push(ops, Paint::Fill(bar, style.paper))?;
@@ -346,17 +365,33 @@ fn link_bar(
     )?;
     let margin = f32::from(style.margin);
     let room = f32::from(width) - 2.0 * margin;
-    let fitted = text::fit(font, style.small, &said, room)?;
-    text::label(
-        ops,
-        font,
-        &fitted,
-        style.small,
-        margin,
-        bar,
-        style.ink,
-        Some(bar),
-    )
+    let mut top = bar.y;
+    for said in lines {
+        let fitted = text::fit(font, style.small, said, room)?;
+        // The first line has the strip's top edge and the margin above it.
+        let row = if compact && lines.len() > 1 {
+            Rect::new(
+                0,
+                top,
+                width,
+                each + if top == bar.y { style.margin } else { 0 },
+            )
+        } else {
+            bar
+        };
+        text::label(
+            ops,
+            font,
+            &fitted,
+            style.small,
+            margin,
+            row,
+            style.ink,
+            Some(bar),
+        )?;
+        top = top.saturating_add(row.height);
+    }
+    Ok(())
 }
 
 /// Opens the web page in the browser (`core.browser`): told apart by the time, so

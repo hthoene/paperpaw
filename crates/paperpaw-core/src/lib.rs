@@ -72,6 +72,7 @@ mod io;
 mod key_guard;
 mod keymap;
 pub mod kit;
+mod language_seed;
 mod memory_notice;
 mod meter;
 pub mod native_host;
@@ -84,6 +85,7 @@ mod recall;
 mod refresh;
 mod registry;
 mod screen_names;
+mod shell_asks;
 pub use screen_names::ScreenNames;
 mod room;
 mod screen;
@@ -160,6 +162,7 @@ pub use crate::io::{
     ServerEvent, SocketCall, SocketEvent, SpeechCall, TlsSetup, WifiEvent,
 };
 use crate::keymap::{InputKey, Keymap, Origin, Zone};
+pub use crate::language_seed::{LanguageSeed, Sink};
 use crate::refresh::RefreshPolicy;
 use crate::registry::Registry;
 use crate::screens::{ActiveScreen, uncovered};
@@ -1143,55 +1146,6 @@ impl Kernel {
         mem::take(&mut self.warnings)
     }
 
-    /// Opens the screen bound to `slot` with `params`, e.g. the reader with
-    /// a book's path: for a shell asked to open a file (Android's "open
-    /// with", a remote control).
-    pub fn open_slot(&mut self, now: Instant, slot: Id, params: Params) -> Effects {
-        let _running = self.shared.meter.enter(meter::CORE);
-        self.shared.reader = true;
-        self.shared.now = now;
-        self.last_activity = now;
-        self.output.commands.push(Ask::OpenSlot(slot, params));
-        self.run_commands();
-        self.finish()
-    }
-
-    /// Opens the book at `path` with the reading app chosen for it (see
-    /// `paperpaw_sdk::readers`): for a shell asked to open a file.
-    pub fn open_book(&mut self, now: Instant, path: &str) -> Effects {
-        let _running = self.shared.meter.enter(meter::CORE);
-        self.shared.reader = true;
-        self.shared.now = now;
-        self.last_activity = now;
-        self.output.commands.push(crate::kit::readers::open(path));
-        self.run_commands();
-        self.finish()
-    }
-
-    /// Opens the screen `screen` with `params`, as a plugin would, e.g.
-    /// asked by a shell's remote control or a test.
-    pub fn open_screen(&mut self, now: Instant, screen: Id, params: Params) -> Effects {
-        let _running = self.shared.meter.enter(meter::CORE);
-        self.shared.reader = true;
-        self.shared.now = now;
-        self.last_activity = now;
-        self.output.commands.push(Ask::OpenScreen(screen, params));
-        self.run_commands();
-        self.finish()
-    }
-
-    /// Runs `action` as a button bound to it would (the screen shown has it
-    /// first), e.g. asked by a shell's remote control or a test.
-    pub fn run_action(&mut self, now: Instant, action: Id) -> Effects {
-        let _running = self.shared.meter.enter(meter::CORE);
-        self.shared.reader = true;
-        self.shared.now = now;
-        self.last_activity = now;
-        self.dispatch(action);
-        self.run_commands(); // As a key press: a dialog's queued close first (#266).
-        self.finish()
-    }
-
     /// Sets setting `id` from its text as configuration files write it
     /// (`on`, `12`, a choice's value), as the settings screen would: saved,
     /// what follows from it done, plugins told. E.g. for a shell's remote
@@ -1304,11 +1258,20 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.woke(now);
         // A computer may have changed the card, or another card is in.
-        self.shared.hyphenation.card_changed();
-        self.shared.hyphen_feed.card_changed();
+        self.card_changed();
         self.output.emit(&events::USB_DRIVE_ENDED, ());
         self.output.emit(&events::LIBRARY_CHANGED, ());
         self.finish()
+    }
+
+    /// The card lost its power and has it back, and is the card it was,
+    /// as it was left (a loose contact; the shell's `Swapped::Back`): what
+    /// the kernel kept of it is read again, as what was not written back
+    /// is gone. Unlike [`Kernel::usb_drive_ended`] nothing wakes: no
+    /// library is walked, no plugin told, and the time to sleep stays.
+    pub fn card_back(&mut self) {
+        let _running = self.shared.meter.enter(meter::CORE);
+        self.card_changed();
     }
 
     /// Closes the screens above a guard that it did not open (a sleep
@@ -1438,6 +1401,8 @@ struct Shared {
     data_folders: Vec<(Id, String)>,
     /// The folders data plugins are found in.
     plugin_dirs: Vec<String>,
+    /// The language pack the program carries (see [`LanguageSeed`]).
+    language_seed: Option<&'static crate::language_seed::LanguageSeed>,
     /// What plugin libraries call this kind of device (see
     /// [`KernelBuilder::catalog_device`]).
     catalog_device: Option<&'static str>,

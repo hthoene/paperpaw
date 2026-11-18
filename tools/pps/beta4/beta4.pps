@@ -1,0 +1,25 @@
+# The Beta 4 suite: every user flow in one run, on the emulator and on the X4 (same files).
+#   emulator: tools/pps/beta4/run-emulator.sh          (fresh card each run)
+#   X4:       ~/dt-jobs/final-b4/run.sh IMG SHA --only 19      (or: tools/x4-remote.py --port ... --script-file tools/pps/beta4/beta4.pps)
+# Asserts on times, gray passes and the heap count on the X4 only; on the emulator they say SKIP.
+include:common.pps
+
+call:quiet-device
+
+include:01-home.pps
+include:02-reader.pps
+include:03-back-home.pps
+include:04-library.pps
+include:05-keyboard.pps
+include:06-settings.pps
+include:07-store.pps
+include:08-plugins.pps
+include:09-update.pps
+include:10-clock.pps
+include:11-help-quick-panel.pps
+include:12-highlight-widen.pps
+
+test:99-crashes {
+  crashes
+  assert:crashes.count<=baseline
+}

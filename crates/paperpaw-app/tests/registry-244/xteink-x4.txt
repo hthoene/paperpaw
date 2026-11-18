@@ -53,6 +53,7 @@ plugin | calibre Off enabled=false BuiltIn
 plugin | end-of-book Off enabled=false BuiltIn
 plugin | diagnostics Off enabled=false BuiltIn
 plugin | translate Off enabled=false BuiltIn
+plugin | pomodoro Off enabled=false BuiltIn
 plugin | wifi Running enabled=true BuiltIn
 setting-group | SettingGroupSpec { id: Id(core.space), title: "core.widget.space", order: 0, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(home.clock), title: "home.widget.clock", order: 0, page: None, parent: None }
@@ -1012,6 +1013,11 @@ action reader.prev-chapter | title=reader.prev-chapter sealed=false runs-itself=
 action reader.quick-settings | title=reader.layout sealed=false runs-itself=true native=Some(128)
 action reader.read-aloud | title=reader.read-aloud sealed=false runs-itself=true native=Some(104)
 action reader.search | title=reader.search sealed=false runs-itself=true native=Some(101)
+action reader.sel-hold-down | title=reader.sel.hold-down sealed=false runs-itself=true native=Some(133)
+action reader.sel-hold-left | title=reader.sel.hold-left sealed=false runs-itself=true native=Some(130)
+action reader.sel-hold-right | title=reader.sel.hold-right sealed=false runs-itself=true native=Some(131)
+action reader.sel-hold-up | title=reader.sel.hold-up sealed=false runs-itself=true native=Some(132)
+action reader.sel-widen | title=reader.sel.widen sealed=false runs-itself=true native=Some(129)
 action reader.select-text | title=reader.select sealed=false runs-itself=true native=Some(105)
 action reader.selection.cancel | title=reader.select.cancel sealed=false runs-itself=true native=Some(123)
 action reader.selection.copy | title=reader.select.copy sealed=false runs-itself=true native=Some(113)
@@ -1105,6 +1111,7 @@ screen store.offer | title=store.offer.title
 screen store.plugin | title=store.title
 screen store.shots | title=store.shots
 screen store.source | title=store.source
+screen store.templates | title=store.template.title
 screen store.view | title=store.title
 screen transfer.cable | title=transfer.cable.title
 screen transfer.phone | title=transfer.phone.title
@@ -1348,8 +1355,10 @@ key-layer | core.home
 key-layer | core.reader
 key-layer | global
 key-layer | keyboard.screen
+key-layer | reader.selecting
 key core.home | swipe.up -> home.all-tools Plugin
 key core.reader | long.confirm -> reader.toggle-bookmark Plugin
+key core.reader | long.left -> reader.select-text Plugin
 key core.reader | tap.bottom -> reader.quick-settings Plugin
 key core.reader | edge.left -> core.prev-page Plugin
 key core.reader | edge.right -> core.next-page Plugin
@@ -1403,6 +1412,11 @@ key global | edge.right -> core.back Plugin
 key global | edge.top -> core.quick-panel Plugin
 key global | edge.bottom -> core.home Plugin
 key keyboard.screen | long.back -> keyboard.done Plugin
+key reader.selecting | long.confirm -> reader.sel-widen Plugin
+key reader.selecting | long.left -> reader.sel-hold-left Plugin
+key reader.selecting | long.page-back -> reader.sel-hold-up Plugin
+key reader.selecting | long.page-forward -> reader.sel-hold-down Plugin
+key reader.selecting | long.right -> reader.sel-hold-right Plugin
 key-preset | core.two-buttons
 key-preset | core.left-handed
 subscription core.book-added | core
@@ -2316,6 +2330,7 @@ native Screen store | ScreenSpec(ScreenSpec { name: "source", title: "store.sour
 native Screen store | ScreenSpec(ScreenSpec { name: "shots", title: "store.shots", token: 25, flags: 0 })
 native Screen store | ScreenSpec(ScreenSpec { name: "fetch", title: "store.fetch.title", token: 26, flags: 64 })
 native Screen store | ScreenSpec(ScreenSpec { name: "offer", title: "store.offer.title", token: 27, flags: 0 })
+native Screen store | ScreenSpec(ScreenSpec { name: "templates", title: "store.template.title", token: 28, flags: 0 })
 native Screen transfer | ScreenSpec(ScreenSpec { name: "screen", title: "transfer.title", token: 10, flags: 64 })
 native Screen transfer | ScreenSpec(ScreenSpec { name: "phone", title: "transfer.phone.title", token: 11, flags: 0 })
 native Screen transfer | ScreenSpec(ScreenSpec { name: "cable", title: "transfer.cable.title", token: 12, flags: 64 })
@@ -2384,6 +2399,11 @@ native Action reader | ActionSpec(ActionSpec { name: "font-larger", title: "read
 native Action reader | ActionSpec(ActionSpec { name: "font-smaller", title: "reader.action.font-smaller", token: 126, flags: 0 })
 native Action reader | ActionSpec(ActionSpec { name: "toggle-justify", title: "reader.action.toggle-justify", token: 127, flags: 0 })
 native Action reader | ActionSpec(ActionSpec { name: "quick-settings", title: "reader.layout", token: 128, flags: 0 })
+native Action reader | ActionSpec(ActionSpec { name: "sel-widen", title: "reader.sel.widen", token: 129, flags: 0 })
+native Action reader | ActionSpec(ActionSpec { name: "sel-hold-left", title: "reader.sel.hold-left", token: 130, flags: 0 })
+native Action reader | ActionSpec(ActionSpec { name: "sel-hold-right", title: "reader.sel.hold-right", token: 131, flags: 0 })
+native Action reader | ActionSpec(ActionSpec { name: "sel-hold-up", title: "reader.sel.hold-up", token: 132, flags: 0 })
+native Action reader | ActionSpec(ActionSpec { name: "sel-hold-down", title: "reader.sel.hold-down", token: 133, flags: 0 })
 native Action settings | ActionSpec(ActionSpec { name: "secrets.open", title: "settings.secrets", token: 4, flags: 0 })
 native Action setup | ActionSpec(ActionSpec { name: "open", title: "setup.open", token: 1, flags: 0 })
 native Action store | ActionSpec(ActionSpec { name: "open", title: "store.title", token: 1, flags: 0 })
@@ -2651,6 +2671,12 @@ native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "edge.rig
 native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "pinch.out", action: "reader.font-larger", when_key: "", when_value: "" })
 native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "pinch.in", action: "reader.font-smaller", when_key: "", when_value: "" })
 native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "long.confirm", action: "reader.toggle-bookmark", when_key: "", when_value: "" })
+native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "long.left", action: "reader.select-text", when_key: "", when_value: "" })
+native KeyBind reader | KeyBind(KeyBind { layer: "reader.selecting", input: "long.confirm", action: "reader.sel-widen", when_key: "", when_value: "" })
+native KeyBind reader | KeyBind(KeyBind { layer: "reader.selecting", input: "long.left", action: "reader.sel-hold-left", when_key: "", when_value: "" })
+native KeyBind reader | KeyBind(KeyBind { layer: "reader.selecting", input: "long.right", action: "reader.sel-hold-right", when_key: "", when_value: "" })
+native KeyBind reader | KeyBind(KeyBind { layer: "reader.selecting", input: "long.page-back", action: "reader.sel-hold-up", when_key: "", when_value: "" })
+native KeyBind reader | KeyBind(KeyBind { layer: "reader.selecting", input: "long.page-forward", action: "reader.sel-hold-down", when_key: "", when_value: "" })
 native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "long.page-forward", action: "reader.next-chapter", when_key: "reader.hold-chapters", when_value: "true" })
 native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "long.page-back", action: "reader.prev-chapter", when_key: "reader.hold-chapters", when_value: "true" })
 native SettingChoice vocabulary | SettingChoice(SettingChoice { key: "sleep.show", value: "vocabulary.sleep-card", title: "vocabulary.sleep-card" })
@@ -2667,6 +2693,7 @@ native Subscription vocabulary | RegistrationStage(RegistrationStage { stage: "r
 native SetupStep keyboard | SetupStep(SetupStep { name: "setup", title: "keyboard.setting.layouts", help: "", order: 60, page_kind: 0, page: "keyboard.layouts", applies_key: "", applies_value: "", need: 0, capability: 0, flags: 1 })
 native SetupStep reader | SetupStep(SetupStep { name: "setup.font-size", title: "core.setting.font-size", help: "", order: 30, page_kind: 0, page: "core.font-size", applies_key: "", applies_value: "", need: 0, capability: 0, flags: 1 })
 native SetupStep store | SetupStep(SetupStep { name: "setup", title: "store.offer.title", help: "store.offer.help", order: 55, page_kind: 1, page: "store.offer", applies_key: "", applies_value: "", need: 0, capability: 0, flags: 1 })
+native SetupStep store | SetupStep(SetupStep { name: "template", title: "store.template.title", help: "store.template.help", order: 52, page_kind: 1, page: "store.templates", applies_key: "", applies_value: "", need: 0, capability: 0, flags: 1 })
 native SetupStep update | SetupStep(SetupStep { name: "setup", title: "update.setting.look", help: "update.setting.look.help", order: 57, page_kind: 0, page: "update.look", applies_key: "", applies_value: "", need: 8, capability: 0, flags: 3 })
 native SetupStep wifi | SetupStep(SetupStep { name: "setup", title: "wifi.title", help: "wifi.setup.help", order: 50, page_kind: 1, page: "wifi.page", applies_key: "", applies_value: "", need: 7, capability: 0, flags: 3 })
 native HelpHint files | HelpHint(HelpHint { screen: "files.browser", input: 1, x: 0, y: 0, width: 0, height: 0, text: "files.help.open" })

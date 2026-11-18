@@ -50,7 +50,7 @@ A block's header line ends in `{`; `}` closes it (inline, `repeat:3{page-forward
 | `retry:3 {…}` | again while a check in it fails (the failed tries leave no trace) |
 | `try {…}` | errors of steps inside are ignored |
 | `for:f in ls:books/*.epub {…}` | over files on the card; also `list:a\|b\|c`, `range:1..5`, `local:glob`. `$f`, `${f.name}`, `${f.stem}`, `${f.dir}`, `${f.ext}` |
-| `if:COND {…}` then `else {…}` | COND: `shows:Text`, `not-shows:Text`, `log:REGEX`, `has:METRIC`, `exists:PATH`, or a comparison `$n>=3` |
+| `if:COND {…}` then `else {…}` | COND: `shows:Text`, `not-shows:Text`, `focused:Text`, `log:REGEX`, `has:METRIC`, `exists:PATH`, or a comparison `$n>=3` |
 | `define:turn {…}`, `call:turn:a:b` | a named block; its arguments are `$1`, `$2`, … |
 | `test:04-turns {…}` | a point with its own verdict (below) |
 | `measure:turn:n=10 {…}` | the steps n times, measured (below) |
@@ -89,7 +89,9 @@ A failed check makes the exit code 1. A step that errors outright (the device sa
 missing, a variable is unknown) ends a test; outside a test it ends the script: exit code 2, a
 `STOPPED` file in `--out` with the reason.
 
-* On the screen: `expect:Text`, `expect-not:Text`, `until:Text[:ms]`.
+* On the screen: `expect:Text`, `expect-not:Text`, `until:Text[:ms]`, `expect-focus:Text` (the focused row/button has that label).
+  `focus:Text[:max]` presses `right` until the row/button with that label is focused (40 presses at most, else a failed check);
+  `select:Text[:max]` does that, then `confirm`.
 * On the log (lines since the last `mark`, or the start of the `test:`): `expect-log:REGEX[:ms]`,
   `no-log:REGEX`, `until-log:REGEX[:ms]`, `no-warn`, `known-warn:REGEX` (WARN lines to ignore from now on),
   `mark`. A trailing `:digits` is read as milliseconds.
@@ -126,3 +128,18 @@ tool's code is the same for both. Every frame the panel shows is told first as a
 and measured milliseconds are the host's. It answers buttons, touch, actions, slots, screens,
 events, typing, settings, `describe`, `screen`, `heap` (the emulator's budget), `shot`, `restart`;
 card commands are the tool's own on the `--library` folder; the rest is `not on the emulator`.
+
+## The Beta 4 suite
+
+`tools/pps/beta4/` holds one file per area (`01-home` … `12-highlight-widen`, shared `common.pps`) and `beta4.pps`, which
+includes them all: 45 tests, every user flow of Beta 4. Asserts on times, gray passes and the heap count on the X4 only.
+Tests that need the X4 (offline store, update download, clock after restart, Switch off after sleeping, a book with a cover)
+say NOT TESTABLE on the emulator.
+
+```
+tools/pps/beta4/run-emulator.sh target/debug/paperpaw-emu <card template> out/beta4      # a fresh copy of the card each run
+python3 tools/x4-remote.py --port 'rfc2217://esp-host:4001?ign_set_control' --script-file tools/pps/beta4/beta4.pps \
+    --out out/x4-beta4 --baseline out/earlier/results.json
+```
+
+The suite sets Hints off, Sleep after 0 and Switch off after Never (X4), and does not restore them (test device).

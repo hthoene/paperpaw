@@ -71,14 +71,41 @@ impl Item {
     }
 }
 
+/// The items of a bar: up to five, in order.
+#[derive(Clone, Copy, Debug)]
+pub struct Items {
+    items: [Item; 5],
+    len: usize,
+}
+
+impl Items {
+    /// The items as a slice.
+    #[must_use]
+    pub fn as_slice(&self) -> &[Item] {
+        &self.items[..self.len]
+    }
+
+    /// The place of the highlight button: the one the bar opens on, so Select
+    /// highlights (#235).
+    #[must_use]
+    pub fn highlight_at(&self) -> usize {
+        self.as_slice()
+            .iter()
+            .position(|i| matches!(i, Item::Highlight | Item::Unhighlight))
+            .unwrap_or(0)
+    }
+}
+
 /// The items of the bar, in order: a touch screen taps words to extend and has a
 /// *Cancel*; buttons have *Extend* and Back cancels. `highlight` is how the
 /// chosen words stand with the highlights: `None` where none overlaps (*Highlight*,
 /// *Note*), `Some(false)` where one does (*Remove highlight*, *Note*) and
-/// `Some(true)` where it has a note (*Remove highlight*, *Edit note*).
+/// `Some(true)` where it has a note (*Remove highlight*, *Edit note*). *Look up*
+/// and *Copy* are there only while the words are on one page (`one_page`): the
+/// text of a longer stretch is not kept.
 #[must_use]
-pub fn items(touch: bool, highlight: Option<bool>) -> [Item; 5] {
-    [
+pub fn items(touch: bool, highlight: Option<bool>, one_page: bool) -> Items {
+    let all = [
         Item::LookUp,
         if highlight.is_some() {
             Item::Unhighlight
@@ -92,7 +119,15 @@ pub fn items(touch: bool, highlight: Option<bool>) -> [Item; 5] {
         },
         Item::Copy,
         if touch { Item::Cancel } else { Item::Extend },
-    ]
+    ];
+    let mut kept = Items { items: all, len: 0 };
+    for item in all {
+        if one_page || !matches!(item, Item::LookUp | Item::Copy) {
+            kept.items[kept.len] = item;
+            kept.len += 1;
+        }
+    }
+    kept
 }
 
 /// The bar laid out on a display: the chips and where the bar is.

@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 
 fn main() {
     println!("cargo::rerun-if-changed=Cargo.toml");
+    println!("cargo::rerun-if-env-changed=CARGO_FEATURE_GERMAN");
     let manifest = std::fs::read_to_string("Cargo.toml").expect("Cargo.toml");
     // As checked out on Windows, too.
     let manifest = manifest.replace("\r\n", "\n");
@@ -179,10 +180,10 @@ fn catalog_indexes(crates: &[String], held: &[PathBuf]) {
     let mut out = String::from("&[\n");
     let mut seen = Vec::new();
     // One table for each language the program has built in.
-    let mut tables = [
-        paperpaw_i18n::BuiltLanguageTable::new("en"),
-        paperpaw_i18n::BuiltLanguageTable::new("de"),
-    ];
+    let mut tables: Vec<paperpaw_i18n::BuiltLanguageTable> = languages()
+        .iter()
+        .map(|tag| paperpaw_i18n::BuiltLanguageTable::new(tag))
+        .collect();
     for file in files {
         println!("cargo::rerun-if-changed={}", file.display());
         if std::fs::canonicalize(&file).is_ok_and(|file| held.contains(&file)) {
@@ -227,6 +228,23 @@ fn catalog_indexes(crates: &[String], held: &[PathBuf]) {
         .expect("built_catalogs.rs written");
 }
 
+/// The languages this build has its texts in: English, and German with the
+/// feature `german` (the X4's firmware has it off: German is a language pack
+/// the firmware carries compressed and writes to the card, #251).
+fn languages() -> &'static [&'static str] {
+    if std::env::var_os("CARGO_FEATURE_GERMAN").is_some() {
+        &["en", "de"]
+    } else {
+        &["en"]
+    }
+}
+
+/// Whether the catalog `file` is of a language this build has (German's
+/// sources are left out where it is not built in).
+fn wanted(file: &Path) -> bool {
+    languages().contains(&"de") || file.file_stem().is_none_or(|stem| stem != "de")
+}
+
 /// The `.ini` files in `folder` and the folders in it.
 fn ini_files(folder: &Path, files: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(folder) else {
@@ -236,7 +254,7 @@ fn ini_files(folder: &Path, files: &mut Vec<PathBuf>) {
         let path = entry.path();
         if path.is_dir() {
             ini_files(&path, files);
-        } else if path.extension().is_some_and(|e| e == "ini") {
+        } else if path.extension().is_some_and(|e| e == "ini") && wanted(&path) {
             files.push(path);
         }
     }
@@ -252,7 +270,9 @@ fn plugin_catalogs(id: &str) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = entries
         .flatten()
         .map(|entry| entry.path())
-        .filter(|path| path.is_file() && path.extension().is_some_and(|e| e == "ini"))
+        .filter(|path| {
+            path.is_file() && path.extension().is_some_and(|e| e == "ini") && wanted(path)
+        })
         .map(|file| std::fs::canonicalize(&file).expect("a catalog"))
         .collect();
     files.sort();
@@ -266,7 +286,7 @@ fn plugin_catalogs(id: &str) -> Vec<PathBuf> {
 /// need neither their text in the program (`native_catalogs`) nor an index
 /// or a slot (`catalog_indexes`).
 fn native_messages(crates: &[String]) -> Vec<PathBuf> {
-    let mut table = paperpaw_i18n::BuiltMessagesTable::new(&["en", "de"]);
+    let mut table = paperpaw_i18n::BuiltMessagesTable::new(languages());
     let mut held = Vec::new();
     for id in crates
         .iter()
@@ -299,7 +319,7 @@ fn native_messages(crates: &[String]) -> Vec<PathBuf> {
 /// the plugins' (`native_messages`): the kernel carries no copy of the
 /// sources (`core_texts.rs`, #306). Gives the files the tables hold.
 fn core_messages() -> Vec<PathBuf> {
-    let mut table = paperpaw_i18n::BuiltMessagesTable::new(&["en", "de"]);
+    let mut table = paperpaw_i18n::BuiltMessagesTable::new(languages());
     let mut files = Vec::new();
     ini_files(
         &Path::new("../..").join("crates/paperpaw-core/i18n"),

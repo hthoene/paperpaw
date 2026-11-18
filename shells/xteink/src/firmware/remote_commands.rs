@@ -181,6 +181,8 @@ impl Firmware {
             }
             Command::SetTime(unix_ms) => {
                 crate::clock::set(now(), unix_ms);
+                // As the network does (`network`): a clock chip keeps it through a restart.
+                crate::input::keep_time(unix_ms);
                 remote::ok();
             }
             Command::Restart => {

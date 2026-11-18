@@ -1,0 +1,104 @@
+# Picture frame (#138) on the emulator, against a fake WebDAV server (account demo / secret):
+#   tools/pps/picture-frame/run-emulator.sh target/debug/paperpaw-emu \
+#     target/debug/paperpaw-dev out/picture-frame
+# The card has three photos in /photos, the server three more. $port is the fake server's (the script's runner sets it).
+# The emulator draws what the X4 draws (the gray passes and the times are the X4's: only the screens are checked here).
+let:server=http://127.0.0.1:$port/photos/
+
+define:quiet {
+  set:help.show=off
+  set:core.sleep-after=0
+  set:core.language=en
+}
+
+test:pf1-home {
+  call:quiet
+  run:picture-frame.open
+  until:Slideshow:20000
+  expect:Fetch photos from the server
+  expect:Photo server
+  expect:3 photos
+  shot:$out/pf1-home.png
+  no-warn
+}
+
+# Without a server nothing is fetched and the message says what to do.
+test:pf2-no-server {
+  select:Fetch photos from the server
+  until:Enter the address:10000
+  shot:$out/pf2-no-server.png
+}
+
+test:pf3-slideshow {
+  back
+  wait:800
+  show:picture-frame.show
+  wait:5000
+  expect-not:No photos
+  expect-not:Loading the photo
+  shot:$out/pf3-slideshow-1.png
+  right
+  wait:5000
+  expect-not:Loading the photo
+  shot:$out/pf3-slideshow-2.png
+  left
+  wait:3000
+  back
+  wait:800
+}
+
+test:pf4-sleep-screen {
+  set:sleep.show=picture-frame.sleep
+  wait:1500
+  show:picture-frame.sleep
+  wait:5000
+  expect-not:No photos
+  shot:$out/pf4-sleep.png
+  back
+  wait:800
+}
+
+# The server refuses the account (no password yet), then takes it.
+test:pf5-server {
+  set:picture-frame.server=$server
+  set:picture-frame.user=demo
+  run:picture-frame.open
+  until:Slideshow:10000
+  select:Fetch photos from the server
+  until:did not accept:20000
+  shot:$out/pf5-denied.png
+  select:Password
+  type-enter:secret
+  wait:1500
+  select:Fetch photos from the server
+  until:Photos fetched:30000
+  expect:6 photos
+  stat:.paperpaw/plugins/picture-frame/cache.txt
+  cat:.paperpaw/plugins/picture-frame/cache.txt
+  shot:$out/pf5-synced.png
+  no-warn
+}
+
+# The fetched photos show too (the slideshow goes through all six).
+test:pf6-slideshow-with-server-photos {
+  back
+  wait:800
+  show:picture-frame.show
+  wait:4000
+  repeat:5:k {
+    right
+    wait:4000
+    expect-not:Loading the photo
+  }
+  shot:$out/pf6-slideshow-last.png
+  back
+}
+
+# Wake-ups never fetch: no request to the server is logged for the sleep screen.
+test:pf7-no-fetch-at-sleep {
+  mark
+  show:picture-frame.sleep
+  wait:3000
+  back
+  no-log:PROPFIND
+}

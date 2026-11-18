@@ -1,0 +1,64 @@
+# Beta 4 suite 01: Home. Focus moves, the Continue card, the tile page, the widgets, edit mode.
+include:common.pps
+
+test:01a-home-focus {
+  call:home
+  expect:Continue reading
+  focus:Continue reading
+  expect-focus:Continue reading
+  focus:Edit
+  expect-focus:Edit
+  left
+  measure:home-focus:n=6:warm=1:settle=3000 {
+    right
+  }
+  # #308: moving the focus is quick and draws once (partial). Times count on the X4 only.
+  assert:home-focus.first_ms.median<=1000:a focus move within a second
+  assert:home-focus.frames.max<=2:redraws only what changed
+  assert:home-focus.first_ms.median<=baseline*1.15:not slower than before
+  no-warn
+}
+
+test:01b-home-continue-card {
+  call:home
+  expect:Continue reading
+  select:Continue reading
+  wait:5000
+  expect-not:Continue reading
+  expect-not:Edit
+  back
+  until:Continue reading:10000
+  expect:Edit
+  no-warn
+}
+
+test:01c-home-tiles-page {
+  call:home
+  page-forward
+  until:Settings:5000
+  expect:Library
+  expect:Plugin store
+  expect:Settings
+  page-back
+  until:Continue reading:5000
+  no-warn
+}
+
+# The widgets on page 1 (clock, date) and the status line.
+test:01d-home-widgets {
+  call:home
+  expect:Continue reading
+  expect-not:--:--
+  no-warn
+}
+
+test:01e-home-edit {
+  call:home
+  select:Edit
+  until:Done:5000
+  expect:Done
+  back
+  wait:1500
+  expect:Edit
+  no-warn
+}

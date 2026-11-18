@@ -1,7 +1,7 @@
 # Progress sync (kosync) on interface 7
 
-Version 1.0.10. Native implementation; remaining host and device acceptance is listed below.
-The store plugin is not linked into the firmware. No version bump is part of this restoration.
+Version 1.0.11. Native implementation; remaining host and device acceptance is listed below.
+The store plugin is not linked into the firmware.
 
 ## Implementation
 

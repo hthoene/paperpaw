@@ -2644,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.18"
+version = "1.0.20"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2676,7 +2676,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2832,6 +2832,7 @@ dependencies = [
  "esp-storage",
  "log",
  "mbedtls-rs",
+ "miniz_oxide",
  "nb 1.1.0",
  "paperpaw-app",
  "paperpaw-core",

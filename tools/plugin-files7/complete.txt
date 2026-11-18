@@ -45,3 +45,6 @@ format-cbz
 format-markdown
 format-epub
 vocabulary
+anki
+picture-frame
+pomodoro

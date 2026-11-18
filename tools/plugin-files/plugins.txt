@@ -5,8 +5,9 @@
 # kept in step, by design: a plugin that became a data plugin (data.toml)
 # leaves this list and stays in `store-plugins` until its code is removed.
 aids reading
+anki learning
 battery system
-# browser news  (no file until the store build moves to interface 7, #228)
+browser news
 calibre library
 diagnostics system
 end-of-book reading
@@ -14,25 +15,27 @@ end-of-book reading
 # format-mobi reading  (no file until the store build moves to interface 7, #228)
 # format-docx reading  (no file until the store build moves to interface 7, #228)
 # format-images reading  (no file until the store build moves to interface 7, #228)
-# joplin notes  (no file until the store build moves to interface 7, #228)
+joplin notes
 keys system
 kosync sync
 koreader sync
-# mail news  (no file until the store build moves to interface 7, #228)
+mail news
 menu-editor look
 # news news  (removed with interface 6; its store file comes with the interface-7 store build, #244)
 notes-overview notes
 notes-vault notes
+picture-frame look
 # picture-home look  (removed with interface 6; its store file comes with the interface-7 store build, #244)
+pomodoro home
 profiles reading
 reading-goal reading
-# readwise notes  (no file until the store build moves to interface 7, #228)
-# read-later-cloud news  (no file until the store build moves to interface 7, #228)
+readwise notes
+read-later-cloud news
 rules system
 translate reading
 stats reading
 vocabulary learning
-# wallabag news  (no file until the store build moves to interface 7, #228)
+wallabag news
 weather home
 # widgets home  (no file until the store build moves to interface 7, #228)
 wikipedia reading

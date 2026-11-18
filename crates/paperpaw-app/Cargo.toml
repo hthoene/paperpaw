@@ -13,7 +13,12 @@ categories = ["no-std"]
 links = "paperpaw-app"
 
 [features]
-default = ["store-plugins", "diagnostics"]
+default = ["store-plugins", "diagnostics", "german"]
+# German's texts built into the program (tables of the kernel's, the app's and
+# the linked plugins' catalogs). The X4's firmware builds without: German is a
+# language pack it carries compressed and writes to the card (#251,
+# `paperpaw_core::LanguageSeed`); the other shells keep it built in.
+german = []
 # Closes the X4's nested-call gate in the kernel again (the X3's firmware builds so):
 # the tests that expect the refusals run with it (CI).
 x4-gate-closed = ["paperpaw-core/x4-gate-closed"]
@@ -131,6 +136,7 @@ native-linked-store = [
     "dep:paperpaw-plugin-end-of-book",
     "dep:paperpaw-plugin-diagnostics",
     "dep:paperpaw-plugin-translate",
+    "dep:paperpaw-plugin-pomodoro",
     "paperpaw-plugin-aids/linked",
     "paperpaw-plugin-fonts-browser/linked",
     "paperpaw-plugin-mail/linked",
@@ -151,6 +157,7 @@ native-linked-store = [
     "paperpaw-plugin-end-of-book/linked",
     "paperpaw-plugin-diagnostics/linked",
     "paperpaw-plugin-translate/linked",
+    "paperpaw-plugin-pomodoro/linked",
 ]
 
 [build-dependencies]
@@ -217,6 +224,7 @@ paperpaw-plugin-calibre = { workspace = true, optional = true }
 paperpaw-plugin-end-of-book = { workspace = true, optional = true }
 paperpaw-plugin-diagnostics = { workspace = true, optional = true }
 paperpaw-plugin-translate = { workspace = true, optional = true }
+paperpaw-plugin-pomodoro = { workspace = true, optional = true }
 paperpaw-plugin-reader.workspace = true
 paperpaw-plugin-settings.workspace = true
 

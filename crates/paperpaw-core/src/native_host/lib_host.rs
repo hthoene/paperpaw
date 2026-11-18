@@ -583,6 +583,14 @@ impl LibWrite for LibraryHost {
         self.catalog_asked.set(false);
     }
 
+    fn card_changed(&self) {
+        self.reads.card_changed();
+        self.cover_retries.set(0);
+        self.cover_failed.set([0; COVER_FAILED]);
+        self.cover_failed_next.set(0);
+        self.cover_job_fails.set(0);
+    }
+
     fn catalog_changed(&self) {
         self.raise_changed(lib_changed::BOOKS | lib_changed::WALK, "");
     }

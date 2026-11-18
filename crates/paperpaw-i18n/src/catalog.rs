@@ -776,6 +776,33 @@ impl Catalog {
         card::compile(&meta, &messages)
     }
 
+    /// The sources of several catalogs of one language as one source: the
+    /// `[meta]` of the first, then the `[messages]` of all, in order. A
+    /// language pack is made of the catalogs of the kernel and every
+    /// plugin this way (`paperpaw-sign catalog-merge`).
+    pub fn merge_sources<'a>(sources: impl IntoIterator<Item = &'a str>) -> String {
+        let mut out = String::new();
+        let mut messages = String::new();
+        for (n, source) in sources.into_iter().enumerate() {
+            if n == 0 {
+                out = meta_text(source);
+                out.push_str("\n[messages]\n");
+            }
+            let mut inside = false;
+            for line in source.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with('[') {
+                    inside = trimmed == "[messages]";
+                } else if inside {
+                    messages.push_str(line);
+                    messages.push('\n');
+                }
+            }
+        }
+        out.push_str(&messages);
+        out
+    }
+
     /// Whether `key` is before the first or after the last key of a
     /// compiled catalog that says them at the end of its meta text (as
     /// [`Catalog::compile`] writes them; one compiled before says none).

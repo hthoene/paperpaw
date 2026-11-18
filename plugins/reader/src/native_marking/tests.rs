@@ -49,7 +49,7 @@ fn a_broken_word_is_said_once_in_the_text_of_chosen_words() {
 
 #[test]
 fn the_bar_has_extend_on_buttons_and_cancel_on_touch() {
-    let last = |touch| *bar::items(touch, None).last().unwrap();
+    let last = |touch| *bar::items(touch, None, true).as_slice().last().unwrap();
     assert_eq!(last(false), Item::Extend);
     assert_eq!(last(true), Item::Cancel);
 }
@@ -57,8 +57,8 @@ fn the_bar_has_extend_on_buttons_and_cancel_on_touch() {
 #[test]
 fn the_bar_names_highlight_and_note_by_what_is_there() {
     let names = |highlight| {
-        let items = bar::items(true, highlight);
-        (items[1], items[2])
+        let items = bar::items(true, highlight, true);
+        (items.as_slice()[1], items.as_slice()[2])
     };
     assert_eq!(names(None), (Item::Highlight, Item::Note));
     assert_eq!(names(Some(false)), (Item::Unhighlight, Item::Note));
@@ -104,13 +104,50 @@ fn the_bar_is_named_by_the_highlight_the_chosen_words_overlap() {
         progress: None,
         stored_ppm: 0,
     });
+    let of =
+        |lo: usize, hi: usize| act::span_of(((0, page[lo].start.offset), (0, page[hi].end.offset)));
     // "one" is clear of it, "two" is in it (and it has a note), "six" is clear.
-    assert_eq!(act::standing(&ctx, (0, 0)), None);
-    assert_eq!(act::standing(&ctx, (1, 1)), Some(true));
-    assert_eq!(act::standing(&ctx, (0, 1)), Some(true));
-    assert_eq!(act::standing(&ctx, (2, 2)), None);
-    // Without the book's highlights, or past the page, nothing overlaps.
+    assert_eq!(act::standing(&ctx, &of(0, 0)), None);
+    assert_eq!(act::standing(&ctx, &of(1, 1)), Some(true));
+    assert_eq!(act::standing(&ctx, &of(0, 1)), Some(true));
+    assert_eq!(act::standing(&ctx, &of(2, 2)), None);
+    // Without the book's highlights nothing overlaps.
     let bare = Ctx::new(Locator::START, &page, "", "", "", BOX);
-    assert_eq!(act::standing(&bare, (1, 1)), None);
-    assert_eq!(act::standing(&ctx, (5, 6)), None);
+    assert_eq!(act::standing(&bare, &of(1, 1)), None);
+}
+
+#[test]
+fn the_bar_of_a_stretch_over_pages_has_no_look_up_and_copy() {
+    let items = |one_page| bar::items(false, None, one_page);
+    let all = items(true);
+    assert_eq!(all.as_slice().len(), 5);
+    assert_eq!(all.highlight_at(), 1);
+    let over = items(false);
+    assert_eq!(over.as_slice(), [Item::Highlight, Item::Note, Item::Extend]);
+    assert_eq!(over.highlight_at(), 0);
+}
+
+#[test]
+fn the_selecting_keys_are_the_actions_the_marking_knows() {
+    let names = [
+        super::WIDEN,
+        super::HOLD_LEFT,
+        super::HOLD_RIGHT,
+        super::HOLD_UP,
+        super::HOLD_DOWN,
+    ];
+    let declared: alloc::vec::Vec<&str> = crate::declarations::SELECTING_KEYS
+        .iter()
+        .map(|(_, action)| *action)
+        .collect();
+    assert_eq!(declared, names);
+    assert_eq!(crate::declarations::SELECTING_LAYER, super::LAYER);
+    for name in names {
+        let short = name.strip_prefix("reader.").unwrap();
+        assert!(
+            crate::declarations::ACTIONS
+                .iter()
+                .any(|(n, _)| *n == short)
+        );
+    }
 }
