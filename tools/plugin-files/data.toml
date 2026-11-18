@@ -152,11 +152,14 @@ de.description = "Bücher auf Hindi, Marathi, Nepali und Sanskrit in Noto Serif 
 # script-ethiopic (#159): the Ethiopic syllabary with its punctuation (the
 # wordspace ፡, the full stop ።) and numerals, and the Supplement, Extended and
 # Extended-A blocks, 495 characters from Noto Serif Ethiopic: seven sizes, a
-# pack for each of Literata's faces and the interface's font, 6.2 MiB on the card.
+# pack for each weight that the faces it stands for share (the regular one
+# Literata's regular and italic faces and the interface's font; a comma list
+# in `[extends]`, formats 5 as script-bengali's), 2.5 MiB on the card.
 [script-ethiopic]
 version = "1.0.0"
 group = "languages"
 licence = "OFL-1.1"
+formats = 5
 devices = ["x4", "x4-pro", "x4-classic"]
 off_by_default = true
 build = "tools/script-pack.py"
