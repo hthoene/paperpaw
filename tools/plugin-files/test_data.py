@@ -18,6 +18,7 @@ PACKS = {
     "script-hebrew": "1.1.3",
     "script-greek": "1.0.3",
     "script-cyrillic": "1.0.3",
+    "script-ethiopic": "1.0.0",
     "script-korean": "1.1.4",
     "script-korean-extra": "1.0.3",
 }

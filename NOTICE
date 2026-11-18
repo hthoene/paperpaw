@@ -31,6 +31,8 @@ Version 1.1:
   (https://github.com/notofonts/arabic), without Reserved Font Name
 - Noto Serif Hebrew, Copyright 2022 The Noto Project Authors
   (https://github.com/notofonts/hebrew), without Reserved Font Name
+- Noto Serif Ethiopic, Copyright 2022 The Noto Project Authors
+  (https://github.com/notofonts/ethiopic), without Reserved Font Name
 - Noto Serif SC, Noto Serif TC and Noto Serif JP, Copyright 2017-2024
   Adobe (http://www.adobe.com/), from github.com/google/fonts without
   Reserved Font Name, cut to the characters of the Chinese and Japanese
@@ -48,7 +50,8 @@ Version 1.1:
   License, Version 1.1, as the font it is derived from.
 
 Each of those plugins carries the licence's text with its packs
-(tools/fonts/NotoNaskhArabic-OFL.txt, NotoSerifHebrew-OFL.txt, the text
+(tools/fonts/NotoNaskhArabic-OFL.txt, NotoSerifHebrew-OFL.txt,
+NotoSerifEthiopic-OFL.txt, the text
 given for Literata; NanumMyeongjo-OFL.txt, the same licence under its
 own copyright and Reserved Font Names).
 

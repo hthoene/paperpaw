@@ -3,8 +3,10 @@ whose built-in fonts lack them (the Xteink X4 carries Latin only): packs
 read from the card a glyph at a time and asked for what the built-in
 fonts lack. Cyrillic, Greek and Vietnamese come from Literata's faces and, for the
 interface's font, Source Sans 3; Arabic from
-Noto Naskh Arabic and Hebrew from Noto Serif Hebrew (tools/fonts), one
-pack for each built-in face they extend, the interface's font too.
+Noto Naskh Arabic, Hebrew from Noto Serif Hebrew and Ethiopic (Amharic,
+Tigrinya and the other languages written in it) from Noto Serif Ethiopic
+(tools/fonts), one pack for each built-in face they extend, the
+interface's font too.
 Chinese (the 6,763 ideographs of GB 2312, or the 5,401 frequently used ones
 of Big5 for Traditional) and Japanese (kana and 2,998 kanji: the Joyo and JIS X
 0208 level 1) come from Noto Serif SC, TC and JP in four sizes, as Korean's.
@@ -112,6 +114,12 @@ SETS = {
                OTHER_FONTS / "NotoNaskhArabic-OFL.txt", "Noto Naskh Arabic", None),
     "hebrew": ("Hebrew", upright("hebrew", OTHER_FONTS / "NotoSerifHebrew.ttf"),
                OTHER_FONTS / "NotoSerifHebrew-OFL.txt", "Noto Serif Hebrew", None),
+    # The syllabary with its punctuation and numerals (U+1200 to U+137F) and the
+    # blocks the font has for the other languages written in it: Supplement,
+    # Extended and Extended-A. (Extended-B, U+1E7E0 to U+1E7FF, is left out.)
+    "ethiopic": ("Ethiopic", upright("ethiopic", OTHER_FONTS / "NotoSerifEthiopic.ttf"),
+                 OTHER_FONTS / "NotoSerifEthiopic-OFL.txt", "Noto Serif Ethiopic",
+                 ["U+1200-139F", "U+2D80-2DDF", "U+AB00-AB2F"]),
     "korean": ("Korean", KOREAN, OTHER_FONTS / "NanumMyeongjo-OFL.txt", "a Korean book face",
                [f"@{ROOT / 'tools/fontgen/sets/hangul-ks.txt'}",
                 "cjk-punctuation", "hangul-jamo", "fullwidth"]),
