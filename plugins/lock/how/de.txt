@@ -1,4 +1,4 @@
-Die Displaysperre fragt nach einer PIN, einem Muster oder einem Passwort, wenn PaperPaw startet und wenn das Gerät aufwacht. Anfangs ist sie aus. Sie hält andere vom einfachen Benutzen ab, nicht jemanden, der die Dateien nimmt.
+Die Displaysperre fragt nach einer PIN, einem Muster oder einem Passwort, wenn PaperPaw startet und wenn das Gerät aufwacht. Anfangs ist sie aus. Sie schützt nur vor beiläufigem Benutzen: Code und Zahl der falschen Versuche liegen auf der SD-Karte, wer die Karte herausnimmt, bearbeitet oder tauscht, kommt an der Sperre vorbei.
 
 Richte sie in den Einstellungen unter Gerät, Displaysperre ein: Gib den bisherigen Code ein, falls es einen gibt, wähle die Art und dann den neuen Code zweimal. Ein Muster gibt es nur auf Touchscreens.
 
