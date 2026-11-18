@@ -2,6 +2,9 @@
 # Numbers behind the asserts: the X4 runs of Nov 17 (image 18A, #3464): a page turn 0.82 s, Back -> Home about 1 s.
 # They SKIP on the emulator (times, gray passes) and count on the X4.
 let:book=books/alice-in-wonderland.epub
+# The X4 reports ini keys of plugin settings as unknown while it reads the file at the start (home.continue.font was in the 18A run too),
+# although the values apply (setting: prints them). Product observation, listed in the report; it must not fail every test that restarts.
+known-warn:user configuration, line \d+: .*unknown setting
 
 # Home, wherever we are. `slot:` opens it as the Home button does, with no keys that could land in a dialog.
 define:home {
@@ -36,6 +39,21 @@ define:quiet-device {
   # Home has a Continue card once a book was read: open one and leave it (a fresh card has none).
   open:$book
   wait:6000
+  slot:core.home
+  until:Edit:15000
+}
+
+# After a start the first Right on Home has opened the quick panel on the X4 (test 01-first-key-after-start, a product bug while it fails):
+# the tests that restart press one key first and close the panel, so the keys they use afterwards do what they say.
+define:prime-keys {
+  slot:core.home
+  until:Edit:15000
+  right
+  wait:1500
+  if:shows:Power mode {
+    back
+    wait:1200
+  }
   slot:core.home
   until:Edit:15000
 }

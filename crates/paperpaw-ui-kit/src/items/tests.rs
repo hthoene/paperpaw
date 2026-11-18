@@ -465,7 +465,7 @@ fn a_head_as_high_as_the_page_leaves_room_for_the_first_row() {
 
 fn measured_list() -> ItemList {
     let mut list = ItemList::new(items("hrrr"));
-    list.kept = vec![10, 20, 30, 40];
+    list.keep_heights(vec![10, 20, 30, 40], 1);
     list
 }
 
@@ -473,16 +473,16 @@ fn measured_list() -> ItemList {
 fn kept_heights_are_dropped_by_whatever_changes_an_item() {
     let mut list = measured_list();
     list.replace(items("hrr"));
-    assert!(list.kept.is_empty());
+    assert!(list.kept.is_none());
     let mut list = measured_list();
     list.push(items("r").remove(0)).unwrap();
-    assert!(list.kept.is_empty());
+    assert!(list.kept.is_none());
     let mut list = measured_list();
     assert!(list.set_value(1, String::from("3")));
-    assert!(list.kept.is_empty());
+    assert!(list.kept.is_none());
     let mut list = measured_list();
     list.wipe();
-    assert!(list.kept.is_empty());
+    assert!(list.kept.is_none());
 }
 
 fn noted(notes: &[&str]) -> ItemList {
