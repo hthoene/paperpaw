@@ -155,7 +155,9 @@ pub enum BlockKind {
     /// given here when first used and never reused; these are reserved:
     /// 0 unspecified, 1 a table's row (now [`BlockKind::TableRow`]), 2 a list
     /// item, 3 a rule (a line across), 4 a figure's caption, 5 an aside
-    /// (a sidebar, a note shown in place), 6 a verse line, 7 maths.
+    /// (a sidebar, a note shown in place, a callout: the layout draws a
+    /// box around its lines), 6 a verse line, 7 maths, 8 a paragraph of a
+    /// block quote (the layout draws a rule at the start of its lines).
     ///
     /// A build that doesn't know a kind lays it out as a paragraph
     /// without a first-line indent, as it does headings and preformatted

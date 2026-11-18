@@ -936,6 +936,7 @@ fn reserved_parts_are_built_whole() {
 mod drop_cap;
 mod hanging;
 mod rtl;
+mod table;
 
 /// The bits of `ScriptOptions` reach the line breaking of paperpaw-text, and
 /// each means what its name says, with no other effect (line breaking, A5).
