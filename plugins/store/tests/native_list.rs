@@ -125,6 +125,21 @@ fn what_the_device_has_decides_what_may_be_installed() {
     assert_eq!(ids, ["fresh"]);
 }
 
+/// The library says a page's description as `how`.
+#[test]
+fn a_page_reads_its_description_from_how() {
+    let text = format!(
+        r#"{{"format": 2, "plugin": {{"id": "airy", "name": "Airy", "summary": "s", "group": "look",
+ "kind": "data", "author": "A", "licence": "MIT", "how": "It does things.\n\nMore.",
+ "latest": {{"version": "1.2.0", "sdk": "0.4", "formats": 1, "size": 9,
+   "files": [{{"path": "plugin.ini", "url": "f/plugin.ini", "size": 9, "sha256": "{SHA256}"}}]}}}}}}"#
+    );
+    let mut reader = PageReader::new(device(None));
+    reader.feed(text.as_bytes()).unwrap();
+    let page = reader.finish().unwrap().expect("the page fits");
+    assert_eq!(page.more.description, "It does things.\n\nMore.");
+}
+
 #[test]
 fn a_page_is_read_with_its_files_keys_and_pictures() {
     let text = format!(

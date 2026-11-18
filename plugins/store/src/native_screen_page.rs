@@ -64,6 +64,9 @@ pub const HOW_FILE: &str = "how.txt";
 /// A plugin that takes more memory than this while it runs is said to be
 /// tight on devices with little.
 pub const TIGHT_HEAP: u64 = 32 * 1024;
+/// The most of the description's first paragraph the page itself shows, in
+/// bytes (four lines of body text, wrapped with an ellipsis where longer).
+pub const LEAD_BYTES: usize = 320;
 /// The mark between the facts of the version line.
 const DOT: &str = " \u{b7} ";
 
@@ -431,6 +434,30 @@ pub fn progress_text(done: u32, total: u32, mark: &str) -> Result<String, Error>
     concat(&[&done, " / ", &size_text(u64::from(total), mark)?])
 }
 
+/// What the page shows of the plugin's description: its first paragraph on one
+/// line, cut at a character's end. Empty where there is none. The whole text is
+/// one row away (*How it works*).
+///
+/// # Errors
+/// `NoMemory`.
+pub fn lead(description: &str) -> Result<String, Error> {
+    let first = description.trim().split("\n\n").next().unwrap_or_default();
+    let mut out = String::new();
+    out.try_reserve(first.len().min(LEAD_BYTES))
+        .map_err(|_| Error::NoMemory)?;
+    for word in first.split_whitespace() {
+        let room = LEAD_BYTES.saturating_sub(out.len() + usize::from(!out.is_empty()));
+        if word.len() > room {
+            break;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    Ok(out)
+}
+
 /// The text *How it works* opens in the reader: the name, a blank line, the
 /// description.
 ///
@@ -733,6 +760,19 @@ impl View {
         }
         push(items, summary)?;
         push(targets, None)?;
+        // What it does at more length (the library's description, in the
+        // reader's language): its first paragraph, in the same text.
+        let lead = lead(page.map_or("", |p| &p.more.description))?;
+        if !lead.is_empty() && lead != entry.summary {
+            let mut row = Item::row(&lead, "")?;
+            if let Item::Row(r) = &mut row {
+                r.whole = true;
+                r.plain = true;
+                r.disabled = true;
+            }
+            push(items, row)?;
+            push(targets, None)?;
+        }
         let facts = facts(&FactInput {
             entry,
             more: page.map(|p| &p.more),

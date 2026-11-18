@@ -10,8 +10,8 @@ use paperpaw_plugin_store::native_item::More;
 use paperpaw_plugin_store::native_model::Entry;
 use paperpaw_plugin_store::native_page::{Installed, Kind, Origin, Row};
 use paperpaw_plugin_store::native_screen_page::{
-    Check, Choice, Fact, FactInput, Go, Note, Value, facts, first_action, go, how_text, note,
-    progress_text, short_key, size_text, title_key, value_of,
+    Check, Choice, Fact, FactInput, Go, LEAD_BYTES, Note, Value, facts, first_action, go, how_text,
+    lead, note, progress_text, short_key, size_text, title_key, value_of,
 };
 use paperpaw_plugin_store::native_screens::{Step, Trouble};
 
@@ -326,6 +326,20 @@ fn how_it_works_opens_the_name_and_the_description() {
         how_text("Clock", "It ticks.").unwrap(),
         "Clock\n\nIt ticks.\n"
     );
+}
+
+#[test]
+fn the_page_shows_the_first_paragraph_of_the_description() {
+    assert_eq!(lead("").unwrap(), "");
+    assert_eq!(
+        lead("It ticks\nonce a second.\n\nSecond paragraph.").unwrap(),
+        "It ticks once a second."
+    );
+    let long = "word ".repeat(200);
+    let cut = lead(&long).unwrap();
+    assert!(cut.len() <= LEAD_BYTES && cut.ends_with("word") && cut.len() > LEAD_BYTES - 6);
+    // A single word longer than the lead is left out, never cut in two.
+    assert!(lead(&"\u{e4}".repeat(400)).unwrap().is_empty());
 }
 
 #[test]
