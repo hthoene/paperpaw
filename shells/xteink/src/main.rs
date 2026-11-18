@@ -678,6 +678,9 @@ fn prepare() -> Ready {
         interrupt: board.radio.1,
         wifi: board.radio.0,
     });
+    // A firmware check that finds no room asks the main loop for it (#273).
+    let update_room = alloc::rc::Rc::new(paperpaw_x4::update_room::Gate::new());
+    network.set_update_room(update_room.clone());
     input::start(input::Sampler::new(
         PeriodicTimer::new(board.timers.timer0),
         board.keys,
@@ -746,7 +749,7 @@ fn prepare() -> Ready {
     Ready {
         firmware: ota.as_ref().map(ota::Ota::firmware),
         firmware_host: match ota.as_ref() {
-            Some(ota) => Box::new(ota.host()),
+            Some(ota) => Box::new(ota.host(update_room)),
             None => Box::new(paperpaw_x4::host_jobs::NoFirmware::new(native::FAMILY)),
         },
         panel,

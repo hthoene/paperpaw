@@ -108,6 +108,8 @@ pub struct Network {
     sync_failed: bool,
     #[cfg(feature = "bluetooth")]
     bluetooth: crate::bluetooth::Bluetooth,
+    /// Where a firmware check asks for room (#273).
+    update_room: Option<alloc::rc::Rc<paperpaw_x4::update_room::Gate>>,
 }
 
 impl Network {
@@ -131,6 +133,49 @@ impl Network {
             sync_failed: false,
             #[cfg(feature = "bluetooth")]
             bluetooth: crate::bluetooth::Bluetooth::new(),
+            update_room: None,
+        }
+    }
+
+    /// Gives room to the firmware checks that ask `gate` for it.
+    pub fn set_update_room(&mut self, gate: alloc::rc::Rc<paperpaw_x4::update_room::Gate>) {
+        self.update_room = Some(gate);
+    }
+
+    /// A firmware check's request for room (#273): idle plugins are parked
+    /// and the radio goes down, unless data moves over it (the check is of a
+    /// file that was downloaded; the download ended before it). The check
+    /// goes on once the radio is down. Logs the heap where a check begins.
+    fn give_update_room(&mut self, kernel: &mut Kernel) {
+        let Some(gate) = self.update_room.clone() else {
+            return;
+        };
+        if gate.take_began() {
+            log::info!(
+                "update check: {} B free, largest block {} B, radio {}",
+                esp_alloc::HEAP.free(),
+                crate::largest_block(),
+                if self.radio.is_on() { "on" } else { "off" }
+            );
+        }
+        if gate.take_asked() {
+            let parked = kernel.make_room();
+            if self.radio.is_on() && !self.moving() {
+                self.radio.apply(WifiCommand::Off);
+            }
+            log::info!(
+                "update check: no room, {parked} idle plugins parked, radio going down: {} B free, largest block {} B",
+                esp_alloc::HEAP.free(),
+                crate::largest_block()
+            );
+        }
+        if gate.shedding() && !self.radio.is_on() {
+            gate.shed();
+            log::info!(
+                "update check: room given: {} B free, largest block {} B",
+                esp_alloc::HEAP.free(),
+                crate::largest_block()
+            );
         }
     }
 
@@ -243,6 +288,7 @@ impl Network {
                 );
             }
         }
+        self.give_update_room(kernel);
         self.serve(kernel, now, clock_ready, &mut effects);
         #[cfg(feature = "ppn5")]
         if let Some(host) = &self.host {

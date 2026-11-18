@@ -13,6 +13,38 @@
 
 mod common;
 
+/// A heap that cannot give a large piece while a test says so: the radio's
+/// buffers of the device, which leave no room for a packed update's window.
+mod tight {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    /// Pieces this large and larger are refused while [`SHORT`] is set.
+    const LARGE: usize = 32 * 1024;
+
+    thread_local! {
+        pub static SHORT: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub struct Heap;
+
+    // SAFETY: every call goes to the system allocator, or refuses (null).
+    unsafe impl GlobalAlloc for Heap {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            if layout.size() >= LARGE && SHORT.try_with(Cell::get).unwrap_or(false) {
+                return std::ptr::null_mut();
+            }
+            unsafe { System.alloc(layout) }
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(ptr, layout) }
+        }
+    }
+}
+
+#[global_allocator]
+static HEAP: tight::Heap = tight::Heap;
+
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -903,4 +935,71 @@ fn the_interface_6_install_refuses_a_packed_update() {
     let card = Card::with(UPDATE, &packed(&image, &SEED));
     assert!(device.updates.begin(&card, UPDATE, None, false).is_err());
     assert!(!device.updates.installing());
+}
+
+/// Steps of a check until it ends (a gate that asks is answered by `give`,
+/// once, at the first step that waits).
+fn check_with_room(
+    host: &mut impl FirmwareHost,
+    card: &Card,
+    gate: &paperpaw_x4::update_room::Gate,
+    give: impl Fn(),
+) -> Result<paperpaw_platform::CheckFacts, Reason> {
+    host.begin_check(UPDATE)?;
+    for _ in 0..100_000 {
+        if gate.take_asked() {
+            give();
+            gate.shed();
+        }
+        match host.check_step(card, &mut |_| {}) {
+            Step::Progress { .. } => {}
+            Step::Done(facts) => return Ok(facts),
+            Step::Failed(reason) => return Err(reason),
+        }
+    }
+    panic!("the check never ended");
+}
+
+/// The window of a packed file that the heap cannot give is asked for from the
+/// main loop: the check waits, and goes on from its start once room is given.
+#[test]
+fn a_packed_check_without_room_asks_for_it_and_goes_on_once_it_is_given() {
+    let key = paperpaw_update::public_key(&SEED);
+    let device = Device::started(vec![key]);
+    let image = image_0_6(&["paperpaw-plugin-stats"]);
+    let card = Card::with(UPDATE, &packed(&image, &SEED));
+    let gate = Rc::new(paperpaw_x4::update_room::Gate::new());
+    let (mut host, _) = shared(device);
+    host = host.with_room(gate.clone());
+    tight::SHORT.with(|short| short.set(true));
+    let facts = check_with_room(&mut host, &card, &gate, || {
+        tight::SHORT.with(|short| short.set(false));
+    });
+    tight::SHORT.with(|short| short.set(false));
+    let facts = facts.unwrap();
+    assert_eq!(facts.sha256, paperpaw_digest_sha256(&image));
+}
+
+/// No room, and none given: the check ends with the device's reason for it,
+/// not "other", whether there is a gate that is answered or none.
+#[test]
+fn a_packed_check_that_finds_no_room_ends_with_the_no_memory_reason() {
+    let key = paperpaw_update::public_key(&SEED);
+    let image = image_0_6(&["paperpaw-plugin-stats"]);
+    let card = Card::with(UPDATE, &packed(&image, &SEED));
+    for with_gate in [false, true] {
+        let (mut host, _) = shared(Device::started(vec![key]));
+        let gate = Rc::new(paperpaw_x4::update_room::Gate::new());
+        if with_gate {
+            host = host.with_room(gate.clone());
+        }
+        tight::SHORT.with(|short| short.set(true));
+        let ended = check_with_room(&mut host, &card, &gate, || {});
+        tight::SHORT.with(|short| short.set(false));
+        assert_eq!(
+            ended.err(),
+            Some(paperpaw_x4::updates::NO_MEMORY_REASON),
+            "gate: {with_gate}"
+        );
+    }
 }

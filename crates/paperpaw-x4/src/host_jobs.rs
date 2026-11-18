@@ -10,6 +10,7 @@
 //! these devices (`shells/desktop`): a device that wired these differently
 //! would hide a gap from the host tests.
 use alloc::rc::Rc;
+use alloc::string::String;
 use core::cell::RefCell;
 
 use paperpaw_core::Kernel;
@@ -22,7 +23,8 @@ use paperpaw_sdk::firmware::{CHIP_ESP32_C3, CHIP_ESP32_S3};
 
 use crate::native_offer::{Wired, card_host};
 use crate::ota::Flash;
-use crate::updates::Updates;
+use crate::update_room::{Gate, WAIT_STEPS};
+use crate::updates::{NO_MEMORY_REASON, Updates};
 
 /// Which chip family a device is of: it decides the plugin files the loader
 /// reads and the chip an image is for.
@@ -169,6 +171,19 @@ pub struct SharedUpdates<F> {
     updates: Rc<RefCell<Updates<F>>>,
     version: &'static str,
     project: &'static str,
+    /// Where the main loop is asked for room, where there is one (#273).
+    room: Option<Rc<Gate>>,
+    /// The open check: its file, and how it stands with its one more try.
+    check: Option<Check>,
+}
+
+/// A check of a file that may begin again once the main loop gave room.
+struct Check {
+    path: String,
+    /// Asked for room and waiting for it: the steps spent.
+    waited: Option<u32>,
+    /// The one more try was made.
+    retried: bool,
 }
 
 impl<F> core::fmt::Debug for SharedUpdates<F> {
@@ -191,7 +206,71 @@ impl<F: Flash> SharedUpdates<F> {
             updates,
             version,
             project,
+            room: None,
+            check: None,
         }
+    }
+
+    /// A check that finds no room for its start asks the main loop through
+    /// `gate` to make some and begins again once (`update_room`). Without
+    /// one it ends with [`NO_MEMORY_REASON`] at once.
+    #[must_use]
+    pub fn with_room(mut self, gate: Rc<Gate>) -> Self {
+        self.room = Some(gate);
+        self
+    }
+
+    /// The check's file kept for its one more try; where there is no room
+    /// even for that, the check has none.
+    fn keep(&mut self, path: &str) {
+        self.check = None;
+        let mut owned = String::new();
+        if self.room.is_some() && owned.try_reserve_exact(path.len()).is_ok() {
+            owned.push_str(path);
+            self.check = Some(Check {
+                path: owned,
+                waited: None,
+                retried: false,
+            });
+        }
+    }
+
+    /// The check's room is asked for: it waits. `false` where it cannot (no
+    /// gate, no file kept, or it did try again already).
+    fn wait_for_room(&mut self) -> bool {
+        let (Some(gate), Some(check)) = (&self.room, self.check.as_mut()) else {
+            return false;
+        };
+        if check.retried {
+            return false;
+        }
+        gate.ask();
+        check.waited = Some(0);
+        true
+    }
+}
+
+impl<F: Flash> SharedUpdates<F> {
+    /// A step of a check that waits for room: still waiting (`Some`), or it
+    /// begins again now and its steps go on (`None`) or end here.
+    fn waiting_step(&mut self) -> Option<Step<CheckFacts>> {
+        let ready = self.room.as_ref().is_some_and(|gate| gate.ready());
+        let check = self.check.as_mut()?;
+        let waited = check.waited.as_mut()?;
+        if !ready && *waited < WAIT_STEPS {
+            *waited += 1;
+            return Some(Step::Progress { done: 0, total: 0 });
+        }
+        if let Some(gate) = &self.room {
+            gate.rest();
+        }
+        check.waited = None;
+        check.retried = true;
+        let begun = match self.updates.try_borrow_mut() {
+            Ok(mut updates) => updates.begin_check(&check.path),
+            Err(_) => Err(Reason::OTHER),
+        };
+        begun.err().map(Step::Failed)
     }
 }
 
@@ -208,10 +287,22 @@ impl<F: Flash> FirmwareHost for SharedUpdates<F> {
     }
 
     fn begin_check(&mut self, path: &str) -> Result<(), Reason> {
-        self.updates
+        if let Some(gate) = &self.room {
+            gate.rest();
+            gate.note_began();
+        }
+        self.keep(path);
+        let begun = self
+            .updates
             .try_borrow_mut()
             .map_err(|_| Reason::OTHER)?
-            .begin_check(path)
+            .begin_check(path);
+        match begun {
+            // Its buffer has no room: the main loop is asked, and the check
+            // begins in its first steps.
+            Err(reason) if reason == NO_MEMORY_REASON && self.wait_for_room() => Ok(()),
+            other => other,
+        }
     }
 
     fn check_step(
@@ -219,9 +310,19 @@ impl<F: Flash> FirmwareHost for SharedUpdates<F> {
         storage: &dyn Storage,
         built_in: &mut dyn FnMut(&str),
     ) -> Step<CheckFacts> {
-        match self.updates.try_borrow_mut() {
+        if let Some(step) = self.waiting_step() {
+            return step;
+        }
+        let step = match self.updates.try_borrow_mut() {
             Ok(mut updates) => updates.check_step(storage, built_in),
             Err(_) => Step::Failed(Reason::OTHER),
+        };
+        match step {
+            // The start (the window of a packed file) found no room.
+            Step::Failed(reason) if reason == NO_MEMORY_REASON && self.wait_for_room() => {
+                Step::Progress { done: 0, total: 0 }
+            }
+            other => other,
         }
     }
 

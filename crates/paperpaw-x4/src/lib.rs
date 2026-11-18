@@ -96,6 +96,7 @@ pub mod tls_trust;
 pub mod tls_watch;
 pub mod uc8179;
 pub mod uc8253;
+pub mod update_room;
 pub mod updates;
 pub mod upload;
 pub mod usb_drive;

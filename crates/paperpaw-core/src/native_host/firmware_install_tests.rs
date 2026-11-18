@@ -657,3 +657,24 @@ fn another_plugins_request_number_is_not_told_and_a_check_is_no_install_request(
     assert_eq!(machine.last(OWNER).0, 4);
     assert_eq!(machine.last(OTHER), (0, 0), "failed");
 }
+
+/// A step that found no room on the heap (the device's reason 22, which has
+/// no number of its own on the wire) ends as reason 1 for the plugin, at the
+/// start of a check and in its steps.
+#[test]
+fn no_room_on_the_device_reaches_the_plugin_as_reason_1() {
+    for stage in [Stage::BeginCheck, Stage::Check] {
+        let mut machine = FirmwareInstall::new();
+        let mut fw = fake();
+        fw.fail = Some((stage, 0, Reason(NO_MEMORY)));
+        let outcome = match machine.start(install(OWNER, 1, 0), &mut fw) {
+            Some(outcome) => outcome,
+            None => match run(&mut machine, &mut fw) {
+                Event::Ended(outcome) => outcome,
+                other => panic!("{stage:?}: {other:?}"),
+            },
+        };
+        assert_eq!(outcome.reason, Reason::OTHER.0, "{stage:?}");
+        assert_eq!(machine.last(OWNER), (1, Reason::OTHER.0), "{stage:?}");
+    }
+}
