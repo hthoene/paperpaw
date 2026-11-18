@@ -101,6 +101,7 @@ pub fn paperpaw_i18n::Catalog::digits(&self) -> [char; 10]
 pub fn paperpaw_i18n::Catalog::direction(&self) -> paperpaw_lang::Direction
 pub fn paperpaw_i18n::Catalog::forget_read(&mut self)
 pub fn paperpaw_i18n::Catalog::get(&self, &str) -> core::option::Option<&str>
+pub fn paperpaw_i18n::Catalog::get_copy(&self, &str) -> core::option::Option<alloc::borrow::Cow<'_, str>>
 pub fn paperpaw_i18n::Catalog::index_on_heap(&self) -> usize
 pub fn paperpaw_i18n::Catalog::is_empty(&self) -> bool
 pub fn paperpaw_i18n::Catalog::is_loaded(&self) -> bool
@@ -133,6 +134,7 @@ pub fn paperpaw_i18n::Translator::fixed_indexes(&mut self, paperpaw_i18n::FixedI
 pub fn paperpaw_i18n::Translator::forget_read(&mut self)
 pub fn paperpaw_i18n::Translator::format(&self, &str, &[(&str, paperpaw_i18n::Arg<'_>)]) -> alloc::string::String
 pub fn paperpaw_i18n::Translator::get(&self, &str) -> core::option::Option<&str>
+pub fn paperpaw_i18n::Translator::get_copy(&self, &str) -> core::option::Option<alloc::borrow::Cow<'_, str>>
 pub fn paperpaw_i18n::Translator::indexes_on_heap(&self) -> usize
 pub fn paperpaw_i18n::Translator::language(&self) -> &str
 pub fn paperpaw_i18n::Translator::languages(&self) -> alloc::vec::Vec<(&str, &str)>

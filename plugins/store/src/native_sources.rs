@@ -36,7 +36,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::digest::{hex, sha256::Sha256};
-use paperpaw_sdk::native::{Error, signature::verify_message};
+use paperpaw_sdk::native::Error;
 use paperpaw_sdk::{DirEntry, Storage, StorageError};
 use paperpaw_ui_kit::{
     mem::push,
@@ -455,6 +455,20 @@ pub enum Verdict {
     Official,
 }
 
+/// Whether `signature` is `key`'s over `message`.
+#[cfg(not(all(target_arch = "xtensa", not(feature = "linked"))))]
+fn verified(key: &[u8; 32], message: &[u8], signature: &[u8; 64]) -> bool {
+    paperpaw_sdk::native::signature::verify_message(key, message, signature)
+}
+
+/// A plugin file on the S3 takes no frame of 2,048 B or more, and an Ed25519
+/// check takes about 4 KiB of stack: there no signature is taken for good,
+/// so a community source's list is not read (the library of PaperPaw is).
+#[cfg(all(target_arch = "xtensa", not(feature = "linked")))]
+fn verified(_key: &[u8; 32], _message: &[u8], _signature: &[u8; 64]) -> bool {
+    false
+}
+
 /// Judges a community source's list with the SHA-256 `digest` by what its
 /// signature file says (`signed`) and the key kept of the source (`trust`).
 #[must_use]
@@ -468,7 +482,7 @@ pub fn judge(trust: Trust, signed: Option<&Signed>, digest: &[u8; 32]) -> Verdic
     if trust.key().is_some_and(|kept| *kept != signed.key) {
         return Verdict::KeyChanged;
     }
-    if !verify_message(&signed.key, &message(digest), &signed.signature) {
+    if !verified(&signed.key, &message(digest), &signed.signature) {
         return Verdict::Unsigned;
     }
     Verdict::Trusted {
