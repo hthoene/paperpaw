@@ -1,0 +1,9 @@
+Smart Home zeigt Werte und Schalter deines eigenen Home Assistant: Temperaturen, Luftfeuchte, Energie, Türen und Fenster, Lampen, Schalter und Szenen. Es spricht über die REST-Schnittstelle direkt mit deinem Server in deinem Heimnetz; kein anderer Dienst ist beteiligt.
+
+Öffne Smart Home im Werkzeugmenü, dann Verbindung: Gib die Adresse deines Home Assistant ein (zum Beispiel http://homeassistant.local:8123) und ein langlebiges Zugangstoken (du erstellst es unten auf der Profilseite deines Home Assistant). Das Token liegt bei den Passwörtern und Schlüsseln, nie in einer Einstellungsdatei. Einfaches http wird nur für Adressen deines Heimnetzes benutzt; für einen Server anderswo schalte in den Einstellungen „Server außerhalb des Heimnetzes“ ein und nimm https mit gültigem Zertifikat.
+
+Geräte wählen öffnet eine Liste dessen, was dein Server hat: Suche nach Name oder ID und wähle ein Gerät, um es anzuzeigen (noch einmal wählen nimmt es weg). Du kannst ihm einen Raum geben, der es in der Übersicht und in den Raum-Widgets gruppiert. Bis zu 24 Geräte werden gemerkt. In der Übersicht schaltet das Wählen einer Lampe, eines Schalters oder einer Szene; die Zeile zeigt die Antwort des Servers. Einen Sensor, den du wählst, liest das Gerät neu.
+
+Widgets (Startbildschirm gedrückt halten, dann ein Widget hinzufügen): Smart-Home-Wert zeigt einen Wert groß, Gruppe listet die Geräte eines Raums, Schalter ist ein Knopf für eine Lampe oder einen Schalter, und Raum ist eine Karte mit den Werten und Schaltern eines Raums. In den Einstellungen jedes Widgets steht, welches Gerät oder welchen Raum es zeigt.
+
+Das Zuhause wird gelesen, wenn du die Übersicht öffnest, wenn du es verlangst (die Zeile Jetzt aktualisieren oder ein Tipp auf ein Wert- oder Gruppen-Widget), wenn das Gerät aufwacht und WLAN schon verbunden ist, und nach dem eingestellten Takt, solange das Ladegerät steckt. Es schaltet das Funkmodul nie von selbst ein und hält es nie an.

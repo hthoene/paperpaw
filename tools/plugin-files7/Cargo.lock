@@ -189,6 +189,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-edge-light"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-end-of-book"
 version = "1.0.5"
 dependencies = [
@@ -233,6 +241,7 @@ dependencies = [
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",
+ "paperpaw-plugin-edge-light",
  "paperpaw-plugin-end-of-book",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-file-sync",
@@ -277,6 +286,7 @@ dependencies = [
  "paperpaw-plugin-settings",
  "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
+ "paperpaw-plugin-smart-home",
  "paperpaw-plugin-stats",
  "paperpaw-plugin-store",
  "paperpaw-plugin-tasks",
@@ -602,6 +612,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-sleep"
 version = "1.0.6"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-smart-home"
+version = "1.0.0"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
