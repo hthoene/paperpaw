@@ -192,7 +192,9 @@ picks up the device from using it: from reading what is open, changing
 settings or seeing passwords on screen.
 It is a convenience, not encryption: the card is as readable as without
 it, and whoever takes the card out or flashes firmware gets past it. The
-code is kept as a salted hash, never as it is.
+code is kept on the card as a salted hash, never as it is, and so is the
+count of wrong tries: a card without them, edited or swapped, opens the
+lock. The lock's help says so.
 
 Plugins are trusted (above), so the lock does not guard against them.
 What the SDK makes sure, for plugins used honestly:
