@@ -161,7 +161,7 @@ inputs = ["tools/fonts/NotoSerifJP-subset.ttf", "tools/fontgen", "crates/paperpa
 name = "Japanese letters"
 description = "Japanese books in a Noto Serif face: hiragana, katakana and 2,998 kanji (the Joyo kanji and JIS X 0208 level 1), in four sizes (about 9 MiB on the card)."
 de.name = "Japanische Schrift"
-de.description = "Bücher auf Japanisch in einer Noto-Serif-Schrift: Hiragana, Katakana und 2.998 Kanji (die Jōyō-Kanji und JIS X 0208 Ebene 1), in vier Größen (etwa 9 MiB auf der Karte)."
+de.description = "Japanische Bücher in einer Noto-Serif-Schrift: Hiragana, Katakana und 2.998 Kanji (Jōyō und JIS X 0208 Ebene 1), in vier Größen (etwa 9 MiB auf der Karte)."
 
 [language-ar]
 version = "1.0.5"
