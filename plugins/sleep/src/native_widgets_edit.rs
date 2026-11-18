@@ -21,6 +21,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, Input, PointerPhase},
         commands::{CommandSender, RedrawMode},
         events::{AnswerOutcome, Answered},
+        formatting::Arg,
         registry::{PageCursor, Registry, RegistrySettingKind},
         settings::SettingValue,
         ui::{HandoverId, Open, Param, Question, RequestId, Ui},
@@ -93,12 +94,23 @@ fn ids(value: &str) -> impl Iterator<Item = &str> {
     value.split(',').map(str::trim).filter(|id| !id.is_empty())
 }
 
-/// The name of widget `id` among `known`; its id where none is known.
-fn name_in<'a>(known: &'a [Known], id: &'a str) -> &'a str {
-    known
-        .iter()
-        .find(|k| k.id == base(id))
-        .map_or(id, |k| k.title.as_str())
+/// The name of widget `id` among `known`; where none is known (its plugin is
+/// not installed), that it is not, naming the plugin.
+fn name_in(
+    host: &Host<'_>,
+    messages: &mut Messages,
+    known: &[Known],
+    id: &str,
+) -> Result<String, Error> {
+    if let Some(known) = known.iter().find(|k| k.id == base(id)) {
+        return copy(&known.title);
+    }
+    let plugin = base(id).split_once('.').map_or(id, |(plugin, _)| plugin);
+    let plugin = Arg::Text {
+        name: "plugin",
+        value: plugin,
+    };
+    messages.format(host, "sleep.widgets.missing", &[plugin])
 }
 
 /// What a widget's place says of it: the id before its placement.
@@ -188,17 +200,14 @@ impl Editor {
         Ok(())
     }
 
-    fn name_of<'a>(&'a self, id: &'a str) -> &'a str {
-        name_in(&self.known, id)
-    }
-
     /// The rows of the mode, the focus kept where it was.
     fn rows(&mut self, host: &Host<'_>, messages: &mut Messages) -> Result<(), Error> {
         let mut items = Vec::new();
         match &mut self.mode {
             Mode::List { drag, .. } => {
                 for id in &self.widgets {
-                    push(&mut items, Item::row(name_in(&self.known, id), "")?)?;
+                    let name = name_in(host, messages, &self.known, id)?;
+                    push(&mut items, Item::row(&name, "")?)?;
                 }
                 let add = messages.copy(host, "core.widgets.edit.add")?;
                 push(&mut items, Item::row(&add, "›")?.with_icon(host, "plus")?)?;
@@ -452,7 +461,7 @@ impl Editor {
             key.push_str(option);
             choices.push_str(&messages.copy(host, &key)?);
         }
-        let title = copy(self.name_of(id))?;
+        let title = name_in(host, &mut messages, &self.known, id)?;
         let question = Question::choice(&title, "", &choices)?;
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let request = ui.ask(host, question, &mut input, &mut out)?;
