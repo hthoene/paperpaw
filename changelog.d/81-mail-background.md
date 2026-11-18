@@ -5,4 +5,4 @@
 ### Fixed
 
 - Mail's unread-count Home widget drew nothing.
-- The desktop emulator and its card folder: listing a file, or going below one, finds nothing as on the card, so the library takes an imported file there.
+- The desktop emulator and its card folder: listing a file, or going below one, answers as on the card (the wrong kind of path), so the library takes an imported file there.
