@@ -177,15 +177,44 @@ struct Laid {
     header: Page,
 }
 
+/// A tool of the drawer as it opened: its action, name and face, read once.
+#[derive(Debug)]
+struct Entry {
+    action: String,
+    name: String,
+    face: icons::Face,
+}
+
+/// The tools' names fitted to their cells, kept from draw to draw (the X4
+/// draws a frame in bands, a `draw` for each) until the display or the look
+/// they were fitted for changes.
+#[derive(Debug)]
+struct Fitted {
+    key: FitKey,
+    names: Vec<icons::Name>,
+    most: usize,
+    step: u16,
+}
+
+/// What the names were fitted for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct FitKey {
+    area: Rect,
+    row: u16,
+    air: u16,
+    small: f32,
+}
+
 /// The tools drawer.
 #[derive(Debug, Default)]
 pub struct Drawer {
-    /// The actions of the tools, in the menu's order.
-    tools: Vec<String>,
+    /// The tools, in the menu's order.
+    tools: Vec<Entry>,
     /// The tool the focus stands on, and whether it shows.
     focus: usize,
     shown: bool,
     laid: Option<Laid>,
+    fitted: Option<Fitted>,
 }
 
 impl Drawer {
@@ -204,14 +233,20 @@ impl Drawer {
         tools
             .try_reserve_exact(src.tool_rows().len())
             .map_err(|_| Error::NoMemory)?;
-        for (action, _) in src.tool_rows() {
-            push(&mut tools, paperpaw_ui_kit::text::copy(action)?)?;
+        for (action, name) in src.tool_rows() {
+            let entry = Entry {
+                action: paperpaw_ui_kit::text::copy(action)?,
+                name: paperpaw_ui_kit::text::copy(name)?,
+                face: icons::face(host, &src, action)?,
+            };
+            push(&mut tools, entry)?;
         }
         Ok(Self {
             tools,
             focus: 0,
             shown: last_input == Some(InputMode::Buttons),
             laid: None,
+            fitted: None,
         })
     }
 
@@ -240,43 +275,51 @@ impl Drawer {
     }
 
     /// Every tool's name in lines, and the most lines any name takes: every
-    /// tool keeps room for them, so that icons and names line up.
-    fn wrap_names(
-        &self,
+    /// tool keeps room for them, so that icons and names line up. Fitted once
+    /// for the display and the look, not in every band.
+    fn fit(
+        &mut self,
         host: &Host<'_>,
         font: &Font<'_>,
         style: &Style,
-        src: &HostSource,
-        area: Rect,
-        air: u16,
-    ) -> Result<(Vec<icons::Name>, usize), Error> {
-        let probe = Grid::new(area, style.row, 0, air);
+        key: FitKey,
+    ) -> Result<(), Error> {
+        if self.fitted.as_ref().is_some_and(|f| f.key == key) {
+            return Ok(());
+        }
+        self.fitted = None;
+        let probe = Grid::new(key.area, key.row, 0, key.air);
         let probe_cell = probe.cell(0);
-        let mut wrapped = Vec::new();
-        wrapped
+        let mut names = Vec::new();
+        names
             .try_reserve_exact(self.tools.len())
             .map_err(|_| Error::NoMemory)?;
         let mut most = 0;
         let hyphens = icons::Hyphens::of(host);
         let mut breaks = |word: &str, out: &mut _| hyphens.breaks(host, word, out);
-        for action in &self.tools {
-            let name = src.tool_name(action);
-            let name = icons::name_lines(font, style, probe_cell, name, &mut breaks)?;
+        for tool in &self.tools {
+            let name = icons::name_lines(font, style, probe_cell, &tool.name, &mut breaks)?;
             most = most.max(name.lines.len());
-            wrapped.push(name);
+            names.push(name);
         }
-        Ok((wrapped, most))
+        let step = paperpaw_ui_kit::geometry::line_px(font, style.small)?;
+        self.fitted = Some(Fitted {
+            key,
+            names,
+            most,
+            step,
+        });
+        Ok(())
     }
 
     fn paint(
-        &self,
+        &mut self,
         host: &Host<'_>,
         frame: &mut DrawFrame<'_>,
         display: &snapshot::Snapshot,
         font: &Font<'_>,
     ) -> Result<Laid, Error> {
         let style = Style::read(host, display, font)?;
-        let src = HostSource::read(host, display.display_dpi())?;
         let (width, height) = (display.display_width(), display.display_height());
         let top = style.header.saturating_add(style.gap);
         let area = Rect::new(
@@ -286,9 +329,18 @@ impl Drawer {
             height.saturating_sub(top),
         );
         let air = style.gap / 2 + style.line * 3;
-        let (wrapped, most) = self.wrap_names(host, font, &style, &src, area, air)?;
-        let step = paperpaw_ui_kit::geometry::line_px(font, style.small)?;
-        let extra = if most > 1 { step } else { 0 };
+        let key = FitKey {
+            area,
+            row: style.row,
+            air,
+            small: style.small,
+        };
+        self.fit(host, font, &style, key)?;
+        let Some(fitted) = self.fitted.as_ref() else {
+            return Err(Error::NoMemory);
+        };
+        let (wrapped, most) = (&fitted.names, fitted.most);
+        let extra = if most > 1 { fitted.step } else { 0 };
         let grid = Grid::new(area, style.row, extra, air).mirrored(style.rtl);
         let len = self.tools.len();
         let page = grid.place(self.focus.min(len.saturating_sub(1))).0;
@@ -320,14 +372,13 @@ impl Drawer {
         let describing = paint::asking(frame);
         for slot in 0..grid.per_page().min(len.saturating_sub(first)) {
             let index = first + slot;
-            let (Some(action), Some(name)) = (self.tools.get(index), wrapped.get(index)) else {
+            let (Some(entry), Some(name)) = (self.tools.get(index), wrapped.get(index)) else {
                 break;
             };
-            let face = icons::face(host, &src, action)?;
             let tool = Tool {
                 lines: &name.lines,
                 size: name.size,
-                face,
+                face: entry.face,
                 row_lines: most,
             };
             let cell = grid.cell(slot).inset(0, air);
@@ -337,7 +388,7 @@ impl Drawer {
                 describing,
                 PartRole::Button,
                 cell,
-                src.tool_name(action),
+                &entry.name,
                 self.shown && index == self.focus,
                 false,
             )?;
@@ -453,7 +504,7 @@ impl Drawer {
     /// Back to the home screen, then the tool: both staged together, so a
     /// refusal stages neither.
     fn run(&self, host: &Host<'_>, index: usize) -> Result<(), Error> {
-        let Some(action) = self.tools.get(index) else {
+        let Some(action) = self.tools.get(index).map(|t| t.action.as_str()) else {
             return Ok(());
         };
         let mut scratch = buffer(SERVICE_BUFFER)?;
