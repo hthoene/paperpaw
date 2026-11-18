@@ -16,6 +16,10 @@
     },
     {
       "kind": "host",
+      "name": "settings.read"
+    },
+    {
+      "kind": "host",
       "name": "handle.release"
     },
     {

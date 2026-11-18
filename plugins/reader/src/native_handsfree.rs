@@ -122,7 +122,7 @@ pub fn classify(input: &Input<'_>) -> Kind {
         Input::Action { action, .. } => {
             if action == ACTION {
                 Kind::Toggle
-            } else if native_pages::turn(input) != Turn::Ignored {
+            } else if native_pages::turn(input, false) != Turn::Ignored {
                 Kind::Turn
             } else if matches!(action, "core.menu" | "core.confirm") {
                 Kind::Stop

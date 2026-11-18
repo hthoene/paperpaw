@@ -101,6 +101,8 @@ struct Open {
     id: DocId,
     sections: u32,
     whole_pages: bool,
+    /// The pages run right to left (manga): the page turns are mirrored.
+    rtl: bool,
     /// Where the page on show starts.
     at: (u32, u32),
     /// The page on show, laid out at the first draw after it changed.
@@ -330,12 +332,13 @@ impl View {
             conversion,
         } = book;
         let root = found.root();
-        let (mut input, mut out) = match (buffer(256), buffer(4096)) {
-            (Ok(input), Ok(out)) => (input, out),
-            _ => {
-                Self::forget(host, docs, id);
-                return Err(Error::NoMemory);
-            }
+        // A refusal on the way gives the document back.
+        let fail = |error| {
+            Self::forget(host, docs, id);
+            error
+        };
+        let (Ok(mut input), Ok(mut out)) = (buffer(256), buffer(4096)) else {
+            return Err(fail(Error::NoMemory));
         };
         let sections = match docs.metadata(host, id, &mut input, &mut out) {
             Ok(meta) => (
@@ -344,28 +347,21 @@ impl View {
                 text::copy(native_place::title_of(meta.title(), &found.path)),
                 book_language(host, meta.language()),
                 crate::native_script_hint::declared(meta.language()),
+                meta.right_to_left(),
             ),
-            Err(Error::NoMemory) => {
-                Self::forget(host, docs, id);
-                return Err(Error::NoMemory);
-            }
+            Err(Error::NoMemory) => return Err(fail(Error::NoMemory)),
             Err(_) => {
-                Self::forget(host, docs, id);
+                fail(Error::Invalid);
                 return Ok(Self::message("reader.error"));
             }
         };
-        let (sections, title, language, script) = sections;
+        let (sections, title, language, script, rtl) = sections;
         let (Ok(title), Ok(language)) = (title, language) else {
-            Self::forget(host, docs, id);
-            return Err(Error::NoMemory);
+            return Err(fail(Error::NoMemory));
         };
         // The place the hand-over names, if the book has it; else the place
         // saved last time; else the start (a page number needs the page index:
         // `PORTING-7.md`).
-        let fail = |error| {
-            Self::forget(host, docs, id);
-            error
-        };
         let (progress, at, stored_ppm) = Self::place_and_progress(
             host,
             (docs, library),
@@ -378,6 +374,7 @@ impl View {
             id,
             sections,
             whole_pages,
+            rtl,
             at,
             page: None,
             words: Vec::new(),
@@ -902,7 +899,7 @@ impl View {
             }
             Outcome::Turn { forward: true } => open.forward(host, docs)?,
             Outcome::Turn { forward: false } => open.previous(host, docs)?,
-            _ => match native_pages::turn(input) {
+            _ => match native_pages::turn(input, open.rtl) {
                 // Select or Menu with nothing chosen: the reader's menu bar.
                 Turn::Ignored
                     if matches!(
