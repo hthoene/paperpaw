@@ -518,13 +518,32 @@ impl Kernel {
     /// Whether the screen as it is now has pictures enough to be shown in
     /// grays ([`PICTURES_GRAY_PERCENT`] of it): drawn aside, where only
     /// pictures are counted, nothing drawn and nothing read.
+    /// No pass where no screen shown holds a live picture (#267).
     pub(crate) fn pictures_drawn(&mut self) -> bool {
+        if !self.pictures_held() {
+            return false;
+        }
         let bounds = self.framebuffer.bounds();
         let mut aside = Framebuffer::blind(bounds.width, bounds.height);
         self.draw_aside(&mut aside.canvas());
         let screen = u32::from(bounds.width) * u32::from(bounds.height);
         aside.take_all_pictured().saturating_mul(100)
             >= screen.saturating_mul(PICTURES_GRAY_PERCENT)
+    }
+
+    /// Whether a screen drawn whole now (from the last one seen whole) may
+    /// show a picture: a plugin's screen only with an image of its own in
+    /// the table (all its pictures are drawn from there), any other always.
+    fn pictures_held(&self) -> bool {
+        let instances = &self.shared.native_instances;
+        let images = instances.hosts().map(|hosts| hosts.images());
+        self.stack[self.full_base()..].iter().any(|screen| {
+            match (instances.key_of(screen.id.namespace()), images) {
+                (Some(key), Some(images)) => images.owner_holds(key).unwrap_or(true),
+                (Some(_), None) => false,
+                (None, _) => true,
+            }
+        })
     }
 
     /// Draws everything on the screen into `canvas`, aside: the screens

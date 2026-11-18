@@ -773,3 +773,17 @@ fn a_cancelled_question_is_told_before_the_next_passes_events() {
         heard.borrow()
     );
 }
+
+#[test]
+fn a_question_asked_after_the_pump_ran_wakes_the_kernel_at_once() {
+    let mut w = world(Ok(OK));
+    // Asked by a callback that ran after this call's pump (an action run,
+    // `Kernel::run_action`): the pump is due now, not at the next wake (#267).
+    ask(&w, 2, 1);
+    let now = w.kernel.shared.now;
+    assert_eq!(w.kernel.service_due(), Some(now));
+    w.kernel.tick(Instant(10));
+    assert_eq!(w.kernel.active_screen(), Some(&KEYBOARD_SCREEN));
+    // Open: no more wake for it.
+    assert!(!w.kernel.native_question_waiting());
+}

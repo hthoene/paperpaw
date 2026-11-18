@@ -783,6 +783,17 @@ impl UiStore {
         })
     }
 
+    /// Whether a question waits for its dialog to open: asked by a callback
+    /// that returned, or starting (the dialog pump opens it).
+    pub(crate) fn any_to_open(&self) -> bool {
+        self.inner.try_borrow().is_ok_and(|inner| {
+            inner
+                .requests
+                .iter()
+                .any(|r| matches!(r.phase, Phase::Asked { .. } | Phase::Starting))
+        })
+    }
+
     /// Whether an answer waits for any asker.
     pub(crate) fn any_delivery(&self) -> bool {
         self.inner.try_borrow().is_ok_and(|inner| {
