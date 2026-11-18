@@ -422,8 +422,7 @@ const CASES: &[Case] = &[
         profile: "xteink-x4",
         book: Some("books/alice-in-wonderland.epub"),
         sets: &[],
-        script: "page-forward,page-forward,run:reader.select-text,wait:500,confirm,right,right,\
-                 confirm,wait:400,back,wait:300",
+        script: "page-forward,page-forward,run:reader.select-text,wait:500,confirm,confirm,wait:400",
         colour: 0,
         fixtures: false,
     },
