@@ -38,6 +38,16 @@ pub(crate) fn host_profile() -> paperpaw_native::metadata::Profile<'static> {
     }
 }
 
+/// The metadata record a library exports, for the install checks of the plugin
+/// jobs (`native_host::HostCode`): `None` where it is no library of an
+/// interface-7 plugin.
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+pub(crate) fn exported_record(bytes: &[u8]) -> Option<&[u8]> {
+    data_export(bytes, 62, METADATA_SYMBOL, true)
+        .ok()
+        .map(|export| export.bytes)
+}
+
 /// Refusal before factory invocation, or a failed factory result.
 #[derive(Debug, PartialEq, Eq)]
 pub enum RuntimeError {

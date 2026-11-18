@@ -18,7 +18,14 @@ use crate::rules::{Rules, is_version, valid_name};
 pub const WORKFLOW: &str = ".github/workflows/paperpaw-release.yml";
 
 /// The devices the store knows, by their names.
-const DEVICES: [&str; 5] = ["android", "x4", "x4-pro", "x4-classic", "x3"];
+const DEVICES: [&str; 6] = [
+    "android",
+    "x4",
+    "x4-pro",
+    "x4-classic",
+    "x3",
+    "emulator-linux-x86_64",
+];
 
 /// What a system adds that is no part of a plugin: the site leaves it out
 /// with a warning.

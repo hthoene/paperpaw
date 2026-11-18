@@ -143,6 +143,10 @@ fn print_signer(signed: &Signature) {
 /// signature it had before replaced).
 pub fn sign(path: &str, key_file: Option<&str>) -> Result<(), String> {
     let seed = secret_key(key_file)?;
+    let bytes = read(path)?;
+    if bytes.starts_with(b"\x7fELF") {
+        return sign_host(path, bytes, &seed);
+    }
     let (mut file, header, _) = plugin_file5(path)?;
     let len = header.file_len() as usize;
     file.truncate(len);
@@ -150,6 +154,23 @@ pub fn sign(path: &str, key_file: Option<&str>) -> Result<(), String> {
     file.extend_from_slice(&signed.to_bytes());
     write(path, &file)?;
     println!("{path}: signed");
+    print_signer(&signed);
+    Ok(())
+}
+
+/// A library built for the emulator's computer (`code-host.so`): its
+/// signature trailer goes after the library as a device's `.ppn` has it, a
+/// trailer it had before replaced. The catalogue's digest is that of the file
+/// this leaves.
+fn sign_host(path: &str, mut file: Vec<u8>, seed: &[u8; 32]) -> Result<(), String> {
+    let at = file.len().saturating_sub(signature::SIGNATURE_LEN);
+    if signature::Signature::read(&file[at..]).is_some_and(|old| old.signed_len as usize == at) {
+        file.truncate(at);
+    }
+    let signed = signature::sign(&file, seed);
+    file.extend_from_slice(&signed.to_bytes());
+    write(path, &file)?;
+    println!("{path}: signed (a library for this computer)");
     print_signer(&signed);
     Ok(())
 }

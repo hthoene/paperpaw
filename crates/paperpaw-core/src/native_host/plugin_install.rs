@@ -329,7 +329,11 @@ impl PluginInstall {
                 _ => return self.end(storage, reason::OTHER),
             };
             self.next += 1;
-            if !rel.contains('/') && same_fold(rel, CODE) {
+            if !rel.contains('/')
+                && (same_fold(rel, CODE)
+                    || (cfg!(feature = "host-code")
+                        && CODE_FILES.iter().any(|name| same_fold(rel, name))))
+            {
                 self.code_name = Text::new(rel);
             }
             if let Some((dir, _)) = dst.rsplit_once('/')
@@ -558,10 +562,15 @@ impl PluginInstall {
     /// not (or the installed one's cannot be read).
     #[inline(never)]
     fn new_uses(&self, env: &JobEnv<'_>, staged: &Uses) -> bool {
+        let name = if cfg!(feature = "host-code") {
+            env.host.host_code.map_or(CODE, |host| host.file)
+        } else {
+            CODE
+        };
         let mut path = String::new();
         if path
             .try_reserve_exact(
-                paperpaw_sdk::builtin::PLUGIN_DIR.len() + 2 + self.id.as_str().len() + CODE.len(),
+                paperpaw_sdk::builtin::PLUGIN_DIR.len() + 2 + self.id.as_str().len() + name.len(),
             )
             .is_err()
         {
@@ -571,7 +580,7 @@ impl PluginInstall {
         path.push('/');
         path.push_str(self.id.as_str());
         path.push('/');
-        path.push_str(CODE);
+        path.push_str(name);
         let Ok(installed) = uses_of(env, &path) else {
             return true;
         };
@@ -742,6 +751,12 @@ fn read_all(storage: &dyn Storage, path: &str, mut at: u64, buf: &mut [u8]) -> R
 /// this device reads, 19 on a device that loads no code.
 #[inline(never)]
 fn uses_of(env: &JobEnv<'_>, path: &str) -> Result<Uses, u8> {
+    #[cfg(feature = "host-code")]
+    if let Some(host) = env.host.host_code
+        && path.ends_with(host.file)
+    {
+        return host_uses(env, host, path);
+    }
     let loader = env.host.loader.as_ref().ok_or(reason::NOT_HERE)?;
     let storage = env.storage;
     let size = storage.size(path).map_err(io)?;
@@ -759,7 +774,12 @@ fn uses_of(env: &JobEnv<'_>, path: &str) -> Result<Uses, u8> {
         HEADER_LEN as u64 + u64::from(header.meta_at),
         &mut record,
     )?;
-    let checked = metadata::check(&record, &env.host.offered).map_err(|_| reason::DAMAGED)?;
+    uses_of_record(&record, env)
+}
+
+/// The `uses.*` features of the metadata `record`, as shown.
+fn uses_of_record(record: &[u8], env: &JobEnv<'_>) -> Result<Uses, u8> {
+    let checked = metadata::check(record, &env.host.offered).map_err(|_| reason::DAMAGED)?;
     let mut uses = no_uses();
     for feature in checked.requested_features() {
         if usize::from(uses.count) < USES_SHOWN {
@@ -770,6 +790,16 @@ fn uses_of(env: &JobEnv<'_>, path: &str) -> Result<Uses, u8> {
         }
     }
     Ok(uses)
+}
+
+/// [`uses_of`] for a library built for this computer (`host-code`).
+#[cfg(feature = "host-code")]
+#[inline(never)]
+fn host_uses(env: &JobEnv<'_>, host: super::plugin_job::HostCode, path: &str) -> Result<Uses, u8> {
+    let size = env.storage.size(path).map_err(io)?;
+    let library = super::plugin_check::host::read_library(env, path, size)?;
+    let record = (host.record)(&library).ok_or(reason::DAMAGED)?;
+    uses_of_record(record, env)
 }
 
 impl PluginJob for PluginInstall {
