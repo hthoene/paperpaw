@@ -26,6 +26,7 @@ use crate::native_device::{self, Facts};
 use crate::native_folders::Folders;
 use crate::native_install::Proof;
 use crate::native_model::Revoked;
+use crate::native_sources::{Pinned, Source, SourceFiles, Sources, Trust};
 
 /// The `User-Agent` of interface 6's requests.
 const USER_AGENT: &str = "PaperPaw/0.1 (e-reader)";
@@ -38,9 +39,21 @@ const REVOKE_SCRATCH: usize = 4096;
 #[derive(Debug, Default)]
 pub struct Handles {
     net: Option<Net>,
+    /// The community source listed in place of PaperPaw's library (#214): in
+    /// memory only, so a restart lists PaperPaw's again.
+    pub(crate) source: Option<Source>,
 }
 
 impl Handles {
+    /// Whose word the list is read on.
+    pub(crate) fn trust(&self) -> Trust {
+        match &self.source {
+            None => Trust::Official,
+            Some(Source { key: None, .. }) => Trust::FirstUse,
+            Some(Source { key: Some(key), .. }) => Trust::Pinned(*key),
+        }
+    }
+
     fn net(&mut self, host: &Host<'_>) -> Result<&Net, Error> {
         if self.net.is_none() {
             self.net = Some(Net::open(host)?);
@@ -82,7 +95,8 @@ impl Handles {
 pub struct HostWire<'a, 'h> {
     host: &'a Host<'h>,
     handles: &'a mut Handles,
-    storage: DataStorage<'a, 'h>,
+    /// The data folder, with the list files of the source listed.
+    storage: SourceFiles<DataStorage<'a, 'h>>,
 }
 
 impl core::fmt::Debug for HostWire<'_, '_> {
@@ -94,10 +108,11 @@ impl core::fmt::Debug for HostWire<'_, '_> {
 impl<'a, 'h> HostWire<'a, 'h> {
     /// The fetch's view of `host`.
     pub fn new(host: &'a Host<'h>, handles: &'a mut Handles) -> Self {
+        let community = handles.source.is_some();
         Self {
             host,
             handles,
-            storage: DataStorage::new(host),
+            storage: SourceFiles::new(DataStorage::new(host), community),
         }
     }
 }
@@ -108,15 +123,40 @@ impl crate::native_load::Wire for HostWire<'_, '_> {
     }
 
     fn facts(&mut self) -> Result<Option<Facts>, Error> {
-        let catalog = native_device::catalog_setting(self.host)?;
+        // A community source's plugins are never PaperPaw's own.
+        let catalog = match &self.handles.source {
+            Some(source) => copy(&source.url)?,
+            None => native_device::catalog_setting(self.host)?,
+        };
         Facts::read(self.host, &catalog)
     }
 
     fn catalog(&mut self) -> Result<(String, bool), Error> {
+        if let Some(source) = &self.handles.source {
+            return Ok((copy(&source.url)?, false));
+        }
         Ok((
             native_device::catalog_setting(self.host)?,
             native_device::community(self.host)?,
         ))
+    }
+
+    fn trust(&mut self) -> Result<Trust, Error> {
+        Ok(self.handles.trust())
+    }
+
+    fn pin(&mut self, key: &[u8; 32]) -> Result<(), Error> {
+        let Some(source) = self.handles.source.as_mut() else {
+            return Err(Error::Denied);
+        };
+        let mut sources = Sources::read(&self.storage)?;
+        match sources.pin(&source.url, key) {
+            Pinned::Now => sources.keep(&self.storage)?,
+            Pinned::Already => {}
+            _ => return Err(Error::Denied),
+        }
+        source.key = Some(*key);
+        Ok(())
     }
 
     fn get(&mut self, url: &str, file: &str, token: u32, max: u64) -> Result<RequestId, Error> {

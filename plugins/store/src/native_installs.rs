@@ -303,6 +303,11 @@ pub struct Activity {
     pub free: Option<u64>,
     /// The actions registered (the fonts browser's, for one).
     pub actions: Vec<String>,
+    /// The plugins community sources installed (#214), read with the
+    /// snapshot.
+    pub origins: crate::native_sources::Origins,
+    /// Whose list is shown: PaperPaw's library or a community source.
+    pub listed: crate::native_sources::Trust,
 }
 
 /// The bytes free on the medium of the plugin's data folder (the card), if the
@@ -585,6 +590,14 @@ impl Installs for HostInstalls<'_> {
 
     fn have(&self, id: &str) -> Option<Installed<'_>> {
         self.snapshot.have(id)
+    }
+
+    fn foreign(&self, id: &str) -> bool {
+        let by_store = self
+            .snapshot
+            .have(id)
+            .map(|installed| installed.origin == Origin::Store);
+        crate::native_sources::foreign(self.activity.origins.of(id), by_store, self.activity.listed)
     }
 
     fn takes_betas(&self) -> bool {

@@ -427,7 +427,11 @@ pub fn mark(say: &mut dyn Say, installs: &dyn Installs, entry: &Entry) -> Result
         Some(have) if have.kind == Kind::BuiltIn && !have.enabled => "store.state.off",
         None if entry.waits_author => "store.no-build",
         None if entry.needs_newer => "store.needs-newer",
-        Some(have) if newer(entry, have, installs.takes_betas()) => "store.state.update",
+        Some(have)
+            if newer(entry, have, installs.takes_betas()) && !installs.foreign(&entry.id) =>
+        {
+            "store.state.update"
+        }
         Some(_) => "store.state.installed",
         None => {
             let mark = decimal_mark(say)?;

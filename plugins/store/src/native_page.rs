@@ -218,6 +218,22 @@ pub fn rows(page: &PageInput<'_>) -> Result<Vec<Row>, Error> {
     Ok(rows)
 }
 
+/// The rows of a plugin the device has from another source than the one
+/// listed (`foreign`, #214): nothing installs over it and no update is offered
+/// from here; removing it and what there is to read stay.
+#[must_use]
+pub fn of_source(mut rows: Vec<Row>, foreign: bool) -> Vec<Row> {
+    if foreign {
+        rows.retain(|row| {
+            !matches!(
+                row,
+                Row::Install | Row::Update | Row::UseStore | Row::NoRoom
+            )
+        });
+    }
+    rows
+}
+
 /// What can be done with the plugin.
 ///
 /// # Errors

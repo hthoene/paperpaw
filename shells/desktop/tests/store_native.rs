@@ -615,6 +615,93 @@ impl Route for Unreachable {
     }
 }
 
+/// A community source's signature file for `list`, signed with `seed`
+/// (`plugins/store/src/native_sources.rs`).
+fn source_signature(list: &[u8], seed: &[u8; 32]) -> String {
+    use paperpaw_native::signature::{public_key, sign_message};
+    let mut message = b"PaperPaw plugin source\0".to_vec();
+    message.extend_from_slice(&paperpaw_digest::sha256::digest(list));
+    format!(
+        "{}\n{}\n",
+        paperpaw_digest::hex::encode(&public_key(seed)),
+        paperpaw_digest::hex::encode(&sign_message(&message, seed))
+    )
+}
+
+/// A community source (#214) named in `sources.txt` on the card is offered
+/// under *Sources*, added once the reader was told nobody checks it, and its
+/// key is kept; PaperPaw's own list stays on the card, leaving the store lists
+/// it again, and a list of the source signed by another key is not read.
+#[test]
+fn a_community_source_is_added_listed_and_refused_with_another_key() {
+    const SOURCE: &str = "https://plugins.example/plugins.json";
+    const KEPT: &str = ".paperpaw/plugins/store/sources.txt";
+    let card = MemoryStorage::new().with(KEPT, format!("{SOURCE}\n"));
+    let mut shop = Shop::on(card, &[Offered::data("pack-a", "Pack A", "1.0.0")]);
+    let theirs = Offered::data("their-pack", "Their Pack", "1.0.0");
+    let list = format!(r#"{{"format": 2, "plugins": [{}]}}"#, theirs.entry());
+    shop.library.put(SOURCE, list.clone());
+    shop.library.put(
+        &format!("{SOURCE}.sig"),
+        source_signature(list.as_bytes(), &[3; 32]),
+    );
+    shop.run("store.open");
+    shop.settle(2000);
+    let shown = shop.shown();
+    assert!(shown.contains("Sources"), "{shown}");
+    shop.choose("Sources");
+    answer_dialog(&mut shop, "New: plugins.example/plugins.json");
+    shop.settle(1500);
+    let asked = shop.shown();
+    assert!(asked.contains("PaperPaw does not check"), "{asked}");
+    assert!(asked.contains("who runs it."), "{asked}");
+    // The focus starts on *Not now*.
+    assert!(asked.contains("*Not now"), "{asked}");
+    shop.keys("run:core.up");
+    shop.keys("run:core.confirm");
+    shop.settle(3000);
+    let shown = shop.shown();
+    assert_eq!(shop.screen(), "store.list", "{shown}");
+    assert!(shown.contains("plugins.example/plugins.json"), "{shown}");
+    // The key of the first list is kept with the address.
+    let key = paperpaw_digest::hex::encode(&paperpaw_native::signature::public_key(&[3; 32]));
+    assert_eq!(
+        String::from_utf8(shop.card.get(KEPT).unwrap()).unwrap(),
+        format!("{SOURCE} {key}\n")
+    );
+    // Its plugins are in files of their own; PaperPaw's list is as it was.
+    let index = |shop: &Shop, name: &str| {
+        let path = format!(".paperpaw/plugins/store/{name}");
+        String::from_utf8(shop.card.get(&path).unwrap_or_default()).unwrap()
+    };
+    assert!(index(&shop, "source-index.txt").contains("their-pack"));
+    assert!(index(&shop, "index.txt").contains("pack-a"));
+    assert!(!index(&shop, "index.txt").contains("their-pack"));
+    // Leaving the store lists PaperPaw's library again.
+    shop.keys("run:core.back");
+    shop.run("store.open");
+    shop.settle(2000);
+    let shown = shop.shown();
+    assert!(!shown.contains("plugins.example"), "{shown}");
+    // The source's server now sends a list another key signed: not read.
+    shop.library.put(
+        &format!("{SOURCE}.sig"),
+        source_signature(list.as_bytes(), &[4; 32]),
+    );
+    shop.choose("Sources");
+    answer_dialog(&mut shop, "plugins.example/plugins.json");
+    shop.settle(3000);
+    let shown = shop.shown();
+    assert!(shown.contains("This source has another key"), "{shown}");
+    assert!(index(&shop, "source-index.head").is_empty());
+    assert_eq!(
+        String::from_utf8(shop.card.get(KEPT).unwrap()).unwrap(),
+        format!("{SOURCE} {key}\n"),
+        "the key kept is the first one"
+    );
+    assert!(index(&shop, "index.txt").contains("pack-a"));
+}
+
 /// What the panel shows once the store was opened and the library answered
 /// `never` or refused the connection.
 fn panel_of_the_store(never: bool) -> Vec<u8> {

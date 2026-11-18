@@ -36,11 +36,18 @@ use crate::native_index::{self, Index, MAX_LIST_FILE};
 use crate::native_item::HaveFn;
 use crate::native_list::{Hooks, Page, PageReader};
 use crate::native_model::{Revoked, join_url, list_url, plugin_url};
+use crate::native_queue::read_text;
+use crate::native_sources::{
+    MAX_SIGNATURE_FILE, MAX_SIGNATURE_TEXT, MAX_SOURCE_LIST, SIGNATURE_PART, Signed, Trust,
+    Verdict, digest, judge, signature_url,
+};
 
 /// The plugin's own number of the request for the list, in its `http_done`.
 pub const LIST_TOKEN: u32 = 0x5301;
 /// The plugin's own number of the request for a plugin's page.
 pub const PAGE_TOKEN: u32 = 0x5302;
+/// The plugin's own number of the request for a community source's signature.
+pub const SIGNATURE_TOKEN: u32 = 0x5303;
 /// Where the list is fetched to, in the data folder.
 pub const LIST_PART: &str = "list.part";
 /// The longest page of a plugin read (bytes).
@@ -65,6 +72,13 @@ pub enum Trouble {
     Memory,
     /// The libraries have nothing made for this device (no list is asked for).
     Unsupported,
+    /// A community source's list has no signature that holds: it is not read.
+    Unsigned,
+    /// A community source's list is signed by another key than the one kept
+    /// of the source: it is not read.
+    KeyChanged,
+    /// A community source's list is longer than the store reads.
+    TooLarge,
 }
 
 /// How far a plugin's page is.
@@ -117,6 +131,25 @@ pub trait Wire {
     /// # Errors
     /// What the host says; only `NoMemory` stops the fetch.
     fn revoke(&mut self, revoked: &[Revoked]) -> Result<(), Error>;
+    /// Whose word the list of [`catalog`](Self::catalog) is read on: PaperPaw's
+    /// own library (the default), or a community source with the key kept of
+    /// it (#214).
+    ///
+    /// # Errors
+    /// `NoMemory` and the host's refusals.
+    fn trust(&mut self) -> Result<Trust, Error> {
+        Ok(Trust::Official)
+    }
+    /// Keeps `key` as the key of the community source listed, whose first
+    /// list it signed (trust on first use).
+    ///
+    /// # Errors
+    /// `NoMemory`; `Io` where the card refuses; `Denied` where the source has
+    /// another key or the key is PaperPaw's own: the list is not read then.
+    fn pin(&mut self, key: &[u8; 32]) -> Result<(), Error> {
+        let _ = key;
+        Err(Error::Denied)
+    }
 }
 
 /// A request that ended, as far as the fetch reads it.
@@ -172,6 +205,9 @@ pub enum Ended {
 pub struct Loader {
     trouble: Trouble,
     list: Option<RequestId>,
+    /// The request for a community source's signature, and where it is.
+    signature: Option<RequestId>,
+    signature_url: String,
     index: Option<Index>,
     page: Option<PageSlot>,
 }
@@ -231,6 +267,26 @@ impl Loader {
             .and_then(|slot| slot.plugin.as_deref())
     }
 
+    /// Lets go of the list: another source is listed from now on. A fetch
+    /// under way is ended; the index on the card stays.
+    pub fn forget_list(&mut self, wire: &mut dyn Wire) {
+        wire.cancel(LIST_TOKEN);
+        wire.cancel(SIGNATURE_TOKEN);
+        self.list = None;
+        self.signature = None;
+        self.index = None;
+        let _ = wire.storage().remove(LIST_PART);
+        let _ = wire.storage().remove(SIGNATURE_PART);
+        self.trouble = Trouble::None;
+    }
+
+    /// No index is kept, in memory or on the card (an index is whole where
+    /// its head is).
+    fn drop_index(&mut self, storage: &dyn Storage) {
+        self.index = None;
+        let _ = storage.remove(native_index::HEAD);
+    }
+
     /// Lets go of the page held (the screen of the plugin is left).
     pub fn forget_page(&mut self) {
         self.page = None;
@@ -257,9 +313,18 @@ impl Loader {
             &list_url(&catalog, facts.name(), facts.language(), community, None)?,
             "&order=fair",
         ])?;
+        // A community source's list is smaller, and its signature is asked
+        // for once it is here.
+        let (max, signature) = match wire.trust()? {
+            Trust::Official => (MAX_LIST_FILE, String::new()),
+            _ => (MAX_SOURCE_LIST, signature_url(&url)?),
+        };
         wire.cancel(LIST_TOKEN);
+        wire.cancel(SIGNATURE_TOKEN);
         self.list = None;
-        match wire.get(&url, LIST_PART, LIST_TOKEN, MAX_LIST_FILE) {
+        self.signature = None;
+        self.signature_url = signature;
+        match wire.get(&url, LIST_PART, LIST_TOKEN, max) {
             Ok(id) => {
                 self.list = Some(id);
                 self.trouble = Trouble::Loading;
@@ -341,17 +406,12 @@ impl Loader {
             LIST_TOKEN if self.list == Some(done.id) => {
                 self.list = None;
                 let ended = self.list_ended(wire, done);
-                if ended.is_err() {
-                    // A fetch that cannot go on leaves no part behind and no
-                    // "loading" that never ends.
-                    let _ = wire.storage().remove(LIST_PART);
-                    self.trouble = if self.index.is_some() {
-                        Trouble::None
-                    } else {
-                        Trouble::Failed
-                    };
-                }
-                ended
+                self.settle(wire, ended)
+            }
+            SIGNATURE_TOKEN if self.signature == Some(done.id) => {
+                self.signature = None;
+                let ended = self.signature_ended(wire, done);
+                self.settle(wire, ended)
             }
             PAGE_TOKEN
                 if self
@@ -369,26 +429,125 @@ impl Loader {
         }
     }
 
+    /// A fetch that cannot go on leaves no part behind and no "loading" that
+    /// never ends.
+    fn settle(&mut self, wire: &mut dyn Wire, ended: Result<Ended, Error>) -> Result<Ended, Error> {
+        if ended.is_err() {
+            let _ = wire.storage().remove(LIST_PART);
+            let _ = wire.storage().remove(SIGNATURE_PART);
+            self.trouble = if self.index.is_some() {
+                Trouble::None
+            } else {
+                Trouble::Failed
+            };
+        }
+        ended
+    }
+
+    /// No list came: the one kept still serves; no answer at all is no
+    /// connection.
+    fn none(&mut self, wire: &mut dyn Wire, done: &Done) -> Ended {
+        let _ = wire.storage().remove(LIST_PART);
+        let _ = wire.storage().remove(SIGNATURE_PART);
+        self.trouble = match (self.index.is_some(), done.status) {
+            (true, _) => Trouble::None,
+            // The host tells a connection it had no memory for the same
+            // way as an answer over the limit.
+            (false, 0) if done.reason == Reason::TooLarge => Trouble::Memory,
+            (false, 0) => Trouble::Offline,
+            (false, _) => Trouble::Failed,
+        };
+        Ended::ListUnchanged
+    }
+
+    /// A community source's list is not read: neither it nor an index kept of
+    /// the source serves, and the start says why.
+    fn refuse(&mut self, wire: &mut dyn Wire, why: Trouble) -> Ended {
+        let _ = wire.storage().remove(LIST_PART);
+        let _ = wire.storage().remove(SIGNATURE_PART);
+        self.drop_index(wire.storage());
+        self.trouble = why;
+        Ended::ListUnchanged
+    }
+
     #[inline(never)]
     fn list_ended(&mut self, wire: &mut dyn Wire, done: &Done) -> Result<Ended, Error> {
-        let none = |wire: &mut dyn Wire, this: &mut Self| {
-            let _ = wire.storage().remove(LIST_PART);
-            // The list kept still serves; no answer at all is no connection.
-            this.trouble = match (this.index.is_some(), done.status) {
-                (true, _) => Trouble::None,
-                // The host tells a connection it had no memory for the same
-                // way as an answer over the limit.
-                (false, 0) if done.reason == Reason::TooLarge => Trouble::Memory,
-                (false, 0) => Trouble::Offline,
-                (false, _) => Trouble::Failed,
-            };
-            Ok(Ended::ListUnchanged)
-        };
-        if !done.saved() {
-            return none(wire, self);
+        if wire.trust()? == Trust::Official {
+            if !done.saved() {
+                return Ok(self.none(wire, done));
+            }
+            return self.take_list(wire, done);
         }
+        // An answer over the limit (the host stops it) or a file that is.
+        let too_large = (done.reason == Reason::TooLarge && done.status != 0)
+            || wire
+                .storage()
+                .size(LIST_PART)
+                .is_ok_and(|size| size > MAX_SOURCE_LIST);
+        if too_large {
+            return Ok(self.refuse(wire, Trouble::TooLarge));
+        }
+        if !done.saved() {
+            return Ok(self.none(wire, done));
+        }
+        // The list waits in its file for the signature that says it is the
+        // source's.
+        let url = core::mem::take(&mut self.signature_url);
+        match wire.get(&url, SIGNATURE_PART, SIGNATURE_TOKEN, MAX_SIGNATURE_FILE) {
+            Ok(id) => {
+                self.signature = Some(id);
+                Ok(Ended::Ignored)
+            }
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Err(_) => Ok(self.none(wire, &Done::new(done.id, done.token, Reason::Ok, 0))),
+        }
+    }
+
+    /// The signature of a community source's list came, or did not: the list
+    /// is read where the source's key signed it.
+    #[inline(never)]
+    fn signature_ended(&mut self, wire: &mut dyn Wire, done: &Done) -> Result<Ended, Error> {
+        // No answer at all is no connection, not a list without a signature.
+        if !done.saved() && done.status == 0 {
+            return Ok(self.none(wire, done));
+        }
+        let trust = wire.trust()?;
+        if trust == Trust::Official {
+            // PaperPaw's library is listed again: this answer is nobody's.
+            return Ok(Ended::Ignored);
+        }
+        let signed = if done.saved() {
+            read_text(wire.storage(), SIGNATURE_PART, MAX_SIGNATURE_TEXT)?
+                .and_then(|text| Signed::read(&text))
+        } else {
+            None
+        };
+        let Some(hash) = digest(wire.storage(), LIST_PART) else {
+            return Ok(self.none(wire, done));
+        };
+        match judge(trust, signed.as_ref(), &hash) {
+            Verdict::Trusted { key, first } => {
+                if first {
+                    match wire.pin(&key) {
+                        Ok(()) => {}
+                        Err(Error::NoMemory) => return Err(Error::NoMemory),
+                        // A key that cannot be kept is not trusted.
+                        Err(_) => return Ok(self.refuse(wire, Trouble::Failed)),
+                    }
+                }
+                let _ = wire.storage().remove(SIGNATURE_PART);
+                self.take_list(wire, done)
+            }
+            Verdict::KeyChanged => Ok(self.refuse(wire, Trouble::KeyChanged)),
+            _ => Ok(self.refuse(wire, Trouble::Unsigned)),
+        }
+    }
+
+    /// Takes the list fetched into the index.
+    #[inline(never)]
+    fn take_list(&mut self, wire: &mut dyn Wire, done: &Done) -> Result<Ended, Error> {
         let Some(facts) = wire.facts()? else {
-            return none(wire, self);
+            return Ok(self.none(wire, done));
         };
         let have = |id: &str| facts.have(id);
         let device = facts.device(&have as &HaveFn<'_>);
@@ -408,7 +567,7 @@ impl Loader {
                 }
                 Ok(Ended::ListChanged)
             }
-            Ok(None) | Err(Error::Io) => none(wire, self),
+            Ok(None) | Err(Error::Io) => Ok(self.none(wire, done)),
             Err(error) => {
                 let _ = wire.storage().remove(LIST_PART);
                 Err(error)
