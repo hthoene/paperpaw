@@ -1,0 +1,146 @@
+# Calendar (#133) on the emulator, where the plugin is linked and shipped off, or on an X4 where its
+# plugin file is installed and on:
+#   cp tools/pps/fixtures/calendar-work.ics <card folder>/calendars/work.ics
+#   python3 tools/x4-remote.py --emulator target/debug/paperpaw-emu --library <card folder> --script-file tools/pps/calendar.pps --out out/calendar
+# Offline only: a calendar file of the card as a source, the agenda, the views (day, week, month, an
+# event whole), the sources' screen, the widgets and that everything is still there after a restart.
+# Reading CalDAV, iCal addresses and contacts is a host test against servers in memory
+# (plugins/calendar/src/sync_tests.rs).
+include:beta4/common.pps
+
+# On the emulator the plugin ships off: switch it on in Manage plugins, which applies after a restart.
+test:calendar-01-on {
+  if:$target==emu {
+    call:home
+    call:settings-row:Manage plugins
+    until:Plugins:8000
+    select:Calendar:80
+    wait:1500
+    expect:Applies after a restart
+    restart
+    wait:4000
+  }
+  if:exists:.paperpaw/plugins/calendar/calendar.txt {
+    rm:.paperpaw/plugins/calendar/calendar.txt
+  }
+  no-warn
+}
+
+# Without a calendar the agenda says how to add one; Sync now leads to the calendars.
+test:calendar-02-empty {
+  run:calendar.open
+  until:Nothing to show:8000
+  expect:Agenda
+  expect:Choose Calendars to add a calendar
+  run:calendar.sync
+  until:Add a calendar:8000
+  expect:Calendars
+  expect-not:Error
+  no-warn
+}
+
+# A calendar file of the card: its kind, its path and its name; it is read at once and the agenda
+# shows today's all-day event.
+test:calendar-03-add-file {
+  select:Add a calendar
+  until:Calendar file on the card:8000
+  select:Calendar file on the card
+  until:Hold Back:8000
+  type-enter:calendars/work.ics
+  until:Name:8000
+  type-enter:Work
+  until:Work:8000
+  expect:Calendar file on the card
+  back
+  until:Water the plants:8000
+  expect:Today
+  expect:All day
+  expect-not:Error
+  no-warn
+}
+
+# Select on an event shows it whole: its calendar and how it repeats. Back returns to the agenda.
+test:calendar-04-detail {
+  select:Water the plants
+  until:Every day:8000
+  expect:Calendar
+  expect:Work
+  expect:Repeats
+  expect-not:Error
+  back
+  until:Water the plants:8000
+  no-warn
+}
+
+# The views: the first row offers them; Day steps by a day, Week lists the days, Month is a grid with
+# the day chosen, Select on a day opens it.
+test:calendar-05-views {
+  select:Agenda
+  until:Birthdays:8000
+  expect:Day
+  expect:Week
+  expect:Month
+  select:Day
+  until:Next day:8000
+  expect:Water the plants
+  select:Next day
+  wait:800
+  expect:Water the plants
+  select:Agenda
+  until:Birthdays:8000
+  select:Week
+  until:Next week:8000
+  expect:Water the plants
+  select:Agenda
+  until:Birthdays:8000
+  select:Month
+  wait:1500
+  expect:Mon
+  confirm
+  until:Next day:8000
+  back
+  wait:1000
+  expect:Mon
+  back
+  until:Water the plants:8000
+  no-warn
+}
+
+# The calendars' screen and its menu; the Tools menu entry is there.
+test:calendar-06-sources {
+  show:calendar.sources
+  until:Add a calendar:8000
+  expect:Work
+  expect:Sync now
+  select:Work
+  until:Read now:8000
+  expect:Change the marking
+  expect:Remove
+  back
+  wait:500
+  back
+  until:Edit:8000
+  no-warn
+}
+
+# The widgets and the sleep screen's place among the choices.
+test:calendar-07-widgets {
+  set:home.page-1=calendar.today\,calendar.next\,calendar.month
+  call:home
+  expect:Water the plants
+  expect-not:Error
+  set:home.page-1=home.clock\, home.continue\, home.recent
+  no-warn
+}
+
+# Everything is on the card: after a restart the calendar and its events are as they were.
+test:calendar-08-kept {
+  stat:.paperpaw/plugins/calendar/calendar.txt
+  restart
+  wait:4000
+  call:home
+  run:calendar.open
+  until:Water the plants:8000
+  expect:Today
+  no-warn
+}

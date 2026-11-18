@@ -164,6 +164,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-calendar"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-caldav",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-calibre"
 version = "1.0.12"
 dependencies = [
@@ -230,6 +239,7 @@ dependencies = [
  "paperpaw-plugin-battery",
  "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-browser",
+ "paperpaw-plugin-calendar",
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",

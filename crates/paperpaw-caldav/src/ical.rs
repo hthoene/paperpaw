@@ -375,18 +375,18 @@ impl TodoReader {
 }
 
 /// A short name in capitals without the heap (names are compared so).
-struct Upper {
+pub(crate) struct Upper {
     bytes: [u8; 24],
     len: usize,
 }
 
 impl Upper {
-    fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         core::str::from_utf8(self.bytes.get(..self.len).unwrap_or(&[])).unwrap_or("")
     }
 }
 
-trait UpperName {
+pub(crate) trait UpperName {
     fn to_ascii_uppercase_buf(&self) -> Upper;
 }
 

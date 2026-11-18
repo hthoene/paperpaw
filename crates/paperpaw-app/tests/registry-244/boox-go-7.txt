@@ -57,6 +57,7 @@ plugin | translate Off enabled=false BuiltIn
 plugin | pomodoro Off enabled=false BuiltIn
 plugin | puzzles Off enabled=false BuiltIn
 plugin | tasks Off enabled=false BuiltIn
+plugin | calendar Off enabled=false BuiltIn
 plugin | wifi Running enabled=true BuiltIn
 setting-group | SettingGroupSpec { id: Id(core.space), title: "core.widget.space", order: 0, page: None, parent: None }
 setting-group | SettingGroupSpec { id: Id(home.clock), title: "home.widget.clock", order: 0, page: None, parent: None }

@@ -26,6 +26,51 @@ pub const REPORT_TODOS: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\
 <c:comp-filter name=\"VCALENDAR\"><c:comp-filter name=\"VTODO\"/></c:comp-filter>\
 </c:filter></c:calendar-query>";
 
+/// `PROPFIND` (with `Depth: 1`) for the address books at an address, as
+/// [`PROPFIND_CALENDARS`] asks for calendars.
+pub const PROPFIND_BOOKS: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\
+<d:propfind xmlns:d=\"DAV:\" xmlns:card=\"urn:ietf:params:xml:ns:carddav\" \
+xmlns:cs=\"http://calendarserver.org/ns/\"><d:prop><d:resourcetype/><d:displayname/>\
+<cs:getctag/><card:addressbook-home-set/><d:current-user-principal/></d:prop></d:propfind>";
+
+/// `REPORT` (with `Depth: 1`) for the contacts of an address book that have a
+/// birthday or an anniversary, with their ETag and the lines that matter.
+pub const REPORT_CONTACTS: &str = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\
+<card:addressbook-query xmlns:d=\"DAV:\" xmlns:card=\"urn:ietf:params:xml:ns:carddav\">\
+<d:prop><d:getetag/><card:address-data><card:prop name=\"UID\"/><card:prop name=\"FN\"/>\
+<card:prop name=\"N\"/><card:prop name=\"BDAY\"/><card:prop name=\"ANNIVERSARY\"/>\
+<card:prop name=\"X-ANNIVERSARY\"/><card:prop name=\"X-APPLE-OMIT-YEAR\"/></card:address-data></d:prop>\
+<card:filter test=\"anyof\"><card:prop-filter name=\"BDAY\"/>\
+<card:prop-filter name=\"ANNIVERSARY\"/></card:filter></card:addressbook-query>";
+
+/// `REPORT` for the events of a calendar that fall (also in part, and by
+/// their repeats) from day `from` to day `to` (counted from 1970-01-01).
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn report_events(from: i32, to: i32) -> Result<String, Error> {
+    let mut body = String::new();
+    push_str(
+        &mut body,
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\
+<c:calendar-query xmlns:d=\"DAV:\" xmlns:c=\"urn:ietf:params:xml:ns:caldav\">\
+<d:prop><d:getetag/><c:calendar-data/></d:prop><c:filter>\
+<c:comp-filter name=\"VCALENDAR\"><c:comp-filter name=\"VEVENT\"><c:time-range start=\"",
+    )?;
+    let mut time = String::new();
+    crate::date::DateTime::date(from).write(&mut time)?;
+    push_str(&mut body, &time)?;
+    push_str(&mut body, "T000000Z\" end=\"")?;
+    time.clear();
+    crate::date::DateTime::date(to).write(&mut time)?;
+    push_str(&mut body, &time)?;
+    push_str(
+        &mut body,
+        "T000000Z\"/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>",
+    )?;
+    Ok(body)
+}
+
 /// The most bytes kept of an address in an answer.
 pub const HREF_MAX: usize = 512;
 /// The most bytes kept of an ETag, a change tag or a name.
@@ -48,6 +93,8 @@ pub struct Item<'a> {
     pub principal: &'a str,
     /// It is a calendar collection.
     pub calendar: bool,
+    /// It is an address book.
+    pub addressbook: bool,
     /// It holds to-dos (it says so, or does not say what it holds).
     pub todos: bool,
     /// It holds events (as above).
@@ -109,6 +156,7 @@ pub struct Multistatus<V> {
     in_principal: bool,
     in_set: bool,
     calendar: bool,
+    book: bool,
     comps: bool,
     todos: bool,
     events: bool,
@@ -142,6 +190,7 @@ impl<V: Visit> Multistatus<V> {
             in_principal: false,
             in_set: false,
             calendar: false,
+            book: false,
             comps: false,
             todos: false,
             events: false,
@@ -170,6 +219,7 @@ impl<V: Visit> Multistatus<V> {
             field.clear();
         }
         (self.calendar, self.comps, self.todos, self.events) = (false, false, false, false);
+        self.book = false;
         self.cut = false;
     }
 
@@ -209,6 +259,7 @@ impl<V: Visit> Multistatus<V> {
             home: text(&self.home),
             principal: text(&self.principal),
             calendar: self.calendar,
+            addressbook: self.book,
             todos: self.todos || !self.comps,
             events: self.events || !self.comps,
             status,
@@ -232,7 +283,8 @@ impl<V: Visit> xml::Sink for Multistatus<V> {
             "prop" => self.in_prop = true,
             "resourcetype" => self.in_type = true,
             "calendar" if self.in_type => self.calendar = true,
-            "calendar-home-set" => self.in_home = true,
+            "addressbook" if self.in_type => self.book = true,
+            "calendar-home-set" | "addressbook-home-set" => self.in_home = true,
             "current-user-principal" => self.in_principal = true,
             "supported-calendar-component-set" => self.in_set = true,
             "comp" if self.in_set => {
@@ -247,7 +299,7 @@ impl<V: Visit> xml::Sink for Multistatus<V> {
             "getetag" => self.leaf = Leaf::Etag,
             "displayname" => self.leaf = Leaf::Name,
             "getctag" => self.leaf = Leaf::Ctag,
-            "calendar-data" => self.leaf = Leaf::Data,
+            "calendar-data" | "address-data" => self.leaf = Leaf::Data,
             _ => {}
         }
         Ok(())
@@ -270,7 +322,7 @@ impl<V: Visit> xml::Sink for Multistatus<V> {
             "propstat" => self.in_propstat = false,
             "prop" => self.in_prop = false,
             "resourcetype" => self.in_type = false,
-            "calendar-home-set" => self.in_home = false,
+            "calendar-home-set" | "addressbook-home-set" => self.in_home = false,
             "current-user-principal" => self.in_principal = false,
             "supported-calendar-component-set" => self.in_set = false,
             "multistatus" => self.complete = true,
@@ -540,5 +592,38 @@ mod tests {
         assert!(!etag_eq("", ""), "an unknown version equals none");
         assert_eq!(etag_header("W/\"abc\"").unwrap(), "\"abc\"");
         assert_eq!(etag_header("abc").unwrap(), "\"abc\"");
+    }
+
+    #[test]
+    fn an_address_book_and_a_range_of_events() {
+        let text = r#"<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+ <d:response><d:href>/dav/abook/</d:href><d:propstat><d:prop>
+  <d:resourcetype><d:collection/><card:addressbook/></d:resourcetype>
+  <card:addressbook-home-set><d:href>/dav/abook/</d:href></card:addressbook-home-set>
+ </d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>
+</d:multistatus>"#;
+        let (items, _) = read(text, 7);
+        assert!(items[0].contains("home=/dav/abook/"), "{}", items[0]);
+        let mut book = false;
+        let mut scanner = xml::Scanner::new();
+        struct Flag<'a>(&'a mut bool);
+        impl Visit for Flag<'_> {
+            type Error = Error;
+            fn data(&mut self, _: &[u8]) -> Result<(), Error> {
+                Ok(())
+            }
+            fn item(&mut self, item: &Item<'_>) -> Result<(), Error> {
+                *self.0 |= item.addressbook;
+                Ok(())
+            }
+        }
+        let mut reader = Multistatus::new(Flag(&mut book));
+        scanner.feed(text.as_bytes(), &mut reader).unwrap();
+        assert!(book);
+        let body = report_events(20_800, 20_860).unwrap();
+        assert!(
+            body.contains("start=\"20261213T000000Z\" end=\"20270211T000000Z\""),
+            "{body}"
+        );
     }
 }

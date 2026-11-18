@@ -290,7 +290,7 @@ cargo run -p paperpaw-emulator -- --headless --profile boox-go-7 --set core.lang
 | `crates/paperpaw-sqlite` | SQLite files read and written page by page, e.g. KOReader's statistics |
 | `crates/paperpaw-digest` | MD5, SHA-1, SHA-256 and FNV-1a |
 | `crates/paperpaw-qr` | QR codes for short text such as an address |
-| `crates/paperpaw-caldav` | CalDAV and iCalendar for plugins: to-dos read, written and patched as they stream |
+| `crates/paperpaw-caldav` | CalDAV, CardDAV and iCalendar for plugins: to-dos and events read as they stream, recurrence rules, time zones, vCard birthdays |
 | `crates/paperpaw-native` | Native code plugin files (`.ppn`): format, signatures, loading |
 | `crates/paperpaw-update` | Signed firmware update files |
 | `crates/paperpaw-serve` | HTTP serving for plugins in shells with an operating system |

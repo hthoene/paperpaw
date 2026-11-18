@@ -37,6 +37,7 @@ rules system
 translate reading
 stats reading
 tasks home
+calendar home
 vocabulary learning
 wallabag news
 weather home
