@@ -7,6 +7,7 @@
     reason = "fixture errors fail the tests"
 )]
 use paperpaw_plugin_store::native_device::Facts;
+use paperpaw_plugin_store::native_ed25519;
 use paperpaw_plugin_store::native_index::{self, MAX_LIST_FILE};
 use paperpaw_plugin_store::native_item::FIRST_PARTY_KEY;
 use paperpaw_plugin_store::native_load::{
@@ -234,6 +235,79 @@ fn a_list_without_a_signature_that_holds_is_refused() {
         .ended(&mut wire, &done(SIGNATURE_TOKEN, Reason::NoNetwork, 0))
         .unwrap();
     assert_eq!(loader.trouble(), Trouble::Offline);
+}
+
+/// A store that is a plugin file (the X4's, and the X4 Pro's and X4 Classic's
+/// on the S3) checks a source's signature with its own Ed25519, whose frames
+/// fit a file (#320): a store built without `linked`, as this one is by
+/// default, judges a list with it.
+#[test]
+fn a_store_packed_as_a_file_reads_a_signed_list_and_refuses_a_forged_one() {
+    let key = public_key(&SEED);
+    let signature = signature_file(LIST.as_bytes(), &SEED);
+    let signed = Signed::read(&signature).unwrap();
+    let digest = sha256::digest(LIST.as_bytes());
+    assert!(native_ed25519::verify(
+        &key,
+        &message(&digest),
+        &signed.signature
+    ));
+    let mut wire = Script::new(Trust::FirstUse);
+    let mut loader = Loader::default();
+    let (ended, trouble) = fetch(&mut wire, &mut loader, LIST.as_bytes(), Some(&signature));
+    assert_eq!((ended, trouble), (Ended::ListChanged, Trouble::None));
+    assert_eq!(loader.index().unwrap().len(), 1);
+    assert_eq!(wire.pinned, [key]);
+
+    // Forged: another list under the signature, a signature with one bit
+    // changed, and one by another key that names the source's key.
+    let forged = LIST.replace("plugin-a", "plugin-b");
+    let forged_digest = sha256::digest(forged.as_bytes());
+    assert!(!native_ed25519::verify(
+        &key,
+        &message(&forged_digest),
+        &signed.signature
+    ));
+    let mut bent = signed;
+    bent.signature[40] ^= 1;
+    assert!(!native_ed25519::verify(
+        &key,
+        &message(&digest),
+        &bent.signature
+    ));
+    let others = Signed {
+        key,
+        signature: sign_message(&message(&digest), &OTHER_SEED),
+    };
+    let as_file = |signed: &Signed| {
+        format!(
+            "{}\n{}\n",
+            hex::encode(&signed.key),
+            hex::encode(&signed.signature)
+        )
+    };
+    for (list, signature) in [
+        (forged.as_str(), signature.clone()),
+        (LIST, as_file(&bent)),
+        (LIST, as_file(&others)),
+    ] {
+        for trust in [Trust::FirstUse, Trust::Pinned(key)] {
+            assert_eq!(
+                judge(
+                    trust,
+                    Signed::read(&signature).as_ref(),
+                    &sha256::digest(list.as_bytes())
+                ),
+                Verdict::Unsigned
+            );
+            let mut wire = Script::new(trust);
+            let mut loader = Loader::default();
+            let (ended, trouble) = fetch(&mut wire, &mut loader, list.as_bytes(), Some(&signature));
+            assert_eq!((ended, trouble), (Ended::ListUnchanged, Trouble::Unsigned));
+            assert!(loader.index().is_none());
+            assert!(wire.pinned.is_empty());
+        }
+    }
 }
 
 #[test]
