@@ -45,6 +45,9 @@ jobs:
   # end of this group: it passes only when all three parts below passed (not
   # skipped, not cancelled). The parts run side by side, which takes the
   # lint and the feature builds of the tests off the path of the workspace tests.
+  # No CARGO_PROFILE_DEV_DEBUG here or in the test jobs: crates/paperpaw-epub-family/tests/allocation.rs
+  # finds the refused allocation by symbol names in a backtrace, which needs the dev
+  # profile's `limited` debug info (`line-tables-only` failed it, #3747).
   lint:
     name: Format, lint, docs
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
@@ -75,6 +78,15 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # The workspace's tests, in two jobs that together are `cargo test` with
+  # nothing left out: one command line each, the same workspace selection and
+  # features (so every crate builds with the features it has in the whole
+  # workspace's run), cut by kind of target. cargo's default set is the library
+  # and binary unit tests, the examples, the integration tests (tests/*.rs) and
+  # the doc tests: `test-unit` runs the first, second and fourth, this job the
+  # third (`--test '*'` is every integration test, and a new one joins it).
+  # It was one job of 18 minutes. This job saves the cache (shared-key check):
+  # its dependencies are a superset of the unit tests'.
   test:
     name: Tests
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
@@ -85,8 +97,8 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
-      # One cache for the lint and the test job (the key the single job had):
-      # the test job alone saves it.
+      # One cache for the lint and the test jobs (the key the single job had):
+      # this job alone saves it.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: check
@@ -96,7 +108,31 @@ jobs:
       # (it enables it on paperpaw-core), so it is named here; with it every
       # crate builds with the features it has in the whole workspace's run
       # (compare `cargo tree --workspace`).
-      - run: cargo test --no-fail-fast --workspace --exclude paperpaw-app --features paperpaw-core/testing
+      - run: cargo test --no-fail-fast --workspace --exclude paperpaw-app --features paperpaw-core/testing --test '*'
+
+  # The other half of the workspace's tests (see the job above): the unit tests
+  # of the libraries and binaries, the examples, the doc tests, and the line-break
+  # table's check.
+  test-unit:
+    name: Tests (unit and doc tests)
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      # Reads the cache the test job saves (shared-key check); never saves.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: check
+          save-if: false
+      # The same selection and features as the job above. `--doc` cannot be mixed
+      # with other target options: its own command.
+      - run: cargo test --no-fail-fast --workspace --exclude paperpaw-app --features paperpaw-core/testing --lib --bins --examples
+      - run: cargo test --no-fail-fast --workspace --exclude paperpaw-app --features paperpaw-core/testing --doc
+        if: ${{ !cancelled() }}
       # The line-break table (crates/paperpaw-text/src/linebreak) is made from
       # Unicode 17.0.0's files, pinned by SHA-256 in the generator (a changed
       # mirror fails here, never passes); the conformance test needs them too.
@@ -107,6 +143,7 @@ jobs:
           path: ${{ runner.temp }}/ucd
           key: ucd-17.0.0-${{ hashFiles('tools/linebreak-table.py') }}
       - name: The line-break table is current and passes Unicode's conformance test
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/ucd"
@@ -241,11 +278,12 @@ jobs:
     # Runs whatever the parts did (a failed or cancelled part must not leave
     # this check missing or skipped), but not for a draft pull request.
     if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
-    needs: [lint, test, test-app, test-features, test-features-rest, test-features-app]
+    needs: [lint, test, test-unit, test-app, test-features, test-features-rest, test-features-app]
     runs-on: ubuntu-latest
     env:
       LINT: ${{ needs.lint.result }}
       TEST: ${{ needs.test.result }}
+      TEST_UNIT: ${{ needs.test-unit.result }}
       TEST_APP: ${{ needs.test-app.result }}
       TEST_FEATURES: ${{ needs.test-features.result }}
       TEST_FEATURES_REST: ${{ needs.test-features-rest.result }}
@@ -253,8 +291,9 @@ jobs:
     steps:
       - name: All parts passed
         run: |
-          echo "lint: $LINT, test: $TEST, test-app: $TEST_APP, test-features: $TEST_FEATURES, test-features-rest: $TEST_FEATURES_REST, test-features-app: $TEST_FEATURES_APP"
-          [ "$LINT" = success ] && [ "$TEST" = success ] && [ "$TEST_APP" = success ] \
+          echo "lint: $LINT, test: $TEST, test-unit: $TEST_UNIT, test-app: $TEST_APP, test-features: $TEST_FEATURES, test-features-rest: $TEST_FEATURES_REST, test-features-app: $TEST_FEATURES_APP"
+          [ "$LINT" = success ] && [ "$TEST" = success ] && [ "$TEST_UNIT" = success ] \
+            && [ "$TEST_APP" = success ] \
             && [ "$TEST_FEATURES" = success ] && [ "$TEST_FEATURES_REST" = success ] \
             && [ "$TEST_FEATURES_APP" = success ]
 
@@ -1186,21 +1225,30 @@ jobs:
           path: target/android/paperpaw.apk
 
   fuzz:
-    name: Fuzz parsers
+    name: Fuzz parsers (${{ matrix.target }})
     # The long run on main and integration; a PR gets it when it merges.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    strategy:
+      # Every target is run whatever another one found (the loop stopped at the
+      # first failure and hid the rest).
+      fail-fast: false
+      matrix:
+        # One minute each, one job each: 9 minutes in a row before.
+        target: [epub, txt, xml, hyphen, image, lua, bidi, wrap]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly (branch head)
         with:
           toolchain: nightly
+      # The eight jobs share one cache (the same dependencies); the first to
+      # finish saves it.
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/abi7/integration' || github.ref == 'refs/heads/main') }}
           workspaces: fuzz
       - run: cargo install cargo-fuzz --locked
-      - name: One minute per target, seeded with the sample books
+      - name: One minute, seeded with the sample books
         run: |
           mkdir -p fuzz/corpus/epub fuzz/corpus/txt
           cp samples/library/books/*.epub fuzz/corpus/epub/
@@ -1208,13 +1256,11 @@ jobs:
           mkdir -p fuzz/corpus/image
           cp crates/paperpaw-image/tests/data/*.jpg crates/paperpaw-image/tests/data/*.png fuzz/corpus/image/
           # `+nightly` overrides rust-toolchain.toml, which pins stable.
-          for target in epub txt xml hyphen image lua bidi wrap; do
-            cargo +nightly fuzz run "$target" -- -max_total_time=60 -rss_limit_mb=1024
-          done
+          cargo +nightly fuzz run "${{ matrix.target }}" -- -max_total_time=60 -rss_limit_mb=1024
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
-          name: fuzz-crashes
+          name: fuzz-crashes-${{ matrix.target }}
           path: fuzz/artifacts
 
   deny:
@@ -1308,7 +1354,7 @@ jobs:
   prune-caches:
     name: Old Rust caches removed
     if: ${{ always() && github.event_name == 'push' }}
-    needs: [check, test, test-app, test-features, test-features-app, screens, msrv, sdk, abi7, embedded, firmware, firmware-s3-lint, firmware-s3-ppn5, firmware-s3-plugins, firmware-s3-fit, update-path, native, architecture, emulator, android, fuzz, deny, firmware-host-frames]
+    needs: [check, test, test-unit, test-app, test-features, test-features-rest, test-features-app, screens, msrv, sdk, abi7, embedded, firmware, firmware-s3-lint, firmware-s3-ppn5, firmware-s3-plugins, firmware-s3-fit, update-path, native, architecture, emulator, android, fuzz, deny, firmware-host-frames]
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:

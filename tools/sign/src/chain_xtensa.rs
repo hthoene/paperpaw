@@ -145,6 +145,7 @@
 mod family;
 mod jx;
 mod regs;
+mod slack;
 mod tables;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -1003,6 +1004,8 @@ pub struct Report {
     pub problems: Vec<String>,
     /// What is stale but harmless: lines to remove, which do not fail the scan.
     pub warnings: Vec<String>,
+    /// Calls no line names, held until the end of the scan (see [`slack`]).
+    pool: slack::Pool,
 }
 
 impl Image<'_> {
@@ -1077,7 +1080,7 @@ fn follow(
             } else {
                 "outside the image (ROM or a blob)"
             };
-            report.problems.push(format!(
+            report.pool.call(caller, &callee, format!(
                 "`{}` calls `{callee}` ({target:#x}), {where_}: not checkable here (name it with `allow call`)",
                 caller.shown
             ));
@@ -1260,10 +1263,7 @@ fn check_indirect(
         &|a| matches!(a, Allow::Indirect { caller: c, count: n } if f.is(c) && count <= *n + INDIRECT_MARGIN),
     );
     if !own && !family::in_a_family(budget, used, family_sites, f, count) {
-        report.problems.push(format!(
-            "`{}` has {count} call(s) through a register: not followed here (name them with `allow indirect`)",
-            f.shown
-        ));
+        report.pool.indirect(budget, f, count);
     }
 }
 
@@ -1336,23 +1336,6 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
     }
 }
 
-/// The `allow` lines nothing used: a warning for the two kinds that only grant what a site
-/// needs (#309), a problem for the rest.
-fn report_unused(budget: &Budget, used: &[bool], report: &mut Report) {
-    for (n, (allow, _)) in budget.allow.iter().enumerate() {
-        if !used[n] {
-            let line = format!("an `allow` line matches nothing any more: {allow:?}: remove it");
-            if matches!(
-                allow,
-                Allow::Call { .. } | Allow::Indirect { .. } | Allow::Jx { .. }
-            ) {
-                report.warnings.push(line);
-            } else {
-                report.problems.push(line);
-            }
-        }
-    }
-}
 /// Reads `elf` and checks the set the budget's roots and tables reach.
 pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     if elf.machine != EM_XTENSA {
@@ -1450,7 +1433,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     report
         .problems
         .extend(family::frames_in_problems(&image, &around, budget));
-    report_unused(budget, &used, &mut report);
+    slack::settle(budget, &mut used, &mut report);
     // One line per site is noise: a function calling `memcpy` fifty times is
     // one line (`allow call` is per caller and callee already).
     let mut seen_lines = BTreeSet::new();
@@ -1498,3 +1481,5 @@ pub fn run(elf: &str, budget: &str) -> Result<(), String> {
 mod tests;
 #[cfg(test)]
 mod tests_frames;
+#[cfg(test)]
+mod tests_slack;

@@ -31,7 +31,7 @@ pub(super) fn document_error_kind(error: &DocumentError) -> Option<Error> {
 /// Says why there is no page: the text over the whole screen.
 pub(super) fn say(host: &Host<'_>, frame: &mut DrawFrame<'_>, key: &str) -> Result<(), Error> {
     let font = Font::acquire_role(host, FontRole::Ui)?;
-    let said = say_with(host, frame, &font, key);
+    let said = say_with(host, frame, &font, (key, None));
     let released = font.release();
     said.and(released)
 }
@@ -40,17 +40,33 @@ fn say_with(
     host: &Host<'_>,
     frame: &mut DrawFrame<'_>,
     font: &Font<'_>,
-    key: &str,
+    (key, strip): (&str, Option<u16>),
 ) -> Result<(), Error> {
     let display = snapshot::capture_snapshot(host)?;
     let style = UiStyle::read(host, &display, font)?;
-    let area = paperpaw_sdk::Rect::new(0, 0, display.display_width(), display.display_height());
+    // The whole screen, or a strip at its bottom.
+    let (width, height) = (display.display_width(), display.display_height());
+    let high = strip.map_or(height, |strip| strip.min(height));
+    let area = paperpaw_sdk::Rect::new(0, height - high, width, high);
     let mut messages = Messages::new()?;
     let shown = messages.copy(host, key)?;
     let mut body = Vec::new();
     push(&mut body, paint::Paint::Fill(area, style.paper))?;
     text::message(&mut body, font, &style, area, &shown)?;
     paint::replay(frame, font, body.iter())
+}
+
+/// A short note over the bottom `strip` rows of the screen, the rest left as it is.
+pub(super) fn note(
+    host: &Host<'_>,
+    frame: &mut DrawFrame<'_>,
+    key: &str,
+    strip: u16,
+) -> Result<(), Error> {
+    let font = Font::acquire_role(host, FontRole::Ui)?;
+    let said = say_with(host, frame, &font, (key, Some(strip)));
+    let released = font.release();
+    said.and(released)
 }
 
 /// The language a book is read in: its own, or the UI language where the

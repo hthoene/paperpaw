@@ -1,0 +1,3 @@
+### Changed
+
+- The S3 band scan (`paperpaw-sign frames-s3`) takes a site that LLVM's inlining moved (a call through a register in a function with no line of its own, or past its line, or a call out of the image of a caller no `allow call` line names) from the spare of the same crate's lines: an `allow indirect` line's count less what its functions have now, or an unused `allow call` line of the same callee. It says so in a warning; the sum per crate never exceeds the reviewed counts, and what the spare does not cover fails as before. A stale `allow call` or `allow indirect` line is kept as that spare, no longer advised for removal. `tools/check-s3-budget.sh` runs the same three checks as CI's job (the scan, the scan with the linked plugins, the start-stack check).
