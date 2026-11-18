@@ -996,6 +996,9 @@ action home.all-tools | title=home.drawer sealed=false runs-itself=true native=S
 action home.edit-pages | title=home.edit-pages sealed=false runs-itself=true native=Some(2)
 action keyboard.done | title=keyboard.done-action sealed=false runs-itself=true native=Some(1)
 action lock.now | title=lock.now sealed=false runs-itself=true native=Some(1)
+action lock.touch-hint | title=lock.touch-hint sealed=false runs-itself=true native=Some(32)
+action lock.touch-lock | title=lock.touch sealed=false runs-itself=true native=Some(31)
+action lock.touch-toggle | title=lock.touch-toggle sealed=false runs-itself=true native=Some(30)
 action news.fetch | title=news.fetch sealed=false runs-itself=true native=Some(2)
 action news.open | title=news.title sealed=false runs-itself=true native=Some(1)
 action notes-vault.open | title=notes-vault.title sealed=false runs-itself=true native=Some(1)
@@ -1226,6 +1229,7 @@ menu-merged core.main | home.edit-pages by=home order=40 kind=0 flags=0x22
 menu-merged core.main | core.night-mode by=core order=85 kind=1 flags=0x62
 menu-merged core.main | core.settings by=core order=90 kind=0 flags=0x22
 menu-merged core.quick | core.night-mode by=core order=10 kind=1 flags=0x62
+menu-merged core.quick | lock.touch-lock by=lock order=11 kind=0 flags=0x22
 menu-merged core.quick | power.mode by=power order=30 kind=1 flags=0x22
 menu-merged core.quick | core.refresh-screen by=core order=50 kind=0 flags=0x22
 menu-merged core.quick | core.screenshot by=core order=60 kind=0 flags=0x22
@@ -1235,6 +1239,7 @@ menu-merged core.reader-menu | reader.quick-settings by=reader order=5 kind=0 fl
 menu-merged core.reader-menu | reader.show-toc by=reader order=10 kind=0 flags=0x22
 menu-merged core.reader-menu | reader.search by=reader order=20 kind=0 flags=0x22
 menu-merged core.reader-menu | reader.show-annotations by=reader order=40 kind=0 flags=0x22
+menu-merged core.reader-menu | lock.touch-lock by=lock order=60 kind=0 flags=0x22
 menu-merged core.reader-menu | core.night-mode by=reader order=60 kind=1 flags=0x62
 menu-merged core.reader-menu | reader.toggle-bookmark by=reader order=65 kind=0 flags=0x22
 menu-merged core.reader-menu | core.reader-more by=reader order=70 kind=2 flags=0x22
@@ -2364,6 +2369,9 @@ native Action home | ActionSpec(ActionSpec { name: "all-tools", title: "home.dra
 native Action home | ActionSpec(ActionSpec { name: "edit-pages", title: "home.edit-pages", token: 2, flags: 0 })
 native Action keyboard | ActionSpec(ActionSpec { name: "done", title: "keyboard.done-action", token: 1, flags: 1 })
 native Action lock | ActionSpec(ActionSpec { name: "now", title: "lock.now", token: 1, flags: 0 })
+native Action lock | ActionSpec(ActionSpec { name: "touch-toggle", title: "lock.touch-toggle", token: 30, flags: 0 })
+native Action lock | ActionSpec(ActionSpec { name: "touch-lock", title: "lock.touch", token: 31, flags: 0 })
+native Action lock | ActionSpec(ActionSpec { name: "touch-hint", title: "lock.touch-hint", token: 32, flags: 0 })
 native Action news | ActionSpec(ActionSpec { name: "open", title: "news.title", token: 1, flags: 0 })
 native Action news | ActionSpec(ActionSpec { name: "fetch", title: "news.fetch", token: 2, flags: 0 })
 native Action notes-vault | ActionSpec(ActionSpec { name: "open", title: "notes-vault.title", token: 1, flags: 0 })
@@ -2462,6 +2470,7 @@ native WidgetPlace home | WidgetPlace(WidgetPlace { name: "pages", title: "home.
 native WidgetPlace picture-home | WidgetPlace(WidgetPlace { name: "pages", title: "picture-home.title", list_keys: "picture-home.page-1\npicture-home.page-2\npicture-home.page-3\npicture-home.page-4", layout: 0, shown_if_key: "", shown_if_value: "" })
 native WidgetPlace sleep | WidgetPlace(WidgetPlace { name: "widgets", title: "sleep.title", list_keys: "sleep.widgets", layout: 1, shown_if_key: "sleep.show", shown_if_value: "sleep.show.widgets" })
 native WidgetPlace sleep | WidgetPlace(WidgetPlace { name: "overlay", title: "sleep.title", list_keys: "sleep.overlay-widget", layout: 1, shown_if_key: "sleep.show", shown_if_value: "sleep.show.overlay" })
+native StatusItem lock | StatusItem(StatusItem { name: "touch-status", title: "lock.touch-status", tap: "", priority: 0, min_width: 0, token: 34, flags: 0 })
 native StatusItem power | StatusItem(StatusItem { name: "status", title: "power.status.item", tap: "open", priority: 0, min_width: 0, token: 12, flags: 0 })
 native StatusItem reader | StatusItem(StatusItem { name: "status.title", title: "reader.status.item.title", tap: "", priority: 64, min_width: 0, token: 16, flags: 0 })
 native StatusItem reader | StatusItem(StatusItem { name: "status.chapter", title: "reader.status.item.chapter", tap: "", priority: 64, min_width: 0, token: 16, flags: 0 })
@@ -2493,6 +2502,8 @@ native MenuEntry fonts-browser | MenuEntry(MenuEntry { menu: "core.status-font",
 native MenuEntry fonts-browser | MenuEntry(MenuEntry { menu: "core.status-font", item: "fonts-browser.own", order: 0, place: 0, anchor: "" })
 native MenuEntry home | MenuEntry(MenuEntry { menu: "core.main", item: "home.edit-pages", order: 40, place: 0, anchor: "" })
 native MenuEntry home | MenuEntry(MenuEntry { menu: "home.actions", item: "core.library", order: 10, place: 0, anchor: "" })
+native MenuEntry lock | MenuEntry(MenuEntry { menu: "core.quick", item: "lock.touch-lock", order: 11, place: 0, anchor: "" })
+native MenuEntry lock | MenuEntry(MenuEntry { menu: "core.reader-menu", item: "lock.touch-lock", order: 60, place: 0, anchor: "" })
 native MenuEntry news | MenuEntry(MenuEntry { menu: "core.tools", item: "news.open", order: 44, place: 0, anchor: "" })
 native MenuEntry notes-vault | MenuEntry(MenuEntry { menu: "core.tools", item: "notes-vault.open", order: 38, place: 0, anchor: "" })
 native MenuEntry opds | MenuEntry(MenuEntry { menu: "core.tools", item: "opds.open", order: 45, place: 0, anchor: "" })
@@ -2564,6 +2575,8 @@ native Icon home | IconSpec(IconSpec { item: "home.edit-pages", icon: "pencil" }
 native Icon keyboard | IconSpec(IconSpec { item: "keyboard.group", icon: "keyboard" })
 native Icon lock | IconSpec(IconSpec { item: "lock.group", icon: "lock" })
 native Icon lock | IconSpec(IconSpec { item: "lock.now", icon: "lock" })
+native Icon lock | IconSpec(IconSpec { item: "lock.touch-toggle", icon: "lock" })
+native Icon lock | IconSpec(IconSpec { item: "lock.touch-lock", icon: "lock" })
 native Icon news | IconSpec(IconSpec { item: "news.open", icon: "rss" })
 native Icon news | IconSpec(IconSpec { item: "news.fetch", icon: "refresh" })
 native Icon notes-vault | IconSpec(IconSpec { item: "notes-vault.open", icon: "note" })
@@ -2609,6 +2622,8 @@ native MenuNeed files | MenuNeed(MenuNeed { item: "files.covers", need: 9, capab
 native MenuNeed home | MenuNeed(MenuNeed { item: "home.focus-at-once", need: 3, capability: 0 })
 native MenuNeed keyboard | MenuNeed(MenuNeed { item: "keyboard.key-shape", need: 4, capability: 0 })
 native MenuNeed lock | MenuNeed(MenuNeed { item: "lock.touch", need: 4, capability: 0 })
+native MenuNeed lock | MenuNeed(MenuNeed { item: "lock.touch-lock", need: 4, capability: 0 })
+native MenuNeed lock | MenuNeed(MenuNeed { item: "lock.touch-toggle", need: 4, capability: 0 })
 native MenuNeed picture-home | MenuNeed(MenuNeed { item: "picture-home.focus-at-once", need: 3, capability: 0 })
 native MenuNeed reader | MenuNeed(MenuNeed { item: "reader.read-aloud", need: 0, capability: 0 })
 native MenuNeed reader | MenuNeed(MenuNeed { item: "reader.selection.read-aloud", need: 0, capability: 0 })
@@ -2667,6 +2682,7 @@ native SlotOffer transfer | SlotOffer(SlotOffer { slot: "core.cable", screen: "t
 native SlotOffer vocabulary | SlotOffer(SlotOffer { slot: "core.sleep", screen: "vocabulary.sleep-card", priority: -1 })
 native KeyBind home | KeyBind(KeyBind { layer: "core.home", input: "swipe.up", action: "home.all-tools", when_key: "", when_value: "" })
 native KeyBind keyboard | KeyBind(KeyBind { layer: "keyboard.screen", input: "long.back", action: "keyboard.done", when_key: "", when_value: "" })
+native KeyBind lock | KeyBind(KeyBind { layer: "global", input: "long.home", action: "lock.touch-toggle", when_key: "lock.touch", when_value: "true" })
 native KeyBind power | KeyBind(KeyBind { layer: "global", input: "long.power", action: "power.menu", when_key: "", when_value: "" })
 native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "tap.bottom", action: "reader.quick-settings", when_key: "", when_value: "" })
 native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "edge.left", action: "core.prev-page", when_key: "", when_value: "" })
@@ -2690,6 +2706,8 @@ native Stage reader | StageSpec(StageSpec { name: "word-looked-up", schema: 1, f
 native Stage reader | StageSpec(StageSpec { name: "filter", schema: 1, flags: 0, max_input: 160, max_reply: 3840, max_records: 4 })
 native Stage reader | StageSpec(StageSpec { name: "decorations", schema: 1, flags: 0, max_input: 3840, max_reply: 3840, max_records: 4 })
 native Subscription aids | RegistrationStage(RegistrationStage { stage: "reader.filter", token: 1, order: 0, signature: 0 })
+native Subscription lock | RegistrationStage(RegistrationStage { stage: "core.input-filter", token: 33, order: 0, signature: 0 })
+native Subscription lock | RegistrationStage(RegistrationStage { stage: "core.status", token: 34, order: 0, signature: 0 })
 native Subscription power | RegistrationStage(RegistrationStage { stage: "core.status", token: 12, order: 0, signature: 0 })
 native Subscription vocabulary | RegistrationStage(RegistrationStage { stage: "reader.word-looked-up", token: 6, order: 0, signature: 0 })
 native Subscription vocabulary | RegistrationStage(RegistrationStage { stage: "reader.decorations", token: 8, order: 0, signature: 0 })

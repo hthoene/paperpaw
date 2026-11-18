@@ -1,0 +1,3 @@
+### Fixed
+
+- **The touch lock works again on the X4 Pro, and it can always be unlocked without touch** (#234). *Lock touch* is back in the quick panel and the reader's menu (it did nothing on interface 7), takes every finger and pen, shows a lock in the status lines and closes the panel it was chosen in, so the page is back and the buttons turn pages. While touch is locked, holding the power button unlocks it at once (no menu to tap), and so does holding the home key; tapping twice and holding the second tap still works. The notice that says how to unlock now names the way that works (English and German; other languages say it in English until translated).
