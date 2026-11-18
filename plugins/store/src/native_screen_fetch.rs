@@ -727,6 +727,34 @@ pub struct View {
     back: Option<Rect>,
     /// The rows of the end of the last frame.
     hits: Vec<Rect>,
+    /// The words of the screen, said once for a phase (about 0.5 KiB).
+    words: Option<Words>,
+}
+
+/// The words a frame shows apart from the progress, for one phase.
+#[derive(Debug)]
+struct Words {
+    phase: Phase,
+    title: String,
+    hint: String,
+    message: String,
+    labels: Vec<String>,
+}
+
+impl Words {
+    fn of(core: &Core, say: &mut dyn Say) -> Result<Self, Error> {
+        let mut labels = Vec::new();
+        for row in rows(core.phase) {
+            push(&mut labels, say.text(row.key())?)?;
+        }
+        Ok(Self {
+            phase: core.phase,
+            title: say.text("store.fetch.title")?,
+            hint: say.text("store.fetch.hint")?,
+            message: core.message(say)?,
+            labels,
+        })
+    }
 }
 
 impl View {
@@ -755,7 +783,17 @@ impl View {
         let style = Style::read(host, &display, &font)?;
         let (width, height) = (display.display_width(), display.display_height());
         let mut say = Held { host };
-        let title = say.text("store.fetch.title")?;
+        if self
+            .words
+            .as_ref()
+            .is_none_or(|w| w.phase != self.core.phase)
+        {
+            self.words = Some(Words::of(&self.core, &mut say)?);
+        }
+        let Some(words) = self.words.as_ref() else {
+            return Err(Error::NoMemory);
+        };
+        let (title, message, hint) = (&words.title, &words.message, &words.hint);
         let mut page = Page::default();
         header::prepare(
             &mut page,
@@ -764,13 +802,12 @@ impl View {
             &style,
             // One title with no pager: the header asks the buffers for nothing.
             &mut Messages::default(),
-            &title,
+            title,
             width,
             display.has_touch(),
             0,
             1,
         )?;
-        let (message, hint) = (self.core.message(&mut say)?, say.text("store.fetch.hint")?);
         let wide = width.saturating_sub(style.margin.saturating_mul(2));
         let layout = Layout::of(&Metrics {
             width,
@@ -779,13 +816,13 @@ impl View {
             margin: style.margin,
             gap: style.gap,
             row: style.row,
-            message_needs: needs(&font, &style, wide, &message)?,
-            hint_needs: needs(&font, &style, width, &hint)?,
+            message_needs: needs(&font, &style, wide, message)?,
+            hint_needs: needs(&font, &style, width, hint)?,
         });
         let mut body = Vec::new();
         let below = Rect::new(0, style.header, width, height.saturating_sub(style.header));
         paint::push(&mut body, Paint::Fill(below, style.paper))?;
-        text::message(&mut body, &font, &style, layout.message, &message)?;
+        text::message(&mut body, &font, &style, layout.message, message)?;
         let mut hits = Vec::new();
         if self.core.bar() {
             bar(&mut body, &style, layout.bar, self.core.permille)?;
@@ -803,18 +840,18 @@ impl View {
             text::message(&mut body, &font, &style, line, &progress)?;
         }
         let mut top = layout.rows_top;
-        for (index, row) in rows(self.core.phase).iter().enumerate() {
+        for index in 0..rows(self.core.phase).len() {
             let rect = Rect::new(0, top, width, style.row);
-            let label = say.text(row.key())?;
+            let label = words.labels.get(index).map_or("", String::as_str);
             let focused = index == self.core.focus;
-            list::row(&mut body, &font, &style, rect, &label, "", focused)?;
+            list::row(&mut body, &font, &style, rect, label, "", focused)?;
             push(&mut hits, rect)?;
             top = top.saturating_add(style.row);
         }
         // The hint keeps all its lines, from the bottom up, under a light line.
         let rule = Rect::new(0, layout.hint.y, width, style.line.max(1));
         paint::push(&mut body, Paint::Fill(rule, style.separator_ink))?;
-        text::message(&mut body, &font, &style, layout.hint, &hint)?;
+        text::message(&mut body, &font, &style, layout.hint, hint)?;
         paint::replay(frame, &font, page.paint.iter().chain(body.iter()))?;
         font.release()?;
         // Only the tap region survives the draw.
@@ -854,10 +891,12 @@ impl Screen for View {
         let mut core = Core::new(kind, by, ids, &listed)?;
         // What is here already; the end, if it came, is taken on the first event.
         drop(core.refresh(ctx.installs, ctx.loader.list_state()));
+        let words = Words::of(&core, &mut Held { host: ctx.host }).ok();
         Ok(Self {
             core,
             back: None,
             hits: Vec::new(),
+            words,
         })
     }
 
