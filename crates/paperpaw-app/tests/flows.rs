@@ -620,6 +620,26 @@ fn every_entry_of_the_main_menu_and_the_tools_opens_by_touch() {
     assert!(stayed.is_empty(), "tools that opened nothing: {stayed:?}");
 }
 
+/// Screens whose plugin refuses an open without what it asks for (a choice, an
+/// id, a scan the radio-less app cannot make): the screen closes with a notice
+/// and Home shows again (#350). `paperpaw-dev` shows them with the emulator's
+/// parameters (`offline::SCREENS`).
+const NEED_THEIR_PARAMETERS: &[&str] = &[
+    "bluetooth.search",
+    "files.info",
+    "files.names",
+    "help.overlay",
+    "home.status-items",
+    "keyboard.ask",
+    "keyboard.screen",
+    "settings.secret",
+    "store.plugin",
+    "store.shots",
+    "store.source",
+    "transfer.phone",
+    "vocabulary.sd-menu",
+];
+
 /// Every screen a plugin adds, opened as another plugin could, without
 /// the parameters it may expect: it shows (itself, or a screen it opens
 /// at once, as a place asked for opens the keyboard), and neither
@@ -639,13 +659,15 @@ fn open_every_screen(device: DeviceInfo) {
         }
         app.run(actions::HOME);
         app.open(screen.clone());
-        if app.screen() != screen.as_str() {
+        if app.screen() != screen.as_str() && !NEED_THEIR_PARAMETERS.contains(&screen.as_str()) {
             elsewhere.push(format!("{screen} -> {}", app.screen()));
         }
-        assert!(
-            app.screen() != "home.dashboard" || screen.as_str() == "home.dashboard",
-            "{screen} did not open"
-        );
+        if app.screen() == "home.dashboard" && screen.as_str() != "home.dashboard" {
+            assert!(
+                NEED_THEIR_PARAMETERS.contains(&screen.as_str()),
+                "{screen} did not open"
+            );
+        }
         let _ = app.parts();
         if device.input.touch {
             app.tap(Point::new(240, 400));
