@@ -69,7 +69,7 @@ test:13d-statistics-switches-plugins-on {
   expect-not:Error
   restart
   wait:6000
-  call:home
+  call:prime-keys
   no-warn
 }
 
@@ -82,6 +82,7 @@ test:13e-language-learning {
   expect-not:Error
   restart
   wait:6000
+  call:prime-keys
   run:anki.open
   until:Sync with Anki:8000
   no-warn

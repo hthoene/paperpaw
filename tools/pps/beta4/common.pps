@@ -39,3 +39,18 @@ define:quiet-device {
   slot:core.home
   until:Edit:15000
 }
+
+# After a start the first Right on Home has opened the quick panel on the X4 (test 01-first-key-after-start, a product bug while it fails):
+# the tests that restart press one key first and close the panel, so the keys they use afterwards do what they say.
+define:prime-keys {
+  slot:core.home
+  until:Edit:15000
+  right
+  wait:1500
+  if:shows:Power mode {
+    back
+    wait:1200
+  }
+  slot:core.home
+  until:Edit:15000
+}

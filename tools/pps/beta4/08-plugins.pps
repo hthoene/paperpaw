@@ -43,6 +43,7 @@ test:08c-reading-goal-offer {
   wait:1500
   restart
   wait:4000
+  call:prime-keys
   set:home.page-1=home.clock\,reading-goal.widget
   call:home
   confirm
@@ -73,5 +74,6 @@ test:08c-reading-goal-offer {
   wait:1500
   restart
   wait:4000
+  call:prime-keys
   no-warn
 }

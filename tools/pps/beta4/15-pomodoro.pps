@@ -19,9 +19,21 @@ test:pomodoro-01-on {
   no-warn
 }
 
+# The plugin is a store plugin on the X4: a card without its folder cannot run these (not a failure of the plugin).
+define:need-pomodoro {
+  if:$target==x4 {
+    if:exists:plugins/pomodoro {
+      wait:100
+    } else {
+      skip:the Pomodoro plugin is not installed on this X4 (store plugin, plugins/pomodoro missing)
+    }
+  }
+}
+
 # The screen: a fresh round stands at 25:00 with Start, Skip and Reset; Start runs it, a second Select
 # pauses it, Skip goes to the short break (5:00, nothing counted), Reset to the first round.
 test:pomodoro-02-screen {
+  call:need-pomodoro
   run:pomodoro.open
   until:Pomodoro:8000
   expect:Focus
@@ -58,6 +70,7 @@ test:pomodoro-02-screen {
 
 # The home widgets: the timer shows the phase and the minutes, the day's count its rounds.
 test:pomodoro-03-widgets {
+  call:need-pomodoro
   set:home.page-1=pomodoro.timer\,pomodoro.today
   call:home
   expect:25 min
@@ -68,6 +81,7 @@ test:pomodoro-03-widgets {
 }
 
 test:pomodoro-04-back {
+  call:need-pomodoro
   run:pomodoro.open
   until:Pomodoro:8000
   back

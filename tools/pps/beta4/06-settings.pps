@@ -7,9 +7,10 @@ test:06a-settings-pages {
   until:Settings:15000
   expect:Search
   expect:Display
-  expect:Power
+  expect:Wi-Fi
   page-forward
   until:Manage plugins:5000
+  expect:Power
   expect:Date and time
   expect:Updates
   expect:About PaperPaw
@@ -59,23 +60,20 @@ test:06c-power-off-after {
 }
 
 # The language: Select on the row steps through the languages and changes it at once; back to English.
+# The language is a list (English, Deutsch, Español): Select on a row sets it. German's texts come as a pack that
+# the firmware writes at the next start (#251, step 02b of the X4 run checks the German screens), so here only the row and
+# the setting are checked; the language goes back to English at the end.
 test:06d-language {
   call:home
   call:settings-row:System
   until:Language:8000
   select:Language
   wait:2500
-  expect:Sprache
-  expect:Zurück
-  # round to English again
-  repeat:12 {
-    if:not-shows:Language {
-      confirm
-      wait:2500
-    }
-  }
-  expect:Language
-  expect:Back
+  expect:Deutsch
+  select:Deutsch
+  wait:2000
+  expect:Deutsch
   set:core.language=en
+  wait:1000
   no-warn
 }
