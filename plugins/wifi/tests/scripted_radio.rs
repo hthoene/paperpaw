@@ -274,7 +274,10 @@ fn send(plugin: &Plugin<'_>, token: u32, batch: &[u8]) -> Outcome {
     }
     // A Wi-Fi command or a notice is refused by the scripted stage (it has no
     // device or screen context), a redraw is not.
-    let refused = sent.iter().any(|c| !c.starts_with("Redraw"));
+    // A notice alone is best effort: its refusal fails nothing (and no screen
+    // of the plugin is open to be drawn again after it).
+    let notice_only = sent.iter().all(|c| c.starts_with("Notify"));
+    let refused = !notice_only && sent.iter().any(|c| !c.starts_with("Redraw"));
     assert_eq!(
         done.status,
         if refused { DEV_REFUSED } else { 0 },
