@@ -8,9 +8,20 @@
 # <since> is the last release's tag where not given. Prints the commits
 # and the files changed, path by path, and what to check; the host tests
 # and the release's check-image catch much, a reader's eyes the rest.
+#
+# It first checks every Cargo.lock in git (tools/check-lockfiles.py runs
+# `cargo metadata --locked` for each) and fails when one is out of date: a
+# tag must not be made from a lock that cargo would change.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
+
+echo "Lockfiles:"
+python3 tools/check-lockfiles.py || {
+    echo "release-gate: a Cargo.lock is out of date: fix it and commit before tagging." >&2
+    exit 1
+}
+echo
 
 since="${1:-$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)}"
 
