@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 2 or sys.argv[1].startswith("-"):
         raise SystemExit("usage: hyphenation-data.py OUT_DIR")
     subprocess.run([
         "cargo", "run", "--locked", "-p", "paperpaw-hyphenation-packs", "--",

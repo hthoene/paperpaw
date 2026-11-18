@@ -267,7 +267,7 @@ def build(base, sets):
 
 
 def main():
-    if len(sys.argv) < 2:
+    if len(sys.argv) < 2 or any(a.startswith("-") for a in sys.argv[1:]):
         sys.exit(__doc__)
     sets = sys.argv[2:]
     unknown = [s for s in sets if s not in SETS]
