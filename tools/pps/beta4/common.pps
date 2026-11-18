@@ -1,0 +1,41 @@
+# Shared by the Beta 4 suite (tools/pps/beta4/*.pps): variables and named blocks. Included by every file.
+# Numbers behind the asserts: the X4 runs of Nov 17 (image 18A, #3464): a page turn 0.82 s, Back -> Home about 1 s.
+# They SKIP on the emulator (times, gray passes) and count on the X4.
+let:book=books/alice-in-wonderland.epub
+
+# Home, wherever we are. `slot:` opens it as the Home button does, with no keys that could land in a dialog.
+define:home {
+  slot:core.home
+  until:Edit:15000
+  # Home remembers its page: back to the first one (the Continue card), where the tests start.
+  if:not-shows:Continue reading {
+    page-back
+    wait:800
+  }
+}
+
+# A settings page by its row: call:settings-row:Power. Rows are reached with `right` (up to 80 presses: 3 pages of rows).
+define:settings-row {
+  slot:core.settings
+  until:Settings:15000
+  select:$1:80
+  wait:800
+}
+
+# The device stays reachable and quiet for the run (owner rule): hints off (the first-use notes would
+# sit on top of every new screen), the screen never sleeps, never switches off. NOT restored: test device.
+define:quiet-device {
+  set:help.show=off
+  set:core.sleep-after=0
+  if:$target==x4 {
+    try {
+      set:x4.power-off-after=never
+    }
+  }
+  set:core.language=en
+  # Home has a Continue card once a book was read: open one and leave it (a fresh card has none).
+  open:$book
+  wait:6000
+  slot:core.home
+  until:Edit:15000
+}

@@ -35,12 +35,12 @@
 //!
 //! The removal of a plugin (`plugin_remove`, record kind 1) shares the journal
 //! file: one change of the plugin folder at a time.
+use crate::kit::install::{self, marks};
 use alloc::vec::Vec;
 use alloc::{boxed::Box, string::String};
 use paperpaw_platform::{Storage, StorageError, firmware::Text};
 use paperpaw_sdk::{
     digest::fnv1a64,
-    install::{self, marks},
     native::{self, keys},
 };
 
@@ -296,7 +296,8 @@ fn decode_removal(bytes: &[u8]) -> Option<Removal> {
 pub(crate) fn present(storage: &dyn Storage, path: &str) -> Result<bool, u8> {
     let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
     let mut found = false;
-    match storage.list_from(dir, 0, &mut |entry| {
+    // No entry read past the one found.
+    match storage.list_bounded(dir, 0, &mut |entry| {
         found = found || entry.name.eq_ignore_ascii_case(name);
         !found
     }) {

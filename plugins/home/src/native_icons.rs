@@ -8,6 +8,7 @@
 //! pencil its word.
 use crate::native_source::HostSource;
 use alloc::{string::String, vec::Vec};
+use core::cell::Cell;
 use paperpaw_sdk::{
     Rect,
     native::{
@@ -110,6 +111,15 @@ pub struct Hyphens {
 }
 
 impl Hyphens {
+    /// No hyphenation: no word breaks, and nothing is asked of the host. Home's
+    /// tool names use it (#267): on the X4 every ask is a host call that reads
+    /// the language's table from the card (13 ms each, 21 in a frame), and a
+    /// name no line holds ends in "…" instead of breaking inside a word.
+    pub const OFF: Self = Self {
+        language: [0; MAX_LANGUAGE],
+        len: 0,
+    };
+
     /// The interface language (`core.language`); none where it cannot be
     /// read, and then no word breaks.
     #[must_use]
@@ -131,6 +141,19 @@ impl Hyphens {
     /// Where `word` breaks in the interface language ([`Breaks`]): only a
     /// word of letters is asked, and any refusal leaves it whole.
     pub fn breaks(&self, host: &Host<'_>, word: &str, out: &mut [u8; MAX_BREAKS]) -> usize {
+        self.breaks_noting(host, word, out, &Cell::new(false))
+    }
+
+    /// As [`Hyphens::breaks`], and `refused` is set where the host refused the
+    /// call (not where the word has no place to break): a name kept whole for
+    /// that is not to be kept (only a busy host is noted).
+    pub fn breaks_noting(
+        &self,
+        host: &Host<'_>,
+        word: &str,
+        out: &mut [u8; MAX_BREAKS],
+        refused: &Cell<bool>,
+    ) -> usize {
         let language = self
             .language
             .get(..self.len)
@@ -139,8 +162,20 @@ impl Hyphens {
         if language.is_empty() || word.is_empty() || !word.chars().all(char::is_alphabetic) {
             return 0;
         }
-        words::hyphenate(host, language, word, 0, 0, out).unwrap_or(0)
+        note_refusal(words::hyphenate(host, language, word, 0, 0, out), refused)
     }
+}
+
+/// The places of an answer, none where the host did not give any. `refused` is
+/// set only where the host was busy (its answer comes later): every other
+/// refusal (no table for the language, say) is a final answer, which is kept.
+fn note_refusal(answer: Result<usize, Error>, refused: &Cell<bool>) -> usize {
+    answer.unwrap_or_else(|error| {
+        if error == Error::Busy {
+            refused.set(true);
+        }
+        0
+    })
 }
 
 /// The name `name` as it fits `cell` (see [`fit_name`]); `breaks` says
@@ -345,8 +380,99 @@ pub struct Tool<'a> {
     pub row_lines: usize,
 }
 
+/// What drawing a tool asks of the host: the metrics of its name, the width of
+/// each line of it, its icon's frame and the columns of the icon's ink. They
+/// are the same at every draw (a frame is drawn in bands, and the focus moves
+/// redraw the page), so a page keeps them with the look it was laid out in.
+#[derive(Debug, Clone, Copy)]
+pub struct Geometry {
+    /// The name's capitals above its baseline.
+    cap: i32,
+    /// The distance between the lines of a name.
+    step: i32,
+    /// The room the name takes below the icon (0: no name).
+    text_room: i32,
+    widths: [f32; NAME_LINES],
+    /// The icon's frame and the first and last column of its ink.
+    icon: Option<(icons::Frame, i32, i32)>,
+}
+
+impl Geometry {
+    /// Whether this still says what a draw with `fonts` of `tool` needs: the
+    /// icon it measured is the icon that is drawn (the icon font may come and
+    /// go between two draws).
+    #[must_use]
+    pub fn fits(&self, fonts: &Fonts<'_, '_>, tool: &Tool<'_>) -> bool {
+        self.icon.is_some() == (fonts.icons.is_some() && tool.face.glyph.is_some())
+    }
+}
+
+/// Measures a tool in `cell` (see [`Geometry`]).
+///
+/// # Errors
+/// Font refusals.
+pub fn measure_tool(
+    fonts: &Fonts<'_, '_>,
+    style: &Style,
+    cell: Rect,
+    tool: &Tool<'_>,
+) -> Result<Geometry, Error> {
+    let font = fonts.ui;
+    let named = !tool.lines.is_empty();
+    let inner = i32::from(style.gap / 2);
+    // The name's capitals above its baseline, its descenders below (by the ink
+    // of letters that reach as far, so that names side by side line up).
+    let (cap, descent, step) = if named {
+        (
+            match font.ink(style.small, "H")? {
+                Some(ink) => -ink.top,
+                None => (style.small * 0.7) as i32,
+            },
+            match font.ink(style.small, "g")? {
+                Some(ink) => ink.bottom,
+                None => (style.small * 0.25) as i32,
+            },
+            i32::from(geometry::line_px(font, style.small)?),
+        )
+    } else {
+        (0, 0, 0)
+    };
+    let more = i32::try_from(tool.row_lines.max(tool.lines.len()).saturating_sub(1))
+        .unwrap_or(0)
+        .saturating_mul(step);
+    let text_room = if named {
+        inner
+            .saturating_add(cap)
+            .saturating_add(descent)
+            .saturating_add(more)
+    } else {
+        0
+    };
+    let mut widths = [0.0; NAME_LINES];
+    for (width, shown) in widths.iter_mut().zip(tool.lines) {
+        *width = font.measure_text(tool.size, shown)?;
+    }
+    let icon = match (fonts.icons, tool.face.glyph.as_ref()) {
+        (Some(icon_font), Some(glyph)) => {
+            let room = (i32::from(cell.height) - text_room).max(1) as f32;
+            let frame = icons::frame(icon_font, (fonts.circle, glyph), style.title, room)?;
+            let (first, last) = icons::extents(icon_font, glyph, frame.size)?;
+            Some((frame, first, last))
+        }
+        _ => None,
+    };
+    Ok(Geometry {
+        cap,
+        step,
+        text_room,
+        widths,
+        icon,
+    })
+}
+
 /// Draws a tool in `cell`: its icon above its name, centred as a group; the
 /// cell filled dark where it is on, the ink faint where it is not enabled.
+/// `shape` is what [`measure_tool`] said of it.
 ///
 /// # Errors
 /// Font refusals and [`Error::NoMemory`].
@@ -356,6 +482,7 @@ pub fn draw_tool(
     style: &Style,
     cell: Rect,
     tool: &Tool<'_>,
+    shape: &Geometry,
 ) -> Result<(), Error> {
     let face = tool.face;
     let faint = style.note;
@@ -369,44 +496,21 @@ pub fn draw_tool(
         paint::push(out, Paint::Focus(cell, style.corner, None, back))?;
     }
     let font = fonts.ui;
-    let named = !tool.lines.is_empty();
     let inner = i32::from(style.gap / 2);
-    // The name's capitals above its baseline, its descenders below (by the ink
-    // of letters that reach as far, so that names side by side line up).
-    let (cap, descent) = if named {
-        (
-            match font.ink(style.small, "H")? {
-                Some(ink) => -ink.top,
-                None => (style.small * 0.7) as i32,
-            },
-            match font.ink(style.small, "g")? {
-                Some(ink) => ink.bottom,
-                None => (style.small * 0.25) as i32,
-            },
-        )
-    } else {
-        (0, 0)
-    };
-    let step = i32::from(geometry::line_px(font, style.small)?);
-    let more = i32::try_from(tool.row_lines.max(tool.lines.len()).saturating_sub(1))
-        .unwrap_or(0)
-        .saturating_mul(step);
-    let text_room = if named {
-        inner
-            .saturating_add(cap)
-            .saturating_add(descent)
-            .saturating_add(more)
-    } else {
-        0
-    };
+    let Geometry {
+        cap,
+        step,
+        text_room,
+        widths,
+        ..
+    } = *shape;
+    let named = !tool.lines.is_empty();
     let middle = f32::from(cell.x) + f32::from(cell.width) / 2.0;
-    let drawn = match (fonts.icons, face.glyph.as_ref()) {
-        (Some(icon_font), Some(glyph)) => {
-            let room = (i32::from(cell.height) - text_room).max(1) as f32;
-            let frame = icons::frame(icon_font, (fonts.circle, glyph), style.title, room)?;
+    let drawn = match (fonts.icons, tool.face.glyph.as_ref(), shape.icon) {
+        (Some(_), Some(glyph), Some((frame, first, last))) => {
             let group = frame.height().saturating_add(text_room);
             let y = i32::from(cell.y) + (i32::from(cell.height) - group).div_euclid(2);
-            icons::draw(out, icon_font, glyph, &frame, (middle, y), ink)?;
+            icons::draw_at(out, glyph, &frame, (first, last), (middle, y), ink)?;
             Some((y, frame.height()))
         }
         _ => None,
@@ -416,11 +520,11 @@ pub fn draw_tool(
     }
     let Some((y, height)) = drawn else {
         // The name alone, in the middle of the cell.
-        let line = geometry::line_px(font, style.small)?;
+        let line = geometry::clamp_u16(i64::from(step));
         let total = u32::from(line) * u32::try_from(tool.lines.len()).unwrap_or(0);
         let mut top = u32::from(cell.y) + u32::from(cell.height).saturating_sub(total) / 2;
-        for shown in tool.lines {
-            let wide = font.measure_text(tool.size, shown)?;
+        for (n, shown) in tool.lines.iter().enumerate() {
+            let wide = line_width(font, tool, &widths, n)?;
             let x = f32::from(cell.x) + (f32::from(cell.width) - wide).max(0.0) / 2.0;
             let row = Rect::new(
                 cell.x,
@@ -439,7 +543,7 @@ pub fn draw_tool(
         .saturating_add(inner)
         .saturating_add(cap);
     for (n, shown) in tool.lines.iter().enumerate() {
-        let wide = font.measure_text(tool.size, shown)?;
+        let wide = line_width(font, tool, &widths, n)?;
         let x = f32::from(cell.x) + (f32::from(cell.width) - wide).max(0.0) / 2.0;
         let at = i32::try_from(n).unwrap_or(0).saturating_mul(step);
         paint::push(
@@ -456,9 +560,33 @@ pub fn draw_tool(
     Ok(())
 }
 
+/// The width of line `n` of a tool's name: the one measured, or measured now
+/// for a line past those a name has.
+fn line_width(font: &Font<'_>, tool: &Tool<'_>, widths: &[f32], n: usize) -> Result<f32, Error> {
+    match (widths.get(n), tool.lines.get(n)) {
+        (Some(wide), _) => Ok(*wide),
+        (None, Some(line)) => font.measure_text(tool.size, line),
+        (None, None) => Ok(0.0),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_busy_host_is_noted_for_a_new_try() {
+        let refused = Cell::new(false);
+        assert_eq!(note_refusal(Ok(0), &refused), 0);
+        assert_eq!(note_refusal(Ok(2), &refused), 2);
+        // A final answer: no table for the language, or nothing it can do.
+        for final_answer in [Error::NotFound, Error::Unsupported, Error::Invalid] {
+            assert_eq!(note_refusal(Err(final_answer), &refused), 0);
+            assert!(!refused.get(), "{final_answer:?} is not to be asked again");
+        }
+        assert_eq!(note_refusal(Err(Error::Busy), &refused), 0);
+        assert!(refused.get());
+    }
 
     /// Every letter half as wide as the size: `name` fitted in 80 pixels at 17.
     /// Widths of 0.5 of the size a character: at 17, nine characters fit in

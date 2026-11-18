@@ -15,9 +15,9 @@ pub use fixed_table::{
 };
 #[cfg(not(any(test, feature = "kernel")))]
 pub(crate) use specs::Pick;
-#[cfg(any(test, feature = "kernel"))]
-pub use specs::Pick;
 use specs::Specs;
+#[cfg(any(test, feature = "kernel"))]
+pub use specs::{Pick, SettingMemo};
 
 /// A setting's value.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -229,18 +229,6 @@ pub enum Editor {
     Slot(Id),
 }
 
-impl Editor {
-    /// The command that opens it for setting `setting`.
-    pub fn open(&self, setting: &Id) -> crate::Command {
-        let params =
-            crate::Params::new().with(crate::builtin::params::ID, String::from(setting.as_str()));
-        match self {
-            Editor::Screen(screen) => crate::Command::OpenScreen(screen.clone(), params),
-            Editor::Slot(slot) => crate::Command::OpenSlot(slot.clone(), params),
-        }
-    }
-}
-
 /// What few settings have (see [`SettingSpec::extra`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -249,13 +237,13 @@ pub struct SettingExtra {
     /// forms, e.g. `core.unit.pt.other = {count} pt`.
     pub unit: Option<Cow<'static, str>>,
     /// Where the value is edited instead of on the settings page, e.g.
-    /// a folder chooser for a path ([`Editor::open`] opens it).
+    /// a folder chooser for a path (the kernel opens it for the setting).
     pub editor: Option<Editor>,
     /// How much one step changes a number (e.g. 10 for percentages).
     pub step: i64,
     /// A number better set by eye than by its value, such as the line
     /// spacing or a light's brightness: on touch screens settings pages
-    /// and panels show it as a slider ([`ui::slider`](crate::ui::slider)),
+    /// and panels show it as a slider (`ui::slider`),
     /// in its steps; with buttons alone it keeps `−` and `+`.
     pub slider: bool,
     /// Translation key of the part of its group it belongs to (e.g.
@@ -432,7 +420,7 @@ impl SettingSpec {
     /// A setting of `kind` with its `default`, called `title` (a
     /// translation key), in `group`. Every builder of a spec is `const`, so
     /// a plugin declares its settings as a `static` list registered with
-    /// [`Registrar::add_settings`](crate::Registrar::add_settings): it
+    /// `Staging::add_settings`: it
     /// takes next to no memory (on small devices the list stays in flash).
     /// Its unit, section, editor and the like are a [`SettingExtra`], kept
     /// in the program too ([`SettingSpec::with_extra`]).
@@ -458,7 +446,7 @@ impl SettingSpec {
     ///
     /// A spec whose id is known only at run time (one for each plugin, say)
     /// is made with this, and registered with
-    /// [`Registrar::add_setting`](crate::Registrar::add_setting).
+    /// `Staging::add_setting`.
     pub const fn new(
         id: Id,
         title: &'static str,
@@ -710,7 +698,7 @@ impl SettingGroupSpec {
     /// Group `id`, called `title` (a translation key); the rest as set
     /// with its methods. All are `const`: a plugin declares its groups as
     /// statics and registers a reference
-    /// ([`Registrar::add_setting_group`](crate::Registrar::add_setting_group)),
+    /// (`Staging::add_setting_group`),
     /// which takes next to no memory.
     pub const fn new(id: Id, title: &'static str) -> Self {
         Self {
@@ -823,8 +811,8 @@ impl core::error::Error for SettingError {}
 
 /// All registered settings and their current values.
 ///
-/// Plugins receive it read-only through [`Env`](crate::Env) and change values
-/// with [`Command::SetSetting`](crate::Command::SetSetting).
+/// Plugins receive it read-only through `Place` and change values
+/// with `Ask::SetSetting`.
 ///
 /// Something placed more than once, such as a widget on two pages, has
 /// values of its own for each placement: the setting `widgets.clock.face`
@@ -837,7 +825,7 @@ impl core::error::Error for SettingError {}
 ///
 /// Values may be shown for a while without being kept, e.g. a layout
 /// before it is chosen (`Settings::set_preview`, asked for with
-/// [`Command::PreviewSettings`](crate::Command::PreviewSettings)): they
+/// `Ask::PreviewSettings`): they
 /// are what [`Settings::get`] gives while they last; what is kept
 /// ([`Settings::global`]) stays as it is. The ready-made sets of values
 /// plugins offer are kept here too ([`Settings::presets`]).
@@ -991,7 +979,7 @@ impl Settings {
 
     /// Whether setting `id` has a value of the reader's choosing now: kept
     /// ([`Settings::is_set`]), shown while one is chosen
-    /// ([`Command::PreviewSettings`](crate::Command::PreviewSettings)), or
+    /// (`Ask::PreviewSettings`), or
     /// set by the placement whose values are active
     /// ([`Settings::with_placement`]). Not its default alone.
     pub fn is_chosen(&self, id: &str) -> bool {
@@ -1152,7 +1140,7 @@ impl Settings {
 
     /// Gives `f` the spec of setting `id` as [`Settings::spec`] finds it;
     /// one made for it is let go again.
-    pub(crate) fn with_spec<R>(
+    pub fn with_spec<R>(
         &self,
         id: &str,
         f: impl FnOnce(&SettingSpec) -> R,
@@ -1327,7 +1315,6 @@ impl Settings {
             .map(|layer| &layer.by)
     }
 
-    paperpaw_table::shared! {
     /// The current value: the active scope's if it sets one (see
     /// [`Settings::scope`]), else the global value, else the default.
     pub fn get(&self, id: &str) -> Option<&SettingValue> {
@@ -1355,7 +1342,6 @@ impl Settings {
             };
         }
         self.own(id)
-    } @ data::SETTINGS_GET as for<'s> fn(&'s Self, &str) -> Option<&'s SettingValue>
     }
 
     /// The value of `id` without a power mode: the scope's, the reader's,
@@ -1399,7 +1385,6 @@ impl Settings {
             .or_else(|| self.followed_or_default(id, |other| self.values.get(other)))
     }
 
-    paperpaw_table::shared! {
     /// The active scope's value of `id`, if it applies: the setting is
     /// [`scoped`](SettingSpec::scoped) and the scope is switched on
     /// ([`SCOPE_ONLY`](crate::builtin::settings::SCOPE_ONLY)).
@@ -1412,7 +1397,6 @@ impl Settings {
         let value = scope.get(id)?;
         self.specs.where_is(id).filter(|at| at.scoped_flag())?;
         Some(value)
-    } @ data::SETTINGS_SCOPED_VALUE as for<'s> fn(&'s Self, &str) -> Option<&'s SettingValue>
     }
 
     /// The values of the active scope, e.g. of the book being read: scoped
@@ -1461,14 +1445,12 @@ impl Settings {
         }
     }
 
-    paperpaw_table::shared! {
     /// The value of a text or choice setting; `""` if unknown.
     pub fn text(&self, id: &str) -> &str {
         match self.get(id) {
             Some(SettingValue::Text(v)) => v,
             _ => "",
         }
-    } @ data::SETTINGS_TEXT as for<'s> fn(&'s Self, &str) -> &'s str
     }
 
     /// All settings in registration order: plugins registered first come

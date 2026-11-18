@@ -19,7 +19,7 @@ fn stage_for(
     owner: &str,
     commands: &[WireCommand<'_>],
 ) -> (i32, Vec<(u32, String, u32)>) {
-    let env = w.kernel.shared.env(Instant(0));
+    let env = w.kernel.shared.place(Instant(0));
     let id = Id::try_parse(owner).unwrap();
     let key = w.kernel.shared.native_instances.key_of(owner).unwrap();
     let mut stage =
@@ -245,7 +245,7 @@ fn a_request_whose_event_could_not_be_held_is_not_left_open() {
 #[test]
 fn a_request_naming_core_is_refused_whole() {
     let w = world(true);
-    let env = w.kernel.shared.env(Instant(0));
+    let env = w.kernel.shared.place(Instant(0));
     let id = Id::new_static("req");
     let mut stage =
         CommandStage::new(&id, env.settings(), None, 16, 8192).with_ui(&env, None, 0, 100);

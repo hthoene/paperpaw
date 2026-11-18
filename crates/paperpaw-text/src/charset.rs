@@ -38,6 +38,17 @@ const GREEK: &[RangeInclusive<char>] = &[
     '\u{1f00}'..='\u{1fff}',
 ];
 
+/// Vietnamese, what Latin Extended-A lacks: O and U with horn (ơ, ư), the
+/// letters with a dot below or a hook above and those with two marks (Latin
+/// Extended Additional), and the dong sign. For packs added to fonts that
+/// have the rest (ă, đ and the single accents are in the Latin set).
+const VIETNAMESE: &[RangeInclusive<char>] = &[
+    '\u{1a0}'..='\u{1a1}',
+    '\u{1af}'..='\u{1b0}',
+    '\u{1ea0}'..='\u{1ef9}',
+    '\u{20ab}'..='\u{20ab}',
+];
+
 /// Hangul: all 11,172 syllables of modern Korean (#61). The 2,350 of KS X
 /// 1001 that most fonts and books keep to are a list of their own, for
 /// smaller packs (`tools/fontgen/sets/hangul-ks.txt`).
@@ -55,6 +66,15 @@ const HANGUL: &[RangeInclusive<char>] = &['\u{ac00}'..='\u{d7a3}'];
 )]
 const CJK_PUNCTUATION: &[RangeInclusive<char>] = &['\u{3000}'..='\u{303f}'];
 
+/// Japanese kana: hiragana and katakana, with the prolonged sound mark and
+/// the iteration marks (the kanji are lists of their own, for smaller packs:
+/// `tools/fontgen/sets/kanji-japanese.txt`).
+#[allow(
+    clippy::single_range_in_vec_init,
+    reason = "a set of ranges, of one here"
+)]
+const KANA: &[RangeInclusive<char>] = &['\u{3041}'..='\u{30ff}'];
+
 /// Hangul's compatibility letters (jamo written alone, e.g. ㅋㅋ).
 #[allow(
     clippy::single_range_in_vec_init,
@@ -71,15 +91,17 @@ const HANGUL_JAMO: &[RangeInclusive<char>] = &['\u{3131}'..='\u{318e}'];
 const FULLWIDTH: &[RangeInclusive<char>] = &['\u{ff01}'..='\u{ff5e}'];
 
 /// The sets by name, in the order [`names`] gives them.
-const SETS: [(&str, &[RangeInclusive<char>]); 10] = [
+const SETS: [(&str, &[RangeInclusive<char>]); 12] = [
     ("latin", LATIN),
     ("ligatures", LIGATURES),
     ("cyrillic", CYRILLIC),
     ("greek", GREEK),
+    ("vietnamese", VIETNAMESE),
     ("arabic", ARABIC),
     ("hebrew", HEBREW),
     ("hangul", HANGUL),
     ("hangul-jamo", HANGUL_JAMO),
+    ("kana", KANA),
     ("cjk-punctuation", CJK_PUNCTUATION),
     ("fullwidth", FULLWIDTH),
 ];
@@ -101,7 +123,6 @@ const ARABIC: &[RangeInclusive<char>] = &[
 /// presentation forms (letters with points, wide letters).
 const HEBREW: &[RangeInclusive<char>] = &['\u{590}'..='\u{5ff}', '\u{fb1d}'..='\u{fb4f}'];
 
-paperpaw_table::shared! {
 /// A character of nearly the same look, for `ch` where a font lacks it,
 /// tried before the replacement character: a non-breaking hyphen as a
 /// hyphen, the long s as s, rare punctuation as its common cousin.
@@ -130,7 +151,6 @@ pub fn stand_in(ch: char) -> Option<char> {
         '\u{2bb}' => '\u{2018}', // turned comma: left quote
         _ => return None,
     })
-} @ text::CHARSET_STAND_IN
 }
 
 /// A character set by name (see [`names`]).
@@ -139,8 +159,8 @@ pub fn named(name: &str) -> Option<&'static [RangeInclusive<char>]> {
 }
 
 /// The names of the character sets: `latin`, `ligatures`, `cyrillic`,
-/// `greek`, `arabic`, `hebrew`, `hangul`, `hangul-jamo`,
-/// `cjk-punctuation`, `fullwidth`.
+/// `greek`, `vietnamese`, `arabic`, `hebrew`, `hangul`, `hangul-jamo`,
+/// `kana`, `cjk-punctuation`, `fullwidth`.
 pub fn names() -> impl Iterator<Item = &'static str> {
     SETS.iter().map(|(name, _)| *name)
 }
@@ -168,8 +188,8 @@ mod tests {
 
     #[test]
     fn the_names_are_the_documented_ones() {
-        let documented = "`latin`, `ligatures`, `cyrillic`, `greek`, `arabic`, `hebrew`, `hangul`, \
-                          `hangul-jamo`, `cjk-punctuation`, `fullwidth`";
+        let documented = "`latin`, `ligatures`, `cyrillic`, `greek`, `vietnamese`, `arabic`, `hebrew`, \
+                          `hangul`, `hangul-jamo`, `kana`, `cjk-punctuation`, `fullwidth`";
         let listed: alloc::vec::Vec<_> = names().map(|n| alloc::format!("`{n}`")).collect();
         assert_eq!(listed.join(", "), documented);
         assert!(names().all(|n| named(n).is_some()));

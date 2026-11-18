@@ -1,7 +1,7 @@
 //! A native plugin's action: the host runs it by delivering `event.action_run`
 //! to the token the plugin declared (`docs/abi/screens-input.md` section 2).
 //!
-//! The action is kept without a handler ([`paperpaw_sdk::NativeAction`]: its
+//! The action is kept without a handler ([`crate::kit::action::NativeAction`]: its
 //! id, title, plugin and token, #248); the plugin's lease is looked up when it
 //! runs, so an unloaded plugin's action finds none and a stopped plugin's
 //! lease refuses the event.
@@ -114,7 +114,7 @@ impl ActionQueue {
 }
 
 /// Queues `event.action_run` for the native action `id`, which plugin `owner`
-/// declared with `token` ([`paperpaw_sdk::Action::native`]): what the
+/// declared with `token` ([`crate::kit::action::Action::native`]): what the
 /// kernel does where another action's handler runs. A plugin no longer
 /// installed, memory or a full queue leave the action without effect, as a
 /// stopped or failing plugin does; the pump reports a full queue
@@ -129,7 +129,7 @@ pub(crate) fn queue_run(
     owner: u64,
     token: u32,
     id: &str,
-    env: &paperpaw_sdk::Env<'_>,
+    env: &crate::Place<'_>,
 ) -> bool {
     let Some(lease) = instances.lease(owner) else {
         return false;
@@ -139,7 +139,7 @@ pub(crate) fn queue_run(
         now_ms: env.now().millis(),
         action: id,
         // Bit 0 `background`: not the reader's own doing (a rule's or
-        // another plugin's run), as interface 6 `Env::reader` said.
+        // another plugin's run), as interface 6 `Place::reader` said.
         flags: u32::from(!env.reader()),
     });
     let Ok(len) = super::events::encode(&record, &mut bytes) else {

@@ -91,7 +91,7 @@ impl Kernel {
                     if link.held_until().is_none() {
                         self.output
                             .commands
-                            .push(crate::Command::OpenSlot(slots::CABLE, Params::new()));
+                            .push(crate::Ask::OpenSlot(slots::CABLE, Params::new()));
                         self.run_commands();
                         if self.io.servers.cable_server().is_some() {
                             return Some(Line::Request {
@@ -111,7 +111,7 @@ impl Kernel {
                         n,
                         method,
                         target,
-                        until: self.now.millis().saturating_add(HOLD_MS),
+                        until: self.shared.now.millis().saturating_add(HOLD_MS),
                     }),
                     None => {
                         let _ = link
@@ -276,7 +276,7 @@ impl Kernel {
         while let Some(request) = link.pop_gone() {
             let _ = net_service::served_gone(&*device, request);
         }
-        if let Some(held) = link.take_held(self.now.millis())
+        if let Some(held) = link.take_held(self.shared.now.millis())
             && let Some(server) = link.started()
         {
             self.cable_deliver(&device, server, held.n, &held.method, &held.target, 0);

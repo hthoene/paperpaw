@@ -3,14 +3,13 @@
 //! keys gone, replays idempotent, events, folder settings, discard.
 extern crate std;
 use super::*;
+use crate::kit::library::{BookDataKind, key};
 use alloc::{borrow::Cow, vec::Vec};
 use core::cell::Cell;
 use paperpaw_platform::{DirEntry, StorageError};
 use paperpaw_sdk::{
-    FormatSpec, Id, MemoryStorage, SettingExtra, SettingSpec,
-    builtin::groups,
+    FormatSpec, Id, MemoryStorage, SettingExtra, SettingSpec, builtin::groups,
     document::DocumentError,
-    library::{BookDataKind, key},
 };
 use std::string::ToString;
 
@@ -31,7 +30,7 @@ fn fixture() -> Fixture {
             Id::new_static("test.epub"),
             "EPUB",
             alloc::vec![Cow::Borrowed("epub")],
-            alloc::boxed::Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            |_, _, _| Err(DocumentError::UnsupportedFormat),
         ))
         .unwrap();
     Fixture {
@@ -69,11 +68,11 @@ impl Fixture {
 
     /// Runs the job's catalog side to its end; the commands sent and the
     /// number of steps.
-    fn run(&self, from: &str, to: &str) -> (Vec<Command>, usize) {
+    fn run(&self, from: &str, to: &str) -> (Vec<Ask>, usize) {
         self.run_from(from, to, Phase::Books(0))
     }
 
-    fn run_from(&self, from: &str, to: &str, start: Phase) -> (Vec<Command>, usize) {
+    fn run_from(&self, from: &str, to: &str, start: Phase) -> (Vec<Ask>, usize) {
         let mut sent = Vec::new();
         let mut steps = 0;
         {
@@ -97,7 +96,7 @@ impl Fixture {
     }
 }
 
-fn moved_events(sent: &[Command]) -> Vec<std::string::String> {
+fn moved_events(sent: &[Ask]) -> Vec<std::string::String> {
     sent.iter()
         .map(|c| std::format!("{c:?}"))
         .filter(|c| c.contains("book-moved"))

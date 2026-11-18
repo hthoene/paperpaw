@@ -12,7 +12,7 @@ fn plugins_may_not_take_the_names_of_config_sections() {
     let log = log();
     let storage = MemoryStorage::new().with("plugins/fonts/plugin.ini", "[plugin]\nname = Fonts\n");
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("menus", &log))
+        .test_plugin(TestPlugin::new("menus", &log))
         .storage(storage)
         .build()
         .unwrap();
@@ -88,7 +88,7 @@ fn installed_kernel(storage: MemoryStorage, log: &Log) -> Kernel {
             "[meta]\nlanguage = en\nname = English\n\n[messages]\nbig.plugin.name = Big\n",
         );
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", log))
+        .test_plugin(TestPlugin::new("a", log))
         .storage(storage)
         .build()
         .unwrap();
@@ -98,10 +98,7 @@ fn installed_kernel(storage: MemoryStorage, log: &Log) -> Kernel {
 }
 
 fn install(kernel: &mut Kernel, id: &'static str, folder: &str) {
-    kernel.apply(Command::InstallPlugin(
-        Id::new_static(id),
-        String::from(folder),
-    ));
+    kernel.apply(Ask::InstallPlugin(Id::new_static(id), String::from(folder)));
     kernel.finish();
 }
 
@@ -179,7 +176,7 @@ fn a_plugin_updated_or_removed_takes_its_styles_and_bindings_along() {
     install(&mut kernel, "big", "plugins/.big.part");
     assert_eq!(kernel.shared.stylesheets, ["p { line-height: 3 }"]);
     assert_ne!(kernel.resolve(&menu), Some(&actions::TOGGLE_NIGHT_MODE));
-    kernel.apply(Command::RemovePlugin(Id::new_static("big")));
+    kernel.apply(Ask::RemovePlugin(Id::new_static("big")));
     kernel.finish();
     assert!(kernel.shared.stylesheets.is_empty());
 }
@@ -314,7 +311,7 @@ fn data_plugins_bring_actions_menus_icons_points_and_steps() {
             "[size]\nsetting = a.level\norder = 35\ntitle = How large\n",
         );
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin::new("a", &log))
         .storage(storage)
         .build()
         .unwrap();
@@ -337,7 +334,7 @@ fn data_plugins_bring_actions_menus_icons_points_and_steps() {
         .map(|(_, line)| line)
         .collect();
     assert_eq!(about, ["Made with care", "Second line"]);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let steps: Vec<&str> = kernel
         .shared
         .setup
@@ -362,17 +359,16 @@ pub(super) struct Store {
     pub(super) installs: bool,
 }
 
-impl Plugin for Store {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("shop"), "Shop", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+pub(super) fn store(kept: Store) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
         use paperpaw_sdk::builtin::events;
-        let log = self.log.clone();
-        r.on(events::PLUGINS_ANSWERED, move |_, answer, _| {
+        crate::tests::hear_into(&kept.log);
+        r.on(events::PLUGINS_ANSWERED, |_, p| {
+            let Some(answer) = crate::hear::data::<events::PluginsAnswered>(p) else {
+                return;
+            };
             let ids = |list: Vec<Id>| list.iter().map(Id::as_str).collect::<Vec<_>>().join(",");
-            log.borrow_mut().push(alloc::format!(
+            crate::tests::heard(alloc::format!(
                 "{} got [{}] not [{}] declined {} error {:?}",
                 answer.by,
                 ids(answer.installed_ids().collect()),
@@ -381,16 +377,21 @@ impl Plugin for Store {
                 answer.error
             ));
         })?;
-        if !self.installs {
+        if !kept.installs {
             return Ok(());
         }
-        let log = self.log.clone();
-        r.on(events::PLUGINS_REQUESTED, move |_, asked, _| {
-            let ids: Vec<String> = asked.ids().map(|id| id.to_string()).collect();
-            log.borrow_mut()
-                .push(alloc::format!("{} asks {}", asked.by, ids.join(",")));
+        r.on(events::PLUGINS_REQUESTED, |_, p| {
+            if let Some(asked) = crate::hear::data::<events::PluginsRequested>(p) {
+                let ids: Vec<String> = asked.ids().map(|id| id.to_string()).collect();
+                crate::tests::heard(alloc::format!("{} asks {}", asked.by, ids.join(",")));
+            }
         })
     }
+}
+
+/// What [`store`] registers under.
+pub(super) fn store_manifest() -> Manifest {
+    Manifest::new(Id::new_static("shop"), "Shop", Version::new(1, 0, 0))
 }
 
 /// Where all asked for are on the device, or no plugin installs
@@ -401,17 +402,20 @@ fn the_kernel_answers_requests_no_store_can() {
     let log = log();
     let storage = MemoryStorage::new().with("plugins/dictionary/plugin.ini", "[plugin]\n");
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Store {
-            log: log.clone(),
-            installs: false,
-        })
+        .items(
+            store_manifest(),
+            store(Store {
+                log: log.clone(),
+                installs: false,
+            }),
+        )
         .storage(storage)
         .build()
         .unwrap();
     kernel.start(Instant(0));
     let id = Id::new_static;
-    kernel.apply(Command::request_plugins(id("reader"), [id("dictionary")]));
-    kernel.apply(Command::request_plugins(
+    kernel.apply(Ask::request_plugins(id("reader"), [id("dictionary")]));
+    kernel.apply(Ask::request_plugins(
         id("reader"),
         [id("script-arabic"), id("dictionary"), id("script-hebrew")],
     ));
@@ -441,17 +445,20 @@ fn plugins_asked_for_by_id_go_to_the_store_if_not_on_the_device() {
         .with("plugins/dictionary/plugin.ini", "[plugin]\n")
         .with("plugins/aids/plugin.ini", "[plugin]\n");
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Store {
-            log: log.clone(),
-            installs: true,
-        })
+        .items(
+            store_manifest(),
+            store(Store {
+                log: log.clone(),
+                installs: true,
+            }),
+        )
         .storage(storage)
         .user_config("[plugins]\naids = off\n")
         .build()
         .unwrap();
     kernel.start(Instant(0));
     let id = Id::new_static;
-    kernel.apply(Command::request_plugins(
+    kernel.apply(Ask::request_plugins(
         id("template-learning"),
         [
             id("vocabulary"),
@@ -467,8 +474,8 @@ fn plugins_asked_for_by_id_go_to_the_store_if_not_on_the_device() {
     // On the device (switched off too), the kernel, twice: left out.
     assert_eq!(*log.borrow(), ["template-learning asks vocabulary,quotes"]);
     log.borrow_mut().clear();
-    kernel.apply(Command::request_plugins(id("x"), [id("dictionary")]));
-    kernel.apply(Command::request_plugins(id("x"), []));
+    kernel.apply(Ask::request_plugins(id("x"), [id("dictionary")]));
+    kernel.apply(Ask::request_plugins(id("x"), []));
     kernel.run_commands();
     // All there: answered at once, nothing for the store.
     let none = "x got [] not [] declined false error \"\"";
@@ -476,7 +483,7 @@ fn plugins_asked_for_by_id_go_to_the_store_if_not_on_the_device() {
     log.borrow_mut().clear();
     // More than one request takes: the rest left out, with a warning.
     let many = (0..40).map(|i| Id::parse(&alloc::format!("p{i}")).unwrap());
-    kernel.apply(Command::request_plugins(id("x"), many));
+    kernel.apply(Ask::request_plugins(id("x"), many));
     kernel.run_commands();
     let heard = log.borrow()[0].clone();
     assert_eq!(

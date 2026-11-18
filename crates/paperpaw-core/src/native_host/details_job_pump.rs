@@ -56,6 +56,7 @@ use super::{
     native_host_call::HostRoute, registry_service::Sources,
 };
 use crate::abi7::context::{Frame, registry_views::RegistryView};
+use crate::kit::library::{self, catalog};
 use alloc::string::String;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_STATE,
@@ -63,7 +64,6 @@ use paperpaw_native::host_glue::{
 };
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::builtin::{events, slots};
-use paperpaw_sdk::library::{self, catalog};
 
 /// The most catalog lines one pass looks at.
 const LINES_PER_PASS: usize = 32;
@@ -81,7 +81,7 @@ pub(crate) const HOLD_WAIT_MAX_MS: u64 = 32_000;
 /// declarations and registry, no callback (the format is called through the
 /// pump's route, never through a frame).
 struct PumpFrame<'a> {
-    env: &'a paperpaw_sdk::Env<'a>,
+    env: &'a crate::Place<'a>,
     sources: Sources<'a>,
     directory: Option<&'a NativeDeclarations>,
     log: super::device_log::DeviceLog,
@@ -94,7 +94,7 @@ impl Frame for PumpFrame<'_> {
     fn translator(&self) -> &paperpaw_i18n::Translator {
         self.env.i18n()
     }
-    fn kernel_env(&self) -> Option<&paperpaw_sdk::Env<'_>> {
+    fn kernel_env(&self) -> Option<&crate::Place<'_>> {
         Some(self.env)
     }
     fn storage(&self) -> Option<&dyn Storage> {
@@ -243,7 +243,7 @@ impl crate::Kernel {
                 // came before it), or the next book.
                 self.native_outbox_run();
                 self.native_cover_job_pump();
-                Some(self.now.millis().saturating_add(self.native_job_gap()))
+                Some(self.native_job_due())
             }
             Pass::Refused {
                 status,
@@ -297,7 +297,7 @@ impl crate::Kernel {
         // Never inside a callback, nor while something staged waits: a look
         // that is due is made a job's gap later (`put_off`).
         if instances.depth() != 0 || instances.outbox.full() {
-            run.put_off(self.now.millis(), self.native_job_gap());
+            run.put_off(self.shared.now.millis(), self.native_job_gap());
             return Pass::Nothing;
         }
         let active = documents.0.cover_job_active();
@@ -309,7 +309,7 @@ impl crate::Kernel {
         // (`due` before `active`): left in the past it would wake the device
         // at once, round after round, for as long as that job runs. The
         // job's end comes in a pass of the pump, and this look follows it.
-        if !run.armed() || !run.due(self.now.millis()) || active {
+        if !run.armed() || !run.due(self.shared.now.millis()) || active {
             return Pass::Nothing;
         }
         match job.may_begin() {
@@ -317,7 +317,7 @@ impl crate::Kernel {
             Err(Some(at)) => return Pass::Wait(at),
             Err(None) => return Pass::Nothing,
         }
-        let now = self.now.millis();
+        let now = self.shared.now.millis();
         let quiet = self.last_activity.millis().saturating_add(QUIET_MS);
         if now < quiet {
             return Pass::Wait(quiet);
@@ -330,7 +330,7 @@ impl crate::Kernel {
         if !self.details_browsing() {
             return Pass::Nothing;
         }
-        let env = self.shared.env(self.now);
+        let env = self.shared.place(self.shared.now);
         if self.details_busy() || catalog::is_growing(env.storage()) {
             let wait = run.hold_waits(QUIET_MS, HOLD_WAIT_MAX_MS);
             return Pass::Wait(now.saturating_add(wait));
@@ -347,7 +347,7 @@ impl crate::Kernel {
             Ok(Look::Book { path, line, next }) => (path, line, next),
             Ok(Look::More(at)) => {
                 run.set_cursor(at);
-                return Pass::Wait(self.now.millis().saturating_add(self.native_job_gap()));
+                return Pass::Wait(self.native_job_due());
             }
             Ok(Look::End) => {
                 run.disarm();
@@ -444,7 +444,7 @@ impl crate::Kernel {
     /// failed where the format failed it). When the next look is due.
     #[inline(never)]
     fn native_details_refused(&self, status: i32, line: u64, next: u64, key: u64) -> u64 {
-        let soon = self.now.millis().saturating_add(self.native_job_gap());
+        let soon = self.native_job_due();
         let Some(run) = self.native_details_job().map(DetailsJob::run) else {
             return soon;
         };
@@ -453,6 +453,7 @@ impl crate::Kernel {
             ERR_BUSY | ERR_FULL | ERR_NO_MEMORY => {
                 let tries = run.later(line, next);
                 return self
+                    .shared
                     .now
                     .millis()
                     .saturating_add(super::doc_pump::wait(tries));
@@ -504,7 +505,7 @@ impl crate::Kernel {
     /// `core.catalog-wanted` (made anew) where the run says it is due: the
     /// catalog's `end`, or two minutes since the last (see the module).
     fn native_details_wanted(&mut self, end: bool) {
-        let now = self.now.millis();
+        let now = self.shared.now.millis();
         let due = self
             .shared
             .native_instances
@@ -514,8 +515,7 @@ impl crate::Kernel {
             .is_some_and(|job| job.run().wanted(now, end));
         if due {
             self.output
-                .commands
-                .push(events::CATALOG_WANTED.emit(events::CatalogWanted::new(true)));
+                .emit(&events::CATALOG_WANTED, events::CatalogWanted::new(true));
         }
     }
 
@@ -529,7 +529,7 @@ impl crate::Kernel {
             .and_then(|hosts| hosts.documents())
             .and_then(|documents| documents.0.details_job())
         {
-            job.run().arm(self.now.millis());
+            job.run().arm(self.shared.now.millis());
         }
     }
 }

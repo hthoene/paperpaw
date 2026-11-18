@@ -62,7 +62,7 @@ fn files(dir: &Path, prefix: &str, out: &mut Vec<String>, links: &mut Vec<String
     }
 }
 
-/// As the installers' rule (`paperpaw_sdk::install::is_plugin_name`): `core`
+/// As the installers' rule (`paperpaw_core::kit::install::is_plugin_name`): `core`
 /// is the host's own id (`paperpaw-core` `RESERVED_PLUGIN_ID`).
 fn is_plugin_id(id: &str) -> bool {
     (1..=40).contains(&id.len())

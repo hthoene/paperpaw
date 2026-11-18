@@ -63,11 +63,6 @@ fn decode_base64(text: &str) -> Vec<u8> {
     out
 }
 
-const MONTHS: [&str; 12] = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
-const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(std::env::var("PROPTEST_CASES").ok().and_then(|n| n.parse().ok()).unwrap_or(128)))]
 
@@ -167,28 +162,7 @@ proptest! {
         prop_assert_eq!(decode_base64(&text), bytes);
     }
 
-    /// Dates as HTTP writes them are read as the seconds they name; any
-    /// text is read or refused without panic.
-    #[test]
-    fn http_dates_round_trip(seconds in 0i64..10_000_000_000) {
-        let t = paperpaw_sdk::time::LocalTime::from_seconds(seconds);
-        let text = format!(
-            "{}, {:02} {} {} {:02}:{:02}:{:02} GMT",
-            DAYS[usize::from(t.weekday)],
-            t.day,
-            MONTHS[usize::from(t.month - 1)],
-            t.year,
-            t.hour,
-            t.minute,
-            t.second
-        );
-        prop_assert_eq!(http_date(&text), Some(seconds));
-    }
 
-    #[test]
-    fn any_text_as_an_http_date(text in "\\PC{0,40}|[A-Za-z]{3}, [0-9]{1,3} [A-Z][a-z]{2} -?[0-9]{1,12} [0-9:]{0,10} [A-Z]{3}") {
-        let _ = http_date(&text);
-    }
 }
 
 #[test]
@@ -332,30 +306,6 @@ fn names_from_hostile_addresses() {
 }
 
 #[test]
-fn http_dates_at_the_edges() {
-    assert_eq!(
-        http_date("Sun, 06 Nov 1994 08:49:37 GMT"),
-        Some(784_111_777)
-    );
-    // A leap second is read; day and month are not checked against each
-    // other beyond their ranges.
-    assert!(http_date("Wed, 31 Dec 2025 23:59:60 GMT").is_some());
-    for wrong in [
-        "Wed, 32 Dec 2025 00:00:00 GMT",
-        "Wed, 01 Dec 2025 00:60:00 GMT",
-        "Wed, 01 Dec 2025 00:00:61 GMT",
-        "Wed, 01 Dec 2025 00:00 GMT",
-        "Wed, 01 Dec 2025 00:00:00",
-        "Wed, 01 Dec 2025",
-        "Wed, 01 dec 2025 00:00:00 GMT",
-        "Wed, 01 Dec 99999999999 00:00:00 GMT",
-    ] {
-        assert_eq!(http_date(wrong), None, "{wrong}");
-    }
-    assert_eq!(http_date("  Thu, 01 Jan 1970 00:00:00 GMT  "), Some(0));
-}
-
-#[test]
 fn base64_and_basic_authorisation_as_rfc_4648_has_them() {
     for (bytes, text) in [
         ("", ""),
@@ -393,9 +343,4 @@ fn deleting_a_folder_takes_everything_in_it() {
     files::delete(&storage, "d").unwrap();
     assert!(!storage.exists("d/e/f.txt") && !files::is_dir(&storage, "d"));
     assert!(storage.exists("dd.txt"));
-}
-
-/// An HTTP date as seconds since 1970, or none.
-fn http_date(text: &str) -> Option<i64> {
-    paperpaw_sdk::time::UnixTime::parse_http_date(text).map(paperpaw_sdk::time::UnixTime::secs)
 }

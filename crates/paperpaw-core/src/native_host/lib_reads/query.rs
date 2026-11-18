@@ -27,6 +27,7 @@
 use super::book::{self, flag};
 use super::{CatalogReads, fail, valid_prefix, zeroed};
 use crate::abi7::context::RowsEnd;
+use crate::kit::library::{self, catalog};
 use crate::native_host::lib_service::Rows;
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::string::String;
@@ -36,7 +37,6 @@ use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
 use paperpaw_sdk::data;
 use paperpaw_sdk::digest::fnv1a64;
-use paperpaw_sdk::library::{self, catalog};
 
 /// Slots a pass keeps: the page, or a step towards the cursor.
 pub(super) const WINDOW: usize = 32;
@@ -198,6 +198,9 @@ pub(super) struct Engine<'a> {
     opened: Vec<u64>,
     /// A book a pending delete holds is not listed.
     hide: &'a dyn Fn(&str) -> bool,
+    /// The log of changes, read once for the whole call: every scan of the
+    /// catalog and every row is under it.
+    pub(super) changes: catalog::Changes,
 }
 
 impl<'a> Engine<'a> {
@@ -263,6 +266,7 @@ impl<'a> Engine<'a> {
             order,
             opened,
             hide,
+            changes: catalog::try_changes(&*reads.storage).map_err(fail)?,
         })
     }
 
@@ -361,23 +365,27 @@ impl<'a> Engine<'a> {
         // The key of the book being looked at and the text the words are
         // looked for in: made once, filled for each book.
         let (mut scratch, mut words) = (Key::default(), String::new());
-        catalog::try_each_at(&*self.reads.storage, &mut |offset, record| {
-            if failure.is_some() {
-                return;
-            }
-            let outcome = self.keeps(&record, &mut words).and_then(|kept| {
-                if kept {
-                    let offset = u32::try_from(offset).map_err(|_| ERR_NO_SPACE)?;
-                    self.fill(&record, &mut scratch)?;
-                    selection.offer(&mut scratch, offset, after);
+        catalog::try_each_at_with(
+            &*self.reads.storage,
+            &self.changes,
+            &mut |offset, record| {
+                if failure.is_some() {
+                    return;
                 }
-                Ok(kept)
-            });
-            match outcome {
-                Ok(kept) => found = found.saturating_add(u32::from(kept)),
-                Err(status) => failure = Some(status),
-            }
-        })
+                let outcome = self.keeps(&record, &mut words).and_then(|kept| {
+                    if kept {
+                        let offset = u32::try_from(offset).map_err(|_| ERR_NO_SPACE)?;
+                        self.fill(&record, &mut scratch)?;
+                        selection.offer(&mut scratch, offset, after);
+                    }
+                    Ok(kept)
+                });
+                match outcome {
+                    Ok(kept) => found = found.saturating_add(u32::from(kept)),
+                    Err(status) => failure = Some(status),
+                }
+            },
+        )
         .map_err(fail)?;
         failure.map_or(Ok(found), Err)
     }
@@ -438,7 +446,12 @@ pub(super) fn query(
             }
             continue;
         }
-        let rows = emit(reads, &slots, visit)?;
+        // Held while the rows are made, and not while the catalog is: its
+        // books are indexed under it with no generation to tell.
+        reads
+            .indexed
+            .begin(reads.env.walking().is_none().then_some(generation));
+        let rows = emit(reads, &engine.changes, &slots, visit)?;
         return Ok(RowsEnd {
             total,
             generation,
@@ -476,17 +489,21 @@ fn select(
 }
 
 /// The `lib_entry` of each slot, until the page is full; how many were taken.
-fn emit(reads: &CatalogReads, slots: &[Slot], visit: Rows<'_>) -> Result<u32, i32> {
+fn emit(
+    reads: &CatalogReads,
+    changes: &catalog::Changes,
+    slots: &[Slot],
+    visit: Rows<'_>,
+) -> Result<u32, i32> {
     if slots.is_empty() {
         return Ok(0);
     }
-    let changes = catalog::try_changes(&*reads.storage).map_err(fail)?;
     let mut buffer = zeroed(ENTRY_BUFFER)?;
     let mut rows = 0_u32;
     for slot in slots {
         if row(
             reads,
-            &changes,
+            changes,
             (u64::from(slot.offset), slot.key.path()),
             &mut buffer,
             visit,
@@ -578,7 +595,7 @@ pub(super) fn row(
     );
     let status = line.status;
     let opened = status.opened || status.progress.is_some();
-    let indexed = book::indexed(reads, path, line.size)?;
+    let indexed = book::indexed_kept(reads, path, line.size)?;
     let mut flags = 0;
     for (set, bit) in [
         (status.favourite, flag::FAVOURITE),

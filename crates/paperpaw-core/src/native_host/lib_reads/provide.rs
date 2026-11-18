@@ -2,15 +2,15 @@
 //! (`docs/abi/library.md` 5): what a source knows of a book the book's own
 //! file does not name. The service has checked the record (the flags, blank
 //! and control characters, the tags); this maps it to
-//! `paperpaw_sdk::library::try_provide`, the one implementation: the values
+//! `crate::kit::library::try_provide`, the one implementation: the values
 //! are kept in the book's details where the file names nothing, the list of
 //! tags replaces the book's, the book is read from its file anew, and an
 //! error of the memory or the card is the answer, never a silent OK.
 use super::{CatalogReads, fail};
+use crate::kit::library::{self, ProvidedText};
 use crate::native_host::lib_service::BookRef;
 use crate::native_host::registrations as wire;
 use paperpaw_native::host_glue::ERR_BUSY;
-use paperpaw_sdk::library::{self, ProvidedText};
 
 impl CatalogReads {
     /// Op 24 `provide`, where `busy` says a book is in use (a library

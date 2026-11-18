@@ -40,10 +40,10 @@ std::thread_local! {
 /// The test binary's allocator and its knobs (`shell_alloc_tests.rs`).
 #[path = "shell_alloc_tests.rs"]
 mod alloc_hook;
+pub(crate) use alloc_hook::refuse_nth;
 pub(in crate::native_host) use alloc_hook::{
     FAIL_NTH, FAIL_SIZE, HEAP_LIVE, HEAP_PEAK, HEAP_SHIELD,
 };
-use alloc_hook::{WATCH, WATCH_FREED};
 
 pub(in crate::native_host) const NORMAL: u8 = 0;
 const FAILS: u8 = 1;
@@ -809,242 +809,9 @@ mod instance_tests {
         assert!(CALLS.with(Cell::get) >= 5);
     }
 
-    #[test]
-    fn dropping_the_flat_plugin_unloads_in_order_with_the_destructor_inside_a_call() {
-        use crate::native_host::FlatHost;
-        use crate::native_host::flat::FlatPlugin;
-        reset(NORMAL);
-        EVENT_ONLY.with(|e| e.set(true));
-        let instance = load().unwrap();
-        let host = FlatHost {
-            log: Default::default(),
-            meter: crate::meter::Meter::new(None),
-            directory: None,
-            stack_rows: alloc::rc::Rc::new(Default::default()),
-            font_removals: alloc::rc::Rc::new(
-                crate::native_host::font_removals::FontRemovals::new(),
-            ),
-            registry_generation: alloc::rc::Rc::new(
-                crate::native_host::registry_generation::RegistryGeneration::new(),
-            ),
-        };
-        let manifest = paperpaw_sdk::Manifest::new(
-            paperpaw_sdk::Id::parse("fake.plugin").unwrap(),
-            "fake",
-            paperpaw_sdk::Version::new(0, 0, 0),
-        );
-        let plugin = FlatPlugin::new(
-            manifest,
-            alloc::boxed::Box::new(instance),
-            crate::native_host::flat::FlatDepth::try_new().unwrap(),
-            &host,
-        )
-        .unwrap();
-        assert!(
-            logged().is_empty(),
-            "nothing is destroyed while the plugin is held"
-        );
-        // The kernel removes the plugin's subscriptions and queued work (they
-        // held the instance); the last reference going is the unload: stop,
-        // the batch's lease, cancel and release, finish (the destructor), then
-        // the module, each exactly once and no step failing.
-        drop(plugin);
-        assert_eq!(logged(), ["destroy", "module"]);
-        assert_eq!(
-            UNCOVERED.with(Cell::get),
-            0,
-            "the destructor ran inside a call"
-        );
-        assert_eq!(OPEN.with(Cell::get), 0, "every call ended");
-    }
-
-    #[test]
-    fn a_failing_cancel_or_release_is_told_once_and_the_unload_still_finishes() {
-        use crate::native_host::flat::FlatPlugin;
-        use crate::native_host::{Error as HostError, FlatHost, TeardownStep};
-        // A Busy step cannot be deferred from a drop: it is told, `finish`
-        // retries the same step (the fault is one-shot) and the destructor
-        // then runs; a step that failed for good is told through the owner's
-        // recorded error. Either way: told exactly once, destroy once.
-        for (step, error) in [
-            (TeardownStep::Cancel, HostError::Invalid),
-            (TeardownStep::Release, HostError::Invalid),
-            (TeardownStep::Release, HostError::Busy),
-        ] {
-            reset(NORMAL);
-            EVENT_ONLY.with(|e| e.set(true));
-            let host = FlatHost {
-                log: Default::default(),
-                meter: crate::meter::Meter::new(None),
-                directory: None,
-                stack_rows: alloc::rc::Rc::new(Default::default()),
-                font_removals: alloc::rc::Rc::new(
-                    crate::native_host::font_removals::FontRemovals::new(),
-                ),
-                registry_generation: alloc::rc::Rc::new(
-                    crate::native_host::registry_generation::RegistryGeneration::new(),
-                ),
-            };
-            let manifest = paperpaw_sdk::Manifest::new(
-                paperpaw_sdk::Id::parse("fake.plugin").unwrap(),
-                "fake",
-                paperpaw_sdk::Version::new(0, 0, 0),
-            );
-            let instance = load().unwrap();
-            // Control for the kept-owner test: here the owner is freed.
-            WATCH_FREED.with(|f| f.set(false));
-            WATCH.with(|w| w.set(core::ptr::from_ref(&*instance.environment()) as usize));
-            let plugin = FlatPlugin::new(
-                manifest,
-                alloc::boxed::Box::new(instance),
-                crate::native_host::flat::FlatDepth::try_new().unwrap(),
-                &host,
-            )
-            .unwrap();
-            teardown_fault::arm(step, error);
-            drop(plugin);
-            assert!(
-                WATCH_FREED.with(Cell::get),
-                "{step:?} {error:?}: owner freed"
-            );
-            WATCH.with(|w| w.set(0));
-            assert_eq!(
-                logged(),
-                ["teardown_failed", "destroy", "module"],
-                "{step:?} {error:?}"
-            );
-            assert_eq!(OPEN.with(Cell::get), 0, "every call ended");
-        }
-    }
-
-    /// Points at the hosted plugin that `a_release_that_stays_busy...` keeps for good.
+    /// Points at a hosted plugin a test keeps for good (a refused destructor).
     pub(super) static KEPT_OWNER: core::sync::atomic::AtomicPtr<u8> =
         core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-
-    #[test]
-    fn a_release_that_stays_busy_keeps_the_owner_and_reports_leaked_without_destroying() {
-        use crate::native_host::{Error as HostError, TeardownStep};
-        reset(NORMAL);
-        EVENT_ONLY.with(|e| e.set(true));
-        let host = flat_host();
-        let mut depth = None;
-        let instance = load().unwrap();
-        // An address inside the owner's allocation (its environment scope).
-        let watched_ptr = core::ptr::from_ref(&*instance.environment()).cast::<u8>();
-        let watched = watched_ptr.addr();
-        WATCH_FREED.with(|f| f.set(false));
-        WATCH.with(|w| w.set(watched));
-        // The kept hosted plugin (with its owner) is never freed, by design: a
-        // static that points at it keeps it reachable, so Miri's leak check
-        // (a leak is a bug elsewhere) does not report this one.
-        KEPT_OWNER.store(
-            instance.hosted_address(),
-            core::sync::atomic::Ordering::Relaxed,
-        );
-        let plugin = instance.into_plugin(manifest(), &mut depth, &host).unwrap();
-        teardown_fault::arm_persistent(TeardownStep::Release, HostError::Busy);
-        drop(plugin);
-        teardown_fault::disarm();
-        assert!(
-            !WATCH_FREED.with(Cell::get),
-            "the kept owner's memory was not freed: it stays readable"
-        );
-        // SAFETY: the owner was kept (never freed), so the scope inside it is
-        // still allocated; reading one byte of it only checks that.
-        let _ = unsafe { core::ptr::read_volatile(watched_ptr) };
-        WATCH.with(|w| w.set(0));
-        // Told once (the first attempt), refused again by `finish`: the owner
-        // is kept, so the destructor never ran and the module was not freed.
-        assert_eq!(logged(), ["teardown_failed", "leaked"]);
-        assert!(
-            MODULE_ALIVE.with(Cell::get),
-            "the module outlives the kept owner"
-        );
-        assert_eq!(OPEN.with(Cell::get), 0, "every call ended");
-    }
-
-    fn flat_host() -> crate::native_host::FlatHost {
-        crate::native_host::FlatHost {
-            log: Default::default(),
-            meter: crate::meter::Meter::new(None),
-            directory: None,
-            stack_rows: alloc::rc::Rc::new(Default::default()),
-            font_removals: alloc::rc::Rc::new(
-                crate::native_host::font_removals::FontRemovals::new(),
-            ),
-            registry_generation: alloc::rc::Rc::new(
-                crate::native_host::registry_generation::RegistryGeneration::new(),
-            ),
-        }
-    }
-
-    fn manifest() -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            paperpaw_sdk::Id::parse("fake.plugin").unwrap(),
-            "fake",
-            paperpaw_sdk::Version::new(0, 0, 0),
-        )
-    }
-
-    /// An allocation that fails at any step after `make` (the instance box,
-    /// the device's depth, the adapter's node and box) is a refusal that
-    /// unloads the plugin exactly once, inside an announced call; the first
-    /// plugin and a later one (sharing the depth) alike.
-    #[test]
-    fn an_allocation_failing_after_make_unloads_the_plugin_once_for_the_first_and_a_later_plugin() {
-        use crate::native_host::flat::FlatError;
-        let host = flat_host();
-        for later in [false, true] {
-            // The first plugin allocates the instance box, the device depth,
-            // the adapter's shared node and the adapter's box (4); a later
-            // one shares the depth (3). Every one of them can fail; past them
-            // the plugin is made.
-            let allocations = if later { 3 } else { 4 };
-            for nth in 1..=allocations + 2 {
-                reset(NORMAL);
-                EVENT_ONLY.with(|e| e.set(true));
-                let mut depth = None;
-                let first = later.then(|| {
-                    let plugin = load()
-                        .unwrap()
-                        .into_plugin(manifest(), &mut depth, &host)
-                        .unwrap();
-                    LOG.with(|l| l.borrow_mut().clear());
-                    plugin
-                });
-                let held = first.as_ref().map(|p| p.reference_counts());
-                // The next plugin's module is alive from here on.
-                let instance = load().unwrap();
-                let manifest = manifest();
-                arm_failure(nth);
-                let result = instance.into_plugin(manifest, &mut depth, &host);
-                arm_failure(0);
-                let context = alloc::format!("later {later}, allocation {nth}");
-                assert_eq!(UNCOVERED.with(Cell::get), 0, "{context}");
-                assert_eq!(OPEN.with(Cell::get), 0, "{context}");
-                match result {
-                    Err(why) => {
-                        assert!(nth <= allocations, "{context}: refused past the last");
-                        assert_eq!(why, FlatError::Allocation, "{context}");
-                        assert_eq!(logged(), ["destroy", "module"], "{context}: once");
-                        if let (Some(first), Some(held)) = (first.as_ref(), held) {
-                            assert_eq!(first.reference_counts(), held, "{context}: shares");
-                        }
-                    }
-                    Ok(plugin) => {
-                        assert!(nth > allocations, "{context}: made despite a failure");
-                        drop(plugin);
-                        assert_eq!(logged(), ["destroy", "module"], "{context}");
-                    }
-                }
-                // The other module died first; the first plugin's destructor
-                // checks its own is alive.
-                MODULE_ALIVE.with(|a| a.set(true));
-                drop(first);
-                assert_eq!(UNCOVERED.with(Cell::get), 0, "{context}: first");
-            }
-        }
-    }
 
     #[test]
     fn every_announced_call_is_ended_also_when_make_fails_or_a_load_is_refused() {
@@ -1312,7 +1079,7 @@ fn kernel_dispatch_supplies_real_core_views_and_clears_them_after_callbacks() {
     let depth = DispatchDepth::new();
     let now = paperpaw_platform::Instant(12);
     EXPECT_CORE.with(|expected| expected.set(true));
-    let env = kernel.shared.env(now);
+    let env = kernel.shared.place(now);
     assert_eq!(
         dispatch_with_env(&batch, 0, &depth, Invocation::Event(&[1, 2, 3]), &env),
         Ok(host_glue::ERR_STATE)
@@ -1347,7 +1114,7 @@ fn stage_slot_missing_frame_and_zero_capacity_do_not_allocate() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let hosted = fake();
     let context = hosted.owner().context();
     let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast();

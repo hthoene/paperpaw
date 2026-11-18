@@ -3,6 +3,7 @@
 //! the lease, the state rules, the paging rules and the checks of an answer.
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::{
     context::{Frame, RowsEnd},
     services_wire::{self, ServiceOp},
@@ -15,7 +16,7 @@ use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_STATE,
 };
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 use wire::{
     ServiceDocAt as At, ServiceDocImage as Image, ServiceDocOpen as Open, ServiceDocOption as Opt,
     ServiceDocPage as Page, ServiceDocRef as Ref, ServiceDocState as State,
@@ -384,7 +385,7 @@ impl Fake {
 }
 
 pub(crate) struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     hosts: crate::native_host::host_services::HostServices,
     fake: Rc<Fake>,
 }
@@ -414,7 +415,7 @@ pub(crate) fn with<R>(fake: &Rc<Fake>, body: impl FnOnce(&View<'_>) -> R) -> R {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let host: Rc<dyn DocHost> = fake.clone();
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_documents(host).unwrap();
@@ -868,7 +869,7 @@ fn a_frame_without_the_host_or_a_caller_refuses_the_family() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let fake = Fake::new(Limits::X4);
     let view = View {
         env: &env,
@@ -902,4 +903,14 @@ fn a_frame_without_the_host_or_a_caller_refuses_the_family() {
             generation: 0,
         },
     );
+}
+
+#[test]
+fn a_document_open_for_a_book_a_cover_or_a_job_is_seen_by_the_low_memory_look() {
+    let table = DocumentTable::try_new(Limits::X4).unwrap();
+    assert!(!table.any_open());
+    let (id, _) = table.open(1, true, FORMAT, 0, 0, &|_| true).unwrap();
+    assert!(table.any_open());
+    table.close(1, id).unwrap();
+    assert!(!table.any_open());
 }

@@ -1,7 +1,7 @@
 //! The host's record of the versions a store installed (`registry.md`
 //! `reg_plugin.flags` bit 5; `device.md` 5.2 `install_plugin` bit 2): the
 //! file of interface 6 (`<id>\t<release>` lines, the newest last;
-//! `paperpaw_sdk::install::Origins`), out of reach of plugins and of the card
+//! `crate::kit::install::Origins`), out of reach of plugins and of the card
 //! transfers. An install from a catalog adds its version when it is in place
 //! (`install::marks::settle`), any other forgets the id's; a device that kept
 //! none takes the plugins installed for the store's once ([`adopt`]), as

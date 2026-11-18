@@ -4,6 +4,7 @@
 //! checking: where it cannot, what was chosen and offered before stays and
 //! a line in the warnings says so (the next refresh tries again).
 
+pub(crate) mod literata_notice;
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -11,8 +12,9 @@ use alloc::vec::Vec;
 use crate::plugins::FONT_SIZES;
 use core::mem;
 
+use crate::Ask;
 use paperpaw_sdk::builtin::settings as core_settings;
-use paperpaw_sdk::{Command, FontError, IdError};
+use paperpaw_sdk::{FontError, IdError};
 
 use super::*;
 
@@ -222,7 +224,7 @@ impl Kernel {
             let id = core_settings::FONT_SIZE.id().try_clone();
             match id {
                 Some(id) if self.output.commands.try_reserve(1).is_ok() => {
-                    self.output.commands.push(Command::SetSetting(id, value));
+                    self.output.commands.push(Ask::SetSetting(id, value));
                 }
                 _ => self.try_warn_runtime(&[
                     "not enough memory to fit the font size; it is fitted at the next refresh",
@@ -232,7 +234,7 @@ impl Kernel {
     }
 
     /// The values plugins offer among other plugins' choices
-    /// ([`paperpaw_sdk::Registrar::add_choice`]), after the setting's own.
+    /// (`Staging::add_choice`), after the setting's own.
     /// A value that cannot be added for lack of memory is kept, with those
     /// after it, for the next refresh. While native plugins register (until
     /// the start), one for a setting nobody declared yet waits too: a native
@@ -313,89 +315,6 @@ impl Kernel {
             }
             None => Offered::NoRoom,
         }
-    }
-
-    /// The reading apps to choose: the default one, and one for each
-    /// format (a setting each, in the reading settings' part for them),
-    /// each offering the readers that read its books. Where only one
-    /// does, there is nothing to choose and the setting is not listed.
-    /// Where the heap has no room what was offered stays.
-    pub(crate) fn offer_reading_apps(&mut self) {
-        if self.try_offer_reading_apps().is_err() {
-            self.try_warn_runtime(&[
-                "not enough memory to update the reading apps; they stay as they were",
-            ]);
-        }
-    }
-
-    fn try_offer_reading_apps(&mut self) -> Result<(), ()> {
-        let Shared {
-            readers,
-            formats,
-            settings,
-            ..
-        } = &mut self.shared;
-        let default = [core_settings::READING_APP_DEFAULT];
-        let several = readers.len() > 1;
-        let all = choice_list(
-            &default,
-            readers.iter().map(|r| r.id.as_str()).filter(|_| several),
-        )
-        .ok_or(())?;
-        settings.set_choices(core_settings::READING_APP.as_str(), all);
-        // The native formats' stand-in (`native_book_formats`) is no format
-        // a reader is chosen for: native books open through `core.document`.
-        let stand_in = crate::native_host::native_book_formats::STAND_IN_ID;
-        for format in formats.iter().filter(|f| f.id.as_str() != stand_in) {
-            let several = readers.reading(Some(&format.id)).nth(1).is_some();
-            let choices = choice_list(
-                &default,
-                readers
-                    .reading(Some(&format.id))
-                    .map(|r| r.id.as_str())
-                    .filter(|_| several),
-            )
-            .ok_or(())?;
-            let id =
-                fallible_string(&[core_settings::READING_APP.as_str(), ".", format.id.as_str()])
-                    .ok_or(())?;
-            if settings.spec(&id).is_some() {
-                settings.set_choices(&id, choices);
-                continue;
-            }
-            // Nothing to choose where one reader reads it: no setting
-            // (memory on small devices), until another comes.
-            if !several {
-                continue;
-            }
-            let setting = match Id::try_parse(&id) {
-                Ok(setting) => setting,
-                Err(IdError::Invalid) => continue,
-                Err(_) => return Err(()),
-            };
-            // The room first, so that defining it cannot fail for lack of it.
-            settings.try_reserve(1, 0).map_err(|_| ())?;
-            /// The reading apps' part, keeping apps not installed now.
-            static READING_APPS: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new()
-                .section("core.section.reading-apps")
-                .keeps_unknown();
-            let title = match &format.title {
-                Cow::Borrowed(title) => Cow::Borrowed(*title),
-                Cow::Owned(title) => Cow::Owned(fallible_string(&[title]).ok_or(())?),
-            };
-            let mut spec = paperpaw_sdk::SettingSpec::new(
-                setting,
-                "",
-                paperpaw_sdk::SettingKind::Choice(choices.into()),
-                paperpaw_sdk::SettingValue::Text(Cow::Borrowed(core_settings::READING_APP_DEFAULT)),
-                paperpaw_sdk::builtin::groups::READING_BEHAVIOUR,
-            )
-            .description("core.setting.reading-app.format.help")
-            .with_extra(&READING_APPS);
-            spec.title = paperpaw_sdk::Str::new(title);
-            let _ = settings.define(spec);
-        }
-        Ok(())
     }
 }
 

@@ -1,6 +1,6 @@
 //! `command.redraw_area` (`docs/abi/screens-input.md` 3): a redraw of part of
 //! the submitting plugin's top screen, as interface 6's
-//! `Cx::request_redraw_area`. Each area is drawn again on its own, so what
+//! `Turn::request_redraw_area`. Each area is drawn again on its own, so what
 //! the refresh weighs is what the areas cover, not the rectangle around
 //! them: a picture box or two on a page is no page turn (`refresh.rs`).
 //! Areas asked for together with the whole screen are a **follow-up**: the
@@ -181,7 +181,7 @@ impl crate::Kernel {
     /// what wakes the shell anyway.
     pub(crate) fn followup_due(&self, refreshing: bool) -> Option<paperpaw_platform::Instant> {
         let drawn = self.frame.pending.is_none() && self.frame.unrendered.is_none();
-        (self.frame.followup.is_some() && (refreshing || drawn)).then_some(self.now)
+        (self.frame.followup.is_some() && (refreshing || drawn)).then_some(self.shared.now)
     }
 }
 
@@ -305,7 +305,7 @@ mod tests {
         let (owner, foreign) = (Id::new_static("probe"), Id::new_static("other"));
         // The stages borrow the kernel's settings: done before it changes.
         let redraw = {
-            let env = kernel.shared.env(paperpaw_platform::Instant(0));
+            let env = kernel.shared.place(paperpaw_platform::Instant(0));
             let budget = u32::MAX - kernel.next_serial;
             // A macro, not a closure: the stage borrows the owner it is given.
             macro_rules! stage {

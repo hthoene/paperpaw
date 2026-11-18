@@ -17,11 +17,10 @@ use crate::panel::Panel;
 use crate::profiles::Profile;
 use paperpaw_core::sdk::MemoryStorage;
 use paperpaw_fs::DirStorage;
-#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
 use paperpaw_platform::Storage;
 
 mod card;
-pub use card::Card;
+pub use card::{Card, Shared};
 
 /// What the emulated device's storage says it has free (`--free-space`),
 /// where set: screenshots that look the same on every computer.
@@ -77,6 +76,8 @@ pub enum Library {
     Dir(std::path::PathBuf),
     /// Files in memory, kept across restarts.
     Memory(Rc<MemoryStorage>),
+    /// Any other storage of the caller's, kept across restarts.
+    Shared(card::Shared),
 }
 
 impl Library {
@@ -85,6 +86,7 @@ impl Library {
         Ok(match self {
             Library::Dir(root) => Card::Dir(library(root)?),
             Library::Memory(files) => Card::Memory(files.clone()),
+            Library::Shared(files) => Card::Shared(files.clone()),
         })
     }
 }
@@ -151,6 +153,9 @@ pub struct Device {
     pub warnings: Vec<Warning>,
     /// The last `KEPT_FRAMES` frames shown (region, mode), for tests of a start.
     pub shown: Vec<(paperpaw_platform::Rect, RefreshMode)>,
+    /// How many frames were shown since start (scripts' `--repl` counts
+    /// them, as the X4's log lines do).
+    pub frames_shown: u64,
     /// Requests are answered from the emulator's fixtures
     /// ([`Device::use_fixtures`]).
     fixtures: bool,
@@ -257,6 +262,25 @@ impl Device {
         Self::build(profile, user_config, library, card, simulated_time, add)
     }
 
+    /// A device whose card is `files`: a storage of the caller's (a FAT
+    /// volume on a RAM disk that counts the commands it is sent, say).
+    pub fn on_storage(
+        profile: &'static Profile,
+        files: Rc<dyn Storage>,
+        simulated_time: bool,
+    ) -> Result<Self, KernelError> {
+        let shared = card::Shared(files);
+        let card = Card::Shared(shared.clone());
+        Self::build(
+            profile,
+            None,
+            Library::Shared(shared),
+            card,
+            simulated_time,
+            None,
+        )
+    }
+
     fn build(
         profile: &'static Profile,
         user_config: Option<String>,
@@ -266,6 +290,7 @@ impl Device {
         add: Option<AddPlugins>,
     ) -> Result<Self, KernelError> {
         budget::set_limit(profile.heap_budget);
+        paperpaw_core::native_host::answer_text_ink_as_the_x4(profile.ink_unwired);
         card::insert();
         let config = user_config.as_deref();
         #[cfg_attr(
@@ -314,6 +339,7 @@ impl Device {
             speech: std::collections::VecDeque::new(),
             warnings: Vec::new(),
             shown: Vec::new(),
+            frames_shown: 0,
             fixtures: false,
             wifi_online: WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed),
             #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
@@ -881,6 +907,7 @@ impl Device {
             self.shown.remove(0);
         }
         self.shown.push((region, mode));
+        self.frames_shown += 1;
         // Shown as soon as drawn: plugins that pace themselves by the
         // panel go as fast as they can here.
         let drawn = core::time::Duration::from_micros(crate::host::micros() - started);
@@ -1155,20 +1182,8 @@ fn build_kernel(
         // as if the reader had installed them (the emulator loads no
         // plugin files): `--set plugins.<id>=off` shows a device without.
         let mut builder = paperpaw_app::install(builder, fonts);
-        #[cfg(feature = "hello")]
-        {
-            builder = builder.plugin(paperpaw_sample_hello::Hello);
-        }
-        #[cfg(feature = "frame-test")]
-        {
-            builder = builder.plugin(paperpaw_sample_frame_test::FrameTest);
-        }
-        #[cfg(feature = "interlinear")]
-        {
-            builder = builder.plugin(paperpaw_sample_interlinear::Interlinear);
-        }
         if let Some(light) = profile.light {
-            builder = builder.plugin(crate::light::Emulated(light));
+            builder = builder.items(crate::light::manifest(), crate::light::emulated(light));
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -1248,10 +1263,6 @@ mod tests {
     use paperpaw_core::WifiCommand;
     use paperpaw_platform::StorageError;
 
-    /// The heap budget counts every thread's kernel: one device at a time,
-    /// and none while the budget's own tests read its counters.
-    use crate::budget::accounting_tests::LOCK as ONE_AT_A_TIME;
-
     fn device(name: &str) -> (Device, std::path::PathBuf) {
         let root =
             std::env::temp_dir().join(format!("paperpaw-device-{name}-{}", std::process::id()));
@@ -1301,9 +1312,7 @@ mod tests {
     #[test]
     fn a_wanted_network_brings_managed_wifi_up_once_per_demand() {
         use paperpaw_core::native_host::shell_wiring::ShellNetwork as _;
-        let _one = ONE_AT_A_TIME
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = crate::one_device_at_a_time();
         let (mut device, root) = device("wifi-demand");
         let demand = |device: &Device, wanted| {
             let net = device.linked.net.borrow();
@@ -1344,9 +1353,7 @@ mod tests {
 
     #[test]
     fn asleep_nothing_is_due() {
-        let _one = ONE_AT_A_TIME
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = crate::one_device_at_a_time();
         let (mut device, root) = device("asleep");
         device.wake_at = Some(Instant(0));
         device.asleep = true;
@@ -1361,9 +1368,7 @@ mod tests {
 
     #[test]
     fn a_restart_forgets_what_the_old_kernel_asked_for() {
-        let _one = ONE_AT_A_TIME
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = crate::one_device_at_a_time();
         let (mut device, root) = device("restart");
         let now = device.now();
         device.speech.push_back((1, now.add_millis(10_000)));

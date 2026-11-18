@@ -92,7 +92,7 @@ pub(super) fn scoped(backend: &Backend, call: impl FnOnce(&EnvironmentScope, &cr
         .storage(backend.clone())
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let scope = pin!(EnvironmentScope::new());
     scope
         .as_ref()

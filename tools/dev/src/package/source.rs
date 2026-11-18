@@ -159,7 +159,7 @@ fn writes(id: &str, place: &str, text: &str, out: &mut Vec<Finding>) {
                 "package.runtime-path",
                 format!("{place}:{}", n + 1),
                 format!(
-                    "This writes under `{own}`, which an update replaces; what a plugin writes belongs in `Env::plugin_dir` (`.paperpaw/plugins/{id}/`)."
+                    "This writes under `{own}`, which an update replaces; what a plugin writes belongs in `data::plugin_dir` (`.paperpaw/plugins/{id}/`)."
                 ),
             ));
         }

@@ -220,7 +220,19 @@ impl Network {
         // Secure requests and sockets wait for the clock (their
         // certificates' dates are checked against it), unless it cannot be
         // had.
-        let clock_ready = clock::unix_ms(now).is_some() || self.sync_failed;
+        let clock_ready = clock::exact() || self.sync_failed;
+        // A secure request's session takes about 60 KB: where the heap is
+        // short for it, what sits idle is given back first (#287).
+        if crate::tls_slots::take_room_asked() {
+            let free = esp_alloc::HEAP.free();
+            if !paperpaw_x4::tls_gate::session_fits(free, crate::largest_block()) {
+                let parked = kernel.make_room();
+                log::info!(
+                    "secure request: {free} B free, {} B after parking {parked} idle plugins",
+                    esp_alloc::HEAP.free()
+                );
+            }
+        }
         self.serve(kernel, now, clock_ready, &mut effects);
         #[cfg(feature = "ppn5")]
         if let Some(host) = &self.host {
@@ -374,7 +386,7 @@ impl Network {
             self.sync_failed = false;
             return;
         };
-        let due = clock::unix_ms(now).is_none()
+        let due = !clock::exact()
             || self
                 .synced
                 .is_none_or(|at| ms.saturating_sub(at) >= RESYNC_MS);

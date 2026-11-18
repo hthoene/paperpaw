@@ -10,6 +10,7 @@ source|store.source
 shots|store.shots
 fetch|store.fetch.title
 offer|store.offer.title
+templates|store.template.title
 [slots]
 [widget_places]
 [status_places]

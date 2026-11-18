@@ -1,6 +1,8 @@
 //! Where the settings' specs are kept ([`Specs`]).
 
 use alloc::vec::Vec;
+#[cfg(any(test, feature = "kernel"))]
+use core::cell::Cell;
 use core::ops::ControlFlow;
 
 use super::described::{Blocks, DescribeError, DescribedSettings, Found};
@@ -9,7 +11,7 @@ use super::{Extra, SettingError, SettingExtra, SettingSpec, SettingValue};
 /// The settings' specs in registration order, found by id through an
 /// index sorted by it: each id kept once. Specs kept in the program
 /// (a `static` list of `SettingSpec`s, e.g. in flash) are held as the lists a plugin
-/// gave ([`Registrar::add_settings`](crate::Registrar::add_settings)),
+/// gave (`Staging::add_settings`),
 /// a reference to each list rather than to each spec; the others as they
 /// are. Of the specs a plugin describes on demand
 /// ([`Described`](super::Described)) only the places are kept here: they
@@ -27,6 +29,76 @@ pub(super) struct Specs {
     /// The places of the made and the fixed specs, sorted by the specs' ids.
     by_id: Vec<u16>,
     described: Blocks,
+}
+
+/// How many lookups a [`SettingMemo`] remembers.
+#[cfg(any(test, feature = "kernel"))]
+const RECENT: usize = 32;
+
+/// A place that is none.
+#[cfg(any(test, feature = "kernel"))]
+const NO_PLACE: u16 = u16::MAX;
+
+/// A place found by the hash of the id it was found for.
+#[cfg(any(test, feature = "kernel"))]
+#[derive(Clone, Copy)]
+struct Recent {
+    hash: u32,
+    place: u16,
+}
+
+/// The places of the settings looked up last, kept by the kernel beside the
+/// settings, not in them, so that the settings are the same for every
+/// plugin ([`Settings::secret_of_in`](super::Settings::secret_of_in)). The kernel forgets them
+/// ([`SettingMemo::forget`]) with every change of the settings.
+#[cfg(any(test, feature = "kernel"))]
+pub struct SettingMemo([Cell<Recent>; RECENT]);
+
+#[cfg(any(test, feature = "kernel"))]
+impl core::fmt::Debug for SettingMemo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("SettingMemo")
+    }
+}
+
+#[cfg(any(test, feature = "kernel"))]
+impl Default for SettingMemo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(any(test, feature = "kernel"))]
+impl SettingMemo {
+    /// A memo that knows nothing.
+    pub const fn new() -> Self {
+        #[allow(
+            clippy::declare_interior_mutable_const,
+            reason = "only the value of an array repeat"
+        )]
+        const NONE: Cell<Recent> = Cell::new(Recent {
+            hash: 0,
+            place: NO_PLACE,
+        });
+        Self([NONE; RECENT])
+    }
+
+    /// Forgets the places found: after every change of the settings.
+    pub fn forget(&self) {
+        for cell in &self.0 {
+            cell.set(Recent {
+                hash: 0,
+                place: NO_PLACE,
+            });
+        }
+    }
+}
+
+/// The hash a lookup is remembered by.
+#[cfg(any(test, feature = "kernel"))]
+fn recent_hash(id: &str) -> u32 {
+    let hash = paperpaw_digest::fnv1a64(id.as_bytes());
+    (hash ^ (hash >> 32)) as u32
 }
 
 /// Marks a place among the fixed specs.
@@ -170,10 +242,46 @@ impl Specs {
 
     /// Where setting `id` is kept. Nothing is made.
     pub(super) fn where_is(&self, id: &str) -> Option<At<'_>> {
+        self.locate(id).map(|(at, _)| at)
+    }
+
+    /// [`Specs::where_is`] by a search, with the place it is at.
+    fn locate(&self, id: &str) -> Option<(At<'_>, u16)> {
         match self.find(id) {
-            Ok(at) => Some(At::Spec(self.at(self.by_id[at]))),
-            Err(_) => self.described.find(id).map(At::Described),
+            Ok(at) => {
+                let place = self.by_id[at];
+                Some((At::Spec(self.at(place)), place))
+            }
+            Err(_) => {
+                let found = self.described.find(id)?;
+                let place = DESCRIBED | (found.0.first() + found.1 as u16);
+                Some((At::Described(found), place))
+            }
         }
+    }
+
+    /// [`Specs::where_is`], found again by a hash of the id instead of a
+    /// search where `memo` has it: every read of a setting looks it up.
+    #[cfg(any(test, feature = "kernel"))]
+    pub(super) fn where_is_in(&self, memo: &SettingMemo, id: &str) -> Option<At<'_>> {
+        let hash = recent_hash(id);
+        let cell = &memo.0[hash as usize % RECENT];
+        let seen = cell.get();
+        if seen.hash == hash && seen.place != NO_PLACE {
+            let at = self.place(seen.place);
+            let same = match at {
+                At::Spec(spec) => spec.id.as_str() == id,
+                At::Described((block, setting)) => id
+                    .split_once('.')
+                    .is_some_and(|(plugin, name)| block.is_named(setting, plugin, name)),
+            };
+            if same {
+                return Some(at);
+            }
+        }
+        let (at, place) = self.locate(id)?;
+        cell.set(Recent { hash, place });
+        Some(at)
     }
 
     /// Whether setting `id` is one its plugin describes.
@@ -568,5 +676,42 @@ mod tests {
             specs.get("t.kept").unwrap().unwrap().scoped,
             "the copy is the one changed"
         );
+    }
+
+    fn remembered(memo: &SettingMemo, id: &str) -> bool {
+        memo.0[recent_hash(id) as usize % RECENT].get().place != NO_PLACE
+    }
+
+    /// A setting is searched for once; its place is then known by the
+    /// hash of its id, until the memo is forgotten (as the kernel does with
+    /// every change of the places: a copy made to be changed, a plugin
+    /// removed).
+    #[test]
+    fn a_lookup_is_remembered_until_the_memo_is_forgotten() {
+        let mut specs = Specs::default();
+        let memo = SettingMemo::new();
+        specs.try_reserve(2, 1).unwrap();
+        for id in ["t.a", "t.b"] {
+            assert!(specs.insert(SettingSpec::switch(id, id, false, READING)));
+        }
+        assert!(specs.insert_fixed(&KEPT, 0));
+        assert!(!remembered(&memo, "t.kept"));
+        assert!(specs.where_is_in(&memo, "t.kept").is_some());
+        assert!(remembered(&memo, "t.kept"));
+        assert!(specs.where_is_in(&memo, "t.nothing").is_none());
+        assert!(!remembered(&memo, "t.nothing"), "no miss is kept");
+        // The copy made to be changed is found, not the fixed one.
+        assert!(!specs.get("t.kept").unwrap().unwrap().scoped);
+        specs.get_mut("t.kept").unwrap().scoped = true;
+        memo.forget();
+        assert!(!remembered(&memo, "t.kept"));
+        let at = specs.where_is_in(&memo, "t.kept").unwrap();
+        assert!(at.scoped_flag(), "the copy is the one found");
+        assert!(specs.where_is_in(&memo, "t.b").is_some());
+        assert!(remembered(&memo, "t.b"));
+        specs.remove_plugin("t");
+        memo.forget();
+        assert!(specs.where_is_in(&memo, "t.b").is_none());
+        assert!(specs.where_is_in(&memo, "t.kept").is_none());
     }
 }

@@ -1,10 +1,10 @@
-//! Screens hosted in a screen of another plugin, and tasks with their own
-//! way back.
+//! Tasks with their own way back (the hosting of a screen in another went
+//! with the old SDK host, #244 D6b).
 
 use super::*;
+use crate::Staging;
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::event::EventData;
-use paperpaw_sdk::host::ScreenHost;
 use paperpaw_sdk::{Gesture, Params};
 
 const HOST: Id = Id::new_static("host.tabs");
@@ -15,8 +15,8 @@ const LIST: Id = Id::new_static("host.list");
 /// be drawn again on one, and says a word.
 struct Page(Log);
 
-impl Screen for Page {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
+impl crate::testing::Fake for Page {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Place<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
         let display = env.device().display;
         self.0.borrow_mut().push(alloc::format!(
@@ -26,72 +26,38 @@ impl Screen for Page {
         ));
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 
-    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Turn<'_, '_>) -> Handled {
         let (x, y) = (gesture.start.x, gesture.start.y);
         self.0
             .borrow_mut()
             .push(alloc::format!("page tapped at {x},{y}"));
         cx.request_redraw_area(Rect::new(0, 0, 4, 4));
-        cx.command(Command::Notify(String::from("tapped")));
+        cx.command(Ask::Notify(String::from("tapped")));
         Handled::Yes
     }
 }
 
 /// Hosts the page in its lower half.
-struct Tabs {
-    host: ScreenHost,
-}
-
-impl Screen for Tabs {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) {
-        self.host.draw(canvas, env);
-    }
-
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
-        Handled::No
-    }
-
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
-        let pane = Rect::new(0, 45, 90, 45);
-        assert!(self.host.show(cx, PAGE, Params::new(), pane));
-        self.host.on_show(cx);
-    }
-
-    fn on_gesture(&mut self, gesture: Gesture, cx: &mut Cx<'_, '_>) -> Handled {
-        self.host.on_gesture(gesture, cx)
-    }
-}
-
-struct HostPlugin(Log);
-
-impl Plugin for HostPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("host"), "Host", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
-        r.add_screen(ScreenSpec::new(
+fn host_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
+        r.add_fake(crate::testing::FakeSpec::new(
             PAGE,
             "page",
             Box::new(move |_, _| Box::new(Page(log.clone()))),
         ))?;
-        r.add_screen(ScreenSpec::new(
+        let log = kept.clone();
+        r.add_fake(crate::testing::FakeSpec::new(
             HOST,
             "tabs",
-            Box::new(|_, _| {
-                Box::new(Tabs {
-                    host: ScreenHost::new(),
-                })
-            }),
+            Box::new(move |_, _| Box::new(Page(log.clone()))),
         ))?;
-        let log = self.0.clone();
-        r.add_screen(ScreenSpec::new(
+        let log = kept.clone();
+        r.add_fake(crate::testing::FakeSpec::new(
             LIST,
             "list",
             Box::new(move |_, _| Box::new(Page(log.clone()))),
@@ -101,51 +67,10 @@ impl Plugin for HostPlugin {
     }
 }
 
-/// A screen made by another plugin's, in a part of it: drawn there from
-/// its own corner, the size of its part; taps there reach it in its
-/// coordinates; what it asks for reaches the kernel, moved to the screen.
-#[test]
-fn a_screen_hosts_another_in_a_part_of_it() {
-    let log = log();
-    let mut kernel = Kernel::builder(DEVICE)
-        .plugin(NoticePlugin { log: super::log() })
-        .plugin(HostPlugin(log.clone()))
-        .build()
-        .unwrap();
-    kernel.start(Instant(0));
-    render(&mut kernel);
-    assert!(log.borrow().contains(&String::from("page drawn 90x45")));
-    assert_eq!(
-        kernel.frame().pixel(5, 50),
-        Color::BLACK,
-        "the page's corner"
-    );
-    assert_eq!(kernel.frame().pixel(5, 5), Color::WHITE);
-    log.borrow_mut().clear();
-    kernel.handle(
-        Instant(100),
-        InputEvent::Pointer(PointerEvent::new(
-            0,
-            PointerPhase::Down,
-            Point::new(30, 60),
-            PointerTool::Finger,
-            1000,
-        )),
-    );
-    let effects = kernel.handle(
-        Instant(150),
-        InputEvent::Pointer(PointerEvent::new(
-            0,
-            PointerPhase::Up,
-            Point::new(30, 60),
-            PointerTool::Finger,
-            1000,
-        )),
-    );
-    assert_eq!(*log.borrow(), ["page tapped at 30,15"]);
-    assert!(kernel.notice.is_some(), "its command reached the kernel");
-    let (region, _) = effects.refresh().unwrap();
-    assert!(region.contains(Point::new(1, 46)), "{region:?}");
+/// What [`host_plugin`] registers under.
+fn host_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("host"), "Host", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// Each task keeps its own way back: switched away and back, its
@@ -154,7 +79,7 @@ fn a_screen_hosts_another_in_a_part_of_it() {
 fn tasks_keep_their_own_way_back() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(HostPlugin(log.clone()))
+        .items(host_plugin_manifest(), host_plugin(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -163,15 +88,15 @@ fn tasks_keep_their_own_way_back() {
         kernel.screens().map(|id| id.as_str().into()).collect()
     };
     assert_eq!(ids(&kernel), ["host.tabs", "host.page"]);
-    kernel.apply(Command::SwitchTask(slots::LIBRARY));
+    kernel.apply(Ask::SwitchTask(slots::LIBRARY));
     kernel.finish();
     assert_eq!(ids(&kernel), ["host.list"]);
     kernel.open_screen(Instant(2), PAGE, Params::new());
-    kernel.apply(Command::SwitchTask(slots::HOME));
+    kernel.apply(Ask::SwitchTask(slots::HOME));
     kernel.finish();
     assert_eq!(ids(&kernel), ["host.tabs", "host.page"]);
     assert_eq!(kernel.stack[1].params.get("n"), Some("1"));
-    kernel.apply(Command::SwitchTask(slots::LIBRARY));
+    kernel.apply(Ask::SwitchTask(slots::LIBRARY));
     kernel.finish();
     assert_eq!(ids(&kernel), ["host.list", "host.page"]);
 }
@@ -183,7 +108,7 @@ fn tasks_keep_their_own_way_back() {
 fn tasks_kept_follow_their_books() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(HostPlugin(log.clone()))
+        .items(host_plugin_manifest(), host_plugin(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -206,7 +131,7 @@ fn tasks_kept_follow_their_books() {
             .map(|s| s.params.get(path).map(String::from))
             .collect()
     };
-    kernel.apply(Command::SwitchTask(slots::LIBRARY));
+    kernel.apply(Ask::SwitchTask(slots::LIBRARY));
     kernel.finish();
     let moved = events::BookMoved::new("books/a.epub".into(), "books/b.epub".into());
     kernel.send_event(
@@ -214,7 +139,7 @@ fn tasks_kept_follow_their_books() {
         events::BOOK_MOVED.id().clone(),
         moved.to_params(),
     );
-    kernel.apply(Command::SwitchTask(slots::HOME));
+    kernel.apply(Ask::SwitchTask(slots::HOME));
     kernel.finish();
     assert_eq!(
         ids(&kernel),
@@ -229,7 +154,7 @@ fn tasks_kept_follow_their_books() {
             None
         ]
     );
-    kernel.apply(Command::SwitchTask(slots::LIBRARY));
+    kernel.apply(Ask::SwitchTask(slots::LIBRARY));
     kernel.finish();
     let removed = events::BookRemoved::new("books/b.epub".into());
     kernel.send_event(
@@ -237,14 +162,14 @@ fn tasks_kept_follow_their_books() {
         events::BOOK_REMOVED.id().clone(),
         removed.to_params(),
     );
-    kernel.apply(Command::SwitchTask(slots::HOME));
+    kernel.apply(Ask::SwitchTask(slots::HOME));
     kernel.finish();
     // The other book's screen stays; the deleted one's and what was over
     // it go.
     assert_eq!(ids(&kernel), ["host.tabs", "host.page"]);
     assert_eq!(shown(&kernel), [None, Some("books/kept.epub".into())]);
     // Its book deleted too: only the task's first screen is left.
-    kernel.apply(Command::SwitchTask(slots::LIBRARY));
+    kernel.apply(Ask::SwitchTask(slots::LIBRARY));
     kernel.finish();
     let removed = events::BookRemoved::new("books/kept.epub".into());
     kernel.send_event(
@@ -252,7 +177,7 @@ fn tasks_kept_follow_their_books() {
         events::BOOK_REMOVED.id().clone(),
         removed.to_params(),
     );
-    kernel.apply(Command::SwitchTask(slots::HOME));
+    kernel.apply(Ask::SwitchTask(slots::HOME));
     kernel.finish();
     assert_eq!(ids(&kernel), ["host.tabs"]);
 }

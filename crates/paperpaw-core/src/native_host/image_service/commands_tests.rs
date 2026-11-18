@@ -163,7 +163,7 @@ fn an_admitted_prepare_is_queued_decoded_and_answered_and_a_release_ends_it() {
     assert!(
         t.prepare_step(
             &storage,
-            prepare::Env {
+            prepare::Within {
                 screen: 480,
                 colour: false,
                 max_side: 4096,
@@ -232,7 +232,7 @@ fn the_stage_admits_image_commands_atomically_and_hands_them_over() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_sdk::Instant(0));
+    let env = kernel.shared.place(paperpaw_sdk::Instant(0));
     let owner = Id::new_static("probe");
     let submit = |stage: &mut CommandStage<'_>, commands: &[WireCommand<'_>]| {
         let scope = core::pin::pin!(CommandScope::new());
@@ -293,7 +293,7 @@ fn image_paths_count_against_the_callbacks_byte_budget() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_sdk::Instant(0));
+    let env = kernel.shared.place(paperpaw_sdk::Instant(0));
     let owner = Id::new_static("probe");
     let submit = |stage: &mut CommandStage<'_>, commands: &[WireCommand<'_>]| {
         let scope = core::pin::pin!(CommandScope::new());
@@ -404,7 +404,7 @@ fn root_2_reads_the_plugins_install_folder_and_a_missing_file_is_status_6_on_eve
         .unwrap()
         .unwrap();
         t.apply(A, &cmd, &Roots).unwrap();
-        while t.prepare_step(&storage, prepare::Env::x4(8, false)) == Ok(true) {}
+        while t.prepare_step(&storage, prepare::Within::x4(8, false)) == Ok(true) {}
         let ready = told(&t).unwrap();
         // The ids are released at once: room for the next.
         if ready.image != 0 {

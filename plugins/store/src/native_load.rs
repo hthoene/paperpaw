@@ -61,6 +61,8 @@ pub enum Trouble {
     Loading,
     Offline,
     Failed,
+    /// The device had no memory for the connection (a restart gives it back).
+    Memory,
     /// The libraries have nothing made for this device (no list is asked for).
     Unsupported,
 }
@@ -374,6 +376,9 @@ impl Loader {
             // The list kept still serves; no answer at all is no connection.
             this.trouble = match (this.index.is_some(), done.status) {
                 (true, _) => Trouble::None,
+                // The host tells a connection it had no memory for the same
+                // way as an answer over the limit.
+                (false, 0) if done.reason == Reason::TooLarge => Trouble::Memory,
                 (false, 0) => Trouble::Offline,
                 (false, _) => Trouble::Failed,
             };

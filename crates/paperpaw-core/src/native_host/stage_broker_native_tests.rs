@@ -144,7 +144,7 @@ fn retained_native_stage_replies_refuse_and_revoke_without_stale_calls() {
         .unwrap();
     let schema = native_host::stage_broker::tests::schema();
     let input = native_host::stage_broker::tests::input();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let mut target = vec![77];
     for refuse in [false, true] {
         REFUSE.with(|value| value.set(refuse));

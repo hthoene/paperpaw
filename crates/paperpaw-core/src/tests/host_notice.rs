@@ -3,19 +3,13 @@
 //! a plugin's screen bound there still wins.
 
 use super::*;
+use crate::Staging;
 use paperpaw_sdk::Params;
 
 /// Fills the notice slot as the interface-6 menu did.
-struct OwnNotice;
-
-impl Plugin for OwnNotice {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("on"), "Own notice", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn own_notice() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("on.notice"),
             "notice",
             Box::new(|_, _| Box::new(HalfOverlay)),
@@ -28,6 +22,12 @@ impl Plugin for OwnNotice {
     }
 }
 
+/// What [`own_notice`] registers under.
+fn own_notice_manifest() -> Manifest {
+    Manifest::new(Id::new_static("on"), "Own notice", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 #[test]
 fn without_a_plugins_notice_the_host_shows_it() {
     let mut kernel = Kernel::builder(DEVICE).build().unwrap();
@@ -35,9 +35,9 @@ fn without_a_plugins_notice_the_host_shows_it() {
     render(&mut kernel);
     assert_eq!(
         kernel.shared.registry.resolve_slot(slots::NOTICE.as_str()),
-        Some(&crate::native_host::notice::SCREEN)
+        Some(&crate::host_screen::NOTICE)
     );
-    kernel.apply(Command::Notify(String::from("Saved")));
+    kernel.apply(Ask::Notify(String::from("Saved")));
     let effects = kernel.finish();
     assert!(kernel.notice.is_some(), "a notice shows");
     let (region, _) = effects.refresh().unwrap();
@@ -73,10 +73,10 @@ fn a_notice_shows_as_long_as_set_and_a_new_one_replaces_it() {
         .set_setting(Instant(0), settings::NOTICE_SECONDS.as_str(), "2")
         .unwrap();
     render(&mut kernel);
-    kernel.apply(Command::Notify(String::from("First")));
+    kernel.apply(Ask::Notify(String::from("First")));
     assert_eq!(kernel.finish().wake_at(), Some(Instant(2000)));
     kernel.tick(Instant(1000));
-    kernel.apply(Command::Notify(String::from("Second")));
+    kernel.apply(Ask::Notify(String::from("Second")));
     assert_eq!(
         kernel.finish().wake_at(),
         Some(Instant(3000)),
@@ -94,15 +94,21 @@ fn a_notice_shows_as_long_as_set_and_a_new_one_replaces_it() {
 /// A text too long for three lines is cut on the third, never more lines.
 #[test]
 fn a_long_text_is_cut_to_three_lines() {
-    let kernel = Kernel::builder(DEVICE).plugin(FontPlugin).build().unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let kernel = Kernel::builder(DEVICE)
+        .items(
+            crate::tests::font_plugin_manifest(),
+            crate::tests::font_plugin(),
+        )
+        .build()
+        .unwrap();
+    let env = kernel.shared.place(Instant(0));
     let long = "aaaa ".repeat(400);
-    let notice = crate::native_host::notice::Notice::new(
+    let notice = crate::host_screen::Notice::new(
         &env,
         &Params::new().with(paperpaw_sdk::builtin::params::TEXT, long.as_str()),
     );
     assert_eq!(notice.lines().len(), 3, "{:?}", notice.lines());
-    let short = crate::native_host::notice::Notice::new(
+    let short = crate::host_screen::Notice::new(
         &env,
         &Params::new().with(paperpaw_sdk::builtin::params::TEXT, "Saved"),
     );
@@ -113,7 +119,7 @@ fn a_long_text_is_cut_to_three_lines() {
         Params::new(),
         Params::new().with(paperpaw_sdk::builtin::params::TEXT, ""),
     ] {
-        let empty = crate::native_host::notice::Notice::new(&env, &params);
+        let empty = crate::host_screen::Notice::new(&env, &params);
         assert!(empty.lines().len() <= 1, "{:?}", empty.lines());
         assert!(
             empty.lines().iter().all(String::is_empty),
@@ -132,12 +138,9 @@ fn back_closes_the_notice_opened_as_a_screen() {
     render(&mut kernel);
     let below = kernel.active_screen().cloned();
     let params = Params::new().with(paperpaw_sdk::builtin::params::TEXT, "Opened");
-    kernel.open_screen(Instant(10), crate::native_host::notice::SCREEN, params);
+    kernel.open_screen(Instant(10), crate::host_screen::NOTICE, params);
     render(&mut kernel);
-    assert_eq!(
-        kernel.active_screen(),
-        Some(&crate::native_host::notice::SCREEN)
-    );
+    assert_eq!(kernel.active_screen(), Some(&crate::host_screen::NOTICE));
     kernel.run_action(Instant(20), actions::BACK);
     render(&mut kernel);
     assert_eq!(kernel.active_screen().cloned(), below, "Back closed it");
@@ -145,7 +148,10 @@ fn back_closes_the_notice_opened_as_a_screen() {
 
 #[test]
 fn a_plugins_notice_wins_over_the_hosts() {
-    let mut kernel = Kernel::builder(DEVICE).plugin(OwnNotice).build().unwrap();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(own_notice_manifest(), own_notice())
+        .build()
+        .unwrap();
     kernel.start(Instant(0));
     assert_eq!(
         kernel.shared.registry.resolve_slot(slots::NOTICE.as_str()),

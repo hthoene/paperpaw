@@ -313,3 +313,26 @@ fn when_the_heap_refuses_an_again_answer_the_card_stays_and_can_be_answered_agai
         }
     }
 }
+
+/// #235: the row of button hints says what *Select* does: nothing without a
+/// card, *Show answer* on the front, the answer in focus on the back.
+#[test]
+fn the_hints_follow_what_the_buttons_do() {
+    use crate::native_review_screen::ReviewScreen;
+    let storage = MemoryStorage::new();
+    let clock = Clock(Cell::new(NOON));
+    let mut words = english();
+    assert_eq!(
+        ReviewScreen::of(start(&storage, &clock, None)).hint_state(),
+        0
+    );
+    deck(&storage, &[("Hund", "dog")]);
+    let mut review = start(&storage, &clock, None);
+    assert_eq!(
+        ReviewScreen::of(start(&storage, &clock, None)).hint_state(),
+        1
+    );
+    review.reveal(&clock, &mut words).unwrap();
+    let focus = review.focus as u8;
+    assert_eq!(ReviewScreen::of(review).hint_state(), 2 + focus);
+}

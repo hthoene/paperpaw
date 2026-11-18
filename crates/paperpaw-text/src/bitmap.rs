@@ -27,6 +27,21 @@
 //! U+F8FF) is the icons'. The keys of every table (anchors, kerning,
 //! substitutions) are such keys too.
 //!
+//! A strike's flags (the reserved field after its size): bit 0, its bitmaps
+//! are stored packed (`packed.rs`); bit 1, its glyphs are in **cells**, and
+//! the cell's size in 8 bytes in the bits above (flags >> 2). A strike of
+//! cells has, where the bitmaps are, one cell of that size for each glyph in
+//! the order of the glyph table: the glyph's left i16, top i16, width u16,
+//! height u16, advance i32 (as in its record), then its bitmap, zeros up to
+//! the cell's size. The few glyphs whose bitmap is larger than a cell holds
+//! (the cell is sized for 99 of 100) have the head only, and their bitmaps
+//! follow the last cell. A glyph's record points at its bitmap, in its cell
+//! (the cell's place times its size, and 12) or after the cells, so that a
+//! reader that does not know cells reads the pack as any other. A pack read
+//! a glyph at a time from a card (see `stored.rs`) finds a cell by
+//! arithmetic and gets metrics and bitmap in one read; `PackBuilder::cells`
+//! makes them, for packs of thousands of characters.
+//!
 //! The first strike's last reserved field is the offset of the pack's
 //! kerning table (0: none), which holds pairs of characters and how much
 //! they move the second one, in classes (see `kern_table.rs`). Readers
@@ -167,6 +182,18 @@ const RECORD: usize = 20;
 /// The strike's flag (the reserved field after its size): its bitmaps are
 /// stored packed (`crate::packed`); 0, as before, as 4-bit coverage.
 pub(crate) const STRIKE_PACKED: u16 = 1;
+/// The strike's flag for cells: every glyph of it has a cell of one size
+/// holding its metrics and bitmap, so that a pack read from a card gets a
+/// glyph in one read (see [`PackBuilder::cells`]).
+pub(crate) const STRIKE_CELLS: u16 = 2;
+/// What a cell holds before the bitmap: left, top, width, height (2 bytes
+/// each) and the advance (4 bytes, as in the glyph record).
+pub(crate) const CELL_HEAD: usize = 12;
+/// The unit of a cell's size in the flags, in bytes.
+pub(crate) const CELL_UNIT: usize = 8;
+/// The most units a cell may have (the flags' 14 bits; 128 KiB less 8):
+/// a pack whose glyphs need more is made without cells.
+const MAX_CELL_UNITS: usize = (u16::MAX >> 2) as usize;
 /// Where in the first strike's header the kerning table's offset is.
 const KERNING: usize = HEADER + 28;
 
@@ -273,7 +300,6 @@ impl BitmapFont {
         (0..usize::from(self.strikes)).filter_map(|i| self.strike(i).map(|s| s.size))
     }
 
-    paperpaw_table::shared! {
     /// The largest size text can be set in, in pixels: of the sizes with
     /// every character (not those made large for a few, a clock's).
     pub fn largest_size(&self) -> Option<f32> {
@@ -286,7 +312,6 @@ impl BitmapFont {
             .filter(|s| s.glyphs >= full)
             .map(|s| s.size)
             .reduce(f32::max)
-    } @ text::PACK_LARGEST_SIZE
     }
 
     fn strike(&self, index: usize) -> Option<Strike> {
@@ -349,11 +374,9 @@ impl BitmapFont {
         self.strike(self.nearest_index(size)?)
     }
 
-    paperpaw_table::shared! {
     pub fn line_metrics(&self, size: f32) -> LineMetrics {
         self.nearest(size)
             .map_or(LineMetrics::fallback(size), |s| s.metrics)
-    } @ text::PACK_LINE_METRICS
     }
 
     /// Where a strike's glyphs are: their number, their table and their
@@ -398,15 +421,12 @@ impl BitmapFont {
         None
     }
 
-    paperpaw_table::shared! {
     pub fn has_char(&self, ch: char) -> bool {
         self.nearest_quarters(0)
             .and_then(|i| self.tables(i))
             .is_some_and(|strike| self.record(&strike, ch).is_some())
-    } @ text::PACK_HAS_CHAR
     }
 
-    paperpaw_table::shared! {
     /// The size `text` is drawn at when asked for `size`, at a strike
     /// that has every character of the pack (the sizes text is drawn at),
     /// or, for a `display` (a clock's time, a number, drawn large alone),
@@ -437,7 +457,6 @@ impl BitmapFont {
             .filter_map(|i| Some((i, i32::from(u16_at(&self.data, HEADER + i * STRIKE)?))))
             .min_by_key(|&(_, quarters)| quarters.abs_diff(wanted))
             .map_or(size, |(_, quarters)| quarters as f32 / 4.0)
-    } @ text::PACK_SIZE_FOR
     }
 
     /// Where marks sit on `ch` at the strike nearest to `size`, the one
@@ -474,7 +493,6 @@ impl BitmapFont {
             .map(|(_, tables, record)| (tables, record))
     }
 
-    paperpaw_table::shared! {
     /// The glyph for `ch` at the strike nearest to `size`; where that
     /// strike lacks it (a large one made for digits), at the nearest that
     /// has it. Missing characters fall back to U+FFFD, then `?`.
@@ -536,16 +554,12 @@ impl BitmapFont {
             })
         };
         read().unwrap_or(empty)
-    } @ text::PACK_GLYPH
     }
 
-    paperpaw_table::shared! {
     pub fn advance(&self, ch: char, size: f32) -> f32 {
         self.glyph(ch, size).advance
-    } @ text::PACK_ADVANCE
     }
 
-    paperpaw_table::shared! {
     /// How much the pair `left`, `right` moves the second character, in
     /// pixels at the strike nearest to `size` (negative: closer); 0 for a
     /// pack without kerning. Read in place: no memory.
@@ -565,7 +579,6 @@ impl BitmapFont {
             return 0.0;
         };
         f32::from(units) * f32::from(quarters) / (4.0 * kern_table::UNITS)
-    } @ text::PACK_KERN
     }
 }
 
@@ -592,6 +605,8 @@ pub struct PackBuilder {
     /// Store the bitmaps packed where every glyph of a strike can be
     /// ([`PackBuilder::compact`]).
     compact: bool,
+    /// Store each strike's glyphs in cells ([`PackBuilder::cells`]).
+    cells: bool,
 }
 
 #[derive(Debug)]
@@ -612,6 +627,20 @@ impl PackBuilder {
     /// strike flag only: the packs of cards and stores are built without.
     pub fn compact(&mut self) -> &mut Self {
         self.compact = true;
+        self
+    }
+
+    /// Stores each strike's glyphs in cells of one size, each with the
+    /// glyph's metrics and bitmap (padded), the glyph records pointing at
+    /// the bitmaps in them as ever: a pack read a glyph at a time from a
+    /// card ([`StoredPack`](crate::StoredPack)) finds a glyph's cell by its
+    /// place among the characters and reads it in one read, not two.
+    /// Worth it for packs of thousands of characters (Hangul, ideographs),
+    /// which cost some tenth more on the card; readers that do not know
+    /// cells read the same pack through its records. Not for packs stored
+    /// packed ([`PackBuilder::compact`]).
+    pub fn cells(&mut self) -> &mut Self {
+        self.cells = true;
         self
     }
 
@@ -652,6 +681,26 @@ impl PackBuilder {
         table.extend_from_slice(body);
     }
 
+    /// The size of the cells of a strike of `glyphs`, if it is to have
+    /// them: the head and the bitmap that 99 of 100 glyphs fit in, to a
+    /// multiple of 8; the others follow the cells.
+    fn cell_size(&self, glyphs: &[(char, Glyph)], packed: bool) -> Option<usize> {
+        if !self.cells
+            || packed
+            || glyphs.len() < 2
+            || glyphs
+                .iter()
+                .any(|(_, g)| g.format != crate::glyph::COVERAGE4)
+        {
+            return None;
+        }
+        let mut lens: Vec<usize> = glyphs.iter().map(|(_, g)| g.data.len()).collect();
+        lens.sort_unstable();
+        let body = lens[(lens.len() * 99).div_ceil(100) - 1];
+        Some((CELL_HEAD + body).next_multiple_of(CELL_UNIT))
+            .filter(|&c| c / CELL_UNIT <= MAX_CELL_UNITS)
+    }
+
     pub fn build(&self) -> Vec<u8> {
         let tables = self.tables.iter().any(|t| !t.is_empty());
         let mut out = Vec::new();
@@ -688,27 +737,23 @@ impl PackBuilder {
                         .collect()
                 })
                 .flatten();
-            // A pack that does not read back as it was made is not written.
-            for ((ch, glyph), bytes) in glyphs.iter().zip(packed.iter().flatten()) {
-                let rows = crate::packed::Rows::new(bytes, glyph.width, glyph.height);
-                let stride = usize::from(glyph.width).div_ceil(2);
-                for y in 0..usize::from(glyph.height) {
-                    for x in 0..usize::from(glyph.width) {
-                        let byte = glyph.data.get(y * stride + x / 2).copied().unwrap_or(0);
-                        let level = if x % 2 == 0 { byte >> 4 } else { byte & 15 };
-                        assert_eq!(
-                            rows.level(x as u32, y as u32),
-                            level,
-                            "packed glyph {ch:?} at {size}: pixel {x},{y}"
-                        );
-                    }
-                }
-            }
+            check_packed(size, glyphs, &packed);
+            let cell = self.cell_size(glyphs, packed.is_some());
+            let mut overflow = cell.map_or(0, |cell| glyphs.len() * cell);
+            let mut spilled = Vec::new();
             for (i, (ch, glyph)) in glyphs.iter().enumerate() {
-                let data_offset = (out.len() - bitmaps) as u32;
-                match &packed {
-                    Some(all) => out.extend_from_slice(&all[i]),
-                    None => out.extend_from_slice(&glyph.data),
+                let mut data_offset = (out.len() - bitmaps) as u32;
+                match (&packed, cell) {
+                    (_, Some(cell)) if put_cell(&mut out, glyph, cell) => {
+                        data_offset += CELL_HEAD as u32;
+                    }
+                    (_, Some(_)) => {
+                        data_offset = overflow as u32;
+                        overflow += glyph.data.len();
+                        spilled.extend_from_slice(&glyph.data);
+                    }
+                    (Some(all), None) => out.extend_from_slice(&all[i]),
+                    (None, None) => out.extend_from_slice(&glyph.data),
                 }
                 let mut record = Vec::with_capacity(RECORD);
                 record.extend_from_slice(&(*ch as u32).to_le_bytes());
@@ -721,10 +766,15 @@ impl PackBuilder {
                 let at = glyph_table + i * RECORD;
                 out[at..at + RECORD].copy_from_slice(&record);
             }
+            out.extend_from_slice(&spilled);
             let mut header = Vec::with_capacity(STRIKE);
             header.extend_from_slice(&((size * 4.0 + 0.5) as u16).to_le_bytes());
-            header
-                .extend_from_slice(&if packed.is_some() { STRIKE_PACKED } else { 0 }.to_le_bytes());
+            let flags = match (&packed, cell) {
+                (Some(_), _) => STRIKE_PACKED,
+                (None, Some(cell)) => STRIKE_CELLS | ((cell / CELL_UNIT) as u16) << 2,
+                (None, None) => 0,
+            };
+            header.extend_from_slice(&flags.to_le_bytes());
             header.extend_from_slice(&to_q6(metrics.ascent).to_le_bytes());
             header.extend_from_slice(&to_q6(metrics.descent).to_le_bytes());
             header.extend_from_slice(&to_q6(metrics.line_height).to_le_bytes());
@@ -749,6 +799,43 @@ impl PackBuilder {
             }
         }
         out
+    }
+}
+
+/// Writes the cell of `glyph`, `cell` bytes: its head and, if it fits, its
+/// bitmap (`true`; else the cell has the head only).
+fn put_cell(out: &mut Vec<u8>, glyph: &Glyph, cell: usize) -> bool {
+    let start = out.len();
+    out.extend_from_slice(&glyph.left.to_le_bytes());
+    out.extend_from_slice(&glyph.top.to_le_bytes());
+    out.extend_from_slice(&glyph.width.to_le_bytes());
+    out.extend_from_slice(&glyph.height.to_le_bytes());
+    out.extend_from_slice(&to_q6(glyph.advance).to_le_bytes());
+    let fits = CELL_HEAD + glyph.data.len() <= cell;
+    if fits {
+        out.extend_from_slice(&glyph.data);
+    }
+    out.resize(start + cell, 0);
+    fits
+}
+
+/// Panics if a strike's `packed` bitmaps (all or none) do not read back as the
+/// glyphs were: a pack that does not read back as it was made is not written.
+fn check_packed(size: f32, glyphs: &[(char, Glyph)], packed: &Option<Vec<Vec<u8>>>) {
+    for ((ch, glyph), bytes) in glyphs.iter().zip(packed.iter().flatten()) {
+        let rows = crate::packed::Rows::new(bytes, glyph.width, glyph.height);
+        let stride = usize::from(glyph.width).div_ceil(2);
+        for y in 0..usize::from(glyph.height) {
+            for x in 0..usize::from(glyph.width) {
+                let byte = glyph.data.get(y * stride + x / 2).copied().unwrap_or(0);
+                let level = if x % 2 == 0 { byte >> 4 } else { byte & 15 };
+                assert_eq!(
+                    rows.level(x as u32, y as u32),
+                    level,
+                    "packed glyph {ch:?} at {size}: pixel {x},{y}"
+                );
+            }
+        }
     }
 }
 

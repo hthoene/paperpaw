@@ -16,7 +16,7 @@ use paperpaw_sdk::native::{
     Error, Host, Plugin,
     callbacks::{DrawFrame, Input},
     commands::CommandSender,
-    events::{Event, Incoming, kinds},
+    events::{Event, Incoming, WifiLinkState, kinds},
     image::ImageStatus,
     registrations,
     reply::Reply,
@@ -28,7 +28,7 @@ use paperpaw_ui_kit::{read_event, screens::Screens};
 use crate::declarations::{
     DISCOVER_TOKEN, FETCH_SCREEN, HTTP_TOKEN, INSTALL_TOKEN, LETTERS_SCREEN, LIST_SCREEN,
     OFFER_SCREEN, OPEN_TOKEN, PLUGIN_SCREEN, PLUGINS_TOKEN, SHOTS_SCREEN, SOURCE_SCREEN,
-    STARTED_TOKEN, VIEW_SCREEN,
+    STARTED_TOKEN, TEMPLATES_SCREEN, VIEW_SCREEN, WIFI_TOKEN,
 };
 use crate::native_download::Download;
 use crate::native_glue::{self, Reply as Typed};
@@ -121,7 +121,7 @@ impl Plugin for NativeStore {
         incoming: Incoming<'_>,
         _reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Started, kinds::HttpDone, kinds::HttpProgress, kinds::InstallDone, kinds::PluginsChanged, kinds::ImageReady, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::PluginsRequested)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Started, kinds::HttpDone, kinds::HttpProgress, kinds::InstallDone, kinds::PluginsChanged, kinds::ImageReady, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::PluginsRequested, kinds::WifiChanged)
         else {
             return Ok(());
         };
@@ -158,6 +158,14 @@ impl Plugin for NativeStore {
                 ..
             } if is_screen(token) => self.shown(host, *instance),
             Event::Started { .. } if token == STARTED_TOKEN => self.started(host),
+            // The connection came: what a setup template waited to install
+            // goes on (no radio is switched on for this, no read of Wi-Fi).
+            Event::WifiChanged { state, .. } if token == WIFI_TOKEN => {
+                if *state == WifiLinkState::Connected {
+                    self.release_template(host, false)?;
+                }
+                Ok(())
+            }
             Event::ScreenClosed { instance, .. } => self.closed(host, *instance),
             Event::PluginsRequested {
                 now_ms,
@@ -207,6 +215,7 @@ const fn is_screen(token: u32) -> bool {
             | SHOTS_SCREEN
             | FETCH_SCREEN
             | OFFER_SCREEN
+            | TEMPLATES_SCREEN
     )
 }
 
@@ -374,6 +383,7 @@ impl NativeStore {
             StoreView::Shots(_) => SHOTS_SCREEN,
             StoreView::Fetch(_) => FETCH_SCREEN,
             StoreView::Offer(_) => OFFER_SCREEN,
+            StoreView::Templates(_) => TEMPLATES_SCREEN,
         })
     }
 

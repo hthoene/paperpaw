@@ -5,7 +5,7 @@ catalogue names has an asset (#89).
 The firmware release `v<version>` keeps only what belongs to the firmware:
 the app, the images of each device, the emulators, the handbook, the web
 emulator, the ESP32-S3's core libraries and the plugin library's catalogue
-with its checksums (73 files). Plugin files are in the store release
+with its checksums (81 files). Plugin files are in the store release
 (`store_release.py`).
 
     release_assets.py names <version>
@@ -40,6 +40,7 @@ import published  # noqa: E402
 DEVICES = ["x4", "x4-pro", "x4-classic", "x3"]
 DEVICE_PARTS = [
     ".bin", ".bin.sha256", ".bin.sig", "-update.bin", "-update.bin.sha256",
+    "-update-packed.bin", "-update-packed.bin.sha256",
     "-install.bin", "-install.bin.sha256", "-plugins.txt", "-abi.txt",
 ]
 EMULATORS = ["windows-x64", "macos-arm64", "macos-x64", "linux-x64"]
@@ -48,7 +49,7 @@ SIGNED = ["", ".sha256", ".sig"]
 # (`.ppn`) or its folder's ZIP (a plugin's id never begins with `paperpaw-`,
 # as every firmware asset does).
 PLUGIN_FILE = re.compile(r"(.*\.ppn|(?!paperpaw-).*\.zip)$")
-EXPECTED = 73
+EXPECTED = 81
 
 
 def names(version):

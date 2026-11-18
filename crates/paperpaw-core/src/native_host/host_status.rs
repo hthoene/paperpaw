@@ -10,7 +10,7 @@
 //!   whose owner is [`HOST`]: no plugin ever has that owner id, so the
 //!   handle never resolves to a plugin's code. No value hides the item.
 //! - **Drawing.** Slot 35 kind 1 for such a handle draws the one item with
-//!   the interface-6 renderer (`paperpaw_sdk::status::StatusLine`) in the
+//!   the interface-6 renderer (`crate::kit::status::StatusLine`) in the
 //!   place given, with its percentage, in the interface's font: the line's
 //!   text size is the place's width over [`DRAWN_WIDTH`], the least width op
 //!   21 lists for it, so it is drawn at the size the line was laid out with.
@@ -19,14 +19,12 @@
 //! Memory: a value is the provider's own `String`, copied into op 14's row
 //! and freed; the drawing allocates what the interface-6 line does (its
 //! layout of one item), freed at the return.
+use crate::Place;
 use crate::abi7::context::{ComposeRequest, HostStatus};
+use crate::kit::status::{StatusLine, StatusValue};
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NOT_FOUND, ERR_UNSUPPORTED};
-use paperpaw_sdk::{
-    Color, Env, Params,
-    builtin::fonts,
-    status::{StatusLine, StatusValue},
-};
+use paperpaw_sdk::{Color, Params, builtin::fonts};
 
 /// The owner id of the host's own status handles: plugin owner ids start at
 /// 1 (`HostResources::try_owner`, and a seat of owner 0 is refused).
@@ -61,7 +59,7 @@ pub(crate) fn token_of(item: &str) -> Option<u32> {
 /// The value of the kernel's item `item` now: its text into `out` (cut to
 /// `out`'s length on a character), or drawn. `None`: not the kernel's, or no
 /// value (the item hides).
-pub(crate) fn value(env: &Env<'_>, item: &str, out: &mut [u8]) -> Option<HostStatus> {
+pub(crate) fn value(env: &Place<'_>, item: &str, out: &mut [u8]) -> Option<HostStatus> {
     let token = token_of(item)?;
     let value = env.status_items().value(item, env, &Params::default())?;
     match value {
@@ -80,7 +78,7 @@ pub(crate) fn value(env: &Env<'_>, item: &str, out: &mut [u8]) -> Option<HostSta
 
 /// The rows REG op 21 lists for the kernel's items: (id, priority, least
 /// width), in token order. Only those the kernel registered.
-pub(crate) fn rows<'e>(env: &Env<'e>) -> impl Iterator<Item = (&'static str, u8, u32)> + 'e {
+pub(crate) fn rows<'e>(env: &Place<'e>) -> impl Iterator<Item = (&'static str, u8, u32)> + 'e {
     let items = env.status_items();
     ITEMS.iter().filter_map(move |(id, drawn)| {
         items.title(id)?;
@@ -97,7 +95,7 @@ pub(crate) fn rows<'e>(env: &Env<'e>) -> impl Iterator<Item = (&'static str, u8,
 /// interface's font, `ERR_INVALID` for a place with no size.
 #[inline(never)]
 pub(crate) fn draw(
-    env: &Env<'_>,
+    env: &Place<'_>,
     token: u32,
     request: &ComposeRequest,
     canvas: &mut Canvas<'_>,

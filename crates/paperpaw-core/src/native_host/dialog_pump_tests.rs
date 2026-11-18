@@ -5,6 +5,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::*;
+use crate::Staging;
 use crate::native_host::{
     native_instances::{NativeInstance, NativeLease},
     native_screen::Dispatch,
@@ -14,14 +15,12 @@ use crate::native_host::{
     ui_service::UiServices,
     ui_store::{Limits, Stamp, UiStore},
 };
+use crate::{Place, Turn};
 use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Manifest, Plugin, Priority, RegisterError, Registrar, Screen,
-    ScreenSpec, Version,
-};
+use paperpaw_sdk::{Canvas, Handled, Manifest, Priority, RegisterError, Version};
 
 const KEYBOARD_SCREEN: Id = Id::new_static("d.keyboard");
 
@@ -40,33 +39,45 @@ std::thread_local! {
     static SPAWN: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
 }
 
-struct Dialog;
+std::thread_local! {
+    /// The store a confirm answers through, as the dialog plugin does (op 11).
+    static ANSWERS: RefCell<Option<Shared<UiStore>>> = const { RefCell::new(None) };
+}
 
-impl Screen for Dialog {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
-        Handled::No
+/// The dialog on the keyboard and confirm slots: *Confirm* answers yes to a
+/// yes or no question and closes, as the dialog plugin does.
+struct Dialog {
+    request: Option<u32>,
+}
+
+impl crate::testing::Fake for Dialog {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
+        let store = ANSWERS.with(|store| store.borrow().as_ref().and_then(|s| s.try_clone()));
+        if *action != paperpaw_sdk::builtin::actions::CONFIRM {
+            return Handled::No;
+        }
+        if let (Some(store), Some(request), Some(key)) = (store, self.request, cx.key()) {
+            let _ = store.answer(key.serial(), request, 0, 1);
+        }
+        cx.command(crate::Ask::Back);
+        Handled::Yes
     }
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         if SPAWN.with(core::cell::Cell::take) {
-            cx.command(paperpaw_sdk::Command::Back);
+            cx.command(crate::Ask::Back);
         }
     }
 }
 
-/// A plugin that serves the keyboard slot and nothing else.
-struct Serves;
-
-impl Plugin for Serves {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("d"), "Dialogs", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+/// A plugin that serves the keyboard and the confirm slot.
+fn serves() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
             KEYBOARD_SCREEN,
             "keyboard",
             Box::new(|_, params| {
+                let request = params.get("core.request").and_then(|r| r.parse().ok());
                 OPENED.with(|opened| {
                     opened.borrow_mut().push((
                         params
@@ -79,44 +90,55 @@ impl Plugin for Serves {
                             .unwrap_or_default(),
                     ));
                 });
-                Box::new(Dialog)
+                Box::new(Dialog { request })
             }),
         ))?;
         r.bind_slot(
             paperpaw_sdk::builtin::slots::KEYBOARD,
             KEYBOARD_SCREEN,
             Priority::DEFAULT,
+        )?;
+        r.bind_slot(
+            paperpaw_sdk::builtin::slots::CONFIRM,
+            KEYBOARD_SCREEN,
+            Priority::DEFAULT,
         )
     }
 }
 
-/// A plugin `id` with a screen `<id>.lock` that guards the device.
-struct Locks(&'static str);
+/// What [`serves`] registers under.
+fn serves_manifest() -> Manifest {
+    Manifest::new(Id::new_static("d"), "Dialogs", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
 
 struct Lock;
 
-impl Screen for Lock {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn guards(&self) -> bool {
-        true
+impl crate::testing::Fake for Lock {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn flags(&self) -> u32 {
+        crate::testing::GUARDS
     }
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
 
-impl Plugin for Locks {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static(self.0), "Lock", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
-            Id::try_parse(&std::format!("{}.lock", self.0)).unwrap(),
+/// A plugin `id` with a screen `<id>.lock` that guards the device.
+fn locks_items(kept: &'static str) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
+            Id::try_parse(&std::format!("{}.lock", kept)).unwrap(),
             "lock",
             Box::new(|_, _| Box::new(Lock)),
         ))
     }
+}
+
+/// What [`locks_items`] registers under.
+fn locks_manifest(kept: &'static str) -> Manifest {
+    Manifest::new(Id::new_static(kept), "Lock", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// The asker: records the `event.answered` records it was called with.
@@ -149,14 +171,14 @@ impl NativeInstance for Asker {
     fn subscribed(&self, tag: u32) -> bool {
         self.heard.is_some() && tag == wire::EVENT_STACK_CHANGED_TAG
     }
-    fn service_event(&self, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         self.hear(bytes);
         self.status
     }
     fn service_event_staged(
         &self,
         bytes: &[u8],
-        _: &Env<'_>,
+        _: &Place<'_>,
         stage: &mut crate::native_host::commands::CommandStage<'_>,
     ) -> Result<i32, i32> {
         use crate::native_host::commands::{WireCommand, commands_decode, commands_encode};
@@ -180,17 +202,17 @@ impl NativeInstance for Asker {
 }
 
 impl Dispatch for Asker {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -213,9 +235,11 @@ fn world(status: Result<i32, i32>) -> World {
 fn world_with(status: Result<i32, i32>, locks: Option<&'static str>) -> World {
     OPENED.with(|opened| opened.borrow_mut().clear());
     let store = Shared::try_new(UiStore::new(Limits::ELSEWHERE)).unwrap();
-    let mut builder = crate::Kernel::builder(crate::tests::DEVICE).plugin(Serves);
+    ANSWERS.with(|answers| *answers.borrow_mut() = store.try_clone());
+    let mut builder =
+        crate::Kernel::builder(crate::tests::DEVICE).items(serves_manifest(), serves());
     if let Some(name) = locks {
-        builder = builder.plugin(Locks(name));
+        builder = builder.items(locks_manifest(name), locks_items(name));
     }
     let mut kernel = builder.build().unwrap();
     kernel.start(Instant(0));
@@ -287,9 +311,9 @@ fn the_dialog_opens_in_its_slot_after_the_asking_callback_returned() {
     });
     let top = w.kernel.stack.last().unwrap().serial;
     assert_eq!(w.store.dialog_of(top).map(|d| d.0), Some(id));
-    // A dialog that is not native (this one) keeps the params: the host's
-    // hand-over no screen took is freed.
-    assert_eq!(w.store.len(), 0);
+    // A native dialog (this one, a test's): the host's hand-over waits for the
+    // screen to take it.
+    assert_eq!(w.store.len(), 1);
 }
 
 #[test]
@@ -366,7 +390,7 @@ fn a_dialog_closed_without_an_answer_is_a_cancel_the_asker_hears_of() {
     w.kernel.native_dialog_pump();
     assert_eq!(w.kernel.active_screen(), Some(&KEYBOARD_SCREEN));
     // The user leaves the dialog.
-    w.kernel.apply(paperpaw_sdk::Command::Back);
+    w.kernel.apply(crate::Ask::Back);
     w.kernel.finish();
     w.kernel.native_dialog_pump();
     let answered = w.seen.borrow().clone();
@@ -483,29 +507,23 @@ fn answers(w: &World) -> Vec<(u32, u32, u32, u32)> {
         .collect()
 }
 
-/// With no dialog plugin on the slot, the host's own confirm answers the question.
+/// The dialog on the slot answers the question; the asker hears it once the
+/// dialog closed.
 #[test]
-fn a_confirm_question_is_answered_by_the_host_dialog() {
+fn a_confirm_question_is_answered_by_the_dialog_on_its_slot() {
     use paperpaw_sdk::builtin::actions;
     let mut w = world(Ok(OK));
-    // `focus_yes` (bit 9): the focus starts on yes.
+    // `focus_yes` (bit 9): the dialog reads it.
     let id = ask_with(&w, 2, 1 << 9, "", 1);
     w.kernel.native_dialog_pump();
-    assert_eq!(
-        w.kernel.active_screen().map(Id::as_str),
-        Some("core.confirm-dialog")
-    );
+    assert_eq!(w.kernel.active_screen(), Some(&KEYBOARD_SCREEN));
     act(&mut w, 10, actions::CONFIRM);
     w.kernel.native_dialog_pump();
-    // Yes is choice 1, outcome 0, the dialog closed by then (bit 0); the reply
-    // event reached nobody else.
+    // Yes is choice 1, outcome 0, the dialog closed by then (bit 0).
     assert_eq!(answers(&w), [(2, 0, 1, 1)]);
     assert_eq!(w.seen.borrow()[0].request, id);
     assert_eq!(w.store.request_count(), 0);
-    assert_ne!(
-        w.kernel.active_screen().map(Id::as_str),
-        Some("core.confirm-dialog")
-    );
+    assert_ne!(w.kernel.active_screen(), Some(&KEYBOARD_SCREEN));
 }
 
 /// An action run for a shell's remote control or a test closes the dialog
@@ -526,7 +544,7 @@ fn a_screen_the_answer_opens_stays_on_top_after_an_action_that_was_run() {
 }
 
 #[test]
-fn back_on_a_host_dialog_cancels_the_question() {
+fn back_on_a_dialog_cancels_the_question() {
     use paperpaw_sdk::builtin::actions;
     let mut w = world(Ok(OK));
     ask_with(&w, 2, 0, "", 1);
@@ -538,23 +556,23 @@ fn back_on_a_host_dialog_cancels_the_question() {
     assert_eq!(w.store.request_count(), 0);
 }
 
+/// With no dialog plugin on its slot a choice is cancelled as not started:
+/// the host has no dialog of its own (#293).
 #[test]
-fn a_choice_question_answers_the_line_chosen_commas_kept() {
-    use paperpaw_sdk::builtin::actions;
+fn a_choice_nobody_serves_is_cancelled_as_not_started() {
     let mut w = world(Ok(OK));
-    // Two lines, the second holds a comma of its own.
     ask_with(&w, 1, 0, "one\ntwo,x", 1);
     w.kernel.native_dialog_pump();
-    assert_eq!(
-        w.kernel.active_screen().map(Id::as_str),
-        Some("core.choice-dialog")
-    );
-    // The first step shows the focus, the second moves it to the second line.
-    act(&mut w, 10, actions::DOWN);
-    act(&mut w, 20, actions::DOWN);
-    act(&mut w, 30, actions::CONFIRM);
     w.kernel.native_dialog_pump();
-    assert_eq!(answers(&w), [(1, 0, 1, 1)]);
+    // Outcome 1, bit 1 `not_started`.
+    assert_eq!(
+        w.seen
+            .borrow()
+            .iter()
+            .map(|a| (a.kind, a.outcome, a.flags & 2))
+            .collect::<Vec<_>>(),
+        [(1, 1, 2)]
+    );
 }
 
 #[test]
@@ -563,7 +581,7 @@ fn a_question_whose_dialog_the_stack_closes_is_cancelled() {
     ask_with(&w, 2, 0, "", 1);
     w.kernel.native_dialog_pump();
     // The stack closes it with no answer (a guard, a shell).
-    w.kernel.apply(paperpaw_sdk::Command::Back);
+    w.kernel.apply(crate::Ask::Back);
     w.kernel.finish();
     w.kernel.native_dialog_pump();
     assert_eq!(answers(&w), [(2, 1, 0, 1)]);
@@ -589,217 +607,6 @@ fn the_dialog_is_bound_before_the_commands_it_leads_to_run() {
     assert_eq!(answered[0].flags & 3, 1);
     assert_eq!(w.store.request_count(), 0);
     assert!(w.kernel.stack.iter().all(|s| s.id != KEYBOARD_SCREEN));
-}
-
-/// Two equal lines answer each its own index, and a comma stays in its line.
-#[test]
-fn equal_lines_answer_their_own_index_and_commas_stay() {
-    use paperpaw_sdk::builtin::actions;
-    for (steps, expected) in [(1, 0), (2, 1)] {
-        let mut w = world(Ok(OK));
-        ask_with(&w, 1, 0, "same, line\nsame, line", 1);
-        w.kernel.native_dialog_pump();
-        // The first step shows the focus; each next moves one line.
-        for at in 0..steps {
-            act(&mut w, 10 + at, actions::DOWN);
-        }
-        act(&mut w, 50, actions::CONFIRM);
-        w.kernel.native_dialog_pump();
-        assert_eq!(answers(&w), [(1, 0, expected, 1)], "after {steps} steps");
-    }
-}
-
-/// An index the list does not hold is a cancel, and the log says so.
-#[test]
-fn a_choice_outside_the_list_is_cancelled_and_logged() {
-    let mut w = world(Ok(OK));
-    let id = ask_with(&w, 1, 0, "one\ntwo", 1);
-    w.kernel.native_dialog_pump();
-    let top = w.kernel.stack.last().unwrap().serial;
-    // What the dialog would do with an index past its two lines.
-    let to = crate::native_host::dialogs::Answerer::new(w.store.try_clone().unwrap(), top, id);
-    to.choose(5, 2);
-    w.kernel.native_dialog_pump();
-    assert_eq!(answers(&w), [(1, 1, 0, 0)]);
-    assert!(
-        w.kernel
-            .take_warnings()
-            .iter()
-            .any(|warning| warning.message.contains("was not taken"))
-    );
-}
-
-/// A question with a title of its own.
-fn ask_titled(w: &World, kind: u32, title: &str, choices: &str) -> u32 {
-    let question = Question {
-        kind,
-        flags: 0,
-        remote: false,
-        title,
-        text: "Question",
-        choices,
-    };
-    let who = Stamp::new(w.owner, 1).unwrap();
-    w.store
-        .ask(who, None, &question, false, None, false)
-        .unwrap()
-        .0
-}
-
-/// The region of the dialog on top, its row height, gap and pager height.
-fn geometry(w: &World, at: u64) -> (paperpaw_sdk::Rect, i32, i32, i32) {
-    let env = w.kernel.shared.env(Instant(at));
-    let style = paperpaw_sdk::ui::UiStyle::new(&env);
-    let region = w
-        .kernel
-        .stack
-        .last()
-        .unwrap()
-        .screen
-        .region(&env)
-        .expect("a dialog has a region");
-    (
-        region,
-        i32::from(style.row()),
-        i32::from(style.gap()),
-        i32::from(paperpaw_sdk::ui::Pager::height(&style)),
-    )
-}
-
-/// A tap: down, then up, then what changed drawn.
-fn tap_at(w: &mut World, at: u64, x: i32, y: i32) {
-    use paperpaw_platform::{InputEvent, Point, PointerEvent, PointerPhase, PointerTool};
-    let event = |phase| {
-        InputEvent::Pointer(PointerEvent::new(
-            0,
-            phase,
-            Point::new(x, y),
-            PointerTool::Finger,
-            1000,
-        ))
-    };
-    w.kernel.handle(Instant(at), event(PointerPhase::Down));
-    w.kernel.handle(Instant(at + 60), event(PointerPhase::Up));
-    w.kernel.render(&mut |_, _| {});
-}
-
-/// A tap on a line answers it. (On the small test screen two lines do not fit
-/// one page; the paged lines are tapped in the pager test.)
-#[test]
-fn a_tap_on_a_line_of_a_host_choice_answers_it() {
-    let mut w = world(Ok(OK));
-    ask_with(&w, 1, 0, "only", 1);
-    w.kernel.native_dialog_pump();
-    let (region, row, gap, _) = geometry(&w, 10);
-    // The last line sits above the gap at the foot of the sheet.
-    let x = i32::from(region.x) + i32::from(region.width) / 2;
-    let y = i32::from(region.y) + i32::from(region.height) - gap - row / 2;
-    tap_at(&mut w, 100, x, y);
-    w.kernel.native_dialog_pump();
-    // The dialog is gone by then: bit 0 is set.
-    assert_eq!(answers(&w), [(1, 0, 0, 1)]);
-}
-
-/// A tap (a real input, `Kernel::handle`) and an action that was run
-/// (`Kernel::run_action`, a shell's remote control) answer alike, the dialog
-/// closed in both when the asker hears of it: the two do not drift apart (#266).
-#[test]
-fn an_action_that_was_run_answers_a_host_choice_as_a_tap_does() {
-    use paperpaw_sdk::builtin::actions;
-    let mut tapped = world(Ok(OK));
-    ask_with(&tapped, 1, 0, "only", 1);
-    tapped.kernel.native_dialog_pump();
-    let (region, row, gap, _) = geometry(&tapped, 10);
-    let x = i32::from(region.x) + i32::from(region.width) / 2;
-    let y = i32::from(region.y) + i32::from(region.height) - gap - row / 2;
-    tap_at(&mut tapped, 100, x, y);
-    tapped.kernel.native_dialog_pump();
-    let mut run = world(Ok(OK));
-    ask_with(&run, 1, 0, "only", 1);
-    run.kernel.native_dialog_pump();
-    // The first step shows the focus, on the only line.
-    act(&mut run, 10, actions::DOWN);
-    act(&mut run, 20, actions::CONFIRM);
-    run.kernel.native_dialog_pump();
-    assert_eq!(answers(&tapped), [(1, 0, 0, 1)]);
-    assert_eq!(answers(&run), answers(&tapped));
-}
-
-/// More lines than the screen holds go on pages: the pager turns the page and
-/// a tap on the first line of the second page answers its own index.
-#[test]
-fn a_pager_tap_turns_the_page_of_a_host_choice() {
-    let mut w = world(Ok(OK));
-    let lines: Vec<String> = (0..32).map(|n| std::format!("line {n}")).collect();
-    ask_with(&w, 1, 0, &lines.join("\n"), 1);
-    w.kernel.native_dialog_pump();
-    let (region, row, gap, pager) = geometry(&w, 10);
-    assert!(pager > 0, "the lines do not fit the screen: a pager shows");
-    let (x, rx) = (
-        i32::from(region.x) + i32::from(region.width) / 2,
-        i32::from(region.x) + i32::from(region.width) * 3 / 4,
-    );
-    let foot = i32::from(region.y) + i32::from(region.height) - gap;
-    // Next page: the right half of the pager below the lines.
-    tap_at(&mut w, 100, rx, foot - pager / 2);
-    // The first line of the second page: after the title row.
-    let first = i32::from(region.y) + gap + row + row / 2;
-    tap_at(&mut w, 300, x, first);
-    w.kernel.native_dialog_pump();
-    let seen = answers(&w);
-    assert_eq!(seen.len(), 1, "one answer: {seen:?}");
-    let (kind, outcome, choice, _) = seen[0];
-    assert_eq!((kind, outcome), (1, 0));
-    // The page holds what fits; the first line of the second one follows them.
-    let shown = ((i32::from(w.kernel.shared.env(Instant(0)).device().display.height)
-        - (row + gap * 2)
-        - pager)
-        / row)
-        .max(1);
-    assert_eq!(i64::from(choice), i64::from(shown));
-}
-
-/// A title of many lines is drawn, shortened, and the lines still answer.
-#[test]
-fn a_long_title_does_not_stop_a_host_choice_or_confirm() {
-    use paperpaw_sdk::builtin::actions;
-    let long = "a very long title that goes on and on ".repeat(30);
-    let mut w = world(Ok(OK));
-    ask_titled(&w, 1, &long, "one\ntwo");
-    w.kernel.native_dialog_pump();
-    w.kernel.render(&mut |_, _| {});
-    act(&mut w, 10, actions::DOWN);
-    act(&mut w, 20, actions::DOWN);
-    act(&mut w, 30, actions::CONFIRM);
-    w.kernel.native_dialog_pump();
-    assert_eq!(answers(&w), [(1, 0, 1, 1)]);
-    ask_titled(&w, 2, &long, "");
-    w.kernel.native_dialog_pump();
-    w.kernel.render(&mut |_, _| {});
-    act(&mut w, 40, actions::BACK);
-    w.kernel.native_dialog_pump();
-    assert_eq!(answers(&w).last().copied(), Some((2, 1, 0, 1)));
-}
-
-/// A refused answer that is no fault (the request was answered already) is not
-/// logged; one the store holds no line for is.
-#[test]
-fn a_second_answer_is_not_logged_as_refused() {
-    let mut w = world(Ok(OK));
-    let id = ask_with(&w, 1, 0, "one\ntwo", 1);
-    w.kernel.native_dialog_pump();
-    let top = w.kernel.stack.last().unwrap().serial;
-    let to = crate::native_host::dialogs::Answerer::new(w.store.try_clone().unwrap(), top, id);
-    to.choose(0, 2);
-    // Answered; the second answer finds it done.
-    to.choose(1, 2);
-    w.kernel.native_dialog_pump();
-    assert!(
-        w.kernel
-            .take_warnings()
-            .iter()
-            .all(|warning| !warning.message.contains("was not taken"))
-    );
 }
 
 /// A text op 18 committed goes out to the shell (`Io::Copy`); with no memory
@@ -954,7 +761,7 @@ fn a_cancelled_question_is_told_before_the_next_passes_events() {
     let _ = w.kernel.tick(Instant(5));
     // The close is queued (as one a plugin stages from an event of the
     // pass): the pass of this call runs before the dialog closes.
-    w.kernel.output.commands.push(paperpaw_sdk::Command::Back);
+    w.kernel.output.commands.push(crate::Ask::Back);
     let _ = w.kernel.tick(Instant(10));
     assert!(w.kernel.native_dialog_answers_waiting());
     heard.borrow_mut().clear();

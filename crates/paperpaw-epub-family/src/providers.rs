@@ -11,7 +11,7 @@ use paperpaw_sdk::document::Document;
 /// `mimetype` entry, the opened file named by the call's `text`.
 #[must_use]
 pub fn epub_provider() -> provider::FormatProvider {
-    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    let dir = paperpaw_sdk::data::plugin_dir(PLUGIN.as_str());
     provider::FormatProvider::new(
         "format-epub.epub",
         |storage, name, options| {
@@ -27,7 +27,7 @@ pub fn epub_provider() -> provider::FormatProvider {
 /// `siblings` format, the opened file named by the call's `text`.
 #[must_use]
 pub fn fb2_provider() -> provider::FormatProvider {
-    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    let dir = paperpaw_sdk::data::plugin_dir(PLUGIN.as_str());
     provider::FormatProvider::new(
         "format-fb2.fb2",
         |storage, name, options| {
@@ -43,7 +43,7 @@ pub fn fb2_provider() -> provider::FormatProvider {
 /// pictures, shown whole.
 #[must_use]
 pub fn cbz_provider() -> provider::FormatProvider {
-    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    let dir = paperpaw_sdk::data::plugin_dir(PLUGIN.as_str());
     provider::FormatProvider::new(
         "format-cbz.cbz",
         |storage, name, options| {
@@ -59,7 +59,7 @@ pub fn cbz_provider() -> provider::FormatProvider {
 /// `siblings` format, the opened file named by the call's `text`.
 #[must_use]
 pub fn html_provider() -> provider::FormatProvider {
-    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    let dir = paperpaw_sdk::data::plugin_dir(PLUGIN.as_str());
     provider::FormatProvider::new(
         "format-html.html",
         |storage, name, options| {
@@ -75,7 +75,7 @@ pub fn html_provider() -> provider::FormatProvider {
 /// `siblings` format, the opened file named by the call's `text`.
 #[must_use]
 pub fn markdown_provider() -> provider::FormatProvider {
-    let dir = paperpaw_sdk::Env::plugin_dir(PLUGIN.as_str());
+    let dir = paperpaw_sdk::data::plugin_dir(PLUGIN.as_str());
     provider::FormatProvider::new(
         "format-markdown.markdown",
         |storage, name, options| {

@@ -8,6 +8,7 @@ use super::image_service::{
     self,
     commands::{ImageAdmit, ImageCommand},
 };
+pub(crate) use crate::Ask;
 pub use crate::abi7::commands_wire::{
     COMMAND_MAX_BYTES, COMMAND_MAX_KEY_BYTES, COMMAND_MAX_RECORDS, COMMAND_SET_SETTING_TAG,
     Command as WireCommand, CommandBatch, SecretText, commands_decode, commands_encode,
@@ -19,7 +20,7 @@ use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK,
     PpBytes, buffers,
 };
-use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
+use paperpaw_sdk::{Id, SettingSpec, SettingValue, Settings};
 
 #[allow(
     dead_code,
@@ -130,7 +131,7 @@ pub struct CommandStage<'a> {
     owner: &'a Id,
     settings: &'a Settings,
     guarded_exempt: bool,
-    staged: Vec<Command>,
+    staged: Vec<Ask>,
     limit: usize,
     byte_limit: usize,
     bytes: usize,
@@ -183,6 +184,9 @@ pub struct CommandStage<'a> {
     staged_policies: Vec<nav::PolicyChange>,
     /// Whose the device's one preview is (`commands_preview.rs`).
     preview_held: PreviewHeld,
+    /// The submitter declared `uses.registry` and the host admitted it: it may
+    /// switch plugins on and off (`registry.md` 4.2).
+    registry: bool,
 }
 
 impl<'a> CommandStage<'a> {
@@ -233,6 +237,7 @@ impl<'a> CommandStage<'a> {
             staged_widgets: Vec::new(),
             staged_policies: Vec::new(),
             preview_held: PreviewHeld::Nobody,
+            registry: false,
         }
     }
 
@@ -272,6 +277,12 @@ impl<'a> CommandStage<'a> {
         self.speech_held = held;
     }
 
+    /// Whether the submitting instance was admitted with `uses.registry`
+    /// (known only inside its callback scope, as its other features).
+    pub(crate) fn admit_registry(&mut self, declared: bool) {
+        self.registry = declared;
+    }
+
     /// As [`Self::with_images`], on a stage already lent (the instance's
     /// own features are known only inside its callback scope).
     pub(crate) fn admit_images(&mut self, mut images: ImageAdmit) {
@@ -286,15 +297,15 @@ impl<'a> CommandStage<'a> {
         core::mem::take(&mut self.staged_images)
     }
 
-    /// Commands accepted so far, in submission order.
+    /// Asks accepted so far, in submission order.
     #[must_use]
-    pub fn staged(&self) -> &[Command] {
+    pub fn staged(&self) -> &[Ask] {
         &self.staged
     }
 
     /// Hand accepted commands to the host's queue after the callback returns.
     #[must_use]
-    pub fn into_commands(mut self) -> Vec<Command> {
+    pub fn into_commands(mut self) -> Vec<Ask> {
         core::mem::take(&mut self.staged)
     }
 
@@ -325,7 +336,7 @@ impl<'a> CommandStage<'a> {
             Ok(bytes) => bytes,
             Err(status) => return status,
         };
-        // The lists kept apart from the `Command`s ([`Kept`]).
+        // The lists kept apart from the `Ask`s ([`Kept`]).
         let kept = match self.validate_kept(batch) {
             Ok(kept) => kept,
             Err(status) => return status,
@@ -343,7 +354,7 @@ impl<'a> CommandStage<'a> {
             return error;
         }
         let image_commands = self.image_count(batch, images.is_some());
-        // Each reset is as many `Command`s as settings it resets.
+        // Each reset is as many `Ask`s as settings it resets.
         let resets = match self.reset_count(batch) {
             Ok(resets) => resets,
             Err(error) => return error,
@@ -403,7 +414,7 @@ impl<'a> CommandStage<'a> {
         OK
     }
 
-    /// The lists of a batch kept apart from the `Command`s, checked and
+    /// The lists of a batch kept apart from the `Ask`s, checked and
     /// copied: item states (`commands_items.rs`), presets
     /// (`commands_presets.rs`), answers to plugin requests
     /// (`commands_answers.rs`), ready lookups (`commands_lookup.rs`) and the
@@ -513,7 +524,7 @@ impl<'a> CommandStage<'a> {
         (self.quiet && batch.iter().any(|command| !allowed_in_a_run(&command))).then_some(ERR_STATE)
     }
 
-    /// How many of `batch` go to the staged `Command`s (before the images).
+    /// How many of `batch` go to the staged `Ask`s (before the images).
     fn stored_count(batch: &CommandBatch<'_>) -> usize {
         batch
             .iter()
@@ -626,7 +637,7 @@ impl<'a> CommandStage<'a> {
             if images && self.stage_image(&command)? {
                 continue;
             }
-            // As many `Command`s as settings it resets; room is reserved.
+            // As many `Ask`s as settings it resets; room is reserved.
             if let WireCommand::ResetSetting { key, flags } = command {
                 self.stage_reset(key, flags)?;
                 continue;
@@ -663,13 +674,13 @@ impl<'a> CommandStage<'a> {
 
     /// Convert one admitted command, copying text fallibly and checking it.
     #[inline(never)]
-    fn owned(&self, command: WireCommand<'_>) -> Result<Command, i32> {
+    fn owned(&self, command: WireCommand<'_>) -> Result<Ask, i32> {
         let WireCommand::SetSetting { key, value } = command else {
             return self.owned_ui(command);
         };
         let spec = self.admitted(key)?;
         let value = Self::owned_value(spec, value)?;
-        Ok(Command::SetSetting(Self::owned_key(spec, key)?, value))
+        Ok(Ask::SetSetting(Self::owned_key(spec, key)?, value))
     }
 
     /// A value `spec` takes, copied (text fallibly); "not set" and one it
@@ -725,7 +736,7 @@ fn admitted<'a>(
     Ok(spec)
 }
 
-/// What a batch stages beside its `Command`s, checked before anything is
+/// What a batch stages beside its `Ask`s, checked before anything is
 /// staged ([`CommandStage::validate_kept`]); `bytes` count against the budget.
 struct Kept {
     item_states: Vec<super::item_state::ItemPush>,

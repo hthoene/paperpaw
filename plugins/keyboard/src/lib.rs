@@ -43,6 +43,10 @@
 //!   every button to itself but *Sleep*, refresh and night mode: nothing
 //!   opens over it, e.g. over the screen lock's.
 //!
+//! It is also the dialog of the choice (slot `core.choice`, a sheet at the
+//! bottom) and of the yes or no question (slot `core.confirm`, a box in the
+//! middle) that every plugin and the kernel ask.
+//!
 //! Bind another screen to `core.keyboard` for a different keyboard
 //! altogether.
 
@@ -59,6 +63,7 @@ mod fail_alloc;
 mod hangul;
 mod keys;
 mod layouts;
+mod native_ask;
 mod native_entry;
 mod native_layouts;
 #[cfg(test)]

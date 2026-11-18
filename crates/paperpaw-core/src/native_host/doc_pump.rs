@@ -52,6 +52,14 @@ impl crate::Kernel {
         }
     }
 
+    /// When the next step of a background job is due: now plus the gap.
+    pub(crate) fn native_job_due(&self) -> u64 {
+        self.shared
+            .now
+            .millis()
+            .saturating_add(self.native_job_gap())
+    }
+
     /// One step of the preparing loop; `true` while more are to be made
     /// (see the module).
     #[inline(never)]
@@ -60,7 +68,7 @@ impl crate::Kernel {
         // Waiting for its time after a step that could not be made.
         if instances
             .doc_retry()
-            .is_some_and(|at| self.now.millis() < at)
+            .is_some_and(|at| self.shared.now.millis() < at)
         {
             return false;
         }
@@ -88,13 +96,13 @@ impl crate::Kernel {
                 // It did not drain (a plugin that cannot be called): no busy
                 // loop, a later pass looks again.
                 let failures = instances.doc_failed();
-                instances.set_doc_retry(Some(self.now.millis() + wait(failures)));
+                instances.set_doc_retry(Some(self.shared.now.millis() + wait(failures)));
                 return false;
             }
             return true;
         }
         let step = {
-            let env = self.shared.env(self.now);
+            let env = self.shared.place(self.shared.now);
             let route = HostRoute {
                 registry: instances,
                 env: &env,
@@ -119,12 +127,12 @@ impl crate::Kernel {
                 // so it goes on on an idle device and never holds the idle or
                 // the sleep timer off.
                 let gap = self.native_job_gap();
-                instances.set_doc_retry(job_only.then(|| self.now.millis() + gap));
+                instances.set_doc_retry(job_only.then(|| self.shared.now.millis() + gap));
                 !job_only
             }
             PrepareStep::Later => {
                 let failures = instances.doc_failed();
-                instances.set_doc_retry(Some(self.now.millis() + wait(failures)));
+                instances.set_doc_retry(Some(self.shared.now.millis() + wait(failures)));
                 false
             }
         }

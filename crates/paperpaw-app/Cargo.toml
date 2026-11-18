@@ -13,11 +13,12 @@ categories = ["no-std"]
 links = "paperpaw-app"
 
 [features]
-default = ["store-plugins", "diagnostics", "panes"]
-# A list and its detail beside each other on wide screens (the kernel's
-# `panes`): every shell with the app's defaults has it; the Xteink
-# firmware, never wide, leaves it out.
-panes = ["paperpaw-core/panes"]
+default = ["store-plugins", "diagnostics", "german"]
+# German's texts built into the program (tables of the kernel's, the app's and
+# the linked plugins' catalogs). The X4's firmware builds without: German is a
+# language pack it carries compressed and writes to the card (#251,
+# `paperpaw_core::LanguageSeed`); the other shells keep it built in.
+german = []
 # Closes the X4's nested-call gate in the kernel again (the X3's firmware builds so):
 # the tests that expect the refusals run with it (CI).
 x4-gate-closed = ["paperpaw-core/x4-gate-closed"]
@@ -133,8 +134,13 @@ native-linked-store = [
     "dep:paperpaw-plugin-rules",
     "dep:paperpaw-plugin-calibre",
     "dep:paperpaw-plugin-end-of-book",
+    "dep:paperpaw-plugin-anki",
     "dep:paperpaw-plugin-diagnostics",
     "dep:paperpaw-plugin-translate",
+    "dep:paperpaw-plugin-pomodoro",
+    "dep:paperpaw-plugin-smart-home",
+    "dep:paperpaw-plugin-puzzles",
+    "dep:paperpaw-plugin-tasks",
     "paperpaw-plugin-aids/linked",
     "paperpaw-plugin-fonts-browser/linked",
     "paperpaw-plugin-mail/linked",
@@ -153,8 +159,13 @@ native-linked-store = [
     "paperpaw-plugin-rules/linked",
     "paperpaw-plugin-calibre/linked",
     "paperpaw-plugin-end-of-book/linked",
+    "paperpaw-plugin-anki/linked",
     "paperpaw-plugin-diagnostics/linked",
     "paperpaw-plugin-translate/linked",
+    "paperpaw-plugin-pomodoro/linked",
+    "paperpaw-plugin-smart-home/linked",
+    "paperpaw-plugin-puzzles/linked",
+    "paperpaw-plugin-tasks/linked",
 ]
 
 [build-dependencies]
@@ -219,14 +230,19 @@ paperpaw-plugin-menu-editor = { workspace = true, optional = true }
 paperpaw-plugin-rules = { workspace = true, optional = true }
 paperpaw-plugin-calibre = { workspace = true, optional = true }
 paperpaw-plugin-end-of-book = { workspace = true, optional = true }
+paperpaw-plugin-anki = { workspace = true, optional = true }
 paperpaw-plugin-diagnostics = { workspace = true, optional = true }
 paperpaw-plugin-translate = { workspace = true, optional = true }
+paperpaw-plugin-pomodoro = { workspace = true, optional = true }
+paperpaw-plugin-smart-home = { workspace = true, optional = true }
+paperpaw-plugin-puzzles = { workspace = true, optional = true }
+paperpaw-plugin-tasks = { workspace = true, optional = true }
 paperpaw-plugin-reader.workspace = true
 paperpaw-plugin-settings.workspace = true
 
 [dev-dependencies]
 # `Kernel::native_is_parked` for the sleep tests (never in a firmware build).
-paperpaw-core = { workspace = true, features = ["testing"] }
+paperpaw-core = { workspace = true, features = ["testing", "bluetooth"] }
 paperpaw-platform.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 # Font packs made in the tests (a card font for widgets, #262).
@@ -241,6 +257,13 @@ proptest.workspace = true
 [[test]]
 name = "sleep_cycles"
 harness = false
+required-features = ["native-linked"]
+
+# The quick panel is the menu plugin's native screen: without `native-linked`
+# there is no slider to drag. Run with the other linked screen tests (CI,
+# check-local).
+[[test]]
+name = "slider_drag"
 required-features = ["native-linked"]
 
 [lints]

@@ -6,14 +6,15 @@
 //! `command.set_setting` checks its value (registered, not secret, this
 //! plugin's to set, a value the setting takes) and copied fallibly: at most 8
 //! rows (a batch) and [`PREVIEW_MAX_BYTES`] of keys and encoded values. The
-//! set is staged as one [`Command::PreviewSettings`] after the batch's other
+//! set is staged as one [`Ask::PreviewSettings`] after the batch's other
 //! commands; an end is the empty set. The kernel applies it after the callback
 //! (`Kernel::preview_settings`): the preview is the top screen's, and ends
 //! with it, with its plugin and when the device sleeps.
 use super::{CommandBatch, CommandStage, WireCommand};
+use crate::Ask;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
-use paperpaw_sdk::{Command, Id, SettingValue};
+use paperpaw_sdk::{Id, SettingValue};
 
 /// The most bytes of keys and encoded values of one preview set.
 pub(crate) const PREVIEW_MAX_BYTES: usize = 2 * 1024;
@@ -138,7 +139,7 @@ impl CommandStage<'_> {
             } else {
                 PreviewHeld::Own
             };
-            self.staged.push(Command::PreviewSettings(set));
+            self.staged.push(Ask::PreviewSettings(set));
         }
     }
 }

@@ -71,7 +71,7 @@ impl NativeInstance for Plugin {
     fn service_event_staged(
         &self,
         bytes: &[u8],
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         stage: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
         if !self.provider {
@@ -90,17 +90,17 @@ impl NativeInstance for Plugin {
     }
 }
 impl Dispatch for Plugin {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -118,7 +118,7 @@ struct World {
 }
 impl Frame for World {
     fn settings(&self) -> &Settings {
-        self.kernel.shared.env(Instant(0)).settings()
+        self.kernel.shared.place(Instant(0)).settings()
     }
     fn translator(&self) -> &Translator {
         unreachable!("the lookup backend never translates")
@@ -230,7 +230,7 @@ fn a_ready_command_reaches_the_asker_as_event_110_and_the_next_ask_has_the_entry
     assert_eq!(w.service().pending_len(), 0);
     assert_eq!(w.service().events_len(), 1);
     // The pump hands it to the asker, once.
-    w.kernel.now = Instant(5_000);
+    w.kernel.shared.now = Instant(5_000);
     w.kernel.native_service_pump();
     w.kernel.native_service_pump();
     let events = w.events.borrow().clone();
@@ -271,7 +271,7 @@ fn an_asker_that_stops_loses_its_waiting_event() {
 fn a_ready_command_needs_a_text_and_a_language_the_ask_takes() {
     let w = world();
     let owner = Id::new_static("wiki");
-    let settings = w.kernel.shared.env(Instant(0));
+    let settings = w.kernel.shared.place(Instant(0));
     let mut stage = CommandStage::new(&owner, settings.settings(), None, 8, 4096);
     for (text, language) in [("", "en"), ("tree", "e"), ("tree", "en_US")] {
         let mut out = [0; 64];

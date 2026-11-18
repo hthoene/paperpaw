@@ -366,7 +366,7 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
 
 /// The actions: name, title, and whether the reader handles it in a callback
 /// of its own (all do; the token is `FIRST_ACTION` + the position).
-pub const ACTIONS: [(&str, &str); 29] = [
+pub const ACTIONS: [(&str, &str); 34] = [
     ("show-toc", "reader.toc"),
     ("search", "reader.search"),
     ("go-to-page", "reader.go-to-page"),
@@ -396,6 +396,11 @@ pub const ACTIONS: [(&str, &str); 29] = [
     ("font-smaller", "reader.action.font-smaller"),
     ("toggle-justify", "reader.action.toggle-justify"),
     ("quick-settings", "reader.layout"),
+    ("sel-widen", "reader.sel.widen"),
+    ("sel-hold-left", "reader.sel.hold-left"),
+    ("sel-hold-right", "reader.sel.hold-right"),
+    ("sel-hold-up", "reader.sel.hold-up"),
+    ("sel-hold-down", "reader.sel.hold-down"),
 ];
 
 /// The menus the reader puts its entries in.
@@ -461,14 +466,30 @@ const ICONS: [(&str, &str); 13] = [
 /// Key bindings on the reader's slot layer: a tap at the bottom opens font
 /// and layout, swipes in from the sides turn pages, a pinch resizes the text,
 /// holding Select marks the page. Input, action.
-pub const KEYS: [(&str, &str); 6] = [
+pub const KEYS: [(&str, &str); 7] = [
     ("tap.bottom", "reader.quick-settings"),
     ("edge.left", "core.prev-page"),
     ("edge.right", "core.next-page"),
     ("pinch.out", "reader.font-larger"),
     ("pinch.in", "reader.font-smaller"),
     ("long.confirm", "reader.toggle-bookmark"),
+    // Holding Left starts choosing text with the buttons (#235).
+    ("long.left", "reader.select-text"),
 ];
+
+/// Key bindings on the layer put in front while text is chosen (#235): holding
+/// Select widens, holding Left and Right the page's ends or the start, holding the
+/// page buttons a paragraph. Input, action.
+pub const SELECTING_KEYS: [(&str, &str); 5] = [
+    ("long.confirm", "reader.sel-widen"),
+    ("long.left", "reader.sel-hold-left"),
+    ("long.right", "reader.sel-hold-right"),
+    ("long.page-back", "reader.sel-hold-up"),
+    ("long.page-forward", "reader.sel-hold-down"),
+];
+
+/// The layer of [`SELECTING_KEYS`].
+pub const SELECTING_LAYER: &str = "reader.selecting";
 
 /// Holding a page button goes a chapter on or back, while the switch is on.
 pub const HOLD_KEYS: [(&str, &str); 2] = [
@@ -536,6 +557,9 @@ pub fn keys<F: FnMut(&[u8]) -> Result<(), i32>>(
 ) -> Result<(), DeclareError> {
     for (input, action) in KEYS {
         d.key_binding(KeyBindingDecl::new("core.reader", input, action))?;
+    }
+    for (input, action) in SELECTING_KEYS {
+        d.key_binding(KeyBindingDecl::new(SELECTING_LAYER, input, action))?;
     }
     d.submit()
 }

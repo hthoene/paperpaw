@@ -4,23 +4,25 @@
 extern crate std;
 
 use super::*;
+use crate::Staging;
 use crate::abi7::{services_wire::service_schema, settings_wire::settings_decode};
 use crate::native_host::host_services::{Caller, HostServices};
+use crate::{Place, Turn};
 use alloc::{borrow::Cow, boxed::Box, format, string::String, vec::Vec};
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, Plugin, Priority, RegisterError, Registrar, Screen,
-    ScreenSpec, SettingExtra, SettingGroupSpec, SettingSpec, SettingValue, Settings, Version,
+    Canvas, Handled, Id, Manifest, Priority, RegisterError, SettingExtra, SettingGroupSpec,
+    SettingSpec, SettingValue, Settings, Version,
     builtin::{groups::OTHER, slots::SETTINGS as SETTINGS_SLOT},
     presets::Preset,
 };
 
 struct Quiet;
-impl Screen for Quiet {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+impl crate::testing::Fake for Quiet {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -57,13 +59,8 @@ static PRESETS: [Preset; 3] = [
 ];
 
 /// A plugin with settings of every shape, a group and presets.
-struct Cfg;
-impl Plugin for Cfg {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("cfg"), "Cfg", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn cfg() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         r.add_setting_group(SettingGroupSpec::new(id("cfg.top"), "cfg.group.top").order(1))?;
         let top = id("cfg.top");
         r.add_setting(SettingSpec::switch(
@@ -129,15 +126,16 @@ impl Plugin for Cfg {
     }
 }
 
+/// What [`cfg`] registers under.
+fn cfg_manifest() -> Manifest {
+    Manifest::new(Id::new_static("cfg"), "Cfg", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// Adds a choice to `cfg.mode`, and is the settings editor.
-struct Ed;
-impl Plugin for Ed {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("ed"), "Ed", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn ed() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
             id("ed.main"),
             "ed.screen.main",
             Box::new(|_, _| Box::new(Quiet)),
@@ -148,16 +146,22 @@ impl Plugin for Ed {
     }
 }
 
+/// What [`ed`] registers under.
+fn ed_manifest() -> Manifest {
+    Manifest::new(Id::new_static("ed"), "Ed", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn kernel() -> crate::Kernel {
     crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Cfg)
-        .plugin(Ed)
+        .items(cfg_manifest(), cfg())
+        .items(ed_manifest(), ed())
         .build()
         .unwrap()
 }
 
 struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     sources: Sources<'a>,
     hosts: HostServices,
 }
@@ -187,7 +191,7 @@ fn call_as(
     input: &[u8],
     room: usize,
 ) -> Result<Vec<u8>, i32> {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let view = View {
         env: &env,
         sources: Sources {
@@ -340,13 +344,8 @@ fn row<'a>(rows: &'a [String], key: &str) -> &'a str {
 }
 
 /// A plugin whose setting needs a front light the device does not have.
-struct Lit;
-impl Plugin for Lit {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("lit"), "Lit", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn lit() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         r.add_setting_group(SettingGroupSpec::new(id("lit.top"), "lit.group").order(1))?;
         for key in ["lit.light", "lit.plain"] {
             r.add_setting(SettingSpec::switch(key, "lit.title", false, id("lit.top")))?;
@@ -354,6 +353,12 @@ impl Plugin for Lit {
         r.set_menu_need(id("lit.light"), paperpaw_sdk::MenuNeed::Frontlight)?;
         Ok(())
     }
+}
+
+/// What [`lit`] registers under.
+fn lit_manifest() -> Manifest {
+    Manifest::new(Id::new_static("lit"), "Lit", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 #[test]
@@ -366,13 +371,13 @@ fn a_setting_for_a_device_that_lacks_what_it_needs_is_not_shown() {
         )
     };
     let without = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Lit)
+        .items(lit_manifest(), lit())
         .build()
         .unwrap();
     assert_eq!(shown(&without), (false, true));
     let with = crate::Kernel::builder(crate::tests::DEVICE)
         .frontlight(true)
-        .plugin(Lit)
+        .items(lit_manifest(), lit())
         .build()
         .unwrap();
     assert_eq!(shown(&with), (true, true));
@@ -550,7 +555,7 @@ fn every_rows_governs_flag_is_what_settings_governs_says() {
     let kernel = kernel();
     let settings = &kernel.shared.settings;
     // Found once for a list: sorted, each id once, the same answer per id.
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let sources = super::sources::Sources {
         env: &env,
         directory: None,
@@ -1009,18 +1014,13 @@ fn unknown_query_flag_bits_are_unsupported_on_every_list_op() {
     );
 }
 
-/// How many settings [`Many`] has that a row can carry: more than two pages.
+/// How many settings [`many`] has that a row can carry: more than two pages.
 const MANY: usize = 70;
 
 /// A plugin of many settings, one of a title and a value longer than their
 /// fields and one whose id fits no `reg_setting.key` (128 bytes).
-struct Many;
-impl Plugin for Many {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("many"), "Many", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn many() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         let leaked = |text: String| -> &'static str { text.leak() };
         for n in 0..MANY - 1 {
             r.add_setting(SettingSpec::number(
@@ -1050,11 +1050,17 @@ impl Plugin for Many {
     }
 }
 
+/// What [`many`] registers under.
+fn many_manifest() -> Manifest {
+    Manifest::new(Id::new_static("many"), "Many", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn crowded() -> crate::Kernel {
     crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Cfg)
-        .plugin(Ed)
-        .plugin(Many)
+        .items(cfg_manifest(), cfg())
+        .items(ed_manifest(), ed())
+        .items(many_manifest(), many())
         .build()
         .unwrap()
 }

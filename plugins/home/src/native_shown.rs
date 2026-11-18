@@ -7,7 +7,7 @@ use paperpaw_sdk::{
     native::{Error, Host, fonts::Font, snapshot::Snapshot},
     widgets::grid::Geometry,
 };
-use paperpaw_ui_kit::Style;
+use paperpaw_ui_kit::{SharedInputs, Style};
 
 use crate::native_dash::{self as dash, Frame, Metrics};
 use crate::native_pages::{self, Page, Source};
@@ -39,7 +39,20 @@ impl Shown {
     /// # Errors
     /// [`Error::NoMemory`] and the host's refusals.
     pub fn read(host: &Host<'_>, display: &Snapshot, font: &Font<'_>) -> Result<Self, Error> {
-        let style = Style::read(host, display, font)?;
+        Self::read_with(host, display, font, &SharedInputs::default())
+    }
+
+    /// As [`Shown::read`], the style's settings from `shared`.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] and the host's refusals.
+    pub fn read_with(
+        host: &Host<'_>,
+        display: &Snapshot,
+        font: &Font<'_>,
+        shared: &SharedInputs,
+    ) -> Result<Self, Error> {
+        let style = shared.style(host, display, font)?;
         let src = HostSource::read(host, display.display_dpi())?;
         let metrics = metrics(host, display, &style, font)?;
         let wide = dash::landscape(&metrics);

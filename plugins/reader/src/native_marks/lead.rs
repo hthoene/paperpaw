@@ -31,6 +31,36 @@ impl Lead {
     /// The lead of `text`; none where it is too short to tell a place.
     #[must_use]
     pub fn of(text: &str) -> Option<Self> {
+        Self::of_any(text).filter(|lead| !lead.is_short())
+    }
+
+    /// Whether the text is too short to tell a place by being somewhere near
+    /// it: such a mark is told by the very words it covers ([`Lead::says`]).
+    #[must_use]
+    pub fn is_short(&self) -> bool {
+        usize::from(self.len) < LEAD_MIN
+    }
+
+    /// Whether `words` (the words a mark covers, white space as one space) are
+    /// this text and no more; or its start, word by word, where `open` says the
+    /// page ends with them (the mark's text goes on over the page break).
+    #[must_use]
+    pub fn says(&self, words: &str, open: bool) -> bool {
+        let mut want = self.text().chars();
+        for got in plain(words) {
+            if want.next() != Some(got) {
+                return false;
+            }
+        }
+        match want.next() {
+            None => true,
+            Some(next) => open && next == ' ',
+        }
+    }
+
+    /// The lead of `text`, however short; none for a text of no letters.
+    #[must_use]
+    pub fn of_any(text: &str) -> Option<Self> {
         let mut bytes = [0u8; LEAD_MAX];
         let mut len = 0usize;
         for c in plain(text) {
@@ -45,7 +75,7 @@ impl Lead {
         if len > 0 && bytes.get(len - 1) == Some(&b' ') {
             len -= 1;
         }
-        (len >= LEAD_MIN).then_some(Self {
+        (len > 0).then_some(Self {
             bytes,
             len: u8::try_from(len).unwrap_or(0),
         })

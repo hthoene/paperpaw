@@ -54,9 +54,15 @@ status.top|reader.status.section.top|reader.status.top-left|reader.status.top-ce
 core.reader|edge.left|core.prev-page
 core.reader|edge.right|core.next-page
 core.reader|long.confirm|reader.toggle-bookmark
+core.reader|long.left|reader.select-text
 core.reader|pinch.in|reader.font-smaller
 core.reader|pinch.out|reader.font-larger
 core.reader|tap.bottom|reader.quick-settings
+reader.selecting|long.confirm|reader.sel-widen
+reader.selecting|long.left|reader.sel-hold-left
+reader.selecting|long.page-back|reader.sel-hold-up
+reader.selecting|long.page-forward|reader.sel-hold-down
+reader.selecting|long.right|reader.sel-hold-right
 [menu_entries]
 core.reader-menu|core.home|80
 core.reader-menu|core.night-mode|60
@@ -132,6 +138,11 @@ prev-chapter|reader.prev-chapter
 quick-settings|reader.layout
 read-aloud|reader.read-aloud
 search|reader.search
+sel-hold-down|reader.sel.hold-down
+sel-hold-left|reader.sel.hold-left
+sel-hold-right|reader.sel.hold-right
+sel-hold-up|reader.sel.hold-up
+sel-widen|reader.sel.widen
 select-text|reader.select
 selection.cancel|reader.select.cancel
 selection.copy|reader.select.copy

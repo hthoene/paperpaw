@@ -2,10 +2,11 @@
 use super::context::registry_views::{Asker, RegistryView, Row};
 use super::context::{DeviceUsageView, Frame, PluginRow, RowsEnd, usage_views};
 use super::snapshot_wire::Snapshot;
+use crate::Place;
 use core::ops::ControlFlow;
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_STATE};
-use paperpaw_sdk::{Env, Plugins, Settings, usage::Usage, work::WorkStates};
+use paperpaw_sdk::{Plugins, Settings, usage::Usage, work::WorkStates};
 
 /// Host-only callback identity, never decoded from plugin bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,7 +33,7 @@ pub(crate) struct CoreFrame<'a> {
     pub(crate) directory: Option<&'a crate::native_host::native_declarations::NativeDeclarations>,
     pub(crate) callback: Option<CallbackStamp>,
     pub(crate) instance: Option<u32>,
-    pub(crate) env: &'a Env<'a>,
+    pub(crate) env: &'a Place<'a>,
     pub(crate) meter: &'a alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: &'a crate::native_host::font_removals::FontRemovals,
     pub(crate) registry_generation: &'a crate::native_host::registry_generation::RegistryGeneration,
@@ -92,7 +93,7 @@ impl Frame for CoreFrame<'_> {
         self.depth.map(|depth| depth.current()).ok_or(ERR_STATE)
     }
 
-    fn kernel_env(&self) -> Option<&Env<'_>> {
+    fn kernel_env(&self) -> Option<&Place<'_>> {
         Some(self.env)
     }
 
@@ -207,6 +208,12 @@ impl Frame for CoreFrame<'_> {
     }
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         Some(self.env.fonts())
+    }
+    fn fonts_memo(&self) -> Option<(&paperpaw_sdk::Fonts, Option<&paperpaw_sdk::RoleMemo>)> {
+        Some((self.env.fonts(), Some(&self.font_removals.memos.roles)))
+    }
+    fn setting_memo(&self) -> Option<&paperpaw_sdk::SettingMemo> {
+        Some(&self.font_removals.memos.places)
     }
     fn ink_threshold(&self) -> Result<u8, i32> {
         Ok(match self.env.device().display.format {

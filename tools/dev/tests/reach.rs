@@ -9,6 +9,10 @@
 )]
 
 use paperpaw_core::KernelBuilder;
+use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::kit::menus::MenuEntry;
+use paperpaw_core::{Ask, Asks};
+use paperpaw_core::{Place, Turn};
 use paperpaw_dev::cli::Context;
 use paperpaw_dev::reach::{self, Limits};
 use paperpaw_dev::report::{Finding, Level, Report};
@@ -17,10 +21,7 @@ use paperpaw_dev::variant::Variant;
 use paperpaw_platform::Rect;
 use paperpaw_sdk::builtin::menus;
 use paperpaw_sdk::semantics::Role;
-use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Commands, Cx, Env, Handled, Id, Manifest, MenuEntry, Params,
-    Plugin, RegisterError, Registrar, Screen, ScreenSpec, Version,
-};
+use paperpaw_sdk::{Canvas, Handled, Id, Manifest, Params, Version};
 
 const OPEN: Id = Id::new_static("trapped.open");
 const STUCK: Id = Id::new_static("trapped.stuck");
@@ -28,33 +29,28 @@ const HIDDEN: Id = Id::new_static("trapped.hidden");
 
 /// A tool whose screen keeps every button to itself, and a screen
 /// nothing opens.
-struct Trapped;
-
-impl Plugin for Trapped {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("trapped"), "Trapped", Version::new(0, 1, 0))
-            .description("Fails the reach check on purpose.")
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn trapped(builder: KernelBuilder) -> KernelBuilder {
+    let manifest = Manifest::new(Id::new_static("trapped"), "Trapped", Version::new(0, 1, 0))
+        .description("Fails the reach check on purpose.")
+        .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
+        items.add_fake(paperpaw_core::testing::FakeSpec::new(
             STUCK,
             "trapped.stuck",
             Box::new(|_, _| Box::new(Stuck)),
         ))?;
-        r.add_screen(ScreenSpec::new(
+        items.add_fake(paperpaw_core::testing::FakeSpec::new(
             HIDDEN,
             "trapped.hidden",
             Box::new(|_, _| Box::new(Hidden)),
         ))?;
-        r.add_action(ActionSpec::new(OPEN, "trapped.open").handler(
-            |_: &Env<'_>, _, out: &mut Commands| {
-                out.push(Command::OpenScreen(STUCK, Params::new()));
+        items.add_action(ActionSpec::new(OPEN, "trapped.open").handler(
+            |_: &paperpaw_core::Place<'_>, _, out: &mut Asks| {
+                out.push(Ask::OpenScreen(STUCK, Params::new()));
             },
         ))?;
-        r.add_menu_entry(MenuEntry::new(menus::TOOLS, OPEN))
-    }
+        items.add_menu_entry(MenuEntry::new(menus::TOOLS, OPEN))
+    })
 }
 
 fn rows(canvas: &mut Canvas<'_>, labels: &[&str], focused: Option<usize>) {
@@ -69,12 +65,12 @@ fn rows(canvas: &mut Canvas<'_>, labels: &[&str], focused: Option<usize>) {
 /// Three rows, the focus on the first for good, every button taken.
 struct Stuck;
 
-impl Screen for Stuck {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+impl paperpaw_core::testing::Fake for Stuck {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         rows(canvas, &["One", "Two", "Three"], Some(0));
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::Yes
     }
 }
@@ -82,18 +78,18 @@ impl Screen for Stuck {
 /// A row; back closes it, but nothing opens it.
 struct Hidden;
 
-impl Screen for Hidden {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+impl paperpaw_core::testing::Fake for Hidden {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         rows(canvas, &["Alone"], Some(0));
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
 
 fn add(builder: KernelBuilder) -> KernelBuilder {
-    builder.plugin(Trapped)
+    trapped(builder)
 }
 
 fn found<'a>(report: &'a Report, check: &str, place: &str) -> Option<&'a Finding> {

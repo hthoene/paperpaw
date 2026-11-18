@@ -44,10 +44,10 @@ use super::{
     stage_broker::{Run, Schema, Subscription},
     stages_wire::core_input_filter_v1 as stage,
 };
+use crate::Place;
 use crate::native_host::codec;
 use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_FULL, ERR_INVALID, ERR_NO_SPACE};
 use paperpaw_platform::buttons;
-use paperpaw_sdk::Env;
 
 /// Filters called per input (the stage's subscriber cap).
 pub(crate) const MAX_FILTERS: usize = stage::MAX_SUBSCRIBERS;
@@ -263,7 +263,7 @@ pub(crate) struct BrokerRunner<'a, 'e> {
     pub(crate) schema: &'a Schema,
     pub(crate) depth: &'a DispatchDepth,
     pub(crate) registry: &'a NativeInstances,
-    pub(crate) env: &'a Env<'e>,
+    pub(crate) env: &'a Place<'e>,
 }
 
 impl FilterRunner for BrokerRunner<'_, '_> {

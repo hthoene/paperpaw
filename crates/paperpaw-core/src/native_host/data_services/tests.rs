@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 use super::*;
+use crate::Place;
 use crate::abi7::context::{DeviceUsageView, RowsEnd};
 use alloc::{
     string::{String, ToString},
@@ -7,10 +8,10 @@ use alloc::{
 };
 use paperpaw_i18n::Translator;
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 
 struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     rows: &'a [PluginRow<'a>],
     name: &'a str,
 }
@@ -127,7 +128,7 @@ fn usage_matches_the_existing_battery_binary_fixture() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let view = View {
         env: &env,
         rows: &[],
@@ -147,7 +148,7 @@ fn scalar_names_are_utf8_clipped_and_notes_and_missing_ids_are_preserved() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let name = "é".repeat(80);
     let view = View {
         env: &env,
@@ -189,7 +190,7 @@ fn pages_reserve_the_end_record_widen_counters_and_advance_over_omitted_ids() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let ids: Vec<String> = [40, 65, 40, 40]
         .iter()
         .enumerate()

@@ -32,6 +32,7 @@ pub(crate) mod dual_boot_ini;
 pub(crate) mod dual_boot_job;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
+pub(crate) mod host_memos;
 pub(crate) mod registry_generation;
 
 #[path = "native_host/work_sched.rs"]
@@ -70,8 +71,10 @@ mod firmware_events;
     reason = "the command arms and the pump (slice B) drive the machine; tests do today"
 )]
 pub(crate) mod firmware_install;
-#[path = "native_host/notice.rs"]
-pub(crate) mod notice;
+#[path = "native_host/literata_notice.rs"]
+pub(crate) mod literata_notice;
+#[path = "native_host/low_memory.rs"]
+pub(crate) mod low_memory;
 
 #[path = "native_host/install_grants.rs"]
 pub(crate) mod install_grants;
@@ -216,6 +219,8 @@ pub(crate) mod shared;
 #[path = "native_host/resources.rs"]
 pub mod resources;
 pub use fixed_settings::FixedTables;
+pub(crate) use native_batch::NativeBatch;
+pub use native_batch::NativeTimes;
 pub use park_linked::ParkShell;
 pub use resources::HostResources;
 
@@ -225,7 +230,7 @@ pub use shell_wiring::{HostWiring, HyphenTables, WiredHosts};
 
 #[path = "native_host/fonts.rs"]
 mod fonts;
-#[cfg(any(test, feature = "testing"))]
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
 pub use fonts::answer_text_ink_as_the_x4;
 #[path = "native_host/fonts_data.rs"]
 mod fonts_data;
@@ -249,8 +254,6 @@ mod declared_services;
 mod details_job_pump;
 pub mod device_service;
 pub(crate) mod dialog_pump;
-#[path = "native_host/dialogs.rs"]
-pub(crate) mod dialogs;
 pub(crate) mod doc_cache;
 pub(crate) mod doc_host;
 mod doc_pump;
@@ -288,6 +291,8 @@ pub(crate) mod image_pump;
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
 pub(crate) mod image_service;
+#[path = "native_host/kernel_asks.rs"]
+pub(crate) mod kernel_asks;
 pub(crate) mod lib_changed;
 pub(crate) mod lib_cover;
 #[allow(
@@ -461,7 +466,7 @@ pub(crate) mod event_producers;
 )]
 #[path = "native_host/event_sink.rs"]
 mod event_sink;
-/// Production event adapter for a shell-owned flat plugin instance.
+/// A shell-owned flat plugin instance: its registrations and the device's dispatch budget.
 #[path = "native_host/flat.rs"]
 pub mod flat;
 /// The `draw.frame` input of `draw` (N2, `docs/abi/screens-input.md` section 6).
@@ -508,6 +513,8 @@ pub(crate) mod native_status;
 
 #[path = "native_host/core_events.rs"]
 pub(crate) mod core_events;
+#[path = "native_host/native_batch.rs"]
+mod native_batch;
 #[path = "native_host/native_call.rs"]
 #[allow(
     dead_code,
@@ -548,7 +555,7 @@ pub(crate) mod native_screen_factory;
 mod owned_texts;
 
 #[path = "native_host/native_screen.rs"]
-mod native_screen;
+pub(crate) mod native_screen;
 
 #[allow(
     dead_code,
@@ -634,12 +641,6 @@ impl FlatHost {
                 .map(Some)
                 .ok_or(paperpaw_native::host_glue::ERR_STATE),
         }
-    }
-    pub(crate) fn try_directory(&self) -> Result<Option<native_declarations::DirectoryWeak>, i32> {
-        self.directory
-            .as_ref()
-            .map(|directory| directory.try_clone().ok_or(ERR_NO_MEMORY))
-            .transpose()
     }
 }
 

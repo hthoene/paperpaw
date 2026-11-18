@@ -316,6 +316,66 @@ fn arabic_card_files() -> [(&'static str, Vec<u8>); 2] {
     ]
 }
 
+/// The German language pack of the X4 firmware (#251): every `de.ini` of the
+/// repository merged and compiled, as `plugins/language-de`.
+fn german_pack_files() -> [(&'static str, Vec<u8>); 2] {
+    fn walk(dir: &std::path::Path, found: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for path in entries.flatten().map(|e| e.path()) {
+            if path.is_dir() {
+                walk(&path, found);
+            } else if path.file_name().is_some_and(|n| n == "de.ini") {
+                found.push(std::fs::read_to_string(&path).unwrap());
+            }
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut texts = Vec::new();
+    for group in ["crates", "plugins", "shells"] {
+        for member in std::fs::read_dir(root.join(group)).unwrap().flatten() {
+            walk(&member.path().join("i18n"), &mut texts);
+        }
+    }
+    let merged = paperpaw_i18n::Catalog::merge_sources(texts.iter().map(String::as_str));
+    let compiled = paperpaw_i18n::Catalog::compile(&merged).unwrap();
+    [
+        (
+            "plugins/language-de/plugin.ini",
+            b"[plugin]\nid = language-de\nname = German\nversion = 1.0.0\nformats = 4\n".to_vec(),
+        ),
+        ("plugins/language-de/i18n/de.ppcat", compiled),
+    ]
+}
+
+/// German from its pack on the card (#251; the emulator also has German
+/// built in, which the pack's messages precede) starts within
+/// [`CARD_LANGUAGE_EXTRA_KIB`] of English's peak, as any card language.
+#[test]
+fn starting_in_german_from_its_language_pack_peaks_little_above_english() {
+    let files = german_pack_files();
+    let peak = |language: &str| {
+        let language = format!("core.language={language}");
+        heap(&emulator_with(
+            "x4-german-pack",
+            "xteink-x4",
+            None,
+            &files,
+            &["--set", &language, "--script", "wait:300"],
+        ))
+        .peak
+    };
+    let (english, german) = (peak("en"), peak("de"));
+    eprintln!(
+        "start (emulator): peak {english} KiB in English, {german} KiB in German from its pack"
+    );
+    assert!(
+        german <= english + CARD_LANGUAGE_EXTRA_KIB,
+        "start: peak {german} KiB in German from its pack, {english} KiB in English"
+    );
+}
+
 /// The start with the card language and the book read last an EPUB (the
 /// largest first screen): the peak stays within the X4's budget (#243).
 #[test]
@@ -483,8 +543,23 @@ fn the_store_with_the_devices_tls_stays_within_the_x4_budget() {
 /// the old one beside it. 12.6 KiB with the store's own changes (#1452), 13.4 KiB
 /// with the font change of #1457 beside them (its install peak is 0.8 KiB
 /// higher): the line is that plus a margin of 0.2 KiB. The second install
-/// measures 13.6 KiB since T41: on the line.
-const INSTALL_GROWTH_KIB: f64 = 13.6;
+/// measured 13.6 KiB since T41: on the line. The line is 13.8 KiB since 2026-11-16
+/// (#271): on integration `e2c186c66` one binary gave 13.6 / 13.4 KiB (install /
+/// install2) in 20 runs, 10 and 10 with 32 busy loops beside it (the machine's
+/// load was above 40 in both), the live heap after each step the same in all of
+/// them (see [`INSTALL_LIVE_GROWTH_KIB`]): no spread from load. The 13.7 KiB seen
+/// on the train tree comes with the source of #1547, not with the build (QA's
+/// bisect). The 0.2 KiB over the highest peak seen is the margin of the line; a
+/// member that grows the live heap more than the pins below is named and the pin
+/// set to what was measured.
+const INSTALL_GROWTH_KIB: f64 = 13.8;
+
+/// What an install leaves live after it, over what was live before it (KiB, as
+/// printed): the same in every run measured (#271), no margin but the printed
+/// tenth. `install` is 2.7 KiB with the source of #1547 (2.6 without it; QA's train 51
+/// smoke, bisected: #1569 and #1551 leave 2.6): the member is named, the pin set
+/// to what was measured.
+const INSTALL_LIVE_GROWTH_KIB: [(&str, f64); 2] = [("install", 2.7), ("install2", 0.9)];
 
 /// The run prints tenths of a KiB, and the difference of two of them is not
 /// exact as a float (137.3 - 123.7 is 13.600000000000009): half a tenth is
@@ -551,15 +626,26 @@ fn each_step_of_the_store_stays_within_the_x4_budget() {
     assert_eq!(names[1..], steps, "{stdout}");
     let allowed = 256.0 * MARGIN_PERCENT / 100.0;
     for pair in measured.windows(2) {
-        let ((_, _, before), (name, peak, _)) = (&pair[0], &pair[1]);
+        let ((_, _, before), (name, peak, live)) = (&pair[0], &pair[1]);
         eprintln!(
-            "x4 store {name}: peak {peak} KiB (+{:.1} KiB), + {STORE_DEVICE_EXTRA_KIB} KiB of the device of {allowed} KiB",
-            peak - before
+            "x4 store {name}: peak {peak} KiB (+{:.1} KiB), live {live} KiB (+{:.1} KiB), + {STORE_DEVICE_EXTRA_KIB} KiB of the device of {allowed} KiB",
+            peak - before,
+            live - before
         );
         assert!(
             peak + STORE_DEVICE_EXTRA_KIB <= allowed,
             "store {name}: peak {peak} KiB + {STORE_DEVICE_EXTRA_KIB} KiB of the device, over {allowed} KiB"
         );
+        if let Some((_, growth)) = INSTALL_LIVE_GROWTH_KIB
+            .iter()
+            .find(|(step, _)| step == name)
+        {
+            assert!(
+                live - before <= growth + PRINTED_TENTH_KIB,
+                "{name} left {:.1} KiB live, more than the {growth} KiB measured",
+                live - before
+            );
+        }
         if name.starts_with("install") {
             assert!(
                 peak - before <= INSTALL_GROWTH_KIB + PRINTED_TENTH_KIB,

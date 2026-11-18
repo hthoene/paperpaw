@@ -1,7 +1,8 @@
 //! Real ABI screen declarations are published through the kernel registry.
 use super::*;
+use crate::Ask;
 use crate::native_host::{flat::FlatDepth, registrations as wire};
-use paperpaw_sdk::{Command, Handled, Id, Params};
+use paperpaw_sdk::{Handled, Id, Params};
 
 std::thread_local! {
     static POOL: RefCell<Option<crate::native_host::HostResources>> = const { RefCell::new(None) };
@@ -537,7 +538,7 @@ fn native_screen_factory_retains_owner_and_applies_instance_policy() {
             let second = kernel.stack[1].serial;
             assert_ne!(first, second);
             assert_eq!(opened[1], &(79, second, 0, 1));
-            kernel.apply(Command::Close(paperpaw_sdk::ScreenKey::new(second)));
+            kernel.apply(Ask::Close(paperpaw_sdk::ScreenKey::new(second)));
             assert!(EVENTS.with(|events| events.borrow().contains(&(80, second, 0, 0))));
         }
         assert!(
@@ -645,16 +646,6 @@ fn sweep_post_factory_allocations(arms: u8) {
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
             .build()
             .unwrap();
-        kernel.shared.actions.insert(
-            paperpaw_sdk::ActionSpec::new(Id::new_static("legacy.action"), "legacy.action")
-                .sealed(),
-        );
-        kernel.shared.actions.add_override(
-            Id::new_static("legacy.action"),
-            paperpaw_sdk::Priority(0),
-            Id::new_static("legacy"),
-            Box::new(|_, _, _| {}),
-        );
         let before = kernel.shared.registry.screens.list().iter().count();
         INSTALL_FAIL_NTH.with(|value| value.set(allocation));
         ARMS.with(|value| value.set(arms));
@@ -662,13 +653,6 @@ fn sweep_post_factory_allocations(arms: u8) {
         ARMS.with(|value| value.set(0));
         arm_failure(0);
         INSTALL_FAIL_NTH.with(|value| value.set(0));
-        // Public lookup hides overrides of sealed actions. Unseal the fixture
-        // after the fault window to observe whether publication removed it.
-        kernel.shared.actions.insert(paperpaw_sdk::ActionSpec::new(
-            Id::new_static("legacy.action"),
-            "legacy.action",
-        ));
-        assert!(kernel.shared.actions.override_of("legacy.action").is_some());
         if result.is_ok() {
             reached_success = true;
             assert_eq!(
@@ -878,7 +862,7 @@ fn native_screen_below_guard_is_opened_and_closed_without_being_shown() {
             .iter()
             .any(|event| event.0 == 38 && event.1 == hidden)
     }));
-    kernel.apply(Command::Close(paperpaw_sdk::ScreenKey::new(hidden)));
+    kernel.apply(Ask::Close(paperpaw_sdk::ScreenKey::new(hidden)));
     assert!(EVENTS.with(|events| events.borrow().contains(&(80, hidden, 0, 0))));
 }
 
@@ -1160,7 +1144,7 @@ fn replacement_publication_waits_for_one_requested_busy_unload_to_complete() {
         crate::native_host::TeardownStep::Release,
         crate::native_host::Error::Busy,
     );
-    kernel.apply(Command::InstallPlugin(
+    kernel.apply(Ask::InstallPlugin(
         Id::new_static("factory"),
         "plugins/.factory.part".into(),
     ));
@@ -1286,7 +1270,7 @@ fn expired_directory_refuses_a_native_callback_before_entering_plugin_code() {
         crate::native_host::native_instances::test_identity("factory"),
     );
     drop(directory);
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     assert_eq!(dispatch.event(91, &[0], &env), Err(host_glue::ERR_STATE));
     assert_eq!(DESTROYED.with(Cell::get), 0);
     drop(dispatch);
@@ -1375,10 +1359,13 @@ fn a_duplicate_setting_or_action_is_refused_before_anything_is_published() {
                 ))
                 .unwrap(),
             _ => {
-                kernel.shared.actions.insert(paperpaw_sdk::ActionSpec::new(
-                    Id::new_static("factory.action"),
-                    "other",
-                ));
+                kernel
+                    .shared
+                    .actions
+                    .insert(crate::kit::action::ActionSpec::new(
+                        Id::new_static("factory.action"),
+                        "other",
+                    ));
             }
         }
         ARMS.with(|value| value.set(1));

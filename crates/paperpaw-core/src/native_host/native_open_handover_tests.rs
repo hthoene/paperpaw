@@ -46,7 +46,7 @@ fn submit(kernel: &mut crate::Kernel, store: &UiStore, commands: &[WireCommand<'
         .last()
         .map(|active| paperpaw_sdk::ScreenKey::new(active.serial));
     let (status, staged, redraw, opens) = {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
             .with_ui(&env, caller, 0, 8)
             .with_handovers(store, stamp());
@@ -144,7 +144,7 @@ fn the_selected_text_arrives_as_host_text_not_as_a_param() {
     // It owns the hand-over now: nothing is left claimed, and closing the
     // instance frees it.
     assert_eq!(store.len(), 2);
-    kernel.apply(Command::Close(paperpaw_sdk::ScreenKey::new(instance)));
+    kernel.apply(Ask::Close(paperpaw_sdk::ScreenKey::new(instance)));
     kernel.drain_deferred_ui_closes();
     assert_eq!(store.len(), 1);
 }
@@ -307,7 +307,7 @@ fn a_stage_dropped_before_its_drain_frees_what_its_submits_claimed() {
     let owner = Id::new_static("factory");
     let id = made(&store, &[], b"text");
     {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
             .with_ui(&env, None, 0, 8)
             .with_handovers(&store, stamp());
@@ -325,84 +325,6 @@ fn a_stage_dropped_before_its_drain_frees_what_its_submits_claimed() {
         assert_eq!(store.len(), 1);
     }
     // The callback returned an error: its stage is dropped, the claim rolled back.
-    assert_eq!(store.len(), 0);
-}
-
-/// A plugin of the program offering `core.translate` first, with a screen of
-/// its own that is not native.
-struct Legacy;
-impl paperpaw_sdk::Plugin for Legacy {
-    fn manifest(&self) -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            Id::new_static("legacy"),
-            "Legacy",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut paperpaw_sdk::Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
-        struct Empty;
-        impl paperpaw_sdk::Screen for Empty {
-            fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-            fn on_action(
-                &mut self,
-                _: &Id,
-                _: &mut paperpaw_sdk::Cx<'_, '_>,
-            ) -> paperpaw_sdk::Handled {
-                paperpaw_sdk::Handled::No
-            }
-        }
-        r.add_screen(paperpaw_sdk::ScreenSpec::new(
-            Id::new_static("legacy.screen"),
-            "legacy.title",
-            Box::new(|_, _| Box::new(Empty)),
-        ))?;
-        r.bind_slot(
-            Id::new_static("core.translate"),
-            Id::new_static("legacy.screen"),
-            paperpaw_sdk::Priority(100),
-        )
-    }
-}
-
-#[test]
-fn a_screen_that_is_not_native_keeps_its_params_when_a_native_open_shows_its_slot() {
-    let (_, store) = wired();
-    reset(NORMAL);
-    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Legacy)
-        .build()
-        .unwrap();
-    install_resources(&mut kernel, 8, None).unwrap();
-    // The slot is the legacy screen's (priority 100): below it a base.
-    kernel.apply(Command::OpenScreen(
-        Id::new_static("factory.screen"),
-        Params::new(),
-    ));
-    kernel.apply(Command::OpenSlot(
-        Id::new_static("core.translate"),
-        Params::new().with("page", "1"),
-    ));
-    assert_eq!(kernel.stack.last().unwrap().id.as_str(), "legacy.screen");
-    let id = made(&store, &[], b"");
-    assert_eq!(
-        submit(&mut kernel, &store, &[open("core.translate", 1, "", id)]),
-        0
-    );
-    // Its params stay; no hand-over was given to it and none is left claimed.
-    assert_eq!(kernel.stack.last().unwrap().params.get("page"), Some("1"));
-    assert_eq!(store.len(), 0);
-    // A hand-over with params of its own: the screen is no native one and
-    // owns none, so it stays as it is, not closed and opened again without
-    // the params it has.
-    let legacy = kernel.stack.last().unwrap().serial;
-    let id = made(&store, &[("x", "1")], b"text");
-    assert_eq!(
-        submit(&mut kernel, &store, &[open("core.translate", 1, "", id)]),
-        0
-    );
-    let top = kernel.stack.last().unwrap();
-    assert_eq!((top.serial, top.params.get("page")), (legacy, Some("1")));
     assert_eq!(store.len(), 0);
 }
 
@@ -526,7 +448,7 @@ fn every_allocation_of_a_submit_with_a_hand_over_leaves_nothing_claimed() {
         let (kernel, store) = wired();
         let id = made(&store, &[("page", "1")], b"text");
         let owner = Id::new_static("factory");
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
             .with_ui(&env, None, 0, 8)
             .with_handovers(&store, stamp());
@@ -566,7 +488,7 @@ fn staged_by(
     commands: &[WireCommand<'_>],
 ) -> (i32, usize, crate::native_host::commands::Opens) {
     let owner = Id::new_static("factory");
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
         .with_ui(&env, None, 0, 8)
         .with_handover_store(Some(store));
@@ -672,14 +594,14 @@ fn opens_dropped_undrained_free_what_they_claimed() {
 fn a_native_screen_the_kernel_opens_with_params_gets_them_handed_over() {
     let (mut kernel, store) = wired();
     // The root is never closed: a base below, without params.
-    kernel.apply(Command::OpenScreen(
+    kernel.apply(Ask::OpenScreen(
         Id::new_static("factory.screen"),
         Params::new(),
     ));
     assert_eq!(store.len(), 0);
     // Opened by no native plugin (a shell's script, an interface-6 plugin,
     // the kernel): the host hands the params over itself.
-    kernel.apply(Command::OpenScreen(
+    kernel.apply(Ask::OpenScreen(
         Id::new_static("factory.screen"),
         Params::new()
             .with("id", "core.rotation")
@@ -702,7 +624,7 @@ fn a_native_screen_the_kernel_opens_with_params_gets_them_handed_over() {
     assert_eq!(read(&store, instance, handover), "A note.");
     assert_eq!(store.len(), 1);
     // Closing the screen frees it.
-    kernel.apply(Command::Close(paperpaw_sdk::ScreenKey::new(instance)));
+    kernel.apply(Ask::Close(paperpaw_sdk::ScreenKey::new(instance)));
     kernel.drain_deferred_ui_closes();
     assert_eq!(store.len(), 0);
     // A native open is as it was: one of none makes no hand-over of the host's.

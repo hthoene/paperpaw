@@ -5,6 +5,8 @@
 //! takes its books out at the next walk.
 
 use super::*;
+use crate::Staging;
+use crate::kit::library::catalog;
 use crate::native_host::native_book_formats::tests::{Plugin as FormatPlugin, declare};
 use crate::native_host::native_declarations::NativeDeclarations;
 use crate::native_host::shared::Shared;
@@ -12,25 +14,23 @@ use core::cell::Cell;
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::document::DocumentError;
 use paperpaw_sdk::event::EventData;
-use paperpaw_sdk::library::catalog;
 use paperpaw_sdk::{FormatSpec, MemoryStorage};
 
 /// An interface 6 format of TXT, beside them.
-struct Txt;
-
-impl Plugin for Txt {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("txt"), "TXT", Version::new(1, 0, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn txt_items() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         r.add_format(FormatSpec::new(
             Id::new_static("txt.txt"),
             "TXT",
             alloc::vec![Cow::Borrowed("txt")],
-            Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            |_, _, _| Err(DocumentError::UnsupportedFormat),
         ))
     }
+}
+
+/// What [`txt_items`] registers under.
+fn txt_manifest() -> Manifest {
+    Manifest::new(Id::new_static("txt"), "TXT", Version::new(1, 0, 0))
 }
 
 fn books() -> MemoryStorage {
@@ -63,7 +63,7 @@ fn run(kernel: &mut Kernel, mut now: u64, mut effects: crate::Effects) -> u64 {
 fn started(txt: bool) -> (Kernel, Rc<FormatPlugin>, u64) {
     let mut builder = Kernel::builder(DEVICE).storage(books());
     if txt {
-        builder = builder.plugin(Txt);
+        builder = builder.items(txt_manifest(), txt_items());
     }
     let mut kernel = builder.build().unwrap();
     let directory = Shared::try_new(NativeDeclarations::default()).unwrap();
@@ -160,12 +160,12 @@ fn a_format_plugin_that_stopped_keeps_its_books_and_one_taken_out_takes_them_at_
 #[test]
 fn status_notes_of_the_library_service_past_the_logs_cap_are_folded_in() {
     use crate::native_host::lib_host::LibraryHost;
-    use crate::native_host::lib_reads::tests::Env;
+    use crate::native_host::lib_reads::tests::Facts;
     use crate::native_host::lib_service::{BookRef, LibWrite};
     let (mut kernel, _plugin, now) = started(false);
     let now = want(&mut kernel, now, false);
     assert_eq!(paths(&kernel).len(), 3, "walked");
-    let env = Rc::new(Env {
+    let env = Rc::new(Facts {
         walking: Cell::new(None),
         today: Cell::new(None),
     });

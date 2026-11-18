@@ -27,11 +27,10 @@
 //! A code plugin is a folder like a data plugin's (`plugin.ini`,
 //! translations, settings) with its code as [`Native::file`]; the kernel
 //! loads the code of those switched on at the start, and switching one
-//! takes a restart. Where PaperPaw loads code plugins, [`Env::native`]
+//! takes a restart. Where PaperPaw loads code plugins, `Place::native`
 //! says with what (the store takes the build that fits), and whether this
 //! start went without them ([`SafeMode`]).
 //!
-//! [`Env::native`]: crate::Env
 
 use alloc::borrow::Cow;
 use alloc::string::String;
@@ -90,7 +89,6 @@ pub const CROSSING_CRATES: &[&str] = &[
     "paperpaw_qr",
     "paperpaw_native",
     "paperpaw_lang",
-    "paperpaw_table",
     "paperpaw_sort",
 ];
 
@@ -192,6 +190,10 @@ pub fn check_file(
 /// The [`Problem::Other`] code of a check that had no memory for itself
 /// (the author's check, about 700 bytes): the file is not judged, and a
 /// later check may well hold. Not a signature that fails (#250).
+#[cfg(any(test, feature = "kernel"))]
+pub const NO_MEMORY: u16 = 1;
+/// As the kernel's, for the SDK's own checks.
+#[cfg(not(any(test, feature = "kernel")))]
 pub(crate) const NO_MEMORY: u16 = 1;
 
 /// [`check_file`], for the marks an installer left ([`install::marks`](crate::install::marks)).
@@ -800,8 +802,14 @@ pub fn keep_code_room(storage: &dyn Storage, room: Option<&CodeRoom>) -> bool {
         u8::from(room.shared),
         room.larger.unwrap_or(0)
     );
-    let _ = storage.create_dir(crate::data::DIR);
-    storage.write(ROOM, text.as_bytes()).is_ok()
+    // Not written again as it is (#305): the room is the same at most
+    // starts, and a write is a file made anew on the card. The write makes
+    // the folder where it is not there.
+    let mut kept = [0u8; 96];
+    let same = text.len() < kept.len()
+        && storage.read_at(ROOM, 0, &mut kept).ok() == Some(text.len())
+        && kept[..text.len()] == *text.as_bytes();
+    same || storage.write(ROOM, text.as_bytes()).is_ok()
 }
 
 /// The header of the plugin file at `path`, if it has one this SDK reads
@@ -865,7 +873,7 @@ impl fmt::Display for Fingerprint {
 }
 
 /// How this PaperPaw loads code plugins
-/// ([`Env::native`](crate::Env)): the shell tells the kernel.
+/// (`Place::native`): the shell tells the kernel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Native {
@@ -886,11 +894,11 @@ pub struct Native {
     /// The bytes of the shell's [`Api`](paperpaw_native::Api): a plugin
     /// that needs more ([`Header::needs_api`]) needs a newer PaperPaw.
     pub api_size: u32,
-    /// The revision of each family of shared functions the shell has
-    /// (0: none); on RISC-V chips only (`paperpaw_table`).
-    pub family_revs: paperpaw_table::Revisions,
-    /// The oldest revision of each family whose plugins the shell runs.
-    pub family_min: paperpaw_table::Revisions,
+    /// Not used: the revisions of the shared function tables, which are
+    /// gone. All 0; kept so that the fingerprint stays as it is.
+    pub family_revs: [u16; 8],
+    /// Not used, as [`family_revs`](Self::family_revs).
+    pub family_min: [u16; 8],
     /// The interface-7 minor this PaperPaw loads: a format-5 plugin file
     /// runs here when its `needs_minor` is at most this (a store compares
     /// the catalogue's `abi` "7.<needs_minor>" with it).
@@ -908,8 +916,8 @@ impl Native {
             safe_mode: None,
             not_installed: Vec::new(),
             api_size: paperpaw_native::Api::SIZE,
-            family_revs: paperpaw_table::REVISIONS,
-            family_min: paperpaw_table::OLDEST,
+            family_revs: [0; 8],
+            family_min: [0; 8],
             minor: paperpaw_native::host_glue::MINOR,
         }
     }

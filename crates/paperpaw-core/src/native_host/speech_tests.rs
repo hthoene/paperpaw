@@ -5,6 +5,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::speak;
+use crate::Ask;
 use crate::io::speech::SpeechCall;
 use crate::native_host::{
     codec,
@@ -16,7 +17,7 @@ use crate::native_host::{
 use alloc::{rc::Rc, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, OK};
-use paperpaw_sdk::{Command, Id, Instant, Params, Speech};
+use paperpaw_sdk::{Id, Instant, Params, Speech};
 
 /// What one plugin was told: `cookie`, `status`.
 type Told = Rc<RefCell<Vec<(u32, u32)>>>;
@@ -33,7 +34,7 @@ impl NativeInstance for Probe {
     fn subscribed(&self, tag: u32) -> bool {
         tag == wire::EVENT_SPOKEN_TAG
     }
-    fn service_event(&self, bytes: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         let wire::Record::EventSpoken(event) = codec::decode_any_single(bytes).unwrap() else {
             return Err(ERR_INVALID);
         };
@@ -43,7 +44,7 @@ impl NativeInstance for Probe {
     fn service_event_staged(
         &self,
         bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         _: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.service_event(bytes, env)
@@ -51,17 +52,17 @@ impl NativeInstance for Probe {
 }
 
 impl Dispatch for Probe {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -241,7 +242,7 @@ fn a_rate_out_of_range_and_an_undefined_flag_are_refused_and_the_texts_are_copie
             ERR_INVALID
         );
     }
-    let Command::Speak(speech) = speak(&owner, (1, "Hallo", "de-DE"), (50, 1)).unwrap() else {
+    let Ask::Speak(speech) = speak(&owner, (1, "Hallo", "de-DE"), (50, 1)).unwrap() else {
         panic!("a speech");
     };
     assert_eq!(
@@ -253,12 +254,12 @@ fn a_rate_out_of_range_and_an_undefined_flag_are_refused_and_the_texts_are_copie
 }
 
 /// What an interface-6 plugin would send to pass for another plugin's speech.
-fn forged(reply: &'static str) -> Command {
+fn forged(reply: &'static str) -> Ask {
     let params = Params::new()
         .with(super::OWNER, "a")
         .with("cookie", "1")
         .with("status", "0");
-    Command::Speak(alloc::boxed::Box::new(
+    Ask::Speak(alloc::boxed::Box::new(
         Speech::new("x", Id::new_static(reply)).with(params),
     ))
 }
@@ -329,7 +330,7 @@ fn stage_speech(held: usize, batches: &[&[(u32, bool)]]) -> Vec<i32> {
         .speech(true)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage =
         CommandStage::new(&owner, env.settings(), None, 16, 8192).with_ui(&env, None, 0, 100);

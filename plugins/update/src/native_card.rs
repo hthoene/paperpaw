@@ -164,6 +164,20 @@ pub fn percent(done: u64, total: u64) -> Option<i64> {
     i64::try_from(u128::from(done) * 100 / u128::from(total)).ok()
 }
 
+/// `percent` in steps of five: a bar that moves in coarse steps is redrawn
+/// at most twenty times (the e-paper's refresh is the slow part of an update).
+#[must_use]
+pub fn coarse(percent: Option<i64>) -> Option<i64> {
+    percent.map(|value| value - value % 5)
+}
+
+/// Whether a start of the download joins the one that runs (there is never a
+/// second one: it would replace the first and end in a bare error).
+#[must_use]
+pub const fn joins(running: bool) -> bool {
+    running
+}
+
 /// The path of the update file `name` of the folder.
 ///
 /// # Errors
@@ -210,6 +224,25 @@ pub fn came(undone: bool, named: &str, running: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_second_download_joins_the_running_one() {
+        assert!(joins(true));
+        assert!(!joins(false));
+    }
+
+    #[test]
+    fn the_download_bar_moves_in_steps_of_five_percent() {
+        let steps: Vec<_> = [0, 1, 4, 5, 9, 10, 99, 100]
+            .into_iter()
+            .map(|received| coarse(percent(received, 100)))
+            .collect();
+        let want = [0, 0, 0, 5, 5, 10, 95, 100].map(Some);
+        assert_eq!(steps, want);
+        // The size unknown: no bar share; more bytes than the size: a full bar.
+        assert_eq!(coarse(percent(10, 0)), None);
+        assert_eq!(coarse(percent(500, 100)), Some(100));
+    }
 
     fn names(list: &[(&str, bool, bool)]) -> Vec<String> {
         let mut offered = Offered::default();

@@ -33,7 +33,7 @@ impl NativeInstance for Probe {
     fn subscribed(&self, tag: u32) -> bool {
         self.subscribed && tag == wire::EVENT_IMAGE_READY_TAG
     }
-    fn service_event(&self, bytes: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         match wire::records_decode_single(bytes)? {
             wire::Record::EventImageReady(e) => {
                 self.told
@@ -47,17 +47,17 @@ impl NativeInstance for Probe {
 }
 
 impl Dispatch for Probe {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -296,7 +296,7 @@ fn root_one_reaches_a_running_data_plugins_files_only() {
 #[test]
 fn a_full_table_keeps_the_command_and_applies_it_at_its_own_time() {
     let mut w = world(true);
-    w.kernel.now = Instant(1_000);
+    w.kernel.shared.now = Instant(1_000);
     // Four wait at most; the fifth is kept, in order.
     w.apply((1..=5).map(|cookie| prepare(0, "p.png", cookie)).collect());
     assert_eq!(w.pending(), 1);
@@ -311,7 +311,7 @@ fn a_full_table_keeps_the_command_and_applies_it_at_its_own_time() {
     assert_eq!(cookies, [1, 2, 3, 4]);
     assert_eq!(w.pending(), 1, "not applied before its time");
     assert_eq!(w.kernel.service_due(), Some(Instant(3_000)));
-    w.kernel.now = Instant(3_000);
+    w.kernel.shared.now = Instant(3_000);
     while w.kernel.native_image_pump() {}
     assert_eq!(w.pending(), 0);
     assert_eq!(w.told().iter().map(|t| t.0).collect::<Vec<_>>(), [5]);
@@ -321,13 +321,13 @@ fn a_full_table_keeps_the_command_and_applies_it_at_its_own_time() {
 #[test]
 fn a_command_that_finds_no_room_after_its_tries_fails_to_its_plugin() {
     let mut w = world(true);
-    w.kernel.now = Instant(1_000);
+    w.kernel.shared.now = Instant(1_000);
     w.apply((1..=5).map(|cookie| prepare(0, "p.png", cookie)).collect());
     // Nothing decodes meanwhile, so the table stays full: three tries, 2 s
     // apart, then the plugin is told (status 5, no memory now).
     for at in [3_000, 5_000, 7_000] {
         assert_eq!(w.pending(), 1);
-        w.kernel.now = Instant(at);
+        w.kernel.shared.now = Instant(at);
         w.kernel.image_retry();
     }
     assert_eq!(w.pending(), 0);

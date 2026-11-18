@@ -6,17 +6,17 @@ use super::{
     Asker, RegistryView, Row, bindings, items, menus, plugins, presets, schema, settings, setup,
     status, widgets,
 };
+use crate::Place;
 use crate::native_host::{
     native_declarations::NativeDeclarations, registry_generation::RegistryGeneration,
 };
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
-use paperpaw_sdk::Env;
 
 /// What `core.registry` reads.
 #[derive(Clone, Copy)]
 pub(crate) struct Sources<'a> {
-    pub(crate) env: &'a Env<'a>,
+    pub(crate) env: &'a Place<'a>,
     /// The declaration store; `None` where the host keeps none.
     pub(crate) directory: Option<&'a NativeDeclarations>,
     /// The kernel's registry generation.

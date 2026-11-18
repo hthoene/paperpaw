@@ -7,7 +7,7 @@ their body is read, so a host that decodes through this section links no
 decoder for them. The section is separate from the records section, so that
 section re-renders byte-identical for earlier locks.
 """
-from abi_declarations import _camel, _const, wire_records
+from abi_declarations import _camel, _const, decode_arm, wire_records
 
 # Families whose records only the host sends.
 HOST_SENT_FAMILIES = ('event', 'input', 'draw')
@@ -44,14 +44,12 @@ def rust_host_decode(schema):
     statuses = {item['name']: item['value'] for item in schema['statuses']}
     sent = [r for r in declared if host_sent(schema, r['name'])]
     taken = [r for r in declared if not host_sent(schema, r['name'])]
-    arms = ''.join(f"        {_const(r['name'])}_TAG => {_camel(r['name'])}::decode(body)?,\n"
-                   for r in taken)
+    arms = ''.join(decode_arm(r) for r in taken)
     # `event.tick` has its own codec (not a wire record) and only the host sends it.
     refused = ['EVENT_TICK_TAG'] + [_const(r['name']) + '_TAG' for r in sent]
     arms += '        ' + '\n        | '.join(refused) + ' => return Err(@INVALID@),\n'
     arguments = [r for r in declared if r['name'].startswith('i18n.')]
-    argument_arms = ''.join(f"        {_const(r['name'])}_TAG => {_camel(r['name'])}::decode(body)?,\n"
-                            for r in arguments)
+    argument_arms = ''.join(decode_arm(r) for r in arguments)
     source = HOST_TEMPLATE.replace('@ARMS@', arms.rstrip('\n')).replace(
         '@ARGUMENTS@', ARGUMENT_TEMPLATE.replace('@ARMS@', argument_arms.rstrip('\n')))
     for marker, name in [('@INVALID@', 'ERR_INVALID'), ('@UNSUPPORTED@', 'ERR_UNSUPPORTED'),

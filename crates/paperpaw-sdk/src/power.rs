@@ -59,7 +59,7 @@ impl PowerControls {
 }
 
 /// The longest the reader goes online for with
-/// [`Command::GoOnlineFor`](crate::Command::GoOnlineFor): what Offline
+/// `Ask::GoOnlineFor`: what Offline
 /// held back runs within it.
 pub const MAX_ONLINE_FOR: Duration = Duration::from_secs(10 * 60);
 
@@ -74,8 +74,8 @@ mod hold_flags {
 }
 
 /// Keeps the device from going to sleep by itself for a while
-/// ([`Command::KeepAwake`](crate::Command::KeepAwake), or
-/// [`Cx::keep_awake`](crate::Cx::keep_awake) for a screen): a clock or a
+/// (`Ask::KeepAwake`, or
+/// `Turn::keep_awake` for a screen): a clock or a
 /// timer shown, a slideshow, a game watched, a long download. It holds
 /// only the sleep after
 /// [`settings::SLEEP_AFTER`](crate::builtin::settings::SLEEP_AFTER)
@@ -86,7 +86,7 @@ mod hold_flags {
 ///
 /// Holds of the same id are one: the latest counts. Each ends after
 /// [`WakeHold::lasting`] (at most [`MAX_HOLD`]) unless renewed, when
-/// let go ([`Command::LetSleep`](crate::Command::LetSleep)), and, for a
+/// let go (`Ask::LetSleep`), and, for a
 /// screen's, when the screen closes; a screen's counts only while it is
 /// on top.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,7 +96,7 @@ pub struct WakeHold {
     /// Milliseconds it lasts.
     lasting: u32,
     flags: u32,
-    /// The screen it is for, set by `Cx::keep_awake`.
+    /// The screen it is for, set by `Turn::keep_awake`.
     screen: Option<crate::ScreenKey>,
     /// Room for numbers to come.
     numbers: [u32; 2],
@@ -130,8 +130,8 @@ impl WakeHold {
         self
     }
 
-    /// For the screen of `key` (see `Cx::keep_awake`).
-    pub(crate) fn of_screen(mut self, key: Option<crate::ScreenKey>) -> Self {
+    /// For the screen of `key` (see `Turn::keep_awake`).
+    pub fn of_screen(mut self, key: Option<crate::ScreenKey>) -> Self {
         self.screen = key;
         self
     }
@@ -194,7 +194,7 @@ impl PowerLevel {
     }
 }
 
-/// Which mode to wear ([`Command::Wear`](crate::Command::Wear)), sent by
+/// Which mode to wear (`Ask::Wear`), sent by
 /// the plugin that chooses (the `power` plugin).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -294,7 +294,7 @@ impl Power {
     }
 }
 
-/// How PaperPaw started this time ([`Env::started`](crate::Env::started)),
+/// How PaperPaw started this time (`Place::started`),
 /// where the shell can tell: e.g. for a device check, which proves a
 /// sleep by the start that ends it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

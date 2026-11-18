@@ -29,12 +29,17 @@ use crate::{clock, device, input, now, power, stack};
 
 mod cable;
 mod card_swap;
+mod clean;
 mod dozing;
+mod low_memory;
 mod paced;
 #[cfg(feature = "remote")]
 mod remote_commands;
 #[cfg(feature = "asleep-light")]
 mod sleeping_board;
+mod turn_lab;
+#[cfg(feature = "usb-drive")]
+mod usb_drive;
 mod waveform;
 
 /// How long the main loop rests when there is nothing to do.
@@ -114,10 +119,15 @@ pub struct State {
     /// pressed again) does not change it. Set only in `step`; it ends in the
     /// power-off or a reset, so nothing clears it.
     escape: bool,
+    /// The one-time low-memory notice (`low_memory`).
+    low_memory: paperpaw_x4::low_memory::Notice,
     /// The kernel asked to sleep.
     sleep: bool,
     /// The kernel asked to switch the device off (`Effect::PowerOff`).
     power_off: bool,
+    /// The kernel asked to show the card to a computer (`Effect::UsbDrive`).
+    #[cfg(feature = "usb-drive")]
+    usb_drive: bool,
     /// Staying awake on USB, the developer's choice (`dozing`).
     stay: paperpaw_x4::stay_awake::StayAwake,
     /// When the kernel wants to be woken.
@@ -170,6 +180,11 @@ pub struct State {
     /// The panel's memories may differ after startup or a paced frame:
     /// the next one drives every pixel.
     frame_stale: bool,
+    /// The panel showed grays until the frame being drawn: its refresh drives
+    /// every pixel ([`clean`]).
+    after_gray: bool,
+    /// LAB ONLY (#40, feature `turn-lab`): the page-turn variant.
+    turn_lab: turn_lab::Lab,
 }
 
 /// The place of `refresh` in [`State::refresh_ms`].
@@ -342,6 +357,11 @@ impl Firmware {
             Some(paperpaw_x4::sleeping::Wanted::Sleep) => return self.sleep(true),
             None => {}
         }
+        // The card goes to the computer: nothing else runs until it is back.
+        #[cfg(feature = "usb-drive")]
+        if self.state.usb_drive {
+            return self.usb_drive();
+        }
         if self.state.stay.is_dozing() {
             return self.dozing_step();
         }
@@ -418,6 +438,15 @@ impl Firmware {
     fn panel_idle(&mut self) {
         if self.state.panel_idle_at.is_some_and(|at| now().0 >= at) {
             self.state.panel_idle_at = None;
+            #[cfg(feature = "fade-lab")]
+            if self.panel.powered() {
+                // LAB ONLY (#168): the variant from the card, a digit.
+                let mut digit = *b"0";
+                let _ = self.kernel.storage().read_at("fade-lab.txt", 0, &mut digit);
+                let variant = digit[0].saturating_sub(b'0').min(4);
+                info!("fade-lab: variant {variant}");
+                self.panel.set_fade_variant(variant);
+            }
             if self.panel.powered()
                 && let Err(e) = self.panel.power_down()
             {
@@ -992,11 +1021,13 @@ impl Firmware {
             ota.resume_trial(now().0);
         }
         // A card swapped while asleep is mounted anew first: waking is
-        // then told as after a USB drive (which resumes too).
-        let effects = if self.card_swapped_asleep() {
-            self.kernel.usb_drive_ended(now())
-        } else {
-            self.kernel.resume(now())
+        // then told as after a USB drive (which resumes too). One that kept
+        // its power is as the sleep left it: the kernel walks no library
+        // again for this wake (#305).
+        let effects = match self.card_asleep() {
+            card_swap::Asleep::Swapped => self.kernel.usb_drive_ended(now()),
+            card_swap::Asleep::Kept => self.kernel.resume_storage_kept(now()),
+            card_swap::Asleep::Gone => self.kernel.resume(now()),
         };
         self.apply(effects);
     }
@@ -1047,6 +1078,10 @@ impl Firmware {
             // the one-shot sleep request before taking either path.
             self.state.sleep |= effects.sleep();
             self.state.power_off |= effects.power_off();
+            #[cfg(feature = "usb-drive")]
+            {
+                self.state.usb_drive |= effects.usb_drive();
+            }
             // Anything but a paced frame waits for the one on its way.
             let paced = effects.refresh().is_some_and(|(_, mode)| self.paced(mode))
                 && !effects.restart()
@@ -1099,6 +1134,7 @@ impl Firmware {
             } else if self.state.gray_shown && effects.refresh().is_some() {
                 // After grays, the whole screen, not only what changed.
                 self.state.gray_shown = false;
+                self.state.after_gray = true;
                 effects = self.kernel.draw_again(now());
                 continue;
             } else if let Some((area, mode)) = effects.refresh() {
@@ -1115,6 +1151,12 @@ impl Firmware {
             // The cable transfer's answers, as soon as they are there.
             while let Some(line) = self.kernel.next_cable_line() {
                 esp_println::println!("{line}");
+            }
+            if let Some(next) = self.low_memory_notice(
+                effects.grays() || effects.sleep() || effects.power_off() || effects.restart(),
+            ) {
+                effects = next;
+                continue;
             }
             return;
         }
@@ -1232,18 +1274,40 @@ impl Firmware {
     }
 
     fn show_gray(&mut self, area: Rect, clean: bool) {
+        /// Whether a press waits for the main loop (or is being counted).
+        fn key_waits() -> bool {
+            input::waiting() || input::settling()
+        }
+
         power::mark(power::at::SHOWING);
         let started = now();
         let panel = &mut self.panel;
         let mut failed = None;
-        let drawn = self.kernel.render_gray(&mut |top, rows| {
-            if let Err(e) = panel.write_gray_rows(top, rows) {
-                failed = Some(e);
-            }
-        });
+        // A key that comes while the grays are drawn ends the pass: its
+        // 1.3 s of drawing and 1.1 s of refresh are not waited for.
+        let drawn = self.kernel.render_gray_until(
+            &mut |top, rows| {
+                if let Err(e) = panel.write_gray_rows(top, rows) {
+                    failed = Some(e);
+                }
+            },
+            Some(key_waits),
+        );
         if !drawn {
             warn!("no memory for grays");
             return self.show(area, RefreshMode::Full);
+        }
+        if self.kernel.gray_stopped() {
+            // The panel still shows the screen before; its memories hold a
+            // part of the grays: the next frame is the whole screen drawn
+            // again, with every pixel driven (as after grays).
+            info!(
+                "gray pass stopped by a key after {} ms",
+                now().since(started)
+            );
+            self.state.gray_shown = true;
+            self.state.frame_stale = true;
+            return;
         }
         let written = now();
         self.kernel.showing(written);
@@ -1284,7 +1348,8 @@ impl Firmware {
     fn show(&mut self, area: Rect, mode: RefreshMode) {
         power::mark(power::at::SHOWING);
         let stale = core::mem::take(&mut self.state.frame_stale);
-        let refresh = match mode {
+        let after_gray = core::mem::take(&mut self.state.after_gray);
+        let mut refresh = match mode {
             _ if stale => Refresh::Half,
             // Every pixel driven with a warm panel's waveform (1.6 s), as
             // the stock firmware cleans the panel every few pages.
@@ -1292,6 +1357,16 @@ impl Firmware {
             // Partial and fast, and modes to come.
             _ => Refresh::Fast,
         };
+        let turn = self.turn_lab(mode, &mut refresh);
+        // After grays, home is drawn while the panel is cleaned to white
+        // and then shown with a fast refresh (see `clean`).
+        let mut cleaning = self.cleans_while_drawing(after_gray, refresh == Refresh::Half);
+        if cleaning && !self.start_clean() {
+            cleaning = false;
+        }
+        if cleaning {
+            refresh = Refresh::Fast;
+        }
         let planes = if refresh == Refresh::Fast {
             Planes::NEW
         } else {
@@ -1313,7 +1388,8 @@ impl Firmware {
         let mut writing = 0;
         self.kernel.render(&mut |top, rows| {
             let before = now();
-            if let Err(e) = panel.write_rows(top, rows, planes) {
+            // The panel is busy with the clean: the bands are kept to be sent after.
+            if !cleaning && let Err(e) = panel.write_rows(top, rows, planes) {
                 failed = Some(e);
             }
             writing += now().since(before);
@@ -1323,13 +1399,39 @@ impl Firmware {
                 sent.keep(top, &rows);
             }
         });
+        if cleaning {
+            // The clean is over; the panel then shows white, which both memories
+            // hold, and the frame goes into the new one.
+            let network = &mut self.network;
+            if let Err(e) = self.panel.wait_with(|| network.keep_served()) {
+                failed = Some(e);
+            }
+            let before = now();
+            if self.write_white(Planes::BOTH).is_err() {
+                // Not white in both: the next frame drives every pixel.
+                self.state.frame_stale = true;
+            }
+            let panel = &mut self.panel;
+            let mut again = |top: u16, rows: paperpaw_platform::FrameView<'_>| {
+                if let Err(e) = panel.write_rows(top, rows, Planes::NEW) {
+                    failed = Some(e);
+                }
+            };
+            if !sent.replay(&mut again) {
+                // Not kept: drawn once more (the panel is free now).
+                self.kernel.rerender(&mut again);
+            }
+            info!("frame sent after the clean in {} ms", now().since(before));
+        }
         let drawn = now();
         self.kernel.showing(drawn);
         self.set_waveform(refresh, mode);
+        self.turn_lab_waveform(turn, refresh);
         if let Err(e) = self.refresh(refresh) {
             failed = Some(e);
         }
         let shown = now();
+        turn_lab::log(turn, refresh, shown.since(drawn));
         self.kernel.panel_busy(shown.since(drawn));
         self.kernel.shown(shown);
         let ms = core::time::Duration::from_millis;

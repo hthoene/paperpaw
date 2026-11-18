@@ -1,10 +1,11 @@
 //! The catalog's job, one step at a time: what it does to the library's
 //! files.
 
+use crate::Place;
 use alloc::string::String;
 
+use crate::kit::library;
 use paperpaw_sdk::builtin::{settings, slots};
-use paperpaw_sdk::{Env, library};
 
 /// What the kernel does to the catalog: walk the library, or catch up;
 /// before either, once, move the books' details and covers that earlier
@@ -26,7 +27,7 @@ pub(super) enum CatalogJob {
 }
 
 impl CatalogJob {
-    pub(super) fn step(&mut self, env: &Env<'_>) -> Result<bool, paperpaw_sdk::StorageError> {
+    pub(super) fn step(&mut self, env: &Place<'_>) -> Result<bool, paperpaw_sdk::StorageError> {
         match self {
             CatalogJob::Walk(walk) => walk.step(env),
             CatalogJob::Rewrite(rewrite) => rewrite.step(env),
@@ -141,9 +142,9 @@ impl super::Catalog {
     #[inline(never)]
     pub(super) fn start(
         &self,
-        env: &Env<'_>,
+        env: &Place<'_>,
         job: &mut Option<CatalogJob>,
-        out: &mut paperpaw_sdk::Commands,
+        out: &mut crate::Asks,
     ) -> Option<paperpaw_sdk::work::Step> {
         use paperpaw_sdk::work::Step;
         let fresh = core::mem::take(&mut *self.fresh.borrow_mut());
@@ -166,7 +167,10 @@ impl super::Catalog {
             }
             Err(error) => {
                 self.give_back(walk);
-                out.push(paperpaw_sdk::builtin::events::CATALOG_FAILED.emit(()));
+                out.push(crate::Ask::emit(
+                    &paperpaw_sdk::builtin::events::CATALOG_FAILED,
+                    (),
+                ));
                 Some(Step::Failed(alloc::format!("catalog: {error:?}")))
             }
         }
@@ -179,9 +183,9 @@ impl super::Catalog {
 /// (`CATALOG_CHANGED`, as of a catalog made anew); the walk goes on.
 pub(super) fn after_step(
     catalog: &super::Catalog,
-    env: &Env<'_>,
+    env: &Place<'_>,
     job: &mut Option<CatalogJob>,
-    out: &mut paperpaw_sdk::Commands,
+    out: &mut crate::Asks,
 ) -> paperpaw_sdk::work::Step {
     use paperpaw_sdk::builtin::events;
     let published = match job {
@@ -199,13 +203,13 @@ pub(super) fn after_step(
                     CatalogJob::Shown(alloc::boxed::Box::new(walk), Some(sort))
                 }
                 None => {
-                    out.push(events::CATALOG_CHANGED.emit(()));
+                    out.push(crate::Ask::emit(&events::CATALOG_CHANGED, ()));
                     CatalogJob::Walk(walk)
                 }
             });
         }
         Some(CatalogJob::Shown(walk, None)) => {
-            out.push(events::CATALOG_CHANGED.emit(()));
+            out.push(crate::Ask::emit(&events::CATALOG_CHANGED, ()));
             *job = Some(CatalogJob::Walk(*walk));
         }
         other => *job = other,
@@ -219,7 +223,7 @@ pub(super) fn after_step(
 /// goes on, also on a device of little memory (the X4): the library holds
 /// a few kilobytes of the sorted books ([`library::sorted`]), and says
 /// they are being prepared until the job made them.
-pub(super) fn waits(env: &Env<'_>) -> bool {
+pub(super) fn waits(env: &Place<'_>) -> bool {
     let shown = env.stack().iter().rev().find(|entry| !entry.overlay);
     shown.is_some_and(|entry| entry.slot.as_ref() == Some(&slots::READER))
 }
@@ -227,7 +231,7 @@ pub(super) fn waits(env: &Env<'_>) -> bool {
 /// The library's folder is there from the first start on: made where it
 /// is not (never removed), so that books copied onto the card or sent
 /// over Wi-Fi have their place from the start.
-pub(super) fn make_library_folder(env: &Env<'_>) {
+pub(super) fn make_library_folder(env: &Place<'_>) {
     let folder = env.settings().read(&settings::LIBRARY_FOLDER);
     let folder = folder.trim_matches('/');
     if folder.is_empty() || paperpaw_sdk::files::is_dir(env.storage(), folder) {
@@ -245,10 +249,7 @@ pub(super) fn make_library_folder(env: &Env<'_>) {
 /// The sorted books, for a view leaving an archive out
 /// ([`library::sorted`]): made where they are not of the library there
 /// is now. And the walk wanted again after a wake.
-pub(super) fn register_sorted(
-    r: &mut paperpaw_sdk::Registrar,
-    catalog: &alloc::rc::Rc<super::Catalog>,
-) -> Result<(), paperpaw_sdk::RegisterError> {
+pub(super) fn register_sorted(r: &mut crate::Staging) -> Result<(), paperpaw_sdk::RegisterError> {
     use paperpaw_sdk::builtin::events;
     // Woken from a light sleep (no start): walked again as after a start,
     // for books copied while it slept (the card in a computer). By the
@@ -256,30 +257,44 @@ pub(super) fn register_sorted(
     // does not ask again; under a book the walk waits until it closes).
     // A walk under way at the sleep starts again (it may have passed the
     // folder a book came into); nothing else under way is started again.
-    let woken = alloc::rc::Rc::clone(catalog);
-    r.on(events::RESUME, move |env, _, out| {
-        woken.walked.set(false);
-        let walking = woken.job.borrow().as_ref().is_some_and(CatalogJob::is_walk);
-        let open = env
-            .stack()
-            .iter()
-            .any(|entry| entry.slot.as_ref() == Some(&paperpaw_sdk::builtin::slots::LIBRARY));
-        if walking {
-            woken.want_walk(true, true, out);
-        } else if open && !env.formats().is_empty() {
-            // Other work under way (sorting, catching up) ends first.
-            woken.walk.set(true);
-            woken.declare(true, out);
+    // Not where the shell said the storage came through the sleep as it
+    // was left (`Kernel::resume_storage_kept`: a card that kept its power,
+    // #305): nothing was copied, nothing is walked again, and a walk under
+    // way goes on where it was.
+    r.on(events::RESUME, |k, p| {
+        if k.storage_kept {
+            return;
         }
+        k.with_core_event(&events::RESUME, p, |env, core, _, out| {
+            core.catalog.walked.set(false);
+            let walking = core
+                .catalog
+                .job
+                .borrow()
+                .as_ref()
+                .is_some_and(CatalogJob::is_walk);
+            let open = env
+                .stack()
+                .iter()
+                .any(|entry| entry.slot.as_ref() == Some(&paperpaw_sdk::builtin::slots::LIBRARY));
+            if walking {
+                core.catalog.want_walk(true, true, out);
+            } else if open && !env.formats().is_empty() {
+                // Other work under way (sorting, catching up) ends first.
+                core.catalog.walk.set(true);
+                core.catalog.declare(true, out);
+            }
+        });
     })?;
-    let catalog = alloc::rc::Rc::clone(catalog);
-    r.on(events::SORTED_WANTED, move |env, wanted, out| {
-        let mut archives = catalog.archives.borrow_mut();
-        library::sorted::asked(env.storage(), &mut archives, &wanted.archive);
-        drop(archives);
-        if catalog.sort_wanted(env).is_some() {
-            catalog.declare(true, out);
-        }
+    r.on(events::SORTED_WANTED, |k, p| {
+        k.with_core_event(&events::SORTED_WANTED, p, |env, core, wanted, out| {
+            let mut archives = core.catalog.archives.borrow_mut();
+            library::sorted::asked(env.storage(), &mut archives, &wanted.archive);
+            drop(archives);
+            if core.catalog.sort_wanted(env).is_some() {
+                core.catalog.declare(true, out);
+            }
+        });
     })
 }
 

@@ -20,6 +20,8 @@ use super::{
     ordered::Sort,
     sources::Sources,
 };
+use crate::Place;
+use crate::kit::menus::ItemState;
 use crate::native_host::item_state::ItemStates;
 use crate::native_host::{
     native_menus::MENU_USER_DEFINED,
@@ -27,7 +29,7 @@ use crate::native_host::{
 };
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_BUSY;
-use paperpaw_sdk::{Env, Id, ItemState, SettingKind};
+use paperpaw_sdk::{Id, SettingKind};
 
 /// `reg_query.flags` of op 12.
 const ALL: u32 = 1;
@@ -105,7 +107,7 @@ pub(super) fn menus(
 
 /// What op 12 reads for one call.
 struct Call<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     native: Option<Native<'a>>,
     menu: &'a str,
     /// The entries plugins contributed, as `Menus` has them (hides applied).
@@ -493,9 +495,9 @@ fn row(
         .or_else(|| native_icon.as_ref().map(Fixed::as_str))
         .unwrap_or("");
     let native_line = native.and_then(|n| n.describe(item.id));
-    let describe = menus
-        .description(item.id)
-        .or_else(|| native_line.as_ref().map(Fixed::as_str))
+    let describe = native_line
+        .as_ref()
+        .map(Fixed::as_str)
         .map_or("", |key| translated(translator, key, caps::TITLE));
     let by = item.hidden_by.unwrap_or(item.by);
     visit(&Record::ServiceRegMenuRow(wire::ServiceRegMenuRow {
@@ -530,7 +532,7 @@ fn shown<'b>(
 }
 
 /// A screen's title key, for an item that is a screen.
-fn screen_title<'a>(env: &Env<'a>, item: &str) -> Option<&'a str> {
+fn screen_title<'a>(env: &Place<'a>, item: &str) -> Option<&'a str> {
     env.screens()
         .iter()
         .find(|(id, _)| id.as_str() == item)

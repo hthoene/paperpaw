@@ -7,6 +7,7 @@
 //! links, annotations) is in `PORTING-7.md`.
 use crate::{
     native_actions,
+    native_breaks::Breaks,
     native_chapter::{self, Chapter},
     native_document::HostDocument,
     native_draw::{HostInk, draw_page},
@@ -29,7 +30,7 @@ use core::ops::Range;
 use paperpaw_sdk::{
     Color, Handled, NoStorage,
     document::Locator,
-    layout::{LayoutContext, Page, layout_page},
+    layout::{Hyphenate, LayoutContext, Page, layout_page},
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input},
@@ -385,12 +386,12 @@ impl View {
             laid: None,
             trail: Trail::new(),
             root: root_code(root),
+            unsaved: native_open::names_place(|k| found.get(k), sections),
             path: found.path,
             conversion,
             progress,
             stored_ppm,
             saved_at: None,
-            unsaved: false,
             turned: false,
             pictures: pictures::Pass::Whole,
             report_due: false,
@@ -921,7 +922,7 @@ impl View {
         };
         // A turn that did not move (the last page) leaves the link focus where it was.
         if choosing && !moved {
-            open.marking.stay();
+            open.marking.stay(host);
         }
         if moved {
             open.after_turn(host, (docs, library))?;
@@ -968,7 +969,8 @@ impl Open {
         let from = if forward {
             if self.page.is_none() {
                 let setup = self.settings.setup(host)?;
-                self.page = Some(self.lay(host, docs, &setup, self.at)?);
+                let page = self.lay(host, docs, &setup, self.at)?;
+                self.put_page(page, self.key(&setup));
             }
             let Some(page) = &self.page else {
                 return Ok(());
@@ -1072,10 +1074,7 @@ impl Open {
         };
         if self.page.is_none() {
             match self.lay(host, docs, &setup, self.at) {
-                Ok(page) => {
-                    self.page = Some(page);
-                    self.laid = Some(self.key(&setup));
-                }
+                Ok(page) => self.put_page(page, self.key(&setup)),
                 Err(_) => return,
             }
         }
@@ -1173,6 +1172,7 @@ impl Open {
             return Ok(Outcome::Ignored);
         }
         let setup = self.settings.setup(host)?;
+        self.complete_end(host, docs, &setup, input);
         let area = self.area(&setup).ok_or(Error::NoSpace)?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
@@ -1220,6 +1220,16 @@ impl Open {
         }
     }
 
+    /// Takes `page`, laid out with `key`, as the page on show. The words (and
+    /// with them the marks, the plugins' marks and what can be chosen) are those
+    /// of the page before: they are let go of here and made again at the draw,
+    /// so a page never shows or saves a mark by another page's words (#265).
+    fn put_page(&mut self, page: Page, key: LayoutKey) {
+        self.page = Some(page);
+        self.laid = Some(key);
+        self.words = Vec::new();
+    }
+
     /// Goes to the page that starts at `to` (a followed link, or the way back).
     fn jump(&mut self, to: (u32, u32)) {
         self.at = to;
@@ -1246,9 +1256,7 @@ impl Open {
             Onto::Page(laid) => {
                 let moved = self.next()?;
                 if moved {
-                    self.page = Some(*laid);
-                    self.laid = Some(self.key(&setup));
-                    self.words = Vec::new();
+                    self.put_page(*laid, self.key(&setup));
                 }
                 Ok(moved)
             }

@@ -7,14 +7,14 @@
 //! metered to the format plugin itself, as the callee of a nested call is
 //! (`native_call`). The format's own negative status passes through.
 use super::{fmt_call::Route, format_call, format_call::Target, native_instances::NativeInstances};
+use crate::Place;
 use crate::meter::Meter;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NOT_FOUND};
-use paperpaw_sdk::Env;
 
 /// The host's own route to a format: no caller, the callee metered to itself.
 pub(crate) struct HostRoute<'a> {
     pub(crate) registry: &'a NativeInstances,
-    pub(crate) env: &'a Env<'a>,
+    pub(crate) env: &'a Place<'a>,
     pub(crate) meter: &'a Meter,
 }
 

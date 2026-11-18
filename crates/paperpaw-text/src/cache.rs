@@ -18,6 +18,18 @@ const NOT_READ: GlyphRef<'static> = GlyphRef {
     data: &[],
 };
 
+/// Bitmaps of glyphs let go that a cache keeps at most, for the next glyph
+/// read from a pack on a card to be read into: a full cache then takes no
+/// memory for it, and leaves no holes in the heap.
+const SPARE: usize = 2;
+
+/// The largest bitmap kept for that, in bytes (a glyph of 64 px).
+const SPARE_MAX: usize = 2048;
+
+/// Room made for this many entries at a time when the list is full: no
+/// doubling past what the cache holds.
+const ENTRY_STEP: usize = 32;
+
 /// The keys whose anchors the cache keeps at most: the letters and marks
 /// of a few pointed words (anchors are looked up for marks alone).
 const ANCHORED: usize = 48;
@@ -95,12 +107,10 @@ impl fmt::Debug for GlyphCache {
 }
 
 impl GlyphCache {
-    paperpaw_table::shared! {
     /// A cache holding at most `capacity` bytes of glyphs: the firmware's
     /// code, so that how it keeps them is the firmware's too.
     pub fn new(capacity: usize) -> GlyphCache {
         GlyphCache(Box::new(Lru::new(capacity)))
-    } @ text::CACHE_NEW
     }
 
     /// Bytes currently used.
@@ -160,6 +170,8 @@ struct Lru {
     bytes: usize,
     capacity: usize,
     clock: u32,
+    /// Bitmaps of glyphs let go, at most [`SPARE`] (see there).
+    spare: Vec<Vec<u8>>,
 }
 
 impl Cache for Lru {
@@ -186,7 +198,9 @@ impl Cache for Lru {
             Font::Bitmap(font) => font.glyph(ch, size),
             // Not read now (the card pulled): drawn as nothing, its
             // advance kept, so that the line stays as it was measured.
-            Font::Stored(font) => match self.cached(font_index, ch, size, |s| font.render(ch, s)) {
+            Font::Stored(font) => match self.cached_with(font_index, ch, size, |s, spare| {
+                font.render_reusing(ch, s, spare)
+            }) {
                 Some(glyph) => glyph,
                 None => GlyphRef {
                     advance: font.advance(ch, size),
@@ -256,12 +270,14 @@ impl Cache for Lru {
 
     fn trim(&mut self, keep: usize) {
         self.shrink_to(keep);
+        self.spare = Vec::new();
         self.entries.shrink_to_fit();
     }
 
     fn clear(&mut self) {
         self.entries = Vec::new();
         self.anchored = Vec::new();
+        self.spare = Vec::new();
         self.bytes = 0;
     }
 }
@@ -274,17 +290,31 @@ impl Lru {
             bytes: 0,
             capacity,
             clock: 0,
+            spare: Vec::new(),
         }
     }
 
     /// The glyph of a key, made by `rasterize` if it is not kept: `None`
     /// where it could not be made now, which is not kept.
+    #[cfg(any(test, feature = "outline"))]
     fn cached(
         &mut self,
         font_index: u16,
         ch: char,
         size: f32,
         rasterize: impl FnOnce(f32) -> Option<Glyph>,
+    ) -> Option<GlyphRef<'_>> {
+        self.cached_with(font_index, ch, size, |size, _| rasterize(size))
+    }
+
+    /// [`Lru::cached`], where `rasterize` is also given the bitmap of a
+    /// glyph let go before (empty at first) to make the new one in.
+    fn cached_with(
+        &mut self,
+        font_index: u16,
+        ch: char,
+        size: f32,
+        rasterize: impl FnOnce(f32, Vec<u8>) -> Option<Glyph>,
     ) -> Option<GlyphRef<'_>> {
         let key = Key {
             font: font_index,
@@ -295,11 +325,14 @@ impl Lru {
         let index = match self.entries.iter().position(|e| e.key == key) {
             Some(index) => index,
             None => {
-                let glyph = rasterize(f32::from(key.size) / 4.0)?;
+                let spare = self.spare.pop().unwrap_or_default();
+                let glyph = rasterize(f32::from(key.size) / 4.0, spare)?;
                 self.shrink_to(self.capacity.saturating_sub(glyph.byte_size()));
                 // Room for the entry before it is counted: where the heap
                 // refuses, the glyph is not kept and reads as not read now.
-                self.entries.try_reserve(1).ok()?;
+                if self.entries.len() == self.entries.capacity() {
+                    self.entries.try_reserve_exact(ENTRY_STEP).ok()?;
+                }
                 self.bytes += glyph.byte_size();
                 self.entries.push(Entry {
                     key,
@@ -325,8 +358,15 @@ impl Lru {
                 .enumerate()
                 .max_by_key(|(_, e)| clock.wrapping_sub(e.last_used))
                 .map_or(0, |(i, _)| i);
-            let removed = self.entries.swap_remove(oldest);
+            let mut removed = self.entries.swap_remove(oldest);
             self.bytes -= removed.glyph.byte_size();
+            let data = core::mem::take(&mut removed.glyph.data);
+            if self.spare.len() < SPARE && (1..=SPARE_MAX).contains(&data.capacity()) {
+                if self.spare.capacity() == 0 && self.spare.try_reserve_exact(SPARE).is_err() {
+                    continue;
+                }
+                self.spare.push(data);
+            }
         }
     }
 }
@@ -378,6 +418,39 @@ mod tests {
             (lru.capacity(), lru.bytes(), lru.entries.len()),
             (one, 0, 0)
         );
+    }
+
+    #[test]
+    fn the_memory_of_a_glyph_let_go_is_given_to_the_next() {
+        let make = |_: f32, spare: Vec<u8>| {
+            let mut glyph = Glyph::empty(1.0);
+            glyph.data = spare;
+            glyph.data.clear();
+            glyph.data.resize(100, 7);
+            Some(glyph)
+        };
+        let room = 2 * (100 + core::mem::size_of::<Glyph>());
+        let mut cache = Lru::new(room);
+        let mut seen = Vec::new();
+        for ch in ['a', 'b', 'c', 'd', 'e', 'f'] {
+            let before = cache.spare.len();
+            let got = cache
+                .cached_with(0, ch, 10.0, |s, spare| {
+                    seen.push((spare.capacity(), 0));
+                    make(s, spare)
+                })
+                .map(|g| g.advance);
+            assert_eq!(got, Some(1.0));
+            // Kept bytes stay within the room, the spare is one buffer.
+            assert!(cache.bytes() <= room, "{ch}");
+            assert!(cache.spare.len() <= SPARE && before <= SPARE);
+        }
+        // From the third glyph on, the memory of one let go is what a new one
+        // is read into: it comes with room.
+        assert_eq!(seen[0].0, 0);
+        assert!(seen[3..].iter().all(|&(capacity, _)| capacity >= 100));
+        cache.trim(0);
+        assert!(cache.spare.is_empty());
     }
 
     #[test]

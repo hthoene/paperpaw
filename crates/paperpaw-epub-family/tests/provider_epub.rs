@@ -17,7 +17,7 @@ use paperpaw_epub_family::{EpubDocument, epub_provider};
 use paperpaw_sdk::document::{BlockKind, Document, Locator};
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
-use paperpaw_sdk::{DirEntry, Env, MemoryStorage, Storage, StorageError};
+use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
 
 /// Root 3 (the folder of the book) and root 6 (below the plugin's folder).
 struct Roots {
@@ -32,7 +32,7 @@ impl Roots {
     fn new(name: &str, book: &[u8]) -> Self {
         Self {
             mem: MemoryStorage::new().with(&format!("book/{name}"), book.to_vec()),
-            prefix: Env::plugin_dir("format-epub"),
+            prefix: paperpaw_sdk::data::plugin_dir("format-epub"),
             pictures: std::cell::RefCell::default(),
             picture_appends: std::cell::Cell::new(0),
         }
@@ -461,7 +461,7 @@ fn an_embedded_font_is_written_to_the_cache_and_listed() {
     assert!(faces[0].1 >= 1, "a family");
     assert_eq!(faces[0].3 as usize, TTF.len());
     // The file the host reads: `fonts/0` of the document cache (root 6).
-    let path = format!("{}/fonts/0", Env::plugin_dir("format-epub"));
+    let path = format!("{}/fonts/0", paperpaw_sdk::data::plugin_dir("format-epub"));
     assert_eq!(io.size(&path).unwrap(), TTF.len() as u64);
     // Asked again, it is found there whole and listed the same.
     let again = run(&mut p, &io, &call(16, |_| {})).unwrap();
@@ -555,7 +555,7 @@ fn face_file(book: Vec<u8>) -> (Vec<u8>, u32) {
             _ => None,
         })
         .expect("a face");
-    let path = format!("{}/fonts/0", Env::plugin_dir("format-epub"));
+    let path = format!("{}/fonts/0", paperpaw_sdk::data::plugin_dir("format-epub"));
     assert!(
         !io.exists(&format!("{path}.tmp")),
         "no temporary file stays"
@@ -661,7 +661,10 @@ fn a_font_over_the_size_limit_is_its_own_fault_and_the_others_are_listed() {
     assert_eq!(faces.len(), 2, "{faces:?}");
     assert_eq!(faces[0], (0, 0), "the large one: no bytes, no error");
     assert_eq!(faces[1], (1, TTF.len() as u32), "the other is listed");
-    assert!(!io.exists(&format!("{}/fonts/0.tmp", Env::plugin_dir("format-epub"))));
+    assert!(!io.exists(&format!(
+        "{}/fonts/0.tmp",
+        paperpaw_sdk::data::plugin_dir("format-epub")
+    )));
 }
 
 #[test]
@@ -677,7 +680,7 @@ fn the_copied_faces_of_a_book_stop_at_the_total_cap() {
     let faces = faces_of(&mut p, &io);
     let size = 12 * 1024 * 1024;
     assert_eq!(faces, [(0, size), (1, size), (2, 0)]);
-    let third = format!("{}/fonts/2", Env::plugin_dir("format-epub"));
+    let third = format!("{}/fonts/2", paperpaw_sdk::data::plugin_dir("format-epub"));
     assert!(!io.exists(&third), "the face over the cap is not kept");
 }
 
@@ -739,7 +742,7 @@ fn a_face_that_fails_to_copy_leaves_no_temporary_file_and_is_not_tried_again() {
     // The book is converted; now the card refuses appends (full, failing).
     io.fail_appends.set(true);
     assert_eq!(faces_of(&mut p, &io), [(0, 0)], "listed with no bytes");
-    let path = format!("{}/fonts/0", Env::plugin_dir("format-epub"));
+    let path = format!("{}/fonts/0", paperpaw_sdk::data::plugin_dir("format-epub"));
     assert!(!io.exists(&path) && !io.exists(&format!("{path}.tmp")));
     // Remembered for the open book: the next call does not read the book
     // again, even where appends work now.

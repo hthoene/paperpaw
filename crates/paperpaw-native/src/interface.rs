@@ -13,7 +13,7 @@ pub const ENTRY_SECTION: &str = ".rodata.paperpaw_entry";
 /// static.
 pub const API_SYMBOL: &str = "PAPERPAW_API";
 /// The symbols of the words `paperpaw-plugin.x` makes for the families
-/// of shared functions (`paperpaw_table`), by family number: the loader
+/// of shared functions, by family number: the loader
 /// writes the address of the firmware's table of each into them.
 pub const TABLE_SYMBOLS: [&str; 8] = [
     "PAPERPAW_TABLE_0",
@@ -47,7 +47,7 @@ pub struct Entry {
     /// a firmware can say "older" or "newer" rather than "another build".
     pub interface: u16,
     /// The revision of each family of shared functions the SDK that built
-    /// the plugin has (`paperpaw_table::REVISIONS`). The packer copies
+    /// the plugin has. The packer copies
     /// those of the families the plugin's code uses to the header.
     pub families: [u16; 8],
 }
@@ -102,8 +102,8 @@ pub struct Api {
     /// device has both; else anywhere. Null when there is no room. Freed
     /// with `dealloc`.
     pub alloc_in: unsafe extern "C" fn(size: usize, align: usize, placement: u32) -> *mut u8,
-    /// The revision of each family of shared functions the firmware has
-    /// (`paperpaw_table::Revisions`), 0 for a family it does not share.
+    /// The revision of each family of shared functions the firmware has,
+    /// 0 for a family it does not share.
     pub family_revs: [u16; 8],
     /// The oldest revision of each family whose plugins the firmware still
     /// runs: a plugin built with an older one is refused.

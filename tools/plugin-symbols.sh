@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Flash gate (decision 136): a built plugin must not link the whole records codec. Fails
 # when an ELF (the file a `.ppn` is packed from) has the enum's generic decoder
-# (`record_decode`) or encoder (`Record::write`, `body_len`, `tag`, `Record as WireEncode`).
+# (`record_decode`) or encoder (`Record::typed`, `Record as WireEncode`).
 # These link every record type's codec (161 KB in End of book before the typed facades).
 # It also fails on the text-escaping tables (`core::unicode::printable`, `char`/`str` as
 # `Debug`), about 4 KB per plugin, which `{:?}` on text or a failing `&str[a..b]` slice
@@ -25,7 +25,7 @@ fi
 [ $# -ge 1 ] || { echo "usage: $0 [--events kind,kind...] <elf>..." >&2; exit 2; }
 nm=$(command -v llvm-nm || command -v nm || true)
 [ -n "$nm" ] || { echo "plugin-symbols: no nm" >&2; exit 2; }
-pattern='records_wire::record_decode$|records_wire::Record>::(write|body_len|tag)|Record as paperpaw_sdk::native::declare::records_wire::WireEncode'
+pattern='records_wire::record_decode$|records_wire::Record>::typed|Record as paperpaw_sdk::native::declare::records_wire::WireEncode'
 tables='core::unicode::printable|<char as core::fmt::Debug>::fmt|<str as core::fmt::Debug>::fmt|core::str::slice_error_fail'
 status=0
 for elf in "$@"; do

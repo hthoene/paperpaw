@@ -4,7 +4,7 @@
 extern crate std;
 use super::*;
 use crate::native_host::image_service::ImageTable;
-use crate::native_host::image_service::prepare::{Env, READY};
+use crate::native_host::image_service::prepare::{READY, Within};
 use alloc::string::String;
 use core::cell::{Cell, RefCell};
 use paperpaw_platform::{DirEntry, StorageError};
@@ -16,7 +16,7 @@ const WIDE: &[u8] = include_bytes!("fixtures/wide.jpg");
 const A: u64 = 1;
 
 /// The device with no X4 limits.
-const ENV: Env = Env {
+const ENV: Within = Within {
     screen: 480,
     colour: false,
     max_side: 4096,
@@ -519,7 +519,7 @@ fn prepare_jpeg(
     orientation: Option<u16>,
     side: u32,
     recipe: &Recipe,
-    env: Env,
+    env: Within,
 ) -> (ImageTable, super::super::prepare::Ready) {
     // The fixture with an EXIF block of `orientation` after the SOI.
     let mut bytes = WIDE.to_vec();

@@ -44,7 +44,7 @@ fn a_stage_call_allocation_failure_never_enters_the_format() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let stage = Stage {
         route: &Registry {
             registry: &h.registry,

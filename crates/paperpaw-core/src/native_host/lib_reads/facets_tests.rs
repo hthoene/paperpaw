@@ -4,7 +4,7 @@
 extern crate std;
 use crate::abi7::context::RowsEnd;
 use crate::native_host::lib_reads::CatalogReads;
-use crate::native_host::lib_reads::tests::Env;
+use crate::native_host::lib_reads::tests::Facts;
 use crate::native_host::lib_service::LibQuery;
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::rc::Rc;
@@ -36,7 +36,7 @@ fn reads(lines: &[String]) -> (CatalogReads, Rc<MemoryStorage>) {
         text.push_str(line);
     }
     let storage = Rc::new(MemoryStorage::new().with(CATALOG, text.into_bytes()));
-    let env = Rc::new(Env {
+    let env = Rc::new(Facts {
         walking: Cell::new(None),
         today: Cell::new(Some(20_000)),
     });
@@ -528,13 +528,9 @@ impl Storage for Counted {
     }
 }
 
-/// How often one call reads the catalog through (there are no checkpoints
-/// yet, `docs/abi/library.md` 2.1): once for each 32 names up to the cursor
-/// and once for the page, once more where the rows have a jump, and where a
-/// list has more than 512 names, more to count them. 1,000 books of 700
-/// authors, 61 series and 29 tags.
-#[test]
-fn a_call_reads_the_catalog_as_often_as_the_cursor_is_deep() {
+/// 1,000 books of 700 authors, 61 series and 29 tags on a card that counts
+/// what is read of the catalog, and the catalog's size.
+fn counted_shelf() -> (CatalogReads, Rc<Counted>, Rc<Facts>, u64) {
     let mut text = String::from(HEADER);
     for n in 0..1_000_u32 {
         text.push_str(&book(
@@ -551,11 +547,21 @@ fn a_call_reads_the_catalog_as_often_as_the_cursor_is_deep() {
         inner: MemoryStorage::new().with(CATALOG, text.into_bytes()),
         read: Cell::new(0),
     });
-    let env = Rc::new(Env {
+    let env = Rc::new(Facts {
         walking: Cell::new(None),
         today: Cell::new(Some(20_000)),
     });
-    let reads = CatalogReads::new(storage.clone(), env);
+    let reads = CatalogReads::new(storage.clone(), env.clone());
+    (reads, storage, env, size)
+}
+
+/// How often one call reads the catalog through where it does not go on
+/// from the call before: once for each 32 names up to the cursor and once
+/// for the page, once more where the rows have a jump, and where a list has
+/// more than 512 names, more to count them.
+#[test]
+fn a_call_reads_the_catalog_as_often_as_the_cursor_is_deep() {
+    let (reads, storage, _, size) = counted_shelf();
     let scans = |facet: u32, cursor: u32| {
         storage.read.set(0);
         let mut q = ask(facet);
@@ -579,4 +585,194 @@ fn a_call_reads_the_catalog_as_often_as_the_cursor_is_deep() {
          folders): {got:?}"
     );
     assert_eq!(got, [4, 14, 25, 2, 1, 2, 1]);
+}
+
+/// The rows and the end of a call that hides the books `hide` names, and
+/// how often it read the catalog through.
+fn counted_page(
+    (reads, storage, size): (&CatalogReads, &Counted, u64),
+    q: &wire::ServiceLibQuery<'_>,
+    hide: &dyn Fn(&str) -> bool,
+) -> (Rows, (u32, u32), u64) {
+    storage.read.set(0);
+    let mut rows = Vec::new();
+    let end = reads
+        .facets_hiding(q, "", hide, &mut |record| {
+            let Record::ServiceLibFacet(row) = record else {
+                panic!("a facet row")
+            };
+            rows.push((row.text.to_string(), row.count, row.first));
+            ControlFlow::Continue(())
+        })
+        .unwrap();
+    (rows, (end.total, end.next), storage.read.get() / size)
+}
+
+/// A page that goes on where the call before ended reads the catalog twice
+/// (its names, their jumps), however deep its cursor is, and answers what a
+/// call that starts anew answers: the 700 authors in 46 scans.
+#[test]
+fn the_page_after_a_page_goes_on_where_that_one_ended() {
+    let (reads, storage, _, size) = counted_shelf();
+    let none = |_: &str| false;
+    let mut q = ask(0);
+    let (mut rows, mut end, first) = counted_page((&reads, &storage, size), &q, &none);
+    assert_eq!(first, 4);
+    let (mut seen, mut scans) = (0, first);
+    while !rows.is_empty() {
+        seen += rows.len();
+        q.cursor = end.1;
+        let (anew, anew_storage, _, _) = counted_shelf();
+        let expected = counted_page((&anew, &anew_storage, size), &q, &none);
+        let more;
+        (rows, end, more) = counted_page((&reads, &storage, size), &q, &none);
+        assert_eq!((&rows, end), (&expected.0, expected.1), "from {}", q.cursor);
+        if rows.is_empty() {
+            // Past the last name there are no jumps to count.
+            assert_eq!(more, 1);
+        } else {
+            assert_eq!(more, 2, "from {}", q.cursor);
+            scans += more;
+        }
+    }
+    assert_eq!((seen, end, scans), (700, (700, 700), 46));
+}
+
+/// The place kept is for its query, its catalog and its day alone: a call
+/// of another list, of the other direction, on another day or over a
+/// changed catalog starts anew, and so does the next one of the first list.
+#[test]
+fn a_place_kept_is_for_its_query_its_catalog_and_its_day_alone() {
+    let (reads, storage, env, size) = counted_shelf();
+    let none = |_: &str| false;
+    let on = (&reads, &*storage, size);
+    let second = wire::ServiceLibQuery {
+        cursor: 32,
+        ..ask(0)
+    };
+    let anew = |q: &wire::ServiceLibQuery<'_>| {
+        let fresh = CatalogReads::new(storage.clone(), env.clone());
+        let (rows, end, _) = counted_page((&fresh, &storage, size), q, &none);
+        (rows, end)
+    };
+    // Another list in between took the place.
+    assert_eq!(counted_page(on, &ask(0), &none).2, 4);
+    assert_eq!(counted_page(on, &ask(1), &none).2, 2);
+    let (rows, end, scans) = counted_page(on, &second, &none);
+    assert_eq!(((rows, end), scans), (anew(&second), 5));
+    // The other direction is another query.
+    let back = wire::ServiceLibQuery { flags: 1, ..second };
+    let (rows, end, scans) = counted_page(on, &back, &none);
+    assert_eq!(((rows, end), scans), (anew(&back), 5));
+    // Another day.
+    assert_eq!(counted_page(on, &ask(0), &none).2, 4);
+    env.today.set(Some(20_001));
+    assert_eq!(counted_page(on, &second, &none).2, 5);
+    // A catalog that changed.
+    assert_eq!(counted_page(on, &ask(0), &none).2, 4);
+    let mut text = paperpaw_sdk::read_file(&*storage, CATALOG, 1 << 20).unwrap();
+    text.extend_from_slice(book("b/new.epub", "A New Writer", "new", "", "", "").as_bytes());
+    storage.write(CATALOG, &text).unwrap();
+    let grown = text.len() as u64;
+    let (rows, end, scans) = counted_page((&reads, &*storage, grown), &second, &none);
+    let fresh = CatalogReads::new(storage.clone(), env.clone());
+    let expected = counted_page((&fresh, &*storage, grown), &second, &none);
+    assert_eq!((rows, end, scans), (expected.0, expected.1, 5));
+    assert_eq!((end.0, expected.2), (701, 5));
+}
+
+/// While a pending delete hides a book, no place is used and none is kept:
+/// a name the hidden book was the last of is gone from before the place, and
+/// the page begins one name later, as a call that starts anew has it.
+#[test]
+fn a_book_being_deleted_uses_no_place_and_keeps_none() {
+    let (reads, storage, env, size) = counted_shelf();
+    let on = (&reads, &*storage, size);
+    let none = |_: &str| false;
+    // Both books of the sixth author.
+    let hide = |path: &str| path.ends_with("/0005.epub") || path.ends_with("/0705.epub");
+    let anew = |q: &wire::ServiceLibQuery<'_>| {
+        let fresh = CatalogReads::new(storage.clone(), env.clone());
+        let (rows, end, _) = counted_page((&fresh, &storage, size), q, &hide);
+        (rows, end)
+    };
+    assert_eq!(counted_page(on, &ask(0), &none).2, 4);
+    let second = wire::ServiceLibQuery {
+        cursor: 32,
+        ..ask(0)
+    };
+    // The place is tried (one scan), found hiding a book, and left.
+    let (rows, end, scans) = counted_page(on, &second, &hide);
+    assert_eq!(rows[0].0, "Writer 0033");
+    assert_eq!(((rows, end), scans), (anew(&second), 6));
+    // None was kept by that call.
+    let third = wire::ServiceLibQuery {
+        cursor: 64,
+        ..ask(0)
+    };
+    let (rows, end, scans) = counted_page(on, &third, &hide);
+    assert_eq!(((rows, end), scans), (anew(&third), 6));
+}
+
+/// The 700 authors read `room` rows a call in the direction of `flags`, each
+/// call going on where the one before ended: every page after the first is
+/// what a call that starts anew answers, read in two scans. The names in the
+/// order they came.
+fn walked(flags: u32, room: usize) -> Vec<String> {
+    let (reads, storage, env, size) = counted_shelf();
+    let take = |reads: &CatalogReads, q: &wire::ServiceLibQuery<'_>| {
+        storage.read.set(0);
+        let mut rows = Vec::new();
+        let end = reads
+            .facets_hiding(q, "", &|_| false, &mut |record| {
+                if rows.len() == room {
+                    return ControlFlow::Break(());
+                }
+                let Record::ServiceLibFacet(row) = record else {
+                    panic!("a facet row")
+                };
+                rows.push((row.text.to_string(), row.count, row.first));
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        (rows, (end.total, end.next), storage.read.get() / size)
+    };
+    let mut q = wire::ServiceLibQuery { flags, ..ask(0) };
+    let mut names = Vec::new();
+    loop {
+        let anew = CatalogReads::new(storage.clone(), env.clone());
+        let expected = take(&anew, &q);
+        let (rows, end, scans) = take(&reads, &q);
+        assert_eq!((&rows, end), (&expected.0, expected.1), "from {}", q.cursor);
+        if rows.is_empty() {
+            return names;
+        }
+        if q.cursor != 0 {
+            assert_eq!(scans, 2, "from {}", q.cursor);
+        }
+        names.extend(rows.into_iter().map(|row| row.0));
+        q.cursor = end.1;
+    }
+}
+
+/// A caller that takes fewer rows than the page has (20 of 32) goes on
+/// after the last row it took, not after the last one the page had.
+#[test]
+fn a_page_the_caller_cut_short_goes_on_after_its_last_row() {
+    let names = walked(0, 20);
+    let mut sorted = names.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!((names.len(), &names), (700, &sorted));
+}
+
+/// A descending list goes on from a place as an ascending one does: whole
+/// pages and cut ones are the ascending names the other way round.
+#[test]
+fn a_descending_page_goes_on_where_the_one_before_ended() {
+    let mut up = walked(0, 32);
+    assert_eq!(up.len(), 700);
+    up.reverse();
+    assert_eq!(walked(1, 32), up);
+    assert_eq!(walked(1, 20), up);
 }

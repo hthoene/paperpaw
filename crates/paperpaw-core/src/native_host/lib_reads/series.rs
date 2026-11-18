@@ -8,10 +8,10 @@
 //! line starts, nothing else; the row is then read from its line.
 use super::query::{ENTRY_BUFFER, row};
 use super::{CatalogReads, fail, zeroed};
+use crate::kit::library::catalog;
 use crate::native_host::lib_service::{BookRef, One};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE};
-use paperpaw_sdk::library::catalog;
 
 /// The bytes of a series read to compare it (a value is a kilobyte at most).
 const SERIES: usize = 1024;
@@ -46,7 +46,7 @@ impl CatalogReads {
             return Err(ERR_NOT_FOUND);
         }
         let mut best = None::<(u32, u64)>;
-        catalog::try_each_at(&*self.storage, &mut |at, record| {
+        catalog::try_each_at_with(&*self.storage, &changes, &mut |at, record| {
             // Opened is the flag or a progress: a book opened and closed
             // before a position was kept has no progress but is opened, as
             // in Beta 3 (`Index`'s unread) and as its `lib_entry` says (flag

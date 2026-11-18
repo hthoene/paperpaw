@@ -26,16 +26,21 @@
 )]
 
 mod common;
+use paperpaw_core::Place;
+
+use common::AddDriver;
 
 use std::cell::Cell;
 use std::rc::Rc;
 
 use common::{DEVICE, Harness};
+use paperpaw_core::Ask;
 use paperpaw_core::Kernel;
+use paperpaw_core::Staging;
 use paperpaw_core::sdk::builtin::fonts;
 use paperpaw_core::sdk::{
-    Command, Font, FontFace, FontSpec, Id, Manifest, MemoryStorage, Plugin, Priority,
-    RegisterError, Registrar, SettingKind, SettingValue, Version,
+    Font, FontFace, FontSpec, Id, Manifest, MemoryStorage, Priority, RegisterError, SettingKind,
+    SettingValue, Version,
 };
 use paperpaw_platform::{DirEntry, Instant, Storage, StorageError};
 use paperpaw_text::{Glyph, LineMetrics, PackBuilder};
@@ -64,19 +69,8 @@ fn pack(sizes: &[f32], advance: f32) -> Vec<u8> {
 /// What the lean firmware has (`plugins/fonts-default`, `LEAN_FONT_PACKS`):
 /// the UI font up to 32 px, for the menus and for book text, and the
 /// name of Literata's regular face in the plugin's folder on the card.
-struct Lean;
-
-impl Plugin for Lean {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("fonts-default"),
-            "Fonts",
-            Version::new(1, 0, 0),
-        )
-        .uses(paperpaw_core::sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn lean() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         let font = Font::from_data(pack(&[20.0, 32.0], 6.0), &[]).unwrap();
         let sans = Id::new_static(SANS);
         r.add_font(FontSpec::new(sans.clone(), font).family("PaperPaw Sans", false, false))?;
@@ -90,6 +84,16 @@ impl Plugin for Lean {
             false,
         ))
     }
+}
+
+/// What [`lean`] registers under.
+fn lean_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static("fonts-default"),
+        "Fonts",
+        Version::new(1, 0, 0),
+    )
+    .uses(paperpaw_core::sdk::Uses::NOTHING)
 }
 
 /// As `tools/plugin-files/data.py` and `tools/literata-packs.py` write it.
@@ -166,7 +170,7 @@ fn started_with(card: MemoryStorage, config: &str) -> Kernel {
 /// The kernel started and what it warned of, as text.
 fn started_warned(card: MemoryStorage, config: &str) -> (Kernel, Vec<String>) {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Lean)
+        .items(lean_manifest(), lean())
         .storage(card)
         .user_config(config)
         .build()
@@ -334,7 +338,7 @@ fn a_proposal_without_a_font_gives_way_to_the_next() {
         ),
     );
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Lean)
+        .items(lean_manifest(), lean())
         .storage(card)
         .user_config("[fonts]\ncore.font-reading = fonts-default.literata\n")
         .build()
@@ -413,8 +417,8 @@ impl Running {
             busy: busy.clone(),
         };
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(Lean)
-            .plugin(harness.plugin())
+            .items(lean_manifest(), lean())
+            .driver(harness.plugin())
             .storage(shared)
             .build()
             .unwrap();
@@ -432,7 +436,7 @@ impl Running {
     }
 
     /// Carries `command` out; nothing may be warned of.
-    fn run(&mut self, command: Command) {
+    fn run(&mut self, command: Ask) {
         self.at += 10;
         self.harness.run(&mut self.kernel, self.at, [command]);
         let warnings = self.kernel.take_warnings();
@@ -445,7 +449,7 @@ impl Running {
         self.card
             .write("plugins/other/plugin.ini", ini.as_bytes())
             .unwrap();
-        self.run(Command::LoadPlugin("plugins/other".into()));
+        self.run(Ask::LoadPlugin("plugins/other".into()));
         assert!(self.kernel.plugins().get("other").is_some());
     }
 
@@ -490,14 +494,14 @@ fn literata_chosen_before_stays_in_the_file_until_its_plugin_comes() {
     assert_ui_font_sets_the_book(&device.kernel);
     device.another_comes();
     assert!(device.kept_in_the_file());
-    device.run(Command::RemovePlugin(Id::new_static("other")));
+    device.run(Ask::RemovePlugin(Id::new_static("other")));
     assert!(device.kernel.plugins().get("other").is_none());
     assert!(device.kept_in_the_file());
     assert_ui_font_sets_the_book(&device.kernel);
 
     // The plugin comes: Literata is offered, and the next start takes it.
     write_literata(&device.card, "plugins/.literata-styles.part");
-    device.run(Command::InstallPlugin(
+    device.run(Ask::InstallPlugin(
         Id::new_static("literata-styles"),
         "plugins/.literata-styles.part".into(),
     ));
@@ -517,7 +521,7 @@ fn the_plugin_installed_over_the_one_of_before_brings_literata() {
     assert!(warnings.is_empty(), "{warnings:?}");
     assert!(!offered(&device.kernel));
     write_literata(&device.card, "plugins/.literata-styles.part");
-    device.run(Command::InstallPlugin(
+    device.run(Ask::InstallPlugin(
         Id::new_static("literata-styles"),
         "plugins/.literata-styles.part".into(),
     ));
@@ -525,7 +529,7 @@ fn the_plugin_installed_over_the_one_of_before_brings_literata() {
     assert_eq!(plugin.manifest.version.minor, 1);
     assert!(offered(&device.kernel));
     assert_ui_font_sets_the_book(&device.kernel);
-    device.run(Command::SetSetting(
+    device.run(Ask::SetSetting(
         Id::new_static("core.reading-font"),
         SettingValue::Text("Literata".into()),
     ));
@@ -553,8 +557,126 @@ fn a_card_that_cannot_say_takes_no_choice_of_literata_away() {
     assert!(device.kept_in_the_file());
     // Gone for good, the choice gives way as ever.
     device.busy.set(false);
-    device.run(Command::RemovePlugin(Id::new_static("literata-styles")));
+    device.run(Ask::RemovePlugin(Id::new_static("literata-styles")));
     assert_eq!(device.reads_in().0, "core.font.default");
     assert!(!device.kept_in_the_file());
     assert_ui_font_sets_the_book(&device.kernel);
+}
+
+/// The actual Beta 3 ini: the saved choice is retained, while the upgrade hint
+/// is specific to missing Literata and survives a restart as already shown.
+#[test]
+fn a_beta3_literata_card_gets_one_hint_only_without_the_pack() {
+    let config = include_str!("../../../shells/desktop/tests/beta3-card/paperpaw.ini");
+    let (mut first, _) = Running::on(card(Styles::None, false), config);
+    first.kernel.tick(Instant(10));
+    assert_eq!(
+        first.kernel.active_screen().unwrap().as_str(),
+        "core.literata-notice"
+    );
+    assert!(
+        !String::from_utf8(
+            paperpaw_core::sdk::read_file(first.card.as_ref(), "paperpaw.ini", 65536).unwrap()
+        )
+        .unwrap()
+        .contains("literata-pack-notice-seen = on")
+    );
+    let (after_cut, _) = Running::again(first.card.clone());
+    assert_eq!(
+        after_cut.kernel.active_screen().unwrap().as_str(),
+        "core.literata-notice"
+    );
+    drop(after_cut);
+    common::press(&mut first.kernel, 20, "back");
+    assert_eq!(first.kernel.active_screen(), Some(&common::BASE));
+    let saved = paperpaw_core::sdk::read_file(first.card.as_ref(), "paperpaw.ini", 65536).unwrap();
+    let saved = std::str::from_utf8(&saved).unwrap();
+    assert!(saved.contains("reading-font = Literata"));
+    assert!(saved.contains("literata-pack-notice-seen = on"));
+    let (mut second, _) = Running::again(first.card);
+    second.kernel.tick(Instant(10));
+    assert_eq!(second.kernel.active_screen(), Some(&common::BASE));
+    let (mut installed, _) = Running::on(card(Styles::All, false), config);
+    installed.kernel.tick(Instant(10));
+    assert_eq!(installed.kernel.active_screen(), Some(&common::BASE));
+    assert_eq!(
+        installed.kernel.settings().text("core.reading-font"),
+        "Literata"
+    );
+    let other = config.replace("reading-font = Literata", "reading-font = PaperPaw Sans");
+    let (mut other, _) = Running::on(card(Styles::None, false), &other);
+    other.kernel.tick(Instant(10));
+    assert_eq!(other.kernel.active_screen(), Some(&common::BASE));
+}
+
+#[test]
+fn configured_wifi_offers_two_buttons_and_opens_the_literata_store_page() {
+    use paperpaw_core::sdk::{Canvas, Params, semantics::Role};
+    use std::cell::RefCell;
+    struct Blank;
+    impl paperpaw_core::testing::Fake for Blank {
+        fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+        fn on_action(
+            &mut self,
+            _: &Id,
+            _: &mut paperpaw_core::Turn<'_, '_>,
+        ) -> paperpaw_core::sdk::Handled {
+            paperpaw_core::sdk::Handled::No
+        }
+    }
+    let target = Rc::new(RefCell::new(String::new()));
+    // What the store opens the Literata page as: the plugin it is opened for.
+    let store = {
+        let target = target.clone();
+        move |r: &mut Staging| -> Result<(), RegisterError> {
+            let target = target.clone();
+            r.add_fake(paperpaw_core::testing::FakeSpec::new(
+                Id::new_static("store.plugin"),
+                "Store",
+                Box::new(move |_, params: &Params| {
+                    *target.borrow_mut() = params.get("id").unwrap_or("").into();
+                    Box::new(Blank)
+                }),
+            ))
+        }
+    };
+    let harness = Harness::new();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(lean_manifest(), lean())
+        .driver(harness.plugin())
+        .items(
+            Manifest::new(
+                Id::new_static("store"),
+                "Store probe",
+                Version::new(1, 0, 0),
+            ),
+            store,
+        )
+        .wifi(true)
+        .storage(card(Styles::None, false).with("paperpaw.ini", CHOSEN))
+        .user_config(CHOSEN)
+        .build()
+        .unwrap();
+    kernel.set_secret(paperpaw_core::sdk::wifi::keep(
+        "Fixture network",
+        "fixture-only",
+    ));
+    kernel.start(Instant(0));
+    kernel.tick(Instant(10));
+    assert_eq!(
+        kernel.active_screen().unwrap().as_str(),
+        "core.literata-notice"
+    );
+    let buttons: Vec<_> = kernel
+        .describe()
+        .into_iter()
+        .filter(|p| p.role == Role::Button)
+        .map(|p| p.label)
+        .collect();
+    assert!(buttons.iter().any(|s| s == "Open store"), "{buttons:?}");
+    assert!(buttons.iter().any(|s| s == "Not now"), "{buttons:?}");
+    kernel.run_action(Instant(100), paperpaw_core::sdk::builtin::actions::LEFT);
+    kernel.run_action(Instant(110), paperpaw_core::sdk::builtin::actions::CONFIRM);
+    assert_eq!(kernel.active_screen().unwrap().as_str(), "store.plugin");
+    assert_eq!(target.borrow().as_str(), "literata-styles");
 }

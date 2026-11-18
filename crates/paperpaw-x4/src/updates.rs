@@ -105,6 +105,7 @@ const STEP: u32 = ota::BLOCK;
 pub const TRIAL_MS: u64 = 30_000;
 
 mod firmware_host;
+pub mod packed;
 
 /// A partition of the flash: the flash in addresses of its own.
 struct Partition<'a, F> {

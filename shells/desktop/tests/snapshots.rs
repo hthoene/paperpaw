@@ -422,8 +422,7 @@ const CASES: &[Case] = &[
         profile: "xteink-x4",
         book: Some("books/alice-in-wonderland.epub"),
         sets: &[],
-        script: "page-forward,page-forward,run:reader.select-text,wait:500,confirm,right,right,\
-                 confirm,wait:400,back,wait:300",
+        script: "page-forward,page-forward,run:reader.select-text,wait:500,confirm,confirm,wait:400",
         colour: 0,
         fixtures: false,
     },
@@ -670,7 +669,8 @@ const CASES: &[Case] = &[
         profile: "xteink-x4-pro",
         book: Some("books/alice-in-wonderland.epub"),
         sets: &[],
-        script: "run:core.quick-panel,wait:300,down:300:318,move:330:320,move:360:322,wait:100",
+        // The grays of the page under it follow once calm (3 s).
+        script: "run:core.quick-panel,wait:300,down:300:318,move:330:320,move:360:322,wait:100,wait:31000",
         colour: 0,
         fixtures: false,
     },
@@ -890,7 +890,9 @@ fn library(case: &Case) -> PathBuf {
     }
     // Hyphenation is data: the German names of the drawer break only where
     // the German pack is installed (built from the sources, as shipped).
-    if case.name == "x4-drawer-de" {
+    // The German book of the bookmarks case would make the reader ask the store
+    // for the pack, and the question would cover the list.
+    if case.name == "x4-drawer-de" || case.name == "x4-bookmarks" {
         let german = paperpaw_hyphenation_packs::PACKAGES
             .iter()
             .find(|package| package.id == "hyphenation-de")

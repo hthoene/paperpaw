@@ -106,6 +106,22 @@ impl NativeStore {
                 }
                 if close { back(host) } else { Ok(()) }
             }
+            Next::Templated {
+                settings,
+                switch_on,
+                queued,
+                notify,
+            } => {
+                set_template_settings(host, settings)?;
+                for id in switch_on {
+                    self.switch_on(host, id)?;
+                }
+                if queued {
+                    self.go_on(host)?;
+                }
+                self.say(host, notify)?;
+                back(host)
+            }
             Next::None => Ok(()),
         }
     }
@@ -136,6 +152,9 @@ impl NativeStore {
                 let result = self.loader.ended(&mut wire, &ended)?;
                 if result == Ended::ListChanged {
                     self.generation = self.generation.wrapping_add(1);
+                    // The library was reached: what a setup template waited
+                    // to fetch goes on.
+                    self.release_template(host, false)?;
                 }
                 // A list that did not come (no connection, no answer) is said
                 // on the screen that showed it loading.
@@ -507,15 +526,35 @@ impl NativeStore {
     }
 
     #[inline(never)]
-    fn download_failed(&mut self, host: &Host<'_>, _why: Failure) -> Result<(), Error> {
+    fn download_failed(&mut self, host: &Host<'_>, why: Failure) -> Result<(), Error> {
         let storage = DataStorage::new(host);
-        let (id, name) = match crate::native_download::Download::progress(&storage)? {
-            Some(job) => (job.plugin, job.name),
-            None => (String::new(), String::new()),
+        // The download's own end took its job away: the plugin is the page's
+        // (its screen waits on the step of this id, and ended on "Downloading"
+        // for ever where the id was empty, #287).
+        let (id, name) = match self.installing.as_ref() {
+            Some(page) => (
+                crate::native_glue::own(&page.entry.id)?,
+                crate::native_glue::own(&page.entry.name)?,
+            ),
+            None => match crate::native_download::Download::progress(&storage)? {
+                Some(job) => (job.plugin, job.name),
+                None => (String::new(), String::new()),
+            },
         };
         self.installing = None;
         self.sync_step(&id);
-        self.not_installed(host, &id, &name)?;
+        if why == Failure::Memory {
+            // Only a restart gives the memory back: said so.
+            self.noted(
+                host,
+                &id,
+                &name,
+                "store.failed.memory",
+                Result_::NotInstalled,
+            )?;
+        } else {
+            self.not_installed(host, &id, &name)?;
+        }
         self.go_on(host)
     }
 
@@ -745,8 +784,40 @@ impl NativeStore {
         if quiet {
             self.go_on(host)?;
         }
+        self.release_template(host, true)?;
         self.release_idle();
         state
+    }
+
+    /// The plugins of a setup template that waited for a connection go into
+    /// the queue (quietly) and it starts: at the start where the device is
+    /// online (`need_online`), and where the library was reached. Those that
+    /// came another way are left out; the list is gone either way. It is also
+    /// called where Wi-Fi reports a connection (`need_online` is false: the
+    /// event says so, no radio is read or switched on).
+    #[inline(never)]
+    pub(crate) fn release_template(
+        &mut self,
+        host: &Host<'_>,
+        need_online: bool,
+    ) -> Result<(), Error> {
+        use crate::native_template::{pending, release, waiting};
+        let storage = DataStorage::new(host);
+        if !waiting(&storage) || (need_online && !crate::native_installs::is_online(host)?) {
+            return Ok(());
+        }
+        let ids = pending(&storage)?;
+        let mut asked: Vec<&str> = Vec::new();
+        asked
+            .try_reserve_exact(ids.len())
+            .map_err(|_| Error::NoMemory)?;
+        asked.extend(ids.iter().map(String::as_str));
+        let present = crate::native_installs::Snapshot::read_some(host, &asked)?;
+        asked.retain(|id| present.have(id).is_none());
+        if release(&storage, &asked)? {
+            self.go_on(host)?;
+        }
+        Ok(())
     }
 
     /// Whether the setup's step applies, and what it says of the plugins chosen
@@ -924,6 +995,29 @@ fn reason_of(done: &InstallDone<'_>) -> u32 {
         O::RestartPending => 21,
         _ => 1,
     }
+}
+
+/// Sets the settings of a setup template. A setting the host refuses (this
+/// device lacks it) is left; only memory is an error.
+#[inline(never)]
+fn set_template_settings(
+    host: &Host<'_>,
+    settings: &[(&str, crate::native_template::Value)],
+) -> Result<(), Error> {
+    use crate::native_template::Value;
+    use paperpaw_sdk::native::settings::SettingValue;
+    let mut scratch = [0; 256];
+    let mut sender = CommandSender::new(host, &mut scratch);
+    for (key, value) in settings {
+        let value = match value {
+            Value::Bool(on) => SettingValue::Bool(*on),
+            Value::Text(text) => SettingValue::Text(text),
+        };
+        if let Err(Error::NoMemory) = sender.set_setting(key, value) {
+            return Err(Error::NoMemory);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

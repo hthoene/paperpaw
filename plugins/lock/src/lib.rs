@@ -18,6 +18,10 @@
 //!   With no code kept any more, the lock screen lets the device be used.
 //! - *Lock now* (`lock.now`) locks at once, from any button, gesture, menu or
 //!   rule.
+//! - The touch lock (touch devices): *Lock touch* in the quick panel and the
+//!   reader's menu closes the panel and takes every finger; the buttons go on.
+//!   The way out needs no touch: the power button held, or the home key held,
+//!   or (by touch) tapping twice and holding the second tap.
 
 #![no_std]
 
@@ -49,6 +53,8 @@ mod native_store;
 /// The touch lock's way out.
 #[doc(hidden)]
 pub mod native_touch;
+#[doc(hidden)]
+pub mod native_touch_lock;
 
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;

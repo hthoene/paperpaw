@@ -31,10 +31,10 @@
 //!   longer found, and the step goes on with the others. So a book with such
 //!   an entry, or with more entries than one batch, never stalls the library.
 use super::storage::status;
+use crate::kit::library::{BookData, KEY_LEN, key_into};
 use alloc::{string::String, vec::Vec};
 use paperpaw_native::host_glue::ERR_NO_MEMORY;
 use paperpaw_platform::{Storage, StorageError};
-use paperpaw_sdk::library::{BookData, KEY_LEN, key_into};
 
 /// Entries of one book in one folder found, and then changed, as one batch.
 /// A book with more (per-page files) takes more batches.

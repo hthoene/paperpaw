@@ -78,7 +78,7 @@ impl crate::Kernel {
         let now_ms = env.now_ms();
         let charging = self
             .shared
-            .env(self.now)
+            .place(self.shared.now)
             .status()
             .battery
             .is_some_and(|battery| battery.charging);

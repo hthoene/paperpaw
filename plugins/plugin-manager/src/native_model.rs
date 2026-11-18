@@ -18,6 +18,7 @@ pub const SELF_ID: &str = "plugin-manager";
 const ENABLED: u32 = 1;
 const RESTART_NEEDED: u32 = 1 << 1;
 const REQUIRED: u32 = 1 << 2;
+const NOT_SIGNED: u32 = 1 << 6;
 
 /// Where a plugin's code is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -146,6 +147,13 @@ impl PluginRow {
         self.flags & REQUIRED != 0
     }
 
+    /// Its code was copied to the card, never installed, and runs unchecked
+    /// (Decision 205).
+    #[must_use]
+    pub const fn unsigned(&self) -> bool {
+        self.flags & NOT_SIGNED != 0
+    }
+
     /// Whether the plugin must stay on: the host says so, or it is this
     /// manager.
     #[must_use]
@@ -246,11 +254,22 @@ pub fn note(say: &mut impl Say, row: &PluginRow, description: &str) -> Result<St
     } else {
         None
     };
+    let unsigned = if row.kind == Kind::Code && row.unsigned() && row.problem.is_none() {
+        Some(say.say("plugin-manager.code.unsigned")?)
+    } else {
+        None
+    };
     let version = say.say_with("plugin-manager.version", "version", &row.version)?;
     let mut parts: Vec<String> = Vec::new();
-    for part in [what, Some(copy(description)?), code, Some(version)]
-        .into_iter()
-        .flatten()
+    for part in [
+        what,
+        Some(copy(description)?),
+        code,
+        unsigned,
+        Some(version),
+    ]
+    .into_iter()
+    .flatten()
     {
         if !part.is_empty() {
             push(&mut parts, part)?;
@@ -419,6 +438,25 @@ mod tests {
         assert_eq!(Problem::from_wire(15), Some(Problem::TooManyReaders));
         assert_eq!(Problem::from_wire(99), Some(Problem::Other));
         assert_eq!(Problem::Other.key(), "plugin-manager.failed");
+    }
+
+    #[test]
+    fn a_code_plugin_copied_to_the_card_says_it_is_not_installed() {
+        let copied = PluginRow {
+            kind: Kind::Code,
+            ..row("a", "A", 1 | NOT_SIGNED)
+        };
+        assert_eq!(
+            note_of(&copied, "Does."),
+            "Does. plugin-manager.code plugin-manager.code.unsigned plugin-manager.version[version=1.2.3]"
+        );
+        // A refused plugin keeps its problem line only.
+        let refused = PluginRow {
+            problem: Some(Problem::NotInstalled),
+            ..copied
+        };
+        assert!(!note_of(&refused, "Does.").contains("code.unsigned"));
+        assert!(!note_of(&row("a", "A", 1), "Does.").contains("code.unsigned"));
     }
 
     #[test]

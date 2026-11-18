@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use paperpaw_core::sdk::{CertificateHash, KeyHash, SocketError};
 use paperpaw_core::{SocketEvent, TlsSetup};
 
-use crate::tls::{self, Env, Refusal, Secure, Secured, Slot};
+use crate::tls::{self, Refusal, Secure, Secured, Slot, TlsContext};
 
 /// How long connecting may take.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -116,7 +116,7 @@ struct Shared {
     /// Set by whoever reported the end of the connection first.
     failed: AtomicBool,
     secure: OnceLock<Arc<Secure>>,
-    env: Env,
+    env: TlsContext,
     /// Told each time something was sent or read on a secure connection.
     tick: Sender<()>,
     /// What watches for idleness, until a secure connection takes it.
@@ -218,7 +218,7 @@ pub(crate) fn start(
     host: String,
     port: u16,
     tls: Option<TlsSetup>,
-    env: Env,
+    env: TlsContext,
     report: Report,
 ) -> Link {
     let (reads, read_asks) = channel::<u32>();

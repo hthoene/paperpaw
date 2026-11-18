@@ -155,6 +155,8 @@ pub const fn default_store() -> StorePlugins<'static> {
 pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
+    ("anki", &paperpaw_plugin_anki::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
     ("aids", &paperpaw_plugin_aids::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-reading")]
@@ -255,6 +257,12 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("diagnostics", &paperpaw_plugin_diagnostics::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("translate", &paperpaw_plugin_translate::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("pomodoro", &paperpaw_plugin_pomodoro::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("smart-home", &paperpaw_plugin_smart_home::NATIVE_ENTRY),
+    ("puzzles", &paperpaw_plugin_puzzles::NATIVE_ENTRY),
+    ("tasks", &paperpaw_plugin_tasks::NATIVE_ENTRY),
     ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
 
@@ -264,6 +272,7 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
 /// holds: a build without `native-linked-store` does not have these ids at all.
 #[cfg(feature = "native-linked-store")]
 pub const LINKED_STORE_PLUGINS: &[&str] = &[
+    "anki",
     "battery",
     "calibre",
     "diagnostics",
@@ -272,10 +281,14 @@ pub const LINKED_STORE_PLUGINS: &[&str] = &[
     "koreader",
     "menu-editor",
     "notes-overview",
+    "pomodoro",
     "profiles",
+    "puzzles",
     "reading-goal",
     "rules",
+    "smart-home",
     "stats",
+    "tasks",
     "translate",
     "weather",
 ];
@@ -515,6 +528,11 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
         return outcome;
     }
     add_native_catalogs(kernel);
+    // One batch (#306): what looks at all the plugins (key map, fonts, slots,
+    // secrets) is made once, after the last, and the plugin list is sized
+    // once.
+    kernel.reserve_native_plugins(NATIVE_PLUGINS.len());
+    kernel.begin_native_batch();
     // What every sleeping plugin keeps of the shell, once: without room for
     // it they all stay awake.
     // SAFETY: `image` as this function's contract says.
@@ -592,6 +610,7 @@ pub unsafe fn register_native_plugins<S: paperpaw_native::host_glue::Services + 
         list(kernel, id, (state, true, None));
         outcome.push((*id, status));
     }
+    kernel.end_native_batch();
     outcome
 }
 
@@ -664,6 +683,12 @@ pub fn native_catalogs(id: &str) -> &'static [&'static str] {
 #[cfg(feature = "native-linked")]
 pub static NATIVE_MESSAGES: &[paperpaw_i18n::BuiltMessages] =
     include!(concat!(env!("OUT_DIR"), "/native_messages.rs"));
+
+/// The kernel's own texts, English and German, without their keys (see
+/// `build.rs`): the kernel carries no copy of its catalogs' sources
+/// (`KernelBuilder::built_messages`, #306).
+pub static CORE_MESSAGES: &[paperpaw_i18n::BuiltMessages] =
+    include!(concat!(env!("OUT_DIR"), "/core_messages.rs"));
 
 /// Adds the catalogs of every linked plugin of [`NATIVE_PLUGINS`] to the
 /// kernel's translator, before the kernel starts (one call for a shell that
@@ -738,7 +763,8 @@ pub fn install_with(
     let builder = builder
         .network_settings(NETWORK_SETTINGS)
         .catalog_indexes(CATALOG_INDEXES)
-        .built_catalogs(BUILT_CATALOGS);
+        .built_catalogs(BUILT_CATALOGS)
+        .built_messages(CORE_MESSAGES);
     let builder = match fonts {
         #[cfg(feature = "outline")]
         Fonts::Outline => builder.built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONTS),
@@ -753,5 +779,5 @@ pub fn install_with(
     // plugins are native plugins only (`NATIVE_PLUGINS`, under `native-linked`):
     // their interface-6 forms are gone (#244).
     // A theme of the app's own, off as it ships, on every device.
-    builder.plugin_off(Pebble)
+    builder.items_off(Pebble::manifest(), Pebble::items)
 }

@@ -64,7 +64,7 @@ pub const SDK_VERSION: Version = crate::package_version!();
 /// 0020). A data plugin says which it is made for with `formats` in
 /// `[plugin]` (1 if it does not); one made for a later version is not
 /// loaded, rather than read wrongly. 2 adds `marks.ini` (see
-/// [`decorations::MarkRules`](crate::decorations::MarkRules)); 3 adds
+/// `decorations::MarkRules`); 3 adds
 /// `menus.ini`, `actions.ini`, `icons.ini`, `points/`, `setup.ini` and
 /// `[fonts]` in `plugin.ini`; 4 adds compiled catalogs, `i18n/*.ppcat`
 /// (read as needed, ADR 0033); 5 adds `[hyphenation]` in `plugin.ini`

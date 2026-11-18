@@ -222,7 +222,7 @@ fn with_row<R>(
     .unwrap_or_else(|_| (extra.slider, settings.shows(spec)));
     // Not for this device (a front light it lacks): as the settings screen of
     // interface 6 left it out, so does this row say it is not shown.
-    let shown = shown && env.menus().available(id);
+    let shown = shown && env.menus().available(id) && native_need_met(sources, id);
     let mut flags = 0;
     for (on, bit) in [
         (spec.guarded, GUARDED),
@@ -537,6 +537,18 @@ fn extra_row(
             choices: choice_count(spec, i18n),
         },
     ))
+}
+
+/// Whether the device meets the `menu.need` rows a native plugin declared for
+/// the setting `id`; a store that is busy or absent asks nothing of it.
+fn native_need_met(sources: &Sources<'_>, id: &str) -> bool {
+    let Some(directory) = sources.directory else {
+        return true;
+    };
+    let Ok(store) = directory.store.try_borrow() else {
+        return true;
+    };
+    super::menu_native::Native::new(&store, sources.env.caps()).need_met(id, false)
 }
 
 /// How many rows [`with_row`] built on this thread, for the tests that hold

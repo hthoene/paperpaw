@@ -24,11 +24,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-caldav"
+version = "0.6.0-beta.3"
+
+[[package]]
 name = "paperpaw-config"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-sort",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -59,7 +62,6 @@ name = "paperpaw-graphics"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -73,7 +75,6 @@ dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
  "paperpaw-sort",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -89,7 +90,6 @@ name = "paperpaw-json"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -133,8 +133,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-anki"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-battery"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -181,6 +189,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-edge-light"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-end-of-book"
 version = "1.0.5"
 dependencies = [
@@ -191,6 +207,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-file-manager"
 version = "1.0.6"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-file-sync"
+version = "1.0.0"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -210,14 +234,17 @@ version = "0.0.0"
 dependencies = [
  "paperpaw-plugin-about",
  "paperpaw-plugin-aids",
+ "paperpaw-plugin-anki",
  "paperpaw-plugin-battery",
  "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-browser",
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",
+ "paperpaw-plugin-edge-light",
  "paperpaw-plugin-end-of-book",
  "paperpaw-plugin-file-manager",
+ "paperpaw-plugin-file-sync",
  "paperpaw-plugin-files",
  "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-format-cbz",
@@ -245,10 +272,13 @@ dependencies = [
  "paperpaw-plugin-notes-overview",
  "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-opds",
+ "paperpaw-plugin-picture-frame",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-plugin-manager",
+ "paperpaw-plugin-pomodoro",
  "paperpaw-plugin-power",
  "paperpaw-plugin-profiles",
+ "paperpaw-plugin-puzzles",
  "paperpaw-plugin-read-later-cloud",
  "paperpaw-plugin-reading-goal",
  "paperpaw-plugin-readwise",
@@ -256,8 +286,10 @@ dependencies = [
  "paperpaw-plugin-settings",
  "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
+ "paperpaw-plugin-smart-home",
  "paperpaw-plugin-stats",
  "paperpaw-plugin-store",
+ "paperpaw-plugin-tasks",
  "paperpaw-plugin-transfer",
  "paperpaw-plugin-translate",
  "paperpaw-plugin-update",
@@ -362,7 +394,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.9"
+version = "1.0.15"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -403,7 +435,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-kosync"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -475,6 +507,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-picture-frame"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-picture-home"
 version = "1.0.3"
 dependencies = [
@@ -484,7 +524,15 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-plugin-manager"
-version = "1.0.7"
+version = "1.0.9"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-pomodoro"
+version = "1.0.0"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -506,6 +554,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-puzzles"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-read-later-cloud"
 version = "1.0.5"
 dependencies = [
@@ -515,7 +571,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reading-goal"
-version = "1.0.9"
+version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -562,6 +618,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-smart-home"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-stats"
 version = "1.0.9"
 dependencies = [
@@ -572,8 +636,17 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.10"
+version = "1.0.15"
 dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-tasks"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-caldav",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]
@@ -597,7 +670,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.8"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -605,7 +678,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-vocabulary"
-version = "1.1.9"
+version = "1.1.10"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-sqlite",
@@ -676,7 +749,6 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-qr",
  "paperpaw-sort",
- "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-xml",
@@ -703,10 +775,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-table"
-version = "0.6.0-beta.3"
-
-[[package]]
 name = "paperpaw-text"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -714,7 +782,6 @@ dependencies = [
  "paperpaw-lang",
  "paperpaw-platform",
  "paperpaw-sort",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -734,9 +801,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-xml"
 version = "0.6.0-beta.3"
-dependencies = [
- "paperpaw-table",
-]
 
 [[package]]
 name = "paperpaw-zip"

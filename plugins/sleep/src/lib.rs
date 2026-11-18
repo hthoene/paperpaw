@@ -18,7 +18,7 @@
 //! - *Page with a picture*: the page stays, a picture or a widget over
 //!   it, its clear parts showing the page;
 //! - a mode of another plugin: it offers a screen of its own among the
-//!   choices (`Registrar::add_choice(sleep::SHOW, "my.sleep-screen")`, the
+//!   choices (`Items::add_choice(sleep::SHOW, "my.sleep-screen")`, the
 //!   value the screen's id and the translation key of its name), which
 //!   the sleep screen shows in its place, sleeping as it does.
 //!
@@ -59,6 +59,7 @@ pub mod native_plugin;
 mod native_screen;
 pub mod native_sleep;
 mod native_stack;
+mod native_widgets_edit;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 

@@ -87,8 +87,8 @@ fn the_pages_are_the_interface_6_pages() {
     }
     assert_eq!(slot_of("picture-home.page-1.wide"), None);
     assert_eq!(TOOLS, "home.tools");
-    assert_eq!(SPACE, paperpaw_sdk::widgets::SPACE);
-    assert_eq!(FILL, paperpaw_sdk::widgets::FILL);
+    assert_eq!(SPACE, paperpaw_core::kit::widgets::SPACE);
+    assert_eq!(FILL, paperpaw_core::kit::widgets::FILL);
 }
 
 #[test]

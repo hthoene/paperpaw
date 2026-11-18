@@ -11,26 +11,14 @@ use crate::document::is_external;
 
 /// What PaperPaw calls itself to servers, with the version of the SDK
 /// this is built with: the `User-Agent` header's value, e.g.
-/// `PaperPaw/0.6.0-beta.3 (e-reader)`. A plugin sends [`user_agent_of`], with
+/// `PaperPaw/0.6.0-beta.3 (e-reader)`. A plugin sends `user_agent_of`, with
 /// the version of the PaperPaw it runs in.
 pub const USER_AGENT: &str = concat!("PaperPaw/", env!("CARGO_PKG_VERSION"), " (e-reader)");
 
 /// The `User-Agent` header of [`USER_AGENT`], the SDK this is built with;
-/// [`user_agent_of`] says the PaperPaw that runs.
+/// `user_agent_of` says the PaperPaw that runs.
 pub fn user_agent() -> (String, String) {
     (String::from("User-Agent"), String::from(USER_AGENT))
-}
-
-/// The `User-Agent` header, to push onto a request's headers: with the
-/// version of the PaperPaw that runs ([`Plugins::kernel`](crate::Plugins::kernel)),
-/// not that of the SDK the plugin was built with ([`USER_AGENT`] where
-/// the kernel is not listed).
-pub fn user_agent_of(env: &crate::Env<'_>) -> (String, String) {
-    let value = match env.plugins().kernel() {
-        Some(kernel) => format!("PaperPaw/{} (e-reader)", kernel.manifest.version),
-        None => String::from(USER_AGENT),
-    };
-    (String::from("User-Agent"), value)
 }
 
 /// The infallible forms abort where memory is refused, as an infallible

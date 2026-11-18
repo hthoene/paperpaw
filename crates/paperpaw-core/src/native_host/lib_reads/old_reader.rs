@@ -19,12 +19,13 @@
 //! looked at and which of its files are settled, so a read of it again looks
 //! at nothing and holds nothing.
 use super::kept_file;
+use crate::kit::library;
 use alloc::string::String;
 use core::cell::Cell;
 use paperpaw_platform::{Storage, StorageError};
-use paperpaw_sdk::{digest::fnv1a64, library, positions};
+use paperpaw_sdk::{digest::fnv1a64, positions};
 
-/// The reader's folder of books (`Env::plugin_dir("reader")` + `/books`).
+/// The reader's folder of books (`paperpaw_sdk::data::plugin_dir("reader")` + `/books`).
 const BOOKS: &str = ".paperpaw/plugins/reader/books";
 /// The folder of the shared annotation files (`paperpaw_sdk::annotations`).
 const ANNOTATIONS: &str = ".paperpaw/annotations";
@@ -55,6 +56,11 @@ impl Kept {
 pub(crate) struct Memo(Cell<(u64, u8)>);
 
 impl Memo {
+    /// Nothing is settled.
+    pub(super) fn forget(&self) {
+        self.0.set((0, 0));
+    }
+
     /// [`adopt`], unless the book's file of `kept` is settled already: then
     /// nothing is looked at and nothing is held. A move that could not be made
     /// leaves the bit clear, so the next read tries again.

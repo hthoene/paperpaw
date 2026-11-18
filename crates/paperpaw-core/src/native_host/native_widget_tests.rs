@@ -2,6 +2,7 @@
 //! stage dispatch sees, the checked reply, and a reply the stage's codec refuses.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::*;
+use crate::Place;
 use crate::native_host::{
     declaration_store::Allocations,
     flat::FlatDepth,
@@ -16,7 +17,7 @@ use alloc::{rc::Rc, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_STATE};
 use paperpaw_platform::MemoryClass;
-use paperpaw_sdk::{Env, Id};
+use paperpaw_sdk::Id;
 
 const OWNER: u64 = u64::MAX;
 const CALLER: u64 = 7;
@@ -45,7 +46,7 @@ impl NativeInstance for Target {
     }
 }
 impl Dispatch for Target {
-    fn event(&self, token: u32, bytes: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, token: u32, bytes: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         let Record::EventWidgetMade(made) = wire::records_decode_single(bytes)? else {
             panic!("only event 84 is expected");
         };
@@ -53,19 +54,19 @@ impl Dispatch for Target {
         self.made.borrow_mut().push((token, made.instance, before));
         Ok(0)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         unreachable!()
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         unreachable!()
     }
-    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], _: &Place<'_>) -> Result<i32, i32> {
         let _level = self.guard.enter(&self.depth.as_depth().0).unwrap();
         assert_eq!(token, TOKEN);
         assert_eq!(self.depth.as_depth().0.current(), 2);
@@ -186,7 +187,7 @@ impl World {
         instance: u32,
         out: &mut [u8],
     ) -> Result<usize, i32> {
-        let env = self.kernel.shared.env(paperpaw_platform::Instant(0));
+        let env = self.kernel.shared.place(paperpaw_platform::Instant(0));
         let frame = CoreFrame {
             callback: with_callback
                 .then(|| crate::abi7::core_frame::CallbackStamp::new(CALLER, 1).unwrap()),

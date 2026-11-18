@@ -145,7 +145,7 @@ pub(crate) fn exists_in(storage: &dyn Storage, parent: &str, name: &str) -> bool
     // Both parts are `str` and the `/` is ASCII: the join is UTF-8.
     core::str::from_utf8(room).map_or(true, |path| {
         // A file, or a folder (listing it as far as its first entry).
-        storage.exists(path) || storage.list_from(path, 0, &mut |_| false).is_ok()
+        storage.exists(path) || storage.list_bounded(path, 0, &mut |_| false).is_ok()
     })
 }
 

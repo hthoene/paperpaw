@@ -84,6 +84,9 @@ pub struct NativeMenu {
     /// style Tiles): the screen's token, on top where the instance shown last
     /// is one.
     bars: Screens<BarView>,
+    /// The instances open, in the order they opened: a menu that closes itself
+    /// and those below it names them (a batch's `back`s all mean the top one).
+    open: Vec<Instance>,
 }
 
 impl Plugin for NativeMenu {
@@ -119,10 +122,16 @@ impl Plugin for NativeMenu {
                 instance,
                 handover,
                 ..
-            } => self.panel_opened(host, instance, handover),
+            } => {
+                self.note_open(instance)?;
+                self.panel_opened(host, instance, handover)
+            }
             Event::ScreenOpened {
                 instance, handover, ..
-            } => self.opened(host, instance, handover),
+            } => {
+                self.note_open(instance)?;
+                self.opened(host, instance, handover)
+            }
             Event::ScreenShown {
                 instance: Some(instance),
                 last_input,
@@ -132,6 +141,7 @@ impl Plugin for NativeMenu {
                 self.screens.close(instance);
                 self.panels.close(instance);
                 self.bars.close(instance);
+                self.open.retain(|open| *open != instance);
                 Ok(())
             }
             Event::SettingChanged { .. }
@@ -572,6 +582,12 @@ impl NativeMenu {
         Ok(())
     }
 
+    fn note_open(&mut self, instance: Instance) -> Result<(), Error> {
+        self.open.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        self.open.push(instance);
+        Ok(())
+    }
+
     fn chosen(
         &mut self,
         host: &Host<'_>,
@@ -603,7 +619,11 @@ impl NativeMenu {
                 // the screen the menu was opened on.
                 let mut scratch = buffer(1024)?;
                 let mut commands = CommandSender::new(host, &mut scratch);
-                for _ in 0..back {
+                let named = back.min(self.open.len());
+                for instance in self.open.iter().rev().take(named) {
+                    commands.close(*instance)?;
+                }
+                for _ in named..back {
                     commands.back()?;
                 }
                 commands.run_action(&action)

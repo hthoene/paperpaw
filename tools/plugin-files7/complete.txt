@@ -24,6 +24,7 @@ weather
 reading-goal
 translate
 koreader
+kosync
 lock
 wikipedia
 wallabag
@@ -44,3 +45,11 @@ format-cbz
 format-markdown
 format-epub
 vocabulary
+anki
+picture-frame
+pomodoro
+puzzles
+tasks
+file-sync
+edge-light
+smart-home

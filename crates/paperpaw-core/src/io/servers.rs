@@ -14,10 +14,11 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use crate::Ask;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::served::CABLE_PORT;
-use paperpaw_sdk::{Command, Id, ServerNotice, ServerResponse};
+use paperpaw_sdk::{Id, ServerNotice, ServerResponse};
 
 use super::cable::{self, Cable};
 
@@ -133,7 +134,7 @@ impl Servers {
         events: Id,
         network: bool,
         screens: usize,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) {
         if let Some(at) = self.running.iter().position(|r| r.id == server) {
             let old = self.running.remove(at);
@@ -170,13 +171,13 @@ impl Servers {
     }
 
     /// Stops a plugin's server, if it runs.
-    pub fn stop(&mut self, server: &Id, out: &mut Vec<Command>) {
+    pub fn stop(&mut self, server: &Id, out: &mut Vec<Ask>) {
         if let Some(at) = self.running.iter().position(|r| r.id == *server) {
             self.stop_at(at, out);
         }
     }
 
-    fn stop_at(&mut self, at: usize, out: &mut Vec<Command>) {
+    fn stop_at(&mut self, at: usize, out: &mut Vec<Ask>) {
         let running = self.running.remove(at);
         if self.cable_server == Some(running.number) {
             // Ended on the device: not opened again by the next line.
@@ -193,7 +194,7 @@ impl Servers {
 
     /// Stops the servers started while more than `screens` screens were
     /// open.
-    pub fn stop_for_closed_screens(&mut self, screens: usize, out: &mut Vec<Command>) {
+    pub fn stop_for_closed_screens(&mut self, screens: usize, out: &mut Vec<Ask>) {
         while let Some(at) = self.running.iter().position(|r| r.screens > screens) {
             self.stop_at(at, out);
         }
@@ -239,7 +240,7 @@ impl Servers {
     }
 
     /// Turns what the shell reports into the plugins' notices.
-    pub fn event(&mut self, event: ServerEvent, storage: &dyn Storage, out: &mut Vec<Command>) {
+    pub fn event(&mut self, event: ServerEvent, storage: &dyn Storage, out: &mut Vec<Ask>) {
         match event {
             ServerEvent::Started { server, address } => {
                 if let Some(running) = self.running.iter().find(|r| r.number == server) {
@@ -350,7 +351,7 @@ impl Servers {
         target: String,
         body: Option<String>,
         storage: &dyn Storage,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) {
         let Some(running) = self.running.iter().find(|r| r.number == server) else {
             if let Some(path) = body {
@@ -423,7 +424,7 @@ impl Servers {
 
     /// The calls waited too long for a network: every server fails, for
     /// `reason`.
-    pub fn fail_waiting(&mut self, reason: &str, out: &mut Vec<Command>) {
+    pub fn fail_waiting(&mut self, reason: &str, out: &mut Vec<Ask>) {
         if self.take().is_empty() {
             return;
         }
@@ -445,8 +446,8 @@ impl Servers {
 }
 
 /// Tells a server's plugin `notice` on its `events`.
-fn tell(events: &Id, notice: ServerNotice, out: &mut Vec<Command>) {
-    out.push(Command::Emit(events.clone(), notice.to_params()));
+fn tell(events: &Id, notice: ServerNotice, out: &mut Vec<Ask>) {
+    out.push(Ask::Emit(events.clone(), notice.to_params()));
 }
 
 /// Removes the requests' bodies in `tmp`.

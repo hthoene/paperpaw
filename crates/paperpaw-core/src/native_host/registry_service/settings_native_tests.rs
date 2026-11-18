@@ -9,6 +9,7 @@ use super::{
     schema,
     tests::{call_in, key, query_flags},
 };
+use crate::Staging;
 use crate::native_host::{
     native_declarations::NativeDeclarations,
     registrations::{self as wire, Record},
@@ -16,8 +17,7 @@ use crate::native_host::{
 use alloc::{format, string::String, vec::Vec};
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::{
-    Id, Manifest, Plugin, RegisterError, Registrar, SettingGroupSpec, SettingSpec, SettingValue,
-    Version,
+    Id, Manifest, RegisterError, SettingGroupSpec, SettingSpec, SettingValue, Version,
 };
 
 /// `reg_setting.flags` bits.
@@ -26,13 +26,8 @@ const GOVERNS: u32 = 1 << 10;
 const SLIDER: u32 = 1 << 11;
 
 /// The settings a native plugin's host makes from its spec records: no extra.
-struct Nat;
-impl Plugin for Nat {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("nat"), "Nat", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn nat() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         let top = Id::new_static("nat.top");
         r.add_setting_group(SettingGroupSpec::new(top.clone(), "nat.group.top"))?;
         r.add_setting(SettingSpec::number(
@@ -61,9 +56,15 @@ impl Plugin for Nat {
     }
 }
 
+/// What [`nat`] registers under.
+fn nat_manifest() -> Manifest {
+    Manifest::new(Id::new_static("nat"), "Nat", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn kernel() -> crate::Kernel {
     crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Nat)
+        .items(nat_manifest(), nat())
         .build()
         .unwrap()
 }

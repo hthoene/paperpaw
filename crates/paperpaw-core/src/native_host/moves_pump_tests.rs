@@ -1,14 +1,16 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 //! The library's move job in the service pump: it is stepped only outside
-//! callbacks, with the kernel's own `Env` on the card the job was wired over,
+//! callbacks, with the kernel's own `Place` on the card the job was wired over,
 //! a refused step waits [`WAIT_MS`], and what a step sends runs after the pump.
 extern crate std;
 use super::*;
+use crate::Ask;
+use crate::kit::library;
 use crate::{Instant, Kernel, native_host::HostResources};
 use alloc::{borrow::Cow, rc::Rc, vec::Vec};
 use core::cell::Cell;
 use paperpaw_platform::{DirEntry, Storage, StorageError};
-use paperpaw_sdk::{Command, FormatSpec, Id, MemoryStorage, document::DocumentError, library};
+use paperpaw_sdk::{FormatSpec, Id, MemoryStorage, document::DocumentError};
 
 /// The card, whose writes can be refused.
 struct Card {
@@ -92,7 +94,7 @@ fn world() -> World {
             Id::new_static("test.epub"),
             "EPUB",
             alloc::vec![Cow::Borrowed("epub")],
-            alloc::boxed::Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            |_, _, _| Err(DocumentError::UnsupportedFormat),
         ))
         .unwrap();
     let pool = Rc::new(HostResources::try_new().unwrap());
@@ -130,17 +132,17 @@ impl crate::native_host::native_instances::NativeInstance for Idle {
     fn stop(&self) {}
 }
 impl crate::native_host::native_screen::Dispatch for Idle {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(paperpaw_native::host_glue::ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(paperpaw_native::host_glue::ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &crate::native_host::registrations::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(paperpaw_native::host_glue::ERR_INVALID)
@@ -148,7 +150,7 @@ impl crate::native_host::native_screen::Dispatch for Idle {
     fn dropped(&self, _: u32, _: i32) {}
 }
 
-fn book_moved(commands: &[Command]) -> usize {
+fn book_moved(commands: &[Ask]) -> usize {
     commands
         .iter()
         .map(|c| std::format!("{c:?}"))
@@ -202,7 +204,7 @@ fn no_step_runs_inside_a_callback_and_the_pass_asks_again() {
 fn a_refused_step_waits_two_seconds_and_keeps_the_job() {
     let mut w = world();
     begun(&w);
-    w.kernel.now = Instant(10_000);
+    w.kernel.shared.now = Instant(10_000);
     w.refuse.set(true);
     // The steps that only read go on; the first one that must write is refused.
     let mut passes = 0;
@@ -219,12 +221,12 @@ fn a_refused_step_waits_two_seconds_and_keeps_the_job() {
     assert_eq!(w.kernel.service_due(), Some(Instant(10_000 + WAIT_MS)));
     // Not before the wait is over, even with the card back.
     w.refuse.set(false);
-    w.kernel.now = Instant(10_000 + WAIT_MS - 1);
+    w.kernel.shared.now = Instant(10_000 + WAIT_MS - 1);
     assert!(!w.kernel.native_moves_pump());
     assert!(w.moves.moves().active());
     let sent = book_moved(&w.kernel.output.commands);
     // Then the step is tried again, and the job goes on to its end.
-    w.kernel.now = Instant(10_000 + WAIT_MS);
+    w.kernel.shared.now = Instant(10_000 + WAIT_MS);
     while w.kernel.native_moves_pump() {}
     assert!(!w.moves.moves().active());
     // The events are sent at least once: those of a step that was cut are
@@ -248,7 +250,7 @@ fn a_card_that_stays_broken_is_tried_less_and_less_often() {
     let mut now = 10_000;
     let mut waits = Vec::new();
     for _ in 0..70 {
-        w.kernel.now = Instant(now);
+        w.kernel.shared.now = Instant(now);
         while w.kernel.native_moves_pump() {}
         let at = w.kernel.shared.native_instances.moves_retry().unwrap();
         waits.push(at - now);
@@ -266,7 +268,7 @@ fn a_card_that_stays_broken_is_tried_less_and_less_often() {
     );
     // A card that is back ends the job and the back-off starts again.
     w.refuse.set(false);
-    w.kernel.now = Instant(now);
+    w.kernel.shared.now = Instant(now);
     while w.kernel.native_moves_pump() {}
     assert!(!w.moves.moves().active());
     assert_eq!(w.kernel.shared.native_instances.moves_retry(), None);
@@ -281,7 +283,7 @@ fn a_move_begun_during_the_back_off_is_not_held_back_by_it() {
     for _ in 0..8 {
         instances.moves_failed();
     }
-    w.kernel.now = Instant(100_000);
+    w.kernel.shared.now = Instant(100_000);
     instances.set_moves_retry(Some(100_000 + WAIT_MAX_MS));
     assert!(!w.kernel.native_moves_pump(), "held back, nothing begun");
     begun(&w);

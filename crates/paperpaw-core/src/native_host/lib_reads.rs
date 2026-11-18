@@ -32,6 +32,7 @@
 //! annotation list is the file's own number, never 0 (`annotations::generation_of`).
 use super::lib_service::{BookRef, LibQuery, One, Rows};
 use crate::abi7::context::RowsEnd;
+use crate::kit::library::{self, catalog};
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::rc::Rc;
 use alloc::string::String;
@@ -46,7 +47,6 @@ use paperpaw_native::host_glue::{
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::data;
 use paperpaw_sdk::digest::{fnv1a64, md5};
-use paperpaw_sdk::library::{self, catalog};
 
 mod annotations;
 mod book;
@@ -55,8 +55,10 @@ mod facets;
 mod field;
 mod fields;
 mod importer;
+mod indexed_memo;
 mod jobs;
 mod old_reader;
+mod place_file;
 mod position;
 mod provide;
 mod query;
@@ -115,6 +117,14 @@ pub(crate) struct CatalogReads {
     env: Rc<dyn CatalogEnv>,
     /// The last book whose Beta 3 reader's files were looked at.
     old: old_reader::Memo,
+    /// Where the last page of names (op 5) ended, for the page after it.
+    names: core::cell::Cell<Option<facets::Kept>>,
+    /// How many books the catalog of this generation holds: counting them
+    /// reads the whole catalog, and `state` is asked on every screen of the
+    /// library. The generation changes with the catalog and its log.
+    counted: core::cell::Cell<Option<(u32, u32)>>,
+    /// Which books are indexed, as of the generation a query read them in.
+    indexed: indexed_memo::IndexedMemo,
 }
 
 impl CatalogReads {
@@ -141,6 +151,29 @@ impl CatalogReads {
         facets::facets(self, query, archive, hide, visit)
     }
 
+    /// The place the last page of names ended at is dropped.
+    pub(crate) fn names_ended(&self) {
+        self.names.set(None);
+    }
+
+    /// Whether a place is kept.
+    #[cfg(test)]
+    pub(crate) fn names_kept(&self) -> bool {
+        let kept = self.names.take();
+        let is = kept.is_some();
+        self.names.set(kept);
+        is
+    }
+
+    /// Another card is in, or a computer changed this one: nothing kept of
+    /// the books stands, though a catalog's generation may be the same.
+    pub(crate) fn card_changed(&self) {
+        self.old.forget();
+        self.names.set(None);
+        self.counted.set(None);
+        self.indexed.begin(None);
+    }
+
     /// The library folder setting ([`CatalogEnv::library_folder`]).
     pub(crate) fn library_folder(&self, visit: &mut dyn FnMut(&str)) {
         self.env.library_folder(visit);
@@ -151,6 +184,9 @@ impl CatalogReads {
             storage,
             env,
             old: old_reader::Memo::default(),
+            names: core::cell::Cell::new(None),
+            counted: core::cell::Cell::new(None),
+            indexed: indexed_memo::IndexedMemo::default(),
         }
     }
 
@@ -240,14 +276,17 @@ impl LibQuery for CatalogReads {
         let mut before = self.snapshot()?;
         let mut answer = None;
         for _ in 0..STATE_TRIES {
-            let books = if before.1 {
-                catalog::try_count(&*self.storage).map_err(fail)?
-            } else {
-                0
+            let books = match self.counted.get() {
+                Some((generation, books)) if before.1 && generation == before.0 => books,
+                _ if before.1 => catalog::try_count(&*self.storage).map_err(fail)?,
+                _ => 0,
             };
             let after = self.snapshot()?;
             answer = Some((before, books));
             if after == before {
+                if before.1 {
+                    self.counted.set(Some((before.0, books)));
+                }
                 break;
             }
             before = after;
@@ -404,11 +443,12 @@ impl CatalogReads {
         let BookRef::Path(path) = book else {
             return self.with_path(book, f);
         };
-        match self.locate(book) {
-            Ok(_) => {}
-            // A file, not a folder (whose size the card does not give).
-            Err(ERR_NOT_FOUND) if self.storage.size(path).is_ok() => {}
-            Err(error) => return Err(error),
+        // A file the card holds first (not a folder, whose size the card
+        // does not give): the book that is open is found among the open
+        // files, and the catalog is not searched for it at every page
+        // turned (its log read twice and its lines up to the book's, #305).
+        if self.storage.size(path).is_err() {
+            self.locate(book)?;
         }
         f(path)
     }

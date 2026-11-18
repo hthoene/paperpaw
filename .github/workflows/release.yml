@@ -36,7 +36,7 @@ name: Release
 # Only tags of PaperPaw's versions: a plugin's update between releases is
 # published by store-plugin.yml.
 #
-# The plugins' files do not go into the release (#89): a release of 73
+# The plugins' files do not go into the release (#89): a release of 81
 # files is a page one can read. Every plugin file, the folders' ZIPs
 # included, goes to the store release of the year (`plugins-<year>`, a
 # pre-release that is added to and never replaced, `store_release.py`),
@@ -418,8 +418,14 @@ jobs:
           if [[ "$DEVICE" == x4-classic ]]; then
             table=partitions-classic.csv
           fi
+          # The X4's flash (Puya PY25Q128HA, rated 104 MHz for DIO) is read at
+          # 80 MHz by the bootloader; the other devices' chips stay at 40 MHz.
+          freq=()
+          if [[ "$DEVICE" == x4 ]]; then
+            freq=(--flash-freq 80mhz)
+          fi
           espflash save-image --chip "$FIRMWARE_CHIP" --merge --skip-padding --flash-size 16mb \
-            --partition-table "$table" "$elf" "$GITHUB_WORKSPACE/dist/paperpaw-$DEVICE-$VERSION.bin"
+            "${freq[@]}" --partition-table "$table" "$elf" "$GITHUB_WORKSPACE/dist/paperpaw-$DEVICE-$VERSION.bin"
       # No release image carries the device tests' build (its never-sleep
       # defaults and high-water log): refused by its log lines.
       - name: The image is not a test image
@@ -499,19 +505,27 @@ jobs:
             "dist/paperpaw-$DEVICE-$VERSION-install.bin" > "dist/paperpaw-$DEVICE-$VERSION-plugins.txt"
           cargo run --release -p paperpaw-sign -- sign \
             "dist/paperpaw-$DEVICE-$VERSION-install.bin" "dist/paperpaw-$DEVICE-$VERSION-update.bin"
+          # The same image packed (deflated, a third smaller): Beta 4 and
+          # later inflate it as they write it; older firmware refuses it,
+          # and takes the file above.
+          cargo run --release -p paperpaw-sign -- pack-update \
+            "dist/paperpaw-$DEVICE-$VERSION-install.bin" "dist/paperpaw-$DEVICE-$VERSION-update-packed.bin"
           # Devices install only updates for their own chip.
-          shown="$(cargo run -q --release -p paperpaw-sign -- show "dist/paperpaw-$DEVICE-$VERSION-update.bin")"
-          echo "$shown"
-          if ! grep -Eq "^chip: +$FIRMWARE_CHIP_ID\$" <<< "$shown"; then
-            echo "::error::the update for the $DEVICE is not for chip $FIRMWARE_CHIP_ID"
-            exit 1
-          fi
+          for update in update update-packed; do
+            shown="$(cargo run -q --release -p paperpaw-sign -- show "dist/paperpaw-$DEVICE-$VERSION-$update.bin")"
+            echo "$shown"
+            if ! grep -Eq "^chip: +$FIRMWARE_CHIP_ID\$" <<< "$shown"; then
+              echo "::error::the $update for the $DEVICE is not for chip $FIRMWARE_CHIP_ID"
+              exit 1
+            fi
+          done
           # The web flasher checks the whole image against this.
           cargo run --release -p paperpaw-sign -- sign-apart \
             "dist/paperpaw-$DEVICE-$VERSION.bin" "dist/paperpaw-$DEVICE-$VERSION.bin.sig"
           cd dist
           sha256sum "paperpaw-$DEVICE-$VERSION.bin" > "paperpaw-$DEVICE-$VERSION.bin.sha256"
           sha256sum "paperpaw-$DEVICE-$VERSION-update.bin" > "paperpaw-$DEVICE-$VERSION-update.bin.sha256"
+          sha256sum "paperpaw-$DEVICE-$VERSION-update-packed.bin" > "paperpaw-$DEVICE-$VERSION-update-packed.bin.sha256"
           sha256sum "paperpaw-$DEVICE-$VERSION-install.bin" > "paperpaw-$DEVICE-$VERSION-install.bin.sha256"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -631,7 +645,7 @@ jobs:
           else
             exit 1
           fi
-      # Before anything is uploaded: the release holds exactly its 73 files
+      # Before anything is uploaded: the release holds exactly its 81 files
       # and no plugin file, and every address in the catalogue has an asset,
       # in the store release's plan or in a release that has it already.
       - name: The lists are right

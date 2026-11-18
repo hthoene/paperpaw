@@ -13,6 +13,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+use paperpaw_core::{Place, Turn};
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt::Write as _;
@@ -27,11 +28,12 @@ pub use paperpaw_sdk::builtin::{actions, params, slots};
 pub use paperpaw_sdk::semantics::{Part, Role};
 pub use paperpaw_sdk::{DirEntry, Id, MemoryStorage, Params, Storage, StorageError};
 
+use paperpaw_core::Ask;
+use paperpaw_core::Staging;
+use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::kit::menus::MenuEntry;
 use paperpaw_sdk::replies::Typed;
-use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, Handled, Manifest, MenuEntry, Plugin, Priority,
-    RegisterError, Registrar, Screen, ScreenSpec, Version,
-};
+use paperpaw_sdk::{Canvas, Handled, Manifest, Priority, RegisterError, Version};
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
 pub const X4: DeviceInfo = DeviceInfo::new(
@@ -165,26 +167,21 @@ thread_local! {
     static ASKED: RefCell<Vec<Params>> = const { RefCell::new(Vec::new()) };
 }
 
+const KEYBOARD_SCREEN: Id = Id::new_static("test-keyboard.screen");
+
 /// The keyboard: shown, it answers with the next text the test typed
 /// ([`App::will_type`]), as the real one does when its text is done; with
 /// nothing typed it stays open, as if the reader were still typing.
-pub struct TestKeyboard;
-
-const KEYBOARD_SCREEN: Id = Id::new_static("test-keyboard.screen");
-
-impl Plugin for TestKeyboard {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("test-keyboard"),
-            "Test keyboard",
-            Version::new(0, 1, 0),
-        )
-        .description("Types what the test says.")
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+pub fn test_keyboard(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = Manifest::new(
+        Id::new_static("test-keyboard"),
+        "Test keyboard",
+        Version::new(0, 1, 0),
+    )
+    .description("Types what the test says.")
+    .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
+        items.add_fake(paperpaw_core::testing::FakeSpec::new(
             KEYBOARD_SCREEN,
             "test-keyboard",
             Box::new(|_, params| {
@@ -194,67 +191,92 @@ impl Plugin for TestKeyboard {
                 })
             }),
         ))?;
-        r.bind_slot(slots::KEYBOARD, KEYBOARD_SCREEN, Priority(100))?;
+        items.bind_slot(slots::KEYBOARD, KEYBOARD_SCREEN, Priority(100))?;
         Ok(())
-    }
+    })
 }
+
+const TEST_TOOLS: [&str; 3] = ["test-tools.one", "test-tools.two", "test-tools.three"];
 
 /// Three more tools in the overview, standing for those that are native
 /// only now (Settings, Wi-Fi, ...), so that it has the six columns of a wide
 /// screen to fill.
-pub struct TestTools;
-
-const TEST_TOOLS: [&str; 3] = ["test-tools.one", "test-tools.two", "test-tools.three"];
-
-impl Plugin for TestTools {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("test-tools"),
-            "Test tools",
-            Version::new(0, 1, 0),
-        )
-        .description("Tools to fill the overview.")
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+pub fn test_tools(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+    let manifest = Manifest::new(
+        Id::new_static("test-tools"),
+        "Test tools",
+        Version::new(0, 1, 0),
+    )
+    .description("Tools to fill the overview.")
+    .uses(paperpaw_sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
         for id in TEST_TOOLS {
             let id = Id::new_static(id);
-            r.add_action(ActionSpec::new(id.clone(), "test-tools").handler(|_, _, _| {}))?;
-            r.add_menu_entry(MenuEntry::new(paperpaw_sdk::builtin::menus::APPS, id))?;
+            items.add_action(ActionSpec::new(id.clone(), "test-tools").handler(|_, _, _| {}))?;
+            items.add_menu_entry(MenuEntry::new(paperpaw_sdk::builtin::menus::APPS, id))?;
         }
         Ok(())
-    }
+    })
 }
 
 struct Keyboard {
     params: Params,
 }
 
-impl Screen for Keyboard {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl paperpaw_core::testing::Fake for Keyboard {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
+    fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         let Some(text) = TYPED.with(|typed| typed.borrow_mut().pop_front()) else {
             return;
         };
-        cx.command(Command::Back);
+        cx.command(Ask::Back);
         let reply = self
             .params
             .get(params::REPLY)
             .and_then(|r| Id::parse(r).ok());
         if let Some(reply) = reply {
             let typed = Typed::new(text, self.params.clone());
-            cx.command(Command::Emit(
+            cx.command(Ask::Emit(
                 reply,
                 paperpaw_sdk::event::EventData::to_params(&typed),
             ));
         }
     }
+}
+
+const CLOSER_SCREEN: Id = Id::new_static("test-closer.screen");
+
+thread_local! {
+    static CLOSER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// What registers a screen that does something and closes in one callback
+/// (#267).
+fn test_closer(r: &mut Staging) -> Result<(), RegisterError> {
+    r.add_action(
+        ActionSpec::new(Id::new_static("test-closer.go"), "test-closer").handler(|_, _, _| {}),
+    )?;
+    r.add_fake(paperpaw_core::testing::FakeSpec::new(
+        CLOSER_SCREEN,
+        "test-closer",
+        Box::new(|_, _| Box::new(crate::return_set::Closer)),
+    ))
+}
+
+/// What [`test_closer`] registers under.
+fn test_closer_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static("test-closer"),
+        "Test closer",
+        Version::new(0, 1, 0),
+    )
+    .description("Changes something and closes.")
+    .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// The standard app with the test keyboard, over a storage the test keeps.
@@ -272,6 +294,12 @@ impl App {
         Self::at(device, storage, 0, false)
     }
 
+    /// The same with the [`test_closer`] screen.
+    pub fn with_closer(device: DeviceInfo, storage: Shared) -> Self {
+        CLOSER.with(|closer| closer.set(true));
+        Self::at(device, storage, 0, false)
+    }
+
     /// The same with the [`TestTools`] in the overview.
     pub fn with_more_tools(device: DeviceInfo, storage: Shared) -> Self {
         Self::at(device, storage, 0, true)
@@ -284,10 +312,12 @@ impl App {
         let builder = Kernel::builder(device)
             .storage(storage.clone())
             .user_config(crate::native_activation::QUIET);
-        let mut builder =
-            paperpaw_app::install(builder, paperpaw_app::Fonts::Packs).plugin(TestKeyboard);
+        let mut builder = test_keyboard(paperpaw_app::install(builder, paperpaw_app::Fonts::Packs));
         if more_tools {
-            builder = builder.plugin(TestTools);
+            builder = test_tools(builder);
+        }
+        if CLOSER.with(std::cell::Cell::take) {
+            builder = builder.items(test_closer_manifest(), test_closer);
         }
         let mut kernel = crate::native_activation::build_on(builder, card);
         let effects = kernel.start(Instant(now));
@@ -300,6 +330,21 @@ impl App {
         };
         app.settle(effects);
         app
+    }
+
+    /// The device tells the time (a shell does), so that the clock draws: what
+    /// the default home page holds depends on it.
+    pub fn tell_time(&mut self) {
+        let status = paperpaw_platform::SystemStatus::new(
+            Some(paperpaw_platform::WallClock::new(
+                Instant(self.now),
+                1_791_967_260_000,
+                Some(120),
+            )),
+            None,
+        );
+        let effects = self.kernel.set_status(Instant(self.now), status);
+        self.settle(effects);
     }
 
     /// A new kernel over the same storage, as after a restart.

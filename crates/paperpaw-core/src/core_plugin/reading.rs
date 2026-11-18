@@ -2,8 +2,9 @@
 //! (justified, hyphenated, indented, kept in lines) and whether a book's
 //! settings are its own.
 
+use crate::Staging;
 use paperpaw_sdk::builtin::{group_sections, groups, settings};
-use paperpaw_sdk::{Id, RegisterError, Registrar, SettingExtra, SettingSpec};
+use paperpaw_sdk::{Id, RegisterError, SettingExtra, SettingSpec};
 
 use super::{FONT, FONT_PT, IN_APPS, IN_PAGE, LINES, MARGINS, MARGINS_ENDS, WEIGHT, WORDS};
 
@@ -443,11 +444,12 @@ const fn reading_group(id: Id, title: &'static str, order: i32) -> paperpaw_sdk:
         .within(groups::READING)
 }
 
-pub(super) fn register(r: &mut Registrar) -> Result<(), RegisterError> {
+pub(super) fn register(r: &mut Staging) -> Result<(), RegisterError> {
     for group in &READING_GROUPS {
         r.add_setting_group(group)?;
     }
     r.add_settings(&READING)?;
     r.add_settings(&TYPE)?;
-    r.add_settings(&super::text_look::SETTINGS)
+    r.add_settings(&super::text_look::SETTINGS)?;
+    r.add_settings(&super::picture_look::SETTINGS)
 }

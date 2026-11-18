@@ -26,6 +26,34 @@ fn it_reads_the_catalog() {
     assert_eq!(books, Some(4));
 }
 
+/// The place a page of names kept is gone when a plugin stops or is parked:
+/// none stays on the heap while no Library is there to go on from it.
+#[test]
+fn a_stopped_plugin_leaves_no_place_of_the_names() {
+    let host = host();
+    let authors = wire::ServiceLibQuery {
+        show: 0,
+        sort: 0,
+        flags: 0,
+        words: "",
+        author: "",
+        series: "",
+        tag: "",
+        folder: "",
+        added_since: 0,
+        cursor: 0,
+        generation: 0,
+        facet: 0,
+    };
+    for parking in [false, true] {
+        host.facets(&authors, "", &mut |_| core::ops::ControlFlow::Continue(()))
+            .unwrap();
+        assert!(host.reads.names_kept());
+        crate::native_host::lib_service::owner_stopped(&host, 7, parking).unwrap();
+        assert!(!host.reads.names_kept());
+    }
+}
+
 #[test]
 fn it_has_no_writes_and_says_so() {
     let host = host();
@@ -63,7 +91,7 @@ fn provide_reaches_the_catalog() {
         },
     )
     .unwrap();
-    let book = paperpaw_sdk::library::book(&*card.storage, "books/c.epub").unwrap();
+    let book = crate::kit::library::book(&*card.storage, "books/c.epub").unwrap();
     assert_eq!(book.title.as_deref(), Some("Provided"));
 }
 
@@ -86,7 +114,7 @@ fn provide_is_busy_for_a_book_the_library_move_carries() {
         host.provide(BookRef::Path("books/c.epub"), &provided),
         Err(paperpaw_native::host_glue::ERR_BUSY)
     );
-    let book = paperpaw_sdk::library::book(&*card.storage, "books/c.epub");
+    let book = crate::kit::library::book(&*card.storage, "books/c.epub");
     assert!(book.is_none_or(|book| book.title.as_deref() != Some("Provided")));
     // Another book is not the job's.
     host.provide(BookRef::Path("books/a.epub"), &provided)
@@ -141,7 +169,7 @@ fn a_field_is_set_through_the_host_and_is_busy_for_a_book_the_move_carries() {
     );
     host.set_field(BookRef::Path("books/a.epub"), "stars.rating", "4")
         .unwrap();
-    let book = paperpaw_sdk::library::book(&*card.storage, "books/a.epub").unwrap();
+    let book = crate::kit::library::book(&*card.storage, "books/a.epub").unwrap();
     assert!(
         book.fields
             .iter()
@@ -205,11 +233,11 @@ fn a_status_is_set_through_the_host_and_is_busy_for_a_book_the_move_carries() {
         host.set_status(BookRef::Path("books/c.epub"), 0b010, 0),
         Err(paperpaw_native::host_glue::ERR_BUSY)
     );
-    assert!(paperpaw_sdk::library::favourites(&*card.storage).is_empty());
+    assert!(crate::kit::library::favourites(&*card.storage).is_empty());
     host.set_status(BookRef::Path("books/a.epub"), 0b010, 0)
         .unwrap();
     assert_eq!(
-        paperpaw_sdk::library::favourites(&*card.storage),
+        crate::kit::library::favourites(&*card.storage),
         ["books/a.epub"]
     );
 }

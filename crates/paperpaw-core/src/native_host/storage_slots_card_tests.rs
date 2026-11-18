@@ -347,10 +347,10 @@ fn a_root_one_rename_is_the_librarys_move_and_its_books_keep_their_place() {
             Id::new_static("test.epub"),
             "EPUB",
             alloc::vec![Cow::Borrowed("epub")],
-            alloc::boxed::Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            |_, _, _| Err(DocumentError::UnsupportedFormat),
         ))
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let scope = core::pin::pin!(EnvironmentScope::new());
     let linked = LinkedPlugins::default();
     let formats = FormatScope::new();
@@ -408,8 +408,8 @@ fn a_root_one_rename_is_the_librarys_move_and_its_books_keep_their_place() {
     assert_eq!((kept.at.section, kept.at.offset), (7, 1234));
 }
 
-/// A callback's frame that has the kernel's `Env`, as core's own frame.
-struct KernelFrame<'a>(&'a paperpaw_sdk::Env<'a>);
+/// A callback's frame that has the kernel's `Place`, as core's own frame.
+struct KernelFrame<'a>(&'a crate::Place<'a>);
 
 impl crate::abi7::context::Frame for KernelFrame<'_> {
     fn settings(&self) -> &paperpaw_sdk::Settings {
@@ -421,7 +421,7 @@ impl crate::abi7::context::Frame for KernelFrame<'_> {
     fn storage(&self) -> Option<&dyn Storage> {
         Some(self.0.storage())
     }
-    fn kernel_env(&self) -> Option<&paperpaw_sdk::Env<'_>> {
+    fn kernel_env(&self) -> Option<&crate::Place<'_>> {
         Some(self.0)
     }
 }
@@ -460,10 +460,10 @@ fn a_file_that_is_no_book_is_renamed_without_the_librarys_job() {
             Id::new_static("test.epub"),
             "EPUB",
             alloc::vec![Cow::Borrowed("epub")],
-            alloc::boxed::Box::new(|_, _, _| Err(DocumentError::UnsupportedFormat)),
+            |_, _, _| Err(DocumentError::UnsupportedFormat),
         ))
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let scope = core::pin::pin!(EnvironmentScope::new());
     let linked = LinkedPlugins::default();
     let formats = FormatScope::new();
@@ -532,6 +532,7 @@ fn a_file_that_is_no_book_is_renamed_without_the_librarys_job() {
 /// in the book are found under the new name.
 #[test]
 fn a_book_whose_format_is_off_moves_with_what_the_library_keeps() {
+    use crate::kit::library;
     use crate::native_host::{
         host_services::HostServices, lib_moves_service::Pump, storage_files::StorageFiles,
     };
@@ -539,7 +540,6 @@ fn a_book_whose_format_is_off_moves_with_what_the_library_keeps() {
     use paperpaw_sdk::{
         MemoryStorage,
         document::Locator,
-        library,
         positions::{self, Position},
     };
     let card = Rc::new(MemoryStorage::new());
@@ -557,7 +557,7 @@ fn a_book_whose_format_is_off_moves_with_what_the_library_keeps() {
         .storage(Shared(card.clone()))
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     assert!(!env.formats().supports("a.mobi"), "the format is off");
     let scope = core::pin::pin!(EnvironmentScope::new());
     let linked = LinkedPlugins::default();

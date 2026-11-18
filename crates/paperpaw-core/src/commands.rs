@@ -6,15 +6,13 @@
     reason = "a part of the kernel, which sees all of it; not every part uses every name"
 )]
 use super::*;
+use crate::gray_later::GrayRule;
 use crate::native_host::speech as native_speech;
 
-/// Runs a plugin's handler with a [`Commands`](paperpaw_sdk::Commands) of
+/// Runs a plugin's handler with a [`Asks`](crate::Asks) of
 /// its own, then queues what it sent at the end of `out`.
-pub(crate) fn handing<R>(
-    out: &mut Vec<Command>,
-    handler: impl FnOnce(&mut paperpaw_sdk::Commands) -> R,
-) -> R {
-    let mut commands = paperpaw_sdk::Commands::new();
+pub(crate) fn handing<R>(out: &mut Vec<Ask>, handler: impl FnOnce(&mut crate::Asks) -> R) -> R {
+    let mut commands = crate::Asks::new();
     let result = handler(&mut commands);
     out.append(&mut commands.take());
     result
@@ -81,9 +79,12 @@ impl Kernel {
         for _ in 0..passes.max(1) {
             self.native_service_pump();
             self.finish_commands();
-            if self.service_due().is_none_or(|at| at > self.now) {
+            if self.service_due().is_none_or(|at| at > self.shared.now) {
                 break;
             }
+        }
+        if self.offer_literata_notice() {
+            self.finish_commands();
         }
         self.finish_frame()
     }
@@ -96,9 +97,9 @@ impl Kernel {
         self.run_commands();
         // The time since, to the screen on top.
         let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
-        let shown = self.now.since(self.shown_since);
+        let shown = self.shared.now.since(self.shown_since);
         self.shared.meter.shown(top, shown);
-        self.shown_since = self.now;
+        self.shown_since = self.shared.now;
         // A screen that set a scope may have closed.
         self.check_scope_owner();
         self.check_preview_owner();
@@ -146,6 +147,7 @@ impl Kernel {
             self.frame.followup_frame = None;
         }
         let followup = self.run_followup();
+        let gray_pass = self.gray_step();
         if mem::take(&mut self.output.redraw)
             && let Some(top) = self.stack.len().checked_sub(1)
         {
@@ -161,20 +163,19 @@ impl Kernel {
         let set = self.output.refresh_set.take();
         let requested = set.or(self.output.refresh.take());
         self.output.refresh.take();
-        let told = self.output.refresh_cause.take();
         // The screen on top, nothing over it (or all of the screen its
         // own, what is below showing through), best in grays.
         let bounds = self.framebuffer.bounds();
         // Whether it is shown whole, best in grays, its pictures may be.
         let (whole, grays, pictures) = self.stack.last().map_or((false, false, false), |top| {
-            let whole = match top.screen.region(&self.shared.env(self.now)) {
+            let whole = match top.screen.region(&self.shared.place(self.shared.now)) {
                 None => true,
                 Some(region) => {
                     top.screen.shows_through() != ShowsThrough::Nothing
                         && region.intersection(&bounds) == Some(bounds)
                 }
             };
-            (whole, top.grays(), top.screen.pictures_in_grays())
+            (whole, top.grays(), true)
         });
         let grays = whole && grays;
         let again = mem::take(&mut self.frame.again);
@@ -191,14 +192,9 @@ impl Kernel {
         };
         if let Some(dirty) = self.frame.pending.take() {
             let area = |r: Rect| u32::from(r.width) * u32::from(r.height);
-            let mut weight = mem::take(&mut self.frame.pending_weight);
+            let weight = mem::take(&mut self.frame.pending_weight);
             self.frame.unrendered = Some(self.frame.unrendered.map_or(dirty, |u| u.union(&dirty)));
-            // What a filter deferred goes with this refresh.
-            let dirty = self.frame.deferred.take().map_or(dirty, |d| {
-                weight = weight.saturating_add(area(d));
-                d.union(&dirty)
-            });
-            // Items far apart make a large region without being much.
+            // Staging far apart make a large region without being much.
             let weight = weight.min(area(dirty));
             let every = self.refresh_intervals(&mode);
             let screen = self.framebuffer.bounds();
@@ -208,91 +204,48 @@ impl Kernel {
             };
             // Leaving large pictures: a fast refresh would keep their ghost
             // (not where the mode was set exactly).
-            if set.is_none()
+            let left = self.stack.last().map(|s| s.serial) != self.frame.pictures_on;
+            if (FULL_AFTER_LEAVING_PICTURES || !left)
+                && set.is_none()
                 && !mode.does_clean_itself()
                 && self.frame.pictures_shown
                 && weight * 2 >= area(screen)
             {
                 requested = RefreshMode::Full;
             }
-            // A screen with pictures drawn whole, or most of it, in grays
-            // too where asked; not when drawn again after grays, not what
-            // changes on it after, and not where the screen set its
-            // refresh exactly (a focus moved far: the parts apart).
-            let grays = grays
-                || (whole
-                    && set.is_none()
-                    && !mode.does_clean_itself()
-                    && pictures
-                    && !again
-                    && weight * 2 >= area(screen)
-                    && self.shared.device.display.format.gray_levels() == Some(2)
-                    && self
-                        .shared
-                        .settings
-                        .bool(core_settings::PICTURES_IN_GRAYS.as_str())
-                    && self.pictures_drawn());
+            // A screen with pictures drawn whole, or most of it, in black and
+            // white first, its grays after a calm (`gray_later`, Decision
+            // 196); not what changes on it after, and not where the screen
+            // set its refresh exactly (a focus moved far: the parts apart).
+            let big = set.is_none() && !mode.does_clean_itself() && weight * 2 >= area(screen);
+            let (grays, gray_frame) = self.gray_decide(GrayRule {
+                grays,
+                pass: gray_pass,
+                again,
+                whole,
+                big,
+                pictures,
+                sleeping: effects.sleep || effects.power_off,
+            });
             // A page's pictures drawn after its text are no page turned,
             // however large: not counted, nor made the full refresh of the
             // whole screen that is due (leaving them refreshes in full).
-            // What a filter deferred rides along uncounted too (above); no
-            // filter of this tree defers (todo: count it apart).
-            let counted = if followup { 0 } else { weight };
+            let counted = if followup || gray_pass { 0 } else { weight };
             self.frame.refresh.weigh(Some(counted));
             let (mode, region) = self.frame.refresh.decide(requested, dirty, screen, every);
-            let top = self.stack.last();
-            let mut refresh =
-                paperpaw_sdk::filters::Refresh::new(mode, region, top.map(|t| t.id.clone()));
-            refresh.slot = top.and_then(|t| t.slot.clone());
-            refresh.cause = told.unwrap_or(if self.screens_changed {
-                paperpaw_sdk::filters::RefreshCause::Screens
-            } else {
-                paperpaw_sdk::filters::RefreshCause::Other
-            });
-            refresh.since_full = self.frame.refresh.since_full();
-            refresh.periodic = mode != requested;
-            refresh.grays = grays;
-            refresh.pictures = self.frame.pictures_shown;
-            // Never a screen opened or closed, nor what shows while a screen
-            // guards the device, kept off the panel; nor too often.
-            let may_defer = !self.screens_changed
-                && self.guard().is_none()
-                && self.frame.defers < drawing::MAX_DEFERS;
-            // While a screen guards the device, only its plugin's filters
-            // see refreshes: others could count what is typed into it.
-            let guard = self.guard().map(|guard| self.stack[guard].id.namespace());
-            let env = self.shared.env(self.now);
-            match self
-                .shared
-                .refresh_filters
-                .apply_limited(&env, refresh, screen, may_defer, guard)
-            {
-                Some(refresh) => {
-                    self.frame.defers = 0;
-                    // Counted as done, after the filters.
-                    self.frame
-                        .refresh
-                        .done(refresh.mode, refresh.region, screen, every);
-                    self.frame.refresh.weigh(None);
-                    effects.refresh = Some((refresh.region, refresh.mode));
-                    effects.grays = refresh.grays;
-                    self.frame_asked();
-                    self.shared.usage.refreshed(refresh.mode, refresh.region);
-                    let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
-                    self.shared
-                        .meter
-                        .refreshed(top, refresh.mode, refresh.region);
-                }
-                None => {
-                    self.frame.deferred = Some(dirty);
-                    self.frame.defers += 1;
-                }
-            }
+            self.frame.refresh.done(mode, region, screen, every);
+            self.frame.refresh.weigh(None);
+            effects.refresh = Some((region, mode));
+            effects.grays = grays;
+            self.gray_frame(gray_frame);
+            self.frame_asked();
+            self.shared.usage.refreshed(mode, region);
+            let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
+            self.shared.meter.refreshed(top, mode, region);
         }
         let input = [
             self.input.recognizer.next_deadline(&self.thresholds()),
             self.input.pending.as_ref().map(|(_, until, _)| *until),
-            self.recognizers_due(),
         ]
         .into_iter()
         .flatten()
@@ -304,18 +257,9 @@ impl Kernel {
             .frame
             .screenshot
             .is_some()
-            .then(|| self.now.add_millis(300));
-        // Only the screen on top runs, and one below overlays alone that
-        // asks to: a covered one's time waits. Bars shown run too, and a
-        // list beside its detail.
-        let timer = [
-            self.screen_timer(),
-            self.chromes_due(),
-            self.pane_list_due(),
-        ]
-        .into_iter()
-        .flatten()
-        .min();
+            .then(|| self.shared.now.add_millis(300));
+        // Only the screen on top runs: a covered one's time waits.
+        let timer = self.screen_timer();
         effects.wake_at = [
             self.hint.until,
             input,
@@ -333,6 +277,7 @@ impl Kernel {
             self.service_due(),
             self.work_pump_due(),
             self.followup_due(effects.refresh.is_some()),
+            self.gray_wake(effects.refresh.is_some()),
         ]
         .into_iter()
         .flatten()
@@ -391,7 +336,7 @@ impl Kernel {
             self.forget_read_messages_if_full();
             if self.output.commands.is_empty() {
                 // The actions native plugins ran in this call (a button's,
-                // a menu row's, a rule's: `Command::RunAction` runs them
+                // a menu row's, a rule's: `Ask::RunAction` runs them
                 // above) reach their plugins; what they ask for is the next
                 // round's.
                 if self.native_actions_run() {
@@ -427,14 +372,15 @@ impl Kernel {
         // the screen that had it is gone (ADR 0030).
         self.sync_room();
         self.hint_escape();
-        self.show_pane_list();
         self.with_top(|screen, cx| {
             screen.on_show(cx);
             Handled::Yes
         });
         if let Some(top) = self.stack.last() {
             let shown = events::ScreenShown::new(top.id.clone()).slot(top.slot.clone());
-            self.output.commands.push(events::SCREEN_SHOWN.emit(shown));
+            self.output
+                .commands
+                .push(crate::Ask::emit(&events::SCREEN_SHOWN, shown));
         }
     }
 
@@ -457,36 +403,21 @@ impl Kernel {
         self.from_guard_own = false;
     }
 
-    /// Opens a book in the reading app that takes it (`Command::OpenBook`).
+    /// Opens a book in the reading slot's screen (`Ask::OpenBook`), with
+    /// what the book's params say of it: its path, the page, the readers
+    /// passed over.
     fn open_book_command(&mut self, params: Params) {
-        let env = self.shared.env(self.now);
-        match paperpaw_sdk::readers::resolve(&env, &params) {
-            // The slot's own screen, by name: in place of another
-            // reading app the slot may show now. Not where it could
-            // not open the book either (it is a reader too): it
-            // says why itself.
-            Command::OpenSlot(slot, params) => {
-                let screen = self.shared.registry.resolve_slot(slot.as_str()).cloned();
-                let failed = screen.as_ref().is_some_and(|screen| {
-                    paperpaw_sdk::readers::past(&params).any(|past| {
-                        self.shared
-                            .readers
-                            .get(past)
-                            .is_some_and(|r| r.screen == *screen)
-                    })
-                });
-                if failed {
-                    self.warn_runtime("no reading app could open the book");
-                } else {
-                    self.open_slot_command(slot, screen, params);
-                }
-            }
-            command => self.apply(command),
-        }
+        let opened = crate::kit::readers::opened(&params);
+        let screen = self
+            .shared
+            .registry
+            .resolve_slot(slots::READER.as_str())
+            .cloned();
+        self.open_slot_command(slots::READER, screen, opened);
     }
 
     /// Carries out a command, by its kind.
-    pub(crate) fn apply(&mut self, command: Command) {
+    pub(crate) fn apply(&mut self, command: Ask) {
         // Network use the plugin's manifest does not declare: refused.
         let Some(command) = self.declared_network(command) else {
             return;
@@ -500,62 +431,65 @@ impl Kernel {
                     command_name(&command)
                 ));
             }
-            Command::OpenSlot(slot, params) => self.open_slot_command(slot, None, params),
-            Command::OpenInSlot(slot, screen, params) => {
+            Ask::OpenSlot(slot, params) => {
+                if !self.ask_kernel(&slot, &params) {
+                    self.open_slot_command(slot, None, params);
+                }
+            }
+            Ask::OpenInSlot(slot, screen, params) => {
                 self.open_slot_command(slot, Some(screen), params);
             }
-            Command::OpenBook(params) => self.open_book_command(params),
-            Command::Close(key) => self.close_screen(key),
-            Command::Replace(screen, params) => self.replace(screen, &params),
-            Command::BackTo(id) => self.back_to(&id),
-            Command::BindSlot(slot, screen) => self.bind_slot(slot, screen),
-            Command::SwitchTask(task) => self.switch_task(task),
+            Ask::OpenBook(params) => self.open_book_command(params),
+            Ask::Close(key) => self.close_screen(key),
+            Ask::Replace(screen, params) => self.replace(screen, &params),
+            Ask::BackTo(id) => self.back_to(&id),
+            Ask::BindSlot(slot, screen) => self.bind_slot(slot, screen),
+            Ask::SwitchTask(task) => self.switch_task(task),
             // Not past a screen that guards the device, but from it: what
             // is typed into it is the reader's alone.
-            Command::Input(_) if self.held_by_guard() => {}
-            Command::Input(name) => match InputKey::parse(&name) {
+            Ask::Input(_) if self.held_by_guard() => {}
+            Ask::Input(name) => match InputKey::parse(&name) {
                 Some(key) => self.route_key(key),
                 None => self.warn_runtime(format!("unknown input `{name}`")),
             },
             // Laid by the screen itself as it asks (see `with_screen`):
             // here it came from elsewhere.
-            Command::SetKeyLayer(..) => {
+            Ask::SetKeyLayer(..) => {
                 self.warn_runtime("a key map layer is laid by its screen alone; not laid");
             }
-            Command::OpenScreen(screen, params) => self.open_once(screen, None, &params),
+            Ask::OpenScreen(screen, params) => self.open_once(screen, None, &params),
             // Not past a screen that guards the device, but from it: a
             // screen above it closes itself (the sleep screen on waking).
-            Command::Back
+            Ask::Back
                 if self.held_by_guard() && self.guard() == self.stack.len().checked_sub(1) => {}
-            Command::Back => self.close_top(paperpaw_sdk::CloseCause::Back),
-            Command::Notify(text) | Command::Announce(text) => self.notify(text),
-            Command::Emit(event, params) => self.emit(&event, &params),
-            Command::RunAction(action, params) => self.dispatch_with(action, params),
-            // Run in its place where a handler in place of the action's own
-            // asked for it (see `run_handler`): here it came from elsewhere.
-            Command::RunOriginal(action, _) => {
+            Ask::Back => self.close_top(paperpaw_sdk::CloseCause::Back),
+            Ask::Notify(text) | Ask::Announce(text) => self.notify(text),
+            Ask::Emit(event, params) => self.emit(&event, &params),
+            Ask::RunAction(action, params) => self.dispatch_with(action, params),
+            // No handler is in an action's place to run it from.
+            Ask::RunOriginal(action, _) => {
                 self.warn_runtime(format!(
                     "`{action}`'s own handler runs only from a handler in its place"
                 ));
             }
-            command @ (Command::Work(_)
-            | Command::CancelWork(..)
-            | Command::CancelHttp(_)
-            | Command::Wear(_)
-            | Command::GoOnline
-            | Command::GoOnlineFor(_)) => self.apply_work(command),
-            Command::Restart => self.restart = true,
-            Command::LoadPlugin(folder) => self.load_plugin(&folder),
-            Command::RemovePlugin(id) => self.remove_plugin(&id),
-            Command::InstallPlugin(id, folder) => {
+            command @ (Ask::Work(_)
+            | Ask::CancelWork(..)
+            | Ask::CancelHttp(_)
+            | Ask::Wear(_)
+            | Ask::GoOnline
+            | Ask::GoOnlineFor(_)) => self.apply_work(command),
+            Ask::Restart => self.restart = true,
+            Ask::LoadPlugin(folder) => self.load_plugin(&folder),
+            Ask::RemovePlugin(id) => self.remove_plugin(&id),
+            Ask::InstallPlugin(id, folder) => {
                 // As for network work (`wants_heap`): installing wants the heap.
                 self.shared.hyphenation.close_tables();
                 self.install_plugin(&id, &folder);
             }
-            Command::RequestPlugins { by, plugins } => self.request_plugins(by, plugins),
-            Command::Sleep => self.sleep = self.shared.caps.sleep,
-            Command::PowerOff => self.power_off = self.shared.caps.power_off,
-            Command::UsbDrive => {
+            Ask::RequestPlugins { by, plugins } => self.request_plugins(by, plugins),
+            Ask::Sleep => self.sleep = self.shared.caps.sleep,
+            Ask::PowerOff => self.power_off = self.shared.caps.power_off,
+            Ask::UsbDrive => {
                 self.usb_drive = self.shared.caps.has(paperpaw_sdk::Capability::USB_DRIVE);
                 if self.usb_drive {
                     self.free_count.pause_for_usb();
@@ -564,22 +498,19 @@ impl Kernel {
                     self.firmware_suspend();
                 }
             }
-            Command::KeepAwake(hold) => self.keep_awake(hold),
-            Command::LetSleep(id) => self.let_sleep(&id),
-            Command::Extended { key, .. } if key == paperpaw_sdk::builtin::actions::PANE_OTHER => {
-                self.other_pane();
-            }
+            Ask::KeepAwake(hold) => self.keep_awake(hold),
+            Ask::LetSleep(id) => self.let_sleep(&id),
             // Keys of later releases: left as they are.
-            Command::Extended { .. } => {}
-            command @ (Command::SetSetting(..)
-            | Command::ResetSetting(_)
-            | Command::PreviewSettings(_)
-            | Command::SetScope(_)
-            | Command::SetPluginEnabled(..)
-            | Command::SetSecret(_)
-            | Command::SetMenu(..)
-            | Command::Bind { .. }) => self.apply_setting(command),
-            command @ (Command::Redraw(_) | Command::Screenshot(_) | Command::ShowHints) => {
+            Ask::Extended { .. } => {}
+            command @ (Ask::SetSetting(..)
+            | Ask::ResetSetting(_)
+            | Ask::PreviewSettings(_)
+            | Ask::SetScope(_)
+            | Ask::SetPluginEnabled(..)
+            | Ask::SetSecret(_)
+            | Ask::SetMenu(..)
+            | Ask::Bind { .. }) => self.apply_setting(command),
+            command @ (Ask::Redraw(_) | Ask::Screenshot(_) | Ask::ShowHints) => {
                 self.apply_drawing(command);
             }
             command => self.apply_io(command),
@@ -589,7 +520,7 @@ impl Kernel {
     /// Opens the screen bound to `slot`, or shows it again where it is
     /// open for the same (closing what is above it).
     /// Opens the screen bound to `slot`, or `screen` for it
-    /// ([`Command::OpenInSlot`]), or shows it again where the slot is open
+    /// ([`Ask::OpenInSlot`]), or shows it again where the slot is open
     /// with it and the same params (closing what is above it).
     pub(crate) fn open_slot_command(&mut self, slot: Id, screen: Option<Id>, params: Params) {
         let in_slot = self
@@ -672,7 +603,7 @@ impl Kernel {
     }
 
     /// Binds `slot` to `screen` for the user, or back to the plugins'
-    /// (see [`Command::BindSlot`]): at once, and kept in `paperpaw.ini`.
+    /// (see [`Ask::BindSlot`]): at once, and kept in `paperpaw.ini`.
     fn bind_slot(&mut self, slot: Id, screen: Option<Id>) {
         match &screen {
             Some(screen) if !self.shared.registry.screens.contains_key(screen) => {
@@ -694,6 +625,10 @@ impl Kernel {
     /// typed on the keyboard), goes to those screens and their plugins
     /// alone.
     pub(crate) fn emit(&mut self, event: &Id, params: &Params) {
+        if *event == crate::native_host::literata_notice::ANSWERED {
+            self.literata_notice_answer(params);
+            return;
+        }
         self.emit_to(event, params, None);
     }
 
@@ -721,7 +656,7 @@ impl Kernel {
         // send: `with_screen` takes it from the confirmation screen alone.)
         // A page turned, also by itself, is use.
         if *event == events::PAGE_TURNED {
-            self.last_activity = self.now;
+            self.last_activity = self.shared.now;
         }
         // A book closed: the hyphenation tables open for it give their heap
         // back (opened again at the next word).
@@ -775,14 +710,12 @@ impl Kernel {
     /// plugins hear the event (a nested callback's route on the X4, #250).
     #[inline(never)]
     fn emit_to_screens(&mut self, event: &Id, params: &Params, hears: &dyn Fn(&str) -> bool) {
-        // A setting may change which bars show and their size, and how
-        // input is recognized.
+        // A setting may change how input is recognized, and where a list and
+        // its detail part the screen.
         if *event == events::SETTING_CHANGED {
             self.input.thresholds.set(None);
-            self.sync_chromes();
+            self.lay_out_shown();
         }
-        self.observe(event, params, false);
-        self.chromes_hear(event, params);
         // Screens learn that they show from `on_show`.
         if *event == events::SCREEN_SHOWN {
             return;
@@ -809,18 +742,16 @@ impl Kernel {
         params: &Params,
         hears: &dyn Fn(&str) -> bool,
     ) -> bool {
-        let env = self.shared.env(self.now);
         let mut refused_secret = false;
-        for (_, plugin, handler) in self
-            .subscriptions
-            .iter()
-            .filter(|(id, plugin, _)| *id == event && hears(plugin.as_str()))
-        {
-            let _running = self.shared.meter.enter(plugin.as_str());
+        let mut at = 0;
+        while let Some((plugin, run)) = self.subscriptions.next_of(&mut at, event) {
+            if !hears(plugin.as_str()) {
+                continue;
+            }
+            let meter = alloc::rc::Rc::clone(&self.shared.meter);
+            let _running = meter.enter(plugin.as_str());
             let from = self.output.commands.len();
-            handing(&mut self.output.commands, |out| {
-                handler.call(&env, params, out)
-            });
+            run(self, params);
             let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
             let out = &mut self.output.commands;
             refused_secret |= vet_reserved(out, from, plugin.as_str(), &reserved);
@@ -829,7 +760,7 @@ impl Kernel {
             work::quiet(
                 self.shared.reader,
                 top,
-                self.now,
+                self.shared.now,
                 from,
                 plugin.as_str(),
                 &mut self.output.commands,
@@ -845,8 +776,11 @@ impl Kernel {
         // Secret material never enters the settings value slot. The runtime
         // applies secret-scoped visibility before routing even this key.
         self.native_setting_typed(id.as_str(), None);
-        let changed = events::SETTING_CHANGED.emit(events::SettingChanged::new(id.clone()));
-        if let Command::Emit(event, params) = changed {
+        let changed = crate::Ask::emit(
+            &events::SETTING_CHANGED,
+            events::SettingChanged::new(id.clone()),
+        );
+        if let Ask::Emit(event, params) = changed {
             self.emit_to(&event, &params, Some(id.namespace()));
         }
     }
@@ -884,21 +818,19 @@ impl Kernel {
     }
 
     /// The handlers of `owners` in [`Self::emit_to_guard`]. Its own frame:
-    /// the environment is gone before the native plugins hear the event
-    /// (#250).
+    /// a handler's environment is gone before the native plugins hear the
+    /// event (#250).
     #[inline(never)]
     fn guard_handlers(&mut self, event: &Id, params: &Params, owners: &[String]) {
-        let env = self.shared.env(self.now);
-        for (_, plugin, handler) in self
-            .subscriptions
-            .iter()
-            .filter(|(id, plugin, _)| *id == event && owners.iter().any(|o| o == plugin.as_str()))
-        {
-            let _running = self.shared.meter.enter(plugin.as_str());
+        let mut at = 0;
+        while let Some((plugin, run)) = self.subscriptions.next_of(&mut at, event) {
+            if !owners.iter().any(|o| *o == plugin.as_str()) {
+                continue;
+            }
+            let meter = alloc::rc::Rc::clone(&self.shared.meter);
+            let _running = meter.enter(plugin.as_str());
             let from = self.output.commands.len();
-            handing(&mut self.output.commands, |out| {
-                handler.call(&env, params, out)
-            });
+            run(self, params);
             let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
             vet_reserved(&mut self.output.commands, from, plugin.as_str(), &reserved);
         }
@@ -922,10 +854,10 @@ impl Kernel {
 
     /// Settings, a book's own, plugins switched or removed, secrets,
     /// menus, key bindings and slots changed.
-    fn apply_setting(&mut self, command: Command) {
+    fn apply_setting(&mut self, command: Ask) {
         match command {
             // A secret setting's value goes to the secrets.
-            Command::SetSetting(id, paperpaw_sdk::SettingValue::Text(text))
+            Ask::SetSetting(id, paperpaw_sdk::SettingValue::Text(text))
                 if self.shared.settings.defines_secret(id.as_str()) =>
             {
                 let label = self
@@ -942,10 +874,10 @@ impl Kernel {
                 self.set_secret(change);
                 self.secret_setting_changed(&id);
             }
-            Command::SetSetting(id, value) if self.shared.settings.goes_to_scope(id.as_str()) => {
+            Ask::SetSetting(id, value) if self.shared.settings.goes_to_scope(id.as_str()) => {
                 self.set_in_scope(&id, value);
             }
-            Command::SetSetting(id, value) => {
+            Ask::SetSetting(id, value) => {
                 let old = self.setting_text_if_heard(&id);
                 let native_old = self.native_setting_before(id.as_str());
                 match self.shared.settings.set(id.as_str(), value) {
@@ -956,25 +888,25 @@ impl Kernel {
                         let changed = events::SettingChanged::new(id.clone()).old(old);
                         self.output
                             .commands
-                            .push(events::SETTING_CHANGED.emit(changed));
+                            .push(crate::Ask::emit(&events::SETTING_CHANGED, changed));
                     }
                     // Its check says why: the reader is told.
                     Err(paperpaw_sdk::SettingError::Refused(why)) => {
                         let text = String::from(self.shared.translator.tr(why));
-                        self.output.commands.push(Command::Notify(text));
+                        self.output.commands.push(Ask::Notify(text));
                     }
                     Err(error) => {
                         self.warn_runtime(format!("`{id}`: {error}"));
                     }
                 }
             }
-            Command::ResetSetting(id) => self.reset_setting(&id),
-            Command::PreviewSettings(values) => self.preview_settings(values),
-            Command::SetScope(path) => self.set_scope(path),
-            Command::SetPluginEnabled(id, enabled) => self.set_plugin_enabled(&id, enabled),
-            Command::SetSecret(change) => self.set_secret(*change),
-            Command::SetMenu(menu, entries) => self.set_menu(menu, entries),
-            Command::Bind {
+            Ask::ResetSetting(id) => self.reset_setting(&id),
+            Ask::PreviewSettings(values) => self.preview_settings(values),
+            Ask::SetScope(path) => self.set_scope(path),
+            Ask::SetPluginEnabled(id, enabled) => self.set_plugin_enabled(&id, enabled),
+            Ask::SetSecret(change) => self.set_secret(*change),
+            Ask::SetMenu(menu, entries) => self.set_menu(menu, entries),
+            Ask::Bind {
                 layer,
                 input,
                 action,
@@ -985,9 +917,9 @@ impl Kernel {
     }
 
     /// What is drawn: again, as a screenshot, the row of hints.
-    fn apply_drawing(&mut self, command: Command) {
+    fn apply_drawing(&mut self, command: Ask) {
         match command {
-            Command::Redraw(mode) => {
+            Ask::Redraw(mode) => {
                 self.output.redraw = true;
                 if mode == RefreshMode::Full {
                     // Everything, also beneath an overlay.
@@ -996,72 +928,31 @@ impl Kernel {
                 }
                 self.output.request_refresh(mode);
             }
-            Command::Screenshot(path) => {
+            Ask::Screenshot(path) => {
                 // The whole screen is drawn anew, and saved as it is.
                 self.frame.screenshot = Some(path);
                 let bounds = self.framebuffer.bounds();
                 self.invalidate(bounds);
             }
-            Command::ShowHints => self.show_hints(),
+            Ask::ShowHints => self.show_hints(),
             _ => {}
         }
     }
 
     /// What the shell does for the kernel: firmware, Wi-Fi, the clipboard,
     /// speech, servers, sockets and HTTP.
-    /// Speaks `speech` with the voice the settings choose where it speaks
-    /// the language (see `paperpaw_sdk::voices`), else with the system's.
+    /// Speaks `speech` with the system's voice.
     pub(crate) fn speak(&mut self, speech: paperpaw_sdk::Speech) {
         let screens = self.stack.len();
-        let env = self.shared.env(self.now);
         let system = self.io.speech.system;
-        if let Some(voice) = self.shared.voices.chosen(&env, speech.language(), system) {
-            // In place of what the system or another voice says now,
-            // unless after it.
-            if !speech.is_queued() {
-                self.io.speech.stop();
-                let other = self
-                    .io
-                    .speech
-                    .voice
-                    .as_ref()
-                    .is_some_and(|(id, _)| *id != voice.id);
-                if other
-                    && let Some((id, _)) = self.io.speech.voice.take()
-                    && let Some(old) = self.shared.voices.get(id.as_str())
-                {
-                    handing(&mut self.output.commands, |out| (old.stop)(&env, out));
-                }
-            }
-            handing(&mut self.output.commands, |out| {
-                (voice.speak)(&env, &speech, out)
-            });
-            self.io.speech.voice = Some((voice.id.clone(), screens));
-            return;
-        }
-        // In place of what a plugin's voice says, unless after it.
-        if !speech.is_queued() {
-            self.stop_voice();
-        }
         self.io
             .speech
             .speak(speech, system, screens, &mut self.output.commands);
     }
 
-    /// Stops a plugin's voice, if one speaks.
-    fn stop_voice(&mut self) {
-        if let Some((id, _)) = self.io.speech.voice.take() {
-            let env = self.shared.env(self.now);
-            if let Some(voice) = self.shared.voices.get(id.as_str()) {
-                handing(&mut self.output.commands, |out| (voice.stop)(&env, out));
-            }
-        }
-    }
-
-    /// Stops speaking: the system's voice and a plugin's.
+    /// Stops speaking.
     pub(crate) fn stop_speaking(&mut self) {
         self.io.speech.stop();
-        self.stop_voice();
     }
 
     /// A text to speak, or a native plugin's stop (`native_host::speech`): its
@@ -1078,7 +969,7 @@ impl Kernel {
         self.io.focus_spoken = false;
     }
 
-    fn apply_io(&mut self, command: Command) {
+    fn apply_io(&mut self, command: Ask) {
         // Network, store and firmware work want the heap: the hyphenation
         // tables open give theirs back (opened again at the next word).
         if wants_heap(&command) {
@@ -1087,7 +978,7 @@ impl Kernel {
         let (network, screens) = (self.shared.caps.network, self.stack.len());
         let out = &mut self.output.commands;
         match command {
-            Command::Firmware(command) => {
+            Ask::Firmware(command) => {
                 let install = matches!(
                     command,
                     FirmwareCommand::Install { .. } | FirmwareCommand::InstallForeign { .. }
@@ -1099,21 +990,21 @@ impl Kernel {
                     && !paperpaw_sdk::firmware::battery_allows_install(&self.shared.status)
                 {
                     firmware.state = FirmwareState::Failed(InstallFailure::LowBattery);
-                    out.push(events::FIRMWARE_CHANGED.emit(()));
+                    out.push(crate::Ask::emit(&events::FIRMWARE_CHANGED, ()));
                 } else if self.shared.firmware.is_some() {
                     self.io.firmware_calls.push(command);
                 } else {
                     self.warn_runtime(String::from("PaperPaw is not this device's firmware"));
                 }
             }
-            Command::NoNetwork => {
+            Ask::NoNetwork => {
                 if self.network_work_waiting() {
                     self.fail_waiting_network();
                 }
             }
-            Command::Bluetooth(request) => self.apply_bluetooth(*request),
+            Ask::Bluetooth(request) => self.apply_bluetooth(*request),
             // Reserved (ADR 0031): no link in this release, said as such.
-            Command::Developer(request) => {
+            Ask::Developer(request) => {
                 if let paperpaw_sdk::developer::DevCommand::Open { link, events } =
                     request.command()
                 {
@@ -1123,10 +1014,10 @@ impl Kernel {
                     };
                     self.output
                         .commands
-                        .push(Command::Emit(events.clone(), failed.into_params()));
+                        .push(Ask::Emit(events.clone(), failed.into_params()));
                 }
             }
-            Command::Wifi(command) => match &mut self.shared.wifi {
+            Ask::Wifi(command) => match &mut self.shared.wifi {
                 Some(wifi) => {
                     if command == WifiCommand::Scan {
                         wifi.scanning = true;
@@ -1137,23 +1028,26 @@ impl Kernel {
                     "Wi-Fi is not managed by PaperPaw on this device",
                 )),
             },
-            Command::SetClipboard(text) => {
+            Ask::SetClipboard(text) => {
                 self.shared.clipboard.set(clipped(&text));
                 self.io.clipboard.copy(self.shared.clipboard.get());
             }
-            Command::ReadClipboard(reply, params) if self.io.clipboard.system => {
+            Ask::ReadClipboard(reply, params) if self.io.clipboard.system => {
                 self.io.clipboard.read(reply, params);
             }
-            Command::ReadClipboard(reply, params) => self.reply_clipboard(reply, params),
-            Command::Speak(speech) => self.apply_speak(*speech),
-            Command::StopSpeaking => {
+            Ask::ReadClipboard(reply, params) => self.reply_clipboard(reply, params),
+            Ask::Speak(speech) => self.apply_speak(*speech),
+            Ask::StopSpeaking => {
                 self.stop_speaking();
                 self.io.focus_spoken = false;
             }
             // No shell plays sound yet (reserved): not played, at once.
-            Command::PlaySound(sound) => self.output.commands.push(sound.answer(false)),
-            Command::StopSound => {}
-            Command::Serve {
+            Ask::PlaySound(sound) => {
+                let (reply, params) = sound.answer(false);
+                self.output.commands.push(Ask::Emit(reply, params));
+            }
+            Ask::StopSound => {}
+            Ask::Serve {
                 server,
                 port,
                 events,
@@ -1162,17 +1056,17 @@ impl Kernel {
                 .io
                 .servers
                 .serve(server, port, events, network, screens, out),
-            Command::StopServing(server) => self.io.servers.stop(&server, out),
-            Command::Respond(response) => {
+            Ask::StopServing(server) => self.io.servers.stop(&server, out),
+            Ask::Respond(response) => {
                 self.io.servers.respond(*response, &*self.shared.storage);
             }
-            command @ (Command::Connect { .. }
-            | Command::SocketSend { .. }
-            | Command::SocketRead { .. }
-            | Command::Disconnect(_)
-            | Command::Broadcast(_)
-            | Command::StartTls { .. }) => self.socket_command(command),
-            Command::Http(request) => {
+            command @ (Ask::Connect { .. }
+            | Ask::SocketSend { .. }
+            | Ask::SocketRead { .. }
+            | Ask::Disconnect(_)
+            | Ask::Broadcast(_)
+            | Ask::StartTls { .. }) => self.socket_command(command),
+            Ask::Http(request) => {
                 let reader = self.shared.reader;
                 self.io
                     .http
@@ -1186,56 +1080,54 @@ impl Kernel {
 /// Whether `command` starts work that wants much of the heap: the Wi-Fi
 /// radio on or joining, a request, a connection or a server, or the
 /// firmware's check, download or install.
-fn wants_heap(command: &Command) -> bool {
+fn wants_heap(command: &Ask) -> bool {
     match command {
-        Command::Wifi(wifi) => !matches!(wifi, WifiCommand::Off | WifiCommand::Leave),
-        Command::Firmware(_)
-        | Command::Http(_)
-        | Command::Connect { .. }
-        | Command::StartTls { .. }
-        | Command::Serve { .. } => true,
+        Ask::Wifi(wifi) => !matches!(wifi, WifiCommand::Off | WifiCommand::Leave),
+        Ask::Firmware(_)
+        | Ask::Http(_)
+        | Ask::Connect { .. }
+        | Ask::StartTls { .. }
+        | Ask::Serve { .. } => true,
         _ => false,
     }
 }
 
 /// Whether `command` changes how the device is set up: settings, secrets,
 /// plugins, menus, key bindings, slots.
-fn changes_setup(command: &Command) -> bool {
+fn changes_setup(command: &Ask) -> bool {
     matches!(
         command,
-        Command::SetSetting(..)
-            | Command::ResetSetting(_)
-            | Command::PreviewSettings(_)
-            | Command::SetScope(_)
-            | Command::SetPluginEnabled(..)
-            | Command::RemovePlugin(_)
-            | Command::SetSecret(_)
-            | Command::SetMenu(..)
-            | Command::Bind { .. }
-            | Command::BindSlot(..)
-            | Command::LoadPlugin(_)
-            | Command::InstallPlugin(..)
+        Ask::SetSetting(..)
+            | Ask::ResetSetting(_)
+            | Ask::PreviewSettings(_)
+            | Ask::SetScope(_)
+            | Ask::SetPluginEnabled(..)
+            | Ask::RemovePlugin(_)
+            | Ask::SetSecret(_)
+            | Ask::SetMenu(..)
+            | Ask::Bind { .. }
+            | Ask::BindSlot(..)
+            | Ask::LoadPlugin(_)
+            | Ask::InstallPlugin(..)
             // Leads to an install (the store asks, then installs).
-            | Command::RequestPlugins { .. }
+            | Ask::RequestPlugins { .. }
     )
 }
 
 /// What `command` does, for a warning.
-fn command_name(command: &Command) -> &'static str {
+fn command_name(command: &Ask) -> &'static str {
     match command {
-        Command::SetSetting(..) | Command::ResetSetting(_) | Command::PreviewSettings(_) => {
-            "settings changed"
-        }
-        Command::SetScope(_) => "a book's settings",
-        Command::SetPluginEnabled(..)
-        | Command::RemovePlugin(_)
-        | Command::LoadPlugin(_)
-        | Command::InstallPlugin(..) => "plugins changed",
-        Command::RequestPlugins { .. } => "plugins asked for",
-        Command::SetSecret(_) => "secrets changed",
-        Command::SetMenu(..) => "menus changed",
-        Command::Bind { .. } => "keys bound",
-        Command::BindSlot(..) => "slots bound",
+        Ask::SetSetting(..) | Ask::ResetSetting(_) | Ask::PreviewSettings(_) => "settings changed",
+        Ask::SetScope(_) => "a book's settings",
+        Ask::SetPluginEnabled(..)
+        | Ask::RemovePlugin(_)
+        | Ask::LoadPlugin(_)
+        | Ask::InstallPlugin(..) => "plugins changed",
+        Ask::RequestPlugins { .. } => "plugins asked for",
+        Ask::SetSecret(_) => "secrets changed",
+        Ask::SetMenu(..) => "menus changed",
+        Ask::Bind { .. } => "keys bound",
+        Ask::BindSlot(..) => "slots bound",
         _ => "this",
     }
 }
@@ -1280,32 +1172,30 @@ impl<'a> Reserved<'a> {
 /// ([`events::SETTING_TYPED`] as the event it emits or is answered
 /// with), with the parameters that name the setting; `Some(None)` where
 /// what comes from outside could name any (a server's, a socket's).
-fn typed_for(command: &Command) -> Option<Option<&Params>> {
+fn typed_for(command: &Ask) -> Option<Option<&Params>> {
     let reply = |params: &Params| {
         params.get(paperpaw_sdk::builtin::params::REPLY) == Some(events::SETTING_TYPED.as_str())
     };
     let typed = |event: &Id| *event == events::SETTING_TYPED;
     match command {
-        Command::Emit(event, params) | Command::ReadClipboard(event, params) if typed(event) => {
+        Ask::Emit(event, params) | Ask::ReadClipboard(event, params) if typed(event) => {
             Some(Some(params))
         }
-        Command::OpenSlot(_, params)
-        | Command::OpenScreen(_, params)
-        | Command::Replace(_, params)
-        | Command::OpenInSlot(_, _, params)
-        | Command::RunAction(_, params)
-        | Command::RunOriginal(_, params)
+        Ask::OpenSlot(_, params)
+        | Ask::OpenScreen(_, params)
+        | Ask::Replace(_, params)
+        | Ask::OpenInSlot(_, _, params)
+        | Ask::RunAction(_, params)
+        | Ask::RunOriginal(_, params)
             if reply(params) =>
         {
             Some(Some(params))
         }
-        Command::Http(request) if typed(request.reply()) => Some(Some(request.params())),
-        Command::Speak(speech) if typed(speech.reply()) => Some(Some(speech.params())),
-        Command::PlaySound(sound) if typed(sound.reply()) => Some(Some(sound.params())),
-        Command::Serve { events, .. } | Command::Connect { events, .. } if typed(events) => {
-            Some(None)
-        }
-        Command::Broadcast(broadcast) if typed(broadcast.events()) => Some(None),
+        Ask::Http(request) if typed(request.reply()) => Some(Some(request.params())),
+        Ask::Speak(speech) if typed(speech.reply()) => Some(Some(speech.params())),
+        Ask::PlaySound(sound) if typed(sound.reply()) => Some(Some(sound.params())),
+        Ask::Serve { events, .. } | Ask::Connect { events, .. } if typed(events) => Some(None),
+        Ask::Broadcast(broadcast) if typed(broadcast.events()) => Some(None),
         _ => None,
     }
 }
@@ -1319,7 +1209,7 @@ fn typed_for(command: &Command) -> Option<Option<&Params>> {
 /// kernel's own handlers, which set what was typed once it was vetted,
 /// and the keyboard answer what it was asked.
 pub(crate) fn vet_reserved(
-    out: &mut Vec<Command>,
+    out: &mut Vec<Ask>,
     from: usize,
     owner: &str,
     reserved: &Reserved<'_>,
@@ -1327,7 +1217,7 @@ pub(crate) fn vet_reserved(
     // Bluetooth commands say who sent them: what a plugin may do with a
     // device depends on it.
     for command in &mut out[from..] {
-        if let Command::Bluetooth(request) = command
+        if let Ask::Bluetooth(request) = command
             && let Ok(plugin) = Id::parse(owner)
         {
             request.set_from(plugin);
@@ -1348,14 +1238,14 @@ pub(crate) fn vet_reserved(
         // plugin's command stage makes them, or `event.spoken` could be
         // forged for another plugin; no plugin is exempt, the settings
         // editor included.
-        let host_speech = matches!(command, Command::Speak(speech)
+        let host_speech = matches!(command, Ask::Speak(speech)
             if native_speech::is_reply(speech.reply()) || native_speech::is_stop(speech.reply()));
         let refused = index >= from
             && (host_speech
                 || !editor
                     && match command {
-                        Command::SetSecret(change) => change.id.split('.').next() != Some(owner),
-                        Command::SetSetting(id, _) | Command::ResetSetting(id) => guarded(id),
+                        Ask::SetSecret(change) => change.id.split('.').next() != Some(owner),
+                        Ask::SetSetting(id, _) | Ask::ResetSetting(id) => guarded(id),
                         // Text typed for another plugin's secret or guarded
                         // setting, or asked for: the kernel would set it.
                         command if !keyboard && typed_for(command).is_some() => {
@@ -1367,9 +1257,7 @@ pub(crate) fn vet_reserved(
                         }
                         // The sleep screen shows over the lock; the settings
                         // editor has these rights.
-                        Command::BindSlot(slot, _) => {
-                            *slot == slots::SLEEP || *slot == slots::SETTINGS
-                        }
+                        Ask::BindSlot(slot, _) => *slot == slots::SLEEP || *slot == slots::SETTINGS,
                         _ => false,
                     });
         index += 1;

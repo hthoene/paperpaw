@@ -5,7 +5,7 @@
 //! The decisions without the host are in `native_online`.
 use super::{COMMANDS, NativeUpdate, PAGE, Running, View, fetch::Fetch};
 use crate::{
-    native_card::{MAX_NAME, UPDATE_DIR, percent},
+    native_card::{MAX_NAME, UPDATE_DIR, coarse, joins, percent},
     native_online::{
         self, Build, FIRST, Firmware, LAST, MAX_OFFER, OFFER, Offer, QUESTION, Reader, Trouble,
         counting, date_text, parse_date,
@@ -392,6 +392,11 @@ impl NativeUpdate {
     /// Downloads the update `offer` names into `updates`, where the card flow
     /// finds it once it is whole.
     pub(super) fn download(&mut self, host: &Host<'_>, offer: Offer) -> Result<(), Error> {
+        // One download at a time: a second start (the page opened again, an old
+        // offer pressed) joins the running one and shows its bar (#232).
+        if joins(self.online.downloading()) {
+            return self.show_downloading(host);
+        }
         let Some(running) = self.firmware(host)? else {
             return self.refresh(host);
         };
@@ -479,7 +484,7 @@ impl NativeUpdate {
             return Ok(());
         }
         let total = progress.total().unwrap_or(loading.size);
-        let now = percent(progress.received(), total);
+        let now = coarse(percent(progress.received(), total));
         if now != loading.percent {
             loading.percent = now;
             self.show_downloading(host)?;

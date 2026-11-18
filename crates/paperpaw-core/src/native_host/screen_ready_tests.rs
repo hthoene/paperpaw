@@ -2,6 +2,7 @@
 //! instance, only to subscribers, never for one closed before it was drawn.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
+use crate::Staging;
 use crate::native_host::{
     codec,
     commands::CommandStage,
@@ -13,9 +14,7 @@ use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{
-    Handled, Id, Manifest, Params, Plugin, RegisterError, Registrar, Screen, ScreenSpec, Version,
-};
+use paperpaw_sdk::{Handled, Id, Manifest, Params, RegisterError, Version};
 
 /// (screen, instance) of each 87 a subscriber was told.
 type Told = Rc<RefCell<Vec<(String, u32)>>>;
@@ -33,7 +32,7 @@ impl NativeInstance for Probe {
     fn subscribed(&self, tag: u32) -> bool {
         self.subscribed && tag == wire::EVENT_SCREEN_READY_TAG
     }
-    fn service_event(&self, bytes: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         if let wire::Record::EventScreenReady(event) = codec::decode_any_single(bytes).unwrap() {
             self.told
                 .borrow_mut()
@@ -44,7 +43,7 @@ impl NativeInstance for Probe {
     fn service_event_staged(
         &self,
         bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         _: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.service_event(bytes, env)
@@ -52,17 +51,17 @@ impl NativeInstance for Probe {
 }
 
 impl Dispatch for Probe {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -71,45 +70,32 @@ impl Dispatch for Probe {
 }
 
 struct Plain;
-impl Screen for Plain {
-    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> Handled {
+impl crate::testing::Fake for Plain {
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
 
-/// An overlay that covers all of the content: what lies below is not drawn.
+/// A full screen over another: what lies below is not drawn.
 struct Cover;
-impl Screen for Cover {
-    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> Handled {
+impl crate::testing::Fake for Cover {
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> Handled {
         Handled::No
-    }
-    fn region(&self, env: &paperpaw_sdk::Env<'_>) -> Option<paperpaw_platform::Rect> {
-        Some(paperpaw_platform::Rect::new(
-            0,
-            0,
-            env.content().width,
-            env.content().height,
-        ))
     }
 }
 
-struct Screens;
-impl Plugin for Screens {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("s"), "Screens", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn screens() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         for name in ["s.one", "s.two"] {
-            r.add_screen(ScreenSpec::new(
+            r.add_fake(crate::testing::FakeSpec::new(
                 Id::try_parse(name).unwrap(),
                 "screen",
                 Box::new(|_, _| Box::new(Plain)),
             ))?;
         }
-        r.add_screen(ScreenSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::try_parse("s.cover").unwrap(),
             "screen",
             Box::new(|_, _| Box::new(Cover)),
@@ -118,9 +104,15 @@ impl Plugin for Screens {
     }
 }
 
+/// What [`screens`] registers under.
+fn screens_manifest() -> Manifest {
+    Manifest::new(Id::new_static("s"), "Screens", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn world(subscribed: bool) -> (crate::Kernel, Told) {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Screens)
+        .items(screens_manifest(), screens())
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -194,7 +186,7 @@ fn an_instance_closed_before_it_was_drawn_is_never_told() {
     draw(&mut kernel);
     let before = told.borrow().len();
     open(&mut kernel, "s.two");
-    kernel.apply(paperpaw_sdk::Command::Back);
+    kernel.apply(crate::Ask::Back);
     kernel.finish();
     draw(&mut kernel);
     assert!(
@@ -211,14 +203,14 @@ fn a_screen_fully_covered_when_drawn_is_told_only_once_it_is_shown() {
     let one = open(&mut kernel, "s.one");
     let cover = open(&mut kernel, "s.cover");
     draw(&mut kernel);
-    // The overlay was drawn; what it covers was not, so it is not ready yet.
+    // The cover was drawn; what it covers was not, so it is not ready yet.
     assert!(
         told.borrow()
             .iter()
             .any(|(s, i)| s == "s.cover" && *i == cover)
     );
     assert!(!told.borrow().iter().any(|(_, i)| *i == one));
-    kernel.apply(paperpaw_sdk::Command::Back);
+    kernel.apply(crate::Ask::Back);
     kernel.finish();
     kernel.output.redraw = true;
     draw(&mut kernel);

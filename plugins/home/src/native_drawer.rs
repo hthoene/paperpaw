@@ -341,7 +341,8 @@ impl Drawer {
                 self.shown && index == self.focus,
                 false,
             )?;
-            icons::draw_tool(&mut below, &fonts, &style, cell, &tool)?;
+            let shape = icons::measure_tool(&fonts, &style, cell, &tool)?;
+            icons::draw_tool(&mut below, &fonts, &style, cell, &tool, &shape)?;
         }
         let mut above = Vec::new();
         if self.shown && len > 0 {

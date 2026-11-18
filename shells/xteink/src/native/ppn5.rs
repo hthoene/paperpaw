@@ -24,7 +24,7 @@
 //! 6. the entry's `make` runs (X2): in the registration scope of the
 //!    core's shared owner (`paperpaw_core::native_host::shell`), as the
 //!    first plugin code the X4 firmware runs for interface 7. Its output is
-//!    committed, wrapped as a core `FlatPlugin` and returned to the kernel.
+//!    committed and handed to the kernel to admit (`HostedAdmission`).
 //!
 //! **Plugin code and the firmware.** The plugin has no sandbox, as format 4.
 //! Around every call into its code (`make`, a callback, its destructor) the
@@ -126,8 +126,12 @@ fn verify(
     super::read_exact(storage, path, 0, &mut head[..have]).map_err(|()| PluginProblem::Damaged)?;
     let header =
         Header5::read(&head[..have], size, &HOST).map_err(|why| refused(path, &head, why))?;
-    // The file installed, not one put in its folder since.
-    if header.sha256 != code.sha256 {
+    // The file installed, not one put in its folder since (a file never
+    // installed holds to its own header, checked with the image).
+    if code
+        .sha256
+        .is_some_and(|installed| header.sha256 != installed)
+    {
         warn!("native: {path} is not the file installed");
         return Err(PluginProblem::Changed);
     }
@@ -554,6 +558,8 @@ mod x4 {
         // row the next goes without them (`paperpaw_x4::start_count`).
         crate::safe_mode::loading("native-linked");
         let began = crate::micros();
+        kernel
+            .set_native_clock(|| u32::try_from(crate::micros() & u64::from(u32::MAX)).unwrap_or(0));
         CREATING.store(true, core::sync::atomic::Ordering::Relaxed);
         // SAFETY: the entries are `native_plugin!(..., linked = NAME)` of crates
         // linked into this firmware (their code stays for the whole run); the
@@ -590,9 +596,14 @@ mod x4 {
             // A lost band after a sleep now ends in a start without them.
             crate::stack::native_loaded();
         }
+        let times = kernel.native_times();
         info!(
-            "native: {hosted} linked plugins hosted in {} ms",
-            (crate::micros() - began) / 1000
+            "native: {hosted} linked plugins hosted in {} ms (admit {} ms, key map {} ms, fonts {} ms, widget fonts {} ms)",
+            (crate::micros() - began) / 1000,
+            times.admit / 1000,
+            times.keymap / 1000,
+            times.fonts / 1000,
+            times.widget_fonts / 1000,
         );
     }
 
@@ -835,6 +846,10 @@ mod x4 {
     }
 
     impl NativeAdmission for Measured {
+        fn declares(&self, key: &str) -> bool {
+            self.inner.declares_feature(key)
+        }
+
         fn admit(
             self: Box<Self>,
             kernel: &mut paperpaw_core::Kernel,

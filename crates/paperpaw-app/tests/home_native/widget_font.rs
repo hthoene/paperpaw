@@ -13,6 +13,7 @@ use crate::common::*;
 use paperpaw_text::{Glyph, LineMetrics, PackBuilder};
 
 const GLOBAL: &str = "core.widgets.font";
+const BOOK: &str = "core.widgets.font.book";
 const OWN: &str = "home.continue.font";
 
 /// The pack of a font plugin on the card, family Narrow: every letter, at
@@ -88,4 +89,40 @@ fn the_start_card_is_set_in_the_family_chosen_for_widgets() {
     assert!(card(&mut app) == narrow);
     app.set(GLOBAL, "core.widgets.font.menus");
     assert!(card(&mut app) == menus);
+}
+
+/// The start card on the X4 (buttons only): options, *Settings*, and *Font*
+/// is the page's first row (not the last of three pages, after the widget's
+/// own settings), so two presses reach its choices; choosing sets the font
+/// of the card's placement.
+#[test]
+fn the_start_cards_settings_choose_its_font() {
+    let config = "[home]\npage-1 = home.continue\n";
+    let mut app = App::new(X4, Shared::memory(config, &[]));
+    app.run(Id::new_static("home.edit-pages"));
+    app.run(actions::RIGHT);
+    app.run(actions::CONFIRM);
+    // Options: Move, Change the size, Settings.
+    app.run(actions::DOWN);
+    app.run(actions::DOWN);
+    app.run(actions::CONFIRM);
+    assert_eq!(app.screen(), "settings.list", "{}", app.described());
+    let focused = app.focused().unwrap_or_default();
+    assert!(
+        focused.starts_with("Font, "),
+        "{focused}\n{}",
+        app.described()
+    );
+    app.run(actions::CONFIRM);
+    assert_eq!(app.screen(), "settings.choose", "{}", app.described());
+    // As all widgets, as the menus, as the book.
+    app.run(actions::DOWN);
+    app.run(actions::DOWN);
+    app.run(actions::CONFIRM);
+    let placed = app
+        .kernel
+        .settings()
+        .text("home.continue@1.font")
+        .to_string();
+    assert_eq!(placed.as_str(), BOOK, "{}", app.described());
 }

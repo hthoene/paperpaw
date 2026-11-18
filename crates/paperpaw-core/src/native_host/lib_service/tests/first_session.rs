@@ -4,7 +4,7 @@
 //! Beta 3; a path the card does not hold is still `ERR_NOT_FOUND`.
 use super::*;
 use crate::native_host::lib_host::LibraryHost;
-use crate::native_host::lib_reads::tests::{Env, card};
+use crate::native_host::lib_reads::tests::{Facts, card};
 use crate::native_host::registrations::{
     ServiceLibEdit as Edit, ServiceLibEditHead as Head, ServiceLibPosition as Position,
     ServiceLibPositionSet as PositionSet, ServiceLibRef as Ref, ServiceLibTransactionRef as TRef,
@@ -87,7 +87,7 @@ fn place(host: &Rc<dyn LibHost>, path: &str) -> Result<u32, i32> {
 }
 
 fn host_on(storage: Rc<MemoryStorage>) -> Rc<dyn LibHost> {
-    let env = Rc::new(Env {
+    let env = Rc::new(Facts {
         walking: core::cell::Cell::new(None),
         today: core::cell::Cell::new(None),
     });

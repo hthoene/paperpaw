@@ -1,9 +1,9 @@
 //! Wi-Fi, on devices where PaperPaw manages it itself (the X4; later
-//! Linux readers): [`Env::wifi`](crate::Env) is `Some` there. Elsewhere
+//! Linux readers): `Place::wifi` is `Some` there. Elsewhere
 //! (Android, desktops) the system manages it and PaperPaw only uses the
 //! network.
 //!
-//! The shell does what it is told ([`Command::Wifi`](crate::Command) with
+//! The shell does what it is told (`Ask::Wifi` with
 //! a [`WifiCommand`]: radio on or off, find networks, join, leave) and
 //! reports what happens; deciding when and which network is a plugin's
 //! (the `wifi` plugin, which another can replace), as is the page to
@@ -254,7 +254,7 @@ impl JoinFailure {
     }
 }
 
-/// Wi-Fi as the kernel knows it ([`Env::wifi`](crate::Env)).
+/// Wi-Fi as the kernel knows it (`Place::wifi`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Wifi {

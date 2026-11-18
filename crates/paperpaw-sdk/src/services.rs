@@ -1,7 +1,7 @@
 //! What plugins offer each other: services, and points to contribute to.
 //!
 //! **Services.** A plugin provides a value under an id in its namespace
-//! ([`Registrar::provide`](crate::Registrar::provide)), in a version;
+//! (`Staging::provide`), in a version;
 //! others find it with [`Services::get`] by that id, its type and the
 //! version they need. The type comes from the providing plugin's crate,
 //! usually a struct holding a trait object, so others depend on what it
@@ -37,7 +37,7 @@
 //! # let mut services = Services::new();
 //! # services.insert(WEATHER, Service::new(Weather(Box::new(Sunny)), Version::new(1, 0, 0)));
 //!
-//! // Any plugin, with an `Env`: `env.services().get::<…>(…)`.
+//! // Any plugin, with an `Place`: `env.services().get::<…>(…)`.
 //! let weather = services.get::<Weather>(WEATHER.as_str(), Version::new(1, 0, 0));
 //! assert_eq!(weather.map(|w| w.0.today()), Some("sunny"));
 //! ```
@@ -50,7 +50,7 @@
 //! **Points to contribute to.** A plugin names a point (an id in its
 //! namespace) and documents what a contribution there is, e.g. a line
 //! of text in a format of its own; any plugin adds to it with
-//! [`Registrar::contribute`](crate::Registrar::contribute), and the
+//! `Staging::contribute`, and the
 //! plugin reads them all with [`Services::contributions`]. The kernel's
 //! own points (status items, widgets, text filters …) have registrar
 //! methods of their own; these are for points that plugins define.
@@ -172,7 +172,7 @@ impl fmt::Debug for Service {
 }
 
 /// A point plugins contribute to, as its plugin declares it
-/// ([`Registrar::add_point`](crate::Registrar::add_point)): for lists of
+/// (`Staging::add_point`): for lists of
 /// what can be extended, and for authors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -200,7 +200,7 @@ impl PointSpec {
 }
 
 /// An event a plugin emits, as it declares it
-/// ([`Registrar::declare_event`](crate::Registrar::declare_event)): rules
+/// (`Staging::declare_event`): rules
 /// and macro editors offer any declared event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -237,18 +237,13 @@ pub struct Services {
     events: Vec<EventSpec>,
 }
 
-/// The kernel's services a plugin may stand in for, providing its own
-/// under the same id ([`Registrar::provide`](crate::Registrar::provide)):
-/// the library ([`library::service`](fn@crate::library::service)).
-pub const REPLACEABLE: &[&str] = &[crate::library::service::SERVICE];
-
 impl Services {
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Publishes `service` as `id` (kernel; plugins use
-    /// [`Registrar::provide`](crate::Registrar::provide)).
+    /// `Staging::provide`).
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn insert(&mut self, id: Id, service: Service) {
@@ -256,7 +251,7 @@ impl Services {
     }
 
     /// Adds `plugin`'s `contribution` to `point` (kernel; plugins use
-    /// [`Registrar::contribute`](crate::Registrar::contribute)).
+    /// `Staging::contribute`).
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn contribute(&mut self, point: Id, plugin: Id, contribution: Cow<'static, str>) {
@@ -264,7 +259,7 @@ impl Services {
     }
 
     /// Declares point `point` (kernel; plugins use
-    /// [`Registrar::add_point`](crate::Registrar::add_point)).
+    /// `Staging::add_point`).
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn declare_point(&mut self, point: PointSpec) {
@@ -272,7 +267,7 @@ impl Services {
     }
 
     /// Declares event `event` (kernel; plugins use
-    /// [`Registrar::declare_event`](crate::Registrar::declare_event)).
+    /// `Staging::declare_event`).
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn declare_event(&mut self, event: EventSpec) {

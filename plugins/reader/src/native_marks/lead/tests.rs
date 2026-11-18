@@ -103,3 +103,26 @@ fn a_mark_that_starts_a_word_a_few_bytes_before_the_page_end_is_found() {
     assert!(!lead.is_in("down the rab"));
     assert!(!lead.is_in("down the burrabb"));
 }
+
+#[test]
+fn a_short_text_is_said_by_its_very_words_and_no_others() {
+    // Too short for a lead that is looked for near a place (#265).
+    assert!(Lead::of("Om").is_none());
+    let om = Lead::of_any("Om").unwrap();
+    assert!(om.is_short());
+    assert!(om.says("Om", false));
+    assert!(!om.says("Om forfatteren", false));
+    assert!(!om.says("O", false));
+    assert!(!om.says("om", false));
+    assert!(!om.says("", true));
+    // White space as one space; a page that ends inside the text says its
+    // start, word by word.
+    let two = Lead::of_any("to  be").unwrap();
+    assert!(two.says("to be", false));
+    assert!(two.says("to", true));
+    assert!(!two.says("to", false));
+    assert!(!two.says("t", true));
+    // A text of no letters has no lead at all; a long one is not short.
+    assert!(Lead::of_any("  ").is_none());
+    assert!(!Lead::of_any("rabbit hole").unwrap().is_short());
+}

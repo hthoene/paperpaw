@@ -527,3 +527,98 @@ fn toned_text_without_widening_or_tone_is_text_draw() {
         }
     }
 }
+
+/// The checker fill draws what one 1x1 fill for each of its pixels draws: the
+/// pixels an even (pattern 0) or odd (pattern 1) number of steps from the
+/// rectangle's corner, cut by the clip and the canvas's offset, from any origin.
+#[test]
+fn a_checker_fill_matches_its_pixels_one_by_one_at_any_origin_and_clip() {
+    for format in [PixelFormat::Mono1, PixelFormat::Gray8] {
+        for offset in [Point::new(0, 0), Point::new(5, 4), Point::new(-3, -2)] {
+            for (x, y) in [(0, 0), (1, 0), (0, 1), (3, 5), (-3, -2), (-1, 2), (30, 28)] {
+                for pattern in [0, 1] {
+                    let (mut direct, mut adapted) = (frame(format), frame(format));
+                    for (frame, backend) in [(&mut direct, false), (&mut adapted, true)] {
+                        let mut canvas = frame.canvas().offset(offset.x, offset.y);
+                        let mut canvas = canvas.clipped(Rect::new(1, 1, 23, 22));
+                        if backend {
+                            graphics::fill_pattern(
+                                &mut canvas,
+                                (x, y),
+                                (9, 7),
+                                Color::BLACK,
+                                pattern,
+                            )
+                            .unwrap();
+                        } else {
+                            for row in 0..7_i32 {
+                                for column in 0..9_i32 {
+                                    if (column + row + pattern as i32) % 2 == 0 {
+                                        canvas.fill_rect(
+                                            x as i32 + column,
+                                            y as i32 + row,
+                                            1,
+                                            1,
+                                            Color::BLACK,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    assert_eq!(
+                        adapted.view().data,
+                        direct.view().data,
+                        "{format:?} {offset:?} at {x},{y} pattern {pattern}"
+                    );
+                }
+            }
+        }
+    }
+    // The checker is inked where the rectangle's own corner is: the stipple of
+    // the lists, `x ^ y` even in the canvas's pixels, from any corner.
+    for (x, y) in [(2_i64, 4_i64), (3, 4), (2, 5), (3, 5)] {
+        let mut checker = frame(PixelFormat::Gray8);
+        graphics::fill_pattern(
+            &mut checker.canvas(),
+            (x, y),
+            (12, 3),
+            Color::BLACK,
+            ((x ^ y) & 1) as u32,
+        )
+        .unwrap();
+        for row in 0..32_usize {
+            for column in 0..40_usize {
+                let inside = (x as usize..x as usize + 12).contains(&column)
+                    && (y as usize..y as usize + 3).contains(&row);
+                let ink = inside && (column ^ row) & 1 == 0;
+                assert_eq!(
+                    checker.view().data[row * 40 + column] == 0,
+                    ink,
+                    "{x},{y} pixel {column},{row}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_checker_fill_with_an_unknown_pattern_or_huge_extents_is_refused_or_clipped() {
+    let mut untouched = frame(PixelFormat::Gray8);
+    assert_eq!(
+        graphics::fill_pattern(&mut untouched.canvas(), (0, 0), (9, 7), Color::BLACK, 2),
+        Err(InvalidInput)
+    );
+    assert!(untouched.view().data.iter().all(|byte| *byte == 255));
+    let mut big = frame(PixelFormat::Gray8);
+    graphics::fill_pattern(
+        &mut big.canvas(),
+        (i64::from(i32::MIN), i64::from(i32::MIN)),
+        (u64::from(u32::MAX), u64::from(u32::MAX)),
+        Color::BLACK,
+        0,
+    )
+    .unwrap();
+    assert!(big.view().data.contains(&0));
+    assert!(big.view().data.contains(&255));
+}

@@ -14,9 +14,12 @@
 
 mod common;
 
+use common::AddDriver;
+
 use common::{BASE, DEVICE, DIMS, FULL, Harness, OVERLAY, REGION, SCREEN, pointer, tap, within};
+use paperpaw_core::Ask;
+use paperpaw_core::sdk::Params;
 use paperpaw_core::sdk::builtin::slots;
-use paperpaw_core::sdk::{Command, Params};
 use paperpaw_core::{Effects, Kernel};
 use paperpaw_graphics::Framebuffer;
 use paperpaw_platform::{Instant, PointerPhase, PointerTool, Rect, RefreshMode};
@@ -38,7 +41,7 @@ fn config(cases: u32) -> Config {
 /// A kernel with the driver, drawn whole or in bands of `rows` aligned
 /// to `align`.
 fn kernel(harness: &Harness, bands: Option<(u16, u16)>) -> Kernel {
-    let builder = Kernel::builder(DEVICE).plugin(harness.plugin());
+    let builder = Kernel::builder(DEVICE).driver(harness.plugin());
     let builder = match bands {
         Some((rows, align)) => builder.frame_rows(rows).row_align(align),
         None => builder,
@@ -68,7 +71,7 @@ fn draw(kernel: &mut Kernel, align: u16) {
     }
 }
 
-fn overlay(region: Rect, dims: bool) -> Command {
+fn overlay(region: Rect, dims: bool) -> Ask {
     let mut params = Params::new().with(
         REGION,
         format!(
@@ -79,7 +82,7 @@ fn overlay(region: Rect, dims: bool) -> Command {
     if dims {
         params = params.with(DIMS, "1");
     }
-    Command::OpenScreen(OVERLAY, params)
+    Ask::OpenScreen(OVERLAY, params)
 }
 
 #[derive(Debug, Clone)]
@@ -133,11 +136,11 @@ fn op() -> impl Strategy<Value = Op> {
 
 /// Carries out `op` at `now`; returns its effects.
 fn apply(harness: &Harness, kernel: &mut Kernel, now: u64, op: &Op) -> Effects {
-    let open_slot = |slot| Command::OpenSlot(slot, Params::new());
+    let open_slot = |slot| Ask::OpenSlot(slot, Params::new());
     let commands = match op {
         Op::Overlay(region, dims) => vec![overlay(*region, *dims)],
-        Op::Full => vec![Command::OpenScreen(FULL, Params::new())],
-        Op::Back => vec![Command::Back],
+        Op::Full => vec![Ask::OpenScreen(FULL, Params::new())],
+        Op::Back => vec![Ask::Back],
         Op::Home => vec![open_slot(slots::HOME)],
         Op::Menu => vec![open_slot(slots::MENU)],
         Op::Tap(x, y) => {
@@ -145,9 +148,9 @@ fn apply(harness: &Harness, kernel: &mut Kernel, now: u64, op: &Op) -> Effects {
             kernel.handle(Instant(now), touch(PointerPhase::Down));
             return kernel.handle(Instant(now + 60), touch(PointerPhase::Up));
         }
-        Op::Redraw(mode) => vec![Command::Redraw(*mode)],
-        Op::Notify => vec![Command::Notify(String::from("Saved"))],
-        Op::BackAndOverlay(region) => vec![Command::Back, overlay(*region, true)],
+        Op::Redraw(mode) => vec![Ask::Redraw(*mode)],
+        Op::Notify => vec![Ask::Notify(String::from("Saved"))],
+        Op::BackAndOverlay(region) => vec![Ask::Back, overlay(*region, true)],
     };
     harness.run(kernel, now, commands)
 }
@@ -198,7 +201,7 @@ proptest! {
         }
         // Back as often as there are screens: home is left.
         for i in 0..40 {
-            harness.run(&mut kernel, 100_000 + i, [Command::Back]);
+            harness.run(&mut kernel, 100_000 + i, [Ask::Back]);
         }
         draw(&mut kernel, align);
         prop_assert_eq!(kernel.screens().count(), 1);
@@ -281,7 +284,7 @@ fn an_overlay_reaching_past_the_screen_refreshes_only_the_screen() {
             "an overlay at {region:?} refreshes {refresh:?}"
         );
         common::render(&mut kernel);
-        let effects = harness.run(&mut kernel, 2000, [Command::Back]);
+        let effects = harness.run(&mut kernel, 2000, [Ask::Back]);
         let refresh = effects.refresh().map(|(r, _)| r);
         assert!(
             refresh.is_none_or(|r| within(r, SCREEN)),
@@ -304,7 +307,7 @@ fn an_overlay_reaching_past_the_screen_draws_only_on_the_screen() {
         ] {
             harness.run(&mut kernel, 1000, [overlay(region, true)]);
             draw(&mut kernel, bands.map_or(1, |(_, a)| a));
-            harness.run(&mut kernel, 2000, [Command::Back]);
+            harness.run(&mut kernel, 2000, [Ask::Back]);
             draw(&mut kernel, bands.map_or(1, |(_, a)| a));
         }
         assert_eq!(kernel.active_screen(), Some(&BASE));
@@ -319,7 +322,7 @@ fn a_tap_outside_an_overlay_closes_only_it() {
         &mut kernel,
         1000,
         [
-            Command::OpenScreen(FULL, Params::new()),
+            Ask::OpenScreen(FULL, Params::new()),
             overlay(Rect::new(0, 100, 120, 60), false),
             overlay(Rect::new(0, 130, 120, 30), false),
         ],
@@ -337,7 +340,7 @@ fn back_on_the_last_screen_keeps_it() {
     let harness = Harness::new();
     let mut kernel = kernel(&harness, None);
     for i in 0..5 {
-        let effects = harness.run(&mut kernel, 1000 + i, [Command::Back, Command::Back]);
+        let effects = harness.run(&mut kernel, 1000 + i, [Ask::Back, Ask::Back]);
         assert!(effects.refresh().is_none());
     }
     assert_eq!(kernel.active_screen(), Some(&BASE));
@@ -352,11 +355,11 @@ fn opening_screens_that_do_not_exist_leaves_the_stack() {
         &mut kernel,
         1000,
         [
-            Command::OpenScreen(
+            Ask::OpenScreen(
                 paperpaw_core::sdk::Id::new_static("nobody.screen"),
                 Params::new(),
             ),
-            Command::OpenSlot(
+            Ask::OpenSlot(
                 paperpaw_core::sdk::Id::new_static("nobody.slot"),
                 Params::new(),
             ),
@@ -372,7 +375,7 @@ fn an_action_that_runs_itself_for_ever_is_cut_off() {
     let harness = Harness::new();
     let mut kernel = kernel(&harness, None);
     for i in 0..3 {
-        harness.run(&mut kernel, 1000 + i, [Command::run(common::LOOP)]);
+        harness.run(&mut kernel, 1000 + i, [Ask::run(common::LOOP)]);
     }
     let warnings = kernel.take_warnings();
     assert_eq!(warnings.len(), 3, "{warnings:?}");
@@ -393,11 +396,7 @@ fn every_so_many_partial_refreshes_one_is_full() {
     common::render(&mut kernel);
     let mut modes = Vec::new();
     for i in 0..9 {
-        let effects = harness.run(
-            &mut kernel,
-            1000 + i,
-            [Command::Redraw(RefreshMode::Partial)],
-        );
+        let effects = harness.run(&mut kernel, 1000 + i, [Ask::Redraw(RefreshMode::Partial)]);
         modes.push(effects.refresh().unwrap());
         common::render(&mut kernel);
     }
@@ -417,7 +416,7 @@ fn every_so_many_partial_refreshes_one_is_full() {
     );
     // Fast ones do not count.
     for i in 0..5 {
-        let effects = harness.run(&mut kernel, 2000 + i, [Command::Redraw(RefreshMode::Fast)]);
+        let effects = harness.run(&mut kernel, 2000 + i, [Ask::Redraw(RefreshMode::Fast)]);
         assert_eq!(effects.refresh().map(|(_, m)| m), Some(RefreshMode::Fast));
         common::render(&mut kernel);
     }

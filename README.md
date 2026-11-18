@@ -212,14 +212,15 @@ X4 Pro, those not built into the firmware are files from the plugin
 store, signed by their authors, or one's own builds sent over USB or the
 Wi-Fi transfer ([docs/usb-transfer.md](docs/usb-transfer.md)), with no
 firmware rebuild. [Writing plugins](docs/plugins.md)
-walks through [`samples/hello-plugin`](samples/hello-plugin/src/lib.rs), a
-small one to start from.
+walks through the small plugin `paperpaw-dev new --code` makes, to start
+from.
 
 ## Try it in the emulator
 
 Each release has the emulator ready to run for Windows, macOS and Linux,
 on the [releases page](https://github.com/hthoene/paperpaw/releases). It
-comes with `paperpaw-dev`. To build it yourself, you need a recent stable
+comes with `paperpaw-dev`. The Linux programs need glibc 2.35 or newer
+(Debian 12, Ubuntu 22.04 and later). To build it yourself, you need a recent stable
 [Rust toolchain](https://rustup.rs). The required targets are installed
 automatically from `rust-toolchain.toml`.
 
@@ -289,6 +290,7 @@ cargo run -p paperpaw-emulator -- --headless --profile boox-go-7 --set core.lang
 | `crates/paperpaw-sqlite` | SQLite files read and written page by page, e.g. KOReader's statistics |
 | `crates/paperpaw-digest` | MD5, SHA-1, SHA-256 and FNV-1a |
 | `crates/paperpaw-qr` | QR codes for short text such as an address |
+| `crates/paperpaw-caldav` | CalDAV and iCalendar for plugins: to-dos read, written and patched as they stream |
 | `crates/paperpaw-native` | Native code plugin files (`.ppn`): format, signatures, loading |
 | `crates/paperpaw-update` | Signed firmware update files |
 | `crates/paperpaw-serve` | HTTP serving for plugins in shells with an operating system |

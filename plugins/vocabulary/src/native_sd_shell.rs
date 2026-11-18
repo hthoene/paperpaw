@@ -95,7 +95,7 @@ fn end_run(host: &Host<'_>, run: &mut Run, error: Error) {
 }
 
 /// Opens `screen`, the hand-over carrying `params`.
-fn open_with(
+pub(crate) fn open_with(
     host: &Host<'_>,
     ui: &paperpaw_sdk::native::ui::Ui,
     screen: &str,

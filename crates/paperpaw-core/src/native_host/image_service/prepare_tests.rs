@@ -9,7 +9,7 @@ use paperpaw_sdk::image::PngWriter;
 
 const A: u64 = 1;
 /// A device with no X4 limits and a 480-pixel screen.
-const ENV: Env = Env {
+const ENV: Within = Within {
     screen: 480,
     colour: false,
     max_side: 4096,
@@ -80,7 +80,8 @@ fn side_zero_is_the_screens_and_a_stopped_plugin_loses_everything() {
     png(&storage, "a.png", 64, 64);
     t.prepare(A, "a.png", 0, 1, false, &Recipe::default())
         .unwrap();
-    t.prepare_step(&storage, Env { screen: 32, ..ENV }).unwrap();
+    t.prepare_step(&storage, Within { screen: 32, ..ENV })
+        .unwrap();
     let ready = told(&t).unwrap();
     assert_eq!((ready.status, ready.width), (READY, 32));
     t.prepare(A, "a.png", 0, 2, false, &Recipe::default())
@@ -426,7 +427,7 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
     png(&storage, "big.png", 64, 64);
     t.prepare(A, "big.png", 0, 1, false, &Recipe::default())
         .unwrap();
-    let x4 = Env {
+    let x4 = Within {
         screen: 480,
         colour: false,
         max_side: 16,
@@ -447,7 +448,7 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
     let ready = told(&t).unwrap();
     assert!(ready.width <= 16, "a larger side is clamped too");
     // A source row of 64 pixels of 8-bit gray is 64 bytes: over a cap of 63.
-    let narrow = Env {
+    let narrow = Within {
         png_row_max: 63,
         ..ENV
     };
@@ -456,7 +457,7 @@ fn the_x4_clamps_the_side_and_refuses_a_wide_png_source_row() {
     t.prepare_step(&storage, narrow).unwrap();
     let ready = told(&t).unwrap();
     assert_eq!((ready.status, ready.image), (TOO_LARGE, 0));
-    let ok = Env {
+    let ok = Within {
         png_row_max: 64,
         ..ENV
     };
@@ -478,7 +479,7 @@ fn a_cache_name_left_by_an_earlier_boot_is_replaced_and_a_sweep_spares_the_live_
         .unwrap();
     let ready = step(&t, &storage).unwrap();
     assert_eq!(ready.status, READY, "the old file is replaced, not trusted");
-    assert!(paperpaw_sdk::ui::probe_picture(&storage, &stale).is_ok());
+    assert!(crate::kit::ui::probe_picture(&storage, &stale).is_ok());
     let mut cursor = SweepCursor::default();
     assert_eq!(t.sweep_cache(&storage, 8, &mut cursor), Ok(false));
     assert!(storage.exists(&stale), "a live image's file stays");
@@ -607,7 +608,7 @@ fn a_sweep_with_no_budget_is_refused_and_changes_nothing() {
 
 #[test]
 fn the_x4_environment_sets_its_limits() {
-    let env = Env::x4(480, true);
+    let env = Within::x4(480, true);
     assert_eq!((env.max_side, env.png_row_max), (1_600, 8 * 1024));
     assert_eq!((env.screen, env.colour), (480, true));
 }
@@ -852,7 +853,7 @@ fn the_longest_side_is_1600_everywhere() {
     let storage = MemoryStorage::new();
     png(&storage, "p.png", 40, 20);
     // A device-wide env that would allow 4,096 still stops at the contract.
-    let roomy = Env {
+    let roomy = Within {
         max_side: 4096,
         ..ENV
     };
@@ -931,12 +932,12 @@ fn gray_alpha_png(width: u32, height: u32, pixels: &[(u8, u8)]) -> std::vec::Vec
 fn cache_of(
     t: &ImageTable,
     storage: &MemoryStorage,
-) -> (paperpaw_sdk::ui::PictureKind, std::vec::Vec<u8>) {
+) -> (crate::kit::ui::PictureKind, std::vec::Vec<u8>) {
     let file = {
         let inner = t.lock().unwrap();
         file_name(inner.entries[0].owner, inner.entries[0].seq).unwrap()
     };
-    let (kind, _, _) = paperpaw_sdk::ui::probe_picture(storage, &file).unwrap();
+    let (kind, _, _) = crate::kit::ui::probe_picture(storage, &file).unwrap();
     let size = usize::try_from(storage.size(&file).unwrap()).unwrap();
     let mut bytes = std::vec![0_u8; size];
     assert_eq!(storage.read_at(&file, 0, &mut bytes).unwrap(), size);
@@ -963,7 +964,7 @@ fn a_see_through_png_keeps_its_opacity_and_is_gray() {
     let ready = step(&t, &storage).unwrap();
     assert_eq!((ready.status, ready.width, ready.height), (READY, 2, 2));
     let (kind, bytes) = cache_of(&t, &storage);
-    assert_eq!(kind, paperpaw_sdk::ui::PictureKind::Alpha);
+    assert_eq!(kind, crate::kit::ui::PictureKind::Alpha);
     assert_eq!(&bytes[..4], b"PPGA");
     assert_eq!(&bytes[12..], &[0, 0, 0, 255, 200, 128, 100, 255]);
     assert_eq!(t.info(A, ready.image).unwrap().flags & 1, 0, "never colour");
@@ -983,7 +984,7 @@ fn without_the_bit_a_png_is_over_white_and_a_jpeg_ignores_the_bit() {
         .unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, READY);
     let (kind, bytes) = cache_of(&t, &storage);
-    assert_eq!(kind, paperpaw_sdk::ui::PictureKind::Gray);
+    assert_eq!(kind, crate::kit::ui::PictureKind::Gray);
     assert_eq!(&bytes[12..], &[255, 0], "transparent is white");
     // A JPEG has no transparency to keep: gray, as without the bit.
     let storage = MemoryStorage::new();
@@ -993,10 +994,7 @@ fn without_the_bit_a_png_is_over_white_and_a_jpeg_ignores_the_bit() {
     let t = ImageTable::new();
     t.prepare(A, "w.jpg", 64, 1, false, &see_through()).unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, READY);
-    assert_eq!(
-        cache_of(&t, &storage).0,
-        paperpaw_sdk::ui::PictureKind::Gray
-    );
+    assert_eq!(cache_of(&t, &storage).0, crate::kit::ui::PictureKind::Gray);
 }
 
 #[test]
@@ -1036,10 +1034,7 @@ fn a_see_through_cache_file_goes_on_release_on_stop_and_in_the_boot_sweep() {
     let ready = step(&t, &storage).unwrap();
     let file = file_at(&t, 0);
     assert!(file.starts_with(DIR) && ours(file.rsplit('/').next().unwrap()));
-    assert_eq!(
-        cache_of(&t, &storage).0,
-        paperpaw_sdk::ui::PictureKind::Alpha
-    );
+    assert_eq!(cache_of(&t, &storage).0, crate::kit::ui::PictureKind::Alpha);
     t.release(A, ready.image).unwrap();
     assert_eq!(step(&t, &storage), None);
     assert!(!storage.exists(&file));
@@ -1079,16 +1074,16 @@ fn an_opaque_cache_is_never_reused_for_a_see_through_request() {
     assert_ne!(opaque.image, clear.image);
     let (first, second) = (file_at(&t, 0), file_at(&t, 1));
     assert_ne!(first, second, "every request gets its own file");
-    let kind = |path: &str| paperpaw_sdk::ui::probe_picture(&storage, path).unwrap().0;
-    assert_eq!(kind(&first), paperpaw_sdk::ui::PictureKind::Gray);
-    assert_eq!(kind(&second), paperpaw_sdk::ui::PictureKind::Alpha);
+    let kind = |path: &str| crate::kit::ui::probe_picture(&storage, path).unwrap().0;
+    assert_eq!(kind(&first), crate::kit::ui::PictureKind::Gray);
+    assert_eq!(kind(&second), crate::kit::ui::PictureKind::Alpha);
     // Also after the opaque one ended and its number could come back.
     t.release(A, opaque.image).unwrap();
     assert_eq!(step(&t, &storage), None);
     t.prepare(A, "a.png", 0, 3, false, &see_through()).unwrap();
     assert_eq!(step(&t, &storage).unwrap().status, READY);
     let newest = file_at(&t, 1);
-    assert_eq!(kind(&newest), paperpaw_sdk::ui::PictureKind::Alpha);
+    assert_eq!(kind(&newest), crate::kit::ui::PictureKind::Alpha);
 }
 
 #[test]
@@ -1097,7 +1092,7 @@ fn a_jpeg_cache_is_byte_identical_with_and_without_the_bit() {
     storage
         .write("w.jpg", include_bytes!("fixtures/wide.jpg"))
         .unwrap();
-    let env = Env {
+    let env = Within {
         colour: true,
         ..ENV
     };
@@ -1212,7 +1207,7 @@ fn a_full_screen_see_through_picture_on_the_x4_stays_within_the_opaque_bounds() 
         .collect();
     card.write("sleep.png", &gray_alpha_png(w, h, &pixels))
         .unwrap();
-    let env = Env::x4(800, false);
+    let env = Within::x4(800, false);
     let mut fb = Framebuffer::new(480, 800, paperpaw_platform::PixelFormat::Mono1).unwrap();
     let mut measure = |recipe: &Recipe| {
         let t = ImageTable::new();

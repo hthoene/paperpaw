@@ -3,15 +3,14 @@
 //! overlays over it drawn again; a full screen or a guard above refuses it.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 use super::*;
+use crate::Staging;
+use crate::{Place, Turn};
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_native::host_glue::ERR_STATE;
 use paperpaw_platform::{Color, Instant, Rect, RefreshMode};
-use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Manifest, Params, Plugin, RegisterError, Registrar, Screen,
-    ScreenKey, ScreenSpec, Version,
-};
+use paperpaw_sdk::{Canvas, Handled, Manifest, Params, RegisterError, ScreenKey, Version};
 
 /// A screen of one of the kinds the tests stack: a full page that is black or
 /// white, a full black screen, a black bar (an overlay in the lower half), a
@@ -21,8 +20,8 @@ struct Probe {
     white: Rc<Cell<bool>>,
 }
 
-impl Screen for Probe {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+impl crate::testing::Fake for Probe {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         let color = match self.kind {
             "page" if self.white.get() => Color::WHITE,
             _ => Color::BLACK,
@@ -34,32 +33,27 @@ impl Screen for Probe {
         }
     }
 
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
+    fn region(&self, _: &Place<'_>) -> Option<Rect> {
         matches!(self.kind, "bar" | "dimbar" | "pin").then(|| Rect::new(0, 45, 90, 45))
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn flags(&self) -> u32 {
+        use crate::testing::{DIMS_BELOW, GUARDS, OVERLAY};
+        match self.kind {
+            "bar" => OVERLAY,
+            "dimbar" => OVERLAY | DIMS_BELOW,
+            "pin" => OVERLAY | GUARDS,
+            _ => 0,
+        }
+    }
+
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
-    }
-
-    fn guards(&self) -> bool {
-        self.kind == "pin"
-    }
-
-    fn dims_below(&self) -> bool {
-        self.kind == "dimbar"
     }
 }
 
-struct Probes(Rc<Cell<bool>>);
-
-impl Plugin for Probes {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("probe"), "Probe", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn probes(kept: Rc<Cell<bool>>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
         for (id, kind) in [
             ("probe.page", "page"),
             ("probe.full", "full"),
@@ -67,8 +61,8 @@ impl Plugin for Probes {
             ("probe.dimbar", "dimbar"),
             ("probe.pin", "pin"),
         ] {
-            let white = Rc::clone(&self.0);
-            r.add_screen(ScreenSpec::new(
+            let white = Rc::clone(&kept);
+            r.add_fake(crate::testing::FakeSpec::new(
                 Id::new_static(id),
                 "probe.title",
                 Box::new(move |_, _| {
@@ -83,11 +77,17 @@ impl Plugin for Probes {
     }
 }
 
+/// What [`probes`] registers under.
+fn probes_manifest() -> Manifest {
+    Manifest::new(Id::new_static("probe"), "Probe", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// A kernel with the screens `ids` opened, bottom first, drawn once.
 fn stacked(ids: &[&'static str]) -> (crate::Kernel, Rc<Cell<bool>>) {
     let white = Rc::new(Cell::new(false));
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Probes(Rc::clone(&white)))
+        .items(probes_manifest(), probes(Rc::clone(&white)))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -110,7 +110,7 @@ fn page_key(kernel: &crate::Kernel) -> ScreenKey {
 }
 
 fn redraw(kernel: &crate::Kernel, command: &WireCommand<'_>) -> i32 {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096).with_ui(
         &env,

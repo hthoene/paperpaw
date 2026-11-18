@@ -10,7 +10,7 @@
 //! * **The walk.** A queue of at most [`DIRS_MAX`] folders, each listed in
 //!   pieces of [`PIECE`] entries ([`Storage::list_from`]), so a step costs the
 //!   entries it reads however large the folder. A path no plugin file may have
-//!   ([`paperpaw_sdk::install::is_safe_path`]), more than [`FILES_MAX`] files
+//!   ([`crate::kit::install::is_safe_path`]), more than [`FILES_MAX`] files
 //!   or more than [`DIRS_MAX`] folders end it with reason 4.
 //! * **Bytes** are the sum of the sizes of the files, which is what lands
 //!   on the card.

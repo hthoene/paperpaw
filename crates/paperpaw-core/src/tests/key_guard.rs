@@ -4,6 +4,7 @@
 //! own key layer run.
 
 use super::*;
+use crate::Staging;
 use core::cell::Cell;
 use paperpaw_sdk::Params;
 
@@ -15,14 +16,14 @@ struct Lock {
     locked: Rc<Cell<bool>>,
 }
 
-impl Screen for Lock {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl crate::testing::Fake for Lock {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn guards(&self) -> bool {
-        self.locked.get()
+    fn flags(&self) -> u32 {
+        u32::from(self.locked.get()) * crate::testing::GUARDS
     }
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         match action.as_str() {
             "kg.layer-on" => cx.set_key_layer(Some(LAYER)),
             "kg.layer-off" => cx.set_key_layer(None),
@@ -37,15 +38,10 @@ struct GuardPlugin {
     log: Log,
 }
 
-impl Plugin for GuardPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("kg"), "Guard", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let locked = self.locked.clone();
-        r.add_screen(ScreenSpec::new(
+fn guard_plugin(kept: GuardPlugin) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        let locked = kept.locked.clone();
+        r.add_fake(crate::testing::FakeSpec::new(
             LOCK,
             "lock",
             Box::new(move |_, _| {
@@ -60,10 +56,10 @@ impl Plugin for GuardPlugin {
                 "kg.action",
             ))?;
         }
-        let log = self.log.clone();
+        crate::tests::hear_into(&kept.log);
         r.add_action(
             ActionSpec::new(Id::new_static("kg.own"), "kg.own")
-                .handler(move |_, _, _| log.borrow_mut().push(String::from("kg.own"))),
+                .handler(|_, _, _| crate::tests::heard("kg.own")),
         )?;
         // The guard's own action, another plugin's, and a host action, in
         // the global layer; the other plugin's again in the own key layer.
@@ -81,32 +77,40 @@ impl Plugin for GuardPlugin {
     }
 }
 
-struct OtherPlugin(Log);
+/// What [`guard_plugin`] registers under.
+fn guard_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("kg"), "Guard", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
 
-impl Plugin for OtherPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("other"), "Other", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
+fn other_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        crate::tests::hear_into(&kept);
         r.add_action(
             ActionSpec::new(Id::new_static("other.run"), "other.run")
-                .handler(move |_, _, _| log.borrow_mut().push(String::from("other.run"))),
+                .handler(|_, _, _| crate::tests::heard("other.run")),
         )
     }
+}
+
+/// What [`other_plugin`] registers under.
+fn other_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("other"), "Other", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 fn kernel(locked: bool) -> (Kernel, Log, Rc<Cell<bool>>) {
     let log = log();
     let flag = Rc::new(Cell::new(locked));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(GuardPlugin {
-            locked: flag.clone(),
-            log: log.clone(),
-        })
-        .plugin(OtherPlugin(log.clone()))
+        .items(
+            guard_plugin_manifest(),
+            guard_plugin(GuardPlugin {
+                locked: flag.clone(),
+                log: log.clone(),
+            }),
+        )
+        .items(other_plugin_manifest(), other_plugin(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -189,6 +193,9 @@ fn when_the_guard_ends_the_other_binding_runs_again() {
     press(&mut kernel, 100, "down");
     assert!(runs(&log).is_empty());
     flag.set(false);
+    // It no longer guards, as its plugin says with `command.screen_policy`.
+    let lock = kernel.stack.iter().position(|s| s.id == LOCK).unwrap();
+    kernel.stack[lock].policy = Some(0);
     press(&mut kernel, 300, "down");
     assert_eq!(runs(&log), ["other.run"]);
 }

@@ -259,6 +259,14 @@ fn hanging_punctuation_and_korean_by_word_are_options_of_the_line_breaker() {
 }
 
 #[test]
+fn a_change_of_letter_spacing_kerning_or_ligatures_lays_the_page_out_again() {
+    for key in ["core.letter-spacing", "core.kerning", "core.ligatures"] {
+        assert!(affects_layout(key), "{key}");
+        assert!(!affects_ink(key), "{key}");
+    }
+}
+
+#[test]
 fn a_change_of_hanging_punctuation_or_korean_breaks_lays_the_page_out_again() {
     assert!(affects_layout("core.hanging-punctuation"));
     assert!(affects_layout("core.korean-breaks"));

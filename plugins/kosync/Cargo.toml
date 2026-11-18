@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-kosync"
 description = "PaperPaw progress sync: reading positions shared with KOReader's sync server (kosync)"
-version = "1.0.10"
+version = "1.0.11"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -23,7 +23,17 @@ paperpaw-ui-kit.workspace = true
 paperpaw-sdk.workspace = true
 
 [dev-dependencies]
-paperpaw-core.workspace = true
+paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
+paperpaw-core = { workspace = true, features = ["native-reading"] }
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
+paperpaw-native.workspace = true
+paperpaw-platform.workspace = true
+paperpaw-i18n.workspace = true
+paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
+paperpaw-plugin-reader = { workspace = true, features = ["linked"] }
+paperpaw-plugin-format-txt = { workspace = true, features = ["linked"] }
+paperpaw-plugin-keyboard = { workspace = true, features = ["linked"] }
+paperpaw-plugin-menu = { workspace = true, features = ["linked"] }
 
 [lints]
 workspace = true

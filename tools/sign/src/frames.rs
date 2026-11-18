@@ -203,7 +203,13 @@ fn writes_rd(opcode: u32) -> bool {
 /// registers, and one of the compiler's outlined sequences (linked in `t0`,
 /// its target known) keeps those it does not write, which the walk reads from
 /// its code (`Walk::outlined_effect`); an unknown one, none.
-fn call(effect: &mut Effect, state: &mut State, env: &Env<'_>, rd: usize, target: Option<u32>) {
+fn call(
+    effect: &mut Effect,
+    state: &mut State,
+    env: &ScanScope<'_>,
+    rd: usize,
+    target: Option<u32>,
+) {
     if target.is_some_and(|t| env.is_noreturn(t)) {
         effect.ctl = Ctl::NoReturn;
     }
@@ -237,7 +243,7 @@ fn jump_through(state: &State, rs1: usize, imm_i: i32, pc: u32) -> Ctl {
 }
 
 /// A 32-bit instruction.
-fn wide(w: u32, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
+fn wide(w: u32, state: &mut State, pc: u32, env: &ScanScope<'_>) -> Effect {
     let opcode = w & 0x7f;
     let rd = (w >> 7 & 31) as usize;
     let rs1 = (w >> 15 & 31) as usize;
@@ -380,7 +386,7 @@ fn cb_offset(w: u32) -> i32 {
 }
 
 /// A 16-bit (compressed) instruction.
-fn narrow(w: u16, state: &mut State, pc: u32, env: &Env<'_>) -> Effect {
+fn narrow(w: u16, state: &mut State, pc: u32, env: &ScanScope<'_>) -> Effect {
     let w = u32::from(w);
     let funct3 = w >> 13;
     let rd = (w >> 7 & 31) as usize;
@@ -531,7 +537,7 @@ impl Tables<'static> {
 /// functions that never return (the panics: code after a call to one is not
 /// reached from it).
 #[derive(Clone, Copy)]
-pub struct Env<'a> {
+pub struct ScanScope<'a> {
     /// The address of the first byte of the code.
     pub base: u32,
     /// The start addresses of the functions that do not return, sorted.
@@ -545,11 +551,11 @@ pub struct Env<'a> {
     pub lenient: bool,
 }
 
-impl Env<'_> {
+impl ScanScope<'_> {
     /// No place known, no function that does not return.
     #[cfg(test)]
-    pub fn none() -> Env<'static> {
-        Env {
+    pub fn none() -> ScanScope<'static> {
+        ScanScope {
             base: 0x4200_0000,
             noreturn: &[],
             tables: Tables::none(),
@@ -596,7 +602,7 @@ const OUTLINED_MAX: usize = 256;
 /// The walk of one function.
 struct Walk<'c> {
     code: &'c [u8],
-    env: Env<'c>,
+    env: ScanScope<'c>,
     start: usize,
     end: usize,
     /// The function's instructions: offset and length.
@@ -906,7 +912,7 @@ impl Walk<'_> {
 
 /// Walks the function that is `code[start..end]`: every instruction along
 /// every path, as described in the module documentation.
-pub fn walk(code: &[u8], start: usize, end: usize, env: Env<'_>) -> Walked {
+pub fn walk(code: &[u8], start: usize, end: usize, env: ScanScope<'_>) -> Walked {
     let end = end.min(code.len());
     let mut out = Walked {
         frame: 0,
@@ -1016,7 +1022,7 @@ pub fn noreturn_functions(
             .iter()
             .filter(|&&(s, _)| set.binary_search(&base.wrapping_add(s as u32)).is_ok())
             .filter(|&&(s, e)| {
-                let env = Env {
+                let env = ScanScope {
                     base,
                     noreturn: &set,
                     tables,
@@ -1079,7 +1085,7 @@ fn ranges(code: &[u8], starts: &[usize]) -> Vec<(usize, usize)> {
 
 /// The first frame in the functions `ranges` of `code` that is [`LIMIT`]
 /// bytes or larger, or whose `sp` is not bounded.
-pub fn scan_ranges(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> Option<Finding> {
+pub fn scan_ranges(code: &[u8], ranges: &[(usize, usize)], env: ScanScope<'_>) -> Option<Finding> {
     for &(start, end) in ranges {
         let w = walk(code, start, end, env);
         if let Some(at) = w.unbounded {
@@ -1105,7 +1111,7 @@ pub fn scan_ranges(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> Opti
 /// the next.
 #[cfg(test)]
 pub fn scan(code: &[u8], starts: &[usize]) -> Option<Finding> {
-    scan_ranges(code, &ranges(code, starts), Env::none())
+    scan_ranges(code, &ranges(code, starts), ScanScope::none())
 }
 
 /// A function's frame as the walk found it.
@@ -1124,7 +1130,7 @@ pub struct Sized {
     dead_code,
     reason = "the tests and the firmware listing (`paperpaw-sign frames`)"
 )]
-pub fn sizes_in(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> Vec<Sized> {
+pub fn sizes_in(code: &[u8], ranges: &[(usize, usize)], env: ScanScope<'_>) -> Vec<Sized> {
     ranges
         .iter()
         .map(|&(s, e)| {
@@ -1143,7 +1149,11 @@ pub fn sizes_in(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> Vec<Siz
     dead_code,
     reason = "the tests and the firmware listing (`paperpaw-sign frames`)"
 )]
-pub fn frame_sizes_in(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> Vec<Option<u32>> {
+pub fn frame_sizes_in(
+    code: &[u8],
+    ranges: &[(usize, usize)],
+    env: ScanScope<'_>,
+) -> Vec<Option<u32>> {
     sizes_in(code, ranges, env)
         .into_iter()
         .map(|s| s.bytes)
@@ -1154,7 +1164,7 @@ pub fn frame_sizes_in(code: &[u8], ranges: &[(usize, usize)], env: Env<'_>) -> V
 /// to the next.
 #[cfg(test)]
 pub fn frame_sizes(code: &[u8], starts: &[usize]) -> Vec<Option<u32>> {
-    frame_sizes_in(code, &ranges(code, starts), Env::none())
+    frame_sizes_in(code, &ranges(code, starts), ScanScope::none())
 }
 
 /// The first byte of `code` that no range in `ranges` (sorted by start)
@@ -1327,7 +1337,7 @@ pub fn check(
         .collect();
     let merged = function_ranges(&sized, code.len());
     let noreturn = noreturn_functions(code, &merged, text.addr, tables, false);
-    let env = Env {
+    let env = ScanScope {
         base: text.addr,
         noreturn: &noreturn,
         tables,

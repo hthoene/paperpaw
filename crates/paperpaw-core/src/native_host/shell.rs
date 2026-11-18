@@ -11,7 +11,7 @@
 //! Rules (ADR 0034, `abi/`): the owner is pinned on the heap and outlives every batch and lease;
 //! `make` runs inside the registration scope and its records stay non-dispatchable until the output
 //! validates and commits; the plugin's destructor runs exactly once, while the context, services
-//! and module are alive; Env and Canvas are lent for one synchronous callback.
+//! and module are alive; Place and Canvas are lent for one synchronous callback.
 use alloc::alloc::alloc;
 use alloc::boxed::Box;
 use core::{alloc::Layout, cell::Cell, ffi::c_void, pin::Pin, ptr};
@@ -32,7 +32,7 @@ use super::environment::EnvironmentScope;
 use super::registration_scope::RegistrationScope;
 use super::registrations::{self, EVENT_TICK_TAG, Registration};
 use super::{Construction, DispatchDepth, HostOwner, PublishedRecords, RegistrationBatch};
-use crate::sdk::Env;
+use crate::Place;
 
 /// Why a step of the plugin's life was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -245,6 +245,7 @@ pub const fn host_table<S: Services + 'static>() -> PpHost {
     table.canvas_stroke_round = canvas_stroke_round::<S>;
     table.canvas_clip = canvas_clip::<S>;
     table.canvas_describe = canvas_describe::<S>;
+    table.canvas_fill_pattern = canvas_fill_pattern::<S>;
     table.storage_size = storage_externs::storage_size::<S>;
     table.storage_read_at = storage_externs::storage_read_at::<S>;
     table.storage_write = storage_externs::storage_write::<S>;
@@ -848,6 +849,28 @@ unsafe extern "C" fn canvas_fill_rect<S: 'static>(
     context.canvas.fill_rect_raw(x, y, width, height, color)
 }
 
+/// Slot 43 (`canvas.fill_pattern`): [`CanvasScope::fill_pattern`] with the
+/// scalars unchanged (`screens-input.md` 4.1).
+unsafe extern "C" fn canvas_fill_pattern<S: 'static>(
+    ctx: *mut c_void,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    color: u32,
+    pattern: u32,
+) -> i32 {
+    // SAFETY: a nonnull context is exactly the pinned Context<S> given to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // The plugin waits for the host from here to the return.
+    let _slot = super::host_slot::enter_as(super::host_slot::Id::CanvasFillPattern);
+    context
+        .canvas
+        .fill_pattern(x, y, width, height, color, pattern)
+}
+
 /// What a dispatch hands to the callback.
 #[derive(Debug, Clone, Copy)]
 pub enum Invocation<'a> {
@@ -980,7 +1003,7 @@ pub fn dispatch_with_env<S: 'static, M>(
     index: usize,
     depth: &DispatchDepth,
     invocation: Invocation<'_>,
-    env: &Env<'_>,
+    env: &Place<'_>,
 ) -> Result<i32, Error> {
     batch.dispatch(index, depth, |context, record| {
         // SAFETY: the owner structurally pins this field; no API moves it.
@@ -1008,7 +1031,7 @@ fn screen_frame(clip: Rect, out: &mut [u8; 64]) -> Result<Option<usize>, Error> 
         .map_err(Error::Status)
 }
 
-/// Draw dispatch with a frame: the Env (slots 4/5) and the Canvas (slot 9)
+/// Draw dispatch with a frame: the Place (slots 4/5) and the Canvas (slot 9)
 /// are both lent for this one synchronous callback and cleared on every exit,
 /// including unwind. Nested installation is refused by the scopes.
 ///
@@ -1018,7 +1041,7 @@ pub fn dispatch_draw<S: 'static, M>(
     batch: &Published<'_, S, M, Registration>,
     index: usize,
     depth: &DispatchDepth,
-    env: &Env<'_>,
+    env: &Place<'_>,
     canvas: &mut Canvas<'_>,
 ) -> Result<i32, Error> {
     let mut bytes = [0; 64];
@@ -1048,7 +1071,7 @@ pub mod instance;
 mod frame_tests;
 #[cfg(test)]
 #[path = "shell_tests.rs"]
-pub(in crate::native_host) mod tests;
+pub(crate) mod tests;
 
 /// The services a plugin declares, checked against the host's catalog before
 /// its image is placed.

@@ -68,3 +68,43 @@ class LanguagePacks(unittest.TestCase):
         with patch.object(data, "plugins", return_value={}):
             with self.assertRaisesRegex(SystemExit, "language-xx: add its entry"):
                 language_pack.build("xx", self.root / "out")
+
+
+class German(unittest.TestCase):
+    """German is a pack made of every plugin's `de.ini` (#251)."""
+
+    def test_the_store_entry_lists_every_german_catalog_as_an_input(self):
+        fields = data.plugins()["language-de"]
+        found = {str(f.relative_to(data.ROOT)) for f in language_pack.german_sources()}
+        self.assertEqual(found, set(fields["inputs"]) - {"tools/language-pack.py", "tools/sign"})
+        self.assertEqual(fields["build"], "tools/language-pack.py")
+        self.assertEqual(fields["formats"], 4)
+
+    def test_the_catalogs_merge_without_a_key_twice(self):
+        files = language_pack.german_sources()
+        merged = language_pack.merged_german(files)
+        meta, messages = language_pack.parse(self._write(merged))
+        self.assertEqual(meta["language"], "de")
+        self.assertEqual(meta["name"], "Deutsch")
+        self.assertEqual(
+            len(messages), sum(len(language_pack.parse(f)[1]) for f in files))
+
+    def test_a_key_two_catalogs_have_is_refused(self):
+        a, b = self._write("[meta]\nlanguage = de\n[messages]\nk = A\n"), self._write(
+            "[meta]\nlanguage = de\n[messages]\nk = B\n")
+        with self.assertRaisesRegex(ValueError, "k: in"):
+            language_pack.merged_german([a, b])
+
+    def test_the_pack_is_built_from_the_merged_catalogs(self):
+        out = pathlib.Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(out, ignore_errors=True))
+        with patch.object(language_pack.subprocess, "run") as compiler:
+            language_pack.build("de", out)
+        self.assertEqual(compiler.call_args.args[0][-1], str(out / "language-de/i18n/de.ppcat"))
+        self.assertIn("id = language-de\n", (out / "language-de/plugin.ini").read_text("utf-8"))
+
+    def _write(self, text):
+        path = pathlib.Path(tempfile.mkstemp(suffix=".ini")[1])
+        self.addCleanup(path.unlink)
+        path.write_text(text, encoding="utf-8")
+        return path

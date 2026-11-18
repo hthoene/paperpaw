@@ -14,19 +14,71 @@ use std::fs;
 use std::path::Path;
 
 use paperpaw_plugin_fonts_default::{
-    DEFAULT_FONTS, ICONS, LITERATA, LITERATA_BOLD, LITERATA_BOLD_ITALIC, LITERATA_ITALIC, PLUGIN,
+    DEFAULT_FONTS, ICONS, LITERATA, LITERATA_BOLD, LITERATA_BOLD_ITALIC, LITERATA_ITALIC,
     SOURCE_SANS, UI_FAMILY,
 };
 #[cfg(any(feature = "outline", feature = "packs"))]
 use paperpaw_sdk::Font;
 use paperpaw_sdk::builtin::fonts;
-use paperpaw_sdk::{Contribution, FontSpec, Id, Registrar, icons};
+use paperpaw_sdk::{BuiltInFont, BuiltInFonts, FontSpec, Id, icons};
 use paperpaw_text::charset::{chars, named};
 
+/// What the kernel registers of a fonts table, in order (as
+/// `paperpaw-core`'s built-in fonts do): each font held, each role bound,
+/// each face in a file.
+enum Contribution {
+    Font(Box<FontSpec>),
+    FontBinding { role: Id, font: Id },
+    FontFace(Face),
+}
+
+/// A face in a file on the storage.
+struct Face {
+    id: Id,
+    path: String,
+    family: String,
+    bold: bool,
+    italic: bool,
+}
+
+/// What `fonts` adds, in order, as the kernel is given it.
+fn added_by(fonts: &BuiltInFonts) -> Vec<Contribution> {
+    let mut all = Vec::new();
+    for font in fonts.fonts {
+        match font {
+            BuiltInFont::Data { id, role, .. } => {
+                if let Some(spec) = fonts.font(id) {
+                    all.push(Contribution::Font(Box::new(spec.unwrap())));
+                }
+                all.push(Contribution::FontBinding {
+                    role: role.clone(),
+                    font: id.clone(),
+                });
+            }
+            BuiltInFont::Role { role, font } => all.push(Contribution::FontBinding {
+                role: role.clone(),
+                font: font.clone(),
+            }),
+            BuiltInFont::File {
+                id,
+                path,
+                family,
+                bold,
+                italic,
+            } => all.push(Contribution::FontFace(Face {
+                id: id.clone(),
+                path: (*path).to_string(),
+                family: (*family).to_string(),
+                bold: *bold,
+                italic: *italic,
+            })),
+        }
+    }
+    all
+}
+
 fn registered() -> Vec<Contribution> {
-    let mut registrar = Registrar::new(PLUGIN);
-    DEFAULT_FONTS.register(&mut registrar).unwrap();
-    registrar.into_contributions()
+    added_by(&DEFAULT_FONTS)
 }
 
 fn fonts_of(contributions: &[Contribution]) -> Vec<&FontSpec> {
@@ -46,9 +98,44 @@ fn font<'a>(contributions: &'a [Contribution], id: &Id) -> &'a FontSpec {
         .unwrap_or_else(|| panic!("{id} is registered"))
 }
 
+/// The firmware's build (`PAPERPAW_FONT_LEAN=1` without scalable fonts) has
+/// no Literata in `DEFAULT_FONTS`: only the UI font, which sets book text
+/// too, and the icons. What it really has is checked here; the faces of
+/// Literata are checked wherever the build carries them.
+const LEAN_DEFAULT_FONTS: bool = cfg!(all(paperpaw_lean_fonts, not(feature = "outline")));
+
+/// The faces text is set in: Literata's and the UI font, or the UI font
+/// alone where `lean` says Literata is not in the build.
+fn text_faces(lean: bool) -> &'static [&'static Id] {
+    if lean { &TEXT_FACES[4..] } else { &TEXT_FACES }
+}
+
 #[test]
 fn every_role_is_bound_to_a_face_of_the_right_style() {
     let contributions = registered();
+    if LEAN_DEFAULT_FONTS {
+        let mut bindings: Vec<(Id, Id)> = contributions
+            .iter()
+            .filter_map(|c| match c {
+                Contribution::FontBinding { role, font, .. } => Some((role.clone(), font.clone())),
+                _ => None,
+            })
+            .collect();
+        bindings.sort_by(|a, b| (a.0.as_str(), a.1.as_str()).cmp(&(b.0.as_str(), b.1.as_str())));
+        let mut expected = vec![
+            (fonts::READING, SOURCE_SANS),
+            (fonts::UI, SOURCE_SANS),
+            (fonts::ICONS, ICONS),
+        ];
+        expected.sort_by(|a, b| (a.0.as_str(), a.1.as_str()).cmp(&(b.0.as_str(), b.1.as_str())));
+        assert_eq!(bindings, expected);
+        let spec = font(&contributions, &SOURCE_SANS);
+        assert_eq!(spec.family.as_deref(), Some(UI_FAMILY));
+        assert_eq!((spec.bold, spec.italic), (false, false));
+        assert_eq!(font(&contributions, &ICONS).family.as_deref(), None);
+        assert_eq!(fonts_of(&contributions).len(), 2);
+        return;
+    }
     let mut bindings: Vec<(Id, Id)> = contributions
         .iter()
         .filter_map(|c| match c {
@@ -84,7 +171,7 @@ fn every_role_is_bound_to_a_face_of_the_right_style() {
     assert_eq!(fonts_of(&contributions).len(), 6);
 }
 
-const TEXT_FACES: [&Id; 5] = [
+static TEXT_FACES: [&Id; 5] = [
     &LITERATA,
     &LITERATA_BOLD,
     &LITERATA_ITALIC,
@@ -110,7 +197,7 @@ fn missing_latin(contributions: &[Contribution], id: &Id) -> String {
 #[test]
 fn text_faces_hold_all_of_the_latin_set() {
     let contributions = registered();
-    for id in TEXT_FACES {
+    for &id in text_faces(LEAN_DEFAULT_FONTS) {
         let missing = missing_latin(&contributions, id);
         assert!(missing.is_empty(), "{id} lacks {missing:?}");
     }
@@ -269,10 +356,9 @@ fn the_icon_font_holds_every_icon_plugins_ask_for() {
 fn packs_hold_the_latin_set_at_every_size() {
     use paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS;
 
-    let mut registrar = Registrar::new(PLUGIN);
-    DEFAULT_FONT_PACKS.register(&mut registrar).unwrap();
-    let contributions = registrar.into_contributions();
-    for id in TEXT_FACES {
+    let contributions = added_by(&DEFAULT_FONT_PACKS);
+    // A lean build's packs are the lean ones: the UI font alone.
+    for &id in text_faces(cfg!(paperpaw_lean_fonts)) {
         let face = &font(&contributions, id).font;
         let Font::Bitmap(pack) = face else {
             panic!("{id} is a pack");
@@ -325,10 +411,7 @@ fn packs_hold_the_latin_set_at_every_size() {
 
 #[cfg(feature = "packs")]
 fn bindings_of(fonts: &paperpaw_sdk::BuiltInFonts) -> Vec<(String, String)> {
-    let mut registrar = Registrar::new(PLUGIN);
-    fonts.register(&mut registrar).unwrap();
-    let mut bound: Vec<(String, String)> = registrar
-        .into_contributions()
+    let mut bound: Vec<(String, String)> = added_by(fonts)
         .iter()
         .filter_map(|c| match c {
             Contribution::FontBinding { role, font, .. } => {
@@ -369,9 +452,7 @@ fn the_lean_packs_set_book_text_in_the_ui_font() {
     ];
     assert_eq!(bindings_of(&LEAN_FONT_PACKS), sorted(&expected));
 
-    let mut registrar = Registrar::new(PLUGIN);
-    LEAN_FONT_PACKS.register(&mut registrar).unwrap();
-    let contributions = registrar.into_contributions();
+    let contributions = added_by(&LEAN_FONT_PACKS);
     let ids: Vec<&str> = fonts_of(&contributions)
         .iter()
         .map(|spec| spec.id.as_str())

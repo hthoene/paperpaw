@@ -749,14 +749,70 @@ impl Catalog {
 
     /// The catalog `source` (as [`Catalog::parse`] reads it) compiled, to
     /// be read from a card as needed ([`Catalog::open`]).
+    ///
+    /// The meta text of the compiled catalog ends with the first and the
+    /// last of its keys (`first-key`, `last-key`, where both are plain):
+    /// a catalog mostly holds one plugin's keys, and a key outside them is
+    /// then known not to be in it without a read of the card (see
+    /// [`Catalog::get`]).
     pub fn compile(source: &str) -> Result<Vec<u8>, CatalogError> {
         let catalog = Catalog::parse(String::from(source))?;
-        let meta = meta_text(source);
+        let mut meta = meta_text(source);
         let messages: Vec<(&str, &str)> = catalog
             .keys()
             .filter_map(|key| Some((key, catalog.get(key)?)))
             .collect();
+        let first = messages.iter().map(|(key, _)| *key).min();
+        let last = messages.iter().map(|(key, _)| *key).max();
+        if let (Some(first), Some(last)) = (first, last)
+            && first.bytes().chain(last.bytes()).all(is_key_byte)
+        {
+            for (name, key) in [(FIRST_KEY, first), (LAST_KEY, last)] {
+                meta.push_str(&name[1..]);
+                meta.push_str(key);
+                meta.push('\n');
+            }
+        }
         card::compile(&meta, &messages)
+    }
+
+    /// The sources of several catalogs of one language as one source: the
+    /// `[meta]` of the first, then the `[messages]` of all, in order. A
+    /// language pack is made of the catalogs of the kernel and every
+    /// plugin this way (`paperpaw-sign catalog-merge`).
+    pub fn merge_sources<'a>(sources: impl IntoIterator<Item = &'a str>) -> String {
+        let mut out = String::new();
+        let mut messages = String::new();
+        for (n, source) in sources.into_iter().enumerate() {
+            if n == 0 {
+                out = meta_text(source);
+                out.push_str("\n[messages]\n");
+            }
+            let mut inside = false;
+            for line in source.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with('[') {
+                    inside = trimmed == "[messages]";
+                } else if inside {
+                    messages.push_str(line);
+                    messages.push('\n');
+                }
+            }
+        }
+        out.push_str(&messages);
+        out
+    }
+
+    /// Whether `key` is before the first or after the last key of a
+    /// compiled catalog that says them at the end of its meta text (as
+    /// [`Catalog::compile`] writes them; one compiled before says none).
+    fn outside_compiled(&self, key: &str) -> bool {
+        let said = || {
+            let (_, rest) = self.source.rsplit_once(FIRST_KEY)?;
+            let (first, rest) = rest.split_once(LAST_KEY)?;
+            Some((first, rest.strip_suffix('\n')?))
+        };
+        said().is_some_and(|(first, last)| key < first || key > last)
     }
 
     /// Whether its messages are read from a card as needed.
@@ -934,10 +990,15 @@ impl Catalog {
         }
     }
 
-    paperpaw_table::shared! {
     /// The message for `key`, if this catalog has one and is loaded.
     pub fn get(&self, key: &str) -> Option<&str> {
         if let Some(card) = &self.card {
+            // Not read from the card to learn that it is not there: the
+            // kernel's own texts and those of other plugins are asked of
+            // every catalog on the card first, at every change of screen.
+            if matches!(**card, Elsewhere::Card(_)) && self.outside_compiled(key) {
+                return None;
+            }
             return card.get(key);
         }
         let len = self.index.len(self.wide);
@@ -968,7 +1029,6 @@ impl Catalog {
         } else {
             plain_value(&self.source, at)
         }
-    } @ data::I18N_CATALOG_GET as for<'s> fn(&'s Self, &str) -> Option<&'s str>
     }
 
     /// All message keys, sorted; none of a catalog on the card (that
@@ -1035,6 +1095,11 @@ impl Catalog {
 /// The key of index entry `at` (see the field `index` of `Catalog`).
 /// The `[meta]` section of `source` as written, from its header to the
 /// next section's.
+/// What begins the lines of a compiled catalog's meta text that say its
+/// first and its last key (see [`Catalog::compile`]), after a line's end.
+const FIRST_KEY: &str = "\nfirst-key = ";
+const LAST_KEY: &str = "\nlast-key = ";
+
 fn meta_text(source: &str) -> String {
     let mut meta = String::new();
     let mut inside = false;

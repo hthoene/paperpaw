@@ -2,7 +2,7 @@
 //! Op 6 `next_in_series` over catalogs in memory.
 extern crate std;
 use super::*;
-use crate::native_host::lib_reads::tests::Env;
+use crate::native_host::lib_reads::tests::Facts;
 use crate::native_host::lib_service::LibQuery;
 use crate::native_host::registrations::Record;
 use alloc::rc::Rc;
@@ -38,7 +38,7 @@ fn shelf(books: &[(&str, &str, &str, &str)]) -> Shelf {
     }
     let storage =
         Rc::new(MemoryStorage::new().with(".paperpaw/library/catalog.txt", text.into_bytes()));
-    let env = Rc::new(Env {
+    let env = Rc::new(Facts {
         walking: Cell::new(None),
         today: Cell::new(Some(20_000)),
     });

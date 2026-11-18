@@ -52,23 +52,23 @@ impl NativeInstance for Fake {
     }
 }
 impl Dispatch for Fake {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
     }
     fn dropped(&self, _: u32, _: i32) {}
-    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn stage(&self, token: u32, bytes: &[u8], out: &mut [u8], _: &Place<'_>) -> Result<i32, i32> {
         let Record::StageCall(call) = wire::records_decode_single(bytes).unwrap() else {
             panic!("stage.call");
         };
@@ -172,7 +172,7 @@ fn ordering_uses_order_plugin_id_then_registration_index() {
     let result = run
         .apply(
             &mut target,
-            &kernel.shared.env(paperpaw_platform::Instant(0)),
+            &kernel.shared.place(paperpaw_platform::Instant(0)),
             |target| copy_target(target),
             apply,
         )
@@ -211,7 +211,7 @@ fn disabled_rows_are_removed_before_the_active_subscriber_cut() {
     let mut target = Vec::new();
     run.apply(
         &mut target,
-        &kernel.shared.env(paperpaw_platform::Instant(0)),
+        &kernel.shared.place(paperpaw_platform::Instant(0)),
         |target| copy_target(target),
         apply,
     )
@@ -251,7 +251,7 @@ fn bad_replies_and_refusal_isolate_the_subscriber() {
     let result = run
         .apply(
             &mut target,
-            &kernel.shared.env(paperpaw_platform::Instant(0)),
+            &kernel.shared.place(paperpaw_platform::Instant(0)),
             |target| copy_target(target),
             apply,
         )
@@ -286,7 +286,7 @@ fn failed_transaction_after_an_earlier_reply_never_changes_the_target() {
     let mut target = vec![77];
     let result = run.apply(
         &mut target,
-        &kernel.shared.env(paperpaw_platform::Instant(0)),
+        &kernel.shared.place(paperpaw_platform::Instant(0)),
         |target| copy_target(target),
         |target, reply| {
             apply(target, reply)?;
@@ -337,7 +337,7 @@ fn revoked_frozen_owner_is_not_called_and_lazy_start_waits_for_run_drop() {
     let outcome = run
         .apply(
             &mut target,
-            &kernel.shared.env(paperpaw_platform::Instant(0)),
+            &kernel.shared.place(paperpaw_platform::Instant(0)),
             |target| copy_target(target),
             apply,
         )
@@ -388,7 +388,7 @@ fn unwritten_reply_cannot_reuse_an_earlier_subscribers_bytes() {
     let outcome = run
         .apply(
             &mut target,
-            &kernel.shared.env(paperpaw_platform::Instant(0)),
+            &kernel.shared.place(paperpaw_platform::Instant(0)),
             |target| copy_target(target),
             |target, reply| {
                 target.push(widget::WidgetSize::decode(reply.bytes)?.height);
@@ -427,7 +427,7 @@ fn missing_registry_row_is_reported_without_cancelling_valid_subscribers() {
     let outcome = run
         .apply(
             &mut target,
-            &kernel.shared.env(paperpaw_platform::Instant(0)),
+            &kernel.shared.place(paperpaw_platform::Instant(0)),
             |target| copy_target(target),
             apply,
         )
@@ -471,7 +471,7 @@ fn retired_registry_keys_are_skipped_without_cancelling_live_subscribers() {
     let outcome = run
         .apply(
             &mut target,
-            &kernel.shared.env(paperpaw_platform::Instant(0)),
+            &kernel.shared.place(paperpaw_platform::Instant(0)),
             |target| copy_target(target),
             apply,
         )

@@ -187,7 +187,8 @@ Field meanings:
   translated; none where it is empty); in `plugin` the description.
 - `reg_plugin.kind`: 0 built in, 1 data, 2 code; `state`: 0 running, 1 off, 2 failed; `flags`:
   bit 0 enabled, 1 restart needed, 2 required by another enabled plugin, 3 linked into the
-  firmware, 4 safe mode, 5 installed by a store (below); `problem`: interface-6 `PluginProblem`
+  firmware, 4 safe mode, 5 installed by a store (below), 6 not signed (its code was copied to the
+  card, never installed, and runs without a question, Decision 205); `problem`: interface-6 `PluginProblem`
   order (0 none, 1-12, 13 `Other`
   with its code in `problem_arg`), `problem_arg` its number (`built_for`); then the declaration caps
   of interface 7, where a whole declaration batch was refused at one of them and the plugin did
@@ -371,7 +372,9 @@ These change the user's configuration of the whole device, so they need the D1 f
 - [D] `set_plugin_enabled`: switches a plugin on or off; it takes effect at the next start
   (`reg_plugin` flag `restart needed`). Switching off a plugin another enabled plugin requires,
   or the submitter itself, is `ERR_DENIED`. A built-in the host needs (the settings editor while
-  it is the only one) is `ERR_DENIED`.
+  it is the only one) is `ERR_DENIED`. A plugin the device does not list is `ERR_NOT_FOUND`. The
+  host checks the feature first (#279): a plugin file on the card is never given `uses.registry`,
+  so it switches no plugin.
 - [D] **The id `core` is the host's own** (reserved: no card, bundle, linked or native plugin may
   take it, #857). `set_plugin_enabled`, `request_plugins` and `answer_plugin` naming it are
   `ERR_DENIED` for the whole batch.

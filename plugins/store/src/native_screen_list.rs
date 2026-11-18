@@ -321,6 +321,7 @@ pub fn empty_words(trouble: Trouble, touch: bool) -> (&'static str, &'static str
     match trouble {
         Trouble::Offline if touch => ("store.offline", "store.offline.help"),
         Trouble::Offline => ("store.offline", "store.offline.help.buttons"),
+        Trouble::Memory => ("store.memory", "store.memory.help"),
         Trouble::Failed if touch => ("store.unreachable", "store.unreachable.help"),
         Trouble::Failed => ("store.unreachable", "store.unreachable.help.buttons"),
         Trouble::Unsupported => ("store.unsupported", "store.unsupported.help"),
@@ -333,7 +334,7 @@ pub fn empty_words(trouble: Trouble, touch: bool) -> (&'static str, &'static str
 pub const fn empty_icon(trouble: Trouble) -> &'static str {
     match trouble {
         Trouble::Offline => "wifi-off",
-        Trouble::Failed | Trouble::Unsupported => "cloud",
+        Trouble::Failed | Trouble::Memory | Trouble::Unsupported => "cloud",
         _ => "cloud-download",
     }
 }
@@ -342,7 +343,11 @@ pub const fn empty_icon(trouble: Trouble) -> &'static str {
 /// list.
 #[must_use]
 pub fn retry(empty: bool, trouble: Trouble) -> bool {
-    empty && matches!(trouble, Trouble::Offline | Trouble::Failed)
+    empty
+        && matches!(
+            trouble,
+            Trouble::Offline | Trouble::Failed | Trouble::Memory
+        )
 }
 
 /// The screen.
@@ -355,6 +360,8 @@ pub struct View {
     generation: u32,
     /// Whether the list kept was there when they were.
     had_index: bool,
+    /// Whether the row of hints says *Try again* for *Select* (#235).
+    retry_hint: bool,
 }
 
 impl View {
@@ -380,6 +387,22 @@ impl View {
         Ok(())
     }
 
+    /// *Select* says *Try again* while it does (an empty list that could not be
+    /// fetched), else its usual name; told to the host when that changes.
+    fn sync_hint(&mut self, ctx: &Ctx<'_>) {
+        let retry = retry(self.rows.is_empty(), ctx.loader.list_state());
+        if retry == self.retry_hint {
+            return;
+        }
+        self.retry_hint = retry;
+        if !retry {
+            crate::native_hints::usual(ctx.host, "core.confirm");
+        } else if let Ok(words) = Messages::new().and_then(|mut m| m.copy(ctx.host, "store.retry"))
+        {
+            crate::native_hints::say(ctx.host, "core.confirm", &words);
+        }
+    }
+
     /// Whether what the rows were made from has changed.
     fn stale(&self, ctx: &Ctx<'_>) -> bool {
         self.generation != ctx.loader.generation() || self.had_index != ctx.loader.index().is_some()
@@ -401,11 +424,14 @@ impl Screen for View {
     }
 
     fn shown(&mut self, ctx: &Ctx<'_>) -> Result<(), Error> {
-        self.refresh(ctx)
+        self.refresh(ctx)?;
+        self.sync_hint(ctx);
+        Ok(())
     }
 
     /// A fresh list is fetched while the one kept shows.
-    fn started(&mut self, _: &Ctx<'_>) -> Result<Next, Error> {
+    fn started(&mut self, ctx: &Ctx<'_>) -> Result<Next, Error> {
+        self.sync_hint(ctx);
         Ok(Next::FetchList)
     }
 
@@ -474,16 +500,18 @@ impl Screen for View {
             }
             _ => Next::None,
         };
+        self.sync_hint(ctx);
         Ok((ItemList::handled(step), next))
     }
 
     fn event(&mut self, ctx: &Ctx<'_>, event: &Event<'_>) -> Result<Next, Error> {
         // A plugin installed, updated or removed, or a fresh list: counted anew.
-        if matches!(event, Event::PluginsChanged { .. }) || self.stale(ctx) {
+        let anew = matches!(event, Event::PluginsChanged { .. }) || self.stale(ctx);
+        if anew {
             self.refresh(ctx)?;
-            return Ok(Next::Redraw);
         }
-        Ok(Next::None)
+        self.sync_hint(ctx);
+        Ok(if anew { Next::Redraw } else { Next::None })
     }
 
     fn answered(&mut self, _: &Ctx<'_>, tag: u8, reply: Reply<'_>) -> Result<Next, Error> {

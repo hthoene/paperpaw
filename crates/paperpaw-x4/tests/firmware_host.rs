@@ -833,3 +833,74 @@ fn the_shared_host_tells_the_running_firmware_and_restarts_as_the_shell_set() {
     shell.borrow_mut().set_restarter(|| Ok(()));
     assert_eq!(host.restart(), Ok(()));
 }
+
+/// A packed update file (`updates::packed`): the container of `image`, signed.
+fn packed(image: &[u8], seed: &[u8; 32]) -> Vec<u8> {
+    let container = paperpaw_x4::updates::packed::pack(image, 512, 6).unwrap();
+    assert!(container.len() < image.len(), "the image compresses");
+    signed(&container, seed)
+}
+
+/// A packed update is checked and written as the image it unpacks to: its
+/// list, size, digest and the slot's bytes are the image's, and the signature
+/// is the container's. It is a third smaller, and no firmware that reads
+/// update files as images (the interface-6 install) takes it.
+#[test]
+fn a_packed_update_is_checked_and_written_as_the_image_it_unpacks_to() {
+    let key = paperpaw_update::public_key(&SEED);
+    let mut device = Device::started(vec![key]);
+    let image = image_0_6(&["paperpaw-plugin-stats", "paperpaw-plugin-weather"]);
+    let file = packed(&image, &SEED);
+    assert!(file.len() < image.len() * 9 / 10);
+    let card = Card::with(UPDATE, &file);
+    let (seen, facts, _) = check(&mut device.updates, &card, UPDATE);
+    assert_eq!(seen, ["stats", "weather"]);
+    let facts = facts.unwrap();
+    assert!(facts.chip_ok && !facts.foreign);
+    assert_eq!(facts.size as usize, image.len());
+    assert_eq!(facts.version.as_str(), "0.6.0");
+    assert_eq!(facts.sha256, paperpaw_digest_sha256(&image));
+    write(
+        &mut device.updates,
+        &card,
+        UPDATE,
+        facts.sha256,
+        None,
+        false,
+    )
+    .unwrap();
+    device.updates.commit().unwrap();
+    assert_eq!(device.target(image.len()), &image[..]);
+    assert_eq!(device.data().booted(), 1);
+}
+
+/// A packed file that is damaged (anywhere in its deflate data, its head or
+/// its footer) is reason 4 and writes nothing the boot loader starts.
+#[test]
+fn a_damaged_packed_update_is_reason_4_and_nothing_is_chosen() {
+    let key = paperpaw_update::public_key(&SEED);
+    let image = image_0_6(&["paperpaw-plugin-stats"]);
+    let file = packed(&image, &SEED);
+    let footer_at = file.len() - paperpaw_x4::updates::packed::FOOTER_LEN - 128;
+    for at in [600, file.len() / 2, footer_at - 1, footer_at + 9, 40] {
+        let mut changed = file.clone();
+        changed[at] ^= 0x55;
+        let mut device = Device::started(vec![key]);
+        let card = Card::with(UPDATE, &changed);
+        let (_, facts, _) = check(&mut device.updates, &card, UPDATE);
+        assert_eq!(facts.unwrap_err(), Reason::DAMAGED, "byte {at}");
+        assert_eq!(device.data().booted(), 0);
+    }
+}
+
+/// The interface-6 install reads an update file as an image: the first byte of
+/// a container is not an app image's, and it is refused unwritten.
+#[test]
+fn the_interface_6_install_refuses_a_packed_update() {
+    let key = paperpaw_update::public_key(&SEED);
+    let mut device = Device::started(vec![key]);
+    let image = image_0_6(&[]);
+    let card = Card::with(UPDATE, &packed(&image, &SEED));
+    assert!(device.updates.begin(&card, UPDATE, None, false).is_err());
+    assert!(!device.updates.installing());
+}

@@ -1,19 +1,15 @@
 //! Inputs of more kinds: double presses and taps, taps of
 //! two fingers, a layer's own zones, inputs raised by plugins, key map
-//! layers put in front, filters that cancel or replace, plugins' own
-//! recognizers.
+//! layers put in front, guards.
 
 use super::*;
-use crate::gestures;
-use paperpaw_sdk::keys::{
-    GestureRecognizer, GestureSpec, InputMode, InputSpec, PointerVerdict, Recognition,
-};
+use crate::Staging;
 use paperpaw_sdk::{Gesture, GestureKind, Params};
 
 /// A kernel showing plugin `a`'s screen, with its key map `keymap`.
 fn kernel_with(log: &Log, keymap: &'static str) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin {
+        .test_plugin(TestPlugin {
             keymap: Some(keymap),
             ..TestPlugin::new("a", log)
         })
@@ -76,30 +72,20 @@ fn two_quick_taps_are_a_double_tap_where_one_is_bound() {
     assert_eq!(*log.borrow(), ["a:core.confirm"]);
 }
 
-/// Logs the gestures it gets; takes double taps where told to (`None`:
-/// says it takes none).
+/// Logs the gestures it gets.
 struct Taps {
     log: Log,
-    doubles: Option<bool>,
 }
 
-impl Screen for Taps {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl crate::testing::Fake for Taps {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 
-    fn takes_double_taps(&self) -> bool {
-        self.doubles.is_some()
-    }
-
-    fn on_gesture(&mut self, gesture: Gesture, _: &mut Cx<'_, '_>) -> Handled {
-        let taken = match gesture.kind {
-            GestureKind::Tap => true,
-            GestureKind::DoubleTap => self.doubles == Some(true),
-            _ => false,
-        };
+    fn on_gesture(&mut self, gesture: Gesture, _: &mut Turn<'_, '_>) -> Handled {
+        let taken = gesture.kind == GestureKind::Tap;
         if taken {
             let kind = alloc::format!("{:?}", gesture.kind);
             self.log.borrow_mut().push(kind);
@@ -108,25 +94,13 @@ impl Screen for Taps {
     }
 }
 
-struct TapsPlugin(Log, Option<bool>);
-
-impl Plugin for TapsPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("taps"), "Taps", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let (log, doubles) = (self.0.clone(), self.1);
-        r.add_screen(ScreenSpec::new(
+fn taps_plugin(kept0: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept0.clone();
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("taps.screen"),
             "taps",
-            Box::new(move |_, _| {
-                Box::new(Taps {
-                    log: log.clone(),
-                    doubles,
-                })
-            }),
+            Box::new(move |_, _| Box::new(Taps { log: log.clone() })),
         ))?;
         r.bind_slot(
             slots::HOME,
@@ -136,26 +110,24 @@ impl Plugin for TapsPlugin {
     }
 }
 
-/// A screen that takes double taps gets the second tap as one, as a tap
-/// where it does not take it; other screens get taps.
+/// What [`taps_plugin`] registers under.
+fn taps_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("taps"), "Taps", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
+/// Two quick taps reach a screen as two taps.
 #[test]
-fn screens_get_double_taps_or_taps() {
-    let cases = [
-        (Some(true), ["Tap", "DoubleTap"]),
-        (Some(false), ["Tap", "Tap"]),
-        (None, ["Tap", "Tap"]),
-    ];
-    for (doubles, seen) in cases {
-        let log = log();
-        let mut kernel = Kernel::builder(DEVICE)
-            .plugin(TapsPlugin(log.clone(), doubles))
-            .build()
-            .unwrap();
-        kernel.start(Instant(0));
-        tap(&mut kernel, 1000, 45, 45);
-        tap(&mut kernel, 1150, 45, 45);
-        assert_eq!(*log.borrow(), seen);
-    }
+fn screens_get_two_quick_taps_as_taps() {
+    let log = log();
+    let mut kernel = Kernel::builder(DEVICE)
+        .items(taps_plugin_manifest(), taps_plugin(log.clone()))
+        .build()
+        .unwrap();
+    kernel.start(Instant(0));
+    tap(&mut kernel, 1000, 45, 45);
+    tap(&mut kernel, 1150, 45, 45);
+    assert_eq!(*log.borrow(), ["Tap", "Tap"]);
 }
 
 /// Two fingers tapped together run `tap2`; taps in a layer's own zone
@@ -184,10 +156,10 @@ fn two_fingers_and_own_zones() {
 /// actions it gets.
 struct Layered(Log);
 
-impl Screen for Layered {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl crate::testing::Fake for Layered {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         self.0.borrow_mut().push(alloc::format!("lay:{action}"));
         let book = Id::new_static("book.mine");
         match action.as_str() {
@@ -195,7 +167,7 @@ impl Screen for Layered {
             "lay.off" => cx.set_key_layer(None),
             "lay.other" => {
                 let below = cx.env().stack()[0].key;
-                cx.command(Command::SetKeyLayer(below, Some(book)));
+                cx.command(Ask::SetKeyLayer(below, Some(book)));
             }
             _ if *action == actions::CONFIRM => {}
             _ => return Handled::No,
@@ -204,17 +176,10 @@ impl Screen for Layered {
     }
 }
 
-struct LayerPlugin(Log);
-
-impl Plugin for LayerPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("lay"), "Layers", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
-        r.add_screen(ScreenSpec::new(
+fn layer_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("lay.screen"),
             "layered",
             Box::new(move |_, _| Box::new(Layered(log.clone()))),
@@ -229,10 +194,16 @@ impl Plugin for LayerPlugin {
     }
 }
 
+/// What [`layer_plugin`] registers under.
+fn layer_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("lay"), "Layers", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn layered(log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(LayerPlugin(log.clone()))
-        .plugin(TestPlugin::new("b", log))
+        .items(layer_plugin_manifest(), layer_plugin(log.clone()))
+        .test_plugin(TestPlugin::new("b", log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -247,12 +218,12 @@ fn layered(log: &Log) -> Kernel {
 fn inputs_raised_and_layers_put_in_front() {
     let log = log();
     let mut kernel = layered(&log);
-    kernel.apply(Command::Input(String::from("button.confirm")));
+    kernel.apply(Ask::Input(String::from("button.confirm")));
     kernel.finish();
     assert_eq!(*log.borrow(), ["lay:core.confirm"]);
     log.borrow_mut().clear();
     kernel.run_action(Instant(10), Id::new_static("lay.on"));
-    kernel.apply(Command::Input(String::from("button.confirm")));
+    kernel.apply(Ask::Input(String::from("button.confirm")));
     kernel.finish();
     assert_eq!(*log.borrow(), ["lay:lay.on", "lay:lay.hit"]);
     log.borrow_mut().clear();
@@ -261,7 +232,7 @@ fn inputs_raised_and_layers_put_in_front() {
     assert_eq!(*log.borrow(), ["lay:lay.off", "lay:core.confirm"]);
     // By command, also with the screen's own key: not laid.
     let key = paperpaw_sdk::ScreenKey::new(kernel.stack[0].serial);
-    kernel.apply(Command::SetKeyLayer(key, Some(Id::new_static("book.mine"))));
+    kernel.apply(Ask::SetKeyLayer(key, Some(Id::new_static("book.mine"))));
     kernel.finish();
     assert_eq!(kernel.stack[0].key_layer, None);
     // By a screen for the one below it: not laid.
@@ -272,7 +243,7 @@ fn inputs_raised_and_layers_put_in_front() {
     );
     kernel.run_action(Instant(40), Id::new_static("lay.other"));
     assert_eq!(kernel.stack[0].key_layer, None);
-    kernel.apply(Command::Input(String::from("no.such-input")));
+    kernel.apply(Ask::Input(String::from("no.such-input")));
     kernel.finish();
     let warnings = kernel.take_warnings();
     assert!(warnings.iter().any(|w| w.message.contains("no.such-input")));
@@ -283,241 +254,27 @@ fn inputs_raised_and_layers_put_in_front() {
     );
 }
 
-/// Cancels the back button and the second finger; makes the menu button
-/// confirm.
-struct Filters;
-
-impl Plugin for Filters {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("filters"), "Filters", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        use paperpaw_sdk::filters::{InputFilterSpec, InputVerdict};
-        r.add_input_filter(InputFilterSpec::new(
-            Id::new_static("filters.input"),
-            "",
-            Box::new(|_, event| match *event {
-                InputEvent::Button { name: "back", .. } => InputVerdict::Cancel,
-                InputEvent::Button {
-                    name: "menu",
-                    state,
-                } => InputVerdict::Replace(InputEvent::Button {
-                    name: "confirm",
-                    state,
-                }),
-                InputEvent::Pointer(p) if p.id == 2 && p.phase == PointerPhase::Move => {
-                    InputVerdict::Cancel
-                }
-                _ => InputVerdict::Pass,
-            }),
-        ))
-    }
-}
-
-/// A filter cancels an input: nothing comes of it, nothing waits for a
-/// long press. It replaces one: the other runs. What the reader used last
-/// is known.
-#[test]
-fn filters_cancel_and_replace_inputs() {
-    let log = log();
-    let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
-        .plugin(Filters)
-        .build()
-        .unwrap();
-    kernel.start(Instant(0));
-    press(&mut kernel, 1000, "back");
-    press(&mut kernel, 1200, "menu");
-    assert_eq!(*log.borrow(), ["a:core.confirm"]);
-    assert_eq!(kernel.shared.last_input, InputMode::Buttons);
-    // A finger held, cancelled as it moves: no long press comes of it.
-    log.borrow_mut().clear();
-    finger(&mut kernel, 2000, 2, PointerPhase::Down, (45, 45));
-    finger(&mut kernel, 2100, 2, PointerPhase::Move, (45, 46));
-    kernel.tick(Instant(4000));
-    finger(&mut kernel, 4100, 2, PointerPhase::Up, (45, 46));
-    assert!(log.borrow().is_empty(), "{:?}", log.borrow());
-    assert_eq!(kernel.shared.last_input, InputMode::Touch);
-}
-
-/// Recognizes a flick off the right side, and a finger held a while
-/// (before the kernel's long press); a finger coming down at the far left
-/// is its own.
-#[derive(Default)]
-struct Flick {
-    held_until: Option<Instant>,
-}
-
-impl GestureRecognizer for Flick {
-    fn pointer(&mut self, event: &PointerEvent, now: Instant) -> PointerVerdict {
-        match event.phase {
-            PointerPhase::Down => {
-                self.held_until = Some(now.add_millis(300));
-                if event.point.x < 40 {
-                    PointerVerdict::Capture
-                } else {
-                    PointerVerdict::Observe
-                }
-            }
-            PointerPhase::Move => {
-                self.held_until = None;
-                PointerVerdict::Observe
-            }
-            PointerPhase::Up if event.point.x > 80 => {
-                self.held_until = None;
-                PointerVerdict::Recognized
-            }
-            _ => {
-                self.held_until = None;
-                PointerVerdict::Pass
-            }
-        }
-    }
-
-    fn tick(&mut self, _: Instant) -> Recognition {
-        self.held_until = None;
-        Recognition::Recognized
-    }
-
-    fn next_tick(&self) -> Option<Instant> {
-        self.held_until
-    }
-}
-
-struct FlickPlugin;
-
-impl Plugin for FlickPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("g"), "Gestures", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_gesture(GestureSpec::new(
-            Id::new_static("g.flick"),
-            "g.flick",
-            Box::new(|| Box::new(Flick::default())),
-        ))?;
-        r.add_input(InputSpec::new(Id::new_static("g.chord"), "g.chord"))?;
-        r.add_input(
-            InputSpec::new(Id::new_static("g.light"), "g.light")
-                .need(paperpaw_sdk::MenuNeed::Frontlight),
-        )?;
-        r.add_keymap(Cow::Borrowed(
-            "[keymap.global]\ngesture.g.flick = a.special\ninput.g.chord = core.confirm\n",
-        ))
-    }
-}
-
-fn flick_kernel(log: &Log) -> Kernel {
-    let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", log))
-        .plugin(FlickPlugin)
-        .plugin(LockPlugin(log.clone()))
-        .plugin(Filters)
-        .build()
-        .unwrap();
-    kernel.start(Instant(0));
-    kernel
-}
-
-/// A plugin's recognizer sees the fingers beside the kernel and runs
-/// what its gesture is bound to, also when the time it asked for comes:
-/// then the finger is its own, and the kernel makes no long press of it.
-/// A finger it captures is not the kernel's. A plugin's input is raised
-/// by command; inputs the device cannot make are not offered.
-#[test]
-fn plugins_recognize_gestures_and_add_inputs() {
-    let log = log();
-    let mut kernel = flick_kernel(&log);
-    // The gesture is listed to bind too; the input for a front light is
-    // not, as the device has none.
-    let keys: Vec<String> = kernel.shared.inputs.iter().map(InputSpec::key).collect();
-    assert_eq!(keys, ["input.g.chord", "gesture.g.flick"]);
-    finger(&mut kernel, 1000, 0, PointerPhase::Down, (60, 45));
-    finger(&mut kernel, 1100, 0, PointerPhase::Up, (85, 45));
-    assert_eq!(*log.borrow(), ["a:a.special"]);
-    log.borrow_mut().clear();
-    finger(&mut kernel, 2000, 0, PointerPhase::Down, (45, 45));
-    let effects = kernel.tick(Instant(2100));
-    assert!(effects.wake_at.is_some_and(|at| at <= Instant(2300)));
-    kernel.tick(Instant(2300));
-    kernel.tick(Instant(3000));
-    finger(&mut kernel, 3100, 0, PointerPhase::Up, (45, 45));
-    assert_eq!(*log.borrow(), ["a:a.special"], "no long tap besides");
-    log.borrow_mut().clear();
-    // Captured on the left: no tap of the kernel's.
-    finger(&mut kernel, 4000, 0, PointerPhase::Down, (30, 45));
-    finger(&mut kernel, 4050, 0, PointerPhase::Up, (30, 45));
-    assert!(log.borrow().is_empty(), "{:?}", log.borrow());
-    kernel.apply(Command::Input(String::from("input.g.chord")));
-    kernel.finish();
-    assert_eq!(*log.borrow(), ["a:core.confirm"]);
-}
-
-/// A finger a filter cancels is gone for the recognizers too: no gesture
-/// comes of it when its time comes.
-#[test]
-fn a_cancelled_finger_is_gone_for_recognizers() {
-    let log = log();
-    let mut kernel = flick_kernel(&log);
-    finger(&mut kernel, 1000, 2, PointerPhase::Down, (45, 45));
-    finger(&mut kernel, 1050, 2, PointerPhase::Move, (45, 46));
-    kernel.tick(Instant(1300));
-    kernel.tick(Instant(2000));
-    assert!(log.borrow().is_empty(), "{:?}", log.borrow());
-}
-
-/// A recognizer asking for a time past wakes the device at most twenty
-/// times a second.
-#[test]
-fn recognizers_wake_the_device_seldom() {
-    let log = log();
-    let mut kernel = flick_kernel(&log);
-    // It asks for its time 300 ms after the finger came down (its own:
-    // the kernel waits for nothing): past by then, as the device slept.
-    finger(&mut kernel, 1000, 0, PointerPhase::Down, (30, 45));
-    let wake = kernel.handle(
-        Instant(5000),
-        InputEvent::Button {
-            name: "nothing",
-            state: ButtonState::Released,
-        },
-    );
-    let at = wake.wake_at.unwrap();
-    assert!(at >= Instant(5000 + gestures::RECOGNIZER_TICK_MS), "{at:?}");
-}
-
 /// A lock of its own plugin: it guards the device and logs the actions
 /// it gets.
 struct Lock(Log);
 
-impl Screen for Lock {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl crate::testing::Fake for Lock {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn guards(&self) -> bool {
-        true
+    fn flags(&self) -> u32 {
+        crate::testing::GUARDS
     }
 
-    fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, _: &mut Turn<'_, '_>) -> Handled {
         self.0.borrow_mut().push(alloc::format!("lock:{action}"));
         Handled::Yes
     }
 }
 
-struct LockPlugin(Log);
-
-impl Plugin for LockPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("lock"), "Lock", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let log = self.0.clone();
-        r.add_screen(ScreenSpec::new(
+fn lock_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept.clone();
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("lock.screen"),
             "lock",
             Box::new(move |_, _| Box::new(Lock(log.clone()))),
@@ -525,52 +282,37 @@ impl Plugin for LockPlugin {
     }
 }
 
-/// While a screen of another plugin guards the device, recognizers see
-/// no finger (not the path of an unlock pattern, nor where a PIN is
-/// tapped); an input raised by command reaches the guard first.
-#[test]
-fn recognizers_see_nothing_under_a_guard() {
-    let log = log();
-    let mut kernel = flick_kernel(&log);
-    kernel.open_screen(Instant(10), Id::new_static("lock.screen"), Params::new());
-    log.borrow_mut().clear();
-    finger(&mut kernel, 1000, 0, PointerPhase::Down, (60, 45));
-    finger(&mut kernel, 1100, 0, PointerPhase::Up, (85, 45));
-    assert!(kernel.input.recognizers[0].fingers.is_empty());
-    assert!(
-        !log.borrow().contains(&String::from("a:a.special")),
-        "{:?}",
-        log.borrow()
-    );
-    // An input raised by another plugin does not reach the lock: what is
-    // typed into it is the reader's alone.
-    log.borrow_mut().clear();
-    kernel.apply(Command::Input(String::from("button.menu")));
-    kernel.finish();
-    assert!(log.borrow().is_empty(), "{:?}", log.borrow());
-    // Another plugin's input filter sees nothing of what is typed into
-    // the lock (it would make *Menu* confirm).
-    press(&mut kernel, 2000, "menu");
-    assert_eq!(*log.borrow(), ["lock:core.menu"]);
+/// What [`lock_plugin`] registers under.
+fn lock_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("lock"), "Lock", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
-/// On a screen that takes gestures itself, recognizers see no finger and
-/// gesture bindings do not run.
-#[test]
-fn recognizers_follow_the_screens_policy() {
-    let log = log();
+fn lock_kernel(log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin {
-            keymap: Some("[keymap.a.screen]\ngestures.policy = core.gestures.own\n"),
-            ..TestPlugin::new("a", &log)
-        })
-        .plugin(FlickPlugin)
+        .test_plugin(TestPlugin::new("a", log))
+        .items(lock_plugin_manifest(), lock_plugin(log.clone()))
         .build()
         .unwrap();
     kernel.start(Instant(0));
-    finger(&mut kernel, 1000, 0, PointerPhase::Down, (60, 45));
-    finger(&mut kernel, 1100, 0, PointerPhase::Up, (85, 45));
+    kernel
+}
+
+/// While a screen of another plugin guards the device, an input raised by
+/// command does not reach it; the guard's own presses do.
+#[test]
+fn an_input_raised_by_another_plugin_does_not_reach_a_guard() {
+    let log = log();
+    let mut kernel = lock_kernel(&log);
+    kernel.open_screen(Instant(10), Id::new_static("lock.screen"), Params::new());
+    // An input raised by another plugin does not reach the lock: what is
+    // typed into it is the reader's alone.
+    log.borrow_mut().clear();
+    kernel.apply(Ask::Input(String::from("button.menu")));
+    kernel.finish();
     assert!(log.borrow().is_empty(), "{:?}", log.borrow());
+    press(&mut kernel, 2000, "menu");
+    assert_eq!(*log.borrow(), ["lock:core.menu"]);
 }
 
 /// A layer put in front is the screen's that laid it: it applies while
@@ -604,12 +346,12 @@ fn a_waiting_press_keeps_its_screen() {
     let log = log();
     let keymap = "[keymap.a.screen]\ndouble.confirm = core.home\nbutton.confirm = a.special\n";
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin {
+        .test_plugin(TestPlugin {
             keymap: Some(keymap),
             priority: Priority(10),
             ..TestPlugin::new("a", &log)
         })
-        .plugin(TestPlugin::new("b", &log))
+        .test_plugin(TestPlugin::new("b", &log))
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -634,57 +376,37 @@ fn a_waiting_press_keeps_its_screen() {
     assert!(log.borrow().is_empty(), "{:?}", log.borrow());
 }
 
-/// A screen that guards the device takes the fingers others' recognizers
-/// follow: they see them cancelled and wake the device no more; a layer
-/// is not laid below the guard.
+/// A layer is not laid below a screen that guards the device.
 #[test]
-fn a_guard_takes_the_fingers_of_recognizers() {
+fn no_key_layer_is_laid_below_a_guard() {
     let log = log();
-    let mut kernel = flick_kernel(&log);
-    finger(&mut kernel, 1000, 0, PointerPhase::Down, (45, 45));
-    assert!(!kernel.input.recognizers[0].fingers.is_empty());
+    let mut kernel = lock_kernel(&log);
     kernel.open_screen(Instant(1010), Id::new_static("lock.screen"), Params::new());
-    assert!(kernel.input.recognizers[0].fingers.is_empty());
-    assert_eq!(kernel.recognizers_due(), None, "nothing to wake for");
     let below = paperpaw_sdk::ScreenKey::new(kernel.stack[0].serial);
-    kernel.apply(Command::SetKeyLayer(
-        below,
-        Some(Id::new_static("book.mine")),
-    ));
+    kernel.apply(Ask::SetKeyLayer(below, Some(Id::new_static("book.mine"))));
     kernel.finish();
     assert_eq!(kernel.stack[0].key_layer, None);
 }
 
-/// A screen of direction `.1` bound to Home; it logs the actions it gets.
-struct WayPlugin(Log, paperpaw_sdk::lang::Direction);
+struct WayScreen(Log);
 
-struct WayScreen(Log, paperpaw_sdk::lang::Direction);
+impl crate::testing::Fake for WayScreen {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-impl Screen for WayScreen {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-
-    fn direction(&self) -> paperpaw_sdk::lang::Direction {
-        self.1
-    }
-
-    fn on_action(&mut self, action: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, _: &mut Turn<'_, '_>) -> Handled {
         self.0.borrow_mut().push(alloc::format!("{action}"));
         Handled::Yes
     }
 }
 
-impl Plugin for WayPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("way"), "Ways", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let (log, way) = (self.0.clone(), self.1);
-        r.add_screen(ScreenSpec::new(
+/// A screen bound to Home; it logs the actions it gets.
+fn way_plugin(kept0: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        let log = kept0.clone();
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("way.screen"),
             "way",
-            Box::new(move |_, _| Box::new(WayScreen(log.clone(), way))),
+            Box::new(move |_, _| Box::new(WayScreen(log.clone()))),
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("way.screen"), Priority(20))?;
         for action in ["way.left", "way.right"] {
@@ -697,10 +419,15 @@ impl Plugin for WayPlugin {
     }
 }
 
-/// What a tap at the right and a swipe to the left run on a screen of
-/// direction `way`, in the interface of `language` (`ar` goes right to
-/// left).
-fn right_side(way: paperpaw_sdk::lang::Direction, language: &str) -> Vec<String> {
+/// What [`way_plugin`] registers under.
+fn way_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("way"), "Ways", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
+/// What a tap at the right and a swipe to the left run on a screen in the
+/// interface of `language` (`ar` goes right to left).
+fn right_side(language: &str) -> Vec<String> {
     let log = log();
     let arabic =
         "[meta]\nlanguage = ar\nname = العربية\ndirection = rtl\n\n[messages]\nway.x = س\n";
@@ -708,7 +435,7 @@ fn right_side(way: paperpaw_sdk::lang::Direction, language: &str) -> Vec<String>
         .with("plugins/arabic/plugin.ini", "[plugin]\nname = Arabic\n")
         .with("plugins/arabic/i18n/ar.ini", arabic);
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WayPlugin(log.clone(), way))
+        .items(way_plugin_manifest(), way_plugin(log.clone()))
         .storage(storage)
         .user_config(alloc::format!("[core]\nlanguage = {language}\n"))
         .build()
@@ -721,20 +448,12 @@ fn right_side(way: paperpaw_sdk::lang::Direction, language: &str) -> Vec<String>
     log.take()
 }
 
-/// Screens go as the interface does unless they have a way of their
-/// own: in Arabic, a tap at the right and a swipe to the left run what
-/// the left side binds; a screen that goes left to right (a book) keeps
-/// its sides, and one that goes right to left mirrors them anywhere.
+/// Screens go as the interface does: in Arabic, a tap at the right and a
+/// swipe to the left run what the left side binds.
 #[test]
-fn screens_follow_the_interfaces_direction_unless_they_have_their_own() {
-    use paperpaw_sdk::lang::Direction;
-    let ltr = ["way.right", "way.left"];
-    let rtl = ["way.left", "way.right"];
-    assert_eq!(right_side(Direction::Auto, "en"), ltr);
-    assert_eq!(right_side(Direction::Auto, "ar"), rtl);
-    assert_eq!(right_side(Direction::Ltr, "ar"), ltr);
-    assert_eq!(right_side(Direction::Rtl, "en"), rtl);
-    assert_eq!(right_side(Direction::Rtl, "ar"), rtl);
+fn screens_follow_the_interfaces_direction() {
+    assert_eq!(right_side("en"), ["way.right", "way.left"]);
+    assert_eq!(right_side("ar"), ["way.left", "way.right"]);
 }
 
 /// A pen above the screen (reserved) reaches no screen, and a tilted pen
@@ -743,7 +462,10 @@ fn screens_follow_the_interfaces_direction_unless_they_have_their_own() {
 fn a_hovering_pen_reaches_no_screen() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(EdgeHolderPlugin(log.clone(), true))
+        .items(
+            crate::tests::edge_holder_plugin_manifest(),
+            crate::tests::edge_holder_plugin(log.clone(), true),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));

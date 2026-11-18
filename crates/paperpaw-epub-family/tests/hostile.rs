@@ -612,7 +612,8 @@ fn markdown_is_converted_into_its_own_cache() {
     // a folder of an internal path that no book has.
     let mut files = Vec::new();
     list_all(&card.files, ".paperpaw/plugins/format-epub", &mut files);
-    let key = paperpaw_sdk::library::key("notes.md");
+    // The book key: 16 hexadecimal digits of the path's hash.
+    let key = format!("{:016x}", paperpaw_sdk::digest::fnv1a64("notes.md"));
     assert!(!files.is_empty());
     for file in files {
         assert!(file.contains(&format!("/md-{key}/")), "{file}");

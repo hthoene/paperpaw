@@ -183,7 +183,7 @@ fn a_host_without_the_feature_offers_no_root_one() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_files(host.clone()).unwrap();
     let frame = TestFrame {

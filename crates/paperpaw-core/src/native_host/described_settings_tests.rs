@@ -211,17 +211,17 @@ pub(in crate::native_host) struct Shown {
     live: Cell<bool>,
 }
 impl Dispatch for Rc<Shown> {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
@@ -589,7 +589,7 @@ fn whether_a_described_setting_is_a_secret_is_told_without_its_spec() {
     settings.define(long_key.with_extra(&SECRET)).unwrap();
     let (long_placed, long_none) = (long.replacen('.', "@2.", 1), alloc::format!("{long}x"));
     let long_none_placed = long_none.replacen('.', "@2.", 1);
-    let secret = |key: &str| SettingIdentity::new(key).unwrap().secret(&settings);
+    let secret = |key: &str| SettingIdentity::new(key).unwrap().secret(&settings, None);
     // Asked of a placement too (`probe@2.one` is `probe.one` placed).
     FAIL_NTH.with(|fail| fail.set(1));
     assert_eq!(secret("probe.one"), Some(false));
@@ -672,15 +672,16 @@ fn met_no_room() -> bool {
 
 #[test]
 fn a_guarded_setting_stays_another_plugin_s_to_keep_without_room_for_its_spec() {
-    use paperpaw_sdk::{Command, Id};
+    use crate::Ask;
+    use paperpaw_sdk::Id;
     let (_shown, kernel) = locked_kernel();
     let settings = &kernel.shared.settings;
     let reserved = crate::commands::Reserved::of(settings, &kernel.shared.registry);
-    let off = |id| Command::SetSetting(Id::new_static(id), SettingValue::Bool(false));
+    let off = |id| Ask::SetSetting(Id::new_static(id), SettingValue::Bool(false));
     let mut out = std::vec![
         off("probe.lock"),
         off("probe.open"),
-        Command::ResetSetting(Id::new_static("probe.lock")),
+        Ask::ResetSetting(Id::new_static("probe.lock")),
     ];
     no_room_for_a_spec();
     crate::commands::vet_reserved(&mut out, 0, "other", &reserved);
@@ -747,7 +748,8 @@ fn a_spec_left_out_for_lack_of_room_is_said_at_the_end_of_the_round() {
 
 #[test]
 fn no_mode_limits_a_guarded_setting_for_lack_of_room_for_its_spec() {
-    use paperpaw_sdk::{Command, Id, power::Wear, presets::Preset};
+    use crate::Ask;
+    use paperpaw_sdk::{Id, power::Wear, presets::Preset};
     let (_shown, mut kernel) = locked_kernel();
     let low = Id::new_static("probe.low");
     let limits = "power.level = saving\nprobe.most <= 3\nprobe.some <= 3";
@@ -760,7 +762,7 @@ fn no_mode_limits_a_guarded_setting_for_lack_of_room_for_its_spec() {
     );
     kernel.shared.settings.presets_mut().add(mode);
     no_room_for_a_spec();
-    kernel.apply(Command::Wear(Wear::new(low)));
+    kernel.apply(Ask::Wear(Wear::new(low)));
     // Whether one is guarded is told from what is kept of it.
     assert!(!met_no_room());
     let settings = &kernel.shared.settings;

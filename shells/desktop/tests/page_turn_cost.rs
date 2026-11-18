@@ -27,12 +27,14 @@ use paperpaw_platform::{ButtonState, InputEvent, buttons};
 /// `(text measures, all slots)`, the most of one turn, of the other cases of
 /// `a_page_turn_stays_within_its_host_crossings`, as measured on the emulator
 /// (the integration base's, which set no pair at all, in brackets): a page of
-/// ideographs with more different ones than the table holds 2,457 (2,569: the
-/// base's own is the ceiling, as nothing can be kept for most of them), a
+/// ideographs with more different ones than the table holds 2,367 (2,569: the
+/// base's own, as nothing can be kept for most of them), a
 /// Cyrillic book that starts in Latin 22 (116), a page of Vietnamese 238 (535),
 /// kerning and ligatures off 151 (224).
-const CHINESE: (u32, u32) = (2_569, 2_742);
-const CYRILLIC: (u32, u32) = (40, 340);
+const CHINESE: (u32, u32) = (2_430, 2_742);
+const CYRILLIC: (u32, u32) = (40, 420);
+/// The same book declared Russian: no table, so one ask for the whole book.
+const RUSSIAN: (u32, u32) = (40, 295);
 const VIETNAMESE: (u32, u32) = (260, 560);
 const PLAIN: (u32, u32) = (200, 560);
 
@@ -60,8 +62,8 @@ const CEILINGS: &[(&str, u32, &str)] = &[
     ),
     (
         "text_measure",
-        220,
-        "layout of the next page, widths and pairs kept for the book (215)",
+        224,
+        "layout of the next page, widths and pairs kept for the book (221)",
     ),
     (
         "storage_read_at",
@@ -69,10 +71,15 @@ const CEILINGS: &[(&str, u32, &str)] = &[
         "card reads; a chapter's first page (87)",
     ),
     ("service_call", 30, "document service and status line (17)"),
+    (
+        "other",
+        45,
+        "hyphenation of the words at line ends (40; 13 without)",
+    ),
 ];
 
-/// All slots together, one turn (493 now).
-const TOTAL_CEILING: u32 = 510;
+/// All slots together, one turn (517 now with hyphenation, 493 without).
+const TOTAL_CEILING: u32 = 525;
 
 /// Floors, so that a turn which does nothing cannot pass: every measured turn
 /// enters at least this many slots (the quietest, a page with one picture,
@@ -100,6 +107,12 @@ fn reading(name: &str, book: &[u8], ini: &str) -> Device {
             format!("[reader]\nlast = books/{name}\n"),
         )
         .with("paperpaw.ini", format!("[help]\nshow = false\n{ini}"));
+    // English is hyphenated as on a fresh install (the firmware seeds the pack).
+    let files = paperpaw_default_packs::english()
+        .iter()
+        .fold(files, |files, (path, bytes)| {
+            files.with(&format!("plugins/hyphenation/{path}"), *bytes)
+        });
     paperpaw_emulator::budget::override_limit(None);
     let profile = profiles::find("xteink-x4").unwrap();
     let mut device = Device::in_memory(profile, None, Rc::new(files), true, None).unwrap();
@@ -115,7 +128,7 @@ fn reading(name: &str, book: &[u8], ini: &str) -> Device {
     };
     // A book in a script the firmware has no letters of asks first whether to
     // fetch them: Back says no, and the book is there.
-    if active(&mut device).as_deref() == Some("core.confirm-dialog") {
+    if active(&mut device).as_deref() == Some("keyboard.ask") {
         press_button(&mut device, buttons::BACK, ButtonState::Pressed);
         press_button(&mut device, buttons::BACK, ButtonState::Released);
     }
@@ -151,8 +164,9 @@ fn measure(label: &str, name: &str, book: &[u8], ini: &str) -> Seen {
         press(&mut device, ButtonState::Released);
         let counts = slot_counts::snapshot();
         eprintln!(
-            "page turn {label}: measures {} reads {} service {} settings {} inked {}",
+            "page turn {label}: measures {} other {} reads {} service {} settings {} inked {}",
             count_of(&counts, "text_measure"),
+            count_of(&counts, "other"),
             count_of(&counts, "storage_read_at"),
             count_of(&counts, "service_call"),
             count_of(&counts, "settings_read"),
@@ -204,13 +218,21 @@ fn chinese_book() -> Vec<u8> {
 
 /// A Latin specimen that takes the first 96 characters the reader numbers (all
 /// of ASCII and of the Latin-1 letters), then pages of Cyrillic.
-fn cyrillic_after_latin_book() -> Vec<u8> {
+///
+/// `lang` is the language the book declares (`""`: none, which the reader takes
+/// for English: the English table is asked about Cyrillic words).
+fn cyrillic_after_latin_book(lang: &str) -> Vec<u8> {
     let mut seed = 54_321_u32;
     let mut next = |most: u32| {
         seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345);
         (seed >> 16) % most
     };
-    let mut html = String::from("<html><head><title>Cyrillic</title></head><body><p>");
+    let attribute = if lang.is_empty() {
+        String::new()
+    } else {
+        format!(" lang=\"{lang}\"")
+    };
+    let mut html = format!("<html{attribute}><head><title>Cyrillic</title></head><body><p>");
     for c in (33..127u8).map(char::from) {
         match c {
             '<' => html.push_str("&lt;"),
@@ -313,9 +335,10 @@ struct Case<'a> {
 /// What a book of another script, a book that starts in Latin and goes on in
 /// Cyrillic, Vietnamese and a reader with kerning and ligatures off cost.
 fn cases_over(alice: &[u8], over: &mut Vec<String>) {
-    let (chinese, cyrillic, vietnamese) = (
+    let (chinese, cyrillic, russian, vietnamese) = (
         chinese_book(),
-        cyrillic_after_latin_book(),
+        cyrillic_after_latin_book(""),
+        cyrillic_after_latin_book("ru"),
         vietnamese_book(),
     );
     let case = |label, name, book, ini, ceilings| Case {
@@ -328,6 +351,7 @@ fn cases_over(alice: &[u8], over: &mut Vec<String>) {
     let cases = [
         case("chinese", "chinese.html", &chinese[..], "", CHINESE),
         case("cyrillic", "cyrillic.html", &cyrillic[..], "", CYRILLIC),
+        case("russian", "russian.html", &russian[..], "", RUSSIAN),
         case(
             "vietnamese",
             "vietnamese.html",

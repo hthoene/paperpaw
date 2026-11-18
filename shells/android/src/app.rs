@@ -10,6 +10,7 @@ use android_activity::input::{InputEvent as AndroidInput, KeyAction, MotionActio
 use android_activity::{AndroidApp, InputStatus, MainEvent, PollEvent, WindowManagerFlags};
 use ndk::hardware_buffer_format::HardwareBufferFormat;
 use ndk::native_window::NativeWindow;
+use paperpaw_core::kit::library;
 use paperpaw_core::{Effects, Io, Kernel};
 use paperpaw_fs::DirStorage;
 use paperpaw_graphics::Framebuffer;
@@ -19,7 +20,6 @@ use paperpaw_platform::{
     StorageError,
 };
 use paperpaw_sdk::builtin::settings;
-use paperpaw_sdk::library;
 
 use crate::epd::Epd;
 use crate::lights::Lights;
@@ -529,18 +529,21 @@ fn start_kernel(
         paperpaw_app::Fonts::Outline,
         paperpaw_app::StorePlugins::Off(&|_| ran_before),
     )
-    .plugin(AndroidPlugin {
-        app: app.clone(),
-        shared_storage,
-        screen: (
-            u32::from(device.display.width),
-            u32::from(device.display.height),
-        ),
-        frontlight: lights.map(|lights| Frontlight {
-            lights,
-            brightness: lights.brightness(app),
-            warmth: lights.warmth(app),
-        }),
+    .items(AndroidPlugin::manifest(), {
+        let plugin = AndroidPlugin {
+            app: app.clone(),
+            shared_storage,
+            screen: (
+                u32::from(device.display.width),
+                u32::from(device.display.height),
+            ),
+            frontlight: lights.map(|lights| Frontlight {
+                lights,
+                brightness: lights.brightness(app),
+                warmth: lights.warmth(app),
+            }),
+        };
+        move |r| plugin.register(r)
     });
     let mut kernel = match builder.build() {
         Ok(kernel) => kernel,
@@ -818,6 +821,14 @@ impl Storage for Volumes {
 
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         self.0.append(path, data)
+    }
+
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        self.0.write_at(path, offset, data)
+    }
+
+    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
+        self.0.truncate(path, len)
     }
 
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {

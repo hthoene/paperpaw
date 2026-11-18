@@ -163,7 +163,11 @@ Text "it." at 35,694 17x29
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 Heading "Wi-Fi transfer" at 0,0 480x58
-Text "Starting …" at 177,386 126x40
+Text "No Wi-Fi" at 191,336 98x40
+Text "Join a Wi-Fi network in the settings" at 94,392 292x29
+Text "under Wi-Fi, then open Wi-Fi transfer" at 86,420 307x29
+Text "again." at 214,448 52x29
+Text "Without a router" at 171,684 138x29
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 Heading "Plugin store" at 0,0 480x58
@@ -185,7 +189,7 @@ Row "Sleep screen" at 0,423 480x61
 Row "Controls" at 0,484 480x61
 Row "Keyboard" at 0,545 480x61
 Row "Wi-Fi" at 0,606 480x61
-Row "Bluetooth" at 0,667 480x61
+Row "Power" at 0,667 480x61
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 xteink-x4: screen home.dashboard
@@ -202,7 +206,7 @@ Row "Sleep screen" at 0,423 480x61
 Row "Controls" at 0,484 480x61
 Row "Keyboard" at 0,545 480x61
 Row "Wi-Fi" at 0,606 480x61
-Row "Bluetooth" at 0,667 480x61
+Row "Power" at 0,667 480x61
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 Heading "Display" at 0,0 480x58
@@ -252,7 +256,8 @@ Heading "Display · More" at 0,0 480x58
 Row "Flash on screen change, Redraw fully when a screen opens: no traces of, the last one, but slower." (on) at 0,75 480x125
 Row "Full refresh in menus, 0, A flash after this many menu changes removes, ghosting; 0 never flashes." at 0,200 480x125
 Row "Reset to defaults" (focused) at 0,325 480x61
-Text "Settings" at 35,555 445x61
+Dialog "" at 0,541 480x214
+Heading "Settings" at 0,564 480x52
 Row "Yes, reset" (focused) at 0,616 480x61
 Row "Cancel" at 0,677 480x61
 Text "Back" at 39,758 97x42
@@ -275,7 +280,7 @@ Row "Sleep screen" at 0,423 480x61
 Row "Controls" at 0,484 480x61
 Row "Keyboard" at 0,545 480x61
 Row "Wi-Fi" at 0,606 480x61
-Row "Bluetooth" at 0,667 480x61
+Row "Power" at 0,667 480x61
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 Button "Start reading, Choose a book from your library." at 35,182 409x243
@@ -331,23 +336,25 @@ Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 Text "0 %" at 414,753 31x29
 Text "<time>"
-Dialog "" at 0,227 480x528
-Row "Skim through the book" (focused) at 0,250 480x61
-Row "Go to page" at 0,311 480x61
-Row "Go to a percentage" at 0,372 480x61
-Row "Turn pages automatically" at 0,433 480x61
-Row "Select text" at 0,494 480x61
-Row "Links and marks" at 0,555 480x61
-Row "Next status line" at 0,616 480x61
+Dialog "" at 0,166 480x589
+Row "Skim through the book" (focused) at 0,189 480x61
+Row "Go to page" at 0,250 480x61
+Row "Go to a percentage" at 0,311 480x61
+Row "Turn pages automatically" at 0,372 480x61
+Row "Select text" at 0,433 480x61
+Row "Links and marks" at 0,494 480x61
+Row "Next status line" at 0,555 480x61
+Row "Mark vocabulary" (off) at 0,616 480x61
 Row "Settings" at 0,677 480x61
-Dialog "" at 0,227 480x528
-Row "Skim through the book" (focused) at 0,250 480x61
-Row "Go to page" at 0,311 480x61
-Row "Go to a percentage" at 0,372 480x61
-Row "Turn pages automatically" at 0,433 480x61
-Row "Select text" at 0,494 480x61
-Row "Links and marks" at 0,555 480x61
-Row "Next status line" at 0,616 480x61
+Dialog "" at 0,166 480x589
+Row "Skim through the book" (focused) at 0,189 480x61
+Row "Go to page" at 0,250 480x61
+Row "Go to a percentage" at 0,311 480x61
+Row "Turn pages automatically" at 0,372 480x61
+Row "Select text" at 0,433 480x61
+Row "Links and marks" at 0,494 480x61
+Row "Next status line" at 0,555 480x61
+Row "Mark vocabulary" (off) at 0,616 480x61
 Row "Settings" at 0,677 480x61
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
@@ -380,7 +387,8 @@ Button "Edit" at 384,694 61x61
 Text "<time>"
 Text "<date>"
 Text "<time>"
-Text "Power" at 35,494 445x61
+Dialog "" at 0,480 480x275
+Heading "Power" at 0,503 480x52
 Row "Sleep" (focused) at 0,555 480x61
 Row "Switch off" at 0,616 480x61
 Row "Restart" at 0,677 480x61

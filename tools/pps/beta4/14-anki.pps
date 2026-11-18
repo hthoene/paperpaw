@@ -1,0 +1,102 @@
+# Beta 4 suite 14: the Anki store plugin (#26) against the fake AnkiConnect (plugins/anki/testdata/fake_anki_connect.py).
+# Emulator only: run-emulator.sh starts the fake and passes its port (--var ankiport=N) and a port nothing listens on
+# (--var ankidead=1); the radio is online (--wifi online). The plugin is switched on by test 13e (Language learning).
+include:common.pps
+
+# The plugin's home screen, pointed at the fake (the host and the port are settings of the plugin).
+define:anki-home {
+  call:home
+  set:anki.host=127.0.0.1
+  set:anki.port=$1
+  run:anki.open
+  until:Sync with Anki:8000
+}
+
+# Answers the first card of the study screen with the key of `$1`'s count: Good with none, Again with 2 lefts.
+define:answer-good {
+  confirm
+  until:Good:3000
+  confirm
+  wait:500
+}
+
+define:answer-again {
+  confirm
+  until:Good:3000
+  left
+  left
+  confirm
+  wait:500
+}
+
+# Sync fetches the cards due and some new ones, as the settings say: Study shows the first one, offline.
+test:14a-sync-and-study {
+  if:$target==x4 {
+    skip:needs the fake AnkiConnect on a computer; the emulator runs it
+  }
+  call:anki-home:$ankiport
+  select:Sync with Anki
+  until:Cards ready:15000
+  expect:answers sent: 0
+  expect-not:cannot be reached
+  select:Study
+  until:Show answer:5000
+  expect:el perro
+  confirm
+  until:the dog:3000
+  expect:Hard
+  back
+  wait:800
+  no-warn
+}
+
+# Answers given with no connection are kept (the port is one nobody listens on) and wait; a sync that fails says so.
+test:14b-offline-answers-wait {
+  if:$target==x4 {
+    skip:needs the fake AnkiConnect on a computer; the emulator runs it
+  }
+  call:anki-home:$ankidead
+  select:Study
+  until:el perro:5000
+  call:answer-good
+  expect:el gato
+  call:answer-again
+  back
+  wait:800
+  expect:2 answers waiting
+  select:Sync with Anki
+  until:cannot be reached:10000
+  expect:2 answers waiting
+  no-warn
+}
+
+# With the connection back the answers go to Anki first, then the cards due come (the answered ones are gone).
+test:14c-resync-sends-the-answers {
+  if:$target==x4 {
+    skip:needs the fake AnkiConnect on a computer; the emulator runs it
+  }
+  set:anki.port=$ankiport
+  select:Sync with Anki
+  until:answers sent: 2:15000
+  expect:Cards ready: 3
+  expect-not:answers waiting
+  expect-not:cannot be reached
+  no-warn
+}
+
+# What is left is studied to its end.
+test:14d-study-to-the-end {
+  if:$target==x4 {
+    skip:needs the fake AnkiConnect on a computer; the emulator runs it
+  }
+  select:Study
+  until:Show answer:5000
+  call:answer-good
+  call:answer-good
+  call:answer-good
+  until:Done for now:5000
+  back
+  wait:800
+  expect:3 answers waiting
+  no-warn
+}

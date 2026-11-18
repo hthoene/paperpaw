@@ -18,6 +18,8 @@ fn linked_entry_preserves_generated_metadata_and_native_factory() {
 
 /// The store restarts PaperPaw (*Restart now*, *Switch on and restart*): the
 /// host denies `command.restart` to a plugin that did not declare `uses.power`.
+/// It switches a built-in plugin on (*Switch on*): the host denies
+/// `command.set_plugin_enabled` to one that did not declare `uses.registry`.
 #[test]
 fn the_metadata_names_the_features_the_store_commands_need() {
     let entry = paperpaw_plugin_store::NATIVE_ENTRY.entry();
@@ -28,7 +30,12 @@ fn the_metadata_names_the_features_the_store_commands_need() {
             .windows(key.len())
             .any(|window| window == key.as_bytes())
     };
-    for key in ["uses.power", "uses.install", "uses.network"] {
+    for key in [
+        "uses.power",
+        "uses.install",
+        "uses.network",
+        "uses.registry",
+    ] {
         assert!(has(key), "{key} is not declared");
     }
 }

@@ -32,7 +32,7 @@
 //!                  run = another.action (a step a line, at most 16)
 //!   icons.ini      icons of actions and settings: item = icon-name
 //!   points/*.txt   lines for a point (`<point>.txt`, see
-//!                  `Registrar::contribute`): keyboard layouts, About lines
+//!                  `Staging::contribute`): keyboard layouts, About lines
 //!   setup.ini      steps of the first-run setup, a section each: [size]
 //!                  setting = core.font-size (or screen = …), order, title,
 //!                  help
@@ -57,13 +57,16 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
+use crate::Staging;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::FontFace;
 use paperpaw_sdk::presets::Preset;
-use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, Version};
+use paperpaw_sdk::{Id, Manifest, RegisterError, Version};
 
-mod formats;
+mod catalogs;
+pub(crate) mod formats;
 pub(crate) mod hyphenation;
+mod names;
 use formats::{actions, menus, setup_steps};
 
 /// Largest data file read (a translation catalog, a key map).
@@ -195,16 +198,17 @@ impl DataPlugin {
     }
 }
 
-impl Plugin for DataPlugin {
-    fn manifest(&self) -> Manifest {
+impl DataPlugin {
+    pub(crate) fn manifest(&self) -> Manifest {
         self.manifest.clone()
     }
 
+    /// Adds what its folder declares (`Kernel::add_data`).
     #[expect(
         clippy::too_many_lines,
         reason = "longer than the limit from before it was set; split it when it is next changed"
     )]
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    pub(crate) fn register(&self, r: &mut Staging) -> Result<(), RegisterError> {
         for source in self.translations.take() {
             r.add_translations(Cow::Owned(source))?;
         }
@@ -302,7 +306,7 @@ impl Plugin for DataPlugin {
         let id = &self.manifest.id;
         if let Some(source) = self.read_later("actions.ini") {
             for action in actions(id, &source)? {
-                r.add_action(action.spec)?;
+                r.add_data_action(action.spec, action.steps)?;
                 if let Some(icon) = action.icon {
                     r.add_icon(action.id, Cow::Owned(icon))?;
                 }
@@ -354,9 +358,9 @@ impl Plugin for DataPlugin {
             r.bind_font(role, font, paperpaw_sdk::Priority::DEFAULT)?;
         }
         if let Some(source) = self.read_later("marks.ini") {
-            let marks = paperpaw_sdk::decorations::MarkRules::parse(&self.manifest.id, &source)?;
+            let marks = crate::kit::decorations::MarkRules::parse(&self.manifest.id, &source)?;
             for (role, title, look) in marks.roles {
-                paperpaw_sdk::decorations::add_role(r, &role, title, look)?;
+                crate::kit::decorations::add_role(&mut |s| r.add_setting(s), &role, title, look)?;
             }
             if !marks.decorator.is_empty() {
                 let id = Id::parse(&format!("{}.marks", self.manifest.id)).map_err(|_| {
@@ -658,6 +662,7 @@ pub(crate) fn folders_of(storage: &dyn Storage, dir: &str, id: &str) -> Vec<Stri
 /// The plugin in folder `path`.
 fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin, String> {
     let storage = shared.as_ref();
+    let names = names::Names::of(storage, path);
     let manifest = read(storage, &format!("{path}/plugin.ini"), MAX_MANIFEST)
         .ok_or_else(|| format!("{path}: no plugin.ini"))?;
     let source = manifest;
@@ -669,20 +674,11 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
         left3: MAX_FORMAT3_DATA,
         problems: Vec::new(),
     };
-    let mut translations = Vec::new();
     let catalogs = format!("{path}/i18n");
-    let mut files: Vec<String> = Vec::new();
-    let mut compiled: Vec<String> = Vec::new();
-    let _ = storage.list(&catalogs, &mut |entry| {
-        // `DE.INI` too: a file copied from a memory card may have it so.
-        if !entry.is_dir && paperpaw_sdk::files::has_extension(entry.name, "ini") {
-            files.push(entry.name.to_string());
-        }
-        // Read as needed, so not counted (ADR 0033).
-        if !entry.is_dir && paperpaw_sdk::files::has_extension(entry.name, "ppcat") {
-            compiled.push(format!("{catalogs}/{}", entry.name));
-        }
-    });
+    let (mut files, mut compiled) = match names.has("i18n") {
+        true => catalogs::names(storage, &catalogs),
+        false => (Vec::new(), Vec::new()),
+    };
     paperpaw_sort::sort(&mut files);
     paperpaw_sort::sort(&mut compiled);
     if budget.formats < FORMATS_4 {
@@ -705,39 +701,42 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
             .iter()
             .any(|path| stem(path.rsplit('/').next().unwrap_or(path)) == stem(file))
     });
-    let mut translations_left = MAX_TRANSLATIONS;
-    for file in files {
-        let path = format!("{catalogs}/{file}");
-        let size = storage
-            .size(&path)
-            .map_or(usize::MAX, |s| usize::try_from(s).unwrap_or(usize::MAX));
-        if size > translations_left.min(MAX_FILE) {
-            budget
-                .problems
-                .push(format!("{path}: left out, more than the plugin may take"));
-            continue;
-        }
-        if let Some(text) = read(storage, &path, MAX_FILE) {
-            translations_left = translations_left.saturating_sub(text.len());
-            translations.push(text);
-        }
-    }
-    let keymap = budget.read_now(storage, &format!("{path}/keymap.ini"));
-    let styles = budget.read_now(storage, &format!("{path}/styles.css"));
+    let code = paperpaw_sdk::native::CODE_FILES
+        .iter()
+        .any(|file| names.has(file) && storage.size(&format!("{path}/{file}")).is_ok());
+    let translations = catalogs::read_all(
+        storage,
+        path,
+        &catalogs,
+        files,
+        code,
+        &mut compiled,
+        &mut budget,
+    );
+    let mut now = |name: &str| {
+        names
+            .has(name)
+            .then(|| budget.read_now(storage, &format!("{path}/{name}")))
+            .flatten()
+    };
+    let (keymap, styles) = (now("keymap.ini"), now("styles.css"));
     let mut later: Vec<String> = LATER
         .iter()
+        .filter(|(name, _)| names.has(name))
         .map(|(name, format3)| (format!("{path}/{name}"), *format3))
         .filter(|(file, format3)| budget.allow(storage, file, *format3))
         .map(|(file, _)| file)
         .collect();
-    later.extend(point_files(storage, path, &mut budget));
+    if names.has("points") {
+        later.extend(point_files(storage, path, &mut budget));
+    }
     let roles = fonts_for_roles(&source, path, &mut budget);
-    let code = paperpaw_sdk::native::CODE_FILES
-        .iter()
-        .any(|file| storage.size(&format!("{path}/{file}")).is_ok());
     let tables = hyphenation_tables(&source, path, code, &mut budget);
     let (family, faces) = family(&source, path);
-    let mut fonts = font_files(storage, &format!("{path}/fonts"), false);
+    let mut fonts = match names.has("fonts") {
+        true => font_files(storage, &format!("{path}/fonts"), false),
+        false => Vec::new(),
+    };
     // A family's faces are not fonts of their own as well.
     fonts.retain(|file| !faces.iter().any(|(_, face)| face == file));
     Ok(DataPlugin {
@@ -1201,19 +1200,18 @@ version = 1.0.0-gamma
         let dirs = [String::from("fonts"), String::from("other")];
         let folder = font_folder(storage.as_ref(), &dirs).unwrap();
         assert!(folder.fonts.borrow().is_empty());
-        let mut r = Registrar::new(Id::new_static("font-folder"));
+        let mut r = Staging::new(Id::new_static("font-folder"));
         folder.register(&mut r).unwrap();
         let faces: Vec<(String, String, bool, bool)> = r
-            .contributions()
+            .font_faces
             .iter()
-            .filter_map(|c| match c {
-                paperpaw_sdk::Contribution::FontFace(face) => Some((
+            .map(|face| {
+                (
                     face.id.to_string(),
                     String::from(face.family.as_ref()),
                     face.bold,
                     face.italic,
-                )),
-                _ => None,
+                )
             })
             .collect();
         let face = |id: &str, family: &str, bold, italic| {
@@ -1473,13 +1471,9 @@ core.font-ui = x.semi
         let later = plugin.later.borrow().clone();
         assert_eq!(later, ["plugins/new/points/core.about.txt"], "too large");
         assert_eq!(plugin.take_problems().len(), 1);
-        let mut r = Registrar::new(Id::new_static("new"));
+        let mut r = Staging::new(Id::new_static("new"));
         plugin.register(&mut r).unwrap();
-        let lines = r
-            .contributions()
-            .iter()
-            .filter(|c| c.kind() == "to-point")
-            .count();
+        let lines = r.contributions.len();
         assert_eq!(lines, MAX_POINT_LINES);
         // All files of a plugin together: within one budget.
         let file = alloc::vec![b'#'; MAX_FILE - 1];

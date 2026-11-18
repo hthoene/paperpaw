@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::super::event_pending::Visibility;
+use crate::Staging;
 use crate::native_host::{
     codec,
     commands::CommandStage,
@@ -15,8 +16,7 @@ use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_sdk::{
-    Id, Manifest, Plugin, RegisterError, Registrar, SettingExtra, SettingKind, SettingSpec,
-    SettingValue, Version,
+    Id, Manifest, RegisterError, SettingExtra, SettingKind, SettingSpec, SettingValue, Version,
 };
 
 /// What a plugin was told: the key and the old value's bytes.
@@ -46,7 +46,7 @@ impl NativeInstance for Probe {
     fn subscribed(&self, tag: u32) -> bool {
         self.tags.contains(&tag)
     }
-    fn service_event(&self, bytes: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         let record = codec::decode_any_single(bytes).unwrap();
         let (tag, state) = match &record {
             wire::Record::EventPluginsChanged(_) => (wire::EVENT_PLUGINS_CHANGED_TAG, 0),
@@ -82,7 +82,7 @@ impl NativeInstance for Probe {
     fn service_event_staged(
         &self,
         bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         _: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.service_event(bytes, env)
@@ -90,17 +90,17 @@ impl NativeInstance for Probe {
 }
 
 impl Dispatch for Probe {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -111,14 +111,14 @@ impl Dispatch for Probe {
 /// Declares settings: its own `id.plain` (readable by all), and one secret
 /// and one secret with a placement (`id.widget.token`, placed as
 /// `id.widget@2.token`).
-struct Declares(&'static str, [&'static str; 3]);
-impl Plugin for Declares {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static(self.0), "Declares", Version::new(1, 0, 0))
-    }
-    fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
+fn declares_manifest(id: &'static str) -> Manifest {
+    Manifest::new(Id::new_static(id), "Declares", Version::new(1, 0, 0))
+}
+
+fn declares(names: [&'static str; 3]) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |registrar| {
         static SECRET: SettingExtra = SettingExtra::new().secret();
-        let [plain, token, widget] = self.1;
+        let [plain, token, widget] = names;
         registrar.add_setting(SettingSpec::new(
             Id::new_static(plain),
             "plain",
@@ -160,9 +160,18 @@ fn world(b_subscribes: bool) -> World {
 fn world_with(b_tags: &'static [u32]) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .wifi(true)
-        .plugin(Declares("a", ["a.plain", "a.token", "a.widget.token"]))
-        .plugin(Declares("b", ["b.plain", "b.token", "b.widget.token"]))
-        .plugin(Declares("c", ["c.size", "c.token", "c.widget.token"]))
+        .items(
+            declares_manifest("a"),
+            declares(["a.plain", "a.token", "a.widget.token"]),
+        )
+        .items(
+            declares_manifest("b"),
+            declares(["b.plain", "b.token", "b.widget.token"]),
+        )
+        .items(
+            declares_manifest("c"),
+            declares(["c.size", "c.token", "c.widget.token"]),
+        )
         .build()
         .unwrap();
     let order = Rc::new(RefCell::new(Vec::new()));

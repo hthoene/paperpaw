@@ -28,7 +28,7 @@ const PART: usize = 1_000;
 
 /// Whether `word` ends a sentence (closing quotes and brackets after its
 /// punctuation are part of it).
-fn ends_sentence(word: &str) -> bool {
+pub fn ends_sentence(word: &str) -> bool {
     word.trim_end_matches(['"', '\'', '”', '’', '»', '«', '›', '‹', ')', ']', '“'])
         .ends_with(['.', '!', '?', '…'])
 }
@@ -36,7 +36,11 @@ fn ends_sentence(word: &str) -> bool {
 /// The text of the page's words `lo..=hi`, a space between them.
 pub fn text_of(words: &[WordBox], lo: usize, hi: usize) -> Result<String, Error> {
     let mut text = String::new();
-    for word in words.get(lo..=hi).unwrap_or(&[]) {
+    for (at, word) in words.iter().enumerate().take(hi + 1).skip(lo) {
+        // The second part of a word the layout broke says the word again.
+        if at > lo && crate::native_selection::continues(words, at) {
+            continue;
+        }
         let room = word.text.len() + 1;
         text.try_reserve(room).map_err(|_| Error::NoMemory)?;
         if !text.is_empty() {
@@ -140,25 +144,24 @@ pub fn look_up(
 /// The note *Note* starts: where it goes, and the note there is to edit.
 pub type NoteAsk = edit::Target;
 
-/// The stretch of the book the words `lo..=hi` of the page are.
-fn span_of(ctx: &Ctx<'_>, (lo, hi): (usize, usize)) -> Option<Span> {
-    let (first, last) = (ctx.words.get(lo)?, ctx.words.get(hi)?);
-    Some(Span {
-        start: (first.start.section, first.start.offset),
-        end: (last.end.section, last.end.offset),
+/// The stretch of the book from `start` to `end` (by place).
+#[must_use]
+pub const fn span_of((start, end): ((u32, u32), (u32, u32))) -> Span {
+    Span {
+        start,
+        end,
         noted: false,
-    })
+    }
 }
 
-/// How the chosen words `lo..=hi` stand with the highlights the bar names its
+/// How the chosen stretch `span` stands with the highlights the bar names its
 /// items by: `None` where none overlaps, else whether the first has a note.
 #[must_use]
-pub fn standing(ctx: &Ctx<'_>, range: (usize, usize)) -> Option<bool> {
-    let span = span_of(ctx, range)?;
+pub fn standing(ctx: &Ctx<'_>, span: &Span) -> Option<bool> {
     ctx.book?
         .highlights
         .iter()
-        .find(|h| edit::overlaps(h, &span))
+        .find(|h| edit::overlaps(h, span))
         .map(|h| h.noted)
 }
 
@@ -175,45 +178,46 @@ fn said<T>(host: &Host<'_>, done: Result<T, Error>) -> Result<Option<T>, Error> 
     }
 }
 
-/// *Highlight* / *Remove highlight* on the words `lo..=hi`.
+/// *Highlight* / *Remove highlight* on `span`, with `text` (its start, as much
+/// as the highlight keeps).
 ///
 /// # Errors
 /// `NoMemory`; a change the library refuses is said.
-pub fn highlight(host: &Host<'_>, ctx: &Ctx<'_>, range: (usize, usize)) -> Result<(), Error> {
-    let done = with_new(host, ctx, range, |library, new| {
+pub fn highlight(host: &Host<'_>, ctx: &Ctx<'_>, span: Span, text: &str) -> Result<(), Error> {
+    let done = with_new(host, ctx, span, text, |library, new| {
         edit::toggle(host, library, ctx.path, new)
     });
     said(host, done).map(|_| ())
 }
 
-/// *Note* / *Edit note* on the words `lo..=hi`: the highlight there is made if
-/// there is none, and the note it has is given back to be edited.
+/// *Note* / *Edit note* on `span`: the highlight there is made if there is
+/// none, and the note it has is given back to be edited.
 ///
 /// # Errors
 /// `NoMemory`; a change the library refuses is said.
 pub fn note(
     host: &Host<'_>,
     ctx: &Ctx<'_>,
-    range: (usize, usize),
+    span: Span,
+    text: &str,
 ) -> Result<Option<NoteAsk>, Error> {
-    let done = with_new(host, ctx, range, |library, new| {
+    let done = with_new(host, ctx, span, text, |library, new| {
         edit::begin_note(host, library, ctx.path, new)
     });
     said(host, done)
 }
 
-/// `change` with the library and the highlight the words `lo..=hi` would be.
+/// `change` with the library and the highlight `span` with `text` would be.
 fn with_new<T>(
     host: &Host<'_>,
     ctx: &Ctx<'_>,
-    range: (usize, usize),
+    span: Span,
+    text: &str,
     change: impl FnOnce(&paperpaw_sdk::native::library::Library, &edit::New<'_>) -> Result<T, Error>,
 ) -> Result<T, Error> {
-    let (Some(book), Some(span)) = (ctx.book, span_of(ctx, range)) else {
-        return Err(Error::State);
-    };
+    let book = ctx.book.ok_or(Error::State)?;
     let library = book.library.ok_or(Error::State)?;
-    let text = edit::snippet(&text_of(ctx.words, range.0, range.1)?)?;
+    let text = edit::snippet(text)?;
     let ppm = book
         .progress
         .map_or(book.stored_ppm, |p| p.ppm(span.start.0, span.start.1));

@@ -24,6 +24,7 @@ pub(crate) struct IoState {
     /// What the shell is to do with the radio ([`Io::Wifi`]).
     pub(crate) wifi_calls: Vec<WifiCommand>,
     /// Bluetooth, where the kernel uses a radio ([`Io::Bluetooth`]).
+    #[cfg(feature = "bluetooth")]
     pub(crate) bluetooth: Option<io::bluetooth::Radio>,
     /// What the shell is to do with the firmware ([`Io::Firmware`]).
     pub(crate) firmware_calls: Vec<FirmwareCommand>,
@@ -51,7 +52,7 @@ impl Kernel {
     /// waited goes on once there is a network.
     pub fn wifi_event(&mut self, now: Instant, event: WifiEvent) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // While the reader waits for the network, what Wi-Fi says is theirs.
         self.shared.reader = self.io.http.reader_waits();
         // Native plugins' join and host requests end by what the radio says.
@@ -68,9 +69,9 @@ impl Kernel {
                         wifi.scanning = false;
                     }
                     wifi.state = state;
-                    self.output.commands.push(events::WIFI_CHANGED.emit(()));
+                    self.output.emit(&events::WIFI_CHANGED, ());
                     // Status lines show it (`wifi.status`).
-                    self.output.commands.push(events::STATUS_CHANGED.emit(()));
+                    self.output.emit(&events::STATUS_CHANGED, ());
                     self.native_hint(crate::native_host::registrations::EVENT_WIFI_CHANGED_TAG);
                     self.native_hint(crate::native_host::registrations::EVENT_STATUS_CHANGED_TAG);
                 }
@@ -89,13 +90,12 @@ impl Kernel {
                 });
                 wifi.networks = networks;
                 wifi.scanning = false;
-                self.output.commands.push(events::WIFI_SCANNED.emit(()));
+                self.output.emit(&events::WIFI_SCANNED, ());
                 self.native_hint(crate::native_host::registrations::EVENT_WIFI_SCANNED_TAG);
             }
             WifiEvent::Failed { ssid, reason } => {
                 self.output
-                    .commands
-                    .push(events::WIFI_FAILED.emit(events::WifiFailed::new(ssid, reason)));
+                    .emit(&events::WIFI_FAILED, events::WifiFailed::new(ssid, reason));
             }
         }
         self.finish()
@@ -138,8 +138,8 @@ impl Kernel {
         let (mut wanted, mut idle) = (false, false);
         match (waiting, self.io.network_waiting) {
             (true, None) => {
-                self.io.network_waiting = Some(self.now);
-                self.output.commands.push(events::NETWORK_WANTED.emit(()));
+                self.io.network_waiting = Some(self.shared.now);
+                self.output.emit(&events::NETWORK_WANTED, ());
                 wanted = true;
             }
             (false, Some(_)) => self.io.network_waiting = None,
@@ -152,7 +152,7 @@ impl Kernel {
             self.io.http.busy() || self.io.servers.busy() || self.io.sockets.any() || native_live;
         wifi.busy = busy;
         if self.io.network_busy && !busy {
-            self.output.commands.push(events::NETWORK_IDLE.emit(()));
+            self.output.emit(&events::NETWORK_IDLE, ());
             idle = true;
         }
         self.io.network_busy = busy;
@@ -202,7 +202,7 @@ impl Kernel {
     /// What happened with a socket or a broadcast.
     pub fn socket_event(&mut self, now: Instant, event: SocketEvent) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // Servers and sockets are the reader's connection.
         self.shared.reader = true;
         let storage = &*self.shared.storage;
@@ -215,7 +215,7 @@ impl Kernel {
     /// What happened with a server: started, failed, a request.
     pub fn server_event(&mut self, now: Instant, event: ServerEvent) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // Servers and sockets are the reader's connection.
         self.shared.reader = true;
         let storage = &*self.shared.storage;
@@ -237,7 +237,7 @@ impl Kernel {
             return Effects::default();
         };
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // The computer at the cable is the reader's.
         self.shared.reader = true;
         self.last_activity = now;
@@ -273,7 +273,7 @@ impl Kernel {
                     self.io.servers.cable.ended = false;
                     self.output
                         .commands
-                        .push(Command::OpenSlot(slots::CABLE, Params::new()));
+                        .push(Ask::OpenSlot(slots::CABLE, Params::new()));
                     self.run_commands();
                 }
                 let Some(server) = self.io.servers.cable_server() else {
@@ -398,7 +398,7 @@ impl Kernel {
     /// Delivers the answer to a request ([`Io::Http`]).
     pub fn http_response(&mut self, now: Instant, response: HttpResponse) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // The answer to the reader's request is the reader's.
         self.shared.reader = self.io.http.of_reader(response.id);
         let storage = &*self.shared.storage;
@@ -421,7 +421,7 @@ impl Kernel {
         total: Option<u64>,
     ) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.io
             .http
             .progress(id, received, total, now, &mut self.output.commands);
@@ -435,6 +435,7 @@ impl Kernel {
     pub fn take_io(&mut self) -> Vec<Io> {
         let mut io: Vec<Io> = self.io.wifi_calls.drain(..).map(Io::Wifi).collect();
         io.extend(self.io.firmware_calls.drain(..).map(Io::Firmware));
+        #[cfg(feature = "bluetooth")]
         if let Some(radio) = &mut self.io.bluetooth {
             io.extend(radio.take().into_iter().map(Io::Bluetooth));
         }
@@ -466,12 +467,12 @@ impl Kernel {
         self.shared.storage.read_at(path, at, buffer)
     }
 
-    /// Answers a [`Command::ReadClipboard`] with the text known here.
+    /// Answers a [`Ask::ReadClipboard`] with the text known here.
     pub(crate) fn reply_clipboard(&mut self, reply: Id, params: Params) {
         let typed = paperpaw_sdk::Typed::new(self.shared.clipboard.get(), params);
         self.output
             .commands
-            .push(Command::Emit(reply, typed.to_params()));
+            .push(Ask::Emit(reply, typed.to_params()));
     }
 
     /// Whether plugins serve, e.g. to keep polling for requests.
@@ -482,12 +483,12 @@ impl Kernel {
     /// How an install goes: plugins hear of it.
     pub fn firmware_state(&mut self, now: Instant, state: FirmwareState) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         if let Some(firmware) = &mut self.shared.firmware
             && firmware.state != state
         {
             firmware.state = state;
-            self.output.commands.push(events::FIRMWARE_CHANGED.emit(()));
+            self.output.emit(&events::FIRMWARE_CHANGED, ());
         }
         self.finish()
     }
@@ -496,7 +497,7 @@ impl Kernel {
     /// not be.
     pub fn speech_done(&mut self, now: Instant, id: u32, spoken: bool) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.io.speech.done(id, spoken, &mut self.output.commands);
         self.finish()
     }
@@ -511,7 +512,7 @@ impl Kernel {
     /// copied here is used).
     pub fn clipboard_text(&mut self, now: Instant, text: Option<String>) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         if let Some(text) = text {
             self.shared.clipboard.set(crate::commands::clipped(&text));
         }

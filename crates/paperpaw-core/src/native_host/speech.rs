@@ -2,13 +2,13 @@
 //! `event.spoken` (89, `docs/abi/ui.md` section 7, "Speech").
 //!
 //! The kernel's speech (`io::speech`) is interface 6's and the shells' one
-//! backend: a native `command.speak` becomes the same [`Command::Speak`] with
+//! backend: a native `command.speak` becomes the same [`Ask::Speak`] with
 //! the host's own reply id ([`SPOKEN`]), which carries the submitter and the
 //! plugin's `cookie` in its parameters. When the text ends, or is replaced or
 //! stopped, `io::speech` notes how (`status`: 0 spoken, 1 replaced or stopped,
 //! 2 no voice, 3 no speech on this device) in a list only the kernel holds, and
 //! [`Kernel::native_speech_pump`] queues `event.spoken` from it for the
-//! submitter alone. `command.stop_speaking` becomes a [`Command::Speak`] with
+//! submitter alone. `command.stop_speaking` becomes a [`Ask::Speak`] with
 //! the reply id [`STOP`] the kernel's apply recognises: it stops the
 //! submitter's own speech only. Neither id goes over the event bus, and an
 //! interface-6 plugin's command with either is refused (`vet_reserved`), so
@@ -18,11 +18,12 @@
 //! the shell (the sentence being sent); the bookkeeping per text is the
 //! plugin's id and its cookie.
 use super::registrations as wire;
+use crate::Ask;
 use crate::Kernel;
 use alloc::{boxed::Box, string::String};
 use core::fmt::Write;
 use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, ERR_NO_MEMORY};
-use paperpaw_sdk::{Command, Id, Params, Speech};
+use paperpaw_sdk::{Id, Params, Speech};
 
 /// The reply id of a native plugin's speech (the kernel's, no plugin's).
 pub(crate) const SPOKEN: &str = "core.native-spoken";
@@ -88,7 +89,7 @@ pub(crate) fn speak(
     owner: &Id,
     (cookie, text, language): (u32, &str, &str),
     (rate, flags): (u32, u32),
-) -> Result<Command, i32> {
+) -> Result<Ask, i32> {
     check(rate, flags)?;
     let own = |text: &str| -> Result<String, i32> {
         let mut copy = String::new();
@@ -110,17 +111,17 @@ pub(crate) fn speak(
         .at_rate(rate)
         .queued(flags & QUEUE != 0)
         .with(params);
-    Ok(Command::Speak(Box::new(speech)))
+    Ok(Ask::Speak(Box::new(speech)))
 }
 
 /// The kernel command for a native `command.stop_speaking` of `owner`.
-pub(crate) fn stop(owner: &Id) -> Result<Command, i32> {
+pub(crate) fn stop(owner: &Id) -> Result<Ask, i32> {
     let mut params = Params::new();
     params
         .try_set(OWNER, owner.as_str())
         .map_err(|_| ERR_NO_MEMORY)?;
     let request = Speech::new(String::new(), Id::new_static(STOP)).with(params);
-    Ok(Command::Speak(Box::new(request)))
+    Ok(Ask::Speak(Box::new(request)))
 }
 
 impl Kernel {
@@ -130,7 +131,7 @@ impl Kernel {
     /// event pump after this tells the queues.
     pub(crate) fn native_speech_pump(&mut self) -> bool {
         let ended = self.io.speech.take_ended();
-        let now_ms = self.now.millis();
+        let now_ms = self.shared.now.millis();
         for params in &ended {
             let number = |key| params.get(key).and_then(|text| text.parse::<u32>().ok());
             let (Some(owner), Some(cookie), Some(status)) =

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CI's S3 frame-budget scan, run locally (job "Firmware (x4-pro)" and
+# CI's S3 frame-budget scan, run locally (job "Firmware interface-7 build (x4-pro)" and
 # "(x4-classic)", step "The S3's host frames and calls fit under the band"):
 #
 #   tools/check-s3-budget.sh <worktree> [x4-pro|x4-classic|both]
@@ -54,8 +54,9 @@
 # target directory at the end (delete it when the disk is tight, the next run
 # rebuilds). Both devices build into the same directory, side by side.
 #
-# A stale `allow` line (one that "matches nothing any more") is an error in CI, so it is
-# one here. Train 3 (`9d278c315`) once gave one extra followed call here (5826 against
+# A stale `allow call` or `allow indirect` line is only a warning now (#309; `allow indirect`
+# counts are ceilings, +2); any other stale `allow` line (one that "matches nothing any more")
+# is an error in CI, so it is one here. Train 3 (`9d278c315`) once gave one extra followed call here (5826 against
 # 5825; cause not found), but on train 40 (`0b0b143a3`) this scan and CI's agreed on
 # everything: the same counts of functions, roots, followed and unfollowed calls on both S3
 # devices, and the two lines this scan called stale (`icons::char`, classic's

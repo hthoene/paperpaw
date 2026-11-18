@@ -2,6 +2,7 @@
 //! what it opens itself.
 
 use super::*;
+use crate::Staging;
 use core::cell::Cell;
 use paperpaw_sdk::Params;
 
@@ -9,24 +10,21 @@ const LOCK: Id = Id::new_static("g.lock");
 const CHILD: Id = Id::new_static("g.child");
 const OTHER: Id = Id::new_static("g.other");
 
-/// A lock, locked until *Select*; *Menu* opens its own keyboard.
-struct GuardPlugin(Rc<Cell<bool>>);
-
 struct Lock(Rc<Cell<bool>>);
 
-impl Screen for Lock {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl crate::testing::Fake for Lock {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn guards(&self) -> bool {
-        self.0.get()
+    fn flags(&self) -> u32 {
+        u32::from(self.0.get()) * crate::testing::GUARDS
     }
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if *action == actions::CONFIRM {
             self.0.set(false);
-            cx.command(Command::Back);
+            cx.command(Ask::Back);
         } else if *action == actions::MENU {
-            cx.command(Command::OpenScreen(CHILD, Params::new()));
+            cx.command(Ask::OpenScreen(CHILD, Params::new()));
         } else {
             return Handled::No;
         }
@@ -36,29 +34,25 @@ impl Screen for Lock {
 
 struct Plain;
 
-impl Screen for Plain {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl crate::testing::Fake for Plain {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
 
-impl Plugin for GuardPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("g"), "Guard", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let locked = self.0.clone();
-        r.add_screen(ScreenSpec::new(
+/// A lock, locked until *Select*; *Menu* opens its own keyboard.
+fn guard_plugin(kept: Rc<Cell<bool>>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        let locked = kept.clone();
+        r.add_fake(crate::testing::FakeSpec::new(
             LOCK,
             "lock",
             Box::new(move |_, _| Box::new(Lock(locked.clone()))),
         ))?;
         for id in [CHILD, OTHER, Id::new_static("g.home")] {
-            r.add_screen(ScreenSpec::new(
+            r.add_fake(crate::testing::FakeSpec::new(
                 id,
                 "plain",
                 Box::new(|_, _| Box::new(Plain)),
@@ -66,6 +60,12 @@ impl Plugin for GuardPlugin {
         }
         r.bind_slot(slots::HOME, Id::new_static("g.home"), Priority::DEFAULT)
     }
+}
+
+/// What [`guard_plugin`] registers under.
+fn guard_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("g"), "Guard", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// Locked, a screen another opens (a rule, a timer, the shell) waits
@@ -76,8 +76,11 @@ impl Plugin for GuardPlugin {
 fn nothing_shows_above_a_guarding_screen_but_its_own() {
     let locked = Rc::new(Cell::new(true));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(GuardPlugin(locked.clone()))
-        .plugin(NoticePlugin { log: log() })
+        .items(guard_plugin_manifest(), guard_plugin(locked.clone()))
+        .items(
+            crate::tests::notice_plugin_manifest(),
+            crate::tests::notice_plugin(NoticePlugin { log: log() }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -86,8 +89,8 @@ fn nothing_shows_above_a_guarding_screen_but_its_own() {
 
     kernel.open_screen(Instant(2), OTHER, Params::new());
     assert_eq!(kernel.active_screen(), Some(&LOCK), "waits below");
-    kernel.apply(Command::Notify(String::from("A message")));
-    kernel.apply(Command::Back);
+    kernel.apply(Ask::Notify(String::from("A message")));
+    kernel.apply(Ask::Back);
     kernel.finish();
     assert_eq!(kernel.active_screen(), Some(&LOCK), "not closed by another");
     assert!(kernel.notice.is_none(), "held");
@@ -111,16 +114,19 @@ fn no_plugins_are_asked_for_while_locked() {
     let locked = Rc::new(Cell::new(true));
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(GuardPlugin(locked.clone()))
-        .plugin(super::plugins_loaded::Store {
-            log: log.clone(),
-            installs: true,
-        })
+        .items(guard_plugin_manifest(), guard_plugin(locked.clone()))
+        .items(
+            super::plugins_loaded::store_manifest(),
+            super::plugins_loaded::store(super::plugins_loaded::Store {
+                log: log.clone(),
+                installs: true,
+            }),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
     kernel.open_screen(Instant(1), LOCK, Params::new());
-    let asks = || Command::request_plugins(OTHER, [Id::new_static("vocabulary")]);
+    let asks = || Ask::request_plugins(OTHER, [Id::new_static("vocabulary")]);
     kernel.apply(asks());
     kernel.run_commands();
     assert!(log.borrow().is_empty(), "{:?}", log.borrow());
@@ -150,7 +156,7 @@ fn a_guard_starting_drops_the_private_cached_status_values() {
     let owner = pool.try_owner().unwrap();
     let locked = Rc::new(Cell::new(true));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(GuardPlugin(locked.clone()))
+        .items(guard_plugin_manifest(), guard_plugin(locked.clone()))
         .build()
         .unwrap();
     kernel
@@ -187,14 +193,17 @@ fn notices_held_by_a_guard_wait_in_a_queue_and_show_in_turn() {
     ] {
         let locked = Rc::new(Cell::new(true));
         let mut kernel = Kernel::builder(DEVICE.with_memory(memory))
-            .plugin(GuardPlugin(locked))
-            .plugin(NoticePlugin { log: log() })
+            .items(guard_plugin_manifest(), guard_plugin(locked))
+            .items(
+                crate::tests::notice_plugin_manifest(),
+                crate::tests::notice_plugin(NoticePlugin { log: log() }),
+            )
             .build()
             .unwrap();
         kernel.start(Instant(0));
         kernel.open_screen(Instant(1), LOCK, Params::new());
         for n in 1..=7 {
-            kernel.apply(Command::Notify(alloc::format!("n{n}")));
+            kernel.apply(Ask::Notify(alloc::format!("n{n}")));
         }
         kernel.finish();
         assert!(kernel.notice.is_none(), "held");

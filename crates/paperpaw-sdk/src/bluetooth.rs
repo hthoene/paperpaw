@@ -1,10 +1,10 @@
 //! Bluetooth Low Energy (see [ADR 0027](../../../docs/adr/0027-bluetooth.md)):
-//! [`Env::bluetooth`](crate::Env::bluetooth) is `Some` where the kernel
+//! `Place::bluetooth` is `Some` where the kernel
 //! may use a radio ([`Capabilities::bluetooth`](crate::Capabilities)).
 //!
 //! A plugin that declares [`Uses::BLUETOOTH`](crate::Uses::BLUETOOTH)
 //! asks with the functions of this module, which write
-//! [`Command::Bluetooth`], and hears everything as its own events, each a
+//! `Ask::Bluetooth`, and hears everything as its own events, each a
 //! [`BtEvent`]: a scan's on the event it names ([`scan`]), a link's on the
 //! link's ([`connect`]), being seen on its own ([`advertise`]), a GATT
 //! service's on the service's ([`ServiceSpec`]). Every command is
@@ -18,15 +18,15 @@
 //!   hearing only what passes its own filters.
 //! - **A GATT client**: [`connect`] (by default at [`LinkPower::Low`]),
 //!   [`discover`] the services, [`read`], [`write()`], [`subscribe`] to
-//!   notifications ([`BtEvent::Value`]), or [`subscribe_to`] a service's
+//!   notifications ([`BtEvent::Value`]), or `subscribe_to` a service's
 //!   characteristic by its UUIDs, handles found by the kernel.
 //! - **Pairing** ([`pair`]) is always confirmed by the reader, in the
 //!   kernel's own question: a plugin only asks.
 //! - **Being seen**: [`advertise`] for a while, and a GATT server of
 //!   services declared at registration
-//!   ([`Registrar::add_gatt_service`](crate::Registrar::add_gatt_service)):
-//!   centrals' reads and writes come as events, answered with [`respond`]
-//!   or [`refuse`], and [`notify_centrals`] sends to those subscribed.
+//!   (`Staging::add_gatt_service`):
+//!   centrals' reads and writes come as events, answered with `respond`
+//!   or `refuse`, and `notify_centrals` sends to those subscribed.
 //! - **Keys of a remote or a keyboard**: a bonded device that types is the
 //!   kernel's: [`remote_keys`] connects it and its keys arrive as buttons
 //!   of the key maps (`button.hid.right`, `button.hid.page-down` …), with
@@ -44,51 +44,15 @@
 //! showing when they were asked for (unless declared work asked for
 //! them), and all before the device sleeps; the radio is off whenever
 //! nothing needs it.
-//!
-//! ```
-//! use paperpaw_sdk::bluetooth::{self, BtEvent, Uuid};
-//! use paperpaw_sdk::{Event, Registrar, RegisterError};
-//!
-//! const FOUND: Event<BtEvent> = Event::new("pulse.found");
-//! const LINK: Event<BtEvent> = Event::new("pulse.link");
-//! const HEART_RATE: Uuid = Uuid::sig(0x180D);
-//! const MEASUREMENT: Uuid = Uuid::sig(0x2A37);
-//!
-//! fn register(r: &mut Registrar) -> Result<(), RegisterError> {
-//!     // A scan for the first heart-rate belt, then its measurements.
-//!     r.on(FOUND, |_, event: &BtEvent, out| {
-//!         if let BtEvent::Found(device) = event {
-//!             out.push(bluetooth::connect(device.id, &LINK).command());
-//!         }
-//!     })?;
-//!     r.on(LINK, |_, event: &BtEvent, out| match event {
-//!         BtEvent::Connected { device, .. } => {
-//!             out.push(bluetooth::subscribe_to(*device, HEART_RATE, MEASUREMENT));
-//!         }
-//!         BtEvent::Value { bytes, .. } => {
-//!             // Flags first; the rate is one byte, or two where flag 0 is set.
-//!             let bpm = match bytes.as_slice() {
-//!                 [flags, low, high, ..] if flags & 1 == 1 => u16::from_le_bytes([*low, *high]),
-//!                 [_, rate, ..] => u16::from(*rate),
-//!                 _ => return,
-//!             };
-//!             let _ = bpm;
-//!         }
-//!         _ => {}
-//!     })
-//! }
-//! # let _ = bluetooth::scan(&FOUND).service(HEART_RATE).first().command();
-//! ```
 
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::time::Duration;
 
 use crate::event::{Event, EventData, ParamValue};
 use crate::work::Refusal;
-use crate::{Command, Id, Params};
+use crate::{Id, Params};
 
 mod builders;
 mod event;
@@ -202,7 +166,7 @@ impl Handle {
 }
 
 /// A central's read or write of the device's GATT server, to answer with
-/// [`respond`] or [`refuse`].
+/// `respond` or `refuse`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GattRequest(u32);
 
@@ -219,7 +183,7 @@ impl GattRequest {
 
 /// An ATT error (Core Specification Vol 3, Part F, 3.4.1.1): what a
 /// device answered, or what the plugin's GATT server answers
-/// ([`refuse`]).
+/// (`refuse`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AttError(u8);
 
@@ -824,7 +788,7 @@ pub enum BtEvent {
     /// closed).
     AdvertisingEnded,
     /// A central reads a characteristic of the plugin's service: answer
-    /// with [`respond`] or [`refuse`].
+    /// with `respond` or `refuse`.
     #[non_exhaustive]
     ReadRequest {
         request: GattRequest,
@@ -867,7 +831,7 @@ pub enum BtEvent {
         report: Option<u8>,
         bytes: Vec<u8>,
     },
-    /// What a later feature tells (see [`extended`]).
+    /// What a later feature tells (see `extended`).
     #[non_exhaustive]
     Extended { key: Id, params: Params },
 }
@@ -896,11 +860,11 @@ pub use request::{BtCommand, Response};
 use request::{BtCommand, Response};
 
 impl BtCommand {
-    fn command(self) -> Command {
-        Command::Bluetooth(Box::new(BtRequest {
+    fn command(self) -> BtRequest {
+        BtRequest {
             command: self,
             from: None,
-        }))
+        }
     }
 }
 
@@ -1025,14 +989,6 @@ pub fn scan(events: &Event<BtEvent>) -> Scan {
     }
 }
 
-/// Ends the scan whose results go to `events`.
-pub fn stop_scan(events: &Event<BtEvent>) -> Command {
-    BtCommand::StopScan {
-        events: events.id().clone(),
-    }
-    .command()
-}
-
 /// Connects to `device`, at [`LinkPower::Low`] unless
 /// [`Connect::power`] says otherwise; all about the link comes as
 /// `events`, the answers of the commands on it too.
@@ -1043,10 +999,6 @@ pub fn connect(device: DeviceId, events: &Event<BtEvent>) -> Connect {
         power: LinkPower::Low,
         idle: None,
     }
-}
-
-pub fn disconnect(device: DeviceId) -> Command {
-    BtCommand::Disconnect { device }.command()
 }
 
 /// Finds the services of a connected device and their characteristics
@@ -1060,7 +1012,7 @@ pub fn discover(device: DeviceId) -> Discover {
 }
 
 /// Reads the value or descriptor at `handle` ([`BtEvent::Value`]).
-pub fn read(device: DeviceId, handle: Handle) -> Command {
+pub fn read(device: DeviceId, handle: Handle) -> BtRequest {
     BtCommand::Read { device, handle }.command()
 }
 
@@ -1078,34 +1030,19 @@ pub fn write(device: DeviceId, handle: Handle, bytes: impl Into<Vec<u8>>) -> Wri
 
 /// Notifications (or indications) of the characteristic at `handle` come
 /// as [`BtEvent::Value`].
-pub fn subscribe(device: DeviceId, handle: Handle) -> Command {
+pub fn subscribe(device: DeviceId, handle: Handle) -> BtRequest {
     BtCommand::Subscribe { device, handle }.command()
-}
-
-/// [`subscribe`] to characteristic `characteristic` of service `service`,
-/// found by the kernel: no discovery and no handle needed.
-pub fn subscribe_to(device: DeviceId, service: Uuid, characteristic: Uuid) -> Command {
-    BtCommand::SubscribeTo {
-        device,
-        service,
-        characteristic,
-    }
-    .command()
-}
-
-pub fn unsubscribe(device: DeviceId, handle: Handle) -> Command {
-    BtCommand::Unsubscribe { device, handle }.command()
 }
 
 /// Asks the reader to pair with connected `device` ([`BtEvent::Paired`],
 /// or [`BtError::Declined`]).
-pub fn pair(device: DeviceId) -> Command {
+pub fn pair(device: DeviceId) -> BtRequest {
     BtCommand::Pair { device }.command()
 }
 
 /// Forgets bonded `device`: its keys and what it was given. The reader's
 /// own doing, or the Bluetooth manager's.
-pub fn forget(device: DeviceId, events: &Event<BtEvent>) -> Command {
+pub fn forget(device: DeviceId, events: &Event<BtEvent>) -> BtRequest {
     BtCommand::Forget {
         device,
         events: events.id().clone(),
@@ -1115,19 +1052,8 @@ pub fn forget(device: DeviceId, events: &Event<BtEvent>) -> Command {
 
 /// Gives bonded `device` to `plugin`: it may connect to it. The reader's
 /// own doing, or the Bluetooth manager's.
-pub fn give(device: DeviceId, plugin: impl Into<Id>, events: &Event<BtEvent>) -> Command {
+pub fn give(device: DeviceId, plugin: impl Into<Id>, events: &Event<BtEvent>) -> BtRequest {
     BtCommand::Give {
-        device,
-        plugin: plugin.into(),
-        events: events.id().clone(),
-    }
-    .command()
-}
-
-/// Takes bonded `device` back from `plugin`. The reader's own doing, or
-/// the Bluetooth manager's.
-pub fn take_back(device: DeviceId, plugin: impl Into<Id>, events: &Event<BtEvent>) -> Command {
-    BtCommand::TakeBack {
         device,
         plugin: plugin.into(),
         events: events.id().clone(),
@@ -1138,7 +1064,7 @@ pub fn take_back(device: DeviceId, plugin: impl Into<Id>, events: &Event<BtEvent
 /// The keys of bonded `device` go to the key maps: the kernel connects
 /// it, responsively. The Bluetooth manager's, a plugin's the device is
 /// given to, or the reader's own doing.
-pub fn remote_keys(device: DeviceId, events: &Event<BtEvent>) -> Command {
+pub fn remote_keys(device: DeviceId, events: &Event<BtEvent>) -> BtRequest {
     BtCommand::KeysOn {
         device,
         events: events.id().clone(),
@@ -1148,7 +1074,7 @@ pub fn remote_keys(device: DeviceId, events: &Event<BtEvent>) -> Command {
 
 /// The keys of `device` no longer go to the key maps: the kernel lets it
 /// go.
-pub fn remote_keys_off(device: DeviceId, events: &Event<BtEvent>) -> Command {
+pub fn remote_keys_off(device: DeviceId, events: &Event<BtEvent>) -> BtRequest {
     BtCommand::KeysOff {
         device,
         events: events.id().clone(),
@@ -1159,7 +1085,7 @@ pub fn remote_keys_off(device: DeviceId, events: &Event<BtEvent>) -> Command {
 /// The report map and input reports of HID `device` (given to the
 /// plugin) come as `events` ([`BtEvent::HidReportMap`],
 /// [`BtEvent::HidReport`]).
-pub fn hid_reports(device: DeviceId, events: &Event<BtEvent>) -> Command {
+pub fn hid_reports(device: DeviceId, events: &Event<BtEvent>) -> BtRequest {
     BtCommand::HidReports {
         device,
         events: events.id().clone(),
@@ -1182,48 +1108,6 @@ pub fn advertise(events: &Event<BtEvent>) -> Advertising {
         power: AdvertisePower::Low,
         lasting: Duration::from_secs(60),
     }
-}
-
-pub fn stop_advertising() -> Command {
-    BtCommand::StopAdvertising.command()
-}
-
-/// Sends `bytes` of characteristic `characteristic` of the plugin's
-/// service `service` to the centrals subscribed to it.
-pub fn notify_centrals(service: Uuid, characteristic: Uuid, bytes: impl Into<Vec<u8>>) -> Command {
-    BtCommand::NotifyCentrals {
-        service,
-        characteristic,
-        bytes: bytes.into(),
-    }
-    .command()
-}
-
-/// Answers a central's read or write ([`BtEvent::ReadRequest`],
-/// [`BtEvent::WriteRequest`]).
-pub fn respond(request: GattRequest, bytes: impl Into<Vec<u8>>) -> Command {
-    BtCommand::Respond {
-        request,
-        bytes: bytes.into(),
-    }
-    .command()
-}
-
-/// Refuses a central's read or write with `error`.
-pub fn refuse(request: GattRequest, error: AttError) -> Command {
-    BtCommand::Refuse { request, error }.command()
-}
-
-/// A command of a feature to come, named by `key`: answered by
-/// [`BtEvent::Extended`], or [`BtError::Unsupported`] where the kernel
-/// does not know it. Later features come as functions writing it, so
-/// they need no new plugin interface.
-pub fn extended(key: impl Into<Id>, params: Params) -> Command {
-    BtCommand::Extended {
-        key: key.into(),
-        params,
-    }
-    .command()
 }
 
 /// A characteristic of a service of the device's own GATT server.
@@ -1293,7 +1177,7 @@ impl CharacteristicSpec {
 }
 
 /// A service of the device's own GATT server, declared at registration
-/// ([`Registrar::add_gatt_service`](crate::Registrar::add_gatt_service)):
+/// (`Staging::add_gatt_service`):
 /// centrals' reads, writes and subscriptions of its characteristics come
 /// as `events`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1398,7 +1282,7 @@ impl Bluetooth {
     }
 }
 
-/// Bluetooth as the plugin running sees it ([`Env::bluetooth`](crate::Env::bluetooth)):
+/// Bluetooth as the plugin running sees it (`Place::bluetooth`):
 /// the radio, and the bonded devices given to it (all of them, for the
 /// Bluetooth manager).
 #[derive(Clone, Copy)]
@@ -1429,7 +1313,7 @@ impl<'a> BluetoothView<'a> {
         }
     }
 
-    pub(crate) fn new(all: &'a Bluetooth, running: &'a dyn crate::secrets::Running) -> Self {
+    pub fn new(all: &'a Bluetooth, running: &'a dyn crate::secrets::Running) -> Self {
         Self { all, running }
     }
 

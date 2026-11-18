@@ -18,6 +18,8 @@ The fonts of the plugins with the letters of other scripts (tools/fonts, which t
 
 - Noto Serif Hebrew, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/hebrew), without Reserved Font Name
 
+- Noto Serif SC, Noto Serif TC and Noto Serif JP, Copyright 2017-2024 Adobe (http://www.adobe.com/), from github.com/google/fonts without Reserved Font Name, cut to the characters of the Chinese and Japanese letters plugins (tools/fonts/NotoSerif*-subset.ttf: a Modified Version, not distributed itself; the plugins carry bitmap packs made from it and the licence's text, NotoSerifCJK-OFL.txt)
+
 - Nanum Myeongjo, Copyright 2010 NHN Corporation (http://www.nhncorp.com), with Reserved Font Names 'Nanum', 'Naver Nanum', 'NanumMyeongjo', 'Naver NanumMyeongjo' and the others of its family the licence names, kept unmodified as tools/fonts/NanumMyeongjo-Regular.ttf. The Korean letters plugin (script-korean) draws from a bitmap pack made from it (the Hangul syllables of KS X 1001, rasterised): a Modified Version under the licence, so it is named Korean letters (korean.ppfp), not with a Reserved Font Name, and is licensed under the SIL Open Font License, Version 1.1, as the font it is derived from.
 
 Each of those plugins carries the licence's text with its packs (tools/fonts/NotoNaskhArabic-OFL.txt, NotoSerifHebrew-OFL.txt, the text given for Literata; NanumMyeongjo-OFL.txt, the same licence under its own copyright and Reserved Font Names).
@@ -278,11 +280,13 @@ Crates in the firmware of the Xteink readers used under the MIT License:
 - embassy-futures 0.1.2: Copyright the embassy-futures contributors (https://github.com/embassy-rs/embassy)
 - embassy-hal-internal 0.4.0: Copyright the embassy-hal-internal contributors (https://github.com/embassy-rs/embassy)
 - embassy-net-driver 0.2.0: Copyright the embassy-net-driver contributors (https://github.com/embassy-rs/embassy)
+- embassy-net-driver-channel 0.4.0: Copyright the embassy-net-driver-channel contributors (https://github.com/embassy-rs/embassy)
 - embassy-sync 0.6.2: Copyright the embassy-sync contributors (https://github.com/embassy-rs/embassy)
 - embassy-sync 0.7.2: Copyright the embassy-sync contributors (https://github.com/embassy-rs/embassy)
 - embassy-sync 0.8.0: Copyright the embassy-sync contributors (https://github.com/embassy-rs/embassy)
 - embassy-time 0.5.1: Copyright the embassy-time contributors (https://github.com/embassy-rs/embassy)
 - embassy-time-driver 0.2.2: Copyright the embassy-time-driver contributors (https://github.com/embassy-rs/embassy)
+- embassy-usb 0.6.0: Copyright the embassy-usb contributors (https://github.com/embassy-rs/embassy)
 - embassy-usb-driver 0.2.2: Copyright the embassy-usb-driver contributors (https://github.com/embassy-rs/embassy)
 - embassy-usb-synopsys-otg 0.4.0: Copyright the embassy-usb-synopsys-otg contributors (https://github.com/embassy-rs/embassy)
 - embedded-can 0.4.1: Copyright (c) 2021-2022 The Rust embedded HAL team and contributors.

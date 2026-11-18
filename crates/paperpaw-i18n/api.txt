@@ -109,6 +109,7 @@ pub fn paperpaw_i18n::Catalog::keys(&self) -> impl core::iter::traits::iterator:
 pub fn paperpaw_i18n::Catalog::language(&self) -> &str
 pub fn paperpaw_i18n::Catalog::len(&self) -> usize
 pub fn paperpaw_i18n::Catalog::load(&mut self)
+pub fn paperpaw_i18n::Catalog::merge_sources<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a str>) -> alloc::string::String
 pub fn paperpaw_i18n::Catalog::name(&self) -> &str
 pub fn paperpaw_i18n::Catalog::narrow_index(&self) -> core::option::Option<&[u16]>
 pub fn paperpaw_i18n::Catalog::open(alloc::rcs::rc::Rc<dyn paperpaw_i18n::CatalogFile>) -> core::result::Result<paperpaw_i18n::Catalog, paperpaw_i18n::CatalogError>

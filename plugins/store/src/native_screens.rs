@@ -35,6 +35,8 @@ pub enum Trouble {
     Offline,
     /// The fetch failed, or what came is no list.
     Failed,
+    /// The device had no memory for the connection.
+    Memory,
     /// The libraries have nothing made for this device.
     Unsupported,
 }
@@ -92,6 +94,7 @@ impl Loader for LoaderView<'_> {
             Load::Loading => Trouble::Loading,
             Load::Offline => Trouble::Offline,
             Load::Failed => Trouble::Failed,
+            Load::Memory => Trouble::Memory,
             Load::Unsupported => Trouble::Unsupported,
             _ => Trouble::None,
         }
@@ -205,6 +208,12 @@ pub trait Installs {
     fn can_install(&self) -> bool {
         false
     }
+    /// Whether the device is connected to a network now (a setup template's
+    /// plugins are fetched at once, else they wait for a connection). The
+    /// default says no.
+    fn online(&self) -> bool {
+        false
+    }
     /// Whether plugin `id` was installed and works only after a restart (a
     /// pack of letters is a data plugin and works at once). Added with the
     /// fetch screen; where the installs cannot tell, it is `false`.
@@ -251,6 +260,8 @@ pub mod ids {
     pub const FETCH: &str = "store.fetch";
     /// The first-run offer of a few plugins (the setup's page).
     pub const OFFER: &str = "store.offer";
+    /// The setup templates (the setup's page).
+    pub const TEMPLATES: &str = "store.templates";
 }
 
 /// What the plugin carries out for a screen.
@@ -315,6 +326,15 @@ pub enum Next {
         queued: bool,
         notify: &'static str,
         close: bool,
+    },
+    /// A setup template was chosen (#72): set `settings`, switch on the
+    /// built-in plugins `switch_on`, start the queue where `queued`, say text
+    /// `notify` once and close the page.
+    Templated {
+        settings: &'static [(&'static str, crate::native_template::Value)],
+        switch_on: Vec<&'static str>,
+        queued: bool,
+        notify: &'static str,
     },
 }
 
@@ -468,6 +488,8 @@ pub enum StoreView {
     Fetch(crate::native_screen_fetch::View),
     /// The first-run offer.
     Offer(crate::native_screen_offer::View),
+    /// The setup templates.
+    Templates(crate::native_screen_templates::View),
 }
 
 impl StoreView {
@@ -486,6 +508,7 @@ impl StoreView {
             ids::SHOTS => Self::Shots(Screen::open(ctx, params)?),
             ids::FETCH => Self::Fetch(Screen::open(ctx, params)?),
             ids::OFFER => Self::Offer(Screen::open(ctx, params)?),
+            ids::TEMPLATES => Self::Templates(Screen::open(ctx, params)?),
             _ => return Err(Error::NotFound),
         })
     }
@@ -504,6 +527,7 @@ impl StoreView {
             Self::Shots(v) => v.shown(ctx),
             Self::Fetch(v) => v.shown(ctx),
             Self::Offer(v) => v.shown(ctx),
+            Self::Templates(v) => v.shown(ctx),
         }
     }
 
@@ -521,6 +545,7 @@ impl StoreView {
             Self::Shots(v) => v.closing(ctx),
             Self::Fetch(v) => v.closing(ctx),
             Self::Offer(v) => v.closing(ctx),
+            Self::Templates(v) => v.closing(ctx),
         }
     }
 
@@ -538,6 +563,7 @@ impl StoreView {
             Self::Shots(v) => v.closed(ctx),
             Self::Fetch(v) => v.closed(ctx),
             Self::Offer(v) => v.closed(ctx),
+            Self::Templates(v) => v.closed(ctx),
         }
     }
 
@@ -555,6 +581,7 @@ impl StoreView {
             Self::Shots(v) => v.resume(ctx),
             Self::Fetch(v) => v.resume(ctx),
             Self::Offer(v) => v.resume(ctx),
+            Self::Templates(v) => v.resume(ctx),
         }
     }
 
@@ -569,6 +596,7 @@ impl StoreView {
             Self::Shots(v) => v.hidden(),
             Self::Fetch(v) => v.hidden(),
             Self::Offer(v) => v.hidden(),
+            Self::Templates(v) => v.hidden(),
         }
     }
 
@@ -586,6 +614,7 @@ impl StoreView {
             Self::Shots(v) => v.draw(ctx, frame),
             Self::Fetch(v) => v.draw(ctx, frame),
             Self::Offer(v) => v.draw(ctx, frame),
+            Self::Templates(v) => v.draw(ctx, frame),
         }
     }
 
@@ -603,6 +632,7 @@ impl StoreView {
             Self::Shots(v) => v.input(ctx, input),
             Self::Fetch(v) => v.input(ctx, input),
             Self::Offer(v) => v.input(ctx, input),
+            Self::Templates(v) => v.input(ctx, input),
         }
     }
 
@@ -620,6 +650,7 @@ impl StoreView {
             Self::Shots(v) => v.event(ctx, event),
             Self::Fetch(v) => v.event(ctx, event),
             Self::Offer(v) => v.event(ctx, event),
+            Self::Templates(v) => v.event(ctx, event),
         }
     }
 
@@ -637,6 +668,7 @@ impl StoreView {
             Self::Shots(v) => v.started(ctx),
             Self::Fetch(v) => v.started(ctx),
             Self::Offer(v) => v.started(ctx),
+            Self::Templates(v) => v.started(ctx),
         }
     }
 
@@ -654,6 +686,7 @@ impl StoreView {
             Self::Shots(v) => v.answered(ctx, tag, reply),
             Self::Fetch(v) => v.answered(ctx, tag, reply),
             Self::Offer(v) => v.answered(ctx, tag, reply),
+            Self::Templates(v) => v.answered(ctx, tag, reply),
         }
     }
 
@@ -671,6 +704,7 @@ impl StoreView {
             Self::Shots(v) => v.returned(ctx, key, value),
             Self::Fetch(v) => v.returned(ctx, key, value),
             Self::Offer(v) => v.returned(ctx, key, value),
+            Self::Templates(v) => v.returned(ctx, key, value),
         }
     }
 }

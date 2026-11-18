@@ -11,16 +11,14 @@
 //! on one thread, and sessions on other threads (tests run side by side)
 //! must not change which plugins a device gets or the area it notes.
 
+use paperpaw_core::{Place, Turn};
 use std::cell::{Cell, RefCell};
 
-use paperpaw_core::KernelBuilder;
+use paperpaw_core::kit::ui::{self, UiStyle};
+use paperpaw_core::kit::widgets::{Drawn, WidgetSpec};
+use paperpaw_core::{KernelBuilder, Staging};
 use paperpaw_platform::Rect;
-use paperpaw_sdk::ui::{self, UiStyle};
-use paperpaw_sdk::widgets::{Widget, WidgetSpec};
-use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, Plugin, RegisterError, Registrar, Screen, ScreenSpec,
-    Version,
-};
+use paperpaw_sdk::{Canvas, Handled, Id, Manifest, RegisterError, Version};
 
 use crate::AddPlugins;
 
@@ -55,7 +53,7 @@ pub fn set_target(add: Option<AddPlugins>) {
 
 /// Adds the probe and the target's plugins (see [`set_target`]).
 pub fn add(builder: KernelBuilder) -> KernelBuilder {
-    let builder = builder.plugin(Probe);
+    let builder = builder.items(probe_manifest(), probe());
     match TARGET.get() {
         Some(add) => add(builder),
         None => builder,
@@ -72,25 +70,14 @@ pub fn area() -> Option<Rect> {
     AREA.get()
 }
 
-#[derive(Debug)]
-struct Probe;
-
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static(PLUGIN),
-            "paperpaw-dev",
-            Version::new(0, 1, 0),
-        )
-        .description("Measures where widgets are drawn, for paperpaw-dev.")
-        .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_widget(WidgetSpec::new(WIDGET, "paperpaw-dev.probe", |_| {
-            Box::new(Noting)
-        }))?;
-        r.add_screen(ScreenSpec::new(
+fn probe() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.add_widget(WidgetSpec::drawn(
+            WIDGET,
+            "paperpaw-dev.probe",
+            Drawn::new(|_, _| 1, |_, _, area| AREA.set(Some(area))),
+        ))?;
+        r.add_fake(paperpaw_core::testing::FakeSpec::new(
             HELP,
             "paperpaw-dev.help",
             Box::new(|_, _| Box::new(Measuring)),
@@ -98,11 +85,22 @@ impl Plugin for Probe {
     }
 }
 
+/// What [`probe`] registers under.
+fn probe_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static(PLUGIN),
+        "paperpaw-dev",
+        Version::new(0, 1, 0),
+    )
+    .description("Measures where widgets are drawn, for paperpaw-dev.")
+    .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// Measures every setting's description against its row's lines.
 struct Measuring;
 
-impl Screen for Measuring {
-    fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
+impl paperpaw_core::testing::Fake for Measuring {
+    fn draw(&mut self, _: &mut Canvas<'_>, env: &Place<'_>) {
         let style = UiStyle::new(env);
         let width = env.device().display.width;
         let cut: Vec<(String, String)> = env
@@ -117,23 +115,7 @@ impl Screen for Measuring {
         CUT_HELP.set(cut);
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
-    }
-}
-
-struct Noting;
-
-impl Widget for Noting {
-    fn live(&self) -> bool {
-        false
-    }
-
-    fn height(&self, _: &Env<'_>, _: u16) -> u16 {
-        1
-    }
-
-    fn draw(&self, _: &mut Canvas<'_>, _: &Env<'_>, area: Rect) {
-        AREA.set(Some(area));
     }
 }

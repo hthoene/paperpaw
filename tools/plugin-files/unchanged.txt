@@ -72,3 +72,4 @@ a4c233775b0f81ba46f9cd6fffcb8b00e4e27bd2 language-ar, language-es  # sign: a bou
 ac94608fec9734e37abb774e5e6258e376cb1b4f language-ar, language-es  # sign: keep narrow() under the line limit (cb_offset helper)
 2cd068984ee0700aaa790a78037229e937598ea2 language-ar, language-es  # sign: bound a jump table by the compare on its index
 13e6d539ec0cf5e160c2136edcb756391915821f language-ar, language-es  # sign: move the scan's register state to frames/state.rs (no change)
+85cb4ab3ea5883017ff7434a0111b4caabfa8f80 script-greek, script-cyrillic, script-korean  # #244: only the shared! wrapper of charset::stand_in goes; tools/script-pack.py (data.toml's store build) run on integration e64ea5523 and on train 51 aea2a5eb0 writes the same 27 files for the three (sha256 lists equal)
