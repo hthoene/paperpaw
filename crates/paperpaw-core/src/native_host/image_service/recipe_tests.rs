@@ -476,6 +476,26 @@ fn the_brightness_grid_is_the_mean_of_eight_by_eight_cells() {
 }
 
 #[test]
+fn the_grid_summed_while_rows_are_written_is_the_one_read_back() {
+    for (w, h) in [(16_usize, 16_usize), (3, 2), (37, 29), (8, 1)] {
+        let storage = MemoryStorage::new();
+        let pixel = |x: usize, y: usize| (x * 7 + y * 13 + x * y) as u8;
+        let mut writer = paperpaw_sdk::image::GrayWriter::new(&storage, "g.img");
+        let mut sink = GridSink::new(&mut writer);
+        sink.start(w as u32, h as u32).unwrap();
+        for y in 0..h {
+            let row: std::vec::Vec<u8> = (0..w).map(|x| pixel(x, y)).collect();
+            sink.row(&row).unwrap();
+        }
+        let summed = sink.grid();
+        writer.finish().unwrap();
+        let read = luma_grid(&storage, "g.img", (w, h, 1));
+        assert!(summed.is_some());
+        assert_eq!(summed, read, "{w} x {h}");
+    }
+}
+
+#[test]
 fn the_grid_of_a_small_picture_takes_the_pixel_at_each_cell() {
     let storage = MemoryStorage::new();
     gray_file(&storage, "g.img", (3, 2), |x, y| (x * 80 + y * 5) as u8);
