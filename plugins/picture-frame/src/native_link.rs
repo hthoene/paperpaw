@@ -2,8 +2,6 @@
 //! service (opened by the first request). The `Authorization` header, made of
 //! the user and the password kept among the secrets, goes with every request
 //! to the server and is wiped from the buffers it passed through.
-use alloc::string::String;
-
 use paperpaw_sdk::native::net::FileRoot;
 use paperpaw_sdk::native::{
     Error, Host,
@@ -130,25 +128,4 @@ impl Link for HostLink<'_, '_> {
     }
 }
 
-/// The text of an address with a `/` at its end (a folder's), `None` for no
-/// address or one that does not start with `http://` or `https://`.
-#[must_use]
-pub fn folder_url(setting: &str) -> Option<String> {
-    let url = setting.trim();
-    let lower_ok = ["http://", "https://"].iter().any(|scheme| {
-        url.len() > scheme.len()
-            && url
-                .get(..scheme.len())
-                .is_some_and(|s| s.eq_ignore_ascii_case(scheme))
-    });
-    if !lower_ok || url.len() > 800 {
-        return None;
-    }
-    let mut out = String::new();
-    out.try_reserve_exact(url.len() + 1).ok()?;
-    out.push_str(url);
-    if !out.ends_with('/') {
-        out.push('/');
-    }
-    Some(out)
-}
+pub use paperpaw_ui_kit::dav::url::folder_url;

@@ -12,6 +12,7 @@ calibre library
 diagnostics system
 edge-light system
 end-of-book reading
+file-sync sync
 # fonts-browser look  (no file until the store build moves to interface 7, #228)
 # format-mobi reading  (no file until the store build moves to interface 7, #228)
 # format-docx reading  (no file until the store build moves to interface 7, #228)
@@ -28,6 +29,7 @@ notes-vault notes
 picture-frame look
 # picture-home look  (removed with interface 6; its store file comes with the interface-7 store build, #244)
 pomodoro home
+puzzles home
 profiles reading
 reading-goal reading
 readwise notes

@@ -1,0 +1,231 @@
+# Puzzles (#137) on the emulator, where the plugin is linked and shipped off, or on an X4 where its
+# plugin file is installed and on:
+#   python3 tools/x4-remote.py --emulator target/debug/paperpaw-emu --library <card folder> --script-file tools/pps/puzzles.pps --out out/puzzles
+# The crossword tests need a file on the card: copy tools/pps/fixtures/tiny.puz to puzzles/tiny.puz of the card folder
+# first (the tests are NOT TESTABLE without it). Nothing waits for a clock: the sudoku of the day is today's.
+include:beta4/common.pps
+
+# On the emulator the plugin ships off: switch it on in Manage plugins, which applies after a restart.
+test:puzzles-01-on {
+  if:$target==emu {
+    call:home
+    call:settings-row:Manage plugins
+    until:Plugins:8000
+    select:Puzzles:80
+    wait:1500
+    expect:Applies after a restart
+    restart
+    wait:4000
+  }
+  no-warn
+}
+
+# The menu: five rows.
+test:puzzles-02-menu {
+  call:home
+  run:puzzles.open
+  until:Puzzles:8000
+  expect:Puzzle of the day
+  expect:Sudoku
+  expect:Crosswords
+  expect:Chess puzzles
+  expect:Statistics
+  expect-focus:Puzzle of the day
+  shot:menu.png
+  expect-not:Error
+  no-warn
+}
+
+# A free sudoku: Sudoku -> Easy makes a puzzle (one solution), a digit goes in, the buttons are under the board.
+test:puzzles-03-sudoku {
+  call:home
+  run:puzzles.open
+  until:Puzzles:8000
+  select:Sudoku:10
+  wait:1000
+  select:Easy:5
+  wait:2500
+  expect:Easy:
+  expect:left
+  shot:sudoku-1.png
+  # Look for a square that is not a clue: Select opens the digits there.
+  repeat:12 {
+    if:not-shows:Clear {
+      confirm
+      wait:300
+    }
+    if:not-shows:Clear {
+      right
+      wait:300
+    }
+  }
+  expect:Clear
+  confirm
+  wait:800
+  expect-not:Clear
+  shot:sudoku-2.png
+  # Hold Select: the buttons under the board; Notes, Check, Undo, New.
+  long:confirm
+  wait:600
+  expect:Notes
+  expect:Check
+  expect:Undo
+  expect:New
+  select:Check:6
+  wait:800
+  expect-not:Error
+  back
+  wait:500
+  # Undo takes the digit back, New asks for a level.
+  long:confirm
+  wait:500
+  select:Undo:6
+  wait:800
+  select:New:6
+  wait:800
+  expect:Medium
+  expect:Hard
+  back
+  wait:800
+  expect-not:Error
+  no-warn
+}
+
+# The game was kept: the menu's Sudoku goes straight to the board of the game before.
+test:puzzles-03b-kept {
+  call:home
+  run:puzzles.open
+  until:Puzzles:8000
+  select:Sudoku:10
+  wait:1500
+  expect:squares left
+  expect-not:Hard
+  expect-not:Error
+  no-warn
+}
+
+# Back from the sudoku is the menu; the puzzle of the day opens by its action and is the same one on a second open.
+test:puzzles-04-daily {
+  call:home
+  run:puzzles.daily
+  until:Puzzle of the day:8000
+  wait:2500
+  expect:Medium:
+  confirm
+  wait:300
+  back
+  wait:500
+  if:not-shows:Statistics {
+    back
+    wait:800
+  }
+  expect:Statistics
+  back
+  until:Edit:8000
+  no-warn
+}
+
+# Chess: a puzzle with the side to move, Hint marks the piece, Next goes on.
+test:puzzles-05-chess {
+  call:home
+  run:puzzles.open
+  until:Puzzles:8000
+  select:Chess puzzles:10
+  wait:1500
+  expect:to move
+  expect:Hint
+  expect:Next
+  expect:Restart
+  shot:chess-1.png
+  # A piece and where it goes (one of the pieces that can move; any target: a wrong move is taken back).
+  confirm
+  wait:500
+  right
+  wait:300
+  confirm
+  wait:800
+  long:confirm
+  wait:500
+  select:Hint:4
+  wait:800
+  expect:Hint:
+  select:Next:4
+  wait:1500
+  expect:Puzzle 2
+  back
+  wait:800
+  expect:Statistics
+  expect-not:Error
+  no-warn
+}
+
+# Crosswords: the file list, the grid with the clue, typing a word on the keyboard, the clue list.
+test:puzzles-06-crossword {
+  if:exists:puzzles/tiny.puz {
+    call:home
+    run:puzzles.open
+    until:Puzzles:8000
+    select:Crosswords:10
+    wait:1200
+    expect:tiny.puz
+    confirm
+    wait:1500
+    expect:1 Across
+    expect:Pet that purrs
+    expect:Clues
+    expect:Reveal
+    shot:crossword-1.png
+    # The word under the cursor on the keyboard.
+    confirm
+    wait:1500
+    type-enter:CAT
+    wait:1500
+    expect:Crossword
+    shot:crossword-2.png
+    expect-not:Error
+    # The clue list, a clue chosen puts the cursor on its word.
+    long:confirm
+    wait:500
+    select:Clues:6
+    wait:800
+    expect:Farm animal that moos
+    shot:clues.png
+    back
+    wait:800
+    expect:1 Across
+    back
+    wait:800
+    back
+    wait:800
+    expect:Statistics
+    no-warn
+  } else {
+    skip:copy tools/pps/fixtures/tiny.puz to puzzles/tiny.puz on the card
+  }
+}
+
+# Statistics and Back out of Puzzles.
+test:puzzles-07-stats {
+  call:home
+  run:puzzles.open
+  until:Puzzles:8000
+  select:Statistics:10
+  wait:800
+  expect:Puzzles solved
+  back
+  wait:500
+  back
+  until:Edit:8000
+  no-warn
+}
+
+# The home widget: the puzzle of the day on a home page.
+test:puzzles-08-widget {
+  set:home.page-1=puzzles.daily
+  call:home
+  expect:Puzzle of the day
+  shot:widget.png
+  expect-not:Error
+  set:home.page-1=home.clock\, home.continue\, home.recent
+  no-warn
+}
