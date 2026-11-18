@@ -165,6 +165,11 @@ pub(crate) enum Root {
 /// a part with other than ASCII (a lookalike of a letter folds to it on
 /// FAT), a write below `screenshots`, one to `plugins` itself, and a
 /// write of code.
+///
+/// `plugins` and `screenshots` are told before the library folder, so a
+/// library folder named as one of them (the reader names it, and so can
+/// the computer's keys) keeps that folder's rules; and every name is
+/// compared as FAT reads it ([`folded`]).
 pub(crate) fn path(raw: &str, library: &str, usage: Use) -> Result<(Root, String), &'static str> {
     if raw.is_empty() || raw.len() > 240 || raw.chars().any(forbidden_char) {
         return Err(DENIED);
@@ -189,12 +194,13 @@ pub(crate) fn path(raw: &str, library: &str, usage: Use) -> Result<(Root, String
             .iter()
             .zip(&lib)
             .all(|(a, b)| a.eq_ignore_ascii_case(b));
-    let (root, below) = if in_library {
-        (Root::Library, &parts[lib.len()..])
-    } else if parts[0].eq_ignore_ascii_case("plugins") {
+    let first = folded(parts[0]);
+    let (root, below) = if first == "PLUGINS" {
         (Root::Plugins, &parts[1..])
-    } else if parts[0].eq_ignore_ascii_case("screenshots") {
+    } else if first == "SCREENSHOTS" {
         (Root::Screenshots, &parts[1..])
+    } else if in_library {
+        (Root::Library, &parts[lib.len()..])
     } else {
         return Err(DENIED);
     };
@@ -257,20 +263,27 @@ fn plain(part: &str) -> bool {
         && !part.contains('~')
 }
 
+/// `name` as FAT compares names: in upper case, letter by letter
+/// (`paperpaw-fat`'s `same_name`). `ſ` is `S` so, `ı` is `I` and `ﬁ` is
+/// `FI`: a name spelt with them is the file the plain letters name.
+fn folded(name: &str) -> String {
+    name.chars().flat_map(char::to_uppercase).collect()
+}
+
 /// A name of what is never sent or listed (rule 5).
 pub(crate) fn secret(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    name == ".paperpaw"
-        || name == "wifi.ini"
-        || name.starts_with("secret")
-        || [".key", ".sec", ".pem"].iter().any(|e| name.ends_with(e))
+    let name = folded(name);
+    name == ".PAPERPAW"
+        || name == "WIFI.INI"
+        || name.starts_with("SECRET")
+        || [".KEY", ".SEC", ".PEM"].iter().any(|e| name.ends_with(e))
 }
 
 /// A name of code or a firmware image: never written (rule 7).
 fn is_code(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    name == "plugin-code.txt"
-        || [".ppn", ".so", ".bin", ".elf", ".ppu"]
+    let name = folded(name);
+    name == "PLUGIN-CODE.TXT"
+        || [".PPN", ".SO", ".BIN", ".ELF", ".PPU"]
             .iter()
             .any(|e| name.ends_with(e))
 }
