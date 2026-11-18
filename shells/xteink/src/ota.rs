@@ -337,7 +337,10 @@ impl Ota {
     /// What the kernel runs firmware jobs on: this OTA state, shared
     /// (`paperpaw_x4::host_jobs::SharedUpdates`); its restart is asked of the
     /// main loop ([`restart_asked`]), which restarts cleanly.
-    pub(crate) fn host(&self) -> paperpaw_x4::host_jobs::SharedUpdates<Chip> {
+    pub(crate) fn host(
+        &self,
+        room: alloc::rc::Rc<paperpaw_x4::update_room::Gate>,
+    ) -> paperpaw_x4::host_jobs::SharedUpdates<Chip> {
         if let Ok(mut updates) = self.updates.try_borrow_mut() {
             updates.set_restarter(ask_restart);
         }
@@ -346,6 +349,7 @@ impl Ota {
             env!("PAPERPAW_VERSION"),
             PROJECT,
         )
+        .with_room(room)
     }
 
     /// The firmware as plugins see it.
