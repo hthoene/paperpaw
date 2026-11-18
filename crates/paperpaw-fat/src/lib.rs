@@ -88,14 +88,15 @@ mod found;
 mod free;
 mod in_place;
 mod listed;
+mod owned;
 mod settle;
 mod swap;
 mod walk;
 
 pub use disk::{BLOCK, BlockDisk, Blocks, DiskError, SharedDisk, VolumeError};
 pub use swap::{
-    CardSwap, LOST_AFTER, MOUNT_TRIES, Mount, PROBE_MS, REMOUNTS, RETRY_MS, Restart, Swappable,
-    Swapped, Watched,
+    CardSwap, LOST_AFTER, MOUNT_TRIES, Mount, PROBE_MS, RETRY_MS, Restart, Swappable, Swapped,
+    Watched,
 };
 
 use alloc::format;
@@ -104,8 +105,8 @@ use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 
 use fatfs::{
-    DefaultTimeProvider, Dir, File, FileAttributes, FileSystem, LossyOemCpConverter, Read,
-    ReadWriteSeek, Seek, SeekFrom, Write,
+    DefaultTimeProvider, Dir, File, FileAttributes, FileSystem, FsOptions, LossyOemCpConverter,
+    Read, ReadWriteSeek, Seek, SeekFrom, Write,
 };
 use paperpaw_platform::storage::is_valid_path;
 use paperpaw_platform::{DirEntry, Storage, StorageError};
@@ -171,8 +172,8 @@ impl<IO: ReadWriteSeek + 'static> Open<IO> {
     }
 }
 
-/// PaperPaw's storage on a FAT file system that lives as long as the
-/// device runs (`Box::leak` it).
+/// PaperPaw's storage on a FAT file system, owned with [`Self::owned`]
+/// (see [`mount`]) or borrowed for the device's lifetime with [`Self::new`].
 pub struct FatStorage<IO: ReadWriteSeek + 'static> {
     fs: &'static FileSystem<IO>,
     /// The files used last, the latest last.
@@ -203,6 +204,23 @@ pub struct FatStorage<IO: ReadWriteSeek + 'static> {
     cleaned: RefCell<Vec<u64>>,
     /// Whether a file that grows takes clusters ahead (see `append`).
     reserve: Cell<bool>,
+    // Must remain last: Rust drops fields in declaration order. Every
+    // cached file and folder above borrows this allocation. No borrowed
+    // FAT handle or file-system reference may escape this storage.
+    owner: Option<owned::FileSystemOwner<IO>>,
+}
+
+/// The FAT file system on `blocks` (the whole disk or its first partition)
+/// as PaperPaw's storage, its disk shared ([`FatStorage::with_disk`]). It
+/// owns the file system ([`FatStorage::owned`]): dropped, as when a card
+/// taken out is mounted anew, it gives back everything it took.
+///
+/// # Errors
+/// Why there is no FAT file system PaperPaw can read on `blocks`.
+pub fn mount<B: Blocks + 'static>(blocks: B) -> Result<FatStorage<SharedDisk<B>>, VolumeError> {
+    let disk = SharedDisk::new(BlockDisk::volume(blocks)?);
+    let fs = FileSystem::new(disk.clone(), FsOptions::new()).map_err(|_| VolumeError::NoFat)?;
+    Ok(FatStorage::owned(fs).with_disk(disk))
 }
 
 impl<IO: ReadWriteSeek + 'static> core::fmt::Debug for FatStorage<IO> {
@@ -705,7 +723,17 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             stuck: RefCell::new(None),
             cleaned: RefCell::new(Vec::new()),
             reserve: Cell::new(true),
+            owner: None,
         }
+    }
+
+    /// Owns the file system and releases it after its cached files and
+    /// folders on drop. Moving the storage does not move the file system.
+    /// Call [`Storage::sync`] before dropping a card that is still present
+    /// to report write errors. A removed card must reject old-mount I/O,
+    /// as [`Watched`] does, including writes attempted by destructors.
+    pub fn owned(fs: FileSystem<IO>) -> Self {
+        owned::storage(fs)
     }
 
     /// Whether a file that grows by appends takes its clusters ahead, a run

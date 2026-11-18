@@ -7,6 +7,7 @@
 )]
 use super::*;
 
+mod display;
 mod items;
 pub use items::Items;
 pub(crate) use items::Parts;
@@ -72,6 +73,7 @@ struct BuilderParts {
     catalog_indexes: paperpaw_i18n::FixedIndexes,
     built_catalogs: &'static [paperpaw_i18n::BuiltLanguage],
     built_messages: Vec<&'static [paperpaw_i18n::BuiltMessages]>,
+    language_seed: Option<&'static crate::language_seed::LanguageSeed>,
     /// The most Bluetooth links the shell keeps; none without a radio.
     bluetooth_links: u8,
 }
@@ -183,6 +185,14 @@ impl KernelBuilder {
     /// once; every other catalog takes precedence over them.
     pub fn built_messages(mut self, tables: &'static [paperpaw_i18n::BuiltMessages]) -> Self {
         self.0.built_messages.push(tables);
+        self
+    }
+
+    /// A language the program carries as a language pack it writes to the
+    /// storage when that language is chosen (and at the start, when it
+    /// already is): see [`LanguageSeed`](crate::LanguageSeed).
+    pub fn language_seed(mut self, seed: &'static crate::language_seed::LanguageSeed) -> Self {
+        self.0.language_seed = Some(seed);
         self
     }
 
@@ -765,6 +775,7 @@ impl BuilderParts {
         // done while the other is not there.
         kernel.shrink_to_fit();
         kernel.apply_display_settings();
+        kernel.seed_language();
         kernel.settle();
     }
 
@@ -814,6 +825,9 @@ impl BuilderParts {
             for table in *tables {
                 translator.built_messages(table);
             }
+        }
+        if let Some(listing) = self.language_seed.and_then(|seed| seed.listing()) {
+            translator.add(listing);
         }
         let font_removals =
             alloc::rc::Rc::new(crate::native_host::font_removals::FontRemovals::new());
@@ -883,6 +897,7 @@ impl BuilderParts {
                 font_dirs: Vec::new(),
                 data_folders: Vec::new(),
                 plugin_dirs: Vec::new(),
+                language_seed: self.language_seed,
                 catalog_device: self.catalog_device,
                 secrets: Default::default(),
                 random: self.random,
@@ -1378,32 +1393,6 @@ impl Kernel {
         self.move_secrets(secrets);
         self.late_config = left;
     }
-
-    /// The language, night mode and colours the settings say.
-    fn apply_display_settings(&mut self) {
-        let shared = &mut self.shared;
-        shared
-            .translator
-            .set_language(shared.settings.read(&core_settings::LANGUAGE));
-        let settings = &self.shared.settings;
-        self.framebuffer
-            .set_inverted(settings.bool(core_settings::NIGHT_MODE.as_str()));
-        self.framebuffer
-            .set_pictures_kept(!settings.bool(core_settings::NIGHT_PICTURES.as_str()));
-        self.framebuffer.set_mono_coverage(mono_coverage(settings));
-        self.apply_ui_text_curve();
-        if let Some(panel) = self.shared.device.display.color {
-            self.framebuffer.set_saturation(panel.boost_percent());
-        }
-    }
-
-    /// Done registering: memory given back, the slots and screens known,
-    /// the row of hints as tall as the first screen is made for.
-    fn settle(&mut self) {
-        self.shrink_to_fit();
-        self.shared.slots = self.shared.registry.bound_slots();
-        self.hint.height = self.wanted_hint_height();
-    }
 }
 
 impl Kernel {
@@ -1454,6 +1443,7 @@ impl Kernel {
             catalog_indexes: &[],
             built_catalogs: &[],
             built_messages: Vec::new(),
+            language_seed: None,
             bluetooth_links: 0,
         }))
     }

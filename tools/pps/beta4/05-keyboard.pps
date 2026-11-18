@@ -1,0 +1,38 @@
+# Beta 4 suite 05: the on-screen keyboard (the settings' Search field): open, type, close with held Back.
+include:common.pps
+
+test:05a-keyboard-open-type {
+  call:home
+  slot:core.settings
+  until:Settings:15000
+  confirm
+  until:Hold Back:8000
+  expect:Hold Back: done
+  expect:OK
+  type:wifi
+  wait:500
+  expect:wifi
+  no-warn
+}
+
+# Closing with held Back (Beta 4: no "call N ended with" warning, #3464).
+test:05b-keyboard-close-held-back {
+  call:home
+  repeat:3 {
+    slot:core.settings
+    until:Settings:15000
+    confirm
+    until:Hold Back:8000
+    mark
+    measure:kb-close:settle=3000 {
+      long:back
+    }
+    expect-not:Hold Back
+    expect:Settings
+    no-log:call \d+ ended with
+    back
+    wait:2000
+  }
+  assert:kb-close.first_ms.max<=4000:the keyboard closes within 4 s
+  no-warn
+}

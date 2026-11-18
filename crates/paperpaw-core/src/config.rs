@@ -488,6 +488,7 @@ impl Kernel {
             self.shared
                 .translator
                 .set_language(self.shared.settings.text(id.as_str()));
+            self.seed_language();
         } else if *id == core_settings::NIGHT_MODE {
             self.framebuffer
                 .set_inverted(self.shared.settings.bool(id.as_str()));

@@ -40,6 +40,7 @@ fn main() {
     println!("cargo::rerun-if-changed=wifi-flash-x4.x");
     plugins();
     device_messages();
+    german_pack();
     compiler();
     frame_flags();
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
@@ -183,8 +184,12 @@ fn compiler() {
 /// and the messages, not the sources (#306). `device.rs` hands them to the
 /// builder.
 fn device_messages() {
-    let mut table = paperpaw_i18n::BuiltMessagesTable::new(&["en", "de"]);
+    let german = std::env::var_os("CARGO_FEATURE_BUILT_GERMAN").is_some();
+    let mut table = paperpaw_i18n::BuiltMessagesTable::new(if german { &["en", "de"] } else { &["en"] });
     for file in ["i18n/en.ini", "i18n/de.ini"] {
+        if !german && file.ends_with("de.ini") {
+            continue;
+        }
         println!("cargo::rerun-if-changed={file}");
         let source = std::fs::read_to_string(file).expect("a catalog");
         assert!(
@@ -242,4 +247,87 @@ fn plugins() {
     );
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     std::fs::write(out.join("plugins.rs"), code).expect("plugins.rs");
+}
+
+/// Writes `german_pack.deflate` and `german_pack.ini`: German's texts as a
+/// language pack the firmware carries and writes to the card (#251,
+/// `paperpaw_core::LanguageSeed`), unless German is built in
+/// (`built-german`). The pack is the compiled catalog of the German
+/// `i18n/de.ini` of the kernel, the app, the device and every plugin crate
+/// built in (as one catalog, `Catalog::merge_sources`), raw-deflated; its
+/// `plugin.ini` is that of the store's `language-de` entry
+/// (`tools/plugin-files/data.toml`), so that the store sees the pack it
+/// would install as installed.
+fn german_pack() {
+    println!("cargo::rerun-if-changed=../../tools/plugin-files/data.toml");
+    println!("cargo::rerun-if-env-changed=CARGO_FEATURE_BUILT_GERMAN");
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
+    if std::env::var_os("CARGO_FEATURE_BUILT_GERMAN").is_some() {
+        return;
+    }
+    let root = std::path::Path::new("../..");
+    let mut folders = vec![
+        root.join("crates/paperpaw-core/i18n"),
+        root.join("crates/paperpaw-app/i18n"),
+    ];
+    let built = std::env::var("DEP_PAPERPAW_APP_CRATES").expect("paperpaw-app names its crates");
+    folders.extend(
+        built
+            .split(',')
+            .filter_map(|name| name.strip_prefix("paperpaw-plugin-"))
+            .map(|id| root.join("plugins").join(id).join("i18n")),
+    );
+    let mut files = Vec::new();
+    for folder in &folders {
+        german_files(folder, &mut files);
+    }
+    files.sort();
+    files.push(PathBuf::from("i18n/de.ini"));
+    let mut sources = Vec::new();
+    for file in &files {
+        println!("cargo::rerun-if-changed={}", file.display());
+        sources.push(std::fs::read_to_string(file).expect("a German catalog"));
+    }
+    let merged = paperpaw_i18n::Catalog::merge_sources(sources.iter().map(String::as_str));
+    let compiled = paperpaw_i18n::Catalog::compile(&merged).expect("the German catalogs compile");
+    let packed = miniz_oxide::deflate::compress_to_vec(&compiled, 10);
+    std::fs::write(out.join("german_pack.deflate"), packed).expect("german_pack.deflate");
+    let data = std::fs::read_to_string("../../tools/plugin-files/data.toml").expect("data.toml");
+    let section = data
+        .split("\n[language-de]\n")
+        .nth(1)
+        .and_then(|rest| rest.split("\n[").next())
+        .expect("data.toml lists language-de");
+    let field = |key: &str| {
+        section
+            .lines()
+            .find_map(|line| line.strip_prefix(key)?.strip_prefix(" = \""))
+            .and_then(|value| value.strip_suffix('"'))
+            .unwrap_or_else(|| panic!("language-de has no `{key}` in data.toml"))
+    };
+    let ini = format!(
+        "[plugin]\nid = language-de\nname = {}\ndescription = {}\nversion = {}\nformats = {}\n",
+        field("name"),
+        field("description"),
+        field("version"),
+        section
+            .lines()
+            .find_map(|line| line.strip_prefix("formats = "))
+            .expect("language-de has formats"),
+    );
+    std::fs::write(out.join("german_pack.ini"), ini).expect("german_pack.ini");
+}
+
+/// The `de.ini` files in `folder` and the folders in it.
+fn german_files(folder: &std::path::Path, files: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return;
+    };
+    for path in entries.flatten().map(|entry| entry.path()) {
+        if path.is_dir() {
+            german_files(&path, files);
+        } else if path.file_name().is_some_and(|name| name == "de.ini") {
+            files.push(path);
+        }
+    }
 }

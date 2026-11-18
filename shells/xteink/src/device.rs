@@ -404,6 +404,24 @@ pub fn register(r: &mut Items) -> Result<(), RegisterError> {
 pub static MESSAGES: &[paperpaw_i18n::BuiltMessages] =
     include!(concat!(env!("OUT_DIR"), "/device_messages.rs"));
 
+/// German as a language pack the firmware carries (#251): compressed, and
+/// written to the card as the data plugin `language-de` where German is the
+/// language (`KernelBuilder::language_seed`).
+#[cfg(not(feature = "built-german"))]
+pub static GERMAN: paperpaw_core::LanguageSeed = paperpaw_core::LanguageSeed {
+    tag: "de",
+    name: "Deutsch",
+    plural: "one-other",
+    plugin: "language-de",
+    plugin_ini: include_str!(concat!(env!("OUT_DIR"), "/german_pack.ini")),
+    catalog: |sink| {
+        paperpaw_x4::language_pack::inflate_to(
+            include_bytes!(concat!(env!("OUT_DIR"), "/german_pack.deflate")),
+            sink,
+        )
+    },
+};
+
 /// The front light's settings, also first in the reader's panel and in
 /// the quick panel.
 #[cfg(feature = "x4-pro")]

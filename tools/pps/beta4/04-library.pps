@@ -1,0 +1,69 @@
+# Beta 4 suite 04: the library. Open, facets, the menu's "Look for new books".
+include:common.pps
+
+test:04a-library-open {
+  call:home
+  page-forward
+  select:Library
+  until:Show:15000
+  expect:Library
+  expect:Show
+  expect-not:Error
+  no-warn
+}
+
+# Show: "All books", then Select on the "Show" row steps through Reading, Unread, Finished; after those it opens the shelves.
+test:04b-library-facets {
+  call:home
+  run:core.library
+  until:Show:15000
+  expect:All books
+  page-back
+  confirm
+  wait:1000
+  expect:Reading ·
+  confirm
+  wait:1000
+  expect:Unread ·
+  confirm
+  wait:1000
+  expect:Finished ·
+  confirm
+  until:Shelves:5000
+  expect:By author
+  expect:Find a book
+  back
+  until:Show:8000
+  no-warn
+}
+
+test:04c-library-open-book {
+  call:home
+  run:core.library
+  until:Show:15000
+  right
+  confirm
+  wait:5000
+  expect-not:Show
+  back
+  until:Continue reading:10000
+  no-warn
+}
+
+# Hold Select in the library: the menu (Sort by, View, Search the library, Look for new books, Shelves, ...).
+test:04d-look-for-new-books {
+  call:home
+  run:core.library
+  until:Show:15000
+  page-back
+  long:confirm
+  until:Look for new books:5000
+  expect:Sort by
+  expect:Shelves
+  mark
+  select:Look for new books
+  wait:3000
+  no-warn
+  until:Show:15000
+  expect:books
+}

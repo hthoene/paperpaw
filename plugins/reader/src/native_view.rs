@@ -922,7 +922,7 @@ impl View {
         };
         // A turn that did not move (the last page) leaves the link focus where it was.
         if choosing && !moved {
-            open.marking.stay();
+            open.marking.stay(host);
         }
         if moved {
             open.after_turn(host, (docs, library))?;
