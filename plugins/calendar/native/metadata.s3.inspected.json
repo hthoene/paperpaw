@@ -1,0 +1,68 @@
+{
+  "abi_major": 7,
+  "entry": {
+    "align": 4,
+    "bytes": 20,
+    "layout": 1
+  },
+  "exports": [
+    {
+      "expected_bytes": 20,
+      "kind": 1,
+      "name": "PAPERPAW_ENTRY"
+    }
+  ],
+  "features": [
+    {
+      "key": "uses.network",
+      "required": false,
+      "revision": 1
+    },
+    {
+      "key": "uses.storage",
+      "required": false,
+      "revision": 1
+    }
+  ],
+  "flags": 0,
+  "layout": 2,
+  "needs_minor": 1,
+  "prefix_bytes": 32,
+  "profile": {
+    "byte_order": "little",
+    "calling_convention": "xtensa-windowed-call8",
+    "entry_align": 4,
+    "entry_bytes": 20,
+    "entry_layout": 1,
+    "name": "esp32s3-xtensa-lx7-ilp32-windowed-le",
+    "pointer_bits": 32
+  },
+  "services": [
+    {
+      "key": "core.net",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
+      "key": "core.secrets",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
+      "key": "core.ui",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
+      "key": "core.work",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    }
+  ],
+  "target": "esp32s3-xtensa-lx7-ilp32-windowed-le",
+  "total_bytes": 216
+}

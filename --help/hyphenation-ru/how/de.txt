@@ -1,0 +1,3 @@
+Die Silbentrennung teilt lange Wörter am Zeilenende an der richtigen Stelle. So wird das Schriftbild gleichmäßiger, und es entstehen weniger große Lücken. Das Plugin bringt die Trennmuster für Bücher in Russisch mit; getrennt wird in der Sprache des Buchs.
+
+Die Trennung ist anfangs an. Du schaltest sie in den Einstellungen unter Lesen mit Silbentrennung aus oder an. Die Muster brauchen fast keinen Arbeitsspeicher.

@@ -1651,6 +1651,7 @@ dependencies = [
  "paperpaw-plugin-anki",
  "paperpaw-plugin-battery",
  "paperpaw-plugin-bluetooth",
+ "paperpaw-plugin-calendar",
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",
@@ -2049,6 +2050,21 @@ dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
  "proptest",
+]
+
+[[package]]
+name = "paperpaw-plugin-calendar"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-caldav",
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]

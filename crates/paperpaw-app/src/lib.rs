@@ -263,6 +263,8 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("smart-home", &paperpaw_plugin_smart_home::NATIVE_ENTRY),
     ("puzzles", &paperpaw_plugin_puzzles::NATIVE_ENTRY),
     ("tasks", &paperpaw_plugin_tasks::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("calendar", &paperpaw_plugin_calendar::NATIVE_ENTRY),
     ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
 
@@ -274,6 +276,7 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
 pub const LINKED_STORE_PLUGINS: &[&str] = &[
     "anki",
     "battery",
+    "calendar",
     "calibre",
     "diagnostics",
     "end-of-book",

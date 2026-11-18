@@ -141,6 +141,7 @@ native-linked-store = [
     "dep:paperpaw-plugin-smart-home",
     "dep:paperpaw-plugin-puzzles",
     "dep:paperpaw-plugin-tasks",
+    "dep:paperpaw-plugin-calendar",
     "paperpaw-plugin-aids/linked",
     "paperpaw-plugin-fonts-browser/linked",
     "paperpaw-plugin-mail/linked",
@@ -166,6 +167,7 @@ native-linked-store = [
     "paperpaw-plugin-smart-home/linked",
     "paperpaw-plugin-puzzles/linked",
     "paperpaw-plugin-tasks/linked",
+    "paperpaw-plugin-calendar/linked",
 ]
 
 [build-dependencies]
@@ -237,6 +239,7 @@ paperpaw-plugin-pomodoro = { workspace = true, optional = true }
 paperpaw-plugin-smart-home = { workspace = true, optional = true }
 paperpaw-plugin-puzzles = { workspace = true, optional = true }
 paperpaw-plugin-tasks = { workspace = true, optional = true }
+paperpaw-plugin-calendar = { workspace = true, optional = true }
 paperpaw-plugin-reader.workspace = true
 paperpaw-plugin-settings.workspace = true
 

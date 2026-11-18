@@ -103,6 +103,7 @@ members = [
     "plugins/puzzles",
     "plugins/edge-light",
     "plugins/tasks",
+    "plugins/calendar",
     "plugins/plugin-manager",
     "plugins/settings",
     "plugins/home",
@@ -217,6 +218,7 @@ paperpaw-plugin-smart-home = { path = "plugins/smart-home", version = "1.0.0" }
 paperpaw-plugin-puzzles = { path = "plugins/puzzles", version = "1.0.0" }
 paperpaw-plugin-edge-light = { path = "plugins/edge-light", version = "1.0.0" }
 paperpaw-plugin-tasks = { path = "plugins/tasks", version = "1.0.0" }
+paperpaw-plugin-calendar = { path = "plugins/calendar", version = "1.0.0" }
 paperpaw-plugin-widgets = { path = "plugins/widgets", version = "1.0.3" }
 paperpaw-plugin-keyboard = { path = "plugins/keyboard", version = "1.1.0" }
 paperpaw-plugin-plugin-manager = { path = "plugins/plugin-manager", version = "1.0.4" }

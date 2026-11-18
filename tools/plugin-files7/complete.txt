@@ -50,6 +50,7 @@ picture-frame
 pomodoro
 puzzles
 tasks
+calendar
 file-sync
 edge-light
 smart-home
