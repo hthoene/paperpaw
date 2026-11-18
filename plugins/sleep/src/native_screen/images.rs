@@ -74,6 +74,9 @@ pub(super) struct Pics {
     asked: Option<(u32, Kind)>,
     /// The cover was looked for.
     cover_tried: bool,
+    /// The host was making the cover (busy): asked again when it says it is
+    /// ready, the cat shows until then.
+    cover_waits: bool,
     /// The cat or the logo could not be made: the message stays alone.
     given_up: bool,
     /// The logo asked for is the card's picture `core.logo` names.
@@ -204,6 +207,26 @@ impl Sleeping {
             only_memory(self.refresh(&mut CommandSender::new(host, &mut scratch)))?;
         }
         Ok(true)
+    }
+
+    /// The host says a cover is ready: a screen that was told to wait for it
+    /// asks again, and shows it when it is there.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn cover_ready(&mut self, host: &Host<'_>, cookie: &mut u32) -> Result<(), Error> {
+        if !self.pics.cover_waits {
+            return Ok(());
+        }
+        let before = self.shows();
+        self.pics.cover_tried = false;
+        only_memory(self.find_cover(host))?;
+        only_memory(self.advance(host, cookie))?;
+        if self.pics.asked.is_none() && self.shows() != before {
+            let mut scratch = [0; 64];
+            only_memory(self.refresh(&mut CommandSender::new(host, &mut scratch)))?;
+        }
+        Ok(())
     }
 
     /// Gives the pictures back: the screen closes.
@@ -408,7 +431,12 @@ impl Sleeping {
         self.pics.cover_tried = true;
         let display = capture_snapshot(host)?;
         let long = u32::from(display.display_width().max(display.display_height()));
-        self.pics.cover = last_cover(host, long)?;
+        self.pics.cover_waits = false;
+        match last_cover(host, long)? {
+            Found::Cover(held) => self.pics.cover = Some(held),
+            Found::Busy => self.pics.cover_waits = true,
+            Found::None => {}
+        }
         self.facts.cover = self.pics.cover.is_some();
         Ok(())
     }
@@ -492,14 +520,25 @@ fn ensure(host: &Host<'_>, name: &str, bytes: &[u8]) -> Result<(), Error> {
         .map_err(|_| Error::Io)
 }
 
+/// What the library has for the cover of the book opened last.
+enum Found {
+    Cover(Held),
+    /// No book read, no cover, or one that cannot be made.
+    None,
+    /// The cover is being made (or the host waits for a quiet moment): it
+    /// says when to ask again.
+    Busy,
+}
+
 /// The cover of the book opened last, as an image of the host's, made as
-/// large as the screen's long side; none for no book read, none with a cover,
-/// or a cover not made yet (the cat shows then).
-fn last_cover(host: &Host<'_>, side: u32) -> Result<Option<Held>, Error> {
+/// large as the screen's long side, or as the list's where that is not to be
+/// had (the one Home shows is in the cache already); none for no book read or
+/// none with a cover (the cat shows then), busy for one not made yet.
+fn last_cover(host: &Host<'_>, side: u32) -> Result<Found, Error> {
     let library = match Library::open(host) {
         Ok(library) => library,
         Err(Error::NoMemory) => return Err(Error::NoMemory),
-        Err(_) => return Ok(None),
+        Err(_) => return Ok(Found::None),
     };
     let found = cover_of_last(host, &library, side);
     // Released whatever the query did; a refusal is left to the host.
@@ -507,7 +546,7 @@ fn last_cover(host: &Host<'_>, side: u32) -> Result<Option<Held>, Error> {
     found
 }
 
-fn cover_of_last(host: &Host<'_>, library: &Library, side: u32) -> Result<Option<Held>, Error> {
+fn cover_of_last(host: &Host<'_>, library: &Library, side: u32) -> Result<Found, Error> {
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     let query = Query::new()
         .sort(Sort::RecentlyOpened)
@@ -517,31 +556,41 @@ fn cover_of_last(host: &Host<'_>, library: &Library, side: u32) -> Result<Option
         let page = match library.query(host, &query, &mut input, &mut out) {
             Ok(page) => page,
             Err(Error::NoMemory) => return Err(Error::NoMemory),
-            Err(_) => return Ok(None),
+            Err(_) => return Ok(Found::None),
         };
         let generation = page.end().generation();
         let Some(Ok(row)) = page.rows().next() else {
-            return Ok(None);
+            return Ok(Found::None);
         };
         // The books opened come first: none is a library nothing was read in.
         if !row.opened() {
-            return Ok(None);
+            return Ok(Found::None);
         }
         (row.key(), generation)
     };
-    let Ok(book) = BookRef::catalog(key, generation) else {
-        return Ok(None);
-    };
-    match library.cover(host, book, side, &mut input, &mut out) {
-        Ok(cover) => Ok(Some(Held {
-            id: cover.image(),
-            width: cover.info().width(),
-            height: cover.info().height(),
-        })),
-        Err(Error::NoMemory) => Err(Error::NoMemory),
-        // No cover, or one still being made.
-        Err(_) => Ok(None),
+    let mut found = Found::None;
+    // The screen's size first, then the list's (side 0).
+    for side in [side, 0] {
+        let Ok(book) = BookRef::catalog(key, generation) else {
+            return Ok(Found::None);
+        };
+        match library.cover(host, book, side, &mut input, &mut out) {
+            Ok(cover) => {
+                return Ok(Found::Cover(Held {
+                    id: cover.image(),
+                    width: cover.info().width(),
+                    height: cover.info().height(),
+                }));
+            }
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            // Being made: asked again on the host's word (the list's size
+            // may still be at hand).
+            Err(Error::Busy) => found = Found::Busy,
+            // No cover.
+            Err(_) => {}
+        }
     }
+    Ok(found)
 }
 
 /// The path of the next picture of the folder (`sleep.folder`), one after the
@@ -638,6 +687,10 @@ fn prepare(kind: Kind, root: PrepareRoot, path: &str, cookie: u32, side: u32) ->
         request
     }
 }
+
+#[cfg(test)]
+#[path = "images_cover_tests.rs"]
+mod cover_tests;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, reason = "fixture failures fail the test")]

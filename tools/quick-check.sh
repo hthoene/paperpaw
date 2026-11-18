@@ -51,8 +51,9 @@
 #    each other's artifacts;
 #  - a library change (ui-kit, SDK, core ...) builds the frames of `store` alone, the largest plugin
 #    and the one at the limit; changed plugins are built themselves (at most 4);
-#  - every step has a time limit (QUICK_CHECK_STEP_LIMIT, 420 s) and the whole run a budget
-#    (QUICK_CHECK_BUDGET, 540 s). A step that is cut, or not started for the budget, FAILS the run with
+#  - every step has a time limit (QUICK_CHECK_STEP_LIMIT, 400 s) and the whole run a budget
+#    (QUICK_CHECK_BUDGET, 440 s: with the ~25 s of the python checks in front of it, the whole quick-check
+#    command ends within 8 minutes, PlainBoard's limit being 10). A step that is cut, or not started for the budget, FAILS the run with
 #    a message (exit 1): it checked nothing, and the build directories are warm for the next run. NOT checked here: the S3 `allow indirect` band
 # (tools/check-s3-budget.sh: it needs a full Xtensa firmware build of the whole
 # kernel, far beyond a quick check; CI and the landing check keep it), the
@@ -70,10 +71,12 @@ case ":$PATH:" in *":$HOME/.cargo/bin:"*) ;; *) PATH="$HOME/.cargo/bin:$PATH" ;;
 
 # Builds: sccache in front of rustc and no incremental builds (they do not mix with it).
 export CARGO_INCREMENTAL=0
-[[ -n "${RUSTC_WRAPPER:-}" || ! -x "$root/tools/sccache-wrap.sh" ]] || export RUSTC_WRAPPER="$root/tools/sccache-wrap.sh"
+# A branch started before the wrapper landed has none: take it from the base. (A branch started before THIS
+# script landed runs its own, older script, with no limits: run the base's copy instead,
+#   git show origin/abi7/integration:tools/quick-check.sh > ~/qc.sh && bash ~/qc.sh )
 t_start=$SECONDS
-budget="${QUICK_CHECK_BUDGET:-540}"
-step_limit="${QUICK_CHECK_STEP_LIMIT:-420}"
+budget="${QUICK_CHECK_BUDGET:-440}"
+step_limit="${QUICK_CHECK_STEP_LIMIT:-400}"
 
 base=origin/abi7/integration
 all=0 list=0 only="" skip=""
@@ -159,6 +162,14 @@ if ((list)); then
 fi
 
 logs="$(mktemp -d "${TMPDIR:-/tmp}/quick-check.XXXXXX")"
+if [[ -z "${RUSTC_WRAPPER:-}" ]]; then
+    wrap="$root/tools/sccache-wrap.sh"
+    if [[ ! -x "$wrap" ]]; then
+        wrap="$logs/sccache-wrap.sh"
+        git show "$base:tools/sccache-wrap.sh" > "$wrap" 2> /dev/null && chmod +x "$wrap" || wrap=""
+    fi
+    [[ -z "$wrap" ]] || export RUSTC_WRAPPER="$wrap"
+fi
 echo "quick-check: base $base ($(wc -l <<< "$files") changed files); logs in $logs"
 jobs_n="${QUICK_CHECK_JOBS:-8}"
 lane2_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane2"

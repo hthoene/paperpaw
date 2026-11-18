@@ -19,6 +19,8 @@ pub const PLUGINS_CHANGED: u32 = 15;
 pub const SETTING_CHANGED: u32 = 14;
 /// A picture the host decoded for the screen is ready (`native_screen`).
 pub const IMAGE_READY: u32 = 16;
+/// A cover the host was making is ready (`event.library_changed` bit 6).
+pub const LIBRARY_CHANGED: u32 = 19;
 /// The picker of the picture or the widget over the page (`native_picker`).
 pub const PICK: u32 = 17;
 /// The editor of a list of widgets above each other (slot `core.edit-widgets`).
@@ -270,6 +272,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::PluginsChanged, PLUGINS_CHANGED)?;
     d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
     d.subscribe_event(EventKind::ImageReady, IMAGE_READY)?;
+    d.subscribe_event(EventKind::LibraryChanged, LIBRARY_CHANGED)?;
     d.submit()
 }
 
