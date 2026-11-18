@@ -645,9 +645,9 @@ impl ScreenView {
 
     fn game_ref(&self) -> Option<&Game> {
         if self.daily_open {
-            self.daily.as_ref()
+            self.daily.as_deref()
         } else {
-            self.free.as_ref()
+            self.free.as_deref()
         }
     }
 

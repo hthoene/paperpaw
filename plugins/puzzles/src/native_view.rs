@@ -161,8 +161,10 @@ pub struct ScreenView {
     /// The texts of the rows of the list, as the last drawing made them.
     pub rows: Vec<(String, String)>,
     pub rows_stale: bool,
-    pub free: Option<Game>,
-    pub daily: Option<Game>,
+    // Boxed: a game is some 700 B, and the view is moved through the plugin's
+    // event frame (a plugin's frames stay under 2,048 B).
+    pub free: Option<alloc::boxed::Box<Game>>,
+    pub daily: Option<alloc::boxed::Box<Game>>,
     /// Which sudoku is on the board.
     pub daily_open: bool,
     pub cursor: usize,
@@ -231,17 +233,17 @@ impl ScreenView {
 
     fn game(&self) -> Option<&Game> {
         if self.daily_open {
-            self.daily.as_ref()
+            self.daily.as_deref()
         } else {
-            self.free.as_ref()
+            self.free.as_deref()
         }
     }
 
     fn game_mut(&mut self) -> Option<&mut Game> {
         if self.daily_open {
-            self.daily.as_mut()
+            self.daily.as_deref_mut()
         } else {
-            self.free.as_mut()
+            self.free.as_deref_mut()
         }
     }
 
@@ -266,7 +268,7 @@ impl ScreenView {
     }
 
     /// Puts a puzzle in the free slot or the day's, and shows it.
-    pub fn start_sudoku(&mut self, game: Game, daily: bool) -> Act {
+    pub fn start_sudoku(&mut self, game: alloc::boxed::Box<Game>, daily: bool) -> Act {
         self.daily_open = daily;
         if daily {
             self.daily = Some(game);

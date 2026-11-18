@@ -260,10 +260,8 @@ impl NativePuzzles {
     fn opened(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
         self.load_stats(host)?;
         let today = Self::day(host)?;
-        let free = Self::read_kept(host, SUDOKU_FILE, 2 * KEPT_MAX).and_then(|t| Game::parse(&t));
-        let daily = Self::read_kept(host, DAILY_FILE, 2 * KEPT_MAX)
-            .and_then(|t| Game::parse(&t))
-            .filter(|g| Some(g.day) == today);
+        let free = Self::kept_game(host, SUDOKU_FILE);
+        let daily = Self::kept_game(host, DAILY_FILE).filter(|g| Some(g.day) == today);
         self.daily_first = core::mem::take(&mut self.want_daily);
         let Some(view) = self.screens.get(instance) else {
             return Ok(());
@@ -306,7 +304,17 @@ impl NativePuzzles {
         Ok(Handled::Yes)
     }
 
+    /// The game kept in `file`, if there is one that reads. Its own frame: the
+    /// game is some 700 B and stays out of the event frame.
+    #[inline(never)]
+    fn kept_game(host: &Host<'_>, file: &str) -> Option<alloc::boxed::Box<Game>> {
+        Self::read_kept(host, file, 2 * KEPT_MAX)
+            .and_then(|t| Game::parse(&t))
+            .map(alloc::boxed::Box::new)
+    }
+
     /// Makes a puzzle and shows it.
+    #[inline(never)]
     fn generate(&mut self, host: &Host<'_>, daily: bool, level: Level) -> Result<(), Error> {
         let today = Self::day(host)?;
         let (seed, day) = if daily {
@@ -322,7 +330,11 @@ impl NativePuzzles {
             let micros = clock::micros(host)?;
             ((micros ^ (micros >> 20)) as u32, 0)
         };
-        let game = Game::new(seed, if daily { Level::Medium } else { level }, day);
+        let game = alloc::boxed::Box::new(Game::new(
+            seed,
+            if daily { Level::Medium } else { level },
+            day,
+        ));
         let Some(view) = self.screens.top(SCREEN_TOKEN) else {
             return Ok(());
         };
@@ -512,10 +524,10 @@ impl NativePuzzles {
         }
         view.sync_daily_to(&mut self.stats);
         let free = (changed & dirty::SUDOKU != 0)
-            .then(|| view.free.as_ref().map(Game::text))
+            .then(|| view.free.as_ref().map(|game| game.text()))
             .flatten();
         let daily = (changed & dirty::DAILY != 0)
-            .then(|| view.daily.as_ref().map(Game::text))
+            .then(|| view.daily.as_ref().map(|game| game.text()))
             .flatten();
         let cross = (changed & dirty::CROSSWORD != 0)
             .then(|| {
