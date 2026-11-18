@@ -1,0 +1,3 @@
+### Added
+
+- **`paperpaw-dev sweep`** (#343). One fast pass over every screen the app has, taken from the registry, none left out by a list: each is shown once on the X4 in English and in German on a device of its own, as the buttons lead to it from the home screen, else opened as a plugin would open it. A screen that does not show, draws nothing or fails a call of its plugin while it opens, a part past the screen, text cut without an ellipsis, a translation key shown as it is, German showing the English text of a key it lacks, and (where every way was searched) a screen no way leads to with the buttons are errors that name the screen, and the run fails. It is a command of its own, not part of `check`.

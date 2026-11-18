@@ -48,6 +48,7 @@ pub mod reach;
 pub mod report;
 pub mod session;
 pub mod snapshot;
+pub mod sweep;
 pub mod target;
 pub mod variant;
 pub mod vary;

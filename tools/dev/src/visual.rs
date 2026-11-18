@@ -274,12 +274,7 @@ impl Looker {
         if !shown.opened() {
             return Ok(None);
         }
-        let own = own(&shown.described, &self.home, self.screen);
-        let scene = Scene::new(&shown.image, own, self.screen, self.ui)
-            .panel(self.panel)
-            .labels_whole(self.labels_whole)
-            .ellipses(&self.ellipses)
-            .keyboard(self.keyboard.as_deref() == Some(id));
+        let scene = self.scene(&shown, own(&shown.described, &self.home, self.screen));
         let mut issues = checks::all(&scene);
         if self.buttons {
             issues.extend(focus(session, id, &scene, &self.home));
@@ -291,6 +286,24 @@ impl Looker {
             issues,
             inset,
         }))
+    }
+
+    /// What a screen shown is checked as: its picture with what it
+    /// described itself (`own`).
+    fn scene<'a>(&'a self, shown: &'a cases::Shown, own: Vec<Described>) -> Scene<'a> {
+        Scene::new(&shown.image, own, self.screen, self.ui)
+            .panel(self.panel)
+            .labels_whole(self.labels_whole)
+            .ellipses(&self.ellipses)
+            .keyboard(self.keyboard.as_deref() == Some(shown.id.as_str()))
+    }
+
+    /// The checks on the picture of a screen shown already, over whatever
+    /// screen it was opened (`sweep` reaches it with the buttons), with
+    /// what it described alone (`Kernel::described_active`). No button is
+    /// pressed: the focus is not checked.
+    pub fn look(&self, shown: &cases::Shown, own: Vec<Described>) -> Vec<Issue> {
+        checks::all(&self.scene(shown, own))
     }
 
     /// The row of hints below the screen (what is described below its

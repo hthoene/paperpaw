@@ -479,7 +479,7 @@ fn library_words(session: &Session) -> Vec<String> {
 }
 
 /// Every id the app registered that may be shown as it is.
-fn known_ids(session: &Session) -> Vec<String> {
+pub fn known_ids(session: &Session) -> Vec<String> {
     let kernel = &session.device.kernel;
     let mut ids: Vec<String> = kernel.known_screens().map(ToString::to_string).collect();
     ids.extend(kernel.settings().specs().map(|s| s.id.to_string()));
