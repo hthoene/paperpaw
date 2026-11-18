@@ -217,7 +217,17 @@ fn a_frame_of_many_bands_is_drawn_in_taller_bands_where_there_is_room() {
     let (many, many_pieces, many_pixels) = run(1_000);
     assert!(few < many, "{few} passes with room, {many} without");
     assert_eq!(few_pixels, many_pixels);
-    for pieces in [&few_pieces, &many_pieces] {
+    // A block a little short of the room for half the screen (45 rows of 45
+    // bytes and the 36 KiB kept after them) still holds a band of 30 rows:
+    // fewer passes than the usual bands make, not all of them (#308, where
+    // the X4's largest block was 8 KB short and every frame took them all).
+    let (some, some_pieces, some_pixels) = run(36 * 1024 + 45 * 30);
+    assert!(
+        few < some && some < many,
+        "{some} passes a little short of the room, {few} with it, {many} without"
+    );
+    assert_eq!(some_pixels, many_pixels);
+    for pieces in [&few_pieces, &some_pieces, &many_pieces] {
         assert!(pieces.iter().all(|rows| *rows <= 16), "{pieces:?}");
         assert_eq!(pieces.iter().sum::<u16>(), 90);
     }
