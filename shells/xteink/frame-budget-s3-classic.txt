@@ -571,3 +571,5 @@ allow indirect fatfs::dir::make_room 1 new with the FAT claims (#238): a call th
 allow indirect fatfs::table::leaves_block 1 new with the FAT claims (#238): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
 allow indirect fatfs::table::hash_block 2 new with the FAT claims (#238): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
 allow indirect fatfs::table::set_in_block 1 new with the FAT claims (#238): a call through a register the scan does not follow (a closure, a `&dyn` call or a `match` jump table); its callees are covered by the scan
+allow indirect _ZN4core3ptr40drop_glue$LT$paperpaw_core..ask..Ask$GT$ 5 jump table of a `match` in drop glue: kernel-private Ask replaced SDK Command (#300 S7); CI scan counts 3
+allow indirect _ZN4core3ptr65drop_glue$LT$paperpaw_core..native_host..hyphen_service..Card$GT$ 3 vtable or fn-pointer call in drop glue of the hyphenation card source; CI scan counts 1
