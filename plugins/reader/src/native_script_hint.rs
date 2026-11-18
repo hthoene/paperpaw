@@ -38,13 +38,14 @@ use paperpaw_sdk::{Storage, StorageError, read_file};
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 
 /// A script (ISO 15924), a letter every font of it has, and the pack that
-/// brings its letters (Beta 3's table).
-pub const SCRIPTS: [(&str, char, &str); 5] = [
+/// brings its letters (Beta 3's table, and Ethiopic: #159).
+pub const SCRIPTS: [(&str, char, &str); 6] = [
     ("Grek", 'α', "script-greek"),
     ("Cyrl", 'ж', "script-cyrillic"),
     ("Arab", 'ع', "script-arabic"),
     ("Hebr", 'א', "script-hebrew"),
     ("Kore", '한', KOREAN),
+    ("Ethi", 'ሀ', "script-ethiopic"),
 ];
 
 /// The Korean pack (the syllables of everyday text) and the one that adds
@@ -120,6 +121,7 @@ pub fn script_of(c: char) -> Option<&'static str> {
             "Arab"
         }
         0x1100..=0x11FF | 0x3130..=0x318F | 0xAC00..=0xD7A3 => "Kore",
+        0x1200..=0x139F | 0x2D80..=0x2DDF | 0xAB00..=0xAB2F => "Ethi",
         _ => return None,
     })
 }

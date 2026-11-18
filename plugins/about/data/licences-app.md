@@ -22,11 +22,13 @@ The fonts of the plugins with the letters of other scripts (tools/fonts, which t
 
 - Noto Serif Devanagari, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/devanagari), without Reserved Font Name
 
+- Noto Serif Ethiopic, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/ethiopic), without Reserved Font Name
+
 - Noto Serif SC, Noto Serif TC and Noto Serif JP, Copyright 2017-2024 Adobe (http://www.adobe.com/), from github.com/google/fonts without Reserved Font Name, cut to the characters of the Chinese and Japanese letters plugins (tools/fonts/NotoSerif*-subset.ttf: a Modified Version, not distributed itself; the plugins carry bitmap packs made from it and the licence's text, NotoSerifCJK-OFL.txt)
 
 - Nanum Myeongjo, Copyright 2010 NHN Corporation (http://www.nhncorp.com), with Reserved Font Names 'Nanum', 'Naver Nanum', 'NanumMyeongjo', 'Naver NanumMyeongjo' and the others of its family the licence names, kept unmodified as tools/fonts/NanumMyeongjo-Regular.ttf. The Korean letters plugin (script-korean) draws from a bitmap pack made from it (the Hangul syllables of KS X 1001, rasterised): a Modified Version under the licence, so it is named Korean letters (korean.ppfp), not with a Reserved Font Name, and is licensed under the SIL Open Font License, Version 1.1, as the font it is derived from.
 
-Each of those plugins carries the licence's text with its packs (tools/fonts/NotoNaskhArabic-OFL.txt, NotoSerifHebrew-OFL.txt, NotoSerifBengali-OFL.txt, NotoSerifDevanagari-OFL.txt, the text given for Literata; NanumMyeongjo-OFL.txt, the same licence under its own copyright and Reserved Font Names).
+Each of those plugins carries the licence's text with its packs (tools/fonts/NotoNaskhArabic-OFL.txt, NotoSerifHebrew-OFL.txt, NotoSerifBengali-OFL.txt, NotoSerifDevanagari-OFL.txt, NotoSerifEthiopic-OFL.txt, the text given for Literata; NanumMyeongjo-OFL.txt, the same licence under its own copyright and Reserved Font Names).
 
 Hyphenation patterns (plugins/hyphenation*/patterns: the data packs of the store, English and twelve other languages; none is built in) come from the hyph-utf8 project (https://github.com/hyphenation/tex-hyphen):
 

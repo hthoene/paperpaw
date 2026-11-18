@@ -149,6 +149,26 @@ description = "Hindi, Marathi, Nepali and Sanskrit books in Noto Serif Devanagar
 de.name = "Devanagari-Schrift"
 de.description = "Bücher auf Hindi, Marathi, Nepali und Sanskrit in Noto Serif Devanagari, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
 
+# script-ethiopic (#159): the Ethiopic syllabary with its punctuation (the
+# wordspace ፡, the full stop ።) and numerals, and the Supplement, Extended and
+# Extended-A blocks, 495 characters from Noto Serif Ethiopic: seven sizes, a
+# pack for each weight that the faces it stands for share (the regular one
+# Literata's regular and italic faces and the interface's font; a comma list
+# in `[extends]`, formats 5 as script-bengali's), 2.5 MiB on the card.
+[script-ethiopic]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifEthiopic.ttf", "tools/fontgen"]
+name = "Ethiopic letters"
+description = "Amharic, Tigrinya and other books written in Ethiopic letters, in Noto Serif Ethiopic."
+de.name = "Äthiopische Schrift"
+de.description = "Bücher auf Amharisch, Tigrinya und in anderen Sprachen mit äthiopischer Schrift, in Noto Serif Ethiopic."
+
 [script-chinese-simplified]
 version = "1.0.0"
 group = "languages"
