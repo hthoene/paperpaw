@@ -665,6 +665,40 @@ de.description = "PaperPaws Menüs und Einstellungen auf Hindi. Braucht die Deva
 how = "PaperPaw's menus and settings in Hindi.\n\nIt needs the Devanagari letters pack (Devanagari letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
 de.how = "PaperPaws Menüs und Einstellungen auf Hindi.\n\nSie braucht die Devanagari-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
+[language-mr]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-devanagari"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/mr.ini", "tools/language-pack.py", "tools/sign"]
+name = "Marathi (user interface)"
+description = "PaperPaw's menus and settings in Marathi. Needs Devanagari letters. A machine translation, a draft."
+de.name = "Marathi (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Marathi. Braucht die Devanagari-Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Marathi.\n\nIt needs the Devanagari letters pack (Devanagari letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Marathi.\n\nSie braucht die Devanagari-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-ne]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-devanagari"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/ne.ini", "tools/language-pack.py", "tools/sign"]
+name = "Nepali (user interface)"
+description = "PaperPaw's menus and settings in Nepali. Needs Devanagari letters. A machine translation, a draft."
+de.name = "Nepalesisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Nepalesisch. Braucht die Devanagari-Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Nepali.\n\nIt needs the Devanagari letters pack (Devanagari letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Nepalesisch.\n\nSie braucht die Devanagari-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
 [language-ur]
 version = "1.0.0"
 group = "languages"
