@@ -3,7 +3,7 @@
 //! and looked at for what is plainly wrong. Fast, and strict: every
 //! finding is an error and names its screen, and no screen is left out
 //! by a list (but for the few that cannot be shown alone, each with its
-//! reason: [`CANNOT_BE_SHOWN_ALONE`]).
+//! reason: `CANNOT_BE_SHOWN_ALONE`).
 //!
 //! The screens are the registry's (`Kernel::known_screens`), those of
 //! the plugins looked at. Each is shown as a reader gets to it, by the
