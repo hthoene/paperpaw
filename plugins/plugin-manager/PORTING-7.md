@@ -61,7 +61,7 @@ interface-6 plugin had no pictures of its own).
 | Need | Affects |
 | --- | --- |
 | H1 screen commands, H3 composition, H4 input; H2 dialogs; registry and device reads through the loader | the screens, the question, the notices |
-| `plugin-how-text-read`: the registry gives no "how it works" text | holding a row says so (notice) |
+| `plugin-how-text-read`: the registry gives no "how it works" text | held (touch, Select held, the menu button): `<id>.plugin.how` is read through `i18n.copy` and opened in the reader (#357); a plugin whose text is in its manifest only says it has none |
 | `reg-plugin-required-for`: only flag bit 2 says "needed", not for which places | *Needed by other plugins.* instead of *Needed for: home screen, ...* |
 | `plugin-origin-read`: the interface-6 plugin read other plugins' install marks | the *From the store / Local* words are not shown |
 | `code-room-larger-layout`: the device reads give the free room, not the larger layout | the web-flasher wording of *No room* |
