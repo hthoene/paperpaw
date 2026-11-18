@@ -171,13 +171,16 @@ native-linked-store = [
 ]
 
 [build-dependencies]
-paperpaw-i18n.workspace = true
+paperpaw-i18n = { workspace = true, features = ["kernel"] }
+# Deflates the linked plugins' How it works with a 4 KiB history
+# (`PackedMessages`, #352): miniz_oxide's compressor always takes 32 KiB.
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 
 [dependencies]
 paperpaw-core.workspace = true
 # What a shell offers a linked native plugin at admission (`native-linked`).
 paperpaw-native = { workspace = true, optional = true }
-paperpaw-i18n.workspace = true
+paperpaw-i18n = { workspace = true, features = ["kernel"] }
 paperpaw-plugin-dictionary.workspace = true
 paperpaw-plugin-files = { workspace = true, optional = true }
 paperpaw-plugin-fonts-default = { workspace = true, default-features = false }

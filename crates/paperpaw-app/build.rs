@@ -287,6 +287,9 @@ fn plugin_catalogs(id: &str) -> Vec<PathBuf> {
 /// or a slot (`catalog_indexes`).
 fn native_messages(crates: &[String]) -> Vec<PathBuf> {
     let mut table = paperpaw_i18n::BuiltMessagesTable::new(languages());
+    // Their *How it works* (`<id>.plugin.how`): long, and asked for only by
+    // the help screen, so kept compressed (#352).
+    let mut how = paperpaw_i18n::BuiltMessagesTable::new(languages());
     let mut held = Vec::new();
     for id in crates
         .iter()
@@ -295,8 +298,11 @@ fn native_messages(crates: &[String]) -> Vec<PathBuf> {
         for file in plugin_catalogs(id) {
             println!("cargo::rerun-if-changed={}", file.display());
             let source = std::fs::read_to_string(&file).expect("a catalog");
-            // One the tables cannot hold (a key another has) stays a text.
-            if table.add(&source).unwrap_or(false) {
+            let (rest, long) = split_how(&source);
+            // One the tables cannot hold (a key another has) stays a text,
+            // whole.
+            let held_long = long.is_none_or(|long| how.add(&long).unwrap_or(false));
+            if held_long && table.add(&rest).unwrap_or(false) {
                 held.push(file);
             }
         }
@@ -308,10 +314,67 @@ fn native_messages(crates: &[String]) -> Vec<PathBuf> {
         "message keys of the linked plugins whose hashes clash (rename one of each pair): {:?}",
         table.clashes()
     );
+    assert!(
+        how.clashes().is_empty(),
+        "how-it-works keys of the linked plugins whose hashes clash: {:?}",
+        how.clashes()
+    );
     let dir = std::env::var("OUT_DIR").expect("OUT_DIR");
     std::fs::write(Path::new(&dir).join("native_messages.rs"), table.to_rust())
         .expect("native_messages.rs written");
+    std::fs::write(
+        Path::new(&dir).join("native_how.rs"),
+        how.to_rust_packed(&deflate),
+    )
+    .expect("native_how.rs written");
     held
+}
+
+/// `source` without its `<id>.plugin.how` lines, and those lines with the
+/// meta of `source` as a catalog of their own (`None`: it has none).
+fn split_how(source: &str) -> (String, Option<String>) {
+    let (mut rest, mut long) = (String::new(), String::new());
+    let mut meta = false;
+    let mut any = false;
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') {
+            meta = trimmed.starts_with("[meta]");
+            for part in [&mut rest, &mut long] {
+                part.push_str(line);
+                part.push('\n');
+            }
+            continue;
+        }
+        let is_how = !meta
+            && trimmed
+                .split_once('=')
+                .is_some_and(|(key, _)| key.trim_end().ends_with(".plugin.how"));
+        any |= is_how;
+        if meta {
+            long.push_str(line);
+            long.push('\n');
+        }
+        let part = if is_how { &mut long } else { &mut rest };
+        part.push_str(line);
+        part.push('\n');
+    }
+    (rest, any.then_some(long))
+}
+
+/// `values` raw-deflated with a history of `paperpaw_i18n::PACKED_WINDOW`
+/// bytes (window bits 12), as `PackedMessages` inflates it.
+fn deflate(values: &[u8]) -> Vec<u8> {
+    assert_eq!(paperpaw_i18n::PACKED_WINDOW, 1 << 12);
+    let mut compress =
+        flate2::Compress::new_with_window_bits(flate2::Compression::best(), false, 12);
+    // Room for what does not compress, too.
+    let mut out = Vec::with_capacity(values.len() + 1024);
+    let status = compress
+        .compress_vec(values, &mut out, flate2::FlushCompress::Finish)
+        .expect("deflated");
+    assert_eq!(status, flate2::Status::StreamEnd, "deflated whole");
+    out
 }
 
 /// Writes `core_messages.rs`: the kernel's own catalogs

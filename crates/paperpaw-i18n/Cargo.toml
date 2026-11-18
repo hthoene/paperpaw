@@ -13,14 +13,18 @@ keywords = ["i18n", "translation", "no-std"]
 
 # Host-only borrowed catalog lookup; not part of the plugin API.
 [features]
-kernel = []
+kernel = ["dep:miniz_oxide"]
 
 [dependencies]
 paperpaw-sort.workspace = true
 paperpaw-config.workspace = true
 paperpaw-lang.workspace = true
+# Inflates the messages kept compressed (`PackedMessages`, kernel only).
+miniz_oxide = { version = "=0.9.1", default-features = false, optional = true }
 
 [dev-dependencies]
+# Deflates as the app's build script does (`PackedMessages` tests).
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 proptest.workspace = true
 
 [lints]

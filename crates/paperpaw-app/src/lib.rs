@@ -695,6 +695,14 @@ pub fn native_catalogs(id: &str) -> &'static [&'static str] {
 pub static NATIVE_MESSAGES: &[paperpaw_i18n::BuiltMessages] =
     include!(concat!(env!("OUT_DIR"), "/native_messages.rs"));
 
+/// The *How it works* of the linked plugins of this build (`<id>.plugin.how`),
+/// English and German, without their keys and compressed (see `build.rs`,
+/// #352): inflated one at a time, when the host's `i18n.copy` is asked for
+/// one.
+#[cfg(feature = "native-linked")]
+pub static NATIVE_HOW: &[paperpaw_i18n::PackedMessages] =
+    include!(concat!(env!("OUT_DIR"), "/native_how.rs"));
+
 /// The kernel's own texts, English and German, without their keys (see
 /// `build.rs`): the kernel carries no copy of its catalogs' sources
 /// (`KernelBuilder::built_messages`, #306).
@@ -720,6 +728,7 @@ pub fn add_native_catalogs(kernel: &mut paperpaw_core::Kernel) {
     // The tables: a catalog a language, whichever is chosen.
     kernel.reserve_catalogs(plugins + NATIVE_MESSAGES.len());
     kernel.add_built_messages(NATIVE_MESSAGES);
+    kernel.add_packed_messages(NATIVE_HOW);
     for (id, _) in NATIVE_PLUGINS {
         for source in native_catalogs(id) {
             kernel.add_catalog(source);

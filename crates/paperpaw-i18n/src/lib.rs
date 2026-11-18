@@ -66,6 +66,8 @@ pub use catalog::{Catalog, CatalogError, FixedIndexes, fingerprint};
 pub use catalog::{calendars, digit_systems};
 pub use format::Arg;
 pub use messages::{BuiltMessages, BuiltMessagesTable};
+#[cfg(feature = "kernel")]
+pub use messages::{PACKED_WINDOW, PackedMessages};
 pub use paperpaw_lang::{Direction, Lang};
 pub use plural::{PluralCategory, PluralRule, cldr_rules};
 
@@ -203,6 +205,27 @@ impl Translator {
         }
         self.catalogs.insert(under, catalog);
         self.rebuild_order();
+    }
+
+    /// Long messages of one language built into the program without their
+    /// keys and compressed ([`PackedMessages`]), found by
+    /// [`Translator::get_copy`] alone and inflated when asked for. Kept
+    /// with the messages of that language built in
+    /// ([`Translator::built_messages`], to be called first): no catalog
+    /// more on the heap. Where none of them was added, or a table is kept
+    /// there already, it is left out.
+    #[cfg(feature = "kernel")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn packed_messages(&mut self, table: &'static PackedMessages) {
+        if table.keys.is_empty() {
+            return;
+        }
+        let language = table.language;
+        let _ = self
+            .catalogs
+            .iter_mut()
+            .filter(|catalog| catalog.language() == language)
+            .any(|catalog| catalog.pack(table));
     }
 
     fn built_in(&mut self, table: &'static BuiltCatalogs, language: &str, name: &str) {

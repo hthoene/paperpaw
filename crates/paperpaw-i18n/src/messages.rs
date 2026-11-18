@@ -76,13 +76,7 @@ impl BuiltMessages {
 
     /// The message for `key`.
     pub(crate) fn get(&self, key: &str) -> Option<&'static str> {
-        let hash = fingerprint(key);
-        let at = self.keys.binary_search(&low_of(hash)).ok()?;
-        let entry = *self.entries.get(at)?;
-        let offset = entry & OFFSET_MASK;
-        if entry >> OFFSET_BITS != check_of(hash) || offset == ABSENT {
-            return None;
-        }
+        let offset = offset_of(self.keys, self.entries, key)?;
         let rest = self.values.get(offset as usize..)?;
         rest.get(..rest.find(END)?)
     }
@@ -93,6 +87,115 @@ impl BuiltMessages {
             .iter()
             .filter(|&&entry| entry & OFFSET_MASK != ABSENT)
             .count()
+    }
+}
+
+/// Where the message for `key` starts in the values of a table whose keys
+/// and entries are `keys` and `entries`, if it holds one.
+fn offset_of(keys: &[u32], entries: &[u32], key: &str) -> Option<u32> {
+    let hash = fingerprint(key);
+    let at = keys.binary_search(&low_of(hash)).ok()?;
+    let entry = *entries.get(at)?;
+    let offset = entry & OFFSET_MASK;
+    (entry >> OFFSET_BITS == check_of(hash) && offset != ABSENT).then_some(offset)
+}
+
+/// The history a [`PackedMessages`] stream refers back into at most, in
+/// bytes (a power of two): what is on the heap beside the decoder while a
+/// message is inflated.
+#[cfg(feature = "kernel")]
+pub const PACKED_WINDOW: usize = 4096;
+
+/// Messages of one language built in without their keys, as
+/// [`BuiltMessages`], whose values are one raw deflate stream that refers
+/// back no further than [`PACKED_WINDOW`] bytes: for long texts asked for
+/// rarely (a plugin's *How it works*, `<id>.plugin.how`, #352). Written by
+/// a build script ([`BuiltMessagesTable::to_rust_packed`]), handed to the
+/// translator ([`Translator::packed_messages`](crate::Translator::packed_messages)).
+/// Only [`Translator::get_copy`](crate::Translator::get_copy) finds them:
+/// a message is inflated when it is asked for, into the text handed back,
+/// and nothing of it is kept.
+#[cfg(feature = "kernel")]
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct PackedMessages {
+    /// As a catalog's `[meta] language` (`en`, `de`).
+    pub language: &'static str,
+    /// The low half of each key's hash, sorted (as [`BuiltMessages::keys`]).
+    pub keys: &'static [u32],
+    /// As [`BuiltMessages::entries`]: where a message starts in the
+    /// values inflated.
+    pub entries: &'static [u32],
+    /// The values, each message ended by a NUL, raw-deflated.
+    pub packed: &'static [u8],
+}
+
+#[cfg(feature = "kernel")]
+impl PackedMessages {
+    /// Made of what a build script wrote.
+    pub const fn new(
+        language: &'static str,
+        keys: &'static [u32],
+        entries: &'static [u32],
+        packed: &'static [u8],
+    ) -> Self {
+        Self {
+            language,
+            keys,
+            entries,
+            packed,
+        }
+    }
+
+    /// The message for `key`, inflated; `None` where the table holds none,
+    /// its data is broken or the room to inflate it is not there (the
+    /// history window, the decoder, the message: some 16 KB for a moment).
+    pub(crate) fn get_copy(&self, key: &str) -> Option<String> {
+        use miniz_oxide::inflate::TINFLStatus;
+        use miniz_oxide::inflate::core::{DecompressorOxide, decompress};
+
+        let offset = offset_of(self.keys, self.entries, key)? as usize;
+        // Its length where another message follows it: the room is asked for once.
+        let next = self
+            .entries
+            .iter()
+            .map(|entry| (entry & OFFSET_MASK) as usize)
+            .filter(|&start| start != ABSENT as usize && start > offset)
+            .min();
+        let mut out: Vec<u8> = Vec::new();
+        if let Some(next) = next {
+            out.try_reserve_exact(next - offset - 1).ok()?;
+        }
+        let mut window: Vec<u8> = Vec::new();
+        window.try_reserve_exact(PACKED_WINDOW).ok()?;
+        window.resize(PACKED_WINDOW, 0);
+        // On the heap: the decoder is some 11 KB, no frame may hold it.
+        let mut decoder: Vec<DecompressorOxide> = Vec::new();
+        decoder.try_reserve_exact(1).ok()?;
+        decoder.resize_with(1, DecompressorOxide::default);
+        let state = decoder.first_mut()?;
+        // `seen`: bytes inflated before `at` came out.
+        let (mut input, mut at, mut seen) = (self.packed, 0_usize, 0_usize);
+        loop {
+            let (status, used, made) = decompress(state, input, &mut window, at, 0);
+            input = input.get(used..).unwrap_or_default();
+            let piece = window.get(at..at + made)?;
+            if let Some(wanted) = piece.get(offset.saturating_sub(seen)..) {
+                let end = wanted.iter().position(|&byte| byte == 0);
+                let wanted = wanted.get(..end.unwrap_or(wanted.len()))?;
+                out.try_reserve(wanted.len()).ok()?;
+                out.extend_from_slice(wanted);
+                if end.is_some() {
+                    return String::from_utf8(out).ok();
+                }
+            }
+            seen += made;
+            at = (at + made) & (PACKED_WINDOW - 1);
+            match status {
+                TINFLStatus::HasMoreOutput => {}
+                _ => return None,
+            }
+        }
     }
 }
 
@@ -291,6 +394,38 @@ impl BuiltMessagesTable {
         out
     }
 
+    /// The table as a Rust expression of `&'static [PackedMessages]`, for
+    /// `include!`, its values raw-deflated by `deflate`, which must refer
+    /// back no further than [`PACKED_WINDOW`] bytes (zlib's window bits
+    /// 12); the keys once, shared by its languages.
+    #[cfg(feature = "kernel")]
+    pub fn to_rust_packed(&self, deflate: &dyn Fn(&[u8]) -> Vec<u8>) -> String {
+        use core::fmt::Write;
+        let keys = self.keys();
+        let mut out = alloc::format!("{{ static KEYS: [u32; {}] = [", keys.len());
+        for key in keys {
+            let _ = write!(out, "{key:#x},");
+        }
+        out.push_str("]; &[");
+        for (language, entries, values) in self.made() {
+            let _ = write!(
+                out,
+                "paperpaw_i18n::PackedMessages::new({:?}, &KEYS, &[",
+                language.language
+            );
+            for entry in entries {
+                let _ = write!(out, "{entry:#x},");
+            }
+            out.push_str("], &[");
+            for byte in deflate(values.as_bytes()) {
+                let _ = write!(out, "{byte},");
+            }
+            out.push_str("]),");
+        }
+        out.push_str("] }");
+        out
+    }
+
     /// The table at run time, its memory never given back: for tests and
     /// tools (a program writes it with [`to_rust`](Self::to_rust)).
     pub fn leak(self) -> &'static [BuiltMessages] {
@@ -307,6 +442,27 @@ impl BuiltMessagesTable {
                     keys,
                     Box::leak(entries.into_boxed_slice()),
                     Box::leak(values.into_boxed_str()),
+                )
+            })
+            .collect();
+        Box::leak(made.into_boxed_slice())
+    }
+
+    /// [`to_rust_packed`](Self::to_rust_packed) at run time, its memory
+    /// never given back: for tests and tools.
+    #[cfg(feature = "kernel")]
+    pub fn leak_packed(self, deflate: &dyn Fn(&[u8]) -> Vec<u8>) -> &'static [PackedMessages] {
+        use alloc::boxed::Box;
+        let keys: &'static [u32] = Box::leak(self.keys().into_boxed_slice());
+        let made: Vec<PackedMessages> = self
+            .made()
+            .into_iter()
+            .map(|(language, entries, values)| {
+                PackedMessages::new(
+                    Box::leak(language.language.clone().into_boxed_str()),
+                    keys,
+                    Box::leak(entries.into_boxed_slice()),
+                    Box::leak(deflate(values.as_bytes()).into_boxed_slice()),
                 )
             })
             .collect();

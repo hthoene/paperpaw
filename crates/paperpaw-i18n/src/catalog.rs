@@ -11,6 +11,8 @@ use paperpaw_config::ParseError;
 use crate::built::{Built, BuiltCatalogs};
 use crate::card::{self, Card, CatalogFile};
 use crate::messages::BuiltMessages;
+#[cfg(feature = "kernel")]
+use crate::messages::PackedMessages;
 use crate::plural::PluralRule;
 
 /// The messages of one language.
@@ -71,16 +73,22 @@ pub struct Catalog {
 enum Elsewhere {
     Card(Card),
     Built(Built),
-    /// The messages of a language built in without their keys.
-    Messages(&'static BuiltMessages),
+    /// The messages of a language built in without their keys, and those
+    /// of them kept compressed.
+    Messages(&'static BuiltMessages, Packed),
 }
+
+/// The messages of a language built in compressed, kept with those
+/// without their keys.
+#[derive(Clone, Copy, Debug, Default)]
+struct Packed(#[cfg(feature = "kernel")] Option<&'static PackedMessages>);
 
 impl Clone for Elsewhere {
     fn clone(&self) -> Self {
         match self {
             Elsewhere::Card(card) => Elsewhere::Card(card.clone()),
             Elsewhere::Built(built) => Elsewhere::Built(built.clone()),
-            Elsewhere::Messages(messages) => Elsewhere::Messages(messages),
+            Elsewhere::Messages(messages, packed) => Elsewhere::Messages(messages, *packed),
         }
     }
 }
@@ -95,21 +103,21 @@ impl Elsewhere {
     fn load(&mut self) -> Result<(), CatalogError> {
         match self {
             Elsewhere::Card(card) => card.load(),
-            Elsewhere::Built(_) | Elsewhere::Messages(_) => Ok(()),
+            Elsewhere::Built(_) | Elsewhere::Messages(..) => Ok(()),
         }
     }
 
     fn is_loaded(&self) -> bool {
         match self {
             Elsewhere::Card(card) => card.is_loaded(),
-            Elsewhere::Built(_) | Elsewhere::Messages(_) => true,
+            Elsewhere::Built(_) | Elsewhere::Messages(..) => true,
         }
     }
 
     fn read_bytes(&self) -> usize {
         match self {
             Elsewhere::Card(card) => card.read_bytes(),
-            Elsewhere::Built(_) | Elsewhere::Messages(_) => 0,
+            Elsewhere::Built(_) | Elsewhere::Messages(..) => 0,
         }
     }
 
@@ -123,7 +131,7 @@ impl Elsewhere {
         match self {
             Elsewhere::Card(card) => card.get(key),
             Elsewhere::Built(built) => built.get(key),
-            Elsewhere::Messages(messages) => messages.get(key),
+            Elsewhere::Messages(messages, _) => messages.get(key),
         }
     }
 
@@ -131,7 +139,7 @@ impl Elsewhere {
         match self {
             Elsewhere::Card(card) => card.len(),
             Elsewhere::Built(built) => built.len(),
-            Elsewhere::Messages(messages) => messages.len(),
+            Elsewhere::Messages(messages, _) => messages.len(),
         }
     }
 
@@ -139,7 +147,7 @@ impl Elsewhere {
         match self {
             Elsewhere::Card(card) => card.index_on_heap(),
             Elsewhere::Built(built) => built.index_on_heap(),
-            Elsewhere::Messages(_) => 0,
+            Elsewhere::Messages(..) => 0,
         }
     }
 }
@@ -845,7 +853,7 @@ impl Catalog {
             table.name
         );
         let mut catalog = Catalog::parse(meta).ok()?;
-        catalog.card = Some(Box::new(Elsewhere::Messages(table)));
+        catalog.card = Some(Box::new(Elsewhere::Messages(table, Packed::default())));
         Some(catalog)
     }
 
@@ -854,14 +862,27 @@ impl Catalog {
     pub(crate) fn is_built(&self) -> bool {
         matches!(
             self.card.as_deref(),
-            Some(Elsewhere::Built(_) | Elsewhere::Messages(_))
+            Some(Elsewhere::Built(_) | Elsewhere::Messages(..))
         )
+    }
+
+    /// Keeps `table` with the messages of a language built in without
+    /// their keys, where this is that catalog and keeps none yet.
+    #[cfg(feature = "kernel")]
+    pub(crate) fn pack(&mut self, table: &'static PackedMessages) -> bool {
+        match self.card.as_deref_mut() {
+            Some(Elsewhere::Messages(_, Packed(packed @ None))) => {
+                *packed = Some(table);
+                true
+            }
+            _ => false,
+        }
     }
 
     /// Whether it is the messages of a language built in without their
     /// keys.
     pub(crate) fn is_messages(&self) -> bool {
-        matches!(self.card.as_deref(), Some(Elsewhere::Messages(_)))
+        matches!(self.card.as_deref(), Some(Elsewhere::Messages(..)))
     }
 
     /// Takes `source` into the built catalogs' slot for it, where this is
@@ -999,6 +1020,12 @@ impl Catalog {
                 return None;
             }
             return card.get_copy(key);
+        }
+        #[cfg(feature = "kernel")]
+        if let Some(Elsewhere::Messages(messages, Packed(Some(packed)))) = self.card.as_deref()
+            && messages.get(key).is_none()
+        {
+            return packed.get_copy(key).map(Cow::Owned);
         }
         self.get(key).map(Cow::Borrowed)
     }

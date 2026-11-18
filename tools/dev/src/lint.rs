@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 
 use paperpaw_core::sdk::builtin::{fonts, settings};
 use paperpaw_core::sdk::semantics::Described;
-use paperpaw_core::sdk::{FontHandle, PluginState};
+use paperpaw_core::sdk::{FontHandle, PluginInfo, PluginState};
 use paperpaw_emulator::profiles::Profile;
 use paperpaw_graphics::Role;
 use paperpaw_platform::Rect;
@@ -161,7 +161,7 @@ pub fn run(context: &Context, report: &mut Report) -> Result<(), String> {
         }
         // A data plugin's manifest is a file, looked at with the others.
         if context.target.data.iter().all(|d| d.id != id) {
-            if let Some(finding) = how_it_works(id, info.how(kernel.translator())) {
+            if let Some(finding) = how_it_works(id, how_text(kernel, info).as_deref()) {
                 report.add(finding);
             }
             let is_own = own(id, None);
@@ -289,6 +289,20 @@ pub fn run(context: &Context, report: &mut Report) -> Result<(), String> {
 
 /// The shortest *How it works* that says enough, in characters.
 const LEAST_HOW: usize = 120;
+
+/// The *How it works* of `info`, as [`PluginInfo::how`] gives it; a linked
+/// plugin's is kept compressed, so it is copied out as the host hands it to
+/// a plugin (#352).
+fn how_text(kernel: &paperpaw_core::Kernel, info: &PluginInfo) -> Option<String> {
+    let translator = kernel.translator();
+    match info.how(translator) {
+        Some(text) => Some(String::from(text)),
+        None => translator
+            .get_copy(&format!("{}.plugin.how", info.manifest.id))
+            .filter(|text| !text.trim().is_empty())
+            .map(std::borrow::Cow::into_owned),
+    }
+}
 
 /// What to say of plugin `id`'s *How it works* (`how`), if anything: a
 /// plugin with code must say how it works, at some length.
