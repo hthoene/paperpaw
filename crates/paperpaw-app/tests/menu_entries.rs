@@ -17,6 +17,7 @@ mod native_activation;
 
 use std::borrow::Cow;
 
+use paperpaw_core::Ask;
 use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::kit::menus::ItemState;
 use paperpaw_core::kit::menus::MenuEntry;
@@ -27,7 +28,7 @@ use paperpaw_platform::{
 };
 use paperpaw_sdk::builtin::{params, slots};
 use paperpaw_sdk::semantics::Part;
-use paperpaw_sdk::{Command, Id, Manifest, MemoryStorage, Params, RegisterError, SDK_VERSION};
+use paperpaw_sdk::{Id, Manifest, MemoryStorage, Params, RegisterError, SDK_VERSION};
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "test-x4",
@@ -62,7 +63,7 @@ fn early(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder 
             }
             items.add_action(action("early.customize").handler(|_, _, out| {
                 let ids = vec![Id::new_static("early.b"), Id::new_static("early.a")];
-                out.push(Command::SetMenu(MENU, Some(ids)));
+                out.push(Ask::SetMenu(MENU, Some(ids)));
             }))?;
             items.add_translations(Cow::Borrowed(
                 "[meta]\nlanguage = en\nname = English\nplural = one-other\n\n[messages]\nearly.a = Early A\nearly.b = Early B\n",

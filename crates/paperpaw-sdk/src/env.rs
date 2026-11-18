@@ -7,18 +7,18 @@ pub struct Capabilities {
     /// A touch screen.
     pub touch: bool,
     /// The network can be reached: HTTP requests
-    /// ([`Command::Http`](crate::Command::Http)), servers and connections.
+    /// (`Ask::Http`), servers and connections.
     /// Not whether it is connected now: where PaperPaw manages Wi-Fi
-    /// (`Env::wifi`), work waits for a network a while.
+    /// (`Place::wifi`), work waits for a network a while.
     pub network: bool,
-    /// PaperPaw manages Wi-Fi itself (`Env::wifi`).
+    /// PaperPaw manages Wi-Fi itself (`Place::wifi`).
     pub wifi: bool,
-    /// A Bluetooth Low Energy radio the kernel uses (`Env::bluetooth`).
+    /// A Bluetooth Low Energy radio the kernel uses (`Place::bluetooth`).
     pub bluetooth: bool,
     /// PaperPaw is the device's firmware and updates it
-    /// (`Env::firmware`).
+    /// (`Place::firmware`).
     pub firmware: bool,
-    /// Text is spoken aloud ([`Command::Speak`](crate::Command::Speak)):
+    /// Text is spoken aloud (`Ask::Speak`):
     /// by the system, or a plugin's voice (see `voices`).
     pub speech: bool,
     /// PaperPaw shows a screen while the device sleeps
@@ -43,14 +43,14 @@ pub struct Capabilities {
     /// The panel shows black and white alone (no grays), e.g. the X4.
     pub black_and_white: bool,
     /// PaperPaw switches the device off on its own
-    /// ([`Command::PowerOff`](crate::Command::PowerOff)), e.g. the X4; not
+    /// (`Ask::PowerOff`), e.g. the X4; not
     /// where the system decides (Android) or that never switches off (the
     /// emulator).
     pub power_off: bool,
     /// How many TLS connections may be open at once, HTTPS requests among
     /// them: sockets wait for one to be free ([`Tls::timeout_ms`](crate::Tls::timeout_ms)).
     /// One on the X4, two on the X4 Pro; 0 where the shell does no TLS for
-    /// sockets ([`Command::connect_tls`](crate::Command::connect_tls) fails,
+    /// sockets (`Ask::connect_tls` fails,
     /// [`SocketError::Unsupported`](crate::SocketError::Unsupported)).
     pub tls_sessions: u8,
     /// What the shell changes by the power level (ADR 0025): the power
@@ -107,7 +107,7 @@ impl Capability {
     /// is missing none is asked.
     pub const LOOK_EXTRAS: Self = Self(1 << 10);
     /// The card can be shown to a computer as a USB drive
-    /// ([`Command::UsbDrive`](crate::Command::UsbDrive)), e.g. the X4 Pro.
+    /// (`Ask::UsbDrive`), e.g. the X4 Pro.
     pub const USB_DRIVE: Self = Self(1 << 11);
     /// Buttons pressed together are told apart, so key maps may bind
     /// chords (`chord.<button>_<button>`). Reserved: no shell says so yet,

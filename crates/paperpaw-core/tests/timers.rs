@@ -13,14 +13,15 @@
 mod common;
 
 use common::{FULL, Harness, LATER, LATER2, REPEAT, WAKE};
+use paperpaw_core::Ask;
+use paperpaw_core::sdk::Params;
 use paperpaw_core::sdk::work::Work;
-use paperpaw_core::sdk::{Command, Params};
 use paperpaw_platform::Instant;
 use proptest::prelude::*;
 use proptest::test_runner::Config;
 
-fn schedule(event: &paperpaw_core::sdk::Id, at: u64) -> Command {
-    Command::work(Work::at(event.clone(), Instant(at)))
+fn schedule(event: &paperpaw_core::sdk::Id, at: u64) -> Ask {
+    Ask::work(Work::at(event.clone(), Instant(at)))
 }
 
 #[test]
@@ -94,7 +95,7 @@ fn a_repeating_event_comes_once_per_period_even_after_a_jump() {
     harness.run(
         &mut kernel,
         0,
-        [Command::work(Work::at(LATER, Instant(1000)).with(params))],
+        [Ask::work(Work::at(LATER, Instant(1000)).with(params))],
     );
     for at in [1000, 1500, 2000, 2999, 3000] {
         kernel.tick(Instant(at));
@@ -115,7 +116,7 @@ fn times_at_the_end_of_the_clock_do_not_overflow() {
     let effects = harness.run(
         &mut kernel,
         end - 10,
-        [Command::work(Work::at(LATER, Instant(end)).with(params))],
+        [Ask::work(Work::at(LATER, Instant(end)).with(params))],
     );
     assert_eq!(effects.wake_at(), Some(Instant(end)));
     kernel.tick(Instant(end));
@@ -132,7 +133,7 @@ fn times_at_the_end_of_the_clock_do_not_overflow() {
 fn a_screen_timer_comes_once_and_not_after_its_screen_closed() {
     let harness = Harness::new();
     let mut kernel = harness.kernel();
-    let wake = |at: &str| Command::OpenScreen(FULL, Params::new().with(WAKE, String::from(at)));
+    let wake = |at: &str| Ask::OpenScreen(FULL, Params::new().with(WAKE, String::from(at)));
     let effects = harness.run(&mut kernel, 1000, [wake("5000")]);
     assert_eq!(effects.wake_at(), Some(Instant(5000)));
     kernel.tick(Instant(4999));
@@ -142,8 +143,8 @@ fn a_screen_timer_comes_once_and_not_after_its_screen_closed() {
     assert_eq!(harness.lines("full:timer"), ["full:timer at 5000"]);
     // Closed before its time: no timer, for it or the screen below.
     harness.take();
-    harness.run(&mut kernel, 10_000, [Command::Back, wake("15000")]);
-    harness.run(&mut kernel, 11_000, [Command::Back]);
+    harness.run(&mut kernel, 10_000, [Ask::Back, wake("15000")]);
+    harness.run(&mut kernel, 11_000, [Ask::Back]);
     let effects = kernel.tick(Instant(15_000));
     assert_eq!(effects.wake_at(), None);
     assert!(
@@ -157,11 +158,7 @@ fn a_screen_timer_comes_once_and_not_after_its_screen_closed() {
 fn a_notice_goes_after_its_time_also_when_the_clock_goes_back() {
     let harness = Harness::new();
     let mut kernel = harness.kernel();
-    let effects = harness.run(
-        &mut kernel,
-        10_000,
-        [Command::Notify(String::from("Saved"))],
-    );
+    let effects = harness.run(&mut kernel, 10_000, [Ask::Notify(String::from("Saved"))]);
     assert!(effects.refresh().is_some());
     assert_eq!(effects.wake_at(), Some(Instant(14_000)));
     common::render(&mut kernel);
@@ -171,8 +168,8 @@ fn a_notice_goes_after_its_time_also_when_the_clock_goes_back() {
     assert!(effects.refresh().is_some(), "the notice is taken away");
     assert_eq!(effects.wake_at(), None);
     // Notices one over the other: the last one shows its full time.
-    harness.run(&mut kernel, 20_000, [Command::Notify(String::from("a"))]);
-    let effects = harness.run(&mut kernel, 21_000, [Command::Notify(String::from("b"))]);
+    harness.run(&mut kernel, 20_000, [Ask::Notify(String::from("a"))]);
+    let effects = harness.run(&mut kernel, 21_000, [Ask::Notify(String::from("b"))]);
     assert_eq!(effects.wake_at(), Some(Instant(25_000)));
 }
 
@@ -186,7 +183,7 @@ fn the_kernel_asks_to_be_woken_for_the_earliest_thing_due() {
         [
             schedule(&LATER, 9000),
             schedule(&LATER2, 3000),
-            Command::Notify(String::from("x")),
+            Ask::Notify(String::from("x")),
         ],
     );
     assert_eq!(effects.wake_at(), Some(Instant(3000)));

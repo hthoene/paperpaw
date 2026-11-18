@@ -1,7 +1,8 @@
 //! Real ABI screen declarations are published through the kernel registry.
 use super::*;
+use crate::Ask;
 use crate::native_host::{flat::FlatDepth, registrations as wire};
-use paperpaw_sdk::{Command, Handled, Id, Params};
+use paperpaw_sdk::{Handled, Id, Params};
 
 std::thread_local! {
     static POOL: RefCell<Option<crate::native_host::HostResources>> = const { RefCell::new(None) };
@@ -537,7 +538,7 @@ fn native_screen_factory_retains_owner_and_applies_instance_policy() {
             let second = kernel.stack[1].serial;
             assert_ne!(first, second);
             assert_eq!(opened[1], &(79, second, 0, 1));
-            kernel.apply(Command::Close(paperpaw_sdk::ScreenKey::new(second)));
+            kernel.apply(Ask::Close(paperpaw_sdk::ScreenKey::new(second)));
             assert!(EVENTS.with(|events| events.borrow().contains(&(80, second, 0, 0))));
         }
         assert!(
@@ -861,7 +862,7 @@ fn native_screen_below_guard_is_opened_and_closed_without_being_shown() {
             .iter()
             .any(|event| event.0 == 38 && event.1 == hidden)
     }));
-    kernel.apply(Command::Close(paperpaw_sdk::ScreenKey::new(hidden)));
+    kernel.apply(Ask::Close(paperpaw_sdk::ScreenKey::new(hidden)));
     assert!(EVENTS.with(|events| events.borrow().contains(&(80, hidden, 0, 0))));
 }
 
@@ -1143,7 +1144,7 @@ fn replacement_publication_waits_for_one_requested_busy_unload_to_complete() {
         crate::native_host::TeardownStep::Release,
         crate::native_host::Error::Busy,
     );
-    kernel.apply(Command::InstallPlugin(
+    kernel.apply(Ask::InstallPlugin(
         Id::new_static("factory"),
         "plugins/.factory.part".into(),
     ));

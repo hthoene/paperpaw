@@ -3,7 +3,7 @@
 //! overlays over it drawn again; a full screen or a guard above refuses it.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::{Place, Turn};
 use alloc::boxed::Box;
 use alloc::rc::Rc;
@@ -52,7 +52,7 @@ impl crate::testing::Fake for Probe {
     }
 }
 
-fn probes(kept: Rc<Cell<bool>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn probes(kept: Rc<Cell<bool>>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         for (id, kind) in [
             ("probe.page", "page"),

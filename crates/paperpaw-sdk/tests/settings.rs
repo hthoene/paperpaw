@@ -15,8 +15,8 @@ use paperpaw_sdk::builtin::{groups, settings::SCOPE_ONLY};
 use paperpaw_sdk::collections::VecMap;
 use paperpaw_sdk::presets::{self, Preset, Presets};
 use paperpaw_sdk::{
-    Choices, Command, Id, Level, RegisterError, Setting, SettingError, SettingExtra,
-    SettingGroupSpec, SettingKind, SettingSpec, SettingValue, Settings, Text,
+    Choices, Id, Level, RegisterError, Setting, SettingError, SettingExtra, SettingGroupSpec,
+    SettingKind, SettingSpec, SettingValue, Settings, Text,
 };
 use proptest::prelude::*;
 
@@ -303,13 +303,11 @@ fn extras_are_kept_in_the_program_or_made_from_data() {
         paperpaw_sdk::builtin::groups::OTHER,
     )
     .with_extra(&FOLDER);
-    let opens = folder.extra().editor.as_ref().unwrap().open(&folder.id);
     assert_eq!(
-        opens,
-        paperpaw_sdk::Command::OpenSlot(
-            paperpaw_sdk::builtin::slots::CHOOSE_FOLDER,
-            paperpaw_sdk::Params::new().with("id", folder.id.as_str().to_string()),
-        )
+        folder.extra().editor,
+        Some(paperpaw_sdk::Editor::Slot(
+            paperpaw_sdk::builtin::slots::CHOOSE_FOLDER
+        ))
     );
     assert_eq!(editor.level, Level::Advanced);
     let fixed = SettingSpec::switch("a.x", "a.x", true, groups::OTHER)
@@ -584,13 +582,9 @@ fn presets_set_placements_and_leave_out_what_does_not_fit() {
             (Id::new_static("w.clock@2.size"), Some(SettingValue::Int(7))),
         ]
     );
-    let commands = presets::commands(&s, &changes);
     assert_eq!(
-        commands,
-        [Command::SetSetting(
-            Id::new_static("w.clock@2.size"),
-            SettingValue::Int(7)
-        )]
+        presets::writes(&s, &changes),
+        [(Id::new_static("w.clock@2.size"), Some(SettingValue::Int(7)))]
     );
     s.set("w.clock@2.size", SettingValue::Int(7)).unwrap();
     assert!(presets::applied(&s, &changes));

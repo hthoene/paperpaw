@@ -3,10 +3,11 @@
 //! goes on rather than starting over, so pressing again cannot keep the
 //! library from ever finishing.
 
-use crate::Items;
+use crate::Ask;
+use crate::Staging;
 use crate::kit::action::FixedAction;
 use paperpaw_sdk::event::Event;
-use paperpaw_sdk::{Command, Id, RegisterError};
+use paperpaw_sdk::{Id, RegisterError};
 
 use super::catalog_job::CatalogJob;
 
@@ -16,9 +17,9 @@ pub(crate) const LOOK_AGAIN: Id = Id::new_static("core.library.look-again");
 /// What the action's handler (a plain function) passes on to the catalog.
 const LOOK_AGAIN_WANTED: Event<()> = Event::new("core.library-look-again-wanted");
 
-pub(super) fn register(r: &mut Items) -> Result<(), RegisterError> {
+pub(super) fn register(r: &mut Staging) -> Result<(), RegisterError> {
     static ACTION: [FixedAction; 1] = [FixedAction::new(LOOK_AGAIN, "core.library.look-again")
-        .handler(|_, _, out| out.push(LOOK_AGAIN_WANTED.emit(())))];
+        .handler(|_, _, out| out.push(crate::Ask::emit(&LOOK_AGAIN_WANTED, ())))];
     static ICON: [(Id, &str); 1] = [(LOOK_AGAIN, "refresh")];
     r.add_actions(&ACTION)?;
     r.add_icons(&ICON)?;
@@ -40,7 +41,7 @@ pub(super) fn register(r: &mut Items) -> Result<(), RegisterError> {
             } else {
                 "core.library.look-again.started"
             };
-            out.push(Command::Notify(env.i18n().tr(said).into()));
+            out.push(Ask::Notify(env.i18n().tr(said).into()));
         });
     })
 }

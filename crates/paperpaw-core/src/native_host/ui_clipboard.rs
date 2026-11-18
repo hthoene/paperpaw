@@ -4,7 +4,7 @@
 //! `last` commits.
 //!
 //! - **One clipboard.** The text lives in the kernel's [`ClipboardCell`] on
-//!   every device (as interface 6's `Command::SetClipboard` kept it): a
+//!   every device (as interface 6's `Ask::SetClipboard` kept it): a
 //!   committed write replaces it, op 19 and interface 6 read the same text, and
 //!   the commit asks the kernel pump to copy it out (`Io::Copy`, so the
 //!   system clipboard where a shell has one). The store binds the cell when the

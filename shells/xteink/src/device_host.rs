@@ -176,7 +176,7 @@ pub fn tell_native(device: &X4Device, safe_mode: Option<&SafeMode>) {
 /// Tells the device which radios this kernel has, once at start (its parts
 /// are then there, as its caps say). What the radios do is not kept here: the
 /// kernel answers `core.device` ops 8, 10, 11 and 12 from its own models
-/// (`Env::wifi`, `Env::bluetooth`, `Env::power`), also in the middle of a
+/// (`Place::wifi`, `Place::bluetooth`, `Place::power`), also in the middle of a
 /// delivery pass, so no second copy is kept in step. Op 9 (the networks) is
 /// this shell's: [`sync_networks`].
 #[inline(never)]

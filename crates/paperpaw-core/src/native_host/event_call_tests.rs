@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::native_host::{
     commands::{WireCommand, commands_decode, commands_encode},
     native_instances::{NativeInstance, NativeLease},
@@ -140,7 +140,7 @@ impl crate::testing::Fake for Overlay {
 
 /// A plugin that binds the notice slot to a plain overlay, so that a notice
 /// can show.
-fn notice_slot() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn notice_slot() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("nt.notice"),

@@ -17,15 +17,15 @@ use super::{
     native_instances::NativeLease,
     screen_stage::ScreenStage,
 };
+use crate::Ask;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_STATE};
-use paperpaw_sdk::Command;
 
 /// The commands one callback staged, for its plugin.
 pub(crate) struct Staged {
     pub(crate) owner: u64,
-    pub(crate) commands: Vec<Command>,
+    pub(crate) commands: Vec<Ask>,
     pub(crate) redraw: Option<Redraw>,
     pub(crate) images: Vec<ImageCommand>,
     /// The hand-overs its opens name, and the screens they replace: for the
@@ -83,7 +83,7 @@ impl Staged {
     /// A batch of commands and pictures, with no screen effects.
     pub(crate) fn new(
         owner: u64,
-        commands: Vec<Command>,
+        commands: Vec<Ask>,
         redraw: Option<Redraw>,
         images: Vec<ImageCommand>,
     ) -> Self {

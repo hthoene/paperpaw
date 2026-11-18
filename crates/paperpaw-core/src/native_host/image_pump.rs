@@ -41,7 +41,7 @@ use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
 };
 
-/// Commands kept for a later pass: four requests a plugin may have waiting
+/// Asks kept for a later pass: four requests a plugin may have waiting
 /// and a release or two, for the few plugins that ask at once.
 const PENDING_MAX: usize = 16;
 

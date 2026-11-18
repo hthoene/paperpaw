@@ -515,8 +515,7 @@ impl crate::Kernel {
             .is_some_and(|job| job.run().wanted(now, end));
         if due {
             self.output
-                .commands
-                .push(events::CATALOG_WANTED.emit(events::CatalogWanted::new(true)));
+                .emit(&events::CATALOG_WANTED, events::CatalogWanted::new(true));
         }
     }
 

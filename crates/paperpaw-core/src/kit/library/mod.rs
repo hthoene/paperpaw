@@ -218,8 +218,8 @@ pub fn key(path: &str) -> String {
 /// the key's first two digits (`01/0123…`), where a folder would hold
 /// thousands (a memory card looks through a folder one entry after the
 /// other for a name). Registered with
-/// `Items::add_book_data` or
-/// `Items::add_book_cache`, the
+/// `Staging::add_book_data` or
+/// `Staging::add_book_cache`, the
 /// kernel moves it with its book (`move_data`), removes it with it
 /// (`remove_data`) and when its book is no longer there
 /// ([`clean_up_unused`]): a cache by itself, the reader's data only when
@@ -930,7 +930,12 @@ pub fn take_over_old(storage: &dyn Storage) {
     let _ = storage.remove(&format!("{old}/catalog.txt"));
 }
 
-pub use paperpaw_sdk::library::changed_book;
+/// What tells everyone something of the book at `path` changed: `what`,
+/// bits of `what` ([`events::BOOK_CHANGED`](paperpaw_sdk::builtin::events::BOOK_CHANGED)).
+pub fn changed_book(path: &str, what: u32) -> crate::Ask {
+    let (event, params) = paperpaw_sdk::library::changed_book(path, what);
+    crate::Ask::Emit(event, params)
+}
 
 #[cfg(test)]
 mod fallible_tests;

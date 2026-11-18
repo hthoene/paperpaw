@@ -2,15 +2,15 @@
 use super::event_pending::{EventBudget, Pending, Ready, Visibility};
 use super::event_producers::EventSink;
 use super::registrations as wire;
-use crate::Items;
 use crate::Kernel;
+use crate::Staging;
 use crate::abi7::settings_wire::{SettingValueRef, settings_decode};
 use alloc::{rc::Rc, string::String};
 use core::cell::RefCell;
 use paperpaw_platform::{Battery, Instant, SystemStatus};
 use paperpaw_sdk::{Id, Manifest, RegisterError, SettingKind, SettingSpec, SettingValue, Version};
 
-fn fixture_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn fixture_items() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |registrar| {
         for (id, scoped) in [("evt.global", false), ("evt.scoped", true)] {
             let mut spec = SettingSpec::new(
@@ -80,13 +80,10 @@ fn setting_commands_capture_before_commit_and_failed_writes_raise_nothing() {
     kernel.set_setting(Instant(1), "evt.global", "3").unwrap();
     assert_eq!(old_int(&pending, "evt.global"), None);
     assert_eq!(kernel.settings().int("evt.global"), 3);
-    kernel
-        .output
-        .commands
-        .push(paperpaw_sdk::Command::SetSetting(
-            Id::new_static("evt.global"),
-            SettingValue::Int(99),
-        ));
+    kernel.output.commands.push(crate::Ask::SetSetting(
+        Id::new_static("evt.global"),
+        SettingValue::Int(99),
+    ));
     kernel.run_commands();
     assert!(pending.borrow_mut().take().is_none());
     assert_eq!(kernel.settings().int("evt.global"), 3);

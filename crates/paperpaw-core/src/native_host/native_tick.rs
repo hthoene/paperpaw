@@ -37,7 +37,7 @@ impl crate::Kernel {
         };
         if due {
             self.native_tick_at = Some(now);
-            self.output.commands.push(TICK.emit(()));
+            self.output.emit(&TICK, ());
         }
     }
 }

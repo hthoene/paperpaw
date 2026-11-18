@@ -7,12 +7,11 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use crate::Ask;
 use paperpaw_platform::{Instant, Storage, StorageError};
 use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::http_params;
-use paperpaw_sdk::{
-    Command, HttpError, HttpOptions, HttpProgress, HttpReply, HttpRequest, Id, Params,
-};
+use paperpaw_sdk::{HttpError, HttpOptions, HttpProgress, HttpReply, HttpRequest, Id, Params};
 
 /// Longest response body passed on to plugins.
 pub const MAX_RESPONSE: usize = 1 << 20;
@@ -226,7 +225,7 @@ impl Http {
         network: bool,
         reader: bool,
         storage: &dyn Storage,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) {
         let mut request = request.into_parts();
         let (params, progress) = take_progress(request.params);
@@ -324,7 +323,7 @@ impl Http {
         received: u64,
         total: Option<u64>,
         now: Instant,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) {
         let Some(awaiting) = self.awaiting.iter_mut().find(|a| a.id == id) else {
             return;
@@ -346,7 +345,7 @@ impl Http {
         };
         if due {
             progress.shown = Some((now, received, permille));
-            out.push(Command::Emit(progress.event.clone(), shown.into_params()));
+            out.push(Ask::Emit(progress.event.clone(), shown.into_params()));
         }
     }
 
@@ -354,12 +353,7 @@ impl Http {
     /// body for a file is written there. The body moves on without a copy
     /// (it may be most of the memory left), to the plugin's handler too
     /// (see [`EventData::into_params`]).
-    pub fn answer(
-        &mut self,
-        response: HttpResponse,
-        storage: &dyn Storage,
-        out: &mut Vec<Command>,
-    ) {
+    pub fn answer(&mut self, response: HttpResponse, storage: &dyn Storage, out: &mut Vec<Ask>) {
         let Some(at) = self.awaiting.iter().position(|a| a.id == response.id) else {
             return;
         };
@@ -413,13 +407,13 @@ impl Http {
         answer.final_url = response.url;
         answer.context = awaiting.context;
         answer.headers = response.headers;
-        out.push(Command::Emit(awaiting.reply, answer.into_params()));
+        out.push(Ask::Emit(awaiting.reply, answer.into_params()));
     }
 
     /// Takes back the requests whose reply is `reply`, each answered with
     /// the refusal `Cancelled`; an answer the shell brings later is passed
     /// over.
-    pub fn cancel(&mut self, reply: &Id, out: &mut Vec<Command>) {
+    pub fn cancel(&mut self, reply: &Id, out: &mut Vec<Ask>) {
         let cancelled: Vec<Awaiting> = {
             let (gone, kept) = core::mem::take(&mut self.awaiting)
                 .into_iter()
@@ -434,7 +428,7 @@ impl Http {
                 paperpaw_sdk::work::Retry::Never,
             );
             let answer = HttpReply::refused(refusal, awaiting.context);
-            out.push(Command::Emit(awaiting.reply, answer.into_params()));
+            out.push(Ask::Emit(awaiting.reply, answer.into_params()));
         }
     }
 
@@ -464,7 +458,7 @@ impl Http {
     }
 
     /// Fails the requests still waiting for the shell, for `reason`.
-    pub fn fail_waiting(&mut self, reason: &str, storage: &dyn Storage, out: &mut Vec<Command>) {
+    pub fn fail_waiting(&mut self, reason: &str, storage: &dyn Storage, out: &mut Vec<Ask>) {
         for call in self.take() {
             let failed = HttpResponse::failed(call.id, HttpError::NoNetwork, reason);
             self.answer(failed, storage, out);
@@ -472,8 +466,8 @@ impl Http {
     }
 }
 
-fn reply(event: Id, answer: HttpReply, out: &mut Vec<Command>) {
-    out.push(Command::Emit(event, answer.into_params()));
+fn reply(event: Id, answer: HttpReply, out: &mut Vec<Ask>) {
+    out.push(Ask::Emit(event, answer.into_params()));
 }
 
 #[cfg(test)]
@@ -492,15 +486,15 @@ mod tests {
     }
 
     /// The reply, as its hearer gets it.
-    fn reply_of(out: &[Command]) -> HttpReply {
-        let Some(Command::Emit(_, params)) = out.last() else {
+    fn reply_of(out: &[Ask]) -> HttpReply {
+        let Some(Ask::Emit(_, params)) = out.last() else {
             panic!("no reply");
         };
         params.carried::<HttpReply>().cloned().unwrap()
     }
 
     /// The reply's status and body.
-    fn replied(out: &[Command]) -> (u16, String) {
+    fn replied(out: &[Ask]) -> (u16, String) {
         let reply = reply_of(out);
         (reply.status, reply.text().into_owned())
     }
@@ -602,10 +596,10 @@ mod tests {
         paperpaw_sdk::event::Event::new("test.progress");
 
     /// The progress passed on: bytes received and thousandths, each time.
-    fn progress_of(out: &[Command]) -> Vec<(u64, Option<u16>)> {
+    fn progress_of(out: &[Ask]) -> Vec<(u64, Option<u16>)> {
         out.iter()
             .filter_map(|c| match c {
-                Command::Emit(event, params) if *event == *PROGRESS.id() => {
+                Ask::Emit(event, params) if *event == *PROGRESS.id() => {
                     HttpProgress::from_params(params).map(|p| (p.received, p.permille()))
                 }
                 _ => None,
@@ -649,7 +643,7 @@ mod tests {
             progress_of(&out),
             [(0, Some(0)), (50, Some(50)), (61, Some(61))]
         );
-        let Some(Command::Emit(_, params)) = out.last() else {
+        let Some(Ask::Emit(_, params)) = out.last() else {
             panic!("no progress");
         };
         let heard = HttpProgress::from_params(params).unwrap();

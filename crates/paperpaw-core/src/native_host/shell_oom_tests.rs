@@ -2,7 +2,7 @@
 use super::{NORMAL, arm_failure, reset};
 use crate::native_host::environment::EnvironmentScope;
 use crate::native_host::shared;
-use alloc::{boxed::Box, rc::Rc};
+use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_sdk::{Id, Manifest, Version};
 
@@ -30,12 +30,11 @@ fn private_shared_refusal_drops_input_once_and_cloning_does_not_allocate() {
 }
 
 /// Where the heap refuses the room for a
-/// contribution, `Items` says so precisely instead of aborting, the plugin is
+/// contribution, `Staging` says so precisely instead of aborting, the plugin is
 /// listed as failed and nothing of it is published (#244).
 #[test]
 fn a_refused_room_for_a_contribution_fails_the_plugin_without_abort_or_anything_published() {
     use crate::kit::action::ActionSpec;
-    use crate::kit::contribution::item::Contribution;
     use paperpaw_sdk::{PluginState, RegisterError};
     reset(NORMAL);
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -43,12 +42,11 @@ fn a_refused_room_for_a_contribution_fails_the_plugin_without_abort_or_anything_
         .unwrap();
     let refused = Cell::new(false);
     let manifest = Manifest::new(Id::new_static("tight"), "Tight", Version::new(1, 0, 0));
-    kernel.register_items(manifest, &|items: &mut crate::Items| {
+    kernel.register_items(manifest, &|items: &mut crate::Staging| {
         let go = ActionSpec::new(Id::new_static("tight.go"), "Go");
-        let action = Contribution::Action(Box::new(go));
         // The first allocation now is the room for the first contribution.
         arm_failure(1);
-        let result = items.add(action);
+        let result = items.add_action(go);
         arm_failure(0);
         refused.set(matches!(&result,
             Err(RegisterError::Invalid { message }) if message == "contribution allocation failed"));

@@ -1,4 +1,4 @@
-//! What the tests of the UI building blocks share: an `Env` made without
+//! What the tests of the UI building blocks share: an `Place` made without
 //! a kernel (the UI settings as the kernel defines them, the UI and icon
 //! fonts of fonts-default), a framebuffer to draw into and a way to find
 //! what was drawn outside a rectangle, and pointer samples.
@@ -22,12 +22,13 @@ use std::{
     vec::Vec,
 };
 
+use crate::Output;
 use crate::Place;
 use paperpaw_graphics::{Described, Framebuffer};
 use paperpaw_i18n::Catalog;
 use paperpaw_sdk::builtin::{fonts, settings as core_settings};
 use paperpaw_sdk::{
-    Color, DeviceInfo, DisplayInfo, Font, FontSpec, Id, InputCaps, Instant, MemoryClass, Output,
+    Color, DeviceInfo, DisplayInfo, Font, FontSpec, Id, InputCaps, Instant, MemoryClass,
     PixelFormat, Point, PointerEvent, PointerPhase, PointerTool, Priority, Rect, SettingKind,
     SettingSpec, SettingValue,
 };
@@ -277,7 +278,7 @@ pub fn middle(rect: Rect) -> Point {
     )
 }
 
-/// A fresh output for a `Cx`.
+/// A fresh output for a `Turn`.
 pub fn output() -> Output {
     Output::default()
 }

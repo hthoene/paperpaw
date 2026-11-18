@@ -37,7 +37,7 @@ pub struct OpenOptions {
     /// them the text keeps only its markup: emphasis, headings, lists.
     pub publisher_styles: bool,
     /// Stylesheets to apply after the book's own, e.g. the plugins'
-    /// (`Env::stylesheets`); with the publisher's styles
+    /// (`Place::stylesheets`); with the publisher's styles
     /// only.
     pub css: String,
     /// Pictures in colour, for colour screens (ADR 0015); gray otherwise.

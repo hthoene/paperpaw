@@ -548,7 +548,7 @@ impl Kernel {
         }
     }
 
-    /// A code plugin installed while PaperPaw runs (`Command::LoadPlugin`):
+    /// A code plugin installed while PaperPaw runs (`Ask::LoadPlugin`):
     /// listed, its code loaded at the next start.
     pub(crate) fn add_code_plugin_later(&mut self, plugin: &DataPlugin, off: bool) {
         let disabled: Vec<String> = if off {

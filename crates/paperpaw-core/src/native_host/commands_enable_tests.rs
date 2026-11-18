@@ -76,7 +76,7 @@ fn a_switch_is_staged_and_core_and_ones_own_switch_off_are_denied() {
     );
     assert!(matches!(
         stage.staged(),
-        [Command::SetPluginEnabled(a, true), Command::SetPluginEnabled(b, false)]
+        [Ask::SetPluginEnabled(a, true), Ask::SetPluginEnabled(b, false)]
             if a.as_str() == "stats" && b.as_str() == "stats"
     ));
     // The host's own `core` and the submitter's own switch off: refused whole,

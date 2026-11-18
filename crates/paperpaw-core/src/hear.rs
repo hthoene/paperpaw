@@ -6,9 +6,10 @@
 use crate::Place;
 use alloc::borrow::Cow;
 
+use crate::Asks;
+use paperpaw_sdk::Params;
 use paperpaw_sdk::event::{Event, EventData};
 use paperpaw_sdk::work::Step;
-use paperpaw_sdk::{Commands, Params};
 
 use crate::Kernel;
 
@@ -31,7 +32,7 @@ pub fn data<P: EventData>(params: &Params) -> Option<Cow<'_, P>> {
 impl Kernel {
     /// Runs `f` with the environment and a queue of what it asks for, done
     /// after the handler as a plugin's commands are.
-    pub fn with_env(&mut self, f: impl FnOnce(&Place<'_>, &mut Commands)) {
+    pub fn with_env(&mut self, f: impl FnOnce(&Place<'_>, &mut Asks)) {
         let mut f = Some(f);
         self.with_parts(&mut |env, _, out| {
             if let Some(f) = f.take() {
@@ -46,7 +47,7 @@ impl Kernel {
         &mut self,
         event: &Event<P>,
         params: &Params,
-        f: impl FnOnce(&Place<'_>, &P, &mut Commands),
+        f: impl FnOnce(&Place<'_>, &P, &mut Asks),
     ) {
         let _ = event;
         if let Some(data) = data::<P>(params) {
@@ -59,7 +60,7 @@ impl Kernel {
         &mut self,
         event: &Event<P>,
         params: &Params,
-        f: impl FnOnce(&Place<'_>, &crate::core_plugin::State, &P, &mut Commands),
+        f: impl FnOnce(&Place<'_>, &crate::core_plugin::State, &P, &mut Asks),
     ) {
         let _ = event;
         if let Some(data) = data::<P>(params) {
@@ -70,7 +71,7 @@ impl Kernel {
     /// [`Self::with_env`] with the core plugin's own state.
     pub(crate) fn with_core(
         &mut self,
-        f: impl FnOnce(&Place<'_>, &crate::core_plugin::State, &mut Commands),
+        f: impl FnOnce(&Place<'_>, &crate::core_plugin::State, &mut Asks),
     ) {
         let mut f = Some(f);
         self.with_parts(&mut |env, core, out| {
@@ -83,10 +84,7 @@ impl Kernel {
     /// The one body of the `with_*` calls, not inlined into every handler:
     /// the environment made, `f` run, what it asked for queued.
     #[inline(never)]
-    fn with_parts(
-        &mut self,
-        f: &mut dyn FnMut(&Place<'_>, &crate::core_plugin::State, &mut Commands),
-    ) {
+    fn with_parts(&mut self, f: &mut dyn FnMut(&Place<'_>, &crate::core_plugin::State, &mut Asks)) {
         let env = self.shared.place(self.shared.now);
         let core = &self.core;
         crate::commands::handing(&mut self.output.commands, |out| f(&env, core, out));

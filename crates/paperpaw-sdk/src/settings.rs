@@ -229,18 +229,6 @@ pub enum Editor {
     Slot(Id),
 }
 
-impl Editor {
-    /// The command that opens it for setting `setting`.
-    pub fn open(&self, setting: &Id) -> crate::Command {
-        let params =
-            crate::Params::new().with(crate::builtin::params::ID, String::from(setting.as_str()));
-        match self {
-            Editor::Screen(screen) => crate::Command::OpenScreen(screen.clone(), params),
-            Editor::Slot(slot) => crate::Command::OpenSlot(slot.clone(), params),
-        }
-    }
-}
-
 /// What few settings have (see [`SettingSpec::extra`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -249,7 +237,7 @@ pub struct SettingExtra {
     /// forms, e.g. `core.unit.pt.other = {count} pt`.
     pub unit: Option<Cow<'static, str>>,
     /// Where the value is edited instead of on the settings page, e.g.
-    /// a folder chooser for a path ([`Editor::open`] opens it).
+    /// a folder chooser for a path (the kernel opens it for the setting).
     pub editor: Option<Editor>,
     /// How much one step changes a number (e.g. 10 for percentages).
     pub step: i64,
@@ -432,7 +420,7 @@ impl SettingSpec {
     /// A setting of `kind` with its `default`, called `title` (a
     /// translation key), in `group`. Every builder of a spec is `const`, so
     /// a plugin declares its settings as a `static` list registered with
-    /// `Items::add_settings`: it
+    /// `Staging::add_settings`: it
     /// takes next to no memory (on small devices the list stays in flash).
     /// Its unit, section, editor and the like are a [`SettingExtra`], kept
     /// in the program too ([`SettingSpec::with_extra`]).
@@ -458,7 +446,7 @@ impl SettingSpec {
     ///
     /// A spec whose id is known only at run time (one for each plugin, say)
     /// is made with this, and registered with
-    /// `Items::add_setting`.
+    /// `Staging::add_setting`.
     pub const fn new(
         id: Id,
         title: &'static str,
@@ -710,7 +698,7 @@ impl SettingGroupSpec {
     /// Group `id`, called `title` (a translation key); the rest as set
     /// with its methods. All are `const`: a plugin declares its groups as
     /// statics and registers a reference
-    /// (`Items::add_setting_group`),
+    /// (`Staging::add_setting_group`),
     /// which takes next to no memory.
     pub const fn new(id: Id, title: &'static str) -> Self {
         Self {
@@ -823,8 +811,8 @@ impl core::error::Error for SettingError {}
 
 /// All registered settings and their current values.
 ///
-/// Plugins receive it read-only through `Env` and change values
-/// with [`Command::SetSetting`](crate::Command::SetSetting).
+/// Plugins receive it read-only through `Place` and change values
+/// with `Ask::SetSetting`.
 ///
 /// Something placed more than once, such as a widget on two pages, has
 /// values of its own for each placement: the setting `widgets.clock.face`
@@ -837,7 +825,7 @@ impl core::error::Error for SettingError {}
 ///
 /// Values may be shown for a while without being kept, e.g. a layout
 /// before it is chosen (`Settings::set_preview`, asked for with
-/// [`Command::PreviewSettings`](crate::Command::PreviewSettings)): they
+/// `Ask::PreviewSettings`): they
 /// are what [`Settings::get`] gives while they last; what is kept
 /// ([`Settings::global`]) stays as it is. The ready-made sets of values
 /// plugins offer are kept here too ([`Settings::presets`]).
@@ -991,7 +979,7 @@ impl Settings {
 
     /// Whether setting `id` has a value of the reader's choosing now: kept
     /// ([`Settings::is_set`]), shown while one is chosen
-    /// ([`Command::PreviewSettings`](crate::Command::PreviewSettings)), or
+    /// (`Ask::PreviewSettings`), or
     /// set by the placement whose values are active
     /// ([`Settings::with_placement`]). Not its default alone.
     pub fn is_chosen(&self, id: &str) -> bool {

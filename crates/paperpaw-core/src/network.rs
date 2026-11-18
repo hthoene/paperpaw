@@ -69,9 +69,9 @@ impl Kernel {
                         wifi.scanning = false;
                     }
                     wifi.state = state;
-                    self.output.commands.push(events::WIFI_CHANGED.emit(()));
+                    self.output.emit(&events::WIFI_CHANGED, ());
                     // Status lines show it (`wifi.status`).
-                    self.output.commands.push(events::STATUS_CHANGED.emit(()));
+                    self.output.emit(&events::STATUS_CHANGED, ());
                     self.native_hint(crate::native_host::registrations::EVENT_WIFI_CHANGED_TAG);
                     self.native_hint(crate::native_host::registrations::EVENT_STATUS_CHANGED_TAG);
                 }
@@ -90,13 +90,12 @@ impl Kernel {
                 });
                 wifi.networks = networks;
                 wifi.scanning = false;
-                self.output.commands.push(events::WIFI_SCANNED.emit(()));
+                self.output.emit(&events::WIFI_SCANNED, ());
                 self.native_hint(crate::native_host::registrations::EVENT_WIFI_SCANNED_TAG);
             }
             WifiEvent::Failed { ssid, reason } => {
                 self.output
-                    .commands
-                    .push(events::WIFI_FAILED.emit(events::WifiFailed::new(ssid, reason)));
+                    .emit(&events::WIFI_FAILED, events::WifiFailed::new(ssid, reason));
             }
         }
         self.finish()
@@ -140,7 +139,7 @@ impl Kernel {
         match (waiting, self.io.network_waiting) {
             (true, None) => {
                 self.io.network_waiting = Some(self.shared.now);
-                self.output.commands.push(events::NETWORK_WANTED.emit(()));
+                self.output.emit(&events::NETWORK_WANTED, ());
                 wanted = true;
             }
             (false, Some(_)) => self.io.network_waiting = None,
@@ -153,7 +152,7 @@ impl Kernel {
             self.io.http.busy() || self.io.servers.busy() || self.io.sockets.any() || native_live;
         wifi.busy = busy;
         if self.io.network_busy && !busy {
-            self.output.commands.push(events::NETWORK_IDLE.emit(()));
+            self.output.emit(&events::NETWORK_IDLE, ());
             idle = true;
         }
         self.io.network_busy = busy;
@@ -274,7 +273,7 @@ impl Kernel {
                     self.io.servers.cable.ended = false;
                     self.output
                         .commands
-                        .push(Command::OpenSlot(slots::CABLE, Params::new()));
+                        .push(Ask::OpenSlot(slots::CABLE, Params::new()));
                     self.run_commands();
                 }
                 let Some(server) = self.io.servers.cable_server() else {
@@ -468,12 +467,12 @@ impl Kernel {
         self.shared.storage.read_at(path, at, buffer)
     }
 
-    /// Answers a [`Command::ReadClipboard`] with the text known here.
+    /// Answers a [`Ask::ReadClipboard`] with the text known here.
     pub(crate) fn reply_clipboard(&mut self, reply: Id, params: Params) {
         let typed = paperpaw_sdk::Typed::new(self.shared.clipboard.get(), params);
         self.output
             .commands
-            .push(Command::Emit(reply, typed.to_params()));
+            .push(Ask::Emit(reply, typed.to_params()));
     }
 
     /// Whether plugins serve, e.g. to keep polling for requests.
@@ -489,7 +488,7 @@ impl Kernel {
             && firmware.state != state
         {
             firmware.state = state;
-            self.output.commands.push(events::FIRMWARE_CHANGED.emit(()));
+            self.output.emit(&events::FIRMWARE_CHANGED, ());
         }
         self.finish()
     }

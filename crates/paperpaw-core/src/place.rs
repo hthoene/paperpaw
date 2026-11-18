@@ -126,7 +126,7 @@ impl<'a> Place<'a> {
         &self.shared.usage
     }
 
-    /// Items for status lines, from every plugin.
+    /// Staging for status lines, from every plugin.
     pub fn status_items(&self) -> &'a StatusItems {
         &self.shared.status_items
     }
@@ -138,13 +138,13 @@ impl<'a> Place<'a> {
     }
 
     /// Plugins' stylesheets for books, in the order of the plugins (see
-    /// `Items::add_stylesheet`).
+    /// `Staging::add_stylesheet`).
     pub fn stylesheets(&self) -> &'a [alloc::borrow::Cow<'static, str>] {
         &self.shared.stylesheets
     }
 
     /// Folders of what plugins keep for each book
-    /// (`Items::add_book_data`).
+    /// (`Staging::add_book_data`).
     pub fn book_data(&self) -> &'a [crate::kit::library::BookData] {
         &self.shared.book_data
     }
@@ -171,7 +171,7 @@ impl<'a> Place<'a> {
     }
 
     /// The look a plugin gave the parts of screens, set with
-    /// `Items::set_ui_look` (see
+    /// `Staging::set_ui_look` (see
     /// [`ui::look`](crate::kit::ui::look)).
     pub fn look(&self) -> crate::kit::ui::look::Look {
         self.shared.look.0
@@ -231,9 +231,9 @@ impl<'a> Place<'a> {
     }
 
     /// Whether there is text on the clipboard, copied here
-    /// ([`Command::SetClipboard`](paperpaw_sdk::Command::SetClipboard)) or, where
+    /// ([`Ask::SetClipboard`](crate::Ask::SetClipboard)) or, where
     /// the system has a clipboard, in another app; read it with
-    /// [`Command::ReadClipboard`](paperpaw_sdk::Command::ReadClipboard).
+    /// [`Ask::ReadClipboard`](crate::Ask::ReadClipboard).
     pub fn clipboard(&self) -> bool {
         self.shared.system_clipboard || !self.shared.clipboard.is_empty()
     }

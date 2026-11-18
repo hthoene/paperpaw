@@ -4,7 +4,7 @@
 //! own key layer run.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use core::cell::Cell;
 use paperpaw_sdk::Params;
 
@@ -38,7 +38,7 @@ struct GuardPlugin {
     log: Log,
 }
 
-fn guard_plugin(kept: GuardPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn guard_plugin(kept: GuardPlugin) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let locked = kept.locked.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -83,7 +83,7 @@ fn guard_plugin_manifest() -> Manifest {
         .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
-fn other_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn other_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         crate::tests::hear_into(&kept);
         r.add_action(

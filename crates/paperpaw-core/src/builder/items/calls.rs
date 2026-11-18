@@ -1,11 +1,9 @@
-//! What is added to PaperPaw: one contribution each, collected by the
-//! [`Items`] a registering function is given ([`KernelBuilder::items`], the
-//! kernel's own producers, an old [`Plugin`](super::Plugin)).
-//!
-//! `Items` only collects; the kernel applies the contributions once the
-//! function is done (and parses key maps and translations then). Until
-//! #244's slice D4b this was the SDK's `Registrar`: the calls and their
-//! rules are unchanged.
+//! What is added to PaperPaw, staged ([`Staging`]): what a registering
+//! function adds ([`KernelBuilder::items`], the kernel's own built-ins, a
+//! data plugin) goes straight into the kernel's lists of its kinds, checked
+//! as it is added (its namespace, once per kind, key maps and translations
+//! parsed), and is merged whole once the function is done, or not at all
+//! (#300, D209: no list of contributions in between).
 //!
 //! [`KernelBuilder::items`]: crate::KernelBuilder::items
 
@@ -20,137 +18,85 @@ use crate::kit::menus::MenuSection;
 use crate::kit::setup::SetupStepSpec;
 use crate::kit::status::{StatusItemSpec, StatusLineSpec};
 use crate::kit::widgets::WidgetSpec;
+use crate::registry::Staging;
 use paperpaw_sdk::presets::Preset;
 use paperpaw_sdk::{
     FontFace, FontSpec, FormatSpec, Id, MenuNeed, Priority, RegisterError, SettingSpec, SlotSpec,
 };
 
-use crate::kit::contribution::item::Contribution;
-
-/// Collects a plugin's contributions.
-///
-/// Every id a plugin adds must be in its namespace (`<plugin>.…`), and
-/// once per kind; bindings, menu entries and key maps may name what other
-/// plugins added.
-#[derive(Debug)]
-pub struct Items {
-    plugin: Id,
-    contributions: Vec<Contribution>,
-    /// The host's own screens.
-    kernel_screens: Vec<&'static [crate::host_screen::HostEntry]>,
-    /// Tests' screens (feature `testing`).
-    layers: Vec<crate::FakeSpec>,
-    /// Handlers of events.
-    hears: Vec<crate::registry::Subscribed>,
-    /// Jobs: the steps of declared work.
-    works: Vec<crate::work::WorkSpec>,
-    /// The steps of a data plugin's actions, by action.
-    data_actions: Vec<crate::registry::DataAction>,
-}
-
-/// What a plugin added, taken apart for the kernel to apply.
-pub(crate) struct Parts {
-    pub(crate) contributions: Vec<Contribution>,
-    pub(crate) kernel_screens: Vec<&'static [crate::host_screen::HostEntry]>,
-    pub(crate) layers: Vec<crate::FakeSpec>,
-    pub(crate) hears: Vec<crate::registry::Subscribed>,
-    pub(crate) works: Vec<crate::work::WorkSpec>,
-    pub(crate) data_actions: Vec<crate::registry::DataAction>,
-}
-
-impl Items {
-    /// A registrar for plugin `plugin`.
+impl Staging {
+    /// What plugin `plugin` registers, staged: merged into the kernel
+    /// only once all of it is added (whole, or nothing of it).
     pub fn new(plugin: impl Into<Id>) -> Self {
-        let plugin = plugin.into();
         Self {
-            plugin,
-            contributions: Vec::new(),
-            kernel_screens: Vec::new(),
-            layers: Vec::new(),
-            hears: Vec::new(),
-            works: Vec::new(),
-            data_actions: Vec::new(),
+            plugin: Some(plugin.into()),
+            ..Self::default()
         }
     }
 
     /// The id of the plugin being registered.
-    pub fn plugin(&self) -> &Id {
-        &self.plugin
+    pub fn plugin(&self) -> Option<&Id> {
+        self.plugin.as_ref()
     }
 
-    /// What was added so far, in order.
-    pub fn contributions(&self) -> &[Contribution] {
-        &self.contributions
-    }
-
-    /// What was added, for the kernel to apply.
-    pub fn into_contributions(self) -> Vec<Contribution> {
-        self.contributions
-    }
-
-    /// What was added, the host's own screens
-    /// ([`add_host_screens`](Self::add_host_screens)) and tests' screens.
-    pub(crate) fn into_parts(self) -> Parts {
-        Parts {
-            contributions: self.contributions,
-            kernel_screens: self.kernel_screens,
-            layers: self.layers,
-            hears: self.hears,
-            works: self.works,
-            data_actions: self.data_actions,
+    /// `id` is the plugin's own: in its namespace.
+    fn own(&self, id: &Id) -> Result<(), RegisterError> {
+        match &self.plugin {
+            Some(plugin) if id.is_owned_by(plugin) => Ok(()),
+            _ => Err(RegisterError::Namespace { id: id.clone() }),
         }
     }
 
-    /// Adds `contribution`; every method below is a shorthand for one.
-    pub fn add(&mut self, contribution: Contribution) -> Result<(), RegisterError> {
-        self.add_checked(contribution)
-    }
-
-    /// As [`add`](Self::add), for the shorthands below.
-    pub(crate) fn add_checked(&mut self, contribution: Contribution) -> Result<(), RegisterError> {
-        // What an entry shows is said by the plugin it belongs to.
-        if let Contribution::ItemState { item, .. } = &contribution
-            && !item.is_owned_by(&self.plugin)
-        {
-            return Err(RegisterError::Namespace { id: item.clone() });
+    /// `id` is the plugin's own and not `taken` yet among its kind.
+    fn new_id(&self, id: &Id, taken: bool) -> Result<(), RegisterError> {
+        self.own(id)?;
+        if taken {
+            return Err(RegisterError::Duplicate { id: id.clone() });
         }
-        // The clean-up removes what is named like a book's key there: a
-        // folder outside PaperPaw's own would take the reader's files.
-        if let Contribution::BookData(data) = &contribution
-            && !in_own_folder(&data.folder)
-        {
-            return Err(RegisterError::Invalid {
-                message: Cow::Owned(alloc::format!(
-                    "book data in `{}`, outside `{}/`",
-                    data.folder,
-                    paperpaw_sdk::data::DIR
-                )),
-            });
-        }
-        if let Some(id) = contribution.id() {
-            if !id.is_owned_by(&self.plugin) {
-                return Err(RegisterError::Namespace { id: id.clone() });
-            }
-            let kind = contribution.id_kind();
-            if self
-                .contributions
-                .iter()
-                .any(|c| c.id_kind() == kind && c.id() == Some(id))
-            {
-                return Err(RegisterError::Duplicate { id: id.clone() });
-            }
-        }
-        self.contributions
-            .try_reserve(1)
-            .map_err(|_| RegisterError::Invalid {
-                message: Cow::Borrowed("contribution allocation failed"),
-            })?;
-        self.contributions.push(contribution);
         Ok(())
     }
 
+    /// The plugin registering, for what names it (a hidden entry, a
+    /// subscription).
+    fn owner(&self) -> Result<Id, RegisterError> {
+        self.plugin.clone().ok_or(RegisterError::Invalid {
+            message: Cow::Borrowed("staged without a plugin"),
+        })
+    }
+
+    fn has_action(&self, id: &Id) -> bool {
+        self.actions.iter().any(|a| a.id == *id)
+            || self
+                .fixed_actions
+                .iter()
+                .any(|list| list.iter().any(|a| a.id() == id))
+    }
+
+    fn has_setting(&self, id: &Id) -> bool {
+        self.settings
+            .iter()
+            .flat_map(crate::registry::Staged::specs)
+            .any(|s| s.id == *id)
+    }
+
+    fn has_preset(&self, id: &Id) -> bool {
+        self.presets.iter().any(|p| p.id == *id)
+            || self
+                .fixed_presets
+                .iter()
+                .any(|list| list.iter().any(|p| p.id == *id))
+    }
+
+    /// Fonts, font files and faces share their ids.
+    fn has_font(&self, id: &Id) -> bool {
+        self.fonts.iter().any(|f| f.id == *id)
+            || self.font_files.iter().any(|(f, _)| f == id)
+            || self.font_faces.iter().any(|f| f.id == *id)
+    }
+
     pub fn add_action(&mut self, action: ActionSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Action(Box::new(action)))
+        self.new_id(&action.id, self.has_action(&action.id))?;
+        push(&mut self.actions, action)
     }
 
     /// Adds the host's own screens (`host_screen::ENTRIES`).
@@ -159,7 +105,10 @@ impl Items {
         screens: &'static [crate::host_screen::HostEntry],
     ) -> Result<(), RegisterError> {
         self.check_screens(screens.iter().map(crate::host_screen::HostEntry::id))?;
-        self.kernel_screens.push(screens);
+        self.fixed_screens
+            .try_reserve(screens.len())
+            .map_err(|_| no_room())?;
+        self.fixed_screens.extend(screens.iter());
         Ok(())
     }
 
@@ -168,8 +117,7 @@ impl Items {
     #[cfg(any(test, feature = "testing"))]
     pub fn add_fake(&mut self, screen: crate::testing::FakeSpec) -> Result<(), RegisterError> {
         self.check_screens(core::iter::once(screen.id()))?;
-        self.layers.push(screen);
-        Ok(())
+        push(&mut self.layer_screens, screen)
     }
 
     /// Each of `ids` in the plugin's namespace, once among its screens.
@@ -178,24 +126,21 @@ impl Items {
         ids: impl Iterator<Item = &'a Id> + Clone,
     ) -> Result<(), RegisterError> {
         let added = |id: &Id| {
-            self.kernel_screens
-                .iter()
-                .any(|list| list.iter().any(|s| s.id() == id))
-                || self.layers.iter().any(|s| s.id() == id)
+            self.fixed_screens.iter().any(|s| s.id() == id)
+                || self.layer_screens.iter().any(|s| s.id() == id)
         };
         for (n, id) in ids.clone().enumerate() {
-            if !id.is_owned_by(&self.plugin) {
-                return Err(RegisterError::Namespace { id: id.clone() });
-            }
-            if added(id) || ids.clone().take(n).any(|other| other == id) {
-                return Err(RegisterError::Duplicate { id: id.clone() });
-            }
+            self.new_id(
+                id,
+                added(id) || ids.clone().take(n).any(|other| other == id),
+            )?;
         }
         Ok(())
     }
 
     pub fn add_slot(&mut self, slot: SlotSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Slot(slot))
+        self.new_id(&slot.id, self.slots.iter().any(|s| s.id == slot.id))?;
+        push(&mut self.slots, slot)
     }
 
     /// Proposes `screen` for `slot`. The binding with the highest priority
@@ -206,23 +151,20 @@ impl Items {
         screen: impl Into<Id>,
         priority: Priority,
     ) -> Result<(), RegisterError> {
-        let slot = slot.into();
-        let screen = screen.into();
-        self.add_checked(Contribution::SlotBinding {
-            slot,
-            screen,
+        let candidate = crate::registry::SlotCandidate {
+            slot: slot.into(),
+            screen: screen.into(),
             priority,
-        })
+        };
+        push(&mut self.candidates, candidate)
     }
 
     pub fn add_setting(&mut self, setting: SettingSpec) -> Result<(), RegisterError> {
-        let fixed = self.contributions.iter().any(|c| {
-            matches!(c, Contribution::FixedSettings(list) if list.iter().any(|s| s.id == setting.id))
-        });
-        if fixed {
-            return Err(RegisterError::Duplicate { id: setting.id });
-        }
-        self.add_checked(Contribution::Setting(Box::new(setting)))
+        self.new_id(&setting.id, self.has_setting(&setting.id))?;
+        push(
+            &mut self.settings,
+            crate::registry::Staged::Owned(Box::new(setting)),
+        )
     }
 
     /// Adds settings kept in the program (a `static` list), e.g. a
@@ -230,26 +172,13 @@ impl Items {
     /// each added with [`add_setting`](Self::add_setting) takes about
     /// 200 bytes.
     pub fn add_settings(&mut self, settings: &'static [SettingSpec]) -> Result<(), RegisterError> {
-        // Each in the plugin's namespace, and once.
-        let added = |id: &Id| {
-            self.contributions.iter().any(|c| match c {
-                Contribution::Setting(s) => s.id == *id,
-                Contribution::FixedSettings(list) => list.iter().any(|s| s.id == *id),
-                _ => false,
-            })
-        };
         for (n, setting) in settings.iter().enumerate() {
             let id = &setting.id;
-            if !id.is_owned_by(&self.plugin) {
-                return Err(RegisterError::Namespace { id: id.clone() });
-            }
-            if added(id) || settings[..n].iter().any(|s| s.id == *id) {
-                return Err(RegisterError::Duplicate { id: id.clone() });
-            }
+            let taken = self.has_setting(id) || settings[..n].iter().any(|s| s.id == *id);
+            self.new_id(id, taken)?;
         }
-        self.contributions
-            .push(Contribution::FixedSettings(settings));
-        Ok(())
+        let table = crate::registry::Staged::Table(settings, crate::registry::Picked::All);
+        push(&mut self.settings, table)
     }
 
     pub fn add_keymap(
@@ -257,7 +186,8 @@ impl Items {
         source: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
         let source = source.into();
-        self.add_checked(Contribution::Keymap(source))
+        crate::registry::validate_keymap(&source)?;
+        push(&mut self.keymaps, source)
     }
 
     /// A stylesheet for books, applied after a book's own (where the
@@ -267,8 +197,7 @@ impl Items {
         &mut self,
         css: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
-        let css = css.into();
-        self.add_checked(Contribution::Stylesheet(css))
+        push(&mut self.stylesheets, css.into())
     }
 
     /// A folder where the plugin keeps the reader's data for each book
@@ -289,11 +218,8 @@ impl Items {
         folder: impl Into<Cow<'static, str>>,
         prefix: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::BookData(crate::kit::library::BookData::new(
-            folder.into(),
-            prefix.into(),
-            crate::kit::library::BookDataKind::UserData,
-        )))
+        let kind = crate::kit::library::BookDataKind::UserData;
+        self.book_data(folder.into(), prefix.into(), kind)
     }
 
     /// As [`add_book_data`](Self::add_book_data), for what the plugin
@@ -305,14 +231,11 @@ impl Items {
         folder: impl Into<Cow<'static, str>>,
         prefix: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::BookData(crate::kit::library::BookData::new(
-            folder.into(),
-            prefix.into(),
-            crate::kit::library::BookDataKind::Cache,
-        )))
+        let kind = crate::kit::library::BookDataKind::Cache;
+        self.book_data(folder.into(), prefix.into(), kind)
     }
 
-    /// Adds a key map preset (same format as [`Items::add_keymap`]) that
+    /// Adds a key map preset (same format as [`Staging::add_keymap`]) that
     /// users can select with the `core.keymap-preset` setting. Its title
     /// is the translation of its id.
     pub fn add_keymap_preset(
@@ -322,13 +245,16 @@ impl Items {
     ) -> Result<(), RegisterError> {
         let id = id.into();
         let source = source.into();
-        self.add_checked(Contribution::KeymapPreset { id, source })
+        self.new_id(&id, self.keymap_presets.iter().any(|(p, _)| *p == id))?;
+        crate::registry::validate_keymap(&source)?;
+        push(&mut self.keymap_presets, (id, source))
     }
 
     /// Adds a font. Bitmap packs work everywhere; scalable fonts need the
     /// `outline` feature.
     pub fn add_font(&mut self, font: FontSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Font(Box::new(font)))
+        self.new_id(&font.id, self.has_font(&font.id))?;
+        push(&mut self.fonts, font)
     }
 
     /// Adds a font file on the storage (OpenType/TrueType): its family and
@@ -340,8 +266,8 @@ impl Items {
         path: impl Into<String>,
     ) -> Result<(), RegisterError> {
         let id = id.into();
-        let path = path.into();
-        self.add_checked(Contribution::FontFile { id, path })
+        self.new_id(&id, self.has_font(&id))?;
+        push(&mut self.font_files, (id, path.into()))
     }
 
     /// Adds a font pack on the storage (`.ppfp`) with characters font
@@ -354,9 +280,8 @@ impl Items {
         extends: impl Into<Id>,
     ) -> Result<(), RegisterError> {
         let id = id.into();
-        let path = path.into();
-        let extends = extends.into();
-        self.add_checked(Contribution::FontExtension { id, path, extends })
+        self.new_id(&id, self.font_extensions.iter().any(|(e, ..)| *e == id))?;
+        push(&mut self.font_extensions, (id, path.into(), extends.into()))
     }
 
     /// Adds a face of a family in a file on the storage: a font pack
@@ -364,7 +289,8 @@ impl Items {
     /// drawn where scalable fonts are (see [`FontFace`]). It is loaded
     /// only while its family is chosen, for reading or the status lines.
     pub fn add_font_face(&mut self, face: FontFace) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::FontFace(Box::new(face)))
+        self.new_id(&face.id, self.has_font(&face.id))?;
+        push(&mut self.font_faces, face)
     }
 
     /// Proposes a font for a role such as
@@ -375,13 +301,7 @@ impl Items {
         font: impl Into<Id>,
         priority: Priority,
     ) -> Result<(), RegisterError> {
-        let role = role.into();
-        let font = font.into();
-        self.add_checked(Contribution::FontBinding {
-            role,
-            font,
-            priority,
-        })
+        push(&mut self.font_roles, (role.into(), font.into(), priority))
     }
 
     /// Puts an action into a menu. Menus can be extended by any plugin and
@@ -394,29 +314,16 @@ impl Items {
         &mut self,
         actions: &'static [crate::kit::action::FixedAction],
     ) -> Result<(), RegisterError> {
-        // Each in the plugin's namespace, and once.
-        let added = |id: &Id| {
-            self.contributions.iter().any(|c| match c {
-                Contribution::Action(a) => a.id == *id,
-                Contribution::FixedActions(list) => list.iter().any(|a| a.id() == id),
-                _ => false,
-            })
-        };
         for (n, action) in actions.iter().enumerate() {
             let id = action.id();
-            if !id.is_owned_by(&self.plugin) {
-                return Err(RegisterError::Namespace { id: id.clone() });
-            }
-            if added(id) || actions[..n].iter().any(|a| a.id() == id) {
-                return Err(RegisterError::Duplicate { id: id.clone() });
-            }
+            let taken = self.has_action(id) || actions[..n].iter().any(|a| a.id() == id);
+            self.new_id(id, taken)?;
         }
-        self.contributions.push(Contribution::FixedActions(actions));
-        Ok(())
+        push(&mut self.fixed_actions, actions)
     }
 
     pub fn add_menu_entry(&mut self, entry: MenuEntry) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::MenuEntry(entry))
+        push(&mut self.menu_entries, entry)
     }
 
     /// Puts actions into menus from a list kept in the program (a
@@ -424,7 +331,7 @@ impl Items {
     /// no memory, where each added with
     /// [`add_menu_entry`](Self::add_menu_entry) takes some 50 bytes.
     pub fn add_menu_entries(&mut self, entries: &'static [MenuEntry]) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::FixedMenuEntries(entries))
+        push(&mut self.fixed_menu_entries, entries)
     }
 
     /// Puts `item` into `menu` at `place`, beside other entries (e.g.
@@ -448,10 +355,8 @@ impl Items {
         menu: impl Into<Id>,
         item: impl Into<Id>,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::HideMenuEntry {
-            menu: menu.into(),
-            item: item.into(),
-        })
+        let plugin = self.owner()?;
+        push(&mut self.hidden_entries, (menu.into(), item.into(), plugin))
     }
 
     /// What menus show of `item` now, where it changes: another label, a
@@ -464,16 +369,18 @@ impl Items {
         item: impl Into<Id>,
         state: crate::kit::menus::ItemStateFn,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::ItemState {
-            item: item.into(),
-            state,
-        })
+        // What an entry shows is said by the plugin it belongs to.
+        let item = item.into();
+        self.own(&item)?;
+        push(&mut self.item_states, (item, state))
     }
 
     /// Adds a heading to a menu; entries ordered after it, up to the next
     /// heading, belong to it.
     pub fn add_menu_section(&mut self, section: MenuSection) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::MenuSection(section))
+        let taken = self.menu_sections.iter().any(|s| s.id == section.id);
+        self.new_id(&section.id, taken)?;
+        push(&mut self.menu_sections, section)
     }
 
     /// Gives an action or setting an icon by name (see
@@ -484,11 +391,7 @@ impl Items {
         item: impl Into<Id>,
         icon: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
-        let icon = icon.into();
-        self.add_checked(Contribution::Icon {
-            item: item.into(),
-            icon,
-        })
+        push(&mut self.icons, (item.into(), icon.into()))
     }
 
     /// Gives items icons from a list kept in the program (a `static` list
@@ -496,7 +399,7 @@ impl Items {
     /// [`add_icon`](Self::add_icon) takes some 30 bytes. Icons added with
     /// [`add_icon`](Self::add_icon) win over these (an icon theme's).
     pub fn add_icons(&mut self, icons: &'static [(Id, &'static str)]) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::FixedIcons(icons))
+        push(&mut self.fixed_icons, icons)
     }
 
     /// Offers an action or setting in menus only on devices that meet
@@ -506,10 +409,7 @@ impl Items {
         item: impl Into<Id>,
         need: MenuNeed,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::MenuNeed {
-            item: item.into(),
-            need,
-        })
+        push(&mut self.menu_needs, (item.into(), need))
     }
 
     /// Adds a group for the settings screen: best a `static` one, kept
@@ -519,26 +419,31 @@ impl Items {
         &mut self,
         group: impl Into<paperpaw_sdk::SettingGroup>,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::SettingGroup(group.into()))
+        let group = group.into();
+        let taken = self.setting_groups.iter().any(|g| g.id == group.id);
+        self.new_id(&group.id, taken)?;
+        push(&mut self.setting_groups, group)
     }
 
     /// Adds a file format.
     pub fn add_format(&mut self, format: FormatSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Format(Box::new(format)))
+        self.new_id(&format.id, self.formats.iter().any(|f| f.id == format.id))?;
+        push(&mut self.formats, format)
     }
 
     /// Subscribes to an event by its id, e.g. one known only at run time;
-    /// [`Items::on`] names an [`Event`](paperpaw_sdk::event::Event).
+    /// [`Staging::on`] names an [`Event`](paperpaw_sdk::event::Event).
     pub fn subscribe(
         &mut self,
         event: impl Into<Id>,
         run: crate::Hear,
     ) -> Result<(), RegisterError> {
-        self.hears.push(crate::registry::Subscribed {
-            event: event.into(),
-            run,
-        });
-        Ok(())
+        let plugin = self.owner()?;
+        let event = event.into();
+        push(
+            &mut self.subscriptions,
+            (plugin, crate::registry::Subscribed { event, run }),
+        )
     }
 
     /// Adds an action of a data plugin (`actions.ini`): the kernel runs its
@@ -550,9 +455,10 @@ impl Items {
     ) -> Result<(), RegisterError> {
         let id = spec.id.clone();
         self.add_action(spec)?;
-        self.data_actions
-            .push(crate::registry::DataAction { id, steps });
-        Ok(())
+        push(
+            &mut self.data_actions,
+            crate::registry::DataAction { id, steps },
+        )
     }
 
     /// Hears `event`: `run` reads what it carries with
@@ -568,7 +474,8 @@ impl Items {
     /// Adds an item that status lines can show, e.g. a clock or the
     /// reading time left.
     pub fn add_status_item(&mut self, item: StatusItemSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::StatusItem(Box::new(item)))
+        self.new_id(&item.id, self.status_items.iter().any(|i| i.id == item.id))?;
+        push(&mut self.status_items, item)
     }
 
     /// Adds a decorator: marks on the words of book pages, drawn by every
@@ -577,73 +484,59 @@ impl Items {
         &mut self,
         decorator: crate::kit::decorations::DecoratorSpec,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Decorator(Box::new(decorator)))
+        let taken = self.decorators.iter().any(|d| d.id == decorator.id);
+        self.new_id(&decorator.id, taken)?;
+        push(&mut self.decorators, decorator)
     }
 
     /// Adds a job: the steps of the work declared with its id (see
     /// [`work`](paperpaw_sdk::work)).
     pub fn add_work(&mut self, work: crate::work::WorkSpec) -> Result<(), RegisterError> {
-        if !work.id.is_owned_by(&self.plugin) {
-            return Err(RegisterError::Namespace { id: work.id });
-        }
-        if self.works.iter().any(|w| w.id == work.id) {
-            return Err(RegisterError::Duplicate { id: work.id });
-        }
-        self.works.push(work);
-        Ok(())
+        self.new_id(&work.id, self.works.iter().any(|w| w.id == work.id))?;
+        push(&mut self.works, work)
     }
 
     /// Adds a widget, e.g. for the home screen (see
     /// [`widgets`](paperpaw_sdk::widgets)).
     pub fn add_widget(&mut self, widget: WidgetSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Widget(Box::new(widget)))
+        let taken = self.widgets.iter().any(|w| match w {
+            crate::registry::StagedWidgets::One(one) => one.id == widget.id,
+        });
+        self.new_id(&widget.id, taken)?;
+        let widget = crate::registry::StagedWidgets::One(Box::new(widget));
+        push(&mut self.widgets, widget)
     }
 
     /// Adds a step to the first-run setup (see `setup`).
     pub fn add_setup_step(&mut self, step: SetupStepSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::SetupStep(Box::new(step)))
+        self.new_id(&step.id, self.setup_steps.iter().any(|s| s.id == step.id))?;
+        push(&mut self.setup_steps, step)
     }
 
     /// Adds a preset, a ready-made set of setting values (see
     /// [`presets`](paperpaw_sdk::presets)), e.g. from a data plugin's file.
     pub fn add_preset(&mut self, preset: Preset) -> Result<(), RegisterError> {
-        let fixed = self.contributions.iter().any(|c| {
-            matches!(c, Contribution::FixedPresets(list) if list.iter().any(|p| p.id == preset.id))
-        });
-        if fixed {
-            return Err(RegisterError::Duplicate { id: preset.id });
-        }
-        self.add_checked(Contribution::Preset(Box::new(preset)))
+        self.new_id(&preset.id, self.has_preset(&preset.id))?;
+        push(&mut self.presets, preset)
     }
 
     /// Adds presets kept in the program ([`Preset::fixed`]), a `static`
     /// list, each in the plugin's namespace (they may be of any plugin's
     /// kind).
     pub fn add_presets(&mut self, presets: &'static [Preset]) -> Result<(), RegisterError> {
-        let added = |id: &Id| {
-            self.contributions.iter().any(|c| match c {
-                Contribution::Preset(p) => p.id == *id,
-                Contribution::FixedPresets(list) => list.iter().any(|p| p.id == *id),
-                _ => false,
-            })
-        };
         for (n, preset) in presets.iter().enumerate() {
             let id = &preset.id;
-            if !id.is_owned_by(&self.plugin) {
-                return Err(RegisterError::Namespace { id: id.clone() });
-            }
-            if added(id) || presets[..n].iter().any(|p| p.id == *id) {
-                return Err(RegisterError::Duplicate { id: id.clone() });
-            }
+            let taken = self.has_preset(id) || presets[..n].iter().any(|p| p.id == *id);
+            self.new_id(id, taken)?;
         }
-        self.contributions.push(Contribution::FixedPresets(presets));
-        Ok(())
+        push(&mut self.fixed_presets, presets)
     }
 
     /// Adds a whole status line, drawn by the plugin (see
     /// [`status`](paperpaw_sdk::status)).
     pub fn add_status_line(&mut self, line: StatusLineSpec) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::StatusLine(Box::new(line)))
+        self.new_id(&line.id, self.status_lines.iter().any(|l| l.id == line.id))?;
+        push(&mut self.status_lines, line)
     }
 
     /// Provides `service` for other plugins as `id` in `version`: a type
@@ -658,10 +551,9 @@ impl Items {
         version: paperpaw_sdk::Version,
     ) -> Result<(), RegisterError> {
         let id = id.into();
-        self.add_checked(Contribution::Published {
-            id,
-            service: paperpaw_sdk::services::Service::new(service, version),
-        })
+        self.new_id(&id, self.services.iter().any(|(s, _)| *s == id))?;
+        let service = paperpaw_sdk::services::Service::new(service, version);
+        push(&mut self.services, (id, service))
     }
 
     /// Declares an event of one's own, with the params it carries: rules
@@ -670,7 +562,8 @@ impl Items {
         &mut self,
         event: paperpaw_sdk::services::EventSpec,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::EventDeclared(Box::new(event)))
+        self.new_id(&event.id, self.events.iter().any(|e| e.id == event.id))?;
+        push(&mut self.events, event)
     }
 
     /// Adds `contribution` to `point`, a point another plugin defined
@@ -680,12 +573,7 @@ impl Items {
         point: impl Into<Id>,
         contribution: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
-        let point = point.into();
-        let contribution = contribution.into();
-        self.add_checked(Contribution::ToPoint {
-            point,
-            text: contribution,
-        })
+        push(&mut self.contributions, (point.into(), contribution.into()))
     }
 
     /// Adds a translation catalog (see `paperpaw-i18n`).
@@ -693,8 +581,8 @@ impl Items {
         &mut self,
         source: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
-        let source = source.into();
-        self.add_checked(Contribution::Translations(source))
+        let catalog = crate::registry::catalog(source.into())?;
+        push(&mut self.catalogs, catalog)
     }
 
     /// Adds a compiled translation catalog on the storage (`.ppcat`, made
@@ -703,8 +591,7 @@ impl Items {
     /// size takes about a kilobyte of memory (ADR 0033). One that cannot
     /// be opened is reported and its language falls back.
     pub fn add_translation_file(&mut self, path: impl Into<String>) -> Result<(), RegisterError> {
-        let path = path.into();
-        self.add_checked(Contribution::TranslationFile(path))
+        push(&mut self.catalog_files, path.into())
     }
 
     /// Changes the default of any plugin's setting, written as in
@@ -716,9 +603,7 @@ impl Items {
         setting: impl Into<Id>,
         value: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
-        let setting = setting.into();
-        let value = value.into();
-        self.add_checked(Contribution::SettingDefault { setting, value })
+        push(&mut self.setting_defaults, (setting.into(), value.into()))
     }
 
     /// Offers `value` among the choices of any plugin's choice setting,
@@ -732,10 +617,42 @@ impl Items {
         setting: impl Into<Id>,
         value: impl Into<Cow<'static, str>>,
     ) -> Result<(), RegisterError> {
-        self.add_checked(Contribution::Choice {
-            setting: setting.into(),
-            value: value.into(),
-        })
+        push(&mut self.choices, (setting.into(), value.into()))
+    }
+
+    /// A book data folder ([`add_book_data`](Self::add_book_data),
+    /// [`add_book_cache`](Self::add_book_cache)).
+    fn book_data(
+        &mut self,
+        folder: Cow<'static, str>,
+        prefix: Cow<'static, str>,
+        kind: crate::kit::library::BookDataKind,
+    ) -> Result<(), RegisterError> {
+        // The clean-up removes what is named like a book's key there: a
+        // folder outside PaperPaw's own would take the reader's files.
+        if !in_own_folder(&folder) {
+            return Err(RegisterError::Invalid {
+                message: Cow::Owned(alloc::format!(
+                    "book data in `{folder}`, outside `{}/`",
+                    paperpaw_sdk::data::DIR
+                )),
+            });
+        }
+        let data = crate::kit::library::BookData::new(folder, prefix, kind);
+        push(&mut self.book_data, data)
+    }
+}
+
+/// Room for one more in `list`, then `value` in it.
+fn push<T>(list: &mut Vec<T>, value: T) -> Result<(), RegisterError> {
+    list.try_reserve(1).map_err(|_| no_room())?;
+    list.push(value);
+    Ok(())
+}
+
+fn no_room() -> RegisterError {
+    RegisterError::Invalid {
+        message: Cow::Borrowed("contribution allocation failed"),
     }
 }
 
@@ -756,6 +673,14 @@ fn in_own_folder(folder: &str) -> bool {
 }
 
 #[cfg(test)]
+#[path = "rules_tests.rs"]
+#[allow(
+    clippy::unwrap_used,
+    reason = "tests panic on purpose when something is wrong"
+)]
+mod rules_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -765,7 +690,7 @@ mod tests {
 
     #[test]
     fn ids_in_the_namespace_and_once() {
-        let mut r = Items::new(Id::new_static("demo"));
+        let mut r = Staging::new(Id::new_static("demo"));
         r.add_action(action("demo.go")).unwrap();
         assert_eq!(
             r.add_action(action("other.go")),
@@ -817,20 +742,15 @@ mod tests {
             false,
         ))
         .unwrap();
-        let kinds: Vec<&str> = r.contributions().iter().map(Contribution::kind).collect();
-        // Kept small: a plugin's list is held while it registers.
-        assert!(core::mem::size_of::<Contribution>() <= 96);
-        assert_eq!(
-            kinds,
-            [
-                "action",
-                "menu-section",
-                "icon",
-                "font-file",
-                "font-extension",
-                "font-face"
-            ]
-        );
+        let staged = [
+            r.actions.len(),
+            r.menu_sections.len(),
+            r.icons.len(),
+            r.font_files.len(),
+            r.font_extensions.len(),
+            r.font_faces.len(),
+        ];
+        assert_eq!(staged, [1; 6]);
     }
 
     /// The clean-up removes what is named like a book's key in a book
@@ -838,7 +758,7 @@ mod tests {
     /// could take the reader's files.
     #[test]
     fn book_data_is_kept_only_in_paperpaws_folder() {
-        let mut r = Items::new(Id::new_static("demo"));
+        let mut r = Staging::new(Id::new_static("demo"));
         r.add_book_data(".paperpaw/plugins/demo", "").unwrap();
         r.add_book_cache(".paperpaw/plugins/demo/pages", "p-")
             .unwrap();
@@ -869,13 +789,7 @@ mod tests {
                 ),
                 "{folder:?}"
             );
-            let data = Contribution::BookData(crate::kit::library::BookData::new(
-                Cow::Owned(folder.into()),
-                Cow::Borrowed(""),
-                crate::kit::library::BookDataKind::UserData,
-            ));
-            assert!(r.add(data).is_err(), "{folder:?}");
         }
-        assert_eq!(r.contributions().len(), 2);
+        assert_eq!(r.book_data.len(), 2);
     }
 }

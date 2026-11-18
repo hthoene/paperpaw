@@ -32,7 +32,7 @@
 //!                  run = another.action (a step a line, at most 16)
 //!   icons.ini      icons of actions and settings: item = icon-name
 //!   points/*.txt   lines for a point (`<point>.txt`, see
-//!                  `Items::contribute`): keyboard layouts, About lines
+//!                  `Staging::contribute`): keyboard layouts, About lines
 //!   setup.ini      steps of the first-run setup, a section each: [size]
 //!                  setting = core.font-size (or screen = …), order, title,
 //!                  help
@@ -57,7 +57,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
-use crate::Items;
+use crate::Staging;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::FontFace;
 use paperpaw_sdk::presets::Preset;
@@ -208,7 +208,7 @@ impl DataPlugin {
         clippy::too_many_lines,
         reason = "longer than the limit from before it was set; split it when it is next changed"
     )]
-    pub(crate) fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
+    pub(crate) fn register(&self, r: &mut Staging) -> Result<(), RegisterError> {
         for source in self.translations.take() {
             r.add_translations(Cow::Owned(source))?;
         }
@@ -1200,19 +1200,18 @@ version = 1.0.0-gamma
         let dirs = [String::from("fonts"), String::from("other")];
         let folder = font_folder(storage.as_ref(), &dirs).unwrap();
         assert!(folder.fonts.borrow().is_empty());
-        let mut r = Items::new(Id::new_static("font-folder"));
+        let mut r = Staging::new(Id::new_static("font-folder"));
         folder.register(&mut r).unwrap();
         let faces: Vec<(String, String, bool, bool)> = r
-            .contributions()
+            .font_faces
             .iter()
-            .filter_map(|c| match c {
-                crate::kit::contribution::item::Contribution::FontFace(face) => Some((
+            .map(|face| {
+                (
                     face.id.to_string(),
                     String::from(face.family.as_ref()),
                     face.bold,
                     face.italic,
-                )),
-                _ => None,
+                )
             })
             .collect();
         let face = |id: &str, family: &str, bold, italic| {
@@ -1472,13 +1471,9 @@ core.font-ui = x.semi
         let later = plugin.later.borrow().clone();
         assert_eq!(later, ["plugins/new/points/core.about.txt"], "too large");
         assert_eq!(plugin.take_problems().len(), 1);
-        let mut r = Items::new(Id::new_static("new"));
+        let mut r = Staging::new(Id::new_static("new"));
         plugin.register(&mut r).unwrap();
-        let lines = r
-            .contributions()
-            .iter()
-            .filter(|c| c.kind() == "to-point")
-            .count();
+        let lines = r.contributions.len();
         assert_eq!(lines, MAX_POINT_LINES);
         // All files of a plugin together: within one budget.
         let file = alloc::vec![b'#'; MAX_FILE - 1];

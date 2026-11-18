@@ -7,7 +7,7 @@ use super::*;
 use crate::native_host::commands::{
     CommandScope, CommandStage, WireCommand as Wire, commands_encode,
 };
-use crate::{Command, Id};
+use crate::{Ask, Id};
 use alloc::{vec, vec::Vec};
 use paperpaw_native::host_glue::{ERR_STATE, OK};
 use paperpaw_platform::{DirEntry, Instant, Storage, StorageError};
@@ -78,7 +78,7 @@ fn a_book_key_is_sixteen_hex_digits() {
 
 /// A kernel with the screens of the plugin `probe`, its `probe.main` on top.
 fn kernel() -> crate::Kernel {
-    use crate::Items;
+    use crate::Staging;
     use paperpaw_sdk::{Manifest, Version};
     struct Empty;
     impl crate::testing::Fake for Empty {
@@ -87,7 +87,7 @@ fn kernel() -> crate::Kernel {
             paperpaw_sdk::Handled::No
         }
     }
-    fn probe() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    fn probe() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
         |r| {
             for id in ["probe.home", "probe.main"] {
                 r.add_fake(crate::testing::FakeSpec::new(
@@ -120,7 +120,7 @@ fn kernel() -> crate::Kernel {
         .unwrap();
     // `probe.main` over another screen of the plugin, so it can close.
     for id in ["probe.home", "probe.main"] {
-        kernel.apply(Command::OpenScreen(Id::new_static(id), Params::new()));
+        kernel.apply(Ask::OpenScreen(Id::new_static(id), Params::new()));
     }
     kernel
 }
@@ -131,7 +131,7 @@ fn submit(
     owner: &str,
     top: bool,
     commands: &[Wire<'_>],
-) -> (i32, Vec<Command>) {
+) -> (i32, Vec<Ask>) {
     let env = kernel.shared.place(Instant(0));
     let owner = Id::try_parse(owner).unwrap();
     let screen = top.then(|| kernel.shared.stack.last().unwrap().key);
@@ -156,13 +156,10 @@ fn the_top_screens_plugin_names_the_book_and_the_host_the_file() {
     let kernel = kernel();
     let (status, staged) = submit(&kernel, "probe", true, &[Wire::SetScope { path: BOOK }]);
     assert_eq!(status, OK);
-    assert_eq!(
-        staged,
-        [Command::SetScope(Some(file("probe", BOOK).unwrap()))]
-    );
+    assert_eq!(staged, [Ask::SetScope(Some(file("probe", BOOK).unwrap()))]);
     // Empty ends the scope.
     let (status, staged) = submit(&kernel, "probe", true, &[Wire::SetScope { path: "" }]);
-    assert_eq!((status, staged), (OK, vec![Command::SetScope(None)]));
+    assert_eq!((status, staged), (OK, vec![Ask::SetScope(None)]));
     // A path that names no book: the batch is refused, nothing staged.
     let (status, staged) = submit(
         &kernel,
@@ -218,7 +215,7 @@ fn the_scope_ends_when_its_screen_goes() {
         Some(&SettingValue::Int(14))
     );
     let top = kernel.shared.stack.last().unwrap().key;
-    kernel.apply(Command::Close(top));
+    kernel.apply(Ask::Close(top));
     kernel.check_scope_owner();
     assert!(kernel.scope.is_none());
     assert_eq!(

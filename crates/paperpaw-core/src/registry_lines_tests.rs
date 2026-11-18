@@ -28,7 +28,7 @@ const TIDY: Id = Id::new_static("shelf.tidy");
 const SORT: Id = Id::new_static("shelf.sort");
 const MENU: Id = Id::new_static("shelf.menu");
 
-fn shelf(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
+fn shelf(r: &mut crate::Staging) -> Result<(), paperpaw_sdk::RegisterError> {
     for id in [LOW, HIGH] {
         r.add_fake(crate::testing::FakeSpec::new(
             id,
@@ -53,7 +53,7 @@ fn shelf(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
 
 /// The old-API side of `clock`: the action its natively declared menu row
 /// names.
-fn clock(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
+fn clock(r: &mut crate::Staging) -> Result<(), paperpaw_sdk::RegisterError> {
     r.add_action(crate::kit::action::ActionSpec::new(
         Id::new_static("clock.go"),
         "clock.go",

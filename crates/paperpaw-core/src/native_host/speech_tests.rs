@@ -5,6 +5,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::speak;
+use crate::Ask;
 use crate::io::speech::SpeechCall;
 use crate::native_host::{
     codec,
@@ -16,7 +17,7 @@ use crate::native_host::{
 use alloc::{rc::Rc, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, OK};
-use paperpaw_sdk::{Command, Id, Instant, Params, Speech};
+use paperpaw_sdk::{Id, Instant, Params, Speech};
 
 /// What one plugin was told: `cookie`, `status`.
 type Told = Rc<RefCell<Vec<(u32, u32)>>>;
@@ -241,7 +242,7 @@ fn a_rate_out_of_range_and_an_undefined_flag_are_refused_and_the_texts_are_copie
             ERR_INVALID
         );
     }
-    let Command::Speak(speech) = speak(&owner, (1, "Hallo", "de-DE"), (50, 1)).unwrap() else {
+    let Ask::Speak(speech) = speak(&owner, (1, "Hallo", "de-DE"), (50, 1)).unwrap() else {
         panic!("a speech");
     };
     assert_eq!(
@@ -253,12 +254,12 @@ fn a_rate_out_of_range_and_an_undefined_flag_are_refused_and_the_texts_are_copie
 }
 
 /// What an interface-6 plugin would send to pass for another plugin's speech.
-fn forged(reply: &'static str) -> Command {
+fn forged(reply: &'static str) -> Ask {
     let params = Params::new()
         .with(super::OWNER, "a")
         .with("cookie", "1")
         .with("status", "0");
-    Command::Speak(alloc::boxed::Box::new(
+    Ask::Speak(alloc::boxed::Box::new(
         Speech::new("x", Id::new_static(reply)).with(params),
     ))
 }

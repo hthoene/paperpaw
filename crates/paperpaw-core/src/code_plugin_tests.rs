@@ -270,7 +270,7 @@ fn a_folder_refused_for_its_id_gives_its_row_to_the_linked_plugin() {
     assert_eq!(kernel.list_native(linked), Ok(()));
     let hello = info(&kernel, "hello");
     assert_eq!((hello.kind, hello.problem), (PluginKind::BuiltIn, None));
-    kernel.apply(paperpaw_sdk::Command::RemovePlugin(Id::new_static("hello")));
+    kernel.apply(crate::Ask::RemovePlugin(Id::new_static("hello")));
     assert!(
         kernel
             .shared
