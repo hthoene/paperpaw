@@ -136,9 +136,9 @@ struct Open {
     turned: bool,
     /// The pictures of the page on show: drawn a frame after its text (#252).
     pictures: pictures::Pass,
-    /// The picture of the page on show full screen: its place on the page
+    /// The picture of the page on show full screen, and how it is zoomed
     /// (`zoom.rs`).
-    zoom: Option<usize>,
+    zoom: Option<zoom::Zoom>,
     /// A jump from another screen is not yet reported to the host.
     report_due: bool,
     /// The book's title as a report carries it.
