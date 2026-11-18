@@ -534,3 +534,65 @@ fn lines_that_are_not_the_links_are_passed_over() {
         "DEV/1 4 err no such command"
     );
 }
+
+/// The review of #12: the library folder is the reader's to name (and a
+/// computer's keys can name it), so it never stands for the plugins' or
+/// the screenshots' folder, whose rules are stricter.
+#[test]
+fn a_library_folder_named_as_the_plugins_keeps_the_plugins_rules() {
+    assert_eq!(
+        link::path("plugins/d/x.ini", "plugins", Use::Write),
+        Ok((link::Root::Plugins, "plugins/d/x.ini".into()))
+    );
+    assert_eq!(
+        link::path("plugins/d/sub/x.ini", "plugins/d", Use::Write),
+        Ok((link::Root::Plugins, "plugins/d/sub/x.ini".into()))
+    );
+    assert!(link::path("plugins/demo/ſecret.txt", "plugins", Use::Read).is_err());
+    assert!(link::path("screenshots/new.png", "screenshots", Use::Write).is_err());
+    // Through the link: nothing beside a code plugin's code.
+    let mut kernel = kernel();
+    kernel
+        .set_setting(Instant(5), "core.library-folder", "plugins")
+        .unwrap();
+    allow(&mut kernel);
+    assert_eq!(
+        said(&send(&mut kernel, 1000, "DEV/1 1 put 1 plugins/code/x.ini")),
+        "DEV/1 1 err denied"
+    );
+    assert!(!kernel.storage().exists("plugins/code/x.ini.pp-put"));
+}
+
+/// The review of #12: FAT compares names in upper case, letter by letter,
+/// and `ſ`, `ı`, `ﬁ` become `S`, `I`, `FI` so. A name spelt with them is
+/// the folder or the file it becomes, wherever it is.
+#[test]
+fn a_name_fat_reads_as_another_is_that_name() {
+    // A library folder spelt as the plugins' or the screenshots'.
+    for library in ["plugıns", "pluginſ"] {
+        assert_eq!(
+            link::path(&alloc::format!("{library}/d/x.ini"), library, Use::Read),
+            Ok((link::Root::Plugins, "plugins/d/x.ini".into())),
+            "{library}"
+        );
+    }
+    assert!(link::path("ſcreenshots/new.png", "ſcreenshots", Use::Write).is_err());
+    // Secrets and code in the library, where names beyond ASCII are let.
+    for name in [
+        "ſecrets.txt",
+        "wıfı.ini",
+        "wiﬁ.ini",
+        "a.ſec",
+        "Bücher/ſecret",
+    ] {
+        let raw = alloc::format!("books/{name}");
+        assert!(link::path(&raw, "books", Use::Read).is_err(), "{name}");
+        assert!(link::secret(name.rsplit('/').next().unwrap()), "{name}");
+    }
+    for name in ["lib.ſo", "firmware.bın"] {
+        let raw = alloc::format!("books/{name}");
+        assert!(link::path(&raw, "books", Use::Write).is_err(), "{name}");
+    }
+    // What only looks alike to a reader is another name to FAT, and a book's.
+    assert!(link::path("books/Bücher/Straße.epub", "books", Use::Write).is_ok());
+}

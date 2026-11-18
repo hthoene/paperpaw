@@ -48,7 +48,7 @@ All in the kernel (`crates/paperpaw-core/src/developer_link.rs`, `developer_link
 3. `DEV` mark: `drawing.rs`.
 4. Ends: see above (`developer_off`, `developer_poll`, `developer_close`, `developer_suspend`).
 5. Secrets: `path()` refuses `.paperpaw`, `wifi.ini`, `secret*`, `*.key`, `*.sec`, `*.pem`, `..`, `.`, empty parts, `~` (short names), trailing dot or space, non-ASCII names outside the library.
-6. Folders: the library folder, `plugins/<id>/…` (listing `plugins`), `screenshots/` (read only).
+6. Folders: the library folder, `plugins/<id>/…` (listing `plugins`), `screenshots/` (read only). `plugins` and `screenshots` are told first: a library folder named as one of them keeps that folder's rules. Names are compared as FAT reads them (upper case, letter by letter: `ſ` is `S`, `ı` is `I`).
 7. No code in: no `.ppn`, `.so`, `.bin`, `.elf`, `.ppu`, `plugin-code.txt`; nothing into a code plugin's folder; no setting is writable.
 8. Limits: 20 commands a second, one put at a time, five quiet seconds give a put up.
 9. One line a command in the device log, never a file's content (`cable.rs`).
