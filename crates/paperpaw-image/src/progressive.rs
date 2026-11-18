@@ -309,13 +309,9 @@ enum Kind {
 /// ended.
 const END: u8 = 0xd9;
 
-/// Decodes one scan (its header next) into `coefficients` (of the first
-/// components, those kept), counting the blocks it goes through in
-/// `work`; the marker after it.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
+/// Decodes one scan, its header next, into `coefficients`. Only the
+/// first components, those kept, have coefficients. Counts the blocks it
+/// goes through in `work`. The marker after it.
 fn scan(
     reader: &mut Reader<'_>,
     frame: &mut Frame,
@@ -323,100 +319,28 @@ fn scan(
     coefficients: &mut [Coefficients],
     work: &mut u64,
 ) -> Result<u8, ImageError> {
-    let count = usize::from(reader.byte()?);
-    if count == 0 || count > 4 {
-        return Err(ImageError::Invalid("bad scan"));
-    }
-    let mut members: Vec<usize> = Vec::new();
-    members
-        .try_reserve_exact(count)
-        .map_err(|_| ImageError::OutOfMemory)?;
-    for _ in 0..count {
-        let id = reader.byte()?;
-        let tables = reader.byte()?;
-        let index = frame
-            .components
-            .iter()
-            .position(|c| c.id == id)
-            .ok_or(ImageError::Invalid("unknown component"))?;
-        frame.components[index].dc = usize::from(tables >> 4 & 3);
-        frame.components[index].ac = usize::from(tables & 3);
-        members.push(index);
-    }
-    let start = usize::from(reader.byte()?);
-    let end = usize::from(reader.byte()?);
-    let approximation = reader.byte()?;
-    let (high, low) = (approximation >> 4, approximation & 15);
-    if start > end || end > 63 || (start == 0 && end != 0) || low > 13 {
-        return Err(ImageError::Invalid("bad scan"));
-    }
-    let kind = match (start == 0, high == 0) {
-        (true, true) => Kind::DcFirst,
-        (true, false) => Kind::DcRefine,
-        (false, true) => Kind::AcFirst,
-        (false, false) => Kind::AcRefine,
-    };
+    let ScanHeader {
+        members,
+        kind,
+        band: (start, end, low),
+    } = scan_header(reader, frame)?;
+    let count = members.len();
     let kept_in = members.iter().any(|&c| c < coefficients.len());
     let n = coefficients.first().map_or(1, |c| c.n);
-    // Nothing kept in this scan: skipped without decoding. (A band without
-    // kept frequencies is still decoded where others are kept: later
-    // refining scans may span it and need to know what it set.)
+    // Nothing kept in this scan: it is skipped without decoding. A band
+    // without kept frequencies is still decoded where others are kept:
+    // later refining scans may span it and need to know what it set.
     if !kept_in || start > 0 && (count != 1 || n == 1) {
         return next_marker(reader);
     }
-    for &c in &members {
-        let component = frame.components[c];
-        let missing = match kind {
-            Kind::DcFirst => frame.tables.dc[component.dc].is_none(),
-            Kind::AcFirst | Kind::AcRefine => frame.tables.ac[component.ac].is_none(),
-            Kind::DcRefine => false,
-        };
-        if missing {
-            return Err(ImageError::Invalid("missing Huffman table"));
-        }
-        frame.components[c].prediction = 0;
-    }
+    check_tables(frame, &members, kind)?;
 
     let mut bits = Bits::new(reader);
-    let restart = frame.restart_interval;
-    let mut until_restart = restart;
+    let mut restarts = Restarts {
+        interval: frame.restart_interval,
+        until: frame.restart_interval,
+    };
     let mut eob_run = 0u32;
-    // Before each MCU: a restart, where due.
-    let mut before_mcu = |bits: &mut Bits<'_, '_>,
-                          components: &mut [Component],
-                          eob_run: &mut u32|
-     -> Result<(), ImageError> {
-        if restart > 0 {
-            if until_restart == 0 {
-                bits.restart()?;
-                for &c in &members {
-                    components[c].prediction = 0;
-                }
-                *eob_run = 0;
-                until_restart = restart;
-            }
-            until_restart -= 1;
-        }
-        Ok(())
-    };
-    // After each restart: whether to decode the next `blocks` (a block,
-    // or an MCU of them), stop the scan where its data ended, or stop
-    // decoding the image where its scans went through more blocks than
-    // its data may ask for.
-    let go = |bits: &Bits<'_, '_>, work: &mut u64, blocks: usize| {
-        *work += blocks as u64;
-        Ok(if !bits.affords(*work) {
-            Go::End
-        } else if !bits.exhausted()? {
-            Go::Decode
-        } else if bits.resumes(restart) {
-            // No data up to the next restart: nothing to add.
-            Go::Skip
-        } else {
-            Go::Stop
-        })
-    };
-
     if count == 1 {
         // Not interleaved: the component's own blocks, row by row.
         let c = members[0];
@@ -425,8 +349,8 @@ fn scan(
         let blocks_y = (height_of(frame, layout, c)).div_ceil(8);
         'blocks: for by in 0..blocks_y {
             for bx in 0..blocks_x {
-                before_mcu(&mut bits, &mut frame.components, &mut eob_run)?;
-                match go(&bits, work, 1)? {
+                restarts.before_mcu(&mut bits, &mut frame.components, &members, &mut eob_run)?;
+                match restarts.go(&bits, work, 1)? {
                     Go::Decode => {}
                     Go::Skip => continue,
                     Go::Stop => break 'blocks,
@@ -447,15 +371,15 @@ fn scan(
             }
         }
     } else {
-        // Interleaved (DC only): MCU by MCU.
+        // Interleaved, DC only: MCU by MCU.
         let mcu_blocks: usize = members
             .iter()
             .map(|&c| frame.components[c].h * frame.components[c].v)
             .sum();
         'mcus: for my in 0..layout.mcus_y {
             for mx in 0..layout.mcus_x {
-                before_mcu(&mut bits, &mut frame.components, &mut eob_run)?;
-                match go(&bits, work, mcu_blocks)? {
+                restarts.before_mcu(&mut bits, &mut frame.components, &members, &mut eob_run)?;
+                match restarts.go(&bits, work, mcu_blocks)? {
                     Go::Decode => {}
                     Go::Skip => continue,
                     Go::Stop => break 'mcus,
@@ -489,6 +413,125 @@ fn scan(
     match bits.marker {
         Some(marker) if !(0xd0..=0xd7).contains(&marker) => Ok(marker),
         _ => next_marker(bits.reader),
+    }
+}
+
+/// What a scan's header says.
+struct ScanHeader {
+    /// The components in the scan, by their index in the frame.
+    members: Vec<usize>,
+    kind: Kind,
+    /// The band of coefficients, and the bit position of the refinement.
+    band: (usize, usize, u8),
+}
+
+/// Reads a scan's header. The tables each component takes go to `frame`.
+fn scan_header(reader: &mut Reader<'_>, frame: &mut Frame) -> Result<ScanHeader, ImageError> {
+    let count = usize::from(reader.byte()?);
+    if count == 0 || count > 4 {
+        return Err(ImageError::Invalid("bad scan"));
+    }
+    let mut members: Vec<usize> = Vec::new();
+    members
+        .try_reserve_exact(count)
+        .map_err(|_| ImageError::OutOfMemory)?;
+    for _ in 0..count {
+        let id = reader.byte()?;
+        let tables = reader.byte()?;
+        let index = frame
+            .components
+            .iter()
+            .position(|c| c.id == id)
+            .ok_or(ImageError::Invalid("unknown component"))?;
+        frame.components[index].dc = usize::from(tables >> 4 & 3);
+        frame.components[index].ac = usize::from(tables & 3);
+        members.push(index);
+    }
+    let start = usize::from(reader.byte()?);
+    let end = usize::from(reader.byte()?);
+    let approximation = reader.byte()?;
+    let (high, low) = (approximation >> 4, approximation & 15);
+    if start > end || end > 63 || (start == 0 && end != 0) || low > 13 {
+        return Err(ImageError::Invalid("bad scan"));
+    }
+    let kind = match (start == 0, high == 0) {
+        (true, true) => Kind::DcFirst,
+        (true, false) => Kind::DcRefine,
+        (false, true) => Kind::AcFirst,
+        (false, false) => Kind::AcRefine,
+    };
+    Ok(ScanHeader {
+        members,
+        kind,
+        band: (start, end, low),
+    })
+}
+
+/// Checks that the scan's components have the Huffman tables its `kind`
+/// needs, and has them predict their DC from zero.
+fn check_tables(frame: &mut Frame, members: &[usize], kind: Kind) -> Result<(), ImageError> {
+    for &c in members {
+        let component = frame.components[c];
+        let missing = match kind {
+            Kind::DcFirst => frame.tables.dc[component.dc].is_none(),
+            Kind::AcFirst | Kind::AcRefine => frame.tables.ac[component.ac].is_none(),
+            Kind::DcRefine => false,
+        };
+        if missing {
+            return Err(ImageError::Invalid("missing Huffman table"));
+        }
+        frame.components[c].prediction = 0;
+    }
+    Ok(())
+}
+
+/// The restarts of a scan: their interval, and the MCUs up to the next.
+struct Restarts {
+    interval: u32,
+    until: u32,
+}
+
+impl Restarts {
+    /// Before each MCU: a restart, where it is due.
+    #[inline(always)]
+    fn before_mcu(
+        &mut self,
+        bits: &mut Bits<'_, '_>,
+        components: &mut [Component],
+        members: &[usize],
+        eob_run: &mut u32,
+    ) -> Result<(), ImageError> {
+        if self.interval > 0 {
+            if self.until == 0 {
+                bits.restart()?;
+                for &c in members {
+                    components[c].prediction = 0;
+                }
+                *eob_run = 0;
+                self.until = self.interval;
+            }
+            self.until -= 1;
+        }
+        Ok(())
+    }
+
+    /// After each restart: whether to decode the next `blocks`, a block or
+    /// an MCU of them. Or else to stop the scan where its data ended, or to
+    /// stop decoding the image where its scans went through more blocks
+    /// than its data may ask for.
+    #[inline(always)]
+    fn go(&self, bits: &Bits<'_, '_>, work: &mut u64, blocks: usize) -> Result<Go, ImageError> {
+        *work += blocks as u64;
+        Ok(if !bits.affords(*work) {
+            Go::End
+        } else if !bits.exhausted()? {
+            Go::Decode
+        } else if bits.resumes(self.interval) {
+            // No data up to the next restart: nothing to add.
+            Go::Skip
+        } else {
+            Go::Stop
+        })
     }
 }
 
