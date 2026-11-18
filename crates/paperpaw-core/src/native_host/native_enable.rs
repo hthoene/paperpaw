@@ -209,6 +209,8 @@ impl Kernel {
     /// A card folder of the same id whose code does not run (refused for the
     /// id, held back, never installed) gives way: the row is this plugin's,
     /// its warning stays, and the folder is no longer the id's (#1424 R1).
+    /// A card folder of data alone of the same id stays loaded, its data
+    /// merged with this plugin's, and the row is this plugin's (#274).
     ///
     /// # Errors
     /// `ERR_DENIED` for the kernel's own id; `ERR_INVALID` for an id that is
@@ -219,13 +221,18 @@ impl Kernel {
             return Err(ERR_DENIED);
         }
         if let Some(listed) = self.shared.plugins.get(id.as_str()) {
-            if listed.kind != PluginKind::Code || listed.state == PluginState::Running {
-                return Err(ERR_INVALID);
+            match listed.kind {
+                PluginKind::Data => {
+                    self.shared.plugins.remove(id.as_str());
+                }
+                PluginKind::Code if listed.state != PluginState::Running => {
+                    self.shared.plugins.remove(id.as_str());
+                    self.shared
+                        .data_folders
+                        .retain(|(folder_id, _)| *folder_id != id);
+                }
+                _ => return Err(ERR_INVALID),
             }
-            self.shared.plugins.remove(id.as_str());
-            self.shared
-                .data_folders
-                .retain(|(folder_id, _)| *folder_id != id);
         }
         self.shared.registry_generation.bump();
         self.shared.plugins.push(info);
