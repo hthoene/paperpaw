@@ -83,7 +83,7 @@ de.name = "Hebräische Schrift"
 de.description = "Bücher auf Hebräisch in Noto Serif Hebrew, mit ihren Punkten, und eine Tastatur dafür."
 
 [script-greek]
-version = "1.0.2"
+version = "1.0.3"
 group = "languages"
 licence = "OFL-1.1"
 devices = ["x4", "x4-pro", "x4-classic"]
@@ -96,7 +96,7 @@ de.name = "Griechische Schrift"
 de.description = "Bücher auf Griechisch in Literata, modern und mit den älteren Akzenten."
 
 [script-cyrillic]
-version = "1.0.2"
+version = "1.0.3"
 group = "languages"
 licence = "OFL-1.1"
 devices = ["x4", "x4-pro", "x4-classic"]
@@ -120,6 +120,48 @@ name = "Vietnamese letters"
 description = "Vietnamese books in Literata, with all its accented letters, ơ and ư."
 de.name = "Vietnamesische Schrift"
 de.description = "Bücher auf Vietnamesisch in Literata, mit allen Akzentbuchstaben, ơ und ư."
+
+[script-chinese-simplified]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 3
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifSC-subset.ttf", "tools/fontgen", "crates/paperpaw-text/src/charset.rs", "tools/fontgen/sets/hanzi-gb2312.txt"]
+name = "Chinese (Simplified) letters"
+description = "Chinese books in Simplified characters in a Noto Serif face: the 6,763 ideographs of GB 2312, in four sizes (about 20 MiB on the card)."
+de.name = "Chinesische Schrift (vereinfacht)"
+de.description = "Bücher auf Chinesisch in vereinfachten Zeichen in einer Noto-Serif-Schrift: die 6.763 Schriftzeichen des GB 2312, in vier Größen (etwa 20 MiB auf der Karte)."
+
+[script-chinese-traditional]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 3
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifTC-subset.ttf", "tools/fontgen", "crates/paperpaw-text/src/charset.rs", "tools/fontgen/sets/hanzi-big5.txt"]
+name = "Chinese (Traditional) letters"
+description = "Chinese books in Traditional characters in a Noto Serif face: the 5,401 frequently used characters of Big5, in four sizes (about 16 MiB on the card)."
+de.name = "Chinesische Schrift (traditionell)"
+de.description = "Bücher auf Chinesisch in traditionellen Zeichen in einer Noto-Serif-Schrift: die 5.401 häufigen Zeichen des Big5, in vier Größen (etwa 16 MiB auf der Karte)."
+
+[script-japanese]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 3
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifJP-subset.ttf", "tools/fontgen", "crates/paperpaw-text/src/charset.rs", "tools/fontgen/sets/kanji-japanese.txt"]
+name = "Japanese letters"
+description = "Japanese books in a Noto Serif face: hiragana, katakana and 2,998 kanji (the Joyo kanji and JIS X 0208 level 1), in four sizes (about 9 MiB on the card)."
+de.name = "Japanische Schrift"
+de.description = "Bücher auf Japanisch in einer Noto-Serif-Schrift: Hiragana, Katakana und 2.998 Kanji (die Jōyō-Kanji und JIS X 0208 Ebene 1), in vier Größen (etwa 9 MiB auf der Karte)."
 
 [language-ar]
 version = "1.0.5"
@@ -146,7 +188,7 @@ formats = 4
 devices = ["x4", "x4-pro", "x4-classic"]
 off_by_default = true
 build = "tools/language-pack.py"
-inputs = ["crates/paperpaw-app/i18n/pebble/de.ini", "crates/paperpaw-core/i18n/de.ini", "crates/paperpaw-core/i18n/host/de.ini", "crates/paperpaw-core/i18n/settings/de.ini", "plugins/about/i18n/de.ini", "plugins/aids/i18n/de.ini", "plugins/anki/i18n/de.ini", "plugins/battery/i18n/de.ini", "plugins/bluetooth/i18n/de.ini", "plugins/browser/i18n/de.ini", "plugins/calibre/i18n/de.ini", "plugins/diagnostics/i18n/de.ini", "plugins/dictionary/i18n/de.ini", "plugins/end-of-book/i18n/de.ini", "plugins/file-manager/i18n/de.ini", "plugins/files/i18n/de.ini", "plugins/fonts-browser/i18n/de.ini", "plugins/fonts-default/i18n/de.ini", "plugins/format-cbz/i18n/de.ini", "plugins/format-docx/i18n/de.ini", "plugins/format-epub/i18n/de.ini", "plugins/format-fb2/i18n/de.ini", "plugins/format-html/i18n/de.ini", "plugins/format-images/i18n/de.ini", "plugins/format-markdown/i18n/de.ini", "plugins/format-mobi/i18n/de.ini", "plugins/format-txt/i18n/de.ini", "plugins/format-xtc/i18n/de.ini", "plugins/help/i18n/de.ini", "plugins/home/i18n/de.ini", "plugins/hyphenation-da/i18n/de.ini", "plugins/hyphenation-de/i18n/de.ini", "plugins/hyphenation-es/i18n/de.ini", "plugins/hyphenation-fr/i18n/de.ini", "plugins/hyphenation-it/i18n/de.ini", "plugins/hyphenation-nb/i18n/de.ini", "plugins/hyphenation-nl/i18n/de.ini", "plugins/hyphenation-pl/i18n/de.ini", "plugins/hyphenation-pt/i18n/de.ini", "plugins/hyphenation-ru/i18n/de.ini", "plugins/hyphenation-sv/i18n/de.ini", "plugins/hyphenation-uk/i18n/de.ini", "plugins/hyphenation/i18n/de.ini", "plugins/joplin/i18n/de.ini", "plugins/keyboard/i18n/de.ini", "plugins/keys/i18n/de.ini", "plugins/koreader/i18n/de.ini", "plugins/kosync/i18n/de.ini", "plugins/lock/i18n/de.ini", "plugins/mail/i18n/de.ini", "plugins/menu-editor/i18n/de.ini", "plugins/menu/i18n/de.ini", "plugins/news/i18n/de.ini", "plugins/notes-overview/i18n/de.ini", "plugins/notes-vault/i18n/de.ini", "plugins/opds/i18n/de.ini", "plugins/picture-frame/i18n/de.ini", "plugins/picture-home/i18n/de.ini", "plugins/plugin-manager/i18n/de.ini", "plugins/power/i18n/de.ini", "plugins/profiles/i18n/de.ini", "plugins/read-later-cloud/i18n/de.ini", "plugins/reader/i18n/de.ini", "plugins/reading-goal/i18n/de.ini", "plugins/readwise/i18n/de.ini", "plugins/rules/i18n/de.ini", "plugins/settings/i18n/de.ini", "plugins/setup/i18n/de.ini", "plugins/sleep/i18n/de.ini", "plugins/stats/i18n/de.ini", "plugins/store/i18n/de.ini", "plugins/transfer/i18n/de.ini", "plugins/translate/i18n/de.ini", "plugins/update/i18n/de.ini", "plugins/vocabulary/i18n/de.ini", "plugins/wallabag/i18n/de.ini", "plugins/weather/i18n/de.ini", "plugins/widgets/i18n/de.ini", "plugins/wifi/i18n/de.ini", "plugins/wikipedia/i18n/de.ini", "shells/android/i18n/de.ini", "shells/xteink/i18n/de.ini", "tools/language-pack.py", "tools/sign"]
+inputs = ["crates/paperpaw-app/i18n/pebble/de.ini", "crates/paperpaw-core/i18n/de.ini", "crates/paperpaw-core/i18n/host/de.ini", "crates/paperpaw-core/i18n/settings/de.ini", "plugins/about/i18n/de.ini", "plugins/aids/i18n/de.ini", "plugins/anki/i18n/de.ini", "plugins/battery/i18n/de.ini", "plugins/bluetooth/i18n/de.ini", "plugins/browser/i18n/de.ini", "plugins/calibre/i18n/de.ini", "plugins/diagnostics/i18n/de.ini", "plugins/dictionary/i18n/de.ini", "plugins/end-of-book/i18n/de.ini", "plugins/file-manager/i18n/de.ini", "plugins/files/i18n/de.ini", "plugins/fonts-browser/i18n/de.ini", "plugins/fonts-default/i18n/de.ini", "plugins/format-cbz/i18n/de.ini", "plugins/format-docx/i18n/de.ini", "plugins/format-epub/i18n/de.ini", "plugins/format-fb2/i18n/de.ini", "plugins/format-html/i18n/de.ini", "plugins/format-images/i18n/de.ini", "plugins/format-markdown/i18n/de.ini", "plugins/format-mobi/i18n/de.ini", "plugins/format-txt/i18n/de.ini", "plugins/format-xtc/i18n/de.ini", "plugins/help/i18n/de.ini", "plugins/home/i18n/de.ini", "plugins/hyphenation-da/i18n/de.ini", "plugins/hyphenation-de/i18n/de.ini", "plugins/hyphenation-es/i18n/de.ini", "plugins/hyphenation-fr/i18n/de.ini", "plugins/hyphenation-it/i18n/de.ini", "plugins/hyphenation-nb/i18n/de.ini", "plugins/hyphenation-nl/i18n/de.ini", "plugins/hyphenation-pl/i18n/de.ini", "plugins/hyphenation-pt/i18n/de.ini", "plugins/hyphenation-ru/i18n/de.ini", "plugins/hyphenation-sv/i18n/de.ini", "plugins/hyphenation-uk/i18n/de.ini", "plugins/hyphenation/i18n/de.ini", "plugins/joplin/i18n/de.ini", "plugins/keyboard/i18n/de.ini", "plugins/keys/i18n/de.ini", "plugins/koreader/i18n/de.ini", "plugins/kosync/i18n/de.ini", "plugins/lock/i18n/de.ini", "plugins/mail/i18n/de.ini", "plugins/menu-editor/i18n/de.ini", "plugins/menu/i18n/de.ini", "plugins/news/i18n/de.ini", "plugins/notes-overview/i18n/de.ini", "plugins/notes-vault/i18n/de.ini", "plugins/opds/i18n/de.ini", "plugins/picture-frame/i18n/de.ini", "plugins/picture-home/i18n/de.ini", "plugins/plugin-manager/i18n/de.ini", "plugins/pomodoro/i18n/de.ini", "plugins/power/i18n/de.ini", "plugins/profiles/i18n/de.ini", "plugins/read-later-cloud/i18n/de.ini", "plugins/reader/i18n/de.ini", "plugins/reading-goal/i18n/de.ini", "plugins/readwise/i18n/de.ini", "plugins/rules/i18n/de.ini", "plugins/settings/i18n/de.ini", "plugins/setup/i18n/de.ini", "plugins/sleep/i18n/de.ini", "plugins/stats/i18n/de.ini", "plugins/store/i18n/de.ini", "plugins/transfer/i18n/de.ini", "plugins/translate/i18n/de.ini", "plugins/update/i18n/de.ini", "plugins/vocabulary/i18n/de.ini", "plugins/wallabag/i18n/de.ini", "plugins/weather/i18n/de.ini", "plugins/widgets/i18n/de.ini", "plugins/wifi/i18n/de.ini", "plugins/wikipedia/i18n/de.ini", "shells/android/i18n/de.ini", "shells/xteink/i18n/de.ini", "tools/language-pack.py", "tools/sign"]
 name = "German (user interface)"
 description = "PaperPaw's menus and settings in German."
 de.name = "Deutsch (Oberfläche)"
@@ -503,7 +545,7 @@ de.how = "PaperPaws Menüs und Einstellungen auf Urdu, von rechts nach links.\n\
 # fall back to it. A pack holds up to 65,535 characters, so all 11,172
 # syllables (`hangul`) can come later as data, without a new interface.
 [script-korean]
-version = "1.1.3"
+version = "1.1.4"
 group = "languages"
 licence = "OFL-1.1"
 formats = 3
@@ -522,7 +564,7 @@ de.description = "Bücher auf Koreanisch in einer klassischen Buchschrift: die 2
 # brings no letters of its own beyond them). About 30 MiB on the card, so
 # the reader offers it only for a book that uses such syllables.
 [script-korean-extra]
-version = "1.0.2"
+version = "1.0.3"
 group = "languages"
 licence = "OFL-1.1"
 formats = 4
@@ -723,3 +765,63 @@ name = "Vietnamese (user interface)"
 description = "PaperPaw's menus and settings in Vietnamese. Needs Vietnamese letters. A machine translation, a draft."
 de.name = "Vietnamesisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Vietnamesisch. Braucht die Vietnamesische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-zh-hans]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-chinese-simplified"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/zh-hans.ini", "tools/language-pack.py", "tools/sign"]
+name = "Chinese, Simplified (user interface)"
+description = "PaperPaw's menus and settings in Simplified Chinese. Needs Chinese (Simplified) letters. A machine translation, a draft."
+de.name = "Chinesisch (vereinfacht) (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf vereinfachtem Chinesisch. Braucht die Chinesische Schrift (vereinfacht). Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-zh-hant]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-chinese-traditional"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/zh-hant.ini", "tools/language-pack.py", "tools/sign"]
+name = "Chinese, Traditional (user interface)"
+description = "PaperPaw's menus and settings in Traditional Chinese. Needs Chinese (Traditional) letters. A machine translation, a draft."
+de.name = "Chinesisch (traditionell) (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf traditionellem Chinesisch. Braucht die Chinesische Schrift (traditionell). Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-ja]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-japanese"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/ja.ini", "tools/language-pack.py", "tools/sign"]
+name = "Japanese (user interface)"
+description = "PaperPaw's menus and settings in Japanese. Needs Japanese letters. A machine translation, a draft."
+de.name = "Japanisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Japanisch. Braucht die Japanische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-ko]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-korean"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/ko.ini", "tools/language-pack.py", "tools/sign"]
+name = "Korean (user interface)"
+description = "PaperPaw's menus and settings in Korean. Needs Korean letters. A machine translation, a draft."
+de.name = "Koreanisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Koreanisch. Braucht die Koreanische Schrift. Eine maschinelle Übersetzung, ein Entwurf."

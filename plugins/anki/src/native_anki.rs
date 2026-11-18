@@ -257,7 +257,7 @@ fn fault_of(message: &str) -> Fault {
 
 /// What one reading of an answer collects.
 trait Sink {
-    fn status(&mut self) -> &mut Status;
+    fn status_mut(&mut self) -> &mut Status;
     fn take(&mut self, event: Event<'_>) -> Result<(), Error>;
 }
 
@@ -285,9 +285,9 @@ impl<S: Sink + core::fmt::Debug> Reading<S> {
         let Self { parser, sink, .. } = self;
         if parser
             .try_feed(piece, &mut |e| {
-                sink.status().event(e);
+                sink.status_mut().event(e);
                 if let Err(error) = sink.take(e) {
-                    sink.status().spent = Some(error);
+                    sink.status_mut().spent = Some(error);
                 }
             })
             .is_err()
@@ -302,9 +302,9 @@ impl<S: Sink + core::fmt::Debug> Reading<S> {
         let Self { parser, sink, .. } = &mut self;
         if parser
             .try_finish(&mut |e| {
-                sink.status().event(e);
+                sink.status_mut().event(e);
                 if let Err(error) = sink.take(e) {
-                    sink.status().spent = Some(error);
+                    sink.status_mut().spent = Some(error);
                 }
             })
             .is_err()
@@ -316,7 +316,7 @@ impl<S: Sink + core::fmt::Debug> Reading<S> {
     }
 
     fn check(&mut self) -> Result<(), Error> {
-        match self.sink.status().spent {
+        match self.sink.status_mut().spent {
             Some(error) => Err(error),
             None => Ok(()),
         }
@@ -335,7 +335,7 @@ pub enum Reply<T> {
 }
 
 fn reply<S: Sink, T>(mut sink: S, value: impl FnOnce(S) -> T) -> Reply<T> {
-    let status = sink.status();
+    let status = sink.status_mut();
     if let Some(fault) = status.fault.take() {
         return Reply::Fault(fault);
     }
@@ -355,7 +355,7 @@ struct IdsSink {
 }
 
 impl Sink for IdsSink {
-    fn status(&mut self) -> &mut Status {
+    fn status_mut(&mut self) -> &mut Status {
         &mut self.status
     }
     fn take(&mut self, event: Event<'_>) -> Result<(), Error> {
@@ -420,7 +420,7 @@ struct NamesSink {
 }
 
 impl Sink for NamesSink {
-    fn status(&mut self) -> &mut Status {
+    fn status_mut(&mut self) -> &mut Status {
         &mut self.status
     }
     fn take(&mut self, event: Event<'_>) -> Result<(), Error> {
@@ -572,7 +572,7 @@ struct CardsSink {
 }
 
 impl Sink for CardsSink {
-    fn status(&mut self) -> &mut Status {
+    fn status_mut(&mut self) -> &mut Status {
         &mut self.status
     }
     fn take(&mut self, event: Event<'_>) -> Result<(), Error> {
@@ -656,7 +656,7 @@ struct AnsweredSink {
 }
 
 impl Sink for AnsweredSink {
-    fn status(&mut self) -> &mut Status {
+    fn status_mut(&mut self) -> &mut Status {
         &mut self.status
     }
     fn take(&mut self, event: Event<'_>) -> Result<(), Error> {

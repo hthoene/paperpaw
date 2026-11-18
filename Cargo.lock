@@ -1683,6 +1683,7 @@ dependencies = [
  "paperpaw-plugin-opds",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-plugin-manager",
+ "paperpaw-plugin-pomodoro",
  "paperpaw-plugin-power",
  "paperpaw-plugin-profiles",
  "paperpaw-plugin-reader",
@@ -2510,6 +2511,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-pomodoro"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-power"
 version = "1.1.3"
 dependencies = [
@@ -2662,7 +2677,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",

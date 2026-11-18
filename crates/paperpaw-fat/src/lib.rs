@@ -104,8 +104,8 @@ mod walk;
 
 pub use disk::{BLOCK, BlockDisk, Blocks, DiskError, SharedDisk, VolumeError};
 pub use swap::{
-    CardSwap, LOST_AFTER, MOUNT_TRIES, Mount, PROBE_MS, RETRY_MS, Restart, Swappable, Swapped,
-    Watched,
+    AGAIN_MS, CALM_MS, CardSwap, LOST_AFTER, MOUNT_TRIES, Mount, PROBE_MS, RETRY_MS, Restart,
+    Swappable, Swapped, Watched,
 };
 
 use alloc::format;

@@ -1263,6 +1263,16 @@ impl Kernel {
         self.finish()
     }
 
+    /// The card lost its power and has it back, and is the card it was,
+    /// as it was left (a loose contact; the shell's `Swapped::Back`): what
+    /// the kernel kept of it is read again, as what was not written back
+    /// is gone. Unlike [`Kernel::usb_drive_ended`] nothing wakes: no
+    /// library is walked, no plugin told, and the time to sleep stays.
+    pub fn card_back(&mut self) {
+        let _running = self.shared.meter.enter(meter::CORE);
+        self.card_changed();
+    }
+
     /// Closes the screens above a guard that it did not open (a sleep
     /// screen): input goes to the guard again.
     fn close_shut_out(&mut self) {

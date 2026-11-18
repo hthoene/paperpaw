@@ -47,3 +47,4 @@ format-epub
 vocabulary
 anki
 picture-frame
+pomodoro

@@ -73,6 +73,10 @@ pub trait Blocks {
     }
     /// Number of blocks.
     fn blocks(&mut self) -> Result<u32, DiskError>;
+    /// Told by [`BlockDisk::volume`]: the FAT volume starts at block
+    /// `first`, and `boot` is its boot sector as just read. For a disk
+    /// that tells one card from another ([`crate::Watched`]).
+    fn volume_found(&mut self, _first: u32, _boot: &[u8; BLOCK]) {}
 }
 
 /// Why no FAT volume was found on a disk.
@@ -234,7 +238,10 @@ impl<B: Blocks> BlockDisk<B> {
         let mut block = [0u8; BLOCK];
         disk.read_block(0, &mut block)?;
         match boot(&block) {
-            Boot::Fat => return Ok(Self::part(disk, 0, blocks)),
+            Boot::Fat => {
+                disk.volume_found(0, &block);
+                return Ok(Self::part(disk, 0, blocks));
+            }
             Boot::ExFat => return Err(VolumeError::ExFat),
             Boot::Other => {}
         }
@@ -250,7 +257,10 @@ impl<B: Blocks> BlockDisk<B> {
             let (first, count) = (first as u32, count as u32);
             disk.read_block(first, &mut block)?;
             match boot(&block) {
-                Boot::Fat => return Ok(Self::part(disk, first, count)),
+                Boot::Fat => {
+                    disk.volume_found(first, &block);
+                    return Ok(Self::part(disk, first, count));
+                }
                 Boot::ExFat => exfat = true,
                 Boot::Other => {}
             }

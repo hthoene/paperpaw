@@ -41,8 +41,10 @@ pub const SHOTS_SCREEN: u32 = 25;
 pub const FETCH_SCREEN: u32 = 26;
 /// The first-run offer's page of the setup.
 pub const OFFER_SCREEN: u32 = 27;
+/// The setup templates' page.
+pub const TEMPLATES_SCREEN: u32 = 28;
 
-/// The eight screens of the store: the start and the progress of a fetch are
+/// The nine screens of the store: the start and the progress of a fetch are
 /// single, as in Beta 3; the others come once for each set of parameters.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
@@ -57,6 +59,11 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
         ScreenDecl::new("fetch", "store.fetch.title", FETCH_SCREEN).instances(Instances::Single),
     )?;
     d.screen(ScreenDecl::new("offer", "store.offer.title", OFFER_SCREEN))?;
+    d.screen(ScreenDecl::new(
+        "templates",
+        "store.template.title",
+        TEMPLATES_SCREEN,
+    ))?;
     d.submit()?;
     Ok(())
 }
@@ -77,6 +84,16 @@ pub fn setup<F: FnMut(&[u8]) -> Result<(), i32>>(
     );
     step.help = "store.offer.help";
     step.order = 55;
+    d.setup_step(step)?;
+    // The templates come before the single plugins: a connection is there (the
+    // Wi-Fi page is 50) and what a template adds is not offered twice.
+    let mut step = SetupStepDecl::new(
+        "template",
+        "store.template.title",
+        SetupPage::Screen("store.templates"),
+    );
+    step.help = "store.template.help";
+    step.order = 52;
     d.setup_step(step)?;
     d.submit()?;
     Ok(())
