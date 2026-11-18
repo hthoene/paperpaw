@@ -16,6 +16,7 @@ import data  # noqa: E402
 PACKS = {
     "script-arabic": "1.1.3",
     "script-hebrew": "1.1.3",
+    "script-thai": "1.0.0",
     "script-greek": "1.0.3",
     "script-cyrillic": "1.0.3",
     "script-ethiopic": "1.0.0",

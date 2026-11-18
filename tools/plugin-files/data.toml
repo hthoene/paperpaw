@@ -82,6 +82,20 @@ description = "Hebrew books in Noto Serif Hebrew, with their points, and a keybo
 de.name = "Hebräische Schrift"
 de.description = "Bücher auf Hebräisch in Noto Serif Hebrew, mit ihren Punkten, und eine Tastatur dafür."
 
+[script-thai]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 3
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifThai.ttf", "tools/fonts/NotoSansThai.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs"]
+name = "Thai letters"
+description = "Thai books in Noto Serif Thai, with their vowels and tone marks stacked in place."
+de.name = "Thailändische Schrift"
+de.description = "Bücher auf Thailändisch in Noto Serif Thai, mit Vokal- und Tonzeichen an der richtigen Stelle."
+
 [script-greek]
 version = "1.0.3"
 group = "languages"
@@ -907,3 +921,18 @@ name = "Korean (user interface)"
 description = "PaperPaw's menus and settings in Korean. Needs Korean letters. A machine translation, a draft."
 de.name = "Koreanisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Koreanisch. Braucht die Koreanische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-th]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-thai"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/th.ini", "tools/language-pack.py", "tools/sign"]
+name = "Thai (user interface)"
+description = "PaperPaw's menus and settings in Thai. Needs Thai letters. A machine translation, a draft."
+de.name = "Thailändisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Thailändisch. Braucht die Thailändische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
