@@ -1,0 +1,9 @@
+Anki lets you study the cards that are due in Anki on your computer on the reader, and sends your answers back. It uses the free add-on AnkiConnect (add-on code 2055492159) and never AnkiWeb. It is off at first: add it from the Plugin store.
+
+On the computer: install AnkiConnect in Anki (Tools, Add-ons, Get Add-ons) and restart Anki. Anki must be open while you sync.
+
+By default AnkiConnect only answers the computer it runs on (127.0.0.1), so the reader cannot reach it. Open Tools, Add-ons, AnkiConnect, Config and set "webBindAddress" to "0.0.0.0" (listen on the home network). The port, "webBindPort", is 8765 unless you change it. If you set an "apiKey" there, enter the same key here. Restart Anki after changing the configuration, and allow Anki through the computer's firewall if it asks. Only use this on a network you trust: anyone on it can reach AnkiConnect, so a key is a good idea.
+
+On the reader: open Anki from Tools, then enter the computer's address (for example 192.168.1.20) under Computer, the port if it is not 8765, and the API key if you set one. Choose a Deck, or leave it empty for all decks. Then choose Sync with Anki, with Wi-Fi on: your answers waiting are sent first, then the cards that are due (and the number of new cards you set) are fetched, at most 50. Choose Study to go through them, without a network: show the answer and rate it Again, Hard, Good or Easy. Your answers are kept on the reader, also with no Wi-Fi, and go to Anki with the next sync. Anki decides when a card comes back: a card you answered Again is fetched again by a later sync once Anki says it is due.
+
+Sync when Anki opens, in the settings, syncs each time you open the screen. Nothing uses the network when you press a key.
