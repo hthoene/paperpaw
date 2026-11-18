@@ -260,7 +260,16 @@ impl Fonts {
             if entry.font.is_some() || !self.to_open(index, wanted) {
                 continue;
             }
-            let font = if extends || (entry.face && is_pack(path)) {
+            // A pack that extends several fonts is opened once for all.
+            let shared = self.entries.iter().find_map(|other| match &other.font {
+                Some(Font::Stored(pack)) if other.file.as_deref() == Some(path.as_str()) => {
+                    Some(Font::Stored(pack.clone()))
+                }
+                _ => None,
+            });
+            let font = if let Some(font) = shared {
+                Some(font)
+            } else if extends || (entry.face && is_pack(path)) {
                 // A pack not there is not opened (nor is the `Rc` below
                 // made: stable Rust has no fallible `Rc`, so the one
                 // allocation of a few dozen bytes per pack opened is the

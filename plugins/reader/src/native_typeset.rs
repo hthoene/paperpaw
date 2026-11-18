@@ -335,6 +335,29 @@ impl<M: Measure> Typesetter for Faces<M> {
         self.set_pair(face, (left, right), true)
     }
 
+    /// A Bengali or Devanagari word as wide as the host draws it, shaped
+    /// (one measure of the word; `native_draw` draws it at once); other text
+    /// as its characters and pairs.
+    fn advance_text(&self, face: Face, text: &str, around: &paperpaw_sdk::text::Around) -> f32 {
+        let _ = around;
+        if paperpaw_sdk::text::has_indic(text) {
+            return match self.measure.width(Role::of(face), self.size(face), text) {
+                Ok(width) if width.is_finite() => width,
+                _ => self.refused(),
+            };
+        }
+        let mut width = 0.0;
+        let mut before = None;
+        for c in text.chars() {
+            if let Some(left) = before {
+                width += self.kern(face, left, c);
+            }
+            width += self.advance(face, c);
+            before = Some(c);
+        }
+        width
+    }
+
     /// Body text keeps the reader's ascent and line height, scaled by the
     /// book's percent; a heading is at least 1.2 of its size high with the
     /// extra shared above and below.

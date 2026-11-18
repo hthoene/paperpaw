@@ -49,6 +49,18 @@ pub(crate) fn open(storage: &dyn Storage, base: &str, color: bool) -> Option<Ima
     try_open(storage, base, color).ok().flatten()
 }
 
+/// The decoded picture at `path` (a file made by hand, not by [`try_file`]),
+/// if it is whole.
+pub(crate) fn open_path(storage: &dyn Storage, path: &str) -> Option<ImageRef> {
+    ImageFile::open(storage, path)
+        .filter(|image| image.width > 0 && image.height > 0)
+        .map(|image| ImageRef {
+            path: image.path,
+            width: image.width,
+            height: image.height,
+        })
+}
+
 /// The mark of picture `base` that could not be decoded.
 fn mark(base: &str) -> Option<String> {
     crate::fallible::try_format!("{base}.bad").ok()

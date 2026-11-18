@@ -5585,8 +5585,10 @@ pub use paperpaw_sdk::text::OUTLINES
 pub use paperpaw_sdk::text::TextInk
 pub use paperpaw_sdk::text::ToneCurve
 pub use paperpaw_sdk::text::bidi
+pub use paperpaw_sdk::text::has_indic
 pub use paperpaw_sdk::text::is_invisible
 pub use paperpaw_sdk::text::sfnt
+pub use paperpaw_sdk::text::shaped_at
 pub mod paperpaw_sdk::time
 #[non_exhaustive] pub struct paperpaw_sdk::time::LocalTime
 pub paperpaw_sdk::time::LocalTime::day: u8

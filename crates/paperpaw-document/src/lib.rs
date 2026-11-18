@@ -1107,6 +1107,15 @@ pub trait Document {
         false
     }
 
+    /// Whether the pictures of blocks are made when a page shows them
+    /// ([`Document::prepare_image`]) rather than when the block is read:
+    /// then a block's picture may name a file that is not there yet (given
+    /// its size). Documents of text and pictures do; documents of whole
+    /// pages do not unless they say so.
+    fn pictures_deferred(&self) -> bool {
+        !self.whole_pages()
+    }
+
     /// Length of a section in source units, for progress calculation.
     fn section_len(&self, section: u32) -> u32;
 

@@ -91,6 +91,9 @@ pub struct FormatProvider {
     cache: String,
     sniffs: fn(&[u8]) -> bool,
     slots: Vec<Slot>,
+    /// The values of the format's own settings the next open is given
+    /// ([`OpenOptions::setting`]).
+    settings: Vec<(String, String)>,
 }
 
 impl core::fmt::Debug for FormatProvider {
@@ -154,7 +157,24 @@ impl FormatProvider {
             cache,
             sniffs,
             slots: Vec::new(),
+            settings: Vec::new(),
         }
+    }
+
+    /// Whether `input` is the call that opens a document: the one that is
+    /// given [`FormatProvider::set_settings`]'s values.
+    #[must_use]
+    pub fn is_open(input: &[u8]) -> bool {
+        matches!(
+            stage::input_decode(input).ok().and_then(|mut r| r.next()),
+            Some(Ok(Record::FmtCall(call))) if call.op == op::OPEN
+        )
+    }
+
+    /// The values of the format's settings the documents opened from now on
+    /// are given, as `(id, value)`.
+    pub fn set_settings(&mut self, settings: Vec<(String, String)>) {
+        self.settings = settings;
     }
 
     /// The folder the parsers keep conversions in, for the storage of a call.
@@ -268,6 +288,7 @@ impl FormatProvider {
         self.slots.try_reserve(1).map_err(|_| Error::NoMemory)?;
         // Flags of the open: bit 0 the publisher's styles, bit 1 colour.
         let options = OpenOptions::default()
+            .settings(self.settings.clone())
             .publisher_styles(call.flags & 1 != 0)
             .color(call.flags & 2 != 0)
             .image_fit(if call.image_side == 0 {
@@ -441,7 +462,8 @@ impl FormatProvider {
                 // (until the parsers number their pictures).
                 let whole = document.whole_pages();
                 let at = if whole {
-                    Locator::new(call.index, 0)
+                    let sections = document.sections().max(1);
+                    Locator::new(call.index % sections, call.index / sections)
                 } else {
                     Locator::new(call.section, call.index)
                 };
@@ -743,7 +765,12 @@ impl FormatProvider {
         }
         let mut list = Vec::new();
         let image_index = if document.whole_pages() {
-            call.section
+            // A page's first picture is numbered by its section; the next of
+            // a page of several (panels) follow the sections' numbers.
+            block
+                .start
+                .saturating_mul(document.sections().max(1))
+                .saturating_add(call.section)
         } else {
             block.start
         };
@@ -787,7 +814,8 @@ fn settle(document: &dyn Document, io: &dyn Storage, block: &mut Block) -> bool 
         return false;
     }
     let sides = 1..=PENDING_SIDE_MAX;
-    if !document.whole_pages() && sides.contains(&image.width) && sides.contains(&image.height) {
+    if document.pictures_deferred() && sides.contains(&image.width) && sides.contains(&image.height)
+    {
         return true;
     }
     block.image = decoded(document, io, block.image.take());

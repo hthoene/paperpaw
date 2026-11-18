@@ -169,3 +169,52 @@ pub fn serve(
     prefix.push_str(provider.cache());
     provider.call(&NativeIo::new(host, prefix), input, out)
 }
+
+/// As [`serve`], where a call that opens a document is first given the
+/// values of the settings `keys` (full ids) of the format's plugin, read
+/// from the host: the book's own where the host has a scope for it. A key
+/// the host has no value for is left out.
+///
+/// # Errors
+/// As [`serve`].
+pub fn serve_with_settings(
+    provider: &mut crate::provider::FormatProvider,
+    host: &Host<'_>,
+    input: &[u8],
+    out: &mut [u8],
+    keys: &[&str],
+) -> Result<usize, Error> {
+    use paperpaw_sdk::native::settings::{self, SettingValue};
+    if crate::provider::FormatProvider::is_open(input) {
+        let mut values = alloc::vec::Vec::new();
+        values
+            .try_reserve_exact(keys.len())
+            .map_err(|_| Error::NoMemory)?;
+        for key in keys {
+            let mut scratch = [0_u8; 64];
+            let text = match settings::read_setting(host, key, &mut scratch) {
+                Ok(SettingValue::Bool(on)) => {
+                    if on {
+                        "true"
+                    } else {
+                        "false"
+                    }
+                }
+                Ok(SettingValue::Text(text)) => text,
+                Ok(SettingValue::Int(_) | SettingValue::Absent) | Err(_) => continue,
+                Ok(_) => continue,
+            };
+            let (mut id, mut value) = (String::new(), String::new());
+            id.try_reserve_exact(key.len())
+                .map_err(|_| Error::NoMemory)?;
+            value
+                .try_reserve_exact(text.len())
+                .map_err(|_| Error::NoMemory)?;
+            id.push_str(key);
+            value.push_str(text);
+            values.push((id, value));
+        }
+        provider.set_settings(values);
+    }
+    serve(provider, host, input, out)
+}

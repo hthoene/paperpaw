@@ -895,7 +895,8 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
   and when a resting screen opens its book again) the first blocks are read for letters of the five scripts of
   Beta 3's table (Greek, Cyrillic, Arabic, Hebrew, Korean) that the reading font lacks; the book's declared
   language adds its script where the font lacks the script's letter. Each maps to Beta 3's pack
-  (`script-greek`, `-cyrillic`, `-arabic`, `-hebrew`, `-korean`); once `script-korean` is on the device
+  (`script-greek`, `-cyrillic`, `-arabic`, `-hebrew`, `-korean`; since #159 the table has Ethiopic too,
+  `script-ethiopic`); once `script-korean` is on the device
   (`core.registry` op 6, asked only when Korean is lacking) a book with Hangul syllables the font still lacks
   asks for `script-korean-extra` instead, else nothing. Packs named in the book's `packs-asked.txt` are left
   out; at most 4 are asked for at once with `command.request_plugins`, and the file keeps the last 4.

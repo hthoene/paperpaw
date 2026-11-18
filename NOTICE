@@ -31,6 +31,12 @@ Version 1.1:
   (https://github.com/notofonts/arabic), without Reserved Font Name
 - Noto Serif Hebrew, Copyright 2022 The Noto Project Authors
   (https://github.com/notofonts/hebrew), without Reserved Font Name
+- Noto Serif Bengali, Copyright 2022 The Noto Project Authors
+  (https://github.com/notofonts/bengali), without Reserved Font Name
+- Noto Serif Devanagari, Copyright 2022 The Noto Project Authors
+  (https://github.com/notofonts/devanagari), without Reserved Font Name
+- Noto Serif Ethiopic, Copyright 2022 The Noto Project Authors
+  (https://github.com/notofonts/ethiopic), without Reserved Font Name
 - Noto Serif Thai and Noto Sans Thai, Copyright 2022 The Noto Project Authors
   (https://github.com/notofonts/thai), without Reserved Font Name
 - Noto Serif SC, Noto Serif TC and Noto Serif JP, Copyright 2017-2024
@@ -51,7 +57,8 @@ Version 1.1:
 
 Each of those plugins carries the licence's text with its packs
 (tools/fonts/NotoNaskhArabic-OFL.txt, NotoSerifHebrew-OFL.txt,
-NotoSerifThai-OFL.txt, NotoSansThai-OFL.txt, the text
+NotoSerifBengali-OFL.txt, NotoSerifDevanagari-OFL.txt,
+NotoSerifEthiopic-OFL.txt, NotoSerifThai-OFL.txt, NotoSansThai-OFL.txt, the text
 given for Literata; NanumMyeongjo-OFL.txt, the same licence under its
 own copyright and Reserved Font Names).
 

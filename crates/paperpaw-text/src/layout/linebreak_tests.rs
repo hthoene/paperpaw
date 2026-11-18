@@ -270,6 +270,81 @@ fn korean_breaks_between_syllables_unless_keep_all() {
     }
 }
 
+/// Amharic (#159): a line ends after the wordspace ፡ (U+1361) and at a space,
+/// never inside a word, and the full stop ። (U+1362) stays with its word.
+#[test]
+fn ethiopic_breaks_after_the_wordspace_and_at_spaces() {
+    let text = "ሰላም፡ዓለም፡እንዴት";
+    assert_eq!(
+        texts(text, &lines_of(text, 50.0, 0)),
+        vec!["ሰላም፡", "ዓለም፡", "እንዴት"]
+    );
+    // Two words fit: the line is as full as it can be.
+    assert_eq!(
+        texts(text, &lines_of(text, 80.0, 0)),
+        vec!["ሰላም፡ዓለም፡", "እንዴት"]
+    );
+    let spaced = "ሰላም ዓለም እንዴት";
+    assert_eq!(
+        texts(spaced, &lines_of(spaced, 50.0, 0)),
+        vec!["ሰላም", "ዓለም", "እንዴት"]
+    );
+}
+
+#[test]
+fn the_ethiopic_full_stop_stays_with_the_word_before_it() {
+    let text = "ሰላም፡ዓለም። እንዴት፡ነህ።";
+    // (Widths that hold the longest word: a word wider than the line is cut
+    // where the line is full, in any script.)
+    for width in [50.0, 60.0, 90.0, 120.0, 150.0] {
+        let lines = lines_of(text, width, 0);
+        let shown = texts(text, &lines);
+        assert!(
+            shown.iter().all(|line| !line.starts_with('።')),
+            "{width}: {shown:?}"
+        );
+        assert!(
+            shown.iter().any(|line| line.contains("ዓለም።")),
+            "{width}: {shown:?}"
+        );
+    }
+    assert_eq!(
+        texts(text, &lines_of(text, 50.0, 0)),
+        vec!["ሰላም፡", "ዓለም።", "እንዴት፡", "ነህ።"]
+    );
+}
+
+/// No hyphenation in Ethiopic: where a table would allow a place inside a
+/// word (here after every letter), no line ends there with a hyphen.
+#[test]
+fn ethiopic_words_are_not_hyphenated() {
+    let anywhere = |word: &str, found: &mut dyn FnMut(usize)| {
+        for (at, _) in word.char_indices().skip(1) {
+            found(at);
+        }
+    };
+    let wrapped = |text: &str, width: f32| {
+        wrap_lines_kerned_in(
+            text,
+            &|_| width,
+            &|_, _| 10.0,
+            &|_, _, _| 0.0,
+            Some(&anywhere),
+            0,
+        )
+    };
+    // The table is asked: a Latin word that does not fit is hyphenated.
+    assert!(wrapped("abcdef abcdefghij", 120.0)[0].hyphen);
+    let text = "ሰላምታዎች፡እንኳንደህናመጡ፡ኢትዮጵያ";
+    for width in [100.0, 110.0, 120.0] {
+        let lines = wrapped(text, width);
+        assert!(lines.iter().all(|l| !l.hyphen), "{width}");
+        assert_eq!(texts(text, &lines), vec!["ሰላምታዎች፡", "እንኳንደህናመጡ፡", "ኢትዮጵያ"]);
+    }
+    // Nor where a word is wider than the line and has to be cut.
+    assert!(wrapped(text, 30.0).iter().all(|l| !l.hyphen));
+}
+
 #[test]
 fn keep_all_keeps_hanja_words_together_too() {
     let text = "大韓民國 大韓民國";

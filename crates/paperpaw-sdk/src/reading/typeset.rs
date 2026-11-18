@@ -248,6 +248,10 @@ impl<'a> ReadingFaces<'a> {
     /// The letter spacing of `text` in `face`: after each of its
     /// characters.
     fn letters(&self, face: Face, text: &str) -> f32 {
+        // Shaped syllables are not spaced apart (see `ReadingFaces::draw_in`).
+        if paperpaw_text::has_indic(text) {
+            return 0.0;
+        }
         match self.spacing(face) {
             0.0 => 0.0,
             spacing => spacing * text.chars().count() as f32,
@@ -343,7 +347,8 @@ impl<'a> ReadingFaces<'a> {
         // Letter by letter where letters are spaced, each pair kerned as
         // measuring kerns it; at once otherwise.
         let draw = |canvas: &mut Canvas<'_>, size: f32, x: f32, text: &str| -> f32 {
-            if spacing == 0.0 {
+            // Bengali, Devanagari: at once, their syllables shaped.
+            if spacing == 0.0 || paperpaw_text::has_indic(text) {
                 return font.draw_toned(canvas, size, x, baseline, text, ink, extra, tone);
             }
             let mut width = 0.0;
@@ -437,17 +442,20 @@ impl ReadingFaces<'_> {
     }
 }
 
-/// Whether `text` set with `around` is shaped: right to left, or Hebrew
-/// or Arabic in it.
+/// Whether `text` set with `around` is shaped: right to left, or Hebrew,
+/// Arabic, Bengali or Devanagari in it.
 /// `text` without the controls that draw nothing and take no room (an
 /// EPUB's `dir`, marks of direction): drawn letter by letter or with
 /// small capitals, they would be missing glyphs.
+/// Bengali and Devanagari keep their joiners (ZWJ, ZWNJ), which choose
+/// between a conjunct and a visible virama.
 fn visible(text: &str) -> alloc::borrow::Cow<'_, str> {
-    match text.chars().any(paperpaw_text::is_invisible) {
-        true => text
-            .chars()
-            .filter(|&c| !paperpaw_text::is_invisible(c))
-            .collect(),
+    let indic = paperpaw_text::has_indic(text);
+    let gone = |c: char| {
+        paperpaw_text::is_invisible(c) && !(indic && matches!(c, '\u{200C}' | '\u{200D}'))
+    };
+    match text.chars().any(gone) {
+        true => text.chars().filter(|&c| !gone(c)).collect(),
         false => alloc::borrow::Cow::Borrowed(text),
     }
 }
@@ -455,6 +463,7 @@ fn visible(text: &str) -> alloc::borrow::Cow<'_, str> {
 fn shaped(text: &str, around: &crate::text::Around) -> bool {
     around.base == crate::lang::Direction::Rtl
         || text.chars().any(|c| matches!(c, '\u{0590}'..='\u{08FF}'))
+        || paperpaw_text::has_indic(text)
 }
 
 /// One line under, over or through text, `thick` pixels thick, its top

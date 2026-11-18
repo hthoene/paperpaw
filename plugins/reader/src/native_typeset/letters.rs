@@ -104,9 +104,12 @@ impl<M: Measure> Faces<M> {
     /// pairs kerned): kerned, not spaced, and without a letter that may join.
     #[must_use]
     pub fn drawn_at_once(&self, face: Face, word: &str) -> bool {
-        self.letters.kerning
-            && self.spacing(face).to_bits() == 0
-            && !(self.joins(face) && word.contains('f'))
+        // Bengali, Devanagari: shaped by the host a word at a time, not
+        // spaced apart (see `Typesetter::advance_text`).
+        paperpaw_sdk::text::has_indic(word)
+            || self.letters.kerning
+                && self.spacing(face).to_bits() == 0
+                && !(self.joins(face) && word.contains('f'))
     }
 
     /// Whether the font of `role` has the ligature `c`, asked once.

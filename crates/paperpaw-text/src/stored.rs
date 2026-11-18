@@ -52,7 +52,7 @@ pub trait PackSource {
 }
 
 /// A table of a pack, read through its source from its offset.
-struct Table<'a>(&'a dyn PackSource, u64);
+pub(crate) struct Table<'a>(&'a dyn PackSource, u64);
 
 impl anchors::Bytes for Table<'_> {
     fn bytes(&self, at: usize, buf: &mut [u8]) -> bool {
@@ -246,7 +246,7 @@ impl fmt::Debug for StoredPack {
 /// A pack as this firmware keeps it in memory: its characters and, for
 /// each size in use, their advances (see [`index`]).
 struct Paged {
-    source: Rc<dyn PackSource>,
+    source: Source,
     strikes: Vec<Strike>,
     /// The characters it holds (the same in every strike).
     chars: CharIndex,
@@ -258,6 +258,80 @@ struct Paged {
     advances_budget: usize,
     /// See [`Pack::failed_reads`].
     failed: Cell<u32>,
+}
+
+/// A pack's source, which keeps its substitution table (slot 4) in memory
+/// from when it is first read until [`Pack::trim`].
+struct Source {
+    inner: Rc<dyn PackSource>,
+    /// Where the table starts in the pack, 0: it has none.
+    table: u64,
+    held: RefCell<Held>,
+}
+
+/// What a [`Source`] keeps of the table.
+enum Held {
+    /// Not read yet.
+    Unread,
+    Whole(Vec<u8>),
+    /// Too large to keep, or no memory for it then: read where it is.
+    Not,
+}
+
+impl Source {
+    /// The bytes from `at` (within the table) into `buf`, from memory:
+    /// `None` where they are not kept.
+    fn kept(&self, at: u64, buf: &mut [u8]) -> Option<()> {
+        let mut held = self.held.try_borrow_mut().ok()?;
+        if let Held::Unread = *held {
+            *held = self.read_table().map_or(Held::Not, Held::Whole);
+        }
+        let Held::Whole(bytes) = &*held else {
+            return None;
+        };
+        let at = usize::try_from(at).ok()?;
+        buf.copy_from_slice(bytes.get(at..at.checked_add(buf.len())?)?);
+        Some(())
+    }
+
+    /// The whole table, if it is small enough and memory takes it.
+    fn read_table(&self) -> Option<Vec<u8>> {
+        let mut head = [0u8; 8];
+        if !self.inner.read_at(self.table, &mut head) {
+            return None;
+        }
+        let len = usize::try_from(u32_le(&head, 4)).ok()?;
+        if !(8..=crate::substitutions::MAX_HELD).contains(&len) {
+            return None;
+        }
+        let mut bytes = zeroed::<u8>(len)?;
+        self.inner.read_at(self.table, &mut bytes).then_some(bytes)
+    }
+
+    fn bytes(&self) -> usize {
+        match self.held.try_borrow().as_deref() {
+            Ok(Held::Whole(bytes)) => bytes.capacity(),
+            _ => 0,
+        }
+    }
+
+    fn trim(&self) {
+        if let Ok(mut held) = self.held.try_borrow_mut() {
+            *held = Held::Unread;
+        }
+    }
+}
+
+impl PackSource for Source {
+    fn read_at(&self, at: u64, buf: &mut [u8]) -> bool {
+        if self.table != 0
+            && let Some(within) = at.checked_sub(self.table)
+            && self.kept(within, buf).is_some()
+        {
+            return true;
+        }
+        self.inner.read_at(at, buf)
+    }
 }
 
 /// What a [`Paged`] keeps of a strike's advances, in 1/16 px.
@@ -394,6 +468,12 @@ impl StoredPack {
     /// is the next directory, of slots 8 to 15.
     pub fn table(&self, slot: usize) -> Option<u64> {
         self.0.table(slot)
+    }
+
+    /// Table `slot`, read through the pack's source (which keeps the
+    /// substitutions in memory once read).
+    pub(crate) fn table_bytes(&self, slot: usize) -> Option<Table<'_>> {
+        Some(Table(self.0.source(), self.0.table(slot)?))
     }
 
     /// The largest size it has, in pixels.
@@ -559,8 +639,13 @@ impl Paged {
         }
         let mut advances = Vec::new();
         advances.resize_with(strikes.len(), Kept::default);
+        let table = u64::from(tables[crate::BitmapFont::SUBSTITUTIONS]);
         Ok(Paged {
-            source,
+            source: Source {
+                inner: source,
+                table,
+                held: RefCell::new(Held::Unread),
+            },
             advances: RefCell::new(advances),
             strikes,
             chars,
@@ -578,7 +663,7 @@ impl Paged {
         let n = self.chars.len();
         let mut built = AdvancesBuilder::new(n, self.advances_budget);
         let mut refused = None;
-        let read = read_records(&*self.source, glyph_table, n, |r| {
+        let read = read_records(&self.source, glyph_table, n, |r| {
             refused = built.push(advance_16(r)).err();
             refused.is_none()
         });
@@ -628,7 +713,7 @@ impl Paged {
         let mut advances = Vec::new();
         advances.try_reserve_exact(count).ok()?;
         let at = glyph_table + (first * RECORD) as u64;
-        read_records(&*self.source, at, count, |r| {
+        read_records(&self.source, at, count, |r| {
             advances.push(advance_16(r));
             true
         })
@@ -827,7 +912,7 @@ impl Pack for Paged {
     }
 
     fn source(&self) -> &dyn PackSource {
-        &*self.source
+        &self.source
     }
 
     fn bytes(&self) -> usize {
@@ -836,12 +921,14 @@ impl Pack for Paged {
                 + advances.iter().map(Kept::bytes).sum::<usize>()
         });
         size_of::<Paged>()
+            + self.source.bytes()
             + self.strikes.capacity() * size_of::<Strike>()
             + self.chars.bytes()
             + advances
     }
 
     fn trim(&self) {
+        self.source.trim();
         let Ok(mut advances) = self.advances.try_borrow_mut() else {
             return;
         };

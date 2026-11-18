@@ -706,7 +706,9 @@ pub mod image {
 /// Text and font helpers (see `paperpaw-text`), e.g. reading a font
 /// file's family, or how glyphs are inked ([`ToneCurve`](text::ToneCurve)).
 pub mod text {
-    pub use paperpaw_text::{Around, OUTLINES, TextInk, ToneCurve, bidi, is_invisible, sfnt};
+    pub use paperpaw_text::{
+        Around, OUTLINES, TextInk, ToneCurve, bidi, has_indic, is_invisible, sfnt, shaped_at,
+    };
 }
 
 /// Hyphenation with compiled patterns (see `paperpaw-hyphen`).

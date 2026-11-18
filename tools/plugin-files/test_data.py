@@ -19,8 +19,11 @@ PACKS = {
     "script-thai": "1.0.0",
     "script-greek": "1.0.3",
     "script-cyrillic": "1.0.3",
+    "script-ethiopic": "1.0.0",
     "script-korean": "1.1.4",
     "script-korean-extra": "1.0.3",
+    "script-bengali": "1.0.0",
+    "script-devanagari": "1.0.0",
 }
 
 HYPHENATION = ["hyphenation"] + [
