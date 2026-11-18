@@ -24,6 +24,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-caldav"
+version = "0.6.0-beta.3"
+
+[[package]]
 name = "paperpaw-config"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -285,6 +289,7 @@ dependencies = [
  "paperpaw-plugin-smart-home",
  "paperpaw-plugin-stats",
  "paperpaw-plugin-store",
+ "paperpaw-plugin-tasks",
  "paperpaw-plugin-transfer",
  "paperpaw-plugin-translate",
  "paperpaw-plugin-update",
@@ -633,6 +638,15 @@ dependencies = [
 name = "paperpaw-plugin-store"
 version = "1.0.15"
 dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-tasks"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-caldav",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]

@@ -38,6 +38,7 @@ rules system
 translate reading
 smart-home home
 stats reading
+tasks home
 vocabulary learning
 wallabag news
 weather home

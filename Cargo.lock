@@ -1697,6 +1697,7 @@ dependencies = [
  "paperpaw-plugin-smart-home",
  "paperpaw-plugin-stats",
  "paperpaw-plugin-store",
+ "paperpaw-plugin-tasks",
  "paperpaw-plugin-transfer",
  "paperpaw-plugin-translate",
  "paperpaw-plugin-update",
@@ -1709,6 +1710,10 @@ dependencies = [
  "paperpaw-zip",
  "proptest",
 ]
+
+[[package]]
+name = "paperpaw-caldav"
+version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-checks"
@@ -2746,6 +2751,21 @@ dependencies = [
  "paperpaw-text",
  "paperpaw-ui-kit",
  "proptest",
+]
+
+[[package]]
+name = "paperpaw-plugin-tasks"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-caldav",
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]

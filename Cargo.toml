@@ -32,6 +32,7 @@ members = [
     "crates/paperpaw-scripted-host",
     "crates/paperpaw-json",
     "crates/paperpaw-qr",
+    "crates/paperpaw-caldav",
     "crates/paperpaw-ui-kit",
     "crates/paperpaw-hid",
     "crates/paperpaw-sort",
@@ -101,6 +102,7 @@ members = [
     "plugins/smart-home",
     "plugins/puzzles",
     "plugins/edge-light",
+    "plugins/tasks",
     "plugins/plugin-manager",
     "plugins/settings",
     "plugins/home",
@@ -151,6 +153,7 @@ paperpaw-publish = { path = "tools/publish" }
 paperpaw-stack-budget = { path = "tools/stack-budget" }
 paperpaw-json = { path = "crates/paperpaw-json", version = "0.6.0-beta.3" }
 paperpaw-qr = { path = "crates/paperpaw-qr", version = "0.6.0-beta.3" }
+paperpaw-caldav = { path = "crates/paperpaw-caldav", version = "0.6.0-beta.3" }
 paperpaw-ui-kit = { path = "crates/paperpaw-ui-kit", version = "0.6.0-beta.3" }
 paperpaw-hid = { path = "crates/paperpaw-hid", version = "0.6.0-beta.3" }
 paperpaw-sdk = { path = "crates/paperpaw-sdk", version = "0.6.0-beta.3" }
@@ -213,6 +216,7 @@ paperpaw-plugin-pomodoro = { path = "plugins/pomodoro", version = "1.0.0" }
 paperpaw-plugin-smart-home = { path = "plugins/smart-home", version = "1.0.0" }
 paperpaw-plugin-puzzles = { path = "plugins/puzzles", version = "1.0.0" }
 paperpaw-plugin-edge-light = { path = "plugins/edge-light", version = "1.0.0" }
+paperpaw-plugin-tasks = { path = "plugins/tasks", version = "1.0.0" }
 paperpaw-plugin-widgets = { path = "plugins/widgets", version = "1.0.3" }
 paperpaw-plugin-keyboard = { path = "plugins/keyboard", version = "1.1.0" }
 paperpaw-plugin-plugin-manager = { path = "plugins/plugin-manager", version = "1.0.4" }
