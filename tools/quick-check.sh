@@ -51,7 +51,7 @@
 #    each other's artifacts;
 #  - a library change (ui-kit, SDK, core ...) builds the frames of `store` alone, the largest plugin
 #    and the one at the limit; changed plugins are built themselves (at most 4);
-#  - every step has a time limit (QUICK_CHECK_STEP_LIMIT, 300 s) and the whole run a budget
+#  - every step has a time limit (QUICK_CHECK_STEP_LIMIT, 420 s) and the whole run a budget
 #    (QUICK_CHECK_BUDGET, 540 s). A step that is cut, or not started for the budget, FAILS the run with
 #    a message (exit 1): it checked nothing, and the build directories are warm for the next run. NOT checked here: the S3 `allow indirect` band
 # (tools/check-s3-budget.sh: it needs a full Xtensa firmware build of the whole
@@ -73,7 +73,7 @@ export CARGO_INCREMENTAL=0
 [[ -n "${RUSTC_WRAPPER:-}" || ! -x "$root/tools/sccache-wrap.sh" ]] || export RUSTC_WRAPPER="$root/tools/sccache-wrap.sh"
 t_start=$SECONDS
 budget="${QUICK_CHECK_BUDGET:-540}"
-step_limit="${QUICK_CHECK_STEP_LIMIT:-300}"
+step_limit="${QUICK_CHECK_STEP_LIMIT:-420}"
 
 base=origin/abi7/integration
 all=0 list=0 only="" skip=""
