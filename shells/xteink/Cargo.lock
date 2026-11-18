@@ -2644,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.19"
+version = "1.0.20"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
