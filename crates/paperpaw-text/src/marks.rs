@@ -1,7 +1,10 @@
 //! Mark anchors read from OpenType fonts: the GPOS `mark` (mark to base)
-//! and `mkmk` (mark to mark) lookups of Arabic and Hebrew, as packs keep
-//! them (see [`crate::anchors`]). Other scripts get none: their marks stay
-//! where their glyphs put them.
+//! and `mkmk` (mark to mark) lookups of Arabic, Hebrew and Thai, as packs
+//! keep them (see [`crate::anchors`]). Other scripts get none: their marks
+//! stay where their glyphs put them. Thai's tone marks and vowels above or
+//! below a letter take their places from the font's anchors, a tone mark
+//! over an upper vowel on the vowel; the forms a font gives a tone mark
+//! over a tall letter by contextual substitution (`ccmp`) are not applied.
 //!
 //! A font's classes are numbered per lookup and subtable, in the order of
 //! the lookups. A mark tries its mark-to-mark classes first, as a shaper
@@ -50,6 +53,7 @@ pub(crate) struct Marks<'a> {
     store: Option<ItemVariationStore<'a>>,
     arab: Script,
     hebr: Script,
+    thai: Script,
     /// Per GPOS lookup and subtable, the number of its first class
     /// (`None`: past what a pack holds).
     first: Vec<(u16, usize, Option<u8>)>,
@@ -90,8 +94,8 @@ impl<'a> Marks<'a> {
             }
             s
         };
-        let (arab, hebr) = (script(b"arab"), script(b"hebr"));
-        let mut all: Vec<u16> = [&arab, &hebr]
+        let (arab, hebr, thai) = (script(b"arab"), script(b"hebr"), script(b"thai"));
+        let mut all: Vec<u16> = [&arab, &hebr, &thai]
             .iter()
             .flat_map(|s| s.mark.iter().chain(&s.mkmk).copied())
             .collect();
@@ -133,6 +137,7 @@ impl<'a> Marks<'a> {
             store,
             arab,
             hebr,
+            thai,
             first,
             scale: 1.0 / em,
         }
@@ -159,7 +164,11 @@ impl<'a> Marks<'a> {
                 out.push(Anchor { class, x, y });
             }
         };
-        let script = if script { &self.arab } else { &self.hebr };
+        let script = match script {
+            Kind::Arabic => &self.arab,
+            Kind::Hebrew => &self.hebr,
+            Kind::Thai => &self.thai,
+        };
         let own = self.own(script, glyph);
         if !own.is_empty() {
             for (class, p) in own {
@@ -467,15 +476,24 @@ fn number(first: u8, class: u16) -> Option<u8> {
     u8::try_from(n).ok().filter(|&n| n < Anchor::OWN)
 }
 
-/// Whether `ch` is Arabic (`Some(true)`) or Hebrew (`Some(false)`).
-fn script_of(ch: char) -> Option<bool> {
+/// The scripts whose anchors a pack keeps.
+#[derive(Clone, Copy)]
+enum Kind {
+    Arabic,
+    Hebrew,
+    Thai,
+}
+
+/// Which of those scripts `ch` is of.
+fn script_of(ch: char) -> Option<Kind> {
     match ch {
         '\u{600}'..='\u{6ff}'
         | '\u{750}'..='\u{77f}'
         | '\u{8a0}'..='\u{8ff}'
         | '\u{fb50}'..='\u{fdff}'
-        | '\u{fe70}'..='\u{feff}' => Some(true),
-        '\u{590}'..='\u{5ff}' | '\u{fb1d}'..='\u{fb4f}' => Some(false),
+        | '\u{fe70}'..='\u{feff}' => Some(Kind::Arabic),
+        '\u{590}'..='\u{5ff}' | '\u{fb1d}'..='\u{fb4f}' => Some(Kind::Hebrew),
+        '\u{e01}'..='\u{e5b}' => Some(Kind::Thai),
         _ => None,
     }
 }
@@ -539,6 +557,7 @@ mod tests {
 
     const HEBREW: &[u8] = include_bytes!("../../../tools/fonts/NotoSerifHebrew.ttf");
     const ARABIC: &[u8] = include_bytes!("../../../tools/fonts/NotoNaskhArabic.ttf");
+    const THAI: &[u8] = include_bytes!("../../../tools/fonts/NotoSerifThai.ttf");
 
     /// The ink of `ch` at 20 px moved by `by`: left, top, right, bottom.
     fn ink(font: &OutlineFont, ch: char, by: (i32, i32)) -> (i32, i32, i32, i32) {
@@ -608,6 +627,41 @@ mod tests {
         .unwrap();
         let (low, high) = (ink(&font, shadda, on), ink(&font, fatha, by));
         assert!(high.1 < low.1 && high.3 < low.3, "{high:?} {low:?}");
+    }
+
+    #[test]
+    fn thai_vowels_and_tone_marks_stack_on_their_letters() {
+        let font = OutlineFont::new(THAI, &[]).unwrap();
+        // Ko kai with sara i and mai tho, and with sara u.
+        let (ko, sara_i, mai_tho, sara_u) = ('\u{e01}', '\u{e34}', '\u{e49}', '\u{e38}');
+        let letter = ink(&font, ko, (0, 0));
+        let vowel = placed(&font, sara_i, ko);
+        // The vowel over the letter, within its width.
+        assert!(
+            vowel.3 <= letter.1 + 2 && vowel.0 >= letter.0 - 2 && vowel.2 <= letter.2 + 2,
+            "{vowel:?} {letter:?}"
+        );
+        // The tone mark on the vowel, not on the letter: it clears the
+        // vowel's top (the glyphs alone overlap).
+        let held = font.anchors(sara_i, 20.0);
+        let on = anchors::place(&held, None, &font.anchors(ko, 20.0)).unwrap();
+        let by = anchors::place(
+            &font.anchors(mai_tho, 20.0),
+            Some((&held, on)),
+            &Anchors::NONE,
+        )
+        .unwrap();
+        let (low, high) = (ink(&font, sara_i, on), ink(&font, mai_tho, by));
+        assert!(high.3 <= low.1 + 1, "{high:?} {low:?}");
+        let alone = ink(&font, mai_tho, (0, 0));
+        let glyph = ink(&font, sara_i, (0, 0));
+        assert!(
+            alone.3 > glyph.1,
+            "the glyphs alone overlap: {alone:?} {glyph:?}"
+        );
+        // A vowel below a letter, under its ink.
+        let under = placed(&font, sara_u, ko);
+        assert!(under.1 >= letter.3 - 2, "{under:?} {letter:?}");
     }
 
     #[test]

@@ -3,8 +3,9 @@ whose built-in fonts lack them (the Xteink X4 carries Latin only): packs
 read from the card a glyph at a time and asked for what the built-in
 fonts lack. Cyrillic, Greek and Vietnamese come from Literata's faces and, for the
 interface's font, Source Sans 3; Arabic from
-Noto Naskh Arabic and Hebrew from Noto Serif Hebrew (tools/fonts), one
-pack for each built-in face they extend, the interface's font too.
+Noto Naskh Arabic, Hebrew from Noto Serif Hebrew and Thai from Noto Serif Thai
+(Noto Sans Thai for the interface's font; tools/fonts), one pack for each
+built-in face they extend, the interface's font too.
 Chinese (the 6,763 ideographs of GB 2312, or the 5,401 frequently used ones
 of Big5 for Traditional) and Japanese (kana and 2,998 kanji: the Joyo and JIS X
 0208 level 1) come from Noto Serif SC, TC and JP in four sizes, as Korean's.
@@ -76,6 +77,10 @@ KOREAN = [
     ("korean", OTHER_FONTS / "NanumMyeongjo-Regular.ttf", None, "fonts-default.literata"),
     ("korean-sans", OTHER_FONTS / "NanumMyeongjo-Regular.ttf", None, "fonts-default.source-sans"),
 ]
+# Thai: Noto Serif Thai for Literata's four faces (its weights 400 and 700, upright
+# for all four), Noto Sans Thai for the interface's font (the screens' texts).
+THAI = [*upright("thai", OTHER_FONTS / "NotoSerifThai.ttf")[:4],
+        ("thai-sans", OTHER_FONTS / "NotoSansThai.ttf", 400, "fonts-default.source-sans")]
 # Chinese and Japanese: Noto Serif (SIL OFL 1.1; tools/fonts holds the characters the packs
 # need, subset from the font, static at weight 400), one pack for Literata's regular face and
 # one for the interface's font, as Korean's. Sizes 20 to 32 px (what the firmware's fonts
@@ -112,6 +117,8 @@ SETS = {
                OTHER_FONTS / "NotoNaskhArabic-OFL.txt", "Noto Naskh Arabic", None),
     "hebrew": ("Hebrew", upright("hebrew", OTHER_FONTS / "NotoSerifHebrew.ttf"),
                OTHER_FONTS / "NotoSerifHebrew-OFL.txt", "Noto Serif Hebrew", None),
+    "thai": ("Thai", THAI, [OTHER_FONTS / "NotoSerifThai-OFL.txt", OTHER_FONTS / "NotoSansThai-OFL.txt"],
+             "Noto Serif Thai", ["U+0E01-0E3A", "U+0E3F-0E5B"]),
     "korean": ("Korean", KOREAN, OTHER_FONTS / "NanumMyeongjo-OFL.txt", "a Korean book face",
                [f"@{ROOT / 'tools/fontgen/sets/hangul-ks.txt'}",
                 "cjk-punctuation", "hangul-jamo", "fullwidth"]),

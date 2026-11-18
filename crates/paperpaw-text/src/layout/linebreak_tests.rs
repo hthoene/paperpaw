@@ -295,6 +295,38 @@ fn a_zero_width_space_is_a_break_and_takes_no_room() {
     assert_eq!(one.len(), 1);
 }
 
+/// A text of the Thai language pack (`tools/thai-segment.py` marks its
+/// words): lines break at the marks between words and nowhere else, never
+/// before a vowel or tone mark, and the marks take no room.
+#[test]
+fn thai_text_with_marked_words_breaks_only_between_them() {
+    let text = "เปิด\u{200B}ใช้\u{200B}ตั้งค่า\u{200B}หน้า\u{200B}จอ\u{200B}และ\u{200B}ปุ่ม\u{200B}กด\u{200B}เมื่อ\u{200B}ต้องการ";
+    let plain = text.replace('\u{200B}', "");
+    // Wider than the longest word (a word wider than a line is cut).
+    for width in [80.0, 100.0, 140.0, 200.0] {
+        let lines = lines_of(text, width, 0);
+        assert!(lines.len() >= 2, "{width}: {lines:?}");
+        for line in &lines {
+            assert!(line.width <= width + 0.01, "{width}: {line:?}");
+            let start = text[line.range.clone()].chars().next().unwrap();
+            assert!(
+                !"\u{0E31}\u{0E34}\u{0E48}".contains(start),
+                "{width}: mark first"
+            );
+        }
+        for line in lines.iter().skip(1) {
+            assert!(
+                text[..line.range.start].ends_with('\u{200B}'),
+                "{width}: a line starts inside a word at {}",
+                line.range.start
+            );
+        }
+        // No letter lost or moved.
+        let all: String = texts(text, &lines).concat().replace('\u{200B}', "");
+        assert_eq!(all, plain);
+    }
+}
+
 #[test]
 fn break_all_and_anywhere_break_inside_latin_words() {
     let text = "internationalization";

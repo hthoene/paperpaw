@@ -7,6 +7,7 @@ the firmware holds none of them.
 |---|---|---|---|
 | `NotoNaskhArabic.ttf` | Noto Naskh Arabic, variable (`wght` 400 to 700) | SIL OFL 1.1, no Reserved Font Name (`NotoNaskhArabic-OFL.txt`) | `ofl/notonaskharabic/NotoNaskhArabic[wght].ttf` of github.com/google/fonts at 6c1dbe27 |
 | `NotoSerifHebrew.ttf` | Noto Serif Hebrew, variable (`wdth`, `wght`) | SIL OFL 1.1, no Reserved Font Name (`NotoSerifHebrew-OFL.txt`) | `ofl/notoserifhebrew/NotoSerifHebrew[wdth,wght].ttf` of github.com/google/fonts at 6c1dbe27 |
+| `NotoSerifThai.ttf`, `NotoSansThai.ttf` | Noto Serif Thai and Noto Sans Thai, variable (`wdth`, `wght`) | SIL OFL 1.1, no Reserved Font Name (`NotoSerifThai-OFL.txt`, `NotoSansThai-OFL.txt`) | `ofl/notoserifthai/NotoSerifThai[wdth,wght].ttf` and `ofl/notosansthai/NotoSansThai[wdth,wght].ttf` of github.com/google/fonts at 6c1dbe27 (SHA-256 `34a7ad11…` and `5a1c559b…`) |
 | `NotoSerifSC-subset.ttf`, `NotoSerifTC-subset.ttf`, `NotoSerifJP-subset.ttf` | Noto Serif SC, TC and JP, static at weight 400, cut to the characters of the packs (6,921, 5,559 and 3,345 code points: GB 2312, Big5 level 1, the Joyo kanji and JIS X 0208 level 1 with kana, CJK punctuation, full-width forms; layout tables dropped) | SIL OFL 1.1, no Reserved Font Name (`NotoSerifCJK-OFL.txt`, the text google/fonts ships) | `ofl/notoserifsc/NotoSerifSC[wght].ttf`, `ofl/notoseriftc/NotoSerifTC[wght].ttf`, `ofl/notoserifjp/NotoSerifJP[wght].ttf` of github.com/google/fonts at 6c1dbe27, made with fontTools (`varLib.instancer` wght=400, `subset` with the sets of `tools/fontgen/sets`: `hanzi-gb2312.txt`, `hanzi-big5.txt`, `kanji-japanese.txt`) |
 | `NanumMyeongjo-Regular.ttf` | Nanum Myeongjo Regular, static | SIL OFL 1.1, **with** Reserved Font Names (`NanumMyeongjo-OFL.txt`): packs made from it are not named after it (NOTICE) | `ofl/nanummyeongjo/NanumMyeongjo-Regular.ttf` of github.com/google/fonts at 6c1dbe27 (SHA-256 `7ed9e865…`) |
 
@@ -28,6 +29,17 @@ is where a font lacking a letter looks last.
 Noto Naskh Arabic is the reading font for Arabic, Persian and Urdu
 (#33): it holds the presentation forms with their dots, which packs draw
 joined letters with. Noto Serif Hebrew goes with Literata's serifs.
+
+Thai (`script-thai`, #190): Noto Serif Thai for Literata's four faces
+(weights 400 and 700, upright for all four), Noto Sans Thai for the
+interface's font; the 87 letters, vowels, tone marks and digits of
+U+0E01 to U+0E5B (no Thai keyboard yet). The vowels and tone marks above
+and below a letter are placed by the fonts' GPOS `mark` and `mkmk`
+anchors, like Hebrew's points (a tone mark over an upper vowel stands on
+it); the forms a font gives a tone mark by contextual substitution (over
+a tall letter, left of sara am) are not applied. Thai has no spaces:
+`tools/thai-segment.py` puts a zero width space after each word of the
+language pack's texts, where the line breaker breaks.
 
 The packs keep where marks sit on letters (Arabic harakat, Hebrew
 points): `paperpaw-fontgen` reads the fonts' GPOS `mark` and `mkmk`
