@@ -578,7 +578,13 @@ fn a_name_fat_reads_as_another_is_that_name() {
     }
     assert!(link::path("ſcreenshots/new.png", "ſcreenshots", Use::Write).is_err());
     // Secrets and code in the library, where names beyond ASCII are let.
-    for name in ["ſecrets.txt", "wıfı.ini", "wiﬁ.ini", "a.ſec", "Bücher/ſecret"] {
+    for name in [
+        "ſecrets.txt",
+        "wıfı.ini",
+        "wiﬁ.ini",
+        "a.ſec",
+        "Bücher/ſecret",
+    ] {
         let raw = alloc::format!("books/{name}");
         assert!(link::path(&raw, "books", Use::Read).is_err(), "{name}");
         assert!(link::secret(name.rsplit('/').next().unwrap()), "{name}");
