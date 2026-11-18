@@ -1,5 +1,6 @@
 //! Tests of the conversion of chapters.
 
+use super::elements::furniture;
 use super::*;
 use paperpaw_sdk::xml::{Token, Tokenizer};
 

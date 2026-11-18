@@ -360,14 +360,24 @@ pub enum Ask {
 }
 
 /// The command a line says, if it is one.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
 pub fn parse(line: &str) -> Option<Command> {
     let line = line.trim();
     let mut words = line.split_ascii_whitespace();
-    let command = match words.next()? {
+    let name = words.next()?;
+    if let Some(command) = whole_line(name, line, &mut words) {
+        return command;
+    }
+    let command = command(name, line, &mut words)?;
+    words.next().is_none().then_some(command)
+}
+
+/// The command of a line that ends in its last word, `name` its first.
+fn command<'a>(
+    name: &str,
+    line: &str,
+    words: &mut impl Iterator<Item = &'a str>,
+) -> Option<Command> {
+    let command = match name {
         "press" => Command::Press {
             button: button(words.next()?)?,
             ms: PRESS_MS,
@@ -389,16 +399,7 @@ pub fn parse(line: &str) -> Option<Command> {
             value: unhex(words.next().unwrap_or(""))?,
         },
         "setting" => Command::Setting(String::from(words.next()?)),
-        "wifi" => Command::Network(match words.next()? {
-            "scan" => Ask::Scan,
-            "connect" => Ask::Connect {
-                ssid: unhex(words.next()?)?,
-                password: unhex(words.next()?)?,
-            },
-            "status" => Ask::Status,
-            "off" => Ask::Off,
-            _ => return None,
-        }),
+        "wifi" => Command::Network(wifi(words)?),
         "http" => match words.next()? {
             "get" => Command::Network(Ask::Get {
                 url: String::from(words.next()?),
@@ -430,82 +431,25 @@ pub fn parse(line: &str) -> Option<Command> {
             from: unhex(words.next()?)?,
             to: unhex(words.next()?)?,
         },
-        "drag" => {
-            let mut number = || words.next()?.parse::<u16>().ok();
-            let (from, to) = ((number()?, number()?), (number()?, number()?));
-            let (steps, ms) = (number()?, number()?);
-            if steps == 0 {
-                return None;
-            }
-            Command::Drag {
-                from,
-                to,
-                steps,
-                ms,
-            }
-        }
-        "clicks" => {
-            let name = words.next()?;
-            let button = *crate::buttons::ALL.iter().find(|b| **b == name)?;
-            let mut number = || words.next()?.parse::<u16>().ok();
-            let (count, every, held) = (number()?, number()?, number()?);
-            let jitter = match words.next() {
-                Some(word) => word.parse::<u16>().ok()?,
-                None => 0,
-            };
-            if held == 0 || u32::from(held) + u32::from(jitter) >= u32::from(every) {
-                return None;
-            }
-            Command::Clicks {
-                button,
-                count,
-                every,
-                held,
-                jitter,
-            }
-        }
-        "touch" => Command::Touch {
-            phase: match words.next()? {
-                "down" => Touch::Down,
-                "move" => Touch::Move,
-                "up" => Touch::Up,
-                _ => return None,
-            },
-            x: words.next()?.parse().ok()?,
-            y: words.next()?.parse().ok()?,
-        },
+        "drag" => drag(words)?,
+        "clicks" => clicks(words)?,
+        "touch" => touch(words)?,
         "type" | "type-enter" => Command::Type {
             text: unhex(words.next()?)?,
             done: line.starts_with("type-enter"),
         },
         "emit" => Command::Emit {
             event: String::from(words.next()?),
-            params: pairs(&mut words)?,
+            params: pairs(words)?,
         },
         "slot" => Command::Slot {
             id: String::from(words.next()?),
-            params: pairs(&mut words)?,
+            params: pairs(words)?,
         },
         "show" => Command::Show {
             id: String::from(words.next()?),
-            params: pairs(&mut words)?,
+            params: pairs(words)?,
         },
-        // A path, the rest of the line.
-        "ls" | "stat" | "md5" | "rm" | "mkdir" => {
-            // Paths on the card are named from its root, `/` or not.
-            let path = line
-                .split_once(' ')
-                .map_or("", |(_, rest)| rest.trim().trim_matches('/'));
-            let path = String::from(path);
-            return match line.split_ascii_whitespace().next()? {
-                "ls" => Some(Command::List(path)),
-                _ if path.is_empty() => None,
-                "stat" => Some(Command::Stat(path)),
-                "md5" => Some(Command::Md5(path)),
-                "rm" => Some(Command::Remove(path)),
-                _ => Some(Command::MakeDir(path)),
-            };
-        }
         "nap" => Command::Nap(words.next()?.parse().ok()?),
         "graytone" => Command::GrayTone(match words.next()? {
             "stock" => crate::display::GrayTone::Stock,
@@ -525,38 +469,142 @@ pub fn parse(line: &str) -> Option<Command> {
         },
         "trace" => Command::Trace(on_off(words.next()?, "start", "stop")?),
         "profile" => Command::Profile(on_off(words.next()?, "start", "stop")?),
-        "peek" => {
-            let at = u32::from_str_radix(words.next()?, 16).ok()?;
-            let words: u32 = words.next()?.parse().ok()?;
-            let end = at.checked_add(words.checked_mul(4)?)?;
-            let fits = (1..=PEEK_WORDS).contains(&words)
-                && at % 4 == 0
-                && ROM.contains(&at)
-                && end <= ROM.end;
-            return fits.then_some(Command::Peek { at, words });
-        }
-        // The path is the rest of the line, spaces and all.
-        "get" => {
-            let path = line.split_once(' ')?.1.trim();
-            return (!path.is_empty()).then(|| Command::Get(String::from(path)));
-        }
-        "put" => {
-            let size = words.next()?.parse().ok()?;
-            let path = line
-                .split_once(' ')?
-                .1
-                .trim_start()
-                .split_once(' ')?
-                .1
-                .trim();
-            return (!path.is_empty()).then(|| Command::Put {
-                size,
-                path: String::from(path),
-            });
-        }
         _ => return None,
     };
-    words.next().is_none().then_some(command)
+    Some(command)
+}
+
+/// The command of a line that is read to its end, `name` its first word.
+/// `None` for any other first word.
+fn whole_line<'a>(
+    name: &str,
+    line: &str,
+    words: &mut impl Iterator<Item = &'a str>,
+) -> Option<Option<Command>> {
+    Some(match name {
+        "ls" | "stat" | "md5" | "rm" | "mkdir" => card_path(name, line),
+        "peek" => peek(words),
+        "get" => get(line),
+        "put" => put(line, words),
+        _ => return None,
+    })
+}
+
+/// A command on a card path: the rest of the line.
+fn card_path(name: &str, line: &str) -> Option<Command> {
+    // Paths on the card are named from its root, with or without `/`.
+    let path = line
+        .split_once(' ')
+        .map_or("", |(_, rest)| rest.trim().trim_matches('/'));
+    let path = String::from(path);
+    match name {
+        "ls" => Some(Command::List(path)),
+        _ if path.is_empty() => None,
+        "stat" => Some(Command::Stat(path)),
+        "md5" => Some(Command::Md5(path)),
+        "rm" => Some(Command::Remove(path)),
+        _ => Some(Command::MakeDir(path)),
+    }
+}
+
+/// `peek <hex address> <words>`: words of the ROM.
+fn peek<'a>(words: &mut impl Iterator<Item = &'a str>) -> Option<Command> {
+    let at = u32::from_str_radix(words.next()?, 16).ok()?;
+    let words: u32 = words.next()?.parse().ok()?;
+    let end = at.checked_add(words.checked_mul(4)?)?;
+    let fits =
+        (1..=PEEK_WORDS).contains(&words) && at % 4 == 0 && ROM.contains(&at) && end <= ROM.end;
+    fits.then_some(Command::Peek { at, words })
+}
+
+/// `get <path>`: the path is the rest of the line, spaces and all.
+fn get(line: &str) -> Option<Command> {
+    let path = line.split_once(' ')?.1.trim();
+    (!path.is_empty()).then(|| Command::Get(String::from(path)))
+}
+
+/// `put <size> <path>`: the path is the rest of the line, spaces and all.
+fn put<'a>(line: &str, words: &mut impl Iterator<Item = &'a str>) -> Option<Command> {
+    let size = words.next()?.parse().ok()?;
+    let path = line
+        .split_once(' ')?
+        .1
+        .trim_start()
+        .split_once(' ')?
+        .1
+        .trim();
+    (!path.is_empty()).then(|| Command::Put {
+        size,
+        path: String::from(path),
+    })
+}
+
+/// `wifi ...`: what is asked of the network.
+fn wifi<'a>(words: &mut impl Iterator<Item = &'a str>) -> Option<Ask> {
+    Some(match words.next()? {
+        "scan" => Ask::Scan,
+        "connect" => Ask::Connect {
+            ssid: unhex(words.next()?)?,
+            password: unhex(words.next()?)?,
+        },
+        "status" => Ask::Status,
+        "off" => Ask::Off,
+        _ => return None,
+    })
+}
+
+/// `touch <down|move|up> <x> <y>`: one step of a touch.
+fn touch<'a>(words: &mut impl Iterator<Item = &'a str>) -> Option<Command> {
+    Some(Command::Touch {
+        phase: match words.next()? {
+            "down" => Touch::Down,
+            "move" => Touch::Move,
+            "up" => Touch::Up,
+            _ => return None,
+        },
+        x: words.next()?.parse().ok()?,
+        y: words.next()?.parse().ok()?,
+    })
+}
+
+/// `drag <x> <y> <x> <y> <steps> <ms>`: a touch drawn from one point to
+/// another.
+fn drag<'a>(words: &mut impl Iterator<Item = &'a str>) -> Option<Command> {
+    let mut number = || words.next()?.parse::<u16>().ok();
+    let (from, to) = ((number()?, number()?), (number()?, number()?));
+    let (steps, ms) = (number()?, number()?);
+    if steps == 0 {
+        return None;
+    }
+    Some(Command::Drag {
+        from,
+        to,
+        steps,
+        ms,
+    })
+}
+
+/// `clicks <button> <count> <every> <held> [jitter]`: presses one after
+/// the other.
+fn clicks<'a>(words: &mut impl Iterator<Item = &'a str>) -> Option<Command> {
+    let name = words.next()?;
+    let button = *crate::buttons::ALL.iter().find(|b| **b == name)?;
+    let mut number = || words.next()?.parse::<u16>().ok();
+    let (count, every, held) = (number()?, number()?, number()?);
+    let jitter = match words.next() {
+        Some(word) => word.parse::<u16>().ok()?,
+        None => 0,
+    };
+    if held == 0 || u32::from(held) + u32::from(jitter) >= u32::from(every) {
+        return None;
+    }
+    Some(Command::Clicks {
+        button,
+        count,
+        every,
+        held,
+        jitter,
+    })
 }
 
 /// `true` for `on`, `false` for `off`, nothing for any other word.

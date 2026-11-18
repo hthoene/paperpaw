@@ -187,10 +187,6 @@ fn free_span(
 /// button under it does, centred in an equal share of the width, as the
 /// buttons lie. The hint of the button `pressed` is drawn inverted, as a
 /// sign that its press is being worked on.
-#[expect(
-    clippy::too_many_lines,
-    reason = "grew by the role each label now names; split it when it is next changed"
-)]
 pub fn draw_button_hints(
     canvas: &mut Canvas<'_>,
     env: &Place<'_>,
@@ -200,32 +196,7 @@ pub fn draw_button_hints(
 ) {
     let style = UiStyle::new(env);
     let line = style.line.min(u32::from(area.height));
-    let painted = style
-        .look
-        .hints(canvas, &style, super::look::HintRowPart { area });
-    if !painted {
-        canvas.fill(area, Color::WHITE);
-    }
-    match style.separators {
-        _ if painted => {}
-        Separators::Line => canvas.fill_rect(
-            i32::from(area.x),
-            i32::from(area.y),
-            u32::from(area.width),
-            line,
-            Color::BLACK,
-        ),
-        Separators::Inset => canvas.fill_tint(
-            Rect::new(
-                area.x + style.margin as u16,
-                area.y,
-                area.width.saturating_sub(2 * style.margin as u16),
-                line as u16,
-            ),
-            style.ink(Ink::RULE),
-        ),
-        Separators::None => {}
-    }
+    draw_row_ground(canvas, &style, area, line);
     let Some(font) = style.font(env) else {
         return;
     };
@@ -250,7 +221,7 @@ pub fn draw_button_hints(
         } else {
             Color::BLACK
         };
-        let mut boxed = cell.inset(style.gap as u16 / 2, style.gap as u16 / 4);
+        let boxed = cell.inset(style.gap as u16 / 2, style.gap as u16 / 4);
         if let Some(shown) = icon_of(env, hint) {
             if is_pressed {
                 let radius = style.radius(u32::from(boxed.height));
@@ -272,16 +243,7 @@ pub fn draw_button_hints(
                 let span = Rect::new(from as u16, row.y, (to - from) as u16, row.height);
                 let placed = place_hint_text(&font, &style, (cell, span, middle), room, text);
                 if is_pressed {
-                    // The box round all of its words, a little room
-                    // round them.
-                    let pad = style.gap as f32 / 4.0;
-                    for p in &placed {
-                        let end = p.x + font.measure(p.size, &p.text) + pad;
-                        let start = (p.x - pad).max(0.0) as u16;
-                        let x = boxed.x.min(start);
-                        let right = (u32::from(boxed.x) + u32::from(boxed.width)).max(end as u32);
-                        boxed = Rect::new(x, boxed.y, (right - u32::from(x)) as u16, boxed.height);
-                    }
+                    let boxed = round_words(boxed, &placed, &font, &style);
                     let radius = style.radius(u32::from(boxed.height));
                     canvas.fill_round(boxed, radius, Color::BLACK);
                 }
@@ -306,6 +268,56 @@ pub fn draw_button_hints(
             _ => {}
         }
     }
+}
+
+/// The ground of the hint row: the look's, or white with the line above
+/// it that the style asks for.
+fn draw_row_ground(canvas: &mut Canvas<'_>, style: &UiStyle, area: Rect, line: u32) {
+    let painted = style
+        .look
+        .hints(canvas, style, super::look::HintRowPart { area });
+    if !painted {
+        canvas.fill(area, Color::WHITE);
+    }
+    match style.separators {
+        _ if painted => {}
+        Separators::Line => canvas.fill_rect(
+            i32::from(area.x),
+            i32::from(area.y),
+            u32::from(area.width),
+            line,
+            Color::BLACK,
+        ),
+        Separators::Inset => canvas.fill_tint(
+            Rect::new(
+                area.x + style.margin as u16,
+                area.y,
+                area.width.saturating_sub(2 * style.margin as u16),
+                line as u16,
+            ),
+            style.ink(Ink::RULE),
+        ),
+        Separators::None => {}
+    }
+}
+
+/// `boxed` grown to hold all the words `placed`, with a little room
+/// round them.
+fn round_words(
+    mut boxed: Rect,
+    placed: &[Placed],
+    font: &paperpaw_sdk::FontHandle<'_>,
+    style: &UiStyle,
+) -> Rect {
+    let pad = style.gap as f32 / 4.0;
+    for p in placed {
+        let end = p.x + font.measure(p.size, &p.text) + pad;
+        let start = (p.x - pad).max(0.0) as u16;
+        let x = boxed.x.min(start);
+        let right = (u32::from(boxed.x) + u32::from(boxed.width)).max(end as u32);
+        boxed = Rect::new(x, boxed.y, (right - u32::from(x)) as u16, boxed.height);
+    }
+    boxed
 }
 
 /// The icon a text written with `icons::as_text` is (the private-use mark

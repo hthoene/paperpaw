@@ -256,30 +256,12 @@ impl State {
     }
 }
 
-/// Turns one line into HTML; `cut` if it goes on in the next (a line
-/// longer than [`MAX_LINE`]).
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
+/// Turns one line into HTML. `cut` if it goes on in the next, as a line
+/// longer than [`MAX_LINE`] does.
 fn line(raw: &str, state: &mut State, out: &mut String, cut: bool) -> Result<(), DocumentError> {
     let br = core::mem::replace(&mut state.br, !cut && raw.ends_with("  "));
     if core::mem::replace(&mut state.cut, cut) {
-        // The rest of a line cut short: more of the block it began, as
-        // written (its white space was not trimmed at the cut).
-        if state.code {
-            fallible::escape(raw, out)?;
-            if !cut {
-                out.try_push('\n')?;
-            }
-            return Ok(());
-        }
-        if !state.paragraph && !state.item {
-            out.try_push_str("<p>")?;
-            state.paragraph = true;
-        }
-        inline(raw, &state.pictures, out)?;
-        return Ok(());
+        return rest_of_cut(raw, state, out, cut);
     }
     let line = if cut { raw } else { raw.trim_end() };
     let trimmed = line.trim_start();
@@ -317,16 +299,51 @@ fn line(raw: &str, state: &mut State, out: &mut String, cut: bool) -> Result<(),
             state.quote = true;
         }
     }
-    let heading = text.chars().take_while(|&c| c == '#').count();
-    if (1..=6).contains(&heading) && text[heading..].starts_with(' ') {
-        state.close_blocks(out)?;
-        let title = text[heading..].trim().trim_end_matches('#').trim();
-        out.try_push_str(&fallible::try_format!("<h{heading}>")?)?;
-        inline(title, &state.pictures, out)?;
-        out.try_push_str(&fallible::try_format!("</h{heading}>\n")?)?;
+    if heading(text, state, out)? || rule(text, state, out)? || list_item(text, state, out)? {
         return Ok(());
     }
-    // Three or more of one of `-`, `*`, `_`, white space between them aside.
+    text_line(text, quoted, br, state, out)
+}
+
+/// The rest of a line cut short: more of the block it began, as written.
+/// Its white space was not trimmed at the cut.
+fn rest_of_cut(
+    raw: &str,
+    state: &mut State,
+    out: &mut String,
+    cut: bool,
+) -> Result<(), DocumentError> {
+    if state.code {
+        fallible::escape(raw, out)?;
+        if !cut {
+            out.try_push('\n')?;
+        }
+        return Ok(());
+    }
+    if !state.paragraph && !state.item {
+        out.try_push_str("<p>")?;
+        state.paragraph = true;
+    }
+    inline(raw, &state.pictures, out)
+}
+
+/// A heading, if `text` is one: one to six `#` and a space.
+fn heading(text: &str, state: &mut State, out: &mut String) -> Result<bool, DocumentError> {
+    let heading = text.chars().take_while(|&c| c == '#').count();
+    if !(1..=6).contains(&heading) || !text[heading..].starts_with(' ') {
+        return Ok(false);
+    }
+    state.close_blocks(out)?;
+    let title = text[heading..].trim().trim_end_matches('#').trim();
+    out.try_push_str(&fallible::try_format!("<h{heading}>")?)?;
+    inline(title, &state.pictures, out)?;
+    out.try_push_str(&fallible::try_format!("</h{heading}>\n")?)?;
+    Ok(true)
+}
+
+/// A rule, if `text` is one: three or more of one of `-`, `*` or `_`,
+/// white space between them aside.
+fn rule(text: &str, state: &mut State, out: &mut String) -> Result<bool, DocumentError> {
     let mut marks = text.chars().filter(|c| !c.is_whitespace());
     let first = marks.next();
     if first.is_some_and(|f| matches!(f, '-' | '*' | '_'))
@@ -335,34 +352,50 @@ fn line(raw: &str, state: &mut State, out: &mut String, cut: bool) -> Result<(),
     {
         state.close_blocks(out)?;
         out.try_push_str("<hr/>\n")?;
-        return Ok(());
+        return Ok(true);
     }
+    Ok(false)
+}
+
+/// A list item, if `text` starts one: with a bullet or a number.
+fn list_item(text: &str, state: &mut State, out: &mut String) -> Result<bool, DocumentError> {
     let bullet = ["- ", "* ", "+ "].iter().find_map(|b| text.strip_prefix(b));
     let number = text
         .split_once(". ")
         .filter(|(n, _)| !n.is_empty() && n.len() <= 9 && n.chars().all(|c| c.is_ascii_digit()))
         .map(|(_, rest)| rest);
-    if let Some((kind, rest)) = bullet.map(|r| ("ul", r)).or(number.map(|r| ("ol", r))) {
-        state.close_paragraph(out)?;
-        if state.list != Some(kind) {
-            if let Some(list) = state.list.take() {
-                out.try_push_str(&fallible::try_format!("</{list}>\n")?)?;
-            }
-            out.try_push_str(&fallible::try_format!("<{kind}>\n")?)?;
-            state.list = Some(kind);
+    let Some((kind, rest)) = bullet.map(|r| ("ul", r)).or(number.map(|r| ("ol", r))) else {
+        return Ok(false);
+    };
+    state.close_paragraph(out)?;
+    if state.list != Some(kind) {
+        if let Some(list) = state.list.take() {
+            out.try_push_str(&fallible::try_format!("</{list}>\n")?)?;
         }
-        out.try_push_str("<li>")?;
-        inline(rest.trim(), &state.pictures, out)?;
-        state.item = true;
-        return Ok(());
+        out.try_push_str(&fallible::try_format!("<{kind}>\n")?)?;
+        state.list = Some(kind);
     }
+    out.try_push_str("<li>")?;
+    inline(rest.trim(), &state.pictures, out)?;
+    state.item = true;
+    Ok(true)
+}
+
+/// A line of text: a list item or a paragraph going on, or a new
+/// paragraph. `br` if the line before ended in two spaces.
+fn text_line(
+    text: &str,
+    quoted: bool,
+    br: bool,
+    state: &mut State,
+    out: &mut String,
+) -> Result<(), DocumentError> {
     if state.item {
         // A list item going on.
         out.try_push(' ')?;
-        inline(text, &state.pictures, out)?;
-        return Ok(());
+        return inline(text, &state.pictures, out);
     }
-    if state.list.is_some() && !state.item {
+    if state.list.is_some() {
         state.close_blocks(out)?;
         if quoted {
             out.try_push_str("<blockquote>\n")?;

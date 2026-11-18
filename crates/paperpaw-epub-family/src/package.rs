@@ -27,7 +27,7 @@ use paperpaw_sdk::Storage;
 use paperpaw_sdk::config;
 use paperpaw_sdk::digest::fnv1a64;
 use paperpaw_sdk::document::{DocumentError, Metadata, PageProgression};
-use paperpaw_sdk::xml::{Token, Tokenizer, decode, local_name};
+use paperpaw_sdk::xml::{Token, Tokenizer, local_name};
 use paperpaw_sdk::zip::{ZipArchive, ZipError};
 
 use crate::css;
@@ -35,8 +35,10 @@ use crate::fallible;
 use crate::obfuscation::Method;
 
 mod fonts;
+mod metadata;
 mod nav;
 pub(crate) use fonts::fonts;
+use metadata::read_metadata;
 use nav::{read_nav, read_ncx};
 
 /// Bump when the cache format or the conversion changes.
@@ -765,182 +767,6 @@ struct Opf {
     cover_id: Option<u64>,
     /// The unique identifier, the key of obfuscated fonts.
     identifier: String,
-}
-
-/// First pass: metadata and the spine.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
-fn read_metadata(
-    storage: &dyn Storage,
-    archive: &ZipArchive,
-    opf_path: &str,
-) -> Result<Opf, DocumentError> {
-    // First pass: metadata and the spine's ids (hashed: 8 bytes each).
-    let mut metadata = Metadata::default();
-    let mut spine_ids: Vec<(u64, u32)> = Vec::new();
-    let mut ncx_id: Option<u64> = None;
-    // EPUB 2 names the cover's manifest item in `<meta name="cover">`.
-    let mut cover_id: Option<u64> = None;
-    let mut capture: Option<&'static str> = None;
-    let mut text = String::new();
-    // The unique identifier, the key of obfuscated fonts.
-    let mut unique_id: Option<String> = None;
-    let mut identifier = String::new();
-    // EPUB 3 series: `<meta property="belongs-to-collection" id="c">`, its
-    // number in `<meta refines="#c" property="group-position">`.
-    let mut collection_id: Option<String> = None;
-    let mut out_of_memory = false;
-    tokenize(storage, archive, opf_path, &mut |token| match token {
-        Token::Start {
-            name,
-            attrs,
-            self_closing,
-        } => match local_name(name) {
-            "package" => unique_id = own(&mut out_of_memory, attrs.get("unique-identifier")),
-            "identifier"
-                if !self_closing
-                    && identifier.is_empty()
-                    && attrs
-                        .get("id")
-                        .is_some_and(|id| unique_id.as_deref() == Some(&*id)) =>
-            {
-                capture = Some("identifier");
-                text.clear();
-            }
-            "title" | "creator" | "language" | "subject" | "description" if !self_closing => {
-                capture = match local_name(name) {
-                    "title" => Some("title"),
-                    "creator" => Some("creator"),
-                    "subject" => Some("subject"),
-                    "description" => Some("description"),
-                    _ => Some("language"),
-                };
-                text.clear();
-            }
-            "spine" => {
-                ncx_id = attrs.get("toc").map(|v| fnv1a64(v.as_bytes()));
-                if attrs.get("page-progression-direction").as_deref() == Some("rtl") {
-                    metadata.direction = PageProgression::RightToLeft;
-                }
-            }
-            "meta" if attrs.get("name").as_deref() == Some("cover") => {
-                cover_id = attrs.get("content").map(|v| fnv1a64(v.as_bytes()));
-            }
-            // Calibre's series.
-            "meta" if attrs.get("name").as_deref() == Some("calibre:series") => {
-                if let Some(series) = attrs
-                    .get("content")
-                    .and_then(|v| keep(&mut out_of_memory, value(&v)))
-                {
-                    metadata.series.get_or_insert(series);
-                }
-            }
-            "meta" if attrs.get("name").as_deref() == Some("calibre:series_index") => {
-                if let Some(index) = attrs
-                    .get("content")
-                    .and_then(|v| keep(&mut out_of_memory, value(&v)))
-                {
-                    metadata.series_index.get_or_insert(index);
-                }
-            }
-            "meta" if !self_closing => {
-                let property = attrs.get("property");
-                if property.as_deref() == Some("belongs-to-collection") {
-                    collection_id = own(&mut out_of_memory, attrs.get("id"));
-                    capture = Some("collection");
-                    text.clear();
-                } else if property.as_deref() == Some("group-position")
-                    && attrs.get("refines").is_some_and(|r| {
-                        collection_id
-                            .as_deref()
-                            .is_some_and(|id| r.trim_start_matches('#') == id)
-                    })
-                {
-                    capture = Some("position");
-                    text.clear();
-                }
-            }
-            "itemref" if spine_ids.len() < MAX_SPINE => {
-                if let Some(id) = attrs.get("idref") {
-                    let position = spine_ids.len() as u32;
-                    match spine_ids.try_reserve(1) {
-                        Ok(()) => spine_ids.push((fnv1a64(id.as_bytes()), position)),
-                        Err(_) => out_of_memory = true,
-                    }
-                }
-            }
-            _ => {}
-        },
-        Token::Text(t) if capture.is_some() => {
-            out_of_memory |= !self::capture(&mut text, &decode(&t));
-        }
-        Token::CData(t) if capture.is_some() => {
-            out_of_memory |= !self::capture(&mut text, t);
-        }
-        Token::End { name } => {
-            // Series are captured from `<meta>` elements.
-            let element = |field: &'static str| -> &'static str {
-                match field {
-                    "collection" | "position" => "meta",
-                    field => field,
-                }
-            };
-            if let Some(field) = capture
-                && local_name(name) == element(field)
-            {
-                let Some(value) = keep(&mut out_of_memory, value(&text)) else {
-                    capture = None;
-                    return;
-                };
-                match field {
-                    "title" if metadata.title.is_none() && !value.is_empty() => {
-                        metadata.title = Some(value);
-                    }
-                    "creator" if !value.is_empty() && metadata.authors.len() < MAX_AUTHORS => {
-                        out_of_memory |= fallible::push(&mut metadata.authors, value).is_err();
-                    }
-                    "subject"
-                        if !value.is_empty()
-                            && metadata.subjects.len() < MAX_SUBJECTS
-                            && !metadata.subjects.contains(&value) =>
-                    {
-                        out_of_memory |= fallible::push(&mut metadata.subjects, value).is_err();
-                    }
-                    "description" if metadata.description.is_none() => {
-                        if let Some(plain) = keep(&mut out_of_memory, plain_text(&text)) {
-                            metadata.description = (!plain.is_empty()).then_some(plain);
-                        }
-                    }
-                    "language" if metadata.language.is_none() && !value.is_empty() => {
-                        metadata.language = Some(value);
-                    }
-                    "identifier" => identifier = value,
-                    "collection" if !value.is_empty() => {
-                        metadata.series.get_or_insert(value);
-                    }
-                    "position" if !value.is_empty() => {
-                        metadata.series_index.get_or_insert(value);
-                    }
-                    _ => {}
-                }
-                capture = None;
-            }
-        }
-        _ => {}
-    })?;
-    if out_of_memory {
-        return Err(DocumentError::OutOfMemory);
-    }
-    paperpaw_sdk::sort::sort(&mut spine_ids);
-    Ok(Opf {
-        metadata,
-        spine_ids,
-        ncx_id,
-        cover_id,
-        identifier,
-    })
 }
 
 /// A chapter the spine names that is not in the archive. No record is
