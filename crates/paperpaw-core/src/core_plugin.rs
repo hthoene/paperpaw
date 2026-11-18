@@ -1001,7 +1001,7 @@ static IN_APPS: SettingExtra = SettingExtra::new()
     .keeps_unknown();
 
 /// The language, night mode, speech and the edges for swipes.
-static GENERAL: [SettingSpec; 9] = [
+static GENERAL: [SettingSpec; 10] = [
     SettingSpec::switch(
         settings::DEVELOPER.static_str(),
         "core.setting.developer",
@@ -1010,6 +1010,15 @@ static GENERAL: [SettingSpec; 9] = [
     )
     .advanced()
     .description("core.setting.developer.help"),
+    // The row that asks on the device (`developer_link.rs`): off at every
+    // start, never stored; only where USB can carry it.
+    SettingSpec::switch(
+        crate::developer_link::SETTING,
+        "core.setting.usb-link",
+        false,
+        groups::DEVELOPER,
+    )
+    .description("core.setting.usb-link.help"),
     SettingSpec::new(
         paperpaw_sdk::Id::new_static(settings::LANGUAGE.static_str()),
         "core.setting.language",
@@ -1095,6 +1104,10 @@ static LIBRARY: [SettingSpec; 1] = [SettingSpec::text(
 fn register_general_settings(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_settings(&GENERAL)?;
     r.add_settings(&LIBRARY)?;
+    r.set_menu_need(
+        Id::new_static(crate::developer_link::SETTING),
+        paperpaw_sdk::MenuNeed::Has(paperpaw_sdk::Capability::USB_LINK),
+    )?;
     r.set_menu_need(settings::MONO_TEXT, paperpaw_sdk::MenuNeed::BlackAndWhite)?;
     r.set_menu_need(settings::SPEAK_FOCUS, paperpaw_sdk::MenuNeed::Speech)?;
     r.set_menu_need(settings::VOICE, paperpaw_sdk::MenuNeed::Speech)?;

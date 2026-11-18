@@ -366,7 +366,7 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
 
 /// The actions: name, title, and whether the reader handles it in a callback
 /// of its own (all do; the token is `FIRST_ACTION` + the position).
-pub const ACTIONS: [(&str, &str); 34] = [
+pub const ACTIONS: [(&str, &str); 35] = [
     ("show-toc", "reader.toc"),
     ("search", "reader.search"),
     ("go-to-page", "reader.go-to-page"),
@@ -401,6 +401,7 @@ pub const ACTIONS: [(&str, &str); 34] = [
     ("sel-hold-right", "reader.sel.hold-right"),
     ("sel-hold-up", "reader.sel.hold-up"),
     ("sel-hold-down", "reader.sel.hold-down"),
+    ("hold-select", "reader.hold-select"),
 ];
 
 /// The menus the reader puts its entries in.
@@ -465,14 +466,14 @@ const ICONS: [(&str, &str); 13] = [
 
 /// Key bindings on the reader's slot layer: a tap at the bottom opens font
 /// and layout, swipes in from the sides turn pages, a pinch resizes the text,
-/// holding Select marks the page. Input, action.
+/// holding Select shows the picture of the page full screen, or else bookmarks it. Input, action.
 pub const KEYS: [(&str, &str); 7] = [
     ("tap.bottom", "reader.quick-settings"),
     ("edge.left", "core.prev-page"),
     ("edge.right", "core.next-page"),
     ("pinch.out", "reader.font-larger"),
     ("pinch.in", "reader.font-smaller"),
-    ("long.confirm", "reader.toggle-bookmark"),
+    ("long.confirm", "reader.hold-select"),
     // Holding Left starts choosing text with the buttons (#235).
     ("long.left", "reader.select-text"),
 ];
