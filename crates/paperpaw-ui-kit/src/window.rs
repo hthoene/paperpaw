@@ -307,6 +307,26 @@ impl WindowList {
         Ok((Window::of(self.focus, len, per_page).first, per_page))
     }
 
+    /// Cuts the notes of `rows` to the line a row has for them, as a draw
+    /// would, so that a source that keeps its rows ahead pays the cut once
+    /// and not in every band of every frame (a draw finds a cut note fits).
+    ///
+    /// # Errors
+    /// Snapshot, font and style errors and [`Error::NoMemory`].
+    pub fn fit_notes(&self, host: &Host<'_>, rows: &mut [RowItem]) -> Result<(), Error> {
+        let display = snapshot::capture_snapshot(host)?;
+        let font = Font::acquire_role(host, FontRole::Ui)?;
+        let cut = Style::read(host, &display, &font).and_then(|style| {
+            let room = f32::from(display.display_width().saturating_sub(2 * style.margin)).max(1.0);
+            for row in rows.iter_mut().filter(|row| !row.note.is_empty()) {
+                row.note = text::fit(&font, style.small, &row.note, room)?;
+            }
+            Ok(())
+        });
+        font.release()?;
+        cut
+    }
+
     /// The one height of every row.
     fn row_height(&self, font: &Font<'_>, style: &Style) -> Result<u16, Error> {
         if !self.notes {
@@ -342,10 +362,11 @@ fn draw_window_row(
     } else {
         style.note
     };
-    text::label(
+    // Cut to fit above: a second measure would find it fits.
+    text::push_run(
         paint,
         font,
-        &note,
+        note,
         style.small,
         f32::from(rect.x) + f32::from(style.margin),
         Rect::new(rect.x, band.y.saturating_add(band.height), rect.width, line),
