@@ -1240,6 +1240,30 @@ mod memory_notice;
 mod native_device_defaults;
 #[path = "native_entry_hooks_tests.rs"]
 mod native_entry_hooks;
+std::thread_local! {
+    /// The image of the plugin `native_screen_install` hosts, where it has
+    /// one: its declaration batch, submitted from there and not copied (what
+    /// a plugin of the card does).
+    static IMAGE: Cell<&'static [u8]> = const { Cell::new(&[]) };
+}
+
+/// The image of the hosted test plugin, as a shell names it.
+fn image_of() -> (*const u8, usize) {
+    match IMAGE.with(Cell::get) {
+        [] => (core::ptr::null(), 0),
+        image => (image.as_ptr(), image.len()),
+    }
+}
+
+/// The batch the test plugin submits: the one in its image where it has an
+/// image, else `encoded`.
+fn from_image(encoded: &[u8]) -> PpBytes {
+    match IMAGE.with(Cell::get) {
+        [] => borrowed(encoded),
+        image => borrowed(image),
+    }
+}
+
 #[path = "native_late_config_tests.rs"]
 mod native_late_config;
 #[path = "native_screen_install_tests.rs"]

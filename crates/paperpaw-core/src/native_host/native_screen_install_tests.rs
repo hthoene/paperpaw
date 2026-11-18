@@ -110,7 +110,7 @@ fn stage_fixture() -> [wire::Record<'static>; 3] {
 
 /// The batch `screen_make` submits, by the mode: the screen alone, with the
 /// unsupported records, or with the group, setting, extra and action.
-fn declaration_batch(bytes: &mut [u8]) -> usize {
+pub(super) fn declaration_batch(bytes: &mut [u8]) -> usize {
     let arms = ARMS.with(Cell::get);
     let records = [
         wire::Record::ScreenSpec(wire::ScreenSpec {
@@ -300,7 +300,7 @@ unsafe extern "C" fn screen_make(
     // SAFETY: the linked factory receives a live host table and context, and
     // its encoded declaration remains readable for the synchronous call.
     if !EMPTY.with(Cell::get) {
-        let status = unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) };
+        let status = unsafe { ((*host).registrations_submit)(ctx, from_image(&bytes[..len])) };
         if status != OK {
             return status;
         }
@@ -433,7 +433,7 @@ fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {
             (),
             screen_make,
             owner,
-            (ptr::null(), 0),
+            image_of(),
             |_, _, _, _| {},
             POOL.with(|pool| {
                 let mut pool = pool.borrow_mut();

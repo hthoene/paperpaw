@@ -205,7 +205,8 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
   plugin reads it with `get`;
   the settings editor changes it with `keep` (slot 15 keeps refusing it, `commands.md`); resetting
   the setting removes the secret. A value found in `paperpaw.ini` for such a setting moves into
-  secrets at load (interface 6). Secret settings are never announced to other plugins
+  secrets at load (interface 6), or, on a device that cannot seal then (the X4 without a radio
+  on, 3.1), as soon as Wi-Fi is on; it stays in the file until it is saved sealed. Secret settings are never announced to other plugins
   (`core-events.md`).
 - [D] **Wi-Fi.** Known networks are the Wi-Fi plugin's secrets, named by SSID. DEV's `join` with
   `remember` keeps the password there for the plugin; `dev_network.flags` bit 1 `known` is set for

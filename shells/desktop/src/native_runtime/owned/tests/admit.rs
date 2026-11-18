@@ -2,9 +2,7 @@
 //! the production loader (`HostLoader::load_native`) and its screen opens and
 //! draws through the library's own callback; one whose declarations the kernel
 //! refuses is not loaded and leaves nothing mapped.
-use paperpaw_core::native_host::registrations::{
-    self as wire, Record, Registration, ScreenSpec, SettingGroup, SettingSpec,
-};
+use paperpaw_core::native_host::registrations::{self as wire, Record, Registration, ScreenSpec};
 use paperpaw_core::sdk::{Id, Params, PluginKind, PluginProblem, PluginState};
 
 const ID: &str = "declscreen";
@@ -97,27 +95,14 @@ fn a_declared_screen_is_admitted_opens_and_draws_through_the_library() {
 #[test]
 fn a_library_the_kernel_refuses_is_not_loaded_and_nothing_stays_mapped() {
     let _one = crate::one_device_at_a_time();
-    // A secret setting passes the declaration checks and the host does not map
-    // it yet: the whole batch is refused.
+    // A preset passes the declaration checks and the host does not map it
+    // (a secret setting is mapped since #81): the whole batch is refused.
     let fixture = card(&[
-        Record::SettingGroup(SettingGroup {
-            name: "g",
-            title: "declscreen.group",
-            order: 0,
-            parent: "",
-            page: "",
-        }),
-        Record::SettingSpec(SettingSpec {
-            name: "secret",
-            kind: 0,
-            flags: 1 << 3,
-            group: "declscreen.g",
-            title: "declscreen.secret",
+        Record::PresetSpec(wire::PresetSpec {
+            name: "preset",
+            kind: "declscreen.kind",
+            title: "declscreen.preset",
             help: "",
-            default: &[1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
-            min: 0,
-            max: 0,
-            choices: "",
         }),
         Record::ScreenSpec(ScreenSpec {
             name: "screen",

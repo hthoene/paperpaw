@@ -1033,6 +1033,7 @@ impl BuilderParts {
             secrets_unreadable: false,
             secrets_opened: false,
             secrets_wired: None,
+            secrets_left: false,
             #[cfg(feature = "bluetooth")]
             pairing_nonce: None,
             plugin_defaults: Vec::new(),

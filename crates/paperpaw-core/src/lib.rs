@@ -333,6 +333,8 @@ pub struct Kernel {
     /// The `core.secrets` host the shell gave [`Kernel::wire_secrets`]: the
     /// kernel seals through it with or without a native plugin admitted.
     secrets_wired: Option<alloc::rc::Rc<dyn crate::native_host::secrets_service::SecretsHost>>,
+    /// A secret setting's value is still in `paperpaw.ini`: not sealed yet.
+    secrets_left: bool,
     /// The number a pairing question's answer must bring back.
     #[cfg(feature = "bluetooth")]
     pairing_nonce: Option<u64>,
