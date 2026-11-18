@@ -44,7 +44,12 @@ impl Plugin for Probe {
                 }
             }
             _ => {
-                let pointer = if token == 3 { "/known" } else { "" };
+                let pointer = match token {
+                    3 => "/known",
+                    5 => "2",
+                    6 => "9",
+                    _ => "",
+                };
                 if let Some((section, offset)) = backing.locate(host, "book.epub", pointer, 0.5)? {
                     let mut bytes = [0; 8];
                     bytes[..4].copy_from_slice(&section.to_le_bytes());
@@ -74,6 +79,14 @@ fn document_service(
     pointers: bool,
     locate_error: i32,
 ) -> Rc<RefCell<Vec<u32>>> {
+    document_service_flags(host, if pointers { 4 } else { 0 }, locate_error)
+}
+
+fn document_service_flags(
+    host: &ScriptedHost,
+    flags: u32,
+    locate_error: i32,
+) -> Rc<RefCell<Vec<u32>>> {
     let calls = Rc::new(RefCell::new(Vec::new()));
     let log = calls.clone();
     host.service("core.document", 1, 0, move |op, input| {
@@ -82,7 +95,7 @@ fn document_service(
         match op {
             1 => Ok(row(&Record::ServiceDocState(ServiceDocState {
                 document: 4, state: 0, progress_ppm: 0, status: 0,
-                flags: if pointers { 4 } else { 0 }, conversion: 7, format: "format.epub",
+                flags, conversion: 7, format: "format.epub",
             })).unwrap()),
             18 => Ok(Vec::new()),
             5 => {
@@ -170,4 +183,30 @@ fn an_unknown_pointer_falls_back_but_busy_does_not_and_both_close() {
         assert_eq!(got, status);
         assert_eq!(*calls.borrow(), expected_ops);
     }
+}
+
+/// Readest and KOReader send a fixed layout's progress as its 1-based page
+/// number (percentage = page / pages): it is sent so, and read so.
+#[test]
+fn a_book_of_whole_pages_sends_and_reads_the_page_number() {
+    let host = ScriptedHost::new();
+    let calls = document_service_flags(&host, 1, 0);
+    assert_eq!(run(&host, 2), (0, b"3".to_vec()));
+    assert_eq!(*calls.borrow(), [1, 18]);
+
+    let host = ScriptedHost::new();
+    let calls = document_service_flags(&host, 1, 0);
+    assert_eq!(
+        run(&host, 5),
+        (0, [1u32.to_le_bytes(), 0u32.to_le_bytes()].concat())
+    );
+    assert_eq!(*calls.borrow(), [1, 5, 18]);
+
+    // A page beyond the book falls back to the percentage.
+    let host = ScriptedHost::new();
+    document_service_flags(&host, 1, 0);
+    assert_eq!(
+        run(&host, 6),
+        (0, [2u32.to_le_bytes(), 100u32.to_le_bytes()].concat())
+    );
 }

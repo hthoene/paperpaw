@@ -404,3 +404,19 @@ fn refused_declarations_wait_for_allowance_or_the_full_retry_interval() {
         assert_eq!(calls.get(), before + 1);
     }
 }
+
+/// Readest answers like KOReader's server: the document's partial MD5 in the
+/// URL, its own device name and id, and extra fields.
+#[test]
+fn a_readest_position_is_offered_by_its_xpointer_and_name() {
+    let world = World::new(true);
+    let plugin = world.load();
+    assert_eq!(world.opened(&plugin, "first.epub", 100_000).status, 0);
+    let url = world.server.borrow().requests[0].url.clone();
+    assert!(url.ends_with(&format!("/syncs/progress/{FINGERPRINT}")));
+    let remote = br#"{"document":"0123456789abcdef","progress":"/body/DocFragment[11]/body/div/p[3]/text().0","percentage":0.31130000000000002,"timestamp":1763460000,"device":"Readest","device_id":"3F2A9C0D5B7E4A1F8C6D"}"#;
+    assert_eq!(world.complete(&plugin, 0, 200, remote).status, 0);
+    let question = world.dialogs.last().unwrap();
+    assert!(question.choices.contains("Go there"));
+    assert!(question.text.contains("Readest"));
+}

@@ -3,7 +3,9 @@
 //! place of an XPointer (`core.document` ops `xpointer` and `locate`,
 //! `document.md` section 2). A service the device does not offer, a book the
 //! library does not know answer "unavailable" (`Ok(None)`). Formats without
-//! XPointers send progress alone; incoming progress uses section lengths.
+//! XPointers send progress alone, except a book of whole pages (a comic):
+//! its progress is the 1-based page number, as KOReader and Readest send it
+//! for a fixed layout. Incoming progress uses section lengths.
 use alloc::{string::String, vec::Vec};
 
 use paperpaw_sdk::native::{
@@ -83,8 +85,13 @@ impl Backing {
         path: &str,
         at: (u32, u32),
     ) -> Result<Option<String>, Error> {
-        self.with_document(host, path, |documents, id, pointers, input, out| {
-            if !pointers {
+        self.with_document(host, path, |documents, id, kind, input, out| {
+            if kind == Kind::Pages {
+                // The page's number, as KOReader and Readest read a fixed layout's progress.
+                let mut buf = [0; 10];
+                return copy(digits(at.0.saturating_add(1), &mut buf)).map(Some);
+            }
+            if kind != Kind::Pointers {
                 return Ok(None);
             }
             match documents.xpointer(host, id, DocPosition::new(at.0, at.1), input, out) {
@@ -106,8 +113,8 @@ impl Backing {
         xpointer: &str,
         progress: f64,
     ) -> Result<Option<(u32, u32)>, Error> {
-        self.with_document(host, path, |documents, id, pointers, input, out| {
-            if pointers && !xpointer.is_empty() {
+        self.with_document(host, path, |documents, id, kind, input, out| {
+            if kind == Kind::Pointers && !xpointer.is_empty() {
                 match documents.locate(host, id, xpointer, input, out) {
                     Ok(at) => return Ok(Some((at.section, at.offset))),
                     Err(Error::Full) => return Err(Error::Busy),
@@ -118,6 +125,14 @@ impl Backing {
             let Some(lengths) = section_lengths(documents, host, id, input, out)? else {
                 return Ok(None);
             };
+            // A fixed layout's progress is its 1-based page; its percentage is
+            // page / pages, which would land one page late.
+            if kind == Kind::Pages
+                && let Ok(page) = xpointer.trim().parse::<usize>()
+                && (1..=lengths.len()).contains(&page)
+            {
+                return Ok(u32::try_from(page - 1).ok().map(|section| (section, 0)));
+            }
             Ok(at_progress(&lengths, progress))
         })
     }
@@ -128,13 +143,13 @@ impl Backing {
         &self,
         host: &Host<'_>,
         path: &str,
-        ask: impl FnOnce(&Documents, DocId, bool, &mut [u8], &mut [u8]) -> Result<Option<T>, Error>,
+        ask: impl FnOnce(&Documents, DocId, Kind, &mut [u8], &mut [u8]) -> Result<Option<T>, Error>,
     ) -> Result<Option<T>, Error> {
         let Some(documents) = &self.documents else {
             return Ok(None);
         };
         let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
-        let (id, usable, pointers) = match documents.open_book(
+        let (id, usable, kind) = match documents.open_book(
             host,
             &OpenBook::new(path).background(),
             &mut input,
@@ -148,18 +163,50 @@ impl Backing {
                     close(documents, host, id, &mut input, &mut out);
                     return Err(Error::Busy);
                 }
-                (state.id(), ready, state.has_xpointers())
+                let kind = if state.has_xpointers() {
+                    Kind::Pointers
+                } else if state.whole_pages() {
+                    Kind::Pages
+                } else {
+                    Kind::Text
+                };
+                (state.id(), ready, kind)
             }
             Err(error) => return unavailable(error),
         };
         let found = if usable {
-            ask(documents, id, pointers, &mut input, &mut out)
+            ask(documents, id, kind, &mut input, &mut out)
         } else {
             Ok(None)
         };
         close(documents, host, id, &mut input, &mut out);
         found
     }
+}
+
+/// How a book names a place to other devices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// KOReader's XPointers.
+    Pointers,
+    /// Whole pages: the page's number.
+    Pages,
+    /// Neither: the percentage alone.
+    Text,
+}
+
+/// A number as decimal text in `buf`.
+fn digits(mut n: u32, buf: &mut [u8; 10]) -> &str {
+    let mut at = buf.len();
+    loop {
+        at -= 1;
+        buf[at] = b'0' + u8::try_from(n % 10).unwrap_or(0);
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    core::str::from_utf8(&buf[at..]).unwrap_or("0")
 }
 
 /// Closes a document; one that cannot be closed is the host's to forget.
