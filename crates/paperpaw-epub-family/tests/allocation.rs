@@ -19,7 +19,7 @@ mod common;
 use paperpaw_epub_family::{
     CbzDocument, EpubDocument, Fb2Document, HtmlDocument, MarkdownDocument,
 };
-use paperpaw_sdk::document::{Block, Document, DocumentError, Locator};
+use paperpaw_sdk::document::{Block, Document, DocumentError, ImageRef, Locator};
 use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
 
 std::thread_local! {
@@ -836,4 +836,174 @@ fn a_picture_whose_reader_finds_no_room_writes_no_temporary_file() {
         }
     }
     assert!(readers > 0, "no refusal was the picture reader's");
+}
+
+/// How a picture noted when its chapter was converted is decoded.
+type Prepare = dyn Fn(&dyn Document, &Host, &ImageRef) -> Option<ImageRef>;
+
+/// An allocation refused while `prepare` decodes a picture leaves no mark:
+/// the picture is not said undecodable and no partly made file stays, so
+/// the next try, with memory, shows it.
+fn prepare_sweep(prepare: &Prepare) {
+    let fresh = || Host(MemoryStorage::new().with("book.epub", epub_fixture()));
+    // The picture's reference, as a reader finds it in the chapter.
+    let image_of = |storage: &Host| {
+        let doc = open_epub(storage).expect("opens");
+        let mut found = None;
+        let mut at = Locator::new(0, 0);
+        while let Some(block) = doc.block_at(storage, at).expect("reads") {
+            at = Locator::new(0, block.end);
+            if let Some(image) = block.image {
+                found = Some(image);
+            }
+        }
+        (doc, found.expect("the chapter shows a picture"))
+    };
+    // A clean decode, counting what it allocates.
+    let storage = fresh();
+    let (doc, image) = image_of(&storage);
+    ARMED.with(|armed| armed.set(true));
+    REFUSE.with(|refuse| refuse.set(0));
+    COUNT.with(|count| count.set(0));
+    let decoded = prepare(&*doc, &storage, &image);
+    let total = COUNT.with(Cell::get);
+    ARMED.with(|armed| armed.set(false));
+    let clean = decoded.expect("a clean decode shows the picture");
+    let whole = host(|| paperpaw_sdk::read_file(&storage, &clean.path, 1 << 20)).expect("the file");
+    assert!(total > 5, "{total} allocations is not representative");
+    for nth in 1..=total {
+        let storage = fresh();
+        let (doc, image) = image_of(&storage);
+        COUNT.with(|count| count.set(0));
+        REFUSE.with(|refuse| refuse.set(nth));
+        ARMED.with(|armed| armed.set(true));
+        let _ = prepare(&*doc, &storage, &image);
+        ARMED.with(|armed| armed.set(false));
+        assert_eq!(
+            cache_files_ending(&storage, ".bad"),
+            0,
+            "allocation {nth} refused: the picture is marked undecodable"
+        );
+        // Memory is back: a reader opening the book again gets the picture,
+        // made now or already there whole.
+        let (doc, image) = image_of(&storage);
+        let shown = prepare(&*doc, &storage, &image).or_else(|| {
+            paperpaw_sdk::image::ImageFile::open(&storage, &clean.path)
+                .filter(|f| f.width > 0 && f.height > 0)
+                .map(|f| ImageRef {
+                    path: f.path,
+                    width: f.width,
+                    height: f.height,
+                })
+        });
+        // The file is whole, as a clean decode makes it (not cut short).
+        assert_eq!(
+            host(|| paperpaw_sdk::read_file(&storage, &clean.path, 1 << 20)).ok(),
+            Some(whole.clone()),
+            "allocation {nth} refused: the picture file is not whole"
+        );
+        assert_eq!(
+            shown.map(|i| (i.width, i.height)),
+            Some((clean.width, clean.height)),
+            "allocation {nth} refused: the picture is missing on the next read"
+        );
+    }
+}
+
+#[test]
+fn a_refused_allocation_in_prepare_image_leaves_no_mark() {
+    prepare_sweep(&|doc, storage, image| doc.prepare_image(storage, image));
+}
+
+#[test]
+fn a_refused_allocation_in_prepare_image_larger_leaves_no_mark() {
+    prepare_sweep(&|doc, storage, image| doc.prepare_image_larger(storage, image, 600));
+}
+
+/// The cover of a FictionBook: an allocation refused while it is decoded or
+/// looked for is no cover that is not there. It is never marked
+/// undecodable, and the next try, with memory, finds it.
+#[test]
+fn a_refused_allocation_while_a_fictionbook_cover_is_made_leaves_no_mark() {
+    let book = fb2_fixture().replace(
+        "<lang>en</lang>",
+        "<coverpage><image l:href=\"#pic\"/></coverpage><lang>en</lang>",
+    );
+    let fresh = || Host(MemoryStorage::new().with("b/book.fb2", book.clone().into_bytes()));
+    cover_sweep(&fresh, &open_fb2, false);
+}
+
+/// The cover of an EPUB: an allocation refused while it is decoded or looked
+/// for is `OutOfMemory` or a cover as the clean run has it, never a mark
+/// that hides it; the next try, with memory, finds it whole.
+#[test]
+fn a_refused_allocation_while_an_epub_cover_is_made_leaves_no_mark() {
+    let package = common::opf(
+        "<dc:title>Cover</dc:title><dc:identifier id=\"uid\">urn:test</dc:identifier>",
+        &[
+            ("cov", "cover.png", "image/png", "cover-image"),
+            ("c0", "c0.xhtml", "application/xhtml+xml", ""),
+        ],
+        &["c0"],
+    );
+    let book = common::zip(
+        &[
+            (
+                "META-INF/container.xml",
+                common::container("OEBPS/content.opf").into_bytes(),
+            ),
+            ("OEBPS/content.opf", package.into_bytes()),
+            ("OEBPS/c0.xhtml", common::xhtml("<p>Text</p>").into_bytes()),
+            ("OEBPS/cover.png", PNG.to_vec()),
+        ],
+        false,
+    );
+    let fresh = || Host(MemoryStorage::new().with("k.epub", book.clone()));
+    let open = |storage: &Host| {
+        let doc = EpubDocument::open(storage, "k.epub")?;
+        Ok::<Box<dyn Document>, DocumentError>(host(|| Box::new(doc)))
+    };
+    cover_sweep(&fresh, &open, true);
+}
+
+/// Refuses each allocation of `cover` in turn. `always`: a cover that is
+/// not `OutOfMemory` is there (else none may be answered, unmarked).
+fn cover_sweep(fresh: &dyn Fn() -> Host, open: &Open, always: bool) {
+    let storage = fresh();
+    let doc = open(&storage).expect("opens");
+    ARMED.with(|armed| armed.set(true));
+    REFUSE.with(|refuse| refuse.set(0));
+    COUNT.with(|count| count.set(0));
+    let clean = doc.cover(&storage);
+    let total = COUNT.with(Cell::get);
+    ARMED.with(|armed| armed.set(false));
+    let clean = clean.expect("a clean run answers").expect("the cover");
+    assert!(total > 5, "{total} allocations is not representative");
+    for nth in 1..=total {
+        let storage = fresh();
+        let doc = open(&storage).expect("opens");
+        COUNT.with(|count| count.set(0));
+        REFUSE.with(|refuse| refuse.set(nth));
+        ARMED.with(|armed| armed.set(true));
+        let result = doc.cover(&storage);
+        ARMED.with(|armed| armed.set(false));
+        assert!(
+            matches!(result, Err(DocumentError::OutOfMemory) | Ok(Some(_)))
+                || (!always && matches!(result, Ok(None))),
+            "allocation {nth} refused: {result:?}"
+        );
+        assert_eq!(
+            cache_files_ending(&storage, ".bad"),
+            0,
+            "allocation {nth} refused: the cover is marked undecodable"
+        );
+        let doc = open(&storage).expect("opens again");
+        assert_eq!(
+            doc.cover(&storage)
+                .expect("answers")
+                .map(|i| (i.width, i.height)),
+            Some((clean.width, clean.height)),
+            "allocation {nth} refused: the cover is missing on the next read"
+        );
+    }
 }
