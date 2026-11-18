@@ -405,6 +405,9 @@ struct Catalog {
     urgent: core::cell::Cell<bool>,
     /// The library was walked since PaperPaw started.
     walked: core::cell::Cell<bool>,
+    /// The books opened last were caught up before the first walk since
+    /// PaperPaw started ([`library::catalog::CatchUp`]).
+    caught: core::cell::Cell<bool>,
     /// What earlier versions kept for books is to be moved
     /// ([`library::split`]): first, before a walk or catching up.
     split: core::cell::Cell<bool>,
@@ -537,13 +540,20 @@ impl Catalog {
         match result {
             Ok(false) => catalog_job::after_step(self, env, &mut job, out),
             Ok(true) => {
+                // Books appended: views hear of them at once (the sorted
+                // books are made anew after the walk); nothing appended,
+                // nothing changed.
+                let caught = match &*job {
+                    Some(CatalogJob::CatchUp(catch_up)) => Some(catch_up.appended()),
+                    _ => None,
+                };
                 *job = None;
                 self.taken.borrow_mut().clear();
                 self.walked.set(self.walked.get() || walk);
                 // Views hear of a catalog made anew once its books are
                 // sorted for each (a file made is wanted no more).
                 let sorting = self.sort_wanted(env).is_some();
-                if !sorting {
+                if caught.unwrap_or(!sorting) {
                     out.push(crate::Ask::emit(&events::CATALOG_CHANGED, ()));
                 }
                 if sorting || self.walk.get() || !self.fresh.borrow().is_empty() {

@@ -455,7 +455,7 @@ impl Folders {
 
 /// Where the books of the catalog start, past its header; `None` without
 /// one, or of an older format.
-fn header_end(storage: &dyn Storage) -> Result<Option<u64>, StorageError> {
+pub(super) fn header_end(storage: &dyn Storage) -> Result<Option<u64>, StorageError> {
     let mut buf = [0u8; 48];
     let n = match storage.read_at(&catalog_path(), 0, &mut buf) {
         Ok(n) => n,

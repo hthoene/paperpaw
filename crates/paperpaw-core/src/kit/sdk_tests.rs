@@ -2,6 +2,7 @@
 //! moved into the kernel (#300, S6b-2d).
 
 mod catalog;
+mod catalog_catch_up;
 mod catalog_shown;
 mod common;
 mod data_writers;

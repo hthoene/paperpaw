@@ -24,6 +24,9 @@
 //! never rewrites the catalog. What was noted before a catalog was made
 //! is in it, and goes from the log.
 //!
+//! Books opened last that a catalog there lacks are appended to it at the
+//! start, before the walk (`CatchUp`); the walk folds them in.
+//!
 //! The first line of a catalog of this format is a header (`\tcatalog\t2`
 //! and its [`generation`]); a catalog of format 1 (six columns, no
 //! status) is still read.
@@ -786,8 +789,10 @@ pub use view::{
     try_view_at, try_view_at_with,
 };
 
+mod catch_up;
 mod making;
 mod publish;
+pub use catch_up::CatchUp;
 pub use making::{Rewrite, Walk};
 
 #[cfg(test)]
