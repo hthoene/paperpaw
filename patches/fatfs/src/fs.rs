@@ -13,7 +13,8 @@ use crate::error::{Error, IoError};
 use crate::file::File;
 use crate::io::{self, IoBase, Read, ReadLeExt, Seek, SeekFrom, Write, WriteLeExt};
 use crate::table::{
-    alloc_cluster, count_free_clusters, format_fat, read_fat_flags, ClusterIterator, RESERVED_FAT_ENTRIES,
+    alloc_cluster, count_free_clusters, format_fat, read_fat, read_fat_flags, ClusterIterator, FatValue,
+    RESERVED_FAT_ENTRIES,
 };
 use crate::time::{DefaultTimeProvider, TimeProvider};
 
@@ -128,6 +129,8 @@ struct FsInfoSector {
     free_cluster_count: Option<u32>,
     next_free_cluster: Option<u32>,
     dirty: bool,
+    // Modified for PaperPaw: the reserved bytes hold a claim (see `claim`), as read.
+    claimed: bool,
 }
 
 impl FsInfoSector {
@@ -173,6 +176,7 @@ impl FsInfoSector {
             free_cluster_count,
             next_free_cluster,
             dirty: false,
+            claimed: reserved.starts_with(b"PPCL"),
         })
     }
 
@@ -349,6 +353,8 @@ pub struct FileSystem<IO: ReadWriteSeek, TP = DefaultTimeProvider, OCC = LossyOe
     clusters_freed: Cell<u64>,
     // Modified for PaperPaw: see `before_fat_write`.
     count_kept: Cell<bool>,
+    // Modified for PaperPaw: the claim the FS information sector holds now (see `claim`).
+    claim: Cell<Option<claim::Claim>>,
     // Modified for PaperPaw: see `check_kept_places`.
     #[cfg(debug_assertions)]
     check_places: Cell<bool>,
@@ -460,6 +466,9 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         // Validate the numbers stored in the free_cluster_count and next_free_cluster are within bounds for volume
         fs_info.validate_and_fix(total_clusters);
 
+        // Modified for PaperPaw: a claim left by a cut waits for `settle_claim`.
+        let claim = Self::stale_claim(fs_info.claimed);
+
         // return FileSystem struct
         let status_flags = bpb.status_flags();
         trace!("FileSystem::new end");
@@ -479,6 +488,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
             clusters_freed: Cell::new(0),
             // Whatever count the sector holds as mounted: someone may trust it.
             count_kept: Cell::new(fat_type == FatType::Fat32),
+            claim: Cell::new(claim),
             #[cfg(debug_assertions)]
             check_places: Cell::new(false),
         })
@@ -635,7 +645,18 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     // Modified for PaperPaw: the clusters freed counted (see `cluster_changes`), also of a chain
     // freed in part.
+    //
+    // Modified for PaperPaw: on FAT16 and FAT32 the chain after `cluster` is freed a block of the
+    // FAT at a time, each written once, and said on the disk first where a cut could leave a
+    // part of it taken (see `claim`).
     pub(crate) fn truncate_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
+        if self.fat_type != FatType::Fat12 {
+            match read_fat(&mut self.fat_slice(), self.fat_type, cluster)? {
+                // A link out of the volume (a damaged chain) is cut as it was.
+                FatValue::Data(first) if self.is_cluster(first) => return self.truncate_claimed(cluster, first),
+                _ => {}
+            }
+        }
         let mut iter = self.cluster_iter(cluster);
         let result = iter.truncate();
         self.note_freed(iter.freed());
@@ -647,8 +668,13 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         Ok(())
     }
 
-    // Modified for PaperPaw: as `truncate_cluster_chain`.
+    // Modified for PaperPaw: as `truncate_cluster_chain`: through `free_claimed`, which on FAT12
+    // comes here (`free_chain_one_by_one`).
     pub(crate) fn free_cluster_chain(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
+        self.free_claimed(cluster, false)
+    }
+
+    fn free_chain_one_by_one(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
         let mut iter = self.cluster_iter(cluster);
         let result = iter.free();
         self.note_freed(iter.freed());
@@ -698,6 +724,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         fs_info.dirty = false;
         disk.seek(SeekFrom::Start(was))?;
         self.count_kept.set(false);
+        self.claim.set(None);
         Ok(())
     }
 
@@ -760,6 +787,8 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         }
         self.mark_clean()?;
         self.count_kept.set(true);
+        // Overwritten with the count's record.
+        self.claim.set(None);
         Ok(true)
     }
 
@@ -810,12 +839,36 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         Ok(())
     }
 
-    pub(crate) fn alloc_cluster(&self, prev_cluster: Option<u32>, zero: bool) -> Result<u32, Error<IO::Error>> {
+    // Modified for PaperPaw: `referrer` added, what is to point at the cluster: said on the disk
+    // before the cluster is marked taken (see `claim`).
+    pub(crate) fn alloc_cluster(
+        &self,
+        prev_cluster: Option<u32>,
+        zero: bool,
+        referrer: Referrer,
+    ) -> Result<u32, Error<IO::Error>> {
         trace!("alloc_cluster");
         let hint = self.fs_info.borrow().next_free_cluster;
-        let cluster = {
+        // One cluster, through `alloc_run`: linked in one write where the cluster before it
+        // lies in the same block of the FAT.
+        let (cluster, _) = {
             let mut fat = self.fat_slice();
-            alloc_cluster(&mut fat, self.fat_type, prev_cluster, hint, self.total_clusters, &self.clusters_taken)?
+            crate::table::alloc_run(
+                &mut fat,
+                self.fat_type,
+                prev_cluster,
+                hint,
+                self.total_clusters,
+                &self.clusters_taken,
+                1,
+                &mut |fat, first, entries, joined| {
+                    if joined {
+                        self.drop_free_claim()
+                    } else {
+                        self.claim_taking(fat, first, entries, referrer)
+                    }
+                },
+            )?
         };
         if zero {
             let mut disk = self.disk.borrow_mut();
@@ -831,9 +884,17 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     // Modified for PaperPaw: added. A run of up to `want` free clusters in a row taken at once, linked
     // from `prev_cluster` and to one another (see `table::alloc_run`); the number of the first and how
-    // many came. Not for a directory (those clusters are zeroed one at a time).
-    pub(crate) fn alloc_clusters(&self, prev_cluster: Option<u32>, want: u32) -> Result<(u32, u32), Error<IO::Error>> {
+    // many came. Not for a directory (those clusters are zeroed one at a time). `entry`: what is
+    // to point at the first cluster of a file that has none. Where the clusters and what points
+    // at them are not one write, they are said on the disk first (see `claim`).
+    pub(crate) fn alloc_clusters(
+        &self,
+        prev_cluster: Option<u32>,
+        want: u32,
+        entry: Referrer,
+    ) -> Result<(u32, u32), Error<IO::Error>> {
         trace!("alloc_clusters");
+        let referrer = prev_cluster.map_or(entry, Referrer::Link);
         let hint = self.fs_info.borrow().next_free_cluster;
         let (first, count) = {
             let mut fat = self.fat_slice();
@@ -845,6 +906,13 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
                 self.total_clusters,
                 &self.clusters_taken,
                 want,
+                &mut |fat, first, entries, joined| {
+                    if joined {
+                        self.drop_free_claim()
+                    } else {
+                        self.claim_taking(fat, first, entries, referrer)
+                    }
+                },
             )?
         };
         let mut fs_info = self.fs_info.borrow_mut();
@@ -854,37 +922,13 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
     }
 
     // Modified for PaperPaw: added. The clusters after `cluster` freed, `cluster` ending its chain: as
-    // `truncate_cluster_chain`, but a tail that is one run (each cluster the one after the one before,
-    // up to `table::MAX_RUN` of them: what `alloc_clusters` takes) is freed in one write.
+    // `truncate_cluster_chain`, but nothing is written where nothing comes after it.
     pub(crate) fn truncate_cluster_chain_run(&self, cluster: u32) -> Result<(), Error<IO::Error>> {
         if self.fat_type != FatType::Fat12 {
-            let mut count = 0;
-            let mut last = cluster;
-            let mut whole = true;
-            for next in self.cluster_iter(cluster) {
-                match next {
-                    Ok(n) if n == last + 1 && count < crate::table::MAX_RUN => {
-                        count += 1;
-                        last = n;
-                    }
-                    _ => {
-                        whole = false;
-                        break;
-                    }
-                }
-            }
-            if whole && count > 0 {
-                {
-                    let mut fat = self.fat_slice();
-                    crate::table::free_run(&mut fat, self.fat_type, cluster, cluster + 1, count)?;
-                }
-                self.note_freed(count);
-                self.fs_info.borrow_mut().map_free_clusters(|n| n.saturating_add(count));
-                return Ok(());
-            }
-            if whole {
-                // Nothing after it.
-                return Ok(());
+            match read_fat(&mut self.fat_slice(), self.fat_type, cluster)? {
+                FatValue::Data(first) if self.is_cluster(first) => return self.truncate_claimed(cluster, first),
+                FatValue::EndOfChain => return Ok(()),
+                _ => {}
             }
         }
         self.truncate_cluster_chain(cluster)
@@ -975,6 +1019,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
             fs_info.dirty = false;
             // Modified for PaperPaw: see `before_fat_write`.
             self.count_kept.set(true);
+            self.claim.set(None);
         }
         Ok(())
     }
@@ -1638,6 +1683,7 @@ pub fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOpt
             free_cluster_count: Some(free_cluster_count),
             next_free_cluster: Some(root_dir_first_cluster + 1),
             dirty: false,
+            claimed: false,
         };
         storage.seek(SeekFrom::Start(bpb.bytes_from_sectors(bpb.fs_info_sector())))?;
         fs_info_sector.serialize(storage)?;
@@ -1655,6 +1701,11 @@ pub fn format_volume<S: ReadWriteSeek>(storage: &mut S, options: FormatVolumeOpt
     trace!("format_volume end");
     Ok(())
 }
+
+// Modified for PaperPaw: clusters a cut would leave taken by no file.
+#[path = "claim.rs"]
+mod claim;
+pub(crate) use claim::Referrer;
 
 // Modified for PaperPaw: corrupt-chain accounting regressions.
 #[cfg(test)]

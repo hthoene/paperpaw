@@ -672,8 +672,10 @@ fn free_clusters(card: &Overlay) -> u32 {
 /// What an unsynced append that is cut leaves on the card besides the file:
 /// clusters taken in the FAT that the file does not use. Recorded per cut as
 /// the free clusters short of the card before the append, and whether
-/// removing the file (and a sync) gives them back. Measured: reported, not
-/// asserted, except that a cut never frees more than there was.
+/// removing the file (and a sync) gives them back. Measured and reported;
+/// asserted: a cut never frees more than there was, and on FAT32 removal
+/// gives every cluster back after any cut (#238: the mount frees what the
+/// cut left taken by no file; FAT12 has nowhere to say what that is).
 #[test]
 fn v1_clusters_taken_by_a_cut_append_are_counted_and_given_back_by_removal() {
     for card in &CARDS {
@@ -720,6 +722,13 @@ fn v1_clusters_taken_by_a_cut_append_are_counted_and_given_back_by_removal() {
                 card.label,
                 cuts.len()
             );
+            if card.fat32 {
+                assert_eq!(
+                    kept, 0,
+                    "{}: clusters removal does not give back",
+                    card.label
+                );
+            }
         }
     }
 }
