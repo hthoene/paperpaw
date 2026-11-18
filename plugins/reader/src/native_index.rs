@@ -406,7 +406,9 @@ impl Counter {
         let start = self.entry(storage, page)?;
         if start.section < at.section
             && let Some(next) = page.checked_add(1)
-            && self.entry(storage, next).is_some_and(|first| first.section == at.section)
+            && self
+                .entry(storage, next)
+                .is_some_and(|first| first.section == at.section)
         {
             return Some((next, true));
         }
