@@ -184,6 +184,9 @@ pub struct Marking {
     lead: Option<(At, String)>,
     /// A page turn that is made, and where the selection goes on after it.
     pending: Option<Pending>,
+    /// The selection is at its page limit: the strip at the bottom says so
+    /// (instead of a notice, which would outlast Back) until the next key.
+    limit: bool,
     /// Whether the key layer of the selection is put in front.
     layer: bool,
     /// Where the page changes by a move, to redraw only that.
@@ -258,6 +261,7 @@ impl Marking {
             enter: None,
             returns: Returns::new(),
             note: None,
+            limit: false,
         }
     }
 
@@ -268,6 +272,7 @@ impl Marking {
         self.selection = None;
         self.lead = None;
         self.pending = None;
+        self.limit = false;
         self.links = None;
     }
 
@@ -332,11 +337,16 @@ impl Marking {
         // The page turned since the last input: the selection goes on on it.
         self.settle(ctx);
         self.dirty = None;
-        let outcome = match *input {
+        let had_limit = core::mem::take(&mut self.limit);
+        let mut outcome = match *input {
             Input::Action { action, .. } => self.on_action(host, ctx, action)?,
             Input::Gesture { position, kind, .. } => self.on_gesture(host, ctx, position, kind)?,
             _ => Outcome::Ignored,
         };
+        // The page limit's line goes with the next key.
+        if had_limit && !self.limit && outcome == Outcome::Handled {
+            outcome = Outcome::Redraw;
+        }
         self.sync_layer(host);
         if matches!(outcome, Outcome::Redraw | Outcome::Edited) {
             let mut scratch = [0; 64];
@@ -387,6 +397,7 @@ impl Marking {
         if to.is_none() {
             self.lead = None;
             self.pending = None;
+            self.limit = false;
         }
         Outcome::Redraw
     }
@@ -425,14 +436,13 @@ impl Marking {
     /// stays), if it may take in one page more.
     fn turn(
         &mut self,
-        host: &Host<'_>,
         ctx: &Ctx<'_>,
         live: Live,
         (side, forward): (Option<Side>, bool),
     ) -> Outcome {
         if !live.pages.allows(forward) {
-            crate::native_bookmark::say(host, "reader.select.page-limit");
-            return Outcome::Handled;
+            self.limit = true;
+            return Outcome::Redraw;
         }
         // The start of the text is kept before its page is left.
         if let Some(first) = live.from.index_in(ctx.words)
@@ -510,7 +520,7 @@ impl Marking {
         };
         // A page without words (a picture): the buttons go on to the next page.
         if ctx.words.is_empty() {
-            return self.turn(host, ctx, live, (Some(side), goes_on(action)));
+            return self.turn(ctx, live, (Some(side), goes_on(action)));
         }
         match live.step(ctx.words, mv, side) {
             Went::Stays => Outcome::Handled,
@@ -519,7 +529,7 @@ impl Marking {
                 next.put(ctx.words, side, index);
                 self.moved(ctx, live, next)
             }
-            Went::Edge(forward) => self.turn(host, ctx, live, (Some(side), forward)),
+            Went::Edge(forward) => self.turn(ctx, live, (Some(side), forward)),
         }
     }
 
@@ -576,7 +586,7 @@ impl Marking {
             // On a touch screen a swipe turns the page and the selection stays;
             // a tap on the new page moves its end.
             "core.prev-page" | "core.next-page" if touch => {
-                Ok(self.turn(host, ctx, live, (None, action == "core.next-page")))
+                Ok(self.turn(ctx, live, (None, action == "core.next-page")))
             }
             "core.left" | "core.up" | "core.previous" | "core.prev-page" => {
                 Ok(self.set(Some(step(false))))
@@ -768,13 +778,29 @@ impl Marking {
                 let bar = Bar::new(host, font, &style, &display, items.as_slice())?;
                 bar.prepare(&mut ops, font, &style, live.focus)?;
             } else {
-                let key = if live.mode == Mode::Choosing {
-                    "reader.select.legend.word"
+                let mut messages = Messages::new()?;
+                let (first, second) = if live.mode == Mode::Choosing {
+                    ("reader.select.legend.word", None)
                 } else {
-                    "reader.select.legend.range"
+                    (
+                        "reader.select.legend.range",
+                        Some("reader.select.legend.range2"),
+                    )
                 };
-                let legend = Messages::new()?.copy(host, key)?;
-                linking::bottom_line(&mut ops, font, &style, &display, (&legend, true))?;
+                let first = if self.limit {
+                    "reader.select.page-limit"
+                } else {
+                    first
+                };
+                let one = messages.copy(host, first)?;
+                let two = second.map(|key| messages.copy(host, key)).transpose()?;
+                let lines = [one.as_str(), two.as_deref().unwrap_or("")];
+                let shown = if two.is_some() && !self.limit {
+                    &lines[..]
+                } else {
+                    &lines[..1]
+                };
+                linking::bottom_line(&mut ops, font, &style, &display, (shown, true))?;
             }
         }
         self.draw_links(&mut ops, host, ctx, font, &style, &display)?;
