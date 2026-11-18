@@ -90,7 +90,7 @@ impl StatusRoom {
 }
 
 /// The page's box and the type of its text, from the standard settings
-/// (see [`settings::FONT_SIZE`] and those after it) and the screen.
+/// (see [`crate::builtin::settings::FONT_SIZE`] and those after it) and the screen.
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct PageType {
@@ -102,9 +102,9 @@ pub struct PageType {
     pub word_spacing: f32,
     /// Space added after every letter, in pixels.
     pub letter_spacing: f32,
-    /// Pairs of letters kerned ([`settings::KERNING`]).
+    /// Pairs of letters kerned ([`crate::builtin::settings::KERNING`]).
     pub kerning: bool,
-    /// Ligatures drawn ([`settings::LIGATURES`]); never with letter
+    /// Ligatures drawn ([`crate::builtin::settings::LIGATURES`]); never with letter
     /// spacing, which would pull them apart.
     pub ligatures: bool,
     /// Body text lines: baseline from the top of a line, line height.
