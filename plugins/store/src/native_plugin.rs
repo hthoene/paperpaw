@@ -84,8 +84,9 @@ pub struct NativeStore {
     pub(crate) want_retried: bool,
     /// The removal the host was asked for: its request and the plugin's name.
     pub(crate) removing: Option<(u32, String)>,
-    /// What the install under way needs of the page it comes from.
-    pub(crate) installing: Option<crate::native_list::Page>,
+    /// What the install under way needs of the page it comes from (on the heap:
+    /// the S3's frame limit counts `make`'s stack, #214).
+    pub(crate) installing: Option<alloc::boxed::Box<crate::native_list::Page>>,
     /// The key of the community source the install under way comes from
     /// (`None`: PaperPaw's library).
     pub(crate) installing_from: Option<[u8; 32]>,

@@ -420,7 +420,7 @@ impl NativeStore {
             return self.want_page(host, id);
         };
         // What the install needs of the page outlives it.
-        let kept = lean(page)?;
+        let kept = paperpaw_ui_kit::mem::boxed(lean(page)?)?;
         let name = crate::native_glue::own(&page.entry.name)?;
         let storage = DataStorage::new(host);
         let started = {
