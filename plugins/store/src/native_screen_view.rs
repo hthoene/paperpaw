@@ -762,7 +762,9 @@ impl View {
         };
         let mut say = HostSay::new(ctx.host)?;
         let help = jump_help(ctx.host, &mut say, &source, first, max)?;
-        let rows = source.rows(&mut say, first, max, &help)?;
+        let mut rows = source.rows(&mut say, first, max, &help)?;
+        // Cut once here: a draw is made again for every band of a frame.
+        self.list.fit_notes(ctx.host, &mut rows)?;
         self.page = Some(Page { first, max, rows });
         Ok(())
     }
