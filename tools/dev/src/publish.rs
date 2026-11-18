@@ -442,4 +442,41 @@ mod tests {
             .collect();
         assert!(new(&alone).unwrap_err().contains("--sdk goes with --code"));
     }
+
+    /// The template of a community plugin source (`templates/plugin-source`,
+    /// #318) holds the plugin with code that `new --code` writes, and its
+    /// workflow names this release and the compilers the release is built
+    /// with: a change here that the template does not follow fails.
+    #[test]
+    fn the_plugin_source_template_is_the_plugin_new_writes() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let template = root.join("templates/plugin-source");
+        for (path, bytes) in code_files("hello-paw", None) {
+            let kept = std::fs::read(template.join(&path)).unwrap_or_default();
+            assert!(
+                kept == bytes,
+                "templates/plugin-source/{path} is not what `new --github hello-paw --code` writes"
+            );
+        }
+        let read = |path: &str| std::fs::read_to_string(template.join(path)).unwrap();
+        let sdk = PAPERPAW.split('.').take(2).collect::<Vec<_>>().join(".");
+        assert!(read("plugin/store/store.ini").contains(&format!("\nsdk = {sdk}\n")));
+        let workflow = read(".github/workflows/plugin-source.yml");
+        assert!(workflow.contains(&format!("  PAPERPAW: \"{PAPERPAW}\"\n")));
+        assert!(read("README.md").contains(&format!("--tag v{PAPERPAW} paperpaw-sign")));
+        let versions = std::fs::read_to_string(root.join("shells/xteink/versions.env")).unwrap();
+        let version = |name: &str| {
+            let line = versions.lines().find_map(|l| l.strip_prefix(name));
+            line.and_then(|l| l.strip_prefix('=')).unwrap().to_string()
+        };
+        for (switch, name) in [
+            ("ESP_RUST", "ESP_RUST_VERSION"),
+            ("ESP_GCC", "ESP_GCC_VERSION"),
+            ("ESPUP", "ESPUP_VERSION"),
+            ("ESPUP_SHA256", "ESPUP_SHA256_X86_64"),
+        ] {
+            let line = format!("  {switch}: \"{}\"\n", version(name));
+            assert!(workflow.contains(&line), "the workflow has no {line}");
+        }
+    }
 }

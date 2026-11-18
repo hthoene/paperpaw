@@ -1,0 +1,8 @@
+# The compiler of the PaperPaw release the plugin is built for: a plugin
+# file runs only on firmware built by the same one (its fingerprint, which
+# the device's *About* shows with the compiler). The X4 Pro's comes from
+# espup (`cargo +esp`), of the version the release names.
+[toolchain]
+channel = "1.99.0"
+targets = ["riscv32imc-unknown-none-elf"]
+profile = "minimal"
