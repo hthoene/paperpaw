@@ -17,6 +17,7 @@ use paperpaw_sdk::{
     },
 };
 
+mod band;
 mod changed;
 mod empty;
 mod grip;
@@ -261,17 +262,15 @@ pub struct ItemList {
     spot: Spot,
     /// A picture over the words of an empty list ([`Footer::Empty`]).
     empty_icon: Option<paperpaw_sdk::native::fonts::IconGlyph>,
-    /// The heights of the items as the last frame measured them: measuring
+    /// The heights of the items as the last frame measured them (measuring
     /// wraps every row's text, which is most of a long list's frame, so a
-    /// frame under the same look and width keeps them (empty while taken, or
-    /// after an item changed). Taken and kept in functions of their own
-    /// ([`Self::take_heights`], [`Self::keep_heights`]), and no larger than
-    /// this: more in the list or more code inlined into [`Self::draw_with`]
-    /// and the functions that change an item grew the frame of every plugin
-    /// that has a list past the band of the X4 (#288).
-    kept: Vec<u16>,
-    /// What `kept` was measured under ([`measured_under`]).
-    kept_under: u32,
+    /// frame under the same look and width keeps them), and the look and
+    /// header the bands of a frame share ([`band::Band`]). Empty after an item
+    /// changed; taken and kept in functions of their own, and one pointer: more
+    /// in the list or more code inlined into [`Self::draw_with`] and the
+    /// functions that change an item grew the frame of every plugin that has a
+    /// list past the band of the X4 (#288).
+    kept: Option<alloc::boxed::Box<band::Kept>>,
 }
 
 impl ItemList {
@@ -632,37 +631,44 @@ impl ItemList {
     }
 
     /// The heights of the items: the kept ones where they were measured under
-    /// this look and width, else measured now. The caller gives them back
-    /// ([`Self::keep_heights`]) once the frame is drawn.
+    /// this look and width, else measured now, and what they are measured
+    /// under. The caller gives them back ([`Self::keep_heights`]) once the
+    /// frame is drawn.
     #[inline(never)]
     fn take_heights(
         &mut self,
         font: &Font<'_>,
         style: &Style,
         width: u16,
-    ) -> Result<Vec<u16>, Error> {
+    ) -> Result<(Vec<u16>, u32), Error> {
         let under = measured_under(style, width, self.items.len());
-        let same = self.kept_under == under && self.kept.len() == self.items.len();
-        self.kept_under = under;
-        if same {
-            Ok(core::mem::take(&mut self.kept))
-        } else {
-            self.kept = Vec::new();
-            heights_of(font, style, width, &self.items)
+        match self.kept.as_mut() {
+            Some(kept) if kept.under == under && kept.heights.len() == self.items.len() => {
+                Ok((core::mem::take(&mut kept.heights), under))
+            }
+            _ => {
+                self.kept = None;
+                Ok((heights_of(font, style, width, &self.items)?, under))
+            }
         }
     }
 
-    /// Drops the kept heights: an item changed. Out of line, as the drop of
+    /// Drops what is kept: an item changed. Out of line, as the drop of
     /// a vector in each function that changes an item grew their frames.
     #[inline(never)]
     fn drop_heights(&mut self) {
-        self.kept = Vec::new();
+        self.kept = None;
     }
 
     /// Keeps the heights of a frame for the next one.
     #[inline(never)]
-    fn keep_heights(&mut self, heights: Vec<u16>) {
-        self.kept = heights;
+    fn keep_heights(&mut self, heights: Vec<u16>, under: u32) {
+        if let Some(kept) = self.kept.as_mut() {
+            kept.heights = heights;
+            kept.under = under;
+        } else if let Ok(kept) = crate::mem::boxed(band::Kept::new(heights, under)) {
+            self.kept = Some(kept);
+        }
     }
 
     /// As [`Self::draw`], with a [`Footer`].
@@ -682,55 +688,37 @@ impl ItemList {
         }
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let mut style = Style::read(host, &display, &font)?;
-        let cards = crate::cards::Cards::read(host, &display)?;
-        style.describing = paint::asking(frame);
+        let mut band = match self.take_band(frame) {
+            Some(band) => band,
+            None => band::Band::read(host, frame, (&display, &font), footer)?,
+        };
+        let (style, cards) = (&band.style, band.cards);
         let (width, height) = (display.display_width(), display.display_height());
         let top = style.header.saturating_add(style.gap);
         let mut area = Rect::new(0, top, width, height.saturating_sub(top));
-        let mut note = None;
-        if let Footer::Note(text) = footer {
-            let (rect, lines) = note_block(&font, &style, width, height, text)?;
+        if let Some((rect, _)) = &band.note {
             area.height = area.height.saturating_sub(rect.height);
-            note = Some((rect, lines));
         }
-        let heights = self.take_heights(&font, &style, width)?;
-        let head_high = self.head_high(&style, area.height, heights.first().copied());
+        let (heights, under) = self.take_heights(&font, style, width)?;
+        let head_high = self.head_high(style, area.height, heights.first().copied());
         let starts = paginate_with(&self.items, &heights, area.height, head_high)?;
         let page = starts
             .iter()
             .rposition(|start| *start <= self.focus)
             .unwrap_or(0);
-        let mut header = Page::default();
-        let mut messages = Messages::new()?;
-        let title = translated(&mut messages, host, title)?;
-        header::prepare(
-            &mut header,
-            host,
-            &font,
-            &style,
-            &mut messages,
-            &title,
-            width,
-            display.has_touch(),
-            page,
-            starts.len(),
-        )?;
-        // The header was the last to need the catalog: its buffers (4 KiB) go
-        // before the rows are painted, the peak of drawing a list (#248).
-        drop(messages);
+        band.prepare_header(host, &font, title, (&display, page, starts.len()))?;
+        let style = &band.style;
         let end = starts.get(page + 1).copied().unwrap_or(self.items.len());
         let mut body = Vec::new();
         paint::push(&mut body, Paint::Fill(style.page(area), style.paper))?;
         let mut y = top;
         let on_page = if page == 0 { head_high } else { 0 };
-        let head_at =
-            self.draw_head(&mut body, (&font, &style), Rect::new(0, y, width, on_page))?;
+        let head_at = self.draw_head(&mut body, (&font, style), Rect::new(0, y, width, on_page))?;
         y = y.saturating_add(on_page);
         let drawn = row::paint_rows(
             self,
             &mut body,
-            (&font, &style),
+            (&font, style),
             &heights,
             starts[page]..end,
             Rect::new(0, y, width, area.height),
@@ -744,35 +732,43 @@ impl ItemList {
             ),
         )?;
         if let Some((from, to)) = self.drag {
-            draw_drag(&mut body, &style, &drawn.hits, from, to)?;
+            draw_drag(&mut body, style, &drawn.hits, from, to)?;
         }
-        if let Some((rect, lines)) = &note {
-            draw_note(&mut body, &font, &style, *rect, lines)?;
+        if let Some((rect, lines)) = &band.note {
+            draw_note(&mut body, &font, style, *rect, lines)?;
         }
         let below = Rect::new(0, drawn.y, width, height.saturating_sub(drawn.y));
-        let mut band = None;
+        let mut bar = None;
         let code = footer_below(
             &mut body,
             &font,
-            &style,
+            style,
             footer,
             (below, starts.len()),
             self.empty_icon,
-            &mut band,
+            &mut bar,
         )?;
+        let header = band.header.take().unwrap_or_default();
         paint::replay_with_icons(host, frame, &font, header.paint.iter().chain(body.iter()))?;
         if let Some((qr, room)) = code {
             paint::draw_code(frame, qr, room)?;
         }
         font.release()?;
-        header.paint = Vec::new();
-        self.header = header;
-        self.keep_heights(heights);
+        self.header = Page {
+            paint: Vec::new(),
+            back: header.back,
+            pager: header.pager,
+        };
+        self.keep_heights(heights, under);
+        if band.goes_on(frame) {
+            band.header = Some(header);
+            self.keep_band(band);
+        }
         self.starts = starts;
         self.hits = drawn.hits;
         self.steps = drawn.steps;
         self.grip_rects = drawn.grips;
-        self.spot = match (head_at, band) {
+        self.spot = match (head_at, bar) {
             (Some(rect), _) => Spot::Head(rect),
             (None, Some(rect)) => Spot::Band(rect),
             (None, None) => Spot::None,
