@@ -25,6 +25,7 @@ const paperpaw_text::ink::TextInk::DEFAULT: paperpaw_text::ink::TextInk = TextIn
 const paperpaw_text::ink::TextInk::RIGHT_TO_LEFT: u32 = 1
 const paperpaw_text::layout::MAX_BREAKS: usize = 1_024usize
 const paperpaw_text::linebreak::UNICODE_VERSION: (u8, u8, u8) = table_data::UNICODE
+const paperpaw_text::stored::LARGE_SCRIPT: usize = 1_024usize
 const paperpaw_text::stored::PackLimits::LARGE: paperpaw_text::stored::PackLimits = PackLimits { index: 32 * 1024, advances: 16 * 1024, }
 const paperpaw_text::stored::PackLimits::SMALL: paperpaw_text::stored::PackLimits = PackLimits { index: 8 * 1024, advances: 4 * 1024, }
 enum paperpaw_text::font::Font { Bitmap(0: paperpaw_text::bitmap::BitmapFont), Stored(0: paperpaw_text::stored::StoredPack), Outline(0: paperpaw_text::outline::OutlineFont) }
@@ -36,7 +37,7 @@ struct paperpaw_text::anchors::Anchors { list: [paperpaw_text::anchors::Anchor; 
 struct paperpaw_text::around::Around { before: core::option::Option<char>, after: core::option::Option<char>, base: paperpaw_lang::Direction, lang: paperpaw_lang::Lang, flags: u32 }
 struct paperpaw_text::bidi::Level(0: u8)
 struct paperpaw_text::bitmap::BitmapFont { data: alloc::borrow::Cow<'static, [u8]>, strikes: u16 }
-struct paperpaw_text::bitmap::PackBuilder { strikes: alloc::vec::Vec<paperpaw_text::bitmap::StrikeData>, kerning: alloc::vec::Vec<u8>, tables: [alloc::vec::Vec<u8>; 7], compact: bool }
+struct paperpaw_text::bitmap::PackBuilder { strikes: alloc::vec::Vec<paperpaw_text::bitmap::StrikeData>, kerning: alloc::vec::Vec<u8>, tables: [alloc::vec::Vec<u8>; 7], compact: bool, cells: bool }
 struct paperpaw_text::bitmap::StrikeData { size: f32, metrics: paperpaw_text::font::LineMetrics, glyphs: alloc::vec::Vec<(char, paperpaw_text::glyph::Glyph)> }
 struct paperpaw_text::cache::GlyphCache(0: alloc::boxed::Box<dyn paperpaw_text::cache::Cache>)
 struct paperpaw_text::curve::ToneCurve { alphas: [u8; 16] }
@@ -50,5 +51,5 @@ struct paperpaw_text::sfnt::FontInfo { family: alloc::string::String, bold: bool
 struct paperpaw_text::stored::PackLimits { index: usize, advances: usize }
 struct paperpaw_text::stored::StoredPack(0: alloc::rcs::rc::Rc<dyn paperpaw_text::stored::Pack>)
 trait paperpaw_text::cache::Cache { function revision(&Self) -> u16, function glyph<'a>(&'a mut Self, u16, &'a paperpaw_text::font::Font, char, f32) -> paperpaw_text::glyph::GlyphRef<'a>, function anchors(&mut Self, u16, &paperpaw_text::font::Font, char, f32) -> paperpaw_text::anchors::Anchors, function bytes(&Self) -> usize, function capacity(&Self) -> usize, function set_capacity(&mut Self, usize), function trim(&mut Self, usize), function clear(&mut Self) }
-trait paperpaw_text::stored::Pack { function revision(&Self) -> u16, function strikes(&Self) -> usize, function size(&Self, usize) -> f32, function metrics(&Self, usize) -> paperpaw_text::font::LineMetrics, function strike(&Self, f32) -> usize, function chars(&Self) -> usize, function index(&Self, char) -> core::option::Option<u32>, function covers(&Self, usize, u32) -> bool, function advance(&Self, usize, u32) -> core::option::Option<f32>, function render(&Self, usize, u32) -> core::option::Option<paperpaw_text::glyph::Glyph>, function table(&Self, usize) -> core::option::Option<u64>, function source(&Self) -> &dyn paperpaw_text::stored::PackSource, function bytes(&Self) -> usize, function trim(&Self), function failed_reads(&Self) -> u32 }
+trait paperpaw_text::stored::Pack { function revision(&Self) -> u16, function strikes(&Self) -> usize, function size(&Self, usize) -> f32, function metrics(&Self, usize) -> paperpaw_text::font::LineMetrics, function strike(&Self, f32) -> usize, function chars(&Self) -> usize, function index(&Self, char) -> core::option::Option<u32>, function covers(&Self, usize, u32) -> bool, function advance(&Self, usize, u32) -> core::option::Option<f32>, function render(&Self, usize, u32) -> core::option::Option<paperpaw_text::glyph::Glyph>, function table(&Self, usize) -> core::option::Option<u64>, function source(&Self) -> &dyn paperpaw_text::stored::PackSource, function bytes(&Self) -> usize, function trim(&Self), function failed_reads(&Self) -> u32, function render_reusing(&Self, usize, u32, alloc::vec::Vec<u8>) -> core::option::Option<paperpaw_text::glyph::Glyph> }
 trait paperpaw_text::stored::PackSource { function read_at(&Self, u64, &mut [u8]) -> bool }

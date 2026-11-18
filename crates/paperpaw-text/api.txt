@@ -156,6 +156,7 @@ pub struct paperpaw_text::PackBuilder
 impl paperpaw_text::PackBuilder
 pub fn paperpaw_text::PackBuilder::add_strike(&mut self, f32, paperpaw_text::LineMetrics, alloc::vec::Vec<(char, paperpaw_text::Glyph)>)
 pub fn paperpaw_text::PackBuilder::build(&self) -> alloc::vec::Vec<u8>
+pub fn paperpaw_text::PackBuilder::cells(&mut self) -> &mut Self
 pub fn paperpaw_text::PackBuilder::compact(&mut self) -> &mut Self
 pub fn paperpaw_text::PackBuilder::kerning(&mut self, &[(char, char, f32)])
 pub fn paperpaw_text::PackBuilder::new() -> Self
@@ -166,11 +167,13 @@ pub const paperpaw_text::PackLimits::LARGE: paperpaw_text::PackLimits
 pub const paperpaw_text::PackLimits::SMALL: paperpaw_text::PackLimits
 pub const fn paperpaw_text::PackLimits::advances_bytes(self) -> usize
 pub const fn paperpaw_text::PackLimits::for_memory(paperpaw_platform::MemoryClass) -> paperpaw_text::PackLimits
+pub const fn paperpaw_text::PackLimits::glyph_cache_bytes(self) -> usize
 pub const fn paperpaw_text::PackLimits::index_bytes(self) -> usize
 pub struct paperpaw_text::StoredPack(_)
 impl paperpaw_text::StoredPack
 pub fn paperpaw_text::StoredPack::advance(&self, char, f32) -> f32
 pub fn paperpaw_text::StoredPack::bytes(&self) -> usize
+pub fn paperpaw_text::StoredPack::chars(&self) -> usize
 pub fn paperpaw_text::StoredPack::failed_reads(&self) -> u32
 pub fn paperpaw_text::StoredPack::has_char(&self, char) -> bool
 pub fn paperpaw_text::StoredPack::largest_size(&self) -> core::option::Option<f32>
@@ -228,6 +231,7 @@ pub fn paperpaw_text::ToneCurve::parse_for(&str, core::option::Option<&str>) -> 
 pub fn paperpaw_text::ToneCurve::to_text(&self, &mut alloc::string::String)
 impl core::default::Default for paperpaw_text::ToneCurve
 pub fn paperpaw_text::ToneCurve::default() -> Self
+pub const paperpaw_text::LARGE_SCRIPT: usize
 pub const paperpaw_text::MAX_BREAKS: usize
 pub const paperpaw_text::OUTLINES: bool
 pub const paperpaw_text::UNICODE_VERSION: (u8, u8, u8)
