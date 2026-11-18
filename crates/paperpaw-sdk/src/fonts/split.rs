@@ -207,7 +207,7 @@ impl<'a> FontHandle<'a> {
 
 /// Whether `text` is set as [`FontHandle::measure`] sets it, whatever is
 /// `around` it: left to right alone, no flags, no letter at its edges it
-/// could join, no Hangul in jamo.
+/// could join, no Hangul in jamo, no Bengali or Devanagari to shape.
 pub(super) fn plain_in(text: &str, around: &paperpaw_text::Around) -> bool {
     let joins = |c: Option<char>| c.is_some_and(|c| matches!(c, '\u{0600}'..='\u{08FF}'));
     around.base != paperpaw_lang::Direction::Rtl
@@ -216,4 +216,5 @@ pub(super) fn plain_in(text: &str, around: &paperpaw_text::Around) -> bool {
         && !joins(around.after)
         && !paperpaw_text::bidi::needs_bidi(text)
         && !paperpaw_text::has_jamo(text)
+        && !paperpaw_text::has_indic(text)
 }

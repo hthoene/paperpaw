@@ -100,7 +100,8 @@
 //! it, else on its letter; where none meets, its ink is centred over the
 //! letter's. A part may list every glyph of its strike, in their order
 //! (those without anchors with none): a key's record is then where its
-//! glyph's is. The builder writes anchors for Arabic and Hebrew alone.
+//! glyph's is. The builder writes anchors for Arabic, Hebrew, Bengali and
+//! Devanagari.
 //! Anchors are whole pixels in an `i8`: one past ±127 px (a mark more
 //! than about 90 px from its letter's pen, so at sizes far beyond 48 px)
 //! is left out, and its mark centred.
@@ -147,6 +148,31 @@
 //!   each               each entry, sorted by their key; an entry: key
 //!                      u32, count u8 (1 to 16), 3 reserved, keys u32 x
 //!                      count
+//! kind 4     8 bytes   contextual (OpenType GSUB 5 and 6): key u32, offset
+//!   each               u32 of a rule that starts at that key; sorted by
+//!                      key, a key's rules in the order they are tried. A
+//!                      rule: backtrack, input (its first key counted) and
+//!                      lookahead counts and its record count (u8 each,
+//!                      up to 16), then the offsets u32 of the key sets
+//!                      before (nearest first), of the input after its
+//!                      first key and after, then its records: u32 each,
+//!                      its place in the input in the top byte, the offset
+//!                      of a lookup's record (8 bytes, of kind 1 to 3) in
+//!                      the others. A key set: count u16, 2 reserved,
+//!                      keys u32 x count, sorted
+//! kind 5     -         contextual by classes (OpenType's format 2), the
+//!                      entry count the number of classes the first key
+//!                      may have: offsets u32 of the class definitions
+//!                      before, of the input and after (0: none), of the
+//!                      key set of the keys it starts at, then per class of
+//!                      the first key the offset u32 of its rules (0:
+//!                      none). Rules: count u16, 2 reserved, offset u32 of
+//!                      each; a rule: the four counts as kind 4's, the
+//!                      classes u8 before, of the input after its first
+//!                      key and after, its records as kind 4's. A class
+//!                      definition: count u16, 2 reserved, per key key u32
+//!                      and class u16, sorted by key (a key not listed is
+//!                      of class 0)
 //! ```
 //!
 //! Offsets are from the table's start. Features apply in their order and
@@ -155,6 +181,10 @@
 //! such as contextual rules, need no new version), a feature of another
 //! script or language, and the table of a version it does not know. Of
 //! the ligatures that start at a key, the first that matches is made.
+//! The lookups a rule applies are of kinds 1 to 3, each at its place once,
+//! in their order. Bengali and Devanagari packs carry such a table
+//! (`crate::indic`), which their shaper applies feature by feature,
+//! each where the script puts it.
 
 use alloc::borrow::Cow;
 use alloc::vec::Vec;

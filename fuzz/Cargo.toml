@@ -46,6 +46,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "indic"
+path = "fuzz_targets/indic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "cbz"
 path = "fuzz_targets/cbz.rs"
 test = false

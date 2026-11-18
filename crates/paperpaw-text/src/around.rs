@@ -5,8 +5,8 @@
 //! order they are shown (UAX #9: right-to-left letters and the numbers
 //! among them), give Arabic letters the form they take where they stand
 //! (joined to the letters around, also across the text's edges), draw
-//! mirrored brackets in right-to-left runs and keep combining marks on
-//! their letters. Text in one direction with nothing around it draws as
+//! mirrored brackets in right-to-left runs, shape Bengali and Devanagari
+//! syllables (`crate::indic`) and keep combining marks on their letters. Text in one direction with nothing around it draws as
 //! [`draw_text`](crate::draw_text) draws it.
 //!
 //! A text of up to [`STACK`] characters is set without the heap; a longer
@@ -17,10 +17,12 @@ use alloc::vec;
 use paperpaw_graphics::Canvas;
 use paperpaw_lang::{Direction, Lang};
 
-use crate::anchors::{self, Anchors};
+use crate::anchors::{self, Anchors, Bytes};
 use crate::arabic::{self, Context, Form, NO_GLYPH};
 use crate::bidi::{self, Carry, Level};
-use crate::{Font, GlyphCache, TextStyle, raster};
+use crate::indic::{self, Glyphs, Shaper};
+use crate::substitutions::Substitutions;
+use crate::{BitmapFont, Font, GlyphCache, TextStyle, raster};
 
 /// The most characters set without the heap.
 const STACK: usize = 64;
@@ -179,6 +181,7 @@ fn centred(cache: &mut GlyphCache, style: &TextStyle<'_>, letter: char, mark: ch
 fn plain(text: &str, around: &Around) -> bool {
     !around.has(Around::NO_KERN)
         && !crate::has_jamo(text)
+        && !indic::has_indic(text)
         && around.base != Direction::Rtl
         && !bidi::needs_bidi(text)
         && !joins(around.before)
@@ -207,6 +210,14 @@ fn lay(
     based: bool,
     put: impl FnMut(char, f32, bool, bool),
 ) -> f32 {
+    // Bengali or Devanagari in a line left to right: by syllables.
+    if indic::has_indic(text)
+        && !crate::has_jamo(text)
+        && around.base != Direction::Rtl
+        && !bidi::needs_bidi(text)
+    {
+        return lay_indic(font, size, text, around, based, put);
+    }
     let count = text.chars().count().min(usize::from(u16::MAX));
     if count <= STACK {
         let mut keys = ['\0'; STACK];
@@ -233,6 +244,95 @@ fn lay(
         };
         set.lay(font, size, text, around, based, put)
     }
+}
+
+/// A table of a pack in memory, as [`Bytes`].
+struct Slice<'a>(&'a [u8]);
+
+impl Bytes for Slice<'_> {
+    fn bytes(&self, at: usize, buf: &mut [u8]) -> bool {
+        self.0.bytes(at, buf)
+    }
+}
+
+/// Calls `f` with a shaper of `font`'s substitutions (none for a scalable
+/// font or a pack without them: the syllables are only reordered).
+fn with_shaper<R>(font: &Font, text: &str, f: impl FnOnce(&Shaper<'_, dyn Bytes + '_>) -> R) -> R {
+    // Only dandas or digits: nothing to substitute, no table read.
+    if !indic::has_letters(text) {
+        return f(&Shaper::new(None));
+    }
+    match font {
+        Font::Bitmap(pack) => {
+            let slice = pack.table(BitmapFont::SUBSTITUTIONS).map(Slice);
+            let table = slice
+                .as_ref()
+                .and_then(|s| Substitutions::read(s as &dyn Bytes));
+            f(&Shaper::new(table))
+        }
+        Font::Stored(pack) => {
+            let held = pack.table_bytes(BitmapFont::SUBSTITUTIONS);
+            let table = held
+                .as_ref()
+                .and_then(|t| Substitutions::read(t as &dyn Bytes));
+            f(&Shaper::new(table))
+        }
+        #[cfg(feature = "outline")]
+        Font::Outline(_) => f(&Shaper::new(None)),
+    }
+}
+
+/// [`lay`] for a line left to right with Bengali or Devanagari in it: its
+/// syllables shaped (as wide as their glyphs, not kerned), the other
+/// characters as they are, kerned among themselves.
+fn lay_indic(
+    font: &Font,
+    size: f32,
+    text: &str,
+    around: &Around,
+    based: bool,
+    mut put: impl FnMut(char, f32, bool, bool),
+) -> f32 {
+    let kern = !around.has(Around::NO_KERN);
+    with_shaper(font, text, |shaper| {
+        let mut glyphs = Glyphs::default();
+        let (mut pen, mut based) = (0.0, based);
+        let mut before = around.before;
+        let mut left: Option<char> = None;
+        let mut at = 0;
+        while at < text.len() {
+            let end = indic::run_end(text, at);
+            let Some(part) = text.get(at..end).filter(|p| !p.is_empty()) else {
+                break;
+            };
+            let first = part.chars().next().unwrap_or(' ');
+            if indic::Script::of(first).is_some() {
+                let word_start = !before.is_some_and(|c| c.is_alphabetic() || crate::is_mark(c));
+                shaper.shape(part, word_start, &mut glyphs);
+                for key in glyphs.keys() {
+                    let mark = indic::is_mark_key(key);
+                    put(key, pen, mark, mark && !based);
+                    pen += font.advance(key, size);
+                    based |= !mark;
+                }
+                left = None;
+            } else if !crate::is_invisible(first) {
+                if let Some(l) = left
+                    && kern
+                {
+                    pen += font.kern(l, first, size);
+                }
+                let mark = crate::is_mark(first);
+                put(first, pen, mark, mark && !based);
+                pen += font.advance(first, size);
+                based |= !mark;
+                left = Some(first);
+            }
+            before = part.chars().last();
+            at = end;
+        }
+        pen
+    })
 }
 
 /// The room a text is set in: per character its key, level and whether

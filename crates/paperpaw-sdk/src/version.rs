@@ -68,7 +68,8 @@ pub const SDK_VERSION: Version = crate::package_version!();
 /// `menus.ini`, `actions.ini`, `icons.ini`, `points/`, `setup.ini` and
 /// `[fonts]` in `plugin.ini`; 4 adds compiled catalogs, `i18n/*.ppcat`
 /// (read as needed, ADR 0033); 5 adds `[hyphenation]` in `plugin.ini`
-/// and its tables, `hyphenation/*.pphp`.
+/// and its tables, `hyphenation/*.pphp`, and packs in `[extends]` that
+/// extend several fonts (listed with commas).
 pub const DATA_FORMATS: u32 = 5;
 
 /// `a` is `b`, as bytes (const).

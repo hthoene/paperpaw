@@ -3,7 +3,9 @@ whose built-in fonts lack them (the Xteink X4 carries Latin only): packs
 read from the card a glyph at a time and asked for what the built-in
 fonts lack. Cyrillic, Greek and Vietnamese come from Literata's faces and, for the
 interface's font, Source Sans 3; Arabic from
-Noto Naskh Arabic and Hebrew from Noto Serif Hebrew (tools/fonts), one
+Noto Naskh Arabic, Hebrew from Noto Serif Hebrew, Bengali and Devanagari
+from Noto Serif Bengali and Devanagari (shaped: with their conjuncts and
+the substitutions that draw them) (tools/fonts), one
 pack for each built-in face they extend, the interface's font too.
 Chinese (the 6,763 ideographs of GB 2312, or the 5,401 frequently used ones
 of Big5 for Traditional) and Japanese (kana and 2,998 kanji: the Joyo and JIS X
@@ -59,6 +61,19 @@ def upright(name, file):
         (f"{name}-italic", file, 400, "literata-styles.italic"),
         (f"{name}-bold-italic", file, 700, "literata-bold-italic.bold-italic"),
         (f"{name}-sans", file, 400, "fonts-default.source-sans"),
+    ]
+
+
+def shared(name, file):
+    """Packs of a script without italics, one for each weight, each
+    extending every face it stands for (formats 5): the regular one
+    Literata's regular and italic faces and the interface's font, the bold
+    one the bold faces. Opened once for all of them, a pack's tables (an
+    Indic script's substitutions) are kept in memory once."""
+    return [
+        (name, file, 400, ["fonts-default.literata", "literata-styles.italic",
+                           "fonts-default.source-sans"]),
+        (f"{name}-bold", file, 700, ["literata-styles.bold", "literata-bold-italic.bold-italic"]),
     ]
 
 
@@ -127,6 +142,12 @@ SETS = {
                  OTHER_FONTS / "NotoSerifCJK-OFL.txt", "Noto Serif JP",
                  [f"@{ROOT / 'tools/fontgen/sets/kanji-japanese.txt'}",
                   "kana", "cjk-punctuation", "fullwidth"]),
+    # Indic (#157): the fonts' conjuncts and other forms go into the packs
+    # with the substitutions that draw them (paperpaw_text's indic module).
+    "bengali": ("Bengali", shared("bengali", OTHER_FONTS / "NotoSerifBengali.ttf"),
+                OTHER_FONTS / "NotoSerifBengali-OFL.txt", "Noto Serif Bengali", None),
+    "devanagari": ("Devanagari", shared("devanagari", OTHER_FONTS / "NotoSerifDevanagari.ttf"),
+                   OTHER_FONTS / "NotoSerifDevanagari-OFL.txt", "Noto Serif Devanagari", None),
     "korean-extra": ("Korean", KOREAN_EXTRA, OTHER_FONTS / "NanumMyeongjo-OFL.txt",
                      "a Korean book face", [f"@{ROOT / 'tools/fontgen/sets/hangul-rest.txt'}"]),
 }
@@ -182,7 +203,9 @@ def build(base, sets):
         axis = ["--axis", f"wght={weight}"] if weight else []
         subprocess.run([str(FONTGEN), str(file), str(out / "fonts" / f"{name}.ppfp"),
                         "--chars", chars, "--hinting", "none", *axis, *sizes], check=True)
-    extends = "\n".join(f"{name}.ppfp = {extended}" for name, _, _, extended in faces)
+    extends = "\n".join(
+        f"{name}.ppfp = {', '.join(extended) if isinstance(extended, list) else extended}"
+        for name, _, _, extended in faces)
     listed = data.plugins().get(id)
     if listed:
         head = data.plugin_ini(id, listed)

@@ -121,6 +121,34 @@ description = "Vietnamese books in Literata, with all its accented letters, ơ a
 de.name = "Vietnamesische Schrift"
 de.description = "Bücher auf Vietnamesisch in Literata, mit allen Akzentbuchstaben, ơ und ư."
 
+[script-bengali]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifBengali.ttf", "tools/fontgen", "crates/paperpaw-text/src/charset.rs", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs"]
+name = "Bengali letters"
+description = "Bengali (Bangla) and Assamese books in Noto Serif Bengali, its conjuncts joined and vowel signs in their places."
+de.name = "Bengalische Schrift"
+de.description = "Bücher auf Bengalisch (Bangla) und Assamesisch in Noto Serif Bengali, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
+
+[script-devanagari]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifDevanagari.ttf", "tools/fontgen", "crates/paperpaw-text/src/charset.rs", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs"]
+name = "Devanagari letters"
+description = "Hindi, Marathi, Nepali and Sanskrit books in Noto Serif Devanagari, its conjuncts joined and vowel signs in their places."
+de.name = "Devanagari-Schrift"
+de.description = "Bücher auf Hindi, Marathi, Nepali und Sanskrit in Noto Serif Devanagari, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
+
 [script-chinese-simplified]
 version = "1.0.0"
 group = "languages"
@@ -519,6 +547,40 @@ de.name = "Persisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Persisch, von rechts nach links. Braucht die Arabische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
 how = "PaperPaw's menus and settings in Persian, running from right to left.\n\nIt needs the Arabic letters pack (Arabic letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
 de.how = "PaperPaws Menüs und Einstellungen auf Persisch, von rechts nach links.\n\nSie braucht die Arabische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-bn]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-bengali"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/bn.ini", "tools/language-pack.py", "tools/sign"]
+name = "Bengali (user interface)"
+description = "PaperPaw's menus and settings in Bengali (Bangla). Needs Bengali letters. A machine translation, a draft."
+de.name = "Bengalisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Bengalisch (Bangla). Braucht die Bengalische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Bengali (Bangla).\n\nIt needs the Bengali letters pack (Bengali letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Bengalisch (Bangla).\n\nSie braucht die Bengalische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-hi]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-devanagari"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/hi.ini", "tools/language-pack.py", "tools/sign"]
+name = "Hindi (user interface)"
+description = "PaperPaw's menus and settings in Hindi. Needs Devanagari letters. A machine translation, a draft."
+de.name = "Hindi (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Hindi. Braucht die Devanagari-Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Hindi.\n\nIt needs the Devanagari letters pack (Devanagari letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Hindi.\n\nSie braucht die Devanagari-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-ur]
 version = "1.0.0"
