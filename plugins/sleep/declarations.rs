@@ -44,6 +44,10 @@ const OFF_SHOW: [&str; 5] = [
     "sleep.show.cover",
     "sleep.show.picture",
 ];
+/// The start and the restart screen (slots `core.start`, `core.restart`):
+/// the device's own, or a screen another plugin adds as a choice.
+const START_SHOW: [&str; 1] = ["sleep.start-show.built-in"];
+const RESTART_SHOW: [&str; 1] = ["sleep.restart-show.built-in"];
 const POSITIONS: [&str; 7] = [
     "sleep.position.center",
     "sleep.position.top",
@@ -60,10 +64,12 @@ const WHEN: [&str; 3] = [
 ];
 
 /// The settings that need a device that sleeps (the group too).
-const NEEDS: [&str; 11] = [
+const NEEDS: [&str; 13] = [
     "sleep.group",
     "sleep.show",
     "sleep.off-show",
+    "sleep.start-show",
+    "sleep.restart-show",
     "sleep.folder",
     "sleep.widgets",
     "sleep.overlay-picture",
@@ -74,19 +80,44 @@ const NEEDS: [&str; 11] = [
     "sleep.overlay-when",
 ];
 
-/// What the off screen shows (the slot `core.off`).
-fn off_show_spec() -> SpecDecl<'static> {
-    let mut spec = SpecDecl::new(
-        "off-show",
-        Kind::Choice {
-            default: OFF_SHOW[0],
-            choices: &OFF_SHOW,
-        },
-        GROUP,
-        "sleep.setting.off-show",
-    );
-    spec.help = "sleep.setting.off-show.help";
-    spec
+/// What the off, the start and the restart screen show (the slots
+/// `core.off`, `core.start`, `core.restart`).
+fn screen_specs<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    for (name, choices, title, help) in [
+        (
+            "off-show",
+            &OFF_SHOW[..],
+            "sleep.setting.off-show",
+            "sleep.setting.off-show.help",
+        ),
+        (
+            "start-show",
+            &START_SHOW[..],
+            "sleep.setting.start-show",
+            "sleep.setting.start-show.help",
+        ),
+        (
+            "restart-show",
+            &RESTART_SHOW[..],
+            "sleep.setting.restart-show",
+            "sleep.setting.restart-show.help",
+        ),
+    ] {
+        let mut spec = SpecDecl::new(
+            name,
+            Kind::Choice {
+                default: choices[0],
+                choices,
+            },
+            GROUP,
+            title,
+        );
+        spec.help = help;
+        d.spec(spec)?;
+    }
+    Ok(())
 }
 
 /// What the sleep screen shows, the folder of its pictures, its widgets and
@@ -108,7 +139,7 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     );
     show.help = "sleep.setting.show.help";
     d.spec(show)?;
-    d.spec(off_show_spec())?;
+    screen_specs(d)?;
     let mut folder = SpecDecl::new("folder", Kind::Text("sleep"), GROUP, "sleep.setting.folder");
     folder.help = "sleep.setting.folder.help";
     d.spec(folder)?;

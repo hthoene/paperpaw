@@ -3,6 +3,8 @@ group|sleep.title|62||
 [specs]
 show|2|0|sleep.group|sleep.setting.show|sleep.setting.show.help|t:sleep.show.cat|0|0|"sleep.show.cat\nsleep.show.cover\nsleep.show.picture\nsleep.show.overlay\nsleep.show.widgets\nsleep.show.message\nsleep.show.page"
 off-show|2|0|sleep.group|sleep.setting.off-show|sleep.setting.off-show.help|t:sleep.off-show.same|0|0|"sleep.off-show.same\nsleep.off-show.message\nsleep.show.cat\nsleep.show.cover\nsleep.show.picture"
+start-show|2|0|sleep.group|sleep.setting.start-show|sleep.setting.start-show.help|t:sleep.start-show.built-in|0|0|"sleep.start-show.built-in"
+restart-show|2|0|sleep.group|sleep.setting.restart-show|sleep.setting.restart-show.help|t:sleep.restart-show.built-in|0|0|"sleep.restart-show.built-in"
 folder|3|0|sleep.group|sleep.setting.folder|sleep.setting.folder.help|t:sleep|0|0|""
 widgets|5|0|sleep.group|sleep.setting.widgets|sleep.setting.widgets.help|t:home.date, home.continue, stats.widget.today, home.recent|0|0|""
 overlay-picture|3|0|sleep.group|sleep.setting.overlay-picture|sleep.setting.overlay-picture.help|t:|0|0|""
@@ -44,7 +46,9 @@ sleep.overlay-see-through|Sleep
 sleep.overlay-size|Sleep
 sleep.overlay-when|Sleep
 sleep.overlay-widget|Sleep
+sleep.restart-show|Sleep
 sleep.show|Sleep
+sleep.start-show|Sleep
 sleep.widgets|Sleep
 [actions]
 [events]
