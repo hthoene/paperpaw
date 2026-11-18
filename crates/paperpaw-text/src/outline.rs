@@ -75,10 +75,19 @@ impl OutlineFont {
             .is_some_and(|font| font.charmap().map(ch).is_some())
     }
 
+    /// The glyph of `ch`; for a key of a glyph without code point (an
+    /// Indic conjunct a pack is made with, `crate::indic::GLYPHS`), that
+    /// glyph, if the font has it.
     fn glyph_id(font: &FontRef<'_>, ch: char) -> GlyphId {
+        use skrifa::raw::TableProvider as _;
         let charmap = font.charmap();
+        let count = font.maxp().map_or(0, |m| m.num_glyphs());
+        let keyed = crate::indic::glyph_of_key(ch)
+            .filter(|&n| n < count)
+            .map(|n| GlyphId::new(u32::from(n)));
         charmap
             .map(ch)
+            .or(keyed)
             .or_else(|| charmap.map('\u{fffd}'))
             .unwrap_or(GlyphId::NOTDEF)
     }
@@ -163,6 +172,13 @@ impl OutlineFont {
             .iter()
             .map(|&ch| (ch, marks.anchors(ch, size)))
             .collect()
+    }
+
+    /// The substitutions of the Bengali and Devanagari among `chars`, as a
+    /// pack keeps them (see `crate::indic::pack`), and the keys of the
+    /// glyphs without code point they draw.
+    pub(crate) fn indic_substitutions(&self, chars: &[char]) -> Option<crate::indic::pack::Made> {
+        crate::indic::pack::make(self.font_ref()?, chars)
     }
 
     /// Rasterizes `ch` as the outline is drawn (unhinted); missing

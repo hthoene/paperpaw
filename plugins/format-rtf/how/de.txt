@@ -1,0 +1,5 @@
+RTF-Dokumente (.rtf) öffnen sich aus der Bibliothek wie jedes Buch, ohne Einrichtung. Titel, Autor und Sprache stammen aus dem Dokument, die Inhaltsliste entsteht aus seinen Überschriften.
+
+Das Dokument wird beim ersten Öffnen umgewandelt, bei einem langen dauert das einige Sekunden; danach öffnet es sofort. Absätze, Überschriften, Fett, Kursiv und Unterstrichen, Listen, einfache Tabellen (eine Zeile je Tabellenzeile, die Zellen durch „|“ getrennt) und JPEG- und PNG-Bilder werden angezeigt.
+
+Nicht angezeigt werden Kopf- und Fußzeilen, Fußnoten, Links, Textfelder und Bilder anderer Art (Metafiles und Bitmaps). Text in anderen Schriften braucht eine Schrift, die sie enthält (siehe Schriften).

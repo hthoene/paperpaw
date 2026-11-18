@@ -43,6 +43,7 @@ members = [
     "plugins/fonts-browser",
     "plugins/store",
     "plugins/format-mobi",
+    "plugins/format-rtf",
     "plugins/format-docx",
     "plugins/format-images",
     "plugins/format-txt",
@@ -179,6 +180,7 @@ paperpaw-plugin-notes-overview = { path = "plugins/notes-overview", version = "1
 paperpaw-plugin-picture-home = { path = "plugins/picture-home", version = "1.0.0" }
 paperpaw-plugin-notes-vault = { path = "plugins/notes-vault", version = "1.0.0" }
 paperpaw-plugin-format-mobi = { path = "plugins/format-mobi", version = "1.0.2" }
+paperpaw-plugin-format-rtf = { path = "plugins/format-rtf", version = "1.0.0" }
 paperpaw-plugin-format-docx = { path = "plugins/format-docx", version = "1.0.2" }
 paperpaw-plugin-format-images = { path = "plugins/format-images", version = "1.0.2" }
 paperpaw-plugin-wifi = { path = "plugins/wifi", version = "1.0.2" }

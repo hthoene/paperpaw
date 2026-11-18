@@ -111,7 +111,8 @@ pub(crate) fn block_lines(
 
 /// The advance of `c` at byte `i` of `block`'s text: letters that join are
 /// as wide as the form they take between their neighbours (marks left out),
-/// as drawing sets them.
+/// a Bengali or Devanagari word as wide as it is drawn (on its first
+/// character), as drawing sets them.
 pub(crate) fn advance_at(
     block: &Block,
     base: Face,
@@ -125,6 +126,17 @@ pub(crate) fn advance_at(
         return 0.0;
     }
     let face = face_at(block, base, i, cx.style.book);
+    // A Bengali or Devanagari word: as wide as drawn, shaped, on its first
+    // character (its syllables take forms by those around them).
+    if matches!(c, '\u{900}'..='\u{9FF}') {
+        let part = paperpaw_text::shaped_at(&block.text, i);
+        if part.start != i {
+            return 0.0;
+        }
+        let around = Around::new(Direction::Ltr, block.lang_of(face.style));
+        let word = block.text.get(part).unwrap_or_default();
+        return cx.typesetter.advance_text(face, word, &around);
+    }
     if levels.is_plain() || !levels::may_join(c) {
         return cx.typesetter.advance(face, c);
     }
@@ -156,6 +168,13 @@ pub(crate) fn kern_at(
     right: char,
 ) -> f32 {
     if levels.is_rtl_at(i) || levels.is_rtl_at(i - left.len_utf8()) {
+        return 0.0;
+    }
+    // Shaped syllables are not kerned (see `advance_at`).
+    if [left, right]
+        .iter()
+        .any(|c| matches!(c, '\u{900}'..='\u{9FF}'))
+    {
         return 0.0;
     }
     let book = cx.style.book;

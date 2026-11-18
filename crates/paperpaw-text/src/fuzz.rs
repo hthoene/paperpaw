@@ -76,3 +76,31 @@ pub fn substitutions(data: &[u8]) {
     table.apply(5, "hi", &mut keys, 12);
     assert!(keys.len() <= 12);
 }
+
+/// Any bytes as a substitution table (its length in the first two bytes)
+/// and text (the rest): shaping each run of the text with the table must
+/// not panic and gives at most `MAX_SHAPED` keys a run; the part drawn as
+/// one around any character holds it.
+pub fn indic(data: &[u8]) {
+    use crate::indic::{self, Glyphs, MAX_SHAPED, Shaper};
+    let Some((len, rest)) = data.split_first_chunk::<2>() else {
+        return;
+    };
+    let cut = usize::from(u16::from_le_bytes(*len)).min(rest.len());
+    let (table, text) = rest.split_at(cut);
+    let text = String::from_utf8_lossy(text);
+    let shaper = Shaper::new(crate::substitutions::Substitutions::new(table));
+    let mut glyphs = Glyphs::default();
+    let mut at = 0;
+    while at < text.len() {
+        let end = indic::run_end(&text, at);
+        assert!(end > at && end <= text.len());
+        shaper.shape(&text[at..end], at == 0, &mut glyphs);
+        assert!(glyphs.keys().count() <= MAX_SHAPED);
+        at = end;
+    }
+    for (i, _) in text.char_indices() {
+        let part = indic::shaped_at(&text, i);
+        assert!(part.start <= i && i < part.end && part.end <= text.len());
+    }
+}
