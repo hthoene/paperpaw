@@ -340,7 +340,14 @@ elif ! wanted test-native; then
 else
     skipped+=("test-native (no core, app, native or plugin package selected)")
 fi
-pkg_step doc env RUSTDOCFLAGS="-D warnings" cargo doc -j"$jobs" --no-deps "${pkgs[@]}"
+# The SDK's kernel part is documented only when the kernel enables its `kernel`
+# feature, so with the SDK among the packages the whole workspace is documented,
+# as CI does (the SDK alone has private-link errors).
+doc_pkgs=("${pkgs[@]}")
+for crate in "${crates[@]}"; do
+    [[ $crate == paperpaw-sdk ]] && doc_pkgs=(--workspace)
+done
+pkg_step doc env RUSTDOCFLAGS="-D warnings" cargo doc -j"$jobs" --no-deps "${doc_pkgs[@]}"
 step changelog python3 tools/changelog.py check
 # shellcheck disable=SC2086 # lock_args is one option or nothing
 step lockfiles python3 tools/check-lockfiles.py $lock_args
