@@ -1,6 +1,6 @@
 # Host checks for released update origins
 
-`tools/qualify-release-origins.py` downloads the actual beta.1 and beta.2 X4
+`tools/qualify-release-origins.py` downloads the actual beta.1, beta.2 and beta.3 X4
 and X4 Pro full-flash, app-only install and signed update assets, with their
 SHA-256 records. It writes only a local cache, manifest and JSON evidence.
 It never contacts a reader, writes flash, signs, tags or publishes anything.
@@ -44,17 +44,17 @@ slot with the existing 256 KiB release margin. Supply separately verified final
 signed assets for the actual OTA/SD gates; app fit alone is not a trusted install.
 Without both candidates the report marks target fit incomplete.
 
-`--tag v0.6.0-beta.3` selects that origin when it has actually been published;
-repeat `--tag` to select multiple origins. It fails if the required files are
-absent. Do not substitute the unpublished candidate and call it a release.
+All three betas are the default origins; `--tag` selects some (repeat it). It
+fails if a required file is absent. Do not substitute an unpublished candidate
+and call it a release.
 The device matrix, actual-old-installer, signature trust bridge, failed durable
 mark, user-state, dual-boot and physical interruption gates remain open in #229.
 An exit-zero host audit intentionally reports full qualification INCOMPLETE.
 
 `cargo test -p paperpaw-core --test beta_upgrade` checks frozen serialized
-fixtures from the two release tags and explicitly synthetic plugin interface
-headers. The fixture README records source paths and hashes. Current interface
-6 keeps eligible interface-6 plugins; interface 5 is refused. A target-interface
-bump needs a new refusal matrix, not an assumption that every addition breaks
-old plugins. The tests preserve files; they do not claim signed native execution
-or automatic reader-state migration on a device.
+fixtures from the release tags, Beta 3's real plugin file and a synthetic
+interface-5 header (both refused by interface 7 with their reason, files kept)
+and writes the card as Beta 4 leaves it for the rollback check. The whole
+update and rollback picture, with its results, is
+[update-rollback.md](update-rollback.md). The tests preserve files; they do not
+claim signed native execution or automatic reader-state migration on a device.

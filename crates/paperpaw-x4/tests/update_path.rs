@@ -711,10 +711,16 @@ impl Device {
         }
         let path = format!("updates/{}-{}.bin", firmware.project, version_of(&file));
         self.card.write(&path, &received).unwrap();
+        self.install_card_file(&path)
+    }
+
+    /// Installs the update file at `path` of the card, as the firmware does
+    /// for one the update page downloaded or the owner put there.
+    fn install_card_file(&mut self, path: &str) -> Taken {
         let card = self.card.clone();
         let updates = self.updates.as_mut().unwrap();
         FAIL_NEXT_PAGE.with(|armed| armed.set(self.fail_buffer));
-        let begun = updates.begin(&card, &path, None, false);
+        let begun = updates.begin(&card, path, None, false);
         FAIL_NEXT_PAGE.with(|armed| armed.set(false));
         if let Err(why) = begun {
             return Taken::Failed(why);
@@ -773,8 +779,10 @@ fn updates_install_start_and_are_kept() {
     }
 }
 
-/// A signed update already on the card takes the normal UI/install path
-/// without a server offer. The current installer and boot model run here.
+/// A signed update already on the card (put there by the owner, no server
+/// offer) installs through the firmware's own path, starts on trial and is
+/// kept; the old slot and the books on the card stay. The update page of the
+/// firmware only names such a file and starts this (`shells/xteink/src/ota.rs`).
 #[test]
 fn a_signed_card_update_installs_and_is_kept_without_network() {
     for files in Files::all() {
@@ -788,20 +796,20 @@ fn a_signed_card_update_installs_and_is_kept_without_network() {
             .card
             .write("books/sentinel.txt", b"synced book")
             .unwrap();
-        device.action(paperpaw_plugin_update::OPEN);
-        device.press_any(&["Install", "Update without them"]);
-        let shown = device.shown();
-        assert!(shown.contains("Update installed"), "{name}: {shown}");
+        assert_eq!(
+            device.install_card_file("updates/qualification.bin"),
+            Taken::Installed,
+            "{name}"
+        );
         assert!(device.holds(0, &files.old), "{name}: old slot retained");
         assert!(device.holds(1, &files.new), "{name}: target slot complete");
-        device.run_for(3_000);
-        assert!(device.restart);
         device.restart();
-        assert_eq!(device.running(), 1);
+        assert_eq!(device.running(), 1, "{name}");
+        assert!(device.updates.as_ref().unwrap().on_trial(), "{name}");
         device.run_for(TRIAL_MS + 1_000);
         device.restart();
         assert_eq!(device.running(), 1, "{name}: kept after restart");
-        assert!(!device.updates.as_ref().unwrap().on_trial());
+        assert!(!device.updates.as_ref().unwrap().on_trial(), "{name}");
         assert!(device.untouched(), "{name}: unrelated flash retained");
         let mut sentinel = [0; 11];
         assert_eq!(

@@ -12,7 +12,7 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
-TAGS = ("v0.6.0-beta.1", "v0.6.0-beta.2")
+TAGS = ("v0.6.0-beta.1", "v0.6.0-beta.2", "v0.6.0-beta.3")
 DEVICES = ("x4", "x4-pro")
 
 
@@ -136,7 +136,7 @@ def main():
                         help="current checkout's built paperpaw-sign; read-only commands only")
     parser.add_argument("--candidate", action="append", default=[], metavar="DEVICE=APP_BIN",
                         help="optional final app-only image for fit/header checks against every origin")
-    parser.add_argument("--tag", action="append", help="default: beta.1 and beta.2; .3 must exist")
+    parser.add_argument("--tag", action="append", help="default: beta.1, .2 and .3 (all published)")
     parser.add_argument("--download", action="store_true", help="fetch missing release asset/checksum pairs")
     args = parser.parse_args()
     args.cache = args.cache.resolve()
