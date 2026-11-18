@@ -997,36 +997,11 @@ impl Firmware {
             "sleeping: {ended:?} after {} s",
             now().0.saturating_sub(started) / 1000
         );
-        // The time of the choice passed: the off screen is drawn once, then
-        // the power goes (a low battery cuts it without).
-        if let Ended::SwitchOff(why) = ended
-            && let Some(reason) = paperpaw_x4::sleeping::off_screen(why)
-        {
-            self.draw_off_screen(reason);
-        }
+        self.draw_off_screen(ended);
         if ended == Ended::Woken {
             self.wake_lightly();
         }
         ended == Ended::Woken
-    }
-
-    /// The off screen (the slot `core.off`) of a reader that is about to be
-    /// switched off by the time of its choice: drawn whole once, the pictures
-    /// it asks for waited for, what the plugins wrote put on the card. The
-    /// readings go on (the refresh watches the buttons). Nothing is drawn
-    /// where no screen is bound to the slot.
-    #[cfg(feature = "asleep-light")]
-    #[inline(never)]
-    fn draw_off_screen(&mut self, reason: &str) {
-        let Some(effects) = self.kernel.switch_off_screen(now(), reason) else {
-            return;
-        };
-        info!("sleeping: the off screen ({reason})");
-        input::resume();
-        self.apply(effects);
-        self.finish_work();
-        self.settle_frame();
-        self.write_back();
     }
 
     /// Awake again after a light sleep: plugins hear it (`core.resume`),

@@ -2,6 +2,8 @@
 
 use log::info;
 
+use paperpaw_x4::sleeping::Ended;
+
 use super::Firmware;
 use crate::usb_power::Sense;
 use crate::{input, now, power};
@@ -92,5 +94,32 @@ impl paperpaw_x4::sleeping::Board for Light<'_> {
 
     fn say(&mut self, what: &str) {
         info!("sleeping: {what}");
+    }
+}
+
+impl Firmware {
+    /// The off screen (the slot `core.off`) of a reader about to be switched
+    /// off by the time of its choice (`ended`; a low battery cuts the power
+    /// without): drawn whole once, the pictures it asks for waited for, what
+    /// the plugins wrote put on the card. The readings go on (the refresh
+    /// watches the buttons). Nothing is drawn where no screen is bound to the
+    /// slot.
+    #[inline(never)]
+    pub(super) fn draw_off_screen(&mut self, ended: Ended) {
+        let Ended::SwitchOff(why) = ended else {
+            return;
+        };
+        let Some(reason) = paperpaw_x4::sleeping::off_screen(why) else {
+            return;
+        };
+        let Some(effects) = self.kernel.switch_off_screen(now(), reason) else {
+            return;
+        };
+        info!("sleeping: the off screen ({reason})");
+        input::resume();
+        self.apply(effects);
+        self.finish_work();
+        self.settle_frame();
+        self.write_back();
     }
 }
