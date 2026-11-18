@@ -4,11 +4,11 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::*;
+use crate::native_host::HostCode;
 use crate::native_host::plugin_check::tests::{
     AUTHOR_SEED, INI, Names, OTHER_SEED, author, good_record, host,
 };
 use crate::native_host::plugin_install::PluginInstall;
-use crate::native_host::HostCode;
 use crate::native_host::plugin_job::{Answer, DONE_AT_NEXT_START, Finished, PluginHost, PluginJob};
 use crate::native_host::plugin_rules::Evidence;
 use paperpaw_native::signature::sign;
@@ -83,7 +83,10 @@ fn a_signed_library_fits_with_its_key_and_the_digest_of_the_whole_file() {
     assert_eq!(facts.signer.as_str(), "PaperPaw release");
     // Another author's key is shown as no name.
     folder(&card, &library(Some(&OTHER_SEED), 9000));
-    assert_eq!(check(&card, &host_code()).facts.unwrap().signer.as_str(), "");
+    assert_eq!(
+        check(&card, &host_code()).facts.unwrap().signer.as_str(),
+        ""
+    );
 }
 
 #[test]

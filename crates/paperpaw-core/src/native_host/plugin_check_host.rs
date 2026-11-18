@@ -129,7 +129,8 @@ impl PluginCheck {
 
 /// The library of the file at `path` (`size` bytes with its trailer).
 pub(crate) fn read_library(env: &JobEnv<'_>, path: &str, size: u64) -> Result<Vec<u8>, u8> {
-    let len = usize::try_from(size.saturating_sub(SIGNATURE_LEN as u64)).map_err(|_| reason::OTHER)?;
+    let len =
+        usize::try_from(size.saturating_sub(SIGNATURE_LEN as u64)).map_err(|_| reason::OTHER)?;
     let mut bytes = Vec::new();
     bytes.try_reserve_exact(len).map_err(|_| reason::OTHER)?;
     bytes.resize(len, 0);

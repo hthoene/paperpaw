@@ -79,10 +79,7 @@ pub fn caps_of(profile: &Profile) -> u64 {
 fn card_code(profile: &Profile) -> bool {
     cfg!(all(target_os = "linux", target_arch = "x86_64"))
         && crate::device::code_plugins_on()
-        && matches!(
-            profile.catalog_device,
-            Some("x4" | "x4-pro" | "x4-classic")
-        )
+        && matches!(profile.catalog_device, Some("x4" | "x4-pro" | "x4-classic"))
 }
 
 /// Whether the device's network is up (a closure has no `Debug`).
@@ -427,7 +424,9 @@ mod tests {
         let x4 = crate::profiles::find("xteink-x4").unwrap();
         let catalog = |device: &DesktopDevice| {
             let mut name = String::new();
-            device.device(&mut |f| name = f.catalog.to_string()).unwrap();
+            device
+                .device(&mut |f| name = f.catalog.to_string())
+                .unwrap();
             name
         };
         let file = |device: &DesktopDevice| {
