@@ -20,6 +20,7 @@ include:11-help-quick-panel.pps
 include:12-highlight-widen.pps
 include:13-setup-templates.pps
 include:14-anki.pps
+include:15-pomodoro.pps
 
 test:99-crashes {
   crashes

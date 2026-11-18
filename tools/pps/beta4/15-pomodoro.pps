@@ -1,9 +1,8 @@
-# Pomodoro (#107) on the emulator, where the plugin is linked and shipped off, or on an X4 where its
-# plugin file is installed and on:
-#   python3 tools/x4-remote.py --emulator target/debug/paperpaw-emu --library <card folder> --script-file tools/pps/pomodoro.pps --out out/pomodoro
+# Beta 4 suite 15: Pomodoro (#107) on the emulator, where the plugin is linked and shipped off, or on an X4 where its
+# plugin file is installed and on (alone: --script-file tools/pps/beta4/15-pomodoro.pps).
 # The run starts the clock: the first test switches the plugin on (emulator) and the screen runs a
 # phase with its buttons. Nothing waits for a minute: the end of a phase is a host test (plugins/pomodoro/tests).
-include:beta4/common.pps
+include:common.pps
 
 # On the emulator the plugin ships off: switch it on in Manage plugins, which applies after a restart.
 test:pomodoro-01-on {

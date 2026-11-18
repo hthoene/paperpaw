@@ -50,11 +50,13 @@ test:13c-minimal-applies-at-once {
   select:Minimal
   until:Setup applied:5000
   expect-not:Error
-  # The page shows what was chosen.
-  expect:Chosen
   # Back as it was: the suite finds Home by its Edit pencil.
   set:home.footer.pencil=on
   set:home.footer.dots=on
+  # The page shows what was chosen when it is opened again.
+  call:home
+  call:to-template-page
+  expect:Chosen
   no-warn
 }
 

@@ -131,8 +131,8 @@ card commands are the tool's own on the `--library` folder; the rest is `not on 
 
 ## The Beta 4 suite
 
-`tools/pps/beta4/` holds one file per area (`01-home` … `14-anki`, shared `common.pps`) and `beta4.pps`, which
-includes them all: 55 tests, every user flow of Beta 4. Asserts on times, gray passes and the heap count on the X4 only.
+`tools/pps/beta4/` holds one file per area (`01-home` … `15-pomodoro`, shared `common.pps`) and `beta4.pps`, which
+includes them all: 60 tests, every user flow of Beta 4. Asserts on times, gray passes and the heap count on the X4 only.
 Tests that need the X4 (offline store, update download, clock after restart, Switch off after sleeping, a book with a cover)
 say NOT TESTABLE on the emulator. Suite 14 (Anki) runs on the emulator only, against a fake AnkiConnect that `run-emulator.sh` starts.
 
