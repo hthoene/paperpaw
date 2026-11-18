@@ -1,0 +1,64 @@
+# Beta 4 suite 07: the plugin store's screens. (Installing, switching and removing a plugin over Wi-Fi is the
+# X4 run's step 12, ~/dt-jobs/final-b4/steps/12-store.sh: it needs Wi-Fi and restarts.)
+include:common.pps
+
+test:07a-store-lists {
+  call:home
+  page-forward
+  select:Plugin store
+  until:Popular now:20000
+  expect:Search
+  expect:New
+  expect:Discover
+  select:New
+  until:Back:15000
+  expect-not:Error
+  back
+  until:Popular now:8000
+  back
+  until:Edit:10000
+  no-warn
+}
+
+# An entry's page (Arabic letters, a data plugin): version, size, Install and Source code; Back leaves. Install is not pressed here.
+test:07b-store-entry {
+  call:home
+  page-forward
+  select:Plugin store
+  until:Popular now:20000
+  select:New
+  until:Arabic letters:15000
+  select:Arabic letters:20
+  until:Source code:15000
+  expect:Data plugin
+  expect:Version
+  expect-not:Error
+  back
+  wait:1500
+  back
+  wait:1500
+  no-warn
+}
+
+# #235: the store without a connection has an empty list; the button hint says what Select does there: "Try again".
+# The emulator has a catalog of its own: the check is for the X4 (Wi-Fi off, Plugin store, a list).
+test:07c-store-offline-try-again {
+  if:$target==emu {
+    skip:the emulator's store always has its catalog; offline needs the X4
+  }
+  call:home
+  wifi:off
+  wait:500
+  page-forward
+  select:Plugin store
+  until:Back:20000
+  select:New
+  wait:4000
+  expect:Try again
+  expect-not:Error
+  back
+  wait:1500
+  back
+  wait:1500
+  no-warn
+}

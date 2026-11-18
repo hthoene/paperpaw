@@ -1,0 +1,81 @@
+# Beta 4 suite 06: settings. The pages, Sleep after, Switch off after sleeping (X4), the language.
+include:common.pps
+
+test:06a-settings-pages {
+  call:home
+  slot:core.settings
+  until:Settings:15000
+  expect:Search
+  expect:Display
+  expect:Power
+  page-forward
+  until:Manage plugins:5000
+  expect:Date and time
+  expect:Updates
+  expect:About PaperPaw
+  page-forward
+  until:Reset all:5000
+  expect:Restart
+  back
+  wait:1500
+  no-warn
+}
+
+# Sleep after: Select takes the row up, Right steps the value (10 -> 15 min), Select keeps it. Ends at 0 (never).
+test:06b-sleep-after {
+  call:home
+  set:core.sleep-after=10
+  call:settings-row:Power
+  until:Sleep after:8000
+  expect:10 min
+  confirm
+  wait:800
+  right
+  wait:800
+  confirm
+  wait:1000
+  expect:15 min
+  back
+  wait:1500
+  set:core.sleep-after=0
+  call:settings-row:Power
+  until:Sleep after:8000
+  expect-not:15 min
+  no-warn
+}
+
+# X4 only: Switch off after sleeping (x4.power-off-after). The row is looked at, not changed.
+test:06c-power-off-after {
+  if:$target==emu {
+    skip:the X4's own setting
+  }
+  call:home
+  call:settings-row:Power
+  until:Sleep after:8000
+  focus:Switch off after sleeping:20
+  expect-focus:Switch off after sleeping
+  expect:Never
+  no-warn
+}
+
+# The language: Select on the row steps through the languages and changes it at once; back to English.
+test:06d-language {
+  call:home
+  call:settings-row:System
+  until:Language:8000
+  select:Language
+  wait:2500
+  expect:Sprache
+  expect:Zurück
+  # round to English again
+  repeat:12 {
+    if:not-shows:Language {
+      confirm
+      wait:2500
+    }
+  }
+  expect:Language
+  expect:Back
+  set:core.language=en
+  no-warn
+}

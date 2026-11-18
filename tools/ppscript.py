@@ -444,6 +444,8 @@ class Engine:
             return self.x4.shows(arg)
         if kind == "not-shows":
             return not self.x4.shows(arg)
+        if kind == "focused":
+            return self.focused(arg)
         if kind == "log":
             return any(re.search(arg, s) for s in self.log_lines())
         if kind == "has":
@@ -750,6 +752,31 @@ class Engine:
     def do_expect_not(self, rest, st):
         self.check("expect", not self.x4.shows(rest), f"expect `{rest}` not on the screen")
 
+    def focused(self, text):
+        return any("focused" in p[5] and text in p[6] for p in self.x4.parts())
+
+    def do_expect_focus(self, rest, st):
+        self.check("expect", self.focused(rest), f"expect `{rest}` focused")
+
+    def reach(self, rest, key, what):
+        text, max_presses = self.split_ms(rest, 40)
+        for n in range(max_presses + 1):
+            if self.focused(text):
+                self.say(f"{what} `{text}`: focused after {n} press(es)")
+                return True
+            if n < max_presses:
+                self.primitive(key)
+        return self.check("focus", False, f"{what} `{text}`: not focused after {max_presses} presses of {key}")
+
+    def do_focus(self, rest, st):
+        """focus:Label[:max]: press `right` until the part with that label is focused."""
+        self.reach(rest, "right", "focus")
+
+    def do_select(self, rest, st):
+        """select:Label[:max]: focus:Label, then confirm."""
+        if self.reach(rest, "right", "select"):
+            self.primitive("confirm")
+
     # log checks
     def log_lines(self):
         self.x4.drain()
@@ -853,6 +880,15 @@ class Engine:
                 got["first_frame_s"] = round(t, 2)
                 self.record("boot.first_frame_s", t)
         return got
+
+    def do_clock(self, rest, st):
+        """clock: asks the device's clock; records clock.known (1/0) and clock.skew_s (device - host, seconds)."""
+        answer = self.x4.ask("time", "TIME")[-1].split()
+        known = len(answer) > 1 and answer[1].isdigit()
+        self.record("clock.known", 1 if known else 0)
+        if known:
+            self.record("clock.skew_s", round(int(answer[1]) / 1000 - time.time(), 1))
+        self.say("clock: " + (f"{time.strftime('%F %T', time.localtime(int(answer[1]) / 1000))}" if known else "unknown (--:--)"))
 
     def do_crashes(self, rest, st):
         kind = self.x4.ask(f"stat .paperpaw/crashes.txt", "STAT")[-1].split()[1]

@@ -129,14 +129,15 @@ The script language (`.pps` files, or `--script "a,b,c"`; steps above, and):
       Asking the device costs it time, so heap and usage are off unless wanted.
   Checks (a failed one makes the exit code 1; a step that errors outright ends a
   test, or the script, with the exit code 2 and a STOPPED file in --out):
-    expect:Text  expect-not:Text  until:Text[:ms]   on the screen
+    expect:Text  expect-not:Text  until:Text[:ms]  expect-focus:Text   on the screen
+    focus:Text[:max]  select:Text   press `right` until that row/button is focused (then confirm)
     expect-log:REGEX[:ms]  no-log:REGEX  until-log:REGEX[:ms]  no-warn  known-warn:REGEX
       on the log lines since `mark` (a `test:` or `mark` starts anew)
     assert:turn.first_ms.median<=1000[:why]   METRIC[.STAT] OP NUMBER; OP one of
       <= >= < > == !=; STAT: median (default) min max mean p90 n last sum; the number may
       be baseline, baseline*1.1, baseline+50 (the same metric in --baseline; no value: SKIP)
     record:name=5  note:name=text  heap (also records heap.used/free/block/peak/stack)
-    usage  fail:why  skip:why  abort:why  on-fail:stop
+    usage  clock (records clock.known, clock.skew_s)  fail:why  skip:why  abort:why  on-fail:stop
   On the emulator a step it cannot do says SKIP; so do asserts on its times and gray
   passes, which only the X4 has.
   Robustness: a lost link is opened again (--retries); asking steps are asked again, a
