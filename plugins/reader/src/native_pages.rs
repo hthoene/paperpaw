@@ -313,11 +313,16 @@ pub enum Turn {
 
 /// What `input` asks: the page actions and the arrows (right and down on, left
 /// and up back), as the keys and edge swipes of the reader's layer and the
-/// host's tap zones are mapped to them.
+/// host's tap zones are mapped to them. In a book that runs right to left
+/// (`rtl`: manga) the sides and the page keys are mirrored: what goes on in
+/// a book that runs left to right goes back, and the other way round; up and
+/// down stay.
 #[must_use]
-pub fn turn(input: &Input<'_>) -> Turn {
+pub fn turn(input: &Input<'_>, rtl: bool) -> Turn {
     match *input {
         Input::Action { action, .. } => match action {
+            "core.next-page" | "core.right" if rtl => Turn::Previous,
+            "core.prev-page" | "core.left" if rtl => Turn::Next,
             "core.next-page" | "core.right" | "core.down" => Turn::Next,
             "core.prev-page" | "core.left" | "core.up" => Turn::Previous,
             _ => Turn::Ignored,

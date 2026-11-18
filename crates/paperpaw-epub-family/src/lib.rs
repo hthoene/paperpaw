@@ -22,6 +22,7 @@ extern crate alloc;
 mod cache_paths;
 mod cached;
 mod cbz;
+mod cbz_panels;
 mod convert;
 mod css;
 mod document;
@@ -41,12 +42,12 @@ use alloc::vec;
 
 use paperpaw_sdk::Id;
 
-pub use cbz::CbzDocument;
+pub use cbz::{CbzDocument, DIRECTION, LEFT_TO_RIGHT, PANELS, RIGHT_TO_LEFT};
 pub use document::EpubDocument;
 pub use fb2::Fb2Document;
 pub use html::HtmlDocument;
 pub use markdown::MarkdownDocument;
-pub use native_io::{NativeIo, serve};
+pub use native_io::{NativeIo, serve, serve_with_settings};
 pub use providers::{cbz_provider, epub_provider, fb2_provider, html_provider, markdown_provider};
 
 pub const PLUGIN: Id = Id::new_static("format-epub");

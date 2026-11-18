@@ -1,7 +1,9 @@
 //! The interface-7 comic book archives format: one `core.format` provider that keeps its
 //! open documents between the host's calls (the host retains the instance).
 use crate::declarations::FORMAT_TOKEN;
-use paperpaw_epub_family::{cbz_provider, provider::FormatProvider, serve};
+use paperpaw_epub_family::{
+    DIRECTION, PANELS, cbz_provider, provider::FormatProvider, serve_with_settings,
+};
 use paperpaw_sdk::native::{
     Error, Host, Plugin,
     events::{Event, Incoming, kinds},
@@ -21,7 +23,7 @@ pub struct NativeCbz {
 
 impl Plugin for NativeCbz {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
-        for batch in image::FORMATS {
+        for batch in image::FORMATS.iter().chain(image::SETTINGS) {
             registrations::submit(host, batch)?;
         }
         Ok(Self {
@@ -48,6 +50,8 @@ impl Plugin for NativeCbz {
         else {
             return Ok(());
         };
-        reply.write_with(|out| serve(&mut self.provider, host, payload, out))
+        reply.write_with(|out| {
+            serve_with_settings(&mut self.provider, host, payload, out, &[DIRECTION, PANELS])
+        })
     }
 }
