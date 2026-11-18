@@ -1988,6 +1988,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-anki"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-battery"
 version = "1.0.10"
 dependencies = [
@@ -2636,7 +2649,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
