@@ -1,0 +1,180 @@
+# Tasks (#136) on the emulator, where the plugin is linked and shipped off, or on an X4 where its
+# plugin file is installed and on:
+#   python3 tools/x4-remote.py --emulator target/debug/paperpaw-emu --library <card folder> --script-file tools/pps/tasks.pps --out out/tasks
+# Offline only: lists and tasks on the card, the keyboard, ticking off, the day and priority, the
+# widgets, and that everything is still there after a restart. Syncing with a server is a host test
+# against a CalDAV server in memory (plugins/tasks/src/sync_tests.rs).
+include:beta4/common.pps
+
+# On the emulator the plugin ships off: switch it on in Manage plugins, which applies after a restart.
+test:tasks-01-on {
+  if:$target==emu {
+    call:home
+    call:settings-row:Manage plugins
+    until:Plugins:8000
+    select:Tasks:80
+    wait:1500
+    expect:Applies after a restart
+    restart
+    wait:4000
+  }
+  if:exists:.paperpaw/plugins/tasks/tasks.txt {
+    rm:.paperpaw/plugins/tasks/tasks.txt
+  }
+  no-warn
+}
+
+# A reader without lists gets one; Add a task opens the keyboard; the new task is in the list and
+# has the focus. (Up and down the list: `left` and `right`.)
+test:tasks-02-add {
+  run:tasks.open
+  until:Add a task:8000
+  expect:Tasks
+  expect:My tasks
+  expect:0 open
+  expect:No tasks yet
+  expect-focus:Add a task
+  confirm
+  until:Hold Back:8000
+  type-enter:Buy milk
+  until:Buy milk:8000
+  expect:1 open
+  expect-focus:Buy milk
+  left
+  wait:500
+  expect-focus:Add a task
+  confirm
+  until:Hold Back:8000
+  type-enter:Call Anna
+  until:Call Anna:8000
+  expect:2 open
+  expect-focus:Call Anna
+  expect-not:Error
+  no-warn
+}
+
+# Select ticks a task off and on again; the count follows, the done one goes to the end.
+test:tasks-03-tick {
+  left
+  wait:500
+  expect-focus:Buy milk
+  confirm
+  wait:1500
+  expect:Done
+  expect:1 open
+  expect-focus:Call Anna
+  right
+  wait:500
+  expect-focus:Buy milk
+  confirm
+  wait:1500
+  expect-not:Done
+  expect:2 open
+  expect-focus:Call Anna
+  no-warn
+}
+
+# Select held offers the rest: the day (tomorrow: the task goes first) and the priority (high,
+# marked "!").
+test:tasks-04-day-priority {
+  long:confirm
+  until:Due date:8000
+  expect:Change the title
+  expect:Remove the task
+  select:Due date
+  until:Tomorrow:8000
+  select:Tomorrow
+  until:Add a task:8000
+  expect:Tomorrow
+  left
+  wait:500
+  expect-focus:Call Anna
+  long:confirm
+  until:Priority:8000
+  select:Priority
+  until:High:8000
+  select:High
+  until:Add a task:8000
+  expect:! Tomorrow
+  expect-focus:Call Anna
+  expect-not:Error
+  no-warn
+}
+
+# The list row: Today and overdue shows nothing yet; a new list is made and shown, empty; back to
+# the first list.
+test:tasks-05-lists {
+  left
+  left
+  wait:500
+  expect-focus:My tasks
+  confirm
+  until:New list:8000
+  expect:Today and overdue
+  expect:CalDAV account
+  select:Today and overdue
+  until:Nothing is due today:8000
+  expect-focus:Add a task
+  left
+  wait:500
+  confirm
+  until:New list:8000
+  select:New list
+  until:Hold Back:8000
+  type-enter:Shopping
+  until:Shopping:8000
+  expect:0 open
+  expect-focus:Shopping
+  confirm
+  until:New list:8000
+  expect:Rename this list
+  select:My tasks
+  until:Buy milk:8000
+  expect:2 open
+  no-warn
+}
+
+# The widgets: the count, the next task (the one with a day) and the list with its boxes.
+test:tasks-06-widgets {
+  set:home.page-1=tasks.count\,tasks.next\,tasks.list
+  call:home
+  expect:2 tasks
+  expect:Call Anna
+  expect:Buy milk
+  expect:My tasks
+  expect-not:Error
+  set:home.page-1=home.clock\, home.continue\, home.recent
+  no-warn
+}
+
+# Everything is on the card: after a restart the lists and tasks are as they were.
+test:tasks-07-kept {
+  stat:.paperpaw/plugins/tasks/tasks.txt
+  restart
+  wait:4000
+  call:home
+  run:tasks.open
+  until:Add a task:8000
+  expect:My tasks
+  expect:2 open
+  expect:Buy milk
+  expect:Call Anna
+  expect:! Tomorrow
+  no-warn
+}
+
+# The account's screen, and Back from it and from the lists.
+test:tasks-08-account-back {
+  show:tasks.account
+  until:CalDAV account:8000
+  expect:Server address
+  expect:User name
+  expect:Password
+  expect:Sync now
+  expect:Nothing waits to be sent
+  back
+  until:Add a task:8000
+  back
+  until:Edit:8000
+  no-warn
+}

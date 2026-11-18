@@ -257,6 +257,8 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("translate", &paperpaw_plugin_translate::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("pomodoro", &paperpaw_plugin_pomodoro::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("tasks", &paperpaw_plugin_tasks::NATIVE_ENTRY),
     ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
 
@@ -279,6 +281,7 @@ pub const LINKED_STORE_PLUGINS: &[&str] = &[
     "reading-goal",
     "rules",
     "stats",
+    "tasks",
     "translate",
     "weather",
 ];
