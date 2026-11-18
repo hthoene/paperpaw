@@ -116,7 +116,7 @@ pub fn label_in(
     clippy::too_many_arguments,
     reason = "one measured text run and its target geometry"
 )]
-fn push_run(
+pub(crate) fn push_run(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
     text: String,

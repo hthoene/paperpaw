@@ -26,6 +26,7 @@ pub mod kernel;
 pub mod release;
 pub mod repo;
 pub mod rules;
+pub mod source;
 
 pub use rules::Rules;
 
