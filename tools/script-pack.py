@@ -1,7 +1,7 @@
 """Builds a data plugin with the letters of other scripts for devices
 whose built-in fonts lack them (the Xteink X4 carries Latin only): packs
 read from the card a glyph at a time and asked for what the built-in
-fonts lack. Cyrillic and Greek come from Literata's faces and, for the
+fonts lack. Cyrillic, Greek and Vietnamese come from Literata's faces and, for the
 interface's font, Source Sans 3; Arabic from
 Noto Naskh Arabic and Hebrew from Noto Serif Hebrew (tools/fonts), one
 pack for each built-in face they extend, the interface's font too.
@@ -87,6 +87,8 @@ SETS = {
                  [FONTS / "Literata-OFL.txt", FONTS / "SourceSans3-OFL.txt"], "Literata", None),
     "greek": ("Greek", with_sans(LITERATA, FONTS / "SourceSans3.ttf", "greek-sans"),
               [FONTS / "Literata-OFL.txt", FONTS / "SourceSans3-OFL.txt"], "Literata", None),
+    "vietnamese": ("Vietnamese", with_sans(LITERATA, FONTS / "SourceSans3.ttf", "vietnamese-sans"),
+                   [FONTS / "Literata-OFL.txt", FONTS / "SourceSans3-OFL.txt"], "Literata", None),
     "arabic": ("Arabic", upright("naskh", OTHER_FONTS / "NotoNaskhArabic.ttf"),
                OTHER_FONTS / "NotoNaskhArabic-OFL.txt", "Noto Naskh Arabic", None),
     "hebrew": ("Hebrew", upright("hebrew", OTHER_FONTS / "NotoSerifHebrew.ttf"),

@@ -108,6 +108,19 @@ description = "Russian, Ukrainian, Bulgarian, Serbian and other Cyrillic books i
 de.name = "Kyrillische Schrift"
 de.description = "Bücher auf Russisch, Ukrainisch, Bulgarisch, Serbisch und anderen kyrillischen Sprachen in Literata."
 
+[script-vietnamese]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["plugins/fonts-default/fonts/Literata.ttf", "plugins/fonts-default/fonts/Literata-Italic.ttf", "plugins/fonts-default/fonts/SourceSans3.ttf", "tools/fontgen", "crates/paperpaw-text/src/charset.rs"]
+name = "Vietnamese letters"
+description = "Vietnamese books in Literata, with all its accented letters, ơ and ư."
+de.name = "Vietnamesische Schrift"
+de.description = "Bücher auf Vietnamesisch in Literata, mit allen Akzentbuchstaben, ơ und ư."
+
 [language-ar]
 version = "1.0.5"
 group = "languages"
@@ -695,3 +708,18 @@ name = "Hyphenation (Ukrainian)"
 description = "Hyphenation patterns for Ukrainian, for evenly set text."
 de.name = "Silbentrennung (Ukrainisch)"
 de.description = "Trennmuster für Ukrainisch, für ein gleichmäßiges Schriftbild."
+
+[language-vi]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-vietnamese"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/vi.ini", "tools/language-pack.py", "tools/sign"]
+name = "Vietnamese (user interface)"
+description = "PaperPaw's menus and settings in Vietnamese. Needs Vietnamese letters. A machine translation, a draft."
+de.name = "Vietnamesisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Vietnamesisch. Braucht die Vietnamesische Schrift. Eine maschinelle Übersetzung, ein Entwurf."

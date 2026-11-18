@@ -38,6 +38,17 @@ const GREEK: &[RangeInclusive<char>] = &[
     '\u{1f00}'..='\u{1fff}',
 ];
 
+/// Vietnamese, what Latin Extended-A lacks: O and U with horn (ơ, ư), the
+/// letters with a dot below or a hook above and those with two marks (Latin
+/// Extended Additional), and the dong sign. For packs added to fonts that
+/// have the rest (ă, đ and the single accents are in the Latin set).
+const VIETNAMESE: &[RangeInclusive<char>] = &[
+    '\u{1a0}'..='\u{1a1}',
+    '\u{1af}'..='\u{1b0}',
+    '\u{1ea0}'..='\u{1ef9}',
+    '\u{20ab}'..='\u{20ab}',
+];
+
 /// Hangul: all 11,172 syllables of modern Korean (#61). The 2,350 of KS X
 /// 1001 that most fonts and books keep to are a list of their own, for
 /// smaller packs (`tools/fontgen/sets/hangul-ks.txt`).
@@ -71,11 +82,12 @@ const HANGUL_JAMO: &[RangeInclusive<char>] = &['\u{3131}'..='\u{318e}'];
 const FULLWIDTH: &[RangeInclusive<char>] = &['\u{ff01}'..='\u{ff5e}'];
 
 /// The sets by name, in the order [`names`] gives them.
-const SETS: [(&str, &[RangeInclusive<char>]); 10] = [
+const SETS: [(&str, &[RangeInclusive<char>]); 11] = [
     ("latin", LATIN),
     ("ligatures", LIGATURES),
     ("cyrillic", CYRILLIC),
     ("greek", GREEK),
+    ("vietnamese", VIETNAMESE),
     ("arabic", ARABIC),
     ("hebrew", HEBREW),
     ("hangul", HANGUL),
@@ -137,7 +149,7 @@ pub fn named(name: &str) -> Option<&'static [RangeInclusive<char>]> {
 }
 
 /// The names of the character sets: `latin`, `ligatures`, `cyrillic`,
-/// `greek`, `arabic`, `hebrew`, `hangul`, `hangul-jamo`,
+/// `greek`, `vietnamese`, `arabic`, `hebrew`, `hangul`, `hangul-jamo`,
 /// `cjk-punctuation`, `fullwidth`.
 pub fn names() -> impl Iterator<Item = &'static str> {
     SETS.iter().map(|(name, _)| *name)
@@ -166,8 +178,8 @@ mod tests {
 
     #[test]
     fn the_names_are_the_documented_ones() {
-        let documented = "`latin`, `ligatures`, `cyrillic`, `greek`, `arabic`, `hebrew`, `hangul`, \
-                          `hangul-jamo`, `cjk-punctuation`, `fullwidth`";
+        let documented = "`latin`, `ligatures`, `cyrillic`, `greek`, `vietnamese`, `arabic`, `hebrew`, \
+                          `hangul`, `hangul-jamo`, `cjk-punctuation`, `fullwidth`";
         let listed: alloc::vec::Vec<_> = names().map(|n| alloc::format!("`{n}`")).collect();
         assert_eq!(listed.join(", "), documented);
         assert!(names().all(|n| named(n).is_some()));
