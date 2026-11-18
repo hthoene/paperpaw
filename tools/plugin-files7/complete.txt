@@ -48,5 +48,6 @@ vocabulary
 anki
 picture-frame
 pomodoro
+puzzles
 tasks
 file-sync
