@@ -1110,6 +1110,7 @@ screen store.offer | title=store.offer.title
 screen store.plugin | title=store.title
 screen store.shots | title=store.shots
 screen store.source | title=store.source
+screen store.templates | title=store.template.title
 screen store.view | title=store.title
 screen transfer.cable | title=transfer.cable.title
 screen transfer.phone | title=transfer.phone.title
@@ -2328,6 +2329,7 @@ native Screen store | ScreenSpec(ScreenSpec { name: "source", title: "store.sour
 native Screen store | ScreenSpec(ScreenSpec { name: "shots", title: "store.shots", token: 25, flags: 0 })
 native Screen store | ScreenSpec(ScreenSpec { name: "fetch", title: "store.fetch.title", token: 26, flags: 64 })
 native Screen store | ScreenSpec(ScreenSpec { name: "offer", title: "store.offer.title", token: 27, flags: 0 })
+native Screen store | ScreenSpec(ScreenSpec { name: "templates", title: "store.template.title", token: 28, flags: 0 })
 native Screen transfer | ScreenSpec(ScreenSpec { name: "screen", title: "transfer.title", token: 10, flags: 64 })
 native Screen transfer | ScreenSpec(ScreenSpec { name: "phone", title: "transfer.phone.title", token: 11, flags: 0 })
 native Screen transfer | ScreenSpec(ScreenSpec { name: "cable", title: "transfer.cable.title", token: 12, flags: 64 })
@@ -2690,6 +2692,7 @@ native Subscription vocabulary | RegistrationStage(RegistrationStage { stage: "r
 native SetupStep keyboard | SetupStep(SetupStep { name: "setup", title: "keyboard.setting.layouts", help: "", order: 60, page_kind: 0, page: "keyboard.layouts", applies_key: "", applies_value: "", need: 0, capability: 0, flags: 1 })
 native SetupStep reader | SetupStep(SetupStep { name: "setup.font-size", title: "core.setting.font-size", help: "", order: 30, page_kind: 0, page: "core.font-size", applies_key: "", applies_value: "", need: 0, capability: 0, flags: 1 })
 native SetupStep store | SetupStep(SetupStep { name: "setup", title: "store.offer.title", help: "store.offer.help", order: 55, page_kind: 1, page: "store.offer", applies_key: "", applies_value: "", need: 0, capability: 0, flags: 1 })
+native SetupStep store | SetupStep(SetupStep { name: "template", title: "store.template.title", help: "store.template.help", order: 52, page_kind: 1, page: "store.templates", applies_key: "", applies_value: "", need: 0, capability: 0, flags: 1 })
 native SetupStep update | SetupStep(SetupStep { name: "setup", title: "update.setting.look", help: "update.setting.look.help", order: 57, page_kind: 0, page: "update.look", applies_key: "", applies_value: "", need: 8, capability: 0, flags: 3 })
 native SetupStep wifi | SetupStep(SetupStep { name: "setup", title: "wifi.title", help: "wifi.setup.help", order: 50, page_kind: 1, page: "wifi.page", applies_key: "", applies_value: "", need: 7, capability: 0, flags: 3 })
 native HelpHint files | HelpHint(HelpHint { screen: "files.browser", input: 1, x: 0, y: 0, width: 0, height: 0, text: "files.help.open" })
