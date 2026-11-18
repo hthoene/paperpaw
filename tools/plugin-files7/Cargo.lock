@@ -255,6 +255,7 @@ dependencies = [
  "paperpaw-plugin-pomodoro",
  "paperpaw-plugin-power",
  "paperpaw-plugin-profiles",
+ "paperpaw-plugin-puzzles",
  "paperpaw-plugin-read-later-cloud",
  "paperpaw-plugin-reading-goal",
  "paperpaw-plugin-readwise",
@@ -514,6 +515,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-profiles"
 version = "1.0.12"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-puzzles"
+version = "1.0.0"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

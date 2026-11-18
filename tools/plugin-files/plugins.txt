@@ -26,6 +26,7 @@ notes-overview notes
 notes-vault notes
 # picture-home look  (removed with interface 6; its store file comes with the interface-7 store build, #244)
 pomodoro home
+puzzles home
 profiles reading
 reading-goal reading
 readwise notes
