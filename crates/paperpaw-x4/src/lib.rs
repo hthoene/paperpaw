@@ -66,6 +66,7 @@ pub mod key_sealer;
 pub mod language_pack;
 pub mod light_timer;
 pub mod low_memory;
+pub mod update_room;
 pub mod mdns;
 pub mod native_offer;
 pub mod net_lost;

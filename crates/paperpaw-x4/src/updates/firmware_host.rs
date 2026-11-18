@@ -58,15 +58,15 @@ pub(super) enum Job {
 pub(super) struct Held<T>(Box<[T; 1]>);
 
 impl<T> Held<T> {
-    /// `value` moved to the heap; no room is `Reason::OTHER`.
+    /// `value` moved to the heap; no room is [`NO_MEMORY`].
     fn new(value: T) -> Result<Self, Reason> {
         let mut one = alloc::vec::Vec::new();
-        one.try_reserve_exact(1).map_err(|_| Reason::OTHER)?;
+        one.try_reserve_exact(1).map_err(|_| NO_MEMORY)?;
         one.push(value);
         one.into_boxed_slice()
             .try_into()
             .map(Self)
-            .map_err(|_| Reason::OTHER)
+            .map_err(|_| NO_MEMORY)
     }
 }
 
@@ -91,6 +91,13 @@ impl<T> core::ops::DerefMut for Held<T> {
     }
 }
 
+/// A step that found no room for what it needs on the heap (the packed
+/// source's window and decoder, the step's buffer). The host between the
+/// device and the kernel may free memory and try again
+/// ([`crate::host_jobs::SharedUpdates`]); the kernel keeps it to itself and
+/// tells plugins reason 1 (`docs/abi/device.md` 5.5: no reason of its own).
+pub const NO_MEMORY: Reason = Reason(22);
+
 /// The firmware's own answer to why a step could not go on.
 fn reason_of(failure: InstallFailure) -> Reason {
     match failure {
@@ -102,6 +109,7 @@ fn reason_of(failure: InstallFailure) -> Reason {
         InstallFailure::Untrusted => Reason::UNKNOWN_KEY,
         InstallFailure::NotNewer => Reason(14),
         InstallFailure::Other(code) if code == crate::dual_boot::REFUSED => Reason::NOT_HERE,
+        InstallFailure::Other(code) if code == super::NO_MEMORY => NO_MEMORY,
         _ => Reason::OTHER,
     }
 }
@@ -636,7 +644,7 @@ fn reason_of_fail(fail: Fail) -> Reason {
     match fail {
         Fail::Card => Reason::CARD,
         Fail::Damaged => Reason::DAMAGED,
-        Fail::NoMemory => Reason::OTHER,
+        Fail::NoMemory => NO_MEMORY,
     }
 }
 
@@ -685,8 +693,8 @@ impl<F: Flash> FirmwareHost for Updates<F> {
         if !self.free_for_a_job() {
             return Err(Reason::OTHER);
         }
-        let buf = zeroed(PIECE).map_err(|_| Reason::OTHER)?;
-        let path = owned(path).map_err(|_| Reason::OTHER)?;
+        let buf = zeroed(PIECE).map_err(|_| NO_MEMORY)?;
+        let path = owned(path).map_err(|_| NO_MEMORY)?;
         let job = Held::new(CheckJob {
             path,
             buf,
@@ -739,8 +747,8 @@ impl<F: Flash> FirmwareHost for Updates<F> {
         }
         // The buffers first: a refusal for no room leaves the flash and the
         // OTA data as they were.
-        let buf = zeroed(PIECE).map_err(|_| Reason::OTHER)?;
-        let path = owned(path).map_err(|_| Reason::OTHER)?;
+        let buf = zeroed(PIECE).map_err(|_| NO_MEMORY)?;
+        let path = owned(path).map_err(|_| NO_MEMORY)?;
         // An update chosen and not started is given up before this writes
         // over its partition.
         let slot = self.prepare_slot().map_err(|_| Reason::OTHER)?;
