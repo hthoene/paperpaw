@@ -38,9 +38,13 @@ ROOT = Path(__file__).resolve().parents[1]
 WORDS = ROOT / "tools/thai-dictionary.txt"
 UI_WORDS = ROOT / "tools/thai-words.txt"
 # How many of the corpus' most frequent words: 92.7 % of its words in
-# running text, a table of some 19 KB.
+# running text; less the compounds, a table of some 16 KB.
 FREQUENT = 4000
 LONGEST = 15
+# A word of at least this many letters that the table's other words make
+# up on their own (and that is not an interface word) is left out: a line
+# breaks between its parts as well, for a third less of the table.
+COMPOUND = 8
 BLOCK = 16
 SLOT = 6
 VERSION = 1
@@ -53,7 +57,8 @@ HEADER = """\
 # Thai words for the line breaker (#313, tools/thai-dictionary.py): the
 # {n} most frequent words of the Thai National Corpus (PyThaiNLP's
 # tnc_freq.txt, CC0 1.0) and the words of tools/thai-words.txt, of 2 to
-# 15 letters. Made with `python3 tools/thai-dictionary.py make TNC_FREQ`.
+# 15 letters, less the long words that other words make up. Made with
+# `python3 tools/thai-dictionary.py make TNC_FREQ`.
 """
 
 
@@ -69,6 +74,23 @@ def lines(path):
             yield line
 
 
+def made_up(word, words):
+    """Whether shorter words of `words` follow each other to make `word`."""
+    reach = [True] + [False] * len(word)
+    for i in range(len(word)):
+        if reach[i]:
+            for j in range(i + 1, len(word) + 1):
+                if word[i:j] != word and word[i:j] in words:
+                    reach[j] = True
+    return reach[-1]
+
+
+def prune(words, keep):
+    """`words` without the compounds (see [`COMPOUND`]) but those of `keep`."""
+    return {w for w in words
+            if w in keep or len(w) < COMPOUND or not made_up(w, words)}
+
+
 def make(tnc):
     ranked = []
     for line in Path(tnc).read_text(encoding="utf-8").splitlines():
@@ -76,7 +98,8 @@ def make(tnc):
         if fits(word):
             ranked.append((-int(count), word))
     ranked.sort()
-    words = {w for _, w in ranked[:FREQUENT]} | {w for w in lines(UI_WORDS) if fits(w)}
+    ui = {w for w in lines(UI_WORDS) if fits(w)}
+    words = prune({w for _, w in ranked[:FREQUENT]} | ui, ui)
     text = HEADER.format(n=FREQUENT) + "".join(f"{w}\n" for w in sorted(words, key=key))
     WORDS.write_text(text, encoding="utf-8", newline="\n")
 
