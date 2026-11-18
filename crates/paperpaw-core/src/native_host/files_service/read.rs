@@ -5,6 +5,7 @@ use super::{
     View, encode,
     target::{self, BOOK, CARD, Intent, Target},
 };
+use crate::native_host::codec;
 use crate::native_host::{
     registrations::{self as wire, Record},
     storage::{reserve, status},
@@ -52,20 +53,28 @@ pub(super) fn list(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
     if input.flags != 0 {
         return Err(ERR_UNSUPPORTED);
     }
-    let end_room = wire::record_framed_len(&Record::ServiceEnd(end(0, Some(u64::MAX))))
-        .map_err(|_| ERR_INVALID)?;
+    let end_room =
+        codec::framed_len(&Record::ServiceEnd(end(0, Some(u64::MAX)))).map_err(|_| ERR_INVALID)?;
     let room = out.len().checked_sub(end_room).ok_or(ERR_INVALID)?;
     if target.empty_bundle {
         // A built-in plugin's install folder: no rows, the last page.
         let closing = Record::ServiceEnd(end(END_LAST, None));
-        return wire::record_encode_one(&closing, out);
+        return codec::encode_one(&closing, out);
     }
     let hide_protected = target.is_card_top();
+    // A shown plugin folder leaves out its code and the host's files.
+    let folder = input.path.trim_end_matches('/');
+    let plugin_folder = input.root == CARD
+        && crate::native_host::data_plugin_folders::plugin_folder_of(folder).is_some()
+        && folder.matches('/').count() == 1;
     let (mut used, mut rows, mut failure) = (0usize, 0usize, None);
     let listed = view
         .storage
         .list_from(target.joined(), input.cursor, &mut |entry| {
             if hide_protected && target::reaches_protected(view, entry.name) {
+                return true;
+            }
+            if plugin_folder && view.host.host_file(target.joined(), entry.name) {
                 return true;
             }
             if rows == PAGE_ROWS {
@@ -78,7 +87,7 @@ pub(super) fn list(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
                     return false;
                 }
             };
-            let length = match wire::record_framed_len(&row) {
+            let length = match codec::framed_len(&row) {
                 Ok(length) => length,
                 Err(_) => {
                     failure = Some(ERR_INVALID);
@@ -90,7 +99,7 @@ pub(super) fn list(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
             if length > room - used {
                 return false;
             }
-            match wire::record_encode_one(&row, &mut out[used..]) {
+            match codec::encode_one(&row, &mut out[used..]) {
                 Ok(written) => {
                     used += written;
                     rows += 1;
@@ -118,7 +127,7 @@ pub(super) fn list(view: &View<'_>, record: Record<'_>, out: &mut [u8]) -> Resul
         Err(error) => return Err(list_error(view, &target, error)),
     };
     let closing = Record::ServiceEnd(end(if last.is_none() { END_LAST } else { 0 }, last));
-    Ok(used + wire::record_encode_one(&closing, &mut out[used..])?)
+    Ok(used + codec::encode_one(&closing, &mut out[used..])?)
 }
 
 /// `service.end` of a page: no total, no generation, no ordinal `next`.
@@ -218,7 +227,7 @@ pub(super) fn root_present(view: &View<'_>, target: &Target) -> Result<(), i32> 
             _ => Err(ERR_INVALID),
         };
     }
-    match view.storage.list_from(target.base(), 0, &mut |_| false) {
+    match view.storage.list_bounded(target.base(), 0, &mut |_| false) {
         Ok(_) | Err(StorageError::NotFound | StorageError::InvalidPath) => {
             card_present(view.storage)
         }

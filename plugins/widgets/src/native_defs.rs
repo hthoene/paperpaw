@@ -20,6 +20,12 @@ pub enum Tap {
     TickItems,
     /// It turns the quote on to the next.
     TurnQuote,
+    /// It turns the picture on to the next.
+    TurnPicture,
+    /// Each book on show is a target that opens it.
+    Books,
+    /// The book chosen (or being read) opens, or the library where there is none.
+    Next,
     /// It opens the book of the highlight shown at its place.
     OpenHighlight,
     /// It runs the action with this id (the library's numbers open the
@@ -141,6 +147,40 @@ static LIBRARY: Behaviour = Behaviour {
     tap: Tap::Run("core.library"),
 };
 
+static FAVOURITES: Behaviour = Behaviour {
+    height: crate::native_favourites::height,
+    draw: crate::native_favourites::draw,
+    shows: crate::native_favourites::shows,
+    tap: Tap::Books,
+};
+static SERIES: Behaviour = Behaviour {
+    height: crate::native_series::height,
+    draw: crate::native_series::draw,
+    shows: crate::native_series::shows,
+    tap: Tap::Books,
+};
+
+static NEXT: Behaviour = Behaviour {
+    height: crate::native_next::height,
+    draw: crate::native_next::draw,
+    shows: crate::native_next::shows,
+    tap: Tap::Next,
+};
+
+static PROGRESS: Behaviour = Behaviour {
+    height: crate::native_progress::height,
+    draw: crate::native_progress::draw,
+    shows: crate::native_current::shows,
+    tap: Tap::Next,
+};
+
+static READING: Behaviour = Behaviour {
+    height: crate::native_reading::height,
+    draw: crate::native_reading::draw,
+    shows: crate::native_current::shows,
+    tap: Tap::Next,
+};
+
 static HIGHLIGHT: Behaviour = Behaviour {
     height: crate::native_highlight::height,
     draw: crate::native_highlight::draw,
@@ -148,10 +188,34 @@ static HIGHLIGHT: Behaviour = Behaviour {
     tap: Tap::OpenHighlight,
 };
 
+static LOGO: Behaviour = Behaviour {
+    height: crate::native_logo::height,
+    // The picture is drawn by the plugin over the paint (`native_plugin`).
+    draw: |cx, out, area| crate::native_logo::draw_with(cx, out, area, None).map(|_| ()),
+    shows: crate::native_logo::shows,
+    tap: Tap::None,
+};
+
+static PICTURE: Behaviour = Behaviour {
+    height: crate::native_picture::height,
+    // The picture is drawn by the plugin over the paint (`native_plugin`).
+    draw: |cx, out, area| {
+        crate::native_picture::draw_with(cx, out, area, crate::native_picture::State::Loading)
+            .map(|_| ())
+    },
+    shows: crate::native_picture::shows,
+    tap: Tap::TurnPicture,
+};
+
 /// The behaviour of the widget declared with `token`.
 #[must_use]
 pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
     match token {
+        120 => Some(&READING),
+        119 => Some(&PROGRESS),
+        118 => Some(&NEXT),
+        117 => Some(&SERIES),
+        116 => Some(&FAVOURITES),
         115 => Some(&HIGHLIGHT),
         114 => Some(&LIBRARY),
         113 => Some(&BATTERY),
@@ -168,6 +232,8 @@ pub fn behaviour(token: u32) -> Option<&'static Behaviour> {
         102 => Some(&CALENDAR),
         100 => Some(&DAY),
         101 => Some(&TILES),
+        121 => Some(&LOGO),
+        122 => Some(&PICTURE),
         _ => None,
     }
 }

@@ -6,38 +6,65 @@
 //! the cheapest power that serves everyone, and switches it on for the
 //! first request and off a little after the last.
 
+#[cfg(feature = "bluetooth")]
 mod commands;
+#[cfg(feature = "bluetooth")]
 mod reports;
 
+#[cfg(feature = "bluetooth")]
 pub use commands::Asked;
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
+#[cfg(feature = "bluetooth")]
+use alloc::string::ToString;
 use alloc::vec::Vec;
 
+#[cfg(feature = "bluetooth")]
+use crate::Ask;
+#[cfg_attr(
+    not(feature = "bluetooth"),
+    allow(unused_imports, reason = "the radio model uses them")
+)]
 use paperpaw_hid::Decoder;
+#[cfg_attr(
+    not(feature = "bluetooth"),
+    allow(unused_imports, reason = "the radio model uses them")
+)]
 use paperpaw_platform::Instant;
+#[cfg(feature = "bluetooth")]
+use paperpaw_sdk::Id;
+#[cfg_attr(
+    not(feature = "bluetooth"),
+    allow(unused_imports, reason = "the radio model uses them")
+)]
 use paperpaw_sdk::bluetooth::{
     Access, AdvertisePower, Advertising, Bluetooth, Bonded, BtError, BtEvent, BtFailure, BtOp,
     Device, DeviceId, DeviceKind, GattService, LinkPower, ManufacturerData, Properties, RadioState,
-    Scan, ScanPower, Security, ServiceData, ServiceSpec, Uuid, ValueKind,
+    Scan, ScanPower, Security, ServiceData, Uuid, ValueKind,
 };
+#[cfg(feature = "bluetooth")]
 use paperpaw_sdk::event::EventData;
-use paperpaw_sdk::{Command, Id};
 
 /// How long the radio stays on after the last request, for the next one.
+#[cfg(feature = "bluetooth")]
 pub const RADIO_GRACE_MS: u64 = 3_000;
 /// How long the radio rests after it went off by itself (the shell's
 /// host failed) before it comes on again for what still wants it.
+#[cfg(feature = "bluetooth")]
 pub const RADIO_REST_MS: u64 = 10_000;
 /// Devices found that nobody bonded, kept at most while the radio is off
 /// (the newest).
+#[cfg(feature = "bluetooth")]
 pub const FOUND_KEPT: usize = 16;
 /// The secrets that keep the bonds: `core.bluetooth.<device number>`.
+#[cfg(feature = "bluetooth")]
 pub const BOND_PREFIX: &str = "core.bluetooth.";
 /// How long after a plugin's scan its next one waits, unless the reader
 /// asked for it.
+#[cfg(feature = "bluetooth")]
 pub const SCAN_COOLDOWN_MS: u64 = 60_000;
 /// How long a remote's link stays responsive after its last key.
+#[cfg(feature = "bluetooth")]
 pub const KEYS_IDLE_MS: u64 = 60_000;
 
 /// What the shell is to do with the radio ([`Io::Bluetooth`](super::Io)).
@@ -282,6 +309,7 @@ pub enum BtReport {
 
 /// A device the kernel knows: found this start, or bonded.
 #[derive(Debug, Clone)]
+#[cfg(feature = "bluetooth")]
 struct Known {
     id: DeviceId,
     address: String,
@@ -299,6 +327,7 @@ struct Known {
     wanted: bool,
 }
 
+#[cfg(feature = "bluetooth")]
 impl Known {
     fn name(&self) -> Option<&str> {
         self.found.name.as_deref()
@@ -376,6 +405,7 @@ impl Known {
 
 /// Who asked for something, where it goes, and while how many screens.
 #[derive(Debug, Clone)]
+#[cfg(feature = "bluetooth")]
 struct Asker {
     plugin: String,
     events: Id,
@@ -383,6 +413,7 @@ struct Asker {
 }
 
 #[derive(Debug)]
+#[cfg(feature = "bluetooth")]
 struct ScanRequest {
     asker: Asker,
     scan: Scan,
@@ -390,6 +421,7 @@ struct ScanRequest {
 }
 
 #[derive(Debug)]
+#[cfg(feature = "bluetooth")]
 struct AdvertRequest {
     asker: Asker,
     advertising: Advertising,
@@ -398,6 +430,7 @@ struct AdvertRequest {
 
 /// A plugin using a link.
 #[derive(Debug, Clone)]
+#[cfg(feature = "bluetooth")]
 struct User {
     asker: Asker,
     power: LinkPower,
@@ -406,6 +439,7 @@ struct User {
 }
 
 #[derive(Debug)]
+#[cfg(feature = "bluetooth")]
 struct Link {
     number: u32,
     device: DeviceId,
@@ -438,6 +472,7 @@ struct Link {
     security: Security,
 }
 
+#[cfg(feature = "bluetooth")]
 impl Link {
     /// The events of `plugin`'s use of it.
     fn events_of(&self, plugin: &str) -> Option<Id> {
@@ -451,6 +486,7 @@ impl Link {
 /// A characteristic of the device's own GATT server: its handle, service,
 /// UUID and the plugin's events.
 #[derive(Debug, Clone)]
+#[cfg(feature = "bluetooth")]
 struct Served {
     handle: u16,
     service: Uuid,
@@ -460,6 +496,7 @@ struct Served {
 
 /// Bluetooth, as the kernel keeps it.
 #[derive(Debug, Default)]
+#[cfg(feature = "bluetooth")]
 pub(crate) struct Radio {
     max_links: u8,
     known: Vec<Known>,
@@ -506,16 +543,19 @@ pub(crate) struct Radio {
 }
 
 /// The command that tells `events` of `event`.
-fn tell(events: &Id, event: BtEvent) -> Command {
-    Command::Emit(events.clone(), event.into_params())
+#[cfg(feature = "bluetooth")]
+fn tell(events: &Id, event: BtEvent) -> Ask {
+    Ask::Emit(events.clone(), event.into_params())
 }
 
 /// The command that tells `events` that a command failed.
-fn fail(events: &Id, failure: BtFailure) -> Command {
+#[cfg(feature = "bluetooth")]
+fn fail(events: &Id, failure: BtFailure) -> Ask {
     tell(events, BtEvent::Failed(failure))
 }
 
 /// The device kind from a GAP appearance and the services.
+#[cfg(feature = "bluetooth")]
 fn kind_of(appearance: Option<u16>, services: &[Uuid]) -> DeviceKind {
     match appearance.map(|a| a >> 6) {
         Some(0x0F) => match appearance.map(|a| a & 0x3f) {
@@ -530,6 +570,7 @@ fn kind_of(appearance: Option<u16>, services: &[Uuid]) -> DeviceKind {
     }
 }
 
+#[cfg(feature = "bluetooth")]
 impl Radio {
     /// A radio keeping up to `max_links` links.
     pub fn new(max_links: u8) -> Self {
@@ -575,32 +616,6 @@ impl Radio {
 
     fn manager_is(&self, plugin: &str) -> bool {
         self.manager.as_deref() == Some(plugin)
-    }
-
-    /// A service of the device's own GATT server, from a plugin's
-    /// registration.
-    pub fn add_service(&mut self, spec: &ServiceSpec) {
-        let first = self.served.last().map_or(1, |s| s.handle + 1);
-        let mut characteristics = Vec::new();
-        for (handle, c) in (first..).zip(&spec.characteristics) {
-            characteristics.push(ServedCharacteristic {
-                uuid: c.uuid,
-                properties: c.properties,
-                access: c.access,
-                max_len: c.max_len,
-                handle,
-            });
-            self.served.push(Served {
-                handle,
-                service: spec.uuid,
-                characteristic: c.uuid,
-                events: spec.events.clone(),
-            });
-        }
-        self.services.push(ServedService {
-            uuid: spec.uuid,
-            characteristics,
-        });
     }
 
     /// The bonds and the GATT server for the shell, at start.
@@ -754,7 +769,7 @@ impl Radio {
 
     /// Time passed: scans and advertising ended, idle links let go or
     /// slowed, the radio off.
-    pub fn tick(&mut self, now: Instant, out: &mut Vec<Command>) {
+    pub fn tick(&mut self, now: Instant, out: &mut Vec<Ask>) {
         let (ended, kept): (Vec<_>, Vec<_>) = self.scans.drain(..).partition(|s| s.until <= now);
         self.scans = kept;
         for scan in ended {
@@ -769,7 +784,7 @@ impl Radio {
         self.settle(now);
     }
 
-    fn scan_ended(&mut self, asker: &Asker, now: Instant, out: &mut Vec<Command>) {
+    fn scan_ended(&mut self, asker: &Asker, now: Instant, out: &mut Vec<Ask>) {
         out.push(tell(&asker.events, BtEvent::ScanEnded));
         self.scanned.retain(|(p, _)| *p != asker.plugin);
         self.scanned.push((asker.plugin.clone(), now));
@@ -777,7 +792,7 @@ impl Radio {
 
     /// Users idle longer than they allow let go; a remote's link slowed
     /// once no key came for a while.
-    fn idle_links(&mut self, now: Instant, out: &mut Vec<Command>) {
+    fn idle_links(&mut self, now: Instant, out: &mut Vec<Ask>) {
         let mut at = 0;
         while at < self.links.len() {
             let link = &mut self.links[at];
@@ -1027,12 +1042,7 @@ impl Radio {
 
     /// Fewer screens are open than `screens`: what was asked while more
     /// were ends.
-    pub fn close_for_closed_screens(
-        &mut self,
-        screens: usize,
-        now: Instant,
-        out: &mut Vec<Command>,
-    ) {
+    pub fn close_for_closed_screens(&mut self, screens: usize, now: Instant, out: &mut Vec<Ask>) {
         let (ended, kept): (Vec<_>, Vec<_>) = self
             .scans
             .drain(..)
@@ -1071,7 +1081,7 @@ impl Radio {
     }
 
     /// The device goes to sleep: everything ends, the radio off.
-    pub fn suspend(&mut self, now: Instant, out: &mut Vec<Command>) {
+    pub fn suspend(&mut self, now: Instant, out: &mut Vec<Ask>) {
         // Never in sleep: the plugins ask again when it wakes.
         for known in &mut self.known {
             known.wanted = false;
@@ -1083,13 +1093,13 @@ impl Radio {
     /// The radio went off by itself (the shell's host failed): what used
     /// it ends, and after a rest it comes on again for the remotes still
     /// wanted.
-    fn went_off(&mut self, now: Instant, out: &mut Vec<Command>) {
+    fn went_off(&mut self, now: Instant, out: &mut Vec<Ask>) {
         self.end_all(now, out);
         self.rest_until = Some(now.add_millis(RADIO_REST_MS));
     }
 
     /// Everything ends: scans, advertising, links; the radio off.
-    fn end_all(&mut self, now: Instant, out: &mut Vec<Command>) {
+    fn end_all(&mut self, now: Instant, out: &mut Vec<Ask>) {
         for scan in core::mem::take(&mut self.scans) {
             out.push(tell(&scan.asker.events, BtEvent::ScanEnded));
         }
@@ -1168,4 +1178,5 @@ impl Radio {
 }
 
 #[cfg(test)]
+#[cfg(feature = "bluetooth")]
 mod tests;

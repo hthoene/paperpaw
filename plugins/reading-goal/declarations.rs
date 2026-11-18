@@ -47,6 +47,8 @@ const SECTION: &str = "reading-goal.title";
 /// The stage this plugin runs to ask the statistics for today's reading (its
 /// full id is `reading-goal.read-today`).
 pub const READ_TODAY: &str = "read-today";
+/// One framed reading record, including the known flag, day and seconds.
+pub const READ_TODAY_REPLY: u32 = 16;
 
 /// The three settings: from which share of the goal the cat is content and
 /// happy (percent), and a folder of one's own pictures.
@@ -121,12 +123,15 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
 
 /// The stage `reading-goal.read-today` (schema 1): this plugin runs it when it
 /// needs the figure, and the statistics answer from what they hold in memory.
-/// Input: the day as an `i32`, little-endian (empty: today). Reply: the day as an
-/// `i32` and the seconds read on it as a `u32`, little-endian; the statistics
-/// answer `ERR_NOT_FOUND` for a day they do not know.
+/// Input: the day as an `i32`, little-endian (empty: today). Reply: one
+/// `today.reading` record (`payloads/reading-goal.read-today-reply@1.def`),
+/// 16 bytes including framing. `known=1` carries the day and seconds;
+/// `known=0, day=0, seconds=0` means the date is unknown. An explicit other
+/// day returns `ERR_NOT_FOUND`. Schema 1 is corrected before either plugin's
+/// first interface-7 publication, so no compatibility version is needed.
 pub fn stages(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError> {
     let mut declarations = Declarations::new(sink);
-    declarations.stage(StageDecl::new(READ_TODAY, 1, 4, 8, 1))?;
+    declarations.stage(StageDecl::new(READ_TODAY, 1, 4, READ_TODAY_REPLY, 1))?;
     declarations.submit()
 }
 
@@ -162,9 +167,9 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
     let widget = WidgetDecl::new(WIDGET, WIDGET_GROUP, "core.widgets.reading", WIDGET_TOKEN)
         .map_err(|_| DeclareError::TooLong("widget"))?
         .live()
-        .cells(2, 2)
-        .previews(WIDGET_GROUP)
-        .map_err(|_| DeclareError::TooLong("widget preview"))?;
+        .cells(2, 2);
+    // No `previews`: a widget that previews a settings group is never offered
+    // in the Add picker (Kernel ruling, #228), and Beta 3 declared none.
     d.widget(widget)?;
     declare_all(d, WIDGET, WIDGET_GROUP, WIDGET_OPTIONS)?;
     d.submit()

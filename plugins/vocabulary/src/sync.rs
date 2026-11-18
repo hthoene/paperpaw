@@ -60,8 +60,9 @@ const CROWD: usize = SLICE + SLICE / 2;
 /// The biggest file read: some 40,000 lines of vocabulary. A bigger one
 /// (a dictionary dump) would take minutes of passes.
 pub(crate) const MAX_FILE: u64 = 4 * 1024 * 1024;
-/// How much of a file one step hashes or counts.
-const STEP: u64 = 64 * 1024;
+/// How much of a file one step hashes or counts (streamed, 512 bytes at a time:
+/// no buffer of it is held). Small, so that a turn of work stays short.
+pub(crate) const STEP: u64 = 16 * 1024;
 /// The most the ledger may be: about 100 files at 300 bytes.
 const LEDGER_MAX: usize = 128 * 1024;
 /// Problems kept to be told.

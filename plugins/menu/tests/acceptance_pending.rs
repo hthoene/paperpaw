@@ -1,8 +1,8 @@
-//! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! menu is pinned by `menus.rs`, `settings.rs`, `states.rs` and
-//! `definitions.rs` on a kernel; these cases are the same behaviours through
-//! the production loader with the native plugin. They never pass by
-//! themselves.
+//! Acceptance of the interface-7 port, pending on the host. The native
+//! behaviours are pinned by `tests/bar_mode.rs`, `tests/tiles_mode.rs`, the
+//! unit tests of the `native_*` modules and the declarations; these cases are
+//! the same behaviours through the production loader with the native plugin.
+//! They never pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;
@@ -35,8 +35,9 @@ const CASES: [Case; 7] = [
         golden: None,
         blocked_by: &["REG"],
     },
-    // Tiles (the menu style) and the reader's bar draw icons: the canvas has
-    // no icon operation, and the bar needs the status font role.
+    // Tiles (the menu style) and the reader's bar draw icons. Both are
+    // ported (tests/bar_mode.rs, tests/tiles_mode.rs); their golden waits for
+    // the host.
     Case {
         name: "menu-tiles-and-bar",
         golden: Some("x4-reader-menu"),

@@ -1,7 +1,7 @@
 //! The settings screens as an interface-7 plugin: the main page, a group's
 //! page, choosing a value, themes and searching, all lists of the shared
 //! kit over the registry's settings, with host dialogs for questions.
-use crate::native_data::{self, Reader};
+use crate::native_data::{self, Fields, Reader};
 use crate::native_model::{
     self as model, Context, Detail, Group, Kind, PageRow, Setting, Val, flag,
 };
@@ -30,6 +30,7 @@ use paperpaw_ui_kit::{
 };
 
 mod build;
+mod preview;
 use build::{
     build_choose, build_group, build_list, build_search, build_themes, context, look_settings,
     refresh_row, set_value,
@@ -229,6 +230,11 @@ struct GroupView {
     editing: Option<Editing>,
     touch: bool,
     stale: bool,
+    /// The widget that previews the page's group (or its parent's), shown above
+    /// the rows.
+    preview: Option<String>,
+    /// The host refused the widget: the page goes without it.
+    preview_refused: bool,
 }
 
 /// Choosing a value of a setting.
@@ -398,8 +404,8 @@ impl Plugin for NativeSettings {
             }
             View::Group(v) => {
                 let title = copy(&v.title)?;
-                v.list
-                    .draw_with(host, &mut frame, &title, true, Footer::None)
+                let ui = self.ui.as_ref().ok_or(Error::State)?;
+                preview::draw(host, ui, v, &mut frame, &title)
             }
             View::Choose(v) => {
                 let title = copy(&v.title)?;
@@ -699,9 +705,11 @@ impl NativeSettings {
             let Some(view) = self.screens.get(top) else {
                 continue;
             };
-            // A value of a row alone changes that row; anything else, the page.
+            // A value of a row alone changes that row; anything else, the page:
+            // the language changes the words of every row.
             if let View::Group(v) = view
                 && !key.is_empty()
+                && key != model::LANGUAGE
                 && v.editing.is_none()
                 && refresh_row(host, v, key)?
             {
@@ -1001,9 +1009,10 @@ impl NativeSettings {
         Ok(())
     }
 
-    /// The buttons while a number is changed: left and right change it, confirm
-    /// keeps it, back goes back to the value before. The state changes only
-    /// once everything that can be refused went through.
+    /// The buttons while a number is changed: right and up raise it, left and
+    /// down lower it (as in Beta 3), confirm keeps it, back goes back to the
+    /// value before. The state changes only once everything that can be refused
+    /// went through.
     fn edit_input(
         host: &Host<'_>,
         v: &mut GroupView,
@@ -1013,8 +1022,8 @@ impl NativeSettings {
             return Ok(None);
         };
         let direction = match action {
-            "core.right" | "core.down" | "core.next" | "core.next-page" => 1,
-            "core.left" | "core.up" | "core.previous" | "core.prev-page" => -1,
+            "core.right" | "core.up" | "core.next" | "core.next-page" => 1,
+            "core.left" | "core.down" | "core.previous" | "core.prev-page" => -1,
             "core.confirm" | "core.back" => 0,
             _ => return Ok(None),
         };
@@ -1260,27 +1269,15 @@ impl NativeSettings {
         let mut reader = Reader::open(host)?;
         let found = (|| {
             let groups = reader.groups()?;
-            let all = reader.settings("")?;
             let cx = context(host, false)?;
             let mut keys: Vec<String> = Vec::new();
-            for setting in &all {
-                if setting.has(flag::KEPT_ON_RESET)
-                    || setting.has(flag::SECRET)
-                    || setting.is_default && !setting.in_scope
-                    || setting.key == model::SCOPE_ONLY
-                {
-                    continue;
-                }
-                let chosen = if group.is_empty() {
-                    setting.key != model::LANGUAGE
-                } else {
-                    model::group_is(&groups, setting, group)
-                        && model::visible(&groups, cx, setting, None)
-                };
-                if chosen {
-                    push(&mut keys, copy(&setting.key)?)?;
-                }
-            }
+            reader.each_setting(
+                "",
+                Fields::Light,
+                |_| true,
+                |_, s| model::reset_step(&mut keys, &groups, cx, &s, group),
+            )?;
+            model::reset_end(&mut keys)?;
             Ok(keys)
         })();
         let keys = reader.finish(found)?;
@@ -1289,9 +1286,6 @@ impl NativeSettings {
         for key in &keys {
             commands.reset_setting(ResetTarget::Setting(key))?;
         }
-        // "Only this book" last: clearing it first would send later resets to
-        // the global settings instead of the book's values.
-        commands.reset_setting(ResetTarget::Setting(model::SCOPE_ONLY))?;
         Self::notify(host, "settings.reset-done")
     }
 }

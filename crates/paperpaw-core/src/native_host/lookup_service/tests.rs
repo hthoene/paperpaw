@@ -2,6 +2,7 @@
 //! `core.lookup`: input rules, one provider per page, checks of its answer.
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::services_wire;
 use crate::native_host::call_services::validate_reply;
 use alloc::vec::Vec;
@@ -9,7 +10,7 @@ use core::cell::{Cell, RefCell};
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 use wire::{ServiceLookupAsk as Ask, ServiceLookupEntry as Entry};
 
 /// Three providers; `answer` overrides what the one at the cursor says.
@@ -26,6 +27,7 @@ fn entry_bytes(provider: &str, flags: u32, text: &str) -> Vec<u8> {
             title: "Word",
             text,
             flags,
+            opens: "",
         }),
         &mut out,
     )
@@ -34,7 +36,13 @@ fn entry_bytes(provider: &str, flags: u32, text: &str) -> Vec<u8> {
     out
 }
 impl LookupHost for Fake {
-    fn ask(&self, owner: u64, ask: &Ask<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    fn ask(
+        &self,
+        _frame: &dyn Frame,
+        owner: u64,
+        ask: &Ask<'_>,
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
         self.asked
             .borrow_mut()
             .push((owner, ask.cursor, ask.text.into(), ask.language.into()));
@@ -54,7 +62,7 @@ impl LookupHost for Fake {
 }
 
 struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     hosts: crate::native_host::host_services::HostServices,
 }
 impl Frame for View<'_> {
@@ -99,10 +107,10 @@ fn ask(fake: &Rc<Fake>, record: Ask<'_>) -> Result<Vec<u8>, i32> {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let host: Rc<dyn LookupHost> = fake.clone();
     let hosts = crate::native_host::host_services::HostServices::new();
-    hosts.wire_lookup(host).unwrap();
+    hosts.wire_lookup(host, Default::default()).unwrap();
     let view = View { env: &env, hosts };
     let mut out = std::vec![0; op.max_reply];
     let length = view.run(op, &input[..used], &mut out)?;
@@ -245,7 +253,7 @@ fn a_frame_without_the_host_refuses_the_family() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let view = View {
         env: &env,
         hosts: crate::native_host::host_services::HostServices::new(),

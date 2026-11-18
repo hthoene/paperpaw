@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use paperpaw_sdk::install::is_plugin_name;
+use paperpaw_core::kit::install::is_plugin_name;
 
 use crate::AddPlugins;
 

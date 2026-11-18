@@ -545,3 +545,114 @@ fn ties_follow_the_decks_file_not_the_ids() {
         .collect();
     assert_eq!(order, [second, first]);
 }
+
+/// A storage whose read of one byte fails and leaves zero in the buffer, as the
+/// host's does after a failed read.
+struct LastByteFails(MemoryStorage);
+
+impl Storage for LastByteFails {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        if buf.len() == 1 {
+            buf.fill(0);
+            return Err(StorageError::Io);
+        }
+        self.0.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.0.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_sdk::DirEntry<'_>),
+    ) -> Result<(), StorageError> {
+        self.0.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), StorageError> {
+        self.0.remove(path)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        self.0.rename(from, to)
+    }
+    fn sync(&self) -> Result<(), StorageError> {
+        self.0.sync()
+    }
+}
+
+#[test]
+fn a_last_byte_that_cannot_be_read_is_taken_for_the_end_of_a_line() {
+    let storage = LastByteFails(MemoryStorage::new());
+    let deck = add_deck(&storage, "Words").unwrap();
+    add(&storage, deck, [texts("Hund", "dog")]).unwrap();
+    add(&storage, deck, [texts("Katze", "cat")]).unwrap();
+    let mut text = alloc::vec![0u8; 4096];
+    let path = deck_path(deck).unwrap();
+    let n = storage.0.read_at(&path, 0, &mut text).unwrap();
+    let text = core::str::from_utf8(&text[..n]).unwrap();
+    assert!(
+        !text.contains("\n\n"),
+        "no empty line between cards: {text:?}"
+    );
+    assert_eq!(page(&storage, deck, 0, 9).1, 2);
+}
+
+#[test]
+fn a_blank_line_in_a_deck_is_no_card_and_splits_nothing() {
+    let storage = MemoryStorage::new();
+    let deck = add_deck(&storage, "Words").unwrap();
+    add(&storage, deck, [texts("Hund", "dog")]).unwrap();
+    let path = deck_path(deck).unwrap();
+    storage.append(&path, b"\n\n").unwrap();
+    add(&storage, deck, [texts("Katze", "cat")]).unwrap();
+    let (cards, total) = page(&storage, deck, 0, 9);
+    assert_eq!(total, 2, "blank lines are no cards");
+    assert_eq!(
+        (cards[0].front.as_str(), cards[1].front.as_str()),
+        ("Hund", "Katze")
+    );
+}
+
+/// Where the heap refused the index's update it is taken away (see
+/// `keep_index`); what reads the numbers next makes it anew, and does not take
+/// the missing one for a library with nothing in it.
+#[test]
+fn the_numbers_after_an_index_was_taken_away_are_those_of_the_decks() {
+    let storage = MemoryStorage::new();
+    let deck = add_deck(&storage, "Words").unwrap();
+    add(&storage, deck, [texts("a", "b"), texts("c", "d")]).unwrap();
+    assert!(storage.exists(INDEX));
+    storage.remove(INDEX).unwrap();
+    assert_eq!(sizes(&storage).unwrap().get(&deck), Some(&2));
+    assert!(storage.exists(INDEX), "made anew");
+    storage.remove(INDEX).unwrap();
+    assert_eq!(due_count(&storage, 0, 20).unwrap(), 2, "the two new ones");
+    storage.remove(INDEX).unwrap();
+    assert_eq!(next_due(&storage, 0), None, "new cards are not scheduled");
+    assert!(storage.exists(INDEX), "made anew");
+}
+
+/// A change that is done is not told as failed where only the index could not
+/// follow for want of memory (the caller would do it twice); the index is
+/// taken away to be made anew. Other failures stay failures.
+#[test]
+fn an_index_the_heap_could_not_follow_does_not_fail_the_change() {
+    let storage = MemoryStorage::new();
+    for error in [StorageError::OutOfMemory, StorageError::TooLarge] {
+        storage.write(INDEX, b"x").unwrap();
+        assert_eq!(index_kept(&storage, Err(error)), Ok(()), "{error:?}");
+        assert!(!storage.exists(INDEX), "{error:?}: taken away");
+    }
+    storage.write(INDEX, b"x").unwrap();
+    assert_eq!(index_kept(&storage, Ok(())), Ok(()));
+    assert!(storage.exists(INDEX));
+    assert_eq!(
+        index_kept(&storage, Err(StorageError::Io)),
+        Err(StorageError::Io)
+    );
+}

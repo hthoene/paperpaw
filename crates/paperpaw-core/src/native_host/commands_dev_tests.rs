@@ -1,14 +1,16 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 use super::*;
+use crate::Staging;
 use crate::{
     Kernel,
     abi7::commands_wire::{SecretText, commands_decode, commands_encode},
     io::WifiEvent,
     native_host::commands::CommandStage,
 };
-use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_FULL, OK};
+use paperpaw_native::host_glue::{ERR_CANCELLED, ERR_FULL, ERR_INVALID, OK};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::Instant;
+use paperpaw_sdk::{Manifest, RegisterError};
 use paperpaw_sdk::{SettingSpec, wifi::WifiState};
 
 const HOST: &[Feature<'static>] = &[
@@ -33,13 +35,30 @@ fn features(bits: u32) -> AdmittedFeatures {
 const WIFI: u32 = 1;
 const POWER: u32 = 2;
 
+/// These tests read the table's outcomes themselves, for owners that are no
+/// plugin instances: the delivery pump (`wifi_events`) is held back, as it
+/// would release the entries of senders nobody can tell.
 fn kernel() -> Kernel {
-    Kernel::builder(crate::tests::DEVICE)
+    let kernel = Kernel::builder(crate::tests::DEVICE)
         .wifi(true)
         .sleep(true)
         .power_off(true)
         .build()
-        .unwrap()
+        .unwrap();
+    kernel.radio_requests.borrow_mut().hold_back(u64::MAX);
+    kernel
+}
+
+/// [`kernel`] where the user chose no network manager (the default names
+/// `wifi`, which then needs no recent input).
+fn kernel_without_manager() -> Kernel {
+    let mut kernel = kernel();
+    kernel
+        .shared
+        .settings
+        .set(NETWORK_MANAGER, SettingValue::Text("".into()))
+        .unwrap();
+    kernel
 }
 
 fn join(request: u32, ssid: &str) -> WireCommand<'_> {
@@ -62,7 +81,7 @@ fn host(request: u32, password: &str) -> WireCommand<'_> {
 fn stage_of<'a>(
     owner: &'a Id,
     kernel: &'a Kernel,
-    env: &'a paperpaw_sdk::Env<'a>,
+    env: &'a crate::Place<'a>,
     bits: u32,
 ) -> CommandStage<'a> {
     CommandStage::new(owner, env.settings(), None, 16, 4096)
@@ -98,7 +117,7 @@ impl StoredNetworks for Stored {
 /// Stage `commands` for `owner`, then drain them with `clock`.
 fn run(kernel: &mut Kernel, owner: &Id, commands: &[WireCommand<'_>], clock: &Clock) -> i32 {
     let (status, output) = {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = stage_of(owner, kernel, &env, WIFI | POWER);
         let status = submit(&mut stage, commands);
         (status, stage.into_dev_output())
@@ -118,7 +137,7 @@ fn stage_only(
     owner: &Id,
     commands: &[WireCommand<'_>],
 ) -> (i32, super::DevBatchOutput) {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let mut stage = stage_of(owner, kernel, &env, WIFI | POWER);
     let status = submit(&mut stage, commands);
     (status, stage.into_dev_output())
@@ -146,7 +165,7 @@ fn outcome(kernel: &Kernel, owner: &str) -> Option<(u32, Outcome)> {
 #[test]
 fn a_missing_feature_denies_the_whole_batch_valid_commands_included() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = stage_of(&owner, &kernel, &env, WIFI);
     let batch = [WireCommand::WifiOn {}, WireCommand::Sleep {}];
@@ -167,7 +186,7 @@ fn a_missing_feature_denies_the_whole_batch_valid_commands_included() {
 #[test]
 fn a_feature_the_host_does_not_advertise_is_unsupported() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let admitted = AdmittedFeatures::test(1, WIFI_ONLY_HOST);
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
@@ -185,7 +204,7 @@ fn a_feature_the_host_does_not_advertise_is_unsupported() {
 #[test]
 fn install_and_bluetooth_commands_stay_unsupported() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
     let removal = WireCommand::RemovePlugin {
@@ -205,7 +224,7 @@ fn install_and_bluetooth_commands_stay_unsupported() {
 #[test]
 fn batch_limits_sit_exactly_at_two_wifi_and_one_power_command() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
     let (on, off, scan) = (
@@ -235,7 +254,7 @@ fn batch_limits_sit_exactly_at_two_wifi_and_one_power_command() {
 #[test]
 fn field_rules_hold_at_their_boundaries() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
     let mut ok = |commands: &[WireCommand<'_>]| submit(&mut stage, commands);
@@ -289,7 +308,7 @@ fn field_rules_hold_at_their_boundaries() {
 #[test]
 fn the_guard_alone_may_restart_or_power_off_and_sleep_stays_open() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let stack = [paperpaw_sdk::StackEntry::new(
         Id::new_static("lock.screen"),
         None,
@@ -449,7 +468,7 @@ fn unsupported_and_needs_user_end_at_once_without_touching_the_radio() {
     assert_eq!((request, done.status, done.reason), (1, ERR_UNSUPPORTED, 5));
     assert!(wifi_calls(&mut elsewhere).is_empty());
 
-    let mut kernel = kernel();
+    let mut kernel = kernel_without_manager();
     let stale = Clock(10_000, Some(7_000));
     assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &stale), OK);
     let (_, done) = outcome(&kernel, "wifi").unwrap();
@@ -469,7 +488,7 @@ fn unsupported_and_needs_user_end_at_once_without_touching_the_radio() {
 #[test]
 fn the_input_window_for_join_ends_after_2000_ms_inclusive() {
     for (since, honoured) in [(1_999, true), (2_000, true), (2_001, false)] {
-        let mut kernel = kernel();
+        let mut kernel = kernel_without_manager();
         let owner = Id::new_static("wifi");
         let clock = Clock(50_000, Some(50_000 - since));
         assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &clock), OK);
@@ -481,7 +500,7 @@ fn the_input_window_for_join_ends_after_2000_ms_inclusive() {
         assert_eq!(outcome(&kernel, "wifi").is_some(), !honoured, "{since} ms");
     }
     // No input yet, and the clock before the input, are handled.
-    let mut kernel = kernel();
+    let mut kernel = kernel_without_manager();
     let owner = Id::new_static("wifi");
     assert_eq!(
         run(&mut kernel, &owner, &[join(1, "net")], &Clock(5, None)),
@@ -494,7 +513,7 @@ fn the_input_window_for_join_ends_after_2000_ms_inclusive() {
 fn a_stored_password_or_the_network_manager_needs_no_input_but_a_host_does() {
     let stale = Clock(100_000, Some(0));
     let owner = Id::new_static("wifi");
-    let mut kernel = kernel();
+    let mut kernel = kernel_without_manager();
     assert_eq!(run(&mut kernel, &owner, &[join(1, "home")], &stale), OK);
     assert_eq!(wifi_calls(&mut kernel).len(), 1, "stored password");
     assert_eq!(
@@ -511,16 +530,9 @@ fn a_stored_password_or_the_network_manager_needs_no_input_but_a_host_does() {
 
 #[test]
 fn the_network_manager_may_join_and_host_without_input() {
-    let spec = SettingSpec::text(
-        NETWORK_MANAGER,
-        "manager",
-        "wifi",
-        paperpaw_sdk::builtin::groups::OTHER,
-    );
     let stale = Clock(100_000, Some(0));
     for (name, honoured) in [("wifi", true), ("other", false)] {
         let mut kernel = kernel();
-        kernel.shared.settings.define(spec.clone()).unwrap();
         let owner = Id::new_static(name);
         assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &stale), OK);
         assert_eq!(
@@ -552,6 +564,51 @@ fn go_online_is_honoured_only_within_the_window_else_ok_and_logged() {
 }
 
 #[test]
+fn the_wifi_plugin_is_the_network_manager_until_the_user_chooses_another() {
+    let stale = Clock(100_000, Some(0));
+    // A join of `name` with no recent input, the user's choice `chosen`
+    // (`None`: the default): whether the host let it through.
+    let honoured = |name: &'static str, chosen: Option<&str>| {
+        let mut kernel = kernel();
+        // The kernel declares the setting itself, `wifi` by default.
+        let wifi = SettingValue::Text("wifi".into());
+        assert_eq!(kernel.shared.settings.global(NETWORK_MANAGER), Some(&wifi));
+        if let Some(chosen) = chosen {
+            let value = SettingValue::Text(alloc::string::String::from(chosen).into());
+            kernel.shared.settings.set(NETWORK_MANAGER, value).unwrap();
+        }
+        let owner = Id::new_static(name);
+        assert_eq!(run(&mut kernel, &owner, &[join(1, "net")], &stale), OK);
+        !wifi_calls(&mut kernel).is_empty()
+    };
+    assert!(honoured("wifi", None));
+    assert!(!honoured("other", None));
+    // The user's choice replaces it; empty means nobody.
+    assert!(honoured("other", Some("other")));
+    assert!(!honoured("wifi", Some("other")));
+    assert!(!honoured("wifi", Some("")));
+    assert!(!honoured("other", Some("")));
+}
+
+#[test]
+fn only_the_settings_editor_may_name_the_network_manager() {
+    let kernel = kernel();
+    let env = kernel.shared.place(Instant(0));
+    let admitted = |owner: &'static str, exempt: bool| {
+        let owner = Id::new_static(owner);
+        let authority = super::super::CommandAuthority::new(exempt);
+        CommandStage::new(&owner, env.settings(), Some(authority), 16, 4096)
+            .admitted(NETWORK_MANAGER)
+            .map(|_| ())
+    };
+    // Any other plugin, the Wi-Fi plugin itself included, is refused.
+    assert_eq!(admitted("other", false), Err(ERR_INVALID));
+    assert_eq!(admitted("wifi", false), Err(ERR_INVALID));
+    // The settings editor (the user's hand) may.
+    assert_eq!(admitted("settings", true), Ok(()));
+}
+
+#[test]
 fn power_commands_apply_after_the_commands_before_them_and_in_order() {
     let mut kernel = kernel();
     let spec = SettingSpec::switch(
@@ -567,7 +624,7 @@ fn power_commands_apply_after_the_commands_before_them_and_in_order() {
         value: crate::abi7::settings_wire::SettingValueRef::Bool(on),
     };
     let (status, output) = {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
         let first = submit(
             &mut stage,
@@ -633,7 +690,7 @@ fn a_dropped_stage_gives_its_reservations_back_and_a_stop_releases_the_rest() {
     let mut kernel = kernel();
     let owner = Id::new_static("wifi");
     {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = stage_of(&owner, &kernel, &env, WIFI);
         assert_eq!(submit(&mut stage, &[join(1, "net")]), OK);
         assert_eq!(kernel.radio_requests.borrow().len(), 1);
@@ -677,7 +734,7 @@ fn debug_output_never_shows_a_password() {
     let mut kernel = kernel();
     let owner = Id::new_static("wifi");
     let (stage_text, batch_text, table_text) = {
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let mut stage = stage_of(&owner, &kernel, &env, WIFI);
         assert_eq!(submit(&mut stage, &[join(1, "net"), host(2, PASSWORD)]), OK);
         let stage_text = alloc::format!("{stage:?}");
@@ -711,7 +768,7 @@ fn a_secret_is_wiped_before_it_is_freed() {
 #[test]
 fn a_dev_output_dropped_without_a_drain_gives_its_reservations_back() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     // Four dropped outputs would fill the table if their reservations stayed.
     for round in 1..=4_u32 {
         let owner = Id::new_static(if round % 2 == 0 { "a" } else { "b" });
@@ -735,7 +792,7 @@ fn a_dev_output_dropped_without_a_drain_gives_its_reservations_back() {
 #[test]
 fn outputs_of_one_owner_give_back_only_their_own_reservations_in_any_order() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("wifi");
     let held = |request| kernel.radio_requests.borrow().holds("wifi", request);
     for drop_a_first in [true, false] {
@@ -770,7 +827,7 @@ fn outputs_of_one_owner_give_back_only_their_own_reservations_in_any_order() {
 #[test]
 fn a_dropped_output_does_not_take_a_later_request_with_the_same_number() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("wifi");
     let mut old = stage_of(&owner, &kernel, &env, WIFI);
     assert_eq!(submit(&mut old, &[join(1, "net")]), OK);
@@ -860,7 +917,7 @@ fn a_drained_output_keeps_its_applied_entries_and_only_unapplied_ones_go() {
 fn an_allocation_failing_anywhere_in_dev_staging_leaves_no_reservation_behind() {
     use crate::native_host::shell::tests::arm_failure;
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("wifi");
     let mut refused = 0;
     for nth in 1..=64 {
@@ -899,7 +956,7 @@ fn an_allocation_failing_anywhere_in_dev_staging_leaves_no_reservation_behind() 
 #[test]
 fn an_undefined_flag_bit_refuses_its_batch_and_leaves_earlier_commands_and_reservations() {
     let kernel = kernel();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("wifi");
     let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
     // A valid batch first: one reservation and one command kept.
@@ -954,4 +1011,100 @@ fn an_undefined_flag_bit_refuses_its_batch_and_leaves_earlier_commands_and_reser
         );
         assert_eq!(dev_len(&stage), 3);
     }
+}
+
+#[test]
+fn the_first_dev_command_makes_the_box_and_a_batch_answered_ok_needs_no_more_memory() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let kernel = kernel();
+    let owner = Id::new_static("probe");
+    let env = kernel.shared.place(Instant(0));
+    let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
+    // Each allocation of the submit in turn fails: the command answers
+    // `ERR_NO_MEMORY` and nothing is kept, until one goes through.
+    let mut nth = 1;
+    loop {
+        FAIL_NTH.with(|n| n.set(nth));
+        let status = submit(&mut stage, &[WireCommand::Sleep {}]);
+        FAIL_NTH.with(|n| n.set(0));
+        if status == OK {
+            break;
+        }
+        assert_eq!(status, ERR_NO_MEMORY, "allocation {nth}");
+        assert_eq!(dev_len(&stage), 0);
+        nth += 1;
+        assert!(nth < 16, "the submit allocates a bounded number of times");
+    }
+    assert!(nth > 1, "the box is an allocation of the submit");
+    // The batch answered `OK` is kept whole with no allocation left to make.
+    FAIL_NTH.with(|n| n.set(1));
+    let batch = stage.take_dev_boxed();
+    let spared = FAIL_NTH.with(|n| n.replace(0));
+    assert_eq!(spared, 1, "nothing was allocated");
+    assert_eq!(batch.map(|batch| batch.items.len()), Some(1));
+    // A stage with no DEV command makes no box.
+    let mut stage = stage_of(&owner, &kernel, &env, WIFI | POWER);
+    assert!(stage.take_dev_boxed().is_none());
+}
+
+struct Lock;
+
+impl crate::testing::Fake for Lock {
+    fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
+    fn flags(&self) -> u32 {
+        crate::testing::GUARDS
+    }
+    fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
+        paperpaw_sdk::Handled::No
+    }
+}
+
+/// A plugin whose screen `lock.screen` guards the device.
+fn lock_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
+            Id::new_static("lock.screen"),
+            "lock",
+            alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Lock)),
+        ))
+    }
+}
+
+/// What [`lock_plugin`] registers under.
+fn lock_plugin_manifest() -> Manifest {
+    paperpaw_sdk::Manifest::new(
+        Id::new_static("lock"),
+        "Lock",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    )
+    .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
+#[test]
+fn a_guard_that_came_up_after_the_submit_drops_power_off_and_restart_of_another_plugin() {
+    let mut kernel = Kernel::builder(crate::tests::DEVICE)
+        .power_off(true)
+        .items(lock_plugin_manifest(), lock_plugin())
+        .build()
+        .unwrap();
+    let (power, lock) = (Id::new_static("power"), Id::new_static("lock"));
+    let clock = Clock(0, None);
+    // Both were accepted while nothing guarded.
+    let off = stage_only(&kernel, &power, &[WireCommand::PowerOff {}]);
+    let restart = stage_only(&kernel, &power, &[WireCommand::Restart {}]);
+    assert_eq!((off.0, restart.0), (OK, OK));
+    kernel.open_screen(
+        Instant(1),
+        Id::new_static("lock.screen"),
+        paperpaw_sdk::Params::new(),
+    );
+    assert!(kernel.guard().is_some());
+    drain(&mut kernel, &power, off.1, &clock);
+    drain(&mut kernel, &power, restart.1, &clock);
+    assert!(!kernel.power_off && !kernel.restart);
+    // The guard's own plugin may.
+    let own = stage_only(&kernel, &lock, &[WireCommand::Restart {}]);
+    assert_eq!(own.0, OK);
+    drain(&mut kernel, &lock, own.1, &clock);
+    assert!(kernel.restart);
 }

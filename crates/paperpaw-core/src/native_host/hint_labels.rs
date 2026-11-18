@@ -74,7 +74,8 @@ pub(crate) const fn label_budget(small: bool) -> usize {
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Shown {
     Words(Box<str>),
-    Icon(&'static str),
+    /// The icon's character: its name does not outlive the command.
+    Icon(char),
     Hidden,
 }
 
@@ -108,9 +109,13 @@ fn charge_of(action: &str, shown: &Shown) -> usize {
     action.len() + words + LABEL_OVERHEAD
 }
 
-/// The icon a label names: a host icon (`paperpaw_sdk::icons`), else nothing.
-fn icon_of(name: &str) -> Option<&'static str> {
-    paperpaw_sdk::icons::names().find(|known| *known == name)
+/// The icon a label names: a host icon (`paperpaw_sdk::icons`) by its
+/// name, not by a code point (`U+F8000`), else nothing.
+fn icon_of(name: &str) -> Option<char> {
+    if name.starts_with("U+") {
+        return None;
+    }
+    paperpaw_sdk::icons::char(name)
 }
 
 /// Checks the fields of a command.
@@ -359,7 +364,8 @@ impl HintLabels {
                 owned.push_str(text);
                 Hint::Text(owned)
             }
-            Shown::Icon(icon) => Hint::Icon(icon),
+            // As a text the row shows as the icon; no memory, the screen's own.
+            Shown::Icon(icon) => Hint::Text(paperpaw_sdk::icons::as_text(*icon)?),
             Shown::Hidden => Hint::Hidden,
         })
     }

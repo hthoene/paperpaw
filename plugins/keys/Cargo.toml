@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-keys"
 description = "PaperPaw buttons and gestures: what every button, tap zone and swipe does, changed on the device"
-version = "1.0.9"
+version = "1.0.10"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -25,7 +25,11 @@ paperpaw-sdk.workspace = true
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-core.workspace = true
 paperpaw-native.workspace = true
+paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 paperpaw-i18n.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.paperpaw]
+card-files = ["i18n/*.ini"]

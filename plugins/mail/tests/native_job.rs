@@ -9,13 +9,12 @@
 
 mod fake;
 
-use fake::{Fake, Proto, Script};
+use fake::{Fake, Input, Proto, Script};
 use paperpaw_plugin_mail::native_model::job::{Job, Run};
 use paperpaw_plugin_mail::native_model::link::{Net, Notice, Peer};
 use paperpaw_plugin_mail::native_model::mem::{Error, Secret};
 use paperpaw_plugin_mail::native_model::session::{Endpoint, Failure, Outgoing, Security, Task};
 use paperpaw_plugin_mail::native_model::store;
-use paperpaw_plugin_mail::session as old;
 use paperpaw_sdk::native::sockets::{Reason, SocketKind, Untrusted};
 use paperpaw_sdk::{KeyHash, Tls};
 
@@ -50,26 +49,26 @@ impl Net for FakeNet<'_> {
         pin: Option<[u8; 32]>,
     ) -> Result<(), Error> {
         if tls {
-            old::Io::connect_tls(self.fake, host, port, tls_of(pin));
+            self.fake.connect_tls(host, port, tls_of(pin));
         } else {
-            old::Io::connect_plain(self.fake, host, port);
+            self.fake.connect_plain(host, port);
         }
         Ok(())
     }
     fn start_tls(&mut self, pin: Option<[u8; 32]>) -> Result<(), Error> {
-        old::Io::start_tls(self.fake, tls_of(pin));
+        self.fake.start_tls(tls_of(pin));
         Ok(())
     }
     fn send(&mut self, piece: &[u8]) -> Result<(), Error> {
-        old::Io::send(self.fake, piece.to_vec());
+        self.fake.send(piece.to_vec());
         Ok(())
     }
     fn read_bytes(&mut self, max: u32) -> Result<(), Error> {
-        old::Io::read_bytes(self.fake, max);
+        self.fake.read_bytes(max);
         Ok(())
     }
     fn read_file(&mut self, path: &str, len: u64) -> Result<(), Error> {
-        old::Io::read_file(self.fake, path, len);
+        self.fake.read_file(path, len);
         Ok(())
     }
     fn data(&mut self, offset: u32, out: &mut [u8]) -> Result<usize, Error> {
@@ -85,15 +84,15 @@ impl Net for FakeNet<'_> {
         self.wire.peer.ok_or(Error::NotFound)
     }
     fn close(&mut self) {
-        old::Io::close(self.fake);
+        self.fake.close();
     }
 }
 
 /// The fake's notice as the host would tell it.
-fn notice_of(input: &old::Input, wire: &mut Wire) -> Notice {
+fn notice_of(input: &Input, wire: &mut Wire) -> Notice {
     let (kind, len) = match input {
-        old::Input::Connected => (SocketKind::Connected, 0),
-        old::Input::Secured {
+        Input::Connected => (SocketKind::Connected, 0),
+        Input::Secured {
             certificate,
             key,
             time_checked,
@@ -106,7 +105,7 @@ fn notice_of(input: &old::Input, wire: &mut Wire) -> Notice {
             });
             (SocketKind::Secured, 0)
         }
-        old::Input::Untrusted {
+        Input::Untrusted {
             certificate, key, ..
         } => {
             wire.peer = Some(Peer {
@@ -117,13 +116,13 @@ fn notice_of(input: &old::Input, wire: &mut Wire) -> Notice {
             });
             (SocketKind::Untrusted, 0)
         }
-        old::Input::Bytes(bytes) => {
+        Input::Bytes(bytes) => {
             wire.came = bytes.clone();
             (SocketKind::Received, bytes.len() as u32)
         }
-        old::Input::Saved(_) => (SocketKind::Saved, 0),
-        old::Input::Closed => (SocketKind::Closed, 0),
-        old::Input::Failed(..) => (SocketKind::Failed, 0),
+        Input::Saved(_) => (SocketKind::Saved, 0),
+        Input::Closed => (SocketKind::Closed, 0),
+        Input::Failed(..) => (SocketKind::Failed, 0),
     };
     Notice {
         kind,
@@ -164,7 +163,7 @@ fn drive(job: &mut Job, fake: &mut Fake) {
         let Some(input) = fake.next_input() else {
             return;
         };
-        if matches!(input, old::Input::Secured { .. }) {
+        if matches!(input, Input::Secured { .. }) {
             fake.switched();
         }
         let notice = notice_of(&input, &mut wire);
@@ -466,4 +465,96 @@ fn a_cancelled_connection_closes_its_socket_and_is_idle() {
     // A new connection can start.
     start_imap(&mut job, &mut fake, Security::Implicit, 993, "secret");
     assert!(job.working());
+}
+
+fn part_tasks_of(account: u8) -> Vec<Task> {
+    vec![Task::Part {
+        folder: "INBOX".into(),
+        uid: 20,
+        part: "2".into(),
+        out: store::part_file(account, "INBOX", 20).unwrap(),
+    }]
+}
+
+fn start_part(job: &mut Job, fake: &mut Fake) {
+    let mut wire = Wire::default();
+    job.start_imap(
+        FakeNet {
+            fake,
+            wire: &mut wire,
+        },
+        endpoint(Security::Implicit, 993, "secret"),
+        part_tasks_of(1),
+    )
+    .unwrap();
+}
+
+#[test]
+fn an_attachment_is_read_into_its_file_whole_in_pieces_of_every_size() {
+    // Not a multiple of anything: the line that starts the literal carries some of it.
+    let bytes: Vec<u8> = (0..9_000u32)
+        .map(|n| b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef0123456789+/\r\n"[n as usize % 46])
+        .collect();
+    for chunk in [1, 7, 100, 1000, 100_000] {
+        let script = Script {
+            chunk,
+            messages: vec![message(2)],
+            parts: vec![(20, "2".into(), bytes.clone())],
+            ..Script::default()
+        };
+        let mut fake = Fake::new(Proto::Imap, script);
+        let mut job = Job::new();
+        start_part(&mut job, &mut fake);
+        drive(&mut job, &mut fake);
+        assert_eq!(job.run, Run::Done, "chunk {chunk}");
+        let storage = fake.storage.clone();
+        let file = store::part_file(1, "INBOX", 20).unwrap();
+        let mut got = vec![0u8; bytes.len() + 10];
+        let n = paperpaw_sdk::Storage::read_at(&*storage, &file, 0, &mut got).unwrap();
+        assert_eq!(&got[..n], &bytes[..], "chunk {chunk}");
+        // The server was asked for that part only, never the message.
+        assert!(
+            fake.sent
+                .iter()
+                .any(|l| l.contains("UID FETCH 20 BODY.PEEK[2]")),
+            "{:?}",
+            fake.sent
+        );
+        assert!(!fake.sent.iter().any(|l| l.contains("BODY.PEEK[]")));
+    }
+}
+
+#[test]
+fn an_attachment_over_what_mail_takes_ends_the_job_as_too_large() {
+    let script = Script {
+        messages: vec![message(2)],
+        parts: vec![(20, "2".into(), vec![b'A'; store::MAX_PART + 1])],
+        ..Script::default()
+    };
+    let mut fake = Fake::new(Proto::Imap, script);
+    let mut job = Job::new();
+    start_part(&mut job, &mut fake);
+    drive(&mut job, &mut fake);
+    assert_eq!(job.run, Run::Failed(Failure::TooLarge));
+    // Nothing of it was kept.
+    let storage = fake.storage.clone();
+    let file = store::part_file(1, "INBOX", 20).unwrap();
+    assert!(paperpaw_sdk::Storage::size(&*storage, &file).is_err());
+}
+
+#[test]
+fn a_part_the_server_does_not_have_ends_the_job_as_refused() {
+    let script = Script {
+        messages: vec![message(2)],
+        ..Script::default()
+    };
+    let mut fake = Fake::new(Proto::Imap, script);
+    let mut job = Job::new();
+    start_part(&mut job, &mut fake);
+    drive(&mut job, &mut fake);
+    assert!(
+        matches!(job.run, Run::Failed(Failure::Refused(_))),
+        "{:?}",
+        job.run
+    );
 }

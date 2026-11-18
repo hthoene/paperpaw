@@ -3,7 +3,12 @@
 //! it shows, a choice, a date format), as the declarations a widget plugin
 //! submits: one [`Opt`] per setting, declared statically, never at run time.
 //! A plugin's build script and its tests read the same list.
-use paperpaw_sdk::native::declare::{Declarations, DeclareError, ExtraDecl, Kind, SpecDecl};
+use paperpaw_sdk::native::declare::{
+    Declarations, DeclareError, EditorDecl, ExtraDecl, Kind, SpecDecl,
+};
+
+/// The slot that chooses a folder for a setting.
+const CHOOSE_FOLDER: &str = "core.choose-folder";
 
 pub const FRAMES: &[&str] = &[
     "core.frame.none",
@@ -96,6 +101,9 @@ pub enum Opt {
     ),
     /// Free text: key, title, default, help.
     Text(&'static str, &'static str, &'static str, &'static str),
+    /// A folder on the card, chosen on the folder chooser (the slot
+    /// `core.choose-folder`): key, title, default, help.
+    Folder(&'static str, &'static str, &'static str, &'static str),
     /// How dates are written: the default is one of [`DATE_FORMATS`].
     DateFormat(&'static str),
 }
@@ -212,7 +220,7 @@ pub fn row(option: Opt) -> Row<'static> {
         Opt::Choice(key, title, values, default, help) => {
             choice(key, (default, values), title, help)
         }
-        Opt::Text(key, title, default, help) => Row {
+        Opt::Text(key, title, default, help) | Opt::Folder(key, title, default, help) => Row {
             suffix: key,
             kind: Kind::Text(default),
             title,
@@ -247,6 +255,11 @@ pub fn declare_option(
     if row.keeps {
         let mut extra = ExtraDecl::new(&relative);
         extra.keeps_unknown = true;
+        d.extra(extra)?;
+    }
+    if matches!(option, Opt::Folder(..)) {
+        let mut extra = ExtraDecl::new(&relative);
+        extra.editor = Some(EditorDecl::Slot(CHOOSE_FOLDER));
         d.extra(extra)?;
     }
     Ok(())

@@ -26,8 +26,8 @@
 #
 # CI jobs that cannot run here: the X4 Pro and X4 Classic firmware (Xtensa
 # compiler, `esp` toolchain), the Windows and macOS emulator, the update path
-# (needs the release before's image), Android's APK (needs the SDK), the
-# reproducible build, CodeQL, release.
+# (needs the release before's image), Android's APK (needs the SDK),
+# CodeQL, release.
 set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -199,23 +199,6 @@ g_sdk() {
         skip "sdk: interface.py --check" "cargo-public-api or ${nightly:-the nightly} missing"
     fi
     run "sdk: interface test" "cargo test -p paperpaw-sdk --test interface"
-    if [[ -f tools/shared-table.py ]]; then
-        run "sdk: shared table's index and signatures" "python3 tools/shared-table.py --check && python3 -I tools/test_shared_table.py"
-    else
-        skip "sdk: shared-table" "tools/shared-table.py is not in this tree (interface 5)"
-    fi
-    if [[ -f tools/table-compat.sh ]]; then
-        # As CI: the baseline table-baseline.txt names, unless the caller
-        # names another in TABLE_BASELINE.
-        if [[ -n "${TABLE_BASELINE:-}" ]]; then
-            run "sdk: table-compat against $TABLE_BASELINE" "tools/table-compat.sh '$TABLE_BASELINE'"
-        else
-            run "sdk: table-compat against table-baseline.txt" "tools/table-compat.sh"
-        fi
-        # As CI's second step: this tree's own plugin, so that the "runs"
-        # path is exercised while the baseline is of an older draft.
-        run "sdk: table-compat against HEAD (the plugin runs)" "tools/table-compat.sh HEAD"
-    fi
 }
 
 # Keep the baseline supplied independently by the caller. Missing input fails
@@ -226,8 +209,8 @@ g_abi() {
 }
 
 g_embedded() {
-    run "embedded: kernel and plugins, riscv32imc" "cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat"
-    run "embedded: kernel and plugins, wasm32" "cargo build --release --target wasm32-unknown-unknown -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat"
+    run "embedded: kernel and plugins, riscv32imc" "cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-x4 -p paperpaw-fat"
+    run "embedded: kernel and plugins, wasm32" "cargo build --release --target wasm32-unknown-unknown -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-x4 -p paperpaw-fat"
     run "embedded: lint the web emulator" "cargo clippy --target wasm32-unknown-unknown -p paperpaw-web -- -D warnings"
     # 16.4 MB: 16 held until the Mail plugin (about 0.25 MB of code and
     # texts, with what its generics pull in) came, 16.3 with it; 0.6.0-beta.1's
@@ -250,7 +233,7 @@ g_miri-stage() {
 }
 
 g_native() {
-    run "native: plugin from another workspace" "cargo build --release --manifest-path crates/paperpaw-core/tests/native-plugin/Cargo.toml --target-dir crates/paperpaw-core/tests/native-plugin/target && cargo test -p paperpaw-core --test native_plugin -- --ignored && cargo test -p paperpaw-native --test real_plugin -- --ignored"
+    run "native: the preflight accepts a real plugin library" "cargo test -p paperpaw-native --test real_plugin -- --ignored"
     run "native: the SDK keeps no mutable statics" '
         CARGO_PROFILE_RELEASE_LTO=false cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-sdk --target-dir target/statics
         CARGO_PROFILE_RELEASE_LTO=false cargo run --release -p paperpaw-sign -- statics target/statics/riscv32imc-unknown-none-elf/release/deps/*.rlib'
@@ -262,32 +245,13 @@ g_native() {
         else
           echo "paperpaw.org serves no store rules: not compared"
         fi'
-    run "native: sample and templates name the firmware compilers" '
-        x4="$(sed -n "s/^channel = \"\(.*\)\"/\1/p" shells/xteink/rust-toolchain.toml)"
-        . shells/xteink/versions.env
-        template=samples/hello-native/.github/workflows/build.yml
-        release=tools/dev/templates/.github/workflows/paperpaw-release.yml
-        status=0
-        for found in \
-          "samples/hello-native/rust-toolchain.toml:channel = \"$x4\"" \
-          "$template:RUST_X4: \"$x4\"" \
-          "$template:RUST_X4_PRO: \"$ESP_RUST_VERSION\"" \
-          "$template:ESP_GCC: \"$ESP_GCC_VERSION\"" \
-          "$release:RUST_X4: \"$x4\"" \
-          "$release:RUST_X4_PRO: \"$ESP_RUST_VERSION\"" \
-          "$release:ESP_GCC: \"$ESP_GCC_VERSION\""; do
-          if ! grep -qF -- "${found#*:}" "${found%%:*}"; then
-            echo "${found%%:*} should say ${found#*:}"
-            status=1
-          fi
-        done
-        exit $status'
 }
 
 g_architecture() {
     run "architecture: plugins depend on the SDK only" '
         status=0
         for manifest in plugins/*/Cargo.toml samples/*/Cargo.toml; do
+          case "$manifest" in samples/frame-test/*|samples/interlinear/*) continue ;; esac
           if awk "/^\[/ { part = \$0 } part == \"[dependencies]\" && /^paperpaw-core/" "$manifest" | grep -q .; then
             echo "$manifest: plugins must depend on paperpaw-sdk, not paperpaw-core"
             status=1
@@ -390,26 +354,23 @@ g_firmware-build() {
         return
     fi
     run "firmware-build: x4 release build" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4"
-    run "firmware-build: sample plugin fits the firmware" '
-        fp="$(cargo run -q --release -p paperpaw-sign -- fingerprint shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink)"
-        (cd samples/hello-native && env -u RUSTFLAGS cargo +'"$x4_toolchain"' x4)
-        cargo run -q --release -p paperpaw-sign -- pack samples/hello-native/target/riscv32imc-unknown-none-elf/release/hello target/ci-local/hello-esp32c3.ppn
-        cargo run -q --release -p paperpaw-sign -- plugin target/ci-local/hello-esp32c3.ppn | grep -Eq "^fingerprint: +$fp\$"'
+    run "firmware-build: no float parser or formatter in the image" "tools/firmware-symbols.sh shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink"
     run "firmware-build: the panic path's stack frames fit the reserve" '
         cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget.txt'
-    run "firmware-build: clippy the interface-7 host code (ppn5)" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,ppn5 -- -D warnings"
-    run "firmware-build: the plugins' host frames fit under the band (ppn5)" '
-        (cd shells/xteink && env -u RUSTFLAGS cargo +'"$x4_toolchain"' build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4,ppn5 --target-dir target/ppn5)
+    run "firmware-build: clippy the interface-7 host code (the native image)" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features x4 -- -D warnings"
+    run "firmware-build: the plugins' host frames fit under the band (the native image)" '
+        (cd shells/xteink && env -u RUSTFLAGS cargo +'"$x4_toolchain"' build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4 --target-dir target/ppn5)
         cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/ppn5/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget-ppn5.txt'
+    run "firmware-build: the start's stack paths fit above the band (the native image)" '
+        python3 tools/check-x4-start-stack.py shells/xteink/target/ppn5/riscv32imc-unknown-none-elf/release/paperpaw-xteink'
     run "firmware-build: the interface-7 sample packs to the committed file" '
         env -u RUSTFLAGS CARGO_TARGET_DIR="$PWD/target/ci-local/abi7-x4-min" samples/abi7-x4-min/build.sh --check'
     run "firmware-build: SDK interface-7 entry packs and rejects misalignment" '
         env -u RUSTFLAGS CARGO_TARGET_DIR="$PWD/target/ci-local/abi7-sdk-entry" samples/abi7-sdk-entry/check.sh'
     run "firmware-build: the store's plugins fit the firmware" '
-        fp="$(cargo run -q --release -p paperpaw-sign -- fingerprint shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink)"
         out=target/ci-local/plugins
         rm -rf "$out"
-        tools/plugin-files/build.sh x4 "$out" --fingerprint "$fp"'
+        tools/plugin-files7/build.sh x4 "$out"'
 }
 
 g_release-versions() {

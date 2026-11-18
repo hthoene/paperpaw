@@ -421,6 +421,18 @@ impl Board {
         Rect::new(left as u16, y, (right - left) as u16, self.key_height)
     }
 
+    /// What a focus on `(row, index)` draws over: its key, or for a button of
+    /// the field the field's box, as the button's focus frame goes past its
+    /// edge (interface 6's `focus_area`).
+    #[must_use]
+    pub fn focus_area(&self, (row, index): (usize, usize)) -> Rect {
+        if row == FIELD_ROW {
+            self.buttons_box()
+        } else {
+            self.key_area(row, index)
+        }
+    }
+
     /// The key under `point`.
     #[must_use]
     pub fn key_at(&self, point: Point) -> Option<(usize, usize)> {

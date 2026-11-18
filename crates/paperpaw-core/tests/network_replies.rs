@@ -13,11 +13,14 @@
 
 mod common;
 
+use common::AddDriver;
+
 use common::{DEVICE, Harness, REPLY};
+use paperpaw_core::Ask;
 use paperpaw_core::sdk::wifi::{NETWORK_WAIT_MS, WifiState};
 use paperpaw_core::sdk::{
-    CertificateHash, Command, HttpError, HttpRequest, Id, KeyHash, MemoryStorage, Params,
-    ServerResponse, SocketError, SocketRead, Speech, Tls,
+    CertificateHash, HttpError, HttpRequest, Id, KeyHash, MemoryStorage, Params, ServerResponse,
+    SocketError, SocketRead, Speech, Tls,
 };
 use paperpaw_core::{
     HttpResponse, Io, Kernel, KernelBuilder, ServerCall, ServerEvent, SocketCall, SocketEvent,
@@ -30,7 +33,7 @@ const SOCKET: Id = Id::new_static("drv.socket");
 
 fn kernel(harness: &Harness, setup: impl FnOnce(KernelBuilder) -> KernelBuilder) -> Kernel {
     let builder = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .storage(MemoryStorage::new());
     let mut kernel = setup(builder).build().unwrap();
     kernel.start(Instant(0));
@@ -43,8 +46,8 @@ fn replies(harness: &Harness) -> Vec<String> {
     harness.lines("event drv.reply")
 }
 
-fn get(id: &str) -> Command {
-    Command::http(
+fn get(id: &str) -> Ask {
+    Ask::http(
         HttpRequest::get("http://example.org/", REPLY)
             .with(Params::new().with("n", String::from(id))),
     )
@@ -130,7 +133,7 @@ fn shells_with_memory_to_spare_load_a_file_to_send_whole() {
     kernel.storage().write("up.bin", &data).unwrap();
     kernel.storage().write("empty.bin", b"").unwrap();
     let put = |path: &str| {
-        Command::http(HttpRequest::new("PUT", "http://example.org/up", REPLY).body_from(path))
+        Ask::http(HttpRequest::new("PUT", "http://example.org/up", REPLY).body_from(path))
     };
     harness.run(&mut kernel, 10, [put("up.bin"), put("empty.bin")]);
     let mut calls = http_calls(&mut kernel);
@@ -158,7 +161,7 @@ fn a_failed_download_writes_nothing_where_the_file_was_to_go() {
     harness.run(
         &mut kernel,
         10,
-        [Command::http(
+        [Ask::http(
             HttpRequest::get("http://example.org/book", REPLY).save_to("books/kept.epub"),
         )],
     );
@@ -183,8 +186,8 @@ fn work_that_waited_too_long_fails_once_and_late_answers_are_dropped() {
         1000,
         [
             get("a"),
-            Command::serve(SERVER, 8080, REPLY),
-            Command::connect(SOCKET, String::from("calibre.local"), 9090, REPLY),
+            Ask::serve(SERVER, 8080, REPLY),
+            Ask::connect(SOCKET, String::from("calibre.local"), 9090, REPLY),
         ],
     );
     // Nothing for the shell but the radio.
@@ -237,8 +240,8 @@ fn listening(kernel: &mut Kernel) -> u32 {
         .expect("a server to listen")
 }
 
-fn serve() -> Command {
-    Command::serve(SERVER, 8080, REPLY)
+fn serve() -> Ask {
+    Ask::serve(SERVER, 8080, REPLY)
 }
 
 fn request(server: u32, request: u32, target: &str, body: bool) -> ServerEvent {
@@ -274,7 +277,7 @@ fn server_reports_for_servers_never_started_or_stopped_are_ignored() {
     let mut kernel = kernel(&harness, |b| b.network(true));
     harness.run(&mut kernel, 10, [serve()]);
     let number = listening(&mut kernel);
-    harness.run(&mut kernel, 20, [Command::StopServing(SERVER)]);
+    harness.run(&mut kernel, 20, [Ask::StopServing(SERVER)]);
     let stopped = replies(&harness);
     assert_eq!(stopped.len(), 1, "{stopped:?}");
     for (at, event) in [
@@ -311,7 +314,7 @@ fn a_body_for_a_server_that_stopped_is_not_kept() {
     let number = listening(&mut kernel);
     kernel.server_event(Instant(20), request(number, 7, "/up", true));
     kernel.server_event(Instant(21), body(7, b"half", false));
-    harness.run(&mut kernel, 22, [Command::StopServing(SERVER)]);
+    harness.run(&mut kernel, 22, [Ask::StopServing(SERVER)]);
     kernel.server_event(Instant(23), body(7, b" and the rest", true));
     assert!(bodies(&kernel).is_empty(), "{:?}", bodies(&kernel));
     assert!(
@@ -362,7 +365,7 @@ fn a_request_answered_twice_is_passed_on_twice_but_its_body_goes_once() {
         told[0].contains("body-file=.paperpaw/tmp/request-7"),
         "{told:?}"
     );
-    let respond = || Command::respond(ServerResponse::new(7, 200, "text/plain", b"ok".to_vec()));
+    let respond = || Ask::respond(ServerResponse::new(7, 200, "text/plain", b"ok".to_vec()));
     harness.run(&mut kernel, 22, [respond(), respond()]);
     assert!(bodies(&kernel).is_empty());
     let responds = kernel
@@ -382,7 +385,7 @@ fn an_answer_from_a_file_that_is_not_there_is_not_found() {
     kernel.server_event(Instant(20), request(number, 3, "/missing", false));
     let mut response = ServerResponse::new(3, 200, "application/epub+zip", Vec::new());
     response = response.body_from(String::from("books/gone.epub"));
-    harness.run(&mut kernel, 21, [Command::respond(response)]);
+    harness.run(&mut kernel, 21, [Ask::respond(response)]);
     let answers: Vec<(u16, Vec<u8>, bool)> = kernel
         .take_io()
         .into_iter()
@@ -410,7 +413,7 @@ fn a_request_reported_twice_does_not_confuse_a_later_one() {
     harness.run(
         &mut kernel,
         23,
-        [Command::respond(ServerResponse::new(
+        [Ask::respond(ServerResponse::new(
             7,
             200,
             "text/plain",
@@ -426,8 +429,8 @@ fn a_request_reported_twice_does_not_confuse_a_later_one() {
     assert!(told[0].contains("target=/second"), "{told:?}");
 }
 
-fn connect() -> Command {
-    Command::connect(SOCKET, String::from("calibre.local"), 9090, REPLY)
+fn connect() -> Ask {
+    Ask::connect(SOCKET, String::from("calibre.local"), 9090, REPLY)
 }
 
 /// The number the shell was given for the socket.
@@ -457,7 +460,7 @@ fn socket_reports_after_it_closed_or_for_other_numbers_are_ignored() {
             data: b"unasked".to_vec(),
         },
     );
-    harness.run(&mut kernel, 22, [Command::Disconnect(SOCKET)]);
+    harness.run(&mut kernel, 22, [Ask::Disconnect(SOCKET)]);
     let before = replies(&harness);
     assert_eq!(before.len(), 2, "connected, closed: {before:?}");
     for (at, event) in [
@@ -513,14 +516,14 @@ fn a_socket_failing_twice_is_heard_of_once() {
     let told = replies(&harness);
     assert_eq!(told.len(), 1, "{told:?}");
     assert!(told[0].contains("kind=failed"));
-    // Commands for it now do nothing.
+    // Asks for it now do nothing.
     harness.run(
         &mut kernel,
         30,
         [
-            Command::socket_send(SOCKET, b"x".to_vec()),
-            Command::socket_read(SOCKET, SocketRead::Text { max: 10 }),
-            Command::Disconnect(SOCKET),
+            Ask::socket_send(SOCKET, b"x".to_vec()),
+            Ask::socket_read(SOCKET, SocketRead::Text { max: 10 }),
+            Ask::Disconnect(SOCKET),
         ],
     );
     assert!(kernel.take_io().is_empty());
@@ -530,7 +533,7 @@ fn a_socket_failing_twice_is_heard_of_once() {
 fn a_tls_socket_is_heard_of_once_secure() {
     let harness = Harness::new();
     let mut kernel = kernel(&harness, |b| b.network(true).tls_sessions(1));
-    let connect = Command::connect_tls(SOCKET, "mail.example.org", 993, REPLY, Tls::new());
+    let connect = Ask::connect_tls(SOCKET, "mail.example.org", 993, REPLY, Tls::new());
     harness.run(&mut kernel, 10, [connect]);
     let calls = kernel.take_io();
     let tls = calls.iter().find_map(|io| match io {
@@ -570,7 +573,7 @@ fn a_tls_socket_is_heard_of_once_secure() {
 fn tls_sockets_fail_at_once_where_the_shell_does_no_tls() {
     let harness = Harness::new();
     let mut kernel = kernel(&harness, |b| b.network(true));
-    let connect = Command::connect_tls(SOCKET, "mail.example.org", 993, REPLY, Tls::new());
+    let connect = Ask::connect_tls(SOCKET, "mail.example.org", 993, REPLY, Tls::new());
     harness.run(&mut kernel, 10, [connect]);
     assert!(kernel.take_io().is_empty());
     let told = replies(&harness);
@@ -590,7 +593,7 @@ fn a_file_read_from_a_socket_closed_halfway_is_reported_closed() {
     harness.run(
         &mut kernel,
         21,
-        [Command::socket_read(
+        [Ask::socket_read(
             SOCKET,
             SocketRead::File {
                 path: String::from("books/new.epub"),
@@ -643,7 +646,7 @@ fn a_broadcast_done_twice_is_heard_of_once_and_answers_after_are_dropped() {
     harness.run(
         &mut kernel,
         10,
-        [Command::broadcast(
+        [Ask::broadcast(
             SOCKET,
             vec![54982],
             b"hello".to_vec(),
@@ -681,7 +684,7 @@ fn speech_reported_done_twice_or_for_texts_replaced_is_heard_once() {
     let mut kernel = kernel(&harness, |b| b.speech(true));
     let say = |text: &str, queue: bool| {
         let params = Params::new().with("n", String::from(text));
-        Command::speak(Speech::new(text, REPLY).with(params).queued(queue))
+        Ask::speak(Speech::new(text, REPLY).with(params).queued(queue))
     };
     harness.run(&mut kernel, 10, [say("one", false), say("two", false)]);
     let ids: Vec<u32> = kernel
@@ -717,7 +720,7 @@ fn without_the_shells_help_everything_fails_at_once() {
             get("a"),
             serve(),
             connect(),
-            Command::speak(Speech::new("hello", REPLY)),
+            Ask::speak(Speech::new("hello", REPLY)),
         ],
     );
     let told = replies(&harness);
@@ -735,11 +738,7 @@ fn clipboard_text_nobody_asked_for_reaches_no_plugin() {
     assert!(replies(&harness).is_empty());
     // Asked once, answered twice: heard once, cut to what fits at a
     // character's boundary.
-    harness.run(
-        &mut kernel,
-        20,
-        [Command::ReadClipboard(REPLY, Params::new())],
-    );
+    harness.run(&mut kernel, 20, [Ask::ReadClipboard(REPLY, Params::new())]);
     assert_eq!(kernel.take_io(), [Io::ReadClipboard]);
     let long = "\u{e4}".repeat(paperpaw_core::sdk::MAX_CLIPBOARD);
     kernel.clipboard_text(Instant(21), Some(long));

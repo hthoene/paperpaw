@@ -124,6 +124,11 @@ fn a_data_plugin_is_seen_on_the_standard_screens() {
     context.in_memory = true;
     let session = Session::new(&context, &Variant::x4()).unwrap();
     let screens = paperpaw_dev::cases::screens(&session, &context.target);
-    // (The library, `files.browser`, is a native plugin the dev kernel does not register.)
-    assert_eq!(screens, ["home.dashboard", "settings.list"]);
+    // Which standard screens the dev kernel has depends on the native plugins
+    // linked (a workspace run unifies the features): the data plugin adds none.
+    let standard = ["files.browser", "home.dashboard", "settings.list"];
+    assert!(
+        screens.iter().all(|s| standard.contains(&s.as_str())),
+        "{screens:?}"
+    );
 }

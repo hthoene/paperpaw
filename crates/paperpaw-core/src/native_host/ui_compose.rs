@@ -103,7 +103,7 @@ pub(crate) fn visible(clip: Rect, x: i32, y: i32, width: u32, height: u32) -> Op
 /// # Safety
 /// `ctx` is null or the pinned `Context<S>` given to `make`; the other
 /// arguments are scalars.
-pub(super) unsafe extern "C" fn compose<S>(
+pub(super) unsafe extern "C" fn compose<S: 'static>(
     ctx: *mut c_void,
     kind: u32,
     handle: u32,
@@ -114,7 +114,7 @@ pub(super) unsafe extern "C" fn compose<S>(
 ) -> i32 {
     // The plugin waits for the host, and for the target's own `draw`, from
     // here to the return (the Power-hold escape must not blame the caller).
-    let _slot = super::host_slot::enter();
+    let _slot = super::host_slot::enter_as(super::host_slot::Id::UiCompose);
     // SAFETY: a nonnull context is the pinned Context<S> supplied to make.
     let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
         return ERR_INVALID;
@@ -145,7 +145,7 @@ pub(super) unsafe extern "C" fn compose<S>(
     }
 }
 
-fn run<S>(
+fn run<S: 'static>(
     context: &Context<S>,
     request: &ComposeRequest,
     canvas: &mut Canvas<'_>,

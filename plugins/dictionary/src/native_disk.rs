@@ -209,3 +209,84 @@ pub fn cache_of(ifo: &str) -> Result<String, Error> {
     }
     Ok(name)
 }
+
+/// What a dictionary's block indexes are made from: the sizes of the files
+/// still to be indexed. A dictionary that could not be indexed is tried again
+/// only once they change.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn stamp(builders: &[paperpaw_stardict::Builder]) -> Result<String, Error> {
+    let mut out = String::new();
+    for (at, builder) in builders.iter().enumerate() {
+        let mut digits = [0u8; 20];
+        let mut size = builder.progress().1;
+        let mut from = digits.len();
+        loop {
+            from -= 1;
+            digits[from] = b'0' + (size % 10) as u8;
+            size /= 10;
+            if size == 0 {
+                break;
+            }
+        }
+        out.try_reserve(digits.len() - from + 1)
+            .map_err(|_| Error::NoMemory)?;
+        if at > 0 {
+            out.push(' ');
+        }
+        for digit in &digits[from..] {
+            out.push(char::from(*digit));
+        }
+    }
+    Ok(out)
+}
+
+/// The file in a dictionary's cache that says it could not be indexed, and from
+/// what ([`stamp`]).
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn failed_file(cache: &str) -> Result<String, Error> {
+    paperpaw_ui_kit::text::concat(&[cache, "/failed"])
+}
+
+/// Whether the dictionary with cache `cache` could not be indexed before, from
+/// the files `stamp` names.
+pub fn failed_before(storage: &dyn Storage, cache: &str, stamp: &str) -> bool {
+    failed_file(cache).is_ok_and(|path| {
+        paperpaw_sdk::read_file(storage, &path, 256).is_ok_and(|kept| kept == stamp.as_bytes())
+    })
+}
+
+/// Whether the folder `name` of the data folder is the cache of a dictionary
+/// that `kept` (the caches of those found, as [`cache_of`] names them) does not
+/// hold: a name of 16 hexadecimal digits, as [`cache_of`] makes them, that no
+/// dictionary found has.
+#[must_use]
+pub fn is_stale_cache(name: &str, kept: &[String]) -> bool {
+    let ours = name.len() == 16 && name.bytes().all(|b| b.is_ascii_hexdigit());
+    ours && !kept
+        .iter()
+        .any(|path| path.strip_prefix(CACHE) == Some(name))
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "fixtures")]
+    use super::*;
+    use alloc::{string::ToString, vec};
+
+    #[test]
+    fn only_the_caches_of_dictionaries_gone_are_stale() {
+        let kept = vec![cache_of("d/a.ifo").unwrap()];
+        let held = kept[0].strip_prefix(CACHE).unwrap().to_string();
+        assert!(!is_stale_cache(&held, &kept));
+        assert!(is_stale_cache("0123456789abcdef", &kept));
+        // Names that are not a cache's are never the plugin's to remove.
+        assert!(!is_stale_cache("settings", &kept));
+        assert!(!is_stale_cache("0123456789abcdeg", &kept));
+        assert!(!is_stale_cache("0123456789abcde", &kept));
+        assert!(is_stale_cache(&held, &[]));
+    }
+}

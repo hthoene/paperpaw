@@ -12,19 +12,19 @@
 # folder, catalogue.py into the entry).
 
 [literata-styles]
-version = "1.0.0"
+version = "1.1.0"
 group = "look"
 licence = "OFL-1.1"
 devices = ["x4", "x4-pro", "x4-classic"]
 build = "tools/literata-packs.py"
 inputs = ["plugins/fonts-default/fonts/Literata.ttf", "plugins/fonts-default/fonts/Literata-Italic.ttf", "tools/fontgen", "tools/plugin-files/literata-styles.ini"]
-name = "Literata bold and italic"
-description = "Bold and italic book text in Literata. Without it, bold and italic words show as regular text."
-de.name = "Literata Fett und Kursiv"
-de.description = "Fett und kursiv gesetzter Buchtext in Literata. Ohne ihn erscheinen fette und kursive Wörter in normaler Schrift."
+name = "Literata"
+description = "Literata for book text: regular, bold and italic. Choose it in Settings, under Reading, as Font."
+de.name = "Literata"
+de.description = "Literata für Buchtext: normal, fett und kursiv. Wähle sie in den Einstellungen unter Lesen als Schriftart."
 
 [literata-large]
-version = "1.1.0"
+version = "1.1.1"
 group = "look"
 licence = "OFL-1.1"
 devices = ["x4", "x4-pro", "x4-classic"]
@@ -32,9 +32,9 @@ off_by_default = true
 build = "tools/literata-packs.py"
 inputs = ["plugins/fonts-default/fonts/Literata.ttf", "plugins/fonts-default/fonts/Literata-Italic.ttf", "tools/fontgen", "tools/plugin-files/literata-large.ini"]
 name = "Literata, larger sizes"
-description = "Book text in Literata larger than the firmware's sizes."
+description = "Book text in Literata larger than the firmware's sizes. Choose Literata as the reading font to use them."
 de.name = "Literata, größere Schriftgrade"
-de.description = "Buchtext in Literata größer als in der Firmware."
+de.description = "Buchtext in Literata größer als in der Firmware. Wähle Literata als Schriftart, um sie zu nutzen."
 
 [literata-bold-italic]
 version = "1.0.1"
@@ -82,8 +82,22 @@ description = "Hebrew books in Noto Serif Hebrew, with their points, and a keybo
 de.name = "Hebräische Schrift"
 de.description = "Bücher auf Hebräisch in Noto Serif Hebrew, mit ihren Punkten, und eine Tastatur dafür."
 
+[script-thai]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 3
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifThai.ttf", "tools/fonts/NotoSansThai.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "tools/thai-dictionary.py", "tools/thai-dictionary.txt"]
+name = "Thai letters"
+description = "Thai books in Noto Serif Thai, with their vowels and tone marks stacked in place and lines broken between words."
+de.name = "Thailändische Schrift"
+de.description = "Bücher auf Thailändisch in Noto Serif Thai, mit Vokal- und Tonzeichen an der richtigen Stelle und Zeilenumbrüchen zwischen den Wörtern."
+
 [script-greek]
-version = "1.0.2"
+version = "1.0.3"
 group = "languages"
 licence = "OFL-1.1"
 devices = ["x4", "x4-pro", "x4-classic"]
@@ -96,7 +110,7 @@ de.name = "Griechische Schrift"
 de.description = "Bücher auf Griechisch in Literata, modern und mit den älteren Akzenten."
 
 [script-cyrillic]
-version = "1.0.2"
+version = "1.0.3"
 group = "languages"
 licence = "OFL-1.1"
 devices = ["x4", "x4-pro", "x4-classic"]
@@ -108,8 +122,160 @@ description = "Russian, Ukrainian, Bulgarian, Serbian and other Cyrillic books i
 de.name = "Kyrillische Schrift"
 de.description = "Bücher auf Russisch, Ukrainisch, Bulgarisch, Serbisch und anderen kyrillischen Sprachen in Literata."
 
+[script-vietnamese]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["plugins/fonts-default/fonts/Literata.ttf", "plugins/fonts-default/fonts/Literata-Italic.ttf", "plugins/fonts-default/fonts/SourceSans3.ttf", "tools/fontgen", "crates/paperpaw-text/src/charset.rs"]
+name = "Vietnamese letters"
+description = "Vietnamese books in Literata, with all its accented letters, ơ and ư."
+de.name = "Vietnamesische Schrift"
+de.description = "Bücher auf Vietnamesisch in Literata, mit allen Akzentbuchstaben, ơ und ư."
+
+[script-bengali]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifBengali.ttf", "tools/fontgen", "crates/paperpaw-text/src/charset.rs", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs"]
+name = "Bengali letters"
+description = "Bengali (Bangla) and Assamese books in Noto Serif Bengali, its conjuncts joined and vowel signs in their places."
+de.name = "Bengalische Schrift"
+de.description = "Bücher auf Bengalisch (Bangla) und Assamesisch in Noto Serif Bengali, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
+
+[script-devanagari]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifDevanagari.ttf", "tools/fontgen", "crates/paperpaw-text/src/charset.rs", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs"]
+name = "Devanagari letters"
+description = "Hindi, Marathi, Nepali and Sanskrit books in Noto Serif Devanagari, its conjuncts joined and vowel signs in their places."
+de.name = "Devanagari-Schrift"
+de.description = "Bücher auf Hindi, Marathi, Nepali und Sanskrit in Noto Serif Devanagari, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
+
+# script-khmer, script-lao, script-tibetan (#314): the blocks U+1780 to
+# U+17FF, U+0E80 to U+0EFF and U+0F00 to U+0FFF from Noto Serif Khmer, Lao
+# and Tibetan, shaped (paperpaw_text's indic module: Khmer's coeng
+# subscripts and vowels drawn left, Lao's marks, Tibetan's stacks), a pack
+# for each weight shared by the faces it stands for (formats 5). Khmer and
+# Lao are written without spaces: their packs carry the 3,000 words most
+# frequent in their Wikipedias (tools/word-table.py, from ICU's lists).
+[script-khmer]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifKhmer.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "tools/word-table.py", "tools/khmer-words.txt"]
+name = "Khmer letters"
+description = "Khmer books in Noto Serif Khmer, with subscript consonants and vowel signs in their places and lines broken between the words."
+de.name = "Khmer-Schrift"
+de.description = "Bücher auf Khmer in Noto Serif Khmer, mit Unterschriftkonsonanten und Vokalzeichen an ihrem Platz und Zeilenumbrüchen zwischen den Wörtern."
+
+[script-lao]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifLao.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "tools/word-table.py", "tools/lao-words.txt"]
+name = "Lao letters"
+description = "Lao books in Noto Serif Lao, with vowels and tone marks stacked in place and lines broken between the words."
+de.name = "Laotische Schrift"
+de.description = "Bücher auf Laotisch in Noto Serif Lao, mit Vokal- und Tonzeichen an der richtigen Stelle und Zeilenumbrüchen zwischen den Wörtern."
+
+[script-tibetan]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifTibetan.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "crates/paperpaw-text/src/indic/tibetan_clusters.txt"]
+name = "Tibetan letters"
+description = "Tibetan and Dzongkha books in Noto Serif Tibetan, with stacked consonants and lines broken after each syllable's tsheg."
+de.name = "Tibetische Schrift"
+de.description = "Bücher auf Tibetisch und Dzongkha in Noto Serif Tibetan, mit gestapelten Konsonanten und Zeilenumbrüchen nach dem Tsheg jeder Silbe."
+
+# script-ethiopic (#159): the Ethiopic syllabary with its punctuation (the
+# wordspace ፡, the full stop ።) and numerals, and the Supplement, Extended and
+# Extended-A blocks, 495 characters from Noto Serif Ethiopic: seven sizes, a
+# pack for each weight that the faces it stands for share (the regular one
+# Literata's regular and italic faces and the interface's font; a comma list
+# in `[extends]`, formats 5 as script-bengali's), 2.5 MiB on the card.
+[script-ethiopic]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifEthiopic.ttf", "tools/fontgen"]
+name = "Ethiopic letters"
+description = "Amharic, Tigrinya and other books written in Ethiopic letters, in Noto Serif Ethiopic."
+de.name = "Äthiopische Schrift"
+de.description = "Bücher auf Amharisch, Tigrinya und in anderen Sprachen mit äthiopischer Schrift, in Noto Serif Ethiopic."
+
+[script-chinese-simplified]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 3
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifSC-subset.ttf", "tools/fontgen", "crates/paperpaw-text/src/charset.rs", "tools/fontgen/sets/hanzi-gb2312.txt"]
+name = "Chinese (Simplified) letters"
+description = "Chinese books in Simplified characters in a Noto Serif face: the 6,763 ideographs of GB 2312, in four sizes (about 20 MiB on the card)."
+de.name = "Chinesische Schrift (vereinfacht)"
+de.description = "Bücher auf Chinesisch in vereinfachten Zeichen in einer Noto-Serif-Schrift: die 6.763 Schriftzeichen des GB 2312, in vier Größen (etwa 20 MiB auf der Karte)."
+
+[script-chinese-traditional]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 3
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifTC-subset.ttf", "tools/fontgen", "crates/paperpaw-text/src/charset.rs", "tools/fontgen/sets/hanzi-big5.txt"]
+name = "Chinese (Traditional) letters"
+description = "Chinese books in Traditional characters in a Noto Serif face: the 5,401 frequently used characters of Big5, in four sizes (about 16 MiB on the card)."
+de.name = "Chinesische Schrift (traditionell)"
+de.description = "Bücher auf Chinesisch in traditionellen Zeichen in einer Noto-Serif-Schrift: die 5.401 häufigen Zeichen des Big5, in vier Größen (etwa 16 MiB auf der Karte)."
+
+[script-japanese]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 3
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifJP-subset.ttf", "tools/fontgen", "crates/paperpaw-text/src/charset.rs", "tools/fontgen/sets/kanji-japanese.txt"]
+name = "Japanese letters"
+description = "Japanese books in a Noto Serif face: hiragana, katakana and 2,998 kanji (the Joyo kanji and JIS X 0208 level 1), in four sizes (about 9 MiB on the card)."
+de.name = "Japanische Schrift"
+de.description = "Bücher auf Japanisch in einer Noto-Serif-Schrift: Hiragana, Katakana und 2.998 Kanji (Jōyō und JIS X 0208 Ebene 1), in vier Größen (etwa 9 MiB auf der Karte)."
+
 [language-ar]
-version = "1.0.4"
+version = "1.0.5"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -119,14 +285,28 @@ off_by_default = true
 build = "tools/language-pack.py"
 inputs = ["tools/plugin-files/languages/ar.ini", "tools/language-pack.py", "tools/sign"]
 name = "Arabic (user interface)"
-description = "PaperPaw's menus and settings in Arabic, running from right to left. Needs Arabic letters."
+description = "PaperPaw's menus and settings in Arabic, running from right to left. Needs Arabic letters. A machine translation, a draft."
 de.name = "Arabisch (Oberfläche)"
-de.description = "PaperPaws Menüs und Einstellungen auf Arabisch, von rechts nach links. Braucht die Arabische Schrift."
+de.description = "PaperPaws Menüs und Einstellungen auf Arabisch, von rechts nach links. Braucht die Arabische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
 how = "PaperPaw's menus and settings in Arabic, running from right to left.\n\nIt needs the Arabic letters pack (Arabic letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
 de.how = "PaperPaws Menüs und Einstellungen auf Arabisch, von rechts nach links.\n\nSie braucht die Arabische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
+[language-de]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["crates/paperpaw-app/i18n/pebble/de.ini", "crates/paperpaw-core/i18n/de.ini", "crates/paperpaw-core/i18n/host/de.ini", "crates/paperpaw-core/i18n/settings/de.ini", "plugins/about/i18n/de.ini", "plugins/aids/i18n/de.ini", "plugins/anki/i18n/de.ini", "plugins/battery/i18n/de.ini", "plugins/bluetooth/i18n/de.ini", "plugins/browser/i18n/de.ini", "plugins/calendar/i18n/de.ini", "plugins/calibre/i18n/de.ini", "plugins/diagnostics/i18n/de.ini", "plugins/dictionary/i18n/de.ini", "plugins/edge-light/i18n/de.ini", "plugins/end-of-book/i18n/de.ini", "plugins/file-manager/i18n/de.ini", "plugins/file-sync/i18n/de.ini", "plugins/files/i18n/de.ini", "plugins/fonts-browser/i18n/de.ini", "plugins/fonts-default/i18n/de.ini", "plugins/format-cbz/i18n/de.ini", "plugins/format-docx/i18n/de.ini", "plugins/format-epub/i18n/de.ini", "plugins/format-fb2/i18n/de.ini", "plugins/format-html/i18n/de.ini", "plugins/format-images/i18n/de.ini", "plugins/format-markdown/i18n/de.ini", "plugins/format-mobi/i18n/de.ini", "plugins/format-rtf/i18n/de.ini", "plugins/format-txt/i18n/de.ini", "plugins/format-xtc/i18n/de.ini", "plugins/help/i18n/de.ini", "plugins/home/i18n/de.ini", "plugins/hyphenation-da/i18n/de.ini", "plugins/hyphenation-de/i18n/de.ini", "plugins/hyphenation-es/i18n/de.ini", "plugins/hyphenation-fr/i18n/de.ini", "plugins/hyphenation-it/i18n/de.ini", "plugins/hyphenation-nb/i18n/de.ini", "plugins/hyphenation-nl/i18n/de.ini", "plugins/hyphenation-pl/i18n/de.ini", "plugins/hyphenation-pt/i18n/de.ini", "plugins/hyphenation-ru/i18n/de.ini", "plugins/hyphenation-sv/i18n/de.ini", "plugins/hyphenation-uk/i18n/de.ini", "plugins/hyphenation/i18n/de.ini", "plugins/joplin/i18n/de.ini", "plugins/keyboard/i18n/de.ini", "plugins/keys/i18n/de.ini", "plugins/koreader/i18n/de.ini", "plugins/kosync/i18n/de.ini", "plugins/lock/i18n/de.ini", "plugins/mail/i18n/de.ini", "plugins/menu-editor/i18n/de.ini", "plugins/menu/i18n/de.ini", "plugins/news/i18n/de.ini", "plugins/notes-overview/i18n/de.ini", "plugins/notes-vault/i18n/de.ini", "plugins/opds/i18n/de.ini", "plugins/picture-frame/i18n/de.ini", "plugins/picture-home/i18n/de.ini", "plugins/plugin-manager/i18n/de.ini", "plugins/pomodoro/i18n/de.ini", "plugins/power/i18n/de.ini", "plugins/profiles/i18n/de.ini", "plugins/puzzles/i18n/de.ini", "plugins/read-later-cloud/i18n/de.ini", "plugins/reader/i18n/de.ini", "plugins/reading-goal/i18n/de.ini", "plugins/readwise/i18n/de.ini", "plugins/rules/i18n/de.ini", "plugins/settings/i18n/de.ini", "plugins/setup/i18n/de.ini", "plugins/sleep/i18n/de.ini", "plugins/smart-home/i18n/de.ini", "plugins/stats/i18n/de.ini", "plugins/store/i18n/de.ini", "plugins/tasks/i18n/de.ini", "plugins/transfer/i18n/de.ini", "plugins/translate/i18n/de.ini", "plugins/update/i18n/de.ini", "plugins/vocabulary/i18n/de.ini", "plugins/wallabag/i18n/de.ini", "plugins/weather/i18n/de.ini", "plugins/widgets/i18n/de.ini", "plugins/wifi/i18n/de.ini", "plugins/wikipedia/i18n/de.ini", "shells/android/i18n/de.ini", "shells/xteink/i18n/de.ini", "tools/language-pack.py", "tools/sign"]
+name = "German (user interface)"
+description = "PaperPaw's menus and settings in German."
+de.name = "Deutsch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Deutsch."
+
 [language-es]
-version = "1.0.2"
+version = "1.0.3"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
@@ -135,9 +315,406 @@ off_by_default = true
 build = "tools/language-pack.py"
 inputs = ["tools/plugin-files/languages/es.ini", "tools/language-pack.py", "tools/sign"]
 name = "Spanish (user interface)"
-description = "PaperPaw's menus and settings in Spanish."
+description = "PaperPaw's menus and settings in Spanish. A machine translation, a draft."
 de.name = "Spanisch (Oberfläche)"
-de.description = "PaperPaws Menüs und Einstellungen auf Spanisch."
+de.description = "PaperPaws Menüs und Einstellungen auf Spanisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-cs]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/cs.ini", "tools/language-pack.py", "tools/sign"]
+name = "Czech (user interface)"
+description = "PaperPaw's menus and settings in Czech. A machine translation, a draft."
+de.name = "Tschechisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Tschechisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-da]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/da.ini", "tools/language-pack.py", "tools/sign"]
+name = "Danish (user interface)"
+description = "PaperPaw's menus and settings in Danish. A machine translation, a draft."
+de.name = "Dänisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Dänisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-fi]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/fi.ini", "tools/language-pack.py", "tools/sign"]
+name = "Finnish (user interface)"
+description = "PaperPaw's menus and settings in Finnish. A machine translation, a draft."
+de.name = "Finnisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Finnisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-fr]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/fr.ini", "tools/language-pack.py", "tools/sign"]
+name = "French (user interface)"
+description = "PaperPaw's menus and settings in French. A machine translation, a draft."
+de.name = "Französisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Französisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-hu]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/hu.ini", "tools/language-pack.py", "tools/sign"]
+name = "Hungarian (user interface)"
+description = "PaperPaw's menus and settings in Hungarian. A machine translation, a draft."
+de.name = "Ungarisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Ungarisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-id]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/id.ini", "tools/language-pack.py", "tools/sign"]
+name = "Indonesian (user interface)"
+description = "PaperPaw's menus and settings in Indonesian. A machine translation, a draft."
+de.name = "Indonesisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Indonesisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-it]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/it.ini", "tools/language-pack.py", "tools/sign"]
+name = "Italian (user interface)"
+description = "PaperPaw's menus and settings in Italian. A machine translation, a draft."
+de.name = "Italienisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Italienisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-nb]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/nb.ini", "tools/language-pack.py", "tools/sign"]
+name = "Norwegian Bokmål (user interface)"
+description = "PaperPaw's menus and settings in Norwegian Bokmål. A machine translation, a draft."
+de.name = "Norwegisch (Bokmål) (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Norwegisch (Bokmål). Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-nl]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/nl.ini", "tools/language-pack.py", "tools/sign"]
+name = "Dutch (user interface)"
+description = "PaperPaw's menus and settings in Dutch. A machine translation, a draft."
+de.name = "Niederländisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Niederländisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-pl]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/pl.ini", "tools/language-pack.py", "tools/sign"]
+name = "Polish (user interface)"
+description = "PaperPaw's menus and settings in Polish. A machine translation, a draft."
+de.name = "Polnisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Polnisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-pt-br]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/pt-br.ini", "tools/language-pack.py", "tools/sign"]
+name = "Brazilian Portuguese (user interface)"
+description = "PaperPaw's menus and settings in Brazilian Portuguese. A machine translation, a draft."
+de.name = "Brasilianisch-Portugiesisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Brasilianisch-Portugiesisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-sk]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/sk.ini", "tools/language-pack.py", "tools/sign"]
+name = "Slovak (user interface)"
+description = "PaperPaw's menus and settings in Slovak. A machine translation, a draft."
+de.name = "Slowakisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Slowakisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-sv]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/sv.ini", "tools/language-pack.py", "tools/sign"]
+name = "Swedish (user interface)"
+description = "PaperPaw's menus and settings in Swedish. A machine translation, a draft."
+de.name = "Schwedisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Schwedisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-tr]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/tr.ini", "tools/language-pack.py", "tools/sign"]
+name = "Turkish (user interface)"
+description = "PaperPaw's menus and settings in Turkish. A machine translation, a draft."
+de.name = "Türkisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Türkisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-ro]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/ro.ini", "tools/language-pack.py", "tools/sign"]
+name = "Romanian (user interface)"
+description = "PaperPaw's menus and settings in Romanian. A machine translation, a draft."
+de.name = "Rumänisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Rumänisch. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-el]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-greek"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/el.ini", "tools/language-pack.py", "tools/sign"]
+name = "Greek (user interface)"
+description = "PaperPaw's menus and settings in Greek. Needs Greek letters. A machine translation, a draft."
+de.name = "Griechisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Griechisch. Braucht die Griechische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Greek.\n\nIt needs the Greek letters pack (Greek letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Griechisch.\n\nSie braucht die Griechische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-bg]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-cyrillic"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/bg.ini", "tools/language-pack.py", "tools/sign"]
+name = "Bulgarian (user interface)"
+description = "PaperPaw's menus and settings in Bulgarian. Needs Cyrillic letters. A machine translation, a draft."
+de.name = "Bulgarisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Bulgarisch. Braucht die Kyrillische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Bulgarian.\n\nIt needs the Cyrillic letters pack (Cyrillic letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Bulgarisch.\n\nSie braucht die Kyrillische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-uk]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-cyrillic"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/uk.ini", "tools/language-pack.py", "tools/sign"]
+name = "Ukrainian (user interface)"
+description = "PaperPaw's menus and settings in Ukrainian. Needs Cyrillic letters. A machine translation, a draft."
+de.name = "Ukrainisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Ukrainisch. Braucht die Kyrillische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Ukrainian.\n\nIt needs the Cyrillic letters pack (Cyrillic letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Ukrainisch.\n\nSie braucht die Kyrillische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-ru]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-cyrillic"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/ru.ini", "tools/language-pack.py", "tools/sign"]
+name = "Russian (user interface)"
+description = "PaperPaw's menus and settings in Russian. Needs Cyrillic letters. A machine translation, a draft."
+de.name = "Russisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Russisch. Braucht die Kyrillische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Russian.\n\nIt needs the Cyrillic letters pack (Cyrillic letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Russisch.\n\nSie braucht die Kyrillische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-he]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-hebrew"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/he.ini", "tools/language-pack.py", "tools/sign"]
+name = "Hebrew (user interface)"
+description = "PaperPaw's menus and settings in Hebrew, running from right to left. Needs Hebrew letters. A machine translation, a draft."
+de.name = "Hebräisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Hebräisch, von rechts nach links. Braucht die Hebräische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Hebrew, running from right to left.\n\nIt needs the Hebrew letters pack (Hebrew letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Hebräisch, von rechts nach links.\n\nSie braucht die Hebräische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-fa]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-arabic"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/fa.ini", "tools/language-pack.py", "tools/sign"]
+name = "Persian (user interface)"
+description = "PaperPaw's menus and settings in Persian, running from right to left. Needs Arabic letters. A machine translation, a draft."
+de.name = "Persisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Persisch, von rechts nach links. Braucht die Arabische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Persian, running from right to left.\n\nIt needs the Arabic letters pack (Arabic letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Persisch, von rechts nach links.\n\nSie braucht die Arabische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-bn]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-bengali"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/bn.ini", "tools/language-pack.py", "tools/sign"]
+name = "Bengali (user interface)"
+description = "PaperPaw's menus and settings in Bengali (Bangla). Needs Bengali letters. A machine translation, a draft."
+de.name = "Bengalisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Bengalisch (Bangla). Braucht die Bengalische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Bengali (Bangla).\n\nIt needs the Bengali letters pack (Bengali letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Bengalisch (Bangla).\n\nSie braucht die Bengalische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-hi]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-devanagari"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/hi.ini", "tools/language-pack.py", "tools/sign"]
+name = "Hindi (user interface)"
+description = "PaperPaw's menus and settings in Hindi. Needs Devanagari letters. A machine translation, a draft."
+de.name = "Hindi (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Hindi. Braucht die Devanagari-Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Hindi.\n\nIt needs the Devanagari letters pack (Devanagari letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Hindi.\n\nSie braucht die Devanagari-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-mr]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-devanagari"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/mr.ini", "tools/language-pack.py", "tools/sign"]
+name = "Marathi (user interface)"
+description = "PaperPaw's menus and settings in Marathi. Needs Devanagari letters. A machine translation, a draft."
+de.name = "Marathi (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Marathi. Braucht die Devanagari-Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Marathi.\n\nIt needs the Devanagari letters pack (Devanagari letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Marathi.\n\nSie braucht die Devanagari-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-ne]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-devanagari"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/ne.ini", "tools/language-pack.py", "tools/sign"]
+name = "Nepali (user interface)"
+description = "PaperPaw's menus and settings in Nepali. Needs Devanagari letters. A machine translation, a draft."
+de.name = "Nepalesisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Nepalesisch. Braucht die Devanagari-Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Nepali.\n\nIt needs the Devanagari letters pack (Devanagari letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Nepalesisch.\n\nSie braucht die Devanagari-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-ur]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-arabic"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/ur.ini", "tools/language-pack.py", "tools/sign"]
+name = "Urdu (user interface)"
+description = "PaperPaw's menus and settings in Urdu, running from right to left. Needs Arabic letters. A machine translation, a draft."
+de.name = "Urdu (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Urdu, von rechts nach links. Braucht die Arabische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Urdu, running from right to left.\n\nIt needs the Arabic letters pack (Arabic letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Urdu, von rechts nach links.\n\nSie braucht die Arabische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 # The Korean packs (#61; owner decision: in the store from the beta).
 # script-korean (#61): the 2,350 Hangul syllables of KS X 1001 with CJK
@@ -147,7 +724,7 @@ de.description = "PaperPaws Menüs und Einstellungen auf Spanisch."
 # fall back to it. A pack holds up to 65,535 characters, so all 11,172
 # syllables (`hangul`) can come later as data, without a new interface.
 [script-korean]
-version = "1.1.3"
+version = "1.1.4"
 group = "languages"
 licence = "OFL-1.1"
 formats = 3
@@ -166,7 +743,7 @@ de.description = "Bücher auf Koreanisch in einer klassischen Buchschrift: die 2
 # brings no letters of its own beyond them). About 30 MiB on the card, so
 # the reader offers it only for a book that uses such syllables.
 [script-korean-extra]
-version = "1.0.2"
+version = "1.0.3"
 group = "languages"
 licence = "OFL-1.1"
 formats = 4
@@ -352,3 +929,93 @@ name = "Hyphenation (Ukrainian)"
 description = "Hyphenation patterns for Ukrainian, for evenly set text."
 de.name = "Silbentrennung (Ukrainisch)"
 de.description = "Trennmuster für Ukrainisch, für ein gleichmäßiges Schriftbild."
+
+[language-vi]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-vietnamese"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/vi.ini", "tools/language-pack.py", "tools/sign"]
+name = "Vietnamese (user interface)"
+description = "PaperPaw's menus and settings in Vietnamese. Needs Vietnamese letters. A machine translation, a draft."
+de.name = "Vietnamesisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Vietnamesisch. Braucht die Vietnamesische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-zh-hans]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-chinese-simplified"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/zh-hans.ini", "tools/language-pack.py", "tools/sign"]
+name = "Chinese, Simplified (user interface)"
+description = "PaperPaw's menus and settings in Simplified Chinese. Needs Chinese (Simplified) letters. A machine translation, a draft."
+de.name = "Chinesisch (vereinfacht) (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf vereinfachtem Chinesisch. Braucht die Chinesische Schrift (vereinfacht). Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-zh-hant]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-chinese-traditional"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/zh-hant.ini", "tools/language-pack.py", "tools/sign"]
+name = "Chinese, Traditional (user interface)"
+description = "PaperPaw's menus and settings in Traditional Chinese. Needs Chinese (Traditional) letters. A machine translation, a draft."
+de.name = "Chinesisch (traditionell) (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf traditionellem Chinesisch. Braucht die Chinesische Schrift (traditionell). Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-ja]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-japanese"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/ja.ini", "tools/language-pack.py", "tools/sign"]
+name = "Japanese (user interface)"
+description = "PaperPaw's menus and settings in Japanese. Needs Japanese letters. A machine translation, a draft."
+de.name = "Japanisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Japanisch. Braucht die Japanische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-ko]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-korean"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/ko.ini", "tools/language-pack.py", "tools/sign"]
+name = "Korean (user interface)"
+description = "PaperPaw's menus and settings in Korean. Needs Korean letters. A machine translation, a draft."
+de.name = "Koreanisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Koreanisch. Braucht die Koreanische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+
+[language-th]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-thai"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/th.ini", "tools/language-pack.py", "tools/sign"]
+name = "Thai (user interface)"
+description = "PaperPaw's menus and settings in Thai. Needs Thai letters. A machine translation, a draft."
+de.name = "Thailändisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Thailändisch. Braucht die Thailändische Schrift. Eine maschinelle Übersetzung, ein Entwurf."

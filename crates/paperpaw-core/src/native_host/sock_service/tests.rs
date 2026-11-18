@@ -1040,8 +1040,12 @@ fn a_plugin_that_stops_loses_its_sockets_without_events() {
     read_bytes(&f, OWNER, a, 8, false).unwrap();
     received(&f, a, b"x").unwrap();
     close(&f, OWNER, b).unwrap();
+    // A socket keeps its plugin from sleeping again (#248, D3).
+    assert_eq!(owner_holds(&f, OWNER), Ok(true));
     owner_stopped(&f, OWNER).unwrap();
     owner_stopped(&f, OWNER).unwrap();
+    assert_eq!(owner_holds(&f, OWNER), Ok(false));
+    assert_eq!(owner_holds(&f, OTHER), Ok(true));
     assert_eq!(next(&f, OWNER), None);
     assert_eq!(f.used(), 8_192, "only the other plugin's socket is charged");
     assert!(f.closes.borrow().contains(&a));

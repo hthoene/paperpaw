@@ -1,6 +1,6 @@
 //! What the native declarations say: the three settings (kinds, defaults, flags,
 //! titles, help, the set-up screen as their editor), the screen and its
-//! instance policy, the two actions, the place in the tools, the icons and the
+//! instance policy, the actions, the place in the tools, the icons and the
 //! events the fetch needs; and the host's rules accept or refuse them as they
 //! should.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
@@ -58,9 +58,12 @@ fn the_decoded_batches_say_what_the_plugin_declares() {
         native.icons,
         ["wallabag.fetch|refresh", "wallabag.open|article"]
     );
-    // The plugin stopping (35), the reader's page turns (37) and the end of a
-    // request (99).
-    assert_eq!(native.events, ["35:5", "37:4", "99:3"]);
+    // The plugin stopping (35), the reader's page turns (37), the end of a
+    // request (99) and the work that is due (103).
+    // (the order the host keeps them in is not the plugin's)
+    let mut events = native.events.clone();
+    events.sort();
+    assert_eq!(events, ["103:6", "35:5", "37:4", "99:3"]);
     assert!(native.groups.is_empty());
     assert!(native.others.is_empty(), "{:?}", native.others);
 }

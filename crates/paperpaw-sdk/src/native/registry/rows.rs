@@ -386,6 +386,12 @@ impl<'a> RegistryGroup<'a> {
     pub fn page(&self) -> &'a str {
         self.row.page
     }
+    /// The name of its icon in the icon font, `puzzle` where none was
+    /// declared for it; empty from a host that names none.
+    #[must_use]
+    pub fn icon(&self) -> &'a str {
+        self.row.icon
+    }
     /// Display order, smallest first.
     #[must_use]
     pub fn order(&self) -> i32 {
@@ -801,6 +807,13 @@ impl<'a> RegistryWidget<'a> {
     pub fn min_cells(&self) -> (u8, u8) {
         let [_, _, columns, rows] = self.row.cells.to_le_bytes();
         (columns.max(1), rows.max(1))
+    }
+    /// The settings group it previews (`widget.spec.previews`), empty for none.
+    /// What the registry reports: a settings page lists the widgets whose
+    /// `previews` is its group (see `Registry::widgets_previewing`).
+    #[must_use]
+    pub fn previews(&self) -> &'a str {
+        self.row.previews
     }
     /// It stays as wide as it is high (`flags` bit 2).
     #[must_use]

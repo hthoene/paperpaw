@@ -14,12 +14,26 @@
 //! stale "inside a call" can never be seen. Entering reserves the copies
 //! fallibly before the format is entered; the drop never allocates. Calls in
 //! calls are bounded by [`MAX_NESTING`], and an owner has one call at a time.
-use alloc::string::String;
-use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY};
+use alloc::{string::String, vec::Vec};
+use core::cell::{Cell, Ref, RefCell};
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_FULL, ERR_NO_MEMORY, ERR_NO_SPACE};
 
 /// Calls inside calls at most (the nesting budget of the instance registry).
 pub(crate) const MAX_NESTING: usize = 8;
+
+/// Cache folders whose bytes are counted at once (open documents are at most
+/// 8, and one holds one folder).
+const MAX_COUNTED: usize = 16;
+
+/// A cache folder's key in the count (FNV-1a 64 of its path).
+fn folder_key(folder: &str) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for byte in folder.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    hash
+}
 
 /// `format.spec.flags` bit 2: a book is a folder.
 const FOLDER: u32 = 1 << 2;
@@ -52,7 +66,7 @@ impl BookKind {
 }
 
 /// What a format call is for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct FormatBook<'a> {
     /// The root-1 path of the opened book (the folder for a `Folder`).
     pub(crate) path: &'a str,
@@ -61,6 +75,18 @@ pub(crate) struct FormatBook<'a> {
     pub(crate) opened: &'a str,
     /// The document id the call is for.
     pub(crate) document: u32,
+    /// The card path of the document's cache folder, root 6 (`""`: the
+    /// document has none yet).
+    pub(crate) cache: &'a str,
+    /// The card path of the user's CSS file, root 4, in the calls that may
+    /// read it (ops 2 and 3); `""` for none.
+    pub(crate) css: &'a str,
+    /// The most bytes the document's cache may hold (`document.md` 3, Cache
+    /// quota).
+    pub(crate) cache_cap: u64,
+    /// Where the cache's bytes are counted: filled in for the visitor of
+    /// [`FormatScope::current`], `None` as given to [`FormatScope::enter`].
+    pub(crate) quota: Option<&'a FormatScope>,
 }
 
 impl FormatBook<'_> {
@@ -86,6 +112,9 @@ struct Entry {
     opened: String,
     kind: BookKind,
     document: u32,
+    cache: String,
+    css: String,
+    cache_cap: u64,
 }
 
 /// One place for a call under way. Whether it is in use and whose it is are
@@ -115,8 +144,19 @@ impl Slot {
 /// entry, which is the call its running callback is for; `enter` refuses a
 /// second one (`ERR_BUSY`) instead of guessing between them, and `current`
 /// answers for exactly that call or for none.
+/// The places of the calls.
+type Places = Option<alloc::boxed::Box<[Slot]>>;
+
 pub(crate) struct FormatScope {
-    slots: [Slot; MAX_NESTING],
+    /// The places for the calls, made at the first call (a device that never
+    /// opens a document through a format holds none of the 1 KiB they take),
+    /// and given back where no call is under way and the host's details run
+    /// ended (`release`, #248).
+    slots: RefCell<Places>,
+    /// The bytes in each cache folder (the folder's key, bytes), least
+    /// recently used first: counted here because a cache lives longer than a
+    /// call and is shared by the documents of one conversion.
+    used: RefCell<Vec<(u64, u64)>>,
 }
 
 impl Default for FormatScope {
@@ -128,7 +168,14 @@ impl Default for FormatScope {
 impl core::fmt::Debug for FormatScope {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("FormatScope")
-            .field("calls", &self.slots.iter().filter(|s| s.live.get()).count())
+            .field(
+                "calls",
+                &self.slots.try_borrow().map_or(0, |places| {
+                    places
+                        .as_deref()
+                        .map_or(0, |p| p.iter().filter(|s| s.live.get()).count())
+                }),
+            )
             .finish()
     }
 }
@@ -136,16 +183,21 @@ impl core::fmt::Debug for FormatScope {
 /// Ends the call's scope when dropped, also while unwinding.
 #[must_use = "the scope ends when the guard is dropped"]
 pub(crate) struct Guard<'a> {
-    slot: &'a Slot,
+    /// Held while the call is under way: the places are not given back.
+    places: Ref<'a, Places>,
+    at: usize,
 }
 
 impl Drop for Guard<'_> {
     fn drop(&mut self) {
+        let Some(slot) = self.places.as_deref().and_then(|p| p.get(self.at)) else {
+            return;
+        };
         // First, so that nothing can see the call again whatever follows.
-        self.slot.live.set(false);
+        slot.live.set(false);
         // The copies are freed now if nobody is looking at them; else the
         // next call to use the place frees them.
-        if let Ok(mut entry) = self.slot.entry.try_borrow_mut() {
+        if let Ok(mut entry) = slot.entry.try_borrow_mut() {
             *entry = None;
         }
     }
@@ -162,7 +214,108 @@ fn text(source: &str) -> Result<String, i32> {
 impl FormatScope {
     pub(crate) const fn new() -> Self {
         Self {
-            slots: [const { Slot::new() }; MAX_NESTING],
+            slots: RefCell::new(None),
+            used: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// The places made so far (tests: none before the first call).
+    #[cfg(test)]
+    pub(crate) fn places_len(&self) -> usize {
+        self.slots
+            .try_borrow()
+            .map_or(0, |places| places.as_deref().map_or(0, <[Slot]>::len))
+    }
+
+    /// Where the places are (tests: the same block or a new one).
+    #[cfg(test)]
+    fn places_at(&self) -> *const Slot {
+        self.slots.try_borrow().map_or(core::ptr::null(), |places| {
+            places
+                .as_deref()
+                .map_or(core::ptr::null(), <[Slot]>::as_ptr)
+        })
+    }
+
+    /// The places, made now if they are not (fallibly; again after
+    /// `release`).
+    fn make_places(&self) -> Result<(), i32> {
+        if self.slots.try_borrow().map_err(|_| ERR_BUSY)?.is_some() {
+            return Ok(());
+        }
+        let mut made = Vec::new();
+        made.try_reserve_exact(MAX_NESTING)
+            .map_err(|_| ERR_NO_MEMORY)?;
+        made.extend((0..MAX_NESTING).map(|_| Slot::new()));
+        *self.slots.try_borrow_mut().map_err(|_| ERR_BUSY)? = Some(made.into_boxed_slice());
+        Ok(())
+    }
+
+    /// Gives back the places where no call is under way (a call's guard holds
+    /// them): the host's details run ended and no document is open (#248).
+    /// The next call makes them again, fallibly. Whether they were.
+    pub(crate) fn release(&self) -> bool {
+        let Ok(mut places) = self.slots.try_borrow_mut() else {
+            return false;
+        };
+        *places = None;
+        true
+    }
+
+    /// `add` bytes more and `credit` bytes fewer in the cache folder `folder`
+    /// (whoever's document writes to it): nothing changes and the answer is
+    /// `ERR_NO_SPACE` where the cache would hold more than `cap`.
+    ///
+    /// # Errors
+    /// `ERR_NO_SPACE`, `ERR_BUSY` (the count is borrowed), `ERR_NO_MEMORY`.
+    pub(crate) fn charge(&self, folder: &str, add: u64, credit: u64, cap: u64) -> Result<(), i32> {
+        let mut used = self.used.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        let key = folder_key(folder);
+        // The count touched last is the one kept longest: a full table drops
+        // the one least used, which is a closed document's.
+        let count = match used.iter().position(|(k, _)| *k == key) {
+            Some(at) => used.remove(at).1,
+            None => 0,
+        };
+        let next = count.saturating_sub(credit).saturating_add(add);
+        if next > cap {
+            // Put back, at the end: the room is certain (it was just taken).
+            used.push((key, count));
+            return Err(ERR_NO_SPACE);
+        }
+        if used.len() >= MAX_COUNTED {
+            used.remove(0);
+        }
+        if used.try_reserve(1).is_err() {
+            return Err(ERR_NO_MEMORY);
+        }
+        used.push((key, next));
+        Ok(())
+    }
+
+    /// The bytes counted in `folder`: 0 where nothing is.
+    pub(crate) fn total(&self, folder: &str) -> u64 {
+        let key = folder_key(folder);
+        self.used
+            .try_borrow()
+            .ok()
+            .and_then(|used| used.iter().find(|(k, _)| *k == key).map(|(_, n)| *n))
+            .unwrap_or(0)
+    }
+
+    /// `folder` holds `bytes` (a finished cache found on the card), unless it
+    /// is counted already. Best effort: a count that cannot be made is 0.
+    pub(crate) fn seed(&self, folder: &str, bytes: u64) {
+        if self.total(folder) == 0 {
+            let _ = self.charge(folder, bytes, 0, u64::MAX);
+        }
+    }
+
+    /// `folder` is made new or was removed: its count starts at 0.
+    pub(crate) fn reset(&self, folder: &str) {
+        if let Ok(mut used) = self.used.try_borrow_mut() {
+            let key = folder_key(folder);
+            used.retain(|(k, _)| *k != key);
         }
     }
 
@@ -173,33 +326,40 @@ impl FormatScope {
     /// `ERR_BUSY` when `owner` has a call under way already, `ERR_FULL` when
     /// [`MAX_NESTING`] calls are, `ERR_NO_MEMORY` when the copies cannot be had.
     pub(crate) fn enter(&self, owner: u64, book: &FormatBook<'_>) -> Result<Guard<'_>, i32> {
-        if self
-            .slots
-            .iter()
-            .any(|s| s.live.get() && s.owner.get() == owner)
-        {
+        self.make_places()?;
+        let places = self.slots.try_borrow().map_err(|_| ERR_BUSY)?;
+        let slots = places.as_deref().ok_or(ERR_NO_MEMORY)?;
+        if slots.iter().any(|s| s.live.get() && s.owner.get() == owner) {
             return Err(ERR_BUSY);
         }
-        let slot = self.slots.iter().find(|s| !s.live.get()).ok_or(ERR_FULL)?;
+        let at = slots.iter().position(|s| !s.live.get()).ok_or(ERR_FULL)?;
+        let slot = &slots[at];
         let entry = Entry {
             path: text(book.path)?,
             opened: text(book.opened)?,
             kind: book.kind,
             document: book.document,
+            cache: text(book.cache)?,
+            css: text(book.css)?,
+            cache_cap: book.cache_cap,
         };
         // A place that is not live is not looked at (`current` goes by `live`).
         *slot.entry.try_borrow_mut().map_err(|_| ERR_BUSY)? = Some(entry);
         slot.owner.set(owner);
         slot.live.set(true);
-        Ok(Guard { slot })
+        Ok(Guard { places, at })
     }
 
     /// Whether `owner` is inside a format call; if so `visit` is called once
     /// with what that call is for. Nothing is allocated. A call that cannot be
     /// looked at is none: it fails closed.
     pub(crate) fn current(&self, owner: u64, visit: &mut dyn FnMut(&FormatBook<'_>)) -> bool {
-        let Some(slot) = self
-            .slots
+        let Ok(places) = self.slots.try_borrow() else {
+            return false;
+        };
+        let Some(slot) = places
+            .as_deref()
+            .unwrap_or(&[])
             .iter()
             .find(|s| s.live.get() && s.owner.get() == owner)
         else {
@@ -216,6 +376,10 @@ impl FormatScope {
             kind: entry.kind,
             opened: &entry.opened,
             document: entry.document,
+            cache: &entry.cache,
+            css: &entry.css,
+            cache_cap: entry.cache_cap,
+            quota: Some(self),
         });
         true
     }

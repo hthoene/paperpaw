@@ -17,7 +17,10 @@ use crate::panel::Panel;
 use crate::profiles::Profile;
 use paperpaw_core::sdk::MemoryStorage;
 use paperpaw_fs::DirStorage;
-use paperpaw_platform::{DirEntry, Storage, StorageError};
+use paperpaw_platform::Storage;
+
+mod card;
+pub use card::{Card, Shared};
 
 /// What the emulated device's storage says it has free (`--free-space`),
 /// where set: screenshots that look the same on every computer.
@@ -44,6 +47,13 @@ pub fn set_wifi_online(on: bool) {
     WIFI_ONLINE.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Whether devices start online (`--wifi online`); read by the native device
+/// host, which the web build does not have.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn wifi_online() -> bool {
+    WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Loads code plugins built for this computer, or none (by default).
 pub fn set_code_plugins(on: bool) {
     CODE_PLUGINS.store(on, std::sync::atomic::Ordering::Relaxed);
@@ -66,6 +76,8 @@ pub enum Library {
     Dir(std::path::PathBuf),
     /// Files in memory, kept across restarts.
     Memory(Rc<MemoryStorage>),
+    /// Any other storage of the caller's, kept across restarts.
+    Shared(card::Shared),
 }
 
 impl Library {
@@ -74,121 +86,18 @@ impl Library {
         Ok(match self {
             Library::Dir(root) => Card::Dir(library(root)?),
             Library::Memory(files) => Card::Memory(files.clone()),
+            Library::Shared(files) => Card::Shared(files.clone()),
         })
-    }
-}
-
-/// A [`Library`] opened: what the kernel reads and writes.
-#[derive(Debug)]
-pub enum Card {
-    Dir(DirStorage),
-    Memory(Rc<MemoryStorage>),
-}
-
-impl Card {
-    /// `f` on the storage. The files of a card in memory are the card's,
-    /// not the device's heap: what keeping them takes is not counted
-    /// against the budget (a decoded picture would fill an X4's).
-    fn on<R>(&self, f: impl FnOnce(&dyn Storage) -> R) -> R {
-        match self {
-            Card::Dir(storage) => f(storage),
-            Card::Memory(files) => budget::untracked(|| f(&**files)),
-        }
-    }
-}
-
-impl Storage for Card {
-    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
-        self.on(|s| s.read_at(path, offset, buf))
-    }
-    fn size(&self, path: &str) -> Result<u64, StorageError> {
-        self.on(|s| s.size(path))
-    }
-    fn modified(&self, path: &str) -> Option<i64> {
-        self.on(|s| s.modified(path))
-    }
-    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        self.on(|s| s.write(path, data))
-    }
-    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        self.on(|s| s.append(path, data))
-    }
-    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
-        self.on(|s| s.write_at(path, offset, data))
-    }
-    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
-        self.on(|s| s.truncate(path, len))
-    }
-    fn sync(&self) -> Result<(), StorageError> {
-        self.on(|s| s.sync())
-    }
-    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
-        // What the visitor keeps is the kernel's: counted.
-        match self {
-            Card::Dir(storage) => storage.list(dir, visit),
-            Card::Memory(files) => files.list(dir, visit),
-        }
-    }
-
-    fn list_from(
-        &self,
-        dir: &str,
-        from: u64,
-        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
-    ) -> Result<Option<u64>, StorageError> {
-        // As `list`.
-        match self {
-            Card::Dir(storage) => storage.list_from(dir, from, visit),
-            Card::Memory(files) => files.list_from(dir, from, visit),
-        }
-    }
-    fn remove(&self, path: &str) -> Result<(), StorageError> {
-        self.on(|s| s.remove(path))
-    }
-    fn exists(&self, path: &str) -> bool {
-        self.on(|s| s.exists(path))
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
-        self.on(|s| s.rename(from, to))
-    }
-    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
-        self.on(|s| s.entry_identity(path))
-    }
-    fn create_dir(&self, path: &str) -> Result<(), StorageError> {
-        self.on(|s| s.create_dir(path))
-    }
-    fn remove_tree_step(
-        &self,
-        root: &str,
-        keep_root: bool,
-        place: u64,
-    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
-        self.on(|s| s.remove_tree_step(root, keep_root, place))
-    }
-
-    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
-        self.on(|s| s.remove_dir_all(path))
-    }
-    fn ignores_case(&self) -> bool {
-        self.on(|s| s.ignores_case())
-    }
-    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
-        self.on(|s| s.same_entry(a, b))
-    }
-    fn free_space(&self) -> Option<u64> {
-        self.on(|s| s.free_space())
-    }
-    fn total_space(&self) -> Option<u64> {
-        self.on(|s| s.total_space())
-    }
-    fn local_path(&self, path: &str, with: &mut dyn FnMut(&str)) {
-        self.on(|s| s.local_path(path, with));
     }
 }
 
 /// How long closing the window waits for answers to what plugins sent as
 /// they saved (e.g. reading progress).
 const SHUT_DOWN_WAIT: Duration = Duration::from_secs(5);
+
+/// How long each kind of request is looked at in turn while both are in
+/// flight ([`Device::poll_http`]).
+const MIXED_SLICE: Duration = Duration::from_millis(20);
 
 /// Adds plugins to the standard app, after its own: e.g. a plugin being
 /// written, for `paperpaw-dev` (see [`Device::with_plugins`]). Called
@@ -242,16 +151,68 @@ pub struct Device {
     /// The kernel's warnings since start (the last `KEPT_WARNINGS`),
     /// besides printed: for tools that check there are none.
     pub warnings: Vec<Warning>,
+    /// The last `KEPT_FRAMES` frames shown (region, mode), for tests of a start.
+    pub shown: Vec<(paperpaw_platform::Rect, RefreshMode)>,
+    /// How many frames were shown since start (scripts' `--repl` counts
+    /// them, as the X4's log lines do).
+    pub frames_shown: u64,
     /// Requests are answered from the emulator's fixtures
     /// ([`Device::use_fixtures`]).
     fixtures: bool,
     /// Online from each start, on USB ([`Device::set_wifi_online`]).
     wifi_online: bool,
+    /// The emulated Wi-Fi was brought up for the native plugins' wanted
+    /// network (until none is wanted any more).
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    native_wifi_asked: bool,
     /// Interface-7 plugins the developer switch loaded from the card
     /// (`--abi7-dev-loader`): none by default. Kept, not applied (S2).
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     abi7: crate::native_runtime::DevPlugins,
+    /// What the linked native plugins are registered with (the card's second
+    /// handle, the clock and network `core.work` reads, written by
+    /// [`Device::now`]): kept for every restart.
+    linked: LinkedInputs,
 }
+
+/// What the registration of the linked native plugins is given besides the
+/// profile (`linked`): none without the feature.
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+type LinkedInputs = crate::linked::Inputs;
+#[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+type LinkedInputs = ();
+
+/// The card's second handle for the secrets file and the clock `core.work`
+/// reads.
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
+    // A run on simulated time keeps its secrets in memory, so it cannot touch
+    // the secrets of a card a real run shares; a real run whose card cannot
+    // be opened has no secrets.
+    let storage: Option<Rc<dyn Storage>> = if simulated {
+        Some(Rc::new(MemoryStorage::new()))
+    } else {
+        library
+            .open()
+            .ok()
+            .map(|card| Rc::new(card) as Rc<dyn Storage>)
+    };
+    crate::linked::Inputs {
+        storage,
+        view: Rc::default(),
+        simulated,
+        net: Rc::default(),
+        card: library
+            .open()
+            .ok()
+            .map(|card| Rc::new(card) as Rc<dyn Storage>),
+    }
+}
+#[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+fn linked_inputs(_: &Library, _: bool) -> LinkedInputs {}
+
+/// How many frames [`Device::shown`] keeps.
+const KEPT_FRAMES: usize = 64;
 
 /// How many of the kernel's warnings [`Device::warnings`] keeps.
 const KEPT_WARNINGS: usize = 1000;
@@ -301,6 +262,25 @@ impl Device {
         Self::build(profile, user_config, library, card, simulated_time, add)
     }
 
+    /// A device whose card is `files`: a storage of the caller's (a FAT
+    /// volume on a RAM disk that counts the commands it is sent, say).
+    pub fn on_storage(
+        profile: &'static Profile,
+        files: Rc<dyn Storage>,
+        simulated_time: bool,
+    ) -> Result<Self, KernelError> {
+        let shared = card::Shared(files);
+        let card = Card::Shared(shared.clone());
+        Self::build(
+            profile,
+            None,
+            Library::Shared(shared),
+            card,
+            simulated_time,
+            None,
+        )
+    }
+
     fn build(
         profile: &'static Profile,
         user_config: Option<String>,
@@ -310,15 +290,32 @@ impl Device {
         add: Option<AddPlugins>,
     ) -> Result<Self, KernelError> {
         budget::set_limit(profile.heap_budget);
+        paperpaw_core::native_host::answer_text_ink_as_the_x4(profile.ink_unwired);
+        card::insert();
         let config = user_config.as_deref();
-        let mut kernel = build_kernel(profile, config, card, Rotation::Deg0, add)?;
+        #[cfg_attr(
+            not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")),
+            allow(
+                clippy::let_unit_value,
+                reason = "nothing is linked without the feature"
+            )
+        )]
+        let linked = linked_inputs(&library, simulated_time);
+        let mut kernel = build_kernel(profile, config, card, Rotation::Deg0, add, &linked)?;
         // Turned by the settings: built again for the turned size.
         let rotation = kernel.rotation();
         if rotation != Rotation::Deg0
             && let Ok(card) = library.open()
         {
             drop(kernel);
-            kernel = build_kernel(profile, user_config.as_deref(), card, rotation, add)?;
+            kernel = build_kernel(
+                profile,
+                user_config.as_deref(),
+                card,
+                rotation,
+                add,
+                &linked,
+            )?;
         }
         let display = turned(profile.device, rotation).display;
         let controller = Framebuffer::new(display.width, display.height, display.format)
@@ -341,10 +338,15 @@ impl Device {
             bluetooth: crate::bluetooth::Bluetooth::default(),
             speech: std::collections::VecDeque::new(),
             warnings: Vec::new(),
+            shown: Vec::new(),
+            frames_shown: 0,
             fixtures: false,
             wifi_online: WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed),
+            #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+            native_wifi_asked: false,
             #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
             abi7: crate::native_runtime::DevPlugins::default(),
+            linked,
             asleep: false,
             rotation,
             wall: None,
@@ -385,10 +387,15 @@ impl Device {
     }
 
     pub fn now(&self) -> Instant {
-        match self.clock {
+        let now = match self.clock {
             Clock::Real(start) => Instant(start.elapsed().as_millis() as u64),
             Clock::Simulated(ms) => Instant(ms),
-        }
+        };
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        self.linked
+            .view
+            .set(now.0, !self.profile.wifi || self.wifi.is_online());
+        now
     }
 
     /// Advances simulated time; no-op for real time.
@@ -410,6 +417,7 @@ impl Device {
             // network, as a device of the reader's would.
             let keep = paperpaw_core::sdk::wifi::keep(crate::wifi::TEST_NETWORK, "fixtures");
             self.kernel.set_secret(keep);
+            self.share_secrets_with_native();
         }
         if self.wifi_online && self.profile.wifi {
             self.go_online(now);
@@ -427,12 +435,19 @@ impl Device {
         self.wifi_online = online;
     }
 
+    /// A network saved as joined before, for the native Wi-Fi plugin (simulated time only).
+    fn share_secrets_with_native(&self) {
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        self.linked.share_secrets(self.kernel.storage());
+    }
+
     fn go_online(&mut self, now: Instant) {
         let keep = paperpaw_core::sdk::wifi::keep(
             crate::wifi::WORKSHOP_NETWORK,
             crate::wifi::WORKSHOP_PASSWORD,
         );
         self.kernel.set_secret(keep);
+        self.share_secrets_with_native();
         self.wifi.online(now);
         // On USB: what keeps the radio on, as on a device.
         let status = self.status(now);
@@ -448,6 +463,7 @@ impl Device {
     /// ends, as a reader would wait.
     pub fn network_settling(&self) -> bool {
         self.http.in_flight > 0
+            || self.native_in_flight() > 0
             || self.kernel.holds_sleep()
             || self.wifi.next_due().is_some()
             || self.bluetooth.settling()
@@ -521,6 +537,14 @@ impl Device {
         self.execute(effects);
     }
 
+    /// The card is taken out of its slot (`true`) or put back (scripts'
+    /// `card-out` and `card-in`): while it is out everything asked of the
+    /// storage fails with [`paperpaw_platform::StorageError::CARD_GONE`].
+    /// The kernel is told nothing, as on a device: it meets the failures.
+    pub fn card_out(&mut self, out: bool) {
+        card::set_out(out);
+    }
+
     /// Opens a screen as a plugin would (scripts' `open:`).
     pub fn open_screen(
         &mut self,
@@ -528,7 +552,18 @@ impl Device {
         params: paperpaw_core::sdk::Params,
     ) {
         let now = self.now();
-        let effects = budget::track(|| self.kernel.open_screen(now, screen, params));
+        let effects = budget::track(|| {
+            // The keyboard asks a question (a native one cannot open without
+            // it): the step's `title` and `secret` are the question's.
+            if self.kernel.keyboard_screen() == Some(&screen) {
+                let title = params.get("title").unwrap_or_default();
+                let secret = params.get("secret").is_some_and(|value| value == "true");
+                if let Ok(effects) = self.kernel.stage_text_question(now, title, secret) {
+                    return effects;
+                }
+            }
+            self.kernel.open_screen(now, screen, params)
+        });
         self.execute(effects);
     }
 
@@ -617,19 +652,126 @@ impl Device {
     /// Delivers HTTP answers that have arrived; with `wait`, waits that
     /// long for the requests still in flight.
     pub fn poll_http(&mut self, wait: Option<std::time::Duration>) {
-        while let Some((id, received, total)) = self.http.next_progress() {
-            let now = self.now();
-            let effects = budget::track(|| self.kernel.http_progress(now, id, received, total));
-            self.execute(effects);
-        }
-        while self.http.in_flight > 0 {
-            let Some(response) = self.http.next(wait) else {
+        // One deadline for both kinds of request: where both are in flight,
+        // each is looked at in turn for a short slice, so that neither holds
+        // the other's answers up for the whole wait.
+        let end = wait.map(|wait| StdInstant::now() + wait);
+        loop {
+            let left = end.map(|end| end.saturating_duration_since(StdInstant::now()));
+            let mixed = self.native_in_flight() > 0 && self.http.in_flight > 0;
+            let slice = left.map(|left| if mixed { left.min(MIXED_SLICE) } else { left });
+            let before = self.native_in_flight();
+            self.poll_native_net(if mixed { None } else { slice });
+            let mut delivered = self.native_in_flight() < before;
+            while let Some((id, received, total)) = self.http.next_progress() {
+                let now = self.now();
+                let effects = budget::track(|| self.kernel.http_progress(now, id, received, total));
+                self.execute(effects);
+            }
+            while self.http.in_flight > 0 {
+                let Some(response) = self.http.next(slice) else {
+                    break;
+                };
+                delivered = true;
+                let now = self.now();
+                let effects = budget::track(|| self.kernel.http_response(now, response));
+                self.execute(effects);
+            }
+            if !mixed || delivered || left.is_none_or(|left| left <= MIXED_SLICE) {
                 break;
-            };
+            }
+        }
+    }
+
+    /// Hands the native plugins' HTTP answers to core (`core.net`), and lets
+    /// it take its turn.
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    fn poll_native_net(&mut self, wait: Option<std::time::Duration>) {
+        let wanted = self
+            .linked
+            .net
+            .borrow()
+            .as_ref()
+            .is_some_and(|net| net.transport.wanted());
+        // Where PaperPaw manages Wi-Fi and a request waits for a network, the
+        // emulated radio is brought up as `--wifi online` does (no network
+        // manager plugin is linked to do it on `event.network_wanted`).
+        if !wanted {
+            self.native_wifi_asked = false;
+        } else if !self.native_wifi_asked && self.profile.wifi && !self.wifi.is_online() {
+            self.native_wifi_asked = true;
             let now = self.now();
-            let effects = budget::track(|| self.kernel.http_response(now, response));
+            self.go_online(now);
+        }
+        let told = {
+            let net = self.linked.net.borrow();
+            net.as_ref().is_some_and(|net| {
+                let up = !self.profile.wifi || self.wifi.is_online();
+                let told = net.transport.pump(&net.reports, wait);
+                let sockets = net
+                    .sockets
+                    .as_ref()
+                    .is_some_and(|(sockets, reports)| sockets.pump(reports, up));
+                told | sockets
+            })
+        };
+        // What core was told reaches the plugins in a kernel pass (its
+        // service pump): one now, as the X4's shell does after its reports.
+        // Without it an answer waits for the kernel's next wake, which a
+        // screen that only waits for that answer never asks for (#2795).
+        if told {
+            let now = self.now();
+            let effects = budget::track(|| self.kernel.tick(now));
             self.execute(effects);
         }
+    }
+
+    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+    fn poll_native_net(&mut self, _wait: Option<std::time::Duration>) {}
+
+    /// Whether the native plugins' servers run (the loop looks again soon).
+    #[must_use]
+    pub fn native_serving(&self) -> bool {
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        return self
+            .linked
+            .net
+            .borrow()
+            .as_ref()
+            .is_some_and(|net| net.transport.serving());
+        #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+        false
+    }
+
+    /// The native plugins' requests started and not answered yet.
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    fn native_in_flight(&self) -> usize {
+        self.linked
+            .net
+            .borrow()
+            .as_ref()
+            .map_or(0, |net| net.transport.in_flight())
+    }
+
+    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+    fn native_in_flight(&self) -> usize {
+        0
+    }
+
+    /// Whether a native plugin has a socket open (`core.sockets`): its
+    /// threads work in real time, so a script's `wait` gives them real time.
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    pub fn native_sockets_open(&self) -> bool {
+        self.linked.net.borrow().as_ref().is_some_and(|net| {
+            net.sockets
+                .as_ref()
+                .is_some_and(|(sockets, _)| sockets.open() > 0)
+        })
+    }
+
+    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+    pub fn native_sockets_open(&self) -> bool {
+        false
     }
 
     /// Passes requests to plugins' servers on, and what their sockets
@@ -712,14 +854,9 @@ impl Device {
             self.execute(effects);
         }
         let end = StdInstant::now() + SHUT_DOWN_WAIT;
-        while self.http.in_flight > 0 {
-            let left = end.saturating_duration_since(StdInstant::now());
-            let Some(response) = self.http.next(Some(left)).filter(|_| !left.is_zero()) else {
-                break;
-            };
-            let now = self.now();
-            let effects = budget::track(|| self.kernel.http_response(now, response));
-            self.execute(effects);
+        // Both kinds of answer, for as long as they come, to one deadline.
+        while (self.native_in_flight() > 0 || self.http.in_flight > 0) && StdInstant::now() < end {
+            self.poll_http(Some(end.saturating_duration_since(StdInstant::now())));
         }
     }
 
@@ -782,6 +919,11 @@ impl Device {
         let colors = self.profile.colors.then(|| self.kernel.colors());
         self.panel
             .refresh(self.controller.view(), region, mode, colors);
+        if self.shown.len() >= KEPT_FRAMES {
+            self.shown.remove(0);
+        }
+        self.shown.push((region, mode));
+        self.frames_shown += 1;
         // Shown as soon as drawn: plugins that pace themselves by the
         // panel go as fast as they can here.
         let drawn = core::time::Duration::from_micros(crate::host::micros() - started);
@@ -822,10 +964,16 @@ impl Device {
             return self.execute(effects);
         }
         self.wake_at = effects.wake_at();
-        if effects.sleep() && !self.asleep {
-            // The sleep screen is shown: plugins save, the device sleeps.
+        if (effects.sleep() || effects.power_off()) && !self.asleep {
+            // The sleep screen is shown: plugins save, the device sleeps (or is
+            // switched off, which the emulator shows as a sleep the power button ends).
             self.asleep = true;
-            eprintln!("{}: asleep", self.profile.device.id);
+            let what = if effects.power_off() {
+                "power off"
+            } else {
+                "asleep"
+            };
+            eprintln!("{}: {what}", self.profile.device.id);
             let now = self.now();
             let effects = budget::track(|| self.kernel.suspend(now));
             self.execute(effects);
@@ -924,6 +1072,7 @@ impl Device {
             Ok(storage) => storage,
             Err(e) => return eprintln!("restart: {:?}: {e}", self.library),
         };
+        eprintln!("{}: restarting", self.profile.device.id);
         // Plugins save what is pending, as on the device before it restarts.
         let now = self.now();
         budget::track(|| self.kernel.stop(now));
@@ -958,6 +1107,7 @@ impl Device {
             storage,
             self.rotation,
             self.add,
+            &self.linked,
         ) {
             Ok(new) => {
                 let kernel = &mut self.kernel;
@@ -1002,8 +1152,14 @@ fn build_kernel(
     storage: Card,
     rotation: Rotation,
     add: Option<AddPlugins>,
+    linked: &LinkedInputs,
 ) -> Result<Kernel, KernelError> {
+    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+    let _ = linked;
     budget::track(|| {
+        // What this kernel's card plugins and linked plugins share.
+        #[cfg(not(target_arch = "wasm32"))]
+        let pool = crate::native::DevicePool::default();
         let fonts = if profile.font_packs {
             paperpaw_app::Fonts::Packs
         } else {
@@ -1011,21 +1167,18 @@ fn build_kernel(
         };
         let mut device = turned(profile.device, rotation);
         device.input.keys = profile.buttons;
+        let gray_levels = device.display.format.gray_levels();
+        let grays = gray_levels.map_or(255, |levels| levels.min(255) as u8);
         let mut builder = Kernel::builder(device)
             .storage(crate::trace::Traced(storage))
             .clock(crate::host::micros)
             .random(crate::host::random)
+            .device_log(crate::host::device_log)
             .memory(budget::memory_use)
             .glyph_cache(profile.glyph_cache)
             .busy_mark(profile.busy_mark)
             // Its grays; frames show at once here (see `execute`).
-            .panel(paperpaw_core::sdk::realtime::PanelInfo::new(
-                device
-                    .display
-                    .format
-                    .gray_levels()
-                    .map_or(255, |levels| levels.min(255) as u8),
-            ))
+            .panel(paperpaw_core::sdk::realtime::PanelInfo::new(grays))
             .colors(profile.colors)
             .network(true)
             // Plugins' secure sockets (rustls); none in the browser.
@@ -1034,6 +1187,7 @@ fn build_kernel(
             .bluetooth(profile.bluetooth)
             .speech(profile.speech)
             .sleep(profile.sleep)
+            .power_off(profile.power_off)
             .button_row(profile.button_row)
             .rotation(true);
         // Scalable fonts only where the emulated device renders them.
@@ -1044,28 +1198,25 @@ fn build_kernel(
         // as if the reader had installed them (the emulator loads no
         // plugin files): `--set plugins.<id>=off` shows a device without.
         let mut builder = paperpaw_app::install(builder, fonts);
-        #[cfg(feature = "hello")]
-        {
-            builder = builder.plugin(paperpaw_sample_hello::Hello);
-        }
-        #[cfg(feature = "frame-test")]
-        {
-            builder = builder.plugin(paperpaw_sample_frame_test::FrameTest);
-        }
-        #[cfg(feature = "interlinear")]
-        {
-            builder = builder.plugin(paperpaw_sample_interlinear::Interlinear);
-        }
         if let Some(light) = profile.light {
-            builder = builder.plugin(crate::light::Emulated(light));
+            builder = builder.items(crate::light::manifest(), crate::light::emulated(light));
         }
-        // Code plugins built for this computer, from the card.
         #[cfg(not(target_arch = "wasm32"))]
-        if CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed) {
-            builder = builder.code_plugins(
-                crate::native::native(),
-                Box::new(crate::native::HostLoader::for_device(profile.device.memory)),
+        {
+            builder = crate::native::code_plugins(
+                builder,
+                CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed),
+                profile.device.memory,
+                &pool,
             );
+        }
+        // Plugin installs from the card share the firmware's queue: the
+        // emulated device has one, with no firmware to install
+        // (`crate::linked::card_plugins`).
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        if let Some(family) = crate::linked::card_plugins(profile) {
+            builder =
+                builder.firmware_host(Box::new(paperpaw_x4::host_jobs::NoFirmware::new(family)));
         }
         if let Some(add) = add {
             builder = add(builder);
@@ -1083,7 +1234,25 @@ fn build_kernel(
         if let Some(config) = user_config {
             builder = builder.user_config(config);
         }
-        builder.build()
+        // What is wired is known before the kernel is built: a card plugin is
+        // admitted in `build`, and is offered what the linked ones are.
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        let prepared = crate::linked::prepare(profile, linked, &pool);
+        let kernel = builder.build()?;
+        // The first-party plugins that are interface-7 plugins (the app built
+        // without their interface-6 form), before the first start.
+        #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+        let kernel = {
+            let mut kernel = kernel;
+            match prepared.and_then(|prepared| {
+                crate::linked::register(&mut kernel, profile, linked.clone(), &pool, prepared)
+            }) {
+                Ok(_) => {}
+                Err(why) => eprintln!("native plugins: none registered ({why:?})"),
+            }
+            kernel
+        };
+        Ok(kernel)
     })
 }
 
@@ -1108,10 +1277,7 @@ fn servers() -> paperpaw_serve::Servers {
 mod tests {
     use super::*;
     use paperpaw_core::WifiCommand;
-
-    /// The heap budget counts every thread's kernel: one device at a time,
-    /// and none while the budget's own tests read its counters.
-    use crate::budget::accounting_tests::LOCK as ONE_AT_A_TIME;
+    use paperpaw_platform::StorageError;
 
     fn device(name: &str) -> (Device, std::path::PathBuf) {
         let root =
@@ -1124,11 +1290,86 @@ mod tests {
         (device, root)
     }
 
+    /// A run on simulated time keeps its secrets file in memory: the card's
+    /// own file is byte for byte what it was; a real run whose card cannot be
+    /// opened has no store at all (`core.secrets` is not wired).
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn a_simulated_run_leaves_the_cards_secrets_alone_and_an_unopenable_card_has_none() {
+        let root =
+            std::env::temp_dir().join(format!("paperpaw-secrets-card-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(".paperpaw")).unwrap();
+        let file = root.join(".paperpaw/secrets.txt");
+        std::fs::write(&file, b"mail.password\t\t\ts1:00aa\n").unwrap();
+        let before = std::fs::read(&file).unwrap();
+        let library = Library::Dir(root.clone());
+        let inputs = linked_inputs(&library, true);
+        let storage = inputs.storage.unwrap();
+        storage.write(".paperpaw/secrets.txt", b"lost").unwrap();
+        storage.write(".paperpaw/secrets.new", b"temp").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), before);
+        assert!(!root.join(".paperpaw/secrets.new").exists());
+        // A real run reads and writes the card's file.
+        let real = linked_inputs(&library, false).storage.unwrap();
+        let mut buf = [0u8; 64];
+        let n = real.read_at(".paperpaw/secrets.txt", 0, &mut buf).unwrap();
+        assert_eq!(&buf[..n], &before[..]);
+        // A card that cannot be opened: no store.
+        let missing = Library::Dir(file.clone());
+        assert!(linked_inputs(&missing, false).storage.is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// A wanted network brings the emulated Wi-Fi up once per demand: not
+    /// again while the demand lasts (the radio switched off since stays
+    /// off), and again for the next demand.
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    #[test]
+    fn a_wanted_network_brings_managed_wifi_up_once_per_demand() {
+        use paperpaw_core::native_host::shell_wiring::ShellNetwork as _;
+        let _one = crate::one_device_at_a_time();
+        let (mut device, root) = device("wifi-demand");
+        let demand = |device: &Device, wanted| {
+            let net = device.linked.net.borrow();
+            net.as_ref().unwrap().transport.network_demand(wanted);
+        };
+        assert!(device.linked.net.borrow().is_some(), "core.net is wired");
+        assert!(
+            device
+                .linked
+                .net
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .sockets
+                .is_some(),
+            "core.sockets is wired with it"
+        );
+        assert!(device.profile.wifi && !device.wifi.is_online());
+        // Nothing wanted: the radio stays as it was.
+        device.poll_http(None);
+        assert!(!device.wifi.is_online());
+        demand(&device, true);
+        device.poll_http(None);
+        assert!(device.wifi.is_online(), "the demand brought it up");
+        // Off by the user while the demand lasts: not brought up again.
+        let now = device.now();
+        device.wifi.apply(WifiCommand::Off, now);
+        device.poll_http(None);
+        assert!(!device.wifi.is_online());
+        // Released, then wanted again: up again.
+        demand(&device, false);
+        device.poll_http(None);
+        demand(&device, true);
+        device.poll_http(None);
+        assert!(device.wifi.is_online());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn asleep_nothing_is_due() {
-        let _one = ONE_AT_A_TIME
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = crate::one_device_at_a_time();
         let (mut device, root) = device("asleep");
         device.wake_at = Some(Instant(0));
         device.asleep = true;
@@ -1143,9 +1384,7 @@ mod tests {
 
     #[test]
     fn a_restart_forgets_what_the_old_kernel_asked_for() {
-        let _one = ONE_AT_A_TIME
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _one = crate::one_device_at_a_time();
         let (mut device, root) = device("restart");
         let now = device.now();
         device.speech.push_back((1, now.add_millis(10_000)));

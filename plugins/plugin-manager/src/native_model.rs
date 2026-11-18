@@ -6,7 +6,7 @@ use core::cmp::Ordering;
 use paperpaw_sdk::native::Error;
 use paperpaw_ui_kit::{
     mem::{join, push, stable_sort_by},
-    text::{cmp_lowercase, concat, copy},
+    text::{cmp_lowercase, concat, copy, decimal},
 };
 
 /// The host's own row in the list of plugins.
@@ -18,6 +18,7 @@ pub const SELF_ID: &str = "plugin-manager";
 const ENABLED: u32 = 1;
 const RESTART_NEEDED: u32 = 1 << 1;
 const REQUIRED: u32 = 1 << 2;
+const NOT_SIGNED: u32 = 1 << 6;
 
 /// Where a plugin's code is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -53,6 +54,11 @@ pub enum Problem {
     Older,
     NeedsNewer,
     Revoked,
+    /// The plugin's batch asked for more book formats than a plugin or the
+    /// device may have (`registry.md`, problem 14; the arg is the cap).
+    TooManyFormats,
+    /// As above for reading apps (problem 15).
+    TooManyReaders,
     /// A number this plugin does not know.
     Other,
 }
@@ -75,6 +81,8 @@ impl Problem {
             10 => Self::Older,
             11 => Self::NeedsNewer,
             12 => Self::Revoked,
+            14 => Self::TooManyFormats,
+            15 => Self::TooManyReaders,
             _ => Self::Other,
         })
     }
@@ -99,6 +107,8 @@ impl Problem {
             Self::Older => "plugin-manager.code.older",
             Self::NeedsNewer => "plugin-manager.code.needs-newer",
             Self::Revoked => "plugin-manager.code.revoked",
+            Self::TooManyFormats => "plugin-manager.formats.too-many",
+            Self::TooManyReaders => "plugin-manager.readers.too-many",
             Self::Other => "plugin-manager.failed",
         }
     }
@@ -114,6 +124,8 @@ pub struct PluginRow {
     pub run: Run,
     pub flags: u32,
     pub problem: Option<Problem>,
+    /// What the problem carries (the cap a refused batch ran into); 0 for none.
+    pub problem_arg: u32,
     /// The version that takes over after a restart; empty for none.
     pub update: String,
 }
@@ -133,6 +145,13 @@ impl PluginRow {
     #[must_use]
     pub const fn required(&self) -> bool {
         self.flags & REQUIRED != 0
+    }
+
+    /// Its code was copied to the card, never installed, and runs unchecked
+    /// (Decision 205).
+    #[must_use]
+    pub const fn unsigned(&self) -> bool {
+        self.flags & NOT_SIGNED != 0
     }
 
     /// Whether the plugin must stay on: the host says so, or it is this
@@ -194,7 +213,19 @@ pub fn note(say: &mut impl Say, row: &PluginRow, description: &str) -> Result<St
             Problem::SafeMode if !row.enabled() => "plugin-manager.code.safe-mode-off",
             other => other.key(),
         };
-        Some(say.say(key)?)
+        match problem {
+            // The limit the batch ran into, where the host says it.
+            Problem::TooManyFormats | Problem::TooManyReaders if row.problem_arg != 0 => {
+                let mut digits = [0u8; 20];
+                let cap = decimal(row.problem_arg as usize, &mut digits);
+                Some(say.say_with(key, "cap", cap)?)
+            }
+            // No limit said: the text would have a hole where it stands.
+            Problem::TooManyFormats | Problem::TooManyReaders => {
+                Some(say.say("plugin-manager.failed")?)
+            }
+            _ => Some(say.say(key)?),
+        }
     } else if row.id == SELF_ID && !row.required() {
         Some(say.say("plugin-manager.self")?)
     } else if row.required() {
@@ -223,11 +254,22 @@ pub fn note(say: &mut impl Say, row: &PluginRow, description: &str) -> Result<St
     } else {
         None
     };
+    let unsigned = if row.kind == Kind::Code && row.unsigned() && row.problem.is_none() {
+        Some(say.say("plugin-manager.code.unsigned")?)
+    } else {
+        None
+    };
     let version = say.say_with("plugin-manager.version", "version", &row.version)?;
     let mut parts: Vec<String> = Vec::new();
-    for part in [what, Some(copy(description)?), code, Some(version)]
-        .into_iter()
-        .flatten()
+    for part in [
+        what,
+        Some(copy(description)?),
+        code,
+        unsigned,
+        Some(version),
+    ]
+    .into_iter()
+    .flatten()
     {
         if !part.is_empty() {
             push(&mut parts, part)?;
@@ -361,6 +403,7 @@ mod tests {
             run: Run::Running,
             flags,
             problem: None,
+            problem_arg: 0,
             update: String::new(),
         }
     }
@@ -389,8 +432,31 @@ mod tests {
         for (at, problem) in order.into_iter().enumerate() {
             assert_eq!(Problem::from_wire(at as u32 + 1), Some(problem));
         }
+        // 13 is not named; 14 and 15 are the caps of formats and readers.
+        assert_eq!(Problem::from_wire(13), Some(Problem::Other));
+        assert_eq!(Problem::from_wire(14), Some(Problem::TooManyFormats));
+        assert_eq!(Problem::from_wire(15), Some(Problem::TooManyReaders));
         assert_eq!(Problem::from_wire(99), Some(Problem::Other));
         assert_eq!(Problem::Other.key(), "plugin-manager.failed");
+    }
+
+    #[test]
+    fn a_code_plugin_copied_to_the_card_says_it_is_not_installed() {
+        let copied = PluginRow {
+            kind: Kind::Code,
+            ..row("a", "A", 1 | NOT_SIGNED)
+        };
+        assert_eq!(
+            note_of(&copied, "Does."),
+            "Does. plugin-manager.code plugin-manager.code.unsigned plugin-manager.version[version=1.2.3]"
+        );
+        // A refused plugin keeps its problem line only.
+        let refused = PluginRow {
+            problem: Some(Problem::NotInstalled),
+            ..copied
+        };
+        assert!(!note_of(&refused, "Does.").contains("code.unsigned"));
+        assert!(!note_of(&row("a", "A", 1), "Does.").contains("code.unsigned"));
     }
 
     #[test]
@@ -489,6 +555,34 @@ mod tests {
             ..row("a", "A", 1)
         };
         assert!(note_of(&failed, "d").starts_with("plugin-manager.failed d"));
+    }
+
+    #[test]
+    fn a_refused_format_or_reader_batch_says_the_cap() {
+        let formats = PluginRow {
+            run: Run::Failed,
+            problem: Some(Problem::TooManyFormats),
+            problem_arg: 32,
+            ..row("a", "A", 1)
+        };
+        assert!(
+            note_of(&formats, "d").starts_with("plugin-manager.formats.too-many[cap=32] d"),
+            "{}",
+            note_of(&formats, "d")
+        );
+        let readers = PluginRow {
+            problem: Some(Problem::TooManyReaders),
+            problem_arg: 16,
+            ..formats.clone()
+        };
+        assert!(note_of(&readers, "d").starts_with("plugin-manager.readers.too-many[cap=16] d"));
+        // Without a limit from the host the words would have a hole: the
+        // plain "could not be loaded" is said.
+        let bare = PluginRow {
+            problem_arg: 0,
+            ..formats
+        };
+        assert!(note_of(&bare, "d").starts_with("plugin-manager.failed d"));
     }
 
     fn name(id: &str) -> Result<String, Error> {

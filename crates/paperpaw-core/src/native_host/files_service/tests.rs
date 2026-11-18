@@ -5,6 +5,7 @@
 //! tests are in `tests/`.
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::services_wire::{self, ServiceOp};
 use crate::native_host::{
     admitted_features::AdmittedFeatures,
@@ -15,7 +16,7 @@ use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_i18n::Translator;
 use paperpaw_platform::{DirEntry, Instant, StorageError};
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 
 #[path = "tests/book.rs"]
 mod book;
@@ -29,6 +30,10 @@ mod dispatch;
 mod hostile;
 #[path = "tests/oom.rs"]
 mod oom;
+#[path = "tests/peer_code.rs"]
+mod peer_code;
+#[path = "tests/peer_data.rs"]
+mod peer_data;
 #[path = "tests/read.rs"]
 mod read;
 
@@ -83,6 +88,9 @@ pub(super) struct Card {
     pub(super) total: Cell<Option<u64>>,
     /// Counts of the storage calls that change the card.
     pub(super) changes: Cell<u32>,
+    /// A storage that answers the listings instead of the tables (a real FAT
+    /// card, for the stack depth of the route, #256).
+    pub(super) backing: Cell<Option<&'static dyn Storage>>,
 }
 
 fn parent(path: &str) -> &str {
@@ -100,6 +108,7 @@ impl Card {
             free: Cell::new(Some(100 << 20)),
             total: Cell::new(Some(1 << 30)),
             changes: Cell::new(0),
+            backing: Cell::new(None),
         }
     }
 
@@ -285,6 +294,9 @@ impl Storage for Card {
         from: u64,
         visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
     ) -> Result<Option<u64>, StorageError> {
+        if let Some(backing) = self.backing.get() {
+            return backing.list_from(dir, from, visit);
+        }
         self.check()?;
         self.folder(dir)?;
         let mut at = from;
@@ -449,6 +461,11 @@ pub(super) struct TestHost {
     pub(super) library_moves: Cell<u32>,
     /// Plugins built into the firmware.
     pub(super) built_in: RefCell<Vec<&'static str>>,
+    /// Folders (below `plugins/`) of the running data plugins.
+    pub(super) data_folders: RefCell<Vec<&'static str>>,
+    /// The frame has the kernel's formats (`.epub` is a book), as core's own
+    /// frame; without them every root-1 move is the library's.
+    pub(super) formats: Cell<bool>,
 }
 
 impl TestHost {
@@ -461,6 +478,8 @@ impl TestHost {
             journal: RefCell::default(),
             library_moves: Cell::new(0),
             built_in: RefCell::default(),
+            data_folders: RefCell::default(),
+            formats: Cell::new(false),
         })
     }
 
@@ -477,6 +496,18 @@ impl TestHost {
 impl FilesHost for TestHost {
     fn built_in(&self, plugin: &str) -> bool {
         self.built_in.borrow().contains(&plugin)
+    }
+
+    fn data_folder(&self, name: &str) -> bool {
+        // As the real set: names compared case folded.
+        self.data_folders
+            .borrow()
+            .iter()
+            .any(|have| have.eq_ignore_ascii_case(name))
+    }
+
+    fn host_file(&self, folder: &str, entry: &str) -> bool {
+        crate::native_host::data_plugin_folders::host_file(&*self.card, folder, entry)
     }
 
     fn excluded(&self, root: u32, _parent: &str, first: &str) -> bool {
@@ -597,11 +628,13 @@ impl MoveHost for Library<'_> {
 
 /// A frame whose storage view is the fake card.
 pub(super) struct TestFrame<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     card: Option<&'a Card>,
     plugin: &'static str,
     hosts: crate::native_host::host_services::HostServices,
     pub(super) granted: bool,
+    /// Whether the frame gives the kernel's `Place` (its formats).
+    kernel: bool,
 }
 
 impl Frame for TestFrame<'_> {
@@ -613,6 +646,9 @@ impl Frame for TestFrame<'_> {
     }
     fn storage(&self) -> Option<&dyn Storage> {
         self.card.map(|card| card as &dyn Storage)
+    }
+    fn kernel_env(&self) -> Option<&Place<'_>> {
+        self.kernel.then_some(self.env)
     }
 }
 
@@ -659,10 +695,22 @@ pub(super) fn with<R>(
     setup: Setup,
     body: impl FnOnce(&TestFrame<'_>) -> R,
 ) -> R {
-    let kernel = crate::Kernel::builder(crate::tests::DEVICE)
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    if host.formats.get() {
+        kernel
+            .shared
+            .formats
+            .add(paperpaw_sdk::FormatSpec::new(
+                paperpaw_sdk::Id::new_static("test.epub"),
+                "EPUB",
+                std::vec![alloc::borrow::Cow::Borrowed("epub")],
+                |_, _, _| Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat),
+            ))
+            .unwrap();
+    }
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     if setup.wired {
         hosts.wire_files(host.clone()).unwrap();
@@ -673,6 +721,7 @@ pub(super) fn with<R>(
         plugin: setup.plugin,
         hosts,
         granted: setup.granted,
+        kernel: host.formats.get(),
     };
     let _guard = setup.book.map(|(kind, path, opened)| {
         frame
@@ -685,6 +734,10 @@ pub(super) fn with<R>(
                     kind,
                     opened,
                     document: 1,
+                    cache: "",
+                    css: "",
+                    cache_cap: 0,
+                    quota: None,
                 },
             )
             .unwrap()

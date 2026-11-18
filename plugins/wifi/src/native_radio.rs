@@ -14,6 +14,7 @@ use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::native::Error;
 use paperpaw_ui_kit::{mem::push, text::copy};
 
+use crate::native_model;
 use crate::native_policy::{Failure, Goal, Known, Net, Password, Policy, Radio, Step};
 
 #[cfg(test)]
@@ -89,14 +90,14 @@ pub enum Action {
 }
 
 fn one(action: Action) -> Result<Vec<Action>, Error> {
-    let mut found = Vec::new();
-    push(&mut found, action)?;
-    Ok(found)
+    native_model::one(action)
 }
 
 fn steps(found: Vec<Step>, mut out: Vec<Action>) -> Result<Vec<Action>, Error> {
+    out.try_reserve_exact(found.len())
+        .map_err(|_| Error::NoMemory)?;
     for step in found {
-        push(&mut out, Action::Step(step))?;
+        out.push(Action::Step(step));
     }
     Ok(out)
 }
@@ -149,11 +150,12 @@ impl Policy {
         if !f.on_demand || self.phone || f.radio == Radio::Hosting {
             return Ok(Vec::new());
         }
-        let mut out = Vec::new();
-        if f.known.is_empty() {
+        let out = if f.known.is_empty() {
             // Nothing to join: what waits fails now.
-            push(&mut out, Action::NoNetwork)?;
-        }
+            one(Action::NoNetwork)?
+        } else {
+            Vec::new()
+        };
         let out = steps(self.wanted(f.radio, f.known)?, out)?;
         self.asked_at = if f.known.is_empty() {
             None

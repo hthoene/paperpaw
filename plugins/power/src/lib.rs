@@ -10,7 +10,9 @@
 //!   *Normal while charging*.
 //! - A status item, *Power mode*: nothing in Normal, so the lines stay calm.
 //! - The power button held opens a small menu: sleep, switch off where
-//!   PaperPaw does so, restart, lock or unlock touch.
+//!   PaperPaw does so, restart, lock touch. While touch is locked the held
+//!   button unlocks it at once instead: no menu, since the buttons are the only
+//!   input then.
 //!
 //! The plugin is the interface-7 plugin [`native_plugin::NativePower`]; what
 //! it decides without a host is in `model`.
@@ -32,6 +34,35 @@ pub mod model;
 mod native_entry;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
+
+/// The settings the plugin declares, made by its build script from the same
+/// declarations as a table.
+#[cfg(feature = "linked")]
+mod native_settings {
+    use paperpaw_sdk::{Id, SettingSpec};
+    include!(concat!(env!("OUT_DIR"), "/power_settings.rs"));
+}
+
+/// The settings the plugin declares as a table kept in the program (as Beta 3
+/// kept them), for a linked build to use in place of a copy on the heap of
+/// each (`Kernel::register_linked`). Only a linked plugin has it.
+#[cfg(feature = "linked")]
+pub static NATIVE_SETTINGS: &[paperpaw_sdk::SettingSpec] = &native_settings::SETTINGS;
+
+/// The setting groups the plugin declares, as a table kept in the program
+/// like [`NATIVE_SETTINGS`].
+#[cfg(feature = "linked")]
+pub static NATIVE_GROUPS: &[paperpaw_sdk::SettingGroupSpec] = &native_settings::GROUPS;
+
+/// The full ids the plugin declares, sorted, as a table kept in the program
+/// like [`NATIVE_SETTINGS`] (the kernel takes them in place of copies).
+#[cfg(feature = "linked")]
+pub static NATIVE_IDS: &[paperpaw_sdk::Id] = &native_settings::IDS;
+
+/// The id and title of each screen and action the plugin declares, as a table
+/// kept in the program like [`NATIVE_SETTINGS`].
+#[cfg(feature = "linked")]
+pub static NATIVE_TITLES: &[paperpaw_sdk::TitleEntry] = &native_settings::TITLES;
 /// The interface-7 plugin.
 pub mod native_plugin;
 

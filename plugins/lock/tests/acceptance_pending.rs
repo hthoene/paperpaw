@@ -48,7 +48,7 @@ const CASES: [Case; 9] = [
     Case {
         name: "the-lock-page-has-its-icon",
         golden: None,
-        blocked_by: &["icon-records-host"],
+        blocked_by: &["group-registry-icon-reply"],
     },
     Case {
         name: "the-first-run-setup-offers-the-lock",
@@ -105,7 +105,7 @@ fn the_touch_lock() {
 }
 
 #[test]
-#[ignore = "BLOCKED: the host takes icon records; declare icon `lock` on `lock.group` again"]
+#[ignore = "BLOCKED: Settings group-registry replies omit icons (#268)"]
 fn the_page_icon() {
     CASES[5].refuse().unwrap();
 }

@@ -36,6 +36,11 @@ pub(crate) const KIND_TABLE: &[(&str, u8)] = &[
     ("menu.describe", 28),
     ("registration.stage", 29),
     ("book_data.spec", 30),
+    ("format.spec", 31),
+    ("reader.spec", 32),
+    ("lookup.spec", 33),
+    ("book_field.spec", 34),
+    ("book_badge.spec", 35),
 ];
 pub(crate) const STAGE_KIND: u8 = KIND_TABLE[7].1;
 /// Category of `registration.stage`: keyed by the stage's full id and the
@@ -125,6 +130,16 @@ pub(crate) fn key(record: Record<'_>) -> Option<(u8, &str)> {
         // A plugin keeps a folder of a name once, whatever its kind
         // (`library.md` section 1).
         Record::BookDataSpec(r) => (KIND_TABLE[30].1, r.name),
+        // A format and a reading app: `<plugin>.<name>`, each name once per
+        // plugin (`document.md` section 1).
+        Record::FormatSpec(r) => (KIND_TABLE[31].1, r.name),
+        Record::ReaderSpec(r) => (KIND_TABLE[32].1, r.name),
+        // A book field and a badge: `<plugin>.<name>`, each name once per
+        // plugin and kind (`library.md` section 1).
+        Record::BookFieldSpec(r) => (KIND_TABLE[34].1, r.name),
+        Record::BookBadgeSpec(r) => (KIND_TABLE[35].1, r.name),
+        // A lookup provider: its name once per plugin (`document.md` section 7).
+        Record::LookupSpec(r) => (KIND_TABLE[33].1, r.name),
         _ => return None,
     })
 }
@@ -232,8 +247,13 @@ pub(crate) fn matches_parts(record: Record<'_>, kind: u8, wanted: &[&str]) -> bo
             .all(|(a, b)| same_name(kind, a, b))
 }
 
+/// Whether names of `kind` compare without ASCII case: language tags do.
+pub(crate) const fn folds_case(kind: u8) -> bool {
+    kind == 3
+}
+
 pub(crate) fn same_name(kind: u8, a: &str, b: &str) -> bool {
-    if kind == 3 {
+    if folds_case(kind) {
         a.eq_ignore_ascii_case(b)
     } else {
         a == b
@@ -253,7 +273,7 @@ pub(crate) fn composite_hash(kind: u8, parts: &[&str]) -> u32 {
             hash = (hash ^ u32::from(COMPOSITE_SEPARATOR)).wrapping_mul(16_777_619);
         }
         for byte in part.bytes() {
-            let byte = if kind == 3 {
+            let byte = if folds_case(kind) {
                 byte.to_ascii_lowercase()
             } else {
                 byte

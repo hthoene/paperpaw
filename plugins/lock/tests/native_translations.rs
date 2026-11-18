@@ -7,8 +7,10 @@ fn the_settings_have_words() {
     let source = include_str!("../declarations.rs");
     let mut asked = 0;
     for part in source.split('"').skip(1).step_by(2) {
-        // `lock.group` and `lock.kind` are ids, not texts.
-        if part.starts_with("lock.") && !matches!(part, "lock.group" | "lock.kind") {
+        // `lock.group`, `lock.kind` and `lock.touch-lock` are ids, not texts.
+        if part.starts_with("lock.")
+            && !matches!(part, "lock.group" | "lock.kind" | "lock.touch-lock")
+        {
             asked += 1;
             for (name, catalog) in [("en", EN), ("de", DE)] {
                 assert!(

@@ -11,14 +11,13 @@
 //! - **Left out:** footnotes and endnotes, headers and footers, comments,
 //!   deleted text of tracked changes, fields' codes, text boxes' place.
 //! - **How:** the archive is read in pieces and the blocks of the text
-//!   written in pieces, once, into a cache in the plugin's folder for the
-//!   document; a document of any length is converted in a few kilobytes of
-//!   memory, and what a hostile archive holds is bounded (sizes, counts,
-//!   nesting). Pictures are taken out of the archive and decoded when their
-//!   page shows.
+//!   written in pieces, once, into the cache the host gives the document;
+//!   a document of any length is converted in a few kilobytes of memory,
+//!   and what a hostile archive holds is bounded (sizes, counts, nesting).
+//!   Pictures are taken out of the archive and decoded when the host asks.
 //!
-//! Nothing here is in the interface: it is a format plugin like the
-//! others, on the SDK only.
+//! The plugin is an interface-7 `core.format` provider only ([`provider`],
+//! [`native_plugin`]); the interface-6 form is gone.
 
 #![no_std]
 
@@ -44,26 +43,7 @@ pub mod native_plugin;
 pub use native_entry::NATIVE_ENTRY;
 mod writer;
 
-use alloc::borrow::Cow;
-use alloc::boxed::Box;
-use alloc::vec;
-
-use paperpaw_sdk::{Env, FormatSpec, Id, Manifest, Plugin, RegisterError, Registrar};
-
 pub use document::DocxDocument;
-
-pub const PLUGIN: Id = Id::new_static("format-docx");
-pub const FORMAT: Id = Id::new_static("format-docx.docx");
-
-/// The Word documents format plugin.
-#[derive(Debug, Default)]
-pub struct DocxFormat;
-
-/// How it works, by language (see `Manifest::how`).
-static HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../how/en.txt")),
-    ("de", include_str!("../how/de.txt")),
-];
 
 /// The most the text of a document may be, unpacked, in bytes.
 pub(crate) const MAX_TEXT: u32 = 64 << 20;
@@ -103,29 +83,6 @@ pub(crate) const UNDER: u8 = 4;
 pub(crate) const STRIKE: u8 = 8;
 pub(crate) const SUP: u8 = 16;
 pub(crate) const SUB: u8 = 32;
-
-impl Plugin for DocxFormat {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(PLUGIN, "DOCX documents", paperpaw_sdk::package_version!())
-            .description("Opens .docx files, as saved by Word and other programs.")
-            .how(&HOW)
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        // What is converted of each document, moved and removed with it.
-        r.add_book_cache(Env::plugin_dir(PLUGIN.as_str()), "")?;
-        r.add_format(FormatSpec::new(
-            FORMAT,
-            "format-docx.title",
-            vec![Cow::Borrowed("docx")],
-            Box::new(document::opener),
-        ))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
-        Ok(())
-    }
-}
 
 #[cfg(test)]
 mod tests {

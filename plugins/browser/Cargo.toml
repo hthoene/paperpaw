@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-browser"
 description = "PaperPaw browser: reads web pages like books and fetches books and fonts from the web"
-version = "1.0.8"
+version = "1.0.9"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -28,8 +28,11 @@ paperpaw-core.workspace = true
 paperpaw-native.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
-paperpaw-plugin-format-epub.workspace = true
+paperpaw-epub-family.workspace = true
 proptest.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.paperpaw]
+card-files = ["i18n/*.ini"]

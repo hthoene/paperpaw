@@ -10,21 +10,23 @@
 //! payload and the tag translation belong to the generated `core.format`
 //! schema and are layered on these bytes.
 //!
-//! Peak memory of one call: the framed call (at most 4 KiB) and the reply
-//! buffer (at most 3,840 bytes), both allocated fallibly before the format is
-//! entered and freed on return. Nothing is retained.
+//! Peak memory of one call: the framed call (at most 4 KiB), allocated
+//! fallibly before the format is entered and freed on return. The format
+//! answers straight into the caller's `out` (at most 3,840 bytes of it), as
+//! through a plugin's frame (`fmt_call::FrameRoute`): no copy of the reply is
+//! held (#248). Nothing is retained.
 use super::{
     native_instances::{InstanceState, NativeInstances},
     native_screen::Dispatch,
     registrations::{self as wire, Record},
     stage_wire,
 };
+use crate::Place;
 use crate::native_host::codec;
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE,
 };
-use paperpaw_sdk::Env;
 
 /// The host-defined stage key and its major.
 pub(crate) const STAGE: &str = "core.format";
@@ -53,24 +55,13 @@ fn scratch(capacity: usize) -> Result<Vec<u8>, i32> {
     Ok(bytes)
 }
 
-/// Call the format with `payload` (the encoded `fmt.call` and its options) and
-/// write its counted reply batch at the front of `out`; returns its length.
+/// `payload` as the one `stage.call` record the format's `core.format` token
+/// takes, framed as a batch.
 ///
 /// # Errors
-/// `ERR_NO_SPACE` for a payload over 3,840 bytes, `ERR_NO_MEMORY` when a
-/// buffer cannot be had (the format is not entered), `ERR_CANCELLED` when the
-/// format plugin is not running, `ERR_BUSY` when it has not started yet (the
-/// start is requested; the caller asks again) or is the calling plugin
-/// itself, `ERR_INVALID` for a reply that is longer than the buffer or not
-/// whole frames (the format is told with `dropped`), and the format's own
-/// negative status otherwise. `out` is written only on success.
-pub(crate) fn call(
-    registry: &NativeInstances,
-    target: Target,
-    payload: &[u8],
-    out: &mut [u8],
-    env: &Env<'_>,
-) -> Result<usize, i32> {
+/// `ERR_NO_SPACE` for a payload over 3,840 bytes or a framed call over 4 KiB,
+/// `ERR_NO_MEMORY`.
+pub(crate) fn framed(payload: &[u8]) -> Result<Vec<u8>, i32> {
     if payload.len() > PAYLOAD_MAX {
         return Err(ERR_NO_SPACE);
     }
@@ -87,7 +78,36 @@ pub(crate) fn call(
     if codec::encode_batch(&[record], &mut framed)? != capacity {
         return Err(ERR_INVALID);
     }
-    let mut reply = scratch(out.len().min(PAYLOAD_MAX))?;
+    Ok(framed)
+}
+
+/// The reply of a format call is whole frames of at most the stage's rows.
+pub(crate) fn accept_reply(bytes: &[u8]) -> Result<(), i32> {
+    stage_wire::validate_reply(bytes, PAYLOAD_MAX, REPLY_ROWS)
+}
+
+/// Call the format with `payload` (the encoded `fmt.call` and its options) and
+/// write its counted reply batch at the front of `out`; returns its length.
+///
+/// # Errors
+/// `ERR_NO_SPACE` for a payload over 3,840 bytes, `ERR_NO_MEMORY` when a
+/// buffer cannot be had (the format is not entered), `ERR_CANCELLED` when the
+/// format plugin is not running, `ERR_BUSY` when it has not started yet (the
+/// start is requested; the caller asks again) or is the calling plugin
+/// itself, `ERR_INVALID` for a reply that is longer than the buffer or not
+/// whole frames (the format is told with `dropped`), and the format's own
+/// negative status otherwise. Before the format is asked, `out` is untouched;
+/// on an error after it, its reply room (the first 3,840 bytes at most) is
+/// zeros: nothing the format wrote there is passed on.
+pub(crate) fn call(
+    registry: &NativeInstances,
+    target: Target,
+    payload: &[u8],
+    out: &mut [u8],
+    (env, entered): (&Place<'_>, &core::cell::Cell<bool>),
+) -> Result<usize, i32> {
+    let framed = framed(payload)?;
+    let room = out.len().min(PAYLOAD_MAX);
     // The retained epoch keeps start requests from flushing under this call.
     let _epoch = registry.callback()?;
     let lease = match registry.state(target.plugin)? {
@@ -98,11 +118,21 @@ pub(crate) fn call(
         }
         InstanceState::Stopped => return Err(ERR_CANCELLED),
     };
-    let result = lease.stage(target.token, &framed, &mut reply, env);
+    let reply = &mut out[..room];
+    // From here the payload is the format's (Senior, R1 on #1368).
+    entered.set(true);
+    let result = lease.stage(target.token, &framed, reply, env);
     // A negative result is the format's own status and passes through; it is
     // not a misbehaviour. Only a reply the host cannot take is dropped.
-    let length = result?;
+    let length = match result {
+        Ok(length) => length,
+        Err(status) => {
+            reply.fill(0);
+            return Err(status);
+        }
+    };
     let Ok(length) = usize::try_from(length) else {
+        reply.fill(0);
         return Err(length);
     };
     let valid = reply
@@ -110,11 +140,9 @@ pub(crate) fn call(
         .ok_or(ERR_INVALID)
         .and_then(|bytes| stage_wire::validate_reply(bytes, PAYLOAD_MAX, REPLY_ROWS));
     match valid {
-        Ok(()) => {
-            out[..length].copy_from_slice(&reply[..length]);
-            Ok(length)
-        }
+        Ok(()) => Ok(length),
         Err(status) => {
+            reply.fill(0);
             lease.dropped(target.token, status);
             Err(status)
         }

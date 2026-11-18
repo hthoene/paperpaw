@@ -1,0 +1,3 @@
+### Added
+
+- USB developer tools (Customise > Developer, "USB developer tools"): a computer on the USB cable can press keys, take screenshots and read and write books and plugin files (`tools/x4-dev.py`, `docs/developer-link.md`). The kernel enforces the rules itself: it is off by default and on only after a question on the device, off again after every restart, sleep, unplugged cable or ten quiet minutes; a `DEV` mark shows while it is on; secrets (`.paperpaw`, Wi-Fi, keys, `secrets*`), code and firmware are never read or written, files are limited to the library, `plugins/<id>/` and `screenshots/`, and commands are rate limited. The row is hidden where USB cannot carry it. No interface change (#12).

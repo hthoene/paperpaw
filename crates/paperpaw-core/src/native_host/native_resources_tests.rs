@@ -1,6 +1,7 @@
 //! Font and hyphenation records of a native plugin: published with the rest,
 //! all or nothing, and gone with the plugin.
 use super::*;
+use alloc::string::String;
 
 /// The batch of the resource mode `res`: the screen and
 /// 1 the three kinds; 2 a face with no family; 3 a language twice; 4 an
@@ -16,7 +17,9 @@ pub(super) fn batch(
             name: "serif",
             path,
             family,
-            style: 1,
+            // The family's regular face (a family is offered where it has
+            // one); bold where the weight is to differ from the bit.
+            style: u32::from(res == 5),
             weight,
             role: "core.font-ui",
             priority: 5,
@@ -175,10 +178,13 @@ fn a_language_twice_refuses_the_whole_plugin() {
 #[test]
 fn a_merge_refusal_takes_the_tables_out_again() {
     let mut kernel = fresh();
-    kernel.shared.actions.insert(paperpaw_sdk::ActionSpec::new(
-        Id::new_static("factory.action"),
-        "other",
-    ));
+    kernel
+        .shared
+        .actions
+        .insert(crate::kit::action::ActionSpec::new(
+            Id::new_static("factory.action"),
+            "other",
+        ));
     let result = install_resources(&mut kernel, 4, FOLDER);
     assert!(result.is_err(), "{result:?}");
     nothing_published(&kernel);
@@ -340,44 +346,16 @@ fn every_allocation_of_an_install_with_resources_refuses_whole() {
     );
 }
 
-/// A reader of every format, and the format `t.txt` they read.
-fn two_readers_of_a_format(kernel: &mut crate::Kernel) {
-    use alloc::borrow::Cow;
-    use paperpaw_sdk::FormatSpec;
-    use paperpaw_sdk::readers::ReaderSpec;
-    let format = FormatSpec::new(
-        Id::new_static("t.txt"),
-        "TXT",
-        vec![Cow::Borrowed("txt")],
-        Box::new(|_, _, _| Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat)),
-    );
-    kernel.shared.formats.add(format).unwrap();
-    for reader in ["t.a", "t.b"] {
-        let screen = Id::new_static("t.screen");
-        kernel
-            .shared
-            .readers
-            .add(ReaderSpec::new(Id::new_static(reader), screen));
-    }
-}
-
 #[test]
 fn every_allocation_of_the_choices_refresh_keeps_what_was_or_makes_what_is_new() {
     use alloc::borrow::Cow;
     use alloc::string::ToString;
     use paperpaw_sdk::{SettingKind, SettingSpec, SettingValue};
-    const SETTINGS: [&str; 5] = [
-        "core.reading-font",
-        "core.status-font",
-        "core.reading-app",
-        "t.mode",
-        "core.reading-app.t.txt",
-    ];
+    const SETTINGS: [&str; 3] = ["core.reading-font", "core.status-font", "t.mode"];
     // Offered by a plugin: `t.b`, among the choices of its own setting.
     static MODES: [&str; 1] = ["t.a"];
     let prepare = |kernel: &mut crate::Kernel| {
         admit_resources(kernel, 1, FOLDER).unwrap();
-        two_readers_of_a_format(kernel);
         let mode = SettingSpec::new(
             Id::new_static("t.mode"),
             "t.mode",
@@ -418,10 +396,9 @@ fn every_allocation_of_the_choices_refresh_keeps_what_was_or_makes_what_is_new()
     let made = state(&twin);
     assert!(made[0].as_ref().unwrap().iter().any(|f| f == "Serif"));
     assert_eq!(
-        made[3].as_deref(),
+        made[2].as_deref(),
         Some(&["t.a".to_string(), "t.b".to_string()][..])
     );
-    assert!(made[4].is_some(), "the setting for the format is made");
     assert!(twin.plugin_choices.is_empty());
     let (mut kept, mut done) = (0, 0);
     for allocation in 1..600 {
@@ -442,7 +419,7 @@ fn every_allocation_of_the_choices_refresh_keeps_what_was_or_makes_what_is_new()
         // A choice not added is still waiting for the next refresh.
         assert_eq!(
             kernel.plugin_choices.len(),
-            usize::from(after[3] == before[3]),
+            usize::from(after[2] == before[2]),
             "at {allocation}"
         );
         // The family in use is the one before or the one chosen, whole.
@@ -521,4 +498,32 @@ fn a_pack_that_cannot_be_opened_closes_the_packs_the_call_opened() {
     assert_eq!(kernel.shared.fonts.try_load(&storage), Ok(Vec::new()));
     assert!(kernel.shared.fonts.get("t.regular").is_some());
     assert!(kernel.shared.fonts.get("t.bold").is_some());
+}
+
+#[test]
+fn hosted_owners_share_one_host_table_and_cost_a_bounded_heap() {
+    let mut kernel = kernel(0);
+    let live = || crate::native_host::shell::tests::HEAP_LIVE.with(Cell::get);
+    let before = live();
+    let owners = ["b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8"];
+    for owner in owners {
+        kernel
+            .register_native(
+                host_named(owner, 0),
+                &device_depth(&kernel),
+                |_, _, _, _| {},
+            )
+            .unwrap();
+    }
+    let each = (live() - before) / owners.len();
+    std::println!("host heap per registered native owner (x86_64, with its test plugin): {each} B");
+    // x86_64 pointers are twice the X4's; abi/heap-word.md section 9 has the
+    // riscv32 sizes. Bounded here so that growth shows in review: with one
+    // sorted list per owner (not a table per kind) the cost does not grow
+    // with the kinds.
+    assert!(each <= 2_048, "{each} B per owner");
+    // Every owner's `make` was handed the same static table, not a copy.
+    let tables = TABLES.with(|tables| tables.borrow().clone());
+    assert!(tables.len() > owners.len());
+    assert!(tables.windows(2).all(|pair| pair[0] == pair[1]));
 }

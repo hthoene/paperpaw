@@ -1,19 +1,14 @@
-//! The native declarations name what the interface-6 registration names for
-//! what is ported: the menu style setting (id, title, help, group, choices),
-//! the list and panel screens and the slots they fill. The notice is not
-//! declared (see `PORTING-7.md`).
+//! The native declarations are those pinned in `tests/pinned/declarations.txt`
+//! (written while the interface-6 registration was still compared with them):
+//! the menu style setting (id, title, help, group, choices), the list and
+//! panel screens and the slots they fill. The notice is not declared (see
+//! `PORTING-7.md`).
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 mod declarations;
-use paperpaw_plugin_menu::Menu;
+#[path = "../../test-support/declared.rs"]
+mod declared;
 use paperpaw_sdk::native::declare::Declarations;
-use paperpaw_sdk::{Contribution, Id, Plugin, Registrar, SettingKind};
-
-fn legacy() -> Vec<Contribution> {
-    let mut r = Registrar::new(Id::new_static("menu"));
-    Menu.register(&mut r).unwrap();
-    r.into_contributions()
-}
 
 fn batches(
     declare: impl FnOnce(&mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>),
@@ -31,64 +26,16 @@ fn batches(
 }
 
 #[test]
-fn the_style_setting_matches_the_interface_6_registration() {
-    let mut found = Vec::new();
-    for contribution in legacy() {
-        if let Contribution::FixedSettings(settings) = contribution {
-            for spec in settings.iter() {
-                let SettingKind::Choice(options) = &spec.kind else {
-                    panic!("the style is a choice");
-                };
-                let default = format!("{:?}", spec.default);
-                found.push((
-                    spec.id.as_str().to_string(),
-                    spec.title.to_string(),
-                    spec.description.as_deref().map(str::to_string),
-                    spec.group.as_str().to_string(),
-                    options.iter().map(ToString::to_string).collect::<Vec<_>>(),
-                    default,
-                ));
-            }
-        }
-    }
-    assert_eq!(
-        found,
-        [(
-            "menu.style".to_string(),
-            "menu.setting.style".to_string(),
-            Some("menu.setting.style.help".to_string()),
-            "core.group.look".to_string(),
-            vec![
-                "menu.style.list".to_string(),
-                "menu.style.tiles".to_string()
-            ],
-            "Text(\"menu.style.list\")".to_string(),
-        )]
-    );
+fn the_declarations_are_the_pinned_ones() {
+    let mut all = Vec::new();
+    all.extend(batches(|d| declarations::settings(d).unwrap()));
+    all.extend(batches(|d| declarations::screens(d).unwrap()));
+    all.extend(batches(|d| declarations::navigation(d).unwrap()));
+    all.extend(batches(|d| declarations::events(d).unwrap()));
+    let native = declared::native("menu", &all);
+    declared::assert_pinned("declarations", &native);
+    assert_eq!(native.specs.len(), 1);
     assert_eq!(batches(|d| declarations::settings(d).unwrap()).len(), 1);
-}
-
-#[test]
-fn the_list_screen_and_its_slot_match() {
-    let mut screens = Vec::new();
-    let mut slots = Vec::new();
-    for contribution in legacy() {
-        match contribution {
-            Contribution::FixedScreens(list) => {
-                for s in list.iter() {
-                    screens.push((s.id().as_str().to_string(), s.title().to_string()));
-                }
-            }
-            Contribution::SlotBinding { slot, screen, .. } => {
-                slots.push((slot.to_string(), screen.to_string()));
-            }
-            _ => {}
-        }
-    }
-    assert!(screens.contains(&("menu.list".to_string(), "menu.title".to_string())));
-    assert!(screens.contains(&("menu.panel".to_string(), "menu.title".to_string())));
-    assert!(slots.contains(&("core.menu".to_string(), "menu.list".to_string())));
-    assert!(slots.contains(&("core.panel".to_string(), "menu.panel".to_string())));
     assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);
     assert_eq!(batches(|d| declarations::navigation(d).unwrap()).len(), 1);
     assert_eq!(batches(|d| declarations::events(d).unwrap()).len(), 1);

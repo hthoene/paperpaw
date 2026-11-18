@@ -705,6 +705,86 @@ fn screen_and_action_tokens_and_flags_round_trip() {
 }
 
 #[test]
+fn a_screen_declared_with_its_hints_hidden_has_flag_bit_8() {
+    let mut batches = Vec::new();
+    let mut d = collecting(&mut batches);
+    d.screen(ScreenDecl::new("sleep", "demo.sleep.title", 1).hints_hidden())
+        .unwrap();
+    d.screen(
+        ScreenDecl::new("lock", "demo.lock.title", 2)
+            .guards()
+            .hints_hidden(),
+    )
+    .unwrap();
+    d.submit().unwrap();
+    drop(d);
+    let batch = records_decode(&batches[0]).unwrap();
+    let flags: Vec<u32> = batch
+        .iter()
+        .filter_map(|record| match record {
+            Record::ScreenSpec(screen) => Some(screen.flags),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(flags, [0x100, 0x102]);
+}
+
+#[test]
+fn an_overlay_declared_to_dim_what_is_below_has_flag_bit_10() {
+    let mut batches = Vec::new();
+    let mut d = collecting(&mut batches);
+    d.screen(
+        ScreenDecl::new("menu", "demo.menu.title", 1)
+            .overlay()
+            .dims_below(),
+    )
+    .unwrap();
+    d.screen(
+        ScreenDecl::new("panel", "demo.panel.title", 2)
+            .overlay()
+            .hints_hidden()
+            .dims_below(),
+    )
+    .unwrap();
+    d.submit().unwrap();
+    drop(d);
+    let batch = records_decode(&batches[0]).unwrap();
+    let flags: Vec<u32> = batch
+        .iter()
+        .filter_map(|record| match record {
+            Record::ScreenSpec(screen) => Some(screen.flags),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(flags, [0x404, 0x504]);
+}
+
+#[test]
+fn a_screen_declared_best_in_grays_has_flag_bit_9() {
+    let mut batches = Vec::new();
+    let mut d = collecting(&mut batches);
+    d.screen(ScreenDecl::new("page", "demo.page.title", 1).grays())
+        .unwrap();
+    d.screen(
+        ScreenDecl::new("sleep", "demo.sleep.title", 2)
+            .hints_hidden()
+            .grays(),
+    )
+    .unwrap();
+    d.submit().unwrap();
+    drop(d);
+    let batch = records_decode(&batches[0]).unwrap();
+    let flags: Vec<u32> = batch
+        .iter()
+        .filter_map(|record| match record {
+            Record::ScreenSpec(screen) => Some(screen.flags),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(flags, [0x200, 0x300]);
+}
+
+#[test]
 fn screen_and_action_generated_caps_are_inclusive() {
     let screen_name = "n".repeat(records_wire::SCREEN_SPEC_NAME_MAX_BYTES);
     let screen_title = "t".repeat(records_wire::SCREEN_SPEC_TITLE_MAX_BYTES);
@@ -855,3 +935,4 @@ fn a_lookup_provider_is_refused_for_what_the_host_would_refuse() {
 mod format;
 #[path = "tests/library.rs"]
 mod library;
+mod reader;

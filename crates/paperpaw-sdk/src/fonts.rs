@@ -10,6 +10,12 @@ use paperpaw_platform::Color;
 use paperpaw_text::sfnt::FontInfo;
 use paperpaw_text::{Font, GlyphCache, LineMetrics, PackLimits};
 
+#[cfg(any(test, feature = "kernel"))]
+pub use built_in::{BuiltInFont, BuiltInFonts};
+#[cfg(any(test, feature = "kernel"))]
+pub use memo::RoleMemo;
+#[cfg(any(test, feature = "kernel"))]
+pub use storage::{OpenError, open_file};
 use storage::{Stored, read_font};
 
 use crate::builtin::fonts as roles;
@@ -183,6 +189,9 @@ pub struct Fonts {
     /// [`STATUS_FONT`](crate::builtin::settings::STATUS_FONT).
     status: Option<String>,
     cache: RefCell<GlyphCache>,
+    /// The glyph cache's size as the shell made it, which it is while no
+    /// pack of thousands of characters is open ([`Fonts::fit_cache`]).
+    base_cache: usize,
     /// Only described or not, and the letters drawn missing.
     drawing: Drawing,
     /// What a font pack read from the storage may take of memory: the
@@ -226,6 +235,7 @@ impl Fonts {
             family: None,
             status: None,
             cache: RefCell::new(GlyphCache::new(cache_bytes)),
+            base_cache: cache_bytes,
             drawing: Drawing::default(),
             ui_ink: paperpaw_text::TextInk::DEFAULT,
             pack_limits: PackLimits::SMALL,
@@ -489,7 +499,7 @@ impl Fonts {
     }
 
     /// How the UI font's letters are inked from now on
-    /// ([`ui::text_ink`](crate::ui::text_ink)), which its handles carry.
+    /// (`ui::text_ink`), which its handles carry.
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn set_ui_ink(&mut self, ink: paperpaw_text::TextInk) {
@@ -575,8 +585,29 @@ impl Fonts {
     /// family's face, else the best proposal, else the first font.
     pub fn role(&self, role: &str) -> Option<FontHandle<'_>> {
         let font = self.role_plain(role)?;
+        Some(self.ui_inked(role, font))
+    }
+
+    /// [`Fonts::role`], found once per change of the fonts: `memo` is the
+    /// kernel's, which it forgets with every change.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn role_in(&self, memo: &RoleMemo, role: &str) -> Option<FontHandle<'_>> {
+        let font = memo.found(self, false, role, || self.role_plain(role))?;
+        Some(self.ui_inked(role, font))
+    }
+
+    /// [`Fonts::bound`], found once per change of the fonts (as
+    /// [`Fonts::role_in`]).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn bound_in(&self, memo: &RoleMemo, role: &str) -> Option<FontHandle<'_>> {
+        memo.found(self, true, role, || self.bound(role))
+    }
+
+    fn ui_inked<'a>(&self, role: &str, font: FontHandle<'a>) -> FontHandle<'a> {
         let ui = role == crate::builtin::fonts::UI.as_str();
-        Some(if ui { font.inked(self.ui_ink) } else { font })
+        if ui { font.inked(self.ui_ink) } else { font }
     }
 
     fn role_plain(&self, role: &str) -> Option<FontHandle<'_>> {
@@ -598,13 +629,34 @@ impl Fonts {
     /// The font bound to `role` by the user, a chosen family or a plugin;
     /// unlike [`Fonts::role`], no fallback, for optional roles such as bold
     /// faces (a chosen family without bold has none, so its regular face
-    /// is used rather than another family's bold).
+    /// is used rather than another family's bold). A family's or a
+    /// plugin's bold or italic for book text counts only where book text
+    /// is in that family: else the regular face stands in for it too.
     pub fn bound(&self, role: &str) -> Option<FontHandle<'_>> {
         let user = self.user.get(role).and_then(|id| self.get(id.as_str()));
-        user.or_else(|| match self.family_face(role) {
-            Some(face) => face,
-            None => self.proposed(role),
+        user.or_else(|| {
+            let face = match self.family_face(role) {
+                Some(face) => face,
+                None => self.proposed(role),
+            }?;
+            self.of_the_book(role, &face).then_some(face)
         })
+    }
+
+    /// Whether `face` may set book text in the style of `role`: any font
+    /// for a role that is not a style of book text, else one of the
+    /// family the regular book text is in (both of no family count as
+    /// one, as fonts registered without a family always did).
+    fn of_the_book(&self, role: &str, face: &FontHandle<'_>) -> bool {
+        if !is_book_style(role) {
+            return true;
+        }
+        let family = |font: &FontHandle<'_>| {
+            let entry = self.entries.get(usize::from(font.index))?;
+            entry.family.as_deref()
+        };
+        self.role_plain(roles::READING.as_str())
+            .is_none_or(|regular| family(&regular) == family(face))
     }
 
     /// Whether the user chose the font for `role` in the configuration.
@@ -617,7 +669,6 @@ impl Fonts {
         self.cache.borrow().bytes()
     }
 
-    paperpaw_table::shared! {
     /// How many times a font pack read from a card could not read an
     /// advance or a glyph (a card pulled, memory short), over the fonts
     /// loaded, wrapping. A layout that keeps pages (a book's page index)
@@ -628,10 +679,8 @@ impl Fonts {
             .iter()
             .filter_map(|entry| entry.font.as_ref())
             .fold(0, |sum, font| sum.wrapping_add(font.failed_reads()))
-    } @ text::FONTS_FAILED_READS
     }
 
-    paperpaw_table::shared! {
     /// A handle of loaded entry `index`, with the fonts asked for the
     /// characters it lacks: its extensions, the fallback font and the
     /// fallback's extensions.
@@ -696,7 +745,6 @@ impl Fonts {
             ligatures: false,
             ink: paperpaw_text::TextInk::DEFAULT,
         }
-    } @ text::FONTS_HANDLE
     }
 
     /// The loaded packs that extend entry `index`.
@@ -727,6 +775,17 @@ impl Fonts {
             .iter()
             .position(|e| e.id.as_str() == id && e.font.is_some())
     }
+}
+
+/// Whether `role` is a style of book text: its bold, italic or bold
+/// italic.
+fn is_book_style(role: &str) -> bool {
+    let styles = [
+        roles::READING_BOLD,
+        roles::READING_ITALIC,
+        roles::READING_BOLD_ITALIC,
+    ];
+    styles.iter().any(|style| style.as_str() == role)
 }
 
 /// Fonts a plugin loads itself, e.g. the fonts embedded in a book, with
@@ -851,7 +910,6 @@ impl<'a> FontHandle<'a> {
         self.font
     }
 
-    paperpaw_table::shared! {
     /// The largest size text can be set in, in pixels: a font pack has
     /// the sizes it was made in, and those of a pack that extends it with
     /// larger ones; `None` for a scalable font, which has every size.
@@ -861,7 +919,6 @@ impl<'a> FontHandle<'a> {
             Some(larger) => Some(own.map_or(larger, |own| own.max(larger))),
             None => own,
         }
-    } @ text::HANDLE_LARGEST_SIZE
     }
 
     /// The handle of the pack that extends this one with larger sizes, for
@@ -879,7 +936,6 @@ impl<'a> FontHandle<'a> {
         })
     }
 
-    paperpaw_table::shared! {
     /// Ascent, descent and line height at `size` pixels: of the size text
     /// is drawn at (see [`FontHandle::size_for`]; for a display, the size
     /// asked).
@@ -889,10 +945,8 @@ impl<'a> FontHandle<'a> {
         }
         self.font()
             .line_metrics(self.font().size_for(size, "", self.display))
-    } @ text::HANDLE_LINE_METRICS
     }
 
-    paperpaw_table::shared! {
     /// How far apart the lines of a heading or title set on more lines
     /// are, in pixels: closer than those of text (its line height, about
     /// 1.4 times the size with the default font), 1.2 times the size, so
@@ -907,7 +961,6 @@ impl<'a> FontHandle<'a> {
         // In whole pixels, rounded up (no float rounding in `no_std`).
         let apart = (drawn * HEADING_LEADING + 0.999) as u32 as f32;
         apart.min(self.line_metrics(size).line_height)
-    } @ text::HANDLE_HEADING_LINE_HEIGHT
     }
 
     /// The font that draws `ch` and its number in the cache: this one,
@@ -925,7 +978,6 @@ impl<'a> FontHandle<'a> {
             .unwrap_or((self.font, self.index))
     }
 
-    paperpaw_table::shared! {
     /// Whether this font (or its fallback) draws `ch`; without it, the
     /// character would show as a question mark or not at all.
     pub fn has_char(&self, ch: char) -> bool {
@@ -935,15 +987,12 @@ impl<'a> FontHandle<'a> {
                 .iter()
                 .flatten()
                 .any(|(font, _)| font.has_char(ch))
-    } @ text::HANDLE_HAS_CHAR
     }
 
-    paperpaw_table::shared! {
     /// Horizontal advance of one character in pixels, at the size it is
     /// drawn at alone (see [`FontHandle::size_for`]).
     pub fn advance(&self, size: f32, ch: char) -> f32 {
         self.advance_by(size, ch, None)
-    } @ text::HANDLE_ADVANCE
     }
 
     /// [`FontHandle::advance`], `font` the one [`FontHandle::pick`] gives
@@ -995,7 +1044,6 @@ impl<'a> FontHandle<'a> {
         self.ink
     }
 
-    paperpaw_table::shared! {
     /// How much `right` moves when it follows `left` at `size`, in pixels
     /// (negative: closer), as [`FontHandle::measure`] and the drawing
     /// methods set the pair: the font's kerning (none where the two are
@@ -1026,7 +1074,6 @@ impl<'a> FontHandle<'a> {
             false => size,
         };
         self.pair_in(font, size, left, right)
-    } @ text::HANDLE_KERN
     }
 
     /// The adjustment of a pair both drawn by `font` at `size` (see
@@ -1057,7 +1104,6 @@ impl<'a> FontHandle<'a> {
         }
     }
 
-    paperpaw_table::shared! {
     /// The size `text` is drawn at when asked for `size`: the nearest size
     /// of a pack that has all of its characters (see
     /// [`FontHandle::display`]), one for the whole text; `size` where the
@@ -1066,11 +1112,10 @@ impl<'a> FontHandle<'a> {
         if let Some(larger) = self.larger_for(size) {
             return larger.size_for(size, text);
         }
-        self.font.size_for(size, text, self.display)
-    } @ text::HANDLE_SIZE_FOR
+        let size = self.font.size_for(size, text, self.display);
+        self.reached(size, text)
     }
 
-    paperpaw_table::shared! {
     /// Width of a single line of text in pixels, its pairs kerned (see
     /// [`FontHandle::kern`]); with letters of right-to-left scripts, as
     /// [`FontHandle::draw`] sets them (Arabic joined).
@@ -1078,8 +1123,9 @@ impl<'a> FontHandle<'a> {
         if let Some(larger) = self.larger_for(size) {
             return larger.measure(size, text);
         }
-        // Hangul in jamo: set as its syllables.
-        if paperpaw_text::has_jamo(text) {
+        // Hangul in jamo: set as its syllables; Bengali and Devanagari
+        // shaped.
+        if paperpaw_text::has_jamo(text) || paperpaw_text::has_indic(text) {
             return self.measure_in(size, text, &paperpaw_text::Around::NONE);
         }
         // Right to left, or both ways: as drawn (see `FontHandle::line`).
@@ -1107,17 +1153,15 @@ impl<'a> FontHandle<'a> {
             before = Some((ch, index));
         }
         width
-    } @ text::HANDLE_MEASURE
     }
 
-    paperpaw_table::shared! {
     /// How far the ink of one line of `text` reaches above and below its
     /// baseline, in pixels (above negative), counting pixels at least half
     /// covered, as panels of black and white show them: what centres it
-    /// by its ink rather than by its line ([`Ui::header`]). `None`
+    /// by its ink rather than by its line (`Ui::header`). `None`
     /// for text without ink (spaces).
     ///
-    /// [`Ui::header`]: crate::ui::Ui::header
+    /// `Ui::header`: crate::ui::Ui::header
     pub fn ink(&self, size: f32, text: &str) -> Option<(i32, i32)> {
         if let Some(larger) = self.larger_for(size) {
             return larger.ink(size, text);
@@ -1133,11 +1177,7 @@ impl<'a> FontHandle<'a> {
         for ch in text.chars() {
             let (font, index) = self.pick(ch);
             let glyph = cache.glyph(index, font, ch, size);
-            let inked = |y: u16| (0..glyph.width).any(|x| glyph.coverage(x, y) >= 128);
-            let (Some(first), Some(last)) = (
-                (0..glyph.height).find(|y| inked(*y)),
-                (0..glyph.height).rev().find(|y| inked(*y)),
-            ) else {
+            let Some((first, last, ..)) = glyph.ink_box() else {
                 continue;
             };
             let top = i32::from(glyph.top) + i32::from(first);
@@ -1145,10 +1185,8 @@ impl<'a> FontHandle<'a> {
             ink = Some(ink.map_or((top, bottom), |(t, b)| (t.min(top), b.max(bottom))));
         }
         ink
-    } @ text::HANDLE_INK
     }
 
-    paperpaw_table::shared! {
     /// Where the ink of `text` at `size` begins and ends across, from the
     /// pen's start, in pixels (counting pixels at least half covered, as
     /// [`FontHandle::ink`] does): what centres it by its ink rather than by
@@ -1181,28 +1219,41 @@ impl<'a> FontHandle<'a> {
             // Where it is drawn ([`FontHandle::draw`]).
             let at = paperpaw_text::glyph_x(pen, glyph.left, mark && !based);
             based |= !mark;
-            let inked = |x: u16| (0..glyph.height).any(|y| glyph.coverage(x, y) >= 128);
-            if let (Some(first), Some(last)) = (
-                (0..glyph.width).find(|x| inked(*x)),
-                (0..glyph.width).rev().find(|x| inked(*x)),
-            ) {
+            if let Some((.., first, last)) = glyph.ink_box() {
                 let (left, right) = (at + i32::from(first), at + i32::from(last) + 1);
                 ink = Some(ink.map_or((left, right), |(l, r)| (l.min(left), r.max(right))));
             }
             pen += glyph.advance;
         }
         ink
-    } @ text::HANDLE_INK_ACROSS
     }
 
-    paperpaw_table::shared! {
     /// Breaks `text` into lines that fit `max_width`, its pairs kerned
     /// within each line as drawn; Arabic letters as wide as drawn joined.
     pub fn wrap(&self, size: f32, text: &str, max_width: f32) -> Vec<Range<usize>> {
         let joined = paperpaw_text::bidi::needs_bidi(text);
+        let indic = paperpaw_text::has_indic(text);
         let line = self.line();
         let shown = |c: &char| !paperpaw_text::is_mark(*c);
         let advance = |at: usize, ch: char| {
+            // A Bengali or Devanagari word, a Khmer, Lao or Tibetan
+            // syllable as wide as drawn, on its first character.
+            if indic
+                && matches!(
+                    ch,
+                    '\u{900}'..='\u{9FF}'
+                        | '\u{E80}'..='\u{FFF}'
+                        | '\u{1780}'..='\u{17FF}'
+                        | '\u{200C}'
+                        | '\u{200D}'
+                )
+            {
+                let part = paperpaw_text::shaped_at(text, at);
+                return match part.start == at {
+                    true => self.measure(size, text.get(part).unwrap_or_default()),
+                    false => 0.0,
+                };
+            }
             let mut buffer = [0u8; 4];
             let one = ch.encode_utf8(&mut buffer);
             if !joined {
@@ -1211,18 +1262,22 @@ impl<'a> FontHandle<'a> {
             // In the form its neighbours give it, as drawn (a line breaks
             // at a space mostly, which no letter joins).
             let before = text.get(..at).and_then(|t| t.chars().rev().find(shown));
-            let after = text.get(at + ch.len_utf8()..).and_then(|t| t.chars().find(shown));
+            let after = text
+                .get(at + ch.len_utf8()..)
+                .and_then(|t| t.chars().find(shown));
             self.measure_in(size, one, &line.with_context(before, after))
         };
-        let kern = |_: usize, left: char, right: char| self.kern(size, left, right);
+        let indic_char = |c: char| matches!(c, '\u{900}'..='\u{9FF}' | '\u{E80}'..='\u{FFF}' | '\u{1780}'..='\u{17FF}');
+        let kern = |_: usize, left: char, right: char| match indic_char(left) || indic_char(right) {
+            true => 0.0,
+            false => self.kern(size, left, right),
+        };
         paperpaw_text::wrap_lines_kerned(text, |_| max_width, advance, kern, None)
             .into_iter()
             .map(|line| line.range)
             .collect()
-    } @ text::HANDLE_WRAP
     }
 
-    paperpaw_table::shared! {
     /// Draws one line with its baseline at `baseline`; returns its width.
     /// Letters of right-to-left scripts are shown in their order, Arabic
     /// joined: on a line running right to left where the handle's ink says
@@ -1242,10 +1297,8 @@ impl<'a> FontHandle<'a> {
         color: Color,
     ) -> f32 {
         self.draw_bolder(canvas, size, x, baseline, text, color, 0)
-    } @ text::HANDLE_DRAW
     }
 
-    paperpaw_table::shared! {
     /// Like [`FontHandle::draw`], with glyphs widened by `extra` pixels
     /// (e.g. a reader's font weight setting).
     #[allow(
@@ -1264,10 +1317,8 @@ impl<'a> FontHandle<'a> {
     ) -> f32 {
         let tone = self.ink.tone();
         self.draw_toned(canvas, size, x, baseline, text, color, extra, tone)
-    } @ text::HANDLE_DRAW_BOLDER
     }
 
-    paperpaw_table::shared! {
     /// Like [`FontHandle::draw_bolder`], the glyphs' coverage drawn in
     /// `tone`: on a contrast curve, or without grays (e.g. a reader's
     /// settings for book text).
@@ -1293,8 +1344,9 @@ impl<'a> FontHandle<'a> {
         if canvas.is_blind() || self.drawing.describing.get() {
             return self.measure(size, text);
         }
-        // Hangul in jamo: set as its syllables.
-        if paperpaw_text::has_jamo(text) {
+        // Hangul in jamo: set as its syllables; Bengali and Devanagari
+        // shaped.
+        if paperpaw_text::has_jamo(text) || paperpaw_text::has_indic(text) {
             let none = &paperpaw_text::Around::NONE;
             return self.draw_in(canvas, size, x, baseline, text, color, (extra, tone), none);
         }
@@ -1328,10 +1380,8 @@ impl<'a> FontHandle<'a> {
             rest = &rest[end..];
         }
         pen - x
-    } @ text::HANDLE_DRAW_TONED
     }
 
-    paperpaw_table::shared! {
     /// Width of `text` at `size` as [`FontHandle::draw_in`] sets it.
     pub fn measure_in(&self, size: f32, text: &str, around: &paperpaw_text::Around) -> f32 {
         if let Some(larger) = self.larger_for(size) {
@@ -1349,10 +1399,8 @@ impl<'a> FontHandle<'a> {
             true => width,
             false => paperpaw_text::measure_in(self.pick_text(text).0, size, text, around),
         }
-    } @ text::HANDLE_MEASURE_IN
     }
 
-    paperpaw_table::shared! {
     /// Draws one line of `text` as what lies `around` it asks (see
     /// [`Around`](paperpaw_text::Around)): its characters in the order
     /// they are shown, Arabic letters joined (also with `around`'s
@@ -1424,19 +1472,27 @@ impl<'a> FontHandle<'a> {
             text,
             around,
         )
-    } @ text::HANDLE_DRAW_IN
     }
 }
 
+#[cfg(any(test, feature = "kernel"))]
+mod built_in;
 mod ink;
 #[cfg(any(test, feature = "kernel"))]
 mod loading;
+#[cfg(any(test, feature = "kernel"))]
+mod memo;
 mod missing;
 use missing::Drawing;
+mod number;
 mod runs;
 mod split;
 mod storage;
 mod wanted;
 
+#[cfg(test)]
+mod cache_size_tests;
+#[cfg(test)]
+mod kept_tests;
 #[cfg(test)]
 mod tests;

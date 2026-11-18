@@ -136,6 +136,16 @@ pub(crate) fn rebuild_index(storage: &dyn Storage) -> Result<(), StorageError> {
     keep_index(storage, make_index(storage))
 }
 
+/// The index made anew where it is not there (see [`keep_index`]), as far as
+/// the memory allows: what reads the index (the sizes, the cards due) must not
+/// take a missing one for a library with nothing in it. A present index costs
+/// one `exists`.
+pub(crate) fn index_ready(storage: &dyn Storage) {
+    match rebuild_index(storage) {
+        Ok(()) | Err(_) => {}
+    }
+}
+
 /// The index of all decks, made one deck at a time.
 pub(super) fn make_index(storage: &dyn Storage) -> Result<(), StorageError> {
     for deck in decks(storage)? {

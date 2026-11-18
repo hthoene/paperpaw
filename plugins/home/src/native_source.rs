@@ -17,6 +17,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
+    Messages,
     mem::{SERVICE_BUFFER, buffer, push},
     rows,
     text::copy,
@@ -34,6 +35,8 @@ const TOOL_MENUS: [&str; 3] = ["home.actions", "core.tools", "core.apps"];
 const SCREENSHOT: &str = "core.screenshot";
 /// The settings is always a tool.
 const SETTINGS: &str = "core.settings";
+/// The icon the core gives its settings action (a gear).
+const SETTINGS_ICON: &str = "settings";
 /// The settings the pages are laid out by.
 const STATUS_BAR: &str = "home.status-bar";
 const COLUMNS: &str = "home.columns";
@@ -75,6 +78,14 @@ impl Look {
             checked: false,
             enabled: true,
         }
+    }
+
+    /// The settings tool where no menu lists it: the core's gear, enabled.
+    fn settings() -> Result<Self, Error> {
+        Ok(Self {
+            icon: copy(SETTINGS_ICON)?,
+            ..Self::plain()
+        })
     }
 
     fn of(row: &paperpaw_sdk::native::registry::RegistryMenuRow<'_>) -> Result<Self, Error> {
@@ -134,7 +145,7 @@ impl HostSource {
     /// [`Error::NoMemory`] and the host's refusals; nothing is kept in part.
     pub fn read(host: &Host<'_>, dpi: u16) -> Result<Self, Error> {
         let mut texts = Vec::new();
-        let mut scratch = buffer(TEXT_MAX + 64)?;
+        let mut scratch = buffer(TEXT_MAX)?;
         for wide in [false, true] {
             for slot in 0..MAX_PAGES {
                 let key = native_pages::setting(slot, wide)?;
@@ -236,9 +247,10 @@ impl HostSource {
             })?;
         }
         if !tools.iter().any(|(t, _)| t == SETTINGS) {
-            // Named as the core names it; the catalog key stands for the word.
-            push(&mut looks, Look::plain())?;
-            push(&mut tools, (copy(SETTINGS)?, copy("core.action.settings")?))?;
+            // Named as the core names it, in the reader's language.
+            let title = Self::settings_title(host)?;
+            push(&mut looks, Look::settings()?)?;
+            push(&mut tools, (copy(SETTINGS)?, title))?;
         }
         let mut footer = Vec::new();
         let mut footer_looks = Vec::new();
@@ -260,6 +272,19 @@ impl HostSource {
             footer,
             footer_looks,
         })
+    }
+
+    /// The core's name for Settings: its catalog text in the reader's language
+    /// (the core titles its actions by it; asking its `actions` for the same text
+    /// is a service call, several where they are paged); the catalog key where
+    /// the catalog lacks it.
+    fn settings_title(host: &Host<'_>) -> Result<String, Error> {
+        const KEY: &str = "core.action.settings";
+        match Messages::new()?.copy(host, KEY) {
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Ok(title) if !title.is_empty() => Ok(title),
+            _ => copy(KEY),
+        }
     }
 
     /// How the tool of `action` looks: its icon's name and state. A tool the
@@ -347,7 +372,23 @@ fn declared(geometry: &Geometry, hint: &CellSpan) -> (u8, u8, u8) {
     (w, h, hint.min_h.clamp(1, h))
 }
 
+/// Whether `key` is a setting of the grid's size, which the pages are fitted to.
+#[must_use]
+pub fn is_grid_setting(key: &str) -> bool {
+    key == COLUMNS || key == ROWS
+}
+
 impl HostSource {
+    /// The cells widget `id` (or its base) declared, with its least size.
+    #[must_use]
+    pub fn span(&self, id: &str) -> Option<CellSpan> {
+        let base = native_pages::base(id);
+        self.widgets
+            .iter()
+            .find(|row| row.id == base)
+            .and_then(|row| row.span)
+    }
+
     /// Whether widget `id` (or its base) declared how many cells it takes.
     #[must_use]
     pub fn declares(&self, id: &str) -> bool {
@@ -430,6 +471,14 @@ mod tests {
         assert_eq!(mm(220, 0), 0);
     }
 
+    #[test]
+    fn the_settings_tool_no_menu_lists_has_the_cores_gear() {
+        // Beta 3 drew a gear; an empty icon left a blank cell in the drawer.
+        let look = Look::settings().unwrap();
+        assert_eq!(look.icon, "settings");
+        assert!(look.enabled && !look.checked);
+    }
+
     fn source() -> HostSource {
         HostSource {
             widgets: ["home.clock", "home.recent"]
@@ -447,6 +496,15 @@ mod tests {
                 .collect(),
             ..HostSource::default()
         }
+    }
+
+    #[test]
+    fn only_the_grids_columns_and_rows_are_grid_settings() {
+        assert!(is_grid_setting("home.columns"));
+        assert!(is_grid_setting("home.rows"));
+        assert!(!is_grid_setting("home.status-bar"));
+        assert!(!is_grid_setting("home.page-1"));
+        assert!(!is_grid_setting(""));
     }
 
     #[test]

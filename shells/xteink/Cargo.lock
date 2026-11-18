@@ -838,6 +838,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "524eb3c489760508f71360112bca70f6e53173e6fe48fc5f0efd0f5ab217751d"
 
 [[package]]
+name = "embassy-net-driver-channel"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a07d2eb9f05a6fc876500949856ea1be40773d866d8cb99384f72d0ae4568c16"
+dependencies = [
+ "embassy-futures",
+ "embassy-net-driver",
+ "embassy-sync 0.8.0",
+]
+
+[[package]]
 name = "embassy-sync"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -902,6 +913,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ee71af1b3a0deaa53eaf2d39252f83504c853646e472400b763060389b9fcc9"
 dependencies = [
  "document-features",
+]
+
+[[package]]
+name = "embassy-usb"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a25746d8b152b72fbf2a217f489a083dbbe243f281f09184a1f2cfbe9bbb245f"
+dependencies = [
+ "bitflags 2.13.2",
+ "embassy-futures",
+ "embassy-net-driver-channel",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "embassy-usb-driver",
+ "embedded-io-async 0.7.0",
+ "heapless 0.9.3",
 ]
 
 [[package]]
@@ -2267,14 +2294,23 @@ name = "paperpaw-app"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-epub-family",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-plugin-about",
  "paperpaw-plugin-bluetooth",
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-files",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-plugin-format-cbz",
+ "paperpaw-plugin-format-docx",
  "paperpaw-plugin-format-epub",
+ "paperpaw-plugin-format-fb2",
+ "paperpaw-plugin-format-html",
+ "paperpaw-plugin-format-images",
+ "paperpaw-plugin-format-markdown",
+ "paperpaw-plugin-format-mobi",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
  "paperpaw-plugin-help",
@@ -2282,6 +2318,7 @@ dependencies = [
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-lock",
  "paperpaw-plugin-menu",
+ "paperpaw-plugin-news",
  "paperpaw-plugin-opds",
  "paperpaw-plugin-plugin-manager",
  "paperpaw-plugin-power",
@@ -2292,6 +2329,7 @@ dependencies = [
  "paperpaw-plugin-store",
  "paperpaw-plugin-transfer",
  "paperpaw-plugin-update",
+ "paperpaw-plugin-vocabulary",
  "paperpaw-plugin-wifi",
 ]
 
@@ -2300,7 +2338,6 @@ name = "paperpaw-config"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-sort",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -2308,20 +2345,25 @@ name = "paperpaw-core"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-config",
+ "paperpaw-digest",
+ "paperpaw-document",
  "paperpaw-graphics",
  "paperpaw-hid",
  "paperpaw-hyphen",
  "paperpaw-i18n",
+ "paperpaw-lang",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sdk",
  "paperpaw-sort",
+ "paperpaw-text",
 ]
 
 [[package]]
 name = "paperpaw-default-packs"
 version = "0.6.0-beta.3"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-hyphenation-packs",
  "paperpaw-platform",
 ]
@@ -2342,6 +2384,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-epub-family"
+version = "1.0.5"
+dependencies = [
+ "miniz_oxide",
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-fat"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -2354,7 +2404,6 @@ name = "paperpaw-graphics"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -2383,7 +2432,6 @@ dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
  "paperpaw-sort",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -2399,7 +2447,6 @@ name = "paperpaw-json"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -2429,7 +2476,7 @@ version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-plugin-about"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2437,7 +2484,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-bluetooth"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2445,7 +2492,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-dictionary"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-stardict",
@@ -2454,7 +2501,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-file-manager"
-version = "1.0.4"
+version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2462,7 +2509,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-files"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2470,23 +2517,76 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-fonts-default"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-text",
 ]
 
 [[package]]
+name = "paperpaw-plugin-format-cbz"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-epub-family",
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-docx"
+version = "1.0.3"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-plugin-format-epub"
 version = "1.0.5"
 dependencies = [
- "miniz_oxide",
+ "paperpaw-epub-family",
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-fb2"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-epub-family",
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-html"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-epub-family",
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-images"
+version = "1.0.4"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-markdown"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-epub-family",
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-mobi"
+version = "1.0.3"
+dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-format-txt"
-version = "1.0.2"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -2508,7 +2608,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.6"
+version = "1.0.15"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2516,7 +2616,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-keyboard"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2524,7 +2624,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-lock"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2532,37 +2632,6 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-menu"
-version = "1.0.6"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-opds"
-version = "1.0.4"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-plugin-manager"
-version = "1.0.6"
-dependencies = [
- "paperpaw-sdk",
- "paperpaw-ui-kit",
-]
-
-[[package]]
-name = "paperpaw-plugin-power"
-version = "1.1.2"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-reader"
 version = "1.0.10"
 dependencies = [
  "paperpaw-sdk",
@@ -2570,8 +2639,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-news"
+version = "1.0.11"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-opds"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-plugin-manager"
+version = "1.0.9"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-power"
+version = "1.1.4"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-reader"
+version = "1.1.0"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-settings"
-version = "1.0.7"
+version = "1.0.11"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2587,7 +2695,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-sleep"
-version = "1.0.4"
+version = "1.0.7"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2595,7 +2703,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.8"
+version = "1.0.15"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -2603,7 +2711,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-transfer"
-version = "1.0.4"
+version = "1.0.6"
 dependencies = [
  "paperpaw-qr",
  "paperpaw-sdk",
@@ -2612,15 +2720,25 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.7"
+version = "1.0.9"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]
 
 [[package]]
+name = "paperpaw-plugin-vocabulary"
+version = "1.1.10"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-sqlite",
+ "paperpaw-ui-kit",
+ "paperpaw-zip",
+]
+
+[[package]]
 name = "paperpaw-plugin-wifi"
-version = "1.0.4"
+version = "1.0.6"
 dependencies = [
  "paperpaw-qr",
  "paperpaw-sdk",
@@ -2630,13 +2748,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-qr"
 version = "0.6.0-beta.3"
-
-[[package]]
-name = "paperpaw-sample-frame-test"
-version = "0.6.0-beta.3"
-dependencies = [
- "paperpaw-sdk",
-]
 
 [[package]]
 name = "paperpaw-sdk"
@@ -2656,7 +2767,6 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-qr",
  "paperpaw-sort",
- "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-xml",
@@ -2668,16 +2778,19 @@ name = "paperpaw-sort"
 version = "0.6.0-beta.3"
 
 [[package]]
+name = "paperpaw-sqlite"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-platform",
+]
+
+[[package]]
 name = "paperpaw-stardict"
 version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide",
  "paperpaw-platform",
 ]
-
-[[package]]
-name = "paperpaw-table"
-version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-text"
@@ -2688,7 +2801,6 @@ dependencies = [
  "paperpaw-lang",
  "paperpaw-platform",
  "paperpaw-sort",
- "paperpaw-table",
  "read-fonts",
  "skrifa",
 ]
@@ -2712,6 +2824,7 @@ name = "paperpaw-x4"
 version = "0.6.0-beta.3"
 dependencies = [
  "embedded-hal 1.0.0",
+ "miniz_oxide",
  "paperpaw-config",
  "paperpaw-core",
  "paperpaw-native",
@@ -2722,9 +2835,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-xml"
 version = "0.6.0-beta.3"
-dependencies = [
- "paperpaw-table",
-]
 
 [[package]]
 name = "paperpaw-xteink"
@@ -2737,6 +2847,7 @@ dependencies = [
  "embassy-sync 0.8.0",
  "embassy-time",
  "embassy-time-driver",
+ "embassy-usb",
  "embedded-hal 1.0.0",
  "embedded-hal-bus",
  "esp-alloc",
@@ -2749,6 +2860,7 @@ dependencies = [
  "esp-storage",
  "log",
  "mbedtls-rs",
+ "miniz_oxide",
  "nb 1.1.0",
  "paperpaw-app",
  "paperpaw-core",
@@ -2757,12 +2869,11 @@ dependencies = [
  "paperpaw-fat",
  "paperpaw-graphics",
  "paperpaw-http",
+ "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-wifi",
- "paperpaw-sample-frame-test",
  "paperpaw-sdk",
- "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-x4",
@@ -2778,6 +2889,7 @@ version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide",
  "paperpaw-platform",
+ "paperpaw-sort",
 ]
 
 [[package]]

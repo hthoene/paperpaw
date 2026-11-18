@@ -46,7 +46,7 @@ fn inputs() -> NetInputs {
 fn a_shell_wires_the_network_once() {
     let resources = HostResources::try_new().unwrap();
     let wired = resources.wire(HostWiring::new().net(inputs())).unwrap();
-    assert!(wired.net().is_some() && resources.hosts().net().is_some());
+    assert!(wired.net().is_some() && resources.hosts().net_wired());
     // Again: refused whole, and nothing else named is wired by that call.
     let again = resources.wire(
         HostWiring::new()
@@ -125,5 +125,5 @@ fn a_call_naming_the_network_and_core_files_together_wires_both() {
         )
         .unwrap();
     assert!(wired.net().is_some());
-    assert!(resources.hosts().net().is_some() && resources.hosts().files().is_some());
+    assert!(resources.hosts().net_wired() && resources.hosts().files().is_some());
 }

@@ -1,6 +1,8 @@
-//! The Word documents `core.format` provider against the interface-6 reader
-//! on the same documents: the same blocks, runs, offsets, contents, links and
-//! pictures, the preparation, and the refusals a hostile call or document gets.
+//! The Word documents `core.format` provider against the reader
+//! (`DocxDocument`, converted and read on a cache of its own) on the same
+//! documents: the same blocks, runs, offsets, contents, links and pictures, the
+//! preparation, and the refusals a hostile call or document gets. What the text
+//! of such a document should be is pinned by `tests/docx.rs`.
 
 #![allow(
     clippy::unwrap_used,
@@ -15,11 +17,11 @@ use native::{Roots, SIDE, call, docx, docx_with, heading, open_call, open_ready,
 use native::{rows, run, state};
 use paperpaw_plugin_format_docx::DocxDocument;
 use paperpaw_plugin_format_docx::provider::{DocxProvider, MAX_DOCUMENTS};
+use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{BlockKind, Document, Locator};
 use paperpaw_sdk::image::Fit;
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
-use paperpaw_sdk::{MemoryStorage, OpenOptions, Storage};
 
 const CACHE_MADE: u32 = 1 << 6;
 const HAS_TOC: u32 = 1 << 1;
@@ -108,8 +110,13 @@ fn block(
     }
 }
 
-fn old_options() -> OpenOptions {
-    OpenOptions::default().image_fit(Fit::side(SIDE))
+/// The reader on a cache of its own (the book is root 3, the cache root 6, as
+/// the provider has them), at the side the tests decode to.
+fn reader(data: Vec<u8>) -> (Roots, DocxDocument) {
+    let io = Roots::new(data);
+    DocxDocument::convert(&io, "", "").unwrap();
+    let doc = DocxDocument::native(&io, Fit::side(SIDE), false).unwrap();
+    (io, doc)
 }
 
 fn kind_of(kind: BlockKind) -> (u32, u32) {
@@ -121,13 +128,13 @@ fn kind_of(kind: BlockKind) -> (u32, u32) {
     }
 }
 
-/// All blocks of the provider against interface 6's: how many, and the
+/// All blocks of the provider against the reader's: how many, and the
 /// pictures' indexes and flags seen.
 fn compare(
     p: &mut DocxProvider,
     io: &Roots,
     old: &DocxDocument,
-    old_io: &MemoryStorage,
+    old_io: &Roots,
 ) -> (usize, Vec<(String, u32, u32)>) {
     let (mut at, mut count, mut images) = (0u32, 0, Vec::new());
     loop {
@@ -170,23 +177,30 @@ fn compare(
     (count, images)
 }
 
+/// Whether `end` closes the last page of a list, after checking what `document.md`
+/// section 3 asks of a list end: bit 0 the only flag, and a generation that is never 0.
+fn last_page(end: &stage::FmtEnd) -> bool {
+    assert_eq!(end.generation, 1, "never 0");
+    assert_eq!(end.flags & !1, 0, "bit 0 is the only flag of a list");
+    end.flags & 1 == 1
+}
+
 #[test]
-fn a_document_is_prepared_and_reads_like_interface_6() {
+fn a_document_is_prepared_and_reads_like_the_reader() {
     let data = docx(&rich_body());
     let io = Roots::new(data.clone());
     let mut p = DocxProvider::new();
     let (s, status, flags) = open_ready(&mut p, &io);
     assert_eq!((s, status), (0, 0));
     assert_eq!(flags, CACHE_MADE | HAS_TOC);
-    let old_io = MemoryStorage::new().with("d.docx", data);
-    let old = DocxDocument::open(&old_io, "d.docx", &old_options()).unwrap();
+    let (old_io, old) = reader(data);
     // The blocks, from the first to the last; the pictures are not decoded yet.
     let (count, images) = compare(&mut p, &io, &old, &old_io);
     assert!(count >= 12, "{count}");
     assert_eq!(images.len(), 2, "{images:?}");
     assert!(images.iter().all(|(_, _, flags)| *flags == 1));
     // The host asks for each (op 18); the fine one is the picture
-    // interface 6 decodes, pixel for pixel; the damaged one is not found.
+    // the reader decodes, pixel for pixel; the damaged one is not found.
     let wanted = old.block_at(&old_io, Locator::new(0, 0)).unwrap().unwrap();
     assert!(matches!(wanted.kind, BlockKind::Heading(1)));
     let mut decoded = 0;
@@ -230,12 +244,12 @@ fn a_document_is_prepared_and_reads_like_interface_6() {
     contents_links_and_metadata(&mut p, &io, &old, &old_io);
 }
 
-/// Contents, links and the metadata against interface 6.
+/// Contents, links and the metadata against the reader.
 fn contents_links_and_metadata(
     p: &mut DocxProvider,
     io: &Roots,
     old: &DocxDocument,
-    old_io: &MemoryStorage,
+    old_io: &Roots,
 ) {
     let reply = run(p, io, &call(9, 1, |_| {})).unwrap();
     let r = rows(&reply);
@@ -322,7 +336,9 @@ fn contents_links_and_metadata(
     let reply = run(p, io, &call(7, 1, |_| {})).unwrap();
     let r = rows(&reply);
     assert!(matches!(r[0], stage::Record::FmtSection(s) if s.length == old.section_len(0)));
-    assert!(matches!(r[1], stage::Record::FmtEnd(e) if e.total == 1 && e.flags == 0));
+    assert!(
+        matches!(r[1], stage::Record::FmtEnd(e) if e.total == 1 && e.flags == 1 && e.generation == 1)
+    );
 }
 
 #[test]
@@ -385,8 +401,7 @@ fn long_lists_and_blocks_come_in_pages_and_fragments() {
     let io = Roots::new(data.clone());
     let mut p = DocxProvider::new();
     assert_eq!(open_ready(&mut p, &io).0, 0);
-    let old_io = MemoryStorage::new().with("d.docx", data);
-    let old = DocxDocument::open(&old_io, "d.docx", &old_options()).unwrap();
+    let (old_io, old) = reader(data);
     assert_eq!(old.toc_len(&old_io), 150);
     let (mut cursor, mut seen) = (0u32, 0usize);
     loop {
@@ -405,7 +420,7 @@ fn long_lists_and_blocks_come_in_pages_and_fragments() {
             assert_eq!(t.title, format!("Chapter {}", seen + n));
         }
         seen += r.len() - 1;
-        if end.flags & 2 == 0 {
+        if last_page(&end) {
             break;
         }
         cursor = end.next;
@@ -448,7 +463,7 @@ fn long_lists_and_blocks_come_in_pages_and_fragments() {
             urls.push((l.start, l.end, l.href.to_string()));
         }
         pages += 1;
-        if end.flags & 2 == 0 {
+        if last_page(&end) {
             break;
         }
         cursor = end.next;
@@ -472,7 +487,14 @@ fn the_ops_a_word_document_has_no_answer_to() {
         assert_eq!(run(&mut p, &io, &call(op, 1, |_| {})), Err(Error::NotFound));
     }
     let reply = run(&mut p, &io, &call(16, 1, |_| {})).unwrap();
-    assert!(matches!(rows(&reply)[..], [stage::Record::FmtEnd(e)] if e.total == 0));
+    assert!(
+        matches!(rows(&reply)[..], [stage::Record::FmtEnd(e)] if e.total == 0 && e.flags == 1 && e.generation == 1)
+    );
+    // The links of a later section: an empty list, still ended as the last page.
+    let reply = run(&mut p, &io, &call(14, 1, |c| c.section = 1)).unwrap();
+    assert!(
+        matches!(rows(&reply)[..], [stage::Record::FmtEnd(e)] if e.total == 0 && e.flags == 1 && e.generation == 1)
+    );
     for op in [19, 20, 99] {
         assert_eq!(
             run(&mut p, &io, &call(op, 1, |_| {})),
@@ -637,4 +659,215 @@ fn hostile_documents_never_panic_the_provider() {
         }
         run(&mut p, &io, &call(4, 1, |_| {})).unwrap();
     }
+}
+
+/// Blocks are sent to the card when they would not fit with what waits (6
+/// KiB): a book of many blocks of every size reads back exactly as written,
+/// whichever block falls on the boundary, and what the cache holds is the sum
+/// of its records, with no gap and no overlap (the files are the same bytes
+/// as when everything was held to the end).
+#[test]
+fn blocks_across_the_flush_boundary_read_back_as_written() {
+    let mut body = String::new();
+    let mut texts = Vec::new();
+    for n in 0..120_usize {
+        // From a few bytes to a block of about 3,500, with runs in it (under
+        // the 512 runs at which the writer cuts a paragraph).
+        let words = 1 + (n * 37) % 450;
+        let text: String = (0..words).map(|w| format!("w{n}x{w} ")).collect();
+        let text = text.trim_end().to_string();
+        let runs: String = text
+            .split(' ')
+            .enumerate()
+            .map(|(i, word)| {
+                let bold = if i % 3 == 0 {
+                    "<w:rPr><w:b/></w:rPr>"
+                } else {
+                    ""
+                };
+                format!("<w:r>{bold}<w:t xml:space=\"preserve\">{word} </w:t></w:r>")
+            })
+            .collect();
+        body.push_str(&format!("<w:p>{runs}</w:p>"));
+        texts.push(text);
+    }
+    let data = docx(&body);
+    let io = Roots::new(data.clone());
+    let mut p = DocxProvider::new();
+    assert_eq!(open_ready(&mut p, &io).0, 0);
+    // The blocks of the provider, in order: each paragraph is one block or
+    // several (a long one is cut), their texts together the paragraph's.
+    let (mut at, mut seen, mut index) = (0u32, 0usize, 0usize);
+    let mut joined = String::new();
+    let mut total = 0usize;
+    while let Ok(got) = block(&mut p, &io, 0, at) {
+        assert_eq!(got.start, at, "no gap");
+        joined.push_str(&got.text);
+        total += 8 + got.text.len() + 6 * got.runs.len();
+        if got.flags & 1 == 0 {
+            // The paragraph ends here.
+            // A long paragraph is cut at a space: the words are the same.
+            let (a, b): (Vec<&str>, Vec<&str>) = (
+                joined.split_whitespace().collect(),
+                texts[index].split_whitespace().collect(),
+            );
+            let first = a.iter().zip(&b).position(|(x, y)| x != y);
+            assert!(
+                a == b,
+                "paragraph {index}: {} words of {}, first difference {first:?}",
+                a.len(),
+                b.len()
+            );
+            joined.clear();
+            index += 1;
+        } else {
+            joined.push(' ');
+        }
+        at = got.end;
+        seen += 1;
+        assert!(seen < 2000);
+    }
+    assert_eq!(index, texts.len(), "every paragraph came back");
+    // `blocks.bin` holds exactly the records: no byte lost or doubled where
+    // what waited went to the card between two blocks.
+    let held = io.size("blocks.bin").unwrap();
+    assert_eq!(io.size("index.bin").unwrap(), 12 * seen as u64);
+    assert_eq!(held, total as u64);
+}
+
+/// A long paragraph is cut at a space, never in a word; one with no space is
+/// cut where it is, at most 4,000 bytes a block.
+#[test]
+fn a_long_paragraph_is_cut_at_a_space_and_one_without_spaces_where_it_is() {
+    let words: Vec<String> = (0..1200).map(|n| format!("word{n}")).collect();
+    let spaced = words.join(" ");
+    let solid = "x".repeat(9_000);
+    let data = docx(&format!("{}{}", p(&spaced), p(&solid)));
+    let io = Roots::new(data);
+    let mut prov = DocxProvider::new();
+    assert_eq!(open_ready(&mut prov, &io).0, 0);
+    let (mut at, mut seen, mut pieces) = (0u32, 0, Vec::new());
+    while let Ok(got) = block(&mut prov, &io, 0, at) {
+        assert!(
+            got.text.len() <= 4_000,
+            "a block of {} bytes",
+            got.text.len()
+        );
+        pieces.push(got.text);
+        at = got.end;
+        seen += 1;
+        assert!(seen < 100);
+    }
+    let (spaced_pieces, solid_pieces): (Vec<_>, Vec<_>) =
+        pieces.iter().partition(|t| t.starts_with("word"));
+    assert!(spaced_pieces.len() >= 2, "the paragraph is cut");
+    let got: Vec<&str> = spaced_pieces.iter().flat_map(|t| t.split(' ')).collect();
+    assert_eq!(got, words.iter().map(String::as_str).collect::<Vec<_>>());
+    assert!(
+        spaced_pieces.iter().all(|t| t.len() <= 3_100),
+        "cut near 3,000"
+    );
+    assert_eq!(solid_pieces.iter().map(|t| t.len()).sum::<usize>(), 9_000);
+}
+
+/// A details open (the library's details) is ready at once with what the
+/// properties say, converts nothing and writes nothing; the content asks are
+/// `State`; a normal open after it prepares the book as ever.
+#[test]
+fn a_details_open_answers_the_properties_and_converts_nothing() {
+    let data = docx(&rich_body());
+    let io = Roots::new(data);
+    let mut p = DocxProvider::new();
+    let reply = run(
+        &mut p,
+        &io,
+        &call(2, 1, |c| {
+            c.image_side = SIDE;
+            c.flags = 1 << 3;
+        }),
+    )
+    .unwrap();
+    // Ready, no show-only flags, nothing made.
+    assert_eq!(state(&reply), (0, 0, 0, 0));
+    let reply = run(&mut p, &io, &call(5, 1, |_| {})).unwrap();
+    assert!(matches!(
+        rows(&reply)[0],
+        stage::Record::FmtMeta(m) if m.title == "The Report" && m.language == "de-DE"
+            && m.sections == 1 && m.authors == 1 && m.subjects == 0
+    ));
+    let reply = run(
+        &mut p,
+        &io,
+        &call(6, 1, |c| {
+            c.flags = 1;
+            c.index = 0;
+        }),
+    )
+    .unwrap();
+    assert!(matches!(rows(&reply)[0], stage::Record::FmtText(t) if t.text == "Ann Author"));
+    // No cover, as for any Word document (not a refusal).
+    assert_eq!(run(&mut p, &io, &call(17, 1, |_| {})), Err(Error::NotFound));
+    // Content is not there: no block, section, contents or link.
+    for op in [3, 7, 8, 9, 10, 14, 15, 18] {
+        assert_eq!(
+            run(&mut p, &io, &call(op, 1, |_| {})),
+            Err(Error::State),
+            "op {op}"
+        );
+    }
+    // Nothing was converted or written.
+    for file in ["blocks.bin", "index.bin", "info.txt", "done"] {
+        assert!(io.size(file).is_err(), "{file}");
+    }
+    // Bit 3 together with bit 2 is a details open as well.
+    run(&mut p, &io, &call(4, 1, |_| {})).unwrap();
+    let reply = run(&mut p, &io, &call(2, 1, |c| c.flags = (1 << 3) | (1 << 2))).unwrap();
+    assert_eq!(state(&reply), (0, 0, 0, 0));
+    assert_eq!(run(&mut p, &io, &call(8, 1, |_| {})), Err(Error::State));
+    assert!(io.size("blocks.bin").is_err());
+    // The same document id, closed and opened as a book to show: prepared.
+    run(&mut p, &io, &call(4, 1, |_| {})).unwrap();
+    let (s, status, flags) = open_ready(&mut p, &io);
+    assert_eq!((s, status, flags), (0, 0, CACHE_MADE | HAS_TOC));
+    assert!(io.size("blocks.bin").is_ok());
+    // A details open of a book whose cache is whole is a ready document.
+    run(&mut p, &io, &call(4, 1, |_| {})).unwrap();
+    let reply = run(&mut p, &io, &call(2, 1, |c| c.flags = 1 << 3)).unwrap();
+    assert_eq!(state(&reply).0, 0);
+    // Not a Word document: a failed one, as a normal open says.
+    let other = Roots::new(
+        paperpaw_zip::testing::ZipBuilder::new()
+            .deflated("a", "b")
+            .build(),
+    );
+    let mut q = DocxProvider::new();
+    let reply = run(&mut q, &other, &call(2, 1, |c| c.flags = 1 << 3)).unwrap();
+    assert_eq!(state(&reply).0, 2);
+}
+
+/// A background open (bit 2, an index build) is not a details open: it needs
+/// blocks, so the book is prepared as for showing.
+#[test]
+fn a_background_open_still_converts_the_book() {
+    let io = Roots::new(docx(&rich_body()));
+    let mut p = DocxProvider::new();
+    let reply = run(
+        &mut p,
+        &io,
+        &call(2, 1, |c| {
+            c.image_side = SIDE;
+            c.flags = 1 << 2;
+        }),
+    )
+    .unwrap();
+    let mut s = state(&reply).0;
+    assert_eq!(s, 1, "preparing, not ready at once");
+    let mut guard = 0;
+    while s == 1 {
+        s = state(&run(&mut p, &io, &call(3, 1, |_| {})).unwrap()).0;
+        guard += 1;
+        assert!(guard < 1000);
+    }
+    assert_eq!(s, 0);
+    assert!(io.size("blocks.bin").is_ok());
 }

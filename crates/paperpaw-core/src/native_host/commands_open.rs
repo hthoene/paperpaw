@@ -3,18 +3,28 @@
 //! whole batch is checked and every reservation is made; the kernel gives it
 //! to the instance when the open applies (`Kernel::drain_native_opens`).
 use super::{CommandBatch, CommandStage, WireCommand, ui};
-use crate::native_host::ui_store::{Claims, Stamp, UiStore};
+use crate::Ask;
+use crate::native_host::{
+    shared::Shared,
+    ui_store::{Claims, Stamp, UiStore},
+};
 use alloc::vec::Vec;
 use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_INVALID, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
-use paperpaw_sdk::{Command, Id, Params, ScreenKey};
+use paperpaw_sdk::{Id, Params, ScreenKey};
 
 /// The hand-over store and the host stamp of the callback the stage serves.
 #[derive(Clone, Copy)]
 pub(super) struct Handovers<'a> {
     pub(super) store: &'a UiStore,
-    pub(super) stamp: Stamp,
+    /// The store as the host shares it, where the stage has it: the opens it
+    /// stages keep a handle to free their claims if they are dropped undrained.
+    pub(super) shared: Option<&'a Shared<UiStore>>,
+    /// The callback's stamp: known once the callback is entered (the stage is
+    /// built before), and none until then, when an open that names a hand-over
+    /// is refused.
+    pub(super) stamp: Option<Stamp>,
 }
 
 /// One staged open, for the drain.
@@ -35,50 +45,94 @@ pub(crate) struct StagedOpen {
 pub(crate) struct Opens {
     pub(crate) at: Vec<StagedOpen>,
     pub(crate) claims: Vec<Claims>,
+    /// The store the claims are in: with it, what is dropped undrained (the
+    /// plugin gone, a queue that could not keep the batch) frees them.
+    pub(crate) store: Option<Shared<UiStore>>,
+}
+
+impl Opens {
+    /// The staged opens and the claims, for the drain; none is left to free.
+    pub(crate) fn take(&mut self) -> (Vec<StagedOpen>, Vec<Claims>) {
+        (
+            core::mem::take(&mut self.at),
+            core::mem::take(&mut self.claims),
+        )
+    }
+}
+
+impl Drop for Opens {
+    fn drop(&mut self) {
+        let Some(store) = &self.store else {
+            return;
+        };
+        for claims in core::mem::take(&mut self.claims) {
+            // A store in use keeps them claimed: the owner's stop frees them.
+            let _ = store.rollback(claims);
+        }
+    }
 }
 
 impl<'a> CommandStage<'a> {
     /// Opens of this stage may name hand-overs `who` made in this callback.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "the production command path takes it with the shell wiring (Input's core.ui, todo 119)"
-        )
-    )]
+    #[cfg(test)]
     #[must_use]
     pub(crate) fn with_handovers(mut self, store: &'a UiStore, stamp: Stamp) -> Self {
-        self.handovers = Some(Handovers { store, stamp });
+        self.handovers = Some(Handovers {
+            store,
+            shared: None,
+            stamp: Some(stamp),
+        });
         self
     }
 
+    /// Opens of this stage may name hand-overs in `store`, once the callback
+    /// it serves says who it is ([`Self::set_handover_stamp`]): the stage is
+    /// built before the callback is entered.
+    #[must_use]
+    pub(crate) fn with_handover_store(mut self, store: Option<&'a Shared<UiStore>>) -> Self {
+        if let Some(shared) = store {
+            self.handovers = Some(Handovers {
+                store: shared,
+                shared: Some(shared),
+                stamp: None,
+            });
+        }
+        self
+    }
+
+    /// The callback is entered: its hand-overs are those `owner` made under
+    /// `epoch` (`Stamp`), the ones `ui.handover` stamped.
+    pub(crate) fn set_handover_stamp(&mut self, owner: u64, epoch: u64) {
+        if let (Some(named), Ok(stamp)) = (&mut self.handovers, Stamp::new(owner, epoch)) {
+            named.stamp = Some(stamp);
+        }
+    }
+
     /// The staged opens, for the drain; the claims go with them.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "the production command path takes it with the shell wiring (Input's core.ui, todo 119)"
-        )
-    )]
     pub(super) fn take_opens(&mut self) -> Opens {
-        core::mem::take(&mut self.opens)
+        let mut opens = core::mem::take(&mut self.opens);
+        opens.store = self
+            .handovers
+            .and_then(|named| named.shared)
+            .and_then(Shared::try_clone);
+        opens
     }
 
     /// As `into_ui_output`, with the opens the drain needs (hand-overs and
     /// the screens they replace). Without them the claims are rolled back
     /// when the stage is dropped.
-    #[cfg_attr(
-        not(test),
-        allow(
-            dead_code,
-            reason = "the production command path takes it with the shell wiring (Input's core.ui, todo 119)"
-        )
-    )]
-    pub(crate) fn into_ui_output_with_opens(
-        mut self,
-    ) -> (Vec<Command>, Option<ui::Redraw>, u8, Opens) {
+    pub(crate) fn into_ui_output_with_opens(mut self) -> (Vec<Ask>, Option<ui::Redraw>, u8, Opens) {
+        self.take_ui_output_with_opens()
+    }
+
+    /// As [`Self::into_ui_output_with_opens`], out of a stage its caller
+    /// keeps (see [`Self::take_ui_output`]). Dropped afterwards, the stage
+    /// rolls nothing back: its claims went with the opens.
+    pub(crate) fn take_ui_output_with_opens(
+        &mut self,
+    ) -> (Vec<Ask>, Option<ui::Redraw>, u8, Opens) {
         let opens = self.take_opens();
-        let (commands, redraw, hop) = self.into_ui_output();
+        let (commands, redraw, hop) = self.take_ui_output();
         (commands, redraw, hop, opens)
     }
 
@@ -116,6 +170,7 @@ impl<'a> CommandStage<'a> {
     /// The hand-overs the batch's opens name: each made by this callback,
     /// committed, and named once (`ERR_INVALID`; a begun text not committed is
     /// `ERR_STATE`). The store changes nothing here.
+    #[inline(never)]
     pub(super) fn validate_handovers(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let (ids, count) = named(batch);
         let ids = &ids[..count];
@@ -126,25 +181,27 @@ impl<'a> CommandStage<'a> {
                     .at
                     .iter()
                     .any(|before| before.handover == Some(*id));
-            let Some(named) = self.handovers.filter(|_| !named_before) else {
+            let Some((named, stamp)) = self
+                .handovers
+                .filter(|_| !named_before)
+                .and_then(|named| Some((named, named.stamp?)))
+            else {
                 return Err(ERR_INVALID);
             };
-            named
-                .store
-                .handover_check(named.stamp, *id)
-                .map_err(|status| {
-                    if status == ERR_STATE {
-                        ERR_STATE
-                    } else {
-                        ERR_INVALID
-                    }
-                })?;
+            named.store.handover_check(stamp, *id).map_err(|status| {
+                if status == ERR_STATE {
+                    ERR_STATE
+                } else {
+                    ERR_INVALID
+                }
+            })?;
         }
         Ok(())
     }
 
     /// After every reservation: the batch's hand-overs are claimed, all or
     /// none. The claims wait in the stage until the drain.
+    #[inline(never)]
     pub(super) fn claim_handovers(
         &mut self,
         batch: &CommandBatch<'_>,
@@ -153,10 +210,13 @@ impl<'a> CommandStage<'a> {
         let Some(named) = self.handovers.filter(|_| count > 0) else {
             return Ok(None);
         };
-        named.store.claim(named.stamp, &ids[..count]).map(Some)
+        // Validated at the start of the batch, which needs the stamp.
+        let stamp = named.stamp.ok_or(ERR_INVALID)?;
+        named.store.claim(stamp, &ids[..count]).map(Some)
     }
 
     /// Reserve what recording the batch's opens takes, so recording cannot fail.
+    #[inline(never)]
     pub(super) fn reserve_opens(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let opens = batch
             .iter()
@@ -191,6 +251,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// Records an open staged at `index`.
+    #[inline(never)]
     pub(super) fn record_open(
         &mut self,
         index: usize,
@@ -249,12 +310,12 @@ pub(super) fn named(
 }
 
 /// An open's wire fields as the kernel command that applies it.
-pub(super) fn command(target: &str, mode: u32, slot: &str) -> Result<Command, i32> {
+pub(super) fn command(target: &str, mode: u32, slot: &str) -> Result<Ask, i32> {
     let target = ui::copy_id(target)?;
     Ok(match mode {
-        0 => Command::OpenScreen(target, Params::new()),
-        1 => Command::OpenSlot(target, Params::new()),
-        2 => Command::Replace(target, Params::new()),
-        _ => Command::OpenInSlot(ui::copy_id(slot)?, target, Params::new()),
+        0 => Ask::OpenScreen(target, Params::new()),
+        1 => Ask::OpenSlot(target, Params::new()),
+        2 => Ask::Replace(target, Params::new()),
+        _ => Ask::OpenInSlot(ui::copy_id(slot)?, target, Params::new()),
     })
 }

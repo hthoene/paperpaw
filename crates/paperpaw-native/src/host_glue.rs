@@ -73,6 +73,24 @@ pub trait Services {
 
     /// Microseconds since any fixed point, not going back.
     fn micros(&self) -> u64;
+
+    /// Plugin code of `id` is about to run (`make`, a callback, a token, a
+    /// stage). Only a plugin hosted from a file (`Hosted::new`) is announced,
+    /// not a linked one. `false` refuses the entry: the code does not run, no
+    /// `leave` follows, and the entry fails (a callback with `Error::Refused`,
+    /// `make` as no room). The X4 keeps the id where a reset survives it and
+    /// refuses where its stack's band is not armed. The default allows.
+    fn enter(&self, id: &str) -> bool {
+        let _ = id;
+        true
+    }
+
+    /// The plugin code of `id` that `enter` allowed has returned (the X4
+    /// checks the stack's end here). The destructor is announced the same
+    /// way but never refused: skipping it would leak.
+    fn leave(&self, id: &str) {
+        let _ = id;
+    }
 }
 
 /// The host table's `ctx`: what the shell's entries reach.
@@ -387,6 +405,56 @@ unsafe extern "C" fn unsupported_text_covers(_: *mut c_void, _: u32, _: PpBytes)
 unsafe extern "C" fn unsupported_icon_glyph(_: *mut c_void, _: PpBytes, _: PpBuffer) -> i32 {
     ERR_UNSUPPORTED
 }
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one argument per field of the C slot"
+)]
+unsafe extern "C" fn unsupported_canvas_fill_pattern(
+    _: *mut c_void,
+    _: i32,
+    _: i32,
+    _: u32,
+    _: u32,
+    _: u32,
+    _: u32,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one argument per field of the C slot"
+)]
+unsafe extern "C" fn unsupported_canvas_describe(
+    _: *mut c_void,
+    _: u32,
+    _: u32,
+    _: PpBytes,
+    _: i32,
+    _: i32,
+    _: u32,
+    _: u32,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one argument per field of the C slot"
+)]
+unsafe extern "C" fn unsupported_text_draw_inked(
+    _: *mut c_void,
+    _: u32,
+    _: f32,
+    _: f32,
+    _: i32,
+    _: u32,
+    _: PpBytes,
+    _: u32,
+    _: PpBytes,
+    _: u32,
+    _: *mut f32,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
 unsafe extern "C" fn unsupported_text_draw(
     _: *mut c_void,
     _: u32,
@@ -503,6 +571,9 @@ pub const fn host_table() -> PpHost {
         text_hyphenate: unsupported_text_hyphenate,
         text_covers: unsupported_text_covers,
         icon_glyph: unsupported_icon_glyph,
+        text_draw_inked: unsupported_text_draw_inked,
+        canvas_describe: unsupported_canvas_describe,
+        canvas_fill_pattern: unsupported_canvas_fill_pattern,
     }
 }
 

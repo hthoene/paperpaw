@@ -2,6 +2,11 @@
 
 Version 1.0.4. Slice 2 of the format ports (#228, assignment #1344), with format-xtc.
 
+Status: **complete, native only** (ticket #228). The interface-6 form is removed (see "Removal step"); the
+plugin is listed in `paperpaw_app::NATIVE_PLUGINS` and `tools/plugin-files7/complete.txt`. Until the shells
+activate native plugins (Core #944, Host #417) a picture does not open as a book at all: the PR is held until
+activation.
+
 ## Ported
 
 `src/provider.rs`: `ImagesProvider::call(io, input, out)` answers one `core.format@1` call with the generated
@@ -12,7 +17,20 @@ One storage serves both roots: paths that start with `cache:` (a colon is no par
 root 6, the others root 3; `fmt.image.path` is the root-6 path without the prefix. The title is the opened
 file's name. Ops 10-13 and 15 answer `NotFound`, 9, 14 and 16 an empty list, anything else `Unsupported`.
 A refused allocation is `NoMemory` end to end and an open that hits it leaves no document.
-`tests/provider.rs` compares pages, order and decoded pixels with the interface-6 reader.
+`tests/provider.rs` holds the page-by-page golden (sizes and the stored bytes of each page, pinned from what the
+interface-6 reader made of the same files), the order and listing of a folder, the 300-page cut, named files that are
+no pictures, too large or damaged (property tests) and the cache keyed by name and size.
+
+## The book's folder (#277, replaces PR #1008)
+
+A picture opens with the pictures after it in its folder as its pages. `HostIo::list` lists root 3 through
+`core.files` (`Files::list`, which takes `Root::Book` since this slice; the host answers it only inside this
+format's own call), a page of 32 names at a time into two buffers of 1.5 and 4 KiB that are taken with `try_reserve`
+and given back at the end of the listing; `pages_from` keeps no more than the 300 names of the pages and sorts in
+place as before. The metadata names the service `core.files` and the host call `services.query`. The
+test is `a_picture_opens_as_a_book_of_the_pictures_after_it` in `crates/paperpaw-app/tests/readers.rs` (the host
+opens the picture through this provider and the folder is listed: it replaces the two pending stubs of
+`tests/provider_pending.rs`).
 
 ## Native entry (slice 3)
 
@@ -27,12 +45,6 @@ native/metadata.bin --json native/metadata.inspected.json`, likewise `metadata.h
 declaration and refuses it as `Unsupported` until Core #944 admits formats; the positive case is ignored with
 that name). `tools/plugin-files7` builds it as a file.
 
-## Not wired yet (`tests/provider_pending.rs`, ignored)
-
-- Listing the book's folder (root 3) has no SDK function: the host-side form opens with the one picture
-  until `native::storage` can list root 3 (the pages after the opened picture are not found).
-- Sides (Kernel's ruling): the host sends non-zero `cover_side`/`image_side` in ops 2, 17 and 18 (the cover's 3/8 of the screen resolved by the host); the provider uses the side of the call as the longest side, and falls back to 300 / 1,600 (`COVER_FIT`/`IMAGE_FIT`) on 0 without failing.
-
 ## Refusals
 
 `tests/provider_allocation.rs` refuses every allocation of open, meta, sections and block (of pages that are no pictures) in turn: each refusal is `NoMemory`, and the same provider reads on afterwards. `decoding_a_picture_may_be_refused_at_every_allocation` sweeps real pictures too (a PNG, a JPEG and a GIF as blocks, the cover and a page's picture): the header of the decoded file is read in the plugin (`pictures::open`, fallible path string) rather than by `ImageFile::open`, whose strings cannot be refused, and the writers' header is on the stack. A failure of memory or the card while a picture is decoded is now passed on by `block_at` (not turned into a named page); only a damaged picture is named. A name in the folder with a `:` is refused at open.
@@ -41,20 +53,37 @@ that name). `tools/plugin-files7` builds it as a file.
 
 The page list takes one entry (a name and a size, about 32 bytes plus the name) per picture of the folder, grown as the listing goes (no up-front room for the most there can be, which was about 19 KB per open), at most 2 x 300 names while listing and 300 after the cut. The listing sorts in place (`sort_unstable_by`: the order is total), so there is no scratch room that a refusal would abort. The refusal sweep includes a folder of 200 names. Peak heap on the device is not measured.
 
-## Removal step (one sweep, with the reader port and Core #944)
+## Removal step (done)
 
-Status: **not complete** (the interface-6 form is still beside the native one; nothing registers both in a
-shipped build: `NativeImages` is not in `paperpaw_app::NATIVE_PLUGINS` yet). Remove together:
-1. `ImagesFormat` and its `Plugin` impl (`FORMAT`, `add_book_cache`, `add_format`, the `HOW` table kept for the manifest);
-2. `ImagesDocument::open`/`document::opener` and the plugin-folder cache (`CACHE` stays as the root-6 prefix of the provider);
-3. the app's `install_with`/store-offer line and the other plugins' tests that register `ImagesFormat`;
-4. list `NativeImages` in `NATIVE_PLUGINS` and `tools/plugin-files7/complete.txt`.
+Status: **complete**. Gone with interface 6: `ImagesFormat` and its `Plugin` impl (`FORMAT`, `add_book_cache`,
+`add_format`, the `HOW` table, the manifest and its `uses`), `ImagesDocument::open`/`document::opener`, the
+plugin-folder cache (`.paperpaw/plugins/format-images/<hash>/`; its row in `docs/data-files.md` goes too: the
+decoded pages are in the host's document cache, `CACHE` is the root-6 prefix of the provider) and the document's
+`dir`/`cache` fields (the book's folder is root 3, always the opened file's own), the app's store offer and
+`STORE_PLUGINS` entry (10 left), the interface-6 plugin file (`tools/plugin-files` bin, dependency and
+`plugins.txt` line) and `tests/images.rs`, whose cases moved to the provider (`tests/provider.rs`; the
+interface-6 reader is no longer there to compare with, so the parity checks are pinned values). `NativeImages` is
+in `NATIVE_PLUGINS` (feature `native-linked`) and `complete.txt`. The `how/*.txt` texts stay in the package; the
+registry cannot read them yet (`plugin-how-text-read`).
+
+Tests of other crates that read a picture as a book through the app are ignored with
+`needs native activation (format removal)` and keep their assertion (see the PR notes).
+
+## Still blocked on the host
+
+- Listing the book's folder (root 3) is done (#277): `HostIo::list` pages through `core.files` root 3
+  (`Files::list` with `Root::Book`); at most 512 names wait while it runs and 300 are kept. A folder that
+  is not there to list leaves the picture alone; a refused allocation or any other failure is an error.
+- The host admitting format declarations (Core #944) and wiring the `fmt.call` adapter (Host #417): the
+  declaration is refused as `Unsupported` today (`tests/hosted_construction.rs`).
+- Sides (Kernel's ruling): the host sends non-zero `cover_side`/`image_side` in ops 2, 17 and 18 (the cover's 3/8 of the screen resolved by the host); the provider uses the side of the call as the longest side, and falls back to 300 / 1,600 (`COVER_FIT`/`IMAGE_FIT`) on 0 without failing.
 
 ## Named step after #610 (Kernel, draft 30)
 
 Switch `pictures::open` to `ImageFile::try_open` (fallible, with the `TooLarge` split) and drop the plugin-side header parser, so there is one parser of the decoded-file header, not two.
 
-## Left in place (intermediate)
+X4 `.ppn` size: see the PR notes (built with `tools/plugin-files7/build.sh x4 <out> --only format-images`).
 
-The interface-6 `ImagesFormat` registration and `ImagesDocument::open` stay until the host activates native
-plugins. X4 `.ppn` size: not measurable yet (built in, no entry point).
+- **Beta 3 caches stay on cards.** The interface-6 plugin-folder caches (`.paperpaw/plugins/format-images/<hash>/`) of
+  books opened with Beta 3 are no longer read or written after this removal; they stay on the card until a cleanup
+  (follow-up, not part of this PR: the host or the library removes them, or the owner deletes `.paperpaw/plugins`).

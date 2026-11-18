@@ -19,6 +19,13 @@ pub const WORK_TOKEN: u32 = 21;
     reason = "the build script includes this file and does not use it"
 )]
 pub const WORK_KEY: &str = "dictionary.index";
+/// The key of the timer that ends a panel's wait for providers that answer
+/// later (same token as the indexing; told apart by the key).
+#[allow(
+    dead_code,
+    reason = "the build script includes this file and does not use it"
+)]
+pub const ANSWERS_KEY: &str = "dictionary.answers";
 /// The host slot that chooses a folder.
 pub const CHOOSE_FOLDER: &str = "core.choose-folder";
 /// Where dictionaries are looked for unless the user chose a folder.
@@ -65,6 +72,8 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
 ) -> Result<(), DeclareError> {
     d.screen(ScreenDecl::new("popup", "dictionary.title", POPUP_TOKEN).overlay())?;
     d.slot_offer(SlotOfferDecl::new("core.lookup", "dictionary.popup"))?;
+    // A provider that answers later tells the panel (todo 98).
+    d.subscribe_event(EventKind::LookupReady, POPUP_TOKEN)?;
     d.submit()?;
     Ok(())
 }

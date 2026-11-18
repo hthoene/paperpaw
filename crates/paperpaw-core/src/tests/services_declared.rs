@@ -1,10 +1,11 @@
 //! Services and introspection: services by contract and
-//! version, points and events declared, the screens of slots, the
+//! version, events declared, the screens of slots, the
 //! bindings of a layer with their origin.
 
 use super::*;
+use crate::Staging;
 use paperpaw_sdk::keys::{BindingOrigin, KeyBindings};
-use paperpaw_sdk::services::{EventSpec, PointSpec};
+use paperpaw_sdk::services::EventSpec;
 
 /// A service with a contract.
 struct Forecast(&'static str);
@@ -16,23 +17,12 @@ struct Pretender(u64, u64, u64);
 
 paperpaw_sdk::service_type!(Pretender, "weather.forecast/1");
 
-struct Weather;
-
-impl Plugin for Weather {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("weather"), "Weather", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn weather() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         r.provide(
             Id::new_static("weather.today"),
             Forecast("sunny"),
             Version::new(1, 2, 0),
-        )?;
-        r.add_point(
-            PointSpec::new(Id::new_static("weather.sources"), "weather.sources")
-                .doc("A line each: name = url"),
         )?;
         r.declare_event(
             EventSpec::new(Id::new_static("weather.changed"), "weather.changed").params(&["sky"]),
@@ -43,15 +33,21 @@ impl Plugin for Weather {
     }
 }
 
+/// What [`weather`] registers under.
+fn weather_manifest() -> Manifest {
+    Manifest::new(Id::new_static("weather"), "Weather", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// A service with a contract is found by it and by the version needed;
-/// another type claiming the contract is not; points and events declared
+/// another type claiming the contract is not; events declared
 /// are listed.
 #[test]
 fn services_by_contract_and_version() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
-        .plugin(Weather)
+        .test_plugin(TestPlugin::new("a", &log))
+        .items(weather_manifest(), weather())
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -78,7 +74,6 @@ fn services_by_contract_and_version() {
     let pretender = Pretender(0, 0, 0);
     assert_eq!(pretender.0 + pretender.1 + pretender.2, 0);
     assert!(services.ids().any(|id| id.as_str() == "weather.today"));
-    assert_eq!(services.points()[0].doc, "A line each: name = url");
     assert_eq!(services.events()[0].params, ["sky"]);
 }
 
@@ -88,22 +83,22 @@ fn services_by_contract_and_version() {
 fn slots_and_bindings_are_readable() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(TestPlugin::new("a", &log))
-        .plugin(TestPlugin {
+        .test_plugin(TestPlugin::new("a", &log))
+        .test_plugin(TestPlugin {
             priority: Priority(10),
             ..TestPlugin::new("b", &log)
         })
-        .plugin(Weather)
+        .items(weather_manifest(), weather())
         .build()
         .unwrap();
     kernel.start(Instant(0));
-    kernel.apply(Command::bind(
+    kernel.apply(Ask::bind(
         "weather.screen",
         "long.menu",
         Some(actions::BACK),
     ));
     kernel.finish();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     assert_eq!(
         env.slot_screen(slots::HOME.as_str()).map(Id::as_str),
         Some("b.screen")

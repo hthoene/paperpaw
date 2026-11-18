@@ -59,14 +59,22 @@ pub struct Framebuffer {
 
 /// Bytes of error rows the bands of a frame leave diffused for the next
 /// band, all pictures together (a 480-pixel row of two is 1.9 KiB); more
-/// start from their first row again.
-const DIFFUSION_BYTES: usize = 6 * 1024;
+/// start from their first row again. The most a host may keep for a
+/// plugin's pictures (`docs/abi/document.md` 5), so it holds for all.
+const DIFFUSION_BYTES: usize = 4 * 1024;
 
 impl Framebuffer {
     /// Allocates a white framebuffer. Fails instead of aborting when memory
     /// is short, which matters on devices with a few hundred KB of RAM.
     pub fn new(width: u16, height: u16, format: PixelFormat) -> Result<Self, GraphicsError> {
         Self::banded(width, height, height, format)
+    }
+
+    /// The memory the pixels were held in, to make another frame in
+    /// ([`banded_in`](Self::banded_in)).
+    #[must_use]
+    pub fn into_data(self) -> Vec<u8> {
+        self.data
     }
 
     /// A framebuffer for a `width`×`height` screen that holds `rows` rows
@@ -76,6 +84,21 @@ impl Framebuffer {
         height: u16,
         rows: u16,
         format: PixelFormat,
+    ) -> Result<Self, GraphicsError> {
+        Self::banded_in(width, height, rows, format, Vec::new())
+    }
+
+    /// [`banded`](Self::banded) made in the room `data` came from
+    /// ([`into_data`](Self::into_data)): where it is as large as the frame
+    /// needs nothing is allocated, where it is not it is freed first and
+    /// the frame made anew. A frame that is drawn in grays, and again as it
+    /// was, thus keeps its one block of memory.
+    pub fn banded_in(
+        width: u16,
+        height: u16,
+        rows: u16,
+        format: PixelFormat,
+        mut data: Vec<u8>,
     ) -> Result<Self, GraphicsError> {
         // A device's own format (`Other`) is the shell's to draw: it gets
         // a frame in a format drawn here and converts it.
@@ -87,9 +110,14 @@ impl Framebuffer {
         let rows = rows.clamp(1, height.max(1));
         let stride = format.stride(width);
         let bytes = stride * rows as usize;
-        let mut data = Vec::new();
-        data.try_reserve_exact(bytes)
-            .map_err(|_| GraphicsError::OutOfMemory { bytes })?;
+        data.clear();
+        if data.capacity() < bytes {
+            // The old room goes first: beside it the new would split the
+            // largest free block.
+            data = Vec::new();
+            data.try_reserve_exact(bytes)
+                .map_err(|_| GraphicsError::OutOfMemory { bytes })?;
+        }
         data.resize(bytes, 0xff);
         Ok(Self {
             width,
@@ -874,6 +902,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_frame_made_in_the_room_of_another_allocates_nothing() {
+        let band = Framebuffer::banded(480, 100, 20, PixelFormat::Mono1).unwrap();
+        let room = band.into_data();
+        let at = room.as_ptr();
+        // The same bytes in grays: half the rows of twice the stride.
+        let gray = Framebuffer::banded_in(480, 100, 10, PixelFormat::Gray2, room).unwrap();
+        let room = gray.into_data();
+        assert_eq!(room.as_ptr(), at);
+        let again = Framebuffer::banded_in(480, 100, 20, PixelFormat::Mono1, room).unwrap();
+        assert_eq!(again.rows(), 20);
+        let room = again.into_data();
+        assert_eq!(room.as_ptr(), at);
+    }
+
+    #[test]
     fn diffusion_kept_for_the_next_band_is_capped_in_bytes() {
         let mut fb = Framebuffer::banded(800, 100, 10, PixelFormat::Mono1).unwrap();
         // An 800-pixel picture keeps 3.2 KiB: one fits, a second does not.
@@ -885,11 +928,35 @@ mod tests {
         fb.keep_diffusion(1, 10, Atkinson::new(800).unwrap());
         fb.keep_diffusion(1, 10, Atkinson::new(800).unwrap());
         assert!(fb.take_diffusion(1, 10).is_some());
-        // Narrow ones: several fit.
+        // Narrow ones: two of the X4's width fit (3.8 KiB), a third does not.
         for key in 0..3 {
             fb.keep_diffusion(key, 10, Atkinson::new(480).unwrap());
         }
-        assert!(fb.take_diffusion(2, 10).is_some());
+        assert!(fb.take_diffusion(2, 10).is_none());
+        assert!(fb.take_diffusion(1, 10).is_some());
+        assert!(fb.take_diffusion(0, 10).is_some());
+    }
+
+    #[test]
+    fn diffusion_kept_goes_with_the_frame_or_a_band_that_begins_elsewhere() {
+        let mut fb = Framebuffer::banded(480, 100, 10, PixelFormat::Mono1).unwrap();
+        // Kept only where the band ends, for the band that begins there.
+        fb.keep_diffusion(1, 5, Atkinson::new(480).unwrap());
+        assert!(fb.diffusions.is_empty(), "not at the band's end");
+        fb.keep_diffusion(1, 10, Atkinson::new(480).unwrap());
+        fb.set_top(10);
+        assert_eq!(fb.diffusions.len(), 1, "the next band");
+        // The frame's end frees it, and its memory.
+        fb.end_frame();
+        assert_eq!(fb.diffusions.capacity(), 0);
+        // A band that begins elsewhere (drawn again, out of order) drops it.
+        fb.set_top(0);
+        fb.keep_diffusion(1, 10, Atkinson::new(480).unwrap());
+        fb.set_top(0);
+        assert!(fb.diffusions.is_empty(), "the same band again");
+        fb.keep_diffusion(1, 10, Atkinson::new(480).unwrap());
+        fb.set_top(20);
+        assert!(fb.take_diffusion(1, 10).is_none(), "a band further down");
     }
 
     #[test]

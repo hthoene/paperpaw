@@ -87,7 +87,7 @@ pub fn frame(m: &Metrics, strip: Option<bool>, columns: u8, rows: i64) -> Frame 
     }
 }
 
-/// The grid in `area`: [`Geometry::new`]'s arithmetic without an environment.
+/// The grid in `area`, columns and rows of cells `gap` apart.
 #[must_use]
 pub fn geometry(area: Rect, columns: u8, rows: u8, gap: u16) -> Geometry {
     let columns = columns.clamp(2, grid::MAX_COLUMNS);
@@ -173,6 +173,27 @@ pub fn dots(footer: Rect, style_gap: u16, pages: usize, page: usize) -> impl Ite
         size: dot,
         current: at == page,
     })
+}
+
+/// The pill the dots sit on over a picture (interface 6: paper round the dots,
+/// a dot's size beyond them at the sides and half that above and below) and
+/// its corner's radius; none where no dots show (one page).
+#[must_use]
+pub fn pill(footer: Rect, style_gap: u16, pages: usize) -> Option<(Rect, u32)> {
+    let mut all = dots(footer, style_gap, pages, 0);
+    let first = all.next()?;
+    let last = all.last().unwrap_or(first);
+    let pad = i64::from(first.size);
+    let left = i64::from(first.x) - pad;
+    let top = i64::from(first.y) - pad / 2;
+    let width = i64::from(last.x) + i64::from(last.size) + pad - left;
+    let height = i64::from(first.size) + pad;
+    let clamp = |v: i64| u16::try_from(v.max(0)).unwrap_or(u16::MAX);
+    let radius = u32::try_from(height / 2).unwrap_or(0);
+    Some((
+        Rect::new(clamp(left), clamp(top), clamp(width), clamp(height)),
+        radius,
+    ))
 }
 
 /// The page that shows and how many there are.
@@ -352,6 +373,23 @@ mod tests {
         assert_eq!(d[0].y, 740 + (60 - 10) / 2);
         // Small gaps still give a dot of 6.
         assert_eq!(dots(footer, 3, 2, 0).next().unwrap().size, 6);
+    }
+
+    #[test]
+    fn over_a_picture_the_dots_sit_on_a_pill_as_on_interface_6() {
+        let footer = Rect::new(0, 740, 480, 60);
+        assert_eq!(pill(footer, 16, 1), None);
+        // Three dots of 10, 50 wide in all from x 215: a dot more at each side,
+        // half a dot above and below.
+        let (rect, radius) = pill(footer, 16, 3).unwrap();
+        assert_eq!(rect, Rect::new(205, 760, 70, 20));
+        assert_eq!(radius, 10);
+        // Every dot is inside it.
+        for dot in dots(footer, 16, 3, 0) {
+            assert!(dot.x >= i32::from(rect.x) && dot.y >= i32::from(rect.y));
+            assert!(dot.x + dot.size as i32 <= i32::from(rect.x) + i32::from(rect.width));
+            assert!(dot.y + dot.size as i32 <= i32::from(rect.y) + i32::from(rect.height));
+        }
     }
 
     #[test]

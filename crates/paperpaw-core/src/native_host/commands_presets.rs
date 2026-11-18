@@ -31,13 +31,15 @@
 //! `set_setting` does, so an out-of-memory in the middle of a preset leaves
 //! the chunks before it applied (it is never reported as applied).
 use super::{CommandAuthority, CommandBatch, CommandStage, WireCommand};
+use crate::Ask;
 use crate::Kernel;
+use crate::kit::widgets::Widgets;
 use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
+use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_sdk::{
-    Command, Id, IdError, SettingKind, SettingSpec, SettingValue, Settings,
+    Id, IdError, SettingKind, SettingSpec, SettingValue, Settings,
     presets::{self, Preset},
-    widgets::Widgets,
 };
 
 #[cfg_attr(
@@ -127,7 +129,7 @@ fn theme_covers(settings: &Settings, spec: &SettingSpec) -> bool {
     let kept = [
         UI_SIZE.static_str(),
         UI_CONTRAST.static_str(),
-        paperpaw_sdk::logo::LOGO.static_str(),
+        crate::kit::logo::LOGO.static_str(),
         WIDGET_FRAME.static_str(),
     ];
     // `group_of(spec) == LOOK` without the copy of an owned group id.
@@ -209,15 +211,22 @@ pub(crate) fn walk(
 ) -> Result<(), i32> {
     let kind = preset.kind.as_str();
     if covering(kind) {
-        for spec in settings.specs() {
+        // One spec at a time: none a plugin describes is kept for this.
+        let mut refused = Ok(());
+        let walked = settings.walk(paperpaw_sdk::Pick::All, &mut |spec| {
             let key = spec.id.as_str();
             if !covers(kind, settings, widgets, spec) || untouchable(key, spec) {
-                continue;
+                return ControlFlow::Continue(());
             }
             let value = last_value(preset, key).and_then(|text| Given::of(spec, text));
-            each(key, spec, value)?;
-        }
-        return Ok(());
+            refused = each(key, spec, value);
+            match refused {
+                Ok(()) => ControlFlow::Continue(()),
+                Err(_) => ControlFlow::Break(()),
+            }
+        });
+        refused?;
+        return walked.map_err(|_| ERR_NO_MEMORY);
     }
     for (key, text) in preset.values() {
         let Some(spec) = settings.spec(key) else {
@@ -245,13 +254,13 @@ fn permitted(owner: &Id, exempt: bool, key: &str, spec: &SettingSpec) -> Result<
 
 /// What it takes to make setting `key` hold `given` (`None`: its default,
 /// not set), or `None` where it holds it already: as
-/// [`presets::commands`] decides, without allocating but for the command.
+/// [`presets::writes`] decides, without allocating but for the command.
 fn change(
     settings: &Settings,
     key: &str,
     spec: &SettingSpec,
     given: Option<Given<'_>>,
-) -> Result<Option<Command>, i32> {
+) -> Result<Option<Ask>, i32> {
     // A widget's own frame is kept where it is named, its default too: it is
     // the widget's own, over the frame of all.
     let frame = key.ends_with(".frame")
@@ -281,8 +290,8 @@ fn change(
         }
     };
     Ok(Some(match &kept {
-        Some(value) => Command::SetSetting(id, value.value()?),
-        None => Command::ResetSetting(id),
+        Some(value) => Ask::SetSetting(id, value.value()?),
+        None => Ask::ResetSetting(id),
     }))
 }
 
@@ -298,7 +307,7 @@ pub(crate) fn plan(
     widgets: &Widgets,
     preset: &Preset,
     from: usize,
-    out: &mut Vec<Command>,
+    out: &mut Vec<Ask>,
 ) -> Result<bool, i32> {
     out.try_reserve_exact(CHUNK).map_err(|_| ERR_NO_MEMORY)?;
     let (mut seen, mut more) = (0_usize, false);
@@ -345,6 +354,7 @@ impl CommandStage<'_> {
 
     /// The preset records of `batch`, checked and copied; their bytes are
     /// the second part of the answer.
+    #[inline(never)]
     pub(super) fn validate_presets(
         &self,
         batch: &CommandBatch<'_>,
@@ -415,16 +425,18 @@ impl Kernel {
                 Ok(()) => {}
                 Err(ERR_NOT_FOUND) => {
                     self.warn_runtime("native preset dropped: it is gone");
+                    self.native_registry_dropped(owner);
                     continue;
                 }
                 Err(_) => {
                     self.warn_runtime("native preset dropped: it changes a guarded setting");
+                    self.native_registry_dropped(owner);
                     continue;
                 }
             }
             let mut from = 0;
             loop {
-                let mut commands: Vec<Command> = Vec::new();
+                let mut commands: Vec<Ask> = Vec::new();
                 let planned = match self.shared.settings.presets().get(&name) {
                     Some(preset) => plan(
                         &self.shared.settings,

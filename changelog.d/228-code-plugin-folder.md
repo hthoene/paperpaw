@@ -1,0 +1,3 @@
+### Fixed
+
+- **Sleep can show a preset picture from a code plugin's folder again** (#228, #243). Root 1 now also shows the install folder `plugins/<id>/` of a running code plugin, read only and behind `uses.storage`, as it does for a running data plugin (`files.md` 1.1). This covers `core.files` `stat` and `list`, and `image_prepare`. The plugin's code files (`code.ppn`, `code.so` and the other code file names, also under an 8.3 name) and the host's `.install-marks` are never shown; everything else there is readable by every plugin with `uses.storage`, so private state belongs in the plugin's data folder, and every change there is `ERR_DENIED`. Beta 3's preset pictures such as `plugins/<id>/owl.png` show again instead of the fallback.

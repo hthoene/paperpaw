@@ -4,23 +4,25 @@
 extern crate std;
 
 use super::*;
+use crate::Staging;
 use crate::abi7::{services_wire::service_schema, settings_wire::settings_decode};
 use crate::native_host::host_services::{Caller, HostServices};
+use crate::{Place, Turn};
 use alloc::{borrow::Cow, boxed::Box, format, string::String, vec::Vec};
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_NOT_FOUND};
 use paperpaw_platform::Instant;
 use paperpaw_sdk::{
-    Canvas, Cx, Env, Handled, Id, Manifest, Plugin, Priority, RegisterError, Registrar, Screen,
-    ScreenSpec, SettingExtra, SettingGroupSpec, SettingSpec, SettingValue, Settings, Version,
+    Canvas, Handled, Id, Manifest, Priority, RegisterError, SettingExtra, SettingGroupSpec,
+    SettingSpec, SettingValue, Settings, Version,
     builtin::{groups::OTHER, slots::SETTINGS as SETTINGS_SLOT},
     presets::Preset,
 };
 
 struct Quiet;
-impl Screen for Quiet {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+impl crate::testing::Fake for Quiet {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
@@ -57,13 +59,8 @@ static PRESETS: [Preset; 3] = [
 ];
 
 /// A plugin with settings of every shape, a group and presets.
-struct Cfg;
-impl Plugin for Cfg {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("cfg"), "Cfg", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn cfg() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         r.add_setting_group(SettingGroupSpec::new(id("cfg.top"), "cfg.group.top").order(1))?;
         let top = id("cfg.top");
         r.add_setting(SettingSpec::switch(
@@ -129,15 +126,16 @@ impl Plugin for Cfg {
     }
 }
 
+/// What [`cfg`] registers under.
+fn cfg_manifest() -> Manifest {
+    Manifest::new(Id::new_static("cfg"), "Cfg", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 /// Adds a choice to `cfg.mode`, and is the settings editor.
-struct Ed;
-impl Plugin for Ed {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("ed"), "Ed", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn ed() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
             id("ed.main"),
             "ed.screen.main",
             Box::new(|_, _| Box::new(Quiet)),
@@ -148,16 +146,22 @@ impl Plugin for Ed {
     }
 }
 
+/// What [`ed`] registers under.
+fn ed_manifest() -> Manifest {
+    Manifest::new(Id::new_static("ed"), "Ed", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn kernel() -> crate::Kernel {
     crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Cfg)
-        .plugin(Ed)
+        .items(cfg_manifest(), cfg())
+        .items(ed_manifest(), ed())
         .build()
         .unwrap()
 }
 
 struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     sources: Sources<'a>,
     hosts: HostServices,
 }
@@ -187,7 +191,7 @@ fn call_as(
     input: &[u8],
     room: usize,
 ) -> Result<Vec<u8>, i32> {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let view = View {
         env: &env,
         sources: Sources {
@@ -337,6 +341,46 @@ fn detail_as(kernel: &crate::Kernel, plugin: &str, id: u32, k: &str) -> Result<V
 fn row<'a>(rows: &'a [String], key: &str) -> &'a str {
     let prefix = format!("setting {key} ");
     rows.iter().find(|r| r.starts_with(&prefix)).unwrap()
+}
+
+/// A plugin whose setting needs a front light the device does not have.
+fn lit() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.add_setting_group(SettingGroupSpec::new(id("lit.top"), "lit.group").order(1))?;
+        for key in ["lit.light", "lit.plain"] {
+            r.add_setting(SettingSpec::switch(key, "lit.title", false, id("lit.top")))?;
+        }
+        r.set_menu_need(id("lit.light"), paperpaw_sdk::MenuNeed::Frontlight)?;
+        Ok(())
+    }
+}
+
+/// What [`lit`] registers under.
+fn lit_manifest() -> Manifest {
+    Manifest::new(Id::new_static("lit"), "Lit", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
+#[test]
+fn a_setting_for_a_device_that_lacks_what_it_needs_is_not_shown() {
+    let shown = |kernel: &crate::Kernel| {
+        let rows = page(kernel, schema::OP_SETTINGS, "lit").0;
+        (
+            flags_of(row(&rows, "lit.light")) & 512 != 0,
+            flags_of(row(&rows, "lit.plain")) & 512 != 0,
+        )
+    };
+    let without = crate::Kernel::builder(crate::tests::DEVICE)
+        .items(lit_manifest(), lit())
+        .build()
+        .unwrap();
+    assert_eq!(shown(&without), (false, true));
+    let with = crate::Kernel::builder(crate::tests::DEVICE)
+        .frontlight(true)
+        .items(lit_manifest(), lit())
+        .build()
+        .unwrap();
+    assert_eq!(shown(&with), (true, true));
 }
 
 fn flags_of(row: &str) -> u32 {
@@ -507,6 +551,58 @@ fn flags_say_what_the_setting_is_and_where_its_value_comes_from() {
 }
 
 #[test]
+fn every_rows_governs_flag_is_what_settings_governs_says() {
+    let kernel = kernel();
+    let settings = &kernel.shared.settings;
+    // Found once for a list: sorted, each id once, the same answer per id.
+    let env = kernel.shared.place(Instant(0));
+    let sources = super::sources::Sources {
+        env: &env,
+        directory: None,
+        generation: &kernel.shared.registry_generation,
+    };
+    let ids = settings::governing(&sources, settings).unwrap();
+    assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
+    assert!(ids.contains(&"cfg.flag"));
+    let rows = pages(&kernel, schema::OP_SETTINGS, "");
+    let mut seen = 0;
+    for row in rows.iter().filter(|row| row.starts_with("setting ")) {
+        let key = row.split(' ').nth(1).unwrap();
+        let flagged = flags_of(row) & 1024 != 0;
+        assert_eq!(flagged, settings.governs(key), "{key}");
+        assert_eq!(flagged, ids.binary_search(&key).is_ok(), "{key}");
+        seen += 1;
+    }
+    assert_eq!(seen, settings.specs().count());
+    // One setting alone asks `governs` itself: the same flag.
+    let flag = detail_as(&kernel, "reader", schema::OP_SETTING, "cfg.flag").unwrap();
+    assert_eq!(flags_of(&flag[0]) & 1024, 1024);
+}
+
+#[test]
+fn the_slider_flag_is_set_for_int_settings_that_ask_for_one_and_no_other() {
+    let kernel = kernel();
+    let settings = &kernel.shared.settings;
+    let rows = pages(&kernel, schema::OP_SETTINGS, "");
+    let mut sliders = 0;
+    for row in rows.iter().filter(|row| row.starts_with("setting ")) {
+        let key = row.split(' ').nth(1).unwrap();
+        let spec = settings
+            .specs()
+            .find(|spec| spec.id.as_str() == key)
+            .unwrap();
+        let wanted =
+            spec.extra().slider && matches!(spec.kind, paperpaw_sdk::SettingKind::Int { .. });
+        assert_eq!(flags_of(row) & 2048 != 0, wanted, "{key}");
+        sliders += usize::from(wanted);
+    }
+    // The kernel's own margins and sizes are set by eye, with sliders.
+    assert!(sliders > 0);
+    // `cfg.size` is an int without one: a number to step.
+    assert_eq!(flags_of(row(&rows, "cfg.size")) & 2048, 0);
+}
+
+#[test]
 fn secrets_grants_and_values_follow_slot_five() {
     let mut kernel = kernel();
     let settings = &mut kernel.shared.settings;
@@ -556,6 +652,32 @@ fn secrets_grants_and_values_follow_slot_five() {
         .unwrap();
     let (rows, _) = page(&kernel, schema::OP_SETTINGS, "zz");
     assert_eq!(flags_of(row(&rows, "zz.key")) & (32 | 64), 32);
+}
+
+/// Whether a secret has a value is told by what the kernel keeps and by who
+/// asks, never by which plugin the kernel's tracker last entered: a nested
+/// call (a stage subscriber, a compose child) reads the same.
+#[test]
+fn the_secret_is_set_flag_does_not_follow_the_running_plugin() {
+    let mut kernel = kernel();
+    kernel
+        .shared
+        .settings
+        .set("cfg.key", SettingValue::Text("hunter2".into()))
+        .unwrap();
+    let flags = |kernel: &crate::Kernel, plugin: &str| {
+        let (rows, _) = page_as(kernel, plugin, schema::OP_SETTINGS, "cfg", 0);
+        flags_of(row(&rows, "cfg.key")) & (32 | 64)
+    };
+    for plugin in ["reader", "cfg", "ed"] {
+        let plain = flags(&kernel, plugin);
+        assert_eq!(plain, 32 | 64, "{plugin}");
+        // Whoever the tracker names, the asker sees the same.
+        for running in ["cfg", "other", "ed"] {
+            let _running = kernel.shared.meter.enter(running);
+            assert_eq!(flags(&kernel, plugin), plain, "{plugin} under {running}");
+        }
+    }
 }
 
 #[test]
@@ -648,6 +770,44 @@ fn choices_are_the_settings_own_then_those_others_added() {
     assert_eq!(end.total, 2);
     let detail = detail_as(&kernel, "reader", schema::OP_SETTING, "cfg.mode").unwrap();
     assert!(detail[1].ends_with("choices=2"));
+}
+
+#[test]
+fn a_language_settings_choices_are_the_languages_by_their_own_names() {
+    let mut kernel = kernel();
+    let greek = format!("language = el\nname = {}", "\u{e9}".repeat(100));
+    let greek_row = format!("choice el {}", "\u{e9}".repeat(64));
+    // A language pack's name is its own; one that gives none goes by its tag.
+    for meta in [
+        "language = de\nname = Deutsch",
+        "language = en\nname = English",
+        "language = fr-CA",
+        greek.as_str(),
+    ] {
+        let catalog = format!("[meta]\n{meta}\nplural = one-other\n\n[messages]\n");
+        kernel
+            .shared
+            .translator
+            .add(paperpaw_i18n::Catalog::parse(Cow::Owned(catalog)).unwrap());
+    }
+    // English first, then by tag; the value is the tag the setting holds.
+    let (rows, end) = page(&kernel, schema::OP_CHOICES, "core.language");
+    assert_eq!(
+        rows,
+        [
+            "choice en English",
+            "choice de Deutsch",
+            greek_row.as_str(),
+            "choice fr-CA fr-CA"
+        ]
+    );
+    assert_eq!((end.flags, end.total), (1, 4));
+    // The detail counts them, so the editors ask for the names.
+    let detail = detail_as(&kernel, "reader", schema::OP_SETTING, "core.language").unwrap();
+    assert!(detail[1].ends_with("choices=4"), "{}", detail[1]);
+    // The names are the same whatever the user's language is.
+    kernel.shared.translator.set_language("de");
+    assert_eq!(page(&kernel, schema::OP_CHOICES, "core.language").0, rows);
 }
 
 #[test]
@@ -852,4 +1012,116 @@ fn unknown_query_flag_bits_are_unsupported_on_every_list_op() {
         call_as(&kernel, "reader", schema::OP_VALUES, &with("", 2), 4096),
         Err(ERR_UNSUPPORTED)
     );
+}
+
+/// How many settings [`many`] has that a row can carry: more than two pages.
+const MANY: usize = 70;
+
+/// A plugin of many settings, one of a title and a value longer than their
+/// fields and one whose id fits no `reg_setting.key` (128 bytes).
+fn many() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        let leaked = |text: String| -> &'static str { text.leak() };
+        for n in 0..MANY - 1 {
+            r.add_setting(SettingSpec::number(
+                leaked(format!("many.n{n:02}")),
+                "many.title",
+                0,
+                9,
+                1,
+                OTHER,
+            ))?;
+            if n == 40 {
+                r.add_setting(SettingSpec::switch(
+                    leaked(format!("many.{}", "x".repeat(130))),
+                    "many.title",
+                    false,
+                    OTHER,
+                ))?;
+            }
+        }
+        r.add_setting(SettingSpec::text(
+            "many.wide",
+            leaked(format!("many.{}", "t".repeat(200))),
+            leaked("v".repeat(80)),
+            OTHER,
+        ))?;
+        Ok(())
+    }
+}
+
+/// What [`many`] registers under.
+fn many_manifest() -> Manifest {
+    Manifest::new(Id::new_static("many"), "Many", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
+fn crowded() -> crate::Kernel {
+    crate::Kernel::builder(crate::tests::DEVICE)
+        .items(cfg_manifest(), cfg())
+        .items(ed_manifest(), ed())
+        .items(many_manifest(), many())
+        .build()
+        .unwrap()
+}
+
+/// #248: a page built every setting of its scope twice (once to count it,
+/// once to reach the cursor) with its title, its value and what its plugin
+/// declares of it; the settings screen reads some fifty pages when it opens.
+#[test]
+fn a_page_of_settings_builds_the_rows_it_answers_and_no_other() {
+    let kernel = crowded();
+    for (scope, room) in [("many", 4096), ("", 4096), ("many", 700)] {
+        let (mut cursor, mut generation, mut seen) = (0, 0, 0);
+        settings::built::take();
+        loop {
+            let input = query(scope, cursor, generation, 0);
+            let reply = call_as(&kernel, "reader", schema::OP_SETTINGS, &input, room).unwrap();
+            let (rows, end) = read(&reply);
+            let end = end.unwrap();
+            let built = settings::built::take();
+            if room == 4096 {
+                assert_eq!(built, rows.len(), "{scope} from {cursor}");
+            } else {
+                // A page cut short by its room built the row it had none for.
+                assert!(rows.len() < 32 && built <= rows.len() + 1, "{built}");
+            }
+            seen += rows.len();
+            if end.flags & 1 != 0 {
+                assert_eq!(seen, end.total as usize, "{scope}");
+                break;
+            }
+            (cursor, generation) = (end.next, end.generation);
+        }
+        assert!(scope.is_empty() || seen == MANY, "{scope}: {seen}");
+        assert!(seen > 64, "more than two pages: {seen}");
+    }
+}
+
+/// A row is counted and passed by its key and group alone, built or not:
+/// what else it carries is cut to its field or left out.
+#[test]
+fn a_setting_no_row_can_carry_is_passed_by_and_a_long_title_or_value_is_not() {
+    let kernel = crowded();
+    let rows = pages(&kernel, schema::OP_SETTINGS, "many");
+    assert_eq!(rows.len(), MANY);
+    assert!(!rows.iter().any(|r| r.contains("xxxx")), "{rows:?}");
+    // In order, with none lost at the row passed by.
+    let keys: Vec<&str> = rows.iter().map(|r| r.split(' ').nth(1).unwrap()).collect();
+    assert_eq!(keys[40..42], ["many.n40", "many.n41"]);
+    let wide = rows
+        .iter()
+        .find(|r| r.starts_with("setting many.wide "))
+        .unwrap();
+    // The title cut to 128 bytes; a value over 64 bytes is long, not sent.
+    assert!(
+        wide.contains(&format!(" title=many.{} ", "t".repeat(123))),
+        "{wide}"
+    );
+    assert!(
+        wide.ends_with(" value=-") && flags_of(wide) & 128 != 0,
+        "{wide}"
+    );
+    let (page_rows, end) = page(&kernel, schema::OP_SETTINGS, "many");
+    assert_eq!((page_rows.len(), end.total as usize), (32, MANY));
 }

@@ -102,14 +102,14 @@ impl Source {
 }
 
 /// Whether another quote shows each day (else each time it shows).
-fn daily(settings: &Settings<'_, '_>) -> Result<bool, Error> {
+pub(crate) fn daily(settings: &Settings<'_, '_>) -> Result<bool, Error> {
     settings.with_text("change", |value| !value.ends_with(".shown"))
 }
 
 /// The one of `count` things shown on `day`: each of them once before any
 /// comes again, neighbours far apart (the order of a file says little about
 /// the order of the days).
-fn of_the_day(day: i64, count: usize) -> usize {
+pub(crate) fn of_the_day(day: i64, count: usize) -> usize {
     if count == 0 {
         return 0;
     }
@@ -125,9 +125,9 @@ fn of_the_day(day: i64, count: usize) -> usize {
 /// How far the quotes were turned on (to the next quote), kept in a file: the
 /// day it was turned on and how often since.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct Turns {
-    day: i64,
-    turns: u32,
+pub(crate) struct Turns {
+    pub(crate) day: i64,
+    pub(crate) turns: u32,
 }
 
 impl Turns {
@@ -142,8 +142,9 @@ impl Turns {
         Self { day, turns }
     }
 
-    fn load(host: &Host<'_>) -> Result<Self, Error> {
-        match files::read_all(host, Root::Data, TURNS_FILE, 64) {
+    /// Read from the data file `file`.
+    pub(crate) fn load(host: &Host<'_>, file: &str) -> Result<Self, Error> {
+        match files::read_all(host, Root::Data, file, 64) {
             Ok(Some(bytes)) => Ok(Self::parse(&bytes)),
             Err(Error::NoMemory) => Err(Error::NoMemory),
             // None kept, or none that can be read: the first quote.
@@ -151,17 +152,18 @@ impl Turns {
         }
     }
 
-    fn save(self, host: &Host<'_>) -> Result<(), Error> {
+    /// Written to the data file `file`.
+    pub(crate) fn save(self, host: &Host<'_>, file: &str) -> Result<(), Error> {
         let (mut day, mut turns) = ([0; 20], [0; 20]);
         let day = decimal_u64(u64::try_from(self.day).unwrap_or(0), &mut day);
         let turns = decimal_u64(u64::from(self.turns), &mut turns);
         let line = concat(&[day, " ", turns, "\n"])?;
-        files::replace(host, Root::Data, TURNS_FILE, line.as_bytes())
+        files::replace(host, Root::Data, file, line.as_bytes())
     }
 
     /// The turns of `today`: none since the day began, where what is shown
     /// changes daily.
-    const fn on(self, today: i64, daily: bool) -> u32 {
+    pub(crate) const fn on(self, today: i64, daily: bool) -> u32 {
         if daily && self.day != today {
             0
         } else {
@@ -177,12 +179,12 @@ impl Turns {
 pub fn turn(host: &Host<'_>, widget: &str) -> Result<(), Error> {
     let settings = Settings::new(host, widget);
     let day = crate::native_draw::epoch_day(host)?;
-    let turns = Turns::load(host)?.on(day, daily(&settings)?);
+    let turns = Turns::load(host, TURNS_FILE)?.on(day, daily(&settings)?);
     Turns {
         day,
         turns: turns.wrapping_add(1),
     }
-    .save(host)
+    .save(host, TURNS_FILE)
 }
 
 /// A quote and who said it (empty if no one is known).
@@ -437,7 +439,9 @@ fn quote_of_the_day(
     let source = Source::of(&cx.settings)?;
     let daily = daily(&cx.settings)?;
     let showing = if daily { 0 } else { showings.count() };
-    let turns = Turns::load(cx.host)?.on(day, daily).wrapping_add(showing);
+    let turns = Turns::load(cx.host, TURNS_FILE)?
+        .on(day, daily)
+        .wrapping_add(showing);
     let tag = language(cx.host)?;
     let tongue = if tag.starts_with("de") { "de" } else { "en" };
     let name = concat(&["data/quotes.", tongue, ".txt"])?;
@@ -476,7 +480,9 @@ pub fn shows_with(host: &Host<'_>, widget: &str, showings: &Showings) -> Result<
     let daily = daily(&settings)?;
     let day = crate::native_draw::epoch_day(host)?;
     let showing = if daily { 0 } else { showings.count() };
-    let turns = Turns::load(host)?.on(day, daily).wrapping_add(showing);
+    let turns = Turns::load(host, TURNS_FILE)?
+        .on(day, daily)
+        .wrapping_add(showing);
     let mut mark = crate::native_draw::fnv(
         1,
         &[

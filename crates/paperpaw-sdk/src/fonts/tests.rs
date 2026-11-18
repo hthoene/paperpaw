@@ -895,6 +895,7 @@ fn hangul_in_jamo_is_set_by_the_syllables_pack() {
     assert_eq!(fonts.missing_letters(), before);
 }
 
+mod extensions;
 mod ink;
 mod interface;
 
@@ -924,4 +925,221 @@ fn a_family_chosen_can_be_given_back_and_a_registered_one_is_known() {
     assert_eq!(status.as_deref(), Some("Serif"));
     fonts.restore_status(status);
     assert_eq!(fonts.status.as_deref(), Some("Serif"));
+}
+
+/// A family is there to set text with a regular face: one in a file of
+/// another plugin's folder (the firmware's name for Literata, whose pack
+/// a data plugin brings) only once the card has that file. A plugin's
+/// own files and loose ones are taken as there, without a look at the
+/// card.
+#[test]
+fn a_family_is_there_once_another_plugins_file_of_its_regular_face_is() {
+    let face = |id: &'static str, path: &'static str, family: &'static str, bold: bool| {
+        FontFace::new(Id::new_static(id), path, family, bold, false)
+    };
+    let path = "plugins/styles/fonts/serif.ppfp";
+    let mut fonts = Fonts::new(4096);
+    fonts
+        .add_face(face("firmware.serif", path, "Serif", false))
+        .unwrap();
+    fonts
+        .add_face(face(
+            "styles.bold",
+            "plugins/styles/fonts/bold.ppfp",
+            "Serif",
+            true,
+        ))
+        .unwrap();
+    fonts
+        .add_face(face(
+            "own.regular",
+            "plugins/own/fonts/own.ppfp",
+            "Own",
+            false,
+        ))
+        .unwrap();
+    fonts
+        .add_face(face("fonts.loose", "fonts/Loose.ppfp", "Loose", false))
+        .unwrap();
+    fonts
+        .add_face(face(
+            "own.slab-bold",
+            "plugins/own/fonts/slab.ppfp",
+            "Slab",
+            true,
+        ))
+        .unwrap();
+    let empty = MemoryStorage::new();
+    assert!(fonts.has_family("Serif"));
+    assert!(!fonts.family_there("Serif", &empty));
+    assert!(fonts.family_there("Own", &empty));
+    assert!(fonts.family_there("Loose", &empty));
+    // Styles alone set no text.
+    assert!(fonts.has_family("Slab"));
+    assert!(!fonts.family_there("Slab", &empty));
+    assert!(!fonts.family_there("Other", &empty));
+    let card = MemoryStorage::new().with(path, pack("a"));
+    assert!(fonts.family_there("Serif", &card));
+    // A card that cannot say (a read fault, busy) has not said no: the
+    // family stays, and a choice of it with it.
+    let failing = crate::memory_storage::Unreadable(card);
+    assert!(fonts.family_there("Serif", &failing));
+    let failing = crate::memory_storage::Unreadable(MemoryStorage::new());
+    assert!(!fonts.family_there("Serif", &failing));
+    // Open, the face reads its letters from the file still: the other
+    // plugin removed, the family is not there.
+    let card = Rc::new(MemoryStorage::new().with(path, pack("a")));
+    let storage: Rc<dyn Storage> = card.clone();
+    fonts.set_family(Some("Serif"));
+    fonts.load(&storage);
+    assert!(fonts.family_there("Serif", card.as_ref()));
+    card.remove(path).unwrap();
+    assert!(!fonts.family_there("Serif", card.as_ref()));
+}
+
+/// A plugin's bold for book text (a card's Literata styles) counts only
+/// where regular book text is in its family. Beside another family's
+/// regular face (the UI font, which sets book text on a lean device) the
+/// regular face stands in for bold too: no two typefaces in a paragraph.
+#[test]
+fn a_bold_of_another_family_than_the_book_text_is_not_used() {
+    fn add(fonts: &mut Fonts, id: &'static str, family: &'static str, bold: bool) -> Id {
+        let font = Font::from_data(pack("a"), &[]).unwrap();
+        let id = Id::new_static(id);
+        fonts
+            .add(FontSpec::new(id.clone(), font).family(family, bold, false))
+            .unwrap();
+        id
+    }
+    let bold = roles::READING_BOLD;
+    let mut fonts = Fonts::new(4096);
+    let sans = add(&mut fonts, "a.sans", "Sans", false);
+    let serif_bold = add(&mut fonts, "b.serif-bold", "Serif", true);
+    fonts.propose(roles::UI, sans.clone(), Priority::DEFAULT);
+    fonts.propose(roles::READING, sans, Priority::DEFAULT);
+    fonts.propose(bold.clone(), serif_bold.clone(), Priority::DEFAULT);
+    let reading = |fonts: &Fonts| fonts.role(roles::READING.as_str()).unwrap().id().clone();
+    assert_eq!(reading(&fonts).as_str(), "a.sans");
+    assert!(fonts.bound(bold.as_str()).is_none());
+
+    // Nor where its family is chosen but has no regular face. The kernel
+    // takes no such family: it is not there to set text.
+    fonts.set_family(Some("Serif"));
+    assert_eq!(reading(&fonts).as_str(), "a.sans");
+    assert!(fonts.bound(bold.as_str()).is_none());
+    fonts.set_family(None);
+    let card = MemoryStorage::new();
+    assert!(fonts.family_there("Sans", &card));
+    assert!(!fonts.family_there("Serif", &card));
+
+    // What the user binds in the configuration is taken as given.
+    fonts.bind_user(bold.clone(), serif_bold);
+    assert_eq!(
+        fonts.bound(bold.as_str()).unwrap().id().as_str(),
+        "b.serif-bold"
+    );
+    fonts.user.clear();
+
+    // With the family's regular face setting book text, its bold counts.
+    let serif = add(&mut fonts, "b.serif", "Serif", false);
+    fonts.propose(roles::READING, serif, Priority::PREFERRED);
+    assert_eq!(reading(&fonts).as_str(), "b.serif");
+    assert_eq!(
+        fonts.bound(bold.as_str()).unwrap().id().as_str(),
+        "b.serif-bold"
+    );
+}
+
+/// The ink of each glyph of one line drawn at `size` (glyphs apart by
+/// columns without ink, left to right): its top and bottom row.
+fn glyph_rows(font: &FontHandle<'_>, size: f32, text: &str) -> alloc::vec::Vec<(usize, usize)> {
+    const WIDTH: usize = 400;
+    let mut frame = paperpaw_graphics::Framebuffer::new(
+        WIDTH as u16,
+        160,
+        paperpaw_platform::PixelFormat::Gray8,
+    )
+    .unwrap();
+    frame.canvas().clear(Color::WHITE);
+    font.draw(&mut frame.canvas(), size, 10.0, 130, text, Color::BLACK);
+    let data = frame.view().data;
+    let inked = |x: usize, y: usize| data[y * WIDTH + x] < 128;
+    let mut glyphs = alloc::vec::Vec::new();
+    let mut open: Option<(usize, usize)> = None;
+    for x in 0..WIDTH {
+        let rows = (0..160).filter(|&y| inked(x, y));
+        let column = rows.clone().min().zip(rows.max());
+        open = match (open, column) {
+            (Some((t, b)), Some((top, bottom))) => Some((t.min(top), b.max(bottom))),
+            (None, column) => column,
+            (Some(glyph), None) => {
+                glyphs.push(glyph);
+                None
+            }
+        };
+    }
+    glyphs.extend(open);
+    glyphs
+}
+
+/// A clock in Persian digits drawn large in a scalable font for Latin
+/// (the interface's font on Android), the digits from a pack of Arabic
+/// script that has no such size: the colon of the font is drawn at the
+/// size the digits are, not larger than they (#131), and the digits
+/// are as tall as the font's own.
+#[test]
+fn digits_of_a_pack_and_the_fonts_colon_are_drawn_at_one_size() {
+    let outline =
+        |data: &'static [u8]| paperpaw_text::OutlineFont::new(data.to_vec(), &[]).unwrap();
+    let digits = paperpaw_text::build_pack(
+        &outline(include_bytes!(
+            "../../../../tools/fonts/NotoNaskhArabic.ttf"
+        )),
+        &[20.0, 24.0, 28.0, 32.0, 36.0, 40.0, 48.0],
+        "\u{6f0}\u{6f1}\u{6f2}\u{6f3}\u{6f4}\u{6f5}\u{6f6}\u{6f7}\u{6f8}\u{6f9}".chars(),
+    );
+    let storage: Rc<dyn Storage> =
+        Rc::new(MemoryStorage::new().with("plugins/s/fonts/naskh-sans.ppfp", digits));
+    let mut fonts = Fonts::new(64 * 1024);
+    let ui = paperpaw_text::Font::Outline(outline(include_bytes!(
+        "../../../../plugins/fonts-default/fonts/SourceSans3.ttf"
+    )));
+    fonts
+        .add(FontSpec::new(Id::new_static("a.ui"), ui))
+        .unwrap();
+    fonts
+        .add_extension(
+            Id::new_static("s.naskh-sans"),
+            String::from("plugins/s/fonts/naskh-sans.ppfp"),
+            Id::new_static("a.ui"),
+        )
+        .unwrap();
+    assert!(fonts.load(&storage).is_empty());
+    let ui = fonts.get("a.ui").unwrap();
+    let height = |(top, bottom): (usize, usize)| bottom - top + 1;
+    // ۲۳:۴۵
+    let clock = glyph_rows(&ui, 96.0, "\u{6f2}\u{6f3}:\u{6f4}\u{6f5}");
+    assert_eq!(clock.len(), 5, "{clock:?}");
+    let colon = height(clock[2]);
+    let persian = [clock[0], clock[1], clock[3], clock[4]].map(height);
+    // The font's own digits, at the size the clock is drawn at.
+    let drawn = ui.size_for(96.0, "\u{6f2}\u{6f3}:\u{6f4}\u{6f5}");
+    assert_eq!(drawn, 48.0, "the pack's largest size");
+    assert_eq!(ui.size_for(96.0, "23:45"), 96.0, "the font's own digits");
+    let latin = glyph_rows(&ui, drawn, "23:45");
+    let latin = [latin[0], latin[1], latin[3], latin[4]].map(height);
+    for (persian, latin) in persian.into_iter().zip(latin) {
+        // Naskh's digits a little lower than the font's, at one size.
+        assert!(
+            persian * 10 >= latin * 8,
+            "{persian} high, the font's {latin}"
+        );
+    }
+    for digit in persian {
+        assert!(digit > colon, "a digit {digit} high, the colon {colon}");
+    }
+    // Same baseline: every digit's foot near the colon's.
+    for glyph in [clock[0], clock[1], clock[3], clock[4]] {
+        assert!(glyph.1.abs_diff(clock[2].1) <= 3, "{clock:?}");
+    }
 }

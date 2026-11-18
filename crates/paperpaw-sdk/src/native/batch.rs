@@ -98,6 +98,7 @@ mod tests {
                 Row(wire::EventActionRun {
                     now_ms: i as u64 * 1_000_003,
                     action: ACTIONS[i % ACTIONS.len()],
+                    flags: 0,
                 })
             })
             .collect()

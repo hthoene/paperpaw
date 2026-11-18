@@ -1,0 +1,5 @@
+Opens comic book archives (.cbz): a picture a page, fitted to the screen, in the order of their names (2 before 10).
+
+Put them into the library folder and open them from the library; turn the pages as in any book. Large pictures take a moment the first time, on the X4 more than elsewhere.
+
+Reading settings (Settings, Reading): "Panel by panel" shows one panel of a page at a time, as large as the screen allows, and the page turns step through them; a page without panels is shown whole. "Comic pages run" mirrors the page turns for manga (right to left); the book's own ComicInfo.xml says so by itself. The library shows a book's title and its series and number from ComicInfo.xml.

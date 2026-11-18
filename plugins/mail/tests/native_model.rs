@@ -8,7 +8,7 @@
 //! years 1 to 9999 only.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 use paperpaw_plugin_mail::native_model::{codec as new_codec, header as new_header, mem};
-use paperpaw_plugin_mail::{codec, header};
+mod pin;
 
 /// A small deterministic generator, so that failures repeat.
 struct Rng(u64);
@@ -81,29 +81,20 @@ fn header_text(rng: &mut Rng, pieces: usize) -> Vec<u8> {
 
 #[test]
 fn base64_is_the_same_both_ways_and_in_pieces() {
+    let mut pin = pin::Pin::new("base64_is_the_same_both_ways_and_in_pieces");
     let mut rng = Rng(1);
     for len in [0, 1, 2, 3, 4, 5, 57, 58, 300, 1000] {
         for _ in 0..6 {
             let data = bytes(&mut rng, len, &[0, 1, 255, 65, 200]);
-            assert_eq!(
-                codec::encode_base64(&data),
-                new_codec::encode_base64(&data).unwrap()
-            );
-            assert_eq!(
-                codec::base64_line(&data),
-                new_codec::base64_line(&data).unwrap()
-            );
-            let text = codec::encode_base64(&data);
-            assert_eq!(
-                codec::decode_base64(text.as_bytes()),
-                new_codec::decode_base64(text.as_bytes()).unwrap()
-            );
+            pin.fold("", new_codec::encode_base64(&data).unwrap());
+            pin.fold("", new_codec::base64_line(&data).unwrap());
+            let text = new_codec::encode_base64(&data).unwrap();
+            pin.fold("", new_codec::decode_base64(text.as_bytes()).unwrap());
             // Garbage in the middle, padding, and cut pieces.
             let noisy = bytes(&mut rng, len, b"ABCDabcd0123+/= \r\n-_!");
-            assert_eq!(
-                codec::decode_base64(&noisy),
+            pin.fold(
+                format!("{noisy:?}"),
                 new_codec::decode_base64(&noisy).unwrap(),
-                "{noisy:?}"
             );
             let mut pieces = new_codec::Base64::default();
             let mut out = Vec::new();
@@ -111,35 +102,28 @@ fn base64_is_the_same_both_ways_and_in_pieces() {
                 pieces.push(piece, &mut out).unwrap();
             }
             pieces.finish(&mut out).unwrap();
-            assert_eq!(out, codec::decode_base64(&noisy));
+            pin.fold("", &(out));
         }
     }
+    pin.finish();
 }
 
 #[test]
 fn quoted_printable_and_encoded_words_are_the_same() {
+    let mut pin = pin::Pin::new("quoted_printable_and_encoded_words_are_the_same");
     let mut rng = Rng(2);
     for len in [0, 1, 3, 10, 80, 400] {
         for _ in 0..10 {
             let qp = bytes(&mut rng, len, b"abc =\r\nA9F\t_?=E9=C3");
             for header in [false, true] {
-                assert_eq!(
-                    codec::decode_qp(&qp, header),
+                pin.fold(
+                    format!("{qp:?} {header}"),
                     new_codec::decode_qp(&qp, header).unwrap(),
-                    "{qp:?} {header}"
                 );
             }
             let text = String::from_utf8_lossy(&qp).into_owned();
-            assert_eq!(
-                codec::encode_qp(&text),
-                new_codec::encode_qp(&text).unwrap(),
-                "{text:?}"
-            );
-            assert_eq!(
-                codec::encode_words(&text),
-                new_codec::encode_words(&text).unwrap(),
-                "{text:?}"
-            );
+            pin.fold(format!("{text:?}"), new_codec::encode_qp(&text).unwrap());
+            pin.fold(format!("{text:?}"), new_codec::encode_words(&text).unwrap());
         }
     }
     for text in [
@@ -156,22 +140,20 @@ fn quoted_printable_and_encoded_words_are_the_same() {
         "=?utf-8*de?Q?x?=",
         "a =?utf-8?Q?b?= =?utf-8?Q?c?= d",
     ] {
-        assert_eq!(
-            codec::decode_words(text.as_bytes()),
+        pin.fold(
+            text.to_string(),
             new_codec::decode_words(text.as_bytes()).unwrap(),
-            "{text}"
         );
     }
     // Latin-1 bytes that are no UTF-8, whole and cut.
     let latin = [b'c', b'a', b'f', 0xE9, b' ', 0xFF, 0xC3];
-    assert_eq!(
-        codec::decode_words(&latin),
-        new_codec::decode_words(&latin).unwrap()
-    );
+    pin.fold("", new_codec::decode_words(&latin).unwrap());
+    pin.finish();
 }
 
 #[test]
 fn charsets_turn_bytes_into_the_same_text_whole_and_in_pieces() {
+    let mut pin = pin::Pin::new("charsets_turn_bytes_into_the_same_text_whole_and_in_pieces");
     let names = [
         "utf-8",
         "us-ascii",
@@ -189,16 +171,15 @@ fn charsets_turn_bytes_into_the_same_text_whole_and_in_pieces() {
     ];
     let mut rng = Rng(3);
     for name in names {
-        let (old, new) = (codec::Charset::of(name), new_codec::Charset::of(name));
-        assert_eq!(old.is_some(), new.is_some(), "{name}");
-        let (Some(old), Some(new)) = (old, new) else {
+        let new = new_codec::Charset::of(name);
+        pin.fold(name.to_string(), new.is_some());
+        let Some(new) = new else {
             continue;
         };
         for len in [0, 1, 5, 64, 300] {
             for _ in 0..8 {
                 let data: Vec<u8> = (0..len).map(|_| rng.next() as u8).collect();
-                let text = codec::text_of(old, &data);
-                assert_eq!(text, new_codec::text_of(new, &data).unwrap(), "{name}");
+                let text = new_codec::text_of(new, &data).unwrap();
                 // In pieces: a character cut in two waits for the next.
                 let mut decoder = new_codec::Decoder::new(new);
                 let mut out = String::new();
@@ -206,30 +187,23 @@ fn charsets_turn_bytes_into_the_same_text_whole_and_in_pieces() {
                     decoder.push(piece, &mut out).unwrap();
                 }
                 decoder.finish(&mut out).unwrap();
-                let mut old_decoder = codec::Decoder::new(old);
-                let mut old_out = String::new();
-                for piece in data.chunks(1 + rng.below(5)) {
-                    old_decoder.push(piece, &mut old_out);
-                }
-                old_decoder.finish(&mut old_out);
-                // Both read the same bytes whole; pieces give what whole gives.
+                // Pieces give what the whole gives.
                 assert_eq!(out, text, "{name} {data:?}");
-                assert_eq!(old_out, text, "{name}");
+                pin.fold(name.to_string(), &(text));
             }
         }
     }
+    pin.finish();
 }
 
 #[test]
 fn headers_are_the_same() {
+    let mut pin = pin::Pin::new("headers_are_the_same");
     let mut rng = Rng(4);
     for pieces in [0, 1, 2, 5, 12, 30] {
         for _ in 0..40 {
             let raw = header_text(&mut rng, pieces);
-            let (old, new) = (
-                header::Headers::parse(&raw),
-                new_header::Headers::parse(&raw).unwrap(),
-            );
+            let new = new_header::Headers::parse(&raw).unwrap();
             for name in [
                 "subject",
                 "from",
@@ -243,17 +217,14 @@ fn headers_are_the_same() {
                 "bad name",
                 "",
             ] {
-                assert_eq!(old.get(name), new.get(name), "{name} in {raw:?}");
+                pin.fold(format!("{name} in {raw:?}"), new.get(name));
             }
-            assert_eq!(old.len(), new.len());
-            let (old_type, new_type) = (
-                header::ContentType::parse(old.get("content-type")),
-                new_header::ContentType::parse(new.get("content-type")).unwrap(),
-            );
-            assert_eq!(old_type.kind, new_type.kind);
-            assert_eq!(old_type.is_multipart(), new_type.is_multipart());
+            pin.fold("", new.len());
+            let new_type = new_header::ContentType::parse(new.get("content-type")).unwrap();
+            pin.fold("", &(new_type.kind));
+            pin.fold("", new_type.is_multipart());
             for param in ["boundary", "charset", "name", "filename"] {
-                assert_eq!(old_type.param(param), new_type.param(param), "{param}");
+                pin.fold(param.to_string(), new_type.param(param));
             }
         }
     }
@@ -261,17 +232,16 @@ fn headers_are_the_same() {
     for _ in 0..200 {
         let len = rng.below(300);
         let raw = bytes(&mut rng, len, b"abc: \r\n\t=?-");
-        let (old, new) = (
-            header::Headers::parse(&raw),
-            new_header::Headers::parse(&raw).unwrap(),
-        );
-        assert_eq!(old.len(), new.len(), "{raw:?}");
-        assert_eq!(old.get("a"), new.get("a"));
+        let new = new_header::Headers::parse(&raw).unwrap();
+        pin.fold(format!("{raw:?}"), new.len());
+        pin.fold("", new.get("a"));
     }
+    pin.finish();
 }
 
 #[test]
 fn content_types_are_the_same() {
+    let mut pin = pin::Pin::new("content_types_are_the_same");
     for value in [
         None,
         Some(""),
@@ -285,19 +255,18 @@ fn content_types_are_the_same() {
         Some("text/plain; charset"),
         Some("text/plain; name*=%zz"),
     ] {
-        let (old, new) = (
-            header::ContentType::parse(value),
-            new_header::ContentType::parse(value).unwrap(),
-        );
-        assert_eq!(old.kind, new.kind, "{value:?}");
+        let new = new_header::ContentType::parse(value).unwrap();
+        pin.check(format!("{value:?}"), &(new.kind));
         for param in ["charset", "boundary", "name", "filename", "x", "c", "b"] {
-            assert_eq!(old.param(param), new.param(param), "{value:?} {param}");
+            pin.check(format!("{value:?} {param}"), new.param(param));
         }
     }
+    pin.finish();
 }
 
 #[test]
 fn addresses_dates_and_subjects_are_the_same() {
+    let mut pin = pin::Pin::new("addresses_dates_and_subjects_are_the_same");
     let lists = [
         "",
         "ada@example.org",
@@ -312,12 +281,10 @@ fn addresses_dates_and_subjects_are_the_same() {
         "=?utf-8?B?w6TDtsO8?= <x@y>",
     ];
     for list in lists {
-        let old = header::addresses(list);
         let new = new_header::addresses(list).unwrap();
-        assert_eq!(old.len(), new.len(), "{list}");
-        for (a, b) in old.iter().zip(&new) {
-            assert_eq!((&a.name, &a.address), (&b.name, &b.address), "{list}");
-            assert_eq!(a.shown(), b.shown());
+        pin.check(list.to_string(), new.len());
+        for b in &new {
+            pin.check(list.to_string(), (&b.name, &b.address, b.shown()));
         }
     }
     for date in [
@@ -332,11 +299,7 @@ fn addresses_dates_and_subjects_are_the_same() {
         "99 Foo 1",
         "1 Jan 2026",
     ] {
-        assert_eq!(
-            header::date_seconds(date),
-            new_header::date_seconds(date),
-            "{date}"
-        );
+        pin.check(date.to_string(), new_header::date_seconds(date));
     }
     for subject in [
         "",
@@ -347,19 +310,14 @@ fn addresses_dates_and_subjects_are_the_same() {
         "re:hello",
         "Fwd: Re: x",
     ] {
-        assert_eq!(
-            header::reply_subject(subject),
+        pin.check(
+            subject.to_string(),
             new_header::reply_subject(subject).unwrap(),
-            "{subject}"
         );
     }
     for days in [-1_000_000i64, -1, 0, 1, 18_000, 2_932_896] {
-        assert_eq!(
-            header::civil_from_days(days),
-            new_header::civil_from_days(days)
-        );
-        let (y, m, d) = header::civil_from_days(days);
-        assert_eq!(header::days_from_civil(y, m, d), days);
+        let (y, m, d) = new_header::civil_from_days(days);
+        pin.check(days, (y, m, d));
         // The native version holds the year to 1..=9999.
         if (1..=9999).contains(&y) {
             assert_eq!(new_header::days_from_civil(y, m, d), days);
@@ -367,25 +325,20 @@ fn addresses_dates_and_subjects_are_the_same() {
     }
     for text in ["", "short", "caf\u{e9} caf\u{e9}", &"x".repeat(1000)] {
         for max in [0, 1, 2, 3, 4, 5, 100, 2000] {
-            assert_eq!(header::cut(text, max), new_header::cut(text, max));
-            assert_eq!(
-                header::capped(text, max),
-                new_header::capped(text, max).unwrap()
-            );
+            pin.check("", new_header::cut(text, max));
+            pin.check("", new_header::capped(text, max).unwrap());
         }
     }
     let ids = "<1@x> <2@x> <3@x> <4@x> <\u{e9}@x>";
     for max in [0, 3, 6, 12, 20, 40, 100] {
-        assert_eq!(
-            header::last_ids(ids, max),
-            new_header::last_ids(ids, max).unwrap(),
-            "{max}"
-        );
+        pin.check(format!("{max}"), new_header::last_ids(ids, max).unwrap());
     }
+    pin.finish();
 }
 
 #[test]
 fn the_bounds_are_the_native_readers_own() {
+    let mut pin = pin::Pin::new("the_bounds_are_the_native_readers_own");
     // More headers than fit: the first ones are read, the rest are not.
     let mut raw = Vec::new();
     for n in 0..(new_header::MAX_FIELDS + 50) {
@@ -413,13 +366,11 @@ fn the_bounds_are_the_native_readers_own() {
     );
     // Dates are read for the years 1 to 9999; nothing else is a date.
     // A year below 100 follows RFC 5322's two-digit rule, as in interface 6.
-    assert_eq!(
-        new_header::date_seconds("1 Jan 0000 00:00 +0000"),
-        header::date_seconds("1 Jan 0000 00:00 +0000")
-    );
+    pin.check("", new_header::date_seconds("1 Jan 0000 00:00 +0000"));
     assert!(new_header::date_seconds("1 Jan 10000 00:00 +0000").is_none());
     assert!(new_header::date_seconds("1 Jan 9999 23:59 +0000").is_some());
     assert!(new_header::date_seconds("99999999999999999999 Jan 2000").is_none());
+    pin.finish();
 }
 
 #[test]

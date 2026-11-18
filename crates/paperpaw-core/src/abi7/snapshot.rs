@@ -4,17 +4,17 @@ use super::{
     context::{Frame, FrameSlot},
     snapshot_wire::{self, Battery, PixelFormat, Snapshot},
 };
+use crate::Place;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, buffers};
 use paperpaw_platform::{DeviceInfo, Instant, SystemStatus};
-use paperpaw_sdk::Env;
 
-impl Frame for Env<'_> {
+impl Frame for Place<'_> {
     fn settings(&self) -> &paperpaw_sdk::Settings {
-        Env::settings(self)
+        Place::settings(self)
     }
 
     fn translator(&self) -> &paperpaw_i18n::Translator {
-        Env::i18n(self)
+        Place::i18n(self)
     }
 
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
@@ -29,7 +29,7 @@ impl Frame for Env<'_> {
         // The zone the user sees (`core.time-zone`, else the system's), as
         // the SDK's local time reads it; absent without a clock.
         value.utc_offset_minutes =
-            paperpaw_sdk::time::local_time(self).and_then(|local| utc_offset_minutes(local.offset));
+            crate::kit::time::local_time(self).and_then(|local| utc_offset_minutes(local.offset));
         Ok(value)
     }
 }

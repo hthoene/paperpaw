@@ -8,6 +8,7 @@ use crate::native_host::{
     declaration_store::Kind,
     registrations::{self as wire, Record},
 };
+use alloc::string::String;
 
 /// Where the fixture's modes start (below them are the menu records').
 pub(super) const FIRST: u8 = 100;
@@ -111,6 +112,16 @@ pub(super) unsafe fn submit(host: *const PpHost, ctx: *mut c_void, mode: u8) -> 
                 bind("global", "button.menu", "factory.done", none),
                 bind("global", "swipe.up", "factory.done", none),
             ],
+            &mut bytes,
+        ),
+        // The screen's own layer: a button bound to the plugin's own action.
+        113 => wire::records_encode(
+            &[bind(
+                "factory.screen",
+                "button.confirm",
+                "factory.action",
+                none,
+            )],
             &mut bytes,
         ),
         _ => return ERR_INVALID,
@@ -383,8 +394,12 @@ fn every_host_allocation_failure_refuses_the_binding_owner_whole() {
         MENUS.with(|value| value.set(100));
         // The admission: the key map is built after it, as the kernel's own
         // refresh is (`register_native_in`).
-        let result =
-            kernel.admit_native(host(0), &FlatDepth::try_new().unwrap(), None, |_, _, _| {});
+        let result = kernel.admit_native(
+            host(0),
+            &FlatDepth::try_new().unwrap(),
+            None,
+            |_, _, _, _| {},
+        );
         MENUS.with(|value| value.set(0));
         arm_failure(0);
         INSTALL_FAIL_NTH.with(|value| value.set(0));

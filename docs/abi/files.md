@@ -14,7 +14,9 @@ Records: `abi/services/core.files@1.def`.
 - [D] **Slots 20-26 stay the file calls.** `storage.size`, `read_at`, `write`, `append`,
   `rename`, `remove` and `sync` keep their contract: path based, no handles, a root argument,
   synchronous, 4 KiB per call. FS adds what plugins do with **folders** and **file information**,
-  as one versioned service, `core.files` (D4: no new one-off slots).
+  as one versioned service, `core.files` (D4: no new one-off slots). On an error of `read_at`,
+  `out`'s contents are unspecified; only the status counts. After a successful read the
+  bytes past `count` are zeros. An `out` that overlaps the path is `ERR_INVALID`.
 - [D] **Only what first-party plugins use.** Every op below is used by at least two plugins today
   (section 6 lists who). Not offered: copying (plugins copy with `read_at` and `append`, as
   interface 6's `files::copy` does; the SDK keeps that helper), `write_at`, `truncate`, local paths,
@@ -35,7 +37,7 @@ Records: `abi/services/core.files@1.def`.
 | Root | Name | What it is | Access |
 | --- | --- | --- | --- |
 | 0 | data | the plugin's data folder `.paperpaw/plugins/<id>/`, `<id>` stamped from the owner | read and write |
-| 1 | card | the user's files from the card's root, without `plugins/` and `.paperpaw/` | read and write, with `uses.storage` |
+| 1 | card | the user's files from the card's root, without `plugins/` (a running data plugin's folder excepted, below), `.paperpaw/` and `paperpaw.ini` | read and write, with `uses.storage` |
 | 2 | bundle | the plugin's own install folder `plugins/<id>/` (files it ships, such as `data/`) | read only |
 | 3 | book | inside a `core.format` call of a `folder` or `siblings` document: its folder (`document.md` section 3) | `list` and `stat` only |
 | 4 and above | reserved (4 and 6 are `core.format`'s, through the storage slots) | | `ERR_UNSUPPORTED` |
@@ -45,18 +47,47 @@ Records: `abi/services/core.files@1.def`.
   `core.files` op; inside such a call `list` and `stat` work and every op that changes something
   is `ERR_DENIED`. A single-file book is read through the storage slots instead.
 - [D] **Root 1** keeps decision 125 unchanged: the gate is the signed `uses.storage` declaration
-  read at load, never a runtime argument; the first path segment may not resolve to `plugins` or
-  `.paperpaw`, compared by identity (case, 8.3 aliases), not by spelling; a plugin reaches its own
+  read at load, never a runtime argument; the first path segment may not resolve to `plugins`,
+  `.paperpaw` or `paperpaw.ini` (the kernel's settings file, whose `[firmware]` section guards a
+  dual-boot setup, `device.md` 5.3; draft 35, Senior M2 on #920), compared by identity (case, 8.3
+  aliases), not by spelling, for every op and both ends of a move or copy; a plugin reaches its own
   data through root 0 only; settings change through slot 15, never by files, so decision 126 does
-  not widen root 1. **One change:** without the declaration, a root-1 call answers `ERR_DENIED`
-  (the plugin lacks a feature the host offers, `screens-input.md` section 13), no longer
-  `ERR_UNSUPPORTED`, on slots 20-26 and every `core.files` op. A host that offers no root 1 (no
-  card files to give) does not offer `uses.storage` and answers `ERR_UNSUPPORTED`.
+  not widen root 1. **One change:** without the declaration, a root-1 call answers `ERR_DENIED` (the
+  plugin lacks a feature the host offers, `screens-input.md` section 13), no longer
+  `ERR_UNSUPPORTED`, on slots 20-26 and every `core.files` op. A host that offers no root 1 (no card
+  files to give) does not offer `uses.storage` and answers `ERR_UNSUPPORTED`.
+- [D] **Exception: a running data plugin's folder.** Settings name the files of data plugins (a
+  logo, a folder of sleep pictures: `[core] logo = plugins/<folder>/logo.png`, `data-files.md`),
+  and a data plugin holds published files only, no code and no secrets. So root 1 shows
+  `plugins/<folder>/…` **read only** while that plugin runs (a data plugin, not a code plugin;
+  switched on, loaded, not removed), behind the same `uses.storage` gate; every change under it (also as the target of a `move`)
+  is `ERR_DENIED`. The folder name must match one data plugin's folder in full, compared as the card
+  compares names (case folded); a prefix, `..` or an 8.3 alias is refused. Any other `plugins/…`
+  path, a code plugin's folder (but for the next point), a plugin that is off or gone, and
+  `plugins` itself (it has no listing) stay `ERR_INVALID` (`image_prepare`: status 6, not
+  found, where the folder is none of a running data plugin's); a listing of the card's top still
+  leaves out `plugins`. Exactly these
+  ops reach it: `core.files` `stat` and `list`, and `image_prepare`; the storage slots 20-26 keep
+  refusing it, and a `move` out of it is a change (`ERR_DENIED`).
+  (#243, sleep's picture presets.)
+- [D] **The same for a running code plugin's install folder.** The exception above also covers
+  `plugins/<id>/` of a code plugin that runs (switched on, loaded, not removed): behind the same
+  `uses.storage` gate, by the same ops (`core.files` `stat` and `list`, `image_prepare`), the
+  folder name matched the same way, every change under it `ERR_DENIED`. The code and the host's
+  files in it are hidden: every name in `CODE_FILES` (`code.ppn`, `code.so`, `code-host.dll`,
+  `code-host.so`, `code-host.dylib`) and `.install-marks`; names are compared without case, and a
+  FAT 8.3 short name of one of them (e.g. `CODE-H~1.DLL`) is hidden the same way; `list` leaves
+  them out, and `stat` and `image_prepare` answer `ERR_INVALID` (status 6). The rest of the folder
+  is readable by any plugin holding `uses.storage`, as in Beta 3: private state belongs in root 0,
+  not in the install folder. A code plugin that is off or removed, or one linked into the firmware
+  (no folder), stays as above. For these ops this replaces "another plugin's install folder is not
+  reachable" (root 2). (#243, todo 581: sleep's picture presets.)
 - [D] **Root 2 (new)** is read-only access to the plugin's own install folder, stamped like root 0:
   `storage.size`, `storage.read_at`, and `core.files` ops `list`, `stat`. Every changing call on
   root 2 is `ERR_DENIED`. Reason: plugins ship data files next to their code (vocabulary's
   `data/phone.txt`, reading-goal's `pictures/`, widgets' `data/quotes.*.txt`), which interface 6
-  read through the whole-card storage. Another plugin's install folder is not reachable (about
+  read through the whole-card storage. Another plugin's install folder is not reachable on root 2
+  (root 1 shows a running one's read only, above; about
   embeds its licence texts, section 6). Where the plugin has no install folder (linked into the
   firmware), root 2 is an empty folder: `ERR_NOT_FOUND` for every path but `""`.
 - [D] **`.received/` in root 0 is the host's** (NET, `network.md` 5.2): it writes served request
@@ -64,7 +95,8 @@ Records: `abi/services/core.files@1.def`.
   still arriving is `ERR_BUSY`, section 3); its own `make_dir`, writes and moves into `.received/`
   are `ERR_DENIED`.
 - [D] **Listings follow the root's rules.** On root 1, `list` of the card root leaves out
-  `plugins` and `.paperpaw`, and `stat` of them is `ERR_INVALID`, as every other root-1 call.
+  `plugins`, `.paperpaw` and `paperpaw.ini`, and `stat` of them is `ERR_INVALID`, as every other
+  root-1 call.
 
 ### 1.2 Features
 
@@ -223,6 +255,24 @@ other ops write exactly their records, no `end`. Input is one record (`input_row
      it, sends the library's book-moved events, and clears the entry.
   The call so stays bounded however many books the folder holds. Every step of the job is
   idempotent, so it can be replayed from the entry.
+  - **Rule: one file that is no book moves without the library.** For a root-1 `move` or
+    `storage.rename` of a single file that is no book, the host renames it exactly as
+    `storage.rename` does on root 0 and does nothing else:
+    - no journal entry and no job, so the moves after it are not `ERR_BUSY` because of it (a
+      plugin's save of two renames in one callback: the copy kept, then the new file);
+    - **no event**: neither `event.book_moved` (68) nor `event.library_changed` (91) is sent;
+    - **nothing kept by the file's path is carried** (details, cover, position, annotations,
+      plugins' book data): a plugin that keeps data by the path of such a file moves it itself.
+
+    A file **is a book**, and its move is followed as above, when any of these holds: a format
+    reads it under its old or its new name, going by the name alone (its extension, also the one
+    before a `.bak` at its end; a name without an extension counts where a format tells files by
+    their first bytes); or the library keeps details for its old name (it read the book or the
+    book was opened: such a file is followed even while its format plugin is off or not loaded).
+    A folder is always followed. The power-cut rule of the plain rename is `storage.rename`'s
+    (above); the statuses are the same as for a followed move, and while a job runs it waits
+    like every move. A host that cannot tell (no formats in the callback's frame) follows every
+    move.
   - **At start**, after the FAT repair (`settle_moves`), the host looks at the open entry: only `to`
     exists, it finishes the job; only `from` exists, it drops the entry (nothing moved); **both
     exist** (a cut between FAT's two directory writes), the repair settles them first and the host

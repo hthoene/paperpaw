@@ -17,11 +17,20 @@ type Seen = Option<[u64; 6]>;
 /// Runs `read` with its 1st, 2nd, ... allocation refused until one passes
 /// them all; returns how many it made.
 fn sweep(read: impl Fn(&CatalogReads, &mut Seen) -> Result<(), i32>, card: &Card) -> u32 {
+    sweep_to(read, card, 64)
+}
+
+/// [`sweep`] for a read that makes up to `limit - 1` allocations.
+fn sweep_to(
+    read: impl Fn(&CatalogReads, &mut Seen) -> Result<(), i32>,
+    card: &Card,
+    limit: u32,
+) -> u32 {
     let reads = card.reads();
     let mut whole: Seen = None;
     read(&reads, &mut whole).unwrap();
     assert!(whole.is_some());
-    for nth in 1..64 {
+    for nth in 1..limit {
         let mut seen: Seen = None;
         arm_failure(nth);
         let result = read(&reads, &mut seen);
@@ -37,7 +46,7 @@ fn sweep(read: impl Fn(&CatalogReads, &mut Seen) -> Result<(), i32>, card: &Card
             }
         }
     }
-    panic!("a read makes more than 63 allocations");
+    panic!("a read makes more than {} allocations", limit - 1);
 }
 
 #[test]
@@ -327,4 +336,290 @@ fn the_heap_one_catalog_read_holds_at_its_most_is_small() {
             && peaks[7] <= 1_280,
         "{peaks:?}"
     );
+    // The key of a book the catalog does not know yet holds no more.
+    card.storage.write("books/new.epub", &[7_u8; 10]).unwrap();
+    let new = peak(
+        |r| {
+            r.book_key(BookRef::Path("books/new.epub"), &mut |_| ())
+                .unwrap();
+        },
+        &card,
+    );
+    std::eprintln!("heap peak (book_key, not in the catalog): {new}");
+    assert!(new <= 256, "{new}");
+}
+
+/// A query reads every line of the catalog and makes a key for each book
+/// it finds: each of those allocations refuses in turn, over two passes (a
+/// cursor of 3), and a query that survives them all answers what the
+/// unrefused one did.
+#[test]
+fn every_allocation_of_a_query_refuses_cleanly() {
+    reset(NORMAL);
+    let card = card();
+    let ask = |cursor, sort, words: &'static str| wire::ServiceLibQuery {
+        show: 0,
+        sort,
+        flags: 0,
+        words,
+        author: "",
+        series: "",
+        tag: "",
+        folder: "",
+        added_since: 0,
+        cursor,
+        generation: 0,
+        facet: 0,
+    };
+    let counts = [(0, 0, ""), (3, 1, ""), (0, 2, "e"), (1, 3, ""), (0, 4, "")].map(
+        |(cursor, sort, words)| {
+            sweep_to(
+                |reads, seen| {
+                    let (mut rows, mut keys) = (0_u64, 0_u64);
+                    let end = reads.query(&ask(cursor, sort, words), "", &mut |record| {
+                        let Record::ServiceLibEntry(e) = record else {
+                            panic!()
+                        };
+                        rows += 1;
+                        keys += u64::from(e.key) + e.title.len() as u64;
+                        core::ops::ControlFlow::Continue(())
+                    })?;
+                    *seen = Some([rows, keys, end.total.into(), end.next.into(), 0, 0]);
+                    Ok(())
+                },
+                &card,
+                2_000,
+            )
+        },
+    );
+    assert!(counts.iter().all(|&n| n >= 1), "{counts:?}");
+}
+
+/// The heap of one `query` pass over a shelf of 300 books with the names of
+/// a real one (home's recent list, the files list): the page's 32 slots are
+/// what it holds, besides the line being read.
+#[test]
+fn the_heap_one_query_holds_at_its_most_is_the_window_and_one_line() {
+    use paperpaw_sdk::MemoryStorage;
+    reset(NORMAL);
+    let mut text = std::string::String::from("\tcatalog\t2\t1\n");
+    for n in 0..300_u32 {
+        text.push_str(&std::format!(
+            "books/library/Some Folder/{n:03}-a-reasonably-long-file-name.epub\tFirstname Lastname {n}\t\
+             A Reasonably Long Book Title, Number {n}\tA Series Name\t{}\t\t{}\t\t19990\t\t123456\n",
+            n % 12,
+            if n % 3 == 0 { "40" } else { "" },
+        ));
+    }
+    let card = Card {
+        storage: std::rc::Rc::new(
+            MemoryStorage::new().with(".paperpaw/library/catalog.txt", text.into_bytes()),
+        ),
+        env: card().env,
+        a: 0,
+        b: 0,
+        c: 0,
+        d: 0,
+        e: 0,
+    };
+    let ask = |sort, cursor| wire::ServiceLibQuery {
+        show: 0,
+        sort,
+        flags: 0,
+        words: "",
+        author: "",
+        series: "",
+        tag: "",
+        folder: "",
+        added_since: 0,
+        cursor,
+        generation: 0,
+        facet: 0,
+    };
+    let run = |sort, cursor| {
+        peak(
+            |r| {
+                r.query(&ask(sort, cursor), "", &mut |_| {
+                    core::ops::ControlFlow::Continue(())
+                })
+                .unwrap();
+            },
+            &card,
+        )
+    };
+    let peaks = [run(0, 0), run(4, 0), run(0, 100)];
+    std::eprintln!("QUERY HEAP PEAKS (title, recent, title from 100): {peaks:?}");
+    // The window of 32 slots (64 bytes and two short strings each) and a line.
+    assert!(peaks.iter().all(|&peak| peak <= 8_192), "{peaks:?}");
+}
+
+/// The heap of one `fields` page: the book's details as Beta 3 read them too
+/// (`library::book`, the one reader: the file, ≤ 16 KiB, and the book made of
+/// it) and the order of its fields. A book of a few short fields, and one of
+/// 12 values of 1 KiB, the details near their cap.
+#[test]
+fn the_heap_of_one_fields_page_is_the_details_read_once() {
+    use paperpaw_sdk::MemoryStorage;
+    let run = |count: usize, value: usize| {
+        reset(NORMAL);
+        let storage = std::rc::Rc::new(
+            MemoryStorage::new()
+                .with(
+                    ".paperpaw/library/catalog.txt",
+                    "\tcatalog\t2\t1\nbooks/a.epub\tAnn\tA\t\t\t\t\t\t1\t\t10\n",
+                )
+                .with("books/a.epub", std::vec![1_u8; 10]),
+        );
+        for n in 0..count {
+            let text = "v".repeat(value);
+            crate::kit::library::try_set_field(
+                &*storage,
+                "books/a.epub",
+                &std::format!("plugin-{n}.field"),
+                &text,
+            )
+            .unwrap();
+        }
+        let card = Card {
+            storage,
+            env: card().env,
+            a: 0,
+            b: 0,
+            c: 0,
+            d: 0,
+            e: 0,
+        };
+        peak(
+            |r| {
+                r.fields(BookRef::Path("books/a.epub"), 0, 0, &mut |_| {
+                    core::ops::ControlFlow::Continue(())
+                })
+                .unwrap();
+            },
+            &card,
+        )
+    };
+    let peaks = [run(4, 24), run(12, 1024)];
+    std::eprintln!("FIELDS HEAP PEAKS (4 short, 12 of 1 KiB): {peaks:?}");
+    // The details file and the book made of it, at most twice the cap.
+    assert!(
+        peaks.iter().all(|&peak| peak <= 2 * 16 * 1024 + 4096),
+        "{peaks:?}"
+    );
+}
+
+fn facet_query(facet: u32, cursor: u32) -> wire::ServiceLibQuery<'static> {
+    wire::ServiceLibQuery {
+        show: 0,
+        sort: 0,
+        flags: 0,
+        words: "",
+        author: "",
+        series: "",
+        tag: "",
+        folder: "",
+        added_since: 0,
+        cursor,
+        generation: 0,
+        facet,
+    }
+}
+
+/// `facets` makes a key for each name it meets and keeps a window of them
+/// and their count: each of those allocations refuses in turn, for every
+/// list and from a cursor, and a call that survives them all answers what
+/// the unrefused one did.
+#[test]
+fn every_allocation_of_a_facets_page_refuses_cleanly() {
+    reset(NORMAL);
+    let card = card();
+    let counts = [(0, 0), (0, 2), (1, 0), (2, 1), (3, 0), (4, 0)].map(|(facet, cursor)| {
+        sweep_to(
+            |reads, seen| {
+                let (mut rows, mut sum) = (0_u64, 0_u64);
+                let end = reads.facets(&facet_query(facet, cursor), "", &mut |record| {
+                    let Record::ServiceLibFacet(row) = record else {
+                        panic!()
+                    };
+                    rows += 1;
+                    sum += u64::from(row.count) + u64::from(row.first) + row.text.len() as u64;
+                    core::ops::ControlFlow::Continue(())
+                })?;
+                *seen = Some([rows, sum, end.total.into(), end.next.into(), 0, 0]);
+                Ok(())
+            },
+            &card,
+            2_000,
+        )
+    });
+    assert!(counts.iter().all(|&n| n >= 1), "{counts:?}");
+}
+
+/// The most one `facets` call may hold with the longest names.
+const LONGEST: usize = 32_768;
+
+/// The heap one `facets` call holds at its most: over a shelf of 300 books
+/// of 300 authors with the names of a real one, and over 3,000 books of
+/// 3,000 authors, where the names are counted in parts. The window of 32
+/// names (with the key of each one's first book where there is a jump), the
+/// hashes of the count (4 KiB at most) and a line: the same for both shelves.
+/// With names, titles and folders far beyond the 256 bytes a row carries it
+/// is more (each kept name has its key and its text), and as bounded.
+#[test]
+fn the_heap_one_facets_page_holds_at_its_most_does_not_grow_with_the_shelf() {
+    use paperpaw_sdk::MemoryStorage;
+    reset(NORMAL);
+    let shelf = |books: u32, pad: &str| {
+        let mut text = std::string::String::from("\tcatalog\t2\t1\n");
+        for n in 0..books {
+            text.push_str(&std::format!(
+                "books/library/Some Folder {}{pad}/{n:04}-a-reasonably-long-file-name.epub\t\
+                 Firstname Lastname {n}{pad}\tA Reasonably Long Book Title, Number {n}{pad}\t\
+                 A Series Name {}{pad}\t{}\tfiction\u{1f}tag {}{pad}\t\t\t19990\t\t123456\n",
+                n % 40,
+                n % 90,
+                n % 12,
+                n % 70,
+            ));
+        }
+        Card {
+            storage: std::rc::Rc::new(
+                MemoryStorage::new().with(".paperpaw/library/catalog.txt", text.into_bytes()),
+            ),
+            env: card().env,
+            a: 0,
+            b: 0,
+            c: 0,
+            d: 0,
+            e: 0,
+        }
+    };
+    let run = |card: &Card, facet, cursor| {
+        peak(
+            |r| {
+                r.facets(&facet_query(facet, cursor), "", &mut |_| {
+                    core::ops::ControlFlow::Continue(())
+                })
+                .unwrap();
+            },
+            card,
+        )
+    };
+    let (small, large) = (shelf(300, ""), shelf(3_000, ""));
+    // 300 bytes of two-byte characters after each name: every cut is taken.
+    let (wide, wider) = (shelf(300, &"é".repeat(150)), shelf(3_000, &"é".repeat(150)));
+    let peaks = |card: &Card| [0, 1, 2, 3, 4].map(|facet| run(card, facet, 0));
+    let (few, many) = (peaks(&small), peaks(&large));
+    let (long, longer) = (peaks(&wide), peaks(&wider));
+    let deep = run(&large, 0, 2_900);
+    std::eprintln!(
+        "FACETS HEAP PEAKS (authors, series, tags, letters, folders): 300 books {few:?}, \
+         3,000 books {many:?}, authors from 2,900: {deep}; the longest names: 300 books \
+         {long:?}, 3,000 books {longer:?}"
+    );
+    assert!(few.iter().all(|&peak| peak <= 12_288), "{few:?}");
+    assert!(many.iter().all(|&peak| peak <= 12_288), "{many:?}");
+    assert!(deep <= 12_288, "{deep}");
+    assert!(long.iter().all(|&peak| peak <= LONGEST), "{long:?}");
+    assert!(longer.iter().all(|&peak| peak <= LONGEST), "{longer:?}");
 }

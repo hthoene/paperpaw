@@ -3,21 +3,45 @@
 //! from the stack, so constructing an adapter never allocates.
 
 use super::{
+    admitted_features::AdmittedFeatures,
     environment::EnvironmentScope,
+    files_service::FilesHost,
+    format_scope::FormatScope,
+    linked_plugins::LinkedPlugins,
     paths_in_use::PathsInUse,
-    storage::{self, MAX_DATA, MAX_FOLDER, MAX_PATH, PREFIX, ROOT_PLUGIN, StorageAdapter},
+    storage::{
+        self, Card, MAX_DATA, MAX_FOLDER, MAX_PATH, PREFIX, ROOT_BUNDLE, ROOT_CARD, ROOT_PLUGIN,
+        StorageAdapter,
+    },
 };
-use alloc::{alloc::alloc_zeroed, boxed::Box};
-use core::alloc::Layout;
+use core::mem::MaybeUninit;
 use paperpaw_native::host_glue::{
-    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes,
+    ERR_DENIED, ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK, PpBuffer, PpBytes,
     buffers,
 };
+
+/// What a plugin's slot call reaches beyond root 0. The format calls under
+/// way and the host owner id of the plugin whose slot it is let roots 3, 4
+/// and 6 name the document the plugin's call is for (a plugin outside such a
+/// call has none of these roots). Its admitted features open root 1, the
+/// user's files, with `uses.storage` (decision 125, `files.md` 1.1), and
+/// `files`, `core.files`'s host where it is wired, says which of them the host
+/// holds busy. `linked` tells whether the plugin is built into the firmware:
+/// then root 2, its install folder, is empty.
+#[derive(Clone, Copy)]
+pub(crate) struct Format<'a> {
+    pub(crate) scope: &'a FormatScope,
+    pub(crate) owner: u64,
+    pub(crate) features: AdmittedFeatures,
+    pub(crate) files: Option<&'a dyn FilesHost>,
+    pub(crate) linked: &'a LinkedPlugins,
+}
 
 fn with_adapter<R>(
     scope: &EnvironmentScope,
     owner: &str,
     in_use: Option<&PathsInUse>,
+    format: Option<(Format<'_>, u32)>,
     call: impl FnOnce(&StorageAdapter<'_>) -> Result<R, i32>,
 ) -> Result<R, i32> {
     let length = PREFIX
@@ -33,9 +57,40 @@ fn with_adapter<R>(
     let folder = core::str::from_utf8(folder).map_err(|_| ERR_INVALID)?;
     scope.with_frame(|frame| {
         let storage = frame.storage().ok_or(ERR_STATE)?;
-        let adapter =
-            StorageAdapter::borrowed_folder(storage, folder, in_use).ok_or(ERR_INVALID)?;
-        call(&adapter)
+        // Roots 3, 4 and 6 are the call's document, if the plugin is in one.
+        let Some((format, root)) = format.filter(|(_, root)| *root != ROOT_PLUGIN) else {
+            let adapter =
+                StorageAdapter::borrowed_folder(storage, folder, in_use).ok_or(ERR_INVALID)?;
+            return call(&adapter);
+        };
+        // Root 1 is the card's top ([`path`] checked `uses.storage`).
+        if root == ROOT_CARD {
+            let adapter = StorageAdapter::borrowed_folder(storage, folder, in_use)
+                .ok_or(ERR_INVALID)?
+                .with_card(Card {
+                    files: format.files,
+                    formats: frame.kernel_env().map(crate::Place::formats),
+                });
+            return call(&adapter);
+        }
+        // Root 2 is the plugin's install folder, read only.
+        if root == ROOT_BUNDLE {
+            let adapter = StorageAdapter::borrowed_folder(storage, folder, in_use)
+                .ok_or(ERR_INVALID)?
+                .with_bundle(format.linked.contains(owner));
+            return call(&adapter);
+        }
+        let mut call = Some(call);
+        let mut result = Err(ERR_UNSUPPORTED);
+        format.scope.current(format.owner, &mut |book| {
+            if let Some(call) = call.take() {
+                result = match StorageAdapter::borrowed_folder(storage, folder, in_use) {
+                    Some(adapter) => call(&adapter.with_format(book)),
+                    None => Err(ERR_INVALID),
+                };
+            }
+        });
+        result
     })?
 }
 
@@ -53,19 +108,47 @@ fn pair(ptr: *const u8, len: usize, max: usize) -> Result<(), i32> {
     Ok(())
 }
 
+/// Whether a nonempty output range shares a byte with `path` (both already
+/// bounded by [`pair`]).
+fn overlaps(path: &[u8], out: *const u8, cap: usize) -> bool {
+    let (start, end) = (path.as_ptr() as usize, path.as_ptr() as usize + path.len());
+    let at = out as usize;
+    cap != 0 && !path.is_empty() && at < end && start < at + cap
+}
+
 unsafe fn input<'a>(bytes: PpBytes, max: usize) -> Result<&'a [u8], i32> {
     pair(bytes.ptr, bytes.len, max)?;
     // SAFETY: pair bounds were checked and the caller guarantees live input.
     unsafe { buffers::bytes_in(bytes, max) }
 }
 
-unsafe fn path<'a>(root: u32, bytes: PpBytes) -> Result<&'a [u8], i32> {
-    if root != ROOT_PLUGIN {
-        return Err(ERR_UNSUPPORTED);
+/// The root first (`ERR_UNSUPPORTED` for one the slots do not serve; root 1
+/// `ERR_DENIED` without `uses.storage`, `ERR_UNSUPPORTED` where the host
+/// offers it not; root 2 `ERR_DENIED` for a `change`), then the path's size,
+/// UTF-8 and grammar (`files.md` 3).
+unsafe fn path<'a>(
+    root: u32,
+    bytes: PpBytes,
+    format: Option<Format<'_>>,
+    change: bool,
+) -> Result<&'a [u8], i32> {
+    match root {
+        ROOT_PLUGIN | 3 | 4 | 6 => {}
+        ROOT_BUNDLE if format.is_none() => return Err(ERR_UNSUPPORTED),
+        ROOT_BUNDLE if change => return Err(ERR_DENIED),
+        ROOT_BUNDLE => {}
+        ROOT_CARD => format
+            .ok_or(ERR_UNSUPPORTED)?
+            .features
+            .feature("uses.storage")?,
+        _ => return Err(ERR_UNSUPPORTED),
     }
     // SAFETY: the caller guarantees readable input.
     let bytes = unsafe { input(bytes, MAX_PATH) }?;
-    storage::relative_path(bytes)?;
+    // Roots 3 and 4 name one file by the empty path.
+    if !(bytes.is_empty() && matches!(root, 3 | 4)) {
+        storage::relative_path(bytes)?;
+    }
     Ok(bytes)
 }
 
@@ -82,6 +165,7 @@ fn status(result: Result<(), i32>) -> i32 {
 pub(crate) unsafe fn size(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     root: u32,
     bytes: PpBytes,
     out: *mut u64,
@@ -96,8 +180,10 @@ pub(crate) unsafe fn size(
             return Err(ERR_INVALID);
         }
         // SAFETY: the caller guarantees live input storage.
-        let path = unsafe { path(root, bytes) }?;
-        with_adapter(scope, owner, None, |adapter| adapter.size(root, path))
+        let path = unsafe { path(root, bytes, format, false) }?;
+        with_adapter(scope, owner, None, format.map(|f| (f, root)), |adapter| {
+            adapter.size(root, path)
+        })
     })();
     match result {
         Ok(value) => {
@@ -110,9 +196,15 @@ pub(crate) unsafe fn size(
 }
 
 /// Slot 21: read a bounded chunk into possibly uninitialized caller storage.
-/// A fallibly allocated host-heap buffer sized to output keeps the caller's output
-/// unchanged on every error, without a result-sized stack frame. Only the
-/// successful read prefix is copied; the remaining caller bytes are untouched.
+/// The card's adapter reads straight into the caller's buffer (no copy of it is
+/// held on the heap, #248): its bytes are zeroed first (it may be
+/// uninitialized), and the whole of it again on a read error, as the adapter
+/// may use it as scratch (sectors, directory entries) before it fails. On
+/// success the bytes after `count` are zeroed too, for the same reason. A
+/// refusal before the read (the path, the buffer, the route) leaves the
+/// buffer untouched (`files.md` 1: `out` is unspecified on an error). An `out`
+/// that overlaps the path is `ERR_INVALID`: the path stays borrowed while
+/// `out` is written.
 ///
 /// # Safety
 /// Nonempty input must be live and readable; nonempty output must be live,
@@ -120,6 +212,7 @@ pub(crate) unsafe fn size(
 pub(crate) unsafe fn read_at(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     root: u32,
     bytes: PpBytes,
     offset: u64,
@@ -127,57 +220,38 @@ pub(crate) unsafe fn read_at(
 ) -> i32 {
     let result = (|| {
         // SAFETY: the caller guarantees live input storage.
-        let path = unsafe { path(root, bytes) }?;
+        let path = unsafe { path(root, bytes, format, false) }?;
         pair(out.ptr, out.cap, MAX_DATA)?;
-        // SAFETY: validated bounds and the caller's exclusive output contract.
+        if overlaps(path, out.ptr, out.cap) {
+            return Err(ERR_INVALID);
+        }
+        // SAFETY: validated bounds, disjoint from the path just above, and the
+        // caller's exclusive output contract.
         let out = unsafe { buffers::buffer_out(out, MAX_DATA) }?;
-        with_adapter(scope, owner, None, |adapter| {
-            let mut scratch = read_scratch(out.len())?;
-            let count = adapter.read_at(root, path, offset, &mut scratch)?;
-            let bytes = scratch
-                .get(..count)
-                .filter(|bytes| bytes.len() <= out.len())
-                .ok_or(ERR_INVALID)?;
-            Ok(buffers::copy_count(bytes, out))
+        with_adapter(scope, owner, None, format.map(|f| (f, root)), |adapter| {
+            out.fill(MaybeUninit::new(0));
+            // SAFETY: every byte was initialized just above, and
+            // `MaybeUninit<u8>` has the size and alignment of `u8`.
+            let into = unsafe { &mut *(core::ptr::from_mut(out) as *mut [u8]) };
+            match adapter.read_at(root, path, offset, into) {
+                Ok(count) if count <= into.len() => {
+                    if let Some(rest) = into.get_mut(count..) {
+                        rest.fill(0);
+                    }
+                    i32::try_from(count).map_err(|_| ERR_INVALID)
+                }
+                Ok(_) => {
+                    into.fill(0);
+                    Err(ERR_INVALID)
+                }
+                Err(error) => {
+                    into.fill(0);
+                    Err(error)
+                }
+            }
         })
     })();
     result.unwrap_or_else(|error| error)
-}
-
-// Request exactly the caller's capacity, never a maximum-sized stack array.
-// The empty case owns no allocation and never calls the allocator with size 0.
-fn read_scratch(len: usize) -> Result<Box<[u8]>, i32> {
-    if len == 0 {
-        return Ok(Box::default());
-    }
-    let layout = Layout::array::<u8>(len).map_err(|_| ERR_NO_MEMORY)?;
-    #[cfg(test)]
-    if scratch_fault::take() {
-        return Err(ERR_NO_MEMORY);
-    }
-    // SAFETY: the nonzero byte-array layout is valid; zeroing happens in heap.
-    let pointer = unsafe { alloc_zeroed(layout) };
-    if pointer.is_null() {
-        return Err(ERR_NO_MEMORY);
-    }
-    // SAFETY: exclusive heap storage has exactly this slice layout and every
-    // byte was initialized by alloc_zeroed. Box frees the same allocation.
-    Ok(unsafe { Box::from_raw(core::ptr::slice_from_raw_parts_mut(pointer, len)) })
-}
-
-#[cfg(test)]
-mod scratch_fault {
-    extern crate std;
-    use core::cell::Cell;
-    std::thread_local! {
-        static REFUSE: Cell<bool> = const { Cell::new(false) };
-    }
-    pub(super) fn refuse_next() {
-        REFUSE.with(|refuse| refuse.set(true));
-    }
-    pub(super) fn take() -> bool {
-        REFUSE.with(|refuse| refuse.replace(false))
-    }
 }
 
 /// Slot 22: replace a file, preserving the reserve and path rules.
@@ -188,13 +262,14 @@ mod scratch_fault {
 pub(crate) unsafe fn write(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     in_use: &PathsInUse,
     root: u32,
     bytes: PpBytes,
     data: PpBytes,
 ) -> i32 {
     // SAFETY: both operations use the same caller-owned readable inputs.
-    unsafe { put(scope, owner, in_use, root, bytes, data, false) }
+    unsafe { put(scope, owner, format, in_use, root, bytes, data, false) }
 }
 
 /// Slot 23: append a chunk, preserving the reserve and path rules.
@@ -205,18 +280,24 @@ pub(crate) unsafe fn write(
 pub(crate) unsafe fn append(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     in_use: &PathsInUse,
     root: u32,
     bytes: PpBytes,
     data: PpBytes,
 ) -> i32 {
     // SAFETY: both operations use the same caller-owned readable inputs.
-    unsafe { put(scope, owner, in_use, root, bytes, data, true) }
+    unsafe { put(scope, owner, format, in_use, root, bytes, data, true) }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the slot's inputs, as the other slots take them"
+)]
 unsafe fn put(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     in_use: &PathsInUse,
     root: u32,
     bytes: PpBytes,
@@ -225,16 +306,22 @@ unsafe fn put(
 ) -> i32 {
     status((|| {
         // SAFETY: the caller guarantees live readable inputs.
-        let path = unsafe { path(root, bytes) }?;
+        let path = unsafe { path(root, bytes, format, true) }?;
         // SAFETY: the caller guarantees live readable inputs.
         let data = unsafe { input(data, MAX_DATA) }?;
-        with_adapter(scope, owner, Some(in_use), |adapter| {
-            if append {
-                adapter.append(root, path, data)
-            } else {
-                adapter.write(root, path, data)
-            }
-        })
+        with_adapter(
+            scope,
+            owner,
+            Some(in_use),
+            format.map(|f| (f, root)),
+            |adapter| {
+                if append {
+                    adapter.append(root, path, data)
+                } else {
+                    adapter.write(root, path, data)
+                }
+            },
+        )
     })())
 }
 
@@ -246,6 +333,7 @@ unsafe fn put(
 pub(crate) unsafe fn rename(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     in_use: &PathsInUse,
     root: u32,
     from: PpBytes,
@@ -253,12 +341,16 @@ pub(crate) unsafe fn rename(
 ) -> i32 {
     status((|| {
         // SAFETY: the caller guarantees live readable inputs.
-        let from = unsafe { path(root, from) }?;
+        let from = unsafe { path(root, from, format, true) }?;
         // SAFETY: the caller guarantees live readable inputs.
-        let to = unsafe { path(root, to) }?;
-        with_adapter(scope, owner, Some(in_use), |adapter| {
-            adapter.rename(root, from, to)
-        })
+        let to = unsafe { path(root, to, format, true) }?;
+        with_adapter(
+            scope,
+            owner,
+            Some(in_use),
+            format.map(|f| (f, root)),
+            |adapter| adapter.rename(root, from, to),
+        )
     })())
 }
 
@@ -270,24 +362,40 @@ pub(crate) unsafe fn rename(
 pub(crate) unsafe fn remove(
     scope: &EnvironmentScope,
     owner: &str,
+    format: Option<Format<'_>>,
     in_use: &PathsInUse,
     root: u32,
     bytes: PpBytes,
 ) -> i32 {
     status((|| {
         // SAFETY: the caller guarantees live readable input.
-        let path = unsafe { path(root, bytes) }?;
-        with_adapter(scope, owner, Some(in_use), |adapter| {
-            adapter.remove(root, path)
-        })
+        let path = unsafe { path(root, bytes, format, true) }?;
+        with_adapter(
+            scope,
+            owner,
+            Some(in_use),
+            format.map(|f| (f, root)),
+            |adapter| adapter.remove(root, path),
+        )
     })())
 }
 
 /// Slot 26: flush the current callback's storage view.
 pub(crate) fn sync(scope: &EnvironmentScope, owner: &str) -> i32 {
-    status(with_adapter(scope, owner, None, |adapter| adapter.sync()))
+    status(with_adapter(scope, owner, None, None, |adapter| {
+        adapter.sync()
+    }))
 }
 
+#[cfg(test)]
+#[path = "storage_slots_bundle_tests.rs"]
+mod bundle_tests;
+#[cfg(test)]
+#[path = "storage_slots_card_tests.rs"]
+mod card_tests;
+#[cfg(test)]
+#[path = "storage_slots_format_tests.rs"]
+mod format_tests;
 #[cfg(test)]
 #[path = "storage_slots_tests.rs"]
 mod tests;

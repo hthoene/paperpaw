@@ -212,14 +212,15 @@ X4 Pro, those not built into the firmware are files from the plugin
 store, signed by their authors, or one's own builds sent over USB or the
 Wi-Fi transfer ([docs/usb-transfer.md](docs/usb-transfer.md)), with no
 firmware rebuild. [Writing plugins](docs/plugins.md)
-walks through [`samples/hello-plugin`](samples/hello-plugin/src/lib.rs), a
-small one to start from.
+walks through the small plugin `paperpaw-dev new --code` makes, to start
+from.
 
 ## Try it in the emulator
 
 Each release has the emulator ready to run for Windows, macOS and Linux,
 on the [releases page](https://github.com/hthoene/paperpaw/releases). It
-comes with `paperpaw-dev`. To build it yourself, you need a recent stable
+comes with `paperpaw-dev`. The Linux programs need glibc 2.35 or newer
+(Debian 12, Ubuntu 22.04 and later). To build it yourself, you need a recent stable
 [Rust toolchain](https://rustup.rs). The required targets are installed
 automatically from `rust-toolchain.toml`.
 
@@ -289,6 +290,7 @@ cargo run -p paperpaw-emulator -- --headless --profile boox-go-7 --set core.lang
 | `crates/paperpaw-sqlite` | SQLite files read and written page by page, e.g. KOReader's statistics |
 | `crates/paperpaw-digest` | MD5, SHA-1, SHA-256 and FNV-1a |
 | `crates/paperpaw-qr` | QR codes for short text such as an address |
+| `crates/paperpaw-caldav` | CalDAV, CardDAV and iCalendar for plugins: to-dos and events read as they stream, recurrence rules, time zones, vCard birthdays |
 | `crates/paperpaw-native` | Native code plugin files (`.ppn`): format, signatures, loading |
 | `crates/paperpaw-update` | Signed firmware update files |
 | `crates/paperpaw-serve` | HTTP serving for plugins in shells with an operating system |
@@ -298,7 +300,7 @@ cargo run -p paperpaw-emulator -- --headless --profile boox-go-7 --set core.lang
 | `tools/fontgen` | Converts fonts into bitmap font packs for small devices; each release has it built for Windows, macOS and Linux (`paperpaw-fontgen-<version>-<computer>.zip`) |
 | `tools/dev` | `paperpaw-dev`, which checks plugins on emulated devices |
 | `tools/sign` | `paperpaw-sign`, which signs updates, makes keys, and packs and signs plugin files |
-| `tools/plugin-files` | Builds PaperPaw's own store plugins as files for each release |
+| `tools/plugin-files` | The release scripts for the store: catalogue, versions, data plugins (the plugin files themselves are built by `tools/plugin-files7`)  |
 | `tools/publish-workspace.py` | Plans, verifies and resumes crate publication ([release procedure](docs/releases.md)) |
 | `tools/xtensa-std` | The X4 Pro's core libraries for code plugins |
 | `tools/x4-remote.py` | Drives an X4 over USB with developer firmware |

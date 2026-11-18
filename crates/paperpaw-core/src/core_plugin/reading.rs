@@ -2,8 +2,9 @@
 //! (justified, hyphenated, indented, kept in lines) and whether a book's
 //! settings are its own.
 
+use crate::Staging;
 use paperpaw_sdk::builtin::{group_sections, groups, settings};
-use paperpaw_sdk::{Id, RegisterError, Registrar, SettingExtra, SettingSpec};
+use paperpaw_sdk::{Id, RegisterError, SettingExtra, SettingSpec};
 
 use super::{FONT, FONT_PT, IN_APPS, IN_PAGE, LINES, MARGINS, MARGINS_ENDS, WEIGHT, WORDS};
 
@@ -410,39 +411,45 @@ static TYPE: [SettingSpec; 15] = [
     .description("core.setting.paragraph-space.help"),
 ];
 
-pub(super) fn register(r: &mut Registrar) -> Result<(), RegisterError> {
-    // The parts of the reading settings, each a page of its own.
-    for (id, title, order) in [
-        (groups::READING_TEXT, "core.group.reading-text", 1),
-        (groups::READING_LAYOUT, "core.group.reading-layout", 2),
-        (
-            groups::READING_HYPHENATION,
-            "core.group.reading-hyphenation",
-            3,
-        ),
-        (
-            groups::READING_BOOK_STYLES,
-            "core.group.reading-book-styles",
-            4,
-        ),
-        (groups::READING_DISPLAY, "core.group.reading-display", 5),
-        (groups::STATUS_LINES, "core.group.status", 6),
-        (groups::MARKS, "core.group.marks", 7),
-        (groups::READING_ALOUD, "core.group.reading-aloud", 8),
-        (groups::READING_AIDS, "core.group.reading-aids", 9),
-        (
-            groups::READING_BEHAVIOUR,
-            "core.group.reading-behaviour",
-            10,
-        ),
-    ] {
-        r.add_setting_group(
-            paperpaw_sdk::SettingGroupSpec::new(id, title)
-                .order(order)
-                .within(groups::READING),
-        )?;
+/// The parts of the reading settings, each a page of its own: kept in the
+/// program, not copied onto the heap (#248, B).
+static READING_GROUPS: [paperpaw_sdk::SettingGroupSpec; 10] = [
+    reading_group(groups::READING_TEXT, "core.group.reading-text", 1),
+    reading_group(groups::READING_LAYOUT, "core.group.reading-layout", 2),
+    reading_group(
+        groups::READING_HYPHENATION,
+        "core.group.reading-hyphenation",
+        3,
+    ),
+    reading_group(
+        groups::READING_BOOK_STYLES,
+        "core.group.reading-book-styles",
+        4,
+    ),
+    reading_group(groups::READING_DISPLAY, "core.group.reading-display", 5),
+    reading_group(groups::STATUS_LINES, "core.group.status", 6),
+    reading_group(groups::MARKS, "core.group.marks", 7),
+    reading_group(groups::READING_ALOUD, "core.group.reading-aloud", 8),
+    reading_group(groups::READING_AIDS, "core.group.reading-aids", 9),
+    reading_group(
+        groups::READING_BEHAVIOUR,
+        "core.group.reading-behaviour",
+        10,
+    ),
+];
+
+const fn reading_group(id: Id, title: &'static str, order: i32) -> paperpaw_sdk::SettingGroupSpec {
+    paperpaw_sdk::SettingGroupSpec::new(id, title)
+        .order(order)
+        .within(groups::READING)
+}
+
+pub(super) fn register(r: &mut Staging) -> Result<(), RegisterError> {
+    for group in &READING_GROUPS {
+        r.add_setting_group(group)?;
     }
     r.add_settings(&READING)?;
     r.add_settings(&TYPE)?;
-    r.add_settings(&super::text_look::SETTINGS)
+    r.add_settings(&super::text_look::SETTINGS)?;
+    r.add_settings(&super::picture_look::SETTINGS)
 }

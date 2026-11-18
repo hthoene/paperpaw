@@ -3,19 +3,23 @@
 //! close the menu and run; switches, numbers and choices of two change in
 //! place; longer choices, text and a setting's own editor open their screens;
 //! submenus open as a sheet over this one.
+use crate::native_bar::Handed;
+use crate::native_bar_screen::{BarView, Outcome as BarOutcome};
 use crate::native_data::Reader;
 use crate::native_model::{
-    self as model, Act, Choice, Kind, Row, SettingInfo, SettingKind, Value, with_unit,
+    self as model, Act, Choice, Kind, Row, SettingInfo, SettingKind, Value, said_with_unit,
 };
 use crate::native_panel_screen::{self as panel_screen, Outcome, PanelView};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Handled, Rect,
+    keys::InputMode,
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, Input, InputGestureKind},
         commands::{CommandSender, RedrawMode},
         events::{Event, Incoming, kinds},
+        formatting::Arg,
         registrations,
         reply::Reply,
         settings::SettingValue,
@@ -76,6 +80,13 @@ pub struct NativeMenu {
     screens: Screens<ListView>,
     /// The quick panels open.
     panels: Screens<PanelView>,
+    /// The reader's bars and the tiles open (`menu.list` with `mode=bar`, or
+    /// style Tiles): the screen's token, on top where the instance shown last
+    /// is one.
+    bars: Screens<BarView>,
+    /// The instances open, in the order they opened: a menu that closes itself
+    /// and those below it names them (a batch's `back`s all mean the top one).
+    open: Vec<Instance>,
 }
 
 impl Plugin for NativeMenu {
@@ -111,17 +122,26 @@ impl Plugin for NativeMenu {
                 instance,
                 handover,
                 ..
-            } => self.panel_opened(host, instance, handover),
+            } => {
+                self.note_open(instance)?;
+                self.panel_opened(host, instance, handover)
+            }
             Event::ScreenOpened {
                 instance, handover, ..
-            } => self.opened(host, instance, handover),
+            } => {
+                self.note_open(instance)?;
+                self.opened(host, instance, handover)
+            }
             Event::ScreenShown {
                 instance: Some(instance),
+                last_input,
                 ..
-            } => self.shown(host, instance),
+            } => self.shown(host, instance, last_input),
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
                 self.panels.close(instance);
+                self.bars.close(instance);
+                self.open.retain(|open| *open != instance);
                 Ok(())
             }
             Event::SettingChanged { .. }
@@ -140,6 +160,11 @@ impl Plugin for NativeMenu {
             let view = self.panels.top(PANEL).ok_or(Error::State)?;
             view.draw(host, &mut frame, true)?;
             return Ok(());
+        }
+        if token == LIST
+            && let Some(bar) = self.bars.top(LIST)
+        {
+            return bar.draw(host, &mut frame);
         }
         let view = self.screens.top(token).ok_or(Error::State)?;
         if view.rows.is_empty() {
@@ -160,6 +185,9 @@ impl Plugin for NativeMenu {
         self.ensure_ui(host)?;
         if token == PANEL {
             return self.panel_input(host, &input);
+        }
+        if token == LIST && self.bars.top(LIST).is_some() {
+            return self.bar_input(host, &input);
         }
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
@@ -296,6 +324,38 @@ impl NativeMenu {
         }
     }
 
+    /// Input for the top bar; what it asks to open is opened here, where the
+    /// hand-over service is.
+    fn bar_input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Handled, Error> {
+        let Some(view) = self.bars.top(LIST) else {
+            return Ok(Handled::No);
+        };
+        match view.input(host, input)? {
+            BarOutcome::Handled(handled) => return Ok(handled),
+            // A submenu opens as a list over the bar, one deep (an action in
+            // it closes both).
+            BarOutcome::Menu(menu) => self.open(
+                host,
+                "menu.list",
+                &[(model::PARAM_MENU, &menu), (model::PARAM_DEPTH, "1")],
+            )?,
+            BarOutcome::Setting { act, key } => self.open_act(host, act, &key)?,
+        }
+        Ok(Handled::Yes)
+    }
+
+    /// Opens what choosing setting `key` opens: its own editor (a screen or
+    /// a slot), the list of its values or its settings page.
+    fn open_act(&self, host: &Host<'_>, act: Act, key: &str) -> Result<(), Error> {
+        match act {
+            Act::Screen(screen) => self.open(host, &screen, &[("id", key)]),
+            Act::Slot(slot) => self.open_slot(host, &slot, &[("id", key)]),
+            Act::Values => self.open_slot(host, "core.choose-value", &[("id", key)]),
+            Act::Page => self.open_slot(host, "core.settings", &[("focus", key)]),
+            Act::Nothing | Act::Step | Act::StartNumber => Ok(()),
+        }
+    }
+
     /// Opens `screen` with the hand-over `params`.
     fn open(&self, host: &Host<'_>, screen: &str, params: &[(&str, &str)]) -> Result<(), Error> {
         let open = Open::screen(screen)?;
@@ -331,28 +391,32 @@ impl NativeMenu {
         instance: Instance,
         handover: Option<HandoverId>,
     ) -> Result<(), Error> {
-        let (mut menu, mut depth, mut hide) = (String::new(), None, String::new());
+        let mut handed = Handed::default();
         if let Some(handover) = handover {
             let mut input = buffer(SERVICE_BUFFER)?;
             let mut output = buffer(SERVICE_BUFFER)?;
             for param in self.ui()?.params(host, handover, &mut input, &mut output)? {
                 let param = param?;
-                match param.key() {
-                    model::PARAM_MENU => menu = copy(param.value())?,
-                    model::PARAM_DEPTH => depth = Some(copy(param.value())?),
-                    model::PARAM_HIDE => hide = copy(param.value())?,
-                    _ => {}
-                }
+                handed.take(param.key(), param.value())?;
             }
         }
-        if menu.is_empty() {
-            menu = copy(model::MAIN)?;
+        if handed.menu.is_empty() {
+            handed.menu = copy(model::MAIN)?;
+        }
+        let touch = paperpaw_sdk::native::snapshot::capture_snapshot(host)?.has_touch();
+        if handed.is_bar() {
+            let view = BarView::new(host, handed, touch)?;
+            return self.bars.open(instance, view);
+        }
+        // Tiles share the bar's screen (Beta 3's `BarScreen`).
+        if let Some(view) = BarView::tiles(host, &handed, touch)? {
+            return self.bars.open(instance, view);
         }
         let mut view = ListView {
-            menu,
-            depth: model::depth_of(depth.as_deref()),
-            hide,
-            touch: paperpaw_sdk::native::snapshot::capture_snapshot(host)?.has_touch(),
+            menu: handed.menu,
+            depth: model::depth_of(handed.depth.as_deref()),
+            hide: handed.hide,
+            touch,
             ..ListView::default()
         };
         view.keys = !view.touch;
@@ -360,14 +424,24 @@ impl NativeMenu {
         self.screens.open(instance, view)
     }
 
-    fn shown(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+    fn shown(
+        &mut self,
+        host: &Host<'_>,
+        instance: Instance,
+        last_input: Option<InputMode>,
+    ) -> Result<(), Error> {
         if let Some(panel) = self.panels.get(instance) {
             if panel.is_stale() {
                 panel.read(host)?;
             }
             return self.panels.shown(PANEL, instance);
         }
+        // A bar and a list share the screen's token: both know which is on top.
         self.screens.shown(LIST, instance)?;
+        self.bars.shown(LIST, instance)?;
+        if let Some(bar) = self.bars.get(instance) {
+            return bar.shown(host, last_input);
+        }
         if let Some(view) = self.screens.get(instance)
             && view.stale
         {
@@ -440,7 +514,9 @@ impl NativeMenu {
             let value = match (row.kind, info) {
                 (Kind::Submenu, _) => copy("›")?,
                 (Kind::Setting, Some(info)) => {
-                    let text = value_text(info, &on, &off)?;
+                    let text = value_text(info, &on, &off, &mut |key, count| {
+                        say(&mut messages, host, key, count)
+                    })?;
                     if editing == Some(index) {
                         concat(&["‹ ", &text, " ›"])?
                     } else {
@@ -453,7 +529,23 @@ impl NativeMenu {
             let mut item = Item::noted(&row.title, &value, &row.describe)?;
             if let Item::Row(r) = &mut item {
                 r.disabled = !row.choosable();
+                // The entry's icon at the start of its row, where the host
+                // has an icon font that knows the name.
+                if !row.icon.is_empty() {
+                    r.icon = paperpaw_ui_kit::icons::glyph(host, &row.icon)?;
+                }
                 r.stepper = touch && info.is_some_and(|i| i.kind == SettingKind::Int);
+                // A switch is told as one: the row is on or off.
+                if let (Kind::Setting, Some(Value::Bool(on))) =
+                    (row.kind, info.and_then(|i| i.value.as_ref()))
+                {
+                    r.on = Some(*on);
+                }
+                // An entry that says it is on (a plugin's state) is told as a
+                // switch that is on.
+                if row.kind == Kind::Action && row.checked() {
+                    r.on = Some(true);
+                }
             }
             items.push(item);
         }
@@ -470,6 +562,13 @@ impl NativeMenu {
             panel.read(host)?;
             Self::redraw(host)?;
         }
+        for bar in self.bars.all() {
+            bar.mark_stale();
+        }
+        if let Some(bar) = self.bars.top(LIST) {
+            bar.read(host)?;
+            Self::redraw(host)?;
+        }
         let top = self.screens.top_instance(LIST);
         for view in self.screens.all() {
             view.stale = true;
@@ -480,6 +579,12 @@ impl NativeMenu {
             Self::rebuild(host, view)?;
             Self::redraw(host)?;
         }
+        Ok(())
+    }
+
+    fn note_open(&mut self, instance: Instance) -> Result<(), Error> {
+        self.open.try_reserve(1).map_err(|_| Error::NoMemory)?;
+        self.open.push(instance);
         Ok(())
     }
 
@@ -514,7 +619,11 @@ impl NativeMenu {
                 // the screen the menu was opened on.
                 let mut scratch = buffer(1024)?;
                 let mut commands = CommandSender::new(host, &mut scratch);
-                for _ in 0..back {
+                let named = back.min(self.open.len());
+                for instance in self.open.iter().rev().take(named) {
+                    commands.close(*instance)?;
+                }
+                for _ in named..back {
                     commands.back()?;
                 }
                 commands.run_action(&action)
@@ -539,10 +648,9 @@ impl NativeMenu {
         };
         match model::act(info, view.touch, confirm)? {
             Act::Nothing => Ok(()),
-            Act::Screen(screen) => self.open(host, &screen, &[("id", key)]),
-            Act::Slot(slot) => self.open_slot(host, &slot, &[("id", key)]),
-            Act::Values => self.open_slot(host, "core.choose-value", &[("id", key)]),
-            Act::Page => self.open_slot(host, "core.settings", &[("focus", key)]),
+            act @ (Act::Screen(_) | Act::Slot(_) | Act::Values | Act::Page) => {
+                self.open_act(host, act, key)
+            }
             Act::Step => self.step(host, token, index, 1),
             Act::StartNumber => {
                 let Some(view) = self.screens.top(token) else {
@@ -573,35 +681,12 @@ impl NativeMenu {
         let Some(info) = view.rows.get(index).and_then(|row| view.info(&row.item)) else {
             return Ok(());
         };
-        let key = copy(&info.key)?;
-        let next = match info.kind {
-            SettingKind::Choice | SettingKind::Language => {
-                let Some(Value::Text(now)) = &info.value else {
-                    return Ok(());
-                };
-                let mut reader = Reader::open(host)?;
-                let values = reader.choice_values(&key);
-                let values = reader.finish(values)?;
-                let at = values.iter().position(|v| v == now).unwrap_or(0);
-                let len = values.len().max(1);
-                let to = (at as i64 + direction).rem_euclid(len as i64) as usize;
-                match values.get(to) {
-                    Some(v) if v != now => Value::Text(copy(v)?),
-                    _ => return Ok(()),
-                }
-            }
-            _ => match model::stepped(info, direction) {
-                Some(next) => next,
-                None => return Ok(()),
-            },
+        let Some(next) = next_value(host, info, direction)? else {
+            return Ok(());
         };
         let mut scratch = buffer(1024)?;
         let mut commands = CommandSender::new(host, &mut scratch);
-        match &next {
-            Value::Bool(v) => commands.set_setting(&key, SettingValue::Bool(*v))?,
-            Value::Int(v) => commands.set_setting(&key, SettingValue::Int(*v))?,
-            Value::Text(v) => commands.set_setting(&key, SettingValue::Text(v))?,
-        }
+        set_value(&mut commands, &info.key, &next)?;
         commands.queue_redraw(RedrawMode::Partial)
     }
 
@@ -644,14 +729,105 @@ impl NativeMenu {
     }
 }
 
-/// The value of a setting as its row shows it.
-pub(crate) fn value_text(info: &SettingInfo, on: &str, off: &str) -> Result<String, Error> {
+/// The value of `info` `direction` steps on: a switch toggles, a number stops
+/// at its ends, a choice takes another of its values (round the ends); `None`
+/// where nothing changes.
+///
+/// # Errors
+/// [`Error::NoMemory`] and the registry's refusals.
+pub(crate) fn next_value(
+    host: &Host<'_>,
+    info: &SettingInfo,
+    direction: i64,
+) -> Result<Option<Value>, Error> {
+    if !matches!(info.kind, SettingKind::Choice | SettingKind::Language) {
+        return Ok(model::stepped(info, direction));
+    }
+    let Some(Value::Text(now)) = &info.value else {
+        return Ok(None);
+    };
+    let mut reader = Reader::open(host)?;
+    let values = reader.choice_values(&info.key);
+    let values = reader.finish(values)?;
+    let at = values.iter().position(|v| v == now).unwrap_or(0);
+    let len = values.len().max(1);
+    let to = (at as i64 + direction).rem_euclid(len as i64) as usize;
+    match values.get(to) {
+        Some(v) if v != now => Ok(Some(Value::Text(copy(v)?))),
+        _ => Ok(None),
+    }
+}
+
+/// Stages setting `key` to `value`.
+///
+/// # Errors
+/// The host's refusal.
+pub(crate) fn set_value(
+    commands: &mut CommandSender<'_, '_>,
+    key: &str,
+    value: &Value,
+) -> Result<(), Error> {
+    match value {
+        Value::Bool(v) => commands.set_setting(key, SettingValue::Bool(*v)),
+        Value::Int(v) => commands.set_setting(key, SettingValue::Int(*v)),
+        Value::Text(v) => commands.set_setting(key, SettingValue::Text(v)),
+    }
+}
+
+/// The value of a setting as its row shows it. A choice's value is a translation
+/// key (`Kind::Choice`): `translate` gives its text in the language of the
+/// display, so the row says *Auto*, not `power.mode.auto`. A value that has no text says itself.
+/// A number's unit key is said with the number as its count (*9 pt*), so
+/// `translate` gets the count too.
+pub(crate) fn value_text(
+    info: &SettingInfo,
+    on: &str,
+    off: &str,
+    translate: &mut Translate<'_>,
+) -> Result<String, Error> {
     match &info.value {
         Some(Value::Bool(true)) => copy(on),
         Some(Value::Bool(false)) => copy(off),
-        Some(Value::Int(v)) => with_unit(*v, &info.unit),
+        Some(Value::Int(v)) => said_with_unit(*v, &info.unit, &mut |key, count| {
+            translate(key, Some(count))
+        }),
+        Some(Value::Text(v)) if info.kind == SettingKind::Choice && !v.is_empty() => {
+            or_as_it_is(translate(v, None), v)
+        }
         Some(Value::Text(v)) => copy(v),
         None => copy(""),
+    }
+}
+
+/// Gives the catalog's text for a key, with a count where it has one.
+pub(crate) type Translate<'a> = dyn FnMut(&str, Option<i64>) -> Result<String, Error> + 'a;
+
+/// The catalog's text for `key`, with `count` as its `{count}` (and plural
+/// form) where there is one.
+///
+/// # Errors
+/// The host's refusals and [`Error::NoMemory`].
+pub(crate) fn say(
+    messages: &mut Messages,
+    host: &Host<'_>,
+    key: &str,
+    count: Option<i64>,
+) -> Result<String, Error> {
+    match count {
+        None => messages.copy(host, key),
+        Some(n) => messages.format(host, key, &[Arg::Count(n)]),
+    }
+}
+
+/// A choice's value as `said` translates it; a value that is no key of the
+/// catalogs is said as it is (as `tr` does), never a failure of its row.
+///
+/// # Errors
+/// [`Error::NoMemory`] and the host's refusals other than "no such key".
+pub(crate) fn or_as_it_is(said: Result<String, Error>, value: &str) -> Result<String, Error> {
+    match said {
+        Err(Error::NotFound | Error::Invalid) => copy(value),
+        said => said,
     }
 }
 

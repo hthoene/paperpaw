@@ -29,12 +29,18 @@ use crate::{clock, device, input, now, power, stack};
 
 mod cable;
 mod card_swap;
+mod clean;
 mod dozing;
+mod low_memory;
 mod paced;
 #[cfg(feature = "remote")]
 mod remote_commands;
 #[cfg(feature = "asleep-light")]
 mod sleeping_board;
+mod start_screens;
+mod turn_lab;
+#[cfg(feature = "usb-drive")]
+mod usb_drive;
 mod waveform;
 
 /// How long the main loop rests when there is nothing to do.
@@ -89,9 +95,16 @@ pub struct Firmware {
     pub light: Option<crate::light::Light>,
     /// The card taken out and put back while running (#145).
     pub card_swap: Option<alloc::boxed::Box<dyn crate::volume::Swap>>,
-    /// The loader's table of handles, for the measurement-only linked-plugin
-    /// probe (`static-native`): one table for the device.
-    #[cfg(all(feature = "static-native", feature = "esp32c3"))]
+    /// The device behind `core.device`, told of what the kernel keeps.
+    #[cfg(feature = "ppn5")]
+    pub device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    /// `core.secrets` past the loader (Beta 3's veiled values sealed once
+    /// the random numbers are strong).
+    #[cfg(feature = "ppn5")]
+    pub secrets: crate::secrets::Secrets,
+    /// The loader's table of handles, for the linked plugins' hosting
+    /// (`native-on`): one table for the device.
+    #[cfg(feature = "native-on")]
     pub device_table: Option<crate::native::DeviceTable>,
     pub state: State,
 }
@@ -107,10 +120,15 @@ pub struct State {
     /// pressed again) does not change it. Set only in `step`; it ends in the
     /// power-off or a reset, so nothing clears it.
     escape: bool,
+    /// The one-time low-memory notice (`low_memory`).
+    low_memory: paperpaw_x4::low_memory::Notice,
     /// The kernel asked to sleep.
     sleep: bool,
     /// The kernel asked to switch the device off (`Effect::PowerOff`).
     power_off: bool,
+    /// The kernel asked to show the card to a computer (`Effect::UsbDrive`).
+    #[cfg(feature = "usb-drive")]
+    usb_drive: bool,
     /// Staying awake on USB, the developer's choice (`dozing`).
     stay: paperpaw_x4::stay_awake::StayAwake,
     /// When the kernel wants to be woken.
@@ -163,6 +181,11 @@ pub struct State {
     /// The panel's memories may differ after startup or a paced frame:
     /// the next one drives every pixel.
     frame_stale: bool,
+    /// The panel showed grays until the frame being drawn: its refresh drives
+    /// every pixel ([`clean`]).
+    after_gray: bool,
+    /// LAB ONLY (#40, feature `turn-lab`): the page-turn variant.
+    turn_lab: turn_lab::Lab,
 }
 
 /// The place of `refresh` in [`State::refresh_ms`].
@@ -176,7 +199,7 @@ fn kind(refresh: Refresh) -> usize {
 
 impl Firmware {
     /// Starts the kernel, then runs the main loop.
-    pub fn run(mut self) -> ! {
+    pub fn run(&mut self) -> ! {
         crate::startup::finish(&mut self.panel);
         // Startup released its bands before loading the kernel. Drive the
         // first frame whole instead of comparing its old panel memories.
@@ -185,17 +208,37 @@ impl Firmware {
         for warning in self.kernel.take_warnings() {
             warn!("{warning}");
         }
-        // Never taken: the build carries the host code that hosts a linked
-        // plugin, so the measure includes it, but nothing is registered while
-        // the stack gate holds (`abi/heap-word.md` section 6). Not flashable.
-        // Here, on the kernel in its place: a local in `kernel()` or `start()`
-        // would copy it (+4 KB on the frame).
-        #[cfg(all(feature = "static-native", feature = "esp32c3"))]
-        if core::hint::black_box(false)
-            && let Some(table) = &self.device_table
-        {
-            crate::native::register_linked_probe(&mut self.kernel, table);
+        // The linked plugins of interface 7, hosted only where the stack's band
+        // is armed (`abi/heap-word.md` section 6); else none runs and the log
+        // says so. Here, on the kernel in its place: a local in `kernel()` or
+        // `start()` would copy it (+4 KB on the frame).
+        #[cfg(feature = "native-on")]
+        if let Some(table) = &self.device_table {
+            if paperpaw_x4::stack_band::host_native_at_start(crate::stack::band_armed()) {
+                crate::native::register_linked(&mut self.kernel, table);
+                // Plugin jobs (a store's install, update and removal, a
+                // plugin check), which the loader's own lists and the families
+                // wired by now decide (`paperpaw_x4::host_jobs`). Not where no
+                // code loads (an update on trial, safe mode): refused then.
+                let wired = crate::device_host::wired_families(false);
+                // With what this firmware's loader reads (`native::reads`).
+                if let Some(loader) = crate::native::reads()
+                    && !paperpaw_x4::host_jobs::offer_plugin_jobs(
+                        &mut self.kernel,
+                        loader,
+                        crate::native::FAMILY,
+                        wired,
+                    )
+                {
+                    warn!("native: plugin jobs are not taken: the kernel has no firmware host");
+                }
+            } else {
+                warn!("native: the stack's band is not armed: no plugin of interface 7 is hosted");
+            }
         }
+        // Interface 6's passwords through the same sealer, before the start.
+        #[cfg(feature = "ppn5")]
+        self.secrets.started(&mut self.kernel);
         let effects = self.kernel.start(now());
         self.apply(effects);
         self.finishing_update();
@@ -206,6 +249,21 @@ impl Firmware {
         }
     }
 
+    /// A start is due once the update on trial is kept: code plugins to load,
+    /// or the linked plugins of interface 7 that a trial does not host
+    /// (`paperpaw_x4::host_jobs::restart_once_kept`).
+    fn restart_once_kept(&self) -> bool {
+        #[cfg(feature = "native-on")]
+        let (hosted, linked) = (self.device_table.is_some(), true);
+        #[cfg(not(feature = "native-on"))]
+        let (hosted, linked) = (true, false);
+        paperpaw_x4::host_jobs::restart_once_kept(
+            crate::native::code_to_load(self.kernel.storage()),
+            hosted,
+            linked,
+        )
+    }
+
     /// An update on trial with code plugins to load once it is kept: it
     /// starts again then, and says so meanwhile, on a screen that takes no
     /// input (nothing begun is cut off).
@@ -214,7 +272,7 @@ impl Firmware {
         let Some(left) = self.ota.as_ref().and_then(|ota| ota.trial_left(start.0)) else {
             return;
         };
-        if !paperpaw_core::code_to_load(self.kernel.storage(), &crate::native::this_firmware()) {
+        if !self.restart_once_kept() {
             return;
         }
         let params = paperpaw_sdk::Params::new()
@@ -256,6 +314,9 @@ impl Firmware {
             info!("Power held: switching off");
             return self.sleep(false);
         }
+        // Beta 3's veiled values, sealed the first time a radio is on.
+        #[cfg(feature = "ppn5")]
+        self.secrets.poll();
         // Kept only where the mark was written: a flash that fails to write
         // leaves the update on trial (it may still go back), and the hold
         // on code plugins with it (`Kernel::trial_kept`).
@@ -265,14 +326,19 @@ impl Firmware {
             // installed before (an update that keeps the fingerprint
             // fetches none) and those fetched for it wait for a start once
             // it is kept, which installs and loads them (ADR 0024).
-            let native = crate::native::this_firmware();
             Ota::trial_over(self.kernel.storage());
             self.kernel.trial_kept();
-            self.state.restart_for_code =
-                paperpaw_core::code_to_load(self.kernel.storage(), &native);
+            self.state.restart_for_code = self.restart_once_kept();
         }
         // At a calm moment: at once, unless a book is open, then once it
         // is left. A sleep on battery before is a start too.
+        // A firmware job installed an image and asked for its start
+        // (`FirmwareHost::restart`): the way every restart goes, at the next
+        // turn of this loop, not inside the kernel's call.
+        if crate::ota::restart_asked() {
+            info!("OTA: an installed update asked to start: restarting");
+            self.restart();
+        }
         if self.state.restart_for_code && !self.reading() {
             info!("native: the update is kept; restarting to load the code plugins");
             self.restart();
@@ -292,12 +358,21 @@ impl Firmware {
             Some(paperpaw_x4::sleeping::Wanted::Sleep) => return self.sleep(true),
             None => {}
         }
+        // The card goes to the computer: nothing else runs until it is back.
+        #[cfg(feature = "usb-drive")]
+        if self.state.usb_drive {
+            return self.usb_drive();
+        }
         if self.state.stay.is_dozing() {
             return self.dozing_step();
         }
         power::feed();
         power::mark(power::at::LOOP);
         stack::check();
+        // The test image's high-water log: a comparison of the clock, a sample
+        // only every 30 s.
+        #[cfg(feature = "test-image")]
+        crate::high_water::step(now().0);
         self.io();
         self.watch_card();
         for effects in self.network.step(&mut self.kernel, now()) {
@@ -364,6 +439,15 @@ impl Firmware {
     fn panel_idle(&mut self) {
         if self.state.panel_idle_at.is_some_and(|at| now().0 >= at) {
             self.state.panel_idle_at = None;
+            #[cfg(feature = "fade-lab")]
+            if self.panel.powered() {
+                // LAB ONLY (#168): the variant from the card, a digit.
+                let mut digit = *b"0";
+                let _ = self.kernel.storage().read_at("fade-lab.txt", 0, &mut digit);
+                let variant = digit[0].saturating_sub(b'0').min(4);
+                info!("fade-lab: variant {variant}");
+                self.panel.set_fade_variant(variant);
+            }
             if self.panel.powered()
                 && let Err(e) = self.panel.power_down()
             {
@@ -382,6 +466,11 @@ impl Firmware {
         let after = paperpaw_x4::light_timer::delay_ms(settings.read(&device::LIGHT_OFF_AFTER));
         let lit = level > 0 && self.light.is_some();
         let dark = self.state.light_timer.dark(now().0, after, lit);
+        #[cfg(feature = "ppn5")]
+        self.device.set_value(
+            "frontlight-percent",
+            Some(if lit && !dark { level } else { 0 }),
+        );
         if let Some(light) = self.light.as_mut() {
             if dark {
                 light.off();
@@ -494,10 +583,14 @@ impl Firmware {
 
     fn restart(&mut self) -> ! {
         info!("restarting");
+        crate::safe_mode::clean_exit();
         self.settle_frame();
-        crate::startup::restarting(&mut self.panel, &self.kernel);
+        self.restart_screen();
         self.pause_trial();
         let _ = self.kernel.stop(now());
+        // The stop route's depth is kept for the next start (test image).
+        #[cfg(feature = "test-image")]
+        crate::high_water::before_sleep();
         self.network.leave();
         esp_hal::system::software_reset();
     }
@@ -553,6 +646,8 @@ impl Firmware {
         if let Some(frames) = readings.frames {
             status = status.with_value("usb-frames", i64::from(frames));
         }
+        #[cfg(feature = "ppn5")]
+        crate::device_host::tell_usb(&self.device, readings.pin_high, readings.frames);
         let effects = self.kernel.set_status(at, status);
         self.apply(effects);
     }
@@ -696,6 +791,7 @@ impl Firmware {
             // Started again: whatever the light sleeps did to the USB link,
             // the computer finds the X4 again.
             power::mark(power::at::TRIED);
+            crate::safe_mode::clean_exit();
             esp_hal::system::software_reset();
         }
         // A press under way: read again soon, awake (the readings stop in
@@ -767,6 +863,9 @@ impl Firmware {
     #[inline(never)]
     fn sleep(&mut self, lightly: bool) {
         self.settle_frame();
+        // The lows of the run are kept before the sleep (test image).
+        #[cfg(feature = "test-image")]
+        crate::high_water::before_sleep();
         // A press over USB that put it to sleep is let go first.
         #[cfg(feature = "remote")]
         self.release_held();
@@ -821,10 +920,13 @@ impl Firmware {
     )]
     #[inline(never)]
     fn power_off(&mut self) -> ! {
+        // Its own choice, maybe before the first frame: not a failed start.
+        crate::safe_mode::clean_exit();
         // The next start ends this sleep: the mark says so, for plugins to
         // hear the device wake (`core.resume`). A switch-off a plugin asked
         // for leaves it too: the start is a cold one, but plugins that
         // count sleeps hear `core.resume` (with the time asleep unknown).
+        self.prepare_start_picture();
         paperpaw_x4::slept::mark(self.kernel.storage());
         let _ = self.panel.sleep();
         #[cfg(feature = "x4-pro")]
@@ -897,6 +999,7 @@ impl Firmware {
             "sleeping: {ended:?} after {} s",
             now().0.saturating_sub(started) / 1000
         );
+        self.draw_off_screen(ended);
         if ended == Ended::Woken {
             self.wake_lightly();
         }
@@ -921,11 +1024,13 @@ impl Firmware {
             ota.resume_trial(now().0);
         }
         // A card swapped while asleep is mounted anew first: waking is
-        // then told as after a USB drive (which resumes too).
-        let effects = if self.card_swapped_asleep() {
-            self.kernel.usb_drive_ended(now())
-        } else {
-            self.kernel.resume(now())
+        // then told as after a USB drive (which resumes too). One that kept
+        // its power is as the sleep left it: the kernel walks no library
+        // again for this wake (#305).
+        let effects = match self.card_asleep() {
+            card_swap::Asleep::Swapped => self.kernel.usb_drive_ended(now()),
+            card_swap::Asleep::Kept => self.kernel.resume_storage_kept(now()),
+            card_swap::Asleep::Gone => self.kernel.resume(now()),
         };
         self.apply(effects);
     }
@@ -976,6 +1081,10 @@ impl Firmware {
             // the one-shot sleep request before taking either path.
             self.state.sleep |= effects.sleep();
             self.state.power_off |= effects.power_off();
+            #[cfg(feature = "usb-drive")]
+            {
+                self.state.usb_drive |= effects.usb_drive();
+            }
             // Anything but a paced frame waits for the one on its way.
             let paced = effects.refresh().is_some_and(|(_, mode)| self.paced(mode))
                 && !effects.restart()
@@ -1028,6 +1137,7 @@ impl Firmware {
             } else if self.state.gray_shown && effects.refresh().is_some() {
                 // After grays, the whole screen, not only what changed.
                 self.state.gray_shown = false;
+                self.state.after_gray = true;
                 effects = self.kernel.draw_again(now());
                 continue;
             } else if let Some((area, mode)) = effects.refresh() {
@@ -1044,6 +1154,12 @@ impl Firmware {
             // The cable transfer's answers, as soon as they are there.
             while let Some(line) = self.kernel.next_cable_line() {
                 esp_println::println!("{line}");
+            }
+            if let Some(next) = self.low_memory_notice(
+                effects.grays() || effects.sleep() || effects.power_off() || effects.restart(),
+            ) {
+                effects = next;
+                continue;
             }
             return;
         }
@@ -1123,13 +1239,18 @@ impl Firmware {
         // As after every refresh, both memories hold what is shown.
         let panel = &mut self.panel;
         let kept = !send_again
-            || sent.replay(&mut |top, rows| {
-                if let Err(e) = panel.write_rows(top, rows, Planes::BOTH) {
-                    warn!("display: {e:?}");
-                }
-            });
+            || sent.replay_or_stale(
+                &mut |top, rows| {
+                    if let Err(e) = panel.write_rows(top, rows, Planes::BOTH) {
+                        warn!("display: {e:?}");
+                    }
+                },
+                &mut self.state.frame_stale,
+            );
         if !kept {
-            warn!("busy mark not kept");
+            // The kernel went on meanwhile, so it cannot draw the mark's frame
+            // again: the next frame is shown whole instead of leaving the mark.
+            warn!("busy mark not kept: the next frame is shown whole");
         }
         info!(
             "mark {},{} {}x{}: work took {} ms, waited {} ms more",
@@ -1156,18 +1277,40 @@ impl Firmware {
     }
 
     fn show_gray(&mut self, area: Rect, clean: bool) {
+        /// Whether a press waits for the main loop (or is being counted).
+        fn key_waits() -> bool {
+            input::waiting() || input::settling()
+        }
+
         power::mark(power::at::SHOWING);
         let started = now();
         let panel = &mut self.panel;
         let mut failed = None;
-        let drawn = self.kernel.render_gray(&mut |top, rows| {
-            if let Err(e) = panel.write_gray_rows(top, rows) {
-                failed = Some(e);
-            }
-        });
+        // A key that comes while the grays are drawn ends the pass: its
+        // 1.3 s of drawing and 1.1 s of refresh are not waited for.
+        let drawn = self.kernel.render_gray_until(
+            &mut |top, rows| {
+                if let Err(e) = panel.write_gray_rows(top, rows) {
+                    failed = Some(e);
+                }
+            },
+            Some(key_waits),
+        );
         if !drawn {
             warn!("no memory for grays");
             return self.show(area, RefreshMode::Full);
+        }
+        if self.kernel.gray_stopped() {
+            // The panel still shows the screen before; its memories hold a
+            // part of the grays: the next frame is the whole screen drawn
+            // again, with every pixel driven (as after grays).
+            info!(
+                "gray pass stopped by a key after {} ms",
+                now().since(started)
+            );
+            self.state.gray_shown = true;
+            self.state.frame_stale = true;
+            return;
         }
         let written = now();
         self.kernel.showing(written);
@@ -1208,7 +1351,8 @@ impl Firmware {
     fn show(&mut self, area: Rect, mode: RefreshMode) {
         power::mark(power::at::SHOWING);
         let stale = core::mem::take(&mut self.state.frame_stale);
-        let refresh = match mode {
+        let after_gray = core::mem::take(&mut self.state.after_gray);
+        let mut refresh = match mode {
             _ if stale => Refresh::Half,
             // Every pixel driven with a warm panel's waveform (1.6 s), as
             // the stock firmware cleans the panel every few pages.
@@ -1216,6 +1360,16 @@ impl Firmware {
             // Partial and fast, and modes to come.
             _ => Refresh::Fast,
         };
+        let turn = self.turn_lab(mode, &mut refresh);
+        // After grays, home is drawn while the panel is cleaned to white
+        // and then shown with a fast refresh (see `clean`).
+        let mut cleaning = self.cleans_while_drawing(after_gray, refresh == Refresh::Half);
+        if cleaning && !self.start_clean() {
+            cleaning = false;
+        }
+        if cleaning {
+            refresh = Refresh::Fast;
+        }
         let planes = if refresh == Refresh::Fast {
             Planes::NEW
         } else {
@@ -1237,7 +1391,8 @@ impl Firmware {
         let mut writing = 0;
         self.kernel.render(&mut |top, rows| {
             let before = now();
-            if let Err(e) = panel.write_rows(top, rows, planes) {
+            // The panel is busy with the clean: the bands are kept to be sent after.
+            if !cleaning && let Err(e) = panel.write_rows(top, rows, planes) {
                 failed = Some(e);
             }
             writing += now().since(before);
@@ -1247,13 +1402,39 @@ impl Firmware {
                 sent.keep(top, &rows);
             }
         });
+        if cleaning {
+            // The clean is over; the panel then shows white, which both memories
+            // hold, and the frame goes into the new one.
+            let network = &mut self.network;
+            if let Err(e) = self.panel.wait_with(|| network.keep_served()) {
+                failed = Some(e);
+            }
+            let before = now();
+            if self.write_white(Planes::BOTH).is_err() {
+                // Not white in both: the next frame drives every pixel.
+                self.state.frame_stale = true;
+            }
+            let panel = &mut self.panel;
+            let mut again = |top: u16, rows: paperpaw_platform::FrameView<'_>| {
+                if let Err(e) = panel.write_rows(top, rows, Planes::NEW) {
+                    failed = Some(e);
+                }
+            };
+            if !sent.replay(&mut again) {
+                // Not kept: drawn once more (the panel is free now).
+                self.kernel.rerender(&mut again);
+            }
+            info!("frame sent after the clean in {} ms", now().since(before));
+        }
         let drawn = now();
         self.kernel.showing(drawn);
         self.set_waveform(refresh, mode);
+        self.turn_lab_waveform(turn, refresh);
         if let Err(e) = self.refresh(refresh) {
             failed = Some(e);
         }
         let shown = now();
+        turn_lab::log(turn, refresh, shown.since(drawn));
         self.kernel.panel_busy(shown.since(drawn));
         self.kernel.shown(shown);
         let ms = core::time::Duration::from_millis;

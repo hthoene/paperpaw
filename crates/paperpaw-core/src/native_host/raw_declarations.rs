@@ -363,13 +363,39 @@ impl RawDeclarations {
         image: Option<&'a [u8]>,
         visit: &mut dyn FnMut(Record<'a>),
     ) -> Result<(), i32> {
+        self.visit_placed(plugin, image, &mut |record, _| visit(record))
+    }
+    /// [`Self::visit`], each record with its [`Place`]: `None` for one of a
+    /// batch the host keeps a copy of.
+    pub(crate) fn visit_placed<'a>(
+        &'a self,
+        plugin: &str,
+        image: Option<&'a [u8]>,
+        visit: &mut dyn FnMut(Record<'a>, Option<Place>),
+    ) -> Result<(), i32> {
         for entry in &self.index {
             let record = self.record(image, *entry)?;
             super::declarations::validate_record(plugin, &record)?;
-            visit(record);
+            visit(record, self.place(*entry));
         }
         Ok(())
     }
+    fn place(&self, entry: NameEntry) -> Option<Place> {
+        let batch = self.batches.get(usize::from(entry.batch))?;
+        let at = u32::from(*batch.offsets.get(entry.record())?);
+        Some(Place {
+            turn: (u32::from(entry.batch) << 3) | u32::try_from(entry.record()).ok()?,
+            at: batch.image?.offset.checked_add(at)?,
+        })
+    }
+}
+/// Where a record of a batch in the plugin's image lies: `turn` orders the
+/// records as the plugin declared them (the index is in the order of their
+/// names' hashes), `at` is where the record's frame starts in the image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Place {
+    pub(crate) turn: u32,
+    pub(crate) at: u32,
 }
 /// A record the name index holds: exactly those `key` names, so the two never drift.
 pub(crate) fn is_declaration(record: &Record<'_>) -> bool {
@@ -459,7 +485,28 @@ pub(crate) fn offsets(wire: &[u8], count: usize) -> Result<[u16; REGISTRATION_MA
     }
     Ok(offsets)
 }
-fn varint(wire: &[u8], cursor: &mut usize) -> Result<u32, i32> {
+/// The bytes from record `index` of the batch `wire` on (0 the first): its
+/// frames walked, not decoded. `ERR_INVALID` for a place past the batch's
+/// count or a frame that leaves it.
+pub(crate) fn record_at(wire: &[u8], index: usize) -> Result<&[u8], i32> {
+    let mut cursor = 0;
+    let count = varint(wire, &mut cursor)?;
+    if index >= count as usize {
+        return Err(ERR_INVALID);
+    }
+    for _ in 0..index {
+        varint(wire, &mut cursor)?;
+        let len = usize::try_from(varint(wire, &mut cursor)?).map_err(|_| ERR_INVALID)?;
+        cursor = cursor
+            .checked_add(len)
+            .filter(|end| *end <= wire.len())
+            .ok_or(ERR_INVALID)?;
+    }
+    wire.get(cursor..).ok_or(ERR_INVALID)
+}
+/// The LEB128 `u32` at `cursor` (moved past it); `ERR_INVALID` past the end or
+/// over 32 bits.
+pub(crate) fn varint(wire: &[u8], cursor: &mut usize) -> Result<u32, i32> {
     let mut value = 0;
     for shift in (0..=28).step_by(7) {
         let byte = *wire.get(*cursor).ok_or(ERR_INVALID)?;

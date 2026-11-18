@@ -30,9 +30,16 @@ pub(super) struct Entry {
     pub(super) title: Fixed<{ caps::ID }>,
 }
 
-/// The first sort key of the rows by order: the keys below it are those
-/// placed first, the keys above those by order are placed last.
-pub(super) const BY_ORDER: i64 = 1 << 40;
+/// The distance between the groups of sort keys: a group's keys are its
+/// number times this, plus twice the order (`i16`, so negative too) and 0 or 1.
+const BY_ORDER: i64 = 1 << 40;
+
+/// The sort keys below this are those placed first.
+pub(super) const FIRST_END: i64 = BY_ORDER / 2;
+
+/// The sort keys from [`FIRST_END`] below this are those by order; above them
+/// are those placed last.
+pub(super) const BY_ORDER_END: i64 = BY_ORDER + BY_ORDER / 2;
 
 /// `menu.need` 3, the one need a user's own list overrides.
 const NO_TOUCH: u32 = 3;

@@ -10,7 +10,7 @@
 use paperpaw_sdk::{DirEntry, Storage, StorageError};
 
 /// The folder root 0 stands for.
-const FOLDER: &str = ".paperpaw/plugins/vocabulary/";
+pub(crate) const FOLDER: &str = ".paperpaw/plugins/vocabulary/";
 
 /// `inner`, seen from the plugin's data folder.
 pub(crate) struct DataFolder<'a>(pub(crate) &'a dyn Storage);

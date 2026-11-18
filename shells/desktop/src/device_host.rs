@@ -50,7 +50,7 @@ pub fn caps_of(profile: &Profile) -> u64 {
     let device = &profile.device;
     let bit = |on: bool, bit: u64| if on { bit } else { 0 };
     // The emulator builds the kernel with the network on, a rotatable screen
-    // and no system clipboard, power off or firmware.
+    // and no system clipboard or firmware (power off where the profile has it).
     caps::NETWORK
         | caps::ROTATION
         | bit(device.input.touch, caps::TOUCH)
@@ -58,6 +58,7 @@ pub fn caps_of(profile: &Profile) -> u64 {
         | bit(profile.bluetooth > 0, caps::BLUETOOTH)
         | bit(profile.speech, caps::SPEECH)
         | bit(profile.sleep, caps::SLEEP)
+        | bit(profile.power_off, caps::POWER_OFF)
         | bit(profile.colors, caps::COLOURS)
         | bit(!profile.button_row.is_empty(), caps::BUTTON_ROW)
         | bit(profile.light.is_some(), caps::FRONTLIGHT)
@@ -68,6 +69,15 @@ pub fn caps_of(profile: &Profile) -> u64 {
         | bit(device.input.pen, caps::PEN)
 }
 
+/// Whether the device's network is up (a closure has no `Debug`).
+struct Online(Rc<dyn Fn() -> bool>);
+
+impl std::fmt::Debug for Online {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Online")
+    }
+}
+
 /// An emulated device behind `core.device`.
 #[derive(Debug)]
 pub struct DesktopDevice {
@@ -75,8 +85,15 @@ pub struct DesktopDevice {
     power: RefCell<Power>,
     /// `dev_wifi.state` (0 off, 1 on, ...) of the pretend radio.
     wifi_state: Cell<u32>,
+    /// The workshop's network is in reach (`--wifi online`): the pretend radio
+    /// finds it, known as joined before, as [`crate::wifi::pretend_networks`]
+    /// does for the interface-6 radio.
+    workshop: bool,
     clock: Instant,
     memory: ProbeCache<MemoryFacts>,
+    /// The device's own view of the network: where the pretend radio is joined
+    /// the radio is online, whatever `wifi_state` was set to.
+    online: Option<Online>,
 }
 
 impl DesktopDevice {
@@ -87,9 +104,21 @@ impl DesktopDevice {
             profile,
             power: RefCell::new(Power::default()),
             wifi_state: Cell::new(0),
+            workshop: crate::device::wifi_online(),
             clock: Instant::now(),
             memory: ProbeCache::new(),
+            online: None,
         }
+    }
+
+    /// Reads the radio's state from the device's view of the network:
+    /// `dev_wifi.state` is online while `online` says so (the pretend radio is
+    /// joined: `--wifi online`; the setup templates and the store's start
+    /// read it).
+    #[must_use]
+    pub fn with_online(mut self, online: Rc<dyn Fn() -> bool>) -> Self {
+        self.online = Some(Online(online));
+        self
     }
 
     /// The level and mode the kernel reports now (`Kernel::power`).
@@ -157,8 +186,9 @@ impl DeviceHost for DesktopDevice {
         if !self.profile.wifi {
             return Err(paperpaw_native::host_glue::ERR_NOT_FOUND);
         }
+        let online = self.online.as_ref().is_some_and(|online| (online.0)());
         visit(&WifiFacts {
-            state: self.wifi_state.get(),
+            state: if online { 3 } else { self.wifi_state.get() },
             ssid: "",
             address: "",
             host_name: "",
@@ -179,6 +209,19 @@ impl DeviceHost for DesktopDevice {
         }
         // Borrowed from a static list: no allocation, so no allocator
         // refusal can reach a network query.
+        if self.workshop {
+            // Without it a radio switched off and on again would never find
+            // the network the device started in, and would not rejoin it.
+            let row = NetworkRow {
+                ssid: crate::wifi::WORKSHOP_NETWORK,
+                signal: -40,
+                secured: true,
+                known: true,
+            };
+            if visit(&row).is_break() {
+                return Ok(());
+            }
+        }
         for &(ssid, signal, secured) in crate::wifi::PRETEND_SCAN {
             let row = NetworkRow {
                 ssid,
@@ -245,6 +288,22 @@ mod tests {
             assert_eq!(device.firmware(&mut |_| {}), Err(ERR_NOT_FOUND));
             assert_eq!(caps_seen & caps::FIRMWARE, 0);
         }
+    }
+
+    #[test]
+    fn the_workshop_network_is_in_reach_and_known_where_the_device_started_online() {
+        let mut device = DesktopDevice::new(crate::profiles::find("xteink-x4").unwrap());
+        device.workshop = true;
+        let mut rows = Vec::new();
+        device
+            .networks(&mut |row| {
+                rows.push((row.ssid.to_string(), row.known));
+                ControlFlow::Continue(())
+            })
+            .unwrap();
+        assert_eq!(rows[0], (crate::wifi::WORKSHOP_NETWORK.to_string(), true));
+        assert_eq!(rows.len(), crate::wifi::PRETEND_SCAN.len() + 1);
+        assert!(rows[1..].iter().all(|(_, known)| !known));
     }
 
     #[test]

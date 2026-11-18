@@ -360,6 +360,39 @@ impl Registry {
             RegistryWidget::decode,
         )
     }
+    /// The widgets that preview one settings group (`widget.spec.previews`), in
+    /// the host's order: the host's own, then declarations by plugin slot, a
+    /// plugin's own by name. A settings page shows the last. A group nothing
+    /// previews has an empty page. `widgets` leaves these out.
+    ///
+    /// # Errors
+    /// Returns Invalid for an empty group, codec or host errors. State
+    /// requires restarting enumeration. Invalid also means the complete reply
+    /// was inconsistent; no rows are exposed.
+    pub fn widgets_previewing<'a>(
+        &self,
+        host: &Host<'_>,
+        group: &str,
+        cursor: PageCursor,
+        input: &mut [u8],
+        out: &'a mut [u8],
+    ) -> Result<RegistryPage<'a, RegistryWidget<'a>>, Error> {
+        if group.is_empty() {
+            return Err(Error::Invalid);
+        }
+        self.page(
+            host,
+            ListQuery {
+                op: schema::OP_WIDGETS,
+                scope: group,
+                cursor,
+                flags: 1,
+            },
+            input,
+            out,
+            RegistryWidget::decode,
+        )
+    }
     /// Features, services and plugin requirements of a plugin.
     ///
     /// # Errors

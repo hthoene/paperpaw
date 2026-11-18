@@ -1,14 +1,8 @@
 //! Native code plugins (ADR 0024): a plugin built into a file that a
 //! device loads at its start, without a new firmware. It runs as part of
 //! PaperPaw, with no sandbox, and its code is the same as a plugin built
-//! in: one more crate makes the file, with [`plugin!`](crate::plugin).
-//!
-//! ```ignore
-//! #![no_std]
-//! #![no_main]
-//!
-//! paperpaw_sdk::plugin!(my_plugin::MyPlugin::default());
-//! ```
+//! in: one more crate makes the file, with
+//! [`native_plugin!`](crate::native_plugin).
 //!
 //! A plugin file fits a PaperPaw of the same plugin interface
 //! ([`INTERFACE`]: what of the SDK plugins see, the layouts of the types
@@ -33,11 +27,10 @@
 //! A code plugin is a folder like a data plugin's (`plugin.ini`,
 //! translations, settings) with its code as [`Native::file`]; the kernel
 //! loads the code of those switched on at the start, and switching one
-//! takes a restart. Where PaperPaw loads code plugins, [`Env::native`]
+//! takes a restart. Where PaperPaw loads code plugins, `Place::native`
 //! says with what (the store takes the build that fits), and whether this
 //! start went without them ([`SafeMode`]).
 //!
-//! [`Env::native`]: crate::Env
 
 use alloc::borrow::Cow;
 use alloc::string::String;
@@ -66,7 +59,7 @@ pub const INTERFACE: u16 = 7;
 /// Freezing deletes this constant and that line: the fingerprint is then
 /// made as if there had never been drafts, and refuses every draft's
 /// builds too.
-pub const DRAFT: u16 = 33;
+pub const DRAFT: u16 = 36;
 
 /// The crates whose types cross between a plugin and PaperPaw, by the
 /// names their paths begin with: the SDK and every crate of PaperPaw it
@@ -96,7 +89,6 @@ pub const CROSSING_CRATES: &[&str] = &[
     "paperpaw_qr",
     "paperpaw_native",
     "paperpaw_lang",
-    "paperpaw_table",
     "paperpaw_sort",
 ];
 
@@ -178,38 +170,14 @@ pub fn fetched_plugin(name: &str) -> Option<&str> {
         .filter(|id| crate::install::is_plugin_name(id))
 }
 
-/// The plugins fetched for a firmware update that wait for this one
-/// (`native`): their folders ([`fetched_folder`]) hold code built for it
-/// and fetched by the update plugin ([`remember_fetched`]), not put
-/// there otherwise. Their ids and the SHA-256 of their headers, sorted;
-/// the kernel installs them at the start, before plugins are found.
-#[cfg(any(test, feature = "kernel"))]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub fn fetched_for(storage: &dyn Storage, native: &Native) -> Vec<(String, [u8; 32])> {
-    let mut ids: Vec<String> = Vec::new();
-    let _ = storage.list(crate::builtin::PLUGIN_DIR, &mut |entry| {
-        if entry.is_dir
-            && let Some(id) = fetched_plugin(entry.name)
-        {
-            ids.push(String::from(id));
-        }
-    });
-    paperpaw_sort::sort(&mut ids);
-    ids.into_iter()
-        .filter_map(|id| {
-            let header = read_header(storage, &native.path(&fetched_folder(&id)))?;
-            (native.fits(&header) && fetched_code(storage, &id) == Some(header.sha256))
-                .then_some((id, header.sha256))
-        })
-        .collect()
-}
-
 /// Checks the plugin file at `path` whole, reading it once: its header,
 /// its length, its digest and, if it is signed, its author's signature.
 /// Its header and its author's signature (`None` if it is not signed);
 /// whether it fits this device and build is for the caller to see
 /// ([`Header::chip`], [`Header::fingerprint`]), and whether the author is
 /// one known (a store remembers the key of the first install).
+/// `Problem::Other(1)` where there was no memory to check the author's
+/// signature: the file is not judged.
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub fn check_file(
@@ -219,7 +187,18 @@ pub fn check_file(
     checked_file(storage, path)
 }
 
+/// The [`Problem::Other`] code of a check that had no memory for itself
+/// (the author's check, about 700 bytes): the file is not judged, and a
+/// later check may well hold. Not a signature that fails (#250).
+#[cfg(any(test, feature = "kernel"))]
+pub const NO_MEMORY: u16 = 1;
+/// As the kernel's, for the SDK's own checks.
+#[cfg(not(any(test, feature = "kernel")))]
+pub(crate) const NO_MEMORY: u16 = 1;
+
 /// [`check_file`], for the marks an installer left ([`install::marks`](crate::install::marks)).
+/// [`Problem::Other`]`(`[`NO_MEMORY`]`)` where the author's check found no
+/// memory.
 pub(crate) fn checked_file(
     storage: &dyn Storage,
     path: &str,
@@ -227,45 +206,221 @@ pub(crate) fn checked_file(
     let mut head = [0u8; HEADER_LEN];
     read_exact(storage, path, 0, &mut head)?;
     let header = Header::read(&head)?;
-    let size = storage.size(path).map_err(|_| Problem::Length)?;
-    let end = header.file_len();
-    let signature = if header.signed(size)? {
-        let mut trailer = [0u8; signature::SIGNATURE_LEN];
-        read_exact(storage, path, end, &mut trailer)?;
-        let signature = Signature::read(&trailer).ok_or(Problem::Signature)?;
-        if u64::from(signature.signed_len) != end {
-            return Err(Problem::Signature);
-        }
-        Some(signature)
-    } else {
-        None
-    };
-    let mut author = match &signature {
-        Some(signature) => Some(signature.check().map_err(|_| Problem::Signature)?),
-        None => None,
-    };
-    if let Some(check) = author.as_mut() {
-        check.absorb(&head);
-    }
-    let mut digest = header.digest();
-    let mut buf = [0u8; 512];
-    let mut at = HEADER_LEN as u64;
-    while at < end {
-        let len = (end - at).min(buf.len() as u64) as usize;
-        read_exact(storage, path, at, &mut buf[..len])?;
-        digest.update(&buf[..len]);
-        if let Some(check) = author.as_mut() {
-            check.absorb(&buf[..len]);
-        }
-        at += len as u64;
-    }
-    if !header.holds(digest) {
-        return Err(Problem::Damaged);
-    }
-    if let Some(check) = author {
-        check.finish().map_err(|_| Problem::Signature)?;
-    }
+    let mut whole = Whole::before_interface_7(head, &header, storage, path)?;
+    let signature = whole.check(storage, path)?;
     Ok((header, signature))
+}
+
+/// A plugin file of either format as its header describes it, to check
+/// whole: the header's bytes (the first `head_len` of `head`), where the
+/// file ends without its author's signature, whether one follows, the
+/// SHA-256 the header carries and the digest begun with the header's part.
+struct Whole {
+    head: [u8; HEADER_LEN],
+    head_len: usize,
+    end: u64,
+    signed: bool,
+    sha256: [u8; 32],
+    digest: paperpaw_digest::sha256::Sha256,
+}
+
+impl Whole {
+    /// A file of the format before interface 7, by its header (`head` its
+    /// bytes).
+    fn before_interface_7(
+        head: [u8; HEADER_LEN],
+        header: &Header,
+        storage: &dyn Storage,
+        path: &str,
+    ) -> Result<Whole, Problem> {
+        let size = storage.size(path).map_err(|_| Problem::Length)?;
+        Ok(Whole {
+            head,
+            head_len: HEADER_LEN,
+            end: header.file_len(),
+            signed: header.signed(size)?,
+            sha256: header.sha256,
+            digest: header.digest(),
+        })
+    }
+
+    /// Nothing read yet (see [`Whole::read`]).
+    #[cfg(feature = "kernel")]
+    fn unread() -> Whole {
+        Whole {
+            head: [0; HEADER_LEN],
+            head_len: 0,
+            end: 0,
+            signed: false,
+            sha256: [0; 32],
+            digest: paperpaw_digest::sha256::Sha256::new(),
+        }
+    }
+
+    /// Reads the header of the file at `path`, of interface 7 (format 5) or
+    /// of the format before, into this. Not inlined, and into the caller's
+    /// place: what reading either header takes (the headers themselves,
+    /// some 600 bytes on the X4) is gone from the stack before the file is
+    /// checked, an install's deepest calls (#250).
+    #[cfg(feature = "kernel")]
+    #[inline(never)]
+    fn read(&mut self, storage: &dyn Storage, path: &str) -> Result<(), Problem> {
+        read_exact(storage, path, 0, &mut self.head)?;
+        match Header::read(&self.head) {
+            Ok(header) => {
+                *self = Whole::before_interface_7(self.head, &header, storage, path)?;
+            }
+            Err(Problem::NewerFormat) => {
+                // The same bytes again, as far as this header goes.
+                let (head5, header) = read_header5(storage, path)?;
+                self.head_len = head5.len();
+                self.end = header.file_len();
+                self.signed = header.signed;
+                self.sha256 = header.sha256;
+                self.digest = header.digest();
+            }
+            Err(problem) => return Err(problem),
+        }
+        Ok(())
+    }
+
+    /// Reads the file once after its header: its digest and, if it is
+    /// signed, its author's signature over all of it.
+    /// [`Problem::Other`]`(`[`NO_MEMORY`]`)` where the author's check found
+    /// no memory. Not inlined: one frame for both formats, under the
+    /// caller's small one.
+    #[inline(never)]
+    fn check(&mut self, storage: &dyn Storage, path: &str) -> Result<Option<Signature>, Problem> {
+        let head_len = self.head_len;
+        let end = self.end;
+        let signature = if self.signed {
+            let mut trailer = [0u8; signature::SIGNATURE_LEN];
+            read_exact(storage, path, end, &mut trailer)?;
+            let signature = Signature::read(&trailer).ok_or(Problem::Signature)?;
+            if u64::from(signature.signed_len) != end {
+                return Err(Problem::Signature);
+            }
+            Some(signature)
+        } else {
+            None
+        };
+        let mut author = match &signature {
+            Some(signature) => Some(author_check(signature)?),
+            None => None,
+        };
+        if let Some([check]) = author.as_deref_mut() {
+            check.absorb(&self.head[..head_len]);
+        }
+        let mut buf = [0u8; 512];
+        let mut at = head_len as u64;
+        while at < end {
+            let len = (end - at).min(buf.len() as u64) as usize;
+            read_exact(storage, path, at, &mut buf[..len])?;
+            self.digest.update(&buf[..len]);
+            if let Some([check]) = author.as_deref_mut() {
+                check.absorb(&buf[..len]);
+            }
+            at += len as u64;
+        }
+        let digest = core::mem::replace(&mut self.digest, paperpaw_digest::sha256::Sha256::new());
+        if digest.finish() != self.sha256 {
+            return Err(Problem::Damaged);
+        }
+        if let Some(check) = author {
+            let [check] = *check;
+            check.finish().map_err(|_| Problem::Signature)?;
+        }
+        Ok(signature)
+    }
+}
+
+/// The header of an interface-7 plugin file (format 5) at `path`, read for
+/// what it says of the file itself (its length, its digest), whatever chip
+/// and minor it is made for: whether it runs here is the loader's to say.
+/// The header's bytes with it.
+#[cfg(feature = "kernel")]
+fn read_header5(
+    storage: &dyn Storage,
+    path: &str,
+) -> Result<
+    (
+        [u8; paperpaw_native::header5::HEADER_LEN],
+        paperpaw_native::header5::Header5,
+    ),
+    Problem,
+> {
+    use paperpaw_native::header5::{Header5, Host, Refusal};
+    let mut head = [0u8; paperpaw_native::header5::HEADER_LEN];
+    read_exact(storage, path, 0, &mut head)?;
+    let size = storage.size(path).map_err(|_| Problem::Length)?;
+    let host = match Chip::from_id(u16::from_le_bytes([head[6], head[7]])) {
+        Some(Chip::Esp32C3) => Host::x4(u16::MAX),
+        Some(Chip::Esp32S3) => Host::x4_pro(u16::MAX),
+        _ => return Err(Problem::UnknownChip),
+    };
+    let header = Header5::read(&head, size, &host).map_err(|why| match why {
+        Refusal::NotAPlugin => Problem::NotAPlugin,
+        Refusal::Truncated | Refusal::Length => Problem::Length,
+        Refusal::OlderFormat | Refusal::OlderInterface => Problem::OlderFormat,
+        Refusal::NewerFormat | Refusal::NewerInterface => Problem::NewerFormat,
+        Refusal::UnknownChip | Refusal::NoProfile | Refusal::OtherChip => Problem::UnknownChip,
+        _ => Problem::Malformed,
+    })?;
+    Ok((head, header))
+}
+
+/// The SHA-256 the header of the code file at `path` carries, of a file
+/// of interface 7 (format 5) or of the format before: what names the code
+/// installed ([`remember_code`]). Its header only: the rest is not checked.
+/// Not inlined: the headers it reads stay out of its caller's frame, which
+/// an install's deepest calls stand on (#250).
+#[cfg(feature = "kernel")]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+#[inline(never)]
+pub fn code_sha256(storage: &dyn Storage, path: &str) -> Option<[u8; 32]> {
+    match read_header(storage, path) {
+        Some(header) => Some(header.sha256),
+        None => read_header5(storage, path)
+            .ok()
+            .map(|(_, header)| header.sha256),
+    }
+}
+
+/// [`check_file`] for a code file of interface 7 (format 5) or of the
+/// format before: the file read once and checked whole (its length, its
+/// digest and, if it is signed, its author's signature). The SHA-256 its
+/// header carries and the signature (`None` if it is not signed); whether
+/// it runs on this device is for the loader to see.
+#[cfg(feature = "kernel")]
+#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+pub fn check_code(
+    storage: &dyn Storage,
+    path: &str,
+) -> Result<([u8; 32], Option<Signature>), Problem> {
+    let mut whole = Whole::unread();
+    whole.read(storage, path)?;
+    let sha256 = whole.sha256;
+    let signature = whole.check(storage, path)?;
+    Ok((sha256, signature))
+}
+
+/// The author's check of a signed file, on the heap. Not inlined: the check
+/// (about 700 bytes on the X4) is made in this call's frame alone, so the
+/// caller's frame does not hold it twice while the signature's curve is
+/// decoded, the X4 start's and installs' deepest calls (#250). Without
+/// memory for it: [`NO_MEMORY`], not a failed signature.
+#[inline(never)]
+fn author_check(
+    signature: &Signature,
+) -> Result<alloc::boxed::Box<[signature::SignatureCheck; 1]>, Problem> {
+    let check = signature.check().map_err(|_| Problem::Signature)?;
+    let mut place = Vec::new();
+    place
+        .try_reserve_exact(1)
+        .map_err(|_| Problem::Other(NO_MEMORY))?;
+    place.push(check);
+    // Exactly one place: no reallocation, and the length always fits.
+    alloc::boxed::Box::try_from(place.into_boxed_slice()).map_err(|_| Problem::Other(NO_MEMORY))
 }
 
 /// Where the keys of the authors of the code plugins installed are kept:
@@ -356,6 +511,8 @@ pub mod snapshot;
 pub mod sockets;
 pub mod stages;
 pub mod storage;
+pub mod text;
+mod text_part;
 pub mod ui;
 mod wire;
 pub mod work;
@@ -645,8 +802,14 @@ pub fn keep_code_room(storage: &dyn Storage, room: Option<&CodeRoom>) -> bool {
         u8::from(room.shared),
         room.larger.unwrap_or(0)
     );
-    let _ = storage.create_dir(crate::data::DIR);
-    storage.write(ROOM, text.as_bytes()).is_ok()
+    // Not written again as it is (#305): the room is the same at most
+    // starts, and a write is a file made anew on the card. The write makes
+    // the folder where it is not there.
+    let mut kept = [0u8; 96];
+    let same = text.len() < kept.len()
+        && storage.read_at(ROOM, 0, &mut kept).ok() == Some(text.len())
+        && kept[..text.len()] == *text.as_bytes();
+    same || storage.write(ROOM, text.as_bytes()).is_ok()
 }
 
 /// The header of the plugin file at `path`, if it has one this SDK reads
@@ -710,7 +873,7 @@ impl fmt::Display for Fingerprint {
 }
 
 /// How this PaperPaw loads code plugins
-/// ([`Env::native`](crate::Env)): the shell tells the kernel.
+/// (`Place::native`): the shell tells the kernel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Native {
@@ -731,11 +894,11 @@ pub struct Native {
     /// The bytes of the shell's [`Api`](paperpaw_native::Api): a plugin
     /// that needs more ([`Header::needs_api`]) needs a newer PaperPaw.
     pub api_size: u32,
-    /// The revision of each family of shared functions the shell has
-    /// (0: none); on RISC-V chips only (`paperpaw_table`).
-    pub family_revs: paperpaw_table::Revisions,
-    /// The oldest revision of each family whose plugins the shell runs.
-    pub family_min: paperpaw_table::Revisions,
+    /// Not used: the revisions of the shared function tables, which are
+    /// gone. All 0; kept so that the fingerprint stays as it is.
+    pub family_revs: [u16; 8],
+    /// Not used, as [`family_revs`](Self::family_revs).
+    pub family_min: [u16; 8],
     /// The interface-7 minor this PaperPaw loads: a format-5 plugin file
     /// runs here when its `needs_minor` is at most this (a store compares
     /// the catalogue's `abi` "7.<needs_minor>" with it).
@@ -753,48 +916,10 @@ impl Native {
             safe_mode: None,
             not_installed: Vec::new(),
             api_size: paperpaw_native::Api::SIZE,
-            family_revs: paperpaw_table::REVISIONS,
-            family_min: paperpaw_table::OLDEST,
+            family_revs: [0; 8],
+            family_min: [0; 8],
             minor: paperpaw_native::host_glue::MINOR,
         }
-    }
-
-    /// Whether a plugin file with `header` runs here: of this fingerprint,
-    /// and of this compiler where the shell names one. Installers check
-    /// it before a file is installed or placed, as the shell does before
-    /// it loads one.
-    pub fn fits(&self, header: &Header) -> bool {
-        self.problem(header).is_none()
-    }
-
-    /// Why a plugin file with `header` does not run here, if it does not:
-    /// built for an older or a newer plugin interface, needing more of
-    /// the firmware than it has, or of another build.
-    pub fn problem(&self, header: &Header) -> Option<PluginProblem> {
-        if header.interface < INTERFACE {
-            return Some(PluginProblem::OlderInterface {
-                built_for: header.interface,
-            });
-        }
-        let families = header.chip == paperpaw_native::Chip::Esp32C3;
-        let misfit = if families {
-            paperpaw_table::misfit(&header.families, &self.family_min, &self.family_revs)
-        } else {
-            None
-        };
-        if header.interface > INTERFACE
-            || header.needs_api > self.api_size
-            || misfit == Some(paperpaw_table::Misfit::Newer)
-        {
-            return Some(PluginProblem::NeedsNewerPaperPaw);
-        }
-        if misfit == Some(paperpaw_table::Misfit::Older) {
-            return Some(PluginProblem::OlderInterface {
-                built_for: header.interface,
-            });
-        }
-        let compiler = self.compiler == 0 || header.compiler == self.compiler;
-        (header.fingerprint != self.fingerprint.0 || !compiler).then_some(PluginProblem::OtherBuild)
     }
 
     /// Why a plugin file whose header [`Header::read`] refused with
@@ -892,211 +1017,11 @@ pub enum NotInstalledReason {
     Damaged,
 }
 
-/// The plugin a plugin file's entry made, for the shell that loaded it.
-///
-/// # Safety
-///
-/// `made` must be what [`Entry::make`](paperpaw_native::Entry) of a plugin
-/// file with this build's [`FINGERPRINT`] returned, taken once.
-pub unsafe fn take(made: *mut core::ffi::c_void) -> Option<alloc::boxed::Box<dyn crate::Plugin>> {
-    if made.is_null() {
-        return None;
-    }
-    // SAFETY: made by `plugin!` (`support::make`) from this box, with the
-    // same layout: the fingerprint says the same plugin interface and
-    // layouts, and the shell checked the compiler.
-    Some(*unsafe {
-        alloc::boxed::Box::from_raw(made.cast::<alloc::boxed::Box<dyn crate::Plugin>>())
-    })
-}
-
-/// Makes a crate a native plugin file: defines its entry, its heap (the
-/// kernel's) and its panic handler, around the plugin `$plugin` makes.
-/// The crate is `#![no_std]`; for the X4 (`riscv32imc-unknown-none-elf`)
-/// and the X4 Pro (`xtensa-esp32s3-none-elf`) a `#![no_main]` binary,
-/// linked with `paperpaw-plugin.x` and packed by `paperpaw-sign pack`;
-/// where a system loads libraries (a computer) a `cdylib` with
-/// the same entry. See the [module documentation](crate::native).
-#[macro_export]
-macro_rules! plugin {
-    ($plugin:expr) => {
-        /// The firmware's table, whose address the loader wrote into the
-        /// word `paperpaw-plugin.x` makes before any code of the plugin
-        /// ran.
-        #[cfg(target_os = "none")]
-        fn paperpaw_api() -> &'static $crate::native::support::Api {
-            unsafe extern "C" {
-                static PAPERPAW_API: *const $crate::native::support::Api;
-            }
-            // SAFETY: a table that lives as long as the firmware runs.
-            unsafe { &*PAPERPAW_API }
-        }
-
-        /// Where the shell puts its table before it makes the plugin: a
-        /// library the system loads may have data of its own.
-        #[cfg(not(target_os = "none"))]
-        #[unsafe(no_mangle)]
-        pub static PAPERPAW_API: $crate::native::support::ApiSlot =
-            $crate::native::support::ApiSlot::new();
-
-        #[cfg(not(target_os = "none"))]
-        fn paperpaw_api() -> &'static $crate::native::support::Api {
-            PAPERPAW_API.get()
-        }
-
-        #[global_allocator]
-        static PAPERPAW_HEAP: $crate::native::support::Heap =
-            $crate::native::support::Heap(paperpaw_api);
-
-        #[panic_handler]
-        fn paperpaw_panic(info: &::core::panic::PanicInfo<'_>) -> ! {
-            $crate::native::support::panic(paperpaw_api(), info)
-        }
-
-        /// A library a system loads takes `core` and `alloc` as the
-        /// toolchain built them, for unwinding: their code names the
-        /// unwinder's personality, which a plugin that never unwinds
-        /// (`panic = "abort"`) does not have, and Linux loads no library
-        /// with a name left open. Never called; should an unwind from a
-        /// shell built to unwind ever reach the plugin, it panics, and the
-        /// plugin's panics abort.
-        #[cfg(all(not(target_os = "none"), panic = "abort"))]
-        #[unsafe(no_mangle)]
-        extern "C" fn rust_eh_personality() -> ! {
-            ::core::panic!("unwinding into a plugin")
-        }
-
-        unsafe extern "C" fn paperpaw_make() -> *mut ::core::ffi::c_void {
-            $crate::native::support::make($plugin)
-        }
-
-        #[unsafe(no_mangle)]
-        #[cfg_attr(target_os = "none", unsafe(link_section = ".rodata.paperpaw_entry"))]
-        pub static PAPERPAW_ENTRY: $crate::native::support::Entry =
-            $crate::native::support::Entry {
-                fingerprint: $crate::native::FINGERPRINT.0,
-                make: paperpaw_make,
-                needs_api: $crate::native::support::Api::SIZE as u16,
-                interface: $crate::native::INTERFACE,
-                families: $crate::native::support::REVISIONS,
-            };
-    };
-}
-
 mod hot;
 
 /// The layouts [`LAYOUT`] digests, and the hash the fingerprint is made
 /// with.
 mod layout;
-
-/// What [`plugin!`] expands to uses, and what a shell that loads plugins
-/// as libraries hands them; not for plugins themselves.
-#[doc(hidden)]
-pub mod support {
-    use alloc::boxed::Box;
-    use core::alloc::{GlobalAlloc, Layout};
-    use core::fmt::Write;
-    use core::sync::atomic::{AtomicPtr, Ordering};
-
-    pub use paperpaw_native::{Api, Entry};
-    pub use paperpaw_table::BUILT_WITH as REVISIONS;
-
-    /// The shell's table, where a library the system loads keeps it
-    /// (`PAPERPAW_API`): set before the plugin is made.
-    #[derive(Debug)]
-    pub struct ApiSlot(AtomicPtr<Api>);
-
-    impl ApiSlot {
-        pub const fn new() -> Self {
-            Self(AtomicPtr::new(core::ptr::null_mut()))
-        }
-
-        /// Gives the plugin the shell's table (the shell, once, before it
-        /// makes the plugin).
-        pub fn set(&self, api: &'static Api) {
-            self.0
-                .store(core::ptr::from_ref(api).cast_mut(), Ordering::Release);
-        }
-
-        pub fn get(&self) -> &'static Api {
-            // SAFETY: set by the shell before it made the plugin, to a
-            // table that lives as long as the shell runs.
-            unsafe { &*self.0.load(Ordering::Acquire) }
-        }
-    }
-
-    impl Default for ApiSlot {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    /// The plugin's heap: the kernel's (through the table the function
-    /// gives), so boxes cross both ways.
-    #[derive(Debug)]
-    pub struct Heap(pub fn() -> &'static Api);
-
-    // SAFETY: the firmware's allocator, which keeps `GlobalAlloc`'s rules.
-    unsafe impl GlobalAlloc for Heap {
-        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-            // SAFETY: as `GlobalAlloc::alloc`.
-            unsafe { (self.0().alloc)(layout.size(), layout.align()) }
-        }
-
-        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-            // SAFETY: as `GlobalAlloc::dealloc`.
-            unsafe { (self.0().dealloc)(ptr, layout.size(), layout.align()) }
-        }
-
-        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-            // SAFETY: as `GlobalAlloc::realloc`.
-            unsafe { (self.0().realloc)(ptr, layout.size(), layout.align(), new_size) }
-        }
-    }
-
-    /// The plugin made, as [`take`](super::take) reads it back.
-    pub fn make(plugin: impl crate::Plugin + 'static) -> *mut core::ffi::c_void {
-        let plugin: Box<dyn crate::Plugin> = Box::new(plugin);
-        Box::into_raw(Box::new(plugin)).cast()
-    }
-
-    /// Writes into a fixed buffer, cutting what does not fit.
-    struct Cut {
-        buf: [u8; 192],
-        len: usize,
-    }
-
-    impl Write for Cut {
-        fn write_str(&mut self, s: &str) -> core::fmt::Result {
-            for c in s.chars() {
-                let mut bytes = [0; 4];
-                let bytes = c.encode_utf8(&mut bytes).as_bytes();
-                if self.len + bytes.len() > self.buf.len() {
-                    break;
-                }
-                self.buf[self.len..self.len + bytes.len()].copy_from_slice(bytes);
-                self.len += bytes.len();
-            }
-            Ok(())
-        }
-    }
-
-    /// The plugin panicked: the firmware's panic, with what it says.
-    pub fn panic(api: &Api, info: &core::panic::PanicInfo<'_>) -> ! {
-        let mut cut = Cut {
-            buf: [0; 192],
-            len: 0,
-        };
-        let _ = write!(cut, "{}", info.message());
-        if let Some(at) = info.location() {
-            let file = at.file().rsplit(['/', '\\']).next().unwrap_or(at.file());
-            let _ = write!(cut, " ({file}:{})", at.line());
-        }
-        // SAFETY: the firmware's table; the message lives on the stack
-        // until the firmware has taken it.
-        unsafe { (api.panic)(cut.buf.as_ptr(), cut.len) }
-    }
-}
 
 #[cfg(test)]
 pub(crate) mod tests;

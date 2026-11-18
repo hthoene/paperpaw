@@ -19,7 +19,7 @@ fn abi() -> String {
     format!("{:016x}", FINGERPRINT.0)
 }
 
-fn device<'a>(have: Option<&'a paperpaw_plugin_store::native_item::HaveFn>) -> Device<'a> {
+fn device<'a>(have: Option<&'a paperpaw_plugin_store::native_item::HaveFn<'a>>) -> Device<'a> {
     Device {
         name: "x4",
         fingerprint: Some(FINGERPRINT),
@@ -50,6 +50,7 @@ fn read(text: &str, chunk: usize, device: Device<'_>) -> Vec<Entry> {
     let hooks = Hooks {
         author_of: &nobody,
         stopped: &none,
+        host_checks: false,
     };
     let mut reader = ListReader::new(device, hooks);
     let mut out = Vec::new();
@@ -124,6 +125,21 @@ fn what_the_device_has_decides_what_may_be_installed() {
     assert_eq!(ids, ["fresh"]);
 }
 
+/// The library says a page's description as `how`.
+#[test]
+fn a_page_reads_its_description_from_how() {
+    let text = format!(
+        r#"{{"format": 2, "plugin": {{"id": "airy", "name": "Airy", "summary": "s", "group": "look",
+ "kind": "data", "author": "A", "licence": "MIT", "how": "It does things.\n\nMore.",
+ "latest": {{"version": "1.2.0", "sdk": "0.4", "formats": 1, "size": 9,
+   "files": [{{"path": "plugin.ini", "url": "f/plugin.ini", "size": 9, "sha256": "{SHA256}"}}]}}}}}}"#
+    );
+    let mut reader = PageReader::new(device(None));
+    reader.feed(text.as_bytes()).unwrap();
+    let page = reader.finish().unwrap().expect("the page fits");
+    assert_eq!(page.more.description, "It does things.\n\nMore.");
+}
+
 #[test]
 fn a_page_is_read_with_its_files_keys_and_pictures() {
     let text = format!(
@@ -153,6 +169,38 @@ fn a_page_is_read_with_its_files_keys_and_pictures() {
     }
 }
 
+/// An install's batch holds the install, the author's keys and six steps: a
+/// page's longer chain is cut at six, so the host ends it with "key changed".
+#[test]
+fn a_chain_of_rotations_is_cut_at_six_steps() {
+    let step = |n: usize| {
+        format!(
+            r#"{{"to": "{n:02x}{}", "signature": "{n:02x}{}"}}"#,
+            "01".repeat(31),
+            "02".repeat(63)
+        )
+    };
+    let steps: Vec<String> = (0..9).map(step).collect();
+    let text = format!(
+        r#"{{"format": 2, "plugin": {{"id": "clock", "name": "Clock", "summary": "s", "group": "look",
+ "kind": "data", "author": "A", "licence": "MIT", "rotations": [{}],
+ "latest": {{"version": "1.2.0", "sdk": "0.4", "formats": 1, "size": 9,
+   "files": [{{"path": "plugin.ini", "url": "f/plugin.ini", "size": 9, "sha256": "{SHA256}"}}]}}}}}}"#,
+        steps.join(", ")
+    );
+    let mut reader = PageReader::new(device(None));
+    reader.feed(text.as_bytes()).unwrap();
+    let page = reader.finish().unwrap().expect("the page fits");
+    assert_eq!(
+        page.rotations.len(),
+        paperpaw_plugin_store::native_item::MAX_STEPS
+    );
+    assert_eq!(page.rotations.len(), 6);
+    // The first six, in the author's order.
+    assert_eq!(page.rotations[0].to[0], 0);
+    assert_eq!(page.rotations[5].to[0], 5);
+}
+
 #[test]
 fn text_that_is_no_list_or_no_page_is_none_without_a_panic() {
     for text in [
@@ -168,6 +216,7 @@ fn text_that_is_no_list_or_no_page_is_none_without_a_panic() {
         let hooks = Hooks {
             author_of: &nobody,
             stopped: &none,
+            host_checks: false,
         };
         let mut reader = ListReader::new(device(None), hooks);
         let _ = reader.feed(text.as_bytes(), &mut |_| Ok(()));
@@ -192,6 +241,7 @@ fn an_error_of_the_caller_ends_the_reading() {
     let hooks = Hooks {
         author_of: &nobody,
         stopped: &none,
+        host_checks: false,
     };
     let mut reader = ListReader::new(device(None), hooks);
     let result = reader

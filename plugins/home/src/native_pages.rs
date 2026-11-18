@@ -565,5 +565,26 @@ pub fn reflow(
     Ok(changed.then_some(pages))
 }
 
+/// What a change of the grid's columns or rows writes: each layout fitted to
+/// its own grid (`upright` for a screen upright, `wide` for one on its side),
+/// whatever way the screen is now. Empty where nothing moved.
+///
+/// # Errors
+/// [`Error::NoMemory`] and the host's refusals.
+pub fn refit(src: &impl Source, upright: &Geometry, wide: &Geometry) -> Result<Vec<Write>, Error> {
+    let mut writes = Vec::new();
+    for (is_wide, geometry) in [(false, upright), (true, wide)] {
+        let Some(fitted) = reflow(src, geometry, is_wide)? else {
+            continue;
+        };
+        let mut stored = store_all(src, &fitted, is_wide)?;
+        writes
+            .try_reserve(stored.len())
+            .map_err(|_| Error::NoMemory)?;
+        writes.append(&mut stored);
+    }
+    Ok(writes)
+}
+
 #[cfg(test)]
 mod tests;

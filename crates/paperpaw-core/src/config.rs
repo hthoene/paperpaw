@@ -9,7 +9,7 @@ use super::*;
 
 /// Largest `paperpaw.ini` read.
 const MAX_CONFIG: usize = 64 * 1024;
-/// Largest settings file of a book read (see [`Command::SetScope`]).
+/// Largest settings file of a book read (see [`Ask::SetScope`]).
 const MAX_SCOPE: usize = 16 * 1024;
 
 /// Settings that moved to the kernel, by the ids they had (the reader's
@@ -56,6 +56,17 @@ const RENAMED: [(&str, &str, &str); 2] = [
     ("core.status-font", "Source Sans 3", "PaperPaw Sans"),
 ];
 
+/// The spec of setting `id` to set by its text (`Kernel::set_setting`); why
+/// not: one there is no room to read now (#248) is not an unknown one.
+pub(crate) fn spec_to_set<'a>(
+    settings: &'a paperpaw_sdk::Settings,
+    id: &str,
+) -> Result<&'a paperpaw_sdk::SettingSpec, &'static str> {
+    let spec = settings.try_spec(id);
+    spec.map_err(|_| "no room to read this setting now")?
+        .ok_or("no such setting")
+}
+
 /// `value` of setting `id` as kept in a file, under its new name where it
 /// was renamed and only the new one is a value it takes now.
 fn renamed(settings: &paperpaw_sdk::Settings, id: &str, value: String) -> String {
@@ -101,25 +112,19 @@ impl Kernel {
     /// plugin hears [`events::SETTING_CHANGED`] (it is not made for
     /// nobody).
     pub(crate) fn setting_text_if_heard(&self, id: &Id) -> Option<String> {
-        let heard = !self.event_observers.is_empty()
-            || self
-                .subscriptions
-                .iter()
-                .any(|(event, ..)| *event == events::SETTING_CHANGED);
+        let heard = self
+            .subscriptions
+            .iter()
+            .any(|(event, ..)| *event == events::SETTING_CHANGED);
         let value = self.shared.settings.get(id.as_str()).filter(|_| heard)?;
         Some(value.to_config_text())
     }
 
-    /// Forgets a setting's value (see [`Command::ResetSetting`]): from the
+    /// Forgets a setting's value (see [`Ask::ResetSetting`]): from the
     /// active scope, or from the configuration file.
     pub(crate) fn reset_setting(&mut self, id: &Id) {
         // A secret setting is kept with the secrets: reset, it goes.
-        if self
-            .shared
-            .settings
-            .spec(id.as_str())
-            .is_some_and(|spec| spec.extra().secret)
-        {
+        if self.shared.settings.defines_secret(id.as_str()) {
             self.set_secret(paperpaw_sdk::secrets::SecretChange::remove(id.as_str()));
             self.secret_setting_changed(id);
             return;
@@ -152,9 +157,7 @@ impl Kernel {
         }
         self.setting_changed(id);
         let changed = events::SettingChanged::new(id.clone()).old(old);
-        self.output
-            .commands
-            .push(events::SETTING_CHANGED.emit(changed));
+        self.output.emit(&events::SETTING_CHANGED, changed);
     }
 
     /// Writes a changed setting to the configuration file on the device,
@@ -174,11 +177,13 @@ impl Kernel {
     /// change changes.
     pub(crate) fn scoped_values(&self) -> Vec<(Id, Option<paperpaw_sdk::SettingValue>)> {
         let settings = &self.shared.settings;
-        settings
-            .specs()
-            .filter(|spec| spec.scoped)
-            .map(|spec| (spec.id.clone(), settings.get(spec.id.as_str()).cloned()))
-            .collect()
+        let mut values = Vec::new();
+        // One spec at a time: none a plugin describes is kept for this. For
+        // lack of memory the rest is left out (their change is not told).
+        let _ = settings.each(paperpaw_sdk::Pick::Scoped, |spec| {
+            values.push((spec.id.clone(), settings.get(spec.id.as_str()).cloned()));
+        });
+        values
     }
 
     /// Announces the scoped settings whose value differs from `before`.
@@ -191,15 +196,13 @@ impl Kernel {
                 self.setting_changed(&id);
                 let old = old.map(|value| value.to_config_text());
                 let changed = events::SettingChanged::new(id.clone()).old(old);
-                self.output
-                    .commands
-                    .push(events::SETTING_CHANGED.emit(changed));
+                self.output.emit(&events::SETTING_CHANGED, changed);
             }
         }
     }
 
     /// Activates the scope stored at `path` for the top screen, or ends
-    /// the scope (see [`Command::SetScope`]).
+    /// the scope (see [`Ask::SetScope`]).
     pub(crate) fn set_scope(&mut self, path: Option<String>) {
         if path.as_deref() == self.scope.as_ref().map(|scope| scope.path.as_str()) {
             // Same scope (e.g. the reader shown again): keep it.
@@ -228,6 +231,7 @@ impl Kernel {
             }
             _ => false,
         };
+        let mut full = false;
         let values = read.map(|text| {
             let text = text.ok().flatten().unwrap_or_default();
             let mut values = paperpaw_sdk::collections::VecMap::new();
@@ -239,11 +243,14 @@ impl Kernel {
                     (id, value) = (now.to_string(), was);
                 }
                 let value = renamed(&self.shared.settings, &id, value);
-                let parsed = self
-                    .shared
-                    .settings
-                    .specs()
-                    .find(|spec| spec.id.as_str() == id)
+                // No room to read what its plugin describes of it: the
+                // values read are not all there are.
+                let spec = self.shared.settings.try_spec(&id).unwrap_or_else(|_| {
+                    full = true;
+                    None
+                });
+                let parsed = spec
+                    .filter(|spec| spec.id.as_str() == id)
                     .and_then(|spec| Some((spec.id.clone(), spec.parse(&value)?)));
                 if let Some((id, value)) = parsed {
                     values.insert(id, value);
@@ -251,7 +258,21 @@ impl Kernel {
             }
             values
         });
-        self.shared.settings.set_scope(values);
+        // A part of its values is never taken for all of them, nor written
+        // over the file: without room to read them all, none is used.
+        let none = values
+            .as_ref()
+            .map(|_| paperpaw_sdk::collections::VecMap::new());
+        let full = full || self.shared.settings.try_set_scope(values).is_err();
+        if full {
+            self.shared.settings.set_scope(none);
+            if let Some(path) = &path {
+                self.warn_runtime(format!(
+                    "{path}: no memory to read its settings: they are not used or saved"
+                ));
+            }
+        }
+        let unreadable = unreadable || full;
         if had_values
             || self
                 .shared
@@ -291,9 +312,10 @@ impl Kernel {
         self.announce_scope_changes(before);
         // The switch itself is not a scoped value others see change.
         if *id == core_settings::SCOPE_ONLY {
-            self.output
-                .commands
-                .push(events::SETTING_CHANGED.emit(events::SettingChanged::new(id.clone())));
+            self.output.commands.push(crate::Ask::emit(
+                &events::SETTING_CHANGED,
+                events::SettingChanged::new(id.clone()),
+            ));
         }
     }
 
@@ -330,8 +352,7 @@ impl Kernel {
             .filter_map(Result::ok)
             .filter(|entry| {
                 let id = format!("{}.{}", entry.section, entry.key);
-                settings.spec(&id).is_some_and(|spec| spec.scoped)
-                    && values.get(id.as_str()).is_none()
+                settings.defines_scoped(&id) && values.get(id.as_str()).is_none()
             })
             .map(|entry| (entry.section.to_string(), entry.key.to_string()))
             .collect();
@@ -364,7 +385,7 @@ impl Kernel {
     }
 
     /// Shows settings without keeping them, for the screen on top (see
-    /// [`Command::PreviewSettings`]); empty, ends that.
+    /// [`Ask::PreviewSettings`]); empty, ends that.
     pub(crate) fn preview_settings(
         &mut self,
         values: Vec<(Id, Option<paperpaw_sdk::SettingValue>)>,
@@ -379,7 +400,8 @@ impl Kernel {
         } else {
             self.stack.last().map(|top| top.serial)
         };
-        self.output.commands.push(events::PREVIEW_CHANGED.emit(()));
+        self.output.emit(&events::PREVIEW_CHANGED, ());
+        self.native_hint(crate::native_host::registrations::EVENT_PREVIEW_CHANGED_TAG);
     }
 
     /// Ends the values shown without being kept when the screen that
@@ -428,7 +450,7 @@ impl Kernel {
             "{CONFIG_FILE} cannot be read ({error}): {what} not saved, the file left as it is"
         ));
         let text = self.config_notice();
-        self.output.commands.push(Command::Notify(text));
+        self.output.commands.push(Ask::Notify(text));
     }
 
     /// What tells the user that the configuration file could not be read.
@@ -439,7 +461,7 @@ impl Kernel {
             .format("core.config-unreadable", &[("file", file)])
     }
 
-    /// Switches a plugin for the next start (see [`Command::SetPluginEnabled`]).
+    /// Switches a plugin for the next start (see [`Ask::SetPluginEnabled`]).
     pub(crate) fn set_plugin_enabled(&mut self, id: &Id, enabled: bool) {
         let Some(info) = self.shared.plugins.get(id.as_str()) else {
             return self.warn_runtime(format!("unknown plugin `{id}`"));
@@ -455,6 +477,7 @@ impl Kernel {
             info.enabled = enabled;
         }
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
+        self.native_registry_changed(crate::native_host::REGISTRY_ALL);
     }
 
     pub(crate) fn setting_changed(&mut self, id: &Id) {
@@ -462,6 +485,7 @@ impl Kernel {
             self.shared
                 .translator
                 .set_language(self.shared.settings.text(id.as_str()));
+            self.seed_language();
         } else if *id == core_settings::NIGHT_MODE {
             self.framebuffer
                 .set_inverted(self.shared.settings.bool(id.as_str()));
@@ -484,8 +508,18 @@ impl Kernel {
         if *id == core_settings::UI_TEXT_CURVE || *id == core_settings::LANGUAGE {
             self.apply_ui_text_curve();
         }
+        // Every `core.ui-*` setting shapes it (size, row, title, curve …).
+        if *id == core_settings::LANGUAGE
+            || id.as_str().starts_with("core.ui-")
+            || *id == core_settings::ROTATION
+        {
+            self.renew_memory_notice();
+        }
         if *id == core_settings::READING_FONT {
             self.apply_reading_font();
+        }
+        if crate::font_refresh::widget_fonts::is_setting(id.as_str()) {
+            self.apply_widget_fonts();
         }
         if *id == core_settings::FONT_SIZE {
             self.font_size_changed();
@@ -497,11 +531,7 @@ impl Kernel {
             || *id == core_settings::UI_SIZE
             || (*id == core_settings::ROTATION && !self.shared.caps.rotation)
         {
-            let shown = self.shown_as_laid_out();
             self.apply_hint_height();
-            // A detail beside its list where the screen is wide at the
-            // new size, alone where it no longer is.
-            self.sync_panes(shown);
         }
         if *id == core_settings::LANGUAGE
             || *id == core_settings::NIGHT_MODE
@@ -518,10 +548,6 @@ impl Kernel {
         }
     }
 
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than the limit from before it was set; split it when it is next changed"
-    )]
     pub(crate) fn apply_user_config(&mut self, source: &str) {
         let ids = entries(source);
         // Secret settings kept in the file before: moved to the secrets.
@@ -593,43 +619,94 @@ impl Kernel {
                     line,
                     "settings belong in a [<plugin-id>] section".into(),
                 ),
-                section => {
-                    let id = format!("{section}.{}", entry.key);
-                    let (id, value) = match moved(&id, &value, &ids) {
-                        Some((now, value)) => (now.to_string(), Cow::Owned(value)),
-                        // Moved, and set under its new id as well.
-                        None if MOVED.iter().any(|(old, _)| *old == id) => continue,
-                        None => (id, value),
-                    };
-                    let value =
-                        Cow::<str>::Owned(renamed(&self.shared.settings, &id, value.into_owned()));
-                    let secret = self
-                        .shared
-                        .settings
-                        .spec(&id)
-                        .is_some_and(|spec| spec.extra().secret);
-                    if secret {
-                        secrets_moved.push((id, value.to_string()));
-                        continue;
-                    }
-                    match self.shared.settings.set_from_text(&id, &value) {
-                        // The reading app of a format with one reader now
-                        // (another was removed): nothing to choose, nothing
-                        // to tell.
-                        Err(paperpaw_sdk::SettingError::Unknown)
-                            if id.starts_with(&format!(
-                                "{}.",
-                                paperpaw_sdk::builtin::settings::READING_APP.as_str()
-                            )) => {}
-                        Err(error) => {
-                            self.warn(WarningSource::UserConfig, line, format!("`{id}`: {error}"));
-                        }
-                        Ok(()) => {}
-                    }
-                }
+                section => self.apply_config_setting(
+                    (section, entry.key),
+                    value,
+                    line,
+                    &ids,
+                    &mut secrets_moved,
+                ),
             }
         }
-        for (id, value) in secrets_moved {
+        self.move_secrets(secrets_moved);
+        // Kept apart (see `KeySources::user`).
+        for problem in self.shared.keymap.load(source, Origin::User, false) {
+            self.warn(
+                WarningSource::UserConfig,
+                Some(problem.line),
+                problem.message.into_owned(),
+            );
+        }
+    }
+
+    /// A setting of the configuration file, `key` of `[section]`: set under
+    /// the id it has now (where it moved) and with the value's name of now.
+    /// A secret goes on `secrets`, to be moved; what is refused is said.
+    fn apply_config_setting(
+        &mut self,
+        (section, key): (&str, &str),
+        value: Cow<'_, str>,
+        line: Option<u32>,
+        ids: &[String],
+        secrets: &mut Vec<(String, String)>,
+    ) {
+        if section == "core" && key == crate::font_refresh::literata_notice::SEEN {
+            self.waiting_notices.literata.seen = value == "on";
+            return;
+        }
+        use paperpaw_sdk::SettingError;
+        let id = format!("{section}.{key}");
+        let (id, value) = match moved(&id, &value, ids) {
+            Some((now, value)) => (now.to_string(), value),
+            // Moved, and set under its new id as well.
+            None if MOVED.iter().any(|(old, _)| *old == id) => return,
+            None => (id, value.into_owned()),
+        };
+        let value = renamed(&self.shared.settings, &id, value);
+        if self.shared.settings.defines_secret(&id) {
+            secrets.push((id, value));
+            return;
+        }
+        let Err(error) = self.shared.settings.set_from_text(&id, &value) else {
+            return;
+        };
+        // The reading app of a format: its setting is made once two apps
+        // read it (`reading_apps`), kept until then; with one reader now
+        // (another was removed) nothing to choose, nothing to tell.
+        let reading_app = paperpaw_sdk::builtin::settings::READING_APP;
+        let app = id.strip_prefix(reading_app.as_str());
+        if matches!(error, SettingError::Unknown) && app.is_some_and(|key| key.starts_with('.')) {
+            self.keep_config_value(&id, &value, line);
+            return;
+        }
+        if matches!(error, SettingError::Unknown) {
+            // A native plugin may declare it later.
+            self.keep_config_value(&id, &value, line);
+        }
+        // A font chosen that a plugin of the card brings (Literata, where
+        // the firmware has no room for it) and the card lacks: the file
+        // keeps the choice for the start that finds it.
+        let fonts = [core_settings::READING_FONT, core_settings::STATUS_FONT];
+        let missing = matches!(error, SettingError::InvalidValue)
+            && fonts.iter().any(|font| font.as_str() == id)
+            && self.shared.fonts.has_family(&value);
+        self.waiting_notices.literata.pending |=
+            missing && id == "core.reading-font" && value == "Literata";
+        let message = if missing {
+            format!(
+                "`{id}`: the font {value} is not on the card (install the plugin that brings \
+                 it); the default is used until then"
+            )
+        } else {
+            format!("`{id}`: {error}")
+        };
+        self.warn(WarningSource::UserConfig, line, message);
+    }
+
+    /// Secret settings the configuration file kept: moved to the secrets and
+    /// taken out of the file once they are saved there.
+    pub(crate) fn move_secrets(&mut self, moved: Vec<(String, String)>) {
+        for (id, value) in moved {
             let label = self
                 .shared
                 .settings
@@ -639,8 +716,10 @@ impl Kernel {
             self.set_secret(paperpaw_sdk::secrets::SecretChange::keep(
                 &id, &label, &value,
             ));
-            // Left in the file until it is with the secrets on the card.
+            // Left in the file until it is with the secrets on the card:
+            // tried again once a radio is on (`move_left_secrets`).
             if !self.shared.secrets.saved(&id) {
+                self.secrets_left = true;
                 continue;
             }
             if let Some((section, key)) = id.split_once('.') {
@@ -649,14 +728,28 @@ impl Kernel {
                 });
             }
         }
-        // Kept apart (see `KeySources::user`).
-        for problem in self.shared.keymap.load(source, Origin::User, false) {
-            self.warn(
-                WarningSource::UserConfig,
-                Some(problem.line),
-                problem.message.into_owned(),
-            );
+    }
+
+    /// Moves the secret settings' values [`Self::move_secrets`] had to leave in
+    /// the configuration file, read from it again. On the X4 nothing is sealed
+    /// while no radio is on, so never at the start: without this the value
+    /// stayed in the file, in the clear, start after start (#81).
+    pub(crate) fn move_left_secrets(&mut self) {
+        if !mem::take(&mut self.secrets_left) {
+            return;
         }
+        let Ok(Some(source)) = read_config(self.shared.storage.as_ref()) else {
+            self.secrets_left = true;
+            return;
+        };
+        let mut left = Vec::new();
+        for entry in paperpaw_config::parse(&source).flatten() {
+            let id = format!("{}.{}", entry.section, entry.key);
+            if self.shared.settings.defines_secret(&id) {
+                left.push((id, entry.value.as_str().into_owned()));
+            }
+        }
+        self.move_secrets(left);
     }
 
     /// Reports references to contributions that do not exist.

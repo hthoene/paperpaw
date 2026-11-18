@@ -1,4 +1,4 @@
-The screen lock asks for a PIN, a pattern or a password when PaperPaw starts and when the device wakes up. It is off at first. It keeps others from casual use, not someone who takes the files.
+The screen lock asks for a PIN, a pattern or a password when PaperPaw starts and when the device wakes up. It is off at first. It keeps out casual use only: the code and the count of wrong tries are kept on the SD card, so whoever takes the card out, edits it or swaps it gets past the lock.
 
 Set it in the settings, under Device, Screen lock: enter the code in use if there is one, choose the kind, then the new code twice. A pattern is offered on touch screens only.
 

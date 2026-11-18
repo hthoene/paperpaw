@@ -15,8 +15,8 @@
 //! once to learn what they need (a probe), then stream the old lines into a
 //! new file with the one change and replace the old file by rename: a power cut
 //! leaves the old file or the new, never half of either. Memory per call: the
-//! 4 KiB read buffer, one line, and two 1 KiB value buffers; no allocation per
-//! secret. A line the host cannot open (another device's sealed value) is
+//! read buffer (one line and a little room), two 1 KiB value buffers, and for
+//! `keep` and `remove` one line besides; no allocation per secret. A line the host cannot open (another device's sealed value) is
 //! absent for every op and written back unchanged by every rewrite.
 //!
 //! Order: the order of the lines in the file, so a page is streamed without
@@ -36,12 +36,12 @@ use crate::native_host::codec;
 use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_native::host_glue::{
-    ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+    ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_IO, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+    ERR_UNSUPPORTED,
 };
 use paperpaw_platform::Storage;
 
-#[allow(unused_imports, reason = "the emulator and Android shells use Veiling")]
-pub(crate) use super::secrets_file::{Sealer, Veiling};
+pub(crate) use super::secrets_file::Sealer;
 
 /// `uses.secrets`: the feature that reaches another plugin's secrets.
 const USES_SECRETS: &str = "uses.secrets";
@@ -63,7 +63,7 @@ const RANDOM_MAX: usize = 256;
 /// while the radio or the bootloader's entropy source is on, so a shell
 /// reports `strong == false` (or fails) at other times; nothing that makes a
 /// key, a token or a nonce may rely on weak bytes.
-pub(crate) trait Rng {
+pub trait Rng {
     /// Fills `out` and says whether the source is fully random now (`strong`).
     /// A device without a source is not wired; there is no weaker stand-in.
     fn fill(&self, out: &mut [u8]) -> Result<bool, i32>;
@@ -79,6 +79,14 @@ pub(crate) trait SecretsHost {
     fn rng(&self) -> Option<&dyn Rng>;
     /// The file could not be read: show the user a notice (called once).
     fn unreadable(&self) {}
+    /// A sealed value did not open (another device's card, a lost key): the
+    /// kernel tells the user once per start ([`Self::take_unopened`]).
+    fn unopened(&self) {}
+    /// Whether a sealed value did not open since the start and the user was
+    /// not told yet; `true` once per start at most.
+    fn take_unopened(&self) -> bool {
+        false
+    }
 }
 
 /// The view wired under `core.secrets`.
@@ -109,7 +117,6 @@ impl SecretsServices {
     ///
     /// # Errors
     /// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`.
-    #[allow(dead_code, reason = "the shell calls it at start; tests do today")]
     pub(crate) fn upgrade(&self) -> Result<bool, i32> {
         if !self.host.sealer().seals() {
             return Ok(false);
@@ -128,18 +135,29 @@ impl SecretsServices {
     ///
     /// # Errors
     /// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`, `ERR_INVALID`.
-    #[allow(dead_code, reason = "the uninstall path calls it; tests do today")]
+    #[allow(
+        dead_code,
+        reason = "the removal job uses [`forget_owner`]; tests this"
+    )]
     pub(crate) fn forget_plugin(&self, plugin: &str) -> Result<(), i32> {
-        check_owner(plugin)?;
-        let mut file = File::new(&*self.host)?;
-        file.rewrite(&Change::DropOwner(plugin))
-            .map_err(|e| self.failed(e))
+        forget_owner(&*self.host, plugin).map_err(|e| self.failed(e))
     }
+}
+
+/// Removes every secret of `plugin` from the file `host` keeps (the removal of
+/// a plugin with its data, decision 124); safe to repeat.
+///
+/// # Errors
+/// `ERR_IO` (nothing changed), `ERR_NO_MEMORY`, `ERR_INVALID`.
+pub(crate) fn forget_owner(host: &dyn SecretsHost, plugin: &str) -> Result<(), i32> {
+    check_owner(plugin)?;
+    let mut file = File::new(host)?;
+    file.rewrite(&Change::DropOwner(plugin))
 }
 
 /// The `core.secrets` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
@@ -152,7 +170,7 @@ pub(crate) fn backend(
     match op.id {
         1 => get(secrets, who, input, out),
         2 => list(secrets, who, input, out),
-        3 => keep(secrets, who, input).map(|()| 0),
+        3 => keep(secrets, frame, who, input).map(|()| 0),
         4 => remove(secrets, who, input).map(|()| 0),
         5 => random(secrets, input, out),
         _ => Err(ERR_UNSUPPORTED),
@@ -344,7 +362,12 @@ fn list(
     Ok(used + length)
 }
 
-fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
+fn keep(
+    secrets: &SecretsServices,
+    frame: &dyn Frame,
+    who: &Caller<'_>,
+    input: &[u8],
+) -> Result<(), i32> {
     let ask: wire::ServiceSecKeep<'_> = codec::single(input)?;
     if ask.flags & !CHANGEABLE != 0 {
         return Err(ERR_UNSUPPORTED);
@@ -354,13 +377,22 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
     }
     check_name(ask.name)?;
     check_label(ask.label)?;
+    // A device that does not seal writes nothing (decision 140): no file is
+    // opened, no temporary file is made.
+    if !secrets.host.sealer().seals() {
+        return Err(ERR_STATE);
+    }
     let (owner, own) = target(who, ask.plugin)?;
     let mut file = File::new(&*secrets.host)?;
     let probe = file.probe(owner, ask.name).map_err(|e| secrets.failed(e))?;
-    if !own && !probe.readable {
+    // The editor keeps the value of a secret setting the owner declares
+    // (`secrets.md` 4) also before there is one; another secret only once
+    // its owner made it.
+    let declared = !own && !probe.readable && declares_secret(frame, owner, ask.name);
+    if !own && !probe.readable && !declared {
         return Err(ERR_NOT_FOUND);
     }
-    if !own && !probe.changeable {
+    if !own && !declared && !probe.changeable {
         return Err(ERR_DENIED);
     }
     if !probe.readable && probe.others >= PER_PLUGIN_MAX {
@@ -376,7 +408,7 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
     let changeable = if own {
         ask.flags & CHANGEABLE != 0
     } else {
-        probe.changeable
+        declared || probe.changeable
     };
     let change = Change::Put {
         owner,
@@ -386,6 +418,20 @@ fn keep(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(),
         value: ask.value.as_bytes(),
     };
     file.rewrite(&change).map_err(|e| secrets.failed(e))
+}
+
+/// Whether `owner` declares the secret setting `owner.name`: the secret
+/// `name` is its value. Nothing is allocated.
+fn declares_secret(frame: &dyn Frame, owner: &str, name: &str) -> bool {
+    let mut id = [0; 128];
+    let end = owner.len() + 1 + name.len();
+    let Some(room) = id.get_mut(..end) else {
+        return false;
+    };
+    room[..owner.len()].copy_from_slice(owner.as_bytes());
+    room[owner.len()] = b'.';
+    room[owner.len() + 1..].copy_from_slice(name.as_bytes());
+    core::str::from_utf8(room).is_ok_and(|id| frame.settings().secret_of(id) == Some(true))
 }
 
 fn remove(secrets: &SecretsServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
@@ -464,13 +510,24 @@ enum Change<'a> {
     DropOwner(&'a str),
 }
 
-/// The buffers of one call.
+/// The buffers of one call. The line a rewrite builds is not among them: it
+/// is made by [`File::rewrite`] only, so that `get` and `list` (the settings
+/// screen's calls) do not hold it.
 struct File<'a> {
     host: &'a dyn SecretsHost,
     read: Buf,
     scratch: Scratch,
     opener: Opener<'a>,
-    line: Buf,
+}
+
+impl Drop for File<'_> {
+    /// A sealed value this call met that did not open: the kernel tells the
+    /// user (once per start).
+    fn drop(&mut self) {
+        if self.opener.unopened {
+            self.host.unopened();
+        }
+    }
 }
 
 impl<'a> File<'a> {
@@ -480,7 +537,6 @@ impl<'a> File<'a> {
             read: Buf::new(READ_BUF)?,
             scratch: Scratch::new()?,
             opener: Opener::new(host.sealer())?,
-            line: Buf::new(LINE_MAX + 1)?,
         })
     }
 
@@ -537,9 +593,10 @@ impl<'a> File<'a> {
     /// Streams the old file with `change` into the new file and replaces the
     /// old by rename. On any failure the new file is removed and the old stays.
     fn rewrite(&mut self, change: &Change<'_>) -> Result<(), i32> {
+        let mut line = Buf::new(LINE_MAX + 1)?;
         let storage = self.host.storage();
         storage.write(file::TEMP, b"").map_err(file::status)?;
-        let result = self.stream(change).and_then(|written| {
+        let result = self.stream(change, &mut line).and_then(|written| {
             let old = storage.size(file::FILE).unwrap_or(0);
             if matches!(change, Change::Put { .. }) && written > file::FILE_MAX && written > old {
                 return Err(ERR_FULL);
@@ -556,13 +613,12 @@ impl<'a> File<'a> {
         result
     }
 
-    fn stream(&mut self, change: &Change<'_>) -> Result<u64, i32> {
+    fn stream(&mut self, change: &Change<'_>, line: &mut Buf) -> Result<u64, i32> {
         let Self {
             host,
             read,
             scratch,
             opener,
-            line,
         } = self;
         let storage = host.storage();
         let sealer = host.sealer();

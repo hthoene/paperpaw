@@ -91,6 +91,7 @@ pub(crate) fn due_count(
     until: i64,
     new: usize,
 ) -> Result<usize, StorageError> {
+    index_ready(storage);
     let mut reviews: i64 = 0;
     let mut fresh: i64 = 0;
     each_index(storage, |part| {
@@ -121,6 +122,7 @@ pub(crate) fn due_count(
 /// When the next card that is not new comes due after `after`, if any
 /// does (from the index: the answers given since are not looked at).
 pub(crate) fn next_due(storage: &dyn Storage, after: i64) -> Option<i64> {
+    index_ready(storage);
     let mut next: Option<i64> = None;
     let _ = each_index(storage, |part| {
         for (quarter, _) in &part.hours {
@@ -162,6 +164,7 @@ impl Sizes {
 
 /// How many cards each deck has, by deck.
 pub(crate) fn sizes(storage: &dyn Storage) -> Result<Sizes, StorageError> {
+    index_ready(storage);
     let mut sizes = Sizes::default();
     let mut failed = Ok(());
     each_index(storage, |part| {

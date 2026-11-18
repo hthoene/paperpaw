@@ -148,3 +148,113 @@ fn annotations_anchors_and_their_texts_pass_the_services_checks() {
     };
     assert_eq!((part.total, part.text.len()), (2100, 1023));
 }
+
+#[test]
+fn a_query_of_the_adapter_passes_the_services_checks_and_pages() {
+    let card = card();
+    let host = host(&card);
+    let ask = |cursor, generation| {
+        Record::ServiceLibQuery(wire::ServiceLibQuery {
+            show: 0,
+            sort: 0,
+            flags: 0,
+            words: "",
+            author: "",
+            series: "",
+            tag: "",
+            folder: "",
+            added_since: 0,
+            cursor,
+            generation,
+            facet: 0,
+        })
+    };
+    let rows = |cursor, generation| {
+        let reply = call(&host, 2, &[ask(cursor, generation)]).unwrap();
+        let (mut at, mut titles, mut end) = (0, std::vec::Vec::new(), None);
+        while at < reply.len() {
+            let (record, used) = wire::record_decode_prefix(&reply[at..]).unwrap();
+            at += used;
+            match record {
+                Record::ServiceLibEntry(e) => titles.push(std::string::String::from(e.title)),
+                Record::ServiceEnd(e) => end = Some((e.total, e.next, e.flags)),
+                _ => panic!("a row"),
+            }
+        }
+        (titles, end.unwrap())
+    };
+    // The four books of the card by title (D is removed): all fit a page.
+    let (titles, end) = rows(0, 0);
+    assert_eq!(titles.len(), 4);
+    // By title, regardless of case: C, E, Title A, then the long one.
+    assert_eq!(titles[..3], ["C", "E", "Title A"]);
+    assert_eq!(end, (4, 4, 1));
+    let Record::ServiceLibState(state) =
+        wire::record_decode_one(&call(&host, 1, &[]).unwrap()).unwrap()
+    else {
+        panic!("a state")
+    };
+    // From the cursor 3 on, under the generation the state told.
+    let (tail, end) = rows(3, state.generation);
+    assert_eq!((tail.as_slice(), end), (&titles[3..], (4, 4, 1)));
+    // A stale generation is the host's `ERR_STATE`.
+    assert_eq!(
+        call(&host, 2, &[ask(1, state.generation ^ 1)]),
+        Err(paperpaw_native::host_glue::ERR_STATE)
+    );
+}
+
+/// Op 5 over the adapter: every list passes the service's checks of a page
+/// (whole rows, then the end that counts them).
+#[test]
+fn the_facets_of_the_adapter_pass_the_services_checks() {
+    let card = card();
+    let host = host(&card);
+    let list = |facet: u32| {
+        let ask = Record::ServiceLibQuery(wire::ServiceLibQuery {
+            show: 0,
+            sort: 0,
+            flags: 0,
+            words: "",
+            author: "",
+            series: "",
+            tag: "",
+            folder: "",
+            added_since: 0,
+            cursor: 0,
+            generation: 0,
+            facet,
+        });
+        let reply = call(&host, 5, &[ask]).unwrap();
+        let (mut rows, mut end) = (std::vec::Vec::new(), None);
+        let mut at = 0;
+        while at < reply.len() {
+            let (record, used) = wire::record_decode_prefix(&reply[at..]).unwrap();
+            at += used;
+            match record {
+                Record::ServiceLibFacet(row) => {
+                    rows.push((std::string::String::from(row.text), row.count, row.first));
+                }
+                Record::ServiceEnd(last) => end = Some((last.flags, last.total, last.next)),
+                other => panic!("{other:?}"),
+            }
+        }
+        (rows, end)
+    };
+    let names = |facet: u32| -> std::vec::Vec<std::string::String> {
+        list(facet).0.into_iter().map(|row| row.0).collect()
+    };
+    let (authors, end) = list(0);
+    let jumps: std::vec::Vec<u32> = authors.iter().map(|row| row.2).collect();
+    assert_eq!(names(0), ["Ada", "Bea", "Cy", "Eve"]);
+    assert_eq!(jumps, [0, 1, 2, 3]);
+    // The last page: flag bit 0, and the end counts the four names.
+    assert_eq!(end, Some((1, 4, 4)));
+    assert_eq!(names(1), ["Series"]);
+    assert_eq!(names(2), ["x", "y", "z"]);
+    assert_eq!(names(3), ["#", "C", "E", "T"]);
+    assert_eq!(
+        list(4).0,
+        [(std::string::String::from("books"), 4, u32::MAX)]
+    );
+}

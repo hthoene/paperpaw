@@ -25,6 +25,13 @@ const DEVICE: &str = "device";
 const NONCE: &str = "nonce";
 
 impl Kernel {
+    /// Bluetooth as plugins see it (the radio, the bonded devices), for a
+    /// shell that tells its own host services of it (`core.device`, ops 10
+    /// and 11). `None` where the kernel is built without Bluetooth.
+    pub fn bluetooth_model(&self) -> Option<&paperpaw_sdk::bluetooth::Bluetooth> {
+        self.shared.bluetooth.as_ref()
+    }
+
     /// Plugin `request.from()`'s Bluetooth command, answered on its events
     /// where it fails.
     pub(crate) fn apply_bluetooth(&mut self, request: BtRequest) {
@@ -33,7 +40,7 @@ impl Kernel {
         let asked = Asked {
             screens: self.stack.len(),
             reader: self.shared.reader,
-            now: self.now,
+            now: self.shared.now,
         };
         let allowed = plugin == crate::meter::CORE
             || self
@@ -57,7 +64,7 @@ impl Kernel {
                     let event = BtEvent::Failed(failure);
                     self.output
                         .commands
-                        .push(Command::Emit(events, event.into_params()));
+                        .push(Ask::Emit(events, event.into_params()));
                 }
                 None => self.warn_runtime(format!(
                     "{plugin}: Bluetooth {}: {}",
@@ -74,7 +81,7 @@ impl Kernel {
     /// go to the key maps.
     pub fn bluetooth_event(&mut self, now: Instant, report: BtReport) -> Effects {
         let running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         let keys = match &mut self.io.bluetooth {
             Some(radio) => {
                 radio.report(report, now, &mut self.output.commands);
@@ -105,7 +112,7 @@ impl Kernel {
     /// radio off.
     pub(crate) fn bluetooth_tick(&mut self) {
         if let Some(radio) = &mut self.io.bluetooth {
-            radio.tick(self.now, &mut self.output.commands);
+            radio.tick(self.shared.now, &mut self.output.commands);
             self.sync_bluetooth();
         }
     }
@@ -114,7 +121,7 @@ impl Kernel {
     pub(crate) fn bluetooth_screens_closed(&mut self) {
         let screens = self.stack.len();
         if let Some(radio) = &mut self.io.bluetooth {
-            radio.close_for_closed_screens(screens, self.now, &mut self.output.commands);
+            radio.close_for_closed_screens(screens, self.shared.now, &mut self.output.commands);
             self.sync_bluetooth();
         }
     }
@@ -122,12 +129,14 @@ impl Kernel {
     /// The device goes to sleep: Bluetooth ends.
     pub(crate) fn bluetooth_suspend(&mut self) {
         if let Some(radio) = &mut self.io.bluetooth {
-            radio.suspend(self.now, &mut self.output.commands);
+            radio.suspend(self.shared.now, &mut self.output.commands);
             self.sync_bluetooth();
         }
     }
 
     /// An answer to the pairing question, where `event` is one.
+    // Its own frame: not inlined into `emit_from` (#250).
+    #[inline(never)]
     pub(crate) fn bluetooth_answer(&mut self, event: &Id, params: &Params) -> bool {
         let Some(answer) = PAIR_ANSWERED.read(event, params) else {
             return false;
@@ -161,13 +170,13 @@ impl Kernel {
             .shared
             .usage
             .bluetooth_ms
-            .saturating_add(radio.take_on_ms(self.now));
+            .saturating_add(radio.take_on_ms(self.shared.now));
         let state = radio.state();
         if self.shared.bluetooth.as_ref() != Some(&state) {
             self.shared.bluetooth = Some(state);
             self.output
                 .commands
-                .push(events::BLUETOOTH_CHANGED.emit(()));
+                .push(crate::Ask::emit(&events::BLUETOOTH_CHANGED, ()));
         }
         let kept: Vec<(String, String)> = self
             .shared
@@ -210,7 +219,7 @@ impl Kernel {
         if let Some(serial) = open {
             self.output
                 .commands
-                .push(Command::Close(paperpaw_sdk::ScreenKey::new(serial)));
+                .push(Ask::Close(paperpaw_sdk::ScreenKey::new(serial)));
         }
         if lost {
             let i18n = &self.shared.translator;
@@ -220,7 +229,7 @@ impl Kernel {
                 String::from(name)
             };
             let text = i18n.format("core.bluetooth.pair-lost", &[("name", Arg::Str(&name))]);
-            self.output.commands.push(Command::Notify(text));
+            self.output.commands.push(Ask::Notify(text));
         }
     }
 
@@ -229,7 +238,7 @@ impl Kernel {
     fn ask_pairing(&mut self, device: DeviceId, question: PairQuestion, name: &str) {
         let mut bytes = [0u8; 8];
         self.shared.random.fill(&mut bytes);
-        let nonce = u64::from_le_bytes(bytes) ^ self.now.0;
+        let nonce = u64::from_le_bytes(bytes) ^ self.shared.now.0;
         self.pairing_nonce = Some(nonce);
         let i18n = &self.shared.translator;
         let name = if name.is_empty() {
@@ -252,7 +261,7 @@ impl Kernel {
         let context = Params::new()
             .with(DEVICE, device.number().to_string())
             .with(NONCE, nonce.to_string());
-        let ask = paperpaw_sdk::ask::confirm(title, &PAIR_ANSWERED)
+        let ask = crate::kit::ask::confirm(title, &PAIR_ANSWERED)
             .text(text)
             .yes(i18n.tr("core.bluetooth.pair.yes"))
             .no(i18n.tr("core.bluetooth.pair.no"))

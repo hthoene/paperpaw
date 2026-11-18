@@ -28,6 +28,9 @@ use alloc::rc::Rc;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_NOT_FOUND;
 
+mod kernel_models;
+#[cfg(test)]
+mod kernel_tests;
 mod ops;
 mod probe;
 #[cfg(test)]

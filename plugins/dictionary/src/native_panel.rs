@@ -10,15 +10,15 @@ use paperpaw_sdk::{
         callbacks::{Input, InputGestureKind},
     },
 };
-use paperpaw_ui_kit::{
-    mem::push,
-    text::{concat, copy},
-};
+use paperpaw_ui_kit::{mem::push, text::copy};
 
-/// Entries shown at most (the panel asks one page per provider).
+/// Entries the panel asks the providers for at most (one page per provider).
 pub const MAX_ENTRIES: usize = 16;
-/// Lines kept at most; the rest of a very long text is left off.
-pub const MAX_LINES: usize = 600;
+/// Entries shown at most (the plugin's own definitions and the providers').
+pub const MAX_SHOWN: usize = 32;
+/// Lines kept at most (8 bytes each on the device): 32 KiB of definitions
+/// (what a lookup reads) is some 900 lines at the narrowest screen.
+pub const MAX_LINES: usize = 1_200;
 
 /// What one provider found.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,9 +52,17 @@ pub struct Panel {
     top: usize,
 }
 
-/// The entry names that are shown above entries, and the text that holds
-/// them: a blank line between entries, `(source)` above the first of each
-/// source where entries come from several.
+/// The entries that have text, at most [`MAX_SHOWN`].
+fn shown(entries: &[Entry]) -> impl Iterator<Item = &Entry> {
+    entries
+        .iter()
+        .filter(|entry| !entry.text.trim().is_empty())
+        .take(MAX_SHOWN)
+}
+
+/// The text of the entries, and the places of the names above them: a blank
+/// line between entries, `(source)` above the first of each source where
+/// entries come from several. The text is made in one allocation.
 ///
 /// # Errors
 /// [`Error::NoMemory`].
@@ -62,27 +70,36 @@ fn compose(entries: &[Entry]) -> Result<(String, Vec<Range<usize>>), Error> {
     let several = entries
         .first()
         .is_some_and(|first| entries.iter().any(|e| e.source != first.source));
-    let mut text = String::new();
     let mut headings = Vec::new();
+    let mut size = 0usize;
     let mut last: Option<&str> = None;
-    for entry in entries.iter().take(MAX_ENTRIES) {
-        if entry.text.trim().is_empty() {
-            continue;
+    for entry in shown(entries) {
+        if size > 0 {
+            size += 2;
         }
-        let begins = text.len();
-        let sep = if text.is_empty() { "" } else { "\n\n" };
-        let named = several && last != Some(entry.source.as_str());
-        let name = if named {
-            concat(&["(", &entry.source, ")\n"])?
-        } else {
-            String::new()
-        };
-        text = concat(&[&text, sep, &name, entry.text.trim_end()])?;
-        if named {
-            let start = begins + sep.len();
-            push(&mut headings, start..start + name.len() - 1)?;
+        if several && last != Some(entry.source.as_str()) {
+            size += entry.source.len() + 3;
             last = Some(&entry.source);
         }
+        size += entry.text.trim_end().len();
+    }
+    let mut text = String::new();
+    text.try_reserve_exact(size).map_err(|_| Error::NoMemory)?;
+    last = None;
+    for entry in shown(entries) {
+        if !text.is_empty() {
+            text.push_str("\n\n");
+        }
+        if several && last != Some(entry.source.as_str()) {
+            let start = text.len();
+            text.push('(');
+            text.push_str(&entry.source);
+            text.push(')');
+            push(&mut headings, start..text.len())?;
+            text.push('\n');
+            last = Some(&entry.source);
+        }
+        text.push_str(entry.text.trim_end());
     }
     Ok((text, headings))
 }

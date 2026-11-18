@@ -2,8 +2,7 @@
 //! `keyboard.layouts@1` (`stages/keyboard.layouts@1.def`, codec `src/stages.rs`)
 //! and answers each run with up to [`MOST_PER_PLUGIN`] `layouts.layout`
 //! records. The keyboard runs the stage when it needs the layouts (the dialog,
-//! the chooser) and takes the rules of interface 6's point `keyboard.layouts`
-//! for a layout: the id is also the translation key of its name, the code has
+//! the chooser) and takes these rules for a layout: the id is also the translation key of its name, the code has
 //! at most [`MAX_CODE`] visible characters, the letter rows are separated by
 //! spaces (at most [`MAX_ROWS`] of at most [`MAX_KEYS`] letters), and the
 //! variants are pairs `e=éèë` (at most [`MAX_VARIANTS`] a letter). Every
@@ -210,38 +209,46 @@ pub fn collect(host: &Host<'_>, language: &str) -> Result<Vec<Added>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layouts::parse;
-
-    /// The fields as the line of the point says them.
-    fn line(id: &str, code: &str, rows: &str, variants: &str) -> String {
-        alloc::format!("{id}; {code}; {rows}; {variants}")
-    }
 
     #[test]
-    fn the_rules_are_those_of_the_point_in_interface_6() {
+    fn a_layout_is_read_by_the_rules_of_the_stage() {
         let long_rows = ["abcdefghijklmnopqrstuvwxyz"; 30].join(" ");
         let long_variants = alloc::format!("A=\u{202E}áà{} e=éèë ij=x i=ïí o=", "x".repeat(40));
+        let owned = |pairs: &[(char, &str)]| -> Vec<(char, String)> {
+            pairs.iter().map(|(c, v)| (*c, String::from(*v))).collect()
+        };
+        let many_x = alloc::format!("áà{}", "x".repeat(14));
+        let sixteen = ["abcdefghijklmnop"; MAX_ROWS].join(" ");
+        // Too much is cut, what shows nothing goes, two letters before `=` are
+        // no letter, capitals are looked up in lower case.
         let samples = [
             (
-                "dutch.layout",
-                "NL",
-                "qwertyuiop asdfghjkl zxcvbnm",
+                ("dutch.layout", "NL", "qwertyuiop asdfghjkl zxcvbnm"),
                 "e=éèë ij=x i=ïí",
+                ("NL", "qwertyuiop asdfghjkl zxcvbnm"),
+                owned(&[('e', "éèë"), ('i', "ïí")]),
             ),
-            ("plain.layout", "PL", "abc", ""),
+            (("plain.layout", "PL", "abc"), "", ("PL", "abc"), Vec::new()),
             (
-                "big.layout",
-                "LONGCODE",
-                long_rows.as_str(),
+                ("big.layout", "LONGCODE", long_rows.as_str()),
                 long_variants.as_str(),
+                ("LONG", sixteen.as_str()),
+                owned(&[('a', many_x.as_str()), ('e', "éèë"), ('i', "ïí")]),
             ),
-            ("odd.layout", "X\u{200B}Y", "ab \u{202E} cd   ef", "é=e"),
-            ("a", "A", "z", "z=z"),
+            (
+                ("odd.layout", "X\u{200B}Y", "ab \u{202E} cd   ef"),
+                "é=e",
+                ("XY", "ab cd ef"),
+                owned(&[('é', "e")]),
+            ),
+            (("a", "A", "z"), "z=z", ("A", "z"), owned(&[('z', "z")])),
         ];
-        for (id, code, rows, variants) in samples {
-            let old = parse(&line(id, code, rows, variants));
-            let new = from_fields(id, code, rows, variants).unwrap();
-            assert_eq!(new, old, "{id}");
+        for ((id, code, rows), variants, (want_code, want_rows), want_variants) in samples {
+            let layout = from_fields(id, code, rows, variants).unwrap().unwrap();
+            assert_eq!(layout.id, id);
+            assert_eq!(layout.code, want_code, "{id}");
+            assert_eq!(layout.letters, want_rows, "{id}");
+            assert_eq!(layout.variants, want_variants, "{id}");
         }
         for (id, code, rows) in [
             ("", "X", "abc"),
@@ -254,6 +261,84 @@ mod tests {
                 from_fields(id, code, rows, "").unwrap(),
                 None,
                 "{id}{code}{rows}"
+            );
+        }
+    }
+
+    /// The layouts the script packs bring (`tools/plugin-files/keyboards`,
+    /// written to the packs' `points/keyboard.layouts.txt`, lines of `id; code;
+    /// letter rows; held letters`) are read whole by the rules of the stage:
+    /// their rows and keys within its limits, ids not built in, letters of
+    /// their script, held letters that read. The packs still write the
+    /// interface-6 lines; their fields are what a subscriber's records carry.
+    #[test]
+    fn the_layouts_of_the_script_packs_are_taken_whole() {
+        let packs = [
+            (
+                include_str!("../../../tools/plugin-files/keyboards/arabic.txt"),
+                '\u{600}'..='\u{6ff}',
+                3,
+            ),
+            (
+                include_str!("../../../tools/plugin-files/keyboards/hebrew.txt"),
+                '\u{590}'..='\u{5ff}',
+                1,
+            ),
+            (
+                include_str!("../../../tools/plugin-files/keyboards/korean.txt"),
+                '\u{3130}'..='\u{318f}',
+                1,
+            ),
+        ];
+        let mut added = Vec::new();
+        for (text, script, count) in packs {
+            let lines: Vec<&str> = text.lines().filter(|l| !l.starts_with('#')).collect();
+            assert_eq!(lines.len(), count);
+            for line in lines {
+                let fields: Vec<&str> = line.split(';').map(str::trim).collect();
+                let held = fields.get(3).copied().unwrap_or("");
+                let layout = from_fields(fields[0], fields[1], fields[2], held)
+                    .unwrap()
+                    .unwrap_or_else(|| panic!("{line}"));
+                assert!(layout.id.starts_with("keyboard.layout."), "{}", layout.id);
+                // Not cut short by the limits.
+                let rows: Vec<&str> = layout.letters.split(' ').collect();
+                assert_eq!(rows.len(), fields[2].split_whitespace().count());
+                assert!(rows.len() <= MAX_ROWS);
+                for row in rows {
+                    assert!(row.chars().count() <= MAX_KEYS, "{}", layout.id);
+                    assert!(row.chars().all(|c| script.contains(&c)), "{row}");
+                }
+                // Every variant is a letter of the script too; Hebrew and
+                // Korean hold none.
+                assert!(
+                    !layout.variants.is_empty()
+                        || layout.id.ends_with(".he")
+                        || layout.id.ends_with(".ko")
+                );
+                for (base, variants) in &layout.variants {
+                    assert!(script.contains(base), "{base}");
+                    assert!(variants.chars().all(|c| script.contains(&c)), "{variants}");
+                }
+                // No letter twice in a layout.
+                let all: Vec<char> = layout.letters.chars().filter(|c| *c != ' ').collect();
+                let mut sorted = all.clone();
+                sorted.sort_unstable();
+                sorted.dedup();
+                assert_eq!(sorted.len(), all.len(), "{}", layout.id);
+                // Not a built-in id, nor one added before: the keyboard takes it.
+                let before = added.len();
+                accept(&mut added, layout).unwrap();
+                assert_eq!(added.len(), before + 1, "{line}");
+            }
+        }
+        // Their names are in the packs' translations (see script-pack.py).
+        let names = include_str!("../../../tools/script-pack.py");
+        for layout in &added {
+            assert!(
+                names.contains(&alloc::format!("\"{}\"", layout.id)),
+                "{}",
+                layout.id
             );
         }
     }

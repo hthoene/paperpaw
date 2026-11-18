@@ -8,20 +8,11 @@ use crate::native_host::{HyphenTables, hyphen_card::CardTables, hyphen_service::
 use alloc::format;
 use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::native::Native;
-use paperpaw_sdk::{Plugin, PluginProblem};
 
 /// A loader with no code, whose sink is the one it was made with.
 struct SinkLoader(HyphenTables);
 
 impl CodeLoader for SinkLoader {
-    fn load(
-        &mut self,
-        _: &dyn paperpaw_platform::Storage,
-        _: &crate::code_plugin::CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
-        Err(PluginProblem::Changed)
-    }
-
     fn hyphenation_sink(
         &mut self,
         _: &alloc::rc::Rc<dyn paperpaw_platform::Storage>,
@@ -62,7 +53,7 @@ fn the_sink_gets_the_tables_at_start_and_follows_install_and_removal() {
 
     // Removed while running: its tables leave the sink before the plugin is
     // gone from the registry.
-    kernel.apply(Command::RemovePlugin(Id::new_static("pack-sv")));
+    kernel.apply(Ask::RemovePlugin(Id::new_static("pack-sv")));
     kernel.finish();
     assert!(sink.card().find("de").is_some());
     assert_eq!(sink.card().find("sv"), None);
@@ -80,7 +71,7 @@ fn a_plugin_installed_later_reaches_the_sink() {
         .storage
         .write("plugins/pack-nb/nb.pphp", b"PPHP")
         .unwrap();
-    kernel.apply(Command::LoadPlugin("plugins/pack-nb".into()));
+    kernel.apply(Ask::LoadPlugin("plugins/pack-nb".into()));
     kernel.finish();
     assert!(sink.card().find("nb").is_some());
 }

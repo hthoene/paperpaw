@@ -21,6 +21,9 @@ use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SP
 /// Formats per plugin and on the device.
 pub(crate) const PER_PLUGIN: usize = 8;
 pub(crate) const DEVICE: usize = 32;
+/// Reading apps per plugin and on the device (`document.md` section 1).
+pub(crate) const READERS_PER_PLUGIN: usize = 4;
+pub(crate) const READERS_DEVICE: usize = 16;
 /// `format.spec.flags` bit 1: the format can tell its files by their start.
 pub(crate) const SNIFFS: u32 = 1 << 1;
 
@@ -52,6 +55,8 @@ struct Format {
     reference: FormatRef,
     plugin: u64,
     id: Box<str>,
+    /// The bytes of `id` that are the plugin's id (the rest is `.name`).
+    plugin_len: usize,
     title: Box<str>,
     extensions: Box<str>,
     flags: u32,
@@ -66,6 +71,10 @@ struct Reader {
     title: Box<str>,
 }
 
+/// The user's format choice for an extension: calls the visitor with the
+/// chosen format id, if any.
+pub(crate) type UserChoice<'a> = dyn Fn(&str, &mut dyn FnMut(&str)) + 'a;
+
 /// Declared formats and readers, in declaration (load) order.
 pub(crate) struct FormatIndex {
     formats: Vec<Format>,
@@ -78,12 +87,12 @@ pub(crate) struct FormatIndex {
 /// A page of rows: the position after it and the identity it was cut from.
 type Rows<'a> = &'a mut dyn FnMut(Record<'_>) -> ControlFlow<()>;
 
-fn extensions_of(list: &str) -> impl Iterator<Item = &str> {
+pub(crate) fn extensions_of(list: &str) -> impl Iterator<Item = &str> {
     list.split('\n').filter(|_| !list.is_empty())
 }
 
 /// Whether `path` ends in `.extension`, ignoring ASCII case (FAT does).
-fn has_extension(path: &str, extension: &str) -> bool {
+pub(crate) fn has_extension(path: &str, extension: &str) -> bool {
     let (path, extension) = (path.as_bytes(), extension.as_bytes());
     path.len() > extension.len()
         && path[path.len() - extension.len() - 1] == b'.'
@@ -142,13 +151,16 @@ impl FormatIndex {
             reference,
             plugin,
             id,
+            plugin_len: plugin_id.len(),
             title: text(spec.title)?,
             extensions: text(spec.extensions)?,
             flags: spec.flags,
             priority: spec.priority,
             token: spec.token,
         };
-        self.formats.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        self.formats
+            .try_reserve_exact(1)
+            .map_err(|_| ERR_NO_MEMORY)?;
         self.formats.push(format);
         self.next_ref.set(next);
         self.changed();
@@ -175,7 +187,9 @@ impl FormatIndex {
             formats: text(spec.formats)?,
             title: text(title)?,
         };
-        self.readers.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        self.readers
+            .try_reserve_exact(1)
+            .map_err(|_| ERR_NO_MEMORY)?;
         self.readers.push(reader);
         self.changed();
         Ok(())
@@ -227,7 +241,46 @@ impl FormatIndex {
         })
     }
 
+    /// Whether the format reads its book with `flags` bit `bit` set.
+    pub(crate) fn has_flag(&self, reference: FormatRef, bit: u32) -> bool {
+        self.find(reference).is_some_and(|f| f.flags & bit != 0)
+    }
+
+    /// Each format reference of the plugin `owner`; nothing changes.
+    pub(crate) fn formats_of(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
+        for format in self.formats.iter().filter(|f| f.plugin == owner) {
+            visit(format.reference);
+        }
+    }
+
+    /// The formats of the plugin `owner` go (it is retiring); `gone` hears
+    /// each reference. Its readers are the next sync's.
+    pub(crate) fn remove_formats_of(&mut self, owner: u64, mut gone: impl FnMut(FormatRef)) {
+        let before = self.formats.len();
+        self.formats.retain(|f| {
+            let mine = f.plugin == owner;
+            if mine {
+                gone(f.reference);
+            }
+            !mine
+        });
+        if self.formats.len() != before {
+            self.changed();
+        }
+    }
+
     /// The format's id, for the host's own use.
+    /// The id of the plugin that declared the format.
+    pub(crate) fn plugin_id(
+        &self,
+        reference: FormatRef,
+        visit: &mut dyn FnMut(&str),
+    ) -> Result<(), i32> {
+        let format = self.find(reference).ok_or(ERR_STATE)?;
+        visit(format.id.get(..format.plugin_len).ok_or(ERR_STATE)?);
+        Ok(())
+    }
+
     pub(crate) fn id(&self, reference: FormatRef, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
         visit(&self.find(reference).ok_or(ERR_STATE)?.id);
         Ok(())
@@ -242,7 +295,7 @@ impl FormatIndex {
         &self,
         path: &str,
         requested: &str,
-        choice: &dyn Fn(&str) -> Option<Box<str>>,
+        choice: &UserChoice<'_>,
     ) -> Result<Option<FormatRef>, i32> {
         if !requested.is_empty() {
             return self.by_id(requested).map(Some).ok_or(ERR_STATE);
@@ -259,15 +312,17 @@ impl FormatIndex {
             return Ok(None);
         }
         let claims = |f: &&Format| extensions_of(&f.extensions).any(|e| e == longest);
-        let chosen = choice(longest);
-        if let Some(wanted) = chosen.as_deref()
-            && let Some(format) = self
+        let mut chosen = None;
+        choice(longest, &mut |wanted| {
+            chosen = self
                 .formats
                 .iter()
                 .filter(claims)
                 .find(|f| &*f.id == wanted)
-        {
-            return Ok(Some(format.reference));
+                .map(|f| f.reference);
+        });
+        if chosen.is_some() {
+            return Ok(chosen);
         }
         // The highest priority; the first loaded among equals (a stable max).
         let mut best: Option<&Format> = None;
@@ -399,6 +454,13 @@ impl FormatIndex {
     }
 }
 
+#[path = "format_index/sync.rs"]
+mod sync;
+
 #[cfg(test)]
 #[path = "format_index_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "format_index/sync_tests.rs"]
+mod sync_tests;

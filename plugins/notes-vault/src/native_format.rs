@@ -1,7 +1,7 @@
 //! The interface-7 `core.format` provider of Markdown notes
 //! (`docs/abi/document.md` section 3): one `fmt.call` in, the op's records
 //! out, over the vault's [`MarkdownDocument`] and the format plugins' shared
-//! provider (`paperpaw_plugin_format_epub::provider`).
+//! provider (`paperpaw_epub_family::provider`).
 //!
 //! A note is read as root 3 (`path ""`) and its conversion is kept in the
 //! document's cache, root 6. What a vault adds (the pictures an embed names
@@ -13,7 +13,7 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 
-use paperpaw_plugin_format_epub::provider::FormatProvider;
+use paperpaw_epub_family::provider::FormatProvider;
 use paperpaw_sdk::document::Document;
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1::{self as stage, Record};

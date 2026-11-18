@@ -1,6 +1,6 @@
 [toolchain]
 # The compiler of PaperPaw's release, as the firmware's and the plugin
-# projects' (shells/xteink, samples/hello-native, tools/plugin-files): the
+# projects' (shells/xteink, tools/plugin-files7): the
 # emulator loads only code plugins of its own compiler, so it is the one
 # authors build with (ADR 0026).
 channel = "1.99.0"

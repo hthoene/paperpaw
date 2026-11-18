@@ -1,0 +1,77 @@
+# Beta 4 suite 08: the plugin manager (Settings > Manage plugins): switch on and off (#279),
+# and the Reading goal's offer "Switch them on" (#279).
+include:common.pps
+
+test:08a-manager-list {
+  call:home
+  call:settings-row:Manage plugins
+  until:Plugins:8000
+  expect:Screens
+  expect:Plugin store
+  expect:PaperPaw
+  expect:Always on
+  # "PaperPaw" cannot be switched off: Select on it changes nothing
+  select:PaperPaw
+  wait:1500
+  expect:Always on
+  no-warn
+}
+
+# On and off, one row: Select switches, the row says "Starts after a restart" / "Applies after a restart".
+test:08b-manager-switch {
+  call:home
+  call:settings-row:Manage plugins
+  until:Plugins:8000
+  select:Reading goal:80
+  wait:1500
+  expect:Applies after a restart
+  select:Reading goal:80
+  wait:1500
+  expect:Reading goal
+  expect-not:Error
+  no-warn
+}
+
+# The cat needs Reading statistics. Where Reading goal is a plugin file on the card (X4), "Switch them on" opens
+# Manage plugins (#279: it may not switch plugins itself); on the emulator it is built in and restarts.
+# Needs Reading statistics OFF (else there is no offer: NOT TESTABLE).
+test:08c-reading-goal-offer {
+  call:home
+  call:settings-row:Manage plugins
+  until:Plugins:8000
+  select:Reading goal:80
+  wait:1500
+  restart
+  wait:4000
+  set:home.page-1=home.clock\,reading-goal.widget
+  call:home
+  confirm
+  wait:1500
+  confirm
+  wait:2500
+  if:not-shows:The cat needs Reading statistics {
+    set:home.page-1=home.clock\, home.continue\, home.recent
+    skip:no offer shown (Reading statistics on?)
+  }
+  expect:Switch them on
+  expect:Not now
+  select:Switch them on
+  if:$target==x4 {
+    until:Screens:15000
+    expect:Plugin store
+    back
+    wait:1500
+  } else {
+    expect-log:restarting:8000
+    wait:5000
+  }
+  # back to how it was
+  set:home.page-1=home.clock\, home.continue\, home.recent
+  call:settings-row:Manage plugins
+  until:Plugins:15000
+  select:Reading goal:80
+  wait:1500
+  restart
+  wait:4000
+  no-warn
+}

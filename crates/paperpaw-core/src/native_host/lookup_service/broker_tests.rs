@@ -17,6 +17,7 @@ fn entry_bytes(provider: &str, text: &str) -> Vec<u8> {
             title: "Word",
             text,
             flags: 0,
+            opens: "",
         }),
         &mut out,
     )
@@ -156,6 +157,7 @@ fn a_providers_own_entry_gets_the_more_bit_of_its_place() {
                     title: "Word",
                     text: "definition",
                     flags,
+                    opens: "",
                 }),
                 &mut bytes,
             )?;
@@ -187,4 +189,36 @@ fn a_providers_own_entry_gets_the_more_bit_of_its_place() {
     let mut out = std::vec![0; 4096];
     let mut short = |_: &str, _: &mut [u8]| Ok(2);
     assert_eq!(page(&["a"], 0, &mut short, &mut out), Err(ERR_INVALID));
+}
+
+#[test]
+fn the_more_bit_is_found_behind_an_opens_of_any_length() {
+    // `opens` ends the entry; its varint length takes one byte up to 127 and
+    // two from 128 (its most), so the flags sit 1 + n or 2 + n before the end.
+    for n in [0, 127, 128] {
+        let opens = "s".repeat(n);
+        let mut answer = |name: &str, out: &mut [u8]| {
+            wire::record_encode_one(
+                &Record::ServiceLookupEntry(wire::ServiceLookupEntry {
+                    provider: name,
+                    title: "Word",
+                    text: "definition",
+                    flags: 2,
+                    opens: &opens,
+                }),
+                out,
+            )
+        };
+        let mut out = std::vec![0; 4096];
+        let length = page(&["a", "b"], 0, &mut answer, &mut out).unwrap();
+        check(&out[..length]).unwrap();
+        let Record::ServiceLookupEntry(e) = wire::record_decode_one(&out[..length]).unwrap() else {
+            panic!("an entry")
+        };
+        assert_eq!(
+            (e.flags, e.opens, e.text),
+            (3, opens.as_str(), "definition"),
+            "{n}"
+        );
+    }
 }

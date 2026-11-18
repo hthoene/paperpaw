@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns:dc="http://purl.org/dc/terms/" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns="http://www.w3.org/2005/Atom">
+  <updated>2024-02-02T10:00:00Z</updated>
+  <id>5a3e</id>
+  <title>All Series</title>
+  <icon>/favicon.ico</icon>
+  <link href="/api/opds/KEY" rel="start" type="application/atom+xml;profile=opds-catalog;kind=navigation" />
+  <link href="/api/opds/KEY/series?pageNumber=2" rel="next" type="application/atom+xml;profile=opds-catalog;kind=navigation" />
+  <link rel="search" type="application/opensearchdescription+xml" title="Search Kavita" href="/api/opds/KEY/search" />
+  <entry>
+    <id>12</id>
+    <title>Berserk, Vol. 1</title>
+    <summary>Guts &amp; Griffith: the &quot;Golden Age&quot;.</summary>
+    <author><name>Miura</name></author>
+    <link href="/api/opds/KEY/series/12" rel="subsection" type="application/atom+xml;profile=opds-catalog;kind=acquisition" />
+    <link href="/api/image/series-cover?seriesId=12&amp;apiKey=KEY" rel="http://opds-spec.org/image" type="image/jpeg" />
+    <link href="/api/image/series-cover?seriesId=12&amp;apiKey=KEY&amp;w=100" rel="http://opds-spec.org/image/thumbnail" type="image/jpeg" />
+  </entry>
+  <entry>
+    <id>vol-1</id>
+    <title>Vol. 1</title>
+    <link href="/api/opds/KEY/series/12/volume/1/download" rel="http://opds-spec.org/acquisition" type="application/zip" />
+    <link href="/api/opds/KEY/series/12/volume/1/download.cbz" rel="http://opds-spec.org/acquisition" type="application/octet-stream" />
+  </entry>
+</feed>

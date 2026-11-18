@@ -1,13 +1,15 @@
 //! The screen lock's native declarations: its page of settings (the kind of
 //! lock, whether waking up asks for it, the touch lock's switch), the lock
 //! screen, the action *Lock now* and the events that lock the device. The
-//! page's icon and the first-run step are declarable but the host refuses them
-//! until it takes icons and setup steps; the menu entries, the input filter and
-//! the status item of the touch lock follow with their host pieces
-//! (`PORTING-7.md`).
+//! first-run step is pending on host setup support. The touch lock's actions,
+//! menu entries, key, status item and input filter (`touch_ui`, `touch_events`)
+//! are declared everywhere (`make` cannot tell whether there is touch): the
+//! entries carry the need for touch, so a device without it shows none, and the
+//! filter passes everything that is not a finger.
+use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Kind,
-    ScreenDecl, SpecDecl,
+    ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl,
+    KeyBindingDecl, Kind, MenuEntryDecl, ScreenDecl, SpecDecl, StatusItemDecl, SubscribeDecl,
 };
 
 /// Callback tokens, as the plugin's callbacks take them.
@@ -16,6 +18,13 @@ pub const STARTED: u32 = 2;
 pub const RESUME: u32 = 3;
 /// The lock screen.
 pub const SCREEN: u32 = 20;
+/// The touch lock: the toggle, *Lock touch* (the entry in the menus), the hint,
+/// the input filter and the status item.
+pub const TOUCH_TOGGLE: u32 = 30;
+pub const TOUCH_LOCK: u32 = 31;
+pub const TOUCH_HINT: u32 = 32;
+pub const TOUCH_FILTER: u32 = 33;
+pub const TOUCH_STATUS: u32 = 34;
 
 /// The page's group, relative to the plugin; in full `lock.group`.
 const GROUP: &str = "group";
@@ -36,6 +45,7 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     let mut group = GroupDecl::new(GROUP, "lock.plugin.name");
     group.order = 92;
     d.group(group)?;
+    d.icon(GROUP_FULL, "lock")?;
     let mut kind = SpecDecl::new(
         "kind",
         Kind::Choice {
@@ -64,6 +74,8 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     let mut touch = SpecDecl::new("touch", Kind::Bool(false), GROUP_FULL, "lock.touch");
     touch.help = "lock.touch.help";
     d.spec(touch)?;
+    // Devices without a touch screen do not show a switch for the touch lock.
+    d.menu_need("lock.touch", MenuNeed::Touch)?;
     d.submit()?;
     Ok(())
 }
@@ -88,6 +100,7 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.action(ActionDecl::new("now", "lock.now", NOW))?;
+    d.icon("lock.now", "lock")?;
     d.submit()?;
     Ok(())
 }
@@ -100,6 +113,56 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Started, STARTED)?;
     d.subscribe_event(EventKind::Resume, RESUME)?;
+    d.submit()?;
+    Ok(())
+}
+
+/// The touch lock's actions, its entries in the quick panel and the reader's
+/// menu, the home key held and the status item. *Lock touch* is an action, not
+/// the setting's switch: a switch leaves the panel open, and a locked touch
+/// cannot close it. The entries need touch.
+pub fn touch_ui<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.action(ActionDecl::new(
+        "touch-toggle",
+        "lock.touch-toggle",
+        TOUCH_TOGGLE,
+    ))?;
+    d.action(ActionDecl::new("touch-lock", "lock.touch", TOUCH_LOCK))?;
+    d.action(ActionDecl::new("touch-hint", "lock.touch-hint", TOUCH_HINT))?;
+    d.icon("lock.touch-toggle", "lock")?;
+    d.icon("lock.touch-lock", "lock")?;
+    // Beside night mode, in the quick panel and the reader's menu.
+    let mut quick = MenuEntryDecl::new("core.quick", "lock.touch-lock");
+    quick.order = 11;
+    d.menu_entry(quick)?;
+    let mut reader = MenuEntryDecl::new("core.reader-menu", "lock.touch-lock");
+    reader.order = 60;
+    d.menu_entry(reader)?;
+    d.menu_need("lock.touch-lock", MenuNeed::Touch)?;
+    d.menu_need("lock.touch-toggle", MenuNeed::Touch)?;
+    // A way out without touch: while it is locked, the home key held (the X4
+    // Pro's key below the screen) unlocks. The power button held does too (the
+    // power plugin).
+    let mut escape = KeyBindingDecl::new("global", "long.home", "lock.touch-toggle");
+    escape.when_key = "lock.touch";
+    escape.when_value = "true";
+    d.key_binding(escape)?;
+    d.status_item(
+        StatusItemDecl::new("touch-status", "lock.touch-status", TOUCH_STATUS)
+            .map_err(|_| DeclareError::Empty("status item"))?,
+    )?;
+    d.submit()?;
+    Ok(())
+}
+
+/// The touch lock's input filter and the status stage it answers.
+pub fn touch_events<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.subscribe(SubscribeDecl::new("core.input-filter", TOUCH_FILTER))?;
+    d.subscribe(SubscribeDecl::new("core.status", TOUCH_STATUS))?;
     d.submit()?;
     Ok(())
 }

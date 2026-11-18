@@ -1,11 +1,12 @@
 use crate::{Messages, Page, Paint, Style, text};
 use alloc::vec::Vec;
+use paperpaw_sdk::native::canvas::PartRole;
 use paperpaw_sdk::{
     Color, Rect,
     native::{
         Error, Host,
         fonts::{Font, TextOrigin},
-        formatting::Arg,
+        formatting::{self, Arg, FormatBuffers},
     },
 };
 #[allow(
@@ -26,20 +27,13 @@ pub fn prepare(
 ) -> Result<(), Error> {
     let area = Rect::new(0, 0, width, s.header);
     let (paper, ink) = if s.dark {
-        (s.ink, s.paper)
+        let bar = s.header_bar();
+        (bar, s.on(bar, s.roles.bar.is_some(), s.paper))
     } else {
         (s.paper, s.ink)
     };
-    page.paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
-    page.paint.push(Paint::Fill(area, paper));
+    background(&mut page.paint, s, area, paper)?;
     let lined = !s.dark && !s.plain && s.separators != "core.separators.none";
-    if lined {
-        page.paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
-        page.paint.push(Paint::Fill(
-            Rect::new(0, s.header.saturating_sub(s.line), width, s.line),
-            s.rule,
-        ));
-    }
     let band = Rect::new(
         0,
         0,
@@ -83,6 +77,15 @@ pub fn prepare(
     } else {
         0.0
     };
+    // The title is the heading: it takes the text drawn next as its label.
+    crate::paint::describe(
+        &mut page.paint,
+        s.describing,
+        PartRole::Heading,
+        band,
+        false,
+        false,
+    )?;
     page.paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
     page.paint.push(Paint::Text {
         text: title,
@@ -99,6 +102,36 @@ pub fn prepare(
     });
     Ok(())
 }
+/// The pager's label (`2 / 5`): said through two small stack buffers, so that a
+/// frame makes no 4 KiB buffer for it; a label that does not fit them (none of
+/// the catalogs' does) is said through `m`.
+fn page_label(
+    host: &Host<'_>,
+    m: &mut Messages,
+    index: usize,
+    count: usize,
+) -> Result<alloc::string::String, Error> {
+    let args = [
+        Arg::Int {
+            name: "page",
+            value: index.saturating_add(1) as i64,
+        },
+        Arg::Int {
+            name: "pages",
+            value: count as i64,
+        },
+    ];
+    let (mut scratch, mut out) = ([0; 96], [0; 128]);
+    let mut buffers = FormatBuffers::new(&mut scratch, &mut out);
+    if let Ok(length) = formatting::format_message(host, "core.page-of", &args, &mut buffers)
+        && let Some(bytes) = out.get(..length)
+        && let Ok(label) = core::str::from_utf8(bytes)
+    {
+        return text::copy(label);
+    }
+    m.format(host, "core.page-of", &args)
+}
+
 #[allow(
     clippy::too_many_arguments,
     reason = "paging geometry and localized label inputs"
@@ -120,20 +153,7 @@ fn pager(
     let mut right = width;
     let reach = ((s.title * 0.38) as i32 * 4 / 5) / 2;
     if count > 1 {
-        let label = m.format(
-            host,
-            "core.page-of",
-            &[
-                Arg::Int {
-                    name: "page",
-                    value: index.saturating_add(1) as i64,
-                },
-                Arg::Int {
-                    name: "pages",
-                    value: count as i64,
-                },
-            ],
-        )?;
+        let label = page_label(host, m, index, count)?;
         let label_width = font.measure_text(s.small, &label)? as u16;
         let next_x = i32::from(width) - i32::from(s.margin) - reach - 1;
         let arrow_width = if touch {
@@ -237,4 +257,62 @@ fn arrow(
         }
     }
     Ok(())
+}
+
+/// The header plate and its separator, as Beta 3: full ink for lines,
+/// an inset tint for inset separators, none for plain or dark headers.
+fn background(paint: &mut Vec<Paint>, s: &Style, area: Rect, paper: Color) -> Result<(), Error> {
+    paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
+    paint.push(Paint::Fill(area, paper));
+    if s.dark || s.plain || s.separators == "core.separators.none" {
+        return Ok(());
+    }
+    let inset = s.separators == "core.separators.inset";
+    let margin = if inset {
+        s.margin.min(area.width / 2)
+    } else {
+        0
+    };
+    let rect = Rect::new(
+        area.x.saturating_add(margin),
+        area.y.saturating_add(area.height).saturating_sub(s.line),
+        area.width.saturating_sub(2 * margin),
+        s.line,
+    );
+    let line = if inset && s.mono {
+        Paint::Stipple(rect, s.rule)
+    } else {
+        Paint::Fill(rect, if inset { s.rule } else { s.ink })
+    };
+    paint.try_reserve(1).map_err(|_| Error::NoMemory)?;
+    paint.push(line);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_light_inset_header_keeps_its_rule_on_monochrome() {
+        let mut s = Style::themed(Color::BLACK, Color::WHITE);
+        s.mono = true;
+        s.rule = Color::gray(150);
+        s.separators = alloc::string::String::from("core.separators.inset");
+        s.margin = 36;
+        s.line = 3;
+        let mut paint = Vec::new();
+        background(&mut paint, &s, Rect::new(0, 0, 480, 58), s.paper).unwrap();
+        assert!(matches!(paint.get(1), Some(Paint::Stipple(rect, ink))
+            if *rect == Rect::new(36, 55, 408, 3) && *ink == s.rule));
+        // A grayscale panel keeps the tint, while plain headers stay bare.
+        s.mono = false;
+        paint.clear();
+        background(&mut paint, &s, Rect::new(0, 0, 480, 58), s.paper).unwrap();
+        assert!(matches!(paint.get(1), Some(Paint::Fill(_, ink)) if *ink == s.rule));
+        s.plain = true;
+        paint.clear();
+        background(&mut paint, &s, Rect::new(0, 0, 480, 58), s.paper).unwrap();
+        assert_eq!(paint.len(), 1);
+    }
 }

@@ -10,7 +10,7 @@ import unittest
 
 SCRIPT = pathlib.Path(__file__).resolve().parent / "check_files.sh"
 # A stand-in for `paperpaw-sign plugin <file>`, which prints what the file says.
-SIGN = '#!/bin/sh\nprintf "chip:        ESP32-C3 (5)\\nfingerprint: 00053e32940609b9\\n"\n'
+SIGN = '#!/bin/sh\nprintf "format:      5 (interface 7)\\nchip:        ESP32-C3 (5)\\n"\n'
 
 
 class CheckFiles(unittest.TestCase):
@@ -25,7 +25,7 @@ class CheckFiles(unittest.TestCase):
         self.sign.chmod(0o755)
         (self.dir / "x-1.0.0-x4.ppn").write_bytes(b"file")
 
-    def run_check(self, chip="5", fingerprint="00053e32940609b9", name="x-1.0.0-x4.ppn"):
+    def run_check(self, chip="5", fingerprint="none", name="x-1.0.0-x4.ppn"):
         return subprocess.run([str(SCRIPT), str(self.dir), str(self.sign), chip, fingerprint, name],
                               capture_output=True, text=True).returncode
 
@@ -34,9 +34,17 @@ class CheckFiles(unittest.TestCase):
 
     def test_another_chip_fingerprint_or_name_fails(self):
         self.assertEqual(self.run_check(chip="9"), 1)
+        # A fingerprint is of the interface before 7, whose files are no longer made.
         self.assertEqual(self.run_check(fingerprint="0005933c6279fe30"), 1)
         self.assertEqual(self.run_check(fingerprint=""), 1)
         self.assertEqual(self.run_check(name="y-1.0.0-x4.ppn"), 1)
+
+    def test_a_file_of_interface_7_has_no_fingerprint_but_says_its_format(self):
+        old = self.sign.parent / "old"
+        old.write_text('#!/bin/sh\nprintf "chip:        ESP32-C3 (5)\\nfingerprint: 00053e32940609b9\\n"\n')
+        old.chmod(0o755)
+        self.sign = old
+        self.assertEqual(self.run_check(), 1)
 
     def test_a_second_file_or_a_link_fails(self):
         (self.dir / "extra.ppn").write_bytes(b"more")

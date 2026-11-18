@@ -56,19 +56,67 @@ pub(super) fn listed_in<'a>(groups: &[Group], setting: &'a Setting) -> &'a str {
     }
 }
 
-/// The groups that hold a listed setting (`advanced_ok`: advanced ones too).
+/// The groups that hold a listed setting (`advanced_ok`: advanced ones too),
+/// found a page of the registry at a time: no list of settings is kept.
 pub(super) fn holding(
     reader: &mut Reader<'_, '_>,
     groups: &[Group],
     cx: Context,
-    all: &[Setting],
     advanced_ok: bool,
 ) -> Result<Vec<String>, Error> {
     let mut found: Vec<String> = Vec::new();
-    for setting in all {
-        let group = listed_in(groups, setting);
-        if !found.iter().any(|g| g == group) && listed(reader, groups, cx, setting, advanced_ok)? {
-            push(&mut found, copy(group)?)?;
+    reader.each_setting(
+        "",
+        Fields::Light,
+        |_| true,
+        |reader, setting| {
+            let group = listed_in(groups, &setting);
+            if !found.iter().any(|g| g == group)
+                && listed(reader, groups, cx, &setting, advanced_ok)?
+            {
+                push(&mut found, copy(group)?)?;
+            }
+            Ok(())
+        },
+    )?;
+    Ok(found)
+}
+
+/// The registry scope that asks for the settings shown in group `of` and no
+/// others (op 1: a group's own settings, not its parts'); empty where `of` is
+/// no group, so that nothing is taken for a plugin's name.
+pub(super) fn scope_of<'a>(groups: &[Group], of: &'a str) -> &'a str {
+    if of == model::OTHER_GROUP || groups.iter().any(|g| g.id == of) {
+        of
+    } else {
+        ""
+    }
+}
+
+/// Whether group `part` or any part of it holds a listed setting: asked of the
+/// registry one group at a time, and no more once one is found, where the
+/// whole list was walked for it.
+pub(super) fn holds(
+    reader: &mut Reader<'_, '_>,
+    groups: &[Group],
+    cx: Context,
+    part: &str,
+) -> Result<bool, Error> {
+    let mut found = false;
+    for g in groups.iter().filter(|g| model::within(groups, &g.id, part)) {
+        reader.each_setting(
+            &g.id,
+            Fields::Light,
+            |_| true,
+            |reader, setting| {
+                if !found && listed(reader, groups, cx, &setting, true)? {
+                    found = true;
+                }
+                Ok(())
+            },
+        )?;
+        if found {
+            break;
         }
     }
     Ok(found)
@@ -90,6 +138,25 @@ pub(super) fn on_off(messages: &mut Messages, host: &Host<'_>, on: bool) -> Resu
     messages.copy(host, if on { "core.on" } else { "core.off" })
 }
 
+/// A list keeps ids in storage and shows their catalogue names in order.
+fn list_value_text(messages: &mut Messages, host: &Host<'_>, value: &str) -> Result<String, Error> {
+    let mut text = String::new();
+    for id in value.split(',').map(str::trim).filter(|id| !id.is_empty()) {
+        let name = translate(messages, host, id)?;
+        text.try_reserve(name.len().saturating_add(2))
+            .map_err(|_| Error::NoMemory)?;
+        if !text.is_empty() {
+            text.push_str(", ");
+        }
+        text.push_str(&name);
+    }
+    if text.is_empty() {
+        messages.copy(host, "core.list.none")
+    } else {
+        Ok(text)
+    }
+}
+
 /// The value of a setting as its row shows it.
 pub(super) fn value_text(
     messages: &mut Messages,
@@ -99,9 +166,12 @@ pub(super) fn value_text(
 ) -> Result<String, Error> {
     let setting = &entry.setting;
     let text = match (&setting.value, editing) {
-        (_, Some(now)) => model::with_unit(now, &entry.detail.unit)?,
+        (_, Some(now)) => messages.with_unit(host, now, &entry.detail.unit)?,
         (Some(Val::Bool(on)), _) => on_off(messages, host, *on)?,
-        (Some(Val::Int(v)), _) => model::with_unit(*v, &entry.detail.unit)?,
+        (Some(Val::Int(v)), _) => messages.with_unit(host, *v, &entry.detail.unit)?,
+        (Some(Val::Text(v)), _) if setting.kind == Kind::List => {
+            list_value_text(messages, host, v)?
+        }
         (Some(Val::Text(v)), _) => match entry.options.iter().find(|(value, _)| value == v) {
             Some((_, name)) => copy(name)?,
             None => copy(v)?,
@@ -151,6 +221,12 @@ impl GroupView {
                 let editing = editing.filter(|e| e.0 == index).map(|e| e.1);
                 let value = value_text(messages, host, entry, editing)?;
                 let mut item = Item::noted(&entry.setting.title, &value, &entry.detail.help)?;
+                // A switch is drawn as one, with its state told as the item's.
+                if let (Kind::Bool, Some(Val::Bool(on)), Item::Row(row)) =
+                    (entry.setting.kind, &entry.setting.value, &mut item)
+                {
+                    row.on = Some(*on);
+                }
                 if self.touch
                     && entry.setting.kind == Kind::Int
                     && entry.detail.editor_kind == 0
@@ -201,28 +277,69 @@ impl GroupView {
     }
 }
 
+/// A row of the main page before it is sorted: its order, whether it is listed
+/// before the entries of the same order, what it opens (none: a heading), and
+/// its title and icon.
+type Placed = (i32, bool, Option<Link>, (String, String));
+
+/// The items of the main page for the rows `placed` (sorted), with what each
+/// opens: headings with nothing under them go.
+fn main_items(
+    host: &Host<'_>,
+    messages: &mut Messages,
+    placed: Vec<Placed>,
+    advanced: bool,
+) -> Result<(Vec<Item>, Vec<Option<Link>>), Error> {
+    let mut keep: Vec<bool> = Vec::new();
+    keep.try_reserve_exact(placed.len())
+        .map_err(|_| Error::NoMemory)?;
+    for i in 0..placed.len() {
+        keep.push(placed[i].2.is_some() || placed.get(i + 1).is_some_and(|next| next.2.is_some()));
+    }
+    let mut items = Vec::new();
+    let mut links = Vec::new();
+    for (i, (_, _, link, (title, icon))) in placed.into_iter().enumerate() {
+        if !keep[i] {
+            continue;
+        }
+        let item = match &link {
+            None => Item::heading(&title)?,
+            Some(Link::Advanced) => Item::row(&title, &on_off(messages, host, advanced)?)?,
+            // The search looks like the field it opens, as it did in Beta 3.
+            Some(Link::Search) => Item::field(&title)?,
+            Some(Link::Reset | Link::Restart) => Item::row(&title, "")?,
+            Some(_) => Item::row(&title, "›")?,
+        };
+        let item = with_icon(host, item, &icon)?;
+        push(&mut items, item)?;
+        push(&mut links, link)?;
+    }
+    Ok((items, links))
+}
+
 /// Builds the main page.
 pub(super) fn build_list(
     host: &Host<'_>,
     reader: &mut Reader<'_, '_>,
     view: &mut ListView,
 ) -> Result<(), Error> {
-    let groups = reader.groups()?;
-    let all = reader.settings("")?;
-    let cx = context(host, false)?;
-    let held = holding(reader, &groups, cx, &all, false)?;
-    let widgets = reader.widget_ids()?;
+    // The secrets are asked first, through the reader's buffers: the service
+    // holds its own while it answers, and the group list is not built yet.
     let pages = reader.menu(model::PAGES_MENU)?;
-    let secrets_kept = crate::native_secrets::shown(host, &pages)?;
+    let secrets_kept = crate::native_secrets::shown(host, &pages, reader.buffers())?;
+    let groups = reader.groups()?;
+    let cx = context(host, false)?;
+    let held = holding(reader, &groups, cx, false)?;
+    let widgets = reader.widget_ids()?;
     let mut messages = Messages::new()?;
     // (order, headings before entries of the same order, link or heading, title)
-    let mut placed: Vec<(i32, bool, Option<Link>, String)> = Vec::new();
+    let mut placed: Vec<Placed> = Vec::new();
     for PageRow {
         action,
         section,
         order,
         title,
-        ..
+        icon,
     } in pages
     {
         // Passwords and keys show once there are some.
@@ -230,7 +347,7 @@ pub(super) fn build_list(
             continue;
         }
         let link = (!section).then_some(Link::Page(action));
-        push(&mut placed, (order, !section, link, title))?;
+        push(&mut placed, (order, !section, link, (title, icon)))?;
     }
     for index in model::main_groups(&groups, &held, |id| widgets.iter().any(|w| w == id))? {
         let g = &groups[index];
@@ -243,7 +360,10 @@ pub(super) fn build_list(
             id: copy(&g.id)?,
             page: copy(&g.page)?,
         };
-        push(&mut placed, (order, true, Some(link), copy(&g.title)?))?;
+        push(
+            &mut placed,
+            (order, true, Some(link), (copy(&g.title)?, copy(&g.icon)?)),
+        )?;
     }
     push(
         &mut placed,
@@ -251,7 +371,7 @@ pub(super) fn build_list(
             i32::MIN,
             true,
             Some(Link::Search),
-            messages.copy(host, "settings.search")?,
+            (messages.copy(host, "settings.search")?, copy("search")?),
         ),
     )?;
     push(
@@ -260,7 +380,7 @@ pub(super) fn build_list(
             i32::MAX,
             true,
             Some(Link::Advanced),
-            messages.copy(host, "settings.advanced")?,
+            (messages.copy(host, "settings.advanced")?, copy("eye")?),
         ),
     )?;
     push(
@@ -269,7 +389,7 @@ pub(super) fn build_list(
             i32::MAX,
             true,
             Some(Link::Reset),
-            messages.copy(host, "settings.reset-all")?,
+            (messages.copy(host, "settings.reset-all")?, copy("refresh")?),
         ),
     )?;
     // Last: what plugins saved goes along, as when the device goes off.
@@ -279,37 +399,27 @@ pub(super) fn build_list(
             i32::MAX,
             true,
             Some(Link::Restart),
-            messages.copy(host, "settings.restart")?,
+            (messages.copy(host, "settings.restart")?, copy("power")?),
         ),
     )?;
     paperpaw_ui_kit::mem::stable_sort_by(&mut placed, |a, b| (a.0, a.1).cmp(&(b.0, b.1)));
-    // Headings with nothing under them go.
-    let mut keep: Vec<bool> = Vec::new();
-    keep.try_reserve_exact(placed.len())
-        .map_err(|_| Error::NoMemory)?;
-    for i in 0..placed.len() {
-        keep.push(placed[i].2.is_some() || placed.get(i + 1).is_some_and(|next| next.2.is_some()));
-    }
-    let advanced = cx.advanced;
-    let mut items = Vec::new();
-    let mut links = Vec::new();
-    for (i, (_, _, link, title)) in placed.into_iter().enumerate() {
-        if !keep[i] {
-            continue;
-        }
-        let item = match &link {
-            None => Item::heading(&title)?,
-            Some(Link::Advanced) => Item::row(&title, &on_off(&mut messages, host, advanced)?)?,
-            Some(Link::Reset | Link::Restart) => Item::row(&title, "")?,
-            Some(_) => Item::row(&title, "›")?,
-        };
-        push(&mut items, item)?;
-        push(&mut links, link)?;
-    }
+    let (items, links) = main_items(host, &mut messages, placed, cx.advanced)?;
     // Made aside; the page changes once it is whole.
     view.links = links;
     view.list.replace(items);
     Ok(())
+}
+
+/// `item` with the icon named `name` at the start of its row, where the host
+/// has an icon font with that icon; a heading or a name that is empty is left
+/// as it is.
+pub(super) fn with_icon(host: &Host<'_>, mut item: Item, name: &str) -> Result<Item, Error> {
+    if !name.is_empty()
+        && let Item::Row(row) = &mut item
+    {
+        row.icon = paperpaw_ui_kit::icons::glyph(host, name)?;
+    }
+    Ok(item)
 }
 
 /// The entry of a page's setting. On a placement's page (`of`, the placement
@@ -343,6 +453,19 @@ fn entry_of(
     })
 }
 
+/// The group the setting `focus` is listed in (the other group where it is not
+/// known).
+fn focus_group(
+    reader: &mut Reader<'_, '_>,
+    groups: &[Group],
+    focus: &str,
+) -> Result<String, Error> {
+    match reader.setting_row(focus, Fields::Light)? {
+        Some(s) => copy(listed_in(groups, &s)),
+        None => copy(model::OTHER_GROUP),
+    }
+}
+
 /// Builds a group's page.
 pub(super) fn build_group(
     host: &Host<'_>,
@@ -350,7 +473,6 @@ pub(super) fn build_group(
     view: &mut GroupView,
 ) -> Result<(), Error> {
     let groups = reader.groups()?;
-    let all = reader.settings("")?;
     let cx = context(host, view.scoped)?;
     let mut messages = Messages::new()?;
     // A placement's page (`widgets.clock@2`) shows the settings of its widget's
@@ -360,10 +482,7 @@ pub(super) fn build_group(
         copy(base)?
     } else if view.group.is_empty() {
         // A setting to focus, on its own group's page.
-        match all.iter().find(|s| s.key == view.focus) {
-            Some(s) => copy(listed_in(&groups, s))?,
-            None => copy(model::OTHER_GROUP)?,
-        }
+        focus_group(reader, &groups, &view.focus)?
     } else {
         copy(&view.group)?
     };
@@ -378,19 +497,19 @@ pub(super) fn build_group(
     } else {
         Vec::new()
     };
-    let title = match groups.iter().find(|g| g.id == of) {
-        Some(g) => copy(&g.title)?,
-        None => String::new(),
-    };
-    let title = if view.more {
-        concat(&[&title, " · ", &messages.copy(host, "settings.more")?])?
-    } else {
-        title
-    };
+    let title = page_title(host, &groups, &of, view.more, &mut messages)?;
+    // The settings of the page's group, and only those are read.
+    let mut mine: Vec<Setting> = Vec::new();
+    reader.each_setting(
+        scope_of(&groups, &of),
+        Fields::Full,
+        |row| model::in_group(&groups, row.group(), &of),
+        |_, s| push(&mut mine, s),
+    )?;
     // The page's settings: the basic ones, or the advanced ones alone.
     let mut specs: Vec<&Setting> = Vec::new();
     let mut advanced_offered = false;
-    for s in all.iter().filter(|s| model::group_is(&groups, s, &of)) {
+    for s in &mine {
         if view.more {
             if s.has(flag::ADVANCED) && listed(reader, &groups, cx, s, true)? {
                 push(&mut specs, s)?;
@@ -404,15 +523,13 @@ pub(super) fn build_group(
     }
     // A page with nothing basic shows its advanced settings at once.
     if specs.is_empty() && !view.more {
-        for s in all
-            .iter()
-            .filter(|s| model::group_is(&groups, s, &of) && s.has(flag::ADVANCED))
-        {
+        for s in mine.iter().filter(|s| s.has(flag::ADVANCED)) {
             if listed(reader, &groups, cx, s, true)? {
                 push(&mut specs, s)?;
             }
         }
     }
+    font_first(&mut specs, &of);
     let has_more = !view.more && advanced_offered && !specs.iter().any(|s| s.has(flag::ADVANCED));
     let mut pool: Vec<Option<Entry>> = Vec::new();
     for s in &specs {
@@ -423,10 +540,18 @@ pub(super) fn build_group(
         host,
         reader,
         view,
-        (&groups, cx, &all, &of),
+        (&groups, cx, &of),
         pool,
         (has_more, !specs.is_empty()),
     )?;
+    // What the settings do, above them (a sample of text for the reading
+    // settings): from a widget that previews the group or the group it is a part
+    // of; its room is the list's (`preview.rs`).
+    let preview = if view.more || placement.is_some() {
+        None
+    } else {
+        previewing(reader, &groups, &of)?
+    };
     // Everything is made aside; the view changes once it is whole, so a
     // refusal leaves the rows and the items they belong to as they were.
     let items = view.items_for(host, (&rows, &entries), view.shown_editing())?;
@@ -436,18 +561,100 @@ pub(super) fn build_group(
             .is_some_and(|e| e.setting.key == view.focus),
         _ => false,
     });
+    let first_setting = (view.rows.is_empty())
+        .then(|| first_real_setting(&group, &rows))
+        .flatten();
     view.group = group;
     view.title = title;
+    view.preview = preview;
     view.rows = rows;
     view.entries = entries;
     view.list.replace(items);
+    if view.preview.is_some() {
+        view.list
+            .set_head(&messages.copy(host, "settings.preview")?)?;
+    }
     if !view.focus.is_empty() {
         if let Some(at) = focus {
             view.list.set_focus(at);
         }
         view.focus = String::new();
+    } else if let Some(at) = first_setting {
+        view.list.set_focus(at);
     }
     Ok(())
+}
+
+/// A widget's font is what its page is opened for as often as not: first,
+/// not after the widget's own settings (a page or two of buttons away).
+fn font_first(specs: &mut [&Setting], of: &str) {
+    if let Some(at) = specs.iter().position(|s| is_font_of(of, &s.key)) {
+        specs[..=at].rotate_right(1);
+    }
+}
+
+/// Whether `key` is the font setting of widget `of` (`<widget>.font`).
+fn is_font_of(of: &str, key: &str) -> bool {
+    key.strip_prefix(of).is_some_and(|rest| rest == ".font")
+}
+
+/// The title of the page of group `of`, with "More" after it for its
+/// advanced settings.
+fn page_title(
+    host: &Host<'_>,
+    groups: &[Group],
+    of: &str,
+    more: bool,
+    messages: &mut Messages,
+) -> Result<String, Error> {
+    let title = match groups.iter().find(|g| g.id == of) {
+        Some(g) => copy(&g.title)?,
+        None => String::new(),
+    };
+    if more {
+        concat(&[&title, " · ", &messages.copy(host, "settings.more")?])
+    } else {
+        Ok(title)
+    }
+}
+
+/// The widget that previews `group`, or the group it is a part of. A registry
+/// that cannot say leaves the page without one; only a full heap is an error.
+fn previewing(
+    reader: &mut Reader<'_, '_>,
+    groups: &[Group],
+    group: &str,
+) -> Result<Option<String>, Error> {
+    let parent = groups
+        .iter()
+        .find(|g| g.id == group)
+        .map(|g| g.parent.as_str())
+        .filter(|parent| !parent.is_empty());
+    for id in core::iter::once(group).chain(parent) {
+        match reader.previewing(id) {
+            Ok(Some(widget)) => return Ok(Some(widget)),
+            Ok(None) => {}
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => return Ok(None),
+        }
+    }
+    Ok(None)
+}
+
+/// The row a page opens its focus on when an action another plugin added
+/// stands above its settings (as Discover fonts): its first setting. A group's
+/// own action (Mail's *Open mail*) is the page's first row, so none then.
+fn first_real_setting(group: &str, rows: &[Row]) -> Option<usize> {
+    let own = group.split('.').next().unwrap_or_default();
+    let foreign_first = matches!(
+        rows.first(),
+        Some(Row::Action(action, ..)) if action.split('.').next().unwrap_or_default() != own
+    );
+    if foreign_first {
+        rows.iter().position(|r| matches!(r, Row::Setting(_)))
+    } else {
+        None
+    }
 }
 
 /// The rows of a group's page from its settings: parts, actions, themes, the
@@ -456,7 +663,7 @@ pub(super) fn page_rows(
     host: &Host<'_>,
     reader: &mut Reader<'_, '_>,
     view: &GroupView,
-    (groups, cx, all, of): (&[Group], Context, &[Setting], &str),
+    (groups, cx, of): (&[Group], Context, &str),
     mut pool: Vec<Option<Entry>>,
     (has_more, has_specs): (bool, bool),
 ) -> Result<(Vec<Row>, Vec<Entry>), Error> {
@@ -466,9 +673,8 @@ pub(super) fn page_rows(
     // A placement's page has no parts, actions or themes: those are the group's.
     if !view.more && model::unplaced(&view.group).is_none() {
         // Its parts, each a page of its own, where they hold something.
-        let held = holding(reader, groups, cx, all, true)?;
         for g in groups.iter().filter(|g| g.parent == of) {
-            if held.iter().any(|h| model::within(groups, h, &g.id)) {
+            if holds(reader, groups, cx, &g.id)? {
                 push(&mut rows, Row::Part(copy(&g.id)?, copy(&g.title)?))?;
             }
         }
@@ -553,17 +759,15 @@ pub(super) fn build_choose(
     reader: &mut Reader<'_, '_>,
     view: &mut ChooseView,
 ) -> Result<(), Error> {
-    let all = reader.settings("")?;
     // A placement's setting is chosen among the options of the setting it
     // stands for; its value is its own.
     let base = match model::unplaced_key(&view.key)? {
         Some(base) => base,
         None => copy(&view.key)?,
     };
-    let Some(setting) = all.iter().find(|s| s.key == base) else {
+    let Some(title) = reader.setting_row(&base, Fields::Full)?.map(|s| s.title) else {
         return Ok(());
     };
-    let title = copy(&setting.title)?;
     let options = reader.choices(&base)?;
     // More ways to choose: the entries of the menu named like the setting.
     let mut more = Vec::new();
@@ -602,26 +806,31 @@ pub(super) fn build_choose(
 /// gives values (what the reader needs to read at all is kept), or the
 /// settings of every widget's frame, room, sizes and colours.
 pub(super) fn look_settings(reader: &mut Reader<'_, '_>, look: Look) -> Result<Vec<String>, Error> {
-    let all = reader.settings("")?;
     let mut keys = Vec::new();
     if look == Look::Widgets {
         let widgets = reader.widget_ids()?;
-        for s in all
-            .iter()
-            .filter(|s| model::widget_look_covers(&s.key, &widgets))
-        {
-            push(&mut keys, copy(&s.key)?)?;
-        }
+        reader.each_setting(
+            "",
+            Fields::Light,
+            |row| model::widget_look_covers(row.key(), &widgets),
+            |_, s| push(&mut keys, s.key),
+        )?;
         return Ok(keys);
     }
     let groups = reader.groups()?;
-    for s in &all {
-        if model::within(&groups, listed_in(&groups, s), LOOK_GROUP)
-            && !THEME_KEPT.contains(&s.key.as_str())
-        {
-            push(&mut keys, copy(&s.key)?)?;
-        }
-    }
+    reader.each_setting(
+        "",
+        Fields::Light,
+        |_| true,
+        |_, s| {
+            if model::within(&groups, listed_in(&groups, &s), LOOK_GROUP)
+                && !THEME_KEPT.contains(&s.key.as_str())
+            {
+                push(&mut keys, s.key)?;
+            }
+            Ok(())
+        },
+    )?;
     Ok(keys)
 }
 
@@ -641,7 +850,15 @@ pub(super) fn build_themes(
         push(&mut themes, (id, name))?;
     }
     let covered = look_settings(reader, view.look)?;
-    let all = reader.settings("")?;
+    // Only the covered settings are read (their values and whether they are
+    // the defaults).
+    let mut all: Vec<Setting> = Vec::new();
+    reader.each_setting(
+        "",
+        Fields::Full,
+        |row| covered.iter().any(|key| key == row.key()),
+        |_, s| push(&mut all, s),
+    )?;
     let mut in_use: Option<usize> = None;
     // None: every covered setting has its default.
     if all
@@ -687,30 +904,35 @@ pub(super) fn build_search(
         return Ok(());
     }
     let groups = reader.groups()?;
-    let all = reader.settings("")?;
     let cx = context(host, false)?;
-    for s in &all {
-        if !listed(reader, &groups, cx, s, false)? {
-            continue;
-        }
-        let help = reader.detail(&s.key)?.help;
-        if !model::matches(&concat(&[&s.title, " ", &help])?, &words)? {
-            continue;
-        }
-        let group = listed_in(&groups, s);
-        let note = groups
-            .iter()
-            .find(|g| g.id == group)
-            .map_or("", |g| g.title.as_str());
-        push(&mut items, Item::noted(&s.title, "›", note)?)?;
-        push(
-            &mut hits,
-            Target::Setting {
-                group: copy(group)?,
-                key: copy(&s.key)?,
-            },
-        )?;
-    }
+    // Page by page: the settings that match are kept, no others.
+    reader.each_setting(
+        "",
+        Fields::Full,
+        |_| true,
+        |reader, s| {
+            if !listed(reader, &groups, cx, &s, false)? {
+                return Ok(());
+            }
+            let help = reader.detail(&s.key)?.help;
+            if !model::matches(&concat(&[&s.title, " ", &help])?, &words)? {
+                return Ok(());
+            }
+            let group = listed_in(&groups, &s);
+            let note = groups
+                .iter()
+                .find(|g| g.id == group)
+                .map_or("", |g| g.title.as_str());
+            push(&mut items, Item::noted(&s.title, "›", note)?)?;
+            push(
+                &mut hits,
+                Target::Setting {
+                    group: copy(group)?,
+                    key: s.key,
+                },
+            )
+        },
+    )?;
     let mut messages = Messages::new()?;
     let settings_title = messages.copy(host, "settings.title")?;
     for page in reader.menu(model::PAGES_MENU)? {

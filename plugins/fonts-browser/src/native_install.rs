@@ -4,11 +4,14 @@
 //! there the host is asked to install the folder (`command.install_plugin`: it
 //! asks the user, decision 132); removing asks the host too (it asks the user,
 //! decision 124). The ends come as `http_done` and `install_done`.
-use super::{DOWNLOADED_FILE, FONT, INSTALL_REQUEST, NativeFontsBrowser, REMOVE_REQUEST, View};
+use super::{
+    DOWNLOADED_FILE, FONT, INSTALL_REQUEST, LIST, NativeFontsBrowser, REMOVE_REQUEST, View,
+};
 use crate::{
     native_catalog::Font,
     native_job::{self, Job},
     native_plan::Plan,
+    native_view::Running,
 };
 use paperpaw_sdk::native::{
     Error, Host,
@@ -34,6 +37,16 @@ impl NativeFontsBrowser {
         if self.job.is_some() {
             return Self::say(host, "fonts-browser.busy", &font.name);
         }
+        if !self.has_network(host)? {
+            return Self::tell(host, "fonts-browser.offline");
+        }
+        // Offline mode: the user is asked first, once, in place of the rows.
+        if !self.decided() && self.in_offline_mode(host)? {
+            if let Some(View::Font(view)) = self.screens.top(FONT) {
+                view.offer = Some(update);
+            }
+            return self.refresh(host);
+        }
         let outlines = self.outlines(host)?;
         let Some(plan) = Plan::new(font, outlines)? else {
             return Self::say(host, "fonts-browser.failed", &font.name);
@@ -52,6 +65,26 @@ impl NativeFontsBrowser {
             };
         }
         self.refresh(host)
+    }
+
+    /// Whether the user went online for the page of the font on top.
+    fn decided(&mut self) -> bool {
+        matches!(self.screens.top(FONT), Some(View::Font(view)) if view.decided)
+    }
+
+    /// The download going on, as the screens show it.
+    pub(super) fn running(&self) -> Result<Option<Running>, Error> {
+        self.job
+            .as_ref()
+            .map(|job| {
+                Ok(Running {
+                    plugin: copy(&job.plan.plugin)?,
+                    done: job.done(),
+                    total: job.total(),
+                    installing: job.installing(),
+                })
+            })
+            .transpose()
     }
 
     /// Asks for the file the job is at.
@@ -95,7 +128,8 @@ impl NativeFontsBrowser {
             if self.request_file(host).is_err() {
                 return self.fail(host);
             }
-            return Ok(());
+            // The pages say how far it is.
+            return self.refresh(host);
         }
         self.install(host)
     }
@@ -205,6 +239,13 @@ impl NativeFontsBrowser {
         Ok(())
     }
 
+    /// Says `key` as it is.
+    fn tell(host: &Host<'_>, key: &str) -> Result<(), Error> {
+        let text = Messages::new()?.copy(host, key)?;
+        let mut scratch = [0; 384];
+        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
+    }
+
     /// Says `key` of `name`.
     fn say(host: &Host<'_>, key: &str, name: &str) -> Result<(), Error> {
         let text = Messages::new()?.format(
@@ -219,20 +260,30 @@ impl NativeFontsBrowser {
         CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
     }
 
-    /// The page of the font on top shows what can be done now.
+    /// The pages show what can be done now: the font on top, and the list's
+    /// states (installed, reading, how far a download is).
     pub(super) fn refresh(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        // No page of this plugin open: nothing is read (the registry's 4 KiB)
+        // nor drawn, as when a store install changes the plugins.
+        if self.screens.top(FONT).is_none() && self.screens.top(LIST).is_none() {
+            return Ok(());
+        }
         let installed = self.installed(host)?;
-        let downloading = self
-            .job
-            .as_ref()
-            .map(|job| copy(&job.plan.plugin))
-            .transpose()?;
+        let running = self.running()?;
         if let Some(View::Font(view)) = self.screens.top(FONT) {
-            let font = view.font.take();
-            let installing = self.job.as_ref().is_some_and(Job::installing);
-            let fresh =
-                Self::font_view(host, font, &installed, downloading.as_deref(), installing)?;
+            let font = view.font.as_ref().map(Font::try_clone).transpose()?;
+            let (offer, decided) = (view.offer, view.decided);
+            let mut fresh =
+                Self::font_view(host, font, &installed, running.as_ref(), offer.is_some())?;
+            fresh.offer = offer;
+            fresh.decided = decided;
             *view = fresh;
+        }
+        if let Some(View::List(view)) = self.screens.top(LIST)
+            && !view.fonts.is_empty()
+        {
+            let items = Self::font_items(host, &view.fonts, &installed, running.as_ref())?;
+            view.list.replace(items);
         }
         let mut scratch = [0; 64];
         CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)

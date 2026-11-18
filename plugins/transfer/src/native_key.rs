@@ -25,18 +25,27 @@ pub type Draw<'a> = dyn FnMut(&mut [u8]) -> Result<bool, Error> + 'a;
 /// # Errors
 /// `NoMemory`, or what `draw` says (`Unsupported` where there is no source).
 pub fn key(draw: &mut Draw<'_>) -> Result<Option<String>, Error> {
+    letters(draw, LETTERS)
+}
+
+/// `count` letters of the same kind (the password of the reader's own network
+/// is 15 of them), at most [`LETTERS`] times two.
+///
+/// # Errors
+/// As [`key`].
+pub fn letters(draw: &mut Draw<'_>, count: usize) -> Result<Option<String>, Error> {
+    let count = count.min(LETTERS * 2);
     let letters = READABLE.as_bytes();
     // Bytes below the last whole multiple of the letters, so that each letter
     // is as likely.
     let below = 256 - 256 % letters.len();
     let mut out = String::new();
-    out.try_reserve_exact(LETTERS)
-        .map_err(|_| Error::NoMemory)?;
-    let mut bytes = buffer(LETTERS * 2)?;
+    out.try_reserve_exact(count).map_err(|_| Error::NoMemory)?;
+    let mut bytes = buffer(count * 2)?;
     let mut strong = true;
     let mut failed = None;
     for _ in 0..DRAWS {
-        if out.len() == LETTERS {
+        if out.len() == count {
             break;
         }
         match draw(&mut bytes) {
@@ -47,7 +56,7 @@ pub fn key(draw: &mut Draw<'_>) -> Result<Option<String>, Error> {
             }
         }
         for &byte in &bytes {
-            if out.len() < LETTERS && usize::from(byte) < below {
+            if out.len() < count && usize::from(byte) < below {
                 out.push(char::from(letters[usize::from(byte) % letters.len()]));
             }
         }
@@ -57,7 +66,7 @@ pub fn key(draw: &mut Draw<'_>) -> Result<Option<String>, Error> {
         wipe_text(out);
         return Err(error);
     }
-    if strong && out.len() == LETTERS {
+    if strong && out.len() == count {
         Ok(Some(out))
     } else {
         wipe_text(out);
@@ -72,6 +81,8 @@ mod tests {
     use paperpaw_sdk::random::Random;
 
     static COUNT: AtomicUsize = AtomicUsize::new(0);
+    /// The tests share `COUNT`: one draws at a time (they run in parallel).
+    static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn byte(i: usize) -> u8 {
         (i as u8).wrapping_mul(97).wrapping_add(13)
@@ -86,6 +97,9 @@ mod tests {
             }
             true
         });
+        let _one = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         COUNT.store(0, Ordering::SeqCst);
         let sdk = paperpaw_sdk::served::key(&random).unwrap();
         let mut at = 0;
@@ -100,6 +114,32 @@ mod tests {
         assert_eq!(native, sdk);
         assert_eq!(native.len(), paperpaw_sdk::served::KEY_LETTERS);
         assert!(native.chars().all(|c| READABLE.contains(c)));
+    }
+
+    /// The password of the own network is the SDK's `readable(15)` from the same bytes.
+    #[test]
+    fn the_password_is_the_one_the_sdk_draws_from_the_same_bytes() {
+        let random = Random::new(|buf| {
+            for slot in buf.iter_mut() {
+                *slot = byte(COUNT.fetch_add(1, Ordering::SeqCst));
+            }
+            true
+        });
+        let _one = ONE_AT_A_TIME
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        COUNT.store(0, Ordering::SeqCst);
+        let sdk = random.readable(15).unwrap();
+        let mut at = 0;
+        let mut draw = |buf: &mut [u8]| {
+            for slot in buf.iter_mut() {
+                *slot = byte(at);
+                at += 1;
+            }
+            Ok(true)
+        };
+        let native = letters(&mut draw, 15).unwrap().unwrap();
+        assert_eq!((native.len(), native.as_str()), (15, sdk.as_str()));
     }
 
     #[test]

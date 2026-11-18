@@ -18,7 +18,9 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use paperpaw_core::{Effects, HttpResponse, Io, Kernel};
+mod native_activation;
+
+use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, FrameView, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
@@ -130,31 +132,14 @@ fn storage() -> MemoryStorage {
     storage
 }
 
-/// The store's list: plugins of a few groups.
-fn catalogue() -> String {
-    let groups = ["reading", "library", "tools", "looks"];
-    let entries: Vec<String> = (0..40)
-        .map(|n| {
-            let group = groups[n % groups.len()];
-            format!(
-                r#"{{"id": "plugin-{n:02}", "name": "Plugin {n:02}", "summary": "Does {n}.",
-  "group": "{group}", "author": "Someone", "licence": "MIT", "kind": "data",
-  "added": "2026-01-01", "latest": {{"version": "1.0.0", "sdk": "0.4", "formats": 1,
-  "size": 1000, "date": "2026-01-01"}}}}"#
-            )
-        })
-        .collect();
-    format!(r#"{{"format": 2, "plugins": [{}]}}"#, entries.join(", "))
-}
-
 impl App {
     fn new() -> Self {
-        let builder = Kernel::builder(DEVICE)
-            .storage(storage())
-            .network(true)
-            .catalog_device("x4")
-            .user_config("[core]\nlanguage = en\n");
-        let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+        // The help's hints off; built without the X4's Wi-Fi (`build`, not
+        // `build_on`): the store's partial redraws are measured without it.
+        let (builder, _card) =
+            native_activation::quiet_on(DEVICE, storage(), "[core]\nlanguage = en\n");
+        let builder = builder.network(true).catalog_device("x4");
+        let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
         let effects = kernel.start(Instant(0));
         let pixels = usize::from(DEVICE.display.width) * usize::from(DEVICE.display.height);
         let mut app = Self {
@@ -179,6 +164,8 @@ impl App {
                 break;
             }
             self.now = self.now.max(at.0);
+            // The native host's work clock: declared work falls due with it.
+            native_activation::set_clock(self.now);
             effects = self.kernel.tick(Instant(self.now));
         }
         let panel = &mut self.panel;
@@ -200,36 +187,6 @@ impl App {
         self.now += 100;
         let effects = self.kernel.open_slot(Instant(self.now), slot, params);
         self.settle(effects);
-    }
-
-    /// Answers every web request asked for now: the store's list with
-    /// [`catalogue`], anything else not found.
-    fn answer(&mut self) {
-        let calls: Vec<_> = self
-            .kernel
-            .take_io()
-            .into_iter()
-            .filter_map(|io| match io {
-                Io::Http(call) => Some(call),
-                _ => None,
-            })
-            .collect();
-        for call in calls {
-            let list = call.url.contains("/api/v1/plugins.json");
-            let response = HttpResponse {
-                id: call.id,
-                status: if list { 200 } else { 404 },
-                body: if list {
-                    catalogue().into_bytes()
-                } else {
-                    Vec::new()
-                },
-                ..HttpResponse::default()
-            };
-            self.now += 100;
-            let effects = self.kernel.http_response(Instant(self.now), response);
-            self.settle(effects);
-        }
     }
 
     /// The parts the screen shows, and whether each has the focus.
@@ -363,6 +320,10 @@ impl App {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn settings_lists_drawn_in_part_show_what_a_whole_frame_does() {
     let mut app = App::new();
     app.run(actions::SETTINGS);
@@ -379,6 +340,10 @@ fn settings_lists_drawn_in_part_show_what_a_whole_frame_does() {
     app.walk(14, "a part of Reading");
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn home_grid() {
     let mut app = App::new();
@@ -390,6 +355,10 @@ fn home_grid() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn main_menu_and_tools() {
     let mut app = App::new();
     app.run(actions::MENU);
@@ -402,6 +371,10 @@ fn main_menu_and_tools() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader (`native-linked-reading`): the interface-6 reader is removed (#244)"
+)]
 fn table_of_contents() {
     let mut app = App::new();
     app.open_slot(slots::READER, Params::new().with(params::PATH, BOOK));
@@ -410,23 +383,19 @@ fn table_of_contents() {
     app.walk(14, "table of contents");
 }
 
-#[test]
-fn store() {
-    let mut app = App::new();
-    app.run(Id::new_static("store.open"));
-    app.answer();
-    app.opened("the store");
-    app.walk(10, "store");
-    // A group of it, past the search and the new ones.
-    app.run(actions::DOWN);
-    app.run(actions::DOWN);
-    app.run(actions::CONFIRM);
-    app.answer();
-    app.opened("a part of the store");
-    app.walk(10, "a part of the store");
-}
+// The store's list drawn in part is covered by
+// `the_list_of_the_store_is_drawn_in_part_as_it_is_drawn_whole` in
+// `shells/desktop/tests/store_native.rs` (this harness wires the network offline).
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+)]
 fn quick_panel() {
     let mut app = App::new();
     app.run(actions::QUICK_PANEL);
@@ -434,13 +403,25 @@ fn quick_panel() {
     app.walk_grid(6, "quick panel");
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn widget_editors() {
     let mut app = App::new();
     app.run(Id::new_static("home.edit-pages"));
     app.opened("home, edited");
     app.walk_grid(6, "home, edited");
-    app.run(actions::BACK);
+}
+
+#[test]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the sleep screen, which offers the place of widgets, is a native plugin only (#244): run it with `native-linked`"
+)]
+fn sleep_widget_editor() {
+    let mut app = App::new();
     app.open_slot(
         slots::EDIT_WIDGETS,
         Params::new().with(params::ID, "sleep.widgets"),
@@ -450,6 +431,10 @@ fn widget_editors() {
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked"),
+    ignore = "the interface-6 Settings and menu it uses are removed (#244): run it with `native-linked`"
+)]
 fn keyboard() {
     let mut app = App::new();
     app.run(actions::SETTINGS);
@@ -469,7 +454,15 @@ const NOT_SWEPT: &[&str] = &["reader.screen", "reader.app"];
 /// Every screen the app's plugins add, opened alone and stepped through
 /// with the buttons: what the panel shows stays what a whole frame does,
 /// and a step within a page draws little.
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
+#[cfg_attr(
+    feature = "native-linked",
+    ignore = "waits for the native settings, help, lock, files and file-manager plugins: core.secrets, document/library/files services (desktop) and event 87 (#925)"
+)]
 fn every_screen() {
     let screens: Vec<Id> = App::new().kernel.known_screens().cloned().collect();
     let mut failed = Vec::new();

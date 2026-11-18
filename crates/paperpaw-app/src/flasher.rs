@@ -2,8 +2,8 @@
 //! hash-checked by the shell: checked here and marked for the kernel to
 //! install. Marks take effect only after the folder is in place.
 
+use paperpaw_core::kit::install::marks::{self, From, Marks};
 use paperpaw_core::sdk as paperpaw_sdk;
-use paperpaw_sdk::install::marks::{self, From, Marks};
 use paperpaw_sdk::native::{self, Author};
 use paperpaw_sdk::{Storage, Version};
 
@@ -30,15 +30,16 @@ pub fn prepare(
     version: &str,
 ) -> Result<(), Problem> {
     let version = Version::parse(version).ok_or(Problem::Damaged)?;
-    if paperpaw_sdk::install::folder_version(storage, folder) != Some(version) {
+    if paperpaw_core::kit::install::folder_version(storage, folder) != Some(version) {
         return Err(Problem::Damaged);
     }
     let mut marks = Marks::new(From::Store(version));
     let code = alloc::format!("{folder}/code.ppn");
     if storage.exists(&code) {
-        let (header, signature) =
-            native::check_file(storage, &code).map_err(|_| Problem::Damaged)?;
-        marks = marks.code(header.sha256);
+        // An interface-7 file (format 5) or one of the format before.
+        let (sha256, signature) =
+            native::check_code(storage, &code).map_err(|_| Problem::Damaged)?;
+        marks = marks.code(sha256);
         match signature {
             Some(signature) => match native::author(storage, plugin, &signature.key) {
                 Author::Known => {}
@@ -56,7 +57,7 @@ pub fn prepare(
 mod tests {
     use super::*;
     use paperpaw_core::Kernel;
-    use paperpaw_sdk::install::{Origin, origin};
+    use paperpaw_core::kit::install::{Origin, origin};
     use paperpaw_sdk::{Id, MemoryStorage};
 
     const DEVICE: paperpaw_platform::DeviceInfo = paperpaw_platform::DeviceInfo::new(
@@ -91,8 +92,52 @@ mod tests {
         assert_eq!(origin(kernel.storage(), "dusk", version), Origin::Store);
         assert!(!kernel.storage().exists("plugins/dusk/.install-marks"));
         assert_eq!(
-            paperpaw_sdk::install::Origins::read(kernel.storage()).release("dusk", version),
+            paperpaw_core::kit::install::Origins::read(kernel.storage()).release("dusk", version),
             Some("1.2.0-beta.2")
+        );
+    }
+
+    /// A code plugin of the web flasher's bundle is an interface-7 file
+    /// (format 5) from Beta 4 on: it is checked whole as the format before
+    /// was, and once the kernel placed its folder its code is the code
+    /// installed (only installed code is loaded).
+    #[test]
+    fn an_interface_7_code_plugin_of_the_bundle_is_installed() {
+        const FILE: &[u8] = include_bytes!("../../paperpaw-native/tests/data/abi7-x4-min.ppn");
+        let sha256: [u8; 32] = FILE[64..96].try_into().unwrap();
+        let storage = MemoryStorage::new().with(
+            "plugins/.clock.part/plugin.ini",
+            "[plugin]\nid = clock\nversion = 1.0.0\n",
+        );
+        storage.write("plugins/.clock.part/code.ppn", FILE).unwrap();
+        assert_eq!(
+            prepare(&storage, "clock", "plugins/.clock.part", "1.0.0"),
+            Ok(())
+        );
+        assert_eq!(native::installed_code(&storage, "clock"), None);
+        let kernel = Kernel::builder(DEVICE)
+            .storage(storage)
+            .install_plugin(Id::new_static("clock"), "plugins/.clock.part")
+            .build()
+            .unwrap();
+        assert!(kernel.storage().exists("plugins/clock/code.ppn"));
+        assert_eq!(
+            native::installed_code(kernel.storage(), "clock"),
+            Some(sha256)
+        );
+        // A byte changed after the header: its digest no longer holds.
+        let mut changed = FILE.to_vec();
+        *changed.last_mut().unwrap() ^= 1;
+        let storage = MemoryStorage::new().with(
+            "plugins/.clock.part/plugin.ini",
+            "[plugin]\nid = clock\nversion = 1.0.0\n",
+        );
+        storage
+            .write("plugins/.clock.part/code.ppn", &changed)
+            .unwrap();
+        assert_eq!(
+            prepare(&storage, "clock", "plugins/.clock.part", "1.0.0"),
+            Err(Problem::Damaged)
         );
     }
 
@@ -127,7 +172,7 @@ mod tests {
             "[plugin]\nid = dusk\nversion = 1.0.0\n",
         );
         let version = Version::new(1, 0, 0);
-        paperpaw_sdk::install::remember_store_install(&storage, "dusk", version);
+        paperpaw_core::kit::install::remember_store_install(&storage, "dusk", version);
         marks::write(&storage, "plugins/dusk", &Marks::new(From::Local)).unwrap();
         marks::settle(&storage, "dusk", "plugins/dusk");
         assert_eq!(origin(&storage, "dusk", version), Origin::Local);

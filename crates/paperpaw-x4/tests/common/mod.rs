@@ -9,7 +9,7 @@ pub const FLASH: usize = 16 * 1024 * 1024;
 
 /// CrossPoint's `partitions.csv` (github.com/daveallie/crosspoint-reader),
 /// the Arduino layout of 16 MB.
-const CROSSPOINT: &str = "\
+pub const CROSSPOINT: &str = "\
 nvs,      data, nvs,     0x9000,  0x5000,
 otadata,  data, ota,     0xe000,  0x2000,
 app0,     app,  ota_0,   0x10000, 0x640000,

@@ -1,0 +1,360 @@
+//! The store's three views of the host, over one set of service handles: what
+//! the fetch of the list and of a page needs ([`HostWire`], `native_load::Wire`),
+//! what the download of a plugin's files needs ([`DownloadWire`],
+//! `native_download::Wire`) and what the install sends the host
+//! ([`InstallWire`], `native_install::Wire`). Each is made for the length of one
+//! callback; the handles live in the plugin.
+//!
+//! **Memory:** `core.net` is opened when first needed; a request is written
+//! from a block of [`REQUEST_INPUT`] bytes and answered into [`REPLY`] bytes,
+//! both freed when the call returns; an install's batch (the install, the
+//! author's record and up to six rotations) needs about a kilobyte of scratch,
+//! the revocations 4 KiB, each held for one call.
+use alloc::{string::String, vec::Vec};
+use paperpaw_sdk::Storage;
+use paperpaw_sdk::native::{
+    Error, Host,
+    commands::{
+        CommandSender, Evidence, InstallRoot, MAX_REVOCATIONS, Revocation, Rotation as Statement,
+    },
+    net::{FileRoot, Header, Net, REPLY, REQUEST_INPUT, Request, RequestId},
+    storage::DataStorage,
+};
+use paperpaw_ui_kit::{mem, text::copy};
+
+use crate::native_device::{self, Facts};
+use crate::native_folders::Folders;
+use crate::native_install::Proof;
+use crate::native_model::Revoked;
+use crate::native_sources::{Pinned, Source, SourceFiles, Sources, Trust};
+
+/// The `User-Agent` of interface 6's requests.
+const USER_AGENT: &str = "PaperPaw/0.1 (e-reader)";
+/// Scratch for the batch of one install (`install_plugin_with`: about 1 KiB).
+const INSTALL_SCRATCH: usize = 1536;
+/// Scratch for a batch of revocations.
+const REVOKE_SCRATCH: usize = 4096;
+
+/// The handles of the services, opened when first needed.
+#[derive(Debug, Default)]
+pub struct Handles {
+    net: Option<Net>,
+    /// The community source listed in place of PaperPaw's library (#214): in
+    /// memory only, so a restart lists PaperPaw's again.
+    pub(crate) source: Option<Source>,
+}
+
+impl Handles {
+    /// Whose word the list is read on.
+    pub(crate) fn trust(&self) -> Trust {
+        match &self.source {
+            None => Trust::Official,
+            Some(Source { key: None, .. }) => Trust::FirstUse,
+            Some(Source { key: Some(key), .. }) => Trust::Pinned(*key),
+        }
+    }
+
+    fn net(&mut self, host: &Host<'_>) -> Result<&Net, Error> {
+        if self.net.is_none() {
+            self.net = Some(Net::open(host)?);
+        }
+        self.net.as_ref().ok_or(Error::State)
+    }
+
+    fn get(
+        &mut self,
+        host: &Host<'_>,
+        url: &str,
+        file: &str,
+        token: u32,
+        max: u64,
+    ) -> Result<RequestId, Error> {
+        let mut input = mem::buffer(REQUEST_INPUT)?;
+        let mut out = mem::buffer(REPLY)?;
+        let headers = [Header::new("User-Agent", USER_AGENT)?];
+        let request = Request::get(token, url)?
+            .headers(&headers)?
+            .save_to(FileRoot::Data, file)?
+            .max_file(max)?;
+        self.net(host)?
+            .request(host, &request, &mut input, &mut out)
+    }
+
+    fn cancel(&mut self, host: &Host<'_>, token: u32) {
+        // Only the request of this token is ended: the net service cancels by id
+        // (the token is the plugin's own number, kept by the host).
+        if let (Ok(mut input), Ok(mut out)) = (mem::buffer(REQUEST_INPUT), mem::buffer(REPLY))
+            && let Ok(net) = self.net(host)
+        {
+            net.cancel(host, token, &mut input, &mut out).ok();
+        }
+    }
+}
+
+/// The host as the fetch of the list and of a page uses it.
+pub struct HostWire<'a, 'h> {
+    host: &'a Host<'h>,
+    handles: &'a mut Handles,
+    /// The data folder, with the list files of the source listed.
+    storage: SourceFiles<DataStorage<'a, 'h>>,
+}
+
+impl core::fmt::Debug for HostWire<'_, '_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("HostWire").finish_non_exhaustive()
+    }
+}
+
+impl<'a, 'h> HostWire<'a, 'h> {
+    /// The fetch's view of `host`.
+    pub fn new(host: &'a Host<'h>, handles: &'a mut Handles) -> Self {
+        let community = handles.source.is_some();
+        Self {
+            host,
+            handles,
+            storage: SourceFiles::new(DataStorage::new(host), community),
+        }
+    }
+}
+
+impl crate::native_load::Wire for HostWire<'_, '_> {
+    fn storage(&self) -> &dyn Storage {
+        &self.storage
+    }
+
+    fn facts(&mut self) -> Result<Option<Facts>, Error> {
+        // A community source's plugins are never PaperPaw's own.
+        let catalog = match &self.handles.source {
+            Some(source) => copy(&source.url)?,
+            None => native_device::catalog_setting(self.host)?,
+        };
+        Facts::read(self.host, &catalog)
+    }
+
+    fn catalog(&mut self) -> Result<(String, bool), Error> {
+        if let Some(source) = &self.handles.source {
+            return Ok((copy(&source.url)?, false));
+        }
+        Ok((
+            native_device::catalog_setting(self.host)?,
+            native_device::community(self.host)?,
+        ))
+    }
+
+    fn trust(&mut self) -> Result<Trust, Error> {
+        Ok(self.handles.trust())
+    }
+
+    fn pin(&mut self, key: &[u8; 32]) -> Result<(), Error> {
+        let Some(source) = self.handles.source.as_mut() else {
+            return Err(Error::Denied);
+        };
+        let mut sources = Sources::read(&self.storage)?;
+        match sources.pin(&source.url, key) {
+            Pinned::Now => sources.keep(&self.storage)?,
+            Pinned::Already => {}
+            _ => return Err(Error::Denied),
+        }
+        source.key = Some(*key);
+        Ok(())
+    }
+
+    fn get(&mut self, url: &str, file: &str, token: u32, max: u64) -> Result<RequestId, Error> {
+        self.handles.get(self.host, url, file, token, max)
+    }
+
+    fn cancel(&mut self, token: u32) {
+        self.handles.cancel(self.host, token);
+    }
+
+    fn final_url(&mut self, id: RequestId) -> Option<String> {
+        let mut input = mem::buffer(REQUEST_INPUT).ok()?;
+        let mut out = mem::buffer(REPLY).ok()?;
+        let host = self.host;
+        let answer = self
+            .handles
+            .net(host)
+            .ok()?
+            .answer(host, id, &mut input, &mut out)
+            .ok()?;
+        let url = answer.final_url();
+        if url.is_empty() { None } else { copy(url).ok() }
+    }
+
+    fn small_memory(&self) -> bool {
+        small_memory(self.host)
+    }
+
+    fn revoke(&mut self, revoked: &[Revoked]) -> Result<(), Error> {
+        revoke(self.host, revoked)
+    }
+}
+
+/// The host as the download of a plugin's files uses it.
+pub struct DownloadWire<'a, 'h> {
+    host: &'a Host<'h>,
+    handles: &'a mut Handles,
+    storage: Folders<'a, 'h>,
+}
+
+impl core::fmt::Debug for DownloadWire<'_, '_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("DownloadWire").finish_non_exhaustive()
+    }
+}
+
+impl<'a, 'h> DownloadWire<'a, 'h> {
+    /// The download's view of `host`.
+    pub fn new(host: &'a Host<'h>, handles: &'a mut Handles) -> Self {
+        Self {
+            host,
+            handles,
+            storage: Folders::new(host),
+        }
+    }
+}
+
+impl crate::native_download::Wire for DownloadWire<'_, '_> {
+    fn storage(&self) -> &dyn Storage {
+        &self.storage
+    }
+
+    fn get(
+        &mut self,
+        url: &str,
+        file: &str,
+        token: u32,
+        max_bytes: u64,
+    ) -> Result<RequestId, Error> {
+        self.handles.get(self.host, url, file, token, max_bytes)
+    }
+
+    fn cancel(&mut self, token: u32) {
+        self.handles.cancel(self.host, token);
+    }
+}
+
+/// What the install sends the host.
+pub struct InstallWire<'a, 'h> {
+    host: &'a Host<'h>,
+    storage: Folders<'a, 'h>,
+}
+
+impl core::fmt::Debug for InstallWire<'_, '_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("InstallWire").finish_non_exhaustive()
+    }
+}
+
+impl<'a, 'h> InstallWire<'a, 'h> {
+    /// The install's view of `host`.
+    #[must_use]
+    pub fn new(host: &'a Host<'h>) -> Self {
+        Self {
+            host,
+            storage: Folders::new(host),
+        }
+    }
+}
+
+impl crate::native_install::Wire for InstallWire<'_, '_> {
+    fn storage(&self) -> &dyn Storage {
+        &self.storage
+    }
+
+    fn install(
+        &mut self,
+        request: u32,
+        folder: &str,
+        update: bool,
+        allow_older: bool,
+        proof: &Proof,
+    ) -> Result<(), Error> {
+        let mut steps: Vec<Statement<'_>> = Vec::new();
+        steps
+            .try_reserve_exact(proof.rotations.len())
+            .map_err(|_| Error::NoMemory)?;
+        for rotation in &proof.rotations {
+            steps.push(Statement::new(&rotation.to, &rotation.signature));
+        }
+        let evidence = evidence(proof, &steps);
+        let mut scratch = mem::buffer(INSTALL_SCRATCH)?;
+        CommandSender::new(self.host, &mut scratch).install_plugin_with(
+            request,
+            InstallRoot::Data,
+            folder,
+            update,
+            allow_older,
+            &evidence,
+        )
+    }
+
+    fn revoke(&mut self, revoked: &[Revoked]) -> Result<(), Error> {
+        revoke(self.host, revoked)
+    }
+}
+
+/// Whether the device has little memory (the X4): fewer pictures are kept.
+fn small_memory(host: &Host<'_>) -> bool {
+    use paperpaw_sdk::native::device::{Device, DeviceClass};
+    let (Ok(device), Ok(mut out)) = (Device::open(host), mem::buffer(mem::SERVICE_BUFFER)) else {
+        return false;
+    };
+    let mut input = [0; 256];
+    let small = device
+        .device(host, &mut input, &mut out)
+        .is_ok_and(|identity| identity.class() == DeviceClass::Small);
+    device.release(host).ok();
+    small
+}
+
+/// Hands the revocations of the library to the host, in the batches the SDK
+/// takes.
+fn revoke(host: &Host<'_>, revoked: &[Revoked]) -> Result<(), Error> {
+    let mut scratch = mem::buffer(REVOKE_SCRATCH)?;
+    for batch in revoked.chunks(MAX_REVOCATIONS) {
+        let mut list = Vec::new();
+        list.try_reserve_exact(batch.len())
+            .map_err(|_| Error::NoMemory)?;
+        for item in batch {
+            list.push(Revocation::new(&item.plugin, &item.key, &item.signature));
+        }
+        CommandSender::new(host, &mut scratch).trust_revoked(&list)?;
+    }
+    Ok(())
+}
+
+/// What the store's install carries: the library's word, and that it comes
+/// from the catalog (`install_plugin` `flags` bit 2), so the registry names
+/// the version as installed by a store (`reg_plugin.flags` bit 5) and the
+/// store offers its updates.
+fn evidence<'a>(proof: &'a Proof, steps: &'a [Statement<'a>]) -> Evidence<'a> {
+    let mut evidence = Evidence::new().rotations(steps).from_catalog();
+    if let Some(author) = &proof.author {
+        evidence = evidence.author(author);
+    }
+    if let Some(recovery) = &proof.recovery {
+        evidence = evidence.recovery(recovery);
+    }
+    evidence
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_install_of_the_store_comes_from_the_catalog() {
+        let proof = Proof {
+            author: Some([7; 32]),
+            ..Proof::default()
+        };
+        let sideloaded = Evidence::new().author(&[7; 32]);
+        assert_eq!(evidence(&proof, &[]), sideloaded.from_catalog());
+        assert_ne!(evidence(&proof, &[]), sideloaded);
+        assert_eq!(
+            evidence(&Proof::default(), &[]),
+            Evidence::new().from_catalog()
+        );
+    }
+}

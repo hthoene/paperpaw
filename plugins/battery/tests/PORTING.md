@@ -14,6 +14,10 @@ tests are gone. What is tested, and where:
   The 16 pixel goldens (`testdata/screens/*.png`, en and de) run in
   `crates/paperpaw-core/src/native_battery_pixel_tests.rs` on a real
   shared host, because only Core can supply the frame, fonts and input.
+- `hosted_acceptance.rs`: the same screen through the production registration
+  (`Kernel::register_linked`) and the kernel's own stack, via the acceptance kit
+  (`plugins/test-support/acceptance.rs`): en and de goldens compared exactly, a key script
+  (`back` leaves the screen). Catalogs come from a test-only plugin until the host loads them.
 - `abi7_preparation.rs`, `linked_entry.rs`, and `build.rs`: declarations
   (settings, screen, action, event subscriptions) are compared with the
   reviewed golden `testdata/declarations.bin.v1` and with the static image

@@ -57,6 +57,7 @@ events 83, 88 and 90 are free).
 | 38 | `event.screen_shown` | its fields, among them `instance: u32` | the screen's token |
 | 79 | `event.screen_opened` | `now_ms: u64`, `screen: str 128`, `instance: u32`, `slot: str 128`, `flags: u32`, `handover: u32`, `params: u32`, `text_bytes: u32` | the screen's token |
 | 80 | `event.screen_closed` | `now_ms: u64`, `screen: str 128`, `instance: u32` | the screen's token |
+| 111 | `event.screen_hidden` | `now_ms: u64`, `screen: str 128`, `instance: u32` | the screen's token |
 | 81 | `event.stack_changed` | `now_ms: u64` | subscribers (hint) |
 
 - [D] `screen_opened` comes once per instance, before its first `screen_shown`, and **again**
@@ -67,6 +68,26 @@ events 83, 88 and 90 are free).
   last `draw`; a plugin frees the instance's state there. Like 38 and 39, 79 and 80 are not
   registrable (`ERR_UNSUPPORTED` in `registration.event`): they go to the token of the screen
   they name.
+- [D] **`screen_hidden`** (111, #248; interface 6 `Screen::on_hide`): a full screen opened above
+  the instance, so that it is covered until that one closes. The instance may let go of what it
+  keeps only to draw itself (rows, text windows, pictures) and builds it again from what it keeps
+  (position, selection, open edit transactions, its pending requests and image ids) when its next
+  `screen_shown` comes: **that is the only signal to build again**, and a reply that arrived while
+  hidden is kept or asked again, never drawn from freed state. It is sent only for a full screen
+  above (never for an overlay, which draws the page below), only after `screen_opened` of the
+  instance and never after its `screen_closed`; it may come before its first `screen_shown` (a
+  screen opened below a guard waits hidden). It comes **once per cover**: a second full screen
+  opened above the first sends nothing to the instance below it, and a cover opened after the
+  instance's next `screen_shown` sends it again. A task switch closes the instance
+  (`screen_closed`) and opens it anew, so it sends none.
+- [D] **Delivery of `screen_hidden`.** The host calls the instance's token synchronously while it
+  applies the open of the covering screen, at depth 0 (never inside the opener's callback), before
+  the cover's own `screen_opened` and first `draw`, so that what it frees is free before the cover
+  builds. The callback gets **no command stage**, as `draw` gets none: a command submitted in it
+  is `ERR_STATE`. The host sends it in a frame of 80's size, allocating nothing. It is not
+  registrable (as 79 and 80), a plugin that does not read it loses nothing, and **dropping it is
+  harmless** (the host may drop it when memory is short, or when the callback is refused); a
+  plugin that frees on it must keep the screen drawable by `screen_shown` alone.
 - [D] **Params are lossless** (interface 6 `Params`, Senior's answer to [Q] 3): an opener makes a
   **hand-over** with `core.ui` op 16 `handover` (input: `ui_param` records, reply `ui_handle`) and
   names it in `command.open.handover`. A `ui_param` (`key: str 32`, `value: str 1024`) is one
@@ -77,7 +98,15 @@ events 83, 88 and 90 are free).
   `[a-z0-9_.-]{1,32}`, unique; a value is any UTF-8, newlines included. The host checks the form at
   op 16 (`ERR_INVALID`, over the cap `ERR_NO_SPACE`) and keeps them unchanged; their meaning belongs
   to the screen that reads them. Keys starting with `core.` are the host's (section 3:
-  `core.request`, `core.kind`): op 16 naming one is `ERR_INVALID`.
+  `core.request`, `core.kind`): op 16 naming one is `ERR_INVALID`. **One exception to "unchanged":**
+  an instance that holds a handed file (`document.md` 1, root 5) hands it on to its own screens
+  (a reader's table of contents, search) with `root` `5` and the same `path`; in an event's callback
+  (the answer to a question its screen asked) no instance runs, and the file is the one of the
+  plugin's topmost screen that holds a file of that path (when two screens hold the same path, the
+  topmost wins, so its maker is the file's maker); the host puts the file's own
+  root (`0` or `2`) in the params and the new instance's root 5 names the same file of the same
+  maker. The `open` that names it may open any screen, the reader's own or another plugin's: the
+  file stays the maker's, read only, and the document ends with the maker, whoever reads it. Another path, an instance that holds none, or no path is `ERR_DENIED` at op 16.
 - [D] **Long values** (the reader's selected text, interface 6 `params::TEXT`): a hand-over also has
   one host text (section 3.1 rules: at most 24,576 bytes, written in 3 KiB parts with op 9
   `text_write` on the hand-over id by its maker in the callback that made it, never cut; a begun but
@@ -168,19 +197,34 @@ events 83, 88 and 90 are free).
     gets the open's hand-over (none: its params become empty) and `event.screen_opened` again
     (`flags` bit 0 `again`) before it is shown, so a single screen shows the new params as if
     opened with them (interface 6 `on_reopen`); *back* then leaves it in one press.
-    `screen_policy` cannot change these bits.
+    `screen_policy` cannot change these bits;
+  - bit 8 `hints_hidden`: the screen shows no row of button hints (interface 6
+    `HintVisibility::Hidden`: the sleep screen). Declared only; `screen_policy` cannot change it;
+  - bit 9 `grays`: what the screen shows is best in grays (interface 6 `Screen::grays`: a page
+    with a picture, text smoothed in grays). Where the panel has few grays but shows more with a
+    refresh of its own (the X4: four grays, as slow as a full refresh), the whole screen is shown
+    so while this screen is on top and nothing lies over it (the same rule as the picture
+    pass, `settings.pictures_in_grays`); under an overlay, or where the screen is not the whole
+    display, it has no effect. `screen_policy` may change it at run time (below), page by page.
+  - bit 10 `dims_below`: an overlay (bit 2) washes out what lies below it while it shows, so that
+    it stands out and what it cuts through is not read as its own (interface 6
+    `Screen::dims_below`: a menu, a panel; not a keyboard over its field). No effect on a screen
+    that is no overlay. Declared only; `screen_policy` cannot change it.
   Other bits stay `ERR_UNSUPPORTED`.
 - [D] **Policies change at run time** (the lock guards only while locked): `command.screen_policy`
-  (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4 and 5 above) sets them for
-  one of the submitter's own instances; other bits `ERR_INVALID`, another plugin's instance
+  (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4, 5 and 9 above) sets them for
+  one of the submitter's own instances (the policy is the whole set the screen ends with: one that
+  declared `grays` and sets a policy without bit 9 turns it off); other bits `ERR_INVALID`, another plugin's instance
   `ERR_DENIED`. **Turning `guards` on** is allowed only for the submitter's own top instance (the
   top of the whole stack, so no other plugin's screen is above it; the host's own `core.sleep`
-  instance does not count, so a lock that locks while the sleep screen shows guards at once):
-  anywhere else `ERR_STATE`, and the whole batch is refused. Turning it off, and bits 4 and 5 either
-  way, work on any own instance. The declared flags are the state at opening; a screen declared
-  `guards` that opens below a guard waits there (section 4.3) and never has screens of others above
-  it. A change takes effect when the batch is applied, before the next input is routed. Core's tests
-  cover both cases (own top: guards at once; not top: `ERR_STATE`, nothing changed).
+  instance does not count, so a lock that locks while the sleep screen shows guards at once), and
+  only while no other plugin's instance guards (Senior on #829: a keyboard above a lock may not take
+  the guard over and close the lock): anywhere else `ERR_STATE`, and the whole batch is refused.
+  Turning it off, and bits 4 and 5 either way, work on any own instance. The declared flags are the
+  state at opening; a screen declared `guards` that opens below a guard waits there (section 4.3)
+  and never has screens of others above it. A change takes effect when the batch is applied, before
+  the next input is routed. Core's tests cover both cases (own top: guards at once; not top:
+  `ERR_STATE`, nothing changed).
 - [D] **Secret** (interface 6 `Screen::secret`): an instance is secret when it says so, when it
   guards, and when it lies above a guarding instance. While the top instance is secret, input
   goes to the input filters of its own plugin and of the topmost guarding plugin only (others are
@@ -401,10 +445,12 @@ asker learns its request id at once and long texts move in pages, never cut.
 - [D] What each kind answers: text, the request text (`length` its bytes); choice, `choice` (the
   line's index, `ERR_INVALID` past the list); confirm, `choice` 1 yes or 0 no; folder, the request
   text, a path on root 1 of at most 512 bytes (`ERR_INVALID` longer). Unused fields are 0.
-- [D] **No subscription** (draft 25): `event.answered` goes to the asking plugin by its request,
+- [D] **No subscription**: `event.answered` goes to the asking plugin by its request,
   through `dispatch_event`, without a `registration.event`; like 79 and 80 it is not registrable
   (`ERR_UNSUPPORTED` in `registration.event`; the SDK has no `EventKind` for it). The SDK hands
-  addressed events (38, 39, 79, 80, 82, 109) to the plugin whatever kinds it subscribed to.
+  addressed events (38, 39, 79, 80, 82, 109, 111) to the plugin whatever kinds it subscribed to.
+  `dispatch_event` passes `token` 0 for 82 (the ask names no token); the plugin routes it by its
+  tag and `request`, never by the token, which may equal one of its own.
 - [D] **An answer is never lost.** `event.answered` is not a held-store edge: the answer stays in
   the request (its outcome, choice and text) and the request has its own pending mark, as a hint
   has (`core-events.md` 3.3), so the held-event store being full never drops it. The one
@@ -460,6 +506,11 @@ asker learns its request id at once and long texts move in pages, never cut.
   it. `filter.input.flags` bit 1 `secret`: the instance on top is secret (section 1.2), so the
   filter keeps and logs nothing of it. Bits 2-31 are reserved: the host sends 0, a filter ignores
   them.
+- [D] **Raise once per press** (Senior R1 on #870): verdicts 2 run and 5 raise act on every input
+  they answer, the rest of a captured one included, so a filter that answers run or raise again
+  on the key's repeat or release, or on the pointer's moves and up, runs its action again. A filter
+  answers run or raise once per press (at the press, or at the up for a recognizer) and pass or
+  take for the rest of it; the host does not deduplicate.
 - [D] **Only the start is taken** (Senior #1225): a filter takes or cancels a pointer at its
   down and a key at its press. For a pointer up or move, or a key release or repeat, whose start
   it did not capture, take (1) and cancel (3) count as pass: the input goes on, so a screen that
@@ -467,7 +518,10 @@ asker learns its request id at once and long texts move in pages, never cut.
 - [D] **A replaced input** (verdict 4) is checked as plugin input: one `input.key`,
   `input.pointer` or `input.gesture` record, whole, else the verdict counts as pass (logged). Key
   names are not checked against a table (`screens-input.md` 2.2: unknown names pass through):
-  `key` is 1 to 32 bytes of UTF-8 without control characters. A replace may not make `power`
+  `key` is 1 to 32 bytes of UTF-8 without control characters. Until the key path takes names it
+  does not know (post-1.0), a replaced key whose name is not one of the device's keys
+  (`core.device` op 15, the platform's button names) counts as pass (logged), as interface 6
+  filters could only make those. A replace may not make `power`
   (it counts as pass): the Power key's escape and power actions come from the physical button
   only. The router clamps a replaced pointer's `x` and `y` to the screen's pane.
 - [D] Cost: one callback per filter per input; on the X4 key presses only (no touch). Counts
@@ -493,6 +547,11 @@ asker learns its request id at once and long texts move in pages, never cut.
     exception is the screen the host itself shows for a device state, the sleep screen of slot
     `core.sleep`: it shows above the guard, gets no input while the guard is up, and draws over a
     blank area (bit 2 `overlay`, section 1.2).
+  - **Host confirmations.** A screen of the host's own that guards (the confirmation of
+    `device.md` 5.0, e.g. for a firmware install) is the guard itself: it gets the keys and
+    pointers, no plugin's input filter runs for it, no binding to a plugin's action or input
+    applies, and `raise_input` is `ERR_DENIED` for every plugin. The host opens it only while no
+    plugin's instance guards.
   - **Guard dialogs.** Such a dialog belongs to its plugin (the keyboard) but is authorized by
     the host for the guard's question: it is the top instance, so it gets keys and pointers, and
     its own plugin's filters run beside the guard's (section 1.2); it reads and writes its
@@ -503,11 +562,13 @@ asker learns its request id at once and long texts move in pages, never cut.
   - **Input.** Only the guard's plugin's input filters are called (the others are skipped, not
     called and ignored); keys and pointers then go to the top instance, which is the guard's
     plugin's. `raise_input` from any other plugin is `ERR_DENIED`.
-  - **Key maps.** Only the own key layer (`set_key_layer`) of the guard instance or of the top
-    guard dialog, and bindings to host actions or to the guard's plugin's own actions, apply; a
-    binding in the slot or global layer that names another plugin's action or input does nothing
-    while the guard is up (logged), so a key map can never run another plugin's code past the
-    lock.
+  - **Key maps.** While the guard is up, a key runs only host actions and the guard's plugin's
+    own actions, checked when the key is dispatched. What decides is the action's owner, never the
+    layer (#843): a binding in any layer, the guard's own key layer (`set_key_layer`) included,
+    that names another plugin's action or input does nothing while the guard is up (logged),
+    whoever put it there (a declared `key.bind`, the user, a preset), so a key map can never run
+    another plugin's code past the lock. Plugin ids `core` and `core.*` are reserved, so no
+    plugin's action passes for a host one.
   - **Closing.** Only the guard's plugin closes the guarding instance or any instance above it
     (`close`, `back_to`: `ERR_DENIED` for others), except a guard dialog closing itself, so no
     other plugin closes the lock's keyboard.
@@ -562,6 +623,10 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   caller's own plugin `ERR_BUSY`** (the host's per-plugin re-entry guard: a plugin is never
   re-entered while its `draw` runs; it draws its own widgets itself); a call from depth 2
   `ERR_BUSY`.
+- [D] **Status items and lines are never hidden by compose.** The guard and private rules above
+  apply to widget instances only. The privacy of a status item or line under a guard rests on
+  the filter applied when its handle is granted (ops 14 and 15, section 4.3); the handle lasts
+  only for the callback that asked, so compose has nothing more to judge.
 - [D] **Depth.** The caller's `draw` runs at depth 1, the child's at depth 2. A child cannot
   compose (`ERR_BUSY`) or run a stage (`stage.run` is depth 1 only), and ops 4, 7 and 12-15
   are depth 1 only. Only widgets and status values are children, and they hold no widgets
@@ -579,8 +644,11 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
 - [D] **X4 stack.** Two plugin frames and the host frame between them share the main stack, for slot
   35 and for ops 7 and 12-15 alike (each runs another plugin's callback inside the caller's): they
   join the frame budget of #254 (limit 2,048 bytes per frame), with a device high-water case (home
-  with widgets under the sleep screen's widgets) before activation; until the stack gate passes, the
-  X4 answers slot 35 and those ops with `ERR_UNSUPPORTED`.
+  with widgets under the sleep screen's widgets) before activation; the stack gate passed on the
+  X4 (#250) and is open by default; the core feature `x4-gate-closed` closes it again (the X3's
+  firmware builds with it until an X3 has measured the gate; the X4 then
+  answers slot 35 and those ops with `ERR_UNSUPPORTED`). The kernel's own status
+  items run no plugin and are answered there (op 14, slot 35 kind 1; section 5.3).
 
 ### 5.2 Widgets
 
@@ -630,6 +698,15 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
 - [D] **Updates.** The owner says its widget shows something new with `command.widget_changed`
   (own instances); the host sends `event.widget_changed` (a hint, coalesced per instance) to the
   plugin whose screen made it, which measures and draws again. The minute tick stays `event.tick`.
+  86 is registrable: the maker subscribes with `registration.event` and gets it at that token
+  (a maker that did not subscribe is not told). The host delivers it between callbacks, never
+  inside one, once per instance however often the owner said `command.widget_changed`, and only
+  while the instance lives. A guard does not hold it (a hint); what the maker then does to its
+  screen follows the stack's rules (`redraw` of a screen with a non-overlay or a guard above it
+  is `ERR_STATE`).
+  `command.widget_changed` names only the submitter's own instances: an unknown or dropped one is
+  `ERR_NOT_FOUND`, another plugin's `ERR_DENIED`, and a shell without a widget table answers
+  `ERR_UNSUPPORTED` (todo 361, #845).
 - [D] **Input.** The showing screen forwards a tap or long press with op 6 (`widget_input`); the
   owner gets `input.widget` through `input` (`kind` 0 tap, 1 long press; `target` from op 7, 0 for
   none). Moving between targets with buttons stays the showing screen's.
@@ -676,6 +753,15 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   Likewise op 4 for an own widget returns `flags` bit 0 `own`; for such an instance ops 6, 7, 12
   and 13 and slot 35 are `ERR_BUSY` without a call, and the plugin measures, places and draws its
   own widget itself.
+- [D] **The kernel's own items** (`core.status.clock`, `.date`, `.date-short`, `.battery`,
+  `.battery-low`; #257) have no plugin owner: op 14 answers them without a `core.status` call. The
+  clock and the dates are text (cached as above; the minute tick renews them). The battery items
+  come back drawn (`flags` bit 0) with a handle whose owner is the host (owner 0, never a plugin's)
+  and whose token is the kernel item's index, valid in this callback only as any handle; slot 35
+  kind 1 draws it as Beta 3 did (the symbol and the percentage, UI font, size from the rect's
+  height), calling no plugin. Neither needs a nested call, so the X4 answers them while its stack
+  gate is closed (section 5.1); there a plugin's item comes back with no value (`flags` 0, no
+  text, no handle: hidden, as below), not a refusal of the whole op.
 - [D] A status line (whole line drawn by its owner) gets its handle from op 15 `status_line`
   (`line`, `context` → `handle`) and is composed with kind 2.
 - [D] `status.item.tap` is one of the owner's actions, run as the owner with the line's context;
@@ -684,6 +770,7 @@ ui.compose(ctx, kind: u32, handle: u32, x: i32, y: i32, width: u32, height: u32)
   settings that list a line's items (interface 6 `Place`). `status.item.flags` and
   `status.line.flags` bit 1 `private` (section 4.3); other bits `ERR_INVALID`. REG op 21 (new,
   Senior's answer to [Q] 2) lists items and lines, one row type per op; op 19 stays widgets only.
+  It lists the kernel's own items too, after the declared items and before the lines.
 - [D] `draw.frame.purpose` gains 5 `status line`.
 
 ## 6. The service `core.ui` (major 1)
@@ -747,7 +834,10 @@ or guard rule: only the maker drops its instances.
 | 1057 | `service.ui_param` | `key: str 32`, `value: str 1024` |
 | 1058 | `service.ui_handle` | `handle: u32` |
 
-- [D] `ui_screen.flags`: bit 0 overlay, 1 guards, 2 covered (another instance is above it), 3
+- [D] `ui_screen.flags`: bit 0 overlay, 1 guards, 2 covered (another instance listed to the caller
+  is above it: under a guard another plugin sees the guard row without it, and only
+  `service.end.flags` bit 2 says rows were left out; the guard's plugin sees it for the instances
+  above its guard), 3
   waits ready and not yet ready, 4 secret. `owner` is host-stamped.
 - [D] No feature is needed: what is on screen is not private (guarded parts are left out), and
   every op that touches a request, an instance or a handle checks that it is the caller's.
@@ -775,16 +865,19 @@ or guard rule: only the maker drops its instances.
 - [D] **Help.** `help.hint` declares a hint for any screen (own or another's, full id): `input` 0
   any, 1 touch, 2 buttons; the zone in thousandths of the screen (all 0: no zone, listed in the box;
   `x + width` and `y + height` at most 1,000, added with overflow checks (a sum that overflows is
-  over 1,000), else `ERR_INVALID` at admission, and a reader treats a `ui_hint` row that breaks it
-  as malformed, never clamped); `text` a catalog key of the declaring plugin (`owner` in op 3 says
-  whose catalog). The help plugin reads them with op 3, subscribes to `event.screen_ready` (an edge,
-  registrable) and to 81. A screen declared `waits_ready` sends `command.screen_ready` once its
-  first page is drawn (own top instance, else `ERR_STATE`); for other screens the host raises 87
-  itself after the first `draw` of each instance. The help plugin closes its own overlay by instance
-  (section 1.3) and resets "seen" in its own data.
+  over 1,000), else `ERR_INVALID` at admission; the same hint (`screen`, `input`, `text`) twice in a
+  plugin's declarations is `ERR_INVALID` for the batch (#818), and a reader treats a `ui_hint` row
+  that breaks it as malformed, never clamped); `text` a catalog key of the declaring plugin (`owner`
+  in op 3 says whose catalog). Op 3's rows come in plugin slot order (admission order), then each
+  plugin's declaration order (batch, then record); a slot freed by a removal and reused by a later
+  plugin can move that plugin earlier. The help plugin reads them with op 3, subscribes to
+  `event.screen_ready` (an edge, registrable) and to 81. A screen declared `waits_ready` sends
+  `command.screen_ready` once its first page is drawn (own top instance, else `ERR_STATE`); for
+  other screens the host raises 87 itself after the first `draw` of each instance. The help plugin
+  closes its own overlay by instance (section 1.3) and resets "seen" in its own data.
 - [D] **Messages.** `notify` shows `text` (display text the plugin formatted, at most 256 bytes)
   over any screen for a few seconds, host-drawn, never over a guarding instance (it waits until the
-  guard closes, at most 4 waiting, 2 on the X4, older ones dropped). `flags` bit 0 `announce`: also
+  guard closes, one after the other in the order they came, at most 4 waiting, 2 on the X4, older ones dropped; without a guard a new message replaces the one on screen and shows its full time). `flags` bit 0 `announce`: also
   from background work and when no screen of the plugin shows (interface 6 `Announce`: device
   messages and rules the user set up; never sync results or offers). Without bit 0 a message from a
   plugin with no instance on the stack is dropped (`OK`, logged). Other bits `ERR_INVALID`.
@@ -795,16 +888,24 @@ or guard rule: only the maker drops its instances.
   new text is committed (until then reads see the old one; an uncommitted new text is dropped when
   the writer's callback returns); op 19 `clipboard_read` (`ui_text_at`, `text` 0) reads it in parts
   (`total` 0: empty), any plugin, at once. Keeping a `secret` answer (section 3.1) off it is the
-  dialog plugin's duty; the host cannot enforce it (decision 44). On the X4 it lives in a host file
-  on the card (none in memory but the part being moved), deleted at start as host texts are; with no
-  card, op 18 is `ERR_IO` and op 19 reads it empty; a pulled card makes op 19 `ERR_IO`. Android may
-  back it with the system clipboard.
+  dialog plugin's duty; the host cannot enforce it (decision 44). It is the kernel's one clipboard
+  on every device, in host memory as in interface 6 (the X4 included; no card file, so no
+  `ERR_IO`): interface-6 and native plugins see the same text. A new text past 4,096 bytes is
+  `ERR_NO_SPACE` (never cut); one that cannot be kept is `ERR_NO_MEMORY`, the old text stays. A
+  commit is copied out to the system clipboard where the shell has one (Android); reading the
+  system clipboard into op 19 is a shell follow-up (Firmware todo 392).
 - [D] **Speech.** `speak` queues `text` (display text, at most 2,048 bytes) in `language` (a BCP
   47 tag, empty for the system's) at `rate` percent (50-300, else `ERR_INVALID`); `flags` bit 0
-  `queue` (after what is being spoken, else replacing it). `spoken` comes when it was spoken or
+  `queue` (after what is being spoken, else replacing it); at most 4 texts per plugin, the one
+  being spoken included: a queued `speak` beyond is `ERR_FULL` (nothing queued, no `spoken`), one
+  without `queue` replaces and never meets the cap. `spoken` comes when it was spoken or
   could not be (`status` 0 spoken, 1 replaced or stopped, 2 no voice for the language, 3 no speech
   on this device). Only `menu.need` 0 (`speech`) devices speak; elsewhere `spoken` status 3 at
-  once. `stop_speaking` stops the submitter's own speech only.
+  once. `stop_speaking` stops the submitter's own speech only: where its text is the one being
+  spoken the host's one voice stops, and what waited behind it (another plugin's too) ends with
+  `spoken` status 1; where its text only waits behind another's, it is dropped from the line
+  (status 1) and the voice goes on. `spoken` goes to plugins that subscribed to it (event 89),
+  the submitter alone.
 
 ## 8. Sizes and memory
 
@@ -828,6 +929,7 @@ its caps (hand-off).
 | `ui_param` × 32 (op 16 input, op 17 reply) | key and value bytes at most 1,024 in all, plus 32 × 9 of fields and frames, + 1 = 1,313 (+ `end` on op 17) | 4,096 |
 | `command.open` | 1 + 130 + 4 + 130 + 4 = 269, framed 274 | 4,096 and the stage budget |
 | `event.screen_opened` | 1 + 8 + 130 + 4 + 130 + 4 × 4 = 289, framed 293 | the 1.1 KB stack buffer of `core-events.md` 3.3 |
+| `event.screen_hidden` | 1 + 8 + 130 + 4 = 143, framed 147 | the 1.1 KB stack buffer of `core-events.md` 3.3 |
 | `ui.verdict` (filter reply) | under 200 | 3,840 |
 
 ### 8.2 Memory (X4)
@@ -865,12 +967,15 @@ and every device of that profile (the X3 too), not the model.
 - **X4 worst case: activation-gate item.** Until the card file is wired the code has no card
   path, so the line is the one without a card: instances 0.25 + params 1.5 + texts 11 (2 KiB
   ordinary pool + 8,960-byte secret pool, 8.75 of it only while an 8 KiB password is typed) +
-  questions 4 (pool) + widgets 0.5 + status handles 0.3 + status cache 1 + clipboard 0 +
-  messages 0.5 = **about 19 KiB**. A restarted text (offset 0) never adds a peak above its
+  questions 4 (pool) + widgets 0.5 + status handles 0.3 + status cache 1 + clipboard 4 +
+  messages 0.5 = **about 23 KiB**. The clipboard's 4 KiB are resident while it holds text; for
+  moments it takes more, all fallibly: up to 8 KiB while a replacement is written (old and new
+  text), up to 4 KiB more for the copy out at a commit until the shell takes it, and a read part
+  of up to 3 KiB during op 19. A restarted text (offset 0) never adds a peak above its
   pool: when old and new chunk do not both fit the pool, the old text is freed (wiped) first,
   so the peak is the larger of the two and inside the pool (after that, a refused allocation
   leaves the text started over and empty). With a card, the questions and texts move to the
-  card file and the line falls to about 13.6 KiB (not before that path exists). Op 7 keeps no
+  card file and the line falls to about 17.6 KiB (not before that path exists). Op 7 keeps no
   target cache: it is not paged, section 5.2. Every part is allocated fallibly (a refusal is
   `ERR_NO_MEMORY` or `ERR_FULL`, never a panic); typical use (a few instances with small params, one short question, a status line)
   about 2.4 KiB, under the 4 KiB heap gate. Gate before the UIX host is active on the X4: the worst
@@ -882,7 +987,8 @@ and every device of that profile (the X3 too), not the model.
 - Composition: no host memory; nesting as `stages-services.md` (depth 2). Ops 7 and 12-15 run one
   stage call each on the host scratch and nest another plugin's callback inside the caller's just
   as slot 35 does: they share slot 35's frame-budget entry and X4 stack gate (section 5.1), and
-  answer `ERR_UNSUPPORTED` on the X4 until it passes.
+  answer `ERR_UNSUPPORTED` on the X4 until it passes, but for the kernel's own status items (op 14
+  and slot 35 kind 1, no plugin called; section 5.3).
 - Widgets: 32 bytes per made instance (the owner's full-width id; 512 bytes at the 16 of the X4),
   at most 32 device-wide (16 on the X4); status handles 40 bytes each, at most 16 (8 on the X4, 320
   bytes); each table is one allocation of its cap, made at its first use. A dropped instance stays
@@ -894,7 +1000,8 @@ and every device of that profile (the X3 too), not the model.
   or the start went without code plugins (safe mode). A dead owner never pins the cap.
 - Status values: a cache of at most 2 KiB (1 KiB on the X4; when full, values are asked again),
   dropped on event 73.
-- Clipboard: at most 4 KiB, host heap (card file on the X4), fallible. Messages: at most 4
+- Clipboard: at most 4 KiB, host heap on every device (the X4 included), fallible; X4
+  activation-gate item with the worst case above. Messages: at most 4
   waiting, 1 KiB (2 waiting, 512 bytes on the X4).
 - New slot 35 and the stage/command arms are flash cost on the X4 ppn5 delta; measured with the
   records.
@@ -908,6 +1015,9 @@ and every device of that profile (the X3 too), not the model.
 | `Command::OpenBook`, `readers::open`, `open_page`, `open_with` | `command.open` mode 1 (slot `core.reader`) or 3 (a `doc_reader.screen` in `core.reader`), params `path`, `page` (`document.md` 1) |
 | `ScreenKey`, `Cx::params`, `params::TEXT` | `instance`; hand-over (op 16, `command.open.handover`), read with op 17 and the hand-over text (op 10); event 79 again on update |
 | `Screen::guards`, `secret`, `holds_edges` (dynamic) | `screen.spec.flags` bits 1, 4, 5; `command.screen_policy` |
+| `Screen::grays` (dynamic) | `screen.spec.flags` bit 9 `grays`; `command.screen_policy` bit 9 |
+| `Screen::dims_below` | `screen.spec.flags` bit 10 `dims_below` |
+| `Registrar::set_screen_hints(screen, HintVisibility::Hidden)` | `screen.spec.flags` bit 8 `hints_hidden` |
 | `Env::stack`, `StackEntry` (`guards`, `overlay`, `slot`) | `core.ui` op 1, `ui_screen`; event 81 |
 | `Command::SetKeyLayer`, `ShowHints`, `Input` | `command.set_key_layer`, `show_hints`, `raise_input` |
 | `Registrar::add_input`, `add_gesture`, `InputSpec`, `GestureSpec` | `input.spec`; recognizer = filter verdict 5 |

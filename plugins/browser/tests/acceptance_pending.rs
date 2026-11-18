@@ -1,6 +1,6 @@
 //! Acceptance of the interface-7 browser, pending on the host and the later
-//! slices. The interface-6 tests drive a kernel (`tests/browsing.rs`) and stay
-//! as the references; none of these cases passes by itself.
+//! slices. The interface-6 tests that drove a kernel (`tests/browsing.rs`) went
+//! with the interface-6 code; none of these cases passes by itself.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
 #[path = "../../test-support/pending.rs"]
 mod pending;

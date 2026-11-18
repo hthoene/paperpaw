@@ -24,6 +24,10 @@ struct Fake {
     /// returned `Ok`: an error returned drops what the callback staged.
     staged: RefCell<Vec<&'static str>>,
     applied: RefCell<Vec<&'static str>>,
+    /// The card refuses the wrong tries; the counts it kept, the notices said.
+    keep_refused: Option<Error>,
+    kept: RefCell<Vec<u8>>,
+    notices: RefCell<Vec<&'static str>>,
 }
 
 impl Fake {
@@ -46,6 +50,9 @@ impl Fake {
             repaired: RefCell::new(Vec::new()),
             staged: RefCell::new(Vec::new()),
             applied: RefCell::new(Vec::new()),
+            keep_refused: None,
+            kept: RefCell::new(Vec::new()),
+            notices: RefCell::new(Vec::new()),
         }
     }
 
@@ -92,6 +99,19 @@ impl Device for Fake {
 
     fn on_wake(&self) -> Result<bool, Error> {
         self.wake
+    }
+
+    fn keep_tries(&self, tries: u8) -> Result<(), Error> {
+        if let Some(error) = self.keep_refused {
+            return Err(error);
+        }
+        self.kept.borrow_mut().push(tries);
+        Ok(())
+    }
+
+    fn notice(&self, key: &'static str) -> Result<(), Error> {
+        self.notices.borrow_mut().push(key);
+        Ok(())
     }
 
     fn open_unlock(&self) -> Result<(), Error> {
@@ -315,4 +335,48 @@ fn the_kind_setting_never_decides_which_lock_is_in_use() {
         ..ctx
     };
     assert!(flow.released(&mut lock, &gone, &mut fx));
+}
+
+#[test]
+fn wrong_tries_the_card_refuses_are_said_once_and_the_try_is_not_refused() {
+    let mut device = Fake::with_code("pin");
+    let mut door = Door::default();
+    assert!(gate::keep_tries(&device, 3, &mut door));
+    assert_eq!(*device.kept.borrow(), [3]);
+    assert!(device.notices.borrow().is_empty());
+    device.keep_refused = Some(Error::NoSpace);
+    // Said for the count that was lost; the caller goes on (no error).
+    assert!(!gate::keep_tries(&device, 4, &mut door));
+    assert_eq!(*device.notices.borrow(), [gate::TRIES_NOT_KEPT]);
+    // The next wrong tries on the same card are not said again.
+    assert!(!gate::keep_tries(&device, 5, &mut door));
+    assert!(!gate::keep_tries(&device, 5, &mut door));
+    assert_eq!(device.notices.borrow().len(), 1);
+    // Forgetting the count (the right code) failing is no news to the owner.
+    assert!(!gate::keep_tries(&device, 0, &mut door));
+    assert_eq!(device.notices.borrow().len(), 1);
+    // A write that goes through is the end of it: a later refusal is said.
+    device.keep_refused = None;
+    assert!(gate::keep_tries(&device, 1, &mut door));
+    device.keep_refused = Some(Error::NoSpace);
+    assert!(!gate::keep_tries(&device, 2, &mut door));
+    assert_eq!(device.notices.borrow().len(), 2);
+}
+
+#[test]
+fn tries_the_card_cannot_tell_are_taken_as_used_at_the_start() {
+    let mut device = Fake::with_code("pin");
+    device.tries = Err(Error::Io);
+    let (mut lock, mut door) = fresh();
+    // The lock comes first (the screen is staged, so the callback is `Ok`)...
+    assert_eq!(start(&device, &mut lock, &mut door, 1_000), Ok(()));
+    assert!(lock.locked);
+    // ...and the next try waits, as after five wrong ones.
+    assert!(lock.attempts.waiting(1_000));
+    assert!(!lock.attempts.waiting(1_000 + model::WAIT_MS));
+    // A card that tells none (no file) starts with none.
+    let device = Fake::with_code("pin");
+    let (mut lock, mut door) = fresh();
+    start(&device, &mut lock, &mut door, 1_000).unwrap();
+    assert!(!lock.attempts.waiting(1_000));
 }

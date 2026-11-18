@@ -1,12 +1,13 @@
 //! The screen stack as plugins read and steer it:
-//! `Env::stack`, closing a screen of one's own, replacing, going back to
-//! a screen, slots chosen for the user, asking before closing, taps
-//! outside, input passed through, a screen's own row of hints, a screen
-//! opened again.
+//! `Place::stack`, closing a screen of one's own, replacing, going back to
+//! a screen, slots chosen for the user, asking before closing, a screen's
+//! own row of hints, a screen opened again.
 
 use super::*;
+use crate::Asks;
+use crate::Staging;
 use paperpaw_sdk::builtin::events;
-use paperpaw_sdk::{CloseCause, Commands, Gesture, HintVisibility, Instances, Outside, Params};
+use paperpaw_sdk::{CloseCause, Gesture, HintVisibility, Instances, Params};
 
 const SCREEN: Id = Id::new_static("s.screen");
 const HOME: Id = Id::new_static("s.home");
@@ -17,8 +18,7 @@ const MANY: Id = Id::new_static("s.many");
 const OPEN_T: Id = Id::new_static("s.open-t");
 
 /// A screen that does what its params say: `name` (logged), `overlay`
-/// (the lower half), `refuse` (to close), `outside` (`ignore`, `pass`),
-/// `pass` (input through), `hints` (`hidden`, `on-press`).
+/// (the lower half), `refuse` (to close), `hints` (`hidden`, `on-press`).
 struct Configured {
     log: Log,
     params: Params,
@@ -39,21 +39,21 @@ impl Configured {
     }
 }
 
-impl Screen for Configured {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl crate::testing::Fake for Configured {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
+    fn region(&self, _: &Place<'_>) -> Option<Rect> {
         self.says("overlay").map(|_| Rect::new(0, 45, 90, 45))
     }
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if *action == CLOSE {
             cx.close();
         } else if *action == WHO {
             let slot = cx.slot().map_or("-", Id::as_str);
             let line = alloc::format!("is {} for {slot}", cx.screen_id().unwrap());
             self.note(&line);
-        } else if *action == actions::NEXT_PAGE && self.says("pass").is_none() {
+        } else if *action == actions::NEXT_PAGE {
             self.note(&alloc::format!("action {action}"));
         } else {
             return Handled::No;
@@ -61,21 +61,9 @@ impl Screen for Configured {
         Handled::Yes
     }
 
-    fn on_gesture(&mut self, gesture: Gesture, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_gesture(&mut self, gesture: Gesture, _: &mut Turn<'_, '_>) -> Handled {
         self.note(&alloc::format!("gesture {:?}", gesture.kind));
         Handled::Yes
-    }
-
-    fn outside(&self) -> Outside {
-        match self.says("outside") {
-            Some("ignore") => Outside::Ignore,
-            Some("pass") => Outside::PassThrough,
-            _ => Outside::Close,
-        }
-    }
-
-    fn passes_through(&self) -> bool {
-        self.says("pass").is_some()
     }
 
     fn hints(&self) -> Option<HintVisibility> {
@@ -86,7 +74,7 @@ impl Screen for Configured {
         }
     }
 
-    fn on_close_request(&mut self, why: CloseCause, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_close_request(&mut self, why: CloseCause, _: &mut Turn<'_, '_>) -> Handled {
         if self.says("refuse").is_some() {
             self.note(&alloc::format!("keeps open on {why:?}"));
             return Handled::Yes;
@@ -94,39 +82,32 @@ impl Screen for Configured {
         Handled::No
     }
 
-    fn on_show(&mut self, _: &mut Cx<'_, '_>) {
+    fn on_show(&mut self, _: &mut Turn<'_, '_>) {
         self.note("show");
     }
 
-    fn on_reopen(&mut self, params: &Params, _: &mut Cx<'_, '_>) {
+    fn on_reopen(&mut self, params: &Params, _: &mut Turn<'_, '_>) {
         let new = params.get("name").unwrap_or("?");
         self.note(&alloc::format!("reopen {new}"));
         self.params = params.clone();
     }
 
-    fn on_close(&mut self, _: &mut Cx<'_, '_>) {
+    fn on_close(&mut self, _: &mut Turn<'_, '_>) {
         self.note("close");
     }
 }
 
-struct StackPlugin(Log);
-
-impl Plugin for StackPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("s"), "Stack", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn stack_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
         for (id, home, instances) in [
             (SCREEN, false, Instances::PER_PARAMS),
             (HOME, true, Instances::PER_PARAMS),
             (ONE, false, Instances::SINGLE),
             (MANY, false, Instances::MANY),
         ] {
-            let log = self.0.clone();
-            r.add_screen(
-                ScreenSpec::new(
+            let log = kept.clone();
+            r.add_fake(
+                crate::testing::FakeSpec::new(
                     id,
                     "screen",
                     Box::new(move |_, params| {
@@ -145,8 +126,8 @@ impl Plugin for StackPlugin {
             )?;
         }
         r.add_action(ActionSpec::new(OPEN_T, "s.action").handler(
-            |_: &Env<'_>, _, out: &mut Commands| {
-                out.push(Command::OpenScreen(SCREEN, named("t")));
+            |_: &crate::Place<'_>, _, out: &mut Asks| {
+                out.push(Ask::OpenScreen(SCREEN, named("t")));
             },
         ))?;
         r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)?;
@@ -154,13 +135,20 @@ impl Plugin for StackPlugin {
         for action in [CLOSE, WHO] {
             r.add_action(ActionSpec::new(action, "s.action"))?;
         }
-        let log = self.0.clone();
-        r.on(events::SCREEN_SHOWN, move |_, shown, _| {
-            let slot = shown.slot.as_ref().map_or("-", Id::as_str);
-            log.borrow_mut()
-                .push(alloc::format!("shown {} for {slot}", shown.screen));
+        crate::tests::hear_into(&kept);
+        r.on(events::SCREEN_SHOWN, |_, p| {
+            if let Some(shown) = crate::hear::data::<events::ScreenShown>(p) {
+                let slot = shown.slot.as_ref().map_or("-", Id::as_str);
+                crate::tests::heard(alloc::format!("shown {} for {slot}", shown.screen));
+            }
         })
     }
+}
+
+/// What [`stack_plugin`] registers under.
+fn stack_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("s"), "Stack", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 fn named(name: &str) -> Params {
@@ -169,7 +157,7 @@ fn named(name: &str) -> Params {
 
 fn stack_kernel(log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(StackPlugin(log.clone()))
+        .items(stack_plugin_manifest(), stack_plugin(log.clone()))
         .storage(paperpaw_sdk::MemoryStorage::new())
         .build()
         .unwrap();
@@ -179,7 +167,7 @@ fn stack_kernel(log: &Log) -> Kernel {
 }
 
 fn names(kernel: &Kernel) -> Vec<String> {
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     env.stack()
         .iter()
         .map(|entry| {
@@ -197,7 +185,7 @@ fn the_stack_is_read_and_a_screen_knows_itself() {
     let mut kernel = stack_kernel(&log);
     kernel.open_slot(Instant(1), slots::MENU, named("menu").with("overlay", "y"));
     assert_eq!(names(&kernel), ["s.home", "s.screen (overlay)"]);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     assert_eq!(
         env.top().and_then(|top| top.slot.clone()),
         Some(slots::MENU)
@@ -228,7 +216,7 @@ fn a_screen_closes_itself_below_others() {
     kernel.open_screen(Instant(2), SCREEN, named("b").with("overlay", "y"));
     let a = kernel.shared.stack[1].key;
     log.borrow_mut().clear();
-    kernel.apply(Command::Close(a));
+    kernel.apply(Ask::Close(a));
     kernel.finish();
     assert_eq!(names(&kernel), ["s.home", "s.screen (overlay)"]);
     assert_eq!(*log.borrow(), ["a close"]);
@@ -246,7 +234,7 @@ fn screens_are_replaced_and_gone_back_to() {
     let mut kernel = stack_kernel(&log);
     kernel.open_screen(Instant(1), SCREEN, named("step 1"));
     log.borrow_mut().clear();
-    kernel.apply(Command::Replace(SCREEN, named("step 2")));
+    kernel.apply(Ask::Replace(SCREEN, named("step 2")));
     kernel.finish();
     assert_eq!(names(&kernel), ["s.home", "s.screen"]);
     assert_eq!(
@@ -255,10 +243,10 @@ fn screens_are_replaced_and_gone_back_to() {
         "the home screen is not shown between"
     );
     kernel.open_screen(Instant(2), SCREEN, named("step 3"));
-    kernel.apply(Command::BackTo(slots::HOME));
+    kernel.apply(Ask::BackTo(slots::HOME));
     kernel.finish();
     assert_eq!(names(&kernel), ["s.home"]);
-    kernel.apply(Command::BackTo(Id::new_static("s.none")));
+    kernel.apply(Ask::BackTo(Id::new_static("s.none")));
     kernel.finish();
     assert_eq!(names(&kernel), ["s.home"]);
 }
@@ -269,14 +257,14 @@ fn screens_are_replaced_and_gone_back_to() {
 fn slots_take_a_screen_chosen() {
     let log = log();
     let mut kernel = stack_kernel(&log);
-    kernel.apply(Command::OpenInSlot(slots::LIBRARY, SCREEN, named("shelf")));
+    kernel.apply(Ask::OpenInSlot(slots::LIBRARY, SCREEN, named("shelf")));
     kernel.finish();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     assert_eq!(
         env.top().and_then(|top| top.slot.clone()),
         Some(slots::LIBRARY)
     );
-    kernel.apply(Command::BindSlot(slots::HOME, Some(SCREEN)));
+    kernel.apply(Ask::BindSlot(slots::HOME, Some(SCREEN)));
     kernel.finish();
     assert_eq!(
         kernel.shared.registry.resolve_slot(slots::HOME.as_str()),
@@ -284,7 +272,7 @@ fn slots_take_a_screen_chosen() {
     );
     let saved = paperpaw_sdk::read_file(kernel.storage(), "paperpaw.ini", 4096).unwrap();
     assert!(String::from_utf8_lossy(&saved).contains("core.home = s.screen"));
-    kernel.apply(Command::BindSlot(slots::HOME, None));
+    kernel.apply(Ask::BindSlot(slots::HOME, None));
     kernel.finish();
     assert_eq!(
         kernel.shared.registry.resolve_slot(slots::HOME.as_str()),
@@ -317,44 +305,13 @@ fn a_screen_may_keep_itself_open() {
     );
 }
 
-/// A tap outside an overlay closes it, is taken by it, or goes to the
-/// screen below, as it says; input it lets pass goes below it.
-#[test]
-fn overlays_say_what_a_tap_outside_and_input_they_leave_do() {
-    let log = log();
-    let mut kernel = stack_kernel(&log);
-    kernel.open_screen(
-        Instant(1),
-        SCREEN,
-        named("bar").with("overlay", "y").with("outside", "ignore"),
-    );
-    tap(&mut kernel, 100, 45, 10);
-    assert_eq!(names(&kernel), ["s.home", "s.screen (overlay)"]);
-    kernel.apply(Command::Replace(
-        SCREEN,
-        named("skim")
-            .with("overlay", "y")
-            .with("outside", "pass")
-            .with("pass", "y"),
-    ));
-    kernel.finish();
-    log.borrow_mut().clear();
-    tap(&mut kernel, 200, 45, 10);
-    kernel.run_action(Instant(300), actions::NEXT_PAGE);
-    assert_eq!(names(&kernel), ["s.home", "s.screen (overlay)"]);
-    assert_eq!(
-        *log.borrow(),
-        ["home gesture Tap", "home action core.next-page"]
-    );
-}
-
 /// A screen says itself that it has no row of hints: it is made for all
 /// of the screen, where its plugin said nothing.
 #[test]
 fn a_screen_says_its_own_row_of_hints() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(StackPlugin(log.clone()))
+        .items(stack_plugin_manifest(), stack_plugin(log.clone()))
         .button_row(&["back", "confirm", "left", "right"])
         .build()
         .unwrap();
@@ -381,7 +338,15 @@ fn a_screen_opened_again_is_gone_back_to() {
     assert_eq!(names(&kernel), ["s.home", "s.screen"]);
     assert_eq!(
         *log.borrow(),
-        ["u close", "t reopen t", "t show", "shown s.screen for -"]
+        // As a plugin's screen does: shown as it is opened again on top, and
+        // as the top screen.
+        [
+            "u close",
+            "t reopen t",
+            "t show",
+            "t show",
+            "shown s.screen for -"
+        ]
     );
     kernel.run_action(Instant(4), OPEN_T);
     kernel.run_action(Instant(5), OPEN_T);
@@ -418,7 +383,13 @@ fn screens_say_how_many_of_them_open() {
     assert_eq!(names(&kernel), ["s.home", "s.one"]);
     assert_eq!(
         *log.borrow(),
-        ["x close", "a reopen b", "b show", "shown s.one for -"]
+        [
+            "x close",
+            "a reopen b",
+            "b show",
+            "b show",
+            "shown s.one for -"
+        ]
     );
     kernel.run_action(Instant(4), actions::BACK);
     assert_eq!(names(&kernel), ["s.home"]);
@@ -439,36 +410,34 @@ fn a_screen_opened_again_waits_for_the_ones_above() {
     assert_eq!(names(&kernel), ["s.home", "s.one", "s.screen"]);
 }
 
-/// Uses the same slot and registered hint policy as a sleep plugin.
-struct HiddenSleepPlugin;
-
-impl Plugin for HiddenSleepPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("quiet"), "Quiet", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+/// Uses the same slot and hint policy as a sleep plugin.
+fn hidden_sleep_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         const SLEEP: Id = Id::new_static("quiet.sleep");
-        r.add_screen(ScreenSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             SLEEP,
             "Sleep",
             Box::new(|_, _| {
                 Box::new(Configured {
                     log: log(),
-                    params: named("sleep"),
+                    params: named("sleep").with("hints", "hidden"),
                 })
             }),
         ))?;
-        r.set_screen_hints(SLEEP, HintVisibility::Hidden)?;
         r.bind_slot(slots::SLEEP, SLEEP, Priority::DEFAULT)
     }
 }
 
+/// What [`hidden_sleep_plugin`] registers under.
+fn hidden_sleep_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("quiet"), "Quiet", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn reader_with_hints() -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(StackPlugin(log()))
-        .plugin(HiddenSleepPlugin)
+        .items(stack_plugin_manifest(), stack_plugin(log()))
+        .items(hidden_sleep_plugin_manifest(), hidden_sleep_plugin())
         .sleep(true)
         .button_row(&["back", "confirm", "left", "right"])
         .build()

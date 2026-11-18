@@ -172,6 +172,15 @@ getter!(
     "Number of tags, available through text queries."
 );
 getter!(Book, fields, u32, "Number of plugin fields.");
+impl Book<'_> {
+    /// The book's file is not on the card now: the host looked when it
+    /// answered, so telling a gone book needs no `uses.storage`
+    /// (`lib_book.flags` bit 8).
+    #[must_use]
+    pub const fn missing(self) -> bool {
+        self.0.flags & 0x100 != 0
+    }
+}
 impl<'a> Entry<'a> {
     /// Up to two badge texts supplied by the host.
     pub fn badges(self) -> impl Iterator<Item = &'a str> {

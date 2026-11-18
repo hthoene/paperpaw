@@ -112,7 +112,7 @@ fn items_of(lines: Vec<Line>) -> Result<(Vec<Item>, Vec<Target>), Error> {
     Ok((items, targets))
 }
 
-fn fail_error(fail: Fail) -> Error {
+pub(crate) fn fail_error(fail: Fail) -> Error {
     match fail {
         Fail::NoMemory => Error::NoMemory,
         _ => Error::Io,
@@ -421,7 +421,7 @@ impl NativeMail {
             .open(Open::screen("mail.compose")?.handover(handover))
     }
 
-    fn open_folder(&self, host: &Host<'_>, account: u8, raw: &str) -> Result<(), Error> {
+    pub(crate) fn open_folder(&self, host: &Host<'_>, account: u8, raw: &str) -> Result<(), Error> {
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let number = text::format(format_args!("{account}"))?;
         let params = [Param::new(ACCOUNT, &number)?, Param::new(FOLDER, raw)?];
@@ -510,7 +510,7 @@ impl NativeMail {
     }
 
     /// How many mails a check fetches of a folder (the setting, 1 to 50).
-    fn fetch_count(&mut self, host: &Host<'_>) -> Result<u32, Error> {
+    pub(crate) fn fetch_count(&mut self, host: &Host<'_>) -> Result<u32, Error> {
         use crate::native_model::account::Values;
         self.services(host)?;
         let secrets = self.secrets.as_ref().ok_or(Error::State)?;

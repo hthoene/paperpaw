@@ -32,7 +32,7 @@
 //!                  run = another.action (a step a line, at most 16)
 //!   icons.ini      icons of actions and settings: item = icon-name
 //!   points/*.txt   lines for a point (`<point>.txt`, see
-//!                  `Registrar::contribute`): keyboard layouts, About lines
+//!                  `Staging::contribute`): keyboard layouts, About lines
 //!   setup.ini      steps of the first-run setup, a section each: [size]
 //!                  setting = core.font-size (or screen = …), order, title,
 //!                  help
@@ -57,13 +57,16 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
+use crate::Staging;
 use paperpaw_platform::Storage;
 use paperpaw_sdk::FontFace;
 use paperpaw_sdk::presets::Preset;
-use paperpaw_sdk::{Id, Manifest, Plugin, RegisterError, Registrar, Version};
+use paperpaw_sdk::{Id, Manifest, RegisterError, Version};
 
-mod formats;
+mod catalogs;
+pub(crate) mod formats;
 pub(crate) mod hyphenation;
+mod names;
 use formats::{actions, menus, setup_steps};
 
 /// Largest data file read (a translation catalog, a key map).
@@ -195,16 +198,17 @@ impl DataPlugin {
     }
 }
 
-impl Plugin for DataPlugin {
-    fn manifest(&self) -> Manifest {
+impl DataPlugin {
+    pub(crate) fn manifest(&self) -> Manifest {
         self.manifest.clone()
     }
 
+    /// Adds what its folder declares (`Kernel::add_data`).
     #[expect(
         clippy::too_many_lines,
         reason = "longer than the limit from before it was set; split it when it is next changed"
     )]
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    pub(crate) fn register(&self, r: &mut Staging) -> Result<(), RegisterError> {
         for source in self.translations.take() {
             r.add_translations(Cow::Owned(source))?;
         }
@@ -233,8 +237,15 @@ impl Plugin for DataPlugin {
             })?;
             r.add_font_file(id, path)?;
         }
+        let mut named: Vec<String> = Vec::new();
         for (path, extends) in self.extensions.take() {
-            let name = slug(path.rsplit('/').next().unwrap_or(&path));
+            let mut name = slug(path.rsplit('/').next().unwrap_or(&path));
+            // A pack that extends several fonts: an id for each.
+            let before = named.iter().filter(|n| **n == name).count();
+            named.push(name.clone());
+            if before > 0 {
+                name = format!("{name}-{}", before + 1);
+            }
             let id = Id::parse(&format!("{}.{name}", self.manifest.id));
             let extends = Id::parse(&extends);
             let (Ok(id), Ok(extends)) = (id, extends) else {
@@ -302,7 +313,7 @@ impl Plugin for DataPlugin {
         let id = &self.manifest.id;
         if let Some(source) = self.read_later("actions.ini") {
             for action in actions(id, &source)? {
-                r.add_action(action.spec)?;
+                r.add_data_action(action.spec, action.steps)?;
                 if let Some(icon) = action.icon {
                     r.add_icon(action.id, Cow::Owned(icon))?;
                 }
@@ -354,9 +365,9 @@ impl Plugin for DataPlugin {
             r.bind_font(role, font, paperpaw_sdk::Priority::DEFAULT)?;
         }
         if let Some(source) = self.read_later("marks.ini") {
-            let marks = paperpaw_sdk::decorations::MarkRules::parse(&self.manifest.id, &source)?;
+            let marks = crate::kit::decorations::MarkRules::parse(&self.manifest.id, &source)?;
             for (role, title, look) in marks.roles {
-                paperpaw_sdk::decorations::add_role(r, &role, title, look)?;
+                crate::kit::decorations::add_role(&mut |s| r.add_setting(s), &role, title, look)?;
             }
             if !marks.decorator.is_empty() {
                 let id = Id::parse(&format!("{}.marks", self.manifest.id)).map_err(|_| {
@@ -658,6 +669,7 @@ pub(crate) fn folders_of(storage: &dyn Storage, dir: &str, id: &str) -> Vec<Stri
 /// The plugin in folder `path`.
 fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin, String> {
     let storage = shared.as_ref();
+    let names = names::Names::of(storage, path);
     let manifest = read(storage, &format!("{path}/plugin.ini"), MAX_MANIFEST)
         .ok_or_else(|| format!("{path}: no plugin.ini"))?;
     let source = manifest;
@@ -669,20 +681,11 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
         left3: MAX_FORMAT3_DATA,
         problems: Vec::new(),
     };
-    let mut translations = Vec::new();
     let catalogs = format!("{path}/i18n");
-    let mut files: Vec<String> = Vec::new();
-    let mut compiled: Vec<String> = Vec::new();
-    let _ = storage.list(&catalogs, &mut |entry| {
-        // `DE.INI` too: a file copied from a memory card may have it so.
-        if !entry.is_dir && paperpaw_sdk::files::has_extension(entry.name, "ini") {
-            files.push(entry.name.to_string());
-        }
-        // Read as needed, so not counted (ADR 0033).
-        if !entry.is_dir && paperpaw_sdk::files::has_extension(entry.name, "ppcat") {
-            compiled.push(format!("{catalogs}/{}", entry.name));
-        }
-    });
+    let (mut files, mut compiled) = match names.has("i18n") {
+        true => catalogs::names(storage, &catalogs),
+        false => (Vec::new(), Vec::new()),
+    };
     paperpaw_sort::sort(&mut files);
     paperpaw_sort::sort(&mut compiled);
     if budget.formats < FORMATS_4 {
@@ -705,39 +708,42 @@ fn load(shared: &Rc<dyn Storage>, path: &str, folder: &str) -> Result<DataPlugin
             .iter()
             .any(|path| stem(path.rsplit('/').next().unwrap_or(path)) == stem(file))
     });
-    let mut translations_left = MAX_TRANSLATIONS;
-    for file in files {
-        let path = format!("{catalogs}/{file}");
-        let size = storage
-            .size(&path)
-            .map_or(usize::MAX, |s| usize::try_from(s).unwrap_or(usize::MAX));
-        if size > translations_left.min(MAX_FILE) {
-            budget
-                .problems
-                .push(format!("{path}: left out, more than the plugin may take"));
-            continue;
-        }
-        if let Some(text) = read(storage, &path, MAX_FILE) {
-            translations_left = translations_left.saturating_sub(text.len());
-            translations.push(text);
-        }
-    }
-    let keymap = budget.read_now(storage, &format!("{path}/keymap.ini"));
-    let styles = budget.read_now(storage, &format!("{path}/styles.css"));
+    let code = paperpaw_sdk::native::CODE_FILES
+        .iter()
+        .any(|file| names.has(file) && storage.size(&format!("{path}/{file}")).is_ok());
+    let translations = catalogs::read_all(
+        storage,
+        path,
+        &catalogs,
+        files,
+        code,
+        &mut compiled,
+        &mut budget,
+    );
+    let mut now = |name: &str| {
+        names
+            .has(name)
+            .then(|| budget.read_now(storage, &format!("{path}/{name}")))
+            .flatten()
+    };
+    let (keymap, styles) = (now("keymap.ini"), now("styles.css"));
     let mut later: Vec<String> = LATER
         .iter()
+        .filter(|(name, _)| names.has(name))
         .map(|(name, format3)| (format!("{path}/{name}"), *format3))
         .filter(|(file, format3)| budget.allow(storage, file, *format3))
         .map(|(file, _)| file)
         .collect();
-    later.extend(point_files(storage, path, &mut budget));
+    if names.has("points") {
+        later.extend(point_files(storage, path, &mut budget));
+    }
     let roles = fonts_for_roles(&source, path, &mut budget);
-    let code = paperpaw_sdk::native::CODE_FILES
-        .iter()
-        .any(|file| storage.size(&format!("{path}/{file}")).is_ok());
     let tables = hyphenation_tables(&source, path, code, &mut budget);
     let (family, faces) = family(&source, path);
-    let mut fonts = font_files(storage, &format!("{path}/fonts"), false);
+    let mut fonts = match names.has("fonts") {
+        true => font_files(storage, &format!("{path}/fonts"), false),
+        false => Vec::new(),
+    };
     // A family's faces are not fonts of their own as well.
     fonts.retain(|file| !faces.iter().any(|(_, face)| face == file));
     Ok(DataPlugin {
@@ -922,18 +928,21 @@ fn pack_face(file: &str) -> (String, &'static str) {
 }
 
 /// The packs `[extends]` in a `plugin.ini` names: their paths under the
-/// plugin's `fonts` folder and the fonts they extend.
+/// plugin's `fonts` folder and the fonts they extend. A pack may extend
+/// several, listed with commas (formats 5): it is opened once for all.
 fn extensions(source: &str, path: &str) -> Vec<(String, String)> {
-    paperpaw_config::parse(source)
-        .filter_map(Result::ok)
-        .filter(|entry| entry.section == "extends")
-        .map(|entry| {
-            (
-                format!("{path}/fonts/{}", entry.key),
-                entry.value.as_str().trim().to_string(),
-            )
-        })
-        .collect()
+    let mut out = Vec::new();
+    for entry in paperpaw_config::parse(source).filter_map(Result::ok) {
+        if entry.section != "extends" {
+            continue;
+        }
+        for font in entry.value.as_str().split(',').map(str::trim) {
+            if !font.is_empty() {
+                out.push((format!("{path}/fonts/{}", entry.key), font.to_string()));
+            }
+        }
+    }
+    out
 }
 
 /// The family `[family]` in a `plugin.ini` names, with its faces' keys and
@@ -1028,6 +1037,11 @@ fn parse_manifest(source: &str, folder: &str) -> Result<(Manifest, u32), String>
         .ok()
         .filter(|id| id.as_str() == id.namespace())
         .ok_or_else(|| format!("invalid id `{id}`"))?;
+    // Records name plugins in 64 bytes (installers keep their folder names to
+    // 40, a card folder may be longer); `core` is the host's (ui.md 4.3).
+    if id.as_str().len() > 64 || id.as_str() == crate::RESERVED_PLUGIN_ID {
+        return Err(format!("invalid id `{id}`: over 64 bytes or reserved"));
+    }
     let version = match version {
         Some(text) => {
             Version::try_parse(&text).map_err(|why| format!("invalid version `{text}`: {why}"))?
@@ -1050,434 +1064,4 @@ fn parse_manifest(source: &str, folder: &str) -> Result<(Manifest, u32), String>
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use paperpaw_sdk::MemoryStorage;
-
-    fn shared(storage: MemoryStorage) -> Rc<dyn Storage> {
-        Rc::new(storage)
-    }
-
-    /// Every data plugin in `dir` that loads, the others reported.
-    fn discover(
-        storage: &Rc<dyn Storage>,
-        dir: &str,
-        warn: &mut dyn FnMut(String),
-    ) -> Vec<DataPlugin> {
-        folders(storage.as_ref(), dir, warn)
-            .iter()
-            .filter_map(|path| load_folder(storage, path).map_err(&mut *warn).ok())
-            .collect()
-    }
-
-    #[test]
-    fn plugins_switched_off_keep_only_what_lists_them() {
-        let source = "[meta]\nlanguage = de\nname = Deutsch\n\n[messages]\nbig.plugin.name = Groß\nbig.plugin.description = Größer.\nreader.title = Lesen\n";
-        assert_eq!(
-            listing(source, "big.plugin."),
-            "[meta]\nlanguage = de\nname = Deutsch\n\n[messages]\nbig.plugin.name = Groß\nbig.plugin.description = Größer.\n"
-        );
-    }
-
-    #[test]
-    fn finds_folders_with_a_manifest() {
-        let storage = MemoryStorage::new()
-            .with(
-                "plugins/large/plugin.ini",
-                "[plugin]\nname = Large print\ndescription = Bigger text.\nversion = 1.2.0\n",
-            )
-            .with("plugins/large/settings.ini", "[core]\nui-size = 14\n")
-            .with("plugins/large/styles.css", "p { line-height: 1.6 }")
-            .with("plugins/large/i18n/de.ini", "[meta]\nlanguage = de\n")
-            .with("plugins/large/i18n/FR.INI", "[meta]\nlanguage = fr\n")
-            .with("plugins/broken/readme.txt", "")
-            .with("plugins/bad-id/plugin.ini", "[plugin]\nid = a.b\n");
-        let mut warnings = Vec::new();
-        let storage = shared(storage);
-        let plugins = discover(&storage, "plugins", &mut |w| warnings.push(w));
-        assert_eq!(plugins.len(), 1);
-        let large = &plugins[0];
-        assert_eq!(large.manifest.id.as_str(), "large");
-        assert_eq!(large.manifest.name, "Large print");
-        assert_eq!(large.manifest.version, Version::new(1, 2, 0));
-        assert_eq!(large.translations.borrow().len(), 2, "any case");
-        assert!(
-            large
-                .later
-                .borrow()
-                .iter()
-                .any(|p| p.ends_with("settings.ini"))
-        );
-        assert!(large.keymap.borrow().is_none());
-        assert_eq!(
-            large.styles.borrow().as_deref(),
-            Some("p { line-height: 1.6 }")
-        );
-        assert_eq!(warnings.len(), 2, "{warnings:?}");
-    }
-
-    #[test]
-    fn a_pre_release_a_version_does_not_hold_is_refused_saying_so() {
-        let storage = MemoryStorage::new()
-            .with(
-                "plugins/a/plugin.ini",
-                "[plugin]
-name = A
-version = 1.0.0-beta.2
-",
-            )
-            .with(
-                "plugins/b/plugin.ini",
-                "[plugin]
-name = B
-version = 1.0.0-gamma
-",
-            );
-        let mut warnings = Vec::new();
-        let storage = shared(storage);
-        let plugins = discover(&storage, "plugins", &mut |w| warnings.push(w));
-        assert_eq!(plugins.len(), 1, "{warnings:?}");
-        assert_eq!(plugins[0].manifest.version.pre_name(), Some("beta"));
-        assert_eq!(warnings.len(), 1);
-        assert!(
-            warnings[0].contains("invalid version `1.0.0-gamma`")
-                && warnings[0].contains("alpha, beta, dev, pre or rc"),
-            "{warnings:?}"
-        );
-    }
-
-    #[test]
-    fn a_packs_file_name_gives_its_family_and_face() {
-        let of = |family: &str, key| (String::from(family), key);
-        assert_eq!(
-            pack_face("Literata-BoldItalic.ppfp"),
-            of("Literata", "bold-italic")
-        );
-        assert_eq!(
-            pack_face("Literata-Bold-Italic.ppfp"),
-            of("Literata", "bold-italic")
-        );
-        assert_eq!(
-            pack_face("Noto Serif Bold Italic.ppfp"),
-            of("Noto Serif", "bold-italic")
-        );
-        assert_eq!(
-            pack_face("noto_serif_italic.PPFP"),
-            of("noto_serif", "italic")
-        );
-        assert_eq!(pack_face("Fredoka-Oblique.ppfp"), of("Fredoka", "italic"));
-        assert_eq!(
-            pack_face("Fredoka-BoldOblique.ppfp"),
-            of("Fredoka", "bold-italic")
-        );
-        assert_eq!(pack_face("Fredoka-Bold.ppfp"), of("Fredoka", "bold"));
-        assert_eq!(pack_face("Fredoka-Regular.ppfp"), of("Fredoka", "regular"));
-        // No style: the regular face; a style alone or run into the
-        // name is no style.
-        assert_eq!(pack_face("Bookerly.ppfp"), of("Bookerly", "regular"));
-        assert_eq!(pack_face("Bold.ppfp"), of("Bold", "regular"));
-        assert_eq!(pack_face("Seabold.ppfp"), of("Seabold", "regular"));
-        assert_eq!(pack_face("Ä-Bold.ppfp"), of("Ä", "bold"));
-        assert_eq!(pack_face("ÄİBold.ppfp"), of("ÄİBold", "regular"));
-    }
-
-    #[test]
-    fn packs_loose_in_a_font_folder_are_faces_of_their_families() {
-        let storage = shared(
-            MemoryStorage::new()
-                .with("fonts/Literata-Regular.ppfp", "x")
-                .with("fonts/Literata-Bold.ppfp", "x")
-                .with("fonts/greek/Literata-Italic.ppfp", "x")
-                .with("fonts/Bookerly.ppfp", "x")
-                .with("other/Bookerly.ppfp", "x")
-                .with("fonts/notes.txt", "")
-                .with("fonts/._Literata-Bold.ppfp", "x"),
-        );
-        let dirs = [String::from("fonts"), String::from("other")];
-        let folder = font_folder(storage.as_ref(), &dirs).unwrap();
-        assert!(folder.fonts.borrow().is_empty());
-        let mut r = Registrar::new(Id::new_static("font-folder"));
-        folder.register(&mut r).unwrap();
-        let faces: Vec<(String, String, bool, bool)> = r
-            .contributions()
-            .iter()
-            .filter_map(|c| match c {
-                paperpaw_sdk::Contribution::FontFace(face) => Some((
-                    face.id.to_string(),
-                    String::from(face.family.as_ref()),
-                    face.bold,
-                    face.italic,
-                )),
-                _ => None,
-            })
-            .collect();
-        let face = |id: &str, family: &str, bold, italic| {
-            (String::from(id), String::from(family), bold, italic)
-        };
-        assert_eq!(
-            faces,
-            [
-                face("font-folder.bookerly-regular", "Bookerly", false, false),
-                face("font-folder.literata-bold", "Literata", true, false),
-                face("font-folder.literata-regular", "Literata", false, false),
-                face("font-folder.literata-italic", "Literata", false, true),
-                // The same name in another folder: kept apart.
-                face("font-folder.bookerly-regular-2", "Bookerly", false, false),
-            ]
-        );
-        // A plugin's own packs are named in its plugin.ini: not fonts.
-        let plugin = shared(
-            MemoryStorage::new()
-                .with("plugins/greek/plugin.ini", "[plugin]\n")
-                .with("plugins/greek/fonts/literata.ppfp", "x"),
-        );
-        let found = discover(&plugin, "plugins", &mut |_| {});
-        assert!(found[0].fonts.borrow().is_empty());
-    }
-
-    #[test]
-    fn finds_fonts_in_plugins_and_font_folders() {
-        let storage = MemoryStorage::new()
-            .with(
-                "plugins/serif/plugin.ini",
-                "[plugin]
-",
-            )
-            .with("plugins/serif/fonts/Book Antiqua-Bold.TTF", "x")
-            .with("plugins/serif/fonts/readme.txt", "")
-            .with("fonts/a.otf", "x")
-            .with("more-fonts/b.ttc", "x")
-            .with("more-fonts/family/c.ttf", "x");
-        let storage = shared(storage);
-        let plugins = discover(&storage, "plugins", &mut |_| {});
-        assert_eq!(
-            *plugins[0].fonts.borrow(),
-            ["plugins/serif/fonts/Book Antiqua-Bold.TTF"]
-        );
-        let dirs = [String::from("fonts"), String::from("more-fonts")];
-        // Scalable fonts only where they are drawn.
-        let folder = font_folder(storage.as_ref(), &dirs);
-        match cfg!(feature = "outline") {
-            true => assert_eq!(
-                *folder.unwrap().fonts.borrow(),
-                ["fonts/a.otf", "more-fonts/b.ttc", "more-fonts/family/c.ttf"]
-            ),
-            false => assert!(folder.is_none()),
-        }
-        assert!(font_folder(storage.as_ref(), &[String::from("nothing")]).is_none());
-        assert_eq!(slug("Book Antiqua-Bold.TTF"), "book-antiqua-bold");
-        // Packs that extend other fonts, named in plugin.ini.
-        let source = "[plugin]
-id = cyrillic
-[extends]
-literata.ppfp = fonts-default.literata
-";
-        assert_eq!(
-            extensions(source, "plugins/cyrillic"),
-            [(
-                String::from("plugins/cyrillic/fonts/literata.ppfp"),
-                String::from("fonts-default.literata")
-            )]
-        );
-        assert_eq!(slug("….ttf"), "font");
-    }
-
-    #[test]
-    fn families_name_their_faces() {
-        let storage = MemoryStorage::new()
-            .with(
-                "plugins/font-round/plugin.ini",
-                "[plugin]
-name = Round
-[family]
-name = Round
-regular = Round.ttf
-bold = round-bold.ppfp
-oblique = nothing.ppfp
-italic = ../escape.ppfp
-",
-            )
-            .with("plugins/font-round/fonts/Round.ttf", "x")
-            .with("plugins/font-round/fonts/Extra.ttf", "x");
-        let plugin = load_folder(&shared(storage), "plugins/font-round/").unwrap();
-        assert_eq!(plugin.folder(), "plugins/font-round");
-        assert_eq!(plugin.family.as_deref(), Some("Round"));
-        assert_eq!(
-            *plugin.faces.borrow(),
-            [
-                (
-                    "regular",
-                    String::from("plugins/font-round/fonts/Round.ttf")
-                ),
-                (
-                    "bold",
-                    String::from("plugins/font-round/fonts/round-bold.ppfp")
-                ),
-            ]
-        );
-        // A face is no font of its own as well.
-        assert_eq!(
-            *plugin.fonts.borrow(),
-            ["plugins/font-round/fonts/Extra.ttf"]
-        );
-        // A face of a family without its regular face: e.g. a bold
-        // italic face the firmware leaves out.
-        assert_eq!(
-            family(
-                "[family]
-bold-italic = a.ppfp
-name = Literata
-",
-                "p"
-            ),
-            (
-                Some(String::from("Literata")),
-                alloc::vec![("bold-italic", String::from("p/fonts/a.ppfp"))]
-            )
-        );
-        // No family without a name, nor without a face.
-        assert_eq!(
-            family(
-                "[family]
-name = A
-",
-                "p"
-            ),
-            (None, Vec::new())
-        );
-        assert_eq!(
-            family(
-                "[family]
-regular = a.ppfp
-",
-                "p"
-            ),
-            (None, Vec::new())
-        );
-    }
-
-    #[test]
-    fn presets_are_read_a_section_each() {
-        let source = "# Layouts
-[nook]
-kind = home.layout
-name = Reading nook
-                      description = The book, large.
-home.page-1 = home.continue 0/0 4x3
-                      home.rows = 4
-[plain]
-home.status-bar = off
-";
-        let presets = presets(&Id::new_static("cosy"), source).unwrap();
-        assert_eq!(presets.len(), 2);
-        let nook = &presets[0];
-        assert_eq!(nook.id.as_str(), "cosy.nook");
-        assert_eq!(nook.kind.as_str(), "home.layout");
-        assert_eq!(nook.title, "Reading nook");
-        assert_eq!(nook.value("home.page-1"), Some("home.continue 0/0 4x3"));
-        assert_eq!(nook.value("home.rows"), Some("4"));
-        // Without a kind, the plugin's own.
-        assert_eq!(presets[1].kind.as_str(), "cosy");
-        assert!(
-            super::presets(
-                &Id::new_static("cosy"),
-                "[a]
-kind = Not An Id
-"
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn plugins_made_for_later_formats_are_left_out() {
-        let ini = |formats: &str| format!("[plugin]\nname = Large print\n{formats}");
-        assert!(parse_manifest(&ini(""), "large").is_ok());
-        assert!(parse_manifest(&ini("formats = 1\n"), "large").is_ok());
-        assert!(parse_manifest(&ini("formats = 2\n"), "large").is_ok());
-        assert_eq!(parse_manifest(&ini(""), "large").unwrap().1, 1);
-        assert!(parse_manifest(&ini("formats = 3\n"), "large").is_ok());
-        assert!(parse_manifest(&ini("formats = 4\n"), "large").is_ok());
-        assert!(parse_manifest(&ini("formats = 5\n"), "large").is_ok());
-        let later = parse_manifest(&ini("formats = 6\n"), "large").unwrap_err();
-        assert!(later.contains("later PaperPaw"), "{later}");
-        assert!(parse_manifest(&ini("formats = new\n"), "large").is_err());
-    }
-
-    /// `requires` names plugins as said, in formats 4 and later; else the
-    /// plugin is not loaded, with why.
-    #[test]
-    fn requirements_are_checked_with_the_manifest() {
-        let ini = |rest: &str| format!("[plugin]\nname = Cosy\n{rest}");
-        assert!(
-            parse_manifest(&ini("formats = 4\nrequires = stats 1.0.0, news\n"), "cosy").is_ok()
-        );
-        let old = parse_manifest(&ini("formats = 3\nrequires = stats\n"), "cosy").unwrap_err();
-        assert!(old.contains("formats 4"), "{old}");
-        let own = parse_manifest(&ini("formats = 4\nrequires = cosy\n"), "cosy").unwrap_err();
-        assert!(own.contains("itself"), "{own}");
-        assert!(parse_manifest(&ini("formats = 4\nrequires = Not Ok\n"), "cosy").is_err());
-    }
-
-    /// Fonts bound to roles in `[fonts]` of `plugin.ini`.
-    #[test]
-    fn fonts_are_bound_to_roles() {
-        assert_eq!(
-            roles(
-                "[plugin]
-id = x
-[fonts]
-core.font-ui = x.semi
-"
-            ),
-            [(String::from("core.font-ui"), String::from("x.semi"))]
-        );
-    }
-
-    /// Files of formats 3 are read only for a plugin made for them; they
-    /// are held within a budget, and lines for points within a limit.
-    #[test]
-    fn files_of_formats_3_are_read_within_limits() {
-        let older = MemoryStorage::new()
-            .with(
-                "plugins/old/plugin.ini",
-                "[plugin]\nformats = 2\n[fonts]\ncore.font-ui = old.x\n",
-            )
-            .with("plugins/old/menus.ini", "[old.m]\ntitle = M\n");
-        let plugin = load_folder(&shared(older), "plugins/old").unwrap();
-        assert!(plugin.later.borrow().is_empty());
-        assert!(plugin.roles.borrow().is_empty());
-        assert_eq!(plugin.take_problems().len(), 2);
-        let lines: String = (0..MAX_POINT_LINES + 5)
-            .map(|n| format!("line {n}\n"))
-            .collect();
-        let big = alloc::vec![b'#'; MAX_FORMAT3_DATA + 1];
-        let newer = MemoryStorage::new()
-            .with("plugins/new/plugin.ini", "[plugin]\nformats = 3\n")
-            .with("plugins/new/points/core.about.txt", lines.as_str())
-            .with("plugins/new/actions.ini", big);
-        let plugin = load_folder(&shared(newer), "plugins/new").unwrap();
-        let later = plugin.later.borrow().clone();
-        assert_eq!(later, ["plugins/new/points/core.about.txt"], "too large");
-        assert_eq!(plugin.take_problems().len(), 1);
-        let mut r = Registrar::new(Id::new_static("new"));
-        plugin.register(&mut r).unwrap();
-        let lines = r
-            .contributions()
-            .iter()
-            .filter(|c| c.kind() == "to-point")
-            .count();
-        assert_eq!(lines, MAX_POINT_LINES);
-        // All files of a plugin together: within one budget.
-        let file = alloc::vec![b'#'; MAX_FILE - 1];
-        let many = MemoryStorage::new()
-            .with("plugins/many/plugin.ini", "[plugin]\n")
-            .with("plugins/many/keymap.ini", file.clone())
-            .with("plugins/many/settings.ini", file.clone())
-            .with("plugins/many/presets.ini", file);
-        let plugin = load_folder(&shared(many), "plugins/many").unwrap();
-        assert!(plugin.keymap.borrow().is_some());
-        assert_eq!(plugin.later.borrow().len(), 0);
-        assert_eq!(plugin.take_problems().len(), 2);
-    }
-}
+mod tests;

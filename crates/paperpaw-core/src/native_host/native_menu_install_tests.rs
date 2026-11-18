@@ -8,6 +8,7 @@ use crate::native_host::{
     declaration_store::Kind,
     registrations::{self as wire, Record},
 };
+use alloc::string::String;
 
 /// Submits the menu batch `mode` names as a second batch of the factory.
 ///

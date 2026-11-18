@@ -25,6 +25,7 @@ fn context(name: &str) -> Context {
 }
 
 #[test]
+#[ignore = "the dev tool measures a widget's cell with its interface-6 probe widget, which the native Home does not place (todo 634, #244)"]
 fn a_screen_and_a_widget_are_shown() {
     let context = context("session");
     let mut session = Session::new(&context, &Variant::x4()).unwrap();

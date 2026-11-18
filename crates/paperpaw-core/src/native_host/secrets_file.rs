@@ -11,22 +11,27 @@
 //! Every buffer is one fallible allocation made up front, wiped when dropped.
 use alloc::vec::Vec;
 use core::fmt;
-use paperpaw_native::host_glue::{ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE};
+use paperpaw_native::host_glue::{
+    ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE,
+};
 use paperpaw_platform::{Storage, StorageError};
 
 /// The file, in the data folder of the card (the private folder on Android).
 pub(super) const FILE: &str = ".paperpaw/secrets.txt";
 /// The new file, until it replaces the old by rename.
 pub(super) const TEMP: &str = ".paperpaw/secrets.new";
-/// The one read buffer.
-pub(super) const READ_BUF: usize = 4_096;
+/// The one read buffer: a whole line with its line break, and some room so
+/// that a read is not a few bytes long (it must be over [`LINE_MAX`], or a
+/// full buffer without a line break would read as the end of the file).
+pub(super) const READ_BUF: usize = LINE_MAX + 128;
+const _: () = assert!(READ_BUF > LINE_MAX);
 /// Longest line this host reads or writes, without its line break: the names,
 /// the label and a 1,024-byte value sealed (about 2.5 KiB).
 pub(super) const LINE_MAX: usize = 2_560;
 /// Largest secret value, in bytes.
 pub(super) const VALUE_MAX: usize = 1_024;
 /// Largest sealed value (nonce, value, tag) the sealer is asked to open or make.
-pub(super) const SEALED_MAX: usize = 12 + VALUE_MAX + 16;
+pub const SEALED_MAX: usize = 12 + VALUE_MAX + 16;
 /// The file's size limit, in bytes.
 pub(super) const FILE_MAX: u64 = 64 * 1024;
 /// A name or an owner, in bytes.
@@ -112,7 +117,7 @@ impl Buf {
     }
 }
 
-fn nibble(byte: u8) -> Option<u8> {
+pub(super) fn nibble(byte: u8) -> Option<u8> {
     match byte {
         b'0'..=b'9' => Some(byte - b'0'),
         b'a'..=b'f' => Some(byte - b'a' + 10),
@@ -121,7 +126,7 @@ fn nibble(byte: u8) -> Option<u8> {
     }
 }
 
-fn is_hex(text: &[u8]) -> bool {
+pub(super) fn is_hex(text: &[u8]) -> bool {
     text.len().is_multiple_of(2) && text.iter().all(|byte| nibble(*byte).is_some())
 }
 
@@ -138,7 +143,7 @@ fn unhex_into(text: &[u8], out: &mut Buf) -> Result<(), i32> {
     Ok(())
 }
 
-fn veil(bytes: &mut [u8]) {
+pub(super) fn veil(bytes: &mut [u8]) {
     for (index, byte) in bytes.iter_mut().enumerate() {
         *byte ^= VEIL[index % VEIL.len()];
     }
@@ -146,7 +151,10 @@ fn veil(bytes: &mut [u8]) {
 
 /// Seals and opens values on a device that has a key (decision 138): the X4
 /// (AES-256-GCM with a device key; Firmware's), tests (a fake). One that does
-/// not [`seal`](Sealer::seals) keeps values veiled, as interface 6.
+/// not [`seal`](Sealer::seals) writes nothing: `keep` is refused with `ERR_STATE`
+/// (a device without a key has no `core.secrets`; veiled values of interface 6
+/// are still read and are removed or rewritten sealed only where a sealer
+/// seals).
 ///
 /// `aad` is the line's owner, a zero byte and its name: a value copied to
 /// another line does not open there. Nothing here allocates, logs or keeps the
@@ -160,7 +168,7 @@ fn veil(bytes: &mut [u8]) {
 /// entropy source is on; a sealer that cannot get such a nonce answers an
 /// error from `seal` (the `keep` then fails with nothing changed) and never
 /// falls back to a weak source.
-pub(crate) trait Sealer {
+pub trait Sealer {
     /// Whether new values are written sealed (`s1:`) and veiled ones found are
     /// rewritten sealed at the next save.
     fn seals(&self) -> bool;
@@ -170,23 +178,6 @@ pub(crate) trait Sealer {
     /// Opens `sealed` into `out` and returns the length. Any error means the
     /// value is absent here (another device, a lost key, a damaged line).
     fn open(&self, aad: &[u8], sealed: &[u8], out: &mut [u8]) -> Result<usize, i32>;
-}
-
-/// Keeps values veiled (the emulator, Android): interface 6's behaviour. The
-/// help says it is not encryption.
-#[derive(Debug, Default, Clone, Copy)]
-pub(crate) struct Veiling;
-
-impl Sealer for Veiling {
-    fn seals(&self) -> bool {
-        false
-    }
-    fn seal(&self, _: &[u8], _: &[u8], _: &mut [u8]) -> Result<usize, i32> {
-        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
-    }
-    fn open(&self, _: &[u8], _: &[u8], _: &mut [u8]) -> Result<usize, i32> {
-        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
-    }
 }
 
 /// What a read or write of the file failed with, as the contract says.
@@ -226,7 +217,8 @@ pub(super) fn scan(
         loop {
             let window = &buf.data[start..end];
             let Some(at) = window.iter().position(|byte| *byte == b'\n') else {
-                if window.len() >= LINE_MAX {
+                // No break yet in more than `LINE_MAX` bytes: a longer line.
+                if window.len() > LINE_MAX {
                     let piece = Piece::Opaque {
                         bytes: window,
                         end: false,
@@ -239,7 +231,9 @@ pub(super) fn scan(
                 }
                 break;
             };
-            let piece = if opaque || at >= LINE_MAX {
+            // `at` is the line's length without its break: `LINE_MAX` is
+            // still a line this host reads.
+            let piece = if opaque || at > LINE_MAX {
                 Piece::Opaque {
                     bytes: &window[..at],
                     end: true,
@@ -414,6 +408,10 @@ pub(super) struct Opener<'a> {
     pub(super) sealer: &'a dyn Sealer,
     pub(super) plain: Buf,
     pub(super) blob: Buf,
+    /// A sealed value did not open here (another device's, a lost key): the
+    /// sealer said `ERR_NOT_FOUND`. A busy or unreadable flash is not that
+    /// (Senior R1, #254).
+    pub(super) unopened: bool,
 }
 
 impl<'a> Opener<'a> {
@@ -422,6 +420,7 @@ impl<'a> Opener<'a> {
             sealer,
             plain: Buf::new(SEALED_MAX)?,
             blob: Buf::new(SEALED_MAX)?,
+            unopened: false,
         })
     }
 
@@ -430,6 +429,7 @@ impl<'a> Opener<'a> {
     pub(super) fn open(&mut self, row: &Row<'_>) -> bool {
         self.plain.clear();
         self.blob.clear();
+        let mut absent_here = false;
         let opened = match row.field {
             Field::Veiled(hex) => unhex_into(hex, &mut self.plain).map(|()| {
                 let len = self.plain.len;
@@ -441,7 +441,10 @@ impl<'a> Opener<'a> {
                 let length = self
                     .sealer
                     .open(aad, self.blob.as_bytes(), &mut self.plain.data)
-                    .map_err(|_| ERR_IO)?;
+                    .map_err(|status| {
+                        absent_here = status == ERR_NOT_FOUND;
+                        ERR_IO
+                    })?;
                 if length > VALUE_MAX {
                     return Err(ERR_IO);
                 }
@@ -450,6 +453,9 @@ impl<'a> Opener<'a> {
             }),
         };
         self.blob.clear();
+        if opened.is_err() && absent_here {
+            self.unopened = true;
+        }
         let text = opened.is_ok()
             && self.plain.len <= VALUE_MAX
             && core::str::from_utf8(self.plain.as_bytes()).is_ok();
@@ -464,7 +470,7 @@ impl<'a> Opener<'a> {
     }
 }
 
-fn aad_of<'b>(
+pub(super) fn aad_of<'b>(
     owner: &str,
     name: &str,
     out: &'b mut [u8; 2 * NAME_MAX + 1],
@@ -479,8 +485,10 @@ fn aad_of<'b>(
     Ok(&out[..total])
 }
 
-/// Writes a line with this value into `line` (replacing it): sealed when the
-/// sealer seals, veiled otherwise. `blob` is scratch of [`SEALED_MAX`] bytes.
+/// Writes a line with this value into `line` (replacing it), sealed. A sealer
+/// that does not seal is refused with `ERR_STATE`: a value is never written
+/// veiled or in the clear (decision 140). `blob` is scratch of [`SEALED_MAX`]
+/// bytes.
 pub(super) fn build(
     line: &mut Buf,
     blob: &mut Buf,
@@ -489,6 +497,9 @@ pub(super) fn build(
     value: &[u8],
 ) -> Result<(), i32> {
     let (owner, name, label, changeable) = row;
+    if !sealer.seals() {
+        return Err(ERR_STATE);
+    }
     line.clear();
     line.push_escaped(owner)?;
     line.push(b".")?;
@@ -497,22 +508,15 @@ pub(super) fn build(
     line.push_escaped(label)?;
     line.push(if changeable { b"\tc\t" } else { b"\t\t" })?;
     blob.clear();
-    if sealer.seals() {
-        let mut aad = [0_u8; 2 * NAME_MAX + 1];
-        let aad = aad_of(owner, name, &mut aad)?;
-        let length = sealer.seal(aad, value, &mut blob.data)?;
-        if length > SEALED_MAX {
-            return Err(ERR_IO);
-        }
-        blob.len = length;
-        line.push(SEALED_MARK)?;
-        line.push_hex(blob.as_bytes())?;
-    } else {
-        blob.push(value)?;
-        let len = blob.len;
-        veil(&mut blob.data[..len]);
-        line.push_hex(blob.as_bytes())?;
+    let mut aad = [0_u8; 2 * NAME_MAX + 1];
+    let aad = aad_of(owner, name, &mut aad)?;
+    let length = sealer.seal(aad, value, &mut blob.data)?;
+    if length > SEALED_MAX {
+        return Err(ERR_IO);
     }
+    blob.len = length;
+    line.push(SEALED_MARK)?;
+    line.push_hex(blob.as_bytes())?;
     blob.clear();
     line.push(b"\n")
 }

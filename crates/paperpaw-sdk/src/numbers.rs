@@ -4,16 +4,8 @@
 use alloc::format;
 use alloc::string::String;
 
-use crate::env::Env;
-
 /// The translation that holds the language's decimal mark.
 pub const DECIMAL_MARK: &str = "core.decimal";
-
-/// The decimal mark of the language shown: `.` in English, `,` in
-/// German; `.` where the language names none.
-pub fn decimal_mark<'e>(env: &Env<'e>) -> &'e str {
-    env.i18n().get(DECIMAL_MARK).unwrap_or(".")
-}
 
 /// `units` hundredths, tenths or other parts (`decimals` digits after the
 /// mark) written with `mark`: `fixed(42, 1, ",")` is `4,2`,
@@ -31,6 +23,15 @@ pub fn fixed(units: i64, decimals: u32, mark: &str) -> String {
         magnitude / scale,
         magnitude % scale
     )
+}
+
+/// A number as written with a point (`1.5`, `-.25`, `1e2`) and nothing
+/// around it; `None` for anything else. Not `core`'s parser of floats,
+/// which is 16 KB of the firmware: the same float for up to eight digits
+/// after the point, within a unit of its last place for longer ones.
+#[must_use]
+pub fn parse_f32(text: &str) -> Option<f32> {
+    crate::float_text::parse_f32(text)
 }
 
 #[cfg(test)]

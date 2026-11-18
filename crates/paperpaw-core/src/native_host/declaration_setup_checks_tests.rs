@@ -114,6 +114,7 @@ fn finish_as(batches: &[&[Record<'_>]], image: bool) -> Result<(), i32> {
         owned: &owned,
         image: image.then_some(&whole[..]),
         plugin: "reader",
+        refused: Default::default(),
     }
     .finish()
 }

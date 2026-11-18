@@ -1,5 +1,10 @@
 # Interface-7 port
 
+Status: **complete, native only** (ticket #228). The interface-6 form is removed (see "Removal step"); the
+plugin is listed in `paperpaw_app::NATIVE_PLUGINS` and `tools/plugin-files7/complete.txt`. Until the shells
+activate native plugins (Core #944, Host #417) a `.mobi`, `.azw` or `.azw3` book does not open at all: the PR is
+held until activation.
+
 Version 1.0.3 (the interface-7 bump of this cycle; no further bump). Slice 1 of
 the Mobipocket port (#228, assignment #1715, after format-txt #427 and
 format-xtc/images #434).
@@ -54,12 +59,36 @@ read); what interface 6 took from `OpenOptions` is `image_fit`, `cover_fit` and
 `color`, which are the open's `image_side`, `cover_side` and `flags` bit 1. So
 the plugin is not blocked on #385.
 
-## Gaps for the later declaration and host work
+## Native entry (slice 2)
 
-- `Declarations::format` (extensions `mobi`, `azw`, `azw3`, a sniff, `prepared` (the cache is made by
-  op 3), not whole pages) and the
-  `NATIVE_ENTRY`/`.ppn` are not written here (Plugin Engineer's declarations PR);
-  no `.ppn` size is measurable yet.
+`declarations.rs` (`formats`: `format-mobi.mobi`, extensions `mobi`, `azw` and `azw3`, flags `prepared` and
+`sniffs`, not `whole_pages`), `build.rs` (batches built into the image), `src/native_plugin.rs` (`NativeMobi`:
+`make` submits the declaration; `event` answers a `core.format` stage call of its token with
+`MobiProvider::call` over `HostIo`, encoded in place through `Reply::write_with`), `src/native_entry.rs`
+(`NATIVE_ENTRY`, features `linked` and `native-entry`), `native/metadata*` (heap, registrations, storage size,
+read, write, append and remove; no service, no feature; regenerate with `python3 tools/abi-metadata.py --schema
+abi/abi.def --input native/metadata.json --bytes native/metadata.bin --json native/metadata.inspected.json`,
+likewise `metadata.host.*`). Tests: `tests/native_declarations.rs`, `native_linked_entry.rs`,
+`hosted_construction.rs` (the host checks the declaration and admits the format; the plugin is constructed
+in a real registered scope). `tools/plugin-files7` builds it as a file.
+Built as for format-txt (PR #611) and format-xtc (PR #612).
+
+## Removal step (done)
+
+Status: **complete**. Gone with interface 6: `MobiFormat` and its `Plugin` impl (`FORMAT`, `add_book_cache`,
+`add_format` with its `sniff`, the `HOW` table and the manifest), `document::opener`, `MobiDocument::open` with
+the plugin-folder cache (`.paperpaw/plugins/format-mobi/<hash>/`), its `done` stamp (version, fingerprint, fit,
+colour) and the `fingerprint` it used (the host stamps the document cache). `MobiDocument::open_converted`
+(a cache folder given, converted whole, no stamp) is the one way to open a book outside the provider; the
+provider makes the same cache in `prepare` steps. The app no longer registers `MobiFormat`
+(`paperpaw-plugin-format-mobi` is an optional dependency of the app, enabled by `native-linked`), it left
+`STORE_PLUGINS` (offered as a native plugin now), and `NativeMobi` is in `NATIVE_PLUGINS` and `complete.txt`.
+Tests: `tests/provider.rs` compares the provider with the document's own reading of the same books;
+`tests/mobi.rs` and `hostile.rs` open through `open_converted`; the interface-6 test "a changed file is converted
+again" is gone (the host owns the stamp). The `how/` texts stay in the crate for the manifest the store builds.
+
+## Gaps for the later host work
+
 - The host's `fmt.call` adapter and the activation of format providers (#417, #944)
   are not wired: until they are, nothing calls this provider and the
   `provider_pending` cases stay ignored.
@@ -89,8 +118,3 @@ refusal answers. `tests/provider.rs` has a hostile-book loop (random damage and
 cuts through open, prepare and reads: no panic), failed books (DRM, Huffman,
 KF8, too short, empty) and bad calls (unknown document, id opened twice, too many
 documents, bad input).
-
-## Left in place (intermediate)
-
-The interface-6 `MobiFormat` registration and `MobiDocument::open` stay until the
-host activates native plugins; they run the same converter.

@@ -1,6 +1,7 @@
 //! The reads of `core.library` over the catalog on the card: op 1 `state`, op
-//! 3 `book`, op 4 `text`, op 13 `position`, ops 15 and 16 `annotations` and
-//! `anchors`, and op 25 `book_key` (`docs/abi/library.md` 2.1, 2.2, 6).
+//! 2 `query` (`query`), op 3 `book`, op 4 `text`, op 5 `facets` (`facets`), op
+//! 13 `position`, ops 15 and 16 `annotations` and `anchors`, and op 25
+//! `book_key` (`docs/abi/library.md` 2.1, 2.2, 6).
 //!
 //! One implementation: `paperpaw_sdk::library`'s `try_` readers. This adapter
 //! only maps them to the wire records, so nothing is read twice and no
@@ -31,29 +32,47 @@
 //! annotation list is the file's own number, never 0 (`annotations::generation_of`).
 use super::lib_service::{BookRef, LibQuery, One, Rows};
 use crate::abi7::context::RowsEnd;
+use crate::kit::library::{self, catalog};
 use crate::native_host::registrations::{self as wire, Record};
 use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
+pub(crate) use importer::is_by as importer_is_by;
+#[cfg(test)]
+pub(crate) use importer::set as importer_set;
+pub(crate) use jobs::CatalogJobs;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_IO, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, ERR_UNSUPPORTED,
 };
 use paperpaw_platform::{Storage, StorageError};
 use paperpaw_sdk::data;
 use paperpaw_sdk::digest::{fnv1a64, md5};
-use paperpaw_sdk::library::{self, catalog};
 
 mod annotations;
 mod book;
+mod delete;
+mod facets;
+mod field;
+mod fields;
+mod importer;
+mod indexed_memo;
+mod jobs;
+mod old_reader;
+mod place_file;
 mod position;
 mod provide;
+mod query;
+mod removal;
+mod series;
+mod status;
+mod write;
 
 const PPM: u32 = 1_000_000;
 /// Counts of the books `state` takes while the catalog changes under it.
 const STATE_TRIES: usize = 3;
 
 /// What the card cannot tell the adapter.
-pub(crate) trait CatalogEnv {
+pub trait CatalogEnv {
     /// `Some(progress in parts per million)` while the walk makes the
     /// catalog where there was none (its books are those found so far:
     /// `core.library-walking`), `None` otherwise.
@@ -64,23 +83,117 @@ pub(crate) trait CatalogEnv {
     /// The id of the format of the book at `path`, as the format index
     /// finds it by extension; nothing for none.
     fn format_id(&self, _path: &str, _visit: &mut dyn FnMut(&str)) {}
+    /// The field `id` (`<plugin>.<name>`) a plugin declared with
+    /// `book_field.spec`: `Some(true)` kept in the catalog too (short values),
+    /// `Some(false)` kept with the book only, `None` for none declared.
+    fn book_field(&self, _id: &str) -> Option<bool> {
+        None
+    }
+    /// The clock in milliseconds (an annotation transaction's idle time and
+    /// the life of its receipt); 0 where the host has none: they never run out.
+    fn now_ms(&self) -> u64 {
+        0
+    }
+    /// Whether any plugin keeps data for the book at `path` (`book_data.spec`
+    /// folders and the interface 6 ones): `delete`'s fact bit 2. An error is
+    /// the card's or the memory's.
+    fn book_data_kept(&self, _path: &str) -> Result<bool, i32> {
+        Ok(false)
+    }
+    /// The translated title of the book field `id` (`<plugin>.<name>`) as its
+    /// plugin declared it (`book_field.spec`); nothing where there is none: a
+    /// row then shows the field's name.
+    fn field_title(&self, _id: &str, _visit: &mut dyn FnMut(&str)) {}
+    /// The library folder setting (`library.folder`): a root-1 path, empty for
+    /// the card's top. Where the host says nothing the library is the top.
+    fn library_folder(&self, visit: &mut dyn FnMut(&str)) {
+        visit("");
+    }
 }
 
 /// The catalog reads over `storage`.
 pub(crate) struct CatalogReads {
     storage: Rc<dyn Storage>,
     env: Rc<dyn CatalogEnv>,
+    /// The last book whose Beta 3 reader's files were looked at.
+    old: old_reader::Memo,
+    /// Where the last page of names (op 5) ended, for the page after it.
+    names: core::cell::Cell<Option<facets::Kept>>,
+    /// How many books the catalog of this generation holds: counting them
+    /// reads the whole catalog, and `state` is asked on every screen of the
+    /// library. The generation changes with the catalog and its log.
+    counted: core::cell::Cell<Option<(u32, u32)>>,
+    /// Which books are indexed, as of the generation a query read them in.
+    indexed: indexed_memo::IndexedMemo,
 }
 
 impl CatalogReads {
+    /// Op 2 `query`, leaving out the `archive` folder where the query says so
+    /// and the books `hide` names (a pending delete holds them).
+    pub(crate) fn query_hiding(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        hide: &dyn Fn(&str) -> bool,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        query::query(self, query, archive, hide, visit)
+    }
+
+    /// Op 5 `facets`, of the books [`Self::query_hiding`] lists.
+    pub(crate) fn facets_hiding(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        hide: &dyn Fn(&str) -> bool,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        facets::facets(self, query, archive, hide, visit)
+    }
+
+    /// The place the last page of names ended at is dropped.
+    pub(crate) fn names_ended(&self) {
+        self.names.set(None);
+    }
+
+    /// Whether a place is kept.
+    #[cfg(test)]
+    pub(crate) fn names_kept(&self) -> bool {
+        let kept = self.names.take();
+        let is = kept.is_some();
+        self.names.set(kept);
+        is
+    }
+
+    /// Another card is in, or a computer changed this one: nothing kept of
+    /// the books stands, though a catalog's generation may be the same.
+    pub(crate) fn card_changed(&self) {
+        self.old.forget();
+        self.names.set(None);
+        self.counted.set(None);
+        self.indexed.begin(None);
+    }
+
+    /// The library folder setting ([`CatalogEnv::library_folder`]).
+    pub(crate) fn library_folder(&self, visit: &mut dyn FnMut(&str)) {
+        self.env.library_folder(visit);
+    }
+
     pub(crate) fn new(storage: Rc<dyn Storage>, env: Rc<dyn CatalogEnv>) -> Self {
-        Self { storage, env }
+        Self {
+            storage,
+            env,
+            old: old_reader::Memo::default(),
+            names: core::cell::Cell::new(None),
+            counted: core::cell::Cell::new(None),
+            indexed: indexed_memo::IndexedMemo::default(),
+        }
     }
 
     /// The catalog generation of the wire: it changes whenever the
     /// catalog's own generation or its log of changes does (a book added,
     /// removed, its status changed); never 0.
-    fn generation(&self) -> Result<u32, i32> {
+    pub(super) fn generation(&self) -> Result<u32, i32> {
         Ok(self.snapshot()?.0)
     }
 
@@ -163,14 +276,17 @@ impl LibQuery for CatalogReads {
         let mut before = self.snapshot()?;
         let mut answer = None;
         for _ in 0..STATE_TRIES {
-            let books = if before.1 {
-                catalog::try_count(&*self.storage).map_err(fail)?
-            } else {
-                0
+            let books = match self.counted.get() {
+                Some((generation, books)) if before.1 && generation == before.0 => books,
+                _ if before.1 => catalog::try_count(&*self.storage).map_err(fail)?,
+                _ => 0,
             };
             let after = self.snapshot()?;
             answer = Some((before, books));
             if after == before {
+                if before.1 {
+                    self.counted.set(Some((before.0, books)));
+                }
                 break;
             }
             before = after;
@@ -189,6 +305,38 @@ impl LibQuery for CatalogReads {
             walk_ppm,
         }));
         Ok(())
+    }
+
+    fn query(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        query::query(self, query, archive, &|_| false, visit)
+    }
+
+    fn facets(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        facets::facets(self, query, archive, &|_| false, visit)
+    }
+
+    fn next_in_series(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        self.next_in_series_hiding(book, &|_| false, visit)
+    }
+
+    fn fields(
+        &self,
+        book: BookRef<'_>,
+        cursor: u32,
+        generation: u32,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.read_fields(book, cursor, generation, visit)
     }
 
     fn book(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
@@ -215,7 +363,9 @@ impl LibQuery for CatalogReads {
         generation: u32,
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
-        self.with_path(book, |path| {
+        self.with_book_file(book, |path| {
+            self.old
+                .adopt(&*self.storage, path, old_reader::Kept::Annotations);
             annotations::annotations(&*self.storage, path, cursor, generation, visit)
         })
     }
@@ -227,21 +377,82 @@ impl LibQuery for CatalogReads {
         generation: u32,
         visit: Rows<'_>,
     ) -> Result<RowsEnd, i32> {
-        self.with_path(book, |path| {
+        self.with_book_file(book, |path| {
+            self.old
+                .adopt(&*self.storage, path, old_reader::Kept::Annotations);
             annotations::anchors(&*self.storage, path, cursor, generation, visit)
         })
     }
 
     fn position(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
-        self.with_path(book, |path| position::read(&*self.storage, path, visit))
+        self.with_book_file(book, |path| {
+            self.old
+                .adopt(&*self.storage, path, old_reader::Kept::Position);
+            position::read(&*self.storage, path, visit)
+        })
     }
 
     fn book_key(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
-        self.with_path(book, |path| self.key_of(path, visit))
+        // The key and the fingerprint need the file alone, so a book the
+        // catalog does not know yet has them (kosync's first session).
+        self.with_book_file(book, |path| self.key_of(path, visit))
     }
 }
 
 impl CatalogReads {
+    /// Moves the annotations Beta 3's reader kept in its own folder of the
+    /// book at `path` where they are shared, before an edit of them
+    /// (`old_reader`).
+    pub(crate) fn adopt_old_annotations(&self, path: &str) {
+        self.old
+            .adopt(&*self.storage, path, old_reader::Kept::Annotations);
+    }
+
+    /// The book's root-1 path, for the host's own bookkeeping.
+    pub(crate) fn path_of<R>(
+        &self,
+        book: BookRef<'_>,
+        f: impl FnOnce(&str) -> Result<R, i32>,
+    ) -> Result<R, i32> {
+        self.with_path(book, f)
+    }
+
+    /// [`path_of`](Self::path_of) for a book's own files, kept by its path
+    /// ([`with_book_file`](Self::with_book_file)).
+    pub(crate) fn book_file_of<R>(
+        &self,
+        book: BookRef<'_>,
+        f: impl FnOnce(&str) -> Result<R, i32>,
+    ) -> Result<R, i32> {
+        self.with_book_file(book, f)
+    }
+
+    /// Calls `f` with the root-1 path of a book whose own files are kept by
+    /// its path (its position, its annotations): a book in the catalog, as
+    /// [`with_path`](Self::with_path), and one named by its path that the
+    /// catalog does not know yet but the card holds. That is every book of a
+    /// library's first session until a view of the library asks for the walk:
+    /// Beta 3 kept a book's marks and place by its path and never asked the
+    /// catalog, and so does this (#257). A book named by its catalog handle is
+    /// in the catalog.
+    pub(super) fn with_book_file<R>(
+        &self,
+        book: BookRef<'_>,
+        f: impl FnOnce(&str) -> Result<R, i32>,
+    ) -> Result<R, i32> {
+        let BookRef::Path(path) = book else {
+            return self.with_path(book, f);
+        };
+        // A file the card holds first (not a folder, whose size the card
+        // does not give): the book that is open is found among the open
+        // files, and the catalog is not searched for it at every page
+        // turned (its log read twice and its lines up to the book's, #305).
+        if self.storage.size(path).is_err() {
+            self.locate(book)?;
+        }
+        f(path)
+    }
+
     /// Calls `f` with the root-1 path of the book, which is in the catalog.
     fn with_path<R>(
         &self,
@@ -286,6 +497,20 @@ pub(super) fn fail(error: data::Error) -> i32 {
         data::Error::Storage(e) => storage_status(e),
         _ => ERR_IO,
     }
+}
+
+/// The name of the file in `dir` that is kept for the book at `path` (its key
+/// and `.txt`), built fallibly.
+pub(super) fn kept_file(dir: &str, path: &str) -> Result<String, i32> {
+    let mut digits = [0_u8; library::KEY_LEN];
+    let key = library::key_into(path, &mut digits);
+    let mut name = String::new();
+    name.try_reserve_exact(dir.len() + 1 + key.len() + ".txt".len())
+        .map_err(|_| ERR_NO_MEMORY)?;
+    for part in [dir, "/", key, ".txt"] {
+        name.push_str(part);
+    }
+    Ok(name)
 }
 
 fn storage_status(error: StorageError) -> i32 {

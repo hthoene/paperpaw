@@ -20,6 +20,8 @@ Usage:
                  through other big frames under it: N chains in all
     --min BYTES  what a big frame is, for those chains
     --root NAME  where the chains start (default `main`)
+    --cut RE     the functions whose names match RE are leaves: what they call
+                 is not followed (for a path the caller knows is not taken)
     --from RE    also the deepest chains from the functions whose names
                  match RE (e.g. `Firmware>::run$`, or a plugin's `draw`)
 
@@ -169,6 +171,11 @@ def riscv(f, pc, op, ops, regs, _image):
         regs[ops[0]] = number(ops[1])
     elif op == "addi" and len(ops) == 3 and ops[1] in regs:
         regs[ops[0]] = regs[ops[1]] + number(ops[2])
+    elif op == "slli" and len(ops) == 3 and ops[1] in regs:
+        # A big frame: `li a0,0x1d; slli a0,a0,8; sub sp,sp,a0` is 7,424 bytes.
+        regs[ops[0]] = regs[ops[1]] << number(ops[2])
+    elif op == "c.slli" and len(ops) == 2 and ops[0] in regs:
+        regs[ops[0]] = regs[ops[0]] << number(ops[1])
     elif op == "auipc" and len(ops) == 2:
         regs["@" + ops[0]] = pc + ((number(ops[1]) << 12) & 0xFFFFFFFF)
         regs.pop(ops[0], None)
@@ -291,6 +298,14 @@ def depths(funcs):
     return depth, nxt
 
 
+def odd_frames(funcs):
+    """The functions whose frame is not a multiple of 16. Both ABIs keep the
+    stack pointer 16-byte aligned, so such a frame is a prologue this reader
+    does not understand (it once read a `slli`-built 7,424 byte frame as 29
+    bytes). A name starting with `.L` is a local label, not a function."""
+    return [f for f in funcs if f.frame % 16 and not f.name.startswith(".L")]
+
+
 def entries(root):
     """How deep the stack is at most when each function under `root`
     starts, and the caller on that chain (recursion left out)."""
@@ -344,6 +359,8 @@ def main():
     ap.add_argument("--root", default="main")
     ap.add_argument("--from", dest="froms", action="append", default=[])
     ap.add_argument("--panics", action="store_true")
+    ap.add_argument("--cut", action="append", default=[],
+                    help="REGEX: functions matching it are leaves (what they call is not followed)")
     ap.add_argument("--objdump")
     a = ap.parse_args()
 
@@ -353,7 +370,16 @@ def main():
     cmd = [a.objdump or find_objdump(arch), "-d", "-C", "--no-show-raw-insn", a.elf]
     out = subprocess.run(cmd, capture_output=True, text=True, errors="replace", check=True).stdout
     funcs = parse(out.splitlines(), arch, Image(a.elf) if arch == EM_XTENSA else None)
+    odd = odd_frames(funcs)
+    if odd:
+        for f in odd[:10]:
+            print(f"error: {short(f.name)}: a frame of {f.frame} bytes is not a multiple of 16", file=sys.stderr)
+        sys.exit(f"{len(odd)} function(s) with a frame this reader does not understand")
     link(funcs, a.panics)
+    for pattern in a.cut:
+        for f in funcs:
+            if re.search(pattern, short(f.name)):
+                f.callees, f.tailees = set(), set()
     depth, nxt = depths(funcs)
 
     print(f"{len(funcs)} functions. Columns: the frame's bytes, the chain's sum; "

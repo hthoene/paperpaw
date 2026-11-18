@@ -6,7 +6,7 @@ use core::mem::MaybeUninit;
 use paperpaw_native::host_glue::{ERR_NO_SPACE, ERR_UNSUPPORTED};
 use paperpaw_platform::SystemStatus;
 use paperpaw_sdk::{
-    SettingValue,
+    Id, SettingValue,
     power::{Power, PowerLevel},
     wifi::WifiState,
 };
@@ -100,6 +100,14 @@ pub(crate) enum Hint<'a> {
     Charge(ChargeState),
     /// `event.registry_changed` with its `what` bits.
     Registry(u32),
+    /// `event.preview_changed`: the shown preview changed.
+    Preview,
+    /// `event.wifi_scanned` with the number of networks the scan found.
+    Scanned(u32),
+    /// `event.network_wanted`: network work waits for a network.
+    NetworkWanted,
+    /// `event.network_idle`: nothing uses the network any more.
+    NetworkIdle,
 }
 impl Hint<'_> {
     pub(crate) fn tag(self) -> u32 {
@@ -110,6 +118,10 @@ impl Hint<'_> {
             Self::Status => wire::EVENT_STATUS_CHANGED_TAG,
             Self::Charge(_) => wire::EVENT_CHARGE_CHANGED_TAG,
             Self::Registry(_) => wire::EVENT_REGISTRY_CHANGED_TAG,
+            Self::Preview => wire::EVENT_PREVIEW_CHANGED_TAG,
+            Self::Scanned(_) => wire::EVENT_WIFI_SCANNED_TAG,
+            Self::NetworkWanted => wire::EVENT_NETWORK_WANTED_TAG,
+            Self::NetworkIdle => wire::EVENT_NETWORK_IDLE_TAG,
         }
     }
     /// Encode current state at delivery, not a stale snapshot of a coalesced hint.
@@ -147,6 +159,16 @@ impl Hint<'_> {
             Self::Registry(what) => {
                 wire::Record::EventRegistryChanged(wire::EventRegistryChanged { now_ms, what })
             }
+            Self::Preview => {
+                wire::Record::EventPreviewChanged(wire::EventPreviewChanged { now_ms })
+            }
+            Self::Scanned(networks) => {
+                wire::Record::EventWifiScanned(wire::EventWifiScanned { now_ms, networks })
+            }
+            Self::NetworkWanted => {
+                wire::Record::EventNetworkWanted(wire::EventNetworkWanted { now_ms })
+            }
+            Self::NetworkIdle => wire::Record::EventNetworkIdle(wire::EventNetworkIdle { now_ms }),
         };
         codec::encode_batch(&[record], out)
     }
@@ -192,7 +214,7 @@ impl crate::Kernel {
     pub(crate) fn native_setting_after(&self, key: &str, old: Option<&OldValue>) {
         if let Some(old) = old {
             if let Some(sink) = self.native_event_sink() {
-                sink.setting(self.now.millis(), key, old.bytes());
+                sink.setting(self.shared.now.millis(), key, old.bytes());
             }
             self.native_setting_publish(key, old.bytes());
         }
@@ -202,7 +224,7 @@ impl crate::Kernel {
         if self.native_event_sink().is_some() || self.native_setting_wanted() {
             let old = OldValue::capture(old);
             if let Some(sink) = self.native_event_sink() {
-                sink.setting(self.now.millis(), key, old.bytes());
+                sink.setting(self.shared.now.millis(), key, old.bytes());
             }
             self.native_setting_publish(key, old.bytes());
         }
@@ -220,6 +242,16 @@ impl crate::Kernel {
         if let Some(sink) = self.native_event_sink() {
             sink.registry(what);
         }
+        let instances = &self.shared.native_instances;
+        instances.setting_events.publish_registry(instances, what);
+    }
+    /// Bit 31 of `event.registry_changed` to `plugin` alone: a staged REG
+    /// batch of its own was dropped when applied.
+    pub(crate) fn native_registry_dropped(&self, plugin: &Id) {
+        let instances = &self.shared.native_instances;
+        instances
+            .setting_events
+            .publish_registry_to(instances, plugin, super::REGISTRY_DROPPED);
     }
     pub(crate) fn native_hint(&self, tag: u32) {
         // Event 73 also ends the cached status values of `core.ui` op 14.

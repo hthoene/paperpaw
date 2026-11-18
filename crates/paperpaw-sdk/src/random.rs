@@ -1,5 +1,5 @@
 //! Random bytes from the platform's own source, for what others must not
-//! guess: keys in addresses, tokens, nonces ([`Env::random`]). What a
+//! guess: keys in addresses, tokens, nonces (`Place::random`). What a
 //! person reads off the screen and types (a password, a key in an
 //! address) is drawn from letters not taken for one another
 //! ([`Random::readable`], [`READABLE`]) and shown in groups of five
@@ -13,7 +13,6 @@
 //! shell gives none (tests), nothing is drawn: there is no weaker stand-in
 //! to fall back to unnoticed.
 //!
-//! [`Env::random`]: crate::Env::random
 
 use alloc::string::String;
 use core::fmt;

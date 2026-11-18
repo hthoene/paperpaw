@@ -14,13 +14,14 @@ use super::{
     ordered, rules,
     sources::Sources,
 };
+use crate::Place;
+use crate::kit::widgets::base;
 use crate::native_host::{
     declaration_store::{DeclKey, DeclarationStore, Kind},
     registrations::{self as wire, Record},
 };
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
-use paperpaw_sdk::{Env, widgets::base};
 
 /// `reg_widget.flags`.
 const SHOWN: u32 = 1;
@@ -50,7 +51,7 @@ impl Wanted<'_> {
 
 /// The cells of a code plugin's widget as `widget.spec.cells` has them: columns
 /// in bits 0-7, rows 8-15, the least columns 16-23 and the least rows 24-31.
-fn cells(span: paperpaw_sdk::widgets::CellSpan) -> u32 {
+fn cells(span: crate::kit::widgets::CellSpan) -> u32 {
     u32::from_le_bytes([span.w, span.h, span.min_w, span.min_h])
 }
 
@@ -118,9 +119,37 @@ pub(super) fn rows(
     Ok(())
 }
 
+/// The widgets to add that native plugins declared, for the kernel's own
+/// screens that name widgets (`Widgets::set_declared_elsewhere`): each one's
+/// id, the message key of its name and its kind; of widget `only` (or the
+/// widget a placement shows) alone, where it names one. Nothing while the
+/// store is being written.
+pub(crate) fn declared_names(
+    directory: &crate::native_host::native_declarations::NativeDeclarations,
+    only: Option<&str>,
+    each: &mut dyn FnMut(&str, &str, &str),
+) {
+    let Ok(store) = directory.store.try_borrow() else {
+        return;
+    };
+    let only = only.map(base);
+    store.keys(Kind::Widget, &mut |key| {
+        let _read = ordered::with_plugin(&store, key, &mut |record, plugin| {
+            if let Record::WidgetSpec(spec) = record
+                && spec.previews.is_empty()
+                && let Some(id) = Fixed::<{ caps::ID }>::of(&[plugin, ".", spec.name])
+                && only.is_none_or(|only| only == id.as_str())
+            {
+                each(id.as_str(), spec.title, spec.category);
+            }
+            ControlFlow::Continue(())
+        });
+    });
+}
+
 /// The row of the declared widget `key`.
 fn declared(
-    env: &Env<'_>,
+    env: &Place<'_>,
     store: &DeclarationStore,
     key: DeclKey,
     wanted: Wanted<'_>,
@@ -162,7 +191,7 @@ fn declared(
 
 /// Whether a place that shows now lists widget `id`: one of the environment's
 /// places (`Widgets::shown`) or a native `widget.place`.
-fn listed(env: &Env<'_>, store: &DeclarationStore, id: &str) -> bool {
+fn listed(env: &Place<'_>, store: &DeclarationStore, id: &str) -> bool {
     if env.widgets().shown(env, id) {
         return true;
     }
@@ -178,7 +207,7 @@ fn listed(env: &Env<'_>, store: &DeclarationStore, id: &str) -> bool {
     found
 }
 
-fn place_lists(env: &Env<'_>, place: &wire::WidgetPlace<'_>, id: &str) -> bool {
+fn place_lists(env: &Place<'_>, place: &wire::WidgetPlace<'_>, id: &str) -> bool {
     rules::value_holds(env.settings(), place.shown_if_key, place.shown_if_value)
         && place
             .list_keys

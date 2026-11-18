@@ -31,7 +31,6 @@ paperpaw-qr.workspace = true
 # Native code plugins' files and the table plugins are given (`native`).
 paperpaw-native.workspace = true
 paperpaw-lang.workspace = true
-paperpaw-table.workspace = true
 
 [dev-dependencies]
 # The tests build environments as the kernel does.
@@ -55,7 +54,7 @@ unstable = []
 # (ADR 0020). Off for plugins, which get these only to read through
 # `Env`. Adds only functions and types, never a field or variant: a plugin's
 # fingerprint does not change with it.
-kernel = ["paperpaw-hyphen/kernel"]
+kernel = ["paperpaw-hyphen/kernel", "paperpaw-native/kernel"]
 # Makers of what the kernel hands plugins (Bluetooth devices, handles),
 # for a plugin's own tests with made-up events. Adds only functions.
 testing = []

@@ -54,8 +54,9 @@ surest way.
 For the tool's own side we recommend: put PaperPaw in the slot that the plain
 power button starts (waking from sleep is a reset, and the plain button
 brings PaperPaw back); write PaperPaw's app image (`paperpaw-x4-<version>-install.bin`
-of a release) raw, nothing else; keep both slots at least 6,553,600 bytes
-(CrossPoint's table); keep the OTA data valid.
+of a release) raw, nothing else; keep both slots at least as large as the image
+(the native images are over CrossPoint's 6,553,600-byte slots: write them to slots of PaperPaw's own
+size, 8,323,072 bytes); keep the OTA data valid.
 
 ## What PaperPaw does when it is declared
 

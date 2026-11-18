@@ -21,7 +21,7 @@ use paperpaw_ui_kit::{
     uitext,
 };
 
-use crate::native_plugin::{Asked, NativeWidgets};
+use crate::native_plugin::{Asked, State};
 use crate::native_todo_list::{List, Loaded, MAX_ITEMS, cleaned, load, save};
 
 /// The callback token of the list's screen.
@@ -152,7 +152,7 @@ impl TodoView {
     }
 }
 
-impl NativeWidgets {
+impl State {
     /// The action that opens the list's screen.
     pub(crate) fn open_todo_screen(host: &Host<'_>) -> Result<(), Error> {
         let mut scratch = [0; 128];

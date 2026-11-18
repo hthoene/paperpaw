@@ -16,10 +16,12 @@
 //!   the library's move job) that the shell cannot know. `HostWiring::files`
 //!   refuses (`ERR_STATE`) until every [`BusyKind`] has a source: nothing
 //!   busy would be a wrong answer for state the host does hold.
-//! - `rename`: the storage's rename (the library's journal and job follow a
-//!   move of the user's files when the library host is wired).
+//! - `rename`: the storage's rename; a move of the user's files (root 1) is
+//!   the library's move job when it is wired (`with_moves`).
 use super::{
+    data_plugin_folders::DataPluginFolders,
     files_service::{Access, FilesHost},
+    lib_moves_service::LibraryMoves,
     linked_plugins::LinkedPlugins,
 };
 use alloc::{rc::Rc, vec::Vec};
@@ -93,6 +95,13 @@ impl BusySources {
             .map_or(true, |all| all.iter().any(|(have, _)| *have == kind))
     }
 
+    /// Whether any source holds `path` for `access` (what `core.files` asks;
+    /// the library's delete and import ask it too, for a book open in a
+    /// document, the reader or a transfer).
+    pub(crate) fn busy(&self, storage: &dyn Storage, path: &str, access: Access) -> bool {
+        self.any(|source| source.busy(storage, path, access))
+    }
+
     /// A list in use answers busy: the safe answer.
     fn any(&self, ask: impl Fn(&dyn BusySource) -> bool) -> bool {
         self.0
@@ -103,11 +112,11 @@ impl BusySources {
 
 /// The host's folders by root, as `core.files` hides them: `.received` in
 /// root 0 (under the plugin's data folder), `plugins` and `.paperpaw` in
-/// root 1 (the card's top).
+/// root 1 (the card's top), and the kernel's `paperpaw.ini` there.
 fn excluded_names(root: u32) -> &'static [&'static str] {
     match root {
         0 => &[".received"],
-        1 => &["plugins", ".paperpaw"],
+        1 => &["plugins", ".paperpaw", "paperpaw.ini"],
         _ => &[],
     }
 }
@@ -116,11 +125,65 @@ fn excluded_names(root: u32) -> &'static [&'static str] {
 /// the host's (at most 128 bytes) and a name of at most 255.
 const JOINED: usize = 384;
 
+/// Whether the file or folder `parent/name` exists on `storage`.
+pub(crate) fn exists_in(storage: &dyn Storage, parent: &str, name: &str) -> bool {
+    let mut buf = [0u8; JOINED];
+    let need = parent.len() + usize::from(!parent.is_empty()) + name.len();
+    let Some(room) = buf.get_mut(..need) else {
+        // Too long to be an entry of the card: the safe answer is "yes".
+        return true;
+    };
+    let (head, tail) = room.split_at_mut(parent.len());
+    head.copy_from_slice(parent.as_bytes());
+    let tail = if parent.is_empty() {
+        tail
+    } else {
+        tail[0] = b'/';
+        &mut tail[1..]
+    };
+    tail.copy_from_slice(name.as_bytes());
+    // Both parts are `str` and the `/` is ASCII: the join is UTF-8.
+    core::str::from_utf8(room).map_or(true, |path| {
+        // A file, or a folder (listing it as far as its first entry).
+        storage.exists(path) || storage.list_bounded(path, 0, &mut |_| false).is_ok()
+    })
+}
+
+/// Whether `first_segment` (the first name below `parent` in `root`) is one of
+/// the host's folders for `storage`: by its spelling, or as an 8.3 alias (a
+/// name with a `~`, where it and one of the host's names both exist, so it
+/// may be that entry). Over-refuses where it cannot tell.
+pub(crate) fn excluded_on(
+    storage: &dyn Storage,
+    root: u32,
+    parent: &str,
+    first_segment: &str,
+) -> bool {
+    let names = excluded_names(root);
+    if names
+        .iter()
+        .any(|name| super::files_service::same_fold(first_segment, name))
+    {
+        return true;
+    }
+    // An 8.3 alias carries a `~` (`PAPERP~1`, `RECEIV~1`); without one the
+    // spelling decides, and the service has refused it already.
+    first_segment.contains('~')
+        && exists_in(storage, parent, first_segment)
+        && names.iter().any(|name| exists_in(storage, parent, name))
+}
+
 /// `core.files` over `storage`.
 pub(crate) struct StorageFiles {
     storage: Rc<dyn Storage>,
     sources: Rc<BusySources>,
     linked: Rc<LinkedPlugins>,
+    /// The library's move job: a move of the user's files goes through it.
+    /// `None` where no job is wired (tests): the storage's own rename.
+    moves: Option<Rc<LibraryMoves>>,
+    /// The running data plugins' folders, which root 1 shows read only.
+    /// `None` where none is wired (tests): `plugins/` stays hidden.
+    data_plugins: Option<Rc<DataPluginFolders>>,
 }
 
 impl StorageFiles {
@@ -133,54 +196,62 @@ impl StorageFiles {
             storage,
             sources,
             linked,
+            moves: None,
+            data_plugins: None,
         }
     }
 
-    /// Whether the file or folder `parent/name` exists.
-    fn exists_in(&self, parent: &str, name: &str) -> bool {
-        let mut buf = [0u8; JOINED];
-        let need = parent.len() + usize::from(!parent.is_empty()) + name.len();
-        let Some(room) = buf.get_mut(..need) else {
-            // Too long to be an entry of the card: the safe answer is "yes".
-            return true;
-        };
-        let (head, tail) = room.split_at_mut(parent.len());
-        head.copy_from_slice(parent.as_bytes());
-        let tail = if parent.is_empty() {
-            tail
-        } else {
-            tail[0] = b'/';
-            &mut tail[1..]
-        };
-        tail.copy_from_slice(name.as_bytes());
-        // Both parts are `str` and the `/` is ASCII: the join is UTF-8.
-        core::str::from_utf8(room).map_or(true, |path| {
-            // A file, or a folder (listing it as far as its first entry).
-            self.storage.exists(path) || self.storage.list_from(path, 0, &mut |_| false).is_ok()
-        })
+    /// The same, with the folders of the running data plugins shown on root 1
+    /// (`files.md` 1.1).
+    pub(crate) fn with_data_plugins(mut self, folders: Rc<DataPluginFolders>) -> Self {
+        self.data_plugins = Some(folders);
+        self
+    }
+
+    /// The same, a move of the user's files started as the library's move
+    /// job ([`LibraryMoves::begin`]).
+    pub(crate) fn with_moves(mut self, moves: Rc<LibraryMoves>) -> Self {
+        self.moves = Some(moves);
+        self
     }
 }
 
 impl FilesHost for StorageFiles {
+    /// A move of the user's files (root 1) is the library's move job: the
+    /// journal entry, the rename, then the catalog by the kernel's pump. Any
+    /// other move is the storage's rename.
+    fn rename(
+        &self,
+        storage: &dyn Storage,
+        from: &str,
+        to: &str,
+        replace: bool,
+        library: bool,
+    ) -> Result<(), i32> {
+        match &self.moves {
+            Some(moves) if library => moves.begin(from, to, replace),
+            _ => storage.rename(from, to).map_err(super::storage::status),
+        }
+    }
+
     /// A plugin linked into the firmware (`Kernel::register_linked`); a loaded
     /// `.ppn` plugin never is, and a card plugin never takes a linked id.
     fn built_in(&self, plugin: &str) -> bool {
         self.linked.contains(plugin)
     }
 
+    fn data_folder(&self, name: &str) -> bool {
+        self.data_plugins
+            .as_ref()
+            .is_some_and(|folders| folders.contains(name))
+    }
+
+    fn host_file(&self, folder: &str, entry: &str) -> bool {
+        super::data_plugin_folders::host_file(&*self.storage, folder, entry)
+    }
+
     fn excluded(&self, root: u32, parent: &str, first_segment: &str) -> bool {
-        let names = excluded_names(root);
-        if names
-            .iter()
-            .any(|name| super::files_service::same_fold(first_segment, name))
-        {
-            return true;
-        }
-        // An 8.3 alias carries a `~` (`PAPERP~1`, `RECEIV~1`); without one the
-        // spelling decides, and the service has refused it already.
-        first_segment.contains('~')
-            && self.exists_in(parent, first_segment)
-            && names.iter().any(|name| self.exists_in(parent, name))
+        excluded_on(&*self.storage, root, parent, first_segment)
     }
 
     fn busy(&self, path: &str, access: Access) -> bool {

@@ -14,13 +14,14 @@
 //! when the registration fails, so an id is in the set only for a plugin that
 //! is linked. Every allocation is fallible; a set that is in use answers "yes"
 //! (the safe side: the leftover folder stays unreadable).
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 
-/// The linked plugin ids, device-wide.
+/// The linked plugin ids, device-wide, as the firmware keeps them: no copy
+/// on the heap (#248, D4).
 #[derive(Default)]
-pub(crate) struct LinkedPlugins(RefCell<Vec<String>>);
+pub(crate) struct LinkedPlugins(RefCell<Vec<&'static str>>);
 
 impl core::fmt::Debug for LinkedPlugins {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -31,36 +32,37 @@ impl core::fmt::Debug for LinkedPlugins {
 }
 
 impl LinkedPlugins {
+    /// Gives back the room kept while the ids were added one by one.
+    pub(crate) fn shrink_to_fit(&self) {
+        if let Ok(mut ids) = self.0.try_borrow_mut() {
+            super::shrink::shrink(&mut ids);
+        }
+    }
+
     /// Adds `id` (once).
     ///
     /// # Errors
     /// `ERR_NO_MEMORY`; `ERR_BUSY` when the set is in use.
-    pub(crate) fn add(&self, id: &str) -> Result<(), i32> {
+    pub(crate) fn add(&self, id: &'static str) -> Result<(), i32> {
         let mut ids = self.0.try_borrow_mut().map_err(|_| ERR_BUSY)?;
-        if ids.iter().any(|have| have == id) {
+        if ids.contains(&id) {
             return Ok(());
         }
         ids.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-        let mut copy = String::new();
-        copy.try_reserve_exact(id.len())
-            .map_err(|_| ERR_NO_MEMORY)?;
-        copy.push_str(id);
-        ids.push(copy);
+        ids.push(id);
         Ok(())
     }
 
     /// Takes `id` back (a registration that failed).
     pub(crate) fn remove(&self, id: &str) {
         if let Ok(mut ids) = self.0.try_borrow_mut() {
-            ids.retain(|have| have != id);
+            ids.retain(|have| *have != id);
         }
     }
 
     /// Whether `id` is a linked plugin. A set in use says yes.
     pub(crate) fn contains(&self, id: &str) -> bool {
-        self.0
-            .try_borrow()
-            .map_or(true, |ids| ids.iter().any(|have| have == id))
+        self.0.try_borrow().map_or(true, |ids| ids.contains(&id))
     }
 }
 

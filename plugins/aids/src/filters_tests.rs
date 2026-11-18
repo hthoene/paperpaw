@@ -11,7 +11,9 @@ use alloc::vec::Vec;
 use paperpaw_sdk::document::{Align, OffsetMap};
 use proptest::prelude::*;
 
-use super::*;
+use crate::oracle::{bold_beginnings, pairs, replace};
+use alloc::string::ToString;
+use paperpaw_sdk::document::{Block, BlockKind, Run, TextStyle};
 
 fn block(text: &str, runs: Vec<Run>) -> Block {
     Block::new(BlockKind::Paragraph, 0, text.len() as u32, text.to_string())

@@ -16,7 +16,7 @@ use paperpaw_plugin_notes_vault::native_format::{VaultIo, call, markdown_provide
 use paperpaw_sdk::document::{Document, Locator};
 use paperpaw_sdk::native::Error;
 use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
-use paperpaw_sdk::{DirEntry, Env, MemoryStorage, Storage, StorageError};
+use paperpaw_sdk::{DirEntry, MemoryStorage, Storage, StorageError};
 
 /// Root 3 (the one book, `path ""`) and root 6 (below the plugin's folder).
 struct Roots {
@@ -28,7 +28,7 @@ impl Roots {
     fn new(book: &[u8]) -> Self {
         Self {
             mem: MemoryStorage::new().with("book", book.to_vec()),
-            prefix: Env::plugin_dir("notes-vault"),
+            prefix: paperpaw_sdk::data::plugin_dir("notes-vault"),
         }
     }
     fn map(&self, path: &str) -> String {
@@ -92,7 +92,7 @@ fn card() -> MemoryStorage {
 }
 
 fn run(
-    p: &mut paperpaw_plugin_format_epub::provider::FormatProvider,
+    p: &mut paperpaw_epub_family::provider::FormatProvider,
     base: &dyn Storage,
     card: &dyn Storage,
     input: &[u8],
@@ -115,7 +115,7 @@ fn rows(reply: &[u8]) -> Vec<stage::Record<'_>> {
 type Joined = (String, Vec<(u32, u32, u32)>, Vec<(u32, u32)>, (u32, u32));
 
 fn block(
-    p: &mut paperpaw_plugin_format_epub::provider::FormatProvider,
+    p: &mut paperpaw_epub_family::provider::FormatProvider,
     base: &dyn Storage,
     card: &dyn Storage,
     offset: u32,
@@ -216,7 +216,7 @@ fn a_note_without_a_card_path_reads_without_a_vault() {
 fn the_card_is_read_only_and_the_cache_is_not() {
     let base = Roots::new(b"x");
     let card = card();
-    let prefix = Env::plugin_dir("notes-vault");
+    let prefix = paperpaw_sdk::data::plugin_dir("notes-vault");
     let io = VaultIo::new(&base, &card, &prefix, NOTE_PATH);
     // The note is the book, other card paths are the card.
     let mut buf = [0u8; 8];
@@ -264,7 +264,7 @@ fn bad_calls_get_their_refusals() {
     // A note that is no file on the card fails the document, not the provider.
     let missing = Roots {
         mem: MemoryStorage::new(),
-        prefix: Env::plugin_dir("notes-vault"),
+        prefix: paperpaw_sdk::data::plugin_dir("notes-vault"),
     };
     let reply = run(
         &mut p,

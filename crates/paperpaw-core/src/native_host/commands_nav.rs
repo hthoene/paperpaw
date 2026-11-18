@@ -19,15 +19,30 @@
 //! screens it closes with `back_to`); every other plugin's are held below
 //! the guard as the stage judged.
 //!
-//! Not here: `screen_policy` (1563, a run-time change of a screen's flags)
-//! stays `ERR_UNSUPPORTED`.
-use super::{CommandStage, WireCommand, ui};
+//! `screen_policy` (1563) is checked here and staged apart from the commands:
+//! the host applies it first ([`Kernel::native_screen_policies`](crate::Kernel)).
+use super::{CommandBatch, CommandStage, WireCommand, ui};
+use crate::Ask;
 use crate::native_host::{
     stack_rows::StackRows,
     ui_guard::{self, Close},
 };
+use crate::screens::{POLICY_BITS, POLICY_GUARDS};
+use alloc::vec::Vec;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NOT_FOUND, ERR_STATE};
-use paperpaw_sdk::{Command, ScreenKey};
+use paperpaw_sdk::ScreenKey;
+
+/// One run-time change of a screen's policy bits (`command.screen_policy`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PolicyChange {
+    /// The screen instance (never 0: the own top one is named here).
+    pub(crate) instance: u32,
+    /// The bits it ends with (`guards`, `secret`, `holds_edges`).
+    pub(crate) flags: u32,
+    /// Not a policy: `command.screen_ready` (1557) for the instance, which
+    /// `flags` then does not read.
+    pub(crate) ready: bool,
+}
 
 /// The most bytes of an input name (`command.raise_input.input`).
 const INPUT_MAX: usize = 64;
@@ -48,6 +63,8 @@ pub(super) fn is_nav(command: &WireCommand<'_>) -> bool {
             | WireCommand::SetKeyLayer { .. }
             | WireCommand::ShowHints {}
             | WireCommand::RaiseInput { .. }
+            | WireCommand::ScreenPolicy { .. }
+            | WireCommand::ScreenReady {}
     )
 }
 
@@ -131,8 +148,85 @@ impl CommandStage<'_> {
                 ui_guard::raise_allowed(nav.rows, nav.owner)?;
                 Ok(input.len())
             }
+            WireCommand::ScreenPolicy { instance, flags } => {
+                self.policy_change(&nav, instance, flags).map(|_| 0)
+            }
+            // The submitter's own top instance, else `ERR_STATE`.
+            WireCommand::ScreenReady {} => self.own_top().map(|_| 0),
             _ => Err(paperpaw_native::host_glue::ERR_UNSUPPORTED),
         }
+    }
+
+    /// The change `command.screen_policy` asks for, checked against the stack
+    /// as it is now: the instance (0 is the submitter's own top one) and the
+    /// policy bits it ends with.
+    pub(super) fn policy_change(
+        &self,
+        nav: &NavStack<'_>,
+        instance: u32,
+        flags: u32,
+    ) -> Result<PolicyChange, i32> {
+        if flags & !POLICY_BITS != 0 {
+            return Err(ERR_INVALID);
+        }
+        let instance = if instance == 0 {
+            self.own_top()?.serial()
+        } else {
+            instance
+        };
+        ui_guard::policy_allowed(nav.rows, nav.owner, instance, flags & POLICY_GUARDS != 0)?;
+        Ok(PolicyChange {
+            instance,
+            flags,
+            ready: false,
+        })
+    }
+
+    /// Makes room for the policy changes of `batch`.
+    #[inline(never)]
+    pub(super) fn reserve_policies(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        let count = batch
+            .iter()
+            .filter(|command| {
+                matches!(
+                    command,
+                    WireCommand::ScreenPolicy { .. } | WireCommand::ScreenReady {}
+                )
+            })
+            .count();
+        self.staged_policies
+            .try_reserve(count)
+            .map_err(|_| paperpaw_native::host_glue::ERR_NO_MEMORY)
+    }
+
+    /// Stages the checked changes of a batch (room was reserved).
+    #[inline(never)]
+    pub(super) fn stage_policy(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
+        let nav = self.nav()?;
+        let change = match *command {
+            WireCommand::ScreenPolicy { instance, flags } => {
+                self.policy_change(&nav, instance, flags)?
+            }
+            WireCommand::ScreenReady {} => PolicyChange {
+                instance: self.own_top()?.serial(),
+                flags: 0,
+                ready: true,
+            },
+            _ => return Ok(()),
+        };
+        self.staged_policies.push(change);
+        Ok(())
+    }
+
+    /// The checked policy changes, in order, for the host to apply before the
+    /// callback's other commands ([`Kernel::native_screen_policies`]).
+    #[must_use]
+    #[allow(
+        dead_code,
+        reason = "the command runner (shell_commands) calls it, wired with the shell"
+    )]
+    pub(crate) fn take_policies(&mut self) -> Vec<PolicyChange> {
+        core::mem::take(&mut self.staged_policies)
     }
 
     /// Whose input `input` is: the Power key and the escape are the user's
@@ -168,14 +262,14 @@ impl CommandStage<'_> {
     }
 
     /// The staged form of a checked navigation command.
-    pub(super) fn owned_nav(&self, command: WireCommand<'_>) -> Result<Command, i32> {
+    pub(super) fn owned_nav(&self, command: WireCommand<'_>) -> Result<Ask, i32> {
         match command {
             WireCommand::Close { instance } => {
                 let nav = self.nav()?;
                 match ui_guard::close_allowed(nav.rows, nav.owner, instance)? {
                     Close::Instance(index) => {
                         let row = ui_guard::UiStackView::row(nav.rows, index).ok_or(ERR_STATE)?;
-                        Ok(Command::Close(ScreenKey::new(row.instance)))
+                        Ok(Ask::Close(ScreenKey::new(row.instance)))
                     }
                     Close::NoEffect => Err(ERR_STATE),
                 }
@@ -184,7 +278,7 @@ impl CommandStage<'_> {
                 let index = self.back_to_index(target).ok_or(ERR_NOT_FOUND)?;
                 let ui = self.ui.as_ref().ok_or(ERR_STATE)?;
                 let entry = ui.env().stack().get(index).ok_or(ERR_NOT_FOUND)?;
-                Ok(Command::BackTo(ui::copy_id(entry.screen.as_str())?))
+                Ok(Ask::BackTo(ui::copy_id(entry.screen.as_str())?))
             }
             WireCommand::SetKeyLayer { layer } => {
                 let key = self.own_top()?;
@@ -193,15 +287,15 @@ impl CommandStage<'_> {
                 } else {
                     Some(ui::copy_id(layer)?)
                 };
-                Ok(Command::SetKeyLayer(key, layer))
+                Ok(Ask::SetKeyLayer(key, layer))
             }
-            WireCommand::ShowHints {} => Ok(Command::ShowHints),
+            WireCommand::ShowHints {} => Ok(Ask::ShowHints),
             WireCommand::RaiseInput { input } => {
                 let mut name = alloc::string::String::new();
                 name.try_reserve_exact(input.len())
                     .map_err(|_| paperpaw_native::host_glue::ERR_NO_MEMORY)?;
                 name.push_str(input);
-                Ok(Command::Input(name))
+                Ok(Ask::Input(name))
             }
             _ => Err(paperpaw_native::host_glue::ERR_UNSUPPORTED),
         }

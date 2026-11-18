@@ -3,7 +3,7 @@
 //! clean refusals, unload and reload.
 use super::super::dev::{DevPlugins, Kind, Refusal, classify};
 use super::e2e::sample_bytes;
-use super::foreign::fixture_custom;
+use super::foreign::{fixture_custom, fixture_query};
 use super::*;
 use paperpaw_core::native_host::registrations::{
     REGISTRATION_MAX_BYTES, Record, SettingSpec as SpecRecord, records_encode,
@@ -237,6 +237,37 @@ fn a_library_exporting_more_than_its_entry_symbols_is_refused_before_it_runs() {
     std::fs::remove_dir_all(&root).unwrap();
 }
 
+/// What the library's tick does with its heap word: the word (a static of the
+/// library's own, zero in the file) must hold the host's table, and a block
+/// is taken from it and given back.
+const HEAP_WORD: &str = "
+    #[unsafe(no_mangle)]
+    #[unsafe(link_section = \".rodata.paperpaw_heap\")]
+    pub static PAPERPAW_HEAP: usize = 0;
+    let table = unsafe { core::ptr::read_volatile(&raw const PAPERPAW_HEAP) } as *const PpHeap;
+    if table.is_null() { return ERR_NO_MEMORY; }
+    let (Some(alloc), Some(dealloc)) = (unsafe { (*table).alloc }, unsafe { (*table).dealloc })
+    else { return ERR_NO_MEMORY; };
+    let block = unsafe { alloc(16, 8) };
+    if block.is_null() { return ERR_NO_MEMORY; }
+    unsafe { dealloc(block, 16, 8) };
+";
+
+/// A library with a heap word is taken with its third export and gets the
+/// kernel's heap table written into the word before `make`
+/// (`abi/heap-word.md`): its tick allocates through it.
+#[test]
+fn a_library_with_a_heap_word_allocates_through_it() {
+    let library = fixture_query(&[], false, HEAP_WORD);
+    let bytes = std::fs::read(&library.path).unwrap();
+    let root = card(&[("heapy", bytes.as_slice())]);
+    let found = DevPlugins::load_folder_if(&root, true);
+    assert_eq!(found.ids(), ["heapy"], "{:?}", found.refused());
+    assert_eq!(found.tick(41), [("heapy", vec![host_glue::OK])]);
+    drop(found);
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
 /// The id is the folder's, never the library's: the same library declares a
 /// setting in the group `weather.main` without declaring the group. Under the
 /// folder `weather` that group is its own and missing, so it is refused at
@@ -316,19 +347,43 @@ fn the_device_loads_at_start_and_again_at_restart_only_with_the_switch() {
     std::fs::remove_dir_all(&root).unwrap();
 }
 
-/// With the switch on the interface-6 loader takes interface-6 libraries
-/// only: one exporting both kinds, neither, or interface 7 is not its to take.
-/// With the switch off it decides as before (no classification at all).
+/// A library built for interface 6 (it exports `PAPERPAW_API`, as `plugin!`
+/// made it for Beta 3) on a card whose code is trusted is listed as built
+/// for an older PaperPaw, as the devices list Beta 3's files: told from its
+/// bytes, nothing of it loaded. One that is neither kind, or both, is no
+/// library of a plugin.
 #[test]
-fn the_interface_6_loader_takes_only_interface_6_with_the_switch_on() {
-    use crate::native::interface6_only;
-    let (six, both, neither) = (interface6_like(), both(), neither());
-    assert!(interface6_only(&six, true));
-    for refused in [sample_bytes(), &both, &neither, b"junk"] {
-        assert!(!interface6_only(refused, true));
-    }
-    for any in [&six[..], sample_bytes(), &both, &neither, b"junk"] {
-        assert!(interface6_only(any, false), "off: as before");
+fn an_interface_6_library_is_listed_as_built_for_an_older_paperpaw() {
+    use paperpaw_core::sdk::PluginProblem;
+    let _one = crate::one_device_at_a_time();
+    let said = |bytes: &[u8]| {
+        let root = crate::private::dir("paperpaw-older-library").unwrap();
+        let hello = root.join("plugins/hello");
+        std::fs::create_dir_all(&hello).unwrap();
+        std::fs::write(
+            hello.join("plugin.ini"),
+            "[plugin]\nid = hello\nname = Hello\nversion = 0.1.0\n",
+        )
+        .unwrap();
+        std::fs::write(hello.join(crate::native::file_name()), bytes).unwrap();
+        assert_eq!(crate::native::trust(&root).unwrap(), ["hello"]);
+        crate::device::set_code_plugins(true);
+        let storage = crate::device::library(&root).unwrap();
+        let profile = crate::profiles::find("boox-go-7").unwrap();
+        let device = crate::device::Device::new(profile, None, storage, true).unwrap();
+        let hello = device.kernel.plugins().get("hello").unwrap();
+        let said = (hello.state, hello.problem);
+        crate::device::set_code_plugins(false);
+        let _ = std::fs::remove_dir_all(&root);
+        said
+    };
+    let failed = paperpaw_core::sdk::PluginState::Failed;
+    assert_eq!(
+        said(&interface6_like()),
+        (failed, Some(PluginProblem::OlderInterface { built_for: 6 }))
+    );
+    for bytes in [&both()[..], &neither(), b"junk"] {
+        assert_eq!(said(bytes), (failed, Some(PluginProblem::Damaged)));
     }
 }
 

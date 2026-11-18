@@ -4,17 +4,17 @@ use super::*;
 use crate::elf::ET_EXEC;
 use crate::elf::build::Builder;
 
-const BASE: u32 = 0x4200_0000;
-const RETW_N: [u8; 2] = [0x1d, 0xf0];
+pub(super) const BASE: u32 = 0x4200_0000;
+pub(super) const RETW_N: [u8; 2] = [0x1d, 0xf0];
 
 /// `entry a1, <frame>` (frame in bytes, a multiple of 8).
-fn entry(frame: u32) -> [u8; 3] {
+pub(super) fn entry(frame: u32) -> [u8; 3] {
     let w = 0x36 | 1 << 8 | (frame / 8) << 12;
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
 }
 
 /// `call<n>` from `at` to `target` (n = 0, 4, 8 or 12).
-fn call(n: u32, at: u32, target: u32) -> [u8; 3] {
+pub(super) fn call(n: u32, at: u32, target: u32) -> [u8; 3] {
     let offset = ((i64::from(target >> 2) - i64::from(at >> 2) - 1) as u32) & 0x3_FFFF;
     let w = 0x05 | (n / 4) << 4 | offset << 6;
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
@@ -28,7 +28,7 @@ fn jump(at: u32, target: u32) -> [u8; 3] {
 }
 
 /// `callx<n> a2`.
-fn callx(n: u32) -> [u8; 3] {
+pub(super) fn callx(n: u32) -> [u8; 3] {
     let t = 0xC + n / 4;
     let w = t << 4 | 2 << 8;
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
@@ -56,7 +56,7 @@ fn firmware(funcs: &[(&str, Vec<u8>)]) -> (Vec<u8>, Vec<u32>) {
     (b.build(), starts)
 }
 
-fn run(funcs: &[(&str, Vec<u8>)], roots: &[&str], extra: &str) -> Report {
+pub(super) fn run(funcs: &[(&str, Vec<u8>)], roots: &[&str], extra: &str) -> Report {
     let (bytes, _) = firmware(funcs);
     let elf = Elf::parse(&bytes).unwrap();
     let text = format!(
@@ -69,7 +69,7 @@ fn run(funcs: &[(&str, Vec<u8>)], roots: &[&str], extra: &str) -> Report {
     check(&elf, &Budget::parse(&text).unwrap()).unwrap()
 }
 
-fn f(parts: &[&[u8]]) -> Vec<u8> {
+pub(super) fn f(parts: &[&[u8]]) -> Vec<u8> {
     parts.concat()
 }
 
@@ -356,7 +356,7 @@ fn a_call_out_of_the_image_is_refused_unless_it_is_named() {
             .iter()
             .any(|p| p.contains("outside the image"))
     );
-    assert!(other.problems.iter().any(|p| p.contains("matches nothing")));
+    assert!(other.warnings.iter().any(|p| p.contains("matches nothing")));
 }
 
 #[test]
@@ -398,7 +398,7 @@ fn a_function_of_no_size_and_a_change_of_the_stack_pointer_are_refused() {
 }
 
 #[test]
-fn indirect_calls_must_be_listed_exactly_and_an_unused_line_fails() {
+fn indirect_calls_must_be_listed_and_an_unused_line_warns() {
     let two = f(&[&entry(32), &callx(8), &callx(12), &RETW_N]);
     let bare = run(&[("root", two.clone())], &["root"], "");
     assert_eq!(bare.indirect, 2);
@@ -409,25 +409,14 @@ fn indirect_calls_must_be_listed_exactly_and_an_unused_line_fails() {
         "allow indirect root 2 vtable of Storage, device test S4\n",
     );
     assert!(listed.problems.is_empty(), "{:?}", listed.problems);
-    // The function gained one: the line no longer fits, and the new count fails.
-    let three = f(&[&entry(32), &callx(8), &callx(12), &callx(8), &RETW_N]);
-    let grown = run(
-        &[("root", three)],
-        &["root"],
-        "allow indirect root 2 vtable of Storage, device test S4\n",
-    );
-    assert_eq!(grown.problems.len(), 2, "{:?}", grown.problems);
-    // A line for a caller that has none is stale.
+    // A line for a caller that has none is stale: a warning.
     let stale = run(
         &[("root", f(&[&entry(32), &RETW_N]))],
         &["root"],
         "allow indirect root 1 gone\n",
     );
-    assert!(
-        stale.problems[0].contains("matches nothing"),
-        "{:?}",
-        stale.problems
-    );
+    assert!(stale.problems.is_empty(), "{:?}", stale.problems);
+    assert!(stale.warnings[0].contains("matches nothing"));
 }
 
 #[test]
@@ -537,11 +526,15 @@ fn an_entry_of_another_register_fails_and_a_jx_counts_as_indirect() {
     let jx = f(&[&entry(32), &[0xa0, 0x02, 0x00]]);
     let bare = run(&[("root", jx.clone())], &["root"], "");
     assert_eq!(bare.indirect, 1);
-    assert!(bare.problems[0].contains("through a register"));
+    assert!(
+        bare.problems
+            .iter()
+            .any(|p| p.contains("through a register"))
+    );
     let listed = run(
         &[("root", jx)],
         &["root"],
-        "allow indirect root 1 jump table\n",
+        "allow indirect root 1 jump table\nallow jx root no table, read by hand\n",
     );
     assert!(listed.problems.is_empty(), "{:?}", listed.problems);
 }
@@ -790,14 +783,14 @@ fn forms_that_stay_unknown_cannot_be_allowed_and_the_line_is_read_strictly() {
 // ---- calls through a register that an `l32r` literal gives -----------------
 
 /// `l32r a<reg>, <literal>` at `pc`.
-fn l32r(reg: u32, pc: u32, literal: u32) -> [u8; 3] {
+pub(super) fn l32r(reg: u32, pc: u32, literal: u32) -> [u8; 3] {
     let imm = ((i64::from(literal) - i64::from((pc + 3) & !3)) >> 2) as u32 & 0xFFFF;
     let w = 0x01 | reg << 4 | imm << 8;
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
 }
 
 /// `callx<n> a<reg>`.
-fn callx_reg(n: u32, reg: u32) -> [u8; 3] {
+pub(super) fn callx_reg(n: u32, reg: u32) -> [u8; 3] {
     let w = (0xC + n / 4) << 4 | reg << 8;
     [w as u8, (w >> 8) as u8, (w >> 16) as u8]
 }
@@ -845,10 +838,10 @@ fn firmware_lit_flags(
     b.build()
 }
 
-fn run_lit(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32], extra: &str) -> Report {
+pub(super) fn run_lit(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32], more: &str) -> Report {
     let bytes = firmware_lit(lits, funcs, data);
     let elf = Elf::parse(&bytes).unwrap();
-    let text = format!("root root\n{extra}");
+    let text = format!("root root\n{more}");
     check(&elf, &Budget::parse(&text).unwrap()).unwrap()
 }
 
@@ -952,7 +945,7 @@ fn a_callx_whose_register_holds_no_literal_on_every_path_stays_indirect() {
 /// A function `root` of the instructions `parts` at `BASE + 0x40` (the first
 /// literal is the helper's address, the second the same address again), and
 /// the helper after it.
-fn root_of(parts: &[&[u8]]) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
+pub(super) fn root_of(parts: &[&[u8]]) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
     let root_at = BASE + 0x40;
     let root = f(parts);
     let helper_at = (root_at + root.len() as u32 + 15) & !15;
@@ -963,7 +956,7 @@ fn root_of(parts: &[&[u8]]) -> (Vec<u32>, Vec<(&'static str, Vec<u8>)>) {
     )
 }
 
-fn outcome(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32]) -> (u32, u32) {
+pub(super) fn outcome(lits: &[u32], funcs: &[(&str, Vec<u8>)], data: &[u32]) -> (u32, u32) {
     let report = run_lit(lits, funcs, data, "");
     (report.resolved, report.indirect)
 }
@@ -1014,27 +1007,40 @@ fn the_literal_must_be_the_same_on_every_path_to_the_call() {
 }
 
 #[test]
-fn an_address_the_image_points_at_is_an_entry_with_nothing_known() {
+fn a_word_that_equals_an_address_is_no_entry_where_no_jx_goes_there() {
     let at = BASE + 0x40;
     // entry; l32r a8; mov.n; callx8 a8; retw.n: resolved on its own.
     let (lits, funcs) = root_and_helper(&|_| vec![0xad, 0x03]);
     assert_eq!(outcome(&lits, &funcs, &[]), (1, 0));
-    // A word of data holding the address of the `callx8` (a jump table of
-    // another function, or of this one): the call can be entered with nothing
-    // loaded, so it is not resolved.
+    // A word of data that equals the address of the `callx8`: the function
+    // has no `jx`, so nothing jumps there (a jump table is its function's
+    // own, see the next test). It is a number or text that happens to be the
+    // address (`0SUB` in the chip's pin names was one), so where the build
+    // puts things does not decide whether the call resolves.
     let callx_at = at + 3 + 3 + 2;
-    assert_eq!(outcome(&lits, &funcs, &[callx_at]), (0, 1));
-    // At the `l32r` itself (it loads before the call on every path): resolved.
+    assert_eq!(outcome(&lits, &funcs, &[callx_at]), (1, 0));
     assert_eq!(outcome(&lits, &funcs, &[at + 3]), (1, 0));
-    // A word that is no address of this function changes nothing.
+    // A word that is no address of this function changes nothing, nor does
+    // an address inside an instruction.
     assert_eq!(outcome(&lits, &funcs, &[0x1234_5678]), (1, 0));
-    // An address inside an instruction: no jump target (the compiler's are
-    // instruction starts), a number in the data that happens to be one: left
-    // out, so where the build puts things does not decide whether the call
-    // resolves. The same with a `jx` table that has a real entry too.
     assert_eq!(outcome(&lits, &funcs, &[at + 4]), (1, 0));
-    assert_eq!(outcome(&lits, &funcs, &[at + 4, at + 3]), (1, 0));
-    assert_eq!(outcome(&lits, &funcs, &[at + 4, callx_at]), (0, 1));
+    assert_eq!(outcome(&lits, &funcs, &[at + 4, callx_at]), (1, 0));
+}
+
+#[test]
+fn an_image_with_a_part_split_off_a_function_is_refused() {
+    // The rule above holds only while a jump table is its function's own.
+    let whole = f(&[&entry(32), &RETW_N]);
+    for (name, refused) in [
+        ("helper", false),
+        ("helper.cold", true),
+        ("helper.part.0", true),
+    ] {
+        let (bytes, _) = firmware(&[("root", whole.clone()), (name, whole.clone())]);
+        let elf = Elf::parse(&bytes).unwrap();
+        let outcome = check(&elf, &Budget::parse("root root\n").unwrap());
+        assert_eq!(outcome.is_err(), refused, "{name}");
+    }
 }
 
 #[test]
@@ -1053,10 +1059,13 @@ fn a_jx_needs_an_address_to_jump_to_and_its_table_words_are_entries() {
     // No table: the `jx` cannot be placed, nothing is resolved (the `jx` is
     // counted as one indirect call too).
     assert_eq!(outcome(&lits, &funcs, &[]), (0, 2));
-    // The table holds the `l32r`: reached, the literal loaded.
-    assert_eq!(outcome(&lits, &funcs, &[at + 6]), (1, 1));
+    // The table (four words, LLVM's least) holds the `l32r`: reached, loaded.
+    assert_eq!(outcome(&lits, &funcs, &[at + 6; 4]), (1, 1));
     // The table holds the `callx8`: reached with nothing loaded.
-    assert_eq!(outcome(&lits, &funcs, &[at + 9]), (0, 2));
+    assert_eq!(outcome(&lits, &funcs, &[at + 9; 4]), (0, 2));
+    // Fewer words than a table has are no table: the `jx` has no place to go.
+    assert_eq!(outcome(&lits, &funcs, &[at + 6; 3]), (0, 2));
+    assert_eq!(outcome(&lits, &funcs, &[at + 6]), (0, 2));
     // A `jx` after a resolvable call: with no table the whole function gives up.
     let code = [
         &entry(32)[..],
@@ -1069,7 +1078,29 @@ fn a_jx_needs_an_address_to_jump_to_and_its_table_words_are_entries() {
     assert_eq!(outcome(&lits, &funcs, &[]), (0, 2));
     // A word that holds the function's own start (a vtable or a function
     // pointer) is no table: the function still gives up.
-    assert_eq!(outcome(&lits, &funcs, &[at]), (0, 2));
+    assert_eq!(outcome(&lits, &funcs, &[at; 4]), (0, 2));
+}
+
+#[test]
+fn a_lone_word_that_equals_an_address_is_no_entry_even_where_a_jx_has_a_table() {
+    let at = BASE + 0x40;
+    // As above: the table sends the flow to the `l32r`, the call is resolved.
+    let code = [
+        &entry(32)[..],
+        &[0xa0, 0x03, 0x00],
+        &l32r(8, at + 6, BASE),
+        &callx_reg(8, 8),
+        &RETW_N,
+    ];
+    let (lits, funcs) = root_of(&code);
+    let table = [at + 6; 4];
+    assert_eq!(outcome(&lits, &funcs, &table), (1, 1));
+    // A number of the data elsewhere that equals the address of the `callx8`
+    // (it moves with the layout) changes nothing: it is no part of a table.
+    let mut with_a_number = table.to_vec();
+    with_a_number.extend([0x1234_5678, at + 9, 0x1234_5678, at + 9]);
+    assert_eq!(outcome(&lits, &funcs, &with_a_number), (1, 1));
+    assert_eq!(outcome(&lits, &funcs, &[table[0], 0, at + 9]), (0, 2));
 }
 
 /// `bf b0, <target>` (`r` 0) or `bt b0, <target>` (`r` 1) at `pc`.
@@ -1230,8 +1261,15 @@ fn a_path_shared_by_functions_is_named_by_symbol_and_a_line_must_name_one() {
         &format!("allow indirect {stable_name} 1 every instance\n"),
     );
     assert!(by_stable.problems.is_empty(), "{:?}", by_stable.problems);
-    // An instance with another count is not covered.
-    let two = f(&[&entry(32), &callx_reg(8, 2), &callx_reg(8, 3), &RETW_N]);
+    // An instance with more calls than the line's ceiling is not covered.
+    let two = f(&[
+        &entry(32),
+        &callx_reg(8, 2),
+        &callx_reg(8, 3),
+        &callx_reg(8, 4),
+        &callx_reg(8, 5),
+        &RETW_N,
+    ]);
     let uneven = [
         ("root", funcs[0].1.clone()),
         (s1, funcs[1].1.clone()),
@@ -1284,4 +1322,179 @@ fn a_symbol_loses_its_hash_and_local_copy_suffix_and_nothing_else() {
     ] {
         assert_eq!(stable(symbol), name, "{symbol}");
     }
+}
+
+/// `_ZN<len>krate<len>name17h<hash>E`.
+pub(super) fn sym(krate: &str, name: &str, hash: u32) -> String {
+    format!(
+        "_ZN{}{krate}{}{name}17h{hash:016x}E",
+        krate.len(),
+        name.len()
+    )
+}
+
+#[test]
+fn an_allow_rom_line_covers_any_caller_of_that_routine_outside_the_image_only() {
+    let a = BASE;
+    let rom = BASE + 0x1000;
+    let one = f(&[&entry(32), &call(8, a + 3, rom), &RETW_N]);
+    let funcs = [("root", one)];
+    let line = "allow rom 0x42001000 the ROM's memcpy\n";
+    assert!(run(&funcs, &["root"], line).problems.is_empty());
+    // Another routine, or none called, is not covered; a stale line fails.
+    let other = f(&[&entry(32), &call(8, a + 3, rom + 4), &RETW_N]);
+    let report = run(&[("root", other)], &["root"], line);
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.contains("outside the image"))
+    );
+    assert!(
+        report
+            .problems
+            .iter()
+            .any(|p| p.contains("matches nothing"))
+    );
+}
+
+#[test]
+fn an_indirect_in_line_is_a_ceiling_for_the_crates_functions_and_must_match_one() {
+    let a = BASE;
+    let sites = |n: usize| f(&[&entry(32), &callx(8).repeat(n), &RETW_N]);
+    let root = f(&[
+        &entry(32),
+        &call(8, a + 3, a + 16),
+        &call(8, a + 6, a + 96),
+        &RETW_N,
+    ]);
+    let (x, y) = (
+        sym("paperpaw_plugin_one", "run", 1),
+        sym("paperpaw_plugin_two", "go", 2),
+    );
+    let funcs = [
+        ("root", root),
+        (x.as_str(), sites(20)),
+        (y.as_str(), sites(10)),
+    ];
+    let why = " device test S4\n";
+    // 30 sites in two crates: a prefix covers both, up to its count plus the headroom (16).
+    let both = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect-in paperpaw_plugin_* 14{why}"),
+    );
+    assert!(both.problems.is_empty(), "{:?}", both.problems);
+    let over = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect-in paperpaw_plugin_* 13{why}"),
+    );
+    // The failure names each function and its count: to set against the base's.
+    assert!(
+        over.problems.iter().any(|p| p.contains("have 30 call(s)")
+            && p.contains("`paperpaw_plugin_one::run` 20")
+            && p.contains("`paperpaw_plugin_two::go` 10")),
+        "{:?}",
+        over.problems
+    );
+    // A crate by its exact name covers that crate only: the other is reported.
+    let one = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect-in paperpaw_plugin_one 4{why}"),
+    );
+    assert_eq!(one.problems.len(), 1, "{:?}", one.problems);
+    assert!(one.problems[0].contains("10 call(s) through a register"));
+    // A line no function matches is stale; a function's own line comes first.
+    let stale = run(
+        &funcs,
+        &["root"],
+        &format!("allow indirect-in paperpaw_other 9{why}"),
+    );
+    assert!(stale.problems.iter().any(|p| p.contains("matches nothing")));
+    let own = run(
+        &funcs,
+        &["root"],
+        &format!(
+            "allow indirect-in paperpaw_plugin_* 1{why}allow indirect paperpaw_plugin_one::run 20{why}"
+        ),
+    );
+    assert!(own.problems.is_empty(), "{:?}", own.problems);
+}
+
+#[test]
+fn the_crate_of_a_function_is_read_from_its_path_or_the_type_of_its_impl() {
+    use super::family::{crate_of_symbol, family_matches};
+    assert_eq!(
+        crate_of_symbol(&sym("paperpaw_sdk", "x", 1)).as_deref(),
+        Some("paperpaw_sdk")
+    );
+    let imp = "_ZN62_$LT$paperpaw_plugin_update..native_plugin..NativeUpdate$u20$as$u20$a$GT$5event17h0000000000000001E";
+    assert_eq!(
+        crate_of_symbol(imp).as_deref(),
+        Some("paperpaw_plugin_update")
+    );
+    assert_eq!(crate_of_symbol("memcpy"), None);
+    assert!(family_matches(
+        "paperpaw_plugin_*",
+        "paperpaw_plugin_update"
+    ));
+    assert!(!family_matches("paperpaw_plugin_*", "paperpaw_sdk"));
+    assert!(family_matches("core", "core") && !family_matches("core", "core_x"));
+}
+
+#[test]
+fn an_include_line_brings_in_a_file_beside_the_budget_and_nothing_deeper() {
+    let dir = std::env::temp_dir().join(format!("paperpaw-sign-include-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("shared.txt"), "root shared_root\n").unwrap();
+    std::fs::write(dir.join("deep.txt"), "include shared.txt\n").unwrap();
+    let base = dir.join("budget.txt");
+    let text = expand_includes("root a\ninclude shared.txt # why\n", &base).unwrap();
+    assert_eq!(Budget::parse(&text).unwrap().roots, ["a", "shared_root"]);
+    assert!(expand_includes("include deep.txt\n", &base).is_err());
+    assert!(expand_includes("include missing.txt\n", &base).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_frames_in_line_holds_every_function_of_the_family_reached_or_not() {
+    let a = BASE;
+    let root = f(&[&entry(32), &call(8, a + 3, a + 16), &RETW_N]);
+    let (x, y, z) = (
+        sym("paperpaw_plugin_one", "run", 1),
+        sym("paperpaw_plugin_two", "idle", 2),
+        sym("paperpaw_other", "big", 3),
+    );
+    // `y` and `z` are reached by no root; their frames are 2,048 (the limit) and 2,056.
+    let funcs = [
+        ("root", root),
+        (x.as_str(), f(&[&entry(64), &RETW_N])),
+        (y.as_str(), f(&[&entry(2032), &RETW_N])),
+        (z.as_str(), f(&[&entry(2040), &RETW_N])),
+    ];
+    let none = run(&funcs, &["root"], "");
+    assert!(none.problems.is_empty(), "{:?}", none.problems);
+    let held = run(
+        &funcs,
+        &["root"],
+        "frames-in paperpaw_plugin_* the plugins\n",
+    );
+    assert_eq!(held.problems.len(), 1, "{:?}", held.problems);
+    assert!(
+        held.problems[0].contains("paperpaw_plugin_two::idle")
+            && held.problems[0].contains("takes a frame")
+    );
+    // A module path, an exact crate and a line that matches nothing.
+    let path = run(&funcs, &["root"], "frames-in paperpaw_other::big the one\n");
+    assert_eq!(path.problems.len(), 1, "{:?}", path.problems);
+    let exact = run(&funcs, &["root"], "frames-in paperpaw_plugin_one fine\n");
+    assert!(exact.problems.is_empty(), "{:?}", exact.problems);
+    let gone = run(&funcs, &["root"], "frames-in paperpaw_gone why\n");
+    assert!(
+        gone.problems[0].contains("matches no function"),
+        "{:?}",
+        gone.problems
+    );
 }

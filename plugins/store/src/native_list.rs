@@ -30,6 +30,10 @@ pub struct Hooks<'a> {
     pub author_of: &'a dyn Fn(&str) -> Option<[u8; 32]>,
     /// The plugins whose keys are already stopped.
     pub stopped: &'a dyn Fn() -> Vec<String>,
+    /// The device does not say whose key a plugin is pinned to (interface 7: the
+    /// host keeps the pins): a revocation of a plugin that is here is handed
+    /// over whatever `author_of` says, and the host keeps only what holds.
+    pub host_checks: bool,
 }
 
 impl core::fmt::Debug for Hooks<'_> {
@@ -97,6 +101,7 @@ impl<'a> ListReader<'a> {
     ///
     /// # Errors
     /// `NoMemory` when memory is refused; the reader is then done.
+    #[inline(never)]
     pub fn feed(
         &mut self,
         data: &[u8],
@@ -126,6 +131,7 @@ impl<'a> ListReader<'a> {
     ///
     /// # Errors
     /// `NoMemory` when memory is refused.
+    #[inline(never)]
     pub fn finish(
         mut self,
         found: &mut dyn FnMut(Entry) -> Result<(), Error>,
@@ -176,6 +182,7 @@ impl<'a> ListReader<'a> {
     clippy::too_many_arguments,
     reason = "the reader's state, borrowed apart"
 )]
+#[inline(never)]
 fn step(
     event: Event<'_>,
     device: &Device<'_>,
@@ -196,7 +203,10 @@ fn step(
         Event::Close([list, at])
             if list == "revoked_keys" && at == "[]" && *format == Some(FORMAT) =>
         {
-            revoked.entry_done(&|id| device.knows(id), hooks.author_of, hooks.stopped)?;
+            revoked.entry_done(
+                &|id| device.knows(id),
+                (hooks.author_of, hooks.stopped, hooks.host_checks),
+            )?;
         }
         Event::Open([key, ..]) if key == "sections" => picks.fair = true,
         Event::Value([key, section, at], value) if key == "sections" && at == "[]" => {
@@ -283,6 +293,7 @@ impl<'a> PageReader<'a> {
     ///
     /// # Errors
     /// `NoMemory` when memory is refused; the reader is then done.
+    #[inline(never)]
     pub fn feed(&mut self, data: &[u8]) -> Result<(), Error> {
         let Self {
             device,
@@ -307,14 +318,15 @@ impl<'a> PageReader<'a> {
     ///
     /// # Errors
     /// `NoMemory` when memory is refused.
-    pub fn finish(mut self) -> Result<Option<Page>, Error> {
+    #[inline(never)]
+    pub fn finish(&mut self) -> Result<Option<Page>, Error> {
         let Self {
             device,
             parser,
             format,
             item,
             failed,
-        } = &mut self;
+        } = self;
         parser
             .try_finish(&mut |event| {
                 if failed.is_none() {
@@ -363,6 +375,7 @@ fn lower_trimmed(text: &str) -> Result<String, Error> {
     Ok(out)
 }
 
+#[inline(never)]
 fn page_step(
     event: Event<'_>,
     device: &Device<'_>,

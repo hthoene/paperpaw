@@ -1,5 +1,5 @@
 //! What the device did since PaperPaw started, as the kernel counts it
-//! ([`Env::usage`](crate::Env::usage)): for plugins that relate the
+//! (`Place::usage`): for plugins that relate the
 //! battery's use to it. Refreshing the screen takes much of an e-reader's
 //! power; the processor being awake much of the rest.
 
@@ -66,7 +66,7 @@ pub struct Usage {
     pub bluetooth_ms: u64,
 }
 
-/// What a plugin took ([`Env::plugin_usage`](crate::Env::plugin_usage)).
+/// What a plugin took (`Place::plugin_usage`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PluginUsage {

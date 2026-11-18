@@ -1,13 +1,14 @@
-//! The network settings of every networked plugin the app comes with are
-//! kept in the program, not made on the heap at each start; and they are
-//! the settings they were: their ids, defaults and the values a
-//! configuration file gives them.
+//! No plugin of the program itself (interface 6) uses the network any more: the
+//! network plugins are native ones, whose settings the host makes when it admits
+//! them (tested in the core).
 
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
     reason = "tests panic on purpose when something is wrong"
 )]
+
+mod native_activation;
 
 use paperpaw_core::Kernel;
 use paperpaw_platform::{
@@ -34,7 +35,7 @@ fn fonts() -> paperpaw_app::Fonts {
 fn app(config: &str) -> Kernel {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(DEVICE).storage(storage).user_config(config);
-    let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let _ = kernel.start(Instant(0));
     kernel
 }
@@ -42,39 +43,14 @@ fn app(config: &str) -> Kernel {
 #[test]
 fn fixed_network_settings_cover_the_plugins() {
     let kernel = app("");
-    let mut networked: Vec<&str> = kernel
+    let networked: Vec<&str> = kernel
         .plugins()
         .iter()
         .filter(|p| p.manifest.uses.contains(Uses::NETWORK) && p.manifest.id.as_str() != "core")
         .map(|p| p.manifest.id.as_str())
         .collect();
-    networked.sort_unstable();
-    let mut fixed: Vec<&str> = paperpaw_app::NETWORK_SETTINGS
-        .iter()
-        .map(|(p, _)| *p)
-        .collect();
-    fixed.sort_unstable();
-    assert_eq!(
-        networked, fixed,
-        "networked plugins and those with fixed network settings"
-    );
-}
-
-#[test]
-fn network_settings_keep_their_ids_defaults_and_values() {
-    let kernel = app("");
-    for (plugin, _) in paperpaw_app::NETWORK_SETTINGS {
-        let network = format!("core.network.{plugin}");
-        let saving = format!("core.saving.{plugin}");
-        let settings = kernel.settings();
-        assert!(settings.bool(&network), "{network}");
-        assert_eq!(settings.text(&saving), "core.saving.follow", "{saving}");
-    }
-    let kernel = app("[core]\nnetwork.opds = false\nsaving.news = core.saving.manual\n");
-    assert!(!kernel.settings().bool("core.network.opds"));
-    assert_eq!(
-        kernel.settings().text("core.saving.news"),
-        "core.saving.manual"
-    );
-    assert!(kernel.settings().bool("core.network.news"));
+    // Every plugin with network settings is a native one (their settings are
+    // made when the host admits them, tested in the core): none is left in the
+    // program's interface-6 plugins (#244).
+    assert!(networked.is_empty(), "networked plugins: {networked:?}");
 }

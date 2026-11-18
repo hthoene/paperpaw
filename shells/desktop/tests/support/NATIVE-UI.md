@@ -52,6 +52,9 @@ one of its screens is opened, physical keys are pressed and the frame is compare
 unchanged golden, pixel for pixel (`Session::start`, `open`, `keys`, `frame().matches_golden`).
 A porter includes both files with `#[path]` and adds `png` as a dev-dependency; the battery
 screen is the pilot (`plugins/battery/tests/hosted_acceptance.rs`). A step the host cannot do
-is an `Err` that names it; the case stays `#[ignore = "BLOCKED ..."]` with that reason until
-it passes. It does not replace the loader run above (todo 90), only what the kernel's stack and
+is an `Err` that names it (`Session::dropped()` lists the callbacks the host dropped, with the
+status); a case that cannot pass yet stays `#[ignore = "BLOCKED ..."]` with that reason. What a
+screen draws with is given to the kernel with `Setup::with_kernel` (the default font packs;
+a catalog plugin, until the host loads a native plugin's `i18n/*.ini`). Battery passes in en and
+de. It does not replace the loader run above (todo 90), only what the kernel's stack and
 frame do for a native screen.

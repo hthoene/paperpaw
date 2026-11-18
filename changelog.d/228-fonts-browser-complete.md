@@ -1,0 +1,3 @@
+### Added
+
+- **Fonts browser on interface 7: progress, going online, linked** (#228). A font being downloaded says how far it is (`2 / 5`) in the list and on its page, the pages follow a font that was installed, removed or chosen, an empty list that says why (no connection, not reachable) tries again when tapped or confirmed, and in Offline mode the list and a download ask once whether to go online. The device with buttons gets its own wording of the hints. The fonts of paperpaw.org's library whose packs are over 512 KiB are offered again (a pack may be 4 MiB, a font file 8 MiB, as interface 6 set no cap). Builds that link the store's plugins take its settings from the program's tables.

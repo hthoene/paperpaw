@@ -59,7 +59,7 @@ fn revocations_survive_refused_allocations() {
             list.field("plugin", plugin)?;
             list.field("key", &key)?;
             list.field("signature", &signature)?;
-            list.entry_done(&|_| true, &|_| Some([1; 32]), &|| Vec::new())?;
+            list.entry_done(&|_| true, (&|_| Some([1; 32]), &|| Vec::new(), false))?;
         }
         assert_eq!(list.pending().len(), 2);
         Ok(())
@@ -145,6 +145,7 @@ fn a_list_and_a_page_survive_refused_allocations() {
         let hooks = Hooks {
             author_of: &author,
             stopped: &none,
+            host_checks: false,
         };
         let mut reader = ListReader::new(device(), hooks);
         let mut found = 0;

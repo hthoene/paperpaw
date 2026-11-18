@@ -1,3 +1,0 @@
-Opens comic book archives (.cbz): a picture a page, fitted to the screen, in the order of their names (2 before 10).
-
-Put them into the library folder and open them from the library; turn the pages as in any book. Large pictures take a moment the first time, on the X4 more than elsewhere.

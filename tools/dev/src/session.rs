@@ -97,7 +97,8 @@ impl Session {
             .map(|(path, bytes)| (path.clone(), bytes.as_slice()))
             .chain(plugin_files)
             .collect();
-        let mut settings: Vec<(&str, &str)> = Vec::new();
+        // No first-time hints over the screens looked at, unless asked.
+        let mut settings: Vec<(&str, &str)> = vec![("help.show", "false")];
         settings.extend(variant.settings());
         // What the command line set (`--set`), for every command.
         settings.extend(
@@ -234,6 +235,19 @@ impl Session {
             let next = self.device.next_wake().filter(|&at| at > now);
             let step = next.map_or(100, |at| at.since(now).clamp(1, 100));
             self.device.advance(step);
+            self.device.tick_if_due();
+        }
+    }
+
+    /// Lets the requests a screen started and left under way end, up to
+    /// two seconds of real time: their answers (here the computer's
+    /// network's) are passed over when they come, and until then a
+    /// request's state is on the heap without being kept.
+    pub fn drain_requests(&mut self) {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while self.device.network_settling() && std::time::Instant::now() < end {
+            self.device
+                .poll_http(Some(std::time::Duration::from_millis(50)));
             self.device.tick_if_due();
         }
     }

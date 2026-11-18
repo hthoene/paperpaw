@@ -9,7 +9,7 @@ pub(crate) enum Visibility {
 }
 
 /// Id and editor come from host state. Neither is decoded from request bytes.
-/// Secret values remain redacted here; only slot 5 has an own-secret exception.
+/// Secret values remain redacted here; slot 5 reads them as absent, also for their owner.
 pub(crate) fn visibility(caller: &Id, key: &str, secret: bool, editor: Option<&str>) -> Visibility {
     visibility_for(caller, key.starts_with("core.grant."), secret, editor)
 }
@@ -88,13 +88,37 @@ impl<'a> SettingIdentity<'a> {
     pub(crate) fn matches(&self, key: &str) -> bool {
         self.bytes().eq(key.bytes())
     }
-    /// The definition the key names: a placed key (`plugin.widget@2.token`)
-    /// names the definition of its plugin (`plugin.widget.token`). `None` for
-    /// a key nothing defines. No allocation.
-    pub(crate) fn definition<'s>(
+    /// Whether the setting the key names is a secret: a placed key
+    /// (`plugin.widget@2.token`) names the setting of its plugin
+    /// (`plugin.widget.token`). `None` for a key nothing defines. Nothing is
+    /// allocated or made, also where its plugin describes the setting (#248).
+    /// Found by the settings' index, not by a walk of them: every read of a
+    /// setting asks this (#250).
+    /// The place of the setting is remembered by `memo` where there is one.
+    pub(crate) fn secret(
         &self,
-        settings: &'s paperpaw_sdk::Settings,
-    ) -> Option<&'s paperpaw_sdk::SettingSpec> {
-        settings.specs().find(|spec| self.matches(spec.id.as_str()))
+        settings: &paperpaw_sdk::Settings,
+        memo: Option<&paperpaw_sdk::SettingMemo>,
+    ) -> Option<bool> {
+        let of = |plain: &str| match memo {
+            Some(memo) => settings.secret_of_in(memo, plain),
+            None => settings.secret_of(plain),
+        };
+        if self.tail.is_empty() {
+            return of(self.head);
+        }
+        // No id a plugin describes is longer than this: a longer one can
+        // only be a setting kept as it is, found by the walk.
+        let mut plain = [0; 128];
+        let (head, tail) = (self.head.as_bytes(), self.tail.as_bytes());
+        let Some(room) = plain.get_mut(..head.len() + tail.len()) else {
+            return settings
+                .kept_specs()
+                .find(|spec| self.matches(spec.id.as_str()))
+                .map(|spec| spec.extra().secret);
+        };
+        room[..head.len()].copy_from_slice(head);
+        room[head.len()..].copy_from_slice(tail);
+        of(core::str::from_utf8(room).ok()?)
     }
 }

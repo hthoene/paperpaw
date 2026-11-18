@@ -20,6 +20,7 @@ use paperpaw_sdk::native::{
     secrets::Secrets,
     settings::{self, SettingValue},
     ui::{Notify, Open, Question, RequestId as AskId, TextMode, TextWrite, Ui},
+    work::{Work, WorkSpec},
 };
 use paperpaw_ui_kit::{
     Footer, Item, ItemList, ItemStep, Messages, Screens,
@@ -28,7 +29,9 @@ use paperpaw_ui_kit::{
     text::copy,
 };
 
-use crate::declarations::{FETCH_TOKEN, HTTP_TOKEN, OPEN_TOKEN, PAGE_TOKEN, SCREEN, STOP_TOKEN};
+use crate::declarations::{
+    FETCH_TOKEN, HTTP_TOKEN, OPEN_TOKEN, PAGE_TOKEN, SCREEN, STOP_TOKEN, WORK_TOKEN,
+};
 use crate::native_fetcher::{Fetcher, Finish, Login};
 use crate::native_keep::{self as keep, CLIENT_SECRET, PASSWORD, Secret};
 use crate::native_lists::{self as lists, DataFiles};
@@ -37,6 +40,12 @@ use crate::native_wallabag::{Row, is_read};
 mod image {
     include!(concat!(env!("OUT_DIR"), "/wallabag_declarations.rs"));
 }
+
+/// The work that fetches at a good moment (declared again each time it is
+/// asked for, replacing the one that waits), and how long it may wait: an hour,
+/// as the interface-6 plugin's.
+const WORK_KEY: &str = "wallabag.fetch-due";
+const WORK_WITHIN_MS: u32 = 60 * 60 * 1000;
 
 const SERVER: &str = "wallabag.server";
 const USER: &str = "wallabag.user";
@@ -65,6 +74,7 @@ struct View {
 pub struct NativeWallabag {
     ui: Option<Ui>,
     secrets: Option<Secrets>,
+    work: Option<Work>,
     fetcher: Fetcher,
     opened: bool,
     screens: Screens<View>,
@@ -93,7 +103,7 @@ impl Plugin for NativeWallabag {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Answered, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::HttpDone, kinds::PageTurned, kinds::Stopping)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::Answered, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::HttpDone, kinds::PageTurned, kinds::Stopping, kinds::WorkDue)
         else {
             return Ok(());
         };
@@ -102,7 +112,17 @@ impl Plugin for NativeWallabag {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("wallabag.setup")?)
             }
-            Event::ActionRun { .. } if token == FETCH_TOKEN => self.fetch(host),
+            // The reader's own run fetches at once; a rule's (or another
+            // plugin's) waits for a good moment, as in Beta 3.
+            Event::ActionRun { background, .. } if token == FETCH_TOKEN => {
+                if background {
+                    self.fetch_later(host)
+                } else {
+                    self.fetch(host)
+                }
+            }
+            // The fetch that waited for its moment: as the action, now.
+            Event::WorkDue(_) if token == WORK_TOKEN => self.fetch(host),
             Event::HttpDone(done) if token == HTTP_TOKEN => self.fetch_done(host, &done),
             Event::PageTurned(reading) if token == PAGE_TOKEN => {
                 if is_read(reading.page(), reading.pages(), reading.progress_ppm())
@@ -354,6 +374,30 @@ impl NativeWallabag {
             top.list.set_focus((at + 1).min(SHOWN.len() - 1));
         }
         self.refresh(host)
+    }
+
+    /// Asks for a fetch no reader waits for: declared work that runs when the
+    /// device is awake and fetching is cheap (the network is there), within an
+    /// hour; `WorkDue` then fetches as the action does. A work the host
+    /// refuses (a full table, the network turned off for the plugin) costs this
+    /// one fetch: the rule that asked comes again.
+    fn fetch_later(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.work.is_none() {
+            match Work::open(host) {
+                Ok(work) => self.work = Some(work),
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => return Ok(()),
+            }
+        }
+        let Some(work) = &self.work else {
+            return Ok(());
+        };
+        let spec = WorkSpec::when_cheap(WORK_KEY, WORK_TOKEN)?.within_ms(WORK_WITHIN_MS);
+        let (mut input, mut out) = (buffer(256)?, buffer(64)?);
+        match work.declare(host, &spec, &mut input, &mut out) {
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            _ => Ok(()),
+        }
     }
 
     /// Starts a fetch: the account is read from the settings and the secrets,

@@ -254,10 +254,10 @@ pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
         d.group(GroupDecl::new(name, title))?;
         let spec = WidgetDecl::new(name, title, "core.widgets.world", token)
             .map_err(|_| DeclareError::TooLong("widget"))?;
-        d.widget(
-            spec.previews(&group)
-                .map_err(|_| DeclareError::TooLong("widget preview"))?,
-        )?;
+        // No `previews`: a widget that previews a settings group is never
+        // offered in the Add picker (Kernel ruling, #228), and Beta 3 declared
+        // none.
+        d.widget(spec)?;
         let look = shared_look("core.align.center");
         declare_all(
             d,

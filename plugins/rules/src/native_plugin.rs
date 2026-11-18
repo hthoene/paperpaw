@@ -250,9 +250,11 @@ fn read_value(host: &Host<'_>, id: &str) -> Result<Option<Value>, Error> {
     }
 }
 
-/// The seconds the chosen time zone is ahead of UTC at `unix`. The zone is the
-/// rule typed in settings, else the one chosen from the list, else UTC.
-fn zone_offset(host: &Host<'_>, unix: i64) -> i32 {
+/// The seconds the zone the reader sees is ahead of UTC at `unix`: the rule
+/// typed in settings, else the zone chosen from the list, else ("automatic",
+/// the default) the system's, `system` minutes as the snapshot carries it
+/// (as Beta 3's `time::zone_offset`, #257).
+fn zone_offset(host: &Host<'_>, unix: i64, system: Option<i16>) -> i32 {
     let mut scratch = [0; 128];
     let text = |key: &str, scratch: &mut [u8; 128]| -> Option<String> {
         match settings::read_setting(host, key, scratch) {
@@ -264,15 +266,19 @@ fn zone_offset(host: &Host<'_>, unix: i64) -> i32 {
     {
         return zone.offset_at(unix);
     }
-    let chosen = text("core.time-zone", &mut scratch);
-    chosen
-        .and_then(|id| {
-            TIME_ZONES
-                .iter()
-                .find(|(zone, _)| *zone == id)
-                .and_then(|(_, rule)| TimeZone::parse(rule))
-        })
-        .map_or(0, |zone| zone.offset_at(unix))
+    let chosen = text("core.time-zone", &mut scratch).and_then(|id| {
+        TIME_ZONES
+            .iter()
+            .find(|(zone, _)| *zone == id)
+            .and_then(|(_, rule)| TimeZone::parse(rule))
+    });
+    chosen_or_system(chosen.map(|zone| zone.offset_at(unix)), system)
+}
+
+/// The chosen zone's offset in seconds, else the system's (`system` minutes
+/// ahead of UTC), else UTC.
+fn chosen_or_system(chosen: Option<i32>, system: Option<i16>) -> i32 {
+    chosen.unwrap_or_else(|| system.map_or(0, |minutes| i32::from(minutes) * 60))
 }
 
 impl NativeRules {
@@ -365,9 +371,10 @@ impl NativeRules {
             return Ok(());
         }
         let snapshot = snapshot::capture_snapshot(host)?;
-        let minute = snapshot
-            .unix_seconds()
-            .map(|unix| engine::local_minute(unix, zone_offset(host, unix)).0);
+        let minute = snapshot.unix_seconds().map(|unix| {
+            let offset = zone_offset(host, unix, snapshot.utc_offset_minutes());
+            engine::local_minute(unix, offset).0
+        });
         let setting = |id: &str| read_value(host, id);
         let facts = Facts {
             reading: self.reading,
@@ -415,10 +422,12 @@ impl NativeRules {
         }) {
             return Ok(());
         }
-        let Some(unix) = snapshot::capture_snapshot(host)?.unix_seconds() else {
+        let snapshot = snapshot::capture_snapshot(host)?;
+        let Some(unix) = snapshot.unix_seconds() else {
             return Ok(());
         };
-        let (minute, weekday) = engine::local_minute(unix, zone_offset(host, unix));
+        let offset = zone_offset(host, unix, snapshot.utc_offset_minutes());
+        let (minute, weekday) = engine::local_minute(unix, offset);
         let stamp = unix.div_euclid(60);
         if self.last_minute == Some(stamp) {
             return Ok(());
@@ -1348,7 +1357,19 @@ impl NativeRules {
 
 #[cfg(test)]
 mod tests {
-    use super::{MESSAGE_SHOWN, shortened};
+    use super::{MESSAGE_SHOWN, chosen_or_system, shortened};
+
+    #[test]
+    fn with_no_zone_chosen_the_systems_offset_counts() {
+        // "automatic" (the default) on a system two hours ahead: 08:41 UTC
+        // is 10:41 for the rules, as in Beta 3 (#257).
+        assert_eq!(chosen_or_system(None, Some(120)), 7_200);
+        assert_eq!(chosen_or_system(None, Some(-330)), -19_800);
+        // A chosen zone wins over the system's; no clock zone at all is UTC.
+        assert_eq!(chosen_or_system(Some(3_600), Some(120)), 3_600);
+        assert_eq!(chosen_or_system(Some(0), Some(120)), 0);
+        assert_eq!(chosen_or_system(None, None), 0);
+    }
 
     #[test]
     fn a_long_message_is_shown_cut_at_a_character() {

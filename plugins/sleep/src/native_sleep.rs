@@ -6,7 +6,7 @@
 //! environment. Decoding, drawing and the host's files are the native
 //! screen's (see `PORTING-7.md`).
 use alloc::{string::String, vec::Vec};
-use paperpaw_sdk::native::Error;
+use paperpaw_sdk::native::{Error, image::PrepareRoot};
 
 /// The modes the plugin has itself.
 pub const CAT: &str = "sleep.show.cat";
@@ -16,14 +16,56 @@ pub const MESSAGE: &str = "sleep.show.message";
 pub const PAGE: &str = "sleep.show.page";
 pub const WIDGETS: &str = "sleep.show.widgets";
 pub const OVERLAY: &str = "sleep.show.overlay";
-const BUILT_IN: [&str; 7] = [CAT, COVER, PICTURE, OVERLAY, WIDGETS, MESSAGE, PAGE];
+/// The off screen's own choice of `sleep.off-show`: what the sleep screen
+/// shows (`sleep.show`), with a page that stayed turned into the message.
+/// The other choices of the off screen are the sleep modes above.
+pub const SAME: &str = "sleep.off-show.same";
+/// The off screen's message: the logo and *Switched off* (as [`MESSAGE`], which
+/// says *Sleeping* for the sleep screen).
+pub const OFF_MESSAGE: &str = "sleep.off-show.message";
+/// The device's own start and restart screens (`sleep.start-show`,
+/// `sleep.restart-show`): the slots `core.start`, `core.restart` unbound.
+pub const START_BUILT_IN: &str = "sleep.start-show.built-in";
+pub const RESTART_BUILT_IN: &str = "sleep.restart-show.built-in";
+const BUILT_IN: [&str; 11] = [
+    CAT,
+    COVER,
+    PICTURE,
+    OVERLAY,
+    WIDGETS,
+    MESSAGE,
+    PAGE,
+    SAME,
+    OFF_MESSAGE,
+    START_BUILT_IN,
+    RESTART_BUILT_IN,
+];
 
 /// The slot the sleep screen is shown in, and the plugin's own screen for it.
 pub const SLOT: &str = "core.sleep";
+/// The slot the off screen is shown in; the plugin's own screen fills it too.
+pub const OFF_SLOT: &str = "core.off";
 pub const OWN_SCREEN: &str = "sleep.screen";
+/// The slots of the start and the restart screen: another plugin's screen,
+/// chosen, or none (the device's own).
+pub const START_SLOT: &str = "core.start";
+pub const RESTART_SLOT: &str = "core.restart";
+/// The settings that choose what each slot shows.
+pub const SHOW: &str = "sleep.show";
+pub const OFF_SHOW: &str = "sleep.off-show";
+pub const START_SHOW: &str = "sleep.start-show";
+pub const RESTART_SHOW: &str = "sleep.restart-show";
 
-/// Whether `value` of `sleep.show` is another plugin's mode: not one of the
-/// seven of the plugin's own and not empty.
+/// Whether the off screen shows what `off_show` (the setting
+/// `sleep.off-show`) names rather than what the sleep screen shows
+/// (`sleep.show`): not when it is empty or [`SAME`].
+#[must_use]
+pub fn has_own_mode(off_show: &str) -> bool {
+    !off_show.is_empty() && off_show != SAME
+}
+
+/// Whether `value` of `sleep.show` (or `sleep.off-show`) is another plugin's
+/// mode: not one of the plugin's own and not empty.
 #[must_use]
 pub fn is_foreign(value: &str) -> bool {
     !value.is_empty() && !BUILT_IN.contains(&value)
@@ -373,6 +415,50 @@ pub fn placed(screen: Screen, w: u16, h: u16, fill: bool, position: &str) -> (u1
 pub fn opacity(see_through: i64) -> u8 {
     let through = see_through.clamp(0, 100) as u32;
     (255 * (100 - through) / 100) as u8
+}
+
+/// The core setting that names a picture shown in place of PaperPaw's logo
+/// (a JPEG, PNG or GIF on the card, e.g. a data plugin's
+/// `plugins/mine/logo.png`); empty for the plugin's own.
+pub const LOGO_SETTING: &str = "core.logo";
+/// The plugin's own logo, as written into its data folder.
+pub const OWN_LOGO: &str = "logo.png";
+/// The longest path a picture is asked for with (`command.image_prepare`).
+pub const LOGO_PATH_MAX: usize = 512;
+
+/// The logo picture the message asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogoFile<'a> {
+    /// The plugin's own ([`OWN_LOGO`] in its data folder).
+    Own,
+    /// The card file [`LOGO_SETTING`] names, from the card's root.
+    Card(&'a str),
+}
+
+impl<'a> LogoFile<'a> {
+    /// Where the host reads it and its path there: the data folder for the
+    /// plugin's own, the card (the library root) for the one set.
+    #[must_use]
+    pub fn request(self) -> (PrepareRoot, &'a str) {
+        match self {
+            LogoFile::Own => (PrepareRoot::Data, OWN_LOGO),
+            LogoFile::Card(path) => (PrepareRoot::Library, path),
+        }
+    }
+}
+
+/// The logo to ask for: the picture `setting` (the value of
+/// [`LOGO_SETTING`]) names, without spaces and slashes at its ends as
+/// interface 6 read it, unless that one could not be had (`card_failed`: the
+/// host refused it or could not decode it); the plugin's own where none is
+/// set, it failed or its path is too long for a request.
+#[must_use]
+pub fn logo_file(setting: &str, card_failed: bool) -> LogoFile<'_> {
+    let path = setting.trim().trim_matches('/');
+    if card_failed || path.is_empty() || path.len() > LOGO_PATH_MAX {
+        return LogoFile::Own;
+    }
+    LogoFile::Card(path)
 }
 
 #[cfg(test)]

@@ -23,6 +23,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "browser"
+path = "src/bin/browser.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "calibre"
 path = "src/bin/calibre.rs"
 test = false
@@ -43,6 +49,48 @@ bench = false
 [[bin]]
 name = "files"
 path = "src/bin/files.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-epub"
+path = "src/bin/format-epub.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-html"
+path = "src/bin/format-html.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-fb2"
+path = "src/bin/format-fb2.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-markdown"
+path = "src/bin/format-markdown.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-cbz"
+path = "src/bin/format-cbz.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-mobi"
+path = "src/bin/format-mobi.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "format-rtf"
+path = "src/bin/format-rtf.rs"
 test = false
 bench = false
 
@@ -107,6 +155,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "news"
+path = "src/bin/news.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "notes-overview"
 path = "src/bin/notes-overview.rs"
 test = false
@@ -137,8 +191,50 @@ test = false
 bench = false
 
 [[bin]]
+name = "pomodoro"
+path = "src/bin/pomodoro.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "smart-home"
+path = "src/bin/smart-home.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "puzzles"
+path = "src/bin/puzzles.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "edge-light"
+path = "src/bin/edge-light.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "tasks"
+path = "src/bin/tasks.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "calendar"
+path = "src/bin/calendar.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "reading-goal"
 path = "src/bin/reading-goal.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "read-later-cloud"
+path = "src/bin/read-later-cloud.rs"
 test = false
 bench = false
 
@@ -268,13 +364,81 @@ path = "src/bin/sleep.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "translate"
+path = "src/bin/translate.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "aids"
+path = "src/bin/aids.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "anki"
+path = "src/bin/anki.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "picture-frame"
+path = "src/bin/picture-frame.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "file-sync"
+path = "src/bin/file-sync.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "home"
+path = "src/bin/home.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "mail"
+path = "src/bin/mail.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "notes-vault"
+path = "src/bin/notes-vault.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "store"
+path = "src/bin/store.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "wifi"
+path = "src/bin/wifi.rs"
+test = false
+bench = false
+
 [dependencies]
 paperpaw-plugin-about = { path = "../../plugins/about", features = ["native-entry"] }
 paperpaw-plugin-battery = { path = "../../plugins/battery", features = ["native-entry"] }
+paperpaw-plugin-browser = { path = "../../plugins/browser", features = ["native-entry"] }
 paperpaw-plugin-calibre = { path = "../../plugins/calibre", features = ["native-entry"] }
 paperpaw-plugin-diagnostics = { path = "../../plugins/diagnostics", features = ["native-entry"] }
 paperpaw-plugin-end-of-book = { path = "../../plugins/end-of-book", features = ["native-entry"] }
 paperpaw-plugin-files = { path = "../../plugins/files", features = ["native-entry"] }
+paperpaw-plugin-format-epub = { path = "../../plugins/format-epub", features = ["native-entry"] }
+paperpaw-plugin-format-html = { path = "../../plugins/format-html", features = ["native-entry"] }
+paperpaw-plugin-format-fb2 = { path = "../../plugins/format-fb2", features = ["native-entry"] }
+paperpaw-plugin-format-markdown = { path = "../../plugins/format-markdown", features = ["native-entry"] }
+paperpaw-plugin-format-cbz = { path = "../../plugins/format-cbz", features = ["native-entry"] }
+paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi", features = ["native-entry"] }
+paperpaw-plugin-format-rtf = { path = "../../plugins/format-rtf", features = ["native-entry"] }
 paperpaw-plugin-format-txt = { path = "../../plugins/format-txt", features = ["native-entry"] }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images", features = ["native-entry"] }
 paperpaw-plugin-format-xtc = { path = "../../plugins/format-xtc", features = ["native-entry"] }
@@ -285,12 +449,20 @@ paperpaw-plugin-keys = { path = "../../plugins/keys", features = ["native-entry"
 paperpaw-plugin-kosync = { path = "../../plugins/kosync", features = ["native-entry"] }
 paperpaw-plugin-menu = { path = "../../plugins/menu", features = ["native-entry"] }
 paperpaw-plugin-menu-editor = { path = "../../plugins/menu-editor", features = ["native-entry"] }
+paperpaw-plugin-news = { path = "../../plugins/news", features = ["native-entry"] }
 paperpaw-plugin-notes-overview = { path = "../../plugins/notes-overview", features = ["native-entry"] }
 paperpaw-plugin-opds = { path = "../../plugins/opds", features = ["native-entry"] }
 paperpaw-plugin-plugin-manager = { path = "../../plugins/plugin-manager", features = ["native-entry"] }
+paperpaw-plugin-pomodoro = { path = "../../plugins/pomodoro", features = ["native-entry"] }
+paperpaw-plugin-smart-home = { path = "../../plugins/smart-home", features = ["native-entry"] }
+paperpaw-plugin-puzzles = { path = "../../plugins/puzzles", features = ["native-entry"] }
+paperpaw-plugin-edge-light = { path = "../../plugins/edge-light", features = ["native-entry"] }
+paperpaw-plugin-tasks = { path = "../../plugins/tasks", features = ["native-entry"] }
+paperpaw-plugin-calendar = { path = "../../plugins/calendar", features = ["native-entry"] }
 paperpaw-plugin-power = { path = "../../plugins/power", features = ["native-entry"] }
 paperpaw-plugin-profiles = { path = "../../plugins/profiles", features = ["native-entry"] }
 paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", features = ["native-entry"] }
+paperpaw-plugin-read-later-cloud = { path = "../../plugins/read-later-cloud", features = ["native-entry"] }
 paperpaw-plugin-readwise = { path = "../../plugins/readwise", default-features = false, features = ["native-entry"] }
 paperpaw-plugin-rules = { path = "../../plugins/rules", features = ["native-entry"] }
 paperpaw-plugin-settings = { path = "../../plugins/settings", features = ["native-entry"] }
@@ -312,6 +484,16 @@ paperpaw-plugin-fonts-browser = { path = "../../plugins/fonts-browser", features
 paperpaw-plugin-update = { path = "../../plugins/update", features = ["native-entry"] }
 paperpaw-plugin-transfer = { path = "../../plugins/transfer", features = ["native-entry"] }
 paperpaw-plugin-sleep = { path = "../../plugins/sleep", features = ["native-entry"] }
+paperpaw-plugin-translate = { path = "../../plugins/translate", features = ["native-entry"] }
+paperpaw-plugin-aids = { path = "../../plugins/aids", features = ["native-entry"] }
+paperpaw-plugin-anki = { path = "../../plugins/anki", features = ["native-entry"] }
+paperpaw-plugin-picture-frame = { path = "../../plugins/picture-frame", features = ["native-entry"] }
+paperpaw-plugin-file-sync = { path = "../../plugins/file-sync", features = ["native-entry"] }
+paperpaw-plugin-home = { path = "../../plugins/home", features = ["native-entry"] }
+paperpaw-plugin-mail = { path = "../../plugins/mail", features = ["native-entry"] }
+paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault", features = ["native-entry"] }
+paperpaw-plugin-store = { path = "../../plugins/store", features = ["native-entry"] }
+paperpaw-plugin-wifi = { path = "../../plugins/wifi", features = ["native-entry"] }
 
 # As the firmware is built: small code, one unit, no unwinding.
 [profile.release]

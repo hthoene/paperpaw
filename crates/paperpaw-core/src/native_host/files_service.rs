@@ -16,19 +16,22 @@
 //! move job (`ERR_BUSY`), how FAT names reach the protected folders, and the
 //! journalled rename of the user's files. Until a shell wires it, the
 //! family answers `ERR_UNSUPPORTED`.
-use super::{
-    host_services::Caller as HostCaller,
-    registrations::{self as wire, Record},
-};
+use super::{host_services::Caller as HostCaller, registrations::Record};
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
+use crate::native_host::codec;
+// The tests build their inputs with the wire types.
+#[cfg(test)]
+use super::registrations as wire;
 use alloc::rc::Rc;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_STATE, ERR_UNSUPPORTED};
 use paperpaw_platform::Storage;
 
 mod change;
+mod follows;
 mod read;
 mod target;
 
+pub(crate) use follows::library_follows;
 pub(crate) use target::{same_fold, within};
 
 pub(crate) use super::lib_service::moves::Access;
@@ -58,6 +61,23 @@ pub(crate) trait FilesHost {
     ///
     /// Required: a host that forgets it would let an alias reach them.
     fn excluded(&self, root: u32, parent: &str, first_segment: &str) -> bool;
+
+    /// Whether `name` is the folder of a running data plugin (`plugins/<name>`):
+    /// root 1 shows it, read only (`files.md` 1.1). Data plugins hold published
+    /// files only; the folders of code plugins stay hidden. The default is "no".
+    fn data_folder(&self, _name: &str) -> bool {
+        false
+    }
+
+    /// Whether `entry`, right below the shown plugin folder `folder`
+    /// (`plugins/<name>`), is its code or one of the host's files, which root
+    /// 1 never shows ([`super::data_plugin_folders::host_file`]).
+    ///
+    /// The default hides every entry right below a shown plugin folder (the
+    /// safe side: a host that does not say never shows a plugin's code).
+    fn host_file(&self, _folder: &str, _entry: &str) -> bool {
+        true
+    }
 
     /// Whether `plugin` is built into the firmware (a linked plugin). Its
     /// install folder (root 2) counts as empty whatever the card holds at
@@ -93,9 +113,10 @@ pub(crate) trait FilesHost {
 
     /// Moves `from` to `to` after the service has checked them (both exist
     /// as it said, `to` is free or a file to replace, no folder moves into
-    /// itself). `library`: both are the user's files (root 1); the library
-    /// follows such a move with its journal entry and job (`files.md` 2.6),
-    /// which the host starts here. The default is the storage's rename.
+    /// itself). `library`: both are the user's files (root 1) and the library
+    /// follows the move ([`library_follows`]: a folder, a book) with its
+    /// journal entry and job (`files.md` 2.6), which the host starts here.
+    /// The default is the storage's rename.
     ///
     /// # Errors
     /// An `ERR_*` status; a refusal changes nothing.
@@ -146,8 +167,9 @@ pub(crate) fn backend(
         storage,
         who: &who,
         scope: caller.hosts.format_scope(),
+        formats: frame.kernel_env().map(crate::Place::formats),
     };
-    let record = wire::records_decode_single(input)?;
+    let record = codec::decode_single(input)?;
     match op.id {
         op::LIST => read::list(&view, record, out),
         op::STAT => read::stat(&view, record, out),
@@ -166,15 +188,18 @@ struct View<'a> {
     who: &'a Caller<'a>,
     /// The format calls under way: root 3 is the book of the caller's own.
     scope: &'a super::format_scope::FormatScope,
+    /// The kernel's formats, where the frame has them: what a book is, for
+    /// the moves the library follows ([`library_follows`]).
+    formats: Option<&'a paperpaw_sdk::Formats>,
 }
 
 /// A record the host built, framed into `out`; its length.
 fn encode(record: &Record<'_>, out: &mut [u8]) -> Result<usize, i32> {
-    let length = wire::record_framed_len(record).map_err(|_| ERR_INVALID)?;
+    let length = codec::framed_len(record).map_err(|_| ERR_INVALID)?;
     if length > out.len() {
         return Err(paperpaw_native::host_glue::ERR_NO_SPACE);
     }
-    wire::record_encode_one(record, out)
+    codec::encode_one(record, out)
 }
 
 #[cfg(test)]

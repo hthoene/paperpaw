@@ -7,8 +7,8 @@ use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use paperpaw_platform::Storage;
-use paperpaw_text::{Font, FontError, StoredPack};
+use paperpaw_platform::{Storage, StorageError};
+use paperpaw_text::{Font, FontError, LARGE_SCRIPT, StoredPack};
 
 use super::{Fonts, Stored, is_pack, read_font};
 
@@ -27,6 +27,44 @@ impl Fonts {
         self.entries
             .iter()
             .any(|entry| entry.family.as_deref() == Some(family))
+    }
+
+    /// Whether `family` can set text now: it has a regular face that is
+    /// built in, or in a file of the plugin that named it (taken as
+    /// there, as ever), or in a file of another plugin's folder that is
+    /// on `storage`, open or not: a face open whose plugin was removed
+    /// reads no letter more. A family of styles alone, or one whose
+    /// regular face another plugin has yet to bring, is not offered or
+    /// taken for reading: its letters would be another font's. Only a
+    /// card that says the file is not there counts: one that cannot say
+    /// just now (busy, a read fault) leaves the family, so no choice of
+    /// it is given up for a card's bad moment.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn family_there(&self, family: &str, storage: &dyn Storage) -> bool {
+        // Only a file of another plugin's folder is looked for: one look
+        // at the card for each such family, none for the others.
+        let own = |entry: &super::Entry, file: &str| {
+            let folder = file
+                .strip_prefix(crate::builtin::PLUGIN_DIR)
+                .and_then(|rest| rest.strip_prefix('/'))
+                .and_then(|rest| rest.split('/').next());
+            folder.is_none_or(|folder| folder == entry.id.namespace())
+        };
+        let lacking = |file: &str| {
+            let size = storage.size(file);
+            matches!(
+                size,
+                Err(StorageError::NotFound | StorageError::InvalidPath)
+            )
+        };
+        self.entries.iter().any(|entry| {
+            let there = match entry.file.as_deref() {
+                Some(file) => own(entry, file) || !lacking(file),
+                None => entry.font.is_some(),
+            };
+            entry.family.as_deref() == Some(family) && !entry.bold && !entry.italic && there
+        })
     }
 
     /// [`Fonts::families`], or [`FontError::OutOfMemory`] where the heap has
@@ -60,7 +98,8 @@ impl Fonts {
 
     /// Loads the files of the chosen family's faces (one per style) and
     /// frees all others; returns the files that could not be loaded.
-    /// Packs that extend fonts are opened too (they stay where they are).
+    /// Packs that extend a font are open while that font is: one built
+    /// in, or one of the faces loaded.
     /// Where the heap is short nothing changes and the list is empty: see
     /// [`Fonts::try_load`] for the kernel's use.
     pub fn load(&mut self, storage: &Rc<dyn Storage>) -> Vec<String> {
@@ -110,6 +149,20 @@ impl Fonts {
         Ok(wanted)
     }
 
+    /// Whether the file of entry `index` is to be open, with the faces
+    /// `wanted`: a face that is wanted, or a pack extending a font that is
+    /// built in or wanted. A pack for a font that sets no text now (a
+    /// script's letters for Literata while another font sets the book)
+    /// keeps no index in memory.
+    fn to_open(&self, index: usize, wanted: &[usize]) -> bool {
+        match &self.entries[index].extends {
+            Some(base) => self.entries.iter().enumerate().any(|(at, entry)| {
+                entry.id == *base && (entry.file.is_none() || wanted.contains(&at))
+            }),
+            None => wanted.contains(&index),
+        }
+    }
+
     /// [`Fonts::load`] where the heap may be short. A shortage fails the
     /// call after the glyph cache was let go and the files tried once more;
     /// the fonts are then as they were (what is wanted is opened before
@@ -139,9 +192,7 @@ impl Fonts {
             .iter()
             .enumerate()
             .filter(|(index, entry)| {
-                entry.file.is_some()
-                    && entry.font.is_none()
-                    && (entry.extends.is_some() || wanted.contains(index))
+                entry.file.is_some() && entry.font.is_none() && self.to_open(*index, &wanted)
             })
             .count();
         opened
@@ -151,11 +202,12 @@ impl Fonts {
             Ok(failed) => {
                 // Freed last, so that a failure above leaves the fonts as
                 // they were.
-                for (index, entry) in self.entries.iter_mut().enumerate() {
-                    if entry.file.is_some() && entry.extends.is_none() && !wanted.contains(&index) {
-                        entry.font = None;
+                for index in 0..self.entries.len() {
+                    if self.entries[index].file.is_some() && !self.to_open(index, &wanted) {
+                        self.entries[index].font = None;
                     }
                 }
+                self.fit_cache();
                 Ok(failed)
             }
             Err(error) => {
@@ -167,8 +219,31 @@ impl Fonts {
         }
     }
 
-    /// Opens the files of `wanted` (and of the extensions) that are not
-    /// open, noting each in `opened`, which has room for them all.
+    /// Sets the glyph cache for the packs open: while one holds thousands
+    /// of characters (Hangul, ideographs), whose glyphs are read from the
+    /// card one by one, the device's larger cache for them
+    /// ([`PackLimits::glyph_cache_bytes`], never smaller than the shell's);
+    /// else the shell's own, so that Latin and the alphabets cost no
+    /// memory more.
+    pub(super) fn fit_cache(&self) {
+        let large = self.entries.iter().any(
+            |entry| matches!(&entry.font, Some(Font::Stored(pack)) if pack.chars() >= LARGE_SCRIPT),
+        );
+        let wanted = match large {
+            true => self.base_cache.max(self.pack_limits.glyph_cache_bytes()),
+            false => self.base_cache,
+        };
+        // Busy only if a glyph is being drawn: the next load sets it.
+        if let Ok(mut cache) = self.cache.try_borrow_mut()
+            && cache.capacity() != wanted
+        {
+            cache.set_capacity(wanted);
+        }
+    }
+
+    /// Opens the files of `wanted` (and of the packs extending what is
+    /// open then) that are not open, noting each in `opened`, which has
+    /// room for them all.
     fn open_missing(
         &mut self,
         storage: &Rc<dyn Storage>,
@@ -182,10 +257,19 @@ impl Fonts {
                 continue;
             };
             let extends = entry.extends.is_some();
-            if entry.font.is_some() || !(extends || wanted.contains(&index)) {
+            if entry.font.is_some() || !self.to_open(index, wanted) {
                 continue;
             }
-            let font = if extends || (entry.face && is_pack(path)) {
+            // A pack that extends several fonts is opened once for all.
+            let shared = self.entries.iter().find_map(|other| match &other.font {
+                Some(Font::Stored(pack)) if other.file.as_deref() == Some(path.as_str()) => {
+                    Some(Font::Stored(pack.clone()))
+                }
+                _ => None,
+            });
+            let font = if let Some(font) = shared {
+                Some(font)
+            } else if extends || (entry.face && is_pack(path)) {
                 // A pack not there is not opened (nor is the `Rc` below
                 // made: stable Rust has no fallible `Rc`, so the one
                 // allocation of a few dozen bytes per pack opened is the

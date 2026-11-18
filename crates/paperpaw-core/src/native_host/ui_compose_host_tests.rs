@@ -38,17 +38,17 @@ impl NativeInstance for Fake {
     }
 }
 impl Dispatch for Fake {
-    fn event(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
     }
-    fn input(&self, _: u32, _: &[u8], _: &Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &Place<'_>) -> Result<i32, i32> {
         Err(ERR_UNSUPPORTED)
     }
     fn draw(
         &self,
         token: u32,
         frame: &DrawFrame<'_>,
-        _: &Env<'_>,
+        _: &Place<'_>,
         _: &mut Canvas<'_>,
     ) -> Result<i32, i32> {
         self.seen.draws.borrow_mut().push((
@@ -84,7 +84,7 @@ struct World {
     me: u64,
     owner: u64,
     depth: DispatchDepth,
-    handles: UiHandles,
+    handles: RefCell<UiHandles>,
     widget: u32,
 }
 
@@ -115,7 +115,7 @@ fn world() -> World {
         me,
         owner,
         depth: DispatchDepth::new(),
-        handles,
+        handles: RefCell::new(handles),
         widget,
     }
 }
@@ -146,13 +146,14 @@ fn run(
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let host = ComposeHost {
         handles: &w.handles,
         guard,
-        registry: &w.registry,
+        leases: &w.registry,
         env: &env,
         depth: &w.depth,
+        screen: None,
         gate_open,
     };
     let mut fb = Framebuffer::new(16, 16, PixelFormat::Gray8).unwrap();
@@ -194,6 +195,7 @@ fn refusals_come_before_any_call() {
     let mut own = world();
     own.widget = own
         .handles
+        .borrow_mut()
         .make_widget(own.me, own.me, 7, 5, false)
         .unwrap();
     let r = request(ComposeKind::Widget, own.widget, visible());
@@ -252,8 +254,8 @@ fn a_stopped_owner_fails_quietly() {
 
 #[test]
 fn the_host_is_a_few_borrows_and_holds_no_buffer() {
-    // Six words and a flag: no frame of this path comes near the 2,047 bytes
-    // the ppn5 build holds every host function to.
-    assert!(size_of::<ComposeHost<'_, '_>>() <= 64);
-    assert!(size_of::<RegistryDraw<'_, '_>>() <= 16);
+    // Ten words and a flag (two of them trait objects): no frame of this
+    // path comes near the 2,047 bytes the ppn5 build holds every host function to.
+    assert!(size_of::<ComposeHost<'_, '_>>() <= 88);
+    assert!(size_of::<RegistryDraw<'_, '_>>() <= 40);
 }

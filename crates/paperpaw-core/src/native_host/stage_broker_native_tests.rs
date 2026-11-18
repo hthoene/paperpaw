@@ -111,13 +111,14 @@ fn instance(kernel: &crate::Kernel, depth: &FlatDepth) -> NativeLease {
         retained,
         depth.try_clone().unwrap(),
         FlatHost {
+            log: Default::default(),
             meter: Rc::clone(&kernel.shared.meter),
             directory: None,
             stack_rows: Rc::clone(&kernel.shared.stack_rows),
             font_removals: Rc::clone(&kernel.shared.font_removals),
             registry_generation: Rc::clone(&kernel.shared.registry_generation),
         },
-        |_, _, _| {},
+        |_, _, _, _| {},
         crate::native_host::native_instances::test_identity("probe"),
     ))
     .unwrap()
@@ -143,7 +144,7 @@ fn retained_native_stage_replies_refuse_and_revoke_without_stale_calls() {
         .unwrap();
     let schema = native_host::stage_broker::tests::schema();
     let input = native_host::stage_broker::tests::input();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let mut target = vec![77];
     for refuse in [false, true] {
         REFUSE.with(|value| value.set(refuse));

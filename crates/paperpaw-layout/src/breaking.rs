@@ -34,46 +34,8 @@ pub(crate) fn block_lines(
     levels: &BlockLevels,
 ) -> (SetLines, Option<Cap>) {
     let (style, width) = (cx.style, cx.width);
-    // Letters that join are as wide as the form they take between their
-    // neighbours (marks left out), as drawing sets them.
-    let advance = |i: usize, c: char| {
-        if paperpaw_text::is_invisible(c) {
-            // Direction controls an EPUB sets text apart with.
-            return 0.0;
-        }
-        let face = face_at(block, base, i, style.book);
-        if levels.is_plain() || !levels::may_join(c) {
-            return cx.typesetter.advance(face, c);
-        }
-        let not_mark = |c: &char| !paperpaw_text::is_mark(*c);
-        let before = block
-            .text
-            .get(..i)
-            .and_then(|t| t.chars().rev().find(not_mark));
-        let after = block
-            .text
-            .get(i + c.len_utf8()..)
-            .and_then(|t| t.chars().find(not_mark));
-        let around =
-            Around::new(Direction::Rtl, block.lang_of(face.style)).with_context(before, after);
-        let mut letter = [0u8; 4];
-        cx.typesetter
-            .advance_text(face, c.encode_utf8(&mut letter), &around)
-    };
-    // A pair in one face: the character before `i` and `right`, the text's
-    // own there or a hyphen set like the character before it. Pairs that
-    // run right to left are not kerned.
-    let kern = |i: usize, left: char, right: char| {
-        if levels.is_rtl_at(i) || levels.is_rtl_at(i - left.len_utf8()) {
-            return 0.0;
-        }
-        let face = face_at(block, base, i - left.len_utf8(), style.book);
-        let own = block.text[i..].starts_with(right);
-        if own && face_at(block, base, i, style.book) != face {
-            return 0.0;
-        }
-        cx.typesetter.kern(face, left, right)
-    };
+    let advance = |i: usize, c: char| advance_at(block, base, cx, levels, i, c);
+    let kern = |i: usize, left: char, right: char| kern_at(block, base, cx, levels, i, left, right);
     let hyphenate = cx.hyphenate.filter(|_| heading == 0);
     // Broken from `from` on, or (balanced, or beside a drop capital) over
     // the whole block, its line `n` set where `measure` says.
@@ -145,6 +107,87 @@ pub(crate) fn block_lines(
         lines.retain(|(line, _)| line.range.start >= from);
     }
     (lines, cap)
+}
+
+/// Whether `c` is of a script set by syllables (Bengali, Devanagari,
+/// Khmer, Lao, Tibetan): as wide as its shaped part, not kerned.
+fn shaped(c: char) -> bool {
+    matches!(c, '\u{900}'..='\u{9FF}' | '\u{E80}'..='\u{FFF}' | '\u{1780}'..='\u{17FF}')
+}
+
+/// The advance of `c` at byte `i` of `block`'s text: letters that join are
+/// as wide as the form they take between their neighbours (marks left out),
+/// a Bengali or Devanagari word (a Khmer, Lao or Tibetan syllable) as wide
+/// as it is drawn (on its first character), as drawing sets them.
+pub(crate) fn advance_at(
+    block: &Block,
+    base: Face,
+    cx: &LayoutContext<'_>,
+    levels: &BlockLevels,
+    i: usize,
+    c: char,
+) -> f32 {
+    if paperpaw_text::is_invisible(c) {
+        // Direction controls an EPUB sets text apart with.
+        return 0.0;
+    }
+    let face = face_at(block, base, i, cx.style.book);
+    // A Bengali or Devanagari word, a Khmer, Lao or Tibetan syllable: as
+    // wide as drawn, shaped, on its first character (they take forms by
+    // those around them).
+    if shaped(c) {
+        let part = paperpaw_text::shaped_at(&block.text, i);
+        if part.start != i {
+            return 0.0;
+        }
+        let around = Around::new(Direction::Ltr, block.lang_of(face.style));
+        let word = block.text.get(part).unwrap_or_default();
+        return cx.typesetter.advance_text(face, word, &around);
+    }
+    if levels.is_plain() || !levels::may_join(c) {
+        return cx.typesetter.advance(face, c);
+    }
+    let not_mark = |c: &char| !paperpaw_text::is_mark(*c);
+    let before = block
+        .text
+        .get(..i)
+        .and_then(|t| t.chars().rev().find(not_mark));
+    let after = block
+        .text
+        .get(i + c.len_utf8()..)
+        .and_then(|t| t.chars().find(not_mark));
+    let around = Around::new(Direction::Rtl, block.lang_of(face.style)).with_context(before, after);
+    let mut letter = [0u8; 4];
+    cx.typesetter
+        .advance_text(face, c.encode_utf8(&mut letter), &around)
+}
+
+/// How a pair in one face moves: the character before byte `i` of
+/// `block`'s text and `right`, the text's own there or a hyphen set like
+/// the character before it. Pairs that run right to left are not kerned.
+pub(crate) fn kern_at(
+    block: &Block,
+    base: Face,
+    cx: &LayoutContext<'_>,
+    levels: &BlockLevels,
+    i: usize,
+    left: char,
+    right: char,
+) -> f32 {
+    if levels.is_rtl_at(i) || levels.is_rtl_at(i - left.len_utf8()) {
+        return 0.0;
+    }
+    // Shaped syllables are not kerned (see `advance_at`).
+    if [left, right].iter().any(|&c| shaped(c)) {
+        return 0.0;
+    }
+    let book = cx.style.book;
+    let face = face_at(block, base, i - left.len_utf8(), book);
+    let own = block.text[i..].starts_with(right);
+    if own && face_at(block, base, i, book) != face {
+        return 0.0;
+    }
+    cx.typesetter.kern(face, left, right)
 }
 
 /// Prefer gaps that can take the spare width, while retaining the

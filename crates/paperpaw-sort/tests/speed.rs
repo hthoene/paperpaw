@@ -5,7 +5,7 @@
     clippy::unnecessary_sort_by,
     reason = "the closures mirror the callers being compared"
 )]
-use paperpaw_sort::{sort, sort_by, sort_by_cached_key, sort_by_key};
+use paperpaw_sort::{sort, sort_by, sort_by_cached_key, sort_by_key, sort_unstable};
 use std::time::{Duration, Instant};
 
 fn time(mut run: impl FnMut()) -> Duration {
@@ -34,7 +34,21 @@ fn library_sized_lists() {
         let shelf: Vec<(u32, [u8; 8], u32)> = (0..len)
             .map(|_| (next() % 4, u64::from(next()).to_le_bytes(), next()))
             .collect();
+        let keys: Vec<u64> = (0..len)
+            .map(|_| u64::from(next()) << 32 | u64::from(next()))
+            .collect();
+        let pairs: Vec<(u32, u32)> = (0..len).map(|_| (next(), next())).collect();
         let rows = [
+            (
+                "book keys, u64 (sort_unstable)",
+                time(|| keys.clone().sort_unstable()),
+                time(|| sort_unstable(&mut keys.clone())),
+            ),
+            (
+                "archive index, (u32, u32) (sort_unstable)",
+                time(|| pairs.clone().sort_unstable()),
+                time(|| sort_unstable(&mut pairs.clone())),
+            ),
             (
                 "title order (sort_by, lowercased)",
                 time(|| {

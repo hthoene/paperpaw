@@ -1,9 +1,9 @@
 //! Pages a plugin serves to a phone or computer on the local network
-//! ([`Command::Serve`](crate::Command::Serve)): who is answered, and what
+//! (`Ask::Serve`): who is answered, and what
 //! the requests and answers need.
 //!
 //! The address shown on the device (as a QR code, see
-//! [`ui::draw_address`](crate::ui::draw_address)) carries a key drawn
+//! `ui::draw_address`) carries a key drawn
 //! anew each time from the platform's random source ([`key`]); every
 //! request must carry it (`?k=…`). A [`Guard`] checks it and counts wrong
 //! keys: after a few of them no request is answered for a while, so the
@@ -18,7 +18,7 @@ use crate::Instant;
 use crate::random::Random;
 
 /// The port of the device's cable link (USB): a server asked for it
-/// ([`Command::serve`](crate::Command::serve)) is reached by the computer
+/// (`Ask::serve`) is reached by the computer
 /// at the other end of the cable, where the device has such a link, with
 /// the same requests as over the network, and needs no network. Nobody
 /// shows a key there, and who is at that end is not known: ask the reader

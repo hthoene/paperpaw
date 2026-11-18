@@ -1,12 +1,12 @@
 //! The keys: their kinds, the rows of a layer (split only where its
 //! letters would not fit), and how wide and high they are.
 
-#[allow(
-    clippy::wildcard_imports,
-    reason = "a part of the plugin, which shares its imports"
-)]
-use super::*;
+use crate::{SHAPE_ROUND, SHAPE_WIDE, SIZE_LARGE, SIZE_SMALL};
+use alloc::vec::Vec;
 use paperpaw_ui_kit::mem;
+
+/// The rows of the symbol layer (the last one also gets *Delete*).
+const SYMBOLS: [&str; 3] = ["1234567890", "@#&_-+()/%", "*\"':;!?"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Layer {
@@ -35,7 +35,7 @@ pub(crate) type Slot = (Key, u8);
 
 /// How high keys chosen with buttons are, and how large their letters, in
 /// hundredths of a row and of the text, by the keyboard's size
-/// ([`KEY_SIZE`]). Their rows stay a computer keyboard's whatever the size:
+/// (the setting `keyboard.size`). Their rows stay a computer keyboard's whatever the size:
 /// the letters grow less, as ten keys a row leave them little room on a
 /// narrow screen (the X4).
 pub(crate) fn button_scale(size: &str) -> (u32, u32) {
@@ -46,57 +46,8 @@ pub(crate) fn button_scale(size: &str) -> (u32, u32) {
     }
 }
 
-/// The least width of a letter's key, in pixels: tapped, what a finger
-/// hits; chosen with buttons, room for its letter (`scale` hundredths of
-/// the text) inside the focus frame, so that a row is split only where its
-/// letters would not fit.
-pub(crate) fn least_letter(env: &Env<'_>, style: &UiStyle, touch: bool, scale: u32) -> u32 {
-    if touch {
-        return env.metrics().tenth_mm(LEAST_TAP_MM * 10);
-    }
-    let px = style.text() * scale as f32 / 100.0;
-    let widest = style.font(env).map_or(px, |font| font.measure(px, "M"));
-    // Inside the key's outline and the seams beside it (see `key_inset`).
-    widest as u32 + 2 * (ui::button_border(style) + u32::from(BUTTONS_SEAM))
-}
-
-/// Half the room between two keys, in pixels ((`KeyboardScreen::seam`)).
-pub(crate) fn seam(env: &Env<'_>, style: &UiStyle, touch: bool) -> u16 {
-    if touch {
-        let half = env.metrics().tenth_mm(TOUCH_GAP_TENTHS) / 2;
-        half.max(ui::button_border(style)) as u16
-    } else {
-        BUTTONS_SEAM
-    }
-}
-
-/// The least room, in pixels, between the screen's edge and the keys'
-/// visible edges: a thin margin, so that the keys look set in the screen.
-pub(crate) const LEAST_SIDE: u16 = 4;
-
-/// The room between the screen's edge and the keys' visible edges: a
-/// quarter of the margin other screens keep, so that the keys get nearly
-/// the whole width, but not less than the seam round a key (the key's tap
-/// area then reaches the screen's edge) or [`LEAST_SIDE`].
-pub(crate) fn side_margin(style: &UiStyle, seam: u16) -> u16 {
-    (style.margin() / 4).max(LEAST_SIDE).max(seam)
-}
-
-/// The room between keys that are tapped, in tenths of a millimetre: as
-/// much as keeps a finger on one key and shows them apart.
-pub(crate) const TOUCH_GAP_TENTHS: u32 = 6;
-
-/// Half the room between keys chosen with buttons, in pixels: the focus
-/// fills a key, so they need no room for a frame round it, and the keys of
-/// a computer's rows get the width (two pixels between keys).
-pub(crate) const BUTTONS_SEAM: u16 = 1;
-
-/// The least width of a letter's key where keys are tapped, in
-/// millimetres: as much as a finger hits reliably.
-pub(crate) const LEAST_TAP_MM: u32 = 4;
-
 /// How high a key that is tapped is, in hundredths of a letter key's
-/// width, by its shape ([`KEY_SHAPE`]): nearly round, round or a little
+/// width, by its shape (the setting `keyboard.key-shape`): nearly round, round or a little
 /// wider, so the keyboard leaves much of the screen above it in view.
 pub(crate) fn height_of(shape: &str) -> u32 {
     match shape {
@@ -107,7 +58,7 @@ pub(crate) fn height_of(shape: &str) -> u32 {
 }
 
 /// How high the keyboard is where keys are tapped, in hundredths of its
-/// height at Medium, by its size ([`KEY_SIZE`]): the keys take what
+/// height at Medium, by its size (the setting `keyboard.size`): the keys take what
 /// changes. With round keys on the X4 Pro and the Boox, the keyboard
 /// then takes about 30 %, 40 % and 50 % of the screen.
 pub(crate) fn size_of(size: &str) -> u32 {
@@ -116,47 +67,6 @@ pub(crate) fn size_of(size: &str) -> u32 {
         SIZE_LARGE => 125,
         _ => 100,
     }
-}
-
-/// How high the keys are where they are tapped, for keys `letter` wide,
-/// `count` rows of them and `around` pixels of the keyboard that are not
-/// keys. The shape gives the height at Medium, and the size scales the
-/// whole keyboard from there.
-pub(crate) fn tapped_height(
-    env: &Env<'_>,
-    style: &UiStyle,
-    letter: u32,
-    count: u16,
-    around: u16,
-) -> u16 {
-    let shape = env.settings().read(&KEY_SHAPE);
-    let border = 2 * ui::button_border(style) as u16;
-    let touch_row = style.touch_row(u32::from(style.row())) as u16;
-    let height = (letter * height_of(shape) / 100) as u16;
-    let shaped = match shape {
-        // As before: no higher than a touch row, as high as a line.
-        SHAPE_TALL => height
-            .min(touch_row)
-            .max(paperpaw_sdk::widgets::line_height(env, style.text()) + border),
-        // As high as wide; high enough for the letter itself.
-        SHAPE_ROUND => height.max(style.text() as u16 + border),
-        _ => height.min(touch_row).max(style.text() as u16 + border),
-    };
-    let count = count.max(1);
-    let medium = u32::from(around) + u32::from(count) * u32::from(shaped);
-    let target = medium * size_of(env.settings().read(&KEY_SIZE)) / 100;
-    let sized = (target.saturating_sub(u32::from(around)) / u32::from(count)) as u16;
-    // Larger keys stop where the keyboard would take more than half the
-    // screen.
-    let half = (env.device().display.height / 2).saturating_sub(around) / count;
-    let sized = if sized > shaped {
-        sized.min(half.max(shaped))
-    } else {
-        sized
-    };
-    // Never smaller than a finger hits, nor than the letter on the key.
-    let least = (env.metrics().mm(LEAST_TAP_MM) as u16).max(style.text() as u16 + border);
-    sized.max(least)
 }
 
 /// The units of a row of keys.
@@ -206,26 +116,6 @@ fn try_chars(row: &str) -> Result<Vec<Slot>, paperpaw_sdk::native::Error> {
         mem::push(&mut slots, (Key::Char(c), 2))?;
     }
     Ok(slots)
-}
-
-/// The rows of a layer; `letters` are the rows of the layout, `switch`
-/// adds the key for the next layout; rows wider than `most` units are
-/// split (0 for none).
-#[cfg(test)]
-pub(crate) fn rows(letters: &str, layer: Layer, switch: bool, most: u32) -> Vec<Vec<Slot>> {
-    rows_for(letters, layer, switch, most, false)
-}
-
-/// [`try_rows_for`] for the interface-6 keyboard: no rows if memory is
-/// short.
-pub(crate) fn rows_for(
-    letters: &str,
-    layer: Layer,
-    switch: bool,
-    most: u32,
-    enter: bool,
-) -> Vec<Vec<Slot>> {
-    try_rows_for(letters, layer, switch, most, enter).unwrap_or_default()
 }
 
 /// The rows of a layer, with a key for a line break (`enter`) before
@@ -313,9 +203,21 @@ pub(crate) fn try_rows_for(
     }
 }
 
+/// The rows of a layer for the tests: none if memory is short.
+#[cfg(test)]
+fn rows_for(letters: &str, layer: Layer, switch: bool, most: u32, enter: bool) -> Vec<Vec<Slot>> {
+    try_rows_for(letters, layer, switch, most, enter).unwrap_or_default()
+}
+
+#[cfg(test)]
+fn rows(letters: &str, layer: Layer, switch: bool, most: u32) -> Vec<Vec<Slot>> {
+    rows_for(letters, layer, switch, most, false)
+}
+
 #[cfg(test)]
 mod split_tests {
     use super::*;
+    use alloc::string::String;
 
     /// A row too wide for a narrow screen in two as even as can be, in
     /// its order; one that fits as it is.

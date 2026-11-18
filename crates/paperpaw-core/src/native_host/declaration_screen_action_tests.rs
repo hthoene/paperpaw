@@ -81,13 +81,67 @@ fn committed_raw_construction_refuses_duplicates_and_store_refuses_invalid_flags
         name: "panel",
         title: "Panel",
         token: 1,
-        flags: 1 << 8,
+        flags: 1 << 11,
     })]);
     let mut allocations = Allocations::default();
     assert!(matches!(
         pending(&source, false, &mut allocations),
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     ));
+}
+
+#[test]
+fn an_overlay_may_be_declared_to_dim_what_is_below_it() {
+    // Bit 10 `dims_below`, alone and beside the other policy bits.
+    for flags in [1 << 10, (1 << 10) | (1 << 2), 0x7ff & !(1 << 3) & !(1 << 7)] {
+        let source = source(&[Record::ScreenSpec(ScreenSpec {
+            name: "panel",
+            title: "Panel",
+            token: 1,
+            flags,
+        })]);
+        let mut allocations = Allocations::default();
+        assert!(
+            pending(&source, false, &mut allocations).is_ok(),
+            "{flags:#x}"
+        );
+    }
+}
+
+#[test]
+fn a_screen_may_be_declared_with_its_hints_hidden() {
+    // Bit 8 `hints_hidden`, beside the other policy bits.
+    for flags in [1 << 8, (1 << 8) | (1 << 2) | (1 << 5)] {
+        let source = source(&[Record::ScreenSpec(ScreenSpec {
+            name: "panel",
+            title: "Panel",
+            token: 1,
+            flags,
+        })]);
+        let mut allocations = Allocations::default();
+        assert!(
+            pending(&source, false, &mut allocations).is_ok(),
+            "{flags:#x}"
+        );
+    }
+}
+
+#[test]
+fn a_screen_may_be_declared_best_in_grays() {
+    // Bit 9 `grays`, alone and beside the other policy bits.
+    for flags in [1 << 9, (1 << 9) | (1 << 8) | (1 << 5)] {
+        let source = source(&[Record::ScreenSpec(ScreenSpec {
+            name: "panel",
+            title: "Panel",
+            token: 1,
+            flags,
+        })]);
+        let mut allocations = Allocations::default();
+        assert!(
+            pending(&source, false, &mut allocations).is_ok(),
+            "{flags:#x}"
+        );
+    }
 }
 
 #[test]
@@ -137,6 +191,7 @@ fn every_new_kind_allocation_refusal_leaves_the_store_unpublished() {
             let mut store = DeclarationStore::default();
             let mut allocations = Allocations {
                 fail_after: Some(fail_after),
+                ..Default::default()
             };
             let result = pending(&source, owned, &mut allocations).and_then(|p| {
                 store

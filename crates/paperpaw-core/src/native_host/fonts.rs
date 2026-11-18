@@ -2,15 +2,19 @@
 use super::{
     canvas::CanvasScope,
     environment::EnvironmentScope,
+    fonts_data::DataFont,
     resources::{FontKey, FontRole, OwnerResources},
 };
 use crate::abi7::{context::Frame, graphics};
+use crate::font_refresh::widget_fonts;
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 use paperpaw_native::host_glue::{
     ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, OK, PpBuffer, PpBytes,
     buffers,
 };
 use paperpaw_platform::Color;
-use paperpaw_sdk::{FontHandle, Fonts, builtin::fonts as roles};
+use paperpaw_sdk::{FontHandle, Fonts, RoleMemo, builtin::fonts as roles};
 
 fn role(key: &str) -> Option<FontRole> {
     Some(match key {
@@ -25,34 +29,60 @@ fn role(key: &str) -> Option<FontRole> {
     })
 }
 
-fn resolve_role(fonts: &Fonts, role: FontRole) -> Option<FontHandle<'_>> {
+/// The fonts and, where the host keeps one, what it found of their roles.
+type Roles<'a> = (&'a Fonts, Option<&'a RoleMemo>);
+
+fn resolve_role(roles: Roles<'_>, role: FontRole) -> Option<FontHandle<'_>> {
+    let (fonts, memo) = roles;
+    let role_of = |name: &str| match memo {
+        Some(memo) => fonts.role_in(memo, name),
+        None => fonts.role(name),
+    };
+    let bound_of = |name: &str| match memo {
+        Some(memo) => fonts.bound_in(memo, name),
+        None => fonts.bound(name),
+    };
     match role {
-        FontRole::Ui => fonts.role(roles::UI.as_str()),
-        FontRole::Reading => fonts.role(roles::READING.as_str()),
-        FontRole::ReadingBold => fonts
-            .bound(roles::READING_BOLD.as_str())
-            .or_else(|| resolve_role(fonts, FontRole::Reading)),
-        FontRole::ReadingItalic => fonts
-            .bound(roles::READING_ITALIC.as_str())
-            .or_else(|| resolve_role(fonts, FontRole::Reading)),
-        FontRole::ReadingBoldItalic => fonts
-            .bound(roles::READING_BOLD_ITALIC.as_str())
-            .or_else(|| resolve_role(fonts, FontRole::ReadingBold)),
-        FontRole::Status => fonts.role(roles::STATUS.as_str()),
-        FontRole::Icons => fonts.bound(roles::ICONS.as_str()),
+        FontRole::Ui => role_of(roles::UI.as_str()),
+        FontRole::Reading => role_of(roles::READING.as_str()),
+        FontRole::ReadingBold => bound_of(roles::READING_BOLD.as_str())
+            .or_else(|| resolve_role(roles, FontRole::Reading)),
+        FontRole::ReadingItalic => bound_of(roles::READING_ITALIC.as_str())
+            .or_else(|| resolve_role(roles, FontRole::Reading)),
+        FontRole::ReadingBoldItalic => bound_of(roles::READING_BOLD_ITALIC.as_str())
+            .or_else(|| resolve_role(roles, FontRole::ReadingBold)),
+        FontRole::Status => role_of(roles::STATUS.as_str()),
+        FontRole::Icons => bound_of(roles::ICONS.as_str()),
     }
 }
 
-fn resolve<'a>(frame: &'a dyn Frame, key: &FontKey) -> Result<FontHandle<'a>, i32> {
-    let fonts = frame.fonts().ok_or(ERR_STATE)?;
+/// The font of `key` for text at `size` (`None`: at no size, as for what
+/// characters it has).
+fn resolve<'a>(
+    frame: &'a dyn Frame,
+    key: &'a FontKey,
+    size: Option<f32>,
+) -> Result<FontHandle<'a>, i32> {
+    if let FontKey::Data(font) = key {
+        return font.handle();
+    }
+    let (fonts, memo) = frame.fonts_memo().ok_or(ERR_STATE)?;
     match key {
-        FontKey::Role(role) => resolve_role(fonts, *role).ok_or(ERR_NOT_FOUND),
+        FontKey::Role(role) => resolve_role((fonts, memo), *role).ok_or(ERR_NOT_FOUND),
         FontKey::Named { id, acquired } => {
             if !frame.font_valid(id.namespace(), *acquired) {
                 return Err(ERR_STATE);
             }
             fonts.get(id.as_str()).ok_or(ERR_STATE)
         }
+        FontKey::Widget { id, acquired } => frame
+            .font_valid(id.namespace(), *acquired)
+            .then(|| fonts.get(id.as_str()))
+            .flatten()
+            .filter(|font| size.is_none_or(|size| widget_fonts::has_size(font, size)))
+            .or_else(|| resolve_role((fonts, memo), FontRole::Ui))
+            .ok_or(ERR_NOT_FOUND),
+        FontKey::Data(_) => Err(ERR_STATE),
     }
 }
 
@@ -62,7 +92,57 @@ fn with_font<R>(
     handle: u32,
     call: impl FnOnce(&FontHandle<'_>) -> Result<R, i32>,
 ) -> Result<R, i32> {
-    scope.with_frame(|frame| owner.with_font(handle, |key| call(&resolve(frame, key)?)))?
+    with_bold(scope, owner, handle, None, |font, _| call(font))
+}
+
+/// The widest faux bold (as slot 41's `extra`).
+const FAUX_MAX: u32 = 16;
+
+/// Faux bold (`screens-input.md` 4): the pixels a bold reading role is drawn
+/// wider at `size` where the reading family has no bold face and the role is
+/// its regular face: one for every 24 px, rounded, at least one. 0 for every
+/// other key and for a family that has its bold face.
+fn faux_bold(frame: &dyn Frame, key: &FontKey, size: f32) -> u16 {
+    let FontKey::Role(role @ (FontRole::ReadingBold | FontRole::ReadingBoldItalic)) = key else {
+        return 0;
+    };
+    let Some(fonts) = frame.fonts() else {
+        return 0;
+    };
+    if fonts.bound(roles::READING_BOLD.as_str()).is_some()
+        || (matches!(role, FontRole::ReadingBoldItalic)
+            && fonts.bound(roles::READING_BOLD_ITALIC.as_str()).is_some())
+    {
+        return 0;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a checked positive size; the cast saturates"
+    )]
+    let pixels = (size + 12.0) as u32 / 24;
+    u16::try_from(pixels.clamp(1, FAUX_MAX)).unwrap_or(1)
+}
+
+/// [`with_font`] for a drawing call at `size`: `call` is also given the
+/// call's [`faux_bold`] (0 where no size is given).
+fn with_bold<R>(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    handle: u32,
+    size: Option<f32>,
+    call: impl FnOnce(&FontHandle<'_>, u16) -> Result<R, i32>,
+) -> Result<R, i32> {
+    scope.with_frame(|frame| {
+        owner.with_font(handle, |key| {
+            if let FontKey::Data(font) = key {
+                // Once the file is changed or removed the handle is stale.
+                font.check(owner, frame.callback_epoch().ok())?;
+            }
+            let faux = size.map_or(0, |size| faux_bold(frame, key, size));
+            call(&resolve(frame, key, size)?, faux)
+        })
+    })?
 }
 
 /// Validate scalar output ranges without borrowing or initializing their storage.
@@ -96,7 +176,58 @@ fn status(result: Result<(), i32>) -> i32 {
     result.map_or_else(|error| error, |()| OK)
 }
 
-/// Acquire slot 7. The key is copied only for a named font, using checked allocation.
+/// The key of a font file in the plugin's own data folder: `data:<path>`.
+const DATA_KEY: &str = "data:";
+
+/// The key of the font a widget is set in: `widget:<widget id>`.
+const WIDGET_KEY: &str = "widget:";
+
+/// The font the reader chose for `widget` (`screens-input.md` 4), as it is
+/// now: a family whose regular face is open, else the role it stands for.
+fn widget_key(frame: &dyn Frame, widget: &str) -> Result<FontKey, i32> {
+    let fonts = frame.fonts().ok_or(ERR_STATE)?;
+    let role = match widget_fonts::chosen(frame.settings(), widget) {
+        widget_fonts::Chosen::Menus => FontRole::Ui,
+        widget_fonts::Chosen::Book => FontRole::Reading,
+        widget_fonts::Chosen::Family(family) => {
+            let open = fonts
+                .family_regular(family)
+                .filter(|id| fonts.get(id.as_str()).is_some());
+            match open {
+                Some(id) => {
+                    let acquired = frame.font_generation().ok_or(ERR_STATE)?;
+                    let id = id.try_clone().ok_or(ERR_NO_MEMORY)?;
+                    return Ok(FontKey::Widget { id, acquired });
+                }
+                None => FontRole::Ui,
+            }
+        }
+    };
+    if resolve_role((fonts, None), role).is_none() {
+        return Err(ERR_NOT_FOUND);
+    }
+    Ok(FontKey::Role(role))
+}
+
+/// A role key, or a registered font id.
+fn named_or_role(frame: &dyn Frame, key: &str) -> Result<FontKey, i32> {
+    let fonts = frame.fonts().ok_or(ERR_STATE)?;
+    if key.starts_with("role:") {
+        let role = role(key).ok_or(ERR_NOT_FOUND)?;
+        if !matches!(role, FontRole::Icons) && resolve_role((fonts, None), role).is_none() {
+            return Err(ERR_NOT_FOUND);
+        }
+        return Ok(FontKey::Role(role));
+    }
+    let acquired = frame.font_generation().ok_or(ERR_STATE)?;
+    let font = fonts.get(key).ok_or(ERR_NOT_FOUND)?;
+    let id = font.id().try_clone().ok_or(ERR_NO_MEMORY)?;
+    Ok(FontKey::Named { id, acquired })
+}
+
+/// Acquire slot 7: a role, a registered font, a font file of the plugin's
+/// (`data:`) or the font chosen for a widget (`widget:`). Of the key only a
+/// font's id is copied, using checked allocation.
 ///
 /// # Safety
 /// Input must be readable and stable; output must be writable, exclusive and
@@ -111,20 +242,13 @@ pub(crate) unsafe fn acquire(
         outputs([out])?;
         // SAFETY: caller guarantees readable input for this synchronous call.
         let key = unsafe { buffers::text_in(key, 128) }?;
-        let key = scope.with_frame(|frame| {
-            let fonts = frame.fonts().ok_or(ERR_STATE)?;
-            if key.starts_with("role:") {
-                let role = role(key).ok_or(ERR_NOT_FOUND)?;
-                if !matches!(role, FontRole::Icons) && resolve_role(fonts, role).is_none() {
-                    return Err(ERR_NOT_FOUND);
-                }
-                return Ok(FontKey::Role(role));
-            }
-            let acquired = frame.font_generation().ok_or(ERR_STATE)?;
-            let font = fonts.get(key).ok_or(ERR_NOT_FOUND)?;
-            let id = font.id().try_clone().ok_or(ERR_NO_MEMORY)?;
-            Ok(FontKey::Named { id, acquired })
-        })??;
+        let key = if let Some(path) = key.strip_prefix(DATA_KEY) {
+            FontKey::Data(DataFont::open(scope, owner, path)?)
+        } else if let Some(widget) = key.strip_prefix(WIDGET_KEY) {
+            scope.with_frame(|frame| widget_key(frame, widget))??
+        } else {
+            scope.with_frame(|frame| named_or_role(frame, key))??
+        };
         let handle = owner.insert_font(key)?;
         // SAFETY: validated scalar output; no fallible step follows publication.
         unsafe { out.write(handle) };
@@ -155,7 +279,7 @@ pub(crate) unsafe fn measure(
         size_check(size)?;
         // SAFETY: the caller provides live readable input.
         let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
-        let width = with_font(scope, owner, handle, |font| {
+        let width = with_bold(scope, owner, handle, Some(size), |font, _| {
             graphics::text_measure(font, size, text).map_err(|_| ERR_INVALID)
         })?;
         // SAFETY: output was validated and no reference to it was formed.
@@ -184,7 +308,7 @@ fn icon_utf8(frame: &dyn Frame, name: &str, bytes: &mut [u8; 4]) -> Result<usize
         return Err(ERR_INVALID);
     }
     let fonts = frame.fonts().ok_or(ERR_STATE)?;
-    let font = resolve_role(fonts, FontRole::Icons).ok_or(ERR_NOT_FOUND)?;
+    let font = resolve_role((fonts, None), FontRole::Icons).ok_or(ERR_NOT_FOUND)?;
     let ch = paperpaw_sdk::icons::char(name).ok_or(ERR_NOT_FOUND)?;
     if !font.has_char(ch) {
         return Err(ERR_NOT_FOUND);
@@ -237,7 +361,7 @@ pub(crate) unsafe fn metrics(
     status((|| {
         outputs([ascent, descent, height])?;
         size_check(size)?;
-        let values = with_font(scope, owner, handle, |font| {
+        let values = with_bold(scope, owner, handle, Some(size), |font, _| {
             let metrics = font.line_metrics(size);
             let values = [metrics.ascent, metrics.descent, metrics.line_height];
             if values
@@ -259,7 +383,36 @@ pub(crate) unsafe fn metrics(
     })())
 }
 
+/// For tests and emulators: slot 30 answers as on the X4, whose host table
+/// leaves it unwired (`shell::table`), on this thread from now on. Not part
+/// of any interface, and not on the firmware.
 #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+pub fn answer_text_ink_as_the_x4(unwired: bool) {
+    ink_unwired::set(unwired);
+}
+
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+mod ink_unwired {
+    extern crate std;
+    use core::cell::Cell;
+
+    std::thread_local! {
+        static UNWIRED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub(super) fn get() -> bool {
+        UNWIRED.try_with(Cell::get).unwrap_or(false)
+    }
+
+    pub(super) fn set(unwired: bool) {
+        let _ = UNWIRED.try_with(|cell| cell.set(unwired));
+    }
+}
+
+#[cfg(any(
+    feature = "x4-ink",
+    not(any(target_arch = "riscv32", target_arch = "xtensa"))
+))]
 fn ink_of(font: &FontHandle<'_>, size: f32, text: &str, threshold: u8) -> Result<[i32; 4], i32> {
     let bounds = font.ink_drawn(size, text, threshold).ok_or(ERR_NOT_FOUND)?;
     Ok([bounds.top, bounds.bottom, bounds.left, bounds.right])
@@ -271,7 +424,10 @@ fn ink_of(font: &FontHandle<'_>, size: f32, text: &str, threshold: u8) -> Result
 /// Text must be readable and unchanged. All outputs must be writable, exclusive
 /// and disjoint from text and host state. They may be uninitialized.
 #[allow(clippy::too_many_arguments, reason = "matches the ABI ink scalars")]
-#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+#[cfg(any(
+    feature = "x4-ink",
+    not(any(target_arch = "riscv32", target_arch = "xtensa"))
+))]
 pub(crate) unsafe fn ink(
     scope: &EnvironmentScope,
     owner: &OwnerResources,
@@ -284,14 +440,21 @@ pub(crate) unsafe fn ink(
     right: *mut i32,
 ) -> i32 {
     status((|| {
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+        if ink_unwired::get() {
+            return Err(ERR_UNSUPPORTED);
+        }
         outputs([top, bottom, left, right])?;
         size_check(size)?;
         // SAFETY: the caller provides live readable input.
         let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
         let values = scope.with_frame(|frame| {
             owner.with_font(handle, |key| {
-                let font = resolve(frame, key)?;
-                ink_of(&font, size, text, frame.ink_threshold()?)
+                let font = resolve(frame, key, Some(size))?;
+                let mut ink = ink_of(&font, size, text, frame.ink_threshold()?)?;
+                // Faux bold widens every glyph to the right.
+                ink[3] = ink[3].saturating_add(i32::from(faux_bold(frame, key, size)));
+                Ok(ink)
             })
         })??;
         // SAFETY: all outputs were checked before any write.
@@ -336,10 +499,124 @@ pub(crate) unsafe fn draw(
         let color = Color::rgb(red, green, blue);
         // SAFETY: the caller provides live readable input.
         let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
-        let width = with_font(scope, owner, handle, |font| {
+        // An icon is a picture, not a word: it is not told as text.
+        let icon = owner
+            .with_font(handle, |key| {
+                Ok(matches!(key, FontKey::Role(FontRole::Icons)))
+            })
+            .unwrap_or(false);
+        let width = with_bold(scope, owner, handle, Some(size), |font, faux| {
             canvas.with_canvas(|canvas| {
-                graphics::text_draw(canvas, font, size, x, i64::from(baseline), text, color)
-                    .map_err(|_| ERR_INVALID)
+                let line = i64::from(baseline);
+                let width = if faux == 0 {
+                    graphics::text_draw(canvas, font, size, x, line, text, color)
+                } else {
+                    let tone = font.text_ink().tone();
+                    graphics::text_draw_toned(canvas, font, size, x, line, text, color, faux, tone)
+                }
+                .map_err(|_| ERR_INVALID)?;
+                // Told as text where somebody asks, as a legacy label is
+                // (`screens-input.md` 6.1); nothing is done otherwise.
+                if canvas.is_describing() && !icon {
+                    let line = font.line_metrics(size);
+                    #[allow(
+                        clippy::cast_precision_loss,
+                        reason = "a baseline on a screen is far below 2^24"
+                    )]
+                    let top = baseline as f32 - line.ascent;
+                    let height = line.ascent + line.descent;
+                    super::canvas_describe::told_text(canvas, text, x, top, width, height);
+                }
+                Ok(width)
+            })?
+        })?;
+        // SAFETY: output was validated before drawing.
+        unsafe { out.write(width) };
+        Ok(())
+    })())
+}
+
+/// The curve of slot 41's `tone` bytes: none for the handle's own, or exactly 16.
+const TONE_BYTES: usize = 16;
+/// Slot 41's `flags`: bit 0 `sharp`.
+const INKED_SHARP: u32 = 1;
+/// The widest `extra` (more is clamped to it, not refused).
+const EXTRA_MAX: u32 = 16;
+
+/// Slot 41: `text.draw_inked`. Draws as slot 14 does, with glyphs widened by
+/// `extra` (above 16 clamped to 16) and the coverage drawn in `tone` (none: the
+/// handle's own; else 16 opacities), `flags` bit 0 `sharp` drawing the chosen
+/// curve without grays at the canvas's `mono_coverage`. The order of refusals
+/// is no canvas (`ERR_STATE`), then a stale handle (`ERR_STATE`), then the
+/// arguments (`ERR_INVALID`, `ERR_UTF8`); all of them come before the first
+/// pixel, so a refused call draws nothing. Nothing is allocated: the curve is
+/// read from the call's own 16 bytes.
+///
+/// # Safety
+/// Text and tone must be readable and unchanged. Output must be writable,
+/// exclusive and disjoint from them and from host state for the call.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "matches the ABI text draw scalars"
+)]
+pub(crate) unsafe fn draw_inked(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    canvas: &CanvasScope,
+    handle: u32,
+    size: f32,
+    x: f32,
+    baseline: i32,
+    color: u32,
+    text: PpBytes,
+    extra: u32,
+    tone: PpBytes,
+    flags: u32,
+    out: *mut f32,
+) -> i32 {
+    status((|| {
+        canvas.present()?;
+        with_font(scope, owner, handle, |_| Ok(()))?;
+        outputs([out])?;
+        size_check(size)?;
+        if color >> 24 != 0 || flags & !INKED_SHARP != 0 {
+            return Err(ERR_INVALID);
+        }
+        let [_, red, green, blue] = color.to_be_bytes();
+        let color = Color::rgb(red, green, blue);
+        // SAFETY: the caller provides live readable input.
+        let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
+        // SAFETY: as above.
+        let tone = unsafe { buffers::bytes_in(tone, TONE_BYTES) }?;
+        if !tone.is_empty() && tone.len() != TONE_BYTES {
+            return Err(ERR_INVALID);
+        }
+        let given = <[u8; TONE_BYTES]>::try_from(tone)
+            .ok()
+            .map(paperpaw_sdk::text::ToneCurve::from_alphas);
+        // Widening is clamped; it never refuses.
+        let extra = u16::try_from(extra.min(EXTRA_MAX)).unwrap_or(0);
+        let width = with_bold(scope, owner, handle, Some(size), |font, faux| {
+            canvas.with_canvas(|canvas| {
+                let extra = extra.saturating_add(faux);
+                let curve = given.unwrap_or_else(|| font.text_ink().tone());
+                let curve = if flags & INKED_SHARP != 0 {
+                    curve.sharp(canvas.mono_coverage())
+                } else {
+                    curve
+                };
+                graphics::text_draw_toned(
+                    canvas,
+                    font,
+                    size,
+                    x,
+                    i64::from(baseline),
+                    text,
+                    color,
+                    extra,
+                    curve,
+                )
+                .map_err(|_| ERR_INVALID)
             })?
         })?;
         // SAFETY: output was validated before drawing.
@@ -351,6 +628,18 @@ pub(crate) unsafe fn draw(
 #[cfg(test)]
 #[path = "fonts_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "fonts_inked_tests.rs"]
+mod inked_tests;
+
+#[cfg(test)]
+#[path = "fonts_faux_tests.rs"]
+mod faux_tests;
+
+#[cfg(test)]
+#[path = "fonts_widget_tests.rs"]
+mod widget_tests;
 
 /// The longest text slot 39 reads (`screens-input.md` section 4).
 const COVERS_MAX: usize = 1024;

@@ -132,7 +132,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         let root = root.trim_matches('/');
         self.settle_moves()?;
         // The sizes in the folders, as appended.
-        self.sync()?;
+        self.sync_files()?;
         let top = match self.open_tree(root)? {
             Ok(top) => top,
             Err(step) => return Ok(step),

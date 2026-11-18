@@ -5,7 +5,7 @@ use super::wire::services_wire::core_ui_v1 as schema;
 use super::{Error, Host, services::Service};
 
 pub(crate) mod navigation;
-pub use navigation::{Notify, Open, ScreenPolicy, SpeechRequest};
+pub use navigation::{ButtonHint, Notify, Open, ScreenPolicy, SpeechRequest};
 mod status;
 pub use status::{StatusLine, StatusValue};
 mod queries;
@@ -14,7 +14,7 @@ mod handover;
 pub mod stages;
 mod widgets;
 pub use widgets::{
-    Compose, StatusHandle, StatusLineHandle, WidgetHandle, WidgetInputKind, WidgetSize,
+    Compose, MadeWidget, StatusHandle, StatusLineHandle, WidgetHandle, WidgetInputKind, WidgetSize,
     WidgetTarget,
 };
 mod params;

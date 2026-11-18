@@ -283,6 +283,30 @@ pub trait FirmwareHost {
     /// Starts the image that was chosen. Returns only where it cannot
     /// (`Err(Reason::NOT_HERE)`).
     fn restart(&mut self) -> Result<(), Reason>;
+
+    /// Whether the device has a second app partition to share with another
+    /// firmware, so that `docs/dual-boot.md` applies (`command.firmware_dual_boot`
+    /// is `Reason::NOT_HERE` where it does not). Default: no.
+    fn dual_boot_capable(&self) -> bool {
+        false
+    }
+
+    /// Whether the setup was declared dual boot at this start (the marker in
+    /// the bootloader's window, or `dual-boot = on` in `paperpaw.ini`);
+    /// `dev_firmware.flags` bit 0. Only read where [`Self::dual_boot_capable`].
+    /// Default: no.
+    fn dual_boot_declared(&self) -> bool {
+        false
+    }
+
+    /// Restarts the running image, where no new one waits (the end of
+    /// `command.firmware_dual_boot` with mode 1). Returns only where it cannot
+    /// (`Err(Reason::NOT_HERE)`). Default: it cannot. A host that says
+    /// [`Self::dual_boot_capable`] must implement it: else a yes writes the
+    /// file and the device never restarts.
+    fn restart_running(&mut self) -> Result<(), Reason> {
+        Err(Reason::NOT_HERE)
+    }
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 screen settings.group
+Text "1 / 3"
 Heading "Reading"
 Heading "Preview"
 Row "Text" (focused)

@@ -6,7 +6,7 @@
 //! No type here is a wire record or a foreign callback signature.
 
 use crate::abi7::{calls, lifecycle};
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec::Vec};
 use core::{cell::Cell, fmt, mem::ManuallyDrop, ops::Deref, pin::Pin};
 pub use lifecycle::{Teardown, TeardownStep};
 
@@ -20,9 +20,19 @@ pub(crate) mod codec;
 pub(crate) mod event_tags;
 #[path = "native_host/owner_directory.rs"]
 pub(crate) mod owner_directory;
+#[path = "native_host/shrink.rs"]
+pub(crate) mod shrink;
 
+pub(crate) mod device_log;
+#[allow(
+    dead_code,
+    reason = "the dual-boot request of the firmware queue uses it (Core todo 397)"
+)]
+pub(crate) mod dual_boot_ini;
+pub(crate) mod dual_boot_job;
 #[path = "native_host/font_removals.rs"]
 pub(crate) mod font_removals;
+pub(crate) mod host_memos;
 pub(crate) mod registry_generation;
 
 #[path = "native_host/work_sched.rs"]
@@ -32,15 +42,93 @@ pub(crate) mod work_sched;
 #[path = "native_host/work_service.rs"]
 mod work_service;
 
+#[path = "native_host/firmware_cell.rs"]
+pub(crate) mod firmware_cell;
+#[path = "native_host/firmware_confirm.rs"]
+#[allow(
+    dead_code,
+    reason = "the pump opens it once a shell wires the firmware host; tests do today"
+)]
+pub(crate) mod firmware_confirm;
+#[cfg(any(test, feature = "testing"))]
+#[path = "native_host/firmware_confirm_hook.rs"]
+mod firmware_confirm_hook;
+#[path = "native_host/firmware_driver.rs"]
+#[allow(
+    dead_code,
+    reason = "the firmware commands and the kernel's pump wire it (slice B2a-2); tests do today"
+)]
+pub(crate) mod firmware_driver;
+#[path = "native_host/firmware_events.rs"]
+#[allow(
+    dead_code,
+    reason = "the shell's main loop calls the pump (slice B2a-2 wiring); tests do today"
+)]
+mod firmware_events;
 #[path = "native_host/firmware_install.rs"]
 #[allow(
     dead_code,
     reason = "the command arms and the pump (slice B) drive the machine; tests do today"
 )]
 pub(crate) mod firmware_install;
+#[path = "native_host/literata_notice.rs"]
+pub(crate) mod literata_notice;
+#[path = "native_host/low_memory.rs"]
+pub(crate) mod low_memory;
+
+#[path = "native_host/install_grants.rs"]
+pub(crate) mod install_grants;
+#[path = "native_host/plugin_check.rs"]
+#[allow(
+    dead_code,
+    reason = "the queue's plugin seam wires the job (slice B2c-1 wiring after Core's queue enum); tests do today"
+)]
+pub(crate) mod plugin_check;
+#[path = "native_host/plugin_confirm.rs"]
+pub(crate) mod plugin_confirm;
+#[path = "native_host/plugin_folder.rs"]
+#[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
+pub(crate) mod plugin_folder;
+#[path = "native_host/plugin_install.rs"]
+#[allow(
+    dead_code,
+    reason = "the queue's plugin seam wires it; see plugin_check"
+)]
+pub(crate) mod plugin_install;
+#[path = "native_host/plugin_job.rs"]
+#[allow(
+    dead_code,
+    reason = "the queue's plugin seam wires it; see plugin_check"
+)]
+pub(crate) mod plugin_job;
+#[path = "native_host/plugin_jobs.rs"]
+pub(crate) mod plugin_jobs;
+#[path = "native_host/plugin_remove.rs"]
+#[allow(dead_code, reason = "the queue and the start use it; see plugin_check")]
+pub(crate) mod plugin_remove;
+#[path = "native_host/plugin_rules.rs"]
+#[allow(dead_code, reason = "the install job applies it; see plugin_check")]
+pub(crate) mod plugin_rules;
+#[path = "native_host/plugin_start.rs"]
+#[allow(dead_code, reason = "the builder runs it; see plugin_check")]
+pub(crate) mod plugin_start;
+#[path = "native_host/plugin_swap.rs"]
+#[allow(
+    dead_code,
+    reason = "the install job runs it and the start replays it; see plugin_check"
+)]
+pub(crate) mod plugin_swap;
+#[path = "native_host/plugin_trust.rs"]
+#[allow(dead_code, reason = "the plugin jobs use it; see plugin_check")]
+pub(crate) mod plugin_trust;
+#[path = "native_host/plugin_unforgotten.rs"]
+pub(crate) mod plugin_unforgotten;
+#[path = "native_host/store_record.rs"]
+pub(crate) mod store_record;
 
 #[path = "native_host/secrets_file.rs"]
 pub(crate) mod secrets_file;
+pub(crate) mod secrets_text;
 
 #[path = "native_host/secrets_service.rs"]
 #[allow(
@@ -52,9 +140,27 @@ pub(crate) mod secrets_service;
 #[path = "native_host/host_slot.rs"]
 pub mod host_slot;
 
+#[path = "native_host/frame_owner.rs"]
+pub(crate) mod frame_owner;
+
+#[path = "native_host/plugin_heap.rs"]
+pub(crate) mod plugin_heap;
+
+#[path = "native_host/screen_ready.rs"]
+mod screen_ready;
+
 #[path = "native_host/ui_service.rs"]
 pub(crate) mod ui_service;
 pub use ui_service::check_ask;
+
+#[path = "native_host/ui_clipboard.rs"]
+pub(crate) mod ui_clipboard;
+
+#[path = "native_host/ui_hints.rs"]
+pub(crate) mod ui_hints;
+
+#[path = "native_host/ui_stack_op.rs"]
+pub(crate) mod ui_stack_op;
 
 #[path = "native_host/ui_requests.rs"]
 #[allow(
@@ -85,6 +191,9 @@ pub(crate) mod stack_rows;
 
 pub(crate) use crate::abi7::context::ui_guard;
 
+#[path = "native_host/ui_widget_layout.rs"]
+pub(crate) mod ui_widget_layout;
+
 #[path = "native_host/ui_widget_ops.rs"]
 pub(crate) mod ui_widget_ops;
 
@@ -95,6 +204,8 @@ pub(crate) mod ui_widget_ops;
 )]
 pub(crate) mod ui_compose_host;
 
+#[path = "native_host/input_chain.rs"]
+pub(crate) mod input_chain;
 #[path = "native_host/ui_input.rs"]
 #[allow(
     dead_code,
@@ -107,6 +218,10 @@ pub(crate) mod shared;
 
 #[path = "native_host/resources.rs"]
 pub mod resources;
+pub use fixed_settings::FixedTables;
+pub(crate) use native_batch::NativeBatch;
+pub use native_batch::NativeTimes;
+pub use park_linked::ParkShell;
 pub use resources::HostResources;
 
 #[path = "native_host/shell_wiring.rs"]
@@ -115,21 +230,38 @@ pub use shell_wiring::{HostWiring, HyphenTables, WiredHosts};
 
 #[path = "native_host/fonts.rs"]
 mod fonts;
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+pub use fonts::answer_text_ink_as_the_x4;
+#[path = "native_host/fonts_data.rs"]
+mod fonts_data;
 
 mod admitted_features;
 #[path = "native_host/secret_bytes.rs"]
 pub(crate) mod secret_bytes;
 
+pub(crate) mod book_data_steps;
+pub(crate) mod book_scope;
 pub(crate) mod busy_adapters;
+mod cable_pump;
 #[path = "native_host/call_services.rs"]
 mod call_services;
+mod cover_job_marker;
+mod cover_job_pump;
+pub(crate) mod data_plugin_folders;
 #[path = "native_host/data_services.rs"]
 mod data_services;
 mod declared_services;
+mod details_job_pump;
 pub mod device_service;
+pub(crate) mod dialog_pump;
+pub(crate) mod doc_cache;
+pub(crate) mod doc_host;
+mod doc_pump;
+pub(crate) mod doc_reading;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
 pub(crate) mod doc_service;
 pub(crate) mod event_call;
+pub(crate) mod event_failures;
 #[allow(dead_code, reason = "wired into the shell frame by the files adapter")]
 pub(crate) mod files_service;
 #[allow(dead_code, reason = "wired into the shell frame by the DOC adapter")]
@@ -159,23 +291,36 @@ pub(crate) mod image_pump;
     reason = "wired into the shell table; the DOC, LIB and prepare producers fill it"
 )]
 pub(crate) mod image_service;
+#[path = "native_host/kernel_asks.rs"]
+pub(crate) mod kernel_asks;
+pub(crate) mod lib_changed;
+pub(crate) mod lib_cover;
 #[allow(
     dead_code,
-    reason = "the library host composes it with the catalog carry (library moves, next slice)"
+    reason = "wired by HostWiring::library; the write half is todo 307"
 )]
+pub(crate) mod lib_edits;
+pub(crate) mod lib_host;
+pub(crate) mod lib_import;
+pub(crate) mod lib_jobs;
+pub(crate) mod lib_jobs_env;
+pub(crate) mod lib_jobs_journal;
+pub(crate) mod lib_moves_carry;
 pub(crate) mod lib_moves_host;
-#[allow(
-    dead_code,
-    reason = "the card's MoveHost uses it (library moves, next slice)"
-)]
 pub(crate) mod lib_moves_journal;
+pub(crate) mod lib_moves_service;
+pub(crate) mod lib_moves_walk;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_reads;
 #[allow(dead_code, reason = "wired into the shell frame by the LIB adapter")]
 pub(crate) mod lib_service;
+mod library_events;
 pub(crate) mod linked_plugins;
 #[allow(dead_code, reason = "wired into the shell frame by the lookup adapter")]
 pub(crate) mod lookup_service;
+mod moves_pump;
+pub(crate) mod native_book_formats;
+pub(crate) mod native_host_call;
 #[allow(
     dead_code,
     reason = "the shell builds the pool with the NET host and the SOCK host charges it"
@@ -187,7 +332,10 @@ pub(crate) mod net_service;
 mod network_demand;
 pub(crate) mod owner_paths;
 pub(crate) mod paths_in_use;
+mod reading_events;
 pub(crate) mod save_files;
+pub(crate) mod screen_apply;
+pub(crate) mod screen_stage;
 pub(crate) mod service_events;
 mod service_pump;
 mod service_slots;
@@ -195,6 +343,13 @@ mod service_slots;
 pub(crate) mod setting_events;
 #[allow(dead_code, reason = "wired into the shell frame by the SOCK adapter")]
 pub(crate) mod sock_service;
+pub(crate) mod speech;
+mod stack_events;
+#[allow(
+    dead_code,
+    reason = "the native stage.run host (#828) frames its replies with it"
+)]
+pub(crate) mod stage_reply_tail;
 #[allow(
     dead_code,
     reason = "stage broker wiring follows this framing foundation"
@@ -208,18 +363,41 @@ pub(crate) mod staged_name;
 mod storage_files;
 #[path = "native_host/storage_slots.rs"]
 mod storage_slots;
+mod widget_events;
+mod widget_inputs;
+mod wifi_events;
 mod work_pump;
 
-const REGISTRATIONS: usize = 8;
+/// Bit 0 (`menus`) of `event.registry_changed`: menus and their item state.
+pub(crate) const REGISTRY_MENUS: u32 = 1;
+/// Every `what` bit of `event.registry_changed` (`registry.md` section 5): a
+/// change of the plugin set may change anything the registry holds.
+pub(crate) const REGISTRY_ALL: u32 = 0xFF;
+/// Bit 31 (`dropped`) of `event.registry_changed`: a staged REG batch of the
+/// plugin's own was dropped when applied. It goes to that plugin only.
+pub(crate) const REGISTRY_DROPPED: u32 = 1 << 31;
+
+/// The most callback registrations (event subscriptions and draws) one
+/// plugin makes over the whole construction. Records live in a `Vec` grown
+/// per batch, so the heap cost is what the plugin registered.
+const REGISTRATIONS: usize = 32;
 
 /// Callback-scoped drawing for host-owned plugin contexts.
 #[path = "native_host/canvas.rs"]
 pub mod canvas;
+mod canvas_describe;
 
 /// Callback-scoped slot-15 command staging for host-owned plugin contexts.
 #[path = "native_host/commands.rs"]
 pub mod commands;
 
+#[cfg(test)]
+#[path = "native_host/plugin_answers_tests.rs"]
+mod plugin_answers_tests;
+pub(crate) mod plugin_requests;
+#[cfg(test)]
+#[path = "native_host/plugin_requests_tests.rs"]
+mod plugin_requests_tests;
 /// The device-wide table of Wi-Fi join and host requests (DEV).
 #[path = "native_host/radio_requests.rs"]
 pub mod radio_requests;
@@ -229,6 +407,7 @@ mod declaration_index;
 
 #[path = "native_host/declaration_checks.rs"]
 mod declaration_checks;
+mod declaration_refusals;
 
 #[path = "native_host/declarations_uix.rs"]
 mod declarations_uix;
@@ -287,7 +466,7 @@ pub(crate) mod event_producers;
 )]
 #[path = "native_host/event_sink.rs"]
 mod event_sink;
-/// Production event adapter for a shell-owned flat plugin instance.
+/// A shell-owned flat plugin instance: its registrations and the device's dispatch budget.
 #[path = "native_host/flat.rs"]
 pub mod flat;
 /// The `draw.frame` input of `draw` (N2, `docs/abi/screens-input.md` section 6).
@@ -318,6 +497,13 @@ pub(crate) mod item_state;
 )]
 pub(crate) mod native_declarations;
 
+#[path = "native_host/native_widget.rs"]
+#[allow(
+    dead_code,
+    reason = "Frame::widget_call carries ops 7, 12 and 13 of core.ui"
+)]
+pub(crate) mod native_widget;
+
 #[path = "native_host/native_status.rs"]
 #[allow(
     dead_code,
@@ -325,8 +511,19 @@ pub(crate) mod native_declarations;
 )]
 pub(crate) mod native_status;
 
+#[path = "native_host/core_events.rs"]
+pub(crate) mod core_events;
+#[path = "native_host/native_batch.rs"]
+mod native_batch;
+#[path = "native_host/native_call.rs"]
+#[allow(
+    dead_code,
+    reason = "the document and lookup adapters call it through Frame::call_native"
+)]
+pub(crate) mod native_call;
 #[path = "native_host/native_keys.rs"]
 mod native_keys;
+
 #[path = "native_host/native_menus.rs"]
 #[allow(
     dead_code,
@@ -337,7 +534,16 @@ pub(crate) mod native_menus;
 pub(crate) mod native_tick;
 #[path = "native_host/native_ui_directory.rs"]
 mod native_ui_directory;
+#[path = "native_host/widget_drops.rs"]
+mod widget_drops;
 
+/// A plugin's settings described from its own records, none kept on the heap.
+#[path = "native_host/described_settings.rs"]
+mod described_settings;
+#[path = "native_host/fixed_settings.rs"]
+mod fixed_settings;
+#[path = "native_host/native_enable.rs"]
+pub mod native_enable;
 #[path = "native_host/native_install.rs"]
 mod native_install;
 mod native_resources;
@@ -346,9 +552,10 @@ mod native_resources;
 pub(crate) mod native_action;
 #[path = "native_host/native_screen_factory.rs"]
 pub(crate) mod native_screen_factory;
+mod owned_texts;
 
 #[path = "native_host/native_screen.rs"]
-mod native_screen;
+pub(crate) mod native_screen;
 
 #[allow(
     dead_code,
@@ -364,8 +571,14 @@ mod native_values;
 #[path = "native_host/native_dispatch.rs"]
 mod native_dispatch;
 
+#[path = "native_host/lease_slot.rs"]
+mod lease_slot;
 #[path = "native_host/native_callbacks.rs"]
 mod native_callbacks;
+#[path = "native_host/park_linked.rs"]
+pub(crate) mod park_linked;
+#[path = "native_host/parked.rs"]
+mod parked;
 
 #[allow(
     dead_code,
@@ -384,6 +597,10 @@ pub(crate) mod linked_entry;
 #[path = "native_host/linked_install.rs"]
 mod linked_install;
 
+/// A hosted plugin the kernel admits with everything it declares, for every
+/// shell (`CodeLoader::load_native`).
+#[path = "native_host/hosted_admission.rs"]
+pub mod hosted_admission;
 /// The shell's side of one hosted plugin (owner, host table, `make`,
 /// scoped dispatch), shared by the desktop and the X4.
 #[path = "native_host/shell.rs"]
@@ -409,6 +626,7 @@ pub struct FlatHost {
     pub(crate) meter: alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: alloc::rc::Rc<font_removals::FontRemovals>,
     pub(crate) registry_generation: alloc::rc::Rc<registry_generation::RegistryGeneration>,
+    pub(crate) log: device_log::DeviceLog,
 }
 
 impl FlatHost {
@@ -424,12 +642,6 @@ impl FlatHost {
                 .ok_or(paperpaw_native::host_glue::ERR_STATE),
         }
     }
-    pub(crate) fn try_directory(&self) -> Result<Option<native_declarations::DirectoryWeak>, i32> {
-        self.directory
-            .as_ref()
-            .map(|directory| directory.try_clone().ok_or(ERR_NO_MEMORY))
-            .transpose()
-    }
 }
 
 impl crate::Kernel {
@@ -440,6 +652,7 @@ impl crate::Kernel {
             stack_rows: alloc::rc::Rc::clone(&self.shared.stack_rows),
             font_removals: alloc::rc::Rc::clone(&self.shared.font_removals),
             registry_generation: alloc::rc::Rc::clone(&self.shared.registry_generation),
+            log: self.shared.device_log,
         }
     }
 }
@@ -604,13 +817,13 @@ impl<C, M> HostOwner<C, M> {
         Ok(Construction {
             owner: self,
             plugin_id,
-            records: core::array::from_fn(|_| None),
-            len: 0,
+            records: Vec::new(),
             declarations: Declarations::default(),
             raw: raw_declarations::RawDeclarations::default(),
             failure: None,
             image: None,
             submitted: false,
+            refused: None,
         })
     }
 
@@ -691,13 +904,14 @@ impl<C, M> HostOwner<C, M> {
 pub struct Construction<'a, C, M, T> {
     owner: Pin<&'a HostOwner<C, M>>,
     plugin_id: &'a str,
-    records: [Option<T>; REGISTRATIONS],
-    len: usize,
+    records: Vec<T>,
     declarations: Declarations,
     raw: raw_declarations::RawDeclarations,
     failure: Option<Error>,
     image: Option<&'a [u8]>,
     submitted: bool,
+    /// The declaration cap the batch was refused at, once `finish` said so.
+    refused: Option<declaration_checks::Cap>,
 }
 
 type StoredConstruction<'a, C, M, T, R> = (
@@ -730,12 +944,16 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             owned: &self.declarations,
             image: self.image,
             plugin: self.plugin_id,
+            refused: core::cell::Cell::new(None),
         }
     }
 
     fn finish_declarations(&mut self) -> Result<(), i32> {
         self.raw.sort_index();
-        self.declaration_view().finish()
+        let view = self.declaration_view();
+        let result = view.finish();
+        self.refused = view.refused.get();
+        result
     }
 
     /// Poison this transaction after any registration decoding or validation
@@ -755,22 +973,27 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
 
     /// Stage a validated host record, returning it untouched on refusal.
     /// Generic T is not a wire schema; decoding and retained-byte limits apply
-    /// before calling this method. Eight records is an experimental count cap.
+    /// before calling this method. 32 records is the count cap per plugin.
     ///
     /// # Errors
-    /// Returns Capacity with the unchanged record if all eight slots are filled,
-    /// or the already latched failure if this transaction was rejected.
+    /// Returns Capacity with the unchanged record if all 32 slots are filled,
+    /// Memory (latched, record returned) if the room for it cannot be
+    /// allocated, or the already latched failure if this transaction was
+    /// rejected.
     pub fn stage(&mut self, record: T) -> Result<(), (Error, T)> {
         self.submitted = true;
         if let Some(error) = self.failure {
             return Err((error, record));
         }
-        if self.len == REGISTRATIONS {
+        if self.records.len() == REGISTRATIONS {
             self.failure = Some(Error::Capacity);
             return Err((Error::Capacity, record));
         }
-        self.records[self.len] = Some(record);
-        self.len += 1;
+        if self.records.try_reserve_exact(1).is_err() {
+            self.failure = Some(Error::Memory);
+            return Err((Error::Memory, record));
+        }
+        self.records.push(record);
         Ok(())
     }
 
@@ -814,7 +1037,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         teardown: Teardown<C>,
         map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
     ) -> Result<(RegistrationBatch<'a, C, M, T>, R), i32> {
-        let (batch, staging, raw) = self.commit_native_stored(teardown, map)?;
+        let (batch, staging, raw) = self.commit_native_stored(teardown, map, |_, _| {})?;
         drop(raw);
         Ok((batch, staging))
     }
@@ -825,11 +1048,17 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         mut self,
         teardown: Teardown<C>,
         map: impl FnOnce(&declaration_checks::View<'_>) -> Result<R, i32>,
+        refused: impl FnOnce(&str, declaration_checks::Cap),
     ) -> Result<StoredConstruction<'a, C, M, T, R>, i32> {
         if let Some(error) = self.failure {
             return Err(registrations::status(error));
         }
-        self.finish_declarations()?;
+        if let Err(status) = self.finish_declarations() {
+            if let Some(cap) = self.refused {
+                refused(self.plugin_id, cap);
+            }
+            return Err(status);
+        }
         let staging = map(&self.declaration_view())?;
         self.declarations = Declarations::default();
         let raw = core::mem::take(&mut self.raw);
@@ -840,12 +1069,13 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     fn publish(mut self, teardown: Teardown<C>) -> Result<RegistrationBatch<'a, C, M, T>, Error> {
         let lease = CallbackLease(self.owner.inner().activate_leased(teardown)?);
         Ok(RegistrationBatch {
-            records: core::mem::replace(&mut self.records, core::array::from_fn(|_| None)),
-            len: self.len,
             declarations: core::mem::take(&mut self.declarations),
             raw: core::mem::take(&mut self.raw),
-            _image: core::marker::PhantomData,
-            lease,
+            records: PublishedRecords {
+                records: core::mem::take(&mut self.records),
+                _image: core::marker::PhantomData,
+                lease,
+            },
         })
     }
 
@@ -859,7 +1089,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     /// Stage a decoded, mixed batch: its callback registrations (converted by
     /// `convert`) and its declarations, all or nothing for the batch.
     /// Capacity for both is checked before either is changed. A refusal latches
-    /// the transaction: Capacity when the eight callback slots, a declaration
+    /// the transaction: Capacity when the 32 callback slots, a declaration
     /// count or the byte budget would overflow, Memory when an allocation fails,
     /// Invalid for any other declaration refusal.
     ///
@@ -904,9 +1134,13 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             .iter()
             .filter(|record| matches!(record, Record::Registration(_)))
             .count();
-        if self.len + tokens > REGISTRATIONS {
+        if self.records.len() + tokens > REGISTRATIONS {
             return Err(ERR_NO_SPACE);
         }
+        // Room for the records first: a refusal here changes nothing staged.
+        self.records
+            .try_reserve_exact(tokens)
+            .map_err(|_| ERR_NO_MEMORY)?;
         declarations::validate_batch(self.plugin_id, batch)?;
         let raw = self
             .raw
@@ -927,11 +1161,9 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         }
         self.raw.commit(raw);
         for record in batch.iter() {
-            if let (Record::Registration(registration), Some(slot)) =
-                (record, self.records.get_mut(self.len))
-            {
-                *slot = Some(convert(registration));
-                self.len += 1;
+            if let Record::Registration(registration) = record {
+                // The room was reserved above; the cap was checked there too.
+                self.records.push(convert(registration));
             }
         }
         Ok(())
@@ -943,10 +1175,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
     }
 
     fn clear(&mut self) {
-        for record in &mut self.records {
-            drop(record.take());
-        }
-        self.len = 0;
+        self.records.clear();
     }
 }
 
@@ -958,46 +1187,35 @@ impl<C, M, T> Drop for Construction<'_, C, M, T> {
     }
 }
 
-/// Published records share a lease which keeps their context and code alive.
-/// Record destructors run before that lease is released. External queues need
-/// their own leases and must be cancelled before owner teardown.
+/// A committed batch: its records with their lease, and the declarations
+/// staged beside them, which the caller moves out before it retains the
+/// records (`into_retained` keeps only those).
+/// Declarations drop before the records, and the lease drops last.
 #[non_exhaustive]
 pub struct RegistrationBatch<'a, C, M, T> {
-    records: [Option<T>; REGISTRATIONS],
-    len: usize,
     declarations: Declarations,
     raw: raw_declarations::RawDeclarations,
-    _image: core::marker::PhantomData<&'a [u8]>,
-    lease: CallbackLease<'a, C, M>,
+    records: PublishedRecords<'a, C, M, T>,
 }
 
 impl<C, M, T> RegistrationBatch<'_, C, M, T> {
-    /// The caller retains the pinned owner and image until this batch drops.
-    unsafe fn into_retained(self) -> RegistrationBatch<'static, C, M, T>
+    /// The records alone, for as long as the caller retains the pinned owner
+    /// and image. What is left of the declarations is dropped here: a retained
+    /// batch keeps no room for them (they are moved out before, or unused).
+    ///
+    /// # Safety
+    /// The caller retains the pinned owner and image until the result drops.
+    unsafe fn into_retained(self) -> PublishedRecords<'static, C, M, T>
     where
         T: 'static,
     {
-        RegistrationBatch {
-            records: self.records,
-            len: self.len,
-            declarations: self.declarations,
-            raw: self.raw,
+        let records = self.records;
+        PublishedRecords {
+            records: records.records,
             _image: core::marker::PhantomData,
             // SAFETY: the caller provides the retained pinned owner lifetime.
-            lease: CallbackLease(unsafe { self.lease.0.into_retained() }),
+            lease: CallbackLease(unsafe { records.lease.0.into_retained() }),
         }
-    }
-
-    /// Number of published host records.
-    #[must_use]
-    pub const fn len(&self) -> usize {
-        self.len
-    }
-
-    /// Whether this batch contains no records.
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.len == 0
     }
 
     // The draft-4 bridge consumes these snapshots together with Declarations.
@@ -1011,6 +1229,46 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
     /// currently refuse commit until the SDK declaration views are wired.
     pub fn take_declarations(&mut self) -> Declarations {
         core::mem::take(&mut self.declarations)
+    }
+}
+
+impl<'a, C, M, T> Deref for RegistrationBatch<'a, C, M, T> {
+    type Target = PublishedRecords<'a, C, M, T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.records
+    }
+}
+
+/// Published records share a lease which keeps their context and code alive.
+/// Record destructors run before that lease is released. External queues need
+/// their own leases and must be cancelled before owner teardown. This is all
+/// a retained batch keeps for each plugin.
+#[non_exhaustive]
+pub struct PublishedRecords<'a, C, M, T> {
+    records: Vec<T>,
+    _image: core::marker::PhantomData<&'a [u8]>,
+    lease: CallbackLease<'a, C, M>,
+}
+
+impl<C, M, T> PublishedRecords<'_, C, M, T> {
+    /// Number of published host records.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.records.len()
+    }
+
+    /// The record published at `index`, read in place (no dispatch, no
+    /// copy); `None` past the last one.
+    #[must_use]
+    pub fn record(&self, index: usize) -> Option<&T> {
+        self.records.get(index)
+    }
+
+    /// Whether this batch contains no records.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.records.is_empty()
     }
 
     /// Dispatch a declared contribution's token through this batch's owner.
@@ -1036,11 +1294,7 @@ impl<C, M, T> RegistrationBatch<'_, C, M, T> {
         depth: &DispatchDepth,
         callback: impl FnOnce(Pin<&C>, &T) -> R,
     ) -> Result<R, Error> {
-        let record = self
-            .records
-            .get(index)
-            .and_then(Option::as_ref)
-            .ok_or(Error::State)?;
+        let record = self.records.get(index).ok_or(Error::State)?;
         self.lease
             .dispatch(depth, |context| callback(context, record))
     }
@@ -1082,7 +1336,7 @@ impl<C, M> fmt::Debug for HostOwner<C, M> {
 impl<C, M, T> fmt::Debug for Construction<'_, C, M, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Construction")
-            .field("len", &self.len)
+            .field("len", &self.records.len())
             .field("declarations", &self.declarations)
             .field("failure", &self.failure)
             .finish_non_exhaustive()
@@ -1092,7 +1346,15 @@ impl<C, M, T> fmt::Debug for Construction<'_, C, M, T> {
 impl<C, M, T> fmt::Debug for RegistrationBatch<'_, C, M, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RegistrationBatch")
-            .field("len", &self.len)
+            .field("len", &self.records.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<C, M, T> fmt::Debug for PublishedRecords<'_, C, M, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PublishedRecords")
+            .field("len", &self.records.len())
             .finish_non_exhaustive()
     }
 }
@@ -1199,6 +1461,8 @@ pub mod stages_wire;
     reason = "host stage entry point is wired by the reader port"
 )]
 pub(crate) mod stage_broker;
+pub(crate) mod stage_members;
+pub(crate) mod stage_run;
 
 mod registry_page;
 pub(crate) mod registry_service;
@@ -1218,3 +1482,7 @@ mod native_image_declarations_tests;
 #[cfg(test)]
 #[path = "native_host/ui_hooks_tests.rs"]
 mod ui_hooks_tests;
+
+#[cfg(test)]
+#[path = "native_host/widget_drops_tests.rs"]
+mod widget_drops_tests;

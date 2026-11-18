@@ -109,8 +109,10 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
 - [D] `sec_keep`: `plugin`, `name`, `label`, `value`, `flags` (bit 0 `changeable`). Adds the secret
   or replaces its value (and its label unless `""`). The owner keeps any of its own; the editor
   (`uses.secrets`) only replaces an **existing changeable** secret of another plugin
-  (`ERR_NOT_FOUND`, `ERR_DENIED` when not changeable) and cannot change `changeable`. An empty
-  `value` is a value (an open Wi-Fi network's).
+  (`ERR_NOT_FOUND`, `ERR_DENIED` when not changeable) and cannot change `changeable`; the one
+  exception is the value of a secret setting the other plugin declares (section 4), which the
+  editor may keep before there is one (kept changeable). An empty `value` is a value (an open
+  Wi-Fi network's).
 - [D] `OK` means saved on the card. Otherwise nothing changed and the call answers `ERR_IO` (card
   away or unwritable) or `ERR_FULL` (1.2); the old value stays.
 
@@ -141,12 +143,13 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
 - [D] Secrets live in one host file, `.paperpaw/secrets.txt` (interface 6's format: one line per
   secret, owner and name, label, flags, value: sealed on every device, section 3.1). **The host
   never holds the file whole** (interface 6 loaded it and doubled it while writing, up to 2 x 64 KiB
-  on the X4): `get` and `list` read it line by line through one 4 KiB buffer; `keep` and `remove`
-  stream the old lines through to a new file with the one change and then **replace the old file by
-  rename**, so a power cut leaves the old file or the new one, never half of either. Memory per
-  call: the 4 KiB buffer and one line (at most about 2.5 KiB: the names, the label and a 1,024-byte
-  value sealed, hex with its nonce, tag and marker, section 3.1; an interface-6 veiled value being
-  read is shorter), no allocation per secret.
+  on the X4): `get` and `list` read it line by line through one read buffer (one line and a little
+  room, about 2.6 KiB); `keep` and `remove` stream the old lines through to a new file with the one
+  change and then **replace the old file by rename**, so a power cut leaves the old file or the new
+  one, never half of either. Memory per call: the read buffer, and for `keep` and `remove` one line
+  besides (at most about 2.5 KiB: the names, the label and a 1,024-byte value sealed, hex with its
+  nonce, tag and marker, section 3.1; an interface-6 veiled value being read is shorter), no
+  allocation per secret.
 - [D] **An unreadable file is never overwritten.** If the file could not be read at start (a card
   error; lines the host does not understand are kept as they are and do not count), `keep` and
   `remove` answer `ERR_IO` and the host shows its notice once, as interface 6's
@@ -197,10 +200,13 @@ Bare replies and paging as `core.registry` (`registry.md` 2.1). Input is one rec
 ## 4. Settings, Wi-Fi, uninstall
 
 - [D] **Secret settings.** A setting declared secret (`reg_setting` flag, `registry.md`) is the
-  owner's secret named by the setting's key (mail's `password`). The plugin reads it with `get`;
+  owner's secret named by the setting's key (mail's `password`): a text with an empty default
+  (`ERR_INVALID` otherwise), never read with slot 5 (absent there, also for its owner). The
+  plugin reads it with `get`;
   the settings editor changes it with `keep` (slot 15 keeps refusing it, `commands.md`); resetting
   the setting removes the secret. A value found in `paperpaw.ini` for such a setting moves into
-  secrets at load (interface 6). Secret settings are never announced to other plugins
+  secrets at load (interface 6), or, on a device that cannot seal then (the X4 without a radio
+  on, 3.1), as soon as Wi-Fi is on; it stays in the file until it is saved sealed. Secret settings are never announced to other plugins
   (`core-events.md`).
 - [D] **Wi-Fi.** Known networks are the Wi-Fi plugin's secrets, named by SSID. DEV's `join` with
   `remember` keeps the password there for the plugin; `dev_network.flags` bit 1 `known` is set for

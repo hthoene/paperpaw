@@ -1,0 +1,60 @@
+"chunk 1 Implicit: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Stage(Message)", "Stage(Updating)", "Done"]
+"chunk 1 Implicit: lines sent"	#407:a1b1217e45ed9f4e
+"chunk 1 Implicit: closed"	true
+"chunk 1 Implicit: TLS switches"	0
+"chunk 1 Implicit: files"	#2356:d50c5a83e173aaee
+"chunk 1 StartTls: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Stage(Message)", "Stage(Updating)", "Done"]
+"chunk 1 StartTls: lines sent"	#423:d676050501f3fca5
+"chunk 1 StartTls: closed"	true
+"chunk 1 StartTls: TLS switches"	1
+"chunk 1 StartTls: files"	#2356:d50c5a83e173aaee
+"chunk 3 Implicit: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Stage(Message)", "Stage(Updating)", "Done"]
+"chunk 3 Implicit: lines sent"	#407:a1b1217e45ed9f4e
+"chunk 3 Implicit: closed"	true
+"chunk 3 Implicit: TLS switches"	0
+"chunk 3 Implicit: files"	#2356:d50c5a83e173aaee
+"chunk 3 StartTls: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Stage(Message)", "Stage(Updating)", "Done"]
+"chunk 3 StartTls: lines sent"	#423:d676050501f3fca5
+"chunk 3 StartTls: closed"	true
+"chunk 3 StartTls: TLS switches"	1
+"chunk 3 StartTls: files"	#2356:d50c5a83e173aaee
+"chunk 17 Implicit: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Stage(Message)", "Stage(Updating)", "Done"]
+"chunk 17 Implicit: lines sent"	#407:a1b1217e45ed9f4e
+"chunk 17 Implicit: closed"	true
+"chunk 17 Implicit: TLS switches"	0
+"chunk 17 Implicit: files"	#2356:d50c5a83e173aaee
+"chunk 17 StartTls: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Stage(Message)", "Stage(Updating)", "Done"]
+"chunk 17 StartTls: lines sent"	#423:d676050501f3fca5
+"chunk 17 StartTls: closed"	true
+"chunk 17 StartTls: TLS switches"	1
+"chunk 17 StartTls: files"	#2356:d50c5a83e173aaee
+"chunk 100 Implicit: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Stage(Message)", "Stage(Updating)", "Done"]
+"chunk 100 Implicit: lines sent"	#407:a1b1217e45ed9f4e
+"chunk 100 Implicit: closed"	true
+"chunk 100 Implicit: TLS switches"	0
+"chunk 100 Implicit: files"	#2356:d50c5a83e173aaee
+"chunk 100 StartTls: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Stage(Message)", "Stage(Updating)", "Done"]
+"chunk 100 StartTls: lines sent"	#423:d676050501f3fca5
+"chunk 100 StartTls: closed"	true
+"chunk 100 StartTls: TLS switches"	1
+"chunk 100 StartTls: files"	#2356:d50c5a83e173aaee
+"chunk 1000 Implicit: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Stage(Message)", "Stage(Updating)", "Done"]
+"chunk 1000 Implicit: lines sent"	#407:a1b1217e45ed9f4e
+"chunk 1000 Implicit: closed"	true
+"chunk 1000 Implicit: TLS switches"	0
+"chunk 1000 Implicit: files"	#2356:d50c5a83e173aaee
+"chunk 1000 StartTls: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Stage(Message)", "Stage(Updating)", "Done"]
+"chunk 1000 StartTls: lines sent"	#423:d676050501f3fca5
+"chunk 1000 StartTls: closed"	true
+"chunk 1000 StartTls: TLS switches"	1
+"chunk 1000 StartTls: files"	#2356:d50c5a83e173aaee
+"chunk 100000 Implicit: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Stage(Message)", "Stage(Updating)", "Done"]
+"chunk 100000 Implicit: lines sent"	#407:a1b1217e45ed9f4e
+"chunk 100000 Implicit: closed"	true
+"chunk 100000 Implicit: TLS switches"	0
+"chunk 100000 Implicit: files"	#2356:d50c5a83e173aaee
+"chunk 100000 StartTls: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Folders)", "Stage(Headers)", "Stage(Message)", "Stage(Updating)", "Done"]
+"chunk 100000 StartTls: lines sent"	#423:d676050501f3fca5
+"chunk 100000 StartTls: closed"	true
+"chunk 100000 StartTls: TLS switches"	1
+"chunk 100000 StartTls: files"	#2356:d50c5a83e173aaee

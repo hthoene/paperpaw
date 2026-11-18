@@ -3,3 +3,7 @@ Der Ruhebildschirm bestimmt, was der Bildschirm zeigt, während das Gerät schl�
 Du wählst es in den Einstellungen unter Gerät, Ruhebildschirm bei Zeigen: eine schlafende Katze (Standard), das Cover des Buchs, meine Bilder, das Logo und „Ruhezustand“, Widgets, die Seite, wie sie ist, oder die Seite mit einem Bild. Meine Bilder zeigt die Dateien des Bilderordners nacheinander.
 
 Gibt es kein Cover oder Bild, erscheint die Katze. Wo das System den Ruhebildschirm selbst zeichnet, sind diese Einstellungen verborgen.
+
+Der Bildschirm beim Ausschalten (Zeigen beim Ausschalten) wird einmal gezeichnet, wenn das Gerät ausgeschaltet wird, im Menü Ein/Aus oder nach der Zeit von Nach dem Schlafen ausschalten (nicht, wenn ein leerer Akku den Strom kappt). Er ist wie der Ruhebildschirm, außer du wählst das Logo und „Ausgeschaltet“, die Katze, das Cover oder meine Bilder. Ein anderes Plugin kann einen Bildschirm dafür anbieten.
+
+Der Bildschirm beim Starten und beim Neustart (Zeigen beim Starten, Zeigen beim Neustart) ist der des Geräts, außer ein anderes Plugin bietet einen dafür an. Während das Gerät startet, laufen Plugins noch nicht: Der für den Start gewählte Bildschirm wird vorab gezeichnet, wenn das Gerät ausgeschaltet oder neu gestartet wird, und beim nächsten Start gezeigt. Ein Bildschirm, der nicht rechtzeitig fertig ist, oder ein beschädigtes Bild weicht dem des Geräts; das Gerät schaltet sich in jedem Fall aus oder startet neu.

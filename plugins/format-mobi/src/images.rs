@@ -3,6 +3,7 @@
 //! files of the book's folder, when their page shows.
 
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use paperpaw_sdk::document::{DocumentError, ImageRef};
 use paperpaw_sdk::image::{
@@ -130,9 +131,13 @@ impl Pictures for Book<'_> {
         let Some((start, end)) = self.record(record)? else {
             return Ok(None);
         };
-        let mut head = [0u8; HEAD];
+        // On the heap: 4 KiB on the stack is a frame the X4 refuses (2 KiB).
         let room = (end - start).min(HEAD as u64) as usize;
-        let n = self.storage.read_at(self.path, start, &mut head[..room])?;
+        let mut head = Vec::new();
+        head.try_reserve_exact(room)
+            .map_err(|_| DocumentError::OutOfMemory)?;
+        head.resize(room, 0);
+        let n = self.storage.read_at(self.path, start, &mut head)?;
         if Format::detect(&head[..n]).is_none() {
             return Ok(None);
         }

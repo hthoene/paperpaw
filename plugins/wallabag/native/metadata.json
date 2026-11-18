@@ -147,7 +147,8 @@
     "core.library",
     "core.net",
     "core.secrets",
-    "core.ui"
+    "core.ui",
+    "core.work"
   ],
   "features": [
     {

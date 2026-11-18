@@ -131,12 +131,17 @@ fn shell_host(features: &'static [Feature<'static>]) -> Host<'static> {
 
 /// `METADATA` plus one required `uses.registry` feature record.
 fn registry_metadata() -> &'static [u8] {
+    feature_metadata(REGISTRY)
+}
+
+/// `METADATA` plus one required feature record of `key`.
+fn feature_metadata(key: &str) -> &'static [u8] {
     let mut bytes = METADATA.to_vec();
-    bytes.extend_from_slice(&u16::try_from(8 + REGISTRY.len()).unwrap().to_le_bytes());
-    bytes.extend_from_slice(&u16::try_from(REGISTRY.len()).unwrap().to_le_bytes());
+    bytes.extend_from_slice(&u16::try_from(8 + key.len()).unwrap().to_le_bytes());
+    bytes.extend_from_slice(&u16::try_from(key.len()).unwrap().to_le_bytes());
     bytes.extend_from_slice(&1_u16.to_le_bytes());
     bytes.extend_from_slice(&1_u16.to_le_bytes());
-    bytes.extend_from_slice(REGISTRY.as_bytes());
+    bytes.extend_from_slice(key.as_bytes());
     let length = u32::try_from(bytes.len()).unwrap();
     bytes[8..12].copy_from_slice(&length.to_le_bytes());
     bytes[28..30].copy_from_slice(&1_u16.to_le_bytes());
@@ -147,7 +152,7 @@ fn install(
     kernel: &mut crate::Kernel,
     entry: &'static PpEntry,
     metadata: &'static [u8],
-    id: &str,
+    id: &'static str,
 ) -> Result<(), shell::Error> {
     install_on(kernel, entry, metadata, &shell_host(&[]), id)
 }
@@ -157,7 +162,7 @@ fn install_on(
     entry: &'static PpEntry,
     metadata: &'static [u8],
     host: &Host<'static>,
-    id: &str,
+    id: &'static str,
 ) -> Result<(), shell::Error> {
     install_with(
         kernel,
@@ -174,8 +179,28 @@ fn install_with(
     entry: &'static PpEntry,
     metadata: &'static [u8],
     host: &Host<'static>,
-    id: &str,
+    id: &'static str,
     resources: HostResources,
+) -> Result<(), shell::Error> {
+    install_depth(
+        kernel,
+        entry,
+        metadata,
+        host,
+        id,
+        resources,
+        &FlatDepth::try_new().unwrap(),
+    )
+}
+
+fn install_depth(
+    kernel: &mut crate::Kernel,
+    entry: &'static PpEntry,
+    metadata: &'static [u8],
+    host: &Host<'static>,
+    id: &'static str,
+    resources: HostResources,
+    depth: &FlatDepth,
 ) -> Result<(), shell::Error> {
     // SAFETY: the test factory obeys the contract and its code is static.
     unsafe {
@@ -186,9 +211,11 @@ fn install_with(
             id,
             Heap,
             resources,
-            &FlatDepth::try_new().unwrap(),
+            depth,
             |_, _, _, _| {},
-            |_, _, _| {},
+            |_, _, _, _| {},
+            (core::ptr::null(), 0),
+            crate::native_host::FixedTables::NONE,
         )
     }
 }
@@ -355,23 +382,26 @@ fn metadata_the_kernel_refuses_is_unsupported_before_make() {
 #[test]
 fn an_unparseable_id_is_refused_before_make() {
     let mut kernel = kernel();
-    let long = "a".repeat(41);
-    for id in [
-        "",
-        "Not An Id",
-        "a b",
-        "a..b",
-        "a@x",
-        "x@2",
-        "a.b",
-        long.as_str(),
-    ] {
+    let long: &'static str = alloc::boxed::Box::leak("a".repeat(41).into_boxed_str());
+    for id in ["", "Not An Id", "a b", "a..b", "a@x", "x@2", "a.b", long] {
         assert_eq!(
             status(install(&mut kernel, entry(|_| {}), METADATA, id)),
             ERR_INVALID
         );
     }
     assert_eq!(MAKES.with(Cell::get), 0);
+}
+
+#[test]
+fn the_host_id_is_denied_before_make() {
+    let mut kernel = kernel();
+    assert_eq!(
+        status(install(&mut kernel, entry(|_| {}), METADATA, "core")),
+        host_glue::ERR_DENIED
+    );
+    // Ids that only start like it are plugins' own.
+    install(&mut kernel, entry(|_| {}), METADATA, "core-tools").unwrap();
+    assert_eq!(MAKES.with(Cell::get), 1);
 }
 
 #[test]
@@ -403,4 +433,303 @@ fn a_required_feature_the_shell_host_has_admits_the_plugin() {
     install_on(&mut kernel, with_view, bytes, &shell_host(WIRED), "linked").unwrap();
     assert_eq!(MAKES.with(Cell::get), 1);
     assert!(kernel.shared.native_instances.find("linked").is_some());
+}
+
+/// One counter for the device (#846 R2, todo 369): the card's loader and the
+/// firmware's linked probe both bring shares of it, and every plugin is
+/// admitted; a plugin that brings another counter is refused before `make`.
+#[test]
+fn plugins_sharing_the_devices_depth_counter_are_all_admitted_and_another_is_refused() {
+    let mut kernel = kernel();
+    let depth = FlatDepth::try_new().unwrap();
+    let host = shell_host(&[]);
+    // One table of handles too, as the shell's one device has.
+    let table = HostResources::try_new().unwrap();
+    for id in ["first", "second"] {
+        install_depth(
+            &mut kernel,
+            entry(|_| {}),
+            METADATA,
+            &host,
+            id,
+            table.try_clone().unwrap(),
+            &depth.try_clone().unwrap(),
+        )
+        .unwrap();
+    }
+    assert_eq!(MAKES.with(Cell::get), 2);
+    let other = install_depth(
+        &mut kernel,
+        entry(|_| {}),
+        METADATA,
+        &host,
+        "third",
+        table.try_clone().unwrap(),
+        &FlatDepth::try_new().unwrap(),
+    );
+    assert_eq!(status(other), paperpaw_native::host_glue::ERR_STATE);
+    assert_eq!(MAKES.with(Cell::get), 2);
+    assert!(kernel.shared.native_instances.find("third").is_none());
+}
+
+/// Both admitted plugins' dispatches hold the kernel's one `FlatHost`: the
+/// kernel's handle plus one per plugin, no copy (#248).
+#[test]
+fn linked_plugins_dispatch_through_the_one_flat_host() {
+    let mut kernel = kernel();
+    let depth = FlatDepth::try_new().unwrap();
+    let host = shell_host(&[]);
+    let table = HostResources::try_new().unwrap();
+    for id in ["first", "second"] {
+        install_depth(
+            &mut kernel,
+            entry(|_| {}),
+            METADATA,
+            &host,
+            id,
+            table.try_clone().unwrap(),
+            &depth.try_clone().unwrap(),
+        )
+        .unwrap();
+    }
+    let shared = kernel.shared.native_instances.flat_host.as_ref().unwrap();
+    assert_eq!(shared.strong_count(), 3);
+}
+
+const NETWORK: &str = "uses.network";
+const NETWORK_WIRED: &[Feature<'static>] = &[Feature {
+    key: NETWORK,
+    revision: 1,
+}];
+
+/// Installs `id` with the feature `uses.network` admitted.
+fn install_networked(kernel: &mut crate::Kernel, id: &'static str) {
+    let bytes = feature_metadata(NETWORK);
+    let with_feature = entry(|entry| {
+        entry.metadata = PpBytes {
+            ptr: bytes.as_ptr(),
+            len: bytes.len(),
+        };
+    });
+    install_on(kernel, with_feature, bytes, &shell_host(NETWORK_WIRED), id).unwrap();
+}
+
+fn network_on(kernel: &crate::Kernel, plugin: &str) -> Option<bool> {
+    match kernel
+        .shared
+        .settings
+        .get(&alloc::format!("core.network.{plugin}"))
+    {
+        Some(paperpaw_sdk::SettingValue::Bool(on)) => Some(*on),
+        _ => None,
+    }
+}
+
+/// The user turned `plugin`'s network off or on, as the event of the change says.
+fn set_network(kernel: &mut crate::Kernel, plugin: &str, on: bool) {
+    let id = alloc::format!("core.network.{plugin}");
+    kernel
+        .shared
+        .settings
+        .set(&id, paperpaw_sdk::SettingValue::Bool(on))
+        .unwrap();
+    kernel.works.saw(
+        paperpaw_sdk::builtin::events::SETTING_CHANGED.id(),
+        &paperpaw_sdk::Params::new().with(paperpaw_sdk::builtin::params::ID, id),
+    );
+}
+
+#[test]
+fn a_native_plugin_with_uses_network_gets_both_network_settings_with_the_beta_3_defaults() {
+    let mut kernel = kernel();
+    install_networked(&mut kernel, "linked");
+    assert_eq!(network_on(&kernel, "linked"), Some(true));
+    assert_eq!(
+        kernel.shared.settings.text("core.saving.linked"),
+        "core.saving.follow"
+    );
+    // The specs are the ones an interface-6 plugin that uses the network has.
+    let spec = kernel.shared.settings.spec("core.network.linked").unwrap();
+    assert_eq!(spec.group, crate::work::NETWORK_GROUP);
+}
+
+#[test]
+fn a_native_plugin_without_uses_network_gets_none_even_where_the_host_wires_it() {
+    let mut kernel = kernel();
+    install_on(
+        &mut kernel,
+        entry(|_| {}),
+        METADATA,
+        &shell_host(NETWORK_WIRED),
+        "linked",
+    )
+    .unwrap();
+    assert_eq!(MAKES.with(Cell::get), 1);
+    assert_eq!(network_on(&kernel, "linked"), None);
+    assert!(kernel.shared.settings.spec("core.saving.linked").is_none());
+}
+
+#[test]
+fn a_failed_define_warns_and_the_plugin_is_admitted_all_the_same() {
+    let mut kernel = kernel();
+    // The list kept in the program names the plugin with a default its kind
+    // does not accept: the host cannot define it.
+    let mut specs = crate::network_specs_of(
+        paperpaw_sdk::Id::new_static("core.network.linked"),
+        paperpaw_sdk::Id::new_static("core.saving.linked"),
+    );
+    specs[0].default = paperpaw_sdk::SettingValue::Text("not a switch".into());
+    kernel.define_network_settings(Box::leak(Box::new([("linked", specs)])));
+    install_networked(&mut kernel, "linked");
+    assert!(kernel.shared.native_instances.find("linked").is_some());
+    assert_eq!(network_on(&kernel, "linked"), None);
+    let warnings = kernel.take_warnings();
+    assert!(
+        warnings.iter().any(|w| w.message.contains("linked")),
+        "{warnings:?}"
+    );
+}
+
+#[test]
+fn the_network_policy_follows_the_native_settings() {
+    use crate::native_host::net_policy::NetPolicy;
+    let mut kernel = kernel();
+    install_networked(&mut kernel, "linked");
+    let policy = NetPolicy::new();
+    kernel.refresh_net_policy(&policy);
+    assert!(policy.end_for("linked", false).is_none(), "on by default");
+    set_network(&mut kernel, "linked", false);
+    kernel.refresh_net_policy(&policy);
+    assert!(policy.end_for("linked", false).is_some(), "switched off");
+    set_network(&mut kernel, "linked", true);
+    kernel.refresh_net_policy(&policy);
+    assert!(policy.end_for("linked", false).is_none());
+    // Removed, it follows no policy (its setting stays for its next load).
+    set_network(&mut kernel, "linked", false);
+    kernel.forget_native_network("linked");
+    kernel.refresh_net_policy(&policy);
+    assert!(policy.end_for("linked", false).is_none());
+    assert_eq!(network_on(&kernel, "linked"), Some(false));
+}
+
+#[test]
+fn what_the_reader_kept_is_read_when_the_plugin_comes() {
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .user_config("[core]\nnetwork.linked = off\nsaving.linked = core.saving.manual\n")
+        .build()
+        .unwrap();
+    install_networked(&mut kernel, "linked");
+    assert_eq!(network_on(&kernel, "linked"), Some(false));
+    assert_eq!(
+        kernel.shared.settings.text("core.saving.linked"),
+        "core.saving.manual"
+    );
+}
+
+#[test]
+fn a_plugin_loaded_again_keeps_its_settings_and_is_not_listed_twice() {
+    let mut kernel = kernel();
+    install_networked(&mut kernel, "linked");
+    kernel.forget_native_network("linked");
+    set_network(&mut kernel, "linked", false);
+    // Admitted again (as after an update): the defined settings stay, with their value.
+    kernel.admit_native_network(&paperpaw_sdk::Id::new_static("linked"), true);
+    kernel.admit_native_network(&paperpaw_sdk::Id::new_static("linked"), true);
+    assert_eq!(network_on(&kernel, "linked"), Some(false));
+    assert!(kernel.take_warnings().is_empty());
+}
+
+#[test]
+fn a_kept_value_is_read_once_and_never_over_what_the_reader_set_since() {
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .user_config("[core]\nnetwork.linked = off\n")
+        .build()
+        .unwrap();
+    install_networked(&mut kernel, "linked");
+    assert_eq!(
+        network_on(&kernel, "linked"),
+        Some(false),
+        "read at the first admission"
+    );
+    // The reader switches it on; the plugin is updated (removed and admitted again):
+    // the value in the file as it was at start must not come back.
+    set_network(&mut kernel, "linked", true);
+    kernel.forget_native_network("linked");
+    kernel.admit_native_network(&paperpaw_sdk::Id::new_static("linked"), true);
+    assert_eq!(network_on(&kernel, "linked"), Some(true));
+}
+
+/// What a linked plugin keeps of the kernel's heap does not grow with its
+/// id: the id stays in the program, and so do its declarations' ids, given
+/// in its fixed id table as the firmware gives them (#248, D4; CR remark 1
+/// on PR #1360).
+#[test]
+fn a_linked_plugin_keeps_no_byte_of_its_id() {
+    use crate::native_host::{FixedTables, shell::tests::HEAP_LIVE};
+    use paperpaw_sdk::Id;
+    const LONG: &str = "abcdefghijklmnopqrstuvwxyzabcdefghijklmn";
+    static SHORT_IDS: [Id; 1] = [Id::new_static("a.screen")];
+    static LONG_IDS: [Id; 1] = [Id::new_static(
+        "abcdefghijklmnopqrstuvwxyzabcdefghijklmn.screen",
+    )];
+    fn kept(id: &'static str, ids: &'static [Id]) -> usize {
+        let mut kernel = kernel();
+        let before = HEAP_LIVE.with(Cell::get);
+        // SAFETY: the test factory obeys the contract and its code is static.
+        let registered = unsafe {
+            kernel.register_linked(
+                entry(|_| {}),
+                METADATA,
+                &shell_host(&[]),
+                id,
+                Heap,
+                HostResources::try_new().unwrap(),
+                &FlatDepth::try_new().unwrap(),
+                |_, _, _, _| {},
+                |_, _, _, _| {},
+                (ptr::null(), 0),
+                FixedTables::NONE.with_ids(ids),
+            )
+        };
+        registered.unwrap();
+        let kept = HEAP_LIVE.with(Cell::get) - before;
+        drop(kernel);
+        kept
+    }
+    assert_eq!(kept(LONG, &LONG_IDS), kept("a", &SHORT_IDS));
+}
+
+/// Every plugin id is a valid `Id`, so `register_linked` keeps it with
+/// `Id::new_static` without checking it again (#248, D4): at the edges where
+/// the two checks could differ, whatever the plugin-id check takes, `Id`
+/// takes too.
+#[test]
+fn every_plugin_id_is_an_id() {
+    let forty = "abcdefghijklmnopqrstuvwxyzabcdefghijklmn";
+    let forty_one = "abcdefghijklmnopqrstuvwxyzabcdefghijklmno";
+    let cases: [(&str, bool); 17] = [
+        ("", false),
+        (forty, true),
+        (forty_one, false),
+        ("a", true),
+        ("-a", false),
+        ("a-", true),
+        ("-", false),
+        ("a--b", true),
+        ("--", false),
+        ("0", true),
+        ("123", true),
+        ("x4", true),
+        ("a.b", false),
+        (".a", false),
+        ("a@1", false),
+        ("A", false),
+        ("a b", false),
+    ];
+    for (id, plugin) in cases {
+        assert_eq!(bundle::is_plugin_id(id), plugin, "{id:?}");
+        if plugin {
+            assert!(paperpaw_sdk::Id::parse(id).is_ok(), "{id:?}");
+        }
+    }
 }

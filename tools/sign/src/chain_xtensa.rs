@@ -66,8 +66,28 @@
 //!                                     with no symbol: one callee, by symbol
 //!                                     or 0xaddress, from one caller
 //! allow indirect <caller> <count> <why>
-//!                                     exactly this many calls through a
-//!                                     register in the caller
+//!                                     up to `count` + 2 calls through a
+//!                                     register in the caller (a ceiling, #309:
+//!                                     LLVM's inlining moves a site or two from
+//!                                     one build to the next); fewer is fine
+//! frames-in <family> <why>            every function of the crate (`prefix*`
+//!                                     for several, or a module path such as
+//!                                     `paperpaw_core::chrome`) in the image is
+//!                                     held to the frame limit, whether the
+//!                                     roots reach it or not; fails when it
+//!                                     matches no function
+//! allow rom <callee> <why>            any function may call this routine
+//!                                     outside the image (the chip's ROM)
+//! allow indirect-in <crate> <max> <why>
+//!                                     the functions of the crate (`prefix*`
+//!                                     for several) have at most `max` calls
+//!                                     through a register between them that
+//!                                     no `allow indirect` line lists, plus a
+//!                                     headroom the scan adds (16 for
+//!                                     `paperpaw_plugin_*`, 8 otherwise): `max`
+//!                                     is the count of the last CI scan
+//! include <file>                      the lines of a file beside the budget
+//! allow jx <caller> <why>             a `jx` no jump table of its own is tied to
 //! allow sp <caller> <why>             the caller changes the stack pointer
 //!                                     other than by `entry`
 //! allow nosize <name> <why>           a function with no size (assembly)
@@ -80,9 +100,10 @@
 //! The roots come from the tables themselves (Kernel's ruling on todo 206):
 //! every function pointer in the tables is read from the ELF and resolved to a
 //! symbol, so a slot wired later is a root without a line here. Every entry of
-//! `allow` is checked as used: one that matches nothing fails, so the list
-//! cannot go stale, and a site that is not listed fails, also an existing
-//! function that gains one. A callee outside the image is listed by its symbol
+//! `allow` is checked as used: a line that matches nothing is reported (a
+//! warning for `allow call` and `allow indirect`, which only ever grant what a
+//! call site needs; a failure for the rest), and a site that is not listed
+//! fails, also an existing function that gains one. A callee outside the image is listed by its symbol
 //! one by one; a range or a blob is never allowed whole.
 //!
 //! A root or table that matches nothing fails, so a rename cannot make the
@@ -121,7 +142,11 @@
 //! a word an `l32r` of its own reads (the packer's `uncovered` reads the
 //! same layout for plugins).
 
+mod family;
+mod jx;
 mod regs;
+mod slack;
+mod tables;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -129,6 +154,7 @@ use crate::elf::{EM_XTENSA, Elf, SHF_ALLOC, SHF_EXECINSTR, SHF_WRITE};
 use crate::framelist::in_family;
 use crate::frames::path;
 use crate::frames_xtensa::{Class, entry_frame, length, narrow_class, wide_class};
+pub use family::expand_includes;
 use regs::{Insn, Writes};
 
 /// `STT_FUNC` and `STT_OBJECT`.
@@ -140,8 +166,10 @@ const STT_OBJECT: u8 = 1;
 pub enum Allow {
     /// `caller` may call `callee` (a symbol path or `0x` address).
     Call { caller: String, callee: String },
-    /// `caller` has exactly `count` calls through a register.
+    /// `caller` has at most `count` + [`INDIRECT_MARGIN`] calls through a register.
     Indirect { caller: String, count: u32 },
+    /// `caller`'s `jx` has no jump table tied to it (see [`jx`]): read by hand.
+    Jx { caller: String },
     /// `caller` changes `a1` other than by `entry`.
     Sp { caller: String },
     /// `name` is assembly with no size.
@@ -149,7 +177,17 @@ pub enum Allow {
     /// `caller` uses the privileged form `form` (one of [`FORMS`]), which
     /// leaves `a1` alone.
     Form { caller: String, form: String },
+    /// Any function may call `callee` outside the image (`allow rom`).
+    Rom { callee: String },
+    /// The functions of the crates `family` have at most `max` calls through
+    /// a register that no line of their own lists (`allow indirect-in`).
+    IndirectIn { family: String, max: u32 },
 }
+
+/// What an `allow indirect` line allows above its count (#309): the same
+/// source builds to a count one or two apart across layouts, so an exact count
+/// made the base red after landings that touched nothing of the function.
+const INDIRECT_MARGIN: u32 = 2;
 
 /// The privileged forms an `allow form` line may name besides the ones of a
 /// special register: `wsr.<register>` and `xsr.<register>` (see [`is_form`]).
@@ -247,6 +285,12 @@ pub struct Budget {
     pub tables: Vec<String>,
     /// Each `allow` line with its reason.
     pub allow: Vec<(Allow, String)>,
+    /// `frames-in <crate|prefix*|path> <why>`: every function of the family in
+    /// the image is held to the frame limit, reached or not.
+    pub frames_in: Vec<(String, String)>,
+    /// `allow frame <function> <max> <why>`: a frame of the limit or more that
+    /// is known (see [`family::frames_in_problems`]).
+    pub frame_exceptions: Vec<(String, u32, String)>,
 }
 
 impl Budget {
@@ -301,6 +345,15 @@ impl Budget {
                         why.join(" "),
                     ))
                 }
+                ["frames-in", family, why @ ..] if !why.is_empty() => budget
+                    .frames_in
+                    .push(((*family).to_string(), why.join(" "))),
+                ["allow", "frame", ..] => budget
+                    .frame_exceptions
+                    .push(family::parse_frame(&words).ok_or_else(bad)?),
+                ["allow", "rom" | "indirect-in" | "jx", ..] => budget
+                    .allow
+                    .push(family::parse_line(&words).ok_or_else(bad)?),
                 ["allow", "sp", caller, why @ ..] if !why.is_empty() => budget.allow.push((
                     Allow::Sp {
                         caller: (*caller).to_string(),
@@ -442,6 +495,8 @@ struct Reads {
     forms: BTreeMap<String, u32>,
     /// An `entry` of a register other than `a1`.
     entry_other: Option<u32>,
+    /// A `jx` no jump table is tied to (see [`jx`]).
+    untied_jx: Option<u32>,
 }
 
 fn sext18(w: u32) -> i64 {
@@ -532,11 +587,15 @@ fn read_function(code: &[u8], start_addr: u32, around: &Around<'_>) -> Reads {
                 wide: true,
             });
             if let Some(size) = entry_frame(w) {
-                // The frame is taken from the stack pointer only by `entry a1`.
-                if (w >> 8) & 0xF != 1 {
-                    reads.entry_other.get_or_insert(pc);
+                // The frame is taken from the stack pointer only by `entry a1`, and from
+                // a function's first instruction only: C code keeps literal pools between
+                // its instructions, and their bytes can read as an `entry`.
+                if at == 0 {
+                    if (w >> 8) & 0xF != 1 {
+                        reads.entry_other.get_or_insert(pc);
+                    }
+                    reads.frame = Some(reads.frame.map_or(size, |f| f.max(size)));
                 }
-                reads.frame = Some(reads.frame.map_or(size, |f| f.max(size)));
             } else if w & 0xF == 5 {
                 // CALLn: n in bits 5:4, the target a word offset from the next word.
                 let target = ((i64::from(pc >> 2) + 1 + sext18(w)) << 2) as u32;
@@ -602,7 +661,9 @@ fn read_function(code: &[u8], start_addr: u32, around: &Around<'_>) -> Reads {
         }
         at += len;
     }
-    resolve(&insns, &sites, start_addr, around, &mut reads);
+    let tied = jx::tied_tables(&insns, around);
+    reads.untied_jx = jx::untied(&insns, &tied);
+    resolve(&insns, &sites, start_addr, around, &tied, &mut reads);
     reads
 }
 
@@ -624,9 +685,9 @@ type Regs = [Held; 16];
 /// its literal; a write of a register, a call (the registers from its rotation
 /// up), `entry` or a window register makes the registers it takes unknown; the
 /// state where paths meet keeps a register only if all of them agree. The
-/// flow goes by fall-through and branch targets, and every address a word of
-/// the image points at inside the function (a jump table) is an entry with
-/// nothing known.
+/// flow goes by fall-through and branch targets, and in a function that has
+/// a `jx`, every address a word of the image points at inside it (a jump
+/// table) is an entry with nothing known.
 ///
 /// The reading assumes `LITBASE` is off, as the S3's toolchain leaves it (an
 /// `l32r` is `pc`-relative: `regs::Insn::l32r`); a firmware that enabled the
@@ -644,6 +705,7 @@ fn resolve(
     sites: &[usize],
     start_addr: u32,
     around: &Around<'_>,
+    tied: &[u32],
     reads: &mut Reads,
 ) {
     if sites.is_empty() {
@@ -653,10 +715,9 @@ fn resolve(
     let end = insns.last().map_or(start_addr, |i| i.next());
     let index: BTreeMap<u32, usize> = insns.iter().enumerate().map(|(n, i)| (i.pc, n)).collect();
     // Every address inside the function that a word of the image points at is
-    // a place the flow may enter from outside this function's own
-    // instructions (a jump table, here or in another function): an entry with
-    // nothing known. A `jx` with no such address to go to is a jump this
-    // reading cannot place: it gives the function up.
+    // a place its `jx` may go to (a jump table): an entry with nothing known.
+    // A `jx` with no such address to go to is a jump this reading cannot
+    // place: it gives the function up.
     let mut entries: Vec<usize> = Vec::new();
     for p in around.pointed.range(start_addr..end) {
         // A word that is no instruction's start is not a jump target (the
@@ -671,11 +732,20 @@ fn resolve(
         };
         entries.push(to);
     }
+    entries.extend(tied.iter().filter_map(|p| index.get(p).copied()));
     // The function's own start does not count as an address to jump to: a
     // vtable or a function pointer holds it, a jump table does not. Jump
     // tables are taken to hold absolute addresses of the instructions.
-    if entries.iter().all(|&n| n == 0) && insns.iter().any(|i| i.is_jx()) {
+    let jumps = insns.iter().any(|i| i.is_jx());
+    if entries.iter().all(|&n| n == 0) && jumps {
         return give_up(reads);
+    }
+    // Only the function's own `jx` goes there (a jump table is its function's
+    // own: `no_split_parts` refuses an image where it may not be). With none,
+    // such a word is a number or text (`0SUB` in the pin names is 0x42555330)
+    // that follows the layout: no entry.
+    if !jumps {
+        entries.clear();
     }
     let mut next: Vec<Vec<usize>> = vec![Vec::new(); insns.len()];
     for (n, i) in insns.iter().enumerate() {
@@ -928,8 +998,14 @@ pub struct Report {
     pub indirect: u32,
     /// Calls through a register that an `l32r` literal gave: followed.
     pub resolved: u32,
+    /// Per `allow indirect-in` line: the family, the exact count, the ceiling.
+    pub families: Vec<(String, u32, u32)>,
     /// What the budget refuses, one line each.
     pub problems: Vec<String>,
+    /// What is stale but harmless: lines to remove, which do not fail the scan.
+    pub warnings: Vec<String>,
+    /// Calls no line names, held until the end of the scan (see [`slack`]).
+    pool: slack::Pool,
 }
 
 impl Image<'_> {
@@ -947,35 +1023,6 @@ impl Image<'_> {
             let word = bytes.get(from..from.checked_add(4)?)?;
             Some(u32::from_le_bytes(word.try_into().ok()?))
         })
-    }
-
-    /// Every address inside a function that a word outside the functions
-    /// (data, or the literal pools between them) holds: where a jump table or
-    /// a function pointer can send the flow, so a place another path enters.
-    fn pointed(&self) -> BTreeSet<u32> {
-        let mut found = BTreeSet::new();
-        let mut take = |base: u32, bytes: &[u8], skip_functions: bool| {
-            let first = (4 - base % 4) % 4;
-            let Some(bytes) = bytes.get(first as usize..) else {
-                return;
-            };
-            for (n, word) in bytes.as_chunks::<4>().0.iter().enumerate() {
-                let value = u32::from_le_bytes(*word);
-                if skip_functions && self.at(base + first + 4 * n as u32).is_some() {
-                    continue;
-                }
-                if self.at(value).is_some() {
-                    found.insert(value);
-                }
-            }
-        };
-        for (base, bytes) in &self.data {
-            take(*base, bytes, false);
-        }
-        for (base, bytes) in &self.exec {
-            take(*base, bytes, true);
-        }
-        found
     }
 
     /// The function holding `address`, as an index into `funcs`.
@@ -1017,16 +1064,23 @@ fn follow(
             .cloned()
             .unwrap_or_else(|| format!("{target:#x}"));
         let by_address = format!("{target:#x}");
+        let outside = !image.in_image(target);
         if !allowed(budget, used, &|a| {
             matches!(a, Allow::Call { caller: c, callee: e }
                 if caller.is(c) && (*e == callee || *e == by_address))
-        }) {
+        }) && !(outside
+            && allowed(
+                budget,
+                used,
+                &|a| matches!(a, Allow::Rom { callee: e } if *e == callee || *e == by_address),
+            ))
+        {
             let where_ = if image.in_image(target) {
                 "code of the image with no symbol"
             } else {
                 "outside the image (ROM or a blob)"
             };
-            report.problems.push(format!(
+            report.pool.call(caller, &callee, format!(
                 "`{}` calls `{callee}` ({target:#x}), {where_}: not checkable here (name it with `allow call`)",
                 caller.shown
             ));
@@ -1194,6 +1248,25 @@ fn allowed(budget: &Budget, used: &mut [bool], wanted: &dyn Fn(&Allow) -> bool) 
     any
 }
 
+/// The calls through a register of `f` (`count` of them) against the budget:
+/// a line of its own, an `allow indirect-in` family, or a problem.
+fn check_indirect(
+    budget: &Budget,
+    f: &Function,
+    count: u32,
+    (used, family_sites): (&mut [bool], &mut family::Sites),
+    report: &mut Report,
+) {
+    let own = allowed(
+        budget,
+        used,
+        &|a| matches!(a, Allow::Indirect { caller: c, count: n } if f.is(c) && count <= *n + INDIRECT_MARGIN),
+    );
+    if !own && !family::in_a_family(budget, used, family_sites, f, count) {
+        report.pool.indirect(budget, f, count);
+    }
+}
+
 /// What the function's own code says against the budget: frame, stack pointer,
 /// call width, `entry` and forms the scan does not classify.
 fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report: &mut Report) {
@@ -1201,12 +1274,16 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
         if report.largest.as_ref().is_none_or(|(b, _)| frame > *b) {
             report.largest = Some((frame, f.path.clone()));
         }
-        if frame >= budget.limit {
+        if frame >= budget.limit && !family::frame_excused(budget, f, frame) {
             report.problems.push(format!(
                 "`{}` takes a frame of {frame} bytes (limit {})",
                 f.shown, budget.limit
             ));
         }
+    } else if reads.unreadable.is_none()
+        && let Some(problem) = family::frameless_problem(budget, f)
+    {
+        report.problems.push(problem);
     }
     if let Some(pc) = reads.writes_sp
         && !allowed(
@@ -1220,6 +1297,7 @@ fn judge(f: &Function, reads: &Reads, budget: &Budget, used: &mut [bool], report
             f.shown
         ));
     }
+    jx::judge(f, reads, budget, used, report);
     if let Some((pc, what)) = reads.narrow_call {
         report.problems.push(format!(
             "`{}` calls with {what} ({pc:#x}): only call8 and call12 keep the band's bound",
@@ -1265,6 +1343,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     }
     let image = image(elf)?;
     let funcs = &image.funcs;
+    jx::no_split_parts(funcs)?;
     let mut report = Report::default();
     // Which `allow` lines were used.
     let mut used = vec![false; budget.allow.len()];
@@ -1276,6 +1355,7 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
         word: &word,
         pointed: &pointed,
     };
+    let mut family_sites = family::Sites::new();
     seed(&image, budget, &mut report, &mut queue, &mut seen);
     while let Some(i) = queue.pop_front() {
         let f = &funcs[i];
@@ -1301,17 +1381,8 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
         report.indirect += reads.indirect;
         report.resolved += reads.resolved;
         if reads.indirect > 0 {
-            let count = reads.indirect;
-            if !allowed(
-                budget,
-                &mut used,
-                &|a| matches!(a, Allow::Indirect { caller: c, count: n } if f.is(c) && *n == count),
-            ) {
-                report.problems.push(format!(
-                    "`{}` has {count} call(s) through a register: not followed here (name them with `allow indirect`)",
-                    f.shown
-                ));
-            }
+            let sites = (used.as_mut_slice(), &mut family_sites);
+            check_indirect(budget, f, reads.indirect, sites, &mut report);
         }
         follow(
             &image,
@@ -1330,8 +1401,10 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
     // says which of them it describes.
     for (allow, _) in &budget.allow {
         let name = match allow {
+            Allow::Rom { .. } | Allow::IndirectIn { .. } => continue,
             Allow::Call { caller: n, .. }
             | Allow::Sp { caller: n }
+            | Allow::Jx { caller: n }
             | Allow::Indirect { caller: n, .. }
             | Allow::Form { caller: n, .. }
             | Allow::NoSize { name: n } => n,
@@ -1353,13 +1426,14 @@ pub fn check(elf: &Elf<'_>, budget: &Budget) -> Result<Report, String> {
             ));
         }
     }
-    for (n, (allow, _)) in budget.allow.iter().enumerate() {
-        if !used[n] {
-            report.problems.push(format!(
-                "an `allow` line matches nothing any more: {allow:?}: remove it"
-            ));
-        }
-    }
+    report.families = family::counts(budget, &family_sites);
+    report
+        .problems
+        .extend(family::ceilings_exceeded(budget, &family_sites));
+    report
+        .problems
+        .extend(family::frames_in_problems(&image, &around, budget));
+    slack::settle(budget, &mut used, &mut report);
     // One line per site is noise: a function calling `memcpy` fifty times is
     // one line (`allow call` is per caller and callee already).
     let mut seen_lines = BTreeSet::new();
@@ -1371,6 +1445,8 @@ pub fn run(elf: &str, budget: &str) -> Result<(), String> {
     let bytes = std::fs::read(elf).map_err(|e| format!("{elf}: {e}"))?;
     let parsed = Elf::parse(&bytes).map_err(|e| format!("{elf}: {e}"))?;
     let text = std::fs::read_to_string(budget).map_err(|e| format!("{budget}: {e}"))?;
+    let text = expand_includes(&text, std::path::Path::new(budget))
+        .map_err(|e| format!("{budget}: {e}"))?;
     let budget = Budget::parse(&text).map_err(|e| format!("{budget}: {e}"))?;
     let report = check(&parsed, &budget).map_err(|e| format!("{elf}: {e}"))?;
     println!(
@@ -1385,6 +1461,12 @@ pub fn run(elf: &str, budget: &str) -> Result<(), String> {
         report.resolved,
         report.indirect
     );
+    for w in &report.warnings {
+        println!("warning: {w}");
+    }
+    for (family, count, ceiling) in &report.families {
+        println!("indirect-in {family}: {count} counted, ceiling {ceiling}");
+    }
     if report.problems.is_empty() {
         println!("the S3 firmware's frames and calls hold");
         return Ok(());
@@ -1397,3 +1479,7 @@ pub fn run(elf: &str, budget: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_frames;
+#[cfg(test)]
+mod tests_slack;

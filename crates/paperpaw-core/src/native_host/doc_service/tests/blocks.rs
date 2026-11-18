@@ -404,11 +404,9 @@ fn image_and_table_blocks_have_exactly_their_records() {
     };
     let columns = |weights: &'static [u8]| Record::ServiceDocColumns(Columns { weights });
     assert!(bad(&[header(3, 0), image(), end(1, 0, 9)]).is_ok());
-    assert_eq!(
-        bad(&[header(3, 0), end(1, 0, 9)]),
-        Err(ERR_INVALID),
-        "no picture"
-    );
+    // A picture block without its picture keeps its alt text (`document.md`
+    // 5); see `a_picture_block_without_its_picture_never_closes_the_document`.
+    assert!(bad(&[header(3, 0), end(1, 0, 9)]).is_ok(), "no picture");
     assert_eq!(
         bad(&[header(3, 0), image(), image(), end(1, 0, 9)]),
         Err(ERR_INVALID)
@@ -505,6 +503,32 @@ fn pictures_in_a_stream_get_ids_in_place_and_a_bad_one_never_fails_the_stream() 
     fake.image.set(Some(None));
     let reply = block_call(&fake, id, 0, 0, &stream_of).unwrap();
     assert_eq!(reply, stream(&[header(3, 0), end(1, 0, 9)]));
+    assert_eq!(*fake.left_out.borrow(), [id], "said, for that document");
+}
+
+/// #243: a picture block whose picture the format left out (or the host's
+/// adapter dropped before the check) costs only that picture: three of them
+/// in a row, more than the malformed answers that strike a document, and the
+/// document still reads, with the block's alt text.
+#[test]
+fn a_picture_block_without_its_picture_never_closes_the_document() {
+    let fake = Fake::new(Limits::X4);
+    let id = opened(&fake);
+    let alt = [header(3, 3), part("owl"), end(1, 0, 9)];
+    for _ in 0..4 {
+        assert_eq!(block_call(&fake, id, 0, 0, &alt), Ok(stream(&alt)));
+    }
+    assert_eq!(*fake.left_out.borrow(), [id; 4]);
+    // The document is still open: a plain block reads as ever.
+    let plain = [header(0, 3), part("owl"), end(1, 0, 9)];
+    assert_eq!(block_call(&fake, id, 0, 0, &plain), Ok(stream(&plain)));
+    // Two pictures in one block stay malformed.
+    let two = [header(3, 0), image(), image(), end(1, 0, 9)];
+    assert_eq!(block_call(&fake, id, 0, 0, &two), Err(ERR_INVALID));
+    // In fragments, the picture is judged only at the block's last one.
+    let first = [header(3, 3), part("o"), end(3, 7, 2)];
+    assert!(block_call(&fake, id, 0, 0, &first).is_ok());
+    assert_eq!(fake.left_out.borrow().len(), 4, "not before the block ends");
 }
 
 #[test]

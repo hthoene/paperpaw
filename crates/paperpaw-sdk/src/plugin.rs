@@ -1,7 +1,6 @@
 use alloc::borrow::Cow;
 use core::fmt;
 
-use crate::contribution::Registrar;
 use crate::id::Id;
 use crate::version::Version;
 
@@ -46,6 +45,31 @@ impl Manifest {
         }
     }
 
+    /// Made of what it needs and its description, usable in `const` and
+    /// `static` items with [`Manifest::uses`] and [`Manifest::how`]: a linked
+    /// plugin's manifest kept in the program, which the plugin list then
+    /// points to instead of holding a copy, where it equals the plugin's
+    /// ([`ManifestRef::try_new`]).
+    ///
+    /// [`ManifestRef::try_new`]: crate::plugins::ManifestRef::try_new
+    #[must_use]
+    pub const fn fixed(
+        id: Id,
+        name: &'static str,
+        description: &'static str,
+        version: Version,
+    ) -> Self {
+        Self {
+            id,
+            name: crate::Str::new_static(name),
+            version,
+            description: crate::Str::new_static(description),
+            uses: Uses::NOTHING,
+            how: &[],
+            spare: 0,
+        }
+    }
+
     pub fn description(mut self, description: impl Into<Cow<'static, str>>) -> Self {
         self.description = crate::Str::new(description);
         self
@@ -62,12 +86,14 @@ impl Manifest {
     /// let manifest = Manifest::new(Id::new_static("demo"), "Demo", Version::new(1, 0, 0)).how(&HOW);
     /// # assert_eq!(manifest.how.len(), 1);
     /// ```
-    pub fn how(mut self, how: &'static [(&'static str, &'static str)]) -> Self {
+    #[must_use]
+    pub const fn how(mut self, how: &'static [(&'static str, &'static str)]) -> Self {
         self.how = how;
         self
     }
 
-    pub fn uses(mut self, uses: Uses) -> Self {
+    #[must_use]
+    pub const fn uses(mut self, uses: Uses) -> Self {
         self.uses = uses;
         self
     }
@@ -114,19 +140,6 @@ impl core::ops::BitOr for Uses {
     fn bitor(self, other: Uses) -> Uses {
         Uses(self.0 | other.0)
     }
-}
-
-/// A PaperPaw plugin.
-///
-/// `register` is called once at start-up. It adds the plugin's contributions;
-/// the kernel decides afterwards which ones are active (user configuration
-/// and priorities may override them).
-pub trait Plugin {
-    fn manifest(&self) -> Manifest;
-
-    /// Adds the plugin's contributions with `registrar` (see
-    /// [`contribution`](crate::contribution)).
-    fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError>;
 }
 
 /// Priority of a default binding. Higher wins; an explicit user setting

@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture refusals must fail tests")]
 use super::*;
 use crate::native::declare::records_wire::Record;
-use alloc::{vec, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
 use core::{
     cell::{Cell, RefCell},
     ffi::c_void,
@@ -74,6 +74,7 @@ fn entry(flags: u32) -> Record<'static> {
         title: "Rabbit",
         text: "A small mammal.",
         flags,
+        opens: "",
     })
 }
 fn with_host<T>(run: impl FnOnce(&Host<'_>, &State) -> T) -> T {
@@ -208,6 +209,90 @@ fn a_provider_reads_the_ask_and_answers_one_entry_the_host_accepts() {
     ));
 }
 
+/// What `answer` wrote for `entry`: title, text, flags, opens.
+fn answered(entry: &Entry<'_>) -> (String, String, u32, String) {
+    let mut buffer = [core::mem::MaybeUninit::uninit(); 3840];
+    let mut reply = Reply::new(&mut buffer);
+    answer(&mut reply, entry).unwrap();
+    let len = reply.len();
+    // SAFETY: `Reply::write` initialised exactly the first `len` slots.
+    let written: Vec<u8> = buffer[..len]
+        .iter()
+        .map(|b| unsafe { b.assume_init() })
+        .collect();
+    let mut rows = stage::reply_decode(&written).unwrap();
+    let Some(Ok(stage::Record::LookupEntry(e))) = rows.next() else {
+        panic!("not one lookup.entry")
+    };
+    (e.title.into(), e.text.into(), e.flags, e.opens.into())
+}
+
+#[test]
+fn a_provider_that_fetches_answers_pending_and_an_entry_may_open_more() {
+    // Pending: an empty text with bit 1, the source's name as the title.
+    assert_eq!(
+        answered(&Entry::pending("Wikipedia").unwrap()),
+        ("Wikipedia".into(), String::new(), PENDING, String::new())
+    );
+    // The kept answer names the screen that shows the whole article.
+    let entry = Entry::new("Rabbit", "A small mammal.")
+        .unwrap()
+        .opens("wikipedia.article")
+        .unwrap();
+    assert_eq!(
+        answered(&entry),
+        (
+            "Rabbit".into(),
+            "A small mammal.".into(),
+            0,
+            "wikipedia.article".into()
+        )
+    );
+    assert_eq!(
+        Entry::new("t", "x").unwrap().opens("").unwrap_err(),
+        Error::Invalid
+    );
+    let long = "s".repeat(MAX_OPENS + 1);
+    assert_eq!(
+        Entry::new("t", "x").unwrap().opens(&long).unwrap_err(),
+        Error::Invalid
+    );
+    assert_eq!(
+        Entry::pending(&"t".repeat(MAX_TITLE + 1)).unwrap_err(),
+        Error::NoSpace
+    );
+}
+
+#[test]
+fn the_asker_reads_the_screen_an_entry_opens() {
+    with_host(|host, state| {
+        let lookup = Lookup::open(host).unwrap();
+        let question = Question::new("rabbit").unwrap();
+        let (mut input, mut out) = ([0; BUFFER], [0; BUFFER]);
+        reply(
+            state,
+            &[Record::ServiceLookupEntry(wire::ServiceLookupEntry {
+                provider: "wikipedia.summary",
+                title: "Rabbit",
+                text: "A small mammal.",
+                flags: 0,
+                opens: "wikipedia.article",
+            })],
+        );
+        let got = lookup
+            .ask(host, &question, &mut input, &mut out)
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.opens(), Some("wikipedia.article"));
+        reply(state, &[entry(0)]);
+        let got = lookup
+            .ask(host, &question, &mut input, &mut out)
+            .unwrap()
+            .unwrap();
+        assert_eq!(got.opens(), None);
+    });
+}
+
 #[test]
 fn an_entry_that_would_not_fit_is_refused_not_cut() {
     assert_eq!(
@@ -255,6 +340,7 @@ fn a_reply_the_host_would_refuse_is_invalid_here_too() {
             title: "t",
             text: "x",
             flags: 0,
+            opens: "",
         });
         assert_eq!(ask(&[no_provider]), Err(Error::Invalid));
         assert_eq!(ask(&[entry(0b100)]), Err(Error::Invalid));

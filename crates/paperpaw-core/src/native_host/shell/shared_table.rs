@@ -7,10 +7,19 @@ use super::{PpHost, Services, host_table};
 /// of it on the heap (`abi/heap-word.md`, built-ins).
 pub(super) struct SharedTable<S>(core::marker::PhantomData<S>);
 
-impl<S: Services> SharedTable<S> {
+impl<S: Services + 'static> SharedTable<S> {
     /// Evaluated at compile time; a reference to a constant without interior
     /// mutability is promoted to a `'static` (read-only data, not heap).
     pub(super) const TABLE: &'static PpHost = &host_table::<S>();
+}
+
+impl<S: Services + 'static> super::Context<S> {
+    /// The one table every plugin hosted with `S` shares: a static, never a
+    /// copy per plugin (152 bytes on the X4), and not a pointer per plugin
+    /// either, as it follows from `S` (#248).
+    pub(crate) const fn table(&self) -> &'static PpHost {
+        SharedTable::<S>::TABLE
+    }
 }
 
 /// The table every plugin hosted with `S` is handed, as the loader hands it
@@ -18,7 +27,7 @@ impl<S: Services> SharedTable<S> {
 /// own (a static for a code scan) can check at start that it is this table:
 /// see [`same_table`].
 #[must_use]
-pub fn handed_table<S: Services>() -> &'static PpHost {
+pub fn handed_table<S: Services + 'static>() -> &'static PpHost {
     SharedTable::<S>::TABLE
 }
 
@@ -73,18 +82,39 @@ mod tests {
         }
     }
 
+    /// A slot no real entry has the address of (it answers 99).
+    unsafe extern "C" fn stub(_: *mut core::ffi::c_void, _: *mut u64) -> i32 {
+        99
+    }
+
+    /// The table is compared as machine words, so the test builds what it
+    /// compares from the handed table itself and changes one thing at a time.
+    /// It never compares the address of an entry of one table with one of
+    /// another: the address of a function may be one per codegen unit, and
+    /// the tables the host builds in two places need not agree on it.
     #[test]
     fn the_handed_table_is_the_table_of_the_services_and_a_changed_slot_shows() {
+        let handed = handed_table::<Probe>();
+        // The header is the services' table's header.
         let own = host_table::<Probe>();
-        assert!(same_table(&own, handed_table::<Probe>()));
-        assert!(same_table(handed_table::<Probe>(), handed_table::<Probe>()));
+        assert_eq!(
+            (own.size, own.major, own.minor),
+            (handed.size, handed.major, handed.minor)
+        );
+        // A table is the same as itself, and as a copy of itself.
+        assert!(same_table(handed, handed));
+        // SAFETY: `handed` is a whole, initialised `PpHost` (a header and
+        // function pointers); the copy is a plain bitwise one of it.
+        let mut copy = unsafe { core::ptr::read(handed) };
+        assert!(same_table(&copy, handed));
         // The header differs: not the same table.
-        let mut other = host_table::<Probe>();
-        other.minor = other.minor.wrapping_add(1);
-        assert!(!same_table(&other, handed_table::<Probe>()));
+        copy.minor = copy.minor.wrapping_add(1);
+        assert!(!same_table(&copy, handed));
+        copy.minor = copy.minor.wrapping_sub(1);
+        assert!(same_table(&copy, handed));
         // One slot answered by another function: not the same table.
-        let mut other = host_table::<Probe>();
-        other.clock_micros = paperpaw_native::host_glue::host_table().clock_micros;
-        assert!(!same_table(&other, handed_table::<Probe>()));
+        copy.clock_micros = stub;
+        assert!(!same_table(&copy, handed));
+        assert!(!same_table(handed, &copy));
     }
 }

@@ -5,6 +5,7 @@
 use super::{
     Asker, Row,
     fixed::{Fixed, caps, clip, translated},
+    native_extra::{self, Shown},
     schema,
     sources::Sources,
 };
@@ -15,10 +16,12 @@ use crate::{
     },
     native_host::registrations::{self as wire, Record},
 };
-use core::{mem::MaybeUninit, ops::ControlFlow};
-use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_UNSUPPORTED};
+use alloc::vec::Vec;
+use core::{cell::OnceCell, mem::MaybeUninit, ops::ControlFlow};
+use paperpaw_native::host_glue::{ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED};
+use paperpaw_sdk::Pick;
 use paperpaw_sdk::{
-    Editor, Level, SettingKind, SettingSpec, SettingValue,
+    Level, SettingKind, SettingSpec, SettingValue, Settings,
     builtin::{groups::OTHER, slots::SETTINGS},
 };
 
@@ -34,6 +37,8 @@ const LONG: u32 = 1 << 7;
 const PREVIEW: u32 = 1 << 8;
 const SHOWN: u32 = 1 << 9;
 const GOVERNS: u32 = 1 << 10;
+/// An int setting set with a slider (`SettingExtra::slider`), #257.
+const SLIDER: u32 = 1 << 11;
 
 /// `reg_setting.source`.
 const FROM_DEFAULT: u32 = 0;
@@ -160,18 +165,66 @@ fn source(sources: &Sources<'_>, spec: &SettingSpec) -> u32 {
     }
 }
 
+/// The ids of the settings whose value another setting's showing depends on
+/// ([`Settings::governs`], and a native plugin's declared `shown_if`), sorted
+/// and each once: one pass over the specs
+/// for a whole list instead of one per row (a list of every setting was
+/// quadratic, #248). Freed when the list ends; `None` where there is no room
+/// for it, and each row then asks `governs` itself.
+pub(super) fn governing<'s>(sources: &Sources<'_>, all: &'s Settings) -> Option<Vec<&'s str>> {
+    let mut declared = 0_usize;
+    native_extra::each_governing(sources, all, None, &mut |_| declared += 1);
+    // An extra is of a spec kept as it is: none a plugin describes is made.
+    let count = all
+        .kept_specs()
+        .filter(|spec| spec.extra().shown_if.is_some())
+        .count();
+    let mut ids = Vec::new();
+    ids.try_reserve_exact(count.checked_add(declared)?).ok()?;
+    ids.extend(
+        all.kept_specs()
+            .filter_map(|spec| spec.extra().shown_if.as_ref())
+            .map(|(of, _)| of.as_str()),
+    );
+    // Within the room counted: the store is changed by the kernel alone,
+    // never during a call.
+    native_extra::each_governing(sources, all, None, &mut |of| {
+        if ids.len() < ids.capacity() {
+            ids.push(of);
+        }
+    });
+    paperpaw_sort::sort_unstable(&mut ids);
+    ids.dedup();
+    Some(ids)
+}
+
 /// The `reg_setting` row of `spec`, handed to `f` (its strings live on this
-/// stack).
+/// stack). `governing` is what [`governing`] found for a list, `None` for one
+/// row alone.
 fn with_row<R>(
     sources: &Sources<'_>,
     asker: &Asker<'_>,
     spec: &SettingSpec,
+    governing: Option<&[&str]>,
     f: impl FnOnce(&Record<'_>) -> R,
 ) -> R {
+    #[cfg(test)]
+    built::count();
     let env = sources.env;
     let settings = env.settings();
     let id = spec.id.as_str();
     let extra = spec.extra();
+    // A native plugin's declared extra is read from the store, never busy
+    // here: the op checked it first ([`native_extra::ready`]).
+    let (slider, shown) = native_extra::with_extra(sources, spec, |shown| {
+        (shown.slider, native_extra::shows(settings, shown))
+    })
+    .unwrap_or_else(|_| (extra.slider, settings.shows(spec)));
+    // Not for this device (a front light it lacks): as the settings screen of
+    // interface 6 left it out, so does this row say it is not shown.
+    let shown = shown && env.menus().available(id) && native_need_met(sources, id);
+    // A reading app to choose where only one reads the books (#260).
+    let shown = shown && !crate::reading_apps::nothing_to_choose(spec);
     let mut flags = 0;
     for (on, bit) in [
         (spec.guarded, GUARDED),
@@ -179,8 +232,18 @@ fn with_row<R>(
         (spec.scoped, SCOPED),
         (spec.is_kept_on_reset(), KEPT_ON_RESET),
         (spec.level == Level::Advanced, ADVANCED),
-        (settings.shows(spec), SHOWN),
-        (settings.governs(id), GOVERNS),
+        (shown, SHOWN),
+        (
+            governing.map_or_else(
+                || settings.governs(id) || native_extra::governs(sources, settings, id),
+                |ids| ids.binary_search(&id).is_ok(),
+            ),
+            GOVERNS,
+        ),
+        (
+            slider && matches!(spec.kind, SettingKind::Int { .. }),
+            SLIDER,
+        ),
     ] {
         if on {
             flags |= bit;
@@ -229,6 +292,64 @@ fn with_row<R>(
     }))
 }
 
+/// A setting's row in a list, built where it is framed and not before: its
+/// title is looked up, its value read and what its plugin declares of it
+/// found in the plugin's image, which a list that counts its rows or passes
+/// those before its cursor has no use for (#248: a page of 32 rows built
+/// every setting twice).
+struct Listed<'a, 's> {
+    sources: &'a Sources<'s>,
+    asker: &'a Asker<'a>,
+    all: &'s Settings,
+    spec: &'a SettingSpec,
+    /// What [`governing`] finds, asked for by the first row built.
+    governing: &'a OnceCell<Option<Vec<&'s str>>>,
+}
+
+impl Listed<'_, '_> {
+    fn built<R>(&self, f: impl FnOnce(&Record<'_>) -> R) -> R {
+        let governing = self
+            .governing
+            .get_or_init(|| governing(self.sources, self.all));
+        with_row(self.sources, self.asker, self.spec, governing.as_deref(), f)
+    }
+}
+
+impl Row for Listed<'_, '_> {
+    fn framed_len(&self) -> Result<usize, i32> {
+        self.built(|row| row.framed_len())
+    }
+
+    fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+        self.built(|row| row.encode(out))
+    }
+
+    /// Its key and its group alone can be too long for their fields: the
+    /// title is cut to its own, a value too long for its own is left out,
+    /// the rest are numbers.
+    fn frames(&self) -> bool {
+        let bare = Record::ServiceRegSetting(wire::ServiceRegSetting {
+            key: self.spec.id.as_str(),
+            group: group_of(self.sources, self.spec),
+            kind: 0,
+            flags: 0,
+            source: 0,
+            title: "",
+            value: &[],
+        });
+        bare.framed_len().is_ok()
+    }
+
+    fn encode_within(&self, out: &mut [u8]) -> Result<Option<usize>, i32> {
+        self.built(|row| {
+            // `frames` says the framing rule again by hand: the built row
+            // must agree with it.
+            debug_assert_eq!(row.framed_len().is_ok(), self.frames());
+            row.encode_within(out)
+        })
+    }
+}
+
 pub(super) fn rows(
     sources: &Sources<'_>,
     op: u32,
@@ -251,63 +372,110 @@ fn settings(
     asker: &Asker<'_>,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> Result<(), i32> {
+    native_extra::ready(sources)?;
     let all = sources.env.settings();
     let is_group = scope == OTHER.static_str() || all.groups().any(|g| g.id.as_str() == scope);
-    for spec in all.specs() {
-        let hit = scope.is_empty()
-            || if is_group {
-                group_of(sources, spec) == scope
-            } else {
-                spec.id.namespace() == scope
-            };
-        if hit && with_row(sources, asker, spec, |row| visit(row)).is_break() {
-            break;
+    let governing = OnceCell::new();
+    // One spec at a time (#248): what a plugin describes of its settings is
+    // made for its row and let go, and only that of the plugin asked for.
+    let pick = if scope.is_empty() || is_group {
+        Pick::All
+    } else {
+        Pick::Of(scope)
+    };
+    let walked = all.walk(pick, &mut |spec| {
+        let hit = !is_group || scope.is_empty() || group_of(sources, spec) == scope;
+        if hit {
+            visit(&Listed {
+                sources,
+                asker,
+                all,
+                spec,
+                governing: &governing,
+            })
+        } else {
+            ControlFlow::Continue(())
         }
-    }
-    Ok(())
+    });
+    // No room for a spec: the rows given are not all, and the caller is told.
+    walked.map_err(|_| ERR_NO_MEMORY)
 }
 
 /// Op 3: the values of choice setting `scope`, the setting's own first and
-/// then those other plugins added (the setting keeps them in that order).
-/// Nothing for a setting that is not there or is no choice.
+/// then those other plugins added (the setting keeps them in that order);
+/// of a language setting, the languages there are ([`languages`]).
+/// Nothing for a setting that is not there or is neither.
 fn choices(
     sources: &Sources<'_>,
     scope: &str,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> Result<(), i32> {
-    let Some(spec) = exact(sources, scope) else {
+    let Some(spec) = exact(sources, scope)? else {
         return Ok(());
     };
-    let SettingKind::Choice(values) = &spec.kind else {
-        return Ok(());
-    };
-    for value in values.iter() {
-        let row = Record::ServiceRegChoice(wire::ServiceRegChoice {
+    let i18n = sources.env.i18n();
+    let mut row = |value: &str, title: &str| {
+        visit(&Record::ServiceRegChoice(wire::ServiceRegChoice {
             value,
-            title: translated(sources.env.i18n(), value, caps::TITLE),
-        });
-        if visit(&row).is_break() {
-            break;
+            title,
+        }))
+    };
+    match &spec.kind {
+        SettingKind::Choice(values) => {
+            for value in values.iter() {
+                if row(value, translated(i18n, value, caps::TITLE)).is_break() {
+                    break;
+                }
+            }
         }
+        SettingKind::Language => languages(i18n, &mut row),
+        _ => {}
     }
     Ok(())
 }
 
+/// The languages a `reg_choice` row can carry, in the translator's order
+/// (English first, then by tag), until `visit` breaks: the tag, which is
+/// the setting's value, and the language's name in that language as its
+/// catalog gives it (`Deutsch`; a language pack's own), or the tag where the
+/// catalog gives none. Nothing is allocated.
+fn languages(
+    i18n: &paperpaw_i18n::Translator,
+    visit: &mut dyn FnMut(&str, &str) -> ControlFlow<()>,
+) {
+    i18n.each_language(&mut |tag, name| {
+        if tag.len() > CHOICE_VALUE {
+            return ControlFlow::Continue(());
+        }
+        let name = if name.is_empty() { tag } else { name };
+        visit(tag, clip(name, caps::TITLE))
+    });
+}
+
 /// The setting `id` itself (a placement's id names no setting here).
-pub(super) fn exact<'a>(sources: &Sources<'a>, id: &str) -> Option<&'a SettingSpec> {
-    sources
-        .env
-        .settings()
-        .spec(id)
-        .filter(|spec| spec.id.as_str() == id)
+///
+/// # Errors
+/// `ERR_NO_MEMORY`: no room to read what its plugin describes of it (#248).
+pub(super) fn exact<'a>(sources: &Sources<'a>, id: &str) -> Result<Option<&'a SettingSpec>, i32> {
+    let spec = sources.env.settings().try_spec(id);
+    let spec = spec.map_err(|_| ERR_NO_MEMORY)?;
+    Ok(spec.filter(|spec| spec.id.as_str() == id))
 }
 
 /// How many values of `spec` a `reg_choice` row can carry.
-fn choice_count(spec: &SettingSpec) -> u32 {
+fn choice_count(spec: &SettingSpec, i18n: &paperpaw_i18n::Translator) -> u32 {
     match &spec.kind {
         SettingKind::Choice(values) => {
             let count = values.iter().filter(|v| v.len() <= CHOICE_VALUE).count();
             u32::try_from(count).unwrap_or(u32::MAX)
+        }
+        SettingKind::Language => {
+            let mut count = 0_u32;
+            languages(i18n, &mut |_, _| {
+                count = count.saturating_add(1);
+                ControlFlow::Continue(())
+            });
+            count
         }
         _ => 0,
     }
@@ -320,50 +488,11 @@ pub(super) fn detail(
     asker: &Asker<'_>,
     visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
 ) -> Result<(), i32> {
-    let spec = exact(sources, key).ok_or(ERR_NOT_FOUND)?;
-    with_row(sources, asker, spec, |row| visit(row))?;
-    let extra = spec.extra();
-    let (min, max) = match &spec.kind {
-        SettingKind::Int { min, max } => (clamp32(*min), clamp32(*max)),
-        _ => (0, 0),
-    };
-    // The section's key of a setting made for each plugin is that plugin's
-    // name: built here, on the stack.
-    let plugin_section = if extra.section_of_plugin {
-        let plugin = spec.id.as_str().rsplit('.').next().unwrap_or_default();
-        Fixed::<{ caps::ID }>::of(&[plugin, ".plugin.name"])
-    } else {
-        None
-    };
-    let section = plugin_section
-        .as_ref()
-        .map(Fixed::as_str)
-        .or(extra.section.as_deref())
-        .unwrap_or("");
-    let (shown_id, shown_value) = extra
-        .shown_if
-        .as_ref()
-        .map_or(("", ""), |(id, value)| (id.as_str(), *value));
-    let (editor_kind, editor) = match &extra.editor {
-        Some(Editor::Screen(screen)) => (1, screen.as_str()),
-        Some(Editor::Slot(slot)) => (2, slot.as_str()),
-        _ => (0, ""),
-    };
-    visit(&Record::ServiceRegSettingExtra(
-        wire::ServiceRegSettingExtra {
-            min,
-            max,
-            step: clamp32(extra.step),
-            unit: clip(extra.unit.as_deref().unwrap_or(""), 96),
-            section: clip(section, caps::ID),
-            follows: extra.follows.as_ref().map_or("", paperpaw_sdk::Id::as_str),
-            shown_id,
-            shown_value: clip(shown_value, caps::ID),
-            editor_kind,
-            editor,
-            choices: choice_count(spec),
-        },
-    ))?;
+    let spec = exact(sources, key)?.ok_or(ERR_NOT_FOUND)?;
+    native_extra::ready(sources)?;
+    with_row(sources, asker, spec, None, |row| visit(row))?;
+    let i18n = sources.env.i18n();
+    native_extra::with_extra(sources, spec, |shown| extra_row(spec, shown, i18n, visit))??;
     let help = spec.description.as_deref().unwrap_or("");
     if help.is_empty() {
         return Ok(());
@@ -373,4 +502,74 @@ pub(super) fn detail(
         return Ok(());
     }
     visit(&Record::ServiceRegText(wire::ServiceRegText { text }))
+}
+
+/// Op 2's `reg_setting_extra` of `spec`, with what its extra says.
+fn extra_row(
+    spec: &SettingSpec,
+    shown: &Shown<'_>,
+    i18n: &paperpaw_i18n::Translator,
+    visit: &mut dyn FnMut(&dyn Row) -> Result<(), i32>,
+) -> Result<(), i32> {
+    let (min, max) = match &spec.kind {
+        SettingKind::Int { min, max } => (clamp32(*min), clamp32(*max)),
+        _ => (0, 0),
+    };
+    // The section's key of a setting made for each plugin is that plugin's
+    // name: built here, on the stack.
+    let plugin_section = if shown.section_of_plugin {
+        let plugin = spec.id.as_str().rsplit('.').next().unwrap_or_default();
+        Fixed::<{ caps::ID }>::of(&[plugin, ".plugin.name"])
+    } else {
+        None
+    };
+    let section = plugin_section.as_ref().map_or(shown.section, Fixed::as_str);
+    visit(&Record::ServiceRegSettingExtra(
+        wire::ServiceRegSettingExtra {
+            min,
+            max,
+            step: clamp32(shown.step),
+            unit: clip(shown.unit, 96),
+            section: clip(section, caps::ID),
+            follows: shown.follows,
+            shown_id: shown.shown_id,
+            shown_value: clip(shown.shown_value, caps::ID),
+            editor_kind: shown.editor_kind,
+            editor: shown.editor,
+            choices: choice_count(spec, i18n),
+        },
+    ))
+}
+
+/// Whether the device meets the `menu.need` rows a native plugin declared for
+/// the setting `id`; a store that is busy or absent asks nothing of it.
+fn native_need_met(sources: &Sources<'_>, id: &str) -> bool {
+    let Some(directory) = sources.directory else {
+        return true;
+    };
+    let Ok(store) = directory.store.try_borrow() else {
+        return true;
+    };
+    super::menu_native::Native::new(&store, sources.env.caps()).need_met(id, false)
+}
+
+/// How many rows [`with_row`] built on this thread, for the tests that hold
+/// a list to the rows it answers.
+#[cfg(test)]
+pub(super) mod built {
+    extern crate std as test_std;
+    use core::cell::Cell;
+
+    test_std::thread_local! {
+        static BUILT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn count() {
+        BUILT.with(|built| built.set(built.get() + 1));
+    }
+
+    /// The rows built since the last call.
+    pub(in crate::native_host::registry_service) fn take() -> usize {
+        BUILT.with(|built| built.replace(0))
+    }
 }

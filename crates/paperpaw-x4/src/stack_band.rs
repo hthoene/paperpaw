@@ -162,9 +162,44 @@ pub fn napot(start: u32) -> u32 {
     (start & !mask) | (mask & !(BAND >> 1))
 }
 
+/// Whether the linked native plugins are hosted at a start: only where the
+/// band is armed (the start arms it before the kernel starts). Where it is
+/// not, none is hosted and nothing restarts: the device runs without them
+/// and the log says so (a firmware that panicked for this would start again
+/// for ever).
+#[must_use]
+pub fn host_native_at_start(armed: bool) -> bool {
+    armed
+}
+
+/// Whether a call into native code may be entered now: the band is armed and
+/// has not been lost. A re-arm after a sleep that fails (the trigger was
+/// taken) sets `lost`, and every call is refused from then on, before any
+/// native code runs (the firmware also starts again, without native plugins:
+/// the start finds the band unarmed).
+#[must_use]
+pub fn native_call_allowed(armed: bool, lost: bool) -> bool {
+    armed && !lost
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unarmed_band_hosts_no_native_plugin_and_refuses_every_call() {
+        assert!(!host_native_at_start(false));
+        assert!(host_native_at_start(true));
+        assert!(!native_call_allowed(false, false));
+        assert!(native_call_allowed(true, false));
+    }
+
+    #[test]
+    fn a_lost_band_refuses_calls_from_then_on() {
+        // A re-arm after a wake failed: lost, whatever armed says.
+        assert!(!native_call_allowed(true, true));
+        assert!(!native_call_allowed(false, true));
+    }
 
     #[test]
     fn the_band_is_the_first_aligned_region_a_reserve_above_the_end() {

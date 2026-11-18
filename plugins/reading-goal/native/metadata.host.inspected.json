@@ -19,6 +19,11 @@
       "revision": 1
     },
     {
+      "key": "uses.registry",
+      "required": false,
+      "revision": 1
+    },
+    {
       "key": "uses.storage",
       "required": true,
       "revision": 1
@@ -52,5 +57,5 @@
     }
   ],
   "target": "linux-x86_64-sysv64-le",
-  "total_bytes": 160
+  "total_bytes": 181
 }

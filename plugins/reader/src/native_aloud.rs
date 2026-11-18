@@ -30,10 +30,17 @@ pub fn ends_sentence(word: &str) -> bool {
 /// The end (exclusive) of the sentence that starts at word `from`.
 #[must_use]
 pub fn sentence_end(words: &[&str], from: usize) -> usize {
-    let last = words.len().min(from.saturating_add(MAX_WORDS));
-    (from..last)
-        .find(|&i| ends_sentence(words[i]))
-        .map_or(last, |i| i + 1)
+    sentence_end_by(words.len(), from, |i| {
+        words.get(i).is_some_and(|w| ends_sentence(w))
+    })
+}
+
+/// [`sentence_end`] for `count` words of any kind: `ends(i)` says whether word
+/// `i` ends a sentence.
+#[must_use]
+pub fn sentence_end_by(count: usize, from: usize, ends: impl Fn(usize) -> bool) -> usize {
+    let last = count.min(from.saturating_add(MAX_WORDS));
+    (from..last).find(|&i| ends(i)).map_or(last, |i| i + 1)
 }
 
 /// The text of words as it is spoken, each with whether it starts a line:
@@ -43,6 +50,19 @@ pub fn sentence_end(words: &[&str], from: usize) -> usize {
 /// [`Error::NoMemory`].
 pub fn spoken<'a>(words: impl Iterator<Item = (&'a str, bool)>) -> Result<String, Error> {
     let mut text = String::new();
+    spoken_into(&mut text, words)?;
+    Ok(text)
+}
+
+/// [`spoken`] going on from `text` (the words of a sentence that goes on on
+/// the next page).
+///
+/// # Errors
+/// [`Error::NoMemory`]; the words added so far stay in `text`.
+pub fn spoken_into<'a>(
+    text: &mut String,
+    words: impl Iterator<Item = (&'a str, bool)>,
+) -> Result<(), Error> {
     for (word, new_line) in words {
         let mut before = text.chars().rev();
         let split = new_line
@@ -58,5 +78,5 @@ pub fn spoken<'a>(words: impl Iterator<Item = (&'a str, bool)>) -> Result<String
         }
         text.push_str(word);
     }
-    Ok(text)
+    Ok(())
 }

@@ -10,8 +10,8 @@
 //! compares those digests with the file's own. A binary search is used only to
 //! start in the middle of the lists ([`Relocator5::apply`]).
 //!
-//! [`Tail::check`] is [`check_relocations`](crate::check_relocations) for
-//! such a file; [`Relocator5`] is [`Relocator`](crate::Relocator) for it, minus
+//! [`Tail::check`] is `check_relocations` for
+//! such a file; [`Relocator5`] is `Relocator` for it, minus
 //! the table words that format 5 does not have (no host slot, no families).
 //! Nothing here writes flash or runs code.
 
@@ -273,7 +273,7 @@ impl<'a, S: Source + ?Sized> Tail<'a, S> {
         Ok(lo)
     }
 
-    /// Checks the words as [`check_relocations`](crate::check_relocations)
+    /// Checks the words as `check_relocations`
     /// does, reading them once: the words to relocate increasing, each a
     /// whole word of the image outside the hot code; the patches with
     /// increasing sites, each a patch of this image (`Patch::read`); no
@@ -671,7 +671,7 @@ impl<'a, S: Source + ?Sized> Relocator5<'a, S> {
 
     /// Relocates `piece`, the image's bytes from offset `at` on (a multiple
     /// of 4; every piece but the image's last a whole number of words), as
-    /// [`Relocator::apply`](crate::Relocator::apply) does, for any piece in
+    /// `Relocator::apply` does, for any piece in
     /// any order: the lists are searched for it, and nothing is hashed. The
     /// write pass ([`Relocator5::write_image`]) does not use this.
     pub fn apply(&self, at: u32, piece: &mut [u8]) -> Result<(), Problem> {

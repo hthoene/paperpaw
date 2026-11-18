@@ -89,7 +89,7 @@ pub fn frame(m: &Metrics, wide: bool, status_bar: bool, columns: u8, rows: i64) 
     }
 }
 
-/// The grid in `area`: [`Geometry::new`]'s arithmetic without an environment.
+/// The grid in `area`, columns and rows of cells `gap` apart.
 #[must_use]
 pub fn geometry(area: Rect, columns: u8, rows: u8, gap: u16) -> Geometry {
     let columns = columns.clamp(2, grid::MAX_COLUMNS);
@@ -126,6 +126,19 @@ pub struct Wanted {
     pub actions: usize,
     /// The width of the word on the *Done* button.
     pub done_word: u16,
+}
+
+impl Wanted {
+    /// What the footer is to hold.
+    #[must_use]
+    pub const fn new(editing: bool, pencil: bool, actions: usize, done_word: u16) -> Self {
+        Self {
+            editing,
+            pencil,
+            actions,
+            done_word,
+        }
+    }
 }
 
 /// The footer's buttons in `footer`: add and done are buttons a finger finds

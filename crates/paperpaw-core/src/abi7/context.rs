@@ -1,6 +1,6 @@
 //! Scoped core views inside a stable host-owned context.
 //!
-//! The owner context may outlive an event's Env or Canvas. It must not retain
+//! The owner context may outlive an event's Place or Canvas. It must not retain
 //! their Rust references. This slot admits a frame only for one synchronous
 //! dispatch, clears it on every exit, and refuses nested installation.
 
@@ -66,6 +66,19 @@ pub(crate) struct ComposeRequest {
     pub(crate) visible: Option<Rect>,
 }
 
+/// The value of one of the kernel's own status items (`ui.md` 5.3, todo 598).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(
+    dead_code,
+    reason = "made by Core's frame; the tests that include this file make none"
+)]
+pub(crate) enum HostStatus {
+    /// A text of this many bytes, written to the caller's buffer.
+    Text(usize),
+    /// Drawn by the host: the item's token for its status handle.
+    Drawn(u32),
+}
+
 #[allow(dead_code, reason = "usage service methods await slots 17-19 adapters")]
 pub(crate) trait Frame {
     fn settings(&self) -> &Settings;
@@ -106,15 +119,34 @@ pub(crate) trait Frame {
         Err(ERR_STATE)
     }
 
+    /// The kernel's `Place` for this call, where the frame has one: `core.device`
+    /// answers Wi-Fi, Bluetooth and power from its models (ops 8, 10, 11, 12).
+    /// A fixture frame has none and the shell's host answers.
+    fn kernel_env(&self) -> Option<&crate::Place<'_>> {
+        None
+    }
+
     fn with_stack(&self, _visit: &mut dyn FnMut(&dyn ui_guard::UiStackView)) -> Result<(), i32> {
         Err(ERR_STATE)
     }
     fn ui_x4(&self) -> Result<bool, i32> {
         Err(ERR_STATE)
     }
+    /// Whether the X4's nested-callback stack gate is closed for this frame
+    /// (`ui_store::nested_closed`): [`Self::ui_x4`] unless the feature
+    /// `x4-gate-closed` is off (the default: the gate is open).
+    fn nested_closed(&self) -> Result<bool, i32> {
+        Ok(self.ui_x4()? && cfg!(feature = "x4-gate-closed"))
+    }
     fn close_dialog(&self, _instance: u32) -> Result<(), i32> {
         Err(ERR_STATE)
     }
+
+    /// One line of the host's own diagnostics (`KernelBuilder::device_log`):
+    /// at most 120 bytes, plugin ids and numbers only, never plugin text,
+    /// paths or secrets; one per call site per sync or job. A frame without a
+    /// sink drops it and formats nothing.
+    fn log(&self, _line: core::fmt::Arguments<'_>) {}
 
     /// The tables `core.registry` reads (`registry.md` section 2). A frame
     /// that has none refuses with `ERR_UNSUPPORTED`.
@@ -133,6 +165,62 @@ pub(crate) trait Frame {
         _context: &[u8],
         _out: &mut [u8],
     ) -> Result<usize, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+    /// The value of the kernel's own status item `item` now, without any
+    /// plugin call: `None` for an item that is not the kernel's or has no
+    /// value. A text goes into `out` (cut on a character).
+    fn host_status(&self, _item: &str, _out: &mut [u8]) -> Option<HostStatus> {
+        None
+    }
+
+    /// One call of the `core.widget` stage to `owner` alone (`ui.md` 5.2, ops
+    /// 7, 12 and 13): the owner's `token` gets `payload`, one stage-local input
+    /// record already encoded (`core_widget_v1::input_encode`); its reply
+    /// (stage-local records, checked) is written to the start of `out` and its
+    /// length returned. Nested like `status_ask`: depth 1 callers only, never
+    /// the caller's own plugin, the owner's own refusal is the call's status.
+    fn widget_call(
+        &self,
+        _owner: u64,
+        _token: u32,
+        _payload: &[u8],
+        _out: &mut [u8],
+    ) -> Result<usize, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+
+    /// One directed stage call to the native instance of `owner`'s `token`,
+    /// for a host service that runs another plugin (the document service's
+    /// format call, the lookup providers). The call goes through the stage
+    /// dispatch of the owner's instance: that pushes the owner's own frame,
+    /// the depth budget holds (the callee runs at depth 2, a third level is
+    /// `ERR_BUSY`), a plugin never calls itself (`ERR_BUSY`), and nothing of
+    /// the instance outlives the call.
+    ///
+    /// `accept` checks the callee's answer (`reply[..n]`) before it counts:
+    /// an `Err` is the status of the call and the callee is told its answer
+    /// was dropped. On success the answer is the first `n` bytes of `reply`;
+    /// on an error `reply` is unspecified. `ERR_UNSUPPORTED` for a frame
+    /// without stage authority.
+    fn call_native(
+        &self,
+        _owner: u64,
+        _token: u32,
+        _input: &[u8],
+        _reply: &mut [u8],
+        _accept: &mut dyn FnMut(&[u8]) -> Result<(), i32>,
+    ) -> Result<usize, i32> {
+        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+    }
+
+    /// The declaration store (a `DeclarationStore`, as `dyn Any`: this file is
+    /// also compiled by the integration tests, which have no such type), read
+    /// for the length of `visit` (the document service reads the formats and
+    /// reading apps there). `visit` must not invoke plugins or reenter the
+    /// store. `ERR_BUSY` while the store is being changed, `ERR_UNSUPPORTED`
+    /// for a frame without a directory.
+    fn with_declarations(&self, _visit: &mut dyn FnMut(&dyn core::any::Any)) -> Result<(), i32> {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
 
@@ -167,6 +255,16 @@ pub(crate) trait Frame {
         Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
     }
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
+        None
+    }
+    /// [`Frame::fonts`] with what the host found of its roles, forgotten by
+    /// every change of the fonts: one call for both, as one asks for either.
+    fn fonts_memo(&self) -> Option<(&paperpaw_sdk::Fonts, Option<&paperpaw_sdk::RoleMemo>)> {
+        self.fonts().map(|fonts| (fonts, None))
+    }
+    /// What the host found of the places of settings, forgotten by every
+    /// change of the settings.
+    fn setting_memo(&self) -> Option<&paperpaw_sdk::SettingMemo> {
         None
     }
     fn ink_threshold(&self) -> Result<u8, i32> {

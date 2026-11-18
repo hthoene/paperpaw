@@ -17,7 +17,8 @@
 //! Memory (X4): a call uses the reply buffer the dispatcher lends and a few
 //! hundred bytes of stack; no state is kept between pages. A page counts the
 //! rows once to give `total` and then walks them again from the cursor, so a
-//! row is built twice per page, never stored.
+//! row is visited twice per page, never stored. A row that costs much to
+//! build (a setting's) is built only where the page takes it ([`Row::frames`]).
 use super::{
     codec,
     host_services::Caller,
@@ -38,11 +39,16 @@ mod menu_native;
 mod menus;
 #[cfg(test)]
 mod menus_tests;
+mod native_extra;
 mod ordered;
 mod plugins;
 mod presets;
 pub(in crate::native_host) mod rules;
 mod settings;
+#[cfg(all(test, target_arch = "x86_64", target_os = "linux"))]
+mod settings_described_tests;
+#[cfg(test)]
+mod settings_native_tests;
 #[cfg(test)]
 mod settings_tests;
 mod setup;
@@ -53,6 +59,7 @@ mod tests;
 mod widgets;
 
 pub(crate) use sources::Sources;
+pub(crate) use widgets::declared_names as declared_widget_names;
 
 pub(crate) use crate::abi7::context::registry_views::{Asker, RegistryView, Row};
 
@@ -110,7 +117,7 @@ fn list(
     // declaration check bounds for plugin ids) is skipped, here and in the
     // page walk alike, so `total`, the cursor and the rows agree.
     view.rows(op.id, scope, query.flags, asker, &mut |row| {
-        if row.framed_len().is_ok() {
+        if row.frames() {
             total = total.saturating_add(1);
         }
         ControlFlow::Continue(())
@@ -121,7 +128,7 @@ fn list(
     let mut index = 0_u32;
     let mut failure = None;
     view.rows(op.id, scope, query.flags, asker, &mut |row| {
-        if row.framed_len().is_err() {
+        if !row.frames() {
             return ControlFlow::Continue(());
         }
         let at = index;

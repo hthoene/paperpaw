@@ -10,7 +10,7 @@ use paperpaw_core::native_host::registrations::{
 };
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_UNSUPPORTED};
 use paperpaw_plugin_settings::NATIVE_ENTRY;
-use paperpaw_scripted_host::{ScriptedHost, Slot, event_batch, sweep};
+use paperpaw_scripted_host::{Callback, ScriptedHost, Slot, event_batch, sweep};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -197,9 +197,16 @@ fn ui(host: &ScriptedHost, log: &Log, typed: &Typed, which: &'static str) {
             (8, Some(Record::ServiceUiAsk(ask))) => {
                 seen.borrow_mut()
                     .push(format!("ask {} {} | {}", ask.kind, ask.title, ask.choices));
+                seen.borrow_mut().push(format!("flags {}", ask.flags));
                 Ok(stream(&[Record::ServiceUiRequest(ServiceUiRequest {
                     request: ASKED,
                 })]))
+            }
+            // The text a question starts from: a secret is asked for anew,
+            // never from the value it has.
+            (9, _) => {
+                seen.borrow_mut().push("write".to_owned());
+                Ok(Vec::new())
             }
             (10, Some(Record::ServiceUiTextAt(at))) => {
                 let text = typed.borrow().clone();
@@ -261,7 +268,7 @@ fn choose_first(plugin: &Screen<'_>) -> i32 {
 /// The dialog's answer. Done, the screen goes back (a screen command the
 /// scripted host does not stage: BLOCKED H1), so the status is that refusal
 /// or 0; what was asked of `core.secrets` is the test's own subject.
-fn answered(plugin: &Screen<'_>, kind: u32, choice: u32, length: u32) {
+fn answered(plugin: &Screen<'_>, kind: u32, choice: u32, length: u32) -> Callback {
     let batch = event_batch(&Record::EventAnswered(EventAnswered {
         now_ms: 0,
         request: ASKED,
@@ -272,8 +279,9 @@ fn answered(plugin: &Screen<'_>, kind: u32, choice: u32, length: u32) {
         flags: 0,
     }))
     .unwrap();
-    let status = plugin.event(SECRET_TOKEN, &batch).unwrap().status;
-    assert!(finished(status), "{status}");
+    let done = plugin.event(SECRET_TOKEN, &batch).unwrap();
+    assert!(finished(done.status), "{}", done.status);
+    done
 }
 
 fn world(typed: &str, which: &'static str) -> (ScriptedHost, Log) {
@@ -342,7 +350,13 @@ fn typing_a_secret_anew_keeps_what_was_typed_and_nothing_typed_leaves_it() {
             "{questions:?}"
         );
         assert!(calls(&log, "keep").is_empty());
-        answered(&plugin, 0, 0, u32::try_from(typed.len()).unwrap());
+        // Masked (flag 4), and started from nothing: the old value is never
+        // written to the dialog.
+        assert_eq!(calls(&log, "flags"), ["flags 4"]);
+        assert!(calls(&log, "write").is_empty());
+        let done = answered(&plugin, 0, 0, u32::try_from(typed.len()).unwrap());
+        // The secret goes to `core.secrets` alone, never into a command.
+        assert!(!done.batches_contain(b"hunter2"));
         let did = calls(&log, "keep");
         assert_eq!(did.first().map(String::as_str), kept, "{did:?}");
         assert_eq!(did.len(), usize::from(kept.is_some()));

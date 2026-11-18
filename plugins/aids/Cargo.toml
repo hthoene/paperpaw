@@ -9,10 +9,9 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
-include = ["src", "how", "i18n", "build.rs", "declarations.rs", "native", "reader-filter.def", "READER-FILTER.md"]
+include = ["src", "how", "i18n", "build.rs", "declarations.rs", "native", "stages", "READER-FILTER.md"]
 
 [features]
-reader-filter = []
 linked = []
 native-entry = []
 
@@ -20,7 +19,9 @@ native-entry = []
 paperpaw-sdk.workspace = true
 
 [build-dependencies]
-paperpaw-sdk.workspace = true
+# `kernel` only for the build script (not unified with the plugin's own use of
+# the SDK): it makes the table of settings a linked build keeps in the program.
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
 paperpaw-core.workspace = true
@@ -30,3 +31,6 @@ proptest.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.paperpaw]
+card-files = ["i18n/*.ini"]

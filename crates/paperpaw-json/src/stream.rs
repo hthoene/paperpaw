@@ -29,8 +29,10 @@ use alloc::vec::Vec;
 
 use paperpaw_platform::Storage;
 
-/// Pieces a file is read in.
-const CHUNK: usize = 2048;
+/// Pieces a file is read in: three of a card's sectors, on the stack of
+/// [`read_file`], whose frame stays under the firmware's limit of 2,048
+/// bytes with it.
+const CHUNK: usize = 1536;
 /// Strings and other plain values are cut at this many bytes.
 pub const MAX_STRING: usize = 4096;
 /// Objects and arrays nested deeper than this are skipped whole, without
@@ -170,20 +172,16 @@ pub struct Parser {
 }
 
 impl Parser {
-    paperpaw_table::shared! {
     /// Reads `data`, the next piece of the text, reporting what it finds.
     pub fn feed(&mut self, data: &[u8], emit: &mut dyn FnMut(Event<'_>)) {
         or_abort(self.try_feed(data, emit));
-    } @ data::JSON_STREAM_FEED
     }
 
-    paperpaw_table::shared! {
     /// Ends the text: reports a number or `true`/`false`/`null` it ends
     /// with, which only what follows it could end otherwise (e.g. `42` as
     /// the whole text). A string left open is not reported.
     pub fn finish(&mut self, emit: &mut dyn FnMut(Event<'_>)) {
         or_abort(self.try_finish(emit));
-    } @ data::JSON_STREAM_FINISH
     }
 
     /// As [`Parser::feed`], allocating fallibly.
@@ -451,7 +449,6 @@ impl Parser {
     }
 }
 
-paperpaw_table::shared! {
 /// Reads the JSON file at `path`, a piece at a time, reporting what it
 /// finds to `emit`.
 pub fn read_file(storage: &dyn Storage, path: &str, emit: &mut dyn FnMut(Event<'_>)) {
@@ -466,7 +463,6 @@ pub fn read_file(storage: &dyn Storage, path: &str, emit: &mut dyn FnMut(Event<'
         offset += n as u64;
     }
     parser.finish(emit);
-} @ data::JSON_READ_FILE
 }
 
 /// As [`read_file`], allocating fallibly: reading ends at the first refusal.

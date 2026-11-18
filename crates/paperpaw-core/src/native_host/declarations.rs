@@ -121,18 +121,18 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::StatusItem(_)
         | Record::StatusLine(_)
         | Record::StatusPlace(_) => super::declarations_uix::validate(plugin_id, record),
-        // Format, reader, lookup and book declarations (`docs/abi/document.md`,
-        // `library.md`): checked, then refused until the host admits them
+        // Format and reader declarations (`docs/abi/document.md` section 1):
+        // admitted (the cross-record limits are the commit's), as are the
+        // book fields and badges (`library.md`). The lookup and book-data
+        // declarations are checked, then refused until the host admits them
         // (DOC/LIB hand-off).
-        Record::FormatSpec(spec) => docs::format_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
-        Record::ReaderSpec(spec) => docs::reader_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
-        Record::LookupSpec(spec) => docs::lookup_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED)),
-        Record::BookFieldSpec(spec) => {
-            docs::book_field_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
-        }
-        Record::BookBadgeSpec(spec) => {
-            docs::book_badge_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
-        }
+        Record::FormatSpec(spec) => docs::format_check(plugin_id, spec),
+        Record::ReaderSpec(spec) => docs::reader_check(plugin_id, spec),
+        // A lookup provider is admitted (the counts are the commit's and the
+        // store's, `document.md` section 7), as are book fields and badges.
+        Record::LookupSpec(spec) => docs::lookup_check(plugin_id, spec),
+        Record::BookFieldSpec(spec) => docs::book_field_check(plugin_id, spec),
+        Record::BookBadgeSpec(spec) => docs::book_badge_check(plugin_id, spec),
         Record::BookDataSpec(spec) => {
             docs::book_data_check(plugin_id, spec).and(Err(ERR_UNSUPPORTED))
         }
@@ -163,6 +163,7 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventPluginAnswered(_)
         | Record::EventScreenOpened(_)
         | Record::EventScreenClosed(_)
+        | Record::EventScreenHidden(_)
         | Record::EventStackChanged(_)
         | Record::EventAnswered(_)
         | Record::EventWidgetMade(_)
@@ -190,6 +191,7 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventBroadcast(_)
         | Record::EventDocumentClosed(_)
         | Record::EventTextTyped(_)
+        | Record::EventDocumentChanged(_)
         | Record::EventLookupReady(_) => Err(ERR_INVALID),
         // Input records go to `PpPlugin.input`, frames to `draw`, format
         // arguments to slot 27.
@@ -266,6 +268,7 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::ServiceDocPath(_)
         | Record::ServiceDocReader(_)
         | Record::ServiceDocProgress(_)
+        | Record::ServiceDocReport(_)
         | Record::ServiceDocBlock(_)
         | Record::ServiceDocTextPart(_)
         | Record::ServiceDocColumns(_)
@@ -593,6 +596,16 @@ fn extension_check(plugin_id: &str, extension: &ResourceFontExtension<'_>) -> Ch
 
 /// `screen.spec` flag bit 0: full refresh when the screen opens.
 pub const SCREEN_FULL_REFRESH_ON_OPEN: u32 = 1;
+/// `screen.spec` flag bit 8: the screen shows no row of button hints.
+pub const SCREEN_HINTS_HIDDEN: u32 = 1 << 8;
+/// `screen.spec` flag bit 9: what the screen shows is best in grays (a page with
+/// a picture, smooth text); `command.screen_policy` may change it at run time.
+pub const SCREEN_GRAYS: u32 = 1 << 9;
+/// `screen.spec` flag bit 10: an overlay that washes out what lies below it
+/// while it shows (a menu, a panel).
+pub const SCREEN_DIMS_BELOW: u32 = 1 << 10;
+/// Every `screen.spec` flag bit this host knows.
+const SCREEN_FLAGS_KNOWN: u32 = 0x7ff;
 /// `action.spec` flag bit 0: runs only while one of the plugin's screens is on top.
 pub const ACTION_NEEDS_SCREEN: u32 = 1;
 
@@ -607,7 +620,7 @@ fn screen_check(plugin_id: &str, screen: &ScreenSpec<'_>) -> Check {
     relative(plugin_id, name)?;
     ensure(!title.is_empty())?;
     // Ready notification is not connected to the host help policy yet.
-    if flags & !0xff != 0 || flags & (1 << 3) != 0 {
+    if flags & !SCREEN_FLAGS_KNOWN != 0 || flags & (1 << 3) != 0 {
         return Err(ERR_UNSUPPORTED);
     }
     if (flags >> 6) & 3 == 3 {

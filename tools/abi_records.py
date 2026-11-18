@@ -264,8 +264,10 @@ pub fn tick_decode(bytes: &[u8]) -> Result<u64, i32> {
     Ok(now_ms)
 }
 '''
-    source = source.replace("@READER@\n", reader_source())
-    source = source.replace("@WRITERS@\n", writer_source())
+    source = source.replace("@READER@\n", reader_source(quick=True))
+    # The records codec's varint size is the host's too (lookup broker, #1387).
+    source = source.replace("@WRITERS@\n", writer_source().replace(
+        'fn varint_len(', 'pub(crate) fn varint_len(', 1))
     for marker, value in replacements.items():
         source = source.replace(marker, str(value))
     declared = wire_records(schema)
@@ -276,9 +278,25 @@ pub fn tick_decode(bytes: &[u8]) -> Result<u64, i32> {
     return source
 
 
-def reader_source():
-    """Shared canonical framing reader, parameterised by status markers."""
-    return READER_TEMPLATE
+def reader_source(quick=False):
+    """Shared canonical framing reader, parameterised by status markers. `quick` reads a
+    varint of one byte (most tags, every short length) without the loop: the codecs that
+    walk tables take it, a plugin's own stage codec keeps the plain reader."""
+    if not quick:
+        return READER_TEMPLATE
+    head = "    fn varint(&mut self) -> Result<u32, i32> {\n"
+    assert READER_TEMPLATE.count(head) == 1
+    return READER_TEMPLATE.replace(head, head + QUICK_VARINT)
+
+
+QUICK_VARINT = '''        // One byte, as most tags and every short length are.
+        if let Some((&byte, rest)) = self.remaining.split_first() {
+            if byte < 0x80 {
+                self.remaining = rest;
+                return Ok(u32::from(byte));
+            }
+        }
+'''
 
 
 def writer_source():
@@ -397,14 +415,67 @@ def local_records(records, revision):
     declared = [dict(name=r['name'], id=r['id'], since=r['since'], fields=_fields(r))
                 for r in records]
     validate_record_shapes(declared, 0, revision)
-    _require(all(_camel(r['name']) not in {'RecordStream', 'Record', 'Reader'}
+    _require(all(_camel(r['name']) not in {'RecordStream', 'Record', 'Reader', 'WireField',
+                                           'WireValue', 'WireKind'}
                  for r in declared), 'record name collides with stage codec helper')
     return declared
 
 
-def local_codec_source(stage):
-    """Emit a stage-local codec through the kernel's borrowed record emitters."""
+STAGE_SHARED = '''impl<'a> Reader<'a> {
+    fn blob(&mut self, cap: usize) -> Result<&'a [u8], i32> {
+        let len = self.varint()? as usize;
+        if len > cap { return Err(-2); }
+        self.take(len)
+    }
+    fn string(&mut self, cap: usize) -> Result<&'a str, i32> {
+        wire_text(self.blob(cap)?, -2)
+    }
+    fn bitmap_bits(&mut self) -> Result<u8, i32> {
+        let len = self.varint()? as usize;
+        // At most eight optional fields: the first bitmap byte is all that is known.
+        Ok(self.take(len)?.first().copied().unwrap_or(0))
+    }
+}
+fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -> bool {
+    let mut count = 0;
+    for item in value.split(separator) {
+        count += 1;
+        if item.is_empty() || item.len() > item_max || count > max_items { return false; }
+    }
+    true
+}
+/// Where `part` lies in `whole`, in bytes.
+///
+/// # Safety
+///
+/// `part` is a reference into `whole`.
+const unsafe fn wire_offset<W, P>(whole: &W, part: &P) -> usize {
+    // SAFETY: both point into the one value `whole` (the caller's word).
+    unsafe { core::ptr::from_ref(part).cast::<u8>().offset_from(core::ptr::from_ref(whole).cast::<u8>()) as usize }
+}
+'''
+
+
+def shared_codec_source(stages):
+    """What the codecs of one file of stage schemas share when they walk tables
+    (`local_codec_source` with `tables`): the framing reader and writers, and the
+    interpreter of `abi_tables`. Returns the source and the defaults its tables name."""
+    from abi_tables import TEXT_SOURCE, defaults_of, interpreter_source, kinds_of
+    declared = [r for stage in stages
+                for r in local_records(stage['records'], stage['revision'])]
+    defaults = defaults_of(declared)
+    source = (reader_source(quick=True) + writer_source() + STAGE_SHARED + TEXT_SOURCE
+              + interpreter_source(defaults, -2, -2, kinds_of(declared), typed=False))
+    return source.replace('@INVALID@', '-2'), defaults
+
+
+def local_codec_source(stage, tables=None):
+    """Emit a stage-local codec through the kernel's borrowed record emitters. With
+    `tables` (the defaults of `shared_codec_source`, whose source the file holds once,
+    above its stage modules) the records are tables the shared interpreter walks."""
     declared = local_records(stage['records'], stage['revision'])
+    if tables is not None:
+        return _table_codec_source(stage, declared, tables)
     borrowed = any(_lifetime(r) for r in declared)
     life = "<'a>" if borrowed else ''
     record_type = 'Record' + life
@@ -448,24 +519,21 @@ fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -
     source += 'fn body_len(&self) -> Result<usize, i32> { match self {\n' + arms('Record::@T@(r) => r.body_len(),\n') + '} }\n'
     source += 'fn write(&self, out: &mut [u8], offset: &mut usize) { match self {\n' + arms('Record::@T@(r) => r.write(out, offset),\n') + '} }\n'
     source += _record_extra(declared)
-    source += 'fn validate(&self) -> Result<(), i32> {\n match self {\n'
-    for r in declared:
-        lists = [f for f in r['fields'] if f['items']]
-        if lists:
-            source += f'Record::{_camel(r["name"])}(r) => {{\n'
-            for f in lists:
-                items = f['items']
-                guard = f'!r.{f["name"]}.is_empty() && ' if f['optional'] else ''
-                source += f'if {guard}!valid_list(r.{f["name"]}, {items["separator"]!r}, {items["max_items"]}, {items["item_max_bytes"]}) {{ return Err(-2); }}\n'
-            source += '}\n'
-    # A codec whose every record has a list field matches them all: no catch-all arm.
-    rest = '_ => {}\n' if any(not any(f['items'] for f in r['fields']) for r in declared) else ''
-    source += rest + '}\nOk(())\n}\n}\n'
+    source += _validate_source(declared)
     source += "fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<" + record_type + ', i32> {\nlet record = match tag {\n' + arms('@C@_TAG => @T@::decode_body(body)?,\n') + '_ => return Err(-2),\n};\n// Unknown appended fields are bounded by the record framing.\nrecord.validate()?;\nOk(record)\n}\n'
+    return _codec_tail(source, stage, declared, borrowed, record_type, bitmap=(
+        'record.write_bitmap(out, &mut offset);'
+        if any(f['optional'] for r in declared for f in r['fields'])
+        else 'write_varint(0, out, &mut offset);'))
+
+
+
+
+
+def _codec_tail(source, stage, declared, borrowed, record_type, bitmap):
+    """The batch stream, encoders, writers and one-record helpers of a stage codec;
+    `bitmap` writes a record's presence bitmap where its `write` does not."""
     source += STREAM_TEMPLATE.replace('@RECORD@', record_type).replace('@ITEM@', 'Record<' + "'a>" if borrowed else 'Record')
-    bitmap = ('record.write_bitmap(out, &mut offset);'
-              if any(f['optional'] for r in declared for f in r['fields'])
-              else 'write_varint(0, out, &mut offset);')
     source += ENCODE_TEMPLATE.replace('@RECORD@', "Record<'_>" if borrowed else 'Record').replace('@BITMAP@', bitmap)
     # Row by row, no slice of records: the count prefix is one byte while
     # both sides hold at most 127 rows (schemas allow 64).
@@ -492,6 +560,83 @@ fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -
     source = source.replace('@INVALID@', '-2').replace('@NO_SPACE@', '-2').replace('@UTF8@', '-2')
     return source
 
+
+def _table_codec_source(stage, declared, defaults):
+    """`local_codec_source` over tables: no decode, length or write step per record."""
+    borrowed = any(_lifetime(r) for r in declared)
+    life = "<'a>" if borrowed else ''
+    record_type = 'Record' + life
+    variants = '\n'.join(f'    /// A `{r["name"]}` record.\n    {_camel(r["name"])}({_camel(r["name"])}{_lifetime(r)}),' for r in declared)
+    source = 'use super::*;\n'
+    source += ''.join(_record_source(r, 'decode_body', record_type, extensible=True, tables=defaults)
+                      for r in declared)
+    source += f'\n/// A record with a tag local to this stage.\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\n#[non_exhaustive]\npub enum Record{life} {{\n{variants}\n}}\n'
+    arms = lambda pattern: ''.join(pattern.replace('@T@', _camel(r['name'])).replace('@C@', _const(r['name'])) for r in declared)
+    # The tag, the table and the place of a record's struct are read from `ROWS` at the
+    # place of its variant, not given by a `match`: the compiler makes a lookup table of a
+    # `match` that only picks constants, and on the X4 those tables are kept in RAM (the
+    # linker script of the hardware crate puts them there); a `static` stays in flash.
+    blank = {'str': '""', 'bytes': '&[]'}
+    rows = ''
+    for r in declared:
+        title = _camel(r['name'])
+        args = ', '.join('None' if f['maybe'] else blank.get(f['kind'], '0') for f in r['fields'])
+        rows += (f'({_const(r["name"])}_TAG, &{_const(r["name"])}_FIELDS, {{\n'
+                 f'let record = Record::{title}({title}::new({args}));\n'
+                 '// SAFETY: `inner` is the struct inside `record`.\n'
+                 f'match &record {{ Record::{title}(inner) => unsafe {{ wire_offset(&record, inner) }}, _ => 0 }}\n'
+                 '}),\n')
+    source += ('/// The tag and the table of each record and where its struct lies in a [`Record`]\n'
+               '/// (read off a record of that variant), in the order of the variants.\n'
+               '#[allow(unreachable_patterns, reason = "a schema of one record has one variant")]\n'
+               f'static ROWS: [(u32, &[WireField], usize); {len(declared)}] = [\n' + rows + '];\n')
+    source += (f"impl<'a> {record_type} {{\n" if borrowed else 'impl Record {\n') + '''    /// Local wire tag.
+    pub fn tag(&self) -> u32 { self.row().0 }
+    /// Its tag, its table and where its struct lies in it.
+    fn row(&self) -> (u32, &'static [WireField], usize) {
+        let place: usize = match self {
+''' + ''.join(f'Record::{_camel(r["name"])}(_) => {index},\n' for index, r in enumerate(declared)) + '''        };
+        ROWS.get(place).copied().unwrap_or((0, &[], 0))
+    }
+    /// Its struct.
+    fn at(&self) -> *const u8 {
+        // SAFETY: `ROWS` holds, at the place of each variant, where that variant's struct
+        // lies in a `Record`: inside `self`.
+        unsafe { core::ptr::from_ref(self).cast::<u8>().add(self.row().2) }
+    }
+fn body_len(&self) -> Result<usize, i32> {
+    // SAFETY: `ROWS` holds each record's own table at the place of its variant.
+    unsafe { fields_len(self.row().1, self.at()) }
+}
+/// Its presence bitmap and its fields.
+fn write(&self, out: &mut [u8], offset: &mut usize) {
+    // SAFETY: `ROWS` holds each record's own table at the place of its variant.
+    unsafe { fields_write(self.row().1, self.at(), out, offset) }
+}
+'''
+    source += _validate_source(declared)
+    source += ("fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<" + record_type
+               + ', i32> {\n// SAFETY: each arm decodes with the table of the record it makes, which borrows\n// from the body alone.\nlet record = unsafe { match tag {\n'
+               + arms('@C@_TAG => Record::@T@(fields_decode_as(&@C@_FIELDS, body.remaining)?),\n')
+               + '_ => return Err(-2),\n} };\n// Unknown appended fields are bounded by the record framing.\nrecord.validate()?;\nOk(record)\n}\n')
+    return _codec_tail(source, stage, declared, borrowed, record_type, bitmap='')
+
+
+def _validate_source(declared):
+    """`Record::validate` (the list fields) and the end of the `impl Record` block."""
+    source = 'fn validate(&self) -> Result<(), i32> {\n match self {\n'
+    for r in declared:
+        lists = [f for f in r['fields'] if f['items']]
+        if lists:
+            source += f'Record::{_camel(r["name"])}(r) => {{\n'
+            for f in lists:
+                items = f['items']
+                guard = f'!r.{f["name"]}.is_empty() && ' if f['optional'] else ''
+                source += f'if {guard}!valid_list(r.{f["name"]}, {items["separator"]!r}, {items["max_items"]}, {items["item_max_bytes"]}) {{ return Err(-2); }}\n'
+            source += '}\n'
+    # A codec whose every record has a list field matches them all: no catch-all arm.
+    rest = '_ => {}\n' if any(not any(f['items'] for f in r['fields']) for r in declared) else ''
+    return source + rest + '}\nOk(())\n}\n}\n'
 
 
 STREAM_TEMPLATE = '''/// A validated stage batch, borrowed without keeping a decoded array.

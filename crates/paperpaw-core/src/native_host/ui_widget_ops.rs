@@ -4,9 +4,12 @@
 //!
 //! - **Who.** Op 4 is for the caller's top screen instance; op 5 for the
 //!   instance's maker (the table checks it). Ops 14 and 15 run another
-//!   plugin's callback and are depth 1 only (`ERR_BUSY` deeper); on the X4
-//!   they answer `ERR_UNSUPPORTED` until the nested-callback stack gate passes
-//!   (section 5.1).
+//!   plugin's callback and are depth 1 only (`ERR_BUSY` deeper); on the X4,
+//!   until the nested-callback stack gate passes (section 5.1), op 15
+//!   answers `ERR_UNSUPPORTED` and op 14 leaves the plugins' items without a
+//!   value. The kernel's own items (`host_status`, todo 598) need no call:
+//!   op 14 answers them everywhere, a drawn one with a status handle of the
+//!   host ([`host_status::HOST`]).
 //! - **Own.** A widget, item or line of the caller's own plugin is never
 //!   called back: op 4 and 15 answer `ui_instance` with `flags` bit 0 and
 //!   instance 0, op 14 a row with `flags` bit 2 and nothing else.
@@ -35,10 +38,11 @@
 use super::{
     registrations::{self as wire, Record},
     ui_guard,
-    ui_handles::{Dropped, UiHandles},
+    ui_handles::{Dropped, NewWidget, UiHandles},
     ui_service::UiServices,
 };
 use crate::abi7::context::Frame;
+use crate::native_host::codec;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{
@@ -47,8 +51,13 @@ use paperpaw_native::host_glue::{
 };
 
 use super::{host_services::Caller, stages_wire::core_status_v1 as status};
+use crate::abi7::context::HostStatus;
 
-/// Items one op 14 asks for.
+/// The kernel's own status items (op 14 without a plugin call, todo 598).
+#[path = "host_status.rs"]
+pub(crate) mod host_status;
+
+/// Staging one op 14 asks for.
 const ITEMS_MAX: usize = 8;
 const ITEM_BYTES: usize = 128;
 const TEXT_BYTES: usize = 128;
@@ -164,6 +173,8 @@ impl StatusCache {
 pub(crate) struct WidgetState {
     pub(crate) handles: RefCell<UiHandles>,
     pub(crate) cache: RefCell<StatusCache>,
+    /// Taps and long presses op 6 queued for their owners (`ui_widget_layout`).
+    pub(crate) inputs: RefCell<super::ui_widget_layout::WidgetInputs>,
     /// The minute (of the monotonic clock) the cache last saw; `u64::MAX` before.
     minute: core::cell::Cell<u64>,
 }
@@ -173,6 +184,7 @@ impl WidgetState {
         Self {
             handles: RefCell::new(UiHandles::new(x4)),
             cache: RefCell::new(StatusCache::default()),
+            inputs: RefCell::new(super::ui_widget_layout::WidgetInputs::new(x4)),
             minute: core::cell::Cell::new(u64::MAX),
         }
     }
@@ -197,7 +209,6 @@ impl UiServices {
     /// outcome (`ui.md` 8.2); then it gives it back, even when the callback
     /// failed or trapped. An owner that stops, is unloaded, switched off or in
     /// safe mode loses its notices without a delivery (`plugin_stopped`).
-    #[allow(dead_code, reason = "Core's dispatcher drains the drops")]
     pub(crate) fn next_widget_dropped(
         &self,
         owner: u64,
@@ -217,13 +228,22 @@ impl UiServices {
             now_ms,
             instance: notice.instance,
         });
-        let len = wire::records_encode(&[record], out)?;
+        let len = codec::encode_batch(&[record], out)?;
         Ok(Some((notice, len)))
+    }
+
+    /// The owner of the oldest drop not yet told (`None`: nothing waits).
+    pub(crate) fn next_dropped_owner(&self) -> Result<Option<u64>, i32> {
+        Ok(self
+            .widgets
+            .handles
+            .try_borrow()
+            .map_err(|_| ERR_BUSY)?
+            .next_dropped_owner())
     }
 
     /// The first delivery attempt of the notice is over, whatever its
     /// outcome: it is not listed any more.
-    #[allow(dead_code, reason = "Core's dispatcher drains the drops")]
     pub(crate) fn widget_dropped_delivered(&self, notice: &Dropped) -> Result<(), i32> {
         self.widgets
             .handles
@@ -231,6 +251,45 @@ impl UiServices {
             .map_err(|_| ERR_BUSY)?
             .dropped_delivered(notice);
         Ok(())
+    }
+
+    /// Whether `owner` may say instance `id` changed (`command.widget_changed`):
+    /// `ERR_NOT_FOUND`, `ERR_DENIED`, `ERR_BUSY` while the table is in use.
+    pub(crate) fn widget_check_changed(&self, owner: u64, id: u32) -> Result<(), i32> {
+        self.widgets
+            .handles
+            .try_borrow()
+            .map_err(|_| ERR_BUSY)?
+            .check_changed(owner, id)
+    }
+
+    /// The checked `command.widget_changed` of `owner` take effect: each
+    /// instance is marked for its maker, once. `ERR_BUSY` when the table is in
+    /// use (nothing marked).
+    pub(crate) fn widgets_changed(&self, owner: u64, ids: &[u32]) -> Result<(), i32> {
+        let mut handles = self
+            .widgets
+            .handles
+            .try_borrow_mut()
+            .map_err(|_| ERR_BUSY)?;
+        for id in ids {
+            handles.mark_changed(owner, *id);
+        }
+        Ok(())
+    }
+
+    /// Whether a change waits for its maker.
+    pub(crate) fn widget_change_waits(&self) -> bool {
+        self.widgets
+            .handles
+            .try_borrow()
+            .is_ok_and(|handles| handles.has_changed())
+    }
+
+    /// The oldest change not yet told, as (the maker, the instance), off the
+    /// list. `None`: nothing waits (or the table is in use).
+    pub(crate) fn take_widget_changed(&self) -> Option<(u64, u32)> {
+        self.widgets.handles.try_borrow_mut().ok()?.take_changed()
     }
 
     /// The lowest screen above `after` that still has widget instances.
@@ -243,14 +302,26 @@ impl UiServices {
             .next_screen(after))
     }
 
-    /// A callback of `plugin` returned: its status handles end with it.
+    /// A callback of `plugin` returned: its status handles end with it, and the
+    /// hand-overs it made that no `open` claimed are freed (`ui.md` 1.1: one
+    /// valid in the callback that made it only). A store in use leaves them to
+    /// the plugin's stop.
     pub(crate) fn callback_ended(&self, plugin: u64, callback: u64) -> Result<(), i32> {
+        let made = super::ui_store::Stamp::new(plugin, callback)
+            .and_then(|stamp| self.store.end_callback(stamp));
         self.widgets
             .handles
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
             .end_callback(plugin, callback);
-        Ok(())
+        made
+    }
+
+    /// A callback of `plugin` returned a failure: the questions it asked in it
+    /// never start (`ui.md` 3.1, a failed start cancels).
+    pub(crate) fn callback_failed(&self, plugin: u64, callback: u64) -> Result<(), i32> {
+        self.store
+            .callback_failed(super::ui_store::Stamp::new(plugin, callback)?)
     }
 
     /// Event 73 or the minute tick: cached status values go.
@@ -286,6 +357,17 @@ impl UiServices {
         Ok(())
     }
 
+    /// Whether `plugin` made or owns a widget or status handle, or a tap
+    /// waits for it (#248, D3).
+    ///
+    /// # Errors
+    /// `ERR_BUSY` while a table is borrowed.
+    pub(crate) fn plugin_holds(&self, plugin: u64) -> Result<bool, i32> {
+        let handles = self.widgets.handles.try_borrow().map_err(|_| ERR_BUSY)?;
+        let inputs = self.widgets.inputs.try_borrow().map_err(|_| ERR_BUSY)?;
+        Ok(handles.plugin_holds(plugin) || inputs.owner_holds(plugin))
+    }
+
     /// A plugin stopped: what it made or owns goes (widgets, status handles);
     /// the owners of what it made are told.
     pub(crate) fn plugin_stopped(&self, plugin: u64) -> Result<(), i32> {
@@ -294,6 +376,12 @@ impl UiServices {
             .try_borrow_mut()
             .map_err(|_| ERR_BUSY)?
             .drop_plugin(plugin);
+        // Taps still waiting for it would reach a plugin that is gone.
+        self.widgets
+            .inputs
+            .try_borrow_mut()
+            .map_err(|_| ERR_BUSY)?
+            .drop_owner(plugin);
         // Values of the owner's items would answer for a plugin that is gone.
         self.widgets
             .cache
@@ -317,7 +405,7 @@ fn nested_gate(frame: &dyn Frame) -> Result<u64, i32> {
     if frame.callback_depth()? != 1 {
         return Err(ERR_BUSY);
     }
-    if frame.ui_x4()? {
+    if frame.nested_closed()? {
         return Err(ERR_UNSUPPORTED);
     }
     Ok(epoch)
@@ -357,7 +445,7 @@ fn base_of(widget: &str) -> Result<&str, i32> {
 }
 
 fn instance_reply(instance: u32, flags: u32, out: &mut [u8]) -> Result<usize, i32> {
-    wire::record_encode_one(
+    codec::encode_one(
         &Record::ServiceUiInstance(wire::ServiceUiInstance { instance, flags }),
         out,
     )
@@ -371,9 +459,7 @@ pub(super) fn widget_make(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceUiWidgetRef(reference) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let reference: wire::ServiceUiWidgetRef<'_> = codec::single(input)?;
     let base = base_of(reference.widget)?;
     // Depth 1 only (ui.md, PR #419): a child holds no widgets.
     frame.callback_epoch()?;
@@ -404,21 +490,23 @@ pub(super) fn widget_make(
         .handles
         .try_borrow_mut()
         .map_err(|_| ERR_BUSY)?
-        .make_widget(
-            declared.owner,
+        .make_told(
             who.owner,
             screen,
-            declared.token,
-            declared.private,
+            &NewWidget {
+                owner: declared.owner,
+                token: declared.token,
+                private: declared.private,
+                widget: reference.widget,
+                place: reference.place,
+            },
         )?;
     instance_reply(id, 0, out)
 }
 
 /// Op 5: drops an instance, for its maker only.
 pub(super) fn widget_drop(ui: &UiServices, who: &Caller<'_>, input: &[u8]) -> Result<(), i32> {
-    let Record::ServiceUiInstance(instance) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let instance: wire::ServiceUiInstance = codec::single(input)?;
     if instance.flags != 0 {
         return Err(ERR_INVALID);
     }
@@ -537,6 +625,50 @@ fn classify(
     Ok(())
 }
 
+/// The kernel's own items among those nobody declared (`host_status`): a
+/// text, or a status handle of the host for a drawn value, valid in the
+/// caller's `callback` only. No room for another handle leaves the item
+/// without a value, as for a plugin's.
+fn host_items(
+    frame: &dyn Frame,
+    ui: &UiServices,
+    (caller, callback): (u64, u64),
+    items: &[&str],
+    pending: &[Option<Pending>; ITEMS_MAX],
+    rows: &mut [Value],
+) -> Result<(), i32> {
+    for (at, item) in items.iter().enumerate() {
+        let Some(row) = rows.get_mut(at) else {
+            break;
+        };
+        if pending[at].is_some() || row.flags != 0 || row.len != 0 {
+            continue;
+        }
+        let mut text = [0u8; TEXT_BYTES];
+        match frame.host_status(item, &mut text) {
+            Some(HostStatus::Text(len)) => row.set_text(text.get(..len).unwrap_or(&[])),
+            Some(HostStatus::Drawn(token)) => {
+                let granted = ui
+                    .widgets
+                    .handles
+                    .try_borrow_mut()
+                    .map_err(|_| ERR_BUSY)?
+                    .grant_status(caller, callback, host_status::HOST, token, false);
+                match granted {
+                    Ok(handle) => {
+                        row.flags = DRAWN;
+                        row.handle = handle;
+                    }
+                    Err(ERR_FULL) => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            None => {}
+        }
+    }
+    Ok(())
+}
+
 /// One owner call for the items `group[..members]` and the rows it fills.
 #[allow(
     clippy::too_many_arguments,
@@ -628,10 +760,14 @@ pub(super) fn status_values(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceUiStatusAsk(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
-    let epoch = nested_gate(frame)?;
+    let ask: wire::ServiceUiStatusAsk<'_> = codec::single(input)?;
+    // The kernel's own items need no nested call: on the X4, until its stack
+    // gate passes, only the plugins' items go without a value (todo 598).
+    let epoch = frame.callback_epoch()?;
+    if frame.callback_depth()? != 1 {
+        return Err(ERR_BUSY);
+    }
+    let closed = frame.nested_closed()?;
     below_guard_gate(frame, who)?;
     let (items, count) = split_items(ask.items)?;
     let items = &items[..count];
@@ -640,6 +776,10 @@ pub(super) fn status_values(
     rows.resize(count, EMPTY);
     let mut pending: [Option<Pending>; ITEMS_MAX] = [None; ITEMS_MAX];
     classify(frame, ui, who, ask.context, items, &mut rows, &mut pending)?;
+    host_items(frame, ui, (who.owner, epoch), items, &pending, &mut rows)?;
+    if closed {
+        pending = [None; ITEMS_MAX];
+    }
     // One call per (owner, token), groups in the order of their first item.
     let mut done = [false; ITEMS_MAX];
     for first in 0..count {
@@ -672,7 +812,7 @@ pub(super) fn status_values(
     }
     let mut used = 0;
     for (item, row) in items.iter().zip(&rows) {
-        used += wire::record_encode_one(
+        used += codec::encode_one(
             &Record::ServiceUiStatusValue(wire::ServiceUiStatusValue {
                 item,
                 flags: row.flags,
@@ -689,7 +829,7 @@ pub(super) fn status_values(
         next: 0,
         cursor: None,
     };
-    used += wire::record_encode_one(
+    used += codec::encode_one(
         &Record::ServiceEnd(end),
         out.get_mut(used..).ok_or(ERR_INVALID)?,
     )?;
@@ -704,9 +844,7 @@ pub(super) fn status_line(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let Record::ServiceUiStatusAsk(ask) = wire::records_decode_single(input)? else {
-        return Err(ERR_INVALID);
-    };
+    let ask: wire::ServiceUiStatusAsk<'_> = codec::single(input)?;
     let epoch = nested_gate(frame)?;
     below_guard_gate(frame, who)?;
     if ask.items.is_empty() || ask.items.len() > ITEM_BYTES || ask.items.contains('\n') {

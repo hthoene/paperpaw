@@ -8,7 +8,7 @@ use paperpaw_sdk::bluetooth::{GattRequest, Handle};
 
 impl Radio {
     /// What the shell reported.
-    pub fn report(&mut self, report: BtReport, now: Instant, out: &mut Vec<Command>) {
+    pub fn report(&mut self, report: BtReport, now: Instant, out: &mut Vec<Ask>) {
         match report {
             BtReport::Radio { on } => {
                 if !on && self.radio_on {
@@ -54,7 +54,7 @@ impl Radio {
     }
 
     /// [`Radio::report`] for pairing, HID and the GATT server.
-    fn report_more(&mut self, report: BtReport, now: Instant, out: &mut Vec<Command>) {
+    fn report_more(&mut self, report: BtReport, now: Instant, out: &mut Vec<Ask>) {
         match report {
             BtReport::Ask { link, question } => {
                 if let Some(at) = self.link_at(link) {
@@ -146,7 +146,7 @@ impl Radio {
 
     /// A device a scan found: told to every scan it passes, of plugins
     /// that may see it.
-    fn found(&mut self, found: Found, now: Instant, out: &mut Vec<Command>) {
+    fn found(&mut self, found: Found, now: Instant, out: &mut Vec<Ask>) {
         let id = self.device_at(&found.address);
         let Some(at) = self.known.iter().position(|k| k.id == id) else {
             return;
@@ -220,7 +220,7 @@ impl Radio {
         mtu: u16,
         security: Security,
         now: Instant,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) {
         let Some(at) = self.link_at(link) else { return };
         let link = &mut self.links[at];
@@ -254,7 +254,7 @@ impl Radio {
         }
     }
 
-    fn disconnected(&mut self, link: u32, reason: Option<BtError>, out: &mut Vec<Command>) {
+    fn disconnected(&mut self, link: u32, reason: Option<BtError>, out: &mut Vec<Ask>) {
         let Some(at) = self.link_at(link) else { return };
         self.release_keys(at);
         let link = self.links.remove(at);
@@ -273,7 +273,7 @@ impl Radio {
         }
     }
 
-    fn discovered(&mut self, link: u32, services: Vec<GattService>, out: &mut Vec<Command>) {
+    fn discovered(&mut self, link: u32, services: Vec<GattService>, out: &mut Vec<Ask>) {
         let Some(at) = self.link_at(link) else { return };
         let device = self.links[at].device;
         // Merged with what was found before (a discovery of one service).
@@ -336,7 +336,7 @@ impl Radio {
         kind: ValueKind,
         bytes: Vec<u8>,
         now: Instant,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) {
         let Some(at) = self.link_at(link) else { return };
         let link = &mut self.links[at];
@@ -366,7 +366,7 @@ impl Radio {
         handle: u16,
         answered: bool,
         now: Instant,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) {
         let Some(at) = self.link_at(link) else { return };
         let link = &mut self.links[at];
@@ -392,7 +392,7 @@ impl Radio {
         op: BtOp,
         handle: Option<u16>,
         error: BtError,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) {
         let Some(at) = self.link_at(link) else { return };
         let device = self.links[at].device;
@@ -424,7 +424,7 @@ impl Radio {
         }
     }
 
-    fn paired(&mut self, link: u32, keys: String, out: &mut Vec<Command>) {
+    fn paired(&mut self, link: u32, keys: String, out: &mut Vec<Ask>) {
         let Some(at) = self.link_at(link) else { return };
         let device = self.links[at].device;
         let events = self.links[at].pairing.take();
@@ -451,7 +451,7 @@ impl Radio {
         report: Option<u8>,
         bytes: &[u8],
         now: Instant,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) {
         let Some(at) = self.link_at(link) else { return };
         let device = self.links[at].device;

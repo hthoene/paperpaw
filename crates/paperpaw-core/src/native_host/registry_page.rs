@@ -16,6 +16,8 @@ pub(crate) struct RegistryPage<'a> {
     generation: u32,
     total: u32,
     end_bytes: usize,
+    /// Whole rows one page holds at most.
+    max_rows: usize,
 }
 
 impl<'a> RegistryPage<'a> {
@@ -46,7 +48,15 @@ impl<'a> RegistryPage<'a> {
             generation,
             total,
             end_bytes,
+            max_rows: core_registry_v1::PAGE_MAX_ROWS,
         })
+    }
+
+    /// A page of at most `rows` whole rows (a service whose reply schema says
+    /// fewer than `core.registry`'s 32).
+    pub(crate) fn rows_at_most(mut self, rows: usize) -> Self {
+        self.max_rows = rows;
+        self
     }
 
     /// Continue consumes the row; Break leaves it for the next page.
@@ -56,19 +66,19 @@ impl<'a> RegistryPage<'a> {
         if self.cursor == self.total {
             return Err(ERR_STATE);
         }
-        if self.rows == core_registry_v1::PAGE_MAX_ROWS {
+        if self.rows == self.max_rows {
             return Ok(ControlFlow::Break(()));
         }
-        let length = record.framed_len()?;
-        let available = self.out.len() - self.used - self.end_bytes;
-        if length > available {
+        // The room before the end record, which `new` saw to.
+        let limit = self.out.len() - self.end_bytes;
+        let room = self.out.get_mut(self.used..limit).ok_or(ERR_NO_SPACE)?;
+        let Some(written) = record.encode_within(room)? else {
             return if self.rows == 0 {
                 Err(ERR_NO_SPACE)
             } else {
                 Ok(ControlFlow::Break(()))
             };
-        }
-        let written = record.encode(&mut self.out[self.used..])?;
+        };
         self.used += written;
         self.rows += 1;
         self.cursor += 1;

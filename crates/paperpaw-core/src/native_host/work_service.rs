@@ -10,6 +10,7 @@
 //! instance did not ask) and the user's network setting for the plugin
 //! (`ERR_DENIED`). Memory: the call itself keeps nothing; `state` is one
 //! reply of at most 4,096 bytes written into the dispatcher's scratch.
+use super::shared::Shared;
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
@@ -17,16 +18,18 @@ use super::{
 };
 use crate::abi7::{context::Frame, services_wire::ServiceOp};
 use crate::native_host::codec;
-use alloc::rc::Rc;
+use alloc::boxed::Box;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED};
 
 /// `uses.network`: the feature a network work needs.
 const USES_NETWORK: &str = "uses.network";
 
 /// What the shell wires under `core.work`: the table and the device's view.
+/// Held in the host's fallible shared pointer: made at the first call
+/// (`HostServices::work_for_call`, #248), where no room is `ERR_NO_MEMORY`.
 pub(crate) struct WorkServices {
-    pub(crate) sched: Rc<WorkSched>,
-    pub(crate) env: Rc<dyn WorkEnv>,
+    pub(crate) sched: Shared<WorkSched>,
+    pub(crate) env: Shared<Box<dyn WorkEnv>>,
 }
 
 /// The `core.work` backend.
@@ -37,7 +40,7 @@ pub(crate) fn backend(
     input: &[u8],
     out: &mut [u8],
 ) -> Result<usize, i32> {
-    let work = who.hosts.work().ok_or(ERR_UNSUPPORTED)?;
+    let work = who.hosts.work_for_call()?;
     match op.id {
         1 => {
             let spec: wire::ServiceWorkSpec<'_> = codec::single(input)?;

@@ -60,6 +60,29 @@ impl<'cb> Canvas<'cb> {
         })
     }
 
+    /// Fill the pixels of a checker in a rectangle (`canvas.fill_pattern`,
+    /// slot 43): those an even number of steps (columns plus rows) from its
+    /// top-left corner, or an odd number where `odd`. It is clipped like
+    /// [`fill_rectangle`](Self::fill_rectangle), and one host call draws all.
+    ///
+    /// # Errors
+    /// Returns the host refusal, including State outside a draw callback and
+    /// Unsupported on a host without the slot (draw the pixels one by one).
+    pub fn fill_checker(&self, rect: FrameRect, color: Color, odd: bool) -> Result<(), Error> {
+        // SAFETY: the callback host outlives this canvas and all scalar inputs.
+        status(unsafe {
+            (self.host.table.canvas_fill_pattern)(
+                self.host.ctx,
+                rect.x,
+                rect.y,
+                rect.width,
+                rect.height,
+                packed(color),
+                u32::from(odd),
+            )
+        })
+    }
+
     /// Draw a line between two signed screen positions, with pixel thickness.
     ///
     /// # Errors
@@ -147,3 +170,7 @@ mod tests;
 #[path = "canvas_clip.rs"]
 mod clip;
 pub use clip::ClipGuard;
+
+#[path = "canvas_describe.rs"]
+mod describe;
+pub use describe::{PartFlags, PartRole};

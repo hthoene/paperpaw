@@ -159,8 +159,11 @@ fn a_plugin_opens_the_family_and_calls_every_op_through_the_dispatcher() {
         .storage(Shared(Rc::clone(&card)))
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let env = kernel.shared.place(Instant(0));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     scope
         .as_ref()
         .scope(&env, || {
@@ -243,8 +246,11 @@ fn a_family_the_shell_has_not_wired_answers_unsupported() {
         .storage(Shared(card))
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let env = kernel.shared.place(Instant(0));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     scope
         .as_ref()
         .scope(&env, || {

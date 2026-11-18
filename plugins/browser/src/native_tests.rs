@@ -1,6 +1,6 @@
-//! The interface-7 rules against the interface-6 ones: the same answers on the
-//! same inputs (the old code is the reference until it goes at activation),
-//! the deliberate bounds, and every allocation refused in turn.
+//! The rules of the browser: the answers they gave on interface 6 (pinned here
+//! from that code, which is gone), the deliberate bounds, and every allocation
+//! refused in turn.
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
@@ -18,7 +18,6 @@ use crate::native_store::{
     MAX_TITLE, StoreError,
 };
 use crate::native_web::{self, KeepError};
-use crate::{store, web};
 
 /// A storage that never allocates once built: files are slots with room
 /// reserved for their name and bytes, so a sweep refuses only the code under
@@ -143,41 +142,52 @@ impl Storage for Slots {
     }
 }
 
-const TYPED: [&str; 24] = [
-    "",
-    " ",
-    " de.wikipedia.org ",
-    "http://a.org/x",
-    "HTTPS://A.org",
-    "hTtP://x",
-    "Kafka Verwandlung",
-    "Größe",
-    "localhost",
-    "localhost:8080",
-    "example.org:8080/x",
-    "note: 8080",
-    "javascript:alert(1)",
-    "data:text/html,x",
-    "file:///etc/passwd",
-    "a:b c",
-    "...",
-    ".a.b",
-    "a.b.",
-    "calibre.local:8080",
-    "a b.c",
-    "ünï.de/ü",
-    "http:/x",
-    "https",
-];
+/// The search engine's address, which a search is appended to.
+const SEARCH: &str = "https://html.duckduckgo.com/html/?q=";
+
+/// What was typed and the address interface 6 made of it.
+fn typed_addresses() -> [(&'static str, String); 24] {
+    [
+        ("", SEARCH.into()),
+        (" ", SEARCH.into()),
+        (" de.wikipedia.org ", "https://de.wikipedia.org".into()),
+        ("http://a.org/x", "http://a.org/x".into()),
+        ("HTTPS://A.org", "HTTPS://A.org".into()),
+        ("hTtP://x", "hTtP://x".into()),
+        ("Kafka Verwandlung", format!("{SEARCH}Kafka+Verwandlung")),
+        ("Größe", format!("{SEARCH}Gr%C3%B6%C3%9Fe")),
+        ("localhost", format!("{SEARCH}localhost")),
+        ("localhost:8080", "https://localhost:8080".into()),
+        ("example.org:8080/x", "https://example.org:8080/x".into()),
+        ("note: 8080", format!("{SEARCH}note%3A+8080")),
+        (
+            "javascript:alert(1)",
+            format!("{SEARCH}javascript%3Aalert%281%29"),
+        ),
+        (
+            "data:text/html,x",
+            format!("{SEARCH}data%3Atext%2Fhtml%2Cx"),
+        ),
+        (
+            "file:///etc/passwd",
+            format!("{SEARCH}file%3A%2F%2F%2Fetc%2Fpasswd"),
+        ),
+        ("a:b c", format!("{SEARCH}a%3Ab+c")),
+        ("...", format!("{SEARCH}...")),
+        (".a.b", format!("{SEARCH}.a.b")),
+        ("a.b.", format!("{SEARCH}a.b.")),
+        ("calibre.local:8080", "https://calibre.local:8080".into()),
+        ("a b.c", format!("{SEARCH}a+b.c")),
+        ("ünï.de/ü", "https://ünï.de/ü".into()),
+        ("http:/x", format!("{SEARCH}http%3A%2Fx")),
+        ("https", format!("{SEARCH}https")),
+    ]
+}
 
 #[test]
 fn what_is_typed_becomes_what_it_did() {
-    for typed in TYPED {
-        assert_eq!(
-            native_web::address(typed).unwrap(),
-            web::address(typed),
-            "{typed:?}"
-        );
+    for (typed, address) in typed_addresses() {
+        assert_eq!(native_web::address(typed).unwrap(), address, "{typed:?}");
     }
 }
 
@@ -198,64 +208,77 @@ fn an_address_over_the_longest_a_request_takes_is_not_made() {
     assert!(native_web::address(&longest).unwrap().len() <= MAX_URL);
 }
 
-const MIMES: [Option<&str>; 12] = [
-    None,
-    Some(""),
-    Some("text/html; charset=utf-8"),
-    Some("TEXT/HTML"),
-    Some(" application/epub+zip "),
-    Some("text/plain"),
-    Some("font/ttf"),
-    Some("Application/X-Font-OTF;x"),
-    Some("application/octet-stream"),
-    Some("application/pdf"),
-    Some(";"),
-    Some("é"),
-];
-const URLS: [&str; 10] = [
-    "https://a.org/",
-    "https://a.org/b.EPUB",
-    "https://a.org/get?id=3",
-    "https://a.org/a.ttf",
-    "https://a.org/dir/x.TTC?y=1",
-    "https://a.org/x.html#z",
-    "https://a.org/x%2Eepub",
-    "https://a.org/x.epub.",
-    "https://a.org/.txt",
-    "https://a.org/x.pdf",
-];
-const HEADS: [&[u8]; 8] = [
-    b"",
-    b"OTTO\0\x0a",
-    b"\0\x01\0\0xx",
-    b"ttcf",
-    b"\n <!DOCTYPE html>",
-    b"\xef\xbb\xbf  <html>",
-    b"%PDF-1.4",
-    b"PK\x03\x04\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0mimetypeapplication/epub+zip",
-];
-
-fn old_kind(kind: web::Kind) -> native_web::Kind {
-    match kind {
-        web::Kind::Page => native_web::Kind::Page,
-        web::Kind::Book => native_web::Kind::Book,
-        web::Kind::Font => native_web::Kind::Font,
-        web::Kind::Other => native_web::Kind::Other,
-    }
-}
+/// An EPUB's first bytes: a zip whose first entry is `mimetype`.
+const EPUB_HEAD: &[u8] =
+    b"PK\x03\x04\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0mimetypeapplication/epub+zip";
 
 #[test]
 fn answers_are_told_apart_as_before() {
-    for mime in MIMES {
-        for url in URLS {
-            for head in HEADS {
-                assert_eq!(
-                    native_web::kind(mime, url, head).unwrap(),
-                    old_kind(web::kind(mime, url, head)),
-                    "{mime:?} {url:?} {head:?}"
-                );
-            }
-        }
+    use native_web::Kind::{Book, Font, Other, Page};
+    let html: &[u8] = b"\n <!DOCTYPE html>";
+    let bom_html: &[u8] = b"\xef\xbb\xbf  <html>";
+    // (content type, address, first bytes) and what interface 6 made of it.
+    let cases: [(Option<&str>, &str, &[u8], native_web::Kind); 28] = [
+        (None, "https://a.org/", b"", Other),
+        (None, "https://a.org/", html, Page),
+        (None, "https://a.org/b.EPUB", b"OTTO\0\x0a", Book),
+        (None, "https://a.org/get?id=3", b"", Other),
+        (None, "https://a.org/get?id=3", html, Page),
+        (None, "https://a.org/get?id=3", EPUB_HEAD, Book),
+        (None, "https://a.org/a.ttf", b"OTTO\0\x0a", Font),
+        (None, "https://a.org/dir/x.TTC?y=1", b"", Font),
+        (None, "https://a.org/x.html#z", b"ttcf", Page),
+        (None, "https://a.org/x%2Eepub", b"", Book),
+        (None, "https://a.org/x.epub.", b"", Book),
+        (None, "https://a.org/.txt", b"", Other),
+        (None, "https://a.org/.txt", b"ttcf", Font),
+        (None, "https://a.org/.txt", bom_html, Page),
+        (None, "https://a.org/x.pdf", b"%PDF-1.4", Other),
+        (Some(""), "https://a.org/", b"", Other),
+        (
+            Some("text/html; charset=utf-8"),
+            "https://a.org/",
+            b"",
+            Page,
+        ),
+        (
+            Some("text/html; charset=utf-8"),
+            "https://a.org/b.EPUB",
+            b"",
+            Page,
+        ),
+        (Some("TEXT/HTML"), "https://a.org/a.ttf", b"", Page),
+        (Some(" application/epub+zip "), "https://a.org/", b"", Book),
+        (Some("text/plain"), "https://a.org/x.pdf", b"", Book),
+        (Some("font/ttf"), "https://a.org/b.EPUB", b"", Font),
+        (
+            Some("Application/X-Font-OTF;x"),
+            "https://a.org/",
+            html,
+            Font,
+        ),
+        (
+            Some("application/octet-stream"),
+            "https://a.org/get?id=3",
+            b"",
+            Other,
+        ),
+        (
+            Some("application/octet-stream"),
+            "https://a.org/get?id=3",
+            EPUB_HEAD,
+            Book,
+        ),
+        (Some("application/pdf"), "https://a.org/x.pdf", b"", Other),
+        (Some(";"), "https://a.org/get?id=3", b"", Other),
+        (Some("\u{e9}"), "https://a.org/get?id=3", b"", Other),
+    ];
+    for (mime, url, head, kind) in cases {
+        assert_eq!(
+            native_web::kind(mime, url, head).unwrap(),
+            kind,
+            "{mime:?} {url:?} {head:?}"
+        );
     }
 }
 
@@ -263,47 +286,68 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(std::env::var("PROPTEST_CASES").ok().and_then(|n| n.parse().ok()).unwrap_or(256)))]
 
     #[test]
-    fn anything_typed_is_as_before_or_too_long(input in ".{0,300}") {
+    fn anything_typed_is_an_address_or_too_long(input in ".{0,300}") {
         match native_web::address(&input) {
-            Ok(url) => prop_assert_eq!(url, web::address(&input)),
-            Err(error) => {
-                prop_assert_eq!(error, Error::NoSpace);
-                prop_assert!(web::address(&input).len() > MAX_URL);
+            Ok(url) => {
+                prop_assert!(url.len() <= MAX_URL);
+                prop_assert!(url.to_ascii_lowercase().starts_with("http"), "{}", url);
             }
+            Err(error) => prop_assert_eq!(error, Error::NoSpace),
         }
     }
 
     #[test]
-    fn any_answer_is_told_apart_as_before(
+    fn any_answer_is_told_apart_without_failing(
         mime in prop::option::of(".{0,30}"),
         url in ".{0,60}",
         head in prop::collection::vec(any::<u8>(), 0..64),
     ) {
-        prop_assert_eq!(
-            native_web::kind(mime.as_deref(), &url, &head).unwrap(),
-            old_kind(web::kind(mime.as_deref(), &url, &head))
+        prop_assert!(native_web::kind(mime.as_deref(), &url, &head).is_ok());
+    }
+
+    #[test]
+    fn any_page_keeps_its_address_first(url in ".{0,80}") {
+        let storage = MemoryStorage::new().with("tmp", b"<p>x</p>".to_vec());
+        native_web::keep_page(&storage, "tmp", "page.html", &url).unwrap();
+        let kept = String::from_utf8(storage.get("page.html").unwrap()).unwrap();
+        prop_assert!(kept.starts_with("<base href=\""));
+        prop_assert!(kept.ends_with("\">\n<p>x</p>"));
+        prop_assert!(!storage.exists("tmp"));
+    }
+
+    #[test]
+    fn page_names_are_a_hash_and_an_extension(url in ".{0,80}") {
+        let name = native_web::page_name(&url).unwrap();
+        prop_assert_eq!(name.len(), 16 + ".html".len());
+        prop_assert!(name.ends_with(".html"));
+    }
+}
+
+#[test]
+fn pages_are_kept_and_named_as_before() {
+    for (url, base, name) in [
+        ("https://a.org/", "https://a.org/", "584676589f49c1ae.html"),
+        ("", "", "cbf29ce484222325.html"),
+        (
+            "https://a.org/?a=1&b=\"2\"",
+            "https://a.org/?a=1&amp;b=&quot;2&quot;",
+            "02149bbd72761c4f.html",
+        ),
+        ("\u{fc}", "\u{fc}", "0ac20a07b71807ea.html"),
+    ] {
+        let storage = MemoryStorage::new().with("tmp", b"<p>x</p>".to_vec());
+        native_web::keep_page(&storage, "tmp", "page.html", url).unwrap();
+        assert_eq!(
+            storage.get("page.html"),
+            Some(format!("<base href=\"{base}\">\n<p>x</p>").into_bytes()),
+            "{url:?}"
         );
-    }
-
-    #[test]
-    fn any_page_gives_the_title_it_gave(data in prop::collection::vec(any::<u8>(), 0..3000)) {
-        let storage = MemoryStorage::new().with("p.html", data);
-        prop_assert_eq!(native_web::title(&storage, "p.html").unwrap(), web::title(&storage, "p.html"));
-    }
-
-    #[test]
-    fn kept_pages_are_the_pages_that_were_kept(url in ".{0,80}") {
-        let old = MemoryStorage::new().with("tmp", b"<p>x</p>".to_vec());
-        web::keep_page(&old, "tmp", "page.html", &url).unwrap();
-        let new = MemoryStorage::new().with("tmp", b"<p>x</p>".to_vec());
-        native_web::keep_page(&new, "tmp", "page.html", &url).unwrap();
-        prop_assert_eq!(new.get("page.html"), old.get("page.html"));
-        prop_assert!(!new.exists("tmp"));
-    }
-
-    #[test]
-    fn page_names_are_the_names_they_were(url in ".{0,80}") {
-        prop_assert_eq!(native_web::page_name(&url).unwrap(), web::page_name(&url));
+        assert_eq!(native_web::page_name(url).unwrap(), name, "{url:?}");
+        assert_eq!(
+            native::page_path(url).unwrap(),
+            format!("pages/{name}"),
+            "{url:?}"
+        );
     }
 }
 
@@ -317,11 +361,19 @@ fn titles_are_what_they_were() {
         b"<title>cut",
         b"no title <p>here",
     ];
-    for page in pages {
+    let titles = [
+        Some("Ein Titel"),
+        Some("A & B A &unknown;"),
+        Some("Svg"),
+        None,
+        Some("cut"),
+        None,
+    ];
+    for (page, title) in pages.into_iter().zip(titles) {
         let storage = MemoryStorage::new().with("p.html", page.to_vec());
         assert_eq!(
-            native_web::title(&storage, "p.html").unwrap(),
-            web::title(&storage, "p.html"),
+            native_web::title(&storage, "p.html").unwrap().as_deref(),
+            title,
             "{}",
             String::from_utf8_lossy(page)
         );
@@ -356,37 +408,33 @@ fn lists_are_written_and_read_as_before() {
         entry("A\tB\nC\r", "https://a.org/?x=1\ty"),
         entry("", "https://empty-title.org/"),
     ];
-    let old: Vec<store::Entry> = entries
-        .iter()
-        .map(|e| store::Entry::new(&e.title, &e.url))
-        .collect();
-    let (one, two) = (MemoryStorage::new(), MemoryStorage::new());
-    store::save(&one, "l.txt", &old);
+    let two = MemoryStorage::new();
     native::save(&two, "l.txt", &entries).unwrap();
-    assert_eq!(two.get("l.txt"), one.get("l.txt"));
+    // Tabs and line ends in a title or address are written as spaces, as on
+    // interface 6.
+    assert_eq!(
+        two.get("l.txt"),
+        Some(
+            b"Wikipedia\thttps://de.m.wikipedia.org/\nA B C \thttps://a.org/?x=1 y\n\thttps://empty-title.org/\n"
+                .to_vec()
+        )
+    );
     let read = native::load(&two, "l.txt").unwrap().unwrap();
-    let read_old = store::load(&one, "l.txt").unwrap().unwrap();
-    assert_eq!(read.len(), read_old.len());
-    for (new, old) in read.iter().zip(&read_old) {
-        assert_eq!((&new.title, &new.url), (&old.title, &old.url));
-    }
+    assert_eq!(read.len(), 3);
+    assert_eq!(read[1], entry("A B C ", "https://a.org/?x=1 y"));
     // What version 1 wrote stays readable, with a byte order mark too.
-    for v1 in [
-        include_str!("../testdata/bookmarks.txt.v1"),
-        include_str!("../testdata/history.txt.v1"),
+    for (v1, count) in [
+        (include_str!("../testdata/bookmarks.txt.v1"), 2),
+        (include_str!("../testdata/history.txt.v1"), 3),
     ] {
         let storage = MemoryStorage::new()
             .with("a.txt", v1)
             .with("b.txt", format!("\u{feff}{v1}"));
-        let old = store::load(&storage, "a.txt").unwrap().unwrap();
         for name in ["a.txt", "b.txt"] {
-            let new = native::load(&storage, name).unwrap().unwrap();
-            assert_eq!(new.len(), old.len());
-            assert!(
-                new.iter()
-                    .zip(&old)
-                    .all(|(n, o)| n.title == o.title && n.url == o.url)
-            );
+            let list = native::load(&storage, name).unwrap().unwrap();
+            assert_eq!(list.len(), count);
+            native::save(&storage, "again.txt", &list).unwrap();
+            assert_eq!(storage.get("again.txt"), Some(v1.as_bytes().to_vec()));
         }
     }
     assert_eq!(native::load(&two, "none.txt"), Ok(None));
@@ -434,39 +482,33 @@ fn lists_are_bounded() {
 
 #[test]
 fn the_history_keeps_the_latest_pages_as_before() {
-    let (old, new) = (MemoryStorage::new(), MemoryStorage::new());
+    let new = MemoryStorage::new();
     for n in 0..HISTORY + 2 {
         let url = format!("https://a.org/{n}");
-        old.write(&store::page_path(&url), b"page").unwrap();
         new.write(&native::page_path(&url).unwrap(), b"page")
             .unwrap();
-        let a = store::remember(&old, store::Entry::new("A\tB", &url)).unwrap();
-        let b = native::remember(&new, entry("A\tB", &url))
+        native::remember(&new, entry("A\tB", &url))
             .unwrap()
             .unwrap();
-        assert_eq!(a.len(), b.len());
     }
-    let again_old = store::remember(&old, store::Entry::new("Again", "https://a.org/5")).unwrap();
+    // Visited again: first, once.
     let again = native::remember(&new, entry("Again", "https://a.org/5"))
         .unwrap()
         .unwrap();
     assert_eq!(again.len(), HISTORY);
     assert_eq!(again[0], entry("Again", "https://a.org/5"));
-    assert!(
-        again
-            .iter()
-            .zip(&again_old)
-            .all(|(n, o)| n.title == o.title && n.url == o.url)
+    assert_eq!(
+        again.iter().filter(|e| e.url == "https://a.org/5").count(),
+        1
     );
-    for n in [0, 1, 2, 31] {
+    // The oldest pages are gone.
+    for (n, kept) in [(0, false), (1, false), (2, true), (31, true)] {
         let url = format!("https://a.org/{n}");
-        assert_eq!(
-            new.exists(&native::page_path(&url).unwrap()),
-            old.exists(&store::page_path(&url)),
-            "{url}"
-        );
+        assert_eq!(new.exists(&native::page_path(&url).unwrap()), kept, "{url}");
     }
-    assert_eq!(new.get(HISTORY_FILE), old.get(&store::history_path()));
+    let loaded = native::load(&new, HISTORY_FILE).unwrap().unwrap();
+    assert_eq!(loaded, again);
+    assert_eq!(loaded[1].title, "A B");
     // A history that cannot be read is left as it is.
     let unreadable = MemoryStorage::new().with(HISTORY_FILE, vec![0xff]);
     assert_eq!(
@@ -505,7 +547,7 @@ fn memory<T, E: core::fmt::Debug>(
 
 #[test]
 fn refused_allocations_end_in_no_memory_and_recover() {
-    for typed in TYPED {
+    for (typed, _) in typed_addresses() {
         sweep(|| native_web::address(typed).map(|url| url.len()));
     }
     for (mime, url, head) in [

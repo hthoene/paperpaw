@@ -1,0 +1,389 @@
+//! The type of book pages through the host's fonts: a layout [`Typesetter`]
+//! that measures with the four reading fonts (`role:reading`, `-bold`,
+//! `-italic`, `-bold-italic`: the host picks the file at each call, and the
+//! missing ones fall back as `screens-input.md` 4 says). Widths of single
+//! characters are kept in a small table, so a page does not ask the host for
+//! the same letter twice. A host that refuses a measure is not an error of the
+//! layout: the width is 0 and `failed` says so, for the view to show a notice
+//! instead of a page it cannot trust. Letter spacing, kerning and ligatures are
+//! set in `letters`; superscripts are not set yet (`PORTING-7.md`).
+mod letters;
+mod tables;
+
+pub use letters::Letters;
+pub use tables::Tables;
+
+use core::cell::Cell;
+use paperpaw_sdk::{
+    layout::{Face, Typesetter},
+    native::{Error, Host, fonts::Font},
+};
+
+/// Relative sizes of headings 1 to 6.
+pub const HEADING_SCALE: [f32; 6] = [1.6, 1.4, 1.2, 1.1, 1.0, 1.0];
+/// The size of a small capital against the text's (Beta 3's).
+pub const SMALL_CAPS: f32 = 0.78;
+
+/// What `c` is set as in `face`: in small capitals a lower-case letter is its
+/// capital at [`SMALL_CAPS`] of `size` (one that has no single capital keeps
+/// its form, smaller); anything else is itself at `size`.
+#[must_use]
+pub fn small_capital(c: char, small_caps: bool, size: f32) -> (char, f32) {
+    if !small_caps || !c.is_lowercase() {
+        return (c, size);
+    }
+    let mut upper = c.to_uppercase();
+    match (upper.next(), upper.next()) {
+        (Some(capital), None) => (capital, size * SMALL_CAPS),
+        _ => (c, size * SMALL_CAPS),
+    }
+}
+
+/// The four reading fonts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Role {
+    /// Regular text.
+    Reading,
+    /// Bold text.
+    Bold,
+    /// Italic text.
+    Italic,
+    /// Bold italic text.
+    BoldItalic,
+}
+
+impl Role {
+    /// The key the host resolves.
+    #[must_use]
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::Reading => "role:reading",
+            Self::Bold => "role:reading-bold",
+            Self::Italic => "role:reading-italic",
+            Self::BoldItalic => "role:reading-bold-italic",
+        }
+    }
+
+    /// The role a face is set in: by its style bits only, as Beta 3 chose the
+    /// font (a heading is bold where the layout's style says so).
+    #[must_use]
+    pub fn of(face: Face) -> Self {
+        match (face.style.bold(), face.style.italic()) {
+            (false, false) => Self::Reading,
+            (true, false) => Self::Bold,
+            (false, true) => Self::Italic,
+            (true, true) => Self::BoldItalic,
+        }
+    }
+}
+
+/// What the typesetter asks of the fonts.
+pub trait Measure {
+    /// The advance of `text` in `role` at `size` pixels.
+    ///
+    /// # Errors
+    /// The host's refusal.
+    fn width(&self, role: Role, size: f32, text: &str) -> Result<f32, Error>;
+
+    /// Ascent and descent in `role` at `size` pixels.
+    ///
+    /// # Errors
+    /// The host's refusal.
+    fn metrics(&self, role: Role, size: f32) -> Result<(f32, f32), Error>;
+
+    /// Whether the font of `role` has the letter `c` (a ligature): a host that
+    /// cannot tell says no, and the letters are drawn apart.
+    fn covers(&self, _role: Role, _c: char) -> bool {
+        false
+    }
+}
+
+impl<M: Measure + ?Sized> Measure for &M {
+    fn width(&self, role: Role, size: f32, text: &str) -> Result<f32, Error> {
+        (**self).width(role, size, text)
+    }
+
+    fn metrics(&self, role: Role, size: f32) -> Result<(f32, f32), Error> {
+        (**self).metrics(role, size)
+    }
+
+    fn covers(&self, role: Role, c: char) -> bool {
+        (**self).covers(role, c)
+    }
+}
+
+/// The host's reading fonts, held for one callback.
+#[derive(Debug)]
+pub struct HostFonts<'h> {
+    fonts: [Font<'h>; 4],
+}
+
+impl<'h> HostFonts<'h> {
+    /// The four reading fonts of the host (four of the plugin's font handles).
+    ///
+    /// # Errors
+    /// The host's refusal (the handles are released again).
+    pub fn acquire(host: &'h Host<'h>) -> Result<Self, Error> {
+        Ok(Self {
+            fonts: [
+                Font::acquire(host, Role::Reading.key())?,
+                Font::acquire(host, Role::Bold.key())?,
+                Font::acquire(host, Role::Italic.key())?,
+                Font::acquire(host, Role::BoldItalic.key())?,
+            ],
+        })
+    }
+
+    /// The font of `role`.
+    #[must_use]
+    pub fn font_of(&self, role: Role) -> &Font<'h> {
+        &self.fonts[role as usize]
+    }
+
+    /// Gives the handles back.
+    ///
+    /// # Errors
+    /// The host's refusal (the others are released anyway).
+    pub fn release(self) -> Result<(), Error> {
+        let mut result = Ok(());
+        for font in self.fonts {
+            if let Err(error) = font.release() {
+                result = Err(error);
+            }
+        }
+        result
+    }
+}
+
+impl Measure for HostFonts<'_> {
+    fn width(&self, role: Role, size: f32, text: &str) -> Result<f32, Error> {
+        self.font_of(role).measure_text(size, text)
+    }
+
+    fn metrics(&self, role: Role, size: f32) -> Result<(f32, f32), Error> {
+        let metrics = self.font_of(role).read_line_metrics(size)?;
+        Ok((metrics.ascent, metrics.descent))
+    }
+
+    fn covers(&self, role: Role, c: char) -> bool {
+        let mut buffer = [0u8; 4];
+        let text = &*c.encode_utf8(&mut buffer);
+        self.font_of(role)
+            .covers(text)
+            .is_ok_and(|bytes| bytes == text.len())
+    }
+}
+
+/// A layout typesetter over `M`.
+#[derive(Debug)]
+pub struct Faces<M> {
+    measure: M,
+    /// The size of body text, in pixels.
+    base: f32,
+    /// How wide a space is, as a part of the font's own (the reader's word spacing).
+    word_spacing: f32,
+    /// Ascent and line height of body text: the reader's line spacing.
+    body: (f32, f32),
+    /// What the fonts said, kept (see [`Tables`]).
+    tables: Tables,
+    /// Which ligature letters the fonts have: two bits each, 1 yes, 2 no.
+    have: Cell<u64>,
+    /// The letters as set, and the reader's space after each in pixels.
+    letters: Letters,
+    spacing: f32,
+    failed: Cell<bool>,
+}
+
+impl<M: Measure> Faces<M> {
+    /// Body text of `base` pixels with the line spacing `spacing` (1.0 is the
+    /// size; at least the font's own distance, below 1.0 that much of it), with
+    /// tables of its own.
+    ///
+    /// # Errors
+    /// `Invalid` for a size or spacing that is not positive and finite, or a
+    /// font that cannot be measured; `NoMemory` for the tables.
+    pub fn new(measure: M, base: f32, spacing: f32) -> Result<Self, Error> {
+        Self::with_tables(measure, base, spacing, Tables::new()?)
+    }
+
+    /// [`Faces::new`] remembering the fonts in `tables`, which the pages of a
+    /// book share.
+    ///
+    /// # Errors
+    /// `Invalid` for a size or spacing that is not positive and finite, or a
+    /// font that cannot be measured.
+    pub fn with_tables(measure: M, base: f32, spacing: f32, tables: Tables) -> Result<Self, Error> {
+        if !(base.is_finite() && base > 0.0 && spacing.is_finite() && spacing > 0.0) {
+            return Err(Error::Invalid);
+        }
+        let (ascent, descent) = measure.metrics(Role::Reading, base)?;
+        let natural = ascent + descent;
+        let line_height = (base * spacing).max(natural * spacing.min(1.0));
+        let body = (ascent + (line_height - natural) / 2.0, line_height);
+        if !(body.0.is_finite() && body.1.is_finite()) {
+            return Err(Error::Invalid);
+        }
+        Ok(Self {
+            measure,
+            base,
+            word_spacing: 1.0,
+            body,
+            tables,
+            have: Cell::new(0),
+            letters: Letters::DEFAULT,
+            spacing: 0.0,
+            failed: Cell::new(false),
+        })
+    }
+
+    /// The line height of body text: the size times the line spacing, at
+    /// least the font's own distance (below 1.0 that much of it), as Beta 3.
+    #[must_use]
+    pub fn line_height(&self) -> f32 {
+        self.body.1
+    }
+
+    /// The same with spaces `factor` of the font's own width (0.5 to 2.0, as the
+    /// reader's word spacing setting allows).
+    #[must_use]
+    pub fn word_spacing(mut self, factor: f32) -> Self {
+        self.word_spacing = if factor.is_finite() {
+            factor.clamp(0.5, 2.0)
+        } else {
+            1.0
+        };
+        self
+    }
+
+    /// Whether the host refused a measure since the last [`take_failed`](Self::take_failed).
+    #[must_use]
+    pub fn failed(&self) -> bool {
+        self.failed.get()
+    }
+
+    /// [`failed`](Self::failed), and forgets it.
+    pub fn take_failed(&self) -> bool {
+        self.failed.replace(false)
+    }
+
+    /// The fonts and sizes this typesetter measures with.
+    #[must_use]
+    pub const fn measure(&self) -> &M {
+        &self.measure
+    }
+
+    /// The size in pixels a face is set at: the book's percent wins, else a
+    /// heading's level, else the reader's size.
+    #[must_use]
+    pub fn size(&self, face: Face) -> f32 {
+        match (face.size, face.heading) {
+            (percent, _) if percent > 0 => self.base * f32::from(percent) / 100.0,
+            (_, 0) => self.base,
+            (_, level) => {
+                let at = usize::from(level).clamp(1, HEADING_SCALE.len()) - 1;
+                self.base * HEADING_SCALE[at]
+            }
+        }
+    }
+
+    fn refused(&self) -> f32 {
+        self.failed.set(true);
+        0.0
+    }
+}
+
+impl<M: Measure> Faces<M> {
+    /// The width of the letter `c` in `role` at `size` pixels, from the table or
+    /// the host (0 where it refuses, which `failed` says).
+    pub(super) fn width_of(&self, role: Role, size: f32, c: char) -> f32 {
+        if let Some(width) = self.tables.width(role, size, c) {
+            return width;
+        }
+        let mut buffer = [0u8; 4];
+        let width = match self.measure.width(role, size, c.encode_utf8(&mut buffer)) {
+            Ok(width) if width.is_finite() => {
+                if c == ' ' {
+                    width * self.word_spacing
+                } else {
+                    width
+                }
+            }
+            _ => return self.refused(),
+        };
+        self.tables.keep_width(role, size, c, width)
+    }
+}
+
+impl<M: Measure> Typesetter for Faces<M> {
+    fn advance(&self, face: Face, c: char) -> f32 {
+        // What is not drawn takes no room (zero-width and control characters).
+        if paperpaw_sdk::text::is_invisible(c) {
+            return 0.0;
+        }
+        let width = self.bare_advance(face, c);
+        // No letter space after a space, and no float to add where none is set.
+        match self.spacing(face) {
+            spacing if c == ' ' || spacing.to_bits() == 0 => width,
+            spacing => width + spacing,
+        }
+    }
+
+    /// The pair as it is drawn: the font's kerning, or the room a ligature of
+    /// the two saves (`letters`).
+    fn kern(&self, face: Face, left: char, right: char) -> f32 {
+        self.set_pair(face, (left, right), true)
+    }
+
+    /// A Bengali or Devanagari word as wide as the host draws it, shaped
+    /// (one measure of the word; `native_draw` draws it at once); other text
+    /// as its characters and pairs.
+    fn advance_text(&self, face: Face, text: &str, around: &paperpaw_sdk::text::Around) -> f32 {
+        let _ = around;
+        if paperpaw_sdk::text::has_indic(text) {
+            return match self.measure.width(Role::of(face), self.size(face), text) {
+                Ok(width) if width.is_finite() => width,
+                _ => self.refused(),
+            };
+        }
+        let mut width = 0.0;
+        let mut before = None;
+        for c in text.chars() {
+            if let Some(left) = before {
+                width += self.kern(face, left, c);
+            }
+            width += self.advance(face, c);
+            before = Some(c);
+        }
+        width
+    }
+
+    /// Body text keeps the reader's ascent and line height, scaled by the
+    /// book's percent; a heading is at least 1.2 of its size high with the
+    /// extra shared above and below.
+    fn line(&self, face: Face) -> (f32, f32) {
+        if face.heading == 0 {
+            let scale = match face.size {
+                0 => 1.0,
+                percent => f32::from(percent) / 100.0,
+            };
+            return (self.body.0 * scale, self.body.1 * scale);
+        }
+        let size = self.size(face);
+        match self.measure.metrics(Role::of(face), size) {
+            Ok((ascent, descent)) if ascent.is_finite() && descent.is_finite() => {
+                let natural = ascent + descent;
+                let line_height = (size * 1.2).max(natural);
+                (ascent + (line_height - natural) / 2.0, line_height)
+            }
+            _ => {
+                self.refused();
+                // A line that cannot be measured is 1.2 of its size high, so a page still moves on.
+                (size * 0.8, size * 1.2)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

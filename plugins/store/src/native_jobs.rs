@@ -1,0 +1,1276 @@
+//! What the plugin carries out for its screens (`Next`) and the work behind it:
+//! fetching the list and the pages, the downloads and installs one plugin at a
+//! time, the queue (*Update all*, the first-run offer, plugins other plugins ask
+//! for), removing a plugin. The decisions are `native_download`,
+//! `native_install`, `native_queue` and `native_refusal`'s; this is the host
+//! side of them.
+use alloc::string::String;
+use alloc::vec::Vec;
+
+use paperpaw_sdk::Storage as _;
+use paperpaw_sdk::native::formatting::Arg;
+use paperpaw_sdk::native::{
+    Error, Host,
+    commands::{CommandSender, PluginEnabled, RedrawMode},
+    events::{Event, InstallDone},
+    net::HttpDone,
+    storage::DataStorage,
+    ui::Instance,
+};
+use paperpaw_ui_kit::mem::push;
+
+use crate::native_ask::{Say as _, Words};
+use crate::native_download::{Done as FileDone, Failure, Started, Step as DownStep};
+use crate::native_glue;
+use crate::native_install::{End, Have, Next as Turn, hand_over, next as queue_next};
+use crate::native_installs::HostInstalls;
+use crate::native_load::{Details, Done, Ended, LIST_TOKEN, PAGE_TOKEN, SIGNATURE_TOKEN};
+use crate::native_plugin::NativeStore;
+use crate::native_queue::{Mark, Queue};
+use crate::native_screens::{Next, SourceAct};
+use crate::native_sources::{Added, Gate, Origins, Source, Sources, Trust};
+use crate::native_wire::{DownloadWire, HostWire, InstallWire};
+
+/// The plugin store's data folder as the reader opens a file of it.
+const DATA_DIR: &str = ".paperpaw/plugins/store/";
+/// The first request number of a removal: an install's own count is small.
+const REMOVE_REQUEST: u32 = 0x7000_0000;
+/// The setup's step, as the plugin's own item.
+const SETUP_ITEM: &str = "store.setup";
+
+/// What the device has of the plugin being installed, owned.
+struct Present {
+    version: Option<String>,
+    repairs: bool,
+}
+
+/// What a plugin's download or install ended in, for the one who asked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Result_ {
+    Installed,
+    NotInstalled,
+}
+
+impl NativeStore {
+    /// Carries out what screen `instance` asked for.
+    pub(crate) fn carry(
+        &mut self,
+        host: &Host<'_>,
+        instance: Instance,
+        next: Next,
+    ) -> Result<(), Error> {
+        match next {
+            Next::Open { screen, params } => {
+                let ui = self.ui(host)?;
+                native_glue::open(host, ui, screen, &params)
+            }
+            Next::Close => close_screen(host),
+            Next::FetchList => self.fetch_list(host),
+            Next::FetchPage(id) => self.fetch_page(host, &id),
+            Next::Install(id) | Next::Update(id) => self.begin(host, &id),
+            Next::Remove(id) => self.remove(host, &id),
+            Next::Stop(id) => self.stop(host, &id),
+            Next::UpdateAll => self.update_all(host),
+            Next::Notify(key) => self.say(host, key),
+            Next::CloseNotify(key) => {
+                close_screen(host)?;
+                self.say(host, key)
+            }
+            Next::Said { key, name } => self.say_with(host, key, &name),
+            Next::Again { by, ids } => self.again(host, &by, &ids),
+            Next::Restart => {
+                let mut scratch = [0; 64];
+                CommandSender::new(host, &mut scratch).restart()
+            }
+            Next::Redraw => redraw(host),
+            Next::Ask { tag, ask } => self.start_ask(host, instance, tag, &ask),
+            Next::CloseWith { key, value } => {
+                self.keep_return(key, &value)?;
+                back(host)
+            }
+            Next::Read(file) => self.read(host, &file),
+            Next::SwitchOn(id) => self.switch_on(host, &id),
+            Next::Offered {
+                switch_on,
+                queued,
+                notify,
+                close,
+            } => {
+                for id in switch_on {
+                    self.switch_on(host, id)?;
+                }
+                if queued {
+                    self.go_on(host)?;
+                }
+                if !notify.is_empty() {
+                    self.say(host, notify)?;
+                }
+                if close { back(host) } else { Ok(()) }
+            }
+            Next::Templated {
+                settings,
+                switch_on,
+                queued,
+                notify,
+            } => {
+                set_template_settings(host, settings)?;
+                for id in switch_on {
+                    self.switch_on(host, id)?;
+                }
+                if queued {
+                    self.go_on(host)?;
+                }
+                self.say(host, notify)?;
+                back(host)
+            }
+            Next::Source(act) => self.source(host, act),
+            Next::None => Ok(()),
+        }
+    }
+
+    /// Lists another source, adds or removes one (#214).
+    #[inline(never)]
+    fn source(&mut self, host: &Host<'_>, act: SourceAct) -> Result<(), Error> {
+        // One source at a time: what is being fetched is the listed one's.
+        if self.download_busy() || self.want.is_some() {
+            return self.say(host, "store.source.busy");
+        }
+        let storage = DataStorage::new(host);
+        let mut sources = Sources::read(&storage)?;
+        match act {
+            SourceAct::Official => {
+                if self.handles.source.is_none() {
+                    return Ok(());
+                }
+                self.list_source(host, None)
+            }
+            SourceAct::List(url) => {
+                match sources.add(&url)? {
+                    Added::New => sources.keep(&storage)?,
+                    Added::Known => {}
+                    Added::Full => return self.say(host, "store.source.full"),
+                    _ => return self.say(host, "store.source.invalid"),
+                }
+                let Some(source) = sources.get(url.trim()) else {
+                    return Ok(());
+                };
+                let source = Source {
+                    url: crate::native_glue::own(&source.url)?,
+                    key: source.key,
+                };
+                self.list_source(host, Some(source))
+            }
+            SourceAct::Remove(url) => {
+                if sources.remove(&url) {
+                    sources.keep(&storage)?;
+                }
+                if self.handles.source.as_ref().is_some_and(|s| s.url == url) {
+                    self.list_source(host, None)?;
+                }
+                self.say_with(
+                    host,
+                    "store.source.removed",
+                    crate::native_sources::name(&url),
+                )
+            }
+        }
+    }
+
+    /// Lists `source` from now on (`None`: PaperPaw's library): what was held
+    /// of the list before goes, the index of a community source read before
+    /// too (its files are shared by them), and the list is fetched.
+    #[inline(never)]
+    fn list_source(&mut self, host: &Host<'_>, source: Option<Source>) -> Result<(), Error> {
+        {
+            let mut wire = HostWire::new(host, &mut self.handles);
+            self.loader.forget_list(&mut wire);
+        }
+        self.handles.source = source;
+        if self.handles.source.is_some() {
+            let _ = self.list_files(host).remove(crate::native_index::HEAD);
+        }
+        self.loader.forget_page();
+        self.activity.listed = self.handles.trust();
+        self.generation = self.generation.wrapping_add(1);
+        self.fetch_list(host)
+    }
+
+    /// The store is left: PaperPaw's library is listed the next time. A
+    /// download of the source's goes on first.
+    pub(crate) fn leave_source(&mut self, host: &Host<'_>) {
+        if self.handles.source.is_none() || self.download_busy() || self.want.is_some() {
+            return;
+        }
+        {
+            let mut wire = HostWire::new(host, &mut self.handles);
+            self.loader.forget_list(&mut wire);
+        }
+        self.handles.source = None;
+        self.activity.listed = Trust::Official;
+        self.generation = self.generation.wrapping_add(1);
+    }
+
+    /// Why plugin `id` is not installed from the source listed, if it is not:
+    /// the device has it from another source, or its code is not the source's
+    /// key's (`code` and `author` are its page's).
+    #[inline(never)]
+    fn source_refusal(
+        &mut self,
+        host: &Host<'_>,
+        id: &str,
+        code: bool,
+        author: Option<[u8; 32]>,
+    ) -> Result<Option<&'static str>, Error> {
+        let trust = self.handles.trust();
+        let storage = DataStorage::new(host);
+        let origins = Origins::read(&storage)?;
+        let recorded = origins.of(id);
+        // PaperPaw's library and a plugin of no community source: as before,
+        // nothing of the device is read for it.
+        let foreign = if trust == Trust::Official && recorded.is_none() {
+            false
+        } else {
+            let present = crate::native_installs::Snapshot::read_some(host, &[id])?;
+            let by_store = present
+                .have(id)
+                .map(|installed| installed.origin == crate::native_page::Origin::Store);
+            crate::native_sources::foreign(recorded, by_store, trust)
+        };
+        Ok(
+            match crate::native_sources::gate(trust, code, author.as_ref(), foreign) {
+                Gate::Open => None,
+                Gate::Foreign => Some("store.source.foreign"),
+                _ => Some("store.source.other-key"),
+            },
+        )
+    }
+
+    /// Keeps which source plugin `id` is installed from, before the host
+    /// installs it: a cut after the install then never leaves a source's
+    /// plugin as PaperPaw's library's.
+    fn keep_origin(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let mut origins = Origins::read(&storage)?;
+        if origins.set(id, self.installing_from.as_ref())? {
+            origins.keep(&storage)?;
+        }
+        Ok(())
+    }
+
+    /// Says that the source listed is one of the reader's now, with its key.
+    fn source_added(&mut self, host: &Host<'_>, key: &[u8; 32]) -> Result<(), Error> {
+        let Some(source) = self.handles.source.as_ref() else {
+            return Ok(());
+        };
+        let short = crate::native_sources::fingerprint(key)?;
+        let mut words = Words::new(host)?;
+        let text = words.format(
+            "store.source.added",
+            &[
+                Arg::Text {
+                    name: "name",
+                    value: crate::native_sources::name(&source.url),
+                },
+                Arg::Text {
+                    name: "key",
+                    value: &short,
+                },
+            ],
+        )?;
+        native_glue::notify(host, &text)
+    }
+
+    fn fetch_list(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let mut wire = HostWire::new(host, &mut self.handles);
+        self.loader.start_list(&mut wire)?;
+        redraw(host)
+    }
+
+    fn fetch_page(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        let mut wire = HostWire::new(host, &mut self.handles);
+        self.loader.start_page(&mut wire, id)
+    }
+
+    /// The end of a request of the list or of a page.
+    #[inline(never)]
+    pub(crate) fn http_done(
+        &mut self,
+        host: &Host<'_>,
+        done: &HttpDone,
+        event: &Event<'_>,
+    ) -> Result<(), Error> {
+        match done.token() {
+            LIST_TOKEN | PAGE_TOKEN | SIGNATURE_TOKEN => {
+                let ended = Done::new(done.id(), done.token(), done.reason(), done.status());
+                let before = self.handles.trust();
+                let result = {
+                    let mut wire = HostWire::new(host, &mut self.handles);
+                    self.loader.ended(&mut wire, &ended)?
+                };
+                // The first list of a community source was read: its key is
+                // kept from now on, and the reader is told.
+                if let (Trust::FirstUse, Trust::Pinned(key)) = (before, self.handles.trust()) {
+                    self.activity.listed = self.handles.trust();
+                    self.source_added(host, &key)?;
+                }
+                if result == Ended::ListChanged {
+                    self.generation = self.generation.wrapping_add(1);
+                    // The library was reached: what a setup template waited
+                    // to fetch goes on.
+                    self.release_template(host, false)?;
+                }
+                // A list that did not come (no connection, no answer) is said
+                // on the screen that showed it loading.
+                if result == Ended::ListUnchanged {
+                    redraw(host)?;
+                }
+                if result == Ended::Page {
+                    self.page_arrived(host)?;
+                }
+            }
+            crate::native_download::FILE_REQUEST => self.file_done(host, done)?,
+            _ => {}
+        }
+        self.forward(host, event)
+    }
+
+    /// The page asked for came, or did not: the install it was asked for goes on.
+    #[inline(never)]
+    fn page_arrived(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let Some(id) = self.want.clone() else {
+            return Ok(());
+        };
+        match self.loader.details() {
+            (Some(of), Details::Here) if of == id => {
+                self.want = None;
+                self.begin(host, &id)
+            }
+            (Some(of), Details::Offline | Details::Failed) if of == id => {
+                self.want_failed(host, &id)
+            }
+            // A page screen took the slot for another plugin: ask for ours
+            // again, once; a second time the plugin counts as not installed
+            // (the queue never waits for a page that is not coming).
+            (Some(of), _) if of != id => {
+                if self.want_retried {
+                    return self.want_failed(host, &id);
+                }
+                self.want_retried = true;
+                match self.fetch_page(host, &id) {
+                    Ok(()) => Ok(()),
+                    Err(Error::NoMemory) => Err(Error::NoMemory),
+                    Err(_) => self.want_failed(host, &id),
+                }
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// The page of plugin `id`, which the queue waits for, is not coming: the
+    /// plugin is not installed and the queue goes on.
+    fn want_failed(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        self.want = None;
+        self.want_retried = false;
+        self.not_installed(host, id, "")?;
+        self.go_on(host)
+    }
+
+    /// Asks for the page of plugin `id` to install it; a request the host
+    /// refuses is the plugin not installed.
+    #[inline(never)]
+    fn want_page(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        self.want = Some(crate::native_glue::own(id)?);
+        self.want_retried = false;
+        match self.fetch_page(host, id) {
+            Ok(()) => Ok(()),
+            Err(Error::NoMemory) => {
+                self.want = None;
+                Err(Error::NoMemory)
+            }
+            Err(_) => self.want_failed(host, id),
+        }
+    }
+
+    /// Installs plugin `id`, once its files are known: its page is fetched
+    /// first where it is not here.
+    #[inline(never)]
+    fn begin(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        if self.download_busy() {
+            let name = self.busy_name(host)?;
+            return self.say_with(host, "store.busy", &name);
+        }
+        let Some((code, author)) = self.loader.page(id).map(|p| {
+            // Code among the files of a page that is no code plugin's counts
+            // as code nobody's key is named for.
+            let hidden = !p.code
+                && crate::native_sources::names_code(p.files.iter().map(|f| f.path.as_str()));
+            (p.code || hidden, p.author_key.filter(|_| !hidden))
+        }) else {
+            return self.want_page(host, id);
+        };
+        if let Some(key) = self.source_refusal(host, id, code, author)? {
+            let name = match self.loader.page(id) {
+                Some(page) => crate::native_glue::own(&page.entry.name)?,
+                None => String::new(),
+            };
+            self.noted(host, id, &name, key, Result_::NotInstalled)?;
+            return self.go_on(host);
+        }
+        let Some(page) = self.loader.page(id) else {
+            return self.want_page(host, id);
+        };
+        // What the install needs of the page outlives it.
+        let kept = paperpaw_ui_kit::mem::boxed(lean(page)?)?;
+        let name = crate::native_glue::own(&page.entry.name)?;
+        let storage = DataStorage::new(host);
+        let started = {
+            let mut wire = DownloadWire::new(host, &mut self.handles);
+            self.download.start(&mut wire, page)
+        }?;
+        let _ = storage;
+        match started {
+            Started::Downloading => {
+                self.activity.set_other_job(id, &name)?;
+                self.activity.clear_no_room(id);
+                self.installing = Some(kept);
+                self.installing_from = self.handles.trust().key().copied();
+                self.sync_step(id);
+                redraw(host)
+            }
+            Started::NoNetwork => {
+                self.requests_failed(host)?;
+                self.say(host, "store.offline")
+            }
+            Started::Invalid | Started::Card => {
+                self.not_installed(host, id, &name)?;
+                self.go_on(host)
+            }
+        }
+    }
+
+    fn download_busy(&self) -> bool {
+        matches!(
+            self.download.step(),
+            DownStep::Downloading { .. } | DownStep::Ready | DownStep::Installing
+        )
+    }
+
+    /// The name of the plugin that is being downloaded.
+    fn busy_name(&self, host: &Host<'_>) -> Result<String, Error> {
+        let storage = DataStorage::new(host);
+        match crate::native_download::Download::progress(&storage)? {
+            Some(job) => Ok(job.name),
+            None => Ok(String::new()),
+        }
+    }
+
+    /// A file of the download came, or did not.
+    #[inline(never)]
+    fn file_done(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
+        let saved = done.reason() == paperpaw_sdk::native::net::Reason::Ok
+            && (200..300).contains(&done.status());
+        let ended = FileDone::new(done.id(), done.token(), done.reason(), saved);
+        let step = {
+            let mut wire = DownloadWire::new(host, &mut self.handles);
+            self.download.ended(&mut wire, &ended)?
+        };
+        match step {
+            DownStep::Ready => self.finish(host),
+            DownStep::Failed(failure) => self.download_failed(host, failure),
+            _ => {
+                self.sync_current();
+                Ok(())
+            }
+        }
+    }
+
+    /// All the files are here: the host installs them.
+    #[inline(never)]
+    fn finish(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let Some(staged) = self.download.take_ready(&storage)? else {
+            return Ok(());
+        };
+        let Some(page) = self.installing.take() else {
+            // Nothing is known of what the files are for: they go.
+            self.abandon(host, &staged);
+            return self.go_on(host);
+        };
+        let (name, id, installed) = match self.prepare_finish(host, &staged, &page) {
+            Ok(found) => found,
+            Err(error) => {
+                // The staged files and the busy mark must not outlive the
+                // install that could not start.
+                self.abandon(host, &staged);
+                let _ = self.go_on(host);
+                return Err(error);
+            }
+        };
+        if let Err(error) = self.keep_origin(host, &id) {
+            // The source cannot be kept: nothing is installed without it.
+            self.abandon(host, &staged);
+            if error == Error::NoMemory {
+                let _ = self.go_on(host);
+                return Err(error);
+            }
+            self.not_installed(host, &id, &name)?;
+            return self.go_on(host);
+        }
+        let have = Have {
+            version: installed.version.as_deref(),
+            repairs: installed.repairs,
+        };
+        let step = {
+            let mut wire = InstallWire::new(host);
+            if let Err(Error::NoMemory) = hand_over(&mut wire, &[]) {
+                self.abandon(host, &staged);
+                let _ = self.go_on(host);
+                return Err(Error::NoMemory);
+            }
+            self.installer
+                .finish(&mut wire, &mut self.download, staged, &page, have)?
+        };
+        self.sync_step(&id);
+        if matches!(step, DownStep::Failed(_)) {
+            self.not_installed(host, &id, &name)?;
+            return self.go_on(host);
+        }
+        redraw(host)
+    }
+
+    /// What an install needs to be sent: the names and what is installed of the
+    /// plugin now.
+    #[inline(never)]
+    fn prepare_finish(
+        &mut self,
+        host: &Host<'_>,
+        staged: &crate::native_download::Staged,
+        page: &crate::native_list::Page,
+    ) -> Result<(String, String, Present), Error> {
+        self.ensure_snapshot(host)?;
+        let snapshot = self.snapshot.as_ref().ok_or(Error::State)?;
+        let installed = snapshot.have(&page.entry.id);
+        let found = Present {
+            version: installed
+                .as_ref()
+                .map(|i| crate::native_glue::own(i.version))
+                .transpose()?,
+            repairs: installed
+                .as_ref()
+                .is_some_and(|i| crate::native_page::repairs(&page.entry, i)),
+        };
+        Ok((
+            crate::native_glue::own(&staged.name)?,
+            crate::native_glue::own(&staged.plugin)?,
+            found,
+        ))
+    }
+
+    /// Lets go of an install that cannot go on: its staged files, its busy
+    /// mark, what was kept for it.
+    fn abandon(&mut self, host: &Host<'_>, staged: &crate::native_download::Staged) {
+        let _ = crate::native_folders::Folders::new(host).remove_dir_all(&staged.folder);
+        self.download.set_step(DownStep::Idle);
+        self.installing = None;
+        self.sync_step(&staged.plugin);
+    }
+
+    /// The host's end of an install (`install_done`).
+    #[inline(never)]
+    pub(crate) fn install_done(
+        &mut self,
+        host: &Host<'_>,
+        done: &InstallDone<'_>,
+        event: &Event<'_>,
+    ) -> Result<(), Error> {
+        let Some(request) = done.request() else {
+            return Ok(());
+        };
+        let request = request.get();
+        if request >= REMOVE_REQUEST {
+            self.removed(host, done)?;
+            return self.forward(host, event);
+        }
+        use crate::native_install::Outcome;
+        let reason = reason_of(done);
+        let flags = u32::from(done.data_kept()) | (u32::from(done.at_next_start()) << 1);
+        let end = End::new(request, reason, flags);
+        let outcome = {
+            let mut wire = InstallWire::new(host);
+            self.installer.done(
+                &mut wire,
+                &mut self.download,
+                &end,
+                self.activity.flash_hint,
+            )?
+        };
+        // The host's end names no plugin where it was declined or refused: the
+        // outcome holds the one that was going.
+        let plugin: &str = match &outcome {
+            Outcome::Installed { plugin, .. }
+            | Outcome::Refused { plugin, .. }
+            | Outcome::Silent { plugin } => plugin,
+            Outcome::Other => done.id(),
+        };
+        self.forget_snapshot();
+        self.sync_step(plugin);
+        // A page the queue or the offer installed from is not kept for nobody.
+        if !self.has_page_screen() {
+            self.loader.forget_page();
+        }
+        // No room (the code room, the card) and a withdrawn key are what the
+        // page of the plugin says of it afterwards.
+        match reason_of(done) {
+            7 => self.activity.note_revoked(plugin)?,
+            13 | 17 => self.activity.note_no_room(plugin)?,
+            _ => {}
+        }
+        let said = match outcome {
+            Outcome::Installed {
+                plugin,
+                name,
+                updated,
+                restart,
+                requires,
+            } => {
+                let key = match (restart, updated) {
+                    (true, true) => "store.updated-code",
+                    (true, false) => "store.installed-code",
+                    (false, true) => "store.updated",
+                    (false, false) => "store.installed",
+                };
+                self.noted(host, &plugin, &name, key, Result_::Installed)?;
+                self.note_requires(requires);
+                true
+            }
+            Outcome::Refused { plugin, name, key } => {
+                self.noted(host, &plugin, &name, key, Result_::NotInstalled)?;
+                true
+            }
+            Outcome::Silent { plugin } => {
+                self.noted(host, &plugin, "", "", Result_::NotInstalled)?;
+                true
+            }
+            _ => false,
+        };
+        if said {
+            self.go_on(host)?;
+        }
+        self.forward(host, event)
+    }
+
+    /// Notes the plugins a plugin just installed requires; they are asked for
+    /// when the queue has ended ([`Self::ask_requires`]), as the request that
+    /// brought this plugin is answered only then.
+    fn note_requires(&mut self, requires: Vec<String>) {
+        for id in requires {
+            if !self.asks.requires.contains(&id) && push(&mut self.asks.requires, id).is_err() {
+                return;
+            }
+        }
+    }
+
+    /// Asks for the plugins noted (the host drops those the device has): the
+    /// store's own dialog offers them with their sizes. A refusal (a full
+    /// table) leaves the plugins installed as they are.
+    fn ask_requires(&mut self, host: &Host<'_>) {
+        let requires = core::mem::take(&mut self.asks.requires);
+        if requires.is_empty() {
+            return;
+        }
+        let mut ids: Vec<&str> = Vec::new();
+        if ids.try_reserve_exact(requires.len()).is_err() {
+            return;
+        }
+        ids.extend(requires.iter().map(String::as_str));
+        let mut scratch = [0; 1_024];
+        let _ = CommandSender::new(host, &mut scratch).request_plugins(&ids);
+    }
+
+    /// Says what became of plugin `id`, or notes it for the end of a quiet
+    /// queue or the request that asked for it.
+    #[inline(never)]
+    fn noted(
+        &mut self,
+        host: &Host<'_>,
+        id: &str,
+        name: &str,
+        key: &str,
+        result: Result_,
+    ) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let queue = Queue::read(&storage)?;
+        let done = result == Result_::Installed;
+        if queue.requested() {
+            let _ = crate::native_request::outcome(&storage, id, done);
+        } else if queue.quiet() {
+            let _ = crate::native_queue::note(&storage, name, done);
+        } else if !key.is_empty() {
+            self.say_with(host, key, name)?;
+        }
+        Ok(())
+    }
+
+    /// A plugin was not installed: said where nobody else is told.
+    fn not_installed(&mut self, host: &Host<'_>, id: &str, name: &str) -> Result<(), Error> {
+        self.noted(host, id, name, "store.failed", Result_::NotInstalled)
+    }
+
+    #[inline(never)]
+    fn download_failed(&mut self, host: &Host<'_>, why: Failure) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        // The download's own end took its job away: the plugin is the page's
+        // (its screen waits on the step of this id, and ended on "Downloading"
+        // for ever where the id was empty, #287).
+        let (id, name) = match self.installing.as_ref() {
+            Some(page) => (
+                crate::native_glue::own(&page.entry.id)?,
+                crate::native_glue::own(&page.entry.name)?,
+            ),
+            None => match crate::native_download::Download::progress(&storage)? {
+                Some(job) => (job.plugin, job.name),
+                None => (String::new(), String::new()),
+            },
+        };
+        self.installing = None;
+        self.sync_step(&id);
+        if why == Failure::Memory {
+            // Only a restart gives the memory back: said so.
+            self.noted(
+                host,
+                &id,
+                &name,
+                "store.failed.memory",
+                Result_::NotInstalled,
+            )?;
+        } else {
+            self.not_installed(host, &id, &name)?;
+        }
+        self.go_on(host)
+    }
+
+    /// The queue goes on: the next plugin gets its turn.
+    pub(crate) fn go_on(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let result = self.go_on_next(host);
+        // What the screens read of the queue follows it while they are open.
+        if !self.screens_empty() {
+            let _ = self.refresh_activity(host);
+        }
+        result
+    }
+
+    fn go_on_next(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.download_busy() || self.want.is_some() {
+            return Ok(());
+        }
+        let storage = DataStorage::new(host);
+        let mut queue = Queue::read(&storage)?;
+        match queue_next(&mut queue, &storage)? {
+            Turn::FetchPage(id) => {
+                // What another plugin or the setup asked for is PaperPaw's
+                // library's, never the community source's listed now (#214).
+                if queue.quiet() && self.handles.source.is_some() {
+                    self.list_source(host, None)?;
+                }
+                self.want_page(host, &id)
+            }
+            _ => {
+                self.queue_ended(host, &queue)?;
+                redraw(host)
+            }
+        }
+    }
+
+    /// The queue is empty: what the plugins put in quietly became, and what a
+    /// request's plugins became, is said.
+    #[inline(never)]
+    fn queue_ended(&mut self, host: &Host<'_>, queue: &Queue) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        if let Some(done) = crate::native_request::finished(&storage)? {
+            self.requests_finished(host, &done)?;
+        }
+        if let Some(report) = crate::native_queue::report(&storage, queue)? {
+            let mut words = Words::new(host)?;
+            if !report.done.is_empty() {
+                let text = words.format(
+                    "store.offer.done",
+                    &[Arg::Text {
+                        name: "names",
+                        value: &report.done,
+                    }],
+                )?;
+                native_glue::notify(host, &text)?;
+            }
+            if !report.not.is_empty() {
+                let text = words.format(
+                    "store.offer.not-done",
+                    &[Arg::Text {
+                        name: "names",
+                        value: &report.not,
+                    }],
+                )?;
+                native_glue::notify(host, &text)?;
+            }
+        }
+        self.ask_requires(host);
+        Ok(())
+    }
+
+    /// *Update all*: every plugin with a newer version is queued.
+    #[inline(never)]
+    fn update_all(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.ensure_snapshot(host)?;
+        let storage = DataStorage::new(host);
+        let ids = self.updates(&self.list_files(host))?;
+        let mut queue = Queue::read(&storage)?;
+        queue.add(ids.iter().map(String::as_str), Mark::Said)?;
+        queue.keep(&storage)?;
+        self.go_on(host)
+    }
+
+    /// Fetch again the plugins `ids` that plugin `by` asked for.
+    #[inline(never)]
+    fn again(&mut self, host: &Host<'_>, by: &str, ids: &[String]) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        crate::native_request::Request::again(&storage, by, ids)?;
+        let mut queue = Queue::read(&storage)?;
+        queue.add(ids.iter().map(String::as_str), Mark::Requested)?;
+        queue.keep(&storage)?;
+        self.go_on(host)
+    }
+
+    /// The ids of the plugins that have a newer version in the library's list.
+    #[inline(never)]
+    fn updates(&self, storage: &dyn paperpaw_sdk::Storage) -> Result<Vec<String>, Error> {
+        let mut ids = Vec::new();
+        let (Some(index), Some(snapshot)) = (self.loader.index(), self.snapshot.as_ref()) else {
+            return Ok(ids);
+        };
+        let betas = self.activity.takes_betas;
+        index.scan(storage, &mut |_, entry| {
+            // Never over a plugin another source installed (#214).
+            if let Some(installed) = snapshot.have(&entry.id)
+                && crate::native_page::newer(&entry, &installed, betas)
+                && !crate::native_sources::foreign(
+                    self.activity.origins.of(&entry.id),
+                    Some(installed.origin == crate::native_page::Origin::Store),
+                    self.activity.listed,
+                )
+            {
+                push(&mut ids, crate::native_glue::own(&entry.id)?)?;
+            }
+            Ok(())
+        })?;
+        Ok(ids)
+    }
+
+    /// Stops the install of plugin `id`; the next one in the queue goes on.
+    #[inline(never)]
+    fn stop(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        {
+            let mut wire = DownloadWire::new(host, &mut self.handles);
+            self.download.cancel(&mut wire);
+        }
+        {
+            let mut wire = InstallWire::new(host);
+            self.installer.forget(&mut wire);
+        }
+        self.download.set_step(DownStep::Idle);
+        self.installing = None;
+        self.want = None;
+        self.want_retried = false;
+        self.sync_step(id);
+        self.go_on(host)?;
+        redraw(host)
+    }
+
+    /// Removes plugin `id`.
+    #[inline(never)]
+    fn remove(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        self.remove_count = self.remove_count.wrapping_add(1) & 0xffff;
+        let request = REMOVE_REQUEST | self.remove_count.max(1);
+        {
+            let mut scratch = [0; 256];
+            CommandSender::new(host, &mut scratch).remove_plugin(request, id)?;
+        }
+        // The name the reader knows it by, kept until the host answers.
+        let name = match self.loader.page(id) {
+            Some(page) => crate::native_glue::own(&page.entry.name)?,
+            None => crate::native_glue::own(id)?,
+        };
+        self.removing = Some((request, name));
+        self.forget_snapshot();
+        Ok(())
+    }
+
+    /// The host's end of a removal: said, and the record of the install let go,
+    /// only where it was removed (declined or dismissed, nothing changed).
+    #[inline(never)]
+    fn removed(&mut self, host: &Host<'_>, done: &InstallDone<'_>) -> Result<(), Error> {
+        use crate::native_refusal::{Outcome as Said, outcome};
+        let name = match self.removing.take() {
+            Some((_, name)) => name,
+            None => crate::native_glue::own(done.id())?,
+        };
+        self.forget_snapshot();
+        match outcome(reason_of(done), self.activity.flash_hint) {
+            Said::Done => {
+                // It is no source's any more (a card that refuses leaves a
+                // line that says nothing of a plugin not installed).
+                let _ = self.forget_origin(host, done.id());
+                self.say_with(host, "store.removed", &name)
+            }
+            Said::Said(key) => self.say_with(host, key, &name),
+            _ => Ok(()),
+        }
+    }
+
+    fn forget_origin(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let mut origins = Origins::read(&storage)?;
+        if origins.set(id, None)? {
+            origins.keep(&storage)?;
+        }
+        Ok(())
+    }
+
+    fn switch_on(&mut self, host: &Host<'_>, id: &str) -> Result<(), Error> {
+        let mut scratch = [0; 128];
+        CommandSender::new(host, &mut scratch).set_plugin_enabled(id, PluginEnabled::On)?;
+        self.forget_snapshot();
+        redraw(host)
+    }
+
+    /// Shows a text file of the data folder in the reader.
+    fn read(&mut self, host: &Host<'_>, file: &str) -> Result<(), Error> {
+        let path = paperpaw_ui_kit::text::concat(&[DATA_DIR, file])?;
+        let ui = self.ui(host)?;
+        native_glue::open_reader(host, ui, &path)
+    }
+
+    fn say(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
+        let mut words = Words::new(host)?;
+        let text = words.text(key)?;
+        native_glue::notify(host, &text)
+    }
+
+    fn say_with(&mut self, host: &Host<'_>, key: &str, name: &str) -> Result<(), Error> {
+        let mut words = Words::new(host)?;
+        let text = words.format(
+            key,
+            &[Arg::Text {
+                name: "name",
+                value: name,
+            }],
+        )?;
+        native_glue::notify(host, &text)
+    }
+
+    /// Keeps the value a screen hands to the one below it.
+    fn keep_return(&mut self, key: &str, value: &str) -> Result<(), Error> {
+        self.returned = Some((
+            crate::native_glue::own(key)?,
+            crate::native_glue::own(value)?,
+        ));
+        Ok(())
+    }
+
+    /// The plugin has started: a download cut off by the restart is begun anew
+    /// from its page, or first when the queue goes on; the plugins the setup
+    /// put in quietly go on without the store being opened; the setup's card
+    /// says whether it applies.
+    #[inline(never)]
+    pub(crate) fn started(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        let mut queue = Queue::read(&storage)?;
+        queue.interrupted();
+        queue.keep(&storage)?;
+        {
+            let mut wire = DownloadWire::new(host, &mut self.handles);
+            self.download.cancel(&mut wire);
+        }
+        // Nothing is going on at the start: what a power cut left staged after
+        // the hand-over to the host (the job's file is gone by then) goes too.
+        let _ = crate::native_folders::Folders::new(host)
+            .remove_dir_all(crate::native_download::STAGE_DIR);
+        let quiet = queue.has_quiet();
+        drop(queue);
+        // What the offer's step is, from the card alone: whether the device can
+        // add anything is read later (the start is where the heap peaks, #248).
+        let state = self.setup_state(host, false);
+        self.setup_stale = true;
+        if quiet {
+            self.go_on(host)?;
+        }
+        self.release_template(host, true)?;
+        self.release_idle();
+        state
+    }
+
+    /// The plugins of a setup template that waited for a connection go into
+    /// the queue (quietly) and it starts: at the start where the device is
+    /// online (`need_online`), and where the library was reached. Those that
+    /// came another way are left out; the list is gone either way. It is also
+    /// called where Wi-Fi reports a connection (`need_online` is false: the
+    /// event says so, no radio is read or switched on).
+    #[inline(never)]
+    pub(crate) fn release_template(
+        &mut self,
+        host: &Host<'_>,
+        need_online: bool,
+    ) -> Result<(), Error> {
+        use crate::native_template::{pending, release, waiting};
+        let storage = DataStorage::new(host);
+        if !waiting(&storage) || (need_online && !crate::native_installs::is_online(host)?) {
+            return Ok(());
+        }
+        let ids = pending(&storage)?;
+        let mut asked: Vec<&str> = Vec::new();
+        asked
+            .try_reserve_exact(ids.len())
+            .map_err(|_| Error::NoMemory)?;
+        asked.extend(ids.iter().map(String::as_str));
+        let present = crate::native_installs::Snapshot::read_some(host, &asked)?;
+        asked.retain(|id| present.have(id).is_none());
+        if release(&storage, &asked)? {
+            self.go_on(host)?;
+        }
+        Ok(())
+    }
+
+    /// Whether the setup's step applies, and what it says of the plugins chosen
+    /// (`command.set_item_state`).
+    #[inline(never)]
+    pub(crate) fn setup_state(&mut self, host: &Host<'_>, device: bool) -> Result<(), Error> {
+        use crate::native_ask::{Badge, CHOSEN, OFFERED, badge, waiting_offered};
+        use paperpaw_sdk::native::commands::ItemState;
+        let storage = DataStorage::new(host);
+        // The rows of the plugins the offer name, not what the device has, and
+        // none of it is kept. Without `device` the step is taken to apply.
+        let applies = if device {
+            let present = crate::native_installs::Snapshot::read_some(host, &OFFERED)?;
+            self.activity.read_facts(host, &storage, Some(&present))?;
+            let installs = HostInstalls::new(&present, &self.activity);
+            crate::native_screen_offer::applies(&installs)
+        } else {
+            true
+        };
+        let queue = Queue::read(&storage)?;
+        let how = badge(waiting_offered(&queue), storage.exists(CHOSEN));
+        let mut scratch = [0; 256];
+        let mut args = [0; 64];
+        let mut sender = CommandSender::new(host, &mut scratch);
+        let count = [Arg::Count(match how {
+            Badge::BeingAdded(count) => i64::try_from(count).unwrap_or(i64::MAX),
+            _ => 0,
+        })];
+        let state = if !applies {
+            ItemState::new().hidden()
+        } else {
+            match how {
+                Badge::BeingAdded(_) => ItemState::new().badge("store.offer.being-added", &count),
+                Badge::Added => ItemState::new().badge("store.offer.added", &[]),
+                _ => ItemState::new(),
+            }
+        };
+        sender.set_item_state(SETUP_ITEM, &state, &mut args)
+    }
+
+    /// Nothing of the device or of the queue is kept while no screen of the
+    /// store is open and no install goes on (#248).
+    pub(crate) fn release_idle(&mut self) {
+        if !self.screens_empty() {
+            return;
+        }
+        self.forget_snapshot();
+        if self.download_busy() || self.want.is_some() {
+            return;
+        }
+        self.activity.queue = Queue::default();
+        self.activity.step = Vec::new();
+        self.activity.actions = Vec::new();
+        self.activity.restart_needed = Vec::new();
+        self.activity.origins = Origins::default();
+    }
+
+    /// Where the downloads and the installs stand, for the screens.
+    pub(crate) fn refresh_activity(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let storage = DataStorage::new(host);
+        self.activity.queue = Queue::read(&storage)?;
+        Ok(())
+    }
+
+    /// Tells the screens how plugin `id`'s install stands.
+    fn sync_step(&mut self, id: &str) {
+        use crate::native_screens::Step;
+        let step = match self.download.step() {
+            DownStep::Idle => Step::Idle,
+            DownStep::Downloading { done, total } => Step::Downloading {
+                done: u32::try_from(done).unwrap_or(u32::MAX),
+                total: u32::try_from(total).unwrap_or(u32::MAX),
+            },
+            DownStep::Ready | DownStep::Installing => Step::Installing,
+            DownStep::Installed => Step::Installed,
+            DownStep::Failed(_) => Step::Failed(1),
+        };
+        if !self.download_busy() {
+            self.activity.clear_other_job();
+        }
+        self.activity.step.retain(|(known, _)| known != id);
+        if step != Step::Idle {
+            let _ = push(
+                &mut self.activity.step,
+                (crate::native_glue::own(id).unwrap_or_default(), step),
+            );
+        }
+    }
+
+    fn sync_current(&mut self) {
+        if let Some(id) = self.installing.as_ref().map(|p| p.entry.id.clone()) {
+            self.sync_step(&id);
+        }
+    }
+}
+
+/// What an install needs of a page: the plugin's id, name and version, the
+/// flags of its build and the library's word of its author; none of what the page
+/// shows and none of the files (the download holds those on the card).
+fn lean(page: &crate::native_list::Page) -> Result<crate::native_list::Page, Error> {
+    let mut rotations = Vec::new();
+    rotations
+        .try_reserve_exact(page.rotations.len())
+        .map_err(|_| Error::NoMemory)?;
+    rotations.extend(page.rotations.iter().copied());
+    Ok(crate::native_list::Page {
+        entry: crate::native_model::Entry {
+            id: crate::native_glue::own(&page.entry.id)?,
+            name: crate::native_glue::own(&page.entry.name)?,
+            version: crate::native_glue::own(&page.entry.version)?,
+            code: page.entry.code,
+            needs_newer: page.entry.needs_newer,
+            waits_author: page.entry.waits_author,
+            ..crate::native_model::Entry::default()
+        },
+        files: Vec::new(),
+        code: page.code,
+        author_key: page.author_key,
+        recovery_key: page.recovery_key,
+        rotations,
+        more: crate::native_item::More::default(),
+    })
+}
+
+/// Closes the screen that asked for it. The host lets a plugin close a screen
+/// only from a screen's own callbacks: an event (the end of an install) is
+/// refused, so the screen is drawn as it ended and closes at the next input or
+/// when it is shown again (`Phase::Done`).
+fn close_screen(host: &Host<'_>) -> Result<(), Error> {
+    match back(host) {
+        Err(Error::Unsupported) => redraw(host),
+        other => other,
+    }
+}
+
+fn back(host: &Host<'_>) -> Result<(), Error> {
+    let mut scratch = [0; 64];
+    CommandSender::new(host, &mut scratch).back()
+}
+
+pub(crate) fn redraw(host: &Host<'_>) -> Result<(), Error> {
+    let mut scratch = [0; 64];
+    CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)
+}
+
+/// The host's reason of an `install_done` as `device.md` 5.5 numbers it.
+fn reason_of(done: &InstallDone<'_>) -> u32 {
+    use paperpaw_sdk::native::device::DeviceOutcome as O;
+    match done.outcome() {
+        O::Ok => {
+            if done.status().is_ok() {
+                0
+            } else {
+                1
+            }
+        }
+        O::Declined => 2,
+        O::Dismissed => 3,
+        O::Damaged => 4,
+        O::OtherAuthor => 5,
+        O::KeyChanged => 6,
+        O::Revoked => 7,
+        O::Unsigned => 8,
+        O::UnknownKey => 9,
+        O::NewerInterface => 10,
+        O::OlderInterface => 11,
+        O::OtherChip => 12,
+        O::NoRoom => 13,
+        O::NotNewer => 14,
+        O::IdTaken => 15,
+        O::CardError => 16,
+        O::CardFull => 17,
+        O::ContentChanged => 18,
+        O::Unsupported => 19,
+        O::Cancelled => 20,
+        O::RestartPending => 21,
+        _ => 1,
+    }
+}
+
+/// Sets the settings of a setup template. A setting the host refuses (this
+/// device lacks it) is left; only memory is an error.
+#[inline(never)]
+fn set_template_settings(
+    host: &Host<'_>,
+    settings: &[(&str, crate::native_template::Value)],
+) -> Result<(), Error> {
+    use crate::native_template::Value;
+    use paperpaw_sdk::native::settings::SettingValue;
+    let mut scratch = [0; 256];
+    let mut sender = CommandSender::new(host, &mut scratch);
+    for (key, value) in settings {
+        let value = match value {
+            Value::Bool(on) => SettingValue::Bool(*on),
+            Value::Text(text) => SettingValue::Text(text),
+        };
+        if let Err(Error::NoMemory) = sender.set_setting(key, value) {
+            return Err(Error::NoMemory);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::vec;
+    use alloc::vec::Vec;
+
+    use super::lean;
+    use crate::native_install::Proof;
+    use crate::native_item::{More, Rotation};
+    use crate::native_list::Page;
+    use crate::native_model::Entry;
+
+    #[test]
+    fn what_an_install_keeps_of_a_page_is_the_librarys_word_of_its_author() {
+        let page = Page {
+            entry: Entry {
+                id: "airy-theme".into(),
+                ..Entry::default()
+            },
+            files: Vec::new(),
+            code: true,
+            author_key: Some([7; 32]),
+            recovery_key: Some([8; 32]),
+            rotations: vec![Rotation {
+                to: [1; 32],
+                signature: [2; 64],
+            }],
+            more: More::default(),
+        };
+        let kept = lean(&page).unwrap();
+        let proof = Proof::of(&kept).unwrap();
+        assert_eq!(proof.author, Some([7; 32]));
+        assert_eq!(proof.recovery, Some([8; 32]));
+        assert_eq!(proof.rotations.len(), 1);
+    }
+}

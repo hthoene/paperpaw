@@ -17,6 +17,9 @@ pub(crate) struct FontRemovals {
     generation: Cell<Option<u64>>,
     floor: Cell<u64>,
     providers: RefCell<Vec<Removal>>,
+    /// What the host found of fonts and settings: kept here as this is the
+    /// one shared object every frame reaches.
+    pub(crate) memos: super::host_memos::HostMemos,
     #[cfg(test)]
     refuse_growth: Cell<bool>,
 }
@@ -27,6 +30,7 @@ impl FontRemovals {
             generation: Cell::new(Some(0)),
             floor: Cell::new(0),
             providers: RefCell::new(Vec::new()),
+            memos: super::host_memos::HostMemos::new(),
             #[cfg(test)]
             refuse_growth: Cell::new(false),
         }

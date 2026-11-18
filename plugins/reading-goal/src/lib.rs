@@ -45,6 +45,7 @@ mod native_entry;
 pub use native_entry::NATIVE_ENTRY;
 /// The interface-7 plugin.
 pub mod native_plugin;
+mod read_today;
 
 pub mod model;
 mod native_picture;

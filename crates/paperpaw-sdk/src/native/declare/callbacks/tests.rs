@@ -16,7 +16,16 @@ fn every_event_kind_matches_its_generated_registration_bytes() {
             records_wire::EVENT_STACK_CHANGED_TAG,
         ),
         (EventKind::ScreenReady, records_wire::EVENT_SCREEN_READY_TAG),
+        (EventKind::Spoken, records_wire::EVENT_SPOKEN_TAG),
+        (
+            EventKind::DocumentClosed,
+            records_wire::EVENT_DOCUMENT_CLOSED_TAG,
+        ),
         (EventKind::Tick, records_wire::EVENT_TICK_TAG),
+        (
+            EventKind::WidgetChanged,
+            records_wire::EVENT_WIDGET_CHANGED_TAG,
+        ),
         (EventKind::Started, records_wire::EVENT_STARTED_TAG),
         (EventKind::Resume, records_wire::EVENT_RESUME_TAG),
         (EventKind::Suspend, records_wire::EVENT_SUSPEND_TAG),

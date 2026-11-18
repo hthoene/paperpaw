@@ -1,6 +1,7 @@
 //! Generated service row budgets apply before dispatch and publication.
 use super::*;
 use crate::native_host::host_services::Caller;
+use alloc::vec::Vec;
 use registrations::{Record, ServiceEnd, ServiceUiParam, ServiceUiTarget};
 
 fn params(count: usize) -> Vec<u8> {
@@ -55,11 +56,14 @@ fn input_over_limit_never_calls_backend_or_changes_output() {
     BACKEND_CALLS.with(|calls| calls.set(0));
     let pool = HostResources::with_test_service(counted_echo).unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let input = batch("one");
     let mut two = input.clone();
     two[0] = 2;
@@ -216,6 +220,7 @@ fn lookup_entry() -> Vec<u8> {
         title: "word",
         text: "meaning",
         flags: 0,
+        opens: "",
     });
     let mut out = std::vec![0; 256];
     let len = registrations::record_encode_one(&row, &mut out).unwrap();
@@ -352,7 +357,7 @@ fn usage_producer_and_echo_backend_share_the_dispatch_reply_validator() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let frame = CoreFrame {
         callback: None,
         instance: None,
@@ -367,6 +372,8 @@ fn usage_producer_and_echo_backend_share_the_dispatch_reply_validator() {
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
+        ui: None,
     };
     let echo_op = services_wire::service_schema("core.test-echo", 1)
         .unwrap()

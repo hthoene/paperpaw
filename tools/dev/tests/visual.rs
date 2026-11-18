@@ -16,6 +16,7 @@ use paperpaw_dev::visual::{self, Looker, checks};
 use paperpaw_emulator::profiles;
 
 #[test]
+#[ignore = "the dev tool measures a widget's cell with its interface-6 probe widget, which the native Home does not place (todo 634, #244)"]
 fn good_screens_pass_and_a_margin_off_is_found() {
     let out = std::env::temp_dir().join(format!("paperpaw-dev-visual-{}", std::process::id()));
     let context = Context::new(

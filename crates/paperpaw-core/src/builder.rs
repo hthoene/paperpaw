@@ -7,6 +7,10 @@
 )]
 use super::*;
 
+mod display;
+mod items;
+pub use items::Staging;
+
 /// Configures and creates a [`Kernel`].
 ///
 /// What it holds lies on the heap: each call moves the builder, and a
@@ -17,7 +21,7 @@ pub struct KernelBuilder(Box<BuilderParts>);
 /// What a [`KernelBuilder`] was told.
 struct BuilderParts {
     device: DeviceInfo,
-    plugins: Vec<Box<dyn Plugin>>,
+    plugins: Vec<items::Source>,
     /// Plugins shipped switched off, until the user switches them on.
     off: Vec<String>,
     device_keymap: Option<Cow<'static, str>>,
@@ -27,7 +31,17 @@ struct BuilderParts {
     /// of buttons come from their own settings at the end.
     caps: Capabilities,
     firmware: Option<Firmware>,
+    /// The device's firmware install and check steps (`device.md` 5.1, 5.3).
+    firmware_host: Option<Box<dyn paperpaw_platform::firmware::FirmwareHost>>,
+    /// What plugin checks, installs and removals compare a plugin with.
+    plugin_host: Option<crate::native_host::plugin_job::PluginHost>,
     code: Option<crate::code_plugin::CodePlugins>,
+    /// The ids of plugins built in that register after the build
+    /// ([`KernelBuilder::built_in_ids`]).
+    built_in_ids: Option<fn(&str) -> bool>,
+    /// A shell without a code loader that serves `text.hyphenate`
+    /// ([`KernelBuilder::hyphenation_sink`]).
+    hyphenation: Option<crate::hyphen_feed::MakeSink>,
     /// What the firmware takes, told once an update on trial is kept
     /// ([`KernelBuilder::native_after_trial`]).
     after_trial: Option<Native>,
@@ -47,6 +61,7 @@ struct BuilderParts {
     font_dirs: Vec<String>,
     catalog_device: Option<&'static str>,
     random: paperpaw_sdk::random::Random,
+    device_log: Option<fn(&str)>,
     memory: paperpaw_sdk::memory::Memory,
     started: paperpaw_sdk::power::Start,
     slept_for: Option<core::time::Duration>,
@@ -55,7 +70,9 @@ struct BuilderParts {
     /// Network settings kept in the program, by plugin.
     network_settings: &'static [crate::NetworkSettings],
     catalog_indexes: paperpaw_i18n::FixedIndexes,
-    built_catalogs: &'static paperpaw_i18n::BuiltCatalogs,
+    built_catalogs: &'static [paperpaw_i18n::BuiltLanguage],
+    built_messages: Vec<&'static [paperpaw_i18n::BuiltMessages]>,
+    language_seed: Option<&'static crate::language_seed::LanguageSeed>,
     /// The most Bluetooth links the shell keeps; none without a radio.
     bluetooth_links: u8,
 }
@@ -70,17 +87,60 @@ impl fmt::Debug for KernelBuilder {
 }
 
 impl KernelBuilder {
-    /// Adds a plugin. Plugins registered later win priority ties.
-    pub fn plugin(mut self, plugin: impl Plugin + 'static) -> Self {
-        self.0.plugins.push(Box::new(plugin));
+    /// Adds the fonts the program is built with: a table in the program,
+    /// listed as a plugin of data is and registered where it is named,
+    /// among the plugins (those registered later win priority ties).
+    #[must_use]
+    pub fn built_in_fonts(mut self, fonts: &'static paperpaw_sdk::BuiltInFonts) -> Self {
+        self.0.plugins.push(items::Source::Fonts(fonts));
         self
     }
 
-    /// Adds a plugin that is off until the user switches it on (e.g. in
-    /// the plugin manager), for features not everyone wants.
-    pub fn plugin_off(mut self, plugin: impl Plugin + 'static) -> Self {
-        self.0.off.push(String::from(plugin.manifest().id.as_str()));
-        self.plugin(plugin)
+    /// The device's firmware: what installs and checks a firmware image
+    /// (`device.md` 5.1, 5.3). Without it every firmware command of a plugin
+    /// is `ERR_UNSUPPORTED`; with it a firmware request is accepted whole at
+    /// submit, queued and driven one bounded step at a time from the main
+    /// loop (`Kernel::native_firmware_pump`).
+    #[must_use]
+    pub fn firmware_host(
+        mut self,
+        host: Box<dyn paperpaw_platform::firmware::FirmwareHost>,
+    ) -> Self {
+        self.0.firmware_host = Some(host);
+        self
+    }
+
+    /// What the device tells plugin jobs about itself (`device.md` 5.1, 5.2):
+    /// what its loader reads (`loader`), what it offers a plugin's metadata
+    /// (`offered`) and the signing keys it knows by name (`signers`; every
+    /// other key is shown by its fingerprint). `signers` lists PaperPaw's own
+    /// keys only: a plugin check reports "signed by PaperPaw" (`dev_check`
+    /// flag bit 3) for any key that has a name here. Without it (and without
+    /// [`Self::firmware_host`], whose queue plugin jobs share) `check_file` of
+    /// kind 0 is `ERR_UNSUPPORTED`.
+    #[must_use]
+    pub fn plugin_host(
+        mut self,
+        loader: paperpaw_native::header5::Host,
+        offered: paperpaw_native::metadata::Host<'static>,
+        signers: &'static [(&'static str, [u8; 32])],
+    ) -> Self {
+        self.0.plugin_host = Some(crate::native_host::plugin_job::PluginHost {
+            loader: Some(loader),
+            offered,
+            signers,
+        });
+        self
+    }
+
+    /// [`Self::plugin_host`] for a device that loads no plugin code
+    /// (Boox/Android, desktop, web): plugin jobs install, check and remove
+    /// data plugins only; a plugin with a code file ends with reason 19
+    /// (`ERR_UNSUPPORTED`). It shares the queue of [`Self::firmware_host`].
+    #[must_use]
+    pub fn data_plugin_host(mut self) -> Self {
+        self.0.plugin_host = Some(crate::native_host::plugin_job::PluginHost::DATA_ONLY);
+        self
     }
 
     /// Key bindings specific to the device (e.g. its physical buttons).
@@ -108,11 +168,30 @@ impl KernelBuilder {
         self
     }
 
-    /// The English catalogs built in, indexed together when the program
-    /// was built: the translator keeps one catalog for all of them (see
-    /// [`BuiltCatalogs`](paperpaw_i18n::BuiltCatalogs)).
-    pub fn built_catalogs(mut self, table: &'static paperpaw_i18n::BuiltCatalogs) -> Self {
-        self.0.built_catalogs = table;
+    /// The catalogs built in, indexed together when the program was built,
+    /// a table for each language (English, German): the translator keeps one
+    /// catalog for all of a language's (see
+    /// [`BuiltLanguage`](paperpaw_i18n::BuiltLanguage)).
+    pub fn built_catalogs(mut self, tables: &'static [paperpaw_i18n::BuiltLanguage]) -> Self {
+        self.0.built_catalogs = tables;
+        self
+    }
+
+    /// Texts built into the program without their keys, made by its build
+    /// script ([`BuiltMessages`](paperpaw_i18n::BuiltMessages)): the kernel's
+    /// own texts (`paperpaw_app::CORE_MESSAGES`: the kernel does not carry the
+    /// sources of its catalogs) and the shell's. May be called more than
+    /// once; every other catalog takes precedence over them.
+    pub fn built_messages(mut self, tables: &'static [paperpaw_i18n::BuiltMessages]) -> Self {
+        self.0.built_messages.push(tables);
+        self
+    }
+
+    /// A language the program carries as a language pack it writes to the
+    /// storage when that language is chosen (and at the start, when it
+    /// already is): see [`LanguageSeed`](crate::LanguageSeed).
+    pub fn language_seed(mut self, seed: &'static crate::language_seed::LanguageSeed) -> Self {
+        self.0.language_seed = Some(seed);
         self
     }
 
@@ -215,6 +294,16 @@ impl KernelBuilder {
         self
     }
 
+    /// Where the host's own diagnostics go: `sink` gets one line at a time
+    /// (at most 120 bytes, plugin ids and numbers only, never plugin text,
+    /// paths or secrets). Without one the lines are dropped: nothing is
+    /// formatted and nothing fails. A line may come at any time the kernel
+    /// runs, so `sink` must be quick and must not call the kernel.
+    pub fn device_log(mut self, sink: fn(&str)) -> Self {
+        self.0.device_log = Some(sink);
+        self
+    }
+
     /// The platform's probe of memory ([`paperpaw_sdk::memory`]): `read`
     /// says what is free now, or `None` where it cannot tell, for
     /// diagnostics and plugins checking their room. Without, nothing is
@@ -248,7 +337,7 @@ impl KernelBuilder {
 
     /// How long the device was switched off or slept before this start,
     /// where the shell can tell (see
-    /// [`Env::slept_for`](paperpaw_sdk::Env::slept_for)). Without, it is
+    /// [`Place::slept_for`](crate::Place::slept_for)). Without, it is
     /// not known; after a sleep the kernel sleeps through,
     /// [`Kernel::resume`] tells it.
     pub fn slept_for(mut self, slept: core::time::Duration) -> Self {
@@ -279,7 +368,8 @@ impl KernelBuilder {
     /// reported with [`Kernel::bluetooth_event`]); 0, the default, for
     /// none. See [`paperpaw_sdk::bluetooth`].
     pub fn bluetooth(mut self, max_links: u8) -> Self {
-        self.0.caps.bluetooth = max_links > 0;
+        // Without the `bluetooth` feature the kernel has no radio model.
+        self.0.caps.bluetooth = cfg!(feature = "bluetooth") && max_links > 0;
         self.0.bluetooth_links = max_links;
         self
     }
@@ -296,7 +386,7 @@ impl KernelBuilder {
     /// PaperPaw loads native code plugins (see
     /// [`paperpaw_sdk::native`]): `loader` loads the code of each switched
     /// on at the start, files fit for `native` (which plugins see as
-    /// [`Env::native`](paperpaw_sdk::Env)).
+    /// [`Place::native`](crate::Place)).
     pub fn code_plugins(mut self, native: Native, loader: Box<dyn CodeLoader>) -> Self {
         self.0.code = Some(crate::code_plugin::CodePlugins {
             native,
@@ -306,10 +396,37 @@ impl KernelBuilder {
         self
     }
 
+    /// The ids of the plugins built into the program that register only
+    /// after the build (linked native plugins): a card folder with code never
+    /// takes one. It is listed as refused for its id with nothing of it
+    /// loaded, on every start (also one without code plugins, and in safe
+    /// mode), and the built-in plugin's row takes its place.
+    #[must_use]
+    pub fn built_in_ids(mut self, is: fn(&str) -> bool) -> Self {
+        self.0.built_in_ids = Some(is);
+        self
+    }
+
+    /// The shell serves `text.hyphenate` without loading code plugins (the
+    /// desktop emulator without `--trust-code`): `make` is called once with the
+    /// card at the end of the build, as [`CodeLoader::hyphenation_sink`] is, and
+    /// its tables get what the data plugins declare. Ignored where a code
+    /// loader gave a sink. It does not make the device a code device
+    /// ([`KernelBuilder::code_plugins`] does).
+    #[must_use]
+    pub fn hyphenation_sink(
+        mut self,
+        make: impl FnOnce(&alloc::rc::Rc<dyn Storage>) -> Option<crate::native_host::HyphenTables>
+        + 'static,
+    ) -> Self {
+        self.0.hyphenation = Some(Box::new(make));
+        self
+    }
+
     /// This start loads no code plugins, because an update is on trial (it
     /// must show it starts by itself, and the plugins before must stay as
     /// the firmware before finds them): what the firmware takes is told to
-    /// plugins (which plugins see as [`Env::native`](paperpaw_sdk::Env), so
+    /// plugins (which plugins see as [`Place::native`](crate::Place), so
     /// that the store asks for the builds that fit) only once
     /// [`Kernel::trial_kept`] says the update is kept (#164). Until then
     /// code plugins are not offered nor installed, as without
@@ -340,7 +457,7 @@ impl KernelBuilder {
     /// the plugin folder PaperPaw does not load, e.g. `plugins/.hello.part`:
     /// a plugin the web flasher wrote with the firmware) before plugins
     /// are found, so it loads at this start: in place of every version of
-    /// it, as [`Command::InstallPlugin`](paperpaw_sdk::Command::InstallPlugin)
+    /// it, as [`Ask::InstallPlugin`](crate::Ask::InstallPlugin)
     /// installs one while PaperPaw runs. One that is not what it says is
     /// refused, with a warning, and its folder removed.
     pub fn install_plugin(mut self, id: Id, folder: impl Into<String>) -> Self {
@@ -475,24 +592,90 @@ impl KernelBuilder {
     }
 
     pub fn build(mut self) -> Result<Kernel, KernelError> {
-        let display = self.0.device.display;
-        let rows = self.0.frame_rows.unwrap_or(display.height);
-        let framebuffer = Framebuffer::banded(display.width, display.height, rows, display.format)
-            .map_err(KernelError::Graphics)?;
-        Ok(self.0.build(framebuffer))
+        let framebuffer = self.0.framebuffer()?;
+        let mut kernel = self.0.new_kernel(framebuffer);
+        self.0.set_up(&mut kernel);
+        Ok(kernel)
+    }
+
+    /// The kernel with nothing registered and nothing started: for the
+    /// tests of the kernel's kit, which register what they test.
+    #[cfg(any(test, feature = "testing"))]
+    pub fn build_bare(mut self) -> Result<Kernel, KernelError> {
+        let framebuffer = self.0.framebuffer()?;
+        Ok(self.0.new_kernel(framebuffer))
+    }
+
+    /// [`Self::build`], the kernel on the heap: for a shell whose stack is
+    /// small (the X4's). The kernel is large (about 6 KB there); built so, it
+    /// is on the stack only while it is made, before the start reads the
+    /// card, and every move after it is a pointer's, so no copy of it is on
+    /// the stack under the start's deepest calls (#250). Where the heap has
+    /// no room for it: [`KernelError::NoMemory`], nothing built.
+    pub fn build_boxed(mut self) -> Result<Box<Kernel>, KernelError> {
+        let framebuffer = self.0.framebuffer()?;
+        let mut kernel = self
+            .0
+            .new_kernel_boxed(framebuffer)
+            .ok_or(KernelError::NoMemory)?;
+        self.0.set_up(&mut kernel);
+        Ok(kernel)
     }
 }
 
+/// Errors that prevent the kernel from starting.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum KernelError {
+    Graphics(GraphicsError),
+    /// The heap had no room for the kernel ([`KernelBuilder::build_boxed`]).
+    NoMemory,
+}
+
+impl fmt::Display for KernelError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            KernelError::Graphics(error) => write!(f, "cannot create framebuffer: {error}"),
+            KernelError::NoMemory => f.write_str("no memory for the kernel"),
+        }
+    }
+}
+
+impl core::error::Error for KernelError {}
+
+/// The most values kept for settings nobody had declared when the file was
+/// read (see `keep_config_value`): more are only warned about.
+const MAX_LATE_CONFIG: usize = 64;
+
 impl BuilderParts {
-    /// The kernel, built where it is returned: it is large, and each copy
-    /// would take room on the stack while it is built (the X4's is small).
-    fn build(&mut self, framebuffer: Framebuffer) -> Kernel {
-        let mut kernel = self.new_kernel(framebuffer);
+    /// The frame buffer the display wants, in its bands.
+    fn framebuffer(&self) -> Result<Framebuffer, KernelError> {
+        let display = self.device.display;
+        let rows = self.frame_rows.unwrap_or(display.height);
+        Framebuffer::banded(display.width, display.height, rows, display.format)
+            .map_err(KernelError::Graphics)
+    }
+
+    /// [`Self::new_kernel`] on the heap, made only once the room is there
+    /// (`None`, nothing made, where it is not). Not inlined: whatever of the
+    /// kernel is made on the way is in this call's frame, which is gone
+    /// before [`Self::set_up`].
+    #[inline(never)]
+    fn new_kernel_boxed(&mut self, framebuffer: Framebuffer) -> Option<Box<Kernel>> {
+        crate::native_host::shared::try_box_with(|| self.new_kernel(framebuffer))
+    }
+
+    /// Everything the kernel takes from the builder once it is made: the
+    /// card's files read, the plugins registered, the settings applied. Not
+    /// inlined, and on the kernel where it lies: its frame holds no kernel
+    /// (the X4 start's deepest calls are under it, #250).
+    #[inline(never)]
+    fn set_up(&mut self, kernel: &mut Kernel) {
         kernel.card_trouble = self.card_trouble;
         kernel.after_sleep = self.after_sleep;
         paperpaw_sdk::data::take_over_old_name(kernel.shared.storage.as_ref());
         kernel.read_secrets();
-        paperpaw_sdk::library::take_over_old(kernel.shared.storage.as_ref());
+        crate::kit::library::take_over_old(kernel.shared.storage.as_ref());
         // The configuration file on the device, then the shell's overrides.
         let stored = kernel.read_stored_config();
         let user_config = self.user_config.take();
@@ -515,8 +698,29 @@ impl BuilderParts {
             && self.safe_mode.is_none()
         {
             let storage = kernel.shared.storage.clone();
-            self.staged
-                .extend(crate::code_plugin::fetched(storage.as_ref(), &code.native));
+            // What the loader itself reads, as the shell's restart check has it.
+            let loader = code.loader.reads();
+            self.staged.extend(crate::code_plugin::fetched(
+                storage.as_ref(),
+                &code.native,
+                loader.as_ref(),
+            ));
+        }
+        // A plugin install or removal a cut left is finished (or set aside)
+        // before any plugin is found, so a plugin is the old or the new one.
+        let mut said: Vec<String> = Vec::new();
+        let to_finish = crate::native_host::plugin_start::replay_at_start(
+            kernel.shared.storage.as_ref(),
+            &mut |line| said.push(line),
+        );
+        // A removal waits for the host to forget its plugin's secrets and
+        // grants: the first pass of the kernel finishes it.
+        // Kept by the cell: no driver needs to be made for it.
+        if to_finish && let Some(cell) = &kernel.firmware {
+            cell.want_resume();
+        }
+        for line in said {
+            kernel.warn_runtime(line);
         }
         kernel.install_staged(mem::take(&mut self.staged), &dirs, &built_in);
         kernel.add_plugins(
@@ -525,13 +729,20 @@ impl BuilderParts {
             dirs,
             mem::take(&mut self.font_dirs),
             &configs,
-            self.code
-                .take()
-                .map(|code| crate::code_plugin::CodePlugins {
-                    safe_mode: self.safe_mode.take(),
-                    ..code
-                }),
+            crate::code_plugin::CodeAtStart {
+                plugins: self
+                    .code
+                    .take()
+                    .map(|code| crate::code_plugin::CodePlugins {
+                        safe_mode: self.safe_mode.take(),
+                        ..code
+                    }),
+                built_in: self.built_in_ids,
+            },
         );
+        if let Some(make) = self.hyphenation.take() {
+            kernel.attach_hyphenation_sink(make);
+        }
         // Every plugin's network, before the values kept for it are read.
         kernel.define_network_settings(self.network_settings);
         if let Some(source) = self.device_keymap.take() {
@@ -539,20 +750,27 @@ impl BuilderParts {
         }
         kernel.offer_choices();
         kernel.apply_defaults(&self.setting_defaults);
-        if let Some(source) = &stored {
-            kernel.apply_user_config(source);
-            kernel.keys.user.clone_from(source);
+        // Kept as they are, not as a copy beside the text read (#306).
+        if let Some(source) = stored {
+            kernel.apply_user_config(&source);
+            kernel.keys.user = source;
         }
-        if let Some(source) = &user_config {
-            kernel.apply_user_config(source);
-            kernel.keys.shell.clone_from(source);
+        if let Some(source) = user_config {
+            kernel.apply_user_config(&source);
+            kernel.keys.shell = source;
         }
+        // The developer link is off at every start, whatever a file says.
+        let _ = kernel.shared.settings.set(
+            crate::developer_link::SETTING,
+            paperpaw_sdk::SettingValue::Bool(false),
+        );
         // The power mode worn before, over the reader's settings.
         kernel.restore_power();
         // How long work took at the last start, for the busy mark.
         kernel.restore_timing();
         kernel.apply_reading_font();
         kernel.apply_status_font();
+        kernel.apply_widget_fonts();
         kernel.validate();
         kernel.rebuild_keymap();
         // Memory given back before the language is read in: its catalogs
@@ -561,8 +779,8 @@ impl BuilderParts {
         // done while the other is not there.
         kernel.shrink_to_fit();
         kernel.apply_display_settings();
+        kernel.seed_language();
         kernel.settle();
-        kernel
     }
 
     /// The kernel with nothing registered: its `framebuffer`, its storage
@@ -604,22 +822,46 @@ impl BuilderParts {
         hyphenation.set_storage(storage.clone());
         let mut translator = Translator::new();
         translator.fixed_indexes(self.catalog_indexes);
-        translator.built_catalogs(self.built_catalogs);
+        for table in self.built_catalogs {
+            translator.built_language(table);
+        }
+        for tables in &self.built_messages {
+            for table in *tables {
+                translator.built_messages(table);
+            }
+        }
+        if let Some(listing) = self.language_seed.and_then(|seed| seed.listing()) {
+            translator.add(listing);
+        }
+        let font_removals =
+            alloc::rc::Rc::new(crate::native_host::font_removals::FontRemovals::new());
         Kernel {
             shared: Shared {
+                now: Instant::default(),
                 native_events: None,
                 native_instances: crate::native_host::native_instances::NativeInstances::default(),
+                native_input: crate::native_host::ui_input::InputFilters::new(),
+                native_filters: None,
+                native_input_refused: false,
+                native_depth: None,
                 registry: Registry::default(),
                 meter,
                 device: self.device,
-                settings: Settings::new(),
-                translator,
-                fonts: Fonts::new(self.glyph_cache)
-                    .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
-                stack_rows: alloc::rc::Rc::new(Default::default()),
-                font_removals: alloc::rc::Rc::new(
-                    crate::native_host::font_removals::FontRemovals::new(),
+                settings: crate::native_host::host_memos::Watched::new(
+                    Settings::new(),
+                    alloc::rc::Rc::clone(&font_removals),
+                    crate::native_host::host_memos::forget_places,
                 ),
+                translator,
+                fonts: crate::native_host::host_memos::Watched::new(
+                    Fonts::new(self.glyph_cache)
+                        .with_pack_limits(paperpaw_sdk::PackLimits::for_memory(self.device.memory)),
+                    alloc::rc::Rc::clone(&font_removals),
+                    crate::native_host::host_memos::forget_roles,
+                ),
+                stack_rows: alloc::rc::Rc::new(Default::default()),
+                key_guard_warned: Default::default(),
+                font_removals,
                 registry_generation: alloc::rc::Rc::new(
                     crate::native_host::registry_generation::RegistryGeneration::new(),
                 ),
@@ -632,21 +874,12 @@ impl BuilderParts {
                 status: SystemStatus::default(),
                 usage: paperpaw_sdk::usage::Usage::default(),
                 status_items: StatusItems::new(),
-                widgets: paperpaw_sdk::widgets::Widgets::new(),
-                setup: paperpaw_sdk::setup::SetupSteps::new(),
+                widgets: crate::kit::widgets::Widgets::new(),
+                setup: crate::kit::setup::SetupSteps::new(),
                 services: paperpaw_sdk::services::Services::new(),
-                text_filters: paperpaw_sdk::filters::TextFilters::new(),
-                decorators: paperpaw_sdk::decorations::Decorators::new(),
-                page_layers: paperpaw_sdk::layers::PageLayers::new(),
-                lookup: paperpaw_sdk::lookup::LookupProviders::new(),
-                voices: paperpaw_sdk::voices::Voices::new(),
-                readers: paperpaw_sdk::readers::Readers::new(),
-                input_filters: paperpaw_sdk::filters::InputFilters::new(),
-                refresh_filters: paperpaw_sdk::filters::RefreshFilters::new(),
+                decorators: crate::kit::decorations::Decorators::new(),
                 stylesheets: Vec::new(),
                 book_data: Vec::new(),
-                book_fields: Vec::new(),
-                book_badges: Vec::new(),
                 caps,
                 wifi: caps.wifi.then(paperpaw_sdk::wifi::Wifi::default),
                 bluetooth: caps
@@ -654,23 +887,25 @@ impl BuilderParts {
                     .then(|| paperpaw_sdk::bluetooth::Bluetooth::new(links)),
                 firmware: self.firmware.take(),
                 native: None,
+                native_safe_mode: self.safe_mode.clone(),
                 after_trial: self.after_trial.take(),
                 power: paperpaw_sdk::power::Power::default(),
                 work_states: paperpaw_sdk::work::WorkStates::default(),
                 reader: false,
-                clipboard: String::new(),
+                clipboard: alloc::rc::Rc::default(),
                 system_clipboard: false,
                 last_input: paperpaw_sdk::keys::InputMode::at_start(&self.device.input),
-                inputs: Vec::new(),
                 stack: Vec::new(),
                 content: Rect::new(0, 0, display.width, display.height),
                 slots: Vec::new(),
                 font_dirs: Vec::new(),
                 data_folders: Vec::new(),
                 plugin_dirs: Vec::new(),
+                language_seed: self.language_seed,
                 catalog_device: self.catalog_device,
                 secrets: Default::default(),
                 random: self.random,
+                device_log: crate::native_host::device_log::DeviceLog::new(self.device_log),
                 memory: self.memory,
                 started: self.started,
                 slept_for: self.slept_for,
@@ -680,24 +915,28 @@ impl BuilderParts {
                 storage,
                 recall,
                 keymap: Keymap::default(),
-                look: (paperpaw_sdk::ui::look::Look::none(), None),
+                look: (crate::kit::ui::look::Look::none(), None),
             },
             frame: drawing::FrameState {
                 pending: None,
                 pending_weight: 0,
                 unrendered: None,
                 rendered: None,
+                stop: None,
+                stopped: false,
                 row_align: self.row_align,
                 band: self
                     .frame_rows
                     .map(|rows| u32::from(rows) * u32::from(display.width)),
                 pictures_shown: false,
+                pictures_on: None,
                 again: false,
                 screenshot: None,
                 mark: None,
-                refresh: RefreshPolicy::default(),
-                deferred: None,
-                defers: 0,
+                refresh: RefreshPolicy::after_start(),
+                followup: None,
+                followup_frame: None,
+                gray_later: crate::gray_later::GrayLater::default(),
             },
             input: gestures::InputState {
                 recognizer: Recognizer::default(),
@@ -711,10 +950,7 @@ impl BuilderParts {
                 dropped_pointers: Vec::new(),
                 swapped: Vec::new(),
                 pending: None,
-                last_tap: None,
-                recognizers: Vec::new(),
                 pressed_on: None,
-                pane_keys: None,
                 thresholds: core::cell::Cell::new(None),
             },
             io: network::IoState {
@@ -724,6 +960,7 @@ impl BuilderParts {
                 speech: io::speech::Speech::new(caps.speech),
                 clipboard: io::clipboard::Clipboard::new(caps.system_clipboard),
                 wifi_calls: Vec::new(),
+                #[cfg(feature = "bluetooth")]
                 bluetooth: caps.bluetooth.then(|| io::bluetooth::Radio::new(links)),
                 firmware_calls: Vec::new(),
                 network_waiting: None,
@@ -732,16 +969,14 @@ impl BuilderParts {
                 focus_told: None,
             },
             keys: plugins::KeySources::default(),
-            chromes: Vec::new(),
-            chrome_strips: Vec::new(),
             stylesheet_owners: Vec::new(),
             timing: crate::timing::Timing::new(self.busy_mark_ms),
             framebuffer,
             subscriptions: crate::registry::Subscriptions::default(),
+            core: crate::core_plugin::State::default(),
+            data_actions: Vec::new(),
             offered_down_to: 0,
             action_params: Params::new(),
-            action_observers: Vec::new(),
-            event_observers: Vec::new(),
             show_pending: false,
             notice: None,
             works: work::Queue::new(match self.device.memory {
@@ -755,6 +990,7 @@ impl BuilderParts {
             sleep: false,
             power_off: false,
             usb_drive: false,
+            developer: crate::developer_link::Link::default(),
             suspended_at: None,
             free_count: crate::free_count::FreeCount::default(),
             hint: hints::HintRow::new(self.button_row),
@@ -766,11 +1002,19 @@ impl BuilderParts {
             from_guard: false,
             from_guard_own: false,
             own_trusted: Vec::new(),
-            held_notice: None,
+            waiting_notices: crate::notices::Waiting::new(self.device.memory),
             last_activity: Instant(0),
             native_tick_at: None,
             last_user_input: None,
             radio_requests: alloc::rc::Rc::default(),
+            firmware: self.firmware_host.take().map(|host| {
+                // The driver is made at the first firmware or plugin command.
+                let cell = crate::native_host::firmware_cell::FirmwareCell::new(host);
+                if let Some(plugins) = self.plugin_host.take() {
+                    cell.set_plugin_host(plugins);
+                }
+                alloc::rc::Rc::new(cell)
+            }),
             shown_since: Instant(0),
             scope: None,
             screens_changed: false,
@@ -785,11 +1029,22 @@ impl BuilderParts {
             config_unreadable: false,
             card_trouble: None,
             after_sleep: false,
+            storage_kept: false,
             secrets_unreadable: false,
+            secrets_opened: false,
+            secrets_wired: None,
+            secrets_left: false,
+            #[cfg(feature = "bluetooth")]
             pairing_nonce: None,
             plugin_defaults: Vec::new(),
+            late_device_defaults: Vec::new(),
+            late_config: Vec::new(),
+            native_registering: true,
+            native_catalogs_added: false,
+            native_batch: None,
+            native_clock: None,
+            native_times: crate::native_host::NativeTimes::default(),
             plugin_choices: Vec::new(),
-            now: Instant::default(),
         }
     }
 }
@@ -798,14 +1053,17 @@ impl BuilderParts {
 impl Kernel {
     /// Passwords and keys, as kept on the storage. A file that is there
     /// but cannot be read is said and not written over.
-    fn read_secrets(&mut self) {
-        use paperpaw_sdk::secrets::{FILE, Secrets};
+    pub(crate) fn read_secrets(&mut self) {
+        use paperpaw_sdk::secrets::FILE;
+        let host = self.secrets_host();
         let storage = self.shared.storage.as_ref();
         // Damaged text keeps what can be read: values are written in hex.
         match paperpaw_sdk::files::load_for_update(storage, FILE, MAX_SECRETS) {
             Ok(data) => {
                 let text = String::from_utf8_lossy(data.as_deref().unwrap_or_default());
-                self.shared.secrets = Secrets::decode(&text);
+                self.shared.secrets = Self::decode_secrets(&text, host.as_ref());
+                self.secrets_unreadable = false;
+                #[cfg(feature = "bluetooth")]
                 if let Some(radio) = &mut self.io.bluetooth {
                     let kept = self.shared.secrets.iter();
                     radio.load(kept.map(|s| (s.id.as_str(), s.value.as_str())));
@@ -842,12 +1100,12 @@ impl Kernel {
     /// or shipped off (`off`) and not switched on.
     fn add_plugins(
         &mut self,
-        plugins: Vec<Box<dyn Plugin>>,
+        plugins: Vec<items::Source>,
         off: Vec<String>,
         plugin_dirs: Vec<String>,
         font_dirs: Vec<String>,
         configs: &[&str],
-        code: Option<crate::code_plugin::CodePlugins>,
+        code: crate::code_plugin::CodeAtStart,
     ) {
         self.shared.menus.set_capabilities(self.shared.caps);
         // Colour screens open documents with colour pictures (ADR 0015).
@@ -868,15 +1126,16 @@ impl Kernel {
         disabled.extend(off.into_iter().filter(|id| !on.contains(id)));
         // The device's name the default of its setting.
         let name = paperpaw_sdk::device_name::default_name(&self.shared.device);
-        let core: Box<dyn Plugin> = Box::new(CorePlugin(name));
         // Their lists asked for once, at their size: the start's peak is
         // not the lists doubled (each plugin is listed, and brings about
         // one catalog in each language chosen).
         let count = plugins.len() + 1;
         self.shared.plugins.reserve(count);
         self.shared.translator.reserve(count);
-        for plugin in core::iter::once(core).chain(plugins) {
-            self.add_plugin(plugin.as_ref(), &disabled);
+        let core = |items: &mut Staging| core_plugin::items(&name, items);
+        self.add_items(core_plugin::manifest(), &core, &disabled);
+        for source in plugins {
+            source.add_to(self, &disabled);
         }
         // Data plugins from the storage, after the built-in ones.
         let dirs = if plugin_dirs.is_empty() {
@@ -885,6 +1144,9 @@ impl Kernel {
             plugin_dirs
         };
         let storage = self.shared.storage.clone();
+        // What no journal owns is swept once the stages the shell handed over
+        // were taken (`install_staged`).
+        crate::native_host::plugin_start::sweep(storage.as_ref());
         let mut with_code = Vec::new();
         for dir in &dirs {
             let mut problems = Vec::new();
@@ -906,7 +1168,7 @@ impl Kernel {
                 // An install cut short after the plugin was in place: what
                 // its installer keeps for it is kept now.
                 let id = plugin.manifest().id.clone();
-                paperpaw_sdk::install::marks::settle(storage.as_ref(), id.as_str(), &folder);
+                crate::kit::install::marks::settle(storage.as_ref(), id.as_str(), &folder);
                 for problem in plugin.take_problems() {
                     self.warn_runtime(problem);
                 }
@@ -923,7 +1185,7 @@ impl Kernel {
                     with_code.push(plugin);
                     continue;
                 }
-                self.add_plugin(&plugin, &disabled);
+                self.add_data(&plugin, &disabled);
                 if let Some(info) = self.shared.plugin_mut(plugin.manifest().id.as_str()) {
                     info.kind = paperpaw_sdk::PluginKind::Data;
                 }
@@ -935,7 +1197,7 @@ impl Kernel {
         if !font_dirs.is_empty()
             && let Some(plugin) = data_plugin::font_folder(self.shared.storage.as_ref(), &font_dirs)
         {
-            self.add_plugin(&plugin, &disabled);
+            self.add_data(&plugin, &disabled);
         }
         self.shared.font_dirs = font_dirs;
         self.find_required_plugins();
@@ -943,7 +1205,7 @@ impl Kernel {
 
     /// The device's own key map, under all others.
     fn load_device_keymap(&mut self, source: Cow<'static, str>) {
-        for problem in self.shared.keymap.load(&source, Origin::Device, true) {
+        for problem in self.shared.keymap.load_kept(&source, Origin::Device, true) {
             self.warn(
                 WarningSource::DeviceKeymap,
                 Some(problem.line),
@@ -964,18 +1226,7 @@ impl Kernel {
         );
         self.offer_list(core_settings::KEYMAP_PRESET.as_str(), presets);
         self.offer_font_choices();
-        let frames = crate::font_refresh::choice_list(
-            &[core_settings::PAGE_FRAME_SINGLE],
-            self.shared.page_layers.frames().map(|id| id.as_str()),
-        );
-        self.offer_list(core_settings::PAGE_FRAME.as_str(), frames);
-        let voices = crate::font_refresh::choice_list(
-            &[core_settings::VOICE_SYSTEM],
-            self.shared.voices.ids().map(|id| id.as_str()),
-        );
-        self.offer_list(core_settings::VOICE.as_str(), voices);
-        self.offer_reading_apps();
-        self.shared.caps.speech = self.io.speech.system || !self.shared.voices.is_empty();
+        self.shared.caps.speech = self.io.speech.system;
         self.shared.menus.set_capabilities(self.shared.caps);
     }
 
@@ -994,18 +1245,18 @@ impl Kernel {
             }
         }
         for (id, value) in device {
-            if let Err(error) = self.shared.settings.set_default_from_text(id, value) {
-                self.warn_runtime(format!("device default `{id}`: {error}"));
+            match self.shared.settings.set_default_from_text(id, value) {
+                Ok(()) => {}
+                // A native plugin declares its settings only once it is
+                // hosted, after this: kept for then (`apply_late_defaults`).
+                Err(paperpaw_sdk::SettingError::Unknown) => self.keep_device_default(id, value),
+                Err(error) => self.warn_runtime(format!("device default `{id}`: {error}")),
             }
         }
         for (plugin, id, value) in mem::take(&mut self.plugin_defaults) {
             // A setting that keeps the device safe takes no other plugin's
             // default.
-            let guarded = self
-                .shared
-                .settings
-                .spec(id.as_str())
-                .is_some_and(|spec| spec.guarded);
+            let guarded = self.shared.settings.defines_guarded(id.as_str());
             if guarded && id.namespace() != plugin.as_str() {
                 self.warn(
                     WarningSource::Plugin(plugin),
@@ -1028,30 +1279,125 @@ impl Kernel {
         }
     }
 
-    /// The language, night mode and colours the settings say.
-    fn apply_display_settings(&mut self) {
-        let shared = &mut self.shared;
-        shared
-            .translator
-            .set_language(shared.settings.read(&core_settings::LANGUAGE));
-        let settings = &self.shared.settings;
-        self.framebuffer
-            .set_inverted(settings.bool(core_settings::NIGHT_MODE.as_str()));
-        self.framebuffer
-            .set_pictures_kept(!settings.bool(core_settings::NIGHT_PICTURES.as_str()));
-        self.framebuffer.set_mono_coverage(mono_coverage(settings));
-        self.apply_ui_text_curve();
-        if let Some(panel) = self.shared.device.display.color {
-            self.framebuffer.set_saturation(panel.boost_percent());
+    /// Keeps the device default of a setting nobody has declared yet.
+    fn keep_device_default(&mut self, id: &str, value: &str) {
+        let (mut own_id, mut own_value) = (String::new(), String::new());
+        if own_id.try_reserve_exact(id.len()).is_err()
+            || own_value.try_reserve_exact(value.len()).is_err()
+            || self.late_device_defaults.try_reserve(1).is_err()
+        {
+            self.warn_runtime(format!("device default `{id}`: no memory to keep it"));
+            return;
         }
+        own_id.push_str(id);
+        own_value.push_str(value);
+        self.late_device_defaults.push((own_id, own_value));
     }
 
-    /// Done registering: memory given back, the slots and screens known,
-    /// the row of hints as tall as the first screen is made for.
-    fn settle(&mut self) {
-        self.shrink_to_fit();
-        self.shared.slots = self.shared.registry.bound_slots();
-        self.hint.height = self.wanted_hint_height();
+    /// The device defaults kept for settings a plugin declares since
+    /// (`keep_device_default`), set now that it has: a plugin published after
+    /// the kernel was built (a native one) gets the device's value as the
+    /// default, as a plugin of the first pass does. A value the user set
+    /// still wins, as for any default. A default is used up once its setting
+    /// exists (applied, or warned about when the value does not fit); one for
+    /// an id that no plugin ever declares stays unused.
+    pub(crate) fn apply_late_defaults(&mut self) {
+        let waiting = mem::take(&mut self.late_device_defaults);
+        let mut left = Vec::new();
+        // At most as many as were kept: no new place is needed.
+        if left.try_reserve_exact(waiting.len()).is_err() {
+            self.late_device_defaults = waiting;
+            return;
+        }
+        for (id, value) in waiting {
+            if self.shared.settings.spec(id.as_str()).is_none() {
+                left.push((id, value));
+                continue;
+            }
+            // Applied once, or warned about once: not kept.
+            if let Err(error) = self.shared.settings.set_default_from_text(&id, &value) {
+                self.warn_runtime(format!("device default `{id}`: {error}"));
+            }
+        }
+        self.late_device_defaults = left;
+    }
+
+    /// Keeps a configuration value for a setting nobody has declared yet.
+    /// Without room it is only warned about, as before.
+    pub(crate) fn keep_config_value(&mut self, id: &str, value: &str, line: Option<u32>) {
+        let (mut own_id, mut own_value) = (String::new(), String::new());
+        if self.late_config.len() >= MAX_LATE_CONFIG
+            || own_id.try_reserve_exact(id.len()).is_err()
+            || own_value.try_reserve_exact(value.len()).is_err()
+            || self.late_config.try_reserve(1).is_err()
+        {
+            return;
+        }
+        own_id.push_str(id);
+        own_value.push_str(value);
+        self.late_config.push((own_id, own_value, line));
+    }
+
+    /// The configuration values kept for settings a plugin declares since
+    /// (`keep_config_value`), set now that it has: a native plugin declares
+    /// its settings after the kernel is built, when the file was read. The
+    /// warning "unknown setting" given then is taken back; a value that does
+    /// not fit is warned about as it is for any setting. Values are set in
+    /// the order the file had them (the device file, then the shell's), so
+    /// the later wins. Values for ids still undeclared stay kept.
+    pub(crate) fn apply_late_config(&mut self) {
+        if self.late_config.is_empty() {
+            return;
+        }
+        let waiting = mem::take(&mut self.late_config);
+        let mut left = Vec::new();
+        if left.try_reserve_exact(waiting.len()).is_err() {
+            self.late_config = waiting;
+            return;
+        }
+        let mut secrets = Vec::new();
+        for (id, value, line) in waiting {
+            let secret = match self.shared.settings.try_spec(&id) {
+                Ok(Some(spec)) => Ok(spec.extra().secret),
+                Ok(None) => {
+                    left.push((id, value, line));
+                    continue;
+                }
+                Err(error) => Err(error),
+            };
+            let unknown = format!("`{id}`: {}", paperpaw_sdk::SettingError::Unknown);
+            self.warnings.retain(|warning| {
+                !(warning.line == line
+                    && matches!(warning.source, WarningSource::UserConfig)
+                    && warning.message == unknown)
+            });
+            let set = match secret {
+                // A secret goes to the secrets, as one read at the build does.
+                Ok(true) => {
+                    secrets.push((id, value));
+                    continue;
+                }
+                Ok(false) => self.shared.settings.set_from_text(&id, &value),
+                // No room to read what its plugin describes of it (#248):
+                // told as that, not as a setting nobody knows. The file
+                // keeps the value for the next start.
+                Err(error) => Err(error),
+            };
+            if let Err(error) = set {
+                // A widget's font may come with a plugin registered later
+                // (#262): the value waits until the start has hosted all.
+                let waits = self.native_registering
+                    && matches!(error, paperpaw_sdk::SettingError::InvalidValue)
+                    && crate::font_refresh::widget_fonts::is_setting(&id);
+                if waits {
+                    left.push((id, value, line));
+                    continue;
+                }
+                self.warn(WarningSource::UserConfig, line, format!("`{id}`: {error}"));
+            }
+        }
+        self.move_secrets(secrets);
+        self.late_config = left;
     }
 }
 
@@ -1066,7 +1412,11 @@ impl Kernel {
             glyph_cache: DEFAULT_GLYPH_CACHE,
             caps: Capabilities::default(),
             firmware: None,
+            firmware_host: None,
+            plugin_host: None,
             code: None,
+            built_in_ids: None,
+            hyphenation: None,
             after_trial: None,
             safe_mode: None,
             staged: Vec::new(),
@@ -1083,6 +1433,7 @@ impl Kernel {
             font_dirs: Vec::new(),
             catalog_device: None,
             random: paperpaw_sdk::random::Random::NONE,
+            device_log: None,
             memory: paperpaw_sdk::memory::Memory::NONE,
             started: paperpaw_sdk::power::Start::Unknown,
             slept_for: None,
@@ -1096,7 +1447,9 @@ impl Kernel {
             ),
             network_settings: &[],
             catalog_indexes: &[],
-            built_catalogs: &paperpaw_i18n::BuiltCatalogs::NONE,
+            built_catalogs: &[],
+            built_messages: Vec::new(),
+            language_seed: None,
             bluetooth_links: 0,
         }))
     }

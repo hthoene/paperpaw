@@ -8,9 +8,11 @@ use std::ffi::c_void;
 use std::path::Path;
 use std::ptr;
 
-use paperpaw_native::host_glue::{ENTRY_SYMBOL, METADATA_SYMBOL, OK, PpEntry, PpHost, PpPlugin};
+use paperpaw_native::host_glue::{
+    ENTRY_SYMBOL, HEAP_SYMBOL, METADATA_SYMBOL, OK, PpEntry, PpHeap, PpHost, PpPlugin,
+};
 use paperpaw_native::preflight::{
-    FreestandingRefusal, PLUGIN_EXPORTS, check_freestanding, data_export,
+    FreestandingRefusal, HOSTED_EXPORTS, PLUGIN_EXPORTS, check_freestanding, data_export,
 };
 
 use crate::host_services::DesktopHost;
@@ -23,6 +25,17 @@ use paperpaw_core::native_host;
 )]
 mod wire {
     include!(concat!(env!("OUT_DIR"), "/metadata.rs"));
+}
+
+/// The profile this shell hosts (the reviewed Linux x86-64 one), as the
+/// kernel's admission of a linked plugin names it (`crate::linked`).
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+pub(crate) fn host_profile() -> paperpaw_native::metadata::Profile<'static> {
+    paperpaw_native::metadata::Profile {
+        target: core::str::from_utf8(wire::PROFILE).unwrap_or(""),
+        entry_layout: wire::PROFILE_ENTRY_LAYOUT as u16,
+        entry_bytes: wire::PROFILE_ENTRY_BYTES as u16,
+    }
 }
 
 /// Refusal before factory invocation, or a failed factory result.
@@ -69,12 +82,31 @@ fn metadata(bytes: &[u8], host: &PpHost) -> Result<u16, RuntimeError> {
 }
 
 // Only implemented semantic features belong here. Slot presence is insufficient.
-const WIRED_FEATURES: &[paperpaw_native::metadata::Feature<'static>] = &[];
+pub(crate) const WIRED_FEATURES: &[paperpaw_native::metadata::Feature<'static>] = &[];
 
+#[cfg(test)]
 fn checked_metadata<'a>(
     bytes: &'a [u8],
     host: &PpHost,
     services: &[paperpaw_native::metadata::Service<'_>],
+) -> Result<paperpaw_native::metadata::Checked<'a>, RuntimeError> {
+    checked_metadata_with(bytes, host, services, WIRED_FEATURES)
+}
+
+/// What a card plugin is offered besides the table: the services and the
+/// consent features of the emulated device (the same as the firmware's card
+/// path, `paperpaw_x4::native_offer::card_host`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Offer {
+    pub(crate) services: &'static [paperpaw_native::metadata::Service<'static>],
+    pub(crate) features: &'static [paperpaw_native::metadata::Feature<'static>],
+}
+
+fn checked_metadata_with<'a>(
+    bytes: &'a [u8],
+    host: &PpHost,
+    services: &[paperpaw_native::metadata::Service<'_>],
+    features: &[paperpaw_native::metadata::Feature<'_>],
 ) -> Result<paperpaw_native::metadata::Checked<'a>, RuntimeError> {
     use paperpaw_native::metadata::{self, Host, Profile, Refusal};
     let capabilities = Host {
@@ -86,7 +118,7 @@ fn checked_metadata<'a>(
             entry_bytes: wire::PROFILE_ENTRY_BYTES as u16,
         },
         services,
-        features: WIRED_FEATURES,
+        features,
     };
     match metadata::check(bytes, &capabilities) {
         Ok(checked) => Ok(checked),
@@ -144,7 +176,7 @@ pub unsafe fn load(
 ) -> Result<LoadedPlugin, RuntimeError> {
     // SAFETY: the same authorization and immutable-file contract applies.
     let CheckedLibrary { library, make, .. } =
-        unsafe { checked_library(path, digest, host.table(), &[]) }?;
+        unsafe { checked_library(path, digest, host.table(), &[], WIRED_FEATURES, false) }?;
     let mut out = ptr::null();
     // SAFETY: table and context outlive the plugin; output storage is writable.
     let status = unsafe { make(host.table(), host.ctx(), &mut out) };
@@ -172,6 +204,43 @@ struct CheckedLibrary {
     /// The library's read-only data as mapped: its address and length
     /// (`read_only_segment`), valid as long as `library` is loaded.
     image: (usize, usize),
+    /// The library's heap word as mapped, if it has one: pointer-sized,
+    /// aligned, zero in the file, in read-only data. Filled by
+    /// [`fill_heap_word`] before `make`, or left zero ("no heap").
+    heap: Option<*mut *const PpHeap>,
+}
+
+/// Writes the host's heap table into a hosted library's heap word
+/// (`abi/heap-word.md`, "Desktop and other hosted loaders"): its page is
+/// made writable for the one write and read-only again.
+///
+/// # Safety
+///
+/// `word` is the `heap` of a [`CheckedLibrary`] whose library is still
+/// loaded, and nothing of the library has run yet.
+pub(crate) unsafe fn fill_heap_word(
+    word: *mut *const PpHeap,
+    table: &'static PpHeap,
+) -> Result<(), RuntimeError> {
+    // SAFETY: a query without side effects.
+    let page = usize::try_from(unsafe { libc::sysconf(libc::_SC_PAGESIZE) })
+        .ok()
+        .filter(|page| page.is_power_of_two())
+        .ok_or(RuntimeError::Load)?;
+    // The word is aligned to its own size: it lies within one page.
+    let start = ((word as usize) & !(page - 1)) as *mut c_void;
+    // SAFETY: a page of the library's own read-only data segment, mapped
+    // privately; no code of the library runs while it is writable.
+    unsafe {
+        if libc::mprotect(start, page, libc::PROT_READ | libc::PROT_WRITE) != 0 {
+            return Err(RuntimeError::Load);
+        }
+        word.write(ptr::from_ref(table));
+        if libc::mprotect(start, page, libc::PROT_READ) != 0 {
+            return Err(RuntimeError::Load);
+        }
+    }
+    Ok(())
 }
 
 fn u64_at(bytes: &[u8], at: usize) -> Option<u64> {
@@ -239,12 +308,66 @@ fn read_only_segment(bytes: &[u8], base: usize, anchor: u64) -> (usize, usize) {
     find().unwrap_or((0, 0))
 }
 
+/// The address of the heap word in the checked file `bytes`, where the
+/// library has one: a pointer of zero in its read-only data, apart from the
+/// entry record and the metadata (each an address and a length). One that is
+/// anything else gives `None` and is found out once the library is loaded
+/// ([`mapped_heap_word`]).
+fn file_heap_word(bytes: &[u8], entry: (u64, usize), metadata: (u64, usize)) -> Option<u64> {
+    let word = data_export(bytes, 62, HEAP_SYMBOL, true).ok()?;
+    let end = word.address.saturating_add(word.bytes.len() as u64);
+    let apart = |(start, len): (u64, usize)| {
+        end <= start || start.saturating_add(len as u64) <= word.address
+    };
+    (word.bytes == [0; size_of::<usize>()]
+        && word.address % align_of::<usize>() as u64 == 0
+        && apart(entry)
+        && apart(metadata))
+    .then_some(word.address)
+}
+
+/// The heap word of the loaded `library`, if it has one: mapped where the
+/// file says (`word`, from [`file_heap_word`]; `base` is where the library
+/// is mapped, as its metadata tells). A library that exports the name but
+/// has no sound word in its file is refused.
+///
+/// # Safety
+///
+/// `library` is loaded from the file `word` was read from.
+unsafe fn mapped_heap_word(
+    library: &HeldLibrary,
+    word: Option<u64>,
+    base: Option<usize>,
+) -> Result<Option<*mut *const PpHeap>, RuntimeError> {
+    // SAFETY: a global object export, if the library has it.
+    let loaded = unsafe {
+        library
+            .library
+            .get::<*mut *const PpHeap>(format!("{HEAP_SYMBOL}\0").as_bytes())
+    }
+    .ok()
+    .map(|word| *word);
+    match (loaded, word) {
+        (None, None) => Ok(None),
+        (Some(loaded), Some(address))
+            if (loaded as usize).checked_sub(address as usize) == base =>
+        {
+            Ok(Some(loaded))
+        }
+        _ => Err(RuntimeError::Export),
+    }
+}
+
 // SAFETY requirements match load: authorized code and immutable checked inode.
 unsafe fn checked_library(
     path: &Path,
     digest: &[u8; 32],
     host: &PpHost,
     services: &[paperpaw_native::metadata::Service<'_>],
+    features: &'static [paperpaw_native::metadata::Feature<'static>],
+    // Whether the caller fills a heap word: one that does not keeps refusing
+    // a library that has the word, which would run with no heap.
+    fills_heap: bool,
 ) -> Result<CheckedLibrary, RuntimeError> {
     let mut file = std::fs::File::open(path).map_err(|_| RuntimeError::File)?;
     let mut bytes = Vec::new();
@@ -258,8 +381,14 @@ unsafe fn checked_library(
         return Err(RuntimeError::File);
     }
     // PR #133: a plugin needs no library, binds no symbol of the process and
-    // exports nothing but its two entry symbols. One rule, shared with the packager.
-    check_freestanding(&bytes, 62, PLUGIN_EXPORTS).map_err(|refusal| match refusal {
+    // exports nothing but its two entry symbols and the heap word. One rule,
+    // shared with the packager.
+    let exports = if fills_heap {
+        HOSTED_EXPORTS
+    } else {
+        PLUGIN_EXPORTS
+    };
+    check_freestanding(&bytes, 62, exports).map_err(|refusal| match refusal {
         FreestandingRefusal::UndefinedImport | FreestandingRefusal::NeededLibrary => {
             RuntimeError::Import
         }
@@ -267,15 +396,15 @@ unsafe fn checked_library(
     })?;
     let locator =
         data_export(&bytes, 62, METADATA_SYMBOL, true).map_err(|_| RuntimeError::Export)?;
-    let checked = checked_metadata(locator.bytes, host, services)?;
+    let checked = checked_metadata_with(locator.bytes, host, services, features)?;
     let minor = checked.needs_minor;
-    let declared_services =
-        native_host::shell::DeclaredServices::try_from_metadata(&checked, WIRED_FEATURES).map_err(
-            |error| match error {
-                native_host::shell::DeclaredServicesError::Invalid => RuntimeError::Metadata,
-                native_host::shell::DeclaredServicesError::NoMemory => RuntimeError::NoMemory,
-            },
-        )?;
+    let declared_services = native_host::shell::DeclaredServices::try_from_metadata(
+        &checked, features,
+    )
+    .map_err(|error| match error {
+        native_host::shell::DeclaredServicesError::Invalid => RuntimeError::Metadata,
+        native_host::shell::DeclaredServicesError::NoMemory => RuntimeError::NoMemory,
+    })?;
     let entry = data_export(&bytes, 62, ENTRY_SYMBOL, false).map_err(|_| RuntimeError::Export)?;
     if entry.bytes.len() != wire::PROFILE_ENTRY_BYTES
         || entry.address % wire::PROFILE_ENTRY_ALIGN as u64 != 0
@@ -283,6 +412,11 @@ unsafe fn checked_library(
     {
         return Err(RuntimeError::Entry);
     }
+    let heap_word = file_heap_word(
+        &bytes,
+        (entry.address, entry.bytes.len()),
+        (locator.address, locator.bytes.len()),
+    );
     // SAFETY: authorization and immutability are required above; both exports
     // were checked before the system loader can execute anything.
     let library = unsafe { HeldLibrary::open(path, file) }.map_err(|_| RuntimeError::Load)?;
@@ -318,6 +452,9 @@ unsafe fn checked_library(
         return Err(RuntimeError::Entry);
     }
     let make = entry.make.ok_or(RuntimeError::Entry)?;
+    let base = (loaded_meta as usize).checked_sub(locator.address as usize);
+    // SAFETY: the library is loaded from the file `heap_word` was read from.
+    let heap = unsafe { mapped_heap_word(&library, heap_word, base) }?;
     let image = read_only_segment(
         &bytes,
         (loaded_meta as usize).wrapping_sub(locator.address as usize),
@@ -328,9 +465,11 @@ unsafe fn checked_library(
         library,
         make,
         image,
+        heap,
     })
 }
 
+mod admit;
 mod plugin_output;
 
 // Separate from both CodeLoader and the process-owned inactive load path.
@@ -340,7 +479,7 @@ mod plugin_output;
 )]
 mod owned;
 
-pub(crate) use owned::dev::load_flat_with_resources;
+pub(crate) use owned::dev::admission;
 /// The developer switch's loader for interface-7 plugins (assignment #772),
 /// off unless `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1` says so.
 pub use owned::dev::{DevPlugins, Kind, Refusal, classify, enabled, set_enabled};

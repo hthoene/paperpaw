@@ -29,8 +29,11 @@ pub const MAX_SHOTS: usize = 4;
 pub const MAX_SHOT_SIDE: u32 = 2560;
 /// The longest *How it works* kept, in bytes.
 pub const MAX_DESCRIPTION: usize = 4000;
-/// The most steps of key rotations taken from the library at a time.
-pub const MAX_STEPS: usize = 8;
+/// The most steps of key rotations taken from the library at a time: an
+/// install's batch holds the install, the author's keys and six steps
+/// (`docs/abi/device.md` 5.2); a longer chain is cut, so the host ends the
+/// install with reason 6 (key changed) rather than follow a part of it.
+pub const MAX_STEPS: usize = 6;
 /// The longest address kept of a source or a repository, and of a picture.
 const MAX_ADDRESS: usize = 200;
 const MAX_SHOT_URL: usize = 300;
@@ -181,7 +184,7 @@ pub enum Have {
 }
 
 /// What the device has of an id.
-pub type HaveFn = dyn Fn(&str) -> Option<Have>;
+pub type HaveFn<'a> = dyn Fn(&str) -> Option<Have> + 'a;
 
 /// The device that asks for the library's plugins.
 #[derive(Clone, Copy)]
@@ -192,7 +195,7 @@ pub struct Device<'a> {
     pub code_file: &'a str,
     /// What is installed of an id; `None` where the device does not say (then
     /// everything may be installed).
-    pub have: Option<&'a HaveFn>,
+    pub have: Option<&'a HaveFn<'a>>,
     /// The SDK of the kernel that runs, which data plugins must not be later
     /// than.
     pub sdk: Version,
@@ -324,7 +327,9 @@ impl Item {
                     self.more.source = cut(value, MAX_ADDRESS)?;
                 }
                 "author_since" => self.more.author_since = date(value),
-                "description" => self.more.description = cut(value, MAX_DESCRIPTION)?,
+                // The library's page says it as `how` (already in the device's
+                // language); `description` is the older name.
+                "how" | "description" => self.more.description = cut(value, MAX_DESCRIPTION)?,
                 "author_plugins" => self.more.author_plugins = value.parse().unwrap_or(0),
                 _ => {}
             },

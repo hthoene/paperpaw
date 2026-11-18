@@ -72,8 +72,10 @@ pub paperpaw_native::host_glue::PpHeap::size: u32
 pub paperpaw_native::host_glue::PpHost::blob_read: fn(*mut core::ffi::c_void, u32, u64, paperpaw_native::host_glue::PpBuffer) -> i32
 pub paperpaw_native::host_glue::PpHost::blob_release: fn(*mut core::ffi::c_void, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_clip: fn(*mut core::ffi::c_void, i32, i32, u32, u32) -> i32
+pub paperpaw_native::host_glue::PpHost::canvas_describe: fn(*mut core::ffi::c_void, u32, u32, paperpaw_native::host_glue::PpBytes, i32, i32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_draw_image: fn(*mut core::ffi::c_void, u32, i32, i32, u32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_draw_line: fn(*mut core::ffi::c_void, i32, i32, i32, i32, u32, u32) -> i32
+pub paperpaw_native::host_glue::PpHost::canvas_fill_pattern: fn(*mut core::ffi::c_void, i32, i32, u32, u32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_fill_rect: fn(*mut core::ffi::c_void, i32, i32, u32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_fill_round: fn(*mut core::ffi::c_void, i32, i32, u32, u32, u32, u32) -> i32
 pub paperpaw_native::host_glue::PpHost::canvas_stroke_round: fn(*mut core::ffi::c_void, i32, i32, u32, u32, u32, u32, u32) -> i32
@@ -108,6 +110,7 @@ pub paperpaw_native::host_glue::PpHost::storage_sync: fn(*mut core::ffi::c_void)
 pub paperpaw_native::host_glue::PpHost::storage_write: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBytes) -> i32
 pub paperpaw_native::host_glue::PpHost::text_covers: fn(*mut core::ffi::c_void, u32, paperpaw_native::host_glue::PpBytes) -> i32
 pub paperpaw_native::host_glue::PpHost::text_draw: fn(*mut core::ffi::c_void, u32, f32, f32, i32, u32, paperpaw_native::host_glue::PpBytes, *mut f32) -> i32
+pub paperpaw_native::host_glue::PpHost::text_draw_inked: fn(*mut core::ffi::c_void, u32, f32, f32, i32, u32, paperpaw_native::host_glue::PpBytes, u32, paperpaw_native::host_glue::PpBytes, u32, *mut f32) -> i32
 pub paperpaw_native::host_glue::PpHost::text_hyphenate: fn(*mut core::ffi::c_void, paperpaw_native::host_glue::PpBytes, paperpaw_native::host_glue::PpBytes, u32, u32, paperpaw_native::host_glue::PpBuffer) -> i32
 pub paperpaw_native::host_glue::PpHost::text_ink: fn(*mut core::ffi::c_void, u32, f32, paperpaw_native::host_glue::PpBytes, *mut i32, *mut i32, *mut i32, *mut i32) -> i32
 pub paperpaw_native::host_glue::PpHost::text_measure: fn(*mut core::ffi::c_void, u32, f32, paperpaw_native::host_glue::PpBytes, *mut f32) -> i32
@@ -150,6 +153,8 @@ pub const paperpaw_native::host_glue::PLUGIN_PREFIX_BYTES: usize
 pub trait paperpaw_native::host_glue::Services
 pub fn paperpaw_native::host_glue::Services::alloc(&self, usize, usize) -> *mut u8
 pub unsafe fn paperpaw_native::host_glue::Services::dealloc(&self, *mut u8, usize, usize)
+pub fn paperpaw_native::host_glue::Services::enter(&self, &str) -> bool
+pub fn paperpaw_native::host_glue::Services::leave(&self, &str)
 pub fn paperpaw_native::host_glue::Services::micros(&self) -> u64
 pub unsafe fn paperpaw_native::host_glue::Services::realloc(&self, *mut u8, usize, usize, usize) -> *mut u8
 pub unsafe c fn paperpaw_native::host_glue::clock_micros(*mut core::ffi::c_void, *mut u64) -> i32
@@ -231,6 +236,13 @@ pub paperpaw_native::preflight::DataExport::address: u64
 pub paperpaw_native::preflight::DataExport::bytes: &'a [u8]
 pub fn paperpaw_native::preflight::check_elf64_le(&[u8], u16) -> core::result::Result<(), paperpaw_native::preflight::Refusal>
 pub fn paperpaw_native::preflight::data_export<'a>(&'a [u8], u16, &str, bool) -> core::result::Result<paperpaw_native::preflight::DataExport<'a>, paperpaw_native::preflight::Refusal>
+pub mod paperpaw_native::profile
+pub struct paperpaw_native::profile::Profile<'a>
+pub paperpaw_native::profile::Profile::entry_bytes: u16
+pub paperpaw_native::profile::Profile::entry_layout: u16
+pub paperpaw_native::profile::Profile::target: &'a str
+pub const paperpaw_native::profile::BUILD_ENTRY_ALIGN: core::option::Option<u16>
+pub const paperpaw_native::profile::BUILD_PROFILE: core::option::Option<paperpaw_native::profile::Profile<'static>>
 pub mod paperpaw_native::signature
 pub struct paperpaw_native::signature::BadSignature
 impl core::error::Error for paperpaw_native::signature::BadSignature
@@ -337,7 +349,6 @@ pub paperpaw_native::Header::patches: u32
 pub paperpaw_native::Header::relocs: u32
 pub paperpaw_native::Header::sha256: [u8; 32]
 impl paperpaw_native::Header
-pub fn paperpaw_native::Header::check_file(&[u8]) -> core::result::Result<(paperpaw_native::Header, core::option::Option<paperpaw_native::signature::Signature>), paperpaw_native::Problem>
 pub fn paperpaw_native::Header::digest(&self) -> paperpaw_digest::sha256::Sha256
 pub fn paperpaw_native::Header::digest_prefix(&self) -> [u8; 84]
 pub fn paperpaw_native::Header::file_len(&self) -> u64
@@ -358,12 +369,6 @@ pub fn paperpaw_native::ImageExtent::read(&mut dyn core::ops::function::FnMut(u3
 pub paperpaw_native::Older::chip: core::option::Option<paperpaw_native::Chip>
 pub paperpaw_native::Older::fingerprint: u64
 pub paperpaw_native::Older::format: u16
-pub struct paperpaw_native::Relocator<'a>
-impl<'a> paperpaw_native::Relocator<'a>
-pub fn paperpaw_native::Relocator<'a>::apply(&self, u32, &mut [u8]) -> core::result::Result<(), paperpaw_native::Problem>
-pub fn paperpaw_native::Relocator<'a>::apply_with(&self, u32, &mut [u8], &[u32; 8]) -> core::result::Result<(), paperpaw_native::Problem>
-pub fn paperpaw_native::Relocator<'a>::hot_at(self, u32) -> core::result::Result<Self, paperpaw_native::Problem>
-pub fn paperpaw_native::Relocator<'a>::new(&'a paperpaw_native::Header, &'a [u32], u32, u32) -> core::result::Result<Self, paperpaw_native::Problem>
 pub struct paperpaw_native::Signature
 pub paperpaw_native::Signature::key: [u8; 32]
 pub paperpaw_native::Signature::signature: [u8; 64]
@@ -384,4 +389,3 @@ pub const paperpaw_native::LINK_BASE: u32
 pub const paperpaw_native::MAGIC: [u8; 4]
 pub const paperpaw_native::MAX_IMAGE_LEN: u32
 pub const paperpaw_native::TABLE_SYMBOLS: [&str; 8]
-pub fn paperpaw_native::check_relocations(&paperpaw_native::Header, &[u32]) -> core::result::Result<(), paperpaw_native::Problem>

@@ -14,7 +14,17 @@
   ],
   "features": [
     {
+      "key": "uses.library",
+      "required": false,
+      "revision": 1
+    },
+    {
       "key": "uses.network",
+      "required": false,
+      "revision": 1
+    },
+    {
+      "key": "uses.storage",
       "required": false,
       "revision": 1
     }
@@ -40,7 +50,19 @@
       "semantic_revision": 0
     },
     {
+      "key": "core.library",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
       "key": "core.net",
+      "major": 1,
+      "min_table_bytes": 0,
+      "semantic_revision": 0
+    },
+    {
+      "key": "core.ui",
       "major": 1,
       "min_table_bytes": 0,
       "semantic_revision": 0
@@ -53,5 +75,5 @@
     }
   ],
   "target": "esp32c3-riscv32imc-ilp32-soft-le",
-  "total_bytes": 172
+  "total_bytes": 255
 }

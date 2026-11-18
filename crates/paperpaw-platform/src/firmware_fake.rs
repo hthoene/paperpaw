@@ -43,6 +43,7 @@ pub enum Call {
     Commit,
     Abandon,
     Restart,
+    RestartRunning,
 }
 
 /// What is open.
@@ -84,6 +85,11 @@ pub struct FakeFirmware {
     open: Open,
     /// Set by a `commit` that worked.
     pub committed: bool,
+    /// What `dual_boot_capable` and `dual_boot_declared` say, and whether
+    /// `restart_running` works.
+    pub dual_capable: bool,
+    pub dual_declared: bool,
+    pub can_restart_running: bool,
 }
 
 impl FakeFirmware {
@@ -106,6 +112,9 @@ impl FakeFirmware {
             counts: [0; 7],
             open: Open::Nothing,
             committed: false,
+            dual_capable: false,
+            dual_declared: false,
+            can_restart_running: false,
         }
     }
 
@@ -280,6 +289,23 @@ impl FirmwareHost for FakeFirmware {
             return Err(reason);
         }
         if self.can_restart && self.committed {
+            Ok(())
+        } else {
+            Err(Reason::NOT_HERE)
+        }
+    }
+
+    fn dual_boot_capable(&self) -> bool {
+        self.dual_capable
+    }
+
+    fn dual_boot_declared(&self) -> bool {
+        self.dual_declared
+    }
+
+    fn restart_running(&mut self) -> Result<(), Reason> {
+        self.log.push(Call::RestartRunning);
+        if self.can_restart_running {
             Ok(())
         } else {
             Err(Reason::NOT_HERE)

@@ -1,0 +1,2 @@
+### Added
+- Native plugins have a real on/off state again, as in Beta 3: `Kernel::native_config` reads `[plugins] <id> = on|off` from `paperpaw.ini` once and `Kernel::native_decide` decides per plugin (off wins, then the shell's overrides, then the shipped default; safe mode holds plugins back as in Beta 3) before the shell hosts it, and `Kernel::list_native` lists every native plugin (running, off or failed) so the plugin manager shows it, saves a switch for the next start and drops it on removal. A plugin that is off costs no instance and no declarations.

@@ -146,6 +146,13 @@ fn style() -> Style {
         corner: 4,
         pill: false,
         ring: false,
+        soft: false,
+        shadow: 0,
+        frame: None,
+        button: paperpaw_ui_kit::style::ButtonLook::Outlined,
+        mono: false,
+        roles: paperpaw_ui_kit::style::Roles::default(),
+        separator_dither: false,
         separator_ink: Color::BLACK,
         text: 22.0,
         small: 17.0,
@@ -170,6 +177,7 @@ fn style() -> Style {
         on_dark_muted: Color::gray(200),
         strong: false,
         rtl: false,
+        describing: false,
     }
 }
 

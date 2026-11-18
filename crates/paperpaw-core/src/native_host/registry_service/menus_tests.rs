@@ -9,20 +9,25 @@ use super::{
     schema,
     tests::{call_in, page, query_flags, read},
 };
+use crate::Staging;
+use crate::kit::action::ActionSpec;
+use crate::kit::menus::ItemState;
+use crate::kit::menus::MenuEntry;
+use crate::kit::menus::MenuSection;
+use crate::kit::setup::{SetupPage, SetupStepSpec};
+use crate::kit::widgets::{CellSpan, Drawn, WidgetSpec, categories};
 use crate::native_host::{
     declaration_store::{Allocations, DeclarationStore, ImageOwner, PendingDeclarations},
     native_declarations::NativeDeclarations,
     registrations::{self as wire, Record},
 };
+use crate::{Place, Turn};
 use alloc::{borrow::Cow, boxed::Box, format, rc::Rc, string::String, vec, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
 use paperpaw_sdk::{
-    ActionSpec, Canvas, Cx, Env, Handled, Id, ItemState, Manifest, MenuEntry, MenuNeed,
-    MenuSection, Plugin, RegisterError, Registrar, Screen, ScreenSpec, SettingKind, SettingSpec,
-    SettingValue, Version,
-    setup::{SetupPage, SetupStepSpec},
-    widgets::{CellSpan, Drawn, PlaceKind, WidgetPlace, WidgetSpec, categories},
+    Canvas, Handled, Id, Manifest, MenuNeed, RegisterError, SettingKind, SettingSpec, SettingValue,
+    Version,
 };
 
 fn id(text: &str) -> Id {
@@ -30,26 +35,17 @@ fn id(text: &str) -> Id {
 }
 
 struct Quiet;
-impl Screen for Quiet {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+impl crate::testing::Fake for Quiet {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
 
-const LISTS: &[Id] = &[Id::new_static("demo.list")];
-const OFF_LISTS: &[Id] = &[Id::new_static("demo.off-list")];
-
 /// Everything the ops read from the environment.
-struct Demo;
-impl Plugin for Demo {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("demo"), "Demo", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn demo() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
             id("demo.main"),
             "demo.screen.main",
             Box::new(|_, _| Box::new(Quiet)),
@@ -93,7 +89,13 @@ impl Plugin for Demo {
     }
 }
 
-fn register_menus(r: &mut Registrar) -> Result<(), RegisterError> {
+/// What [`demo`] registers under.
+fn demo_manifest() -> Manifest {
+    Manifest::new(Id::new_static("demo"), "Demo", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
+fn register_menus(r: &mut Staging) -> Result<(), RegisterError> {
     let menu = id("demo.menu");
     for (item, order) in [
         ("demo.open", 10),
@@ -121,13 +123,12 @@ fn register_menus(r: &mut Registrar) -> Result<(), RegisterError> {
     r.set_item_state(id("demo.long"), |_| {
         ItemState::new().enabled(false).label("é".repeat(100))
     })?;
-    r.describe_item(id("demo.open"), "demo.line.open")?;
     r.add_icon(id("demo.open"), "gear")?;
     r.add_keymap("[keymap.global]\ntap.center = demo.open\nswipe.left = none\n[keymap.demo.main]\ntap.center = demo.save\n[keymap.demo.custom]\nswipe.up = demo.open\n")?;
     Ok(())
 }
 
-fn register_ui(r: &mut Registrar) -> Result<(), RegisterError> {
+fn register_ui(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_widget(
         WidgetSpec::drawn(
             id("demo.clock"),
@@ -145,21 +146,6 @@ fn register_ui(r: &mut Registrar) -> Result<(), RegisterError> {
         )
         .cells(CellSpan::new(2, 2).square()),
     )?;
-    r.add_widget_place(WidgetPlace::new(
-        id("demo.home"),
-        "demo.place.home",
-        LISTS,
-        PlaceKind::Grid,
-    ))?;
-    r.add_widget_place(
-        WidgetPlace::new(
-            id("demo.off"),
-            "demo.place.off",
-            OFF_LISTS,
-            PlaceKind::Stack,
-        )
-        .shown_if(id("demo.mode"), "on"),
-    )?;
     r.add_setup_step(
         SetupStepSpec::new(
             id("demo.two"),
@@ -171,7 +157,7 @@ fn register_ui(r: &mut Registrar) -> Result<(), RegisterError> {
     r.add_setup_step(
         SetupStepSpec::new(id("demo.one"), "", SetupPage::Screen(id("demo.main")))
             .order(10)
-            .applies(Box::new(|_| true)),
+            .applies(|_| true),
     )?;
     r.add_setup_step(
         SetupStepSpec::new(
@@ -180,20 +166,15 @@ fn register_ui(r: &mut Registrar) -> Result<(), RegisterError> {
             SetupPage::Screen(id("demo.main")),
         )
         .order(5)
-        .applies(Box::new(|_| false)),
+        .applies(|_| false),
     )?;
     Ok(())
 }
 
 /// The actions of the plugin the native rows belong to: its `action.spec`
 /// rows are merged into the registries when it installs.
-struct Nat;
-impl Plugin for Nat {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("nat"), "Nat", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn nat() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         for name in ["first", "go", "last", "speaks", "future"] {
             r.add_action(ActionSpec::new(id(&format!("nat.{name}")), "nat.action"))?;
         }
@@ -201,11 +182,17 @@ impl Plugin for Nat {
     }
 }
 
+/// What [`nat`] registers under.
+fn nat_manifest() -> Manifest {
+    Manifest::new(Id::new_static("nat"), "Nat", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
 fn kernel() -> crate::Kernel {
     crate::Kernel::builder(crate::tests::DEVICE)
         .device_keymap("[keymap.global]\nswipe.right = demo.save\n")
-        .plugin(Demo)
-        .plugin(Nat)
+        .items(demo_manifest(), demo())
+        .items(nat_manifest(), nat())
         .build()
         .unwrap()
 }
@@ -225,7 +212,7 @@ impl ImageOwner for Image {
 }
 
 /// A declaration store holding `rows`, all of plugin `nat`.
-fn declarations(rows: &[Record<'_>]) -> NativeDeclarations {
+pub(super) fn declarations(rows: &[Record<'_>]) -> NativeDeclarations {
     let mut allocations = Allocations::default();
     let mut pending = PendingDeclarations::new(
         Id::new_static("nat"),
@@ -244,8 +231,11 @@ fn declarations(rows: &[Record<'_>]) -> NativeDeclarations {
     NativeDeclarations {
         store: RefCell::new(store),
         catalog: Default::default(),
+        members: Default::default(),
         items: Default::default(),
         item_room: Default::default(),
+        refusals: Default::default(),
+        unsigned: Default::default(),
     }
 }
 
@@ -401,27 +391,29 @@ fn op_12_default_view_is_the_declared_rows_the_device_shows() {
     let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
     // Placed first; the environment's in order (without the hidden save, the
     // faint-hidden late and the speech-only needy); the rest by order, a
-    // place this host does not know left out, placed last last.
+    // place this host does not know left out, placed last last. The native
+    // rows stand among the environment's by their order (Beta 3 sorted all
+    // rows by order: the native Edit home screen at 40 sat before Settings).
     assert_eq!(
         items(&rows),
         [
             "nat.first",
+            "nat.head",
             "demo.open",
+            "nat.go",
             "demo.part",
             "demo.switchy",
             "demo.flag",
             "demo.sub",
             "demo.long",
-            "nat.head",
-            "nat.go",
             "nat.last",
         ]
     );
     // checked 1, enabled 2, declared 32, switch 64; the label and badge are
-    // the pushed state, the line and the icon the declarations'.
+    // the pushed state, the icon the declarations'.
     assert_eq!(
         row(&rows, "demo.open"),
-        "row demo.open kind=0 flags=34 order=10 by=demo title=demo.action.open icon=gear badge= describe=demo.line.open"
+        "row demo.open kind=0 flags=34 order=10 by=demo title=demo.action.open icon=gear badge= describe="
     );
     assert_eq!(
         row(&rows, "demo.switchy"),
@@ -452,6 +444,33 @@ fn op_12_default_view_is_the_declared_rows_the_device_shows() {
 }
 
 #[test]
+fn op_12_negative_orders_keep_their_groups() {
+    let kernel = kernel();
+    // Placed first, by order and placed last, each with a negative order.
+    let directory = declarations(&[
+        entry("nat.last", -5, 5),
+        entry("nat.go", -5, 0),
+        entry("nat.first", -5, 4),
+    ]);
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
+    assert_eq!(
+        items(&rows),
+        [
+            "nat.first",
+            "nat.go",
+            "demo.open",
+            "demo.save",
+            "demo.part",
+            "demo.switchy",
+            "demo.flag",
+            "demo.sub",
+            "demo.long",
+            "nat.last",
+        ]
+    );
+}
+
+#[test]
 fn op_12_all_adds_the_hidden_rows_and_flags_them() {
     let kernel = kernel();
     let directory = native_menus();
@@ -463,7 +482,9 @@ fn op_12_all_adds_the_hidden_rows_and_flags_them() {
         items(&rows),
         [
             "nat.first",
+            "nat.head",
             "demo.open",
+            "nat.go",
             "demo.save",
             "demo.part",
             "demo.switchy",
@@ -471,8 +492,6 @@ fn op_12_all_adds_the_hidden_rows_and_flags_them() {
             "demo.flag",
             "demo.sub",
             "demo.long",
-            "nat.head",
-            "nat.go",
             "nat.last",
             "demo.hide",
         ]
@@ -519,13 +538,13 @@ fn op_12_a_users_definition_replaces_the_declared_rows() {
             "demo.extra",
             "nat.go",
             "nat.first",
+            "nat.head",
             "demo.open",
             "demo.part",
             "demo.switchy",
             "demo.flag",
             "demo.sub",
             "demo.long",
-            "nat.head",
             "nat.last",
             "demo.hide",
         ]
@@ -581,13 +600,8 @@ fn op_12_unknown_or_empty_scope_is_an_empty_page() {
 
 #[test]
 fn op_12_pages_by_cursor_and_a_stale_generation_is_a_state_error() {
-    struct Many;
-    impl Plugin for Many {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("many"), "Many", Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    fn many() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+        |r| {
             for at in 0..40 {
                 let item = id(&format!("many.item{at:02}"));
                 r.add_action(ActionSpec::new(item.clone(), "many.action"))?;
@@ -596,8 +610,14 @@ fn op_12_pages_by_cursor_and_a_stale_generation_is_a_state_error() {
             Ok(())
         }
     }
+
+    /// What [`many`] registers under.
+    fn many_manifest() -> Manifest {
+        Manifest::new(Id::new_static("many"), "Many", Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Many)
+        .items(many_manifest(), many())
         .build()
         .unwrap();
     let first = call_in(
@@ -661,7 +681,7 @@ fn op_12_titles_follow_the_users_language() {
     );
     kernel.shared.translator.set_language("de");
     let rows = rows_of(&kernel, None, schema::OP_MENU, "demo.menu", 0);
-    assert!(row(&rows, "demo.open").contains("title=Oeffnen icon=gear badge= describe=Eine Zeile"));
+    assert!(row(&rows, "demo.open").contains("title=Oeffnen icon=gear badge= describe="));
 }
 
 /// What `plugin` pushed for `item`, stored as the host does after a callback.
@@ -711,7 +731,7 @@ fn op_12_shows_what_the_plugin_pushed_and_the_pushed_state_wins() {
     let rows = rows_of(&kernel, Some(&directory), schema::OP_MENU, "demo.menu", 0);
     assert_eq!(
         row(&rows, "demo.open"),
-        "row demo.open kind=0 flags=32 order=10 by=demo title=Eine Zeile icon=gear badge=Oeffnen describe=Eine Zeile"
+        "row demo.open kind=0 flags=32 order=10 by=demo title=Eine Zeile icon=gear badge=Oeffnen describe="
     );
     // A switch that is on: checked and switch.
     push(&directory, "demo", "open", SWITCH | ON, "", "");
@@ -920,18 +940,18 @@ fn op_19_lists_widgets_with_kind_icon_cells_and_whether_a_place_shows_them() {
     ]);
     let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "", 0);
     // The environment's (the host's own first), then the declared ones in
-    // the store's order; `demo.note@2` is listed by an environment place that
-    // shows, `demo.clock` by one that does not.
+    // the store's order.
     assert_eq!(
         rows,
         [
             "widget core.space core core.widgets.layout layout 0 cells=0 Space",
             "widget core.fill core core.widgets.layout layout 0 cells=0 Free space",
             "widget demo.clock demo core.widgets.time clock 0 cells=16843010 demo.widget.clock",
-            "widget demo.note demo core.widgets.other puzzle 5 cells=16843266 demo.widget.note",
-            // The place `nat.home` lists demo.list: `demo.note@2` only.
-            "widget nat.round nat nat.own-kind puzzle 4 cells=33686018 nat.widget",
+            "widget demo.note demo core.widgets.other puzzle 4 cells=16843266 demo.widget.note",
+            // The place `nat.home` lists demo.list: `demo.note@2` only. The
+            // declared ones in declaration order (#2390).
             "widget nat.quote nat core.widgets.words letter-case 2 cells=16843010 nat.widget",
+            "widget nat.round nat nat.own-kind puzzle 4 cells=33686018 nat.widget",
         ]
     );
     // A kind as scope.
@@ -949,6 +969,41 @@ fn op_19_lists_widgets_with_kind_icon_cells_and_whether_a_place_shows_them() {
 }
 
 #[test]
+fn the_kernels_own_screens_are_told_the_declared_widgets_to_add() {
+    let directory = declarations(&[
+        widget("quote", "core.widgets.words", 0, 0, ""),
+        widget("preview", "core.widgets.words", 0, 0, "demo.top"),
+        widget("round", "nat.own-kind", 0, 0, ""),
+    ]);
+    let names = |only: Option<&str>| {
+        let mut found = Vec::new();
+        super::widgets::declared_names(&directory, only, &mut |id, title, kind| {
+            found.push(format!("{id} {title} {kind}"));
+        });
+        found
+    };
+    // Not the one that previews settings.
+    assert_eq!(
+        names(None),
+        [
+            "nat.quote nat.widget core.widgets.words",
+            "nat.round nat.widget nat.own-kind"
+        ]
+    );
+    // One alone, also by a placement of it.
+    assert_eq!(
+        names(Some("nat.round@2")),
+        ["nat.round nat.widget nat.own-kind"]
+    );
+    assert!(names(Some("nat.preview")).is_empty());
+    assert!(names(Some("nat.nobody")).is_empty());
+    // Nothing while the store is being written.
+    let writing = directory.store.borrow_mut();
+    assert!(names(None).is_empty());
+    drop(writing);
+}
+
+#[test]
 fn op_19_with_flags_bit_0_lists_the_widgets_that_preview_a_group() {
     let kernel = kernel();
     let directory = declarations(&[
@@ -957,14 +1012,15 @@ fn op_19_with_flags_bit_0_lists_the_widgets_that_preview_a_group() {
         widget("other", "core.widgets.words", 0, 0, "demo.else"),
         widget("later", "core.widgets.words", 0, 0, "demo.top"),
     ]);
-    // In op 19's order (the store's for declarations); a page shows the last.
+    // In op 19's order (declaration order for declarations, #2390); a page
+    // shows the last.
     let rows = rows_of(&kernel, Some(&directory), schema::OP_WIDGETS, "demo.top", 1);
     assert_eq!(
         rows,
         [
-            "widget nat.later nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
-             nat.widget",
             "widget nat.sample nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
+             nat.widget",
+            "widget nat.later nat core.widgets.words letter-case 0 cells=0 previews=demo.top \
              nat.widget",
         ]
     );
@@ -1029,20 +1085,27 @@ fn op_19_shown_follows_the_settings_a_place_lists() {
         .settings
         .set("demo.flag", SettingValue::Bool(true))
         .unwrap();
-    kernel
-        .shared
-        .settings
-        .set("demo.mode", SettingValue::Text(Cow::Borrowed("on")))
-        .unwrap();
     let (quote, clock) = flags(&kernel);
     assert!(quote.contains(" letter-case 1 "), "{quote}");
-    assert!(clock.contains(" clock 1 "), "{clock}");
+    assert!(clock.contains(" clock 0 "), "{clock}");
 }
 
 #[test]
-fn op_21_is_empty_until_a_plugin_declares_a_status_item_or_line() {
+fn op_21_lists_the_kernels_items_between_the_declared_items_and_lines() {
     let kernel = kernel();
-    for scope in ["", "item", "line", "other"] {
+    // The kernel's own (todo 598): Beta 3's priorities, the battery with room
+    // for its symbol and percentage. Staging: never the drawn bit (a line's).
+    let kernels = [
+        "status core.status.clock core kind=0 flags=0 priority=160 size=0 tap= Time",
+        "status core.status.date core kind=0 flags=0 priority=128 size=0 tap= Date",
+        "status core.status.date-short core kind=0 flags=0 priority=128 size=0 tap= Date, short",
+        "status core.status.battery core kind=0 flags=0 priority=192 size=4200 tap= Battery",
+        "status core.status.battery-low core kind=0 flags=0 priority=128 size=4200 tap= Battery when low",
+    ];
+    for scope in ["", "item"] {
+        assert_eq!(rows_of(&kernel, None, schema::OP_STATUS, scope, 0), kernels);
+    }
+    for scope in ["line", "other"] {
         let (rows, end) = page(&kernel, schema::OP_STATUS, scope);
         assert!(rows.is_empty(), "{scope}");
         assert_eq!((end.flags, end.total, end.next), (1, 0, 0));
@@ -1067,18 +1130,57 @@ fn op_21_is_empty_until_a_plugin_declares_a_status_item_or_line() {
         }),
     ]);
     let all = rows_of(&kernel, Some(&directory), schema::OP_STATUS, "", 0);
+    let declared = [
+        "status nat.battery nat kind=0 flags=2 priority=200 size=1500 tap=nat.go nat.status.battery",
+        "status nat.reading nat kind=1 flags=1 priority=0 size=1000 tap= nat.status.reading",
+    ];
+    assert_eq!(all.len(), 7);
     assert_eq!(
-        all,
-        [
-            "status nat.battery nat kind=0 flags=2 priority=200 size=1500 tap=nat.go nat.status.battery",
-            "status nat.reading nat kind=1 flags=1 priority=0 size=1000 tap= nat.status.reading",
-        ]
+        (all[0].as_str(), all[6].as_str()),
+        (declared[0], declared[1])
     );
+    assert_eq!(&all[1..6], kernels);
     let items = rows_of(&kernel, Some(&directory), schema::OP_STATUS, "item", 0);
-    assert_eq!(items, &all[..1]);
+    assert_eq!(items, &all[..6]);
     let lines = rows_of(&kernel, Some(&directory), schema::OP_STATUS, "line", 0);
-    assert_eq!(lines, &all[1..]);
+    assert_eq!(lines, &all[6..]);
     assert!(rows_of(&kernel, Some(&directory), schema::OP_STATUS, "other", 0).is_empty());
+}
+
+/// `registry.md` 3, `reg_status.flags` bit 0: always set for a line, never
+/// for an item. The SDK refuses a page with a row that says otherwise, so a
+/// status line that reads its items (reader, home, picture-home) stays empty.
+#[test]
+fn op_21_marks_lines_and_no_item_as_drawn_by_their_owner() {
+    let kernel = kernel();
+    let directory = declarations(&[
+        Record::StatusItem(wire::StatusItem {
+            name: "steps",
+            title: "nat.status.steps",
+            tap: "",
+            priority: 10,
+            min_width: 0,
+            token: 0,
+            flags: 2,
+        }),
+        Record::StatusLine(wire::StatusLine {
+            name: "reading",
+            title: "nat.status.reading",
+            height: 1000,
+            token: 0,
+            flags: 0,
+        }),
+    ]);
+    let rows = rows_of(&kernel, Some(&directory), schema::OP_STATUS, "", 0);
+    assert_eq!(rows.len(), 7);
+    for row in &rows {
+        let flags = row
+            .split(' ')
+            .find_map(|part| part.strip_prefix("flags="))
+            .and_then(|flags| flags.parse::<u32>().ok())
+            .unwrap();
+        assert_eq!(flags & 1 != 0, row.contains(" kind=1 "), "{row}");
+    }
 }
 
 #[test]
@@ -1282,4 +1384,31 @@ fn native_presets_are_listed_with_their_values_and_resets() {
         values.contains(&format!("value {other} [] 1")),
         "{values:?}"
     );
+}
+
+/// The flags the SDK's status decoder demands of a row (`registry.md` 2.2: bit 0 "drawn by its
+/// owner" is 1 for a line and 0 for an item, `sdk/src/native/registry/status.rs`): a row that
+/// breaks it makes `Registry::status` answer `Invalid` for the whole listing, and every native
+/// status line (the reader's, home's, picture-home's) fails with it. The SDK's `Host` can only be
+/// made inside a plugin, so this restates its rule over the real kernel's listing; the end to end
+/// case, with a kernel and a linked plugin, is picture-home's `hosted_page` test.
+#[test]
+fn op_21_rows_of_the_real_kernel_pass_the_sdk_decoders_flag_rule_and_hold_the_clock_and_battery() {
+    let kernel = kernel();
+    let rows = rows_of(&kernel, None, schema::OP_STATUS, "", 0);
+    for id in ["core.status.clock", "core.status.battery"] {
+        assert!(rows.iter().any(|row| row.contains(id)), "{id} in {rows:?}");
+    }
+    let field = |row: &str, name: &str| -> u32 {
+        let (_, rest) = row.split_once(&format!(" {name}=")).unwrap();
+        rest.split(' ').next().unwrap().parse().unwrap()
+    };
+    for row in &rows {
+        let (kind, flags) = (field(row, "kind"), field(row, "flags"));
+        assert_eq!(
+            flags & 1,
+            kind,
+            "the drawn bit of an item is 0, of a line 1: {row}"
+        );
+    }
 }

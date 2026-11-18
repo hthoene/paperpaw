@@ -2,7 +2,7 @@
 //! manager hears it (`device.md` 3): `event.network_wanted` when something
 //! waits for a network that is not up, `event.network_idle` when the last
 //! request, server or socket is gone, and the flags the shell reads
-//! (`Env::wifi`: `wanted`, `busy`).
+//! (`Place::wifi`: `wanted`, `busy`).
 //!
 //! The events and flags are the kernel's own (`Kernel::check_network`, after
 //! every call, where PaperPaw manages Wi-Fi); this adds what `core.net` and
@@ -28,7 +28,7 @@ impl crate::Kernel {
     /// is live (`live`). A wish of the work scheduler that has lapsed (its
     /// time is out, or a network is up) goes first.
     pub(crate) fn native_demand(&mut self) -> (bool, bool) {
-        let (now, online) = (self.now.millis(), self.native_online());
+        let (now, online) = (self.shared.now.millis(), self.native_online());
         let Some((pool, hosts)) = self.shared.native_instances.net_demand() else {
             return (false, false);
         };
@@ -54,7 +54,7 @@ impl crate::Kernel {
     /// raises the flag for work of such a plugin.
     #[allow(dead_code, reason = "the work pump calls it (todo 265)")]
     pub(crate) fn native_work_wish(&mut self) {
-        let now = self.now.millis();
+        let now = self.shared.now.millis();
         if self.native_online() {
             return;
         }

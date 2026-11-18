@@ -15,11 +15,11 @@ use std::vec;
 const HEADER: &str = "\tcatalog\t2\t1\n";
 
 /// The device facts, set by the test.
-pub(crate) struct Env {
+pub(crate) struct Facts {
     pub(crate) walking: Cell<Option<u32>>,
     pub(crate) today: Cell<Option<u32>>,
 }
-impl CatalogEnv for Env {
+impl CatalogEnv for Facts {
     fn walking(&self) -> Option<u32> {
         self.walking.get()
     }
@@ -31,6 +31,18 @@ impl CatalogEnv for Env {
             visit("epub");
         }
     }
+    /// `stars.rating` is kept with the book only, `stars.tag` in the catalog.
+    fn book_field(&self, id: &str) -> Option<bool> {
+        match id {
+            "stars.rating" => Some(false),
+            "stars.tag" => Some(true),
+            _ => None,
+        }
+    }
+    /// Plugins keep data for book E only.
+    fn book_data_kept(&self, path: &str) -> Result<bool, i32> {
+        Ok(path == "books/e.epub")
+    }
 }
 
 /// Five books: A (a favourite, 40 % by the log), B (long title, tags and
@@ -38,7 +50,7 @@ impl CatalogEnv for Env {
 /// opened). Today is day 20,003.
 pub(crate) struct Card {
     pub(crate) storage: Rc<MemoryStorage>,
-    pub(crate) env: Rc<Env>,
+    pub(crate) env: Rc<Facts>,
     pub(crate) a: u64,
     pub(crate) b: u64,
     pub(crate) c: u64,
@@ -80,7 +92,7 @@ pub(crate) fn card() -> Card {
     catalog::forget(&*storage, "books/d.txt").unwrap();
     Card {
         storage,
-        env: Rc::new(Env {
+        env: Rc::new(Facts {
             walking: Cell::new(None),
             today: Cell::new(Some(20_003)),
         }),
@@ -428,6 +440,34 @@ fn the_catalog_file_is_where_the_sdk_writes_it() {
 /// A whole `LibHost` for the service tests: the catalog reads, no writes.
 pub(crate) struct Host(pub(crate) CatalogReads);
 impl LibQuery for Host {
+    fn query(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.0.query(query, archive, visit)
+    }
+    fn facets(
+        &self,
+        query: &wire::ServiceLibQuery<'_>,
+        archive: &str,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.0.facets(query, archive, visit)
+    }
+    fn next_in_series(&self, book: BookRef<'_>, visit: One<'_>) -> Result<(), i32> {
+        self.0.next_in_series(book, visit)
+    }
+    fn fields(
+        &self,
+        book: BookRef<'_>,
+        cursor: u32,
+        generation: u32,
+        visit: Rows<'_>,
+    ) -> Result<RowsEnd, i32> {
+        self.0.fields(book, cursor, generation, visit)
+    }
     fn state(&self, visit: One<'_>) -> Result<(), i32> {
         self.0.state(visit)
     }
@@ -778,6 +818,60 @@ fn a_book_and_its_text_read_the_log_once_and_the_line_in_one_scan() {
         .unwrap();
     assert_eq!(log_reads(), once, "op 4 reads the log once");
     assert_eq!(line_scans(card.b), 1);
+}
+
+/// A query reads the log of changes once however many scans and rows it
+/// takes, and `state` counts the books once for a generation of the catalog.
+#[test]
+fn a_query_reads_the_log_once_and_state_counts_once_per_generation() {
+    const LOG: &str = ".paperpaw/library/status.log";
+    const CATALOG: &str = ".paperpaw/library/catalog.txt";
+    let card = card();
+    let counting = Rc::new(Counting(card.storage.clone(), Default::default()));
+    let reads = CatalogReads::new(counting.clone(), card.env.clone());
+    let of = |file: &str| {
+        counting
+            .1
+            .borrow()
+            .iter()
+            .filter(|(p, _)| p == file)
+            .count()
+    };
+    catalog::try_changes(&*counting).unwrap();
+    let once = of(LOG);
+    assert!(once > 0, "the card's log is read");
+    counting.1.borrow_mut().clear();
+    let mut q = wire::ServiceLibQuery {
+        show: 0,
+        sort: 0,
+        flags: 0,
+        words: "",
+        author: "",
+        series: "",
+        tag: "",
+        folder: "",
+        added_since: 0,
+        cursor: 2,
+        generation: 0,
+        facet: 0,
+    };
+    // A cursor takes a scan to skip and one for the page, and the rows.
+    q.cursor = 1;
+    reads
+        .query_hiding(&q, "", &|_| false, &mut |_| {
+            core::ops::ControlFlow::Continue(())
+        })
+        .unwrap();
+    assert_eq!(of(LOG), once, "the log is read once for the whole call");
+    counting.1.borrow_mut().clear();
+    reads.state(&mut |_| {}).unwrap();
+    let first = of(CATALOG);
+    counting.1.borrow_mut().clear();
+    reads.state(&mut |_| {}).unwrap();
+    assert!(
+        of(CATALOG) < first,
+        "the second state does not count the books again"
+    );
 }
 
 /// The catalog on one storage, the books on another that is `NoStorage`:

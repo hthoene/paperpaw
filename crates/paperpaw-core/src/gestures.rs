@@ -8,6 +8,7 @@
 )]
 use super::*;
 use crate::commands::{Reserved, vet_reserved};
+use crate::native_host::native_action;
 
 /// On the same screen, how long before the last frame showed a press
 /// made more than a frame behind may be and still count: a click made
@@ -45,38 +46,12 @@ pub(crate) struct InputState {
     /// (something is bound to that): its input, until when, and the
     /// screen it began on.
     pub(crate) pending: Option<(InputKey, Instant, Option<u32>)>,
-    /// Where and when the last tap was, for a double tap.
-    pub(crate) last_tap: Option<(Point, Instant)>,
-    /// Plugins' recognizers of gestures.
-    pub(crate) recognizers: Vec<PluginRecognizer>,
     /// The screen on top when the last button was pressed or finger came
     /// down: what is held is resolved for it.
     pub(crate) pressed_on: Option<u32>,
-    /// The list shown beside the item chosen in it ([`Kernel::panes`]),
-    /// by its serial, where keys and buttons go to it (after a tap in it,
-    /// or [`actions::PANE_OTHER`](paperpaw_sdk::builtin::actions::PANE_OTHER));
-    /// else they go to the screen on top.
-    pub(crate) pane_keys: Option<u32>,
     /// The thresholds of recognition, read from the settings once until
     /// they change.
     pub(crate) thresholds: core::cell::Cell<Option<Thresholds>>,
-}
-
-/// A plugin's recognizer of gestures (`gesture.<id>`).
-pub(crate) struct PluginRecognizer {
-    pub(crate) id: Id,
-    pub(crate) recognizer: Box<dyn paperpaw_sdk::keys::GestureRecognizer>,
-    /// The fingers it follows, and whether each is its own.
-    pub(crate) fingers: Vec<(u8, bool)>,
-}
-
-/// A recognizer asks for its time at most this often, in milliseconds.
-pub(crate) const RECOGNIZER_TICK_MS: u64 = 50;
-
-impl core::fmt::Debug for PluginRecognizer {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("PluginRecognizer").field(&self.id).finish()
-    }
 }
 
 impl Kernel {
@@ -110,14 +85,13 @@ impl Kernel {
         ms.clamp(50, 2000) as u64
     }
 
-    /// What a filter cancelled (see [`InputVerdict::Cancel`]): the button
-    /// or finger no longer followed; a screen or recognizer that took the
-    /// finger is told it is gone.
+    /// What a filter cancelled (`core.input-filter`): the button
+    /// or finger no longer followed; a screen that took the finger is told
+    /// it is gone.
     pub(crate) fn cancel_input(&mut self, event: &InputEvent) {
         match *event {
             InputEvent::Button { name, .. } => self.input.recognizer.forget_button(name),
             InputEvent::Pointer(p) => {
-                self.recognizers_lose(&p);
                 self.input.recognizer.forget_pointer(p.id);
                 if self.input.edge_touch.is_some_and(|t| t.id == p.id) {
                     self.input.edge_touch = None;
@@ -127,7 +101,7 @@ impl Kernel {
                     let area = self.input_area();
                     let gone = p
                         .with_phase(PointerPhase::Cancel)
-                        .with_point(chrome::local(p.point, area));
+                        .with_point(areas::local(p.point, area));
                     self.with_input(|screen, cx| screen.on_pointer(&gone, cx));
                 }
             }
@@ -135,138 +109,8 @@ impl Kernel {
         }
     }
 
-    /// Feeds pointer `event` to the plugins' recognizers, in the
-    /// coordinates of the screen on top: a finger coming down (`may_start`:
-    /// where gestures are the key map's) to each that may see it, others
-    /// to those that follow it. What they recognize runs. Whether a
-    /// recognizer has the finger as its own.
-    fn feed_recognizers(&mut self, event: &PointerEvent, may_start: bool) -> bool {
-        use paperpaw_sdk::keys::PointerVerdict;
-        if self.input.recognizers.is_empty() {
-            return false;
-        }
-        let down = event.phase == PointerPhase::Down;
-        let standard = self.policy() == keymap::Policy::Standard;
-        let area = self.input_area();
-        let seen = (*event).with_point(chrome::local(event.point, area));
-        let ends = matches!(event.phase, PointerPhase::Up | PointerPhase::Cancel);
-        let (now, meter) = (self.now, self.shared.meter.clone());
-        // While a screen guards the device, only its plugin's recognizers run.
-        let guard = self.guard().map(|guard| self.stack[guard].id.namespace());
-        let mut made: Vec<Id> = Vec::new();
-        let mut taken = false;
-        for r in self.input.recognizers.iter_mut() {
-            let following = r.fingers.iter().position(|(id, _)| *id == event.id);
-            let allowed = guard.is_none_or(|ns| r.id.namespace() == ns);
-            let sees = if down {
-                may_start && standard && allowed
-            } else {
-                following.is_some() && allowed
-            };
-            if !sees {
-                continue;
-            }
-            let running = meter.enter(r.id.namespace());
-            let verdict = r.recognizer.pointer(&seen, now);
-            drop(running);
-            let own = match verdict {
-                PointerVerdict::Pass => None,
-                PointerVerdict::Observe => Some(following.is_some_and(|at| r.fingers[at].1)),
-                PointerVerdict::Recognized => {
-                    made.push(r.id.clone());
-                    Some(true)
-                }
-                _ => Some(true),
-            };
-            r.fingers.retain(|(id, _)| *id != event.id);
-            if let Some(own) = own {
-                taken |= own;
-                if !ends {
-                    r.fingers.push((event.id, own));
-                }
-            }
-        }
-        if taken {
-            self.input.recognizer.forget_pointer(event.id);
-        }
-        for id in made {
-            self.route_key(InputKey::Gesture(id));
-        }
-        taken
-    }
-
-    /// Finger `event.id` was taken away (by an input filter): the
-    /// recognizers that follow it see it go and no longer follow it.
-    pub(crate) fn recognizers_lose(&mut self, event: &PointerEvent) {
-        let area = self.input_area();
-        let gone = (*event)
-            .with_phase(PointerPhase::Cancel)
-            .with_point(chrome::local(event.point, area));
-        let (now, meter) = (self.now, self.shared.meter.clone());
-        for r in self.input.recognizers.iter_mut() {
-            if r.fingers.iter().any(|(id, _)| *id == event.id) {
-                r.fingers.retain(|(id, _)| *id != event.id);
-                let _running = meter.enter(r.id.namespace());
-                r.recognizer.pointer(&gone, now);
-            }
-        }
-    }
-
-    /// Time for the plugins' recognizers that asked for it (only the
-    /// guard's while a screen guards the device). What they recognize
-    /// runs, and the fingers they follow are theirs.
-    pub(crate) fn tick_recognizers(&mut self) {
-        if self.input.recognizers.is_empty() {
-            return;
-        }
-        let (now, meter) = (self.now, self.shared.meter.clone());
-        // While a screen guards the device, only its plugin's recognizers run.
-        let guard = self.guard().map(|guard| self.stack[guard].id.namespace());
-        let mut made: Vec<Id> = Vec::new();
-        let mut claimed: Vec<u8> = Vec::new();
-        for r in self.input.recognizers.iter_mut() {
-            let due = r.recognizer.next_tick().is_some_and(|at| at <= now);
-            if !due || !guard.is_none_or(|ns| r.id.namespace() == ns) {
-                continue;
-            }
-            let running = meter.enter(r.id.namespace());
-            let recognized = r.recognizer.tick(now);
-            drop(running);
-            if recognized == paperpaw_sdk::keys::Recognition::Recognized {
-                made.push(r.id.clone());
-                for finger in &mut r.fingers {
-                    finger.1 = true;
-                    claimed.push(finger.0);
-                }
-            }
-        }
-        for finger in claimed {
-            self.input.recognizer.forget_pointer(finger);
-        }
-        for id in made {
-            self.shared.reader = true;
-            self.route_key(InputKey::Gesture(id));
-        }
-    }
-
-    /// When a recognizer wants its time next: not sooner than
-    /// [`RECOGNIZER_TICK_MS`] from now, so that one asking for a time
-    /// past does not keep the device awake.
-    pub(crate) fn recognizers_due(&self) -> Option<Instant> {
-        let floor = self.now.add_millis(RECOGNIZER_TICK_MS);
-        let guard = self.guard().map(|guard| self.stack[guard].id.namespace());
-        self.input
-            .recognizers
-            .iter()
-            .filter(|r| guard.is_none_or(|ns| r.id.namespace() == ns))
-            .filter_map(|r| r.recognizer.next_tick())
-            .min()
-            .map(|at| at.max(floor))
-    }
-
     pub(crate) fn pointer(&mut self, event: PointerEvent) {
         if event.phase == PointerPhase::Down {
-            self.pane_touched(event.point);
             self.input.pressed_on = self.input_index().map(|index| self.stack[index].serial);
         }
         // Swipes in from an edge come before the screen sees the finger.
@@ -279,7 +123,7 @@ impl Kernel {
                     if !self
                         .input
                         .recognizer
-                        .lift_edge(event.id, self.now, &thresholds)
+                        .lift_edge(event.id, self.shared.now, &thresholds)
                     {
                         self.edge_lifted(touch, event.point);
                     }
@@ -290,7 +134,9 @@ impl Kernel {
                 }
                 PointerPhase::Move => {
                     let thresholds = self.thresholds();
-                    self.input.recognizer.pointer(&event, self.now, &thresholds);
+                    self.input
+                        .recognizer
+                        .pointer(&event, self.shared.now, &thresholds);
                 }
                 _ => {}
             }
@@ -300,11 +146,9 @@ impl Kernel {
         // is meant for it (a grip that moves a row, a handle), as apps on
         // phones keep such places from the system's gestures.
         let captured = self.input.captured.contains(&event.id);
-        // A finger on a bar is the bar's: its gestures go to it.
-        let on_bar = event.phase == PointerPhase::Down && self.chrome_at(event.point).is_some();
-        if captured || (event.phase == PointerPhase::Down && !on_bar) {
+        if captured || event.phase == PointerPhase::Down {
             let area = self.input_area();
-            let seen = event.with_point(chrome::local(event.point, area));
+            let seen = event.with_point(areas::local(event.point, area));
             let handled = self.with_input(|screen, cx| screen.on_pointer(&seen, cx));
             if captured {
                 if matches!(event.phase, PointerPhase::Up | PointerPhase::Cancel) {
@@ -318,7 +162,6 @@ impl Kernel {
             }
         }
         if event.phase == PointerPhase::Down
-            && !on_bar
             && let Some(side) = self.edge_at(event.point)
         {
             self.input.edge_touch = Some(EdgeTouch {
@@ -331,16 +174,18 @@ impl Kernel {
                 Direction::Up | Direction::Down => input::Edge::End,
                 _ => input::Edge::Side,
             };
-            self.input.recognizer.follow_edge(&event, self.now, edge);
-            return;
-        }
-        // Plugins' recognizers, where gestures are the key map's.
-        if self.feed_recognizers(&event, !on_bar) {
+            self.input
+                .recognizer
+                .follow_edge(&event, self.shared.now, edge);
             return;
         }
         let thresholds = self.thresholds();
-        if let Some(recognized) = self.input.recognizer.pointer(&event, self.now, &thresholds) {
-            self.recognized(recognized);
+        if let Some(recognized) =
+            self.input
+                .recognizer
+                .pointer(&event, self.shared.now, &thresholds)
+        {
+            self.recognized_filtered(recognized);
         }
     }
 
@@ -355,17 +200,13 @@ impl Kernel {
         if self.policy() == keymap::Policy::Off
             || self
                 .input_index()
-                .is_some_and(|index| self.stack[index].screen.holds_edges())
+                .is_some_and(|index| self.stack[index].holds_edges())
         {
             return None;
         }
-        // Inside the part of the screen the screen on top has (with the
-        // list beside it): not on a bar or the row of hints.
+        // Inside the part of the screen the screen on top has: not on the
+        // row of hints.
         let display = self.stack.last().map_or(self.content(), |top| top.area);
-        let display = match self.panes() {
-            Some((list, _)) => display.union(&self.stack[list].area),
-            None => display,
-        };
         if !display.contains(point) {
             return None;
         }
@@ -401,17 +242,10 @@ impl Kernel {
         bound.then_some(side)
     }
 
-    /// Whether the screen on top goes right to left
-    /// ([`Screen::direction`](paperpaw_sdk::Screen::direction)): its own
-    /// way, or by default the interface's.
+    /// Whether the screen on top goes right to left: as the interface does.
     fn mirrored(&self) -> bool {
         use paperpaw_sdk::lang::Direction as Way;
-        let input = self.input_index().map(|index| &self.stack[index]);
-        match input.map(|active| active.screen.direction()) {
-            Some(Way::Rtl) => true,
-            Some(Way::Auto) => self.shared.translator.direction() == Way::Rtl,
-            _ => false,
-        }
+        self.input_index().is_some() && self.shared.translator.direction() == Way::Rtl
     }
 
     /// `side` the other way, left for right, where the screen on top is
@@ -443,11 +277,11 @@ impl Kernel {
                     .input
                     .edge_pending
                     .take()
-                    .is_some_and(|(side, until)| side == touch.side && self.now < until);
+                    .is_some_and(|(side, until)| side == touch.side && self.shared.now < until);
                 if !again {
-                    self.input.edge_pending = Some((touch.side, self.now.add_millis(3000)));
+                    self.input.edge_pending = Some((touch.side, self.shared.now.add_millis(3000)));
                     let text = self.shared.translator.tr("core.edge-again").to_string();
-                    self.output.commands.push(Command::Notify(text));
+                    self.output.commands.push(Ask::Notify(text));
                     return;
                 }
             }
@@ -461,15 +295,9 @@ impl Kernel {
         } else {
             return;
         };
-        self.recognized(Recognized::Gesture(Gesture::new(
+        self.recognized_filtered(Recognized::Gesture(Gesture::new(
             kind, start, end, touch.tool,
         )));
-    }
-
-    /// Whether the screen on top takes buttons by name now.
-    pub(crate) fn takes_buttons(&self) -> bool {
-        self.input_index()
-            .is_some_and(|index| self.stack[index].screen.takes_buttons())
     }
 
     /// Button `name` pressed (`long`: held): offered to the screen on
@@ -478,11 +306,6 @@ impl Kernel {
         self.hint.pressed = self.hint.buttons.iter().position(|b| *b == name);
         if self.hint.pressed.is_some() {
             self.show_hints();
-        }
-        if self.takes_buttons()
-            && self.with_input(|screen, cx| screen.on_button(name, long, cx)) == Handled::Yes
-        {
-            return;
         }
         let name = Cow::Borrowed(name);
         if long {
@@ -511,11 +334,6 @@ impl Kernel {
                     }
                     return;
                 }
-                if let Some((index, strip)) = self.chrome_at(gesture.start) {
-                    let seen = chrome::local_gesture(gesture, strip);
-                    self.with_chrome(index, |screen, cx| screen.on_gesture(seen, cx));
-                    return;
-                }
                 let overlay = self
                     .stack
                     .len()
@@ -525,31 +343,13 @@ impl Kernel {
                     && gesture.kind == GestureKind::Tap
                     && !region.contains(gesture.start)
                 {
-                    let top = self.stack.len() - 1;
-                    match self.stack[top].screen.outside() {
-                        paperpaw_sdk::Outside::Ignore => return,
-                        paperpaw_sdk::Outside::PassThrough => {
-                            let below = top.saturating_sub(1);
-                            let seen = chrome::local_gesture(gesture, self.stack[below].area);
-                            self.with_screen(below, |screen, cx| screen.on_gesture(seen, cx));
-                            return;
-                        }
-                        _ => return self.close_top(paperpaw_sdk::CloseCause::TapOutside),
-                    }
+                    return self.close_top(paperpaw_sdk::CloseCause::TapOutside);
                 }
                 // In the coordinates of the screen input goes to.
                 let area = self.input_area();
-                let gesture = self.doubled(chrome::local_gesture(gesture, area));
+                let gesture = areas::local_gesture(gesture, area);
                 if self.offer(|screen, cx| screen.on_gesture(gesture, cx)) == Handled::Yes {
                     return;
-                }
-                // A screen that knows no double taps gets a tap.
-                if gesture.kind == GestureKind::DoubleTap {
-                    let mut tap = gesture;
-                    tap.kind = GestureKind::Tap;
-                    if self.offer(|screen, cx| screen.on_gesture(tap, cx)) == Handled::Yes {
-                        return;
-                    }
                 }
                 // Screens with gestures of their own: none from the key map.
                 if self.policy() != keymap::Policy::Standard {
@@ -567,7 +367,12 @@ impl Kernel {
                     && let Some(action) = self.own_zone(gesture.start, long)
                 {
                     self.route_key_pending();
-                    return self.dispatch(action);
+                    let index = self.input_index();
+                    let action = match index {
+                        Some(_) => self.zone_action(action),
+                        None => Some(action),
+                    };
+                    return action.map_or((), |action| self.dispatch(action));
                 }
                 let key = match gesture.kind {
                     GestureKind::Tap | GestureKind::DoubleTap => {
@@ -593,7 +398,12 @@ impl Kernel {
     /// first, as it came first.
     pub(crate) fn route_key(&mut self, key: InputKey) {
         self.route_key_pending();
-        if let Some(action) = self.resolve(&key).cloned() {
+        let action = match self.input_index() {
+            Some(index) => self.bound_action(index, &key),
+            // No screen: the global layer alone, with no guard to keep.
+            None => self.resolve(&key).cloned(),
+        };
+        if let Some(action) = action {
             self.dispatch(action);
         }
     }
@@ -620,8 +430,7 @@ impl Kernel {
         let Some(index) = index else {
             return;
         };
-        let (layers, count) = self.layers_of(index);
-        if let Some(action) = self.shared.keymap.resolve(&layers[..count], &key).cloned() {
+        if let Some(action) = self.bound_action(index, &key) {
             self.dispatch(action);
         }
     }
@@ -634,39 +443,17 @@ impl Kernel {
             return self.route_key(single);
         }
         match self.input.pending.take() {
-            Some((first, until, _)) if first == single && self.now < until => {
+            Some((first, until, _)) if first == single && self.shared.now < until => {
                 self.route_key(double)
             }
             other => {
                 self.input.pending = other;
                 self.route_key_pending();
-                let until = self.now.add_millis(self.double_ms());
+                let until = self.shared.now.add_millis(self.double_ms());
                 let on = self.input_index().map(|index| self.stack[index].serial);
                 self.input.pending = Some((single, until, on));
             }
         }
-    }
-
-    /// `gesture` as a double tap where it is a tap close in time and place
-    /// to the tap before, for a screen on top that takes double taps.
-    fn doubled(&mut self, mut gesture: Gesture) -> Gesture {
-        let wanted = self
-            .input_index()
-            .is_some_and(|index| self.stack[index].screen.takes_double_taps());
-        if gesture.kind != GestureKind::Tap || !wanted {
-            return gesture;
-        }
-        let (window, near) = (self.double_ms(), self.thresholds().swipe_distance);
-        let now = self.now;
-        let double = self.input.last_tap.take().is_some_and(|(at, when)| {
-            now.since(when) < window && input::distance(at, gesture.start) < near
-        });
-        if double {
-            gesture.kind = GestureKind::DoubleTap;
-        } else {
-            self.input.last_tap = Some((gesture.start, now));
-        }
-        gesture
     }
 
     /// What the tap (or long tap) at `point` in a zone of a layer's own
@@ -688,7 +475,7 @@ impl Kernel {
     }
 
     /// The key map layers shown, the most specific first: the screen on
-    /// top, the layer put in front for it ([`Command::SetKeyLayer`]), the
+    /// top, the layer put in front for it ([`Ask::SetKeyLayer`]), the
     /// screen's slot, the global layer; and how many there are.
     fn layers(&self) -> ([&str; 4], usize) {
         match self.input_index() {
@@ -699,7 +486,7 @@ impl Kernel {
 
     /// The key map layers of open screen `index`, the most specific
     /// first (see [`Self::layers`]).
-    fn layers_of(&self, index: usize) -> ([&str; 4], usize) {
+    pub(crate) fn layers_of(&self, index: usize) -> ([&str; 4], usize) {
         let mut layers = [GLOBAL_KEYMAP_LAYER; 4];
         let mut count = 0;
         let top = self.stack.get(index);
@@ -760,22 +547,14 @@ impl Kernel {
 
     pub(crate) fn offer(
         &mut self,
-        f: impl Fn(&mut dyn Screen, &mut Cx<'_, '_>) -> Handled,
+        f: impl Fn(&mut crate::screen::Screen, &mut Turn<'_, '_>) -> Handled,
     ) -> Handled {
-        let Some(mut index) = self.input_top() else {
+        let Some(index) = self.input_top() else {
             self.offered_down_to = 0;
             return Handled::No;
         };
-        loop {
-            self.offered_down_to = index;
-            if self.with_screen(index, &f) == Handled::Yes {
-                return Handled::Yes;
-            }
-            if index == 0 || !self.stack[index].screen.passes_through() {
-                return Handled::No;
-            }
-            index -= 1;
-        }
+        self.offered_down_to = index;
+        self.with_screen(index, &f)
     }
 
     pub(crate) fn dispatch(&mut self, action: Id) {
@@ -787,7 +566,6 @@ impl Kernel {
     /// context), else the handler put in its place with the highest
     /// priority or its own.
     pub(crate) fn dispatch_with(&mut self, action: Id, params: Params) {
-        self.observe(&action, &params, true);
         let before = mem::replace(&mut self.action_params, params);
         let handled = self.offer(|screen, cx| screen.on_action(&action, cx));
         let params = mem::replace(&mut self.action_params, before);
@@ -795,103 +573,55 @@ impl Kernel {
             return;
         }
         // The guard let it pass only where it was asked (not where a screen
-        // above it took no action and passed nothing on).
-        let passed = self
-            .guard()
-            .is_some_and(|guard| self.offered_down_to <= guard);
+        // above it took no action and passed nothing on), and could answer: a
+        // plugin's screen hears input only on top, so a guard below a screen
+        // it shuts out was never asked.
+        let passed = !self.top_shut_out()
+            && self
+                .guard()
+                .is_some_and(|guard| self.offered_down_to <= guard);
         self.run_handler(&action, &params, passed);
     }
 
-    /// Runs action `action`'s own handler with `params` into `out`, as
-    /// a handler in its place asked ([`Command::RunOriginal`]).
-    fn run_original(&self, action: &Id, params: &Params, out: &mut Vec<Command>) {
-        let Some(spec) = self.shared.actions.get(action.as_str()) else {
-            return;
-        };
-        let env = self.shared.env(self.now);
-        let _running = self.shared.meter.enter(action.namespace());
-        commands::handing(out, |out| {
-            spec.run(&env, params, out);
-        });
-    }
-
-    /// Runs the handler of `action` with `params`: one put in its place
-    /// (`overridable`) with the highest priority, else its own. While a
-    /// screen guards the device, only a handler put in place by the
-    /// guard's own plugin runs in place of the action's own: another
-    /// plugin's could open what the guard keeps closed. What it asks is
-    /// trusted to show above the guard only where the guard was offered
-    /// the action and let it pass (`passed`).
+    /// Runs the handler of `action` with `params`. What it asks is trusted
+    /// to show above a screen guarding the device only where the guard was
+    /// offered the action and let it pass (`passed`).
     pub(crate) fn run_handler(&mut self, action: &Id, params: &Params, passed: bool) {
-        let guard = self.guard().map(|guard| self.stack[guard].id.namespace());
-        let env = self.shared.env(self.now);
+        let env = self.shared.place(self.shared.now);
         let from = self.output.commands.len();
-        let over = self
-            .shared
-            .actions
-            .overrides_of(action.as_str())
-            .find(|(plugin, _)| guard.is_none_or(|ns| plugin.as_str() == ns));
-        let (reader, now) = (self.shared.reader, self.now);
+        let (reader, now) = (self.shared.reader, self.shared.now);
         let top = self.stack.last().map(|s| s.id.namespace());
         let mut refused_secret = false;
-        if let Some((plugin, handler)) = over {
-            let _running = self.shared.meter.enter(plugin.as_str());
-            commands::handing(&mut self.output.commands, |out| handler(&env, params, out));
-            drop(_running);
-            let out = &mut self.output.commands;
-            work::quiet(
-                reader,
-                top,
-                now,
-                from,
-                plugin.as_str(),
-                out,
-                &mut self.works,
-            );
-            let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
-            refused_secret |= vet_reserved(out, from, plugin.as_str(), &reserved);
-            // The original it asked for runs in its place, once each, its
-            // work and secrets its own plugin's.
-            let mut at = from;
-            while at < self.output.commands.len() {
-                let original = match &self.output.commands[at] {
-                    Command::RunOriginal(a, p) if a == action => Some(p.clone()),
-                    _ => None,
-                };
-                let Some(original_params) = original else {
-                    at += 1;
-                    continue;
-                };
-                self.output.commands.remove(at);
-                let mut out = Vec::new();
-                self.run_original(action, &original_params, &mut out);
-                let owner = action.namespace();
-                let top = self.stack.last().map(|s| s.id.namespace());
-                work::quiet(reader, top, now, 0, owner, &mut out, &mut self.works);
-                let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
-                refused_secret |= vet_reserved(&mut out, 0, owner, &reserved);
-                let count = out.len();
-                for (offset, command) in out.into_iter().enumerate() {
-                    self.output.commands.insert(at + offset, command);
+        match self.shared.actions.get(action.as_str()) {
+            // An interface-7 plugin's: its callback runs from the pump.
+            Some(spec) if spec.native().is_some() => {
+                if let Some((owner, token)) = spec.native() {
+                    let instances = &self.shared.native_instances;
+                    if !native_action::queue_run(instances, owner, token, action.as_str(), &env) {
+                        self.warn_runtime(format!("action `{action}`: its plugin is not running"));
+                    }
                 }
-                at += count;
             }
-        } else {
-            match self.shared.actions.get(action.as_str()) {
-                Some(spec) if spec.runs_itself() => {
-                    let _running = self.shared.meter.enter(action.namespace());
-                    let out = &mut self.output.commands;
-                    commands::handing(out, |out| {
+            Some(spec) if spec.runs_itself() => {
+                let _running = self.shared.meter.enter(action.namespace());
+                let out = &mut self.output.commands;
+                match self.data_actions.iter().find(|data| data.id == *action) {
+                    // A data plugin's: its steps, each a command.
+                    Some(data) => {
+                        let steps = data.steps.iter().filter_map(|step| step.command(&env));
+                        out.extend(steps);
+                    }
+                    None => commands::handing(out, |out| {
                         spec.run(&env, params, out);
-                    });
-                    let owner = action.namespace();
-                    work::quiet(reader, top, now, from, owner, out, &mut self.works);
-                    let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
-                    refused_secret |= vet_reserved(out, from, owner, &reserved);
+                    }),
                 }
-                Some(_) => return,
-                None => return self.warn_runtime(format!("unknown action `{action}`")),
+                let owner = action.namespace();
+                work::quiet(reader, top, now, from, owner, out, &mut self.works);
+                let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
+                refused_secret |= vet_reserved(out, from, owner, &reserved);
             }
+            Some(_) => return,
+            None => return self.warn_runtime(format!("unknown action `{action}`")),
         }
         if refused_secret {
             self.warn_runtime(format!(
@@ -909,7 +639,7 @@ impl Kernel {
     /// Drops what was asked since `from` that runs `action` again with
     /// the same `params`: it would run itself without end (a handler in
     /// place of the action's own runs the original with
-    /// [`Command::RunOriginal`]). With other params it runs (stepping
+    /// [`Ask::RunOriginal`]). With other params it runs (stepping
     /// through profiles).
     fn drop_self_runs(&mut self, action: &Id, params: &Params, from: usize) {
         let before = self.output.commands.len();
@@ -917,9 +647,7 @@ impl Kernel {
         self.output.commands.retain(|command| {
             let again = index >= from
                 && match command {
-                    Command::RunAction(a, p) | Command::RunOriginal(a, p) => {
-                        a == action && p == params
-                    }
+                    Ask::RunAction(a, p) | Ask::RunOriginal(a, p) => a == action && p == params,
                     _ => false,
                 };
             index += 1;
@@ -930,73 +658,8 @@ impl Kernel {
         }
     }
 
-    /// The observers of actions (`actions`) or of events see `id` with
-    /// `params`. Nothing to do where there are none. While a screen guards
-    /// the device only its plugin's observers see anything: another's
-    /// could follow what is typed into it (a PIN entered with the
-    /// buttons).
-    pub(crate) fn observe(&mut self, id: &Id, params: &Params, actions: bool) {
-        let observers = if actions {
-            &self.action_observers
-        } else {
-            &self.event_observers
-        };
-        if observers.is_empty() {
-            return;
-        }
-        let guard = self.guard().map(|guard| self.stack[guard].id.namespace());
-        let env = self.shared.env(self.now);
-        let (mut ran_itself, mut refused_secret) = (false, false);
-        for spec in observers {
-            if guard.is_some_and(|ns| spec.id.namespace() != ns) {
-                continue;
-            }
-            let _running = self.shared.meter.enter(spec.id.namespace());
-            let from = self.output.commands.len();
-            commands::handing(&mut self.output.commands, |out| {
-                (spec.observer)(&env, id, params, out);
-            });
-            let top = self.stack.last().map(|s| s.id.namespace());
-            let (reader, now) = (self.shared.reader, self.now);
-            let out = &mut self.output.commands;
-            let reserved = Reserved::of(&self.shared.settings, &self.shared.registry);
-            refused_secret |= vet_reserved(out, from, spec.id.namespace(), &reserved);
-            work::quiet(
-                reader,
-                top,
-                now,
-                from,
-                spec.id.namespace(),
-                out,
-                &mut self.works,
-            );
-            // Seeing what it runs or emits itself, it would without end.
-            let before = out.len();
-            let mut index = 0;
-            out.retain(|command| {
-                let again = index >= from
-                    && match command {
-                        Command::RunAction(a, _) => actions && a == id,
-                        Command::Emit(event, _) => !actions && event == id,
-                        _ => false,
-                    };
-                index += 1;
-                !again
-            });
-            ran_itself |= out.len() != before;
-        }
-        if ran_itself {
-            self.warn_runtime(format!(
-                "an observer runs `{id}` again on seeing it; not run"
-            ));
-        }
-        if refused_secret {
-            self.warn_runtime("an observer asked what only the settings editor may; not done");
-        }
-    }
-
     /// Lays key map layer `layer` in front of the slot's for open screen
-    /// `key` ([`Command::SetKeyLayer`]); not for a screen below one that
+    /// `key` ([`Ask::SetKeyLayer`]); not for a screen below one that
     /// guards the device.
     pub(crate) fn set_key_layer(&mut self, key: paperpaw_sdk::ScreenKey, layer: Option<Id>) {
         let Some(index) = self
@@ -1010,33 +673,6 @@ impl Kernel {
             return;
         }
         self.stack[index].key_layer = layer;
-    }
-
-    /// While a screen guards the device, other plugins' recognizers let go
-    /// of the fingers they follow: each comes to them as cancelled (where
-    /// it is not known).
-    pub(crate) fn guard_takes_fingers(&mut self) {
-        let Some(guard) = self.guard() else {
-            return;
-        };
-        let ns = self.stack[guard].id.namespace();
-        let (now, meter) = (self.now, self.shared.meter.clone());
-        for r in self.input.recognizers.iter_mut() {
-            if r.fingers.is_empty() || r.id.namespace() == ns {
-                continue;
-            }
-            let _running = meter.enter(r.id.namespace());
-            for (id, _) in mem::take(&mut r.fingers) {
-                let gone = PointerEvent::new(
-                    id,
-                    PointerPhase::Cancel,
-                    Point::new(0, 0),
-                    paperpaw_platform::PointerTool::Finger,
-                    0,
-                );
-                r.recognizer.pointer(&gone, now);
-            }
-        }
     }
 
     /// The name the recognizer knows button `name` by while it is held:

@@ -25,7 +25,7 @@ use paperpaw_sdk::power::{Power, PowerLevel};
 
 /// A whole fake device. Every part is optional, as on real devices.
 #[derive(Default)]
-struct Fake {
+pub(super) struct Fake {
     device: Option<Dev>,
     values: Option<Vec<(String, Option<i64>)>>,
     firmware: bool,
@@ -71,8 +71,14 @@ impl Dev {
 const ALL: u64 = caps::WIFI | caps::BLUETOOTH | caps::FIRMWARE | caps::NETWORK;
 
 impl Fake {
+    /// The generation the shell's lists have.
+    pub(super) fn with_generation(mut self, generation: u32) -> Self {
+        self.generation = generation;
+        self
+    }
+
     /// A device with every part.
-    fn full() -> Self {
+    pub(super) fn full() -> Self {
         Self {
             device: Some(Dev::x4(ALL)),
             values: Some(vec![
@@ -291,7 +297,7 @@ impl DeviceHost for Fake {
 
 /// A frame, and the host views the backend reaches through its caller.
 struct View<'a> {
-    env: &'a paperpaw_sdk::Env<'a>,
+    env: &'a crate::Place<'a>,
     hosts: crate::native_host::host_services::HostServices,
     owner: u64,
 }
@@ -322,7 +328,7 @@ fn with_view<R>(host: Fake, caller: Option<u64>, run: impl FnOnce(&View<'_>) -> 
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_device(Rc::new(host)).unwrap();
     run(&View {
@@ -332,20 +338,20 @@ fn with_view<R>(host: Fake, caller: Option<u64>, run: impl FnOnce(&View<'_>) -> 
     })
 }
 
-fn schema_op(id: u32) -> &'static ServiceOp {
+pub(super) fn schema_op(id: u32) -> &'static ServiceOp {
     services_wire::service_schema(KEY, 1)
         .unwrap()
         .op(id)
         .unwrap()
 }
 
-fn batch(records: &[Record<'_>]) -> Vec<u8> {
+pub(super) fn batch(records: &[Record<'_>]) -> Vec<u8> {
     let mut out = [0; 512];
     let length = registrations::records_encode(records, &mut out).unwrap();
     out[..length].to_vec()
 }
 
-fn query(cursor: u32, generation: u32) -> Vec<u8> {
+pub(super) fn query(cursor: u32, generation: u32) -> Vec<u8> {
     batch(&[Record::ServiceRegQuery(registrations::ServiceRegQuery {
         scope: "",
         cursor,
@@ -354,14 +360,14 @@ fn query(cursor: u32, generation: u32) -> Vec<u8> {
     })])
 }
 
-fn interval(base_ms: u32) -> Vec<u8> {
+pub(super) fn interval(base_ms: u32) -> Vec<u8> {
     batch(&[Record::ServiceDevInterval(
         registrations::ServiceDevInterval { base_ms },
     )])
 }
 
 /// The valid input of an op.
-fn input_of(id: u32) -> Vec<u8> {
+pub(super) fn input_of(id: u32) -> Vec<u8> {
     match id {
         4 | 9 | 11 | 14 => query(0, 0),
         12 => interval(1000),
@@ -384,7 +390,7 @@ fn run(view: &View<'_>, id: u32, input: &[u8]) -> Result<Vec<u8>, i32> {
     Ok(reply)
 }
 
-fn records(reply: &[u8]) -> Vec<Record<'_>> {
+pub(super) fn records(reply: &[u8]) -> Vec<Record<'_>> {
     let mut frames = Vec::new();
     stage_wire::visit_stream(reply, |_, framed| {
         let start = framed.as_ptr() as usize - reply.as_ptr() as usize;
@@ -515,7 +521,7 @@ fn a_frame_without_the_view_is_unsupported_and_a_wrong_view_is_not_taken() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let bare = View {
         env: &env,
         hosts: crate::native_host::host_services::HostServices::new(),
@@ -562,7 +568,7 @@ fn a_host_that_says_ok_without_a_visit_is_not_here_either() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_device(Rc::new(Silent)).unwrap();
     let view = View {
@@ -1119,7 +1125,10 @@ fn the_dispatcher_opens_the_service_and_an_unwired_host_refuses_its_calls() {
     };
     let pool = HostResources::try_new().unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let declared = DeclaredServices::try_from_iter(core::iter::once(Declared {
         key: KEY,
         major: 1,
@@ -1129,7 +1138,7 @@ fn the_dispatcher_opens_the_service_and_an_unwired_host_refuses_its_calls() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let key = PpBytes {
         ptr: KEY.as_ptr(),
         len: KEY.len(),

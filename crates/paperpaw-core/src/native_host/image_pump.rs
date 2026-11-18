@@ -29,16 +29,19 @@ use super::{
     host_services::HostServices,
     image_service::{
         commands::{ImageCommand, ImageRoots},
-        prepare::{Env as DecodeEnv, NO_MEMORY, Ready, SweepCursor, UNSUPPORTED},
+        prepare::{NO_MEMORY, Ready, SweepCursor, UNSUPPORTED, Within as DecodeEnv},
     },
     native_instances::InstanceState,
     registrations::{self as wire},
 };
+use crate::native_host::codec;
 use alloc::{format, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
-use paperpaw_native::host_glue::{ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_NO_MEMORY, ERR_UNSUPPORTED};
+use paperpaw_native::host_glue::{
+    ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
+};
 
-/// Commands kept for a later pass: four requests a plugin may have waiting
+/// Asks kept for a later pass: four requests a plugin may have waiting
 /// and a release or two, for the few plugins that ask at once.
 const PENDING_MAX: usize = 16;
 
@@ -61,8 +64,9 @@ const TRIES_MAX: u8 = 3;
 /// the memory that was missing.
 const FAILED_MAX: usize = 8;
 
-/// The room of an `event.image_ready` record (a header and 28 bytes).
-const RECORD_BYTES: usize = 64;
+/// The room of an `event.image_ready` record (a header, 28 bytes and the
+/// 64-byte brightness grid with its length).
+const RECORD_BYTES: usize = 128;
 
 /// What the pump keeps between passes.
 #[derive(Default)]
@@ -81,6 +85,8 @@ pub(crate) struct ImagePump {
     /// The boot sweep of the cache folder is over.
     swept: Cell<bool>,
     cursor: Cell<SweepCursor>,
+    /// The last plugin warned that it loses its answers (not subscribed).
+    warned: Cell<u64>,
 }
 
 impl ImagePump {
@@ -90,7 +96,7 @@ impl ImagePump {
     }
 }
 
-/// Where a plugin's root 0 and root 1 paths are on the card.
+/// Where a plugin's root 0, root 1 and root 2 paths are on the card.
 struct Roots<'a> {
     plugin: &'a str,
     hosts: &'a HostServices,
@@ -98,6 +104,16 @@ struct Roots<'a> {
 
 impl ImageRoots for Roots<'_> {
     fn resolve(&self, _owner: u64, root: u32, path: &str) -> Result<String, i32> {
+        if root == 2 {
+            // The plugin's own install folder, by the id the host stamped. One
+            // linked into the firmware has none (`files.md` 1.1), and neither
+            // has any plugin where no files host says which are linked.
+            let built_in = self
+                .hosts
+                .files()
+                .is_none_or(|files| files.0.built_in(self.plugin));
+            return super::image_service::commands::bundle_source(self.plugin, built_in, path);
+        }
         let first = path.split('/').next().unwrap_or_default();
         // The storage folder `first` is in, as the files service names it.
         let parent = if root == 0 {
@@ -105,11 +121,30 @@ impl ImageRoots for Roots<'_> {
         } else {
             String::new()
         };
+        if root == 1 && super::data_plugin_folders::plugin_folder_of(path).is_some() {
+            // A data plugin's folder is shown, read only (`files.md` 1.1);
+            // that of any other plugin is a file that is not there.
+            // Its code and the host's files are not shown either.
+            let shown = self
+                .hosts
+                .files()
+                .zip(super::data_plugin_folders::plugin_folder_of(path))
+                .is_some_and(|(files, name)| {
+                    files.0.data_folder(name)
+                        && !super::data_plugin_folders::below_folder(path)
+                            .is_some_and(|(folder, entry)| files.0.host_file(folder, entry))
+                });
+            if !shown {
+                return Err(ERR_NOT_FOUND);
+            }
+            return join(&["", "", "", ""], path);
+        }
         let excluded = match root {
             // The host's own folder of received files.
             0 => first.eq_ignore_ascii_case(".received"),
-            // The card's `plugins` and `.paperpaw` (the files service's rule).
-            1 => first.eq_ignore_ascii_case("plugins") || first.eq_ignore_ascii_case(".paperpaw"),
+            // The card's `plugins`, `.paperpaw` and `paperpaw.ini` (the files
+            // service's rule).
+            1 => super::owner_paths::protected_first(first),
             _ => return Err(ERR_UNSUPPORTED),
         } || self
             .hosts
@@ -123,15 +158,20 @@ impl ImageRoots for Roots<'_> {
         } else {
             ["", "", "", ""]
         };
-        let length = prefix.iter().map(|part| part.len()).sum::<usize>() + path.len();
-        let mut full = String::new();
-        full.try_reserve_exact(length).map_err(|_| ERR_NO_MEMORY)?;
-        for part in prefix {
-            full.push_str(part);
-        }
-        full.push_str(path);
-        Ok(full)
+        join(&prefix, path)
     }
+}
+
+/// `prefix` and `path` as one card path, with room reserved first.
+fn join(prefix: &[&str; 4], path: &str) -> Result<String, i32> {
+    let length = prefix.iter().map(|part| part.len()).sum::<usize>() + path.len();
+    let mut full = String::new();
+    full.try_reserve_exact(length).map_err(|_| ERR_NO_MEMORY)?;
+    for part in prefix {
+        full.push_str(part);
+    }
+    full.push_str(path);
+    Ok(full)
 }
 
 /// The decoder's view of the device.
@@ -146,6 +186,8 @@ fn decode_env(device: &paperpaw_platform::DeviceInfo) -> DecodeEnv {
             colour,
             max_side: super::image_service::MAX_SIDE,
             png_row_max: usize::MAX,
+            turn_band: 1 << 20,
+            turn_reads: usize::MAX,
         }
     }
 }
@@ -219,7 +261,7 @@ impl crate::Kernel {
             // Tried again later, not at once.
             let pump = &self.shared.native_instances.image_pump;
             if pump.retry_at.get().is_none() {
-                pump.retry_at.set(Some(self.now.millis() + RETRY_MS));
+                pump.retry_at.set(Some(self.shared.now.millis() + RETRY_MS));
             }
         } else {
             self.warn_runtime("a plugin's picture command could not be kept for later; it failed");
@@ -270,6 +312,9 @@ impl crate::Kernel {
 
     /// One pass of the picture pump (see the module). `true` when work
     /// remains for another pass.
+    // Its own frame: the pump keeps the services' passes apart, so that no
+    // frame adds their locals (the firmware's frame limit for host code).
+    #[inline(never)]
     pub(crate) fn native_image_pump(&mut self) -> bool {
         if self.shared.native_instances.depth() == 0 {
             self.native_outbox_run();
@@ -299,7 +344,7 @@ impl crate::Kernel {
             }
         }
         self.image_retry();
-        let env = decode_env(self.shared.env(self.now).device());
+        let env = decode_env(self.shared.place(self.shared.now).device());
         let mut more = self.shared.native_instances.hosts().is_some_and(|hosts| {
             // One request a turn, decoded to the end.
             hosts.images().prepare_step(storage.as_ref(), env).is_err()
@@ -321,7 +366,7 @@ impl crate::Kernel {
     /// Kept commands, oldest first, once more, when their time came. One that
     /// still finds no room after [`TRIES_MAX`] tries fails.
     fn image_retry(&mut self) {
-        let now = self.now.millis();
+        let now = self.shared.now.millis();
         let pump = &self.shared.native_instances.image_pump;
         if pump.retry_at.get().is_none_or(|at| now < at) {
             return;
@@ -376,6 +421,7 @@ impl crate::Kernel {
                     image: 0,
                     width: 0,
                     height: 0,
+                    luma: None,
                 });
             }
             if pump.held.borrow().is_none() {
@@ -394,6 +440,7 @@ impl crate::Kernel {
             let Some(ready) = pump.held.borrow().clone() else {
                 return false;
             };
+            self.image_warn_unsubscribed(ready.owner);
             let outcome = self.image_deliver(&ready);
             // What the callback staged runs before the next one is called.
             self.native_outbox_run();
@@ -410,6 +457,30 @@ impl crate::Kernel {
         true
     }
 
+    /// A running plugin that asks for pictures without subscribing to
+    /// `event.image_ready` loses every answer (`document.md` 5): said as a
+    /// warning, once for a plugin while no other one is said.
+    fn image_warn_unsubscribed(&mut self, owner: u64) {
+        let instances = &self.shared.native_instances;
+        if instances.subscribed(owner, wire::EVENT_IMAGE_READY_TAG)
+            || instances.image_pump.warned.get() == owner
+        {
+            return;
+        }
+        // Made while the id is borrowed, fallibly (no copy of the id): where
+        // the heap has no room, nothing is said and the next answer tries again.
+        let Some(message) = instances.id(owner).and_then(|id| {
+            crate::font_refresh::fallible_string(&[
+                id.as_str(),
+                ": its pictures are not told, it did not subscribe to event.image_ready",
+            ])
+        }) else {
+            return;
+        };
+        instances.image_pump.warned.set(owner);
+        self.try_warn_made(crate::WarningSource::Runtime, message);
+    }
+
     /// `Some(status)` of the plugin's callback when it failed; `None` when it
     /// took the answer or there was no one to tell.
     fn image_deliver(&self, ready: &Ready) -> Option<i32> {
@@ -422,7 +493,8 @@ impl crate::Kernel {
             return None;
         };
         let mut record = [0u8; RECORD_BYTES];
-        let len = wire::records_encode(&[ready.record(self.now.millis())], &mut record).ok()?;
+        let len =
+            codec::encode_batch(&[ready.record(self.shared.now.millis())], &mut record).ok()?;
         self.native_event_call(owner, &lease, &record[..len]).err()
     }
 }

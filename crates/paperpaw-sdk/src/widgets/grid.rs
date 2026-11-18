@@ -7,10 +7,10 @@
 //! `home.clock 0/0 4x1, tool:files.library 0/5` ([`parse`], [`write()`]),
 //! each item its id, its column and row, and its size in cells, kept where
 //! the plugin likes (a setting, a file). An item without a place (as
-//! plugins add them) goes into the first free cells ([`place`]), as wide as
+//! plugins add them) goes into the first free cells (`place`), as wide as
 //! the grid and as high as it needs.
 //!
-//! [`GridView`] shows such a grid on a screen of the plugin's own, and edits
+//! `GridView` shows such a grid on a screen of the plugin's own, and edits
 //! it in place: drag an item to move it, by its corner to size it, tap it
 //! for its options (move or size it with the buttons, its settings, remove
 //! it). With buttons alone, the focus goes from item to item.
@@ -19,17 +19,17 @@
 //! struct Board { grid: GridView } // made with `GridView::asking(env, CHOSEN)`
 //!
 //! impl Board {
-//!     fn layout(&mut self, env: &Env<'_>) {
+//!     fn layout(&mut self, env: &Place<'_>) {
 //!         let geometry = Geometry::new(env, area, 4, 0);
 //!         let items = grid::parse(env.settings().read(&LAYOUT));
 //!         self.grid.layout(env, geometry, &items, &[]);
 //!     }
 //!
-//!     fn respond(&mut self, response: GridResponse, cx: &mut Cx<'_, '_>) -> Handled {
+//!     fn respond(&mut self, response: GridResponse, cx: &mut Turn<'_, '_>) -> Handled {
 //!         match &response {
 //!             GridResponse::Changed(items) => {
 //!                 let value = LAYOUT.value(grid::write(items).into());
-//!                 cx.command(Command::SetSetting(LAYOUT.id().clone(), value));
+//!                 cx.command(Ask::SetSetting(LAYOUT.id().clone(), value));
 //!             }
 //!             GridResponse::Editing(_) => { let env = *cx.env(); self.layout(&env) }
 //!             _ => {}
@@ -38,13 +38,13 @@
 //!     }
 //! }
 //!
-//! impl Screen for Board {
-//!     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) { self.grid.draw(canvas, env) }
-//!     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+//! impl Dispatch for Board {
+//!     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Place<'_>) { self.grid.draw(canvas, env) }
+//!     fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
 //!         let response = self.grid.on_action(action, cx);
 //!         self.respond(response, cx)
 //!     }
-//!     fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+//!     fn on_timer(&mut self, cx: &mut Turn<'_, '_>) {
 //!         let env = *cx.env();
 //!         if self.grid.update_widgets(&env, cx) {
 //!             cx.request_refresh(RefreshMode::Fast);
@@ -55,16 +55,11 @@
 //! }
 //! ```
 
-mod view;
-
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::ui::UiStyle;
-use crate::{Canvas, Color, Env, Id, Point, Rect};
-
-pub use view::{DropCheck, GridResponse, GridView};
+use crate::{Id, Point, Rect};
 
 /// Columns at most, and rows at most.
 pub const MAX_COLUMNS: u8 = 6;
@@ -89,15 +84,6 @@ impl What {
             What::Tool(action) => format!("{TOOL}{action}"),
         }
     }
-
-    /// Its name, translated: the widget's, or the action's.
-    pub fn title(&self, env: &Env<'_>) -> String {
-        let (id, key) = match self {
-            What::Widget(id) => (id.as_str(), env.widgets().title(id)),
-            What::Tool(action) => (action.as_str(), env.menus().title(action.as_str())),
-        };
-        key.map_or(id, |key| env.i18n().tr(key)).to_string()
-    }
 }
 
 /// An item of a grid: what it shows and the cells it takes.
@@ -106,22 +92,22 @@ impl What {
 pub struct Item {
     pub what: What,
     /// Its first column and row, and its width and height in cells;
-    /// `None` until it has a place (see [`place`]).
+    /// `None` until it has a place (see `place`).
     pub at: Option<Cells>,
 }
 
 impl Item {
-    /// An item without a place yet.
-    pub fn new(what: What) -> Self {
-        Self { what, at: None }
-    }
-
     /// An item at `cells`.
     pub fn placed(what: What, cells: Cells) -> Self {
         Self {
             what,
             at: Some(cells),
         }
+    }
+
+    /// An item without a place yet.
+    pub fn new(what: What) -> Self {
+        Self { what, at: None }
     }
 }
 
@@ -220,24 +206,6 @@ impl Default for Geometry {
 }
 
 impl Geometry {
-    /// The grid in `area` with `columns` (2 to [`MAX_COLUMNS`]) and `rows`
-    /// (2 to [`MAX_ROWS`]; 0: as many as make cells about as high as wide),
-    /// the style's gap between items. The gap's half is left at the area's
-    /// edges, so an area half a gap wider than the content lines items up
-    /// with it.
-    pub fn new(env: &Env<'_>, area: Rect, columns: u8, rows: u8) -> Self {
-        let columns = columns.clamp(2, MAX_COLUMNS);
-        let cell_w = area.width / u16::from(columns);
-        let rows = match rows {
-            0 => {
-                let target = (u32::from(cell_w) * 85 / 100).max(1);
-                ((u32::from(area.height) + target / 2) / target).clamp(3, u32::from(MAX_ROWS)) as u8
-            }
-            n => n.clamp(2, MAX_ROWS),
-        };
-        Self::of(area, columns, rows, UiStyle::new(env).gap as u16)
-    }
-
     /// The grid in `area` with exactly `columns` and `rows` and `gap`.
     pub fn of(area: Rect, columns: u8, rows: u8, gap: u16) -> Self {
         let (columns, rows) = (columns.max(1), rows.max(1));
@@ -275,43 +243,6 @@ impl Geometry {
         let row = dy / i32::from(self.cell_h.max(1));
         (col < i32::from(self.columns) && row < i32::from(self.rows))
             .then_some((col as u8, row as u8))
-    }
-
-    /// The size an item gets when it has no place yet: a tool one cell, a
-    /// widget the grid's width and the rows it needs (made to measure it,
-    /// what it shows read).
-    pub fn size_of(&self, env: &Env<'_>, what: &What) -> (u8, u8) {
-        let (w, h, _) = self.sizes_of(env, what);
-        (w, h)
-    }
-
-    /// [`Geometry::size_of`], and the fewest rows it can do with
-    /// ([`Widget::min_height`](crate::widgets::Widget::min_height)).
-    fn sizes_of(&self, env: &Env<'_>, what: &What) -> (u8, u8, u8) {
-        match what {
-            What::Tool(_) => (1, 1, 1),
-            What::Widget(id) => {
-                // As it says, within the grid, without making it.
-                if let Some(hint) = env.widgets().cells(id) {
-                    let w = hint.w.clamp(1, self.columns.max(1));
-                    let h = hint.h.clamp(1, self.rows.max(1));
-                    let cells = hint.keep(Cells::new(0, 0, w, h), w <= h);
-                    let (w, h) = (cells.w.min(self.columns), cells.h.min(self.rows));
-                    return (w, h, hint.min_h.clamp(1, h));
-                }
-                let width = (u16::from(self.columns) * self.cell_w).saturating_sub(self.gap);
-                let (height, least) = env.widgets().make(id, env).map_or((0, 0), |widget| {
-                    let height = widget.height(env, width);
-                    (height, widget.min_height(env, width).min(height))
-                });
-                let rows = |height: u16| {
-                    (u32::from(height) + u32::from(self.gap))
-                        .div_ceil(u32::from(self.cell_h.max(1)))
-                        .clamp(1, u32::from(self.rows)) as u8
-                };
-                (self.columns, rows(height), rows(least))
-            }
-        }
     }
 }
 
@@ -355,55 +286,6 @@ pub fn free_place(geometry: &Geometry, taken: &[Cells], w: u8, h: u8) -> Option<
     None
 }
 
-/// The first free place for `what` among `taken`: its full size, or where
-/// that has no room, narrower, then lower (down to what it can do with).
-fn room_for(env: &Env<'_>, geometry: &Geometry, taken: &[Cells], what: &What) -> Option<Cells> {
-    let (w, h, least) = geometry.sizes_of(env, what);
-    room_of(geometry, taken, w, h, least)
-}
-
-/// The first free place of `w` × `h` cells among `taken`, or where that
-/// has no room, narrower, then lower down to `least` rows.
-fn room_of(geometry: &Geometry, taken: &[Cells], w: u8, h: u8, least: u8) -> Option<Cells> {
-    (least.min(h)..=h).rev().find_map(|h| {
-        (1..=w)
-            .rev()
-            .find_map(|w| free_place(geometry, taken, w, h))
-    })
-}
-
-/// Every item with its place: those placed where they are (if they fit
-/// the grid and nothing before took the cells); those whose place lies
-/// outside the grid (fewer columns or rows than when they were placed)
-/// as near it as the grid allows, narrower or lower where they must be,
-/// else in the first free cells; the others in the first free cells.
-/// Items without any room are left out.
-pub fn place(env: &Env<'_>, geometry: &Geometry, items: &[Item]) -> Vec<(Item, Cells)> {
-    places(env, geometry, items)
-        .into_iter()
-        .map(|(index, c)| (items[index].clone(), c))
-        .collect()
-}
-
-/// `items` fitted to `geometry` (see [`place`]): each placed where it
-/// shows, and those without room, as they were. A screen keeps the first
-/// and moves the others on (to its next page) once its grid changed, so
-/// that nothing is lost or hidden.
-pub fn fit(env: &Env<'_>, geometry: &Geometry, items: &[Item]) -> (Vec<Item>, Vec<Item>) {
-    let placed = places(env, geometry, items);
-    let left = items
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| !placed.iter().any(|(p, _)| p == index))
-        .map(|(_, item)| item.clone())
-        .collect();
-    let placed = placed
-        .into_iter()
-        .map(|(index, cells)| Item::placed(items[index].what.clone(), cells))
-        .collect();
-    (placed, left)
-}
-
 /// The columns a grid made for `portrait_columns` on a screen higher than
 /// wide has in `area`: those, where `area` is not wider than high; else
 /// as many as keep a cell about as wide as it was (the columns times the
@@ -418,419 +300,6 @@ pub fn columns_for(area: Rect, portrait_columns: u8) -> u8 {
     let (w, h) = (u32::from(area.width), u32::from(area.height.max(1)));
     let wide = (u32::from(portrait) * w + h / 2) / h;
     wide.clamp(u32::from(portrait), u32::from(MAX_COLUMNS)) as u8
-}
-
-/// `items` laid out anew in `geometry` for a grid made from one of
-/// `from_columns` columns (a landscape home from the portrait one) rather
-/// than [`fit`], which keeps each item where it was.
-///
-/// The items are placed in the order given and not sorted: the caller
-/// passes them in reading order, and what it wants to find room first (the
-/// overflow of the page before) it puts first. Each goes in the first free
-/// cells for its size. A widget keeps its share of the width (as many
-/// columns of the new grid as it took of the old: one that was as wide as
-/// the grid is again, one of half is half), at least one column and at
-/// most `widest` columns of the new grid (a wide screen does not stretch a
-/// card across it; 0 counts as 1). A tool is one cell, an item without a
-/// place gets the size [`Geometry::size_of`] says (a widget at most
-/// `widest` wide). Heights are kept, and no more than the grid has. Where a
-/// size has no room, it is narrower, then lower (down to what a widget can
-/// do with). Returns the items placed, and second those with no room,
-/// unchanged and in the order given (for the next page). A grid without
-/// columns or rows is one of one. Nothing is stored.
-pub fn refit(
-    env: &Env<'_>,
-    geometry: &Geometry,
-    from_columns: u8,
-    widest: u8,
-    items: &[Item],
-) -> (Vec<Item>, Vec<Item>) {
-    let (to, from) = (
-        u32::from(geometry.columns).max(1),
-        u32::from(from_columns.max(1)),
-    );
-    let (mut taken, mut placed, mut left) = (Vec::new(), Vec::new(), Vec::new());
-    for item in items {
-        let found = match item.at {
-            Some(c) => {
-                let w = match item.what {
-                    What::Widget(_) => {
-                        ((u32::from(c.w) * to + from / 2) / from).clamp(1, u32::from(widest).max(1))
-                    }
-                    What::Tool(_) => u32::from(c.w),
-                };
-                let (w, h) = (w.clamp(1, to) as u8, c.h.clamp(1, geometry.rows.max(1)));
-                free_place(geometry, &taken, w, h).or_else(|| {
-                    let (_, _, least) = geometry.sizes_of(env, &item.what);
-                    room_of(geometry, &taken, w, h, least)
-                })
-            }
-            None => {
-                let (w, h, least) = geometry.sizes_of(env, &item.what);
-                let w = match item.what {
-                    What::Widget(_) => w.min(widest.max(1)),
-                    What::Tool(_) => w,
-                };
-                room_of(geometry, &taken, w, h, least)
-            }
-        };
-        match found {
-            Some(cells) => {
-                taken.push(cells);
-                placed.push(Item::placed(item.what.clone(), cells));
-            }
-            None => left.push(item.clone()),
-        }
-    }
-    (placed, left)
-}
-
-/// [`place`], each item by its index in `items` (equal items apart).
-fn places(env: &Env<'_>, geometry: &Geometry, items: &[Item]) -> Vec<(usize, Cells)> {
-    let mut placed: Vec<(usize, Cells)> = Vec::new();
-    let fits = |c: &Cells, placed: &[(usize, Cells)]| {
-        c.fits(geometry.columns, geometry.rows) && !placed.iter().any(|(_, p)| p.overlaps(c))
-    };
-    // Those with a place first, so the others do not take it.
-    for (index, item) in items.iter().enumerate() {
-        if let Some(c) = item.at
-            && fits(&c, &placed)
-        {
-            placed.push((index, c));
-        }
-    }
-    // Those whose place the grid no longer holds (it has fewer columns or
-    // rows now): moved inside it as little as can be, narrower or lower
-    // where they are wider or higher than it, else where there is room.
-    for (index, item) in items.iter().enumerate() {
-        let Some(c) = item.at.filter(|c| !c.fits(geometry.columns, geometry.rows)) else {
-            continue;
-        };
-        let (w, h) = (
-            c.w.min(geometry.columns).max(1),
-            c.h.min(geometry.rows.max(1)).max(1),
-        );
-        let near = Cells {
-            col: c.col.min(geometry.columns.saturating_sub(w)),
-            row: c.row.min(geometry.rows.saturating_sub(h)),
-            w,
-            h,
-        };
-        let taken: Vec<Cells> = placed.iter().map(|(_, c)| *c).collect();
-        let found = if fits(&near, &placed) {
-            Some(near)
-        } else {
-            let (_, _, least) = geometry.sizes_of(env, &item.what);
-            room_of(geometry, &taken, w, h, least)
-        };
-        if let Some(c) = found {
-            placed.push((index, c));
-        }
-    }
-    for (index, item) in items.iter().enumerate().filter(|(_, i)| i.at.is_none()) {
-        let taken: Vec<Cells> = placed.iter().map(|(_, c)| *c).collect();
-        if let Some(c) = room_for(env, geometry, &taken, &item.what) {
-            placed.push((index, c));
-        }
-    }
-    placed
-}
-
-/// `items` with `what` added in the first free cells (a widget as wide as
-/// the grid and as high as it needs, a tool one cell), every item with
-/// its place as shown; `None` where there is no room.
-pub fn add(env: &Env<'_>, geometry: &Geometry, items: &[Item], what: What) -> Option<Vec<Item>> {
-    let placed = place(env, geometry, items);
-    let taken: Vec<Cells> = placed.iter().map(|(_, c)| *c).collect();
-    let at = room_for(env, geometry, &taken, &what)?;
-    let mut out: Vec<Item> = placed
-        .into_iter()
-        .map(|(item, cells)| Item::placed(item.what, cells))
-        .collect();
-    out.push(Item::placed(what, at));
-    Some(out)
-}
-
-/// Draws a tool: its action's icon, and below it the action's name (its
-/// translation `<title>.short` where there is one) if `label`. Icon and
-/// name are placed by their ink, as one group in the middle of `area`,
-/// half a gap apart: the name sits clearly nearer its own icon than the
-/// tool below it, which the room the cells leave keeps apart.
-pub fn draw_tool(canvas: &mut Canvas<'_>, env: &Env<'_>, area: Rect, action: &Id, label: bool) {
-    draw_tool_lines(canvas, env, area, action, label, 0);
-}
-
-/// The focus of a cell of the home screen's grid at `area`: round the
-/// icon and name of a tool there (`tool_ink`, see [`draw_tool_focus`]),
-/// else round the cell, as the style's corners, a little rounder outside.
-pub(crate) fn draw_cell_focus(
-    canvas: &mut Canvas<'_>,
-    style: &UiStyle,
-    area: Rect,
-    tool_ink: Option<Rect>,
-) {
-    if let Some(ink) = tool_ink {
-        return draw_tool_focus(canvas, style, ink);
-    }
-    let out = style.line * 2;
-    let frame = area.grow(out as u16);
-    canvas.stroke_round(frame, style.line * 3, style.corner + out, Color::BLACK);
-}
-
-/// The focus of a tool whose icon and name cover `ink` (as
-/// [`draw_tool_lines`] returns it): a frame round them, as far from
-/// their ink on every side, never through it.
-pub fn draw_tool_focus(canvas: &mut Canvas<'_>, style: &UiStyle, ink: Rect) {
-    let thick = style.line * 3;
-    let frame = ink.grow((style.gap / 2 + thick) as u16);
-    let radius = style.corner + style.line * 2;
-    canvas.stroke_round(frame, thick, radius, Color::BLACK);
-}
-
-/// How many lines the name of the tool of `action` takes in `area` (see
-/// [`draw_tool`]): one, two where it does not fit on one and the tool is
-/// high enough for its icon and two lines; none without `label`.
-pub fn tool_name_lines(env: &Env<'_>, area: Rect, action: &Id, label: bool) -> usize {
-    let style = UiStyle::new(env);
-    match style.font(env) {
-        Some(font) if label => {
-            let state = env.menus().state(env, action.as_str());
-            tool_name(env, &style, &font, area, action, &state).2.len()
-        }
-        _ => 0,
-    }
-}
-
-/// [`draw_tool`] with room kept for a name of `lines` lines (where more
-/// than its own): tools side by side given the most any of them takes
-/// ([`tool_name_lines`]) keep their icons and names on one line. Returns
-/// where its icon and name have ink, for its focus
-/// ([`draw_tool_focus`]).
-pub fn draw_tool_lines(
-    canvas: &mut Canvas<'_>,
-    env: &Env<'_>,
-    area: Rect,
-    action: &Id,
-    label: bool,
-    lines: usize,
-) -> Rect {
-    let style = UiStyle::new(env);
-    let Some(font) = style.font(env) else {
-        return area;
-    };
-    let icon = env.menus().icon(action.as_str()).and_then(|name| {
-        let font = env.fonts().bound(crate::builtin::fonts::ICONS.as_str())?;
-        let ch = crate::icons::char(name)?;
-        font.has_char(ch).then_some((font, ch))
-    });
-    // As its plugin shows it now: a label, a badge, faint, a switch on.
-    let state = env.menus().state(env, action.as_str());
-    let on = state.checked == Some(true);
-    let ink = match (on, state.enabled) {
-        (true, _) => Color::WHITE,
-        (false, true) => Color::BLACK,
-        (false, false) => style.faint(crate::ui::Ink::NOTE),
-    };
-    if on {
-        let back = if state.enabled {
-            Color::BLACK
-        } else {
-            style.faint(crate::ui::Ink::NOTE)
-        };
-        canvas.fill_round(area, style.corner, back);
-    }
-    let name = label.then(|| tool_name(env, &style, &font, area, action, &state));
-    let inner = (style.gap / 2) as i32;
-    // The name's capitals above its baseline, its descenders below
-    // (by the ink of letters that reach as far, so that names side by
-    // side line up).
-    let (cap, descent) = match &name {
-        Some(_) => (
-            font.ink(style.small, "H")
-                .map_or((style.small * 0.7) as i32, |(top, _)| -top),
-            font.ink(style.small, "g")
-                .map_or((style.small * 0.25) as i32, |(_, bottom)| bottom),
-        ),
-        None => (0, 0),
-    };
-    // A second line a line lower; as much room where a tool beside it
-    // has one.
-    let more = name.as_ref().map_or(0, |(size, _, own)| {
-        own.len().max(lines).saturating_sub(1) as i32
-            * i32::from(crate::widgets::line_height(env, *size))
-    });
-    let text_room = if name.is_some() {
-        inner + cap + descent + more
-    } else {
-        0
-    };
-    let room = (i32::from(area.height) - text_room).max(1) as f32;
-    let (size, top, bottom) = icon_size(&style, icon.as_ref(), room);
-    let group = (bottom - top) + text_room;
-    let y = i32::from(area.y) + (i32::from(area.height) - group).div_euclid(2);
-    let middle = f32::from(area.x) + f32::from(area.width) / 2.0;
-    let mut covered: Option<Rect> = None;
-    if let Some((icon_font, ch)) = &icon {
-        let mut text = [0u8; 4];
-        let ch = ch.encode_utf8(&mut text);
-        // Centred by its ink, as icons are everywhere.
-        let (first, last) = icon_font
-            .ink_across(size, ch)
-            .unwrap_or((0, icon_font.measure(size, ch) as i32));
-        let x = middle - (first + last) as f32 / 2.0;
-        icon_font.draw(canvas, size, x, y - top, ch, ink);
-        let left = (x as i32 + first).max(0) as u16;
-        covered = Some(Rect::new(
-            left,
-            y.max(0) as u16,
-            (last - first).max(0) as u16,
-            (bottom - top).max(0) as u16,
-        ));
-    }
-    let Some((size, name, lines)) = name else {
-        return covered.unwrap_or(area);
-    };
-    let baseline = y + (bottom - top) + inner + cap;
-    let step = i32::from(crate::widgets::line_height(env, size));
-    let widest = lines
-        .iter()
-        .map(|line| font.measure(size, line))
-        .fold(0.0, f32::max);
-    let at = Rect::new(
-        (f32::from(area.x) + (f32::from(area.width) - widest) / 2.0).max(0.0) as u16,
-        (baseline - cap).max(0) as u16,
-        widest as u16,
-        (cap + descent + more) as u16,
-    );
-    canvas.describe(crate::semantics::Role::Text, &name, at);
-    // Each line centred by its ink, as the icon above it.
-    for (n, line) in lines.iter().enumerate() {
-        let (first, last) = font
-            .ink_across(size, line)
-            .unwrap_or((0, font.measure(size, line) as i32));
-        let x = middle - (first + last) as f32 / 2.0;
-        let line_y = baseline + n as i32 * step;
-        font.draw(canvas, size, x, line_y, line, ink);
-        let ink = Rect::new(
-            (x as i32 + first).max(0) as u16,
-            (line_y - cap).max(0) as u16,
-            (last - first).max(0) as u16,
-            (cap + descent).max(0) as u16,
-        );
-        covered = Some(covered.map_or(ink, |c| c.union(&ink)));
-    }
-    covered.unwrap_or(area)
-}
-
-/// The name of the tool of `action` in `area`: its size, the whole name
-/// and the lines it is drawn on. A little smaller where it does not fit
-/// whole, then on two lines where the tool is high enough for them and
-/// its icon, then shortened.
-fn tool_name(
-    env: &Env<'_>,
-    style: &UiStyle,
-    font: &crate::fonts::FontHandle<'_>,
-    area: Rect,
-    action: &Id,
-    state: &crate::menus::ItemState,
-) -> (f32, String, Vec<String>) {
-    let title = env.menus().title(action.as_str()).unwrap_or_default();
-    let name = env
-        .i18n
-        .get(&format!("{title}.short"))
-        .unwrap_or(env.i18n().tr(title));
-    let name = state.text(name);
-    let name = name.as_str();
-    let width = area.width.saturating_sub(4);
-    let least = style.small * 0.85;
-    let (size, line) = crate::widgets::fit_line(font, style.small, least, name, width.into());
-    let two = 2 * crate::widgets::line_height(env, least);
-    // Room for the icon too, at the least it is drawn (half its largest).
-    let icon = (style.title * 0.8) as u16;
-    if line != name && area.height >= two + icon {
-        let wrapped = crate::widgets::Wrapped::fitting(env, name, style.small, least, width, two);
-        if wrapped.whole() {
-            return (wrapped.size(), String::from(name), wrapped.lines().to_vec());
-        }
-        // A word too long for a line: split where its language lets it be.
-        for size in [style.small, least] {
-            if let Some(lines) = hyphenated(env, font, size, name, f32::from(width)) {
-                return (size, String::from(name), lines);
-            }
-        }
-    }
-    (size, String::from(name), alloc::vec![line])
-}
-
-/// `name` on two lines `width` wide in `size`, split where a word of it
-/// may be: after a hyphen it holds, else where the hyphenation of the
-/// interface's language lets it (a hyphen added); the split that leaves
-/// the lines most even. `None` where no split fits.
-fn hyphenated(
-    env: &Env<'_>,
-    font: &crate::fonts::FontHandle<'_>,
-    size: f32,
-    name: &str,
-    width: f32,
-) -> Option<Vec<String>> {
-    let mut points: Vec<(usize, bool)> = name
-        .char_indices()
-        .filter(|(_, c)| *c == '-')
-        .map(|(at, _)| (at + 1, false))
-        .collect();
-    if let Some(patterns) = env.hyphenation().get(env.i18n().language()) {
-        let mut start = None;
-        for (at, c) in name
-            .char_indices()
-            .chain(core::iter::once((name.len(), ' ')))
-        {
-            match (c.is_alphabetic(), start) {
-                (true, None) => start = Some(at),
-                (false, Some(from)) => {
-                    patterns.hyphenate(&name[from..at], &mut |point| {
-                        points.push((from + point, true))
-                    });
-                    start = None;
-                }
-                _ => {}
-            }
-        }
-    }
-    points
-        .into_iter()
-        .filter_map(|(at, mark)| {
-            let first = alloc::format!("{}{}", name[..at].trim_end(), if mark { "-" } else { "" });
-            let rest = name[at..].trim_start();
-            let (a, b) = (font.measure(size, &first), font.measure(size, rest));
-            (a <= width && b <= width && !rest.is_empty())
-                .then(|| ((a - b).abs(), alloc::vec![first, String::from(rest)]))
-        })
-        .min_by(|x, y| x.0.total_cmp(&y.0))
-        .map(|(_, lines)| lines)
-}
-
-/// The size of a tool's icon in `room` of height, and its frame's ink:
-/// every icon in the same frame, the ink of a circle (which fills the
-/// icons' grid), so that the names of tools side by side line up.
-fn icon_size(
-    style: &UiStyle,
-    icon: Option<&(crate::fonts::FontHandle<'_>, char)>,
-    room: f32,
-) -> (f32, i32, i32) {
-    let frame = |size: f32| {
-        let (font, ch) = icon?;
-        let circle = crate::icons::char("circle")
-            .filter(|c| font.has_char(*c))
-            .unwrap_or(*ch);
-        font.ink(size, circle.encode_utf8(&mut [0u8; 4]))
-    };
-    let largest = (style.title * 1.6).min(room);
-    let size = crate::widgets::largest_size(largest, largest * 0.5, |s| {
-        frame(s).is_none_or(|(top, bottom)| (bottom - top) as f32 <= room)
-    })
-    .unwrap_or(largest * 0.5);
-    let (top, bottom) = frame(size).unwrap_or((-(size as i32), 0));
-    (size, top, bottom)
 }
 
 #[cfg(test)]
@@ -868,18 +337,6 @@ mod tests {
         assert!(a.fits(4, 6));
         assert!(!Cells::new(3, 0, 2, 1).fits(4, 6));
         assert!(!Cells::new(250, 0, 10, 1).fits(4, 6));
-    }
-
-    #[test]
-    fn widgets_shrink_to_the_room_left_down_to_their_least() {
-        let g = grid();
-        // One row of three left: a widget of three rows that can do with
-        // one gets it; one that needs two does not.
-        let taken = [Cells::new(0, 0, 4, 2)];
-        assert_eq!(room_of(&g, &taken, 4, 3, 1), Some(Cells::new(0, 2, 4, 1)));
-        assert_eq!(room_of(&g, &taken, 4, 3, 2), None);
-        // With room, its full height.
-        assert_eq!(room_of(&g, &[], 4, 2, 1), Some(Cells::new(0, 0, 4, 2)));
     }
 
     #[test]

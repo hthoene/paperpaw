@@ -1,10 +1,10 @@
 //! Screens that run in real time: games, emulators, animations, drawings
 //! that follow the pen ([ADR 0030]).
 //!
-//! A screen says once how it runs ([`Screen::mode`], a [`ScreenMode`]):
+//! A screen says once how it runs (`mode`, a [`ScreenMode`]):
 //! full screen, buttons pressed and released, refreshes it chooses
 //! itself, the fastest refresh, a pace. The device says what it can do
-//! and what it did ([`Env::panel`], a [`PanelInfo`]): how fast each
+//! and what it did (`Place::panel`, a [`PanelInfo`]): how fast each
 //! refresh is, and how the last frame went. A plugin paces itself by
 //! that, so faster panels make it faster without a new build.
 //!
@@ -13,8 +13,6 @@
 //! (meaning as before), and which a firmware built before ignores.
 //!
 //! [ADR 0030]: https://github.com/hthoene/paperpaw/blob/main/docs/adr/0030-real-time-screens.md
-//! [`Screen::mode`]: crate::Screen::mode
-//! [`Env::panel`]: crate::Env::panel
 
 use core::time::Duration;
 
@@ -49,7 +47,7 @@ mod slots {
 }
 
 /// How a screen runs while it is on top: what it asks of the panel, the
-/// buttons and the device ([`Screen::mode`](crate::Screen::mode)). Each
+/// buttons and the device (`mode`). Each
 /// option asks for an intent, which every device meets as well as it can;
 /// the default asks for nothing, as screens of pages need.
 ///
@@ -97,20 +95,18 @@ impl ScreenMode {
         self.with(flags::FULL_SCREEN)
     }
 
-    /// Buttons come pressed and released ([`Screen::on_key`]), not as
-    /// actions once let go; [`Env::keys_held`] says which are down. The
+    /// Buttons come pressed and released (`on_key`), not as
+    /// actions once let go; `Place::keys_held` says which are down. The
     /// power button stays the device's, and holding *Back* for
     /// [`ESCAPE_HOLD`] leaves the screen.
     ///
-    /// [`Screen::on_key`]: crate::Screen::on_key
-    /// [`Env::keys_held`]: crate::Env::keys_held
     pub const fn raw_keys(self) -> Self {
         self.with(flags::RAW_KEYS)
     }
 
     /// The screen chooses its refreshes: the kernel adds no full refresh
     /// every few pages and no refresh in grays for pictures. It asks for
-    /// one with [`Cx::request_refresh`](crate::Cx::request_refresh) when
+    /// one with `Turn::request_refresh` when
     /// it wants the ghosts gone.
     pub const fn cleans_itself(self) -> Self {
         self.with(flags::CLEANS_ITSELF)
@@ -131,9 +127,8 @@ impl ScreenMode {
     /// The pace the screen would like: a frame every `interval`. The
     /// device keeps ready for it (it does not sleep lightly for longer)
     /// and shows each frame as soon as the panel can take it; the screen
-    /// asks for its timer as it does otherwise ([`Cx::wake_at`]).
+    /// asks for its timer as it does otherwise (`Turn::wake_at`).
     ///
-    /// [`Cx::wake_at`]: crate::Cx::wake_at
     pub fn frame_every(self, interval: Duration) -> Self {
         self.number(slots::FRAME, millis(interval).max(1))
     }
@@ -150,8 +145,8 @@ impl ScreenMode {
     /// until there is enough, and gives everything back once it closes
     /// (see [`Room`]). Nothing the reader has is lost: a book closed for
     /// the room opens again at its place. Make the buffer in
-    /// [`Screen::on_show`](crate::Screen::on_show), after reading
-    /// [`Env::room`](crate::Env::room), not when the screen is made.
+    /// `on_show`, after reading
+    /// `Place::room`, not when the screen is made.
     pub fn memory(self, bytes: u32) -> Self {
         self.number(slots::MEMORY, bytes)
     }
@@ -270,7 +265,7 @@ impl RoomSteps {
     pub const SCREENS: Self = Self(1 << 3);
     /// The screens below let go of what they make again as they show (a
     /// book its pages laid out and its chapter read, keeping its place;
-    /// see [`Screen::on_squeeze`](crate::Screen::on_squeeze)).
+    /// see `on_squeeze`).
     pub const SQUEEZED: Self = Self(1 << 4);
     /// Frames drawn in more bands of fewer rows: less memory, drawn more
     /// slowly, until the screen closes.
@@ -294,7 +289,7 @@ impl RoomSteps {
 }
 
 /// What a screen below one that needs memory is asked to let go of
-/// ([`Screen::on_squeeze`](crate::Screen::on_squeeze)): the bytes the
+/// (`on_squeeze`): the bytes the
 /// screen on top asked for. More can come without a new plugin interface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Squeeze {
@@ -320,7 +315,7 @@ impl Squeeze {
 }
 
 /// The room the screen on top asked for ([`ScreenMode::memory`]) and
-/// what it got ([`Env::room`](crate::Env::room)): granted, granted in
+/// what it got (`Place::room`): granted, granted in
 /// part, or refused, with the memory free once the kernel made what room
 /// it could. Where the device cannot tell how much is free, the room
 /// counts as granted.
@@ -420,7 +415,7 @@ mod panel_flags {
 }
 
 /// What the panel can do, and how the last frame went
-/// ([`Env::panel`](crate::Env::panel)). Times are measured as the device
+/// (`Place::panel`). Times are measured as the device
 /// runs (the fastest seen of each mode), so they grow better with faster
 /// drivers, and are known once a refresh of the mode was shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -611,7 +606,7 @@ impl FrameReport {
 }
 
 /// A button pressed or let go, for screens that take raw keys
-/// ([`Screen::on_key`](crate::Screen::on_key)).
+/// (`on_key`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KeyEvent {
     name: &'static str,
@@ -660,17 +655,13 @@ impl KeyEvent {
     }
 }
 
-/// The buttons held down now ([`Env::keys_held`](crate::Env::keys_held)).
+/// The buttons held down now (`Place::keys_held`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct KeysHeld<'a> {
     names: &'a [&'static str],
 }
 
 impl<'a> KeysHeld<'a> {
-    pub(crate) const fn of(names: &'a [&'static str]) -> Self {
-        Self { names }
-    }
-
     /// Whether button `name` is held down.
     pub fn contains(&self, name: &str) -> bool {
         self.names.contains(&name)

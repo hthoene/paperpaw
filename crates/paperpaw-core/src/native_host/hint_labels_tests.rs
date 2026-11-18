@@ -60,9 +60,10 @@ fn the_fields_are_checked_in_the_contracts_words() {
     assert_eq!(check("probe.go", 1, &"a".repeat(64)), Ok(()));
     assert_eq!(check("probe.go", 1, &"a".repeat(65)), Err(ERR_INVALID));
     // An icon is a host icon; an unknown one is not found.
-    let icon = paperpaw_sdk::icons::names().next().unwrap();
-    assert_eq!(check("probe.go", 2, icon), Ok(()));
+    assert_eq!(check("probe.go", 2, "arrow-left"), Ok(()));
     assert_eq!(check("probe.go", 2, "no-such-icon"), Err(ERR_NOT_FOUND));
+    // Nor is a code point a name, though `icons::char` takes one.
+    assert_eq!(check("probe.go", 2, "U+F8000"), Err(ERR_NOT_FOUND));
 }
 
 #[test]
@@ -85,17 +86,19 @@ fn the_ways_out_are_never_hidden_but_may_be_relabelled() {
 
 #[test]
 fn a_label_shows_replaces_and_is_removed_by_kind_0() {
-    let icon = paperpaw_sdk::icons::names().next().unwrap();
+    // An icon is shown by its character, as a text the row draws as it.
+    let icon = paperpaw_sdk::icons::char("arrow-left").and_then(paperpaw_sdk::icons::as_text);
+    assert!(icon.is_some());
     let mut labels = applied(alloc::vec![
         set("probe.go", 1, "Go"),
-        set("probe.more", 2, icon),
+        set("probe.more", 2, "arrow-left"),
         set("probe.skip", 3, ""),
     ]);
     assert_eq!(
         labels.hint(SCREEN, "probe.go"),
         Some(Hint::Text("Go".into()))
     );
-    assert_eq!(labels.hint(SCREEN, "probe.more"), Some(Hint::Icon(icon)));
+    assert_eq!(labels.hint(SCREEN, "probe.more"), icon.map(Hint::Text));
     assert_eq!(labels.hint(SCREEN, "probe.skip"), Some(Hint::Hidden));
     assert_eq!(labels.hint(SCREEN, "probe.other"), None);
     assert_eq!(labels.hint(SCREEN + 1, "probe.go"), None);

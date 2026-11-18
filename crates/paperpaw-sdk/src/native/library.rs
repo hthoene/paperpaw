@@ -6,6 +6,11 @@ use super::{
     services::Service,
 };
 
+/// `set_status` bit 0 (`docs/abi/library.md` 2.2).
+const STATUS_FINISHED: u32 = 1;
+/// `set_status` bit 1.
+const STATUS_FAVOURITE: u32 = 1 << 1;
+
 mod cover;
 pub use cover::Cover;
 mod edits;
@@ -23,6 +28,8 @@ pub use annotations::{
 };
 mod annotation_text;
 pub use annotation_text::{AnnotationTextKind, AnnotationTextPart, AnnotationTextQuery};
+mod book_text;
+pub use book_text::{BookTextPart, BookTextQuery};
 mod fields;
 pub use fields::{Field, FieldCursor, FieldPage, FieldPageEnd};
 mod files;
@@ -223,9 +230,36 @@ impl Library {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<(), Error> {
+        self.set_status(host, book, STATUS_FINISHED, finished, input, out)
+    }
+    /// Mark a book a favourite or clear its favourite status without changing other status
+    /// bits (`set_status` bit 1). Idempotent: the same call twice changes nothing more.
+    ///
+    /// # Errors
+    /// Returns host authority/refusal errors (`Denied` without `uses.library`, `NotFound` for
+    /// an unknown book, `State` for a stale handle) or Invalid for a nonempty reply.
+    pub fn set_favourite(
+        &self,
+        host: &Host<'_>,
+        book: BookRef<'_>,
+        favourite: bool,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<(), Error> {
+        self.set_status(host, book, STATUS_FAVOURITE, favourite, input, out)
+    }
+    fn set_status(
+        &self,
+        host: &Host<'_>,
+        book: BookRef<'_>,
+        bit: u32,
+        on: bool,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<(), Error> {
         let row = wire::ServiceLibStatus {
-            set: u32::from(finished),
-            clear: u32::from(!finished),
+            set: if on { bit } else { 0 },
+            clear: if on { 0 } else { bit },
         };
         self.mutate(
             host,

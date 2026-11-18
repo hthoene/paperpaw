@@ -14,15 +14,16 @@
 
 mod common;
 
+use common::AddDriver;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use common::Harness;
 use paperpaw_core::Kernel;
+use paperpaw_core::Staging;
 use paperpaw_core::sdk::builtin::events;
-use paperpaw_core::sdk::{
-    DirEntry, Manifest, MemoryStorage, Plugin, RegisterError, Registrar, Storage, StorageError,
-};
+use paperpaw_core::sdk::{DirEntry, Manifest, MemoryStorage, RegisterError, Storage, StorageError};
 use paperpaw_platform::Instant;
 
 /// What the storage was told, in order, and how much of it no sync has
@@ -105,35 +106,51 @@ struct Saver {
     results: Rc<RefCell<Vec<Result<(), StorageError>>>>,
 }
 
-impl Plugin for Saver {
-    fn manifest(&self) -> Manifest {
-        common::manifest("saver")
+fn saver(kept: Saver) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        RESULTS.with(|results| *results.borrow_mut() = Some(kept.results.clone()));
+        r.subscribe(events::SUSPEND, |k, _| save(k, "suspend"))?;
+        r.subscribe(events::STOPPING, |k, _| save(k, "stopping"))
     }
+}
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        for (event, name) in [(events::SUSPEND, "suspend"), (events::STOPPING, "stopping")] {
-            let results = self.results.clone();
-            r.subscribe(
-                event,
-                Box::new(move |env, _, _| {
-                    let storage = env.storage();
-                    let mut results = results.borrow_mut();
-                    results.push(storage.write(&format!("saver/{name}"), b"state"));
-                    results.push(storage.append("saver/log", name.as_bytes()));
-                }),
-            )?;
-        }
-        Ok(())
-    }
+std::thread_local! {
+    /// What the saver's writes gave, in the test running (its handlers are
+    /// plain functions and hold nothing).
+    static RESULTS: RefCell<Option<Results>> = const { RefCell::new(None) };
+}
+
+/// What the saver's writes gave.
+type Results = Rc<RefCell<Vec<Result<(), StorageError>>>>;
+
+/// Saves as the saver does when it hears `name`.
+fn save(kernel: &mut Kernel, name: &str) {
+    let Some(results) = RESULTS.with(|results| results.borrow().clone()) else {
+        return;
+    };
+    kernel.with_env(|env, _| {
+        let storage = env.storage();
+        let mut results = results.borrow_mut();
+        results.push(storage.write(&format!("saver/{name}"), b"state"));
+        results.push(storage.append("saver/log", name.as_bytes()));
+    });
+}
+
+/// What [`saver`] registers under.
+fn saver_manifest() -> Manifest {
+    common::manifest("saver")
 }
 
 fn kernel(storage: &Ordered, results: &Rc<RefCell<Vec<Result<(), StorageError>>>>) -> Kernel {
     let harness = Harness::new();
     let mut kernel = Kernel::builder(common::DEVICE)
-        .plugin(harness.plugin())
-        .plugin(Saver {
-            results: results.clone(),
-        })
+        .driver(harness.plugin())
+        .items(
+            saver_manifest(),
+            saver(Saver {
+                results: results.clone(),
+            }),
+        )
         .storage(storage.clone())
         .build()
         .unwrap();

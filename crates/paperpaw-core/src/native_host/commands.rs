@@ -8,6 +8,7 @@ use super::image_service::{
     self,
     commands::{ImageAdmit, ImageCommand},
 };
+pub(crate) use crate::Ask;
 pub use crate::abi7::commands_wire::{
     COMMAND_MAX_BYTES, COMMAND_MAX_KEY_BYTES, COMMAND_MAX_RECORDS, COMMAND_SET_SETTING_TAG,
     Command as WireCommand, CommandBatch, SecretText, commands_decode, commands_encode,
@@ -19,7 +20,7 @@ use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, OK,
     PpBytes, buffers,
 };
-use paperpaw_sdk::{Command, Id, SettingSpec, SettingValue, Settings};
+use paperpaw_sdk::{Id, SettingSpec, SettingValue, Settings};
 
 #[allow(
     dead_code,
@@ -32,6 +33,8 @@ pub(crate) use ui::Redraw;
 
 #[path = "commands_items.rs"]
 mod items;
+#[path = "commands_redraw.rs"]
+mod redraw;
 pub(crate) use items::ItemAdmit;
 #[cfg_attr(
     not(test),
@@ -41,22 +44,29 @@ pub(crate) use items::ItemAdmit;
     )
 )]
 pub(crate) use items::ItemRoom;
+pub(crate) use redraw::{Area, FOLLOWUP_ID, Followup};
 
+#[path = "commands_answers.rs"]
+mod answers;
+#[path = "commands_lookup.rs"]
+mod lookup;
 #[path = "commands_presets.rs"]
 mod preset;
+#[path = "commands_preview.rs"]
+mod preview;
+#[path = "commands_reset.rs"]
+mod reset;
 #[cfg(test)]
 pub(crate) use preset::{covers as preset_covers, plan as preset_plan, walk as preset_walk};
+pub(crate) use preview::PreviewHeld;
 #[path = "commands_nav.rs"]
 mod nav;
+pub(crate) use nav::PolicyChange;
 
 #[path = "commands_open.rs"]
 mod open;
 pub(crate) use open::Opens;
 
-#[allow(
-    dead_code,
-    reason = "native screen dispatch installs DEV command authority next"
-)]
 #[path = "commands_dev.rs"]
 pub(crate) mod dev;
 
@@ -64,6 +74,14 @@ pub(crate) mod dev;
 #[derive(Clone, Copy, Debug)]
 pub struct CommandAuthority {
     guarded_exempt: bool,
+}
+
+impl CommandAuthority {
+    /// The authority of a plugin that may (`true`) or may not change the
+    /// guarded settings.
+    pub(crate) const fn new(guarded_exempt: bool) -> Self {
+        Self { guarded_exempt }
+    }
 }
 
 impl crate::Kernel {
@@ -113,7 +131,7 @@ pub struct CommandStage<'a> {
     owner: &'a Id,
     settings: &'a Settings,
     guarded_exempt: bool,
-    staged: Vec<Command>,
+    staged: Vec<Ask>,
     limit: usize,
     byte_limit: usize,
     bytes: usize,
@@ -122,12 +140,29 @@ pub struct CommandStage<'a> {
     handovers: Option<open::Handovers<'a>>,
     opens: Opens,
     redraw: Option<u32>,
+    /// `command.redraw_area`s of the callback (`commands_redraw.rs`).
+    areas: redraw::Areas,
     accepted: usize,
     /// `image_prepare` / `image_release` admission, once the host gave it.
     images: Option<ImageAdmit>,
     /// Picture requests of the plugin held elsewhere (kept for a retry or
     /// failed, not yet told): they count against its room.
     images_held: usize,
+    /// Texts of the plugin the kernel's speech holds (being spoken or waiting).
+    speech_held: usize,
+    /// Plugin requests open device-wide (`plugin_requests.rs`).
+    requests_open: usize,
+    /// How many of them are this plugin's (at most [`super::plugin_requests::MAX_PER_PLUGIN`]
+    /// may be open).
+    own_requests: u8,
+    /// What the kernel knows of the plugin requests and of the submitter's
+    /// right to answer them (`commands_answers.rs`).
+    answer_view: super::plugin_requests::AnswerView,
+    /// The answers to apply after the callback (`commands_answers.rs`).
+    staged_answers: Vec<super::plugin_requests::Answer>,
+    /// The ready lookups to apply after the callback, as their asks' hashes
+    /// (`commands_lookup.rs`).
+    staged_lookups: Vec<u64>,
     /// The callback belongs to a work run (`work.md` section 2, "background
     /// work is quiet"): commands that show something are refused.
     quiet: bool,
@@ -143,6 +178,15 @@ pub struct CommandStage<'a> {
     room: core::cell::RefCell<Option<items::ItemRoom>>,
     /// The checked `command.set_hint` copies, applied after the callback.
     staged_hints: Vec<super::hint_labels::HintSet>,
+    /// The checked `command.widget_changed` instances, applied after the
+    /// callback.
+    staged_widgets: Vec<u32>,
+    staged_policies: Vec<nav::PolicyChange>,
+    /// Whose the device's one preview is (`commands_preview.rs`).
+    preview_held: PreviewHeld,
+    /// The submitter declared `uses.registry` and the host admitted it: it may
+    /// switch plugins on and off (`registry.md` 4.2).
+    registry: bool,
 }
 
 impl<'a> CommandStage<'a> {
@@ -173,16 +217,27 @@ impl<'a> CommandStage<'a> {
             handovers: None,
             opens: Opens::default(),
             redraw: None,
+            areas: redraw::Areas::default(),
             accepted: 0,
             images: None,
             quiet: false,
             images_held: 0,
+            speech_held: 0,
+            requests_open: 0,
+            own_requests: 0,
+            answer_view: super::plugin_requests::AnswerView::default(),
+            staged_answers: Vec::new(),
+            staged_lookups: Vec::new(),
             staged_images: Vec::new(),
             items: None,
             staged_items: Vec::new(),
             staged_presets: Vec::new(),
             room: core::cell::RefCell::new(None),
             staged_hints: Vec::new(),
+            staged_widgets: Vec::new(),
+            staged_policies: Vec::new(),
+            preview_held: PreviewHeld::Nobody,
+            registry: false,
         }
     }
 
@@ -211,6 +266,23 @@ impl<'a> CommandStage<'a> {
         self.images_held = held;
     }
 
+    /// The plugin requests open device-wide.
+    pub(crate) fn set_requests_open(&mut self, open: usize, own: usize) {
+        self.requests_open = open;
+        self.own_requests = u8::try_from(own).unwrap_or(u8::MAX);
+    }
+
+    /// The texts of the plugin that the kernel's speech holds.
+    pub(crate) fn set_speech_held(&mut self, held: usize) {
+        self.speech_held = held;
+    }
+
+    /// Whether the submitting instance was admitted with `uses.registry`
+    /// (known only inside its callback scope, as its other features).
+    pub(crate) fn admit_registry(&mut self, declared: bool) {
+        self.registry = declared;
+    }
+
     /// As [`Self::with_images`], on a stage already lent (the instance's
     /// own features are known only inside its callback scope).
     pub(crate) fn admit_images(&mut self, mut images: ImageAdmit) {
@@ -225,15 +297,15 @@ impl<'a> CommandStage<'a> {
         core::mem::take(&mut self.staged_images)
     }
 
-    /// Commands accepted so far, in submission order.
+    /// Asks accepted so far, in submission order.
     #[must_use]
-    pub fn staged(&self) -> &[Command] {
+    pub fn staged(&self) -> &[Ask] {
         &self.staged
     }
 
     /// Hand accepted commands to the host's queue after the callback returns.
     #[must_use]
-    pub fn into_commands(mut self) -> Vec<Command> {
+    pub fn into_commands(mut self) -> Vec<Ask> {
         core::mem::take(&mut self.staged)
     }
 
@@ -241,17 +313,7 @@ impl<'a> CommandStage<'a> {
     /// Registered, non-secret settings may belong to any plugin. Foreign
     /// guarded settings require the host-known editor or kernel identity.
     fn admitted(&self, key: &str) -> Result<&'a SettingSpec, i32> {
-        let spec = self.settings.spec(key).ok_or(ERR_INVALID)?;
-        if spec.extra().secret {
-            return Err(ERR_UNSUPPORTED);
-        }
-        if spec.guarded
-            && !self.guarded_exempt
-            && key.split('.').next() != Some(self.owner.as_str())
-        {
-            return Err(ERR_INVALID);
-        }
-        Ok(spec)
+        admitted(self.settings, self.owner, self.guarded_exempt, key)
     }
 
     /// Validate an entire decoded batch, then stage it, or stage nothing.
@@ -274,22 +336,16 @@ impl<'a> CommandStage<'a> {
             Ok(bytes) => bytes,
             Err(status) => return status,
         };
-        // Item states (`commands_items.rs`): checked and copied whole.
-        let (item_states, item_bytes) = match self.validate_item_states(batch) {
-            Ok(checked) => checked,
-            Err(status) => return status,
-        };
-        // Presets (`commands_presets.rs`): checked, their names copied.
-        let (presets, preset_bytes) = match self.validate_presets(batch) {
-            Ok(checked) => checked,
+        // The lists kept apart from the `Ask`s ([`Kept`]).
+        let kept = match self.validate_kept(batch) {
+            Ok(kept) => kept,
             Err(status) => return status,
         };
         // Registration, scalar ranges and the byte budget, without allocating.
         let mut bytes = self
             .bytes
             .saturating_add(dev_bytes)
-            .saturating_add(item_bytes)
-            .saturating_add(preset_bytes);
+            .saturating_add(kept.bytes);
         if bytes > self.byte_limit {
             return ERR_NO_SPACE;
         }
@@ -298,11 +354,15 @@ impl<'a> CommandStage<'a> {
             return error;
         }
         let image_commands = self.image_count(batch, images.is_some());
-        let stored = Self::stored_count(batch) - image_commands;
+        // Each reset is as many `Ask`s as settings it resets.
+        let resets = match self.reset_count(batch) {
+            Ok(resets) => resets,
+            Err(error) => return error,
+        };
+        let stored = Self::stored_count(batch) - image_commands + resets;
         if self.staged.try_reserve(stored).is_err()
             || self.staged_images.try_reserve(image_commands).is_err()
-            || self.staged_items.try_reserve(item_states.len()).is_err()
-            || self.staged_presets.try_reserve(presets.len()).is_err()
+            || self.reserve_kept(&kept).is_err()
         {
             return ERR_NO_MEMORY;
         }
@@ -310,9 +370,18 @@ impl<'a> CommandStage<'a> {
         if let Err(error) = self.reserve_hints(batch) {
             return error;
         }
+        let start_widgets = self.staged_widgets.len();
+        if let Err(error) = self.reserve_widgets(batch) {
+            return error;
+        }
+        let start_policies = self.staged_policies.len();
+        if let Err(error) = self.reserve_policies(batch) {
+            return error;
+        }
         if let Err(error) = self
             .dev_reserve(batch)
             .and_then(|()| self.reserve_opens(batch))
+            .and_then(|()| self.reserve_areas(batch))
         {
             return error;
         }
@@ -328,28 +397,82 @@ impl<'a> CommandStage<'a> {
             self.staged.truncate(start);
             self.staged_images.truncate(start_images);
             self.staged_hints.truncate(start_hints);
+            self.staged_widgets.truncate(start_widgets);
+            self.staged_policies.truncate(start_policies);
             self.opens.at.truncate(opens);
             self.dev_rollback(dev_start);
             self.unclaim(claims);
             return error;
         }
         // Capacity is reserved, so this cannot reallocate.
-        self.staged_items.extend(item_states);
-        self.staged_presets.extend(presets);
+        self.keep(kept);
         self.keep_claims(claims);
-        for command in batch.iter() {
-            if let WireCommand::Redraw { mode } = command {
-                self.redraw = Some(self.redraw.map_or(mode, |old| old.max(mode)));
-            }
-        }
+        self.push_redraws(batch);
         self.accepted += batch.len();
         self.bytes = bytes;
         self.images = images;
         OK
     }
 
+    /// The lists of a batch kept apart from the `Ask`s, checked and
+    /// copied: item states (`commands_items.rs`), presets
+    /// (`commands_presets.rs`), answers to plugin requests
+    /// (`commands_answers.rs`), ready lookups (`commands_lookup.rs`) and the
+    /// preview (`commands_preview.rs`).
+    #[inline(never)]
+    fn validate_kept(&self, batch: &CommandBatch<'_>) -> Result<Kept, i32> {
+        let (item_states, item_bytes) = self.validate_item_states(batch)?;
+        let (presets, preset_bytes) = self.validate_presets(batch)?;
+        let (answers, answer_bytes) = self.validate_answers(batch)?;
+        let lookups = self.validate_lookup_readies(batch)?;
+        let (preview, preview_bytes) = self.validate_preview(batch)?;
+        Ok(Kept {
+            item_states,
+            presets,
+            answers,
+            lookups,
+            preview,
+            bytes: item_bytes
+                .saturating_add(preset_bytes)
+                .saturating_add(answer_bytes)
+                .saturating_add(preview_bytes),
+        })
+    }
+
+    /// Room for `kept` in the stage's lists.
+    fn reserve_kept(&mut self, kept: &Kept) -> Result<(), ()> {
+        self.staged_items
+            .try_reserve(kept.item_states.len())
+            .and_then(|()| self.staged_presets.try_reserve(kept.presets.len()))
+            .and_then(|()| self.staged_answers.try_reserve(kept.answers.len()))
+            .and_then(|()| self.staged_lookups.try_reserve(kept.lookups.len()))
+            .map_err(|_| ())
+    }
+
+    /// Keeps `kept` in the stage's lists (room reserved by [`Self::reserve_kept`]).
+    fn keep(&mut self, kept: Kept) {
+        self.staged_items.extend(kept.item_states);
+        self.staged_presets.extend(kept.presets);
+        self.staged_answers.extend(kept.answers);
+        self.staged_lookups.extend(kept.lookups);
+        self.keep_preview(kept.preview);
+    }
+
+    /// Room for the instances of the batch's `command.widget_changed`.
+    #[inline(never)]
+    fn reserve_widgets(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        let count = batch
+            .iter()
+            .filter(|command| matches!(command, WireCommand::WidgetChanged { .. }))
+            .count();
+        self.staged_widgets
+            .try_reserve(count)
+            .map_err(|_| ERR_NO_MEMORY)
+    }
+
     /// Every command of a batch but the item states and the dev commands:
     /// image admission, scalar ranges, settings, and the byte budget.
+    #[inline(never)]
     fn validate_each(
         &self,
         batch: &CommandBatch<'_>,
@@ -367,6 +490,10 @@ impl<'a> CommandStage<'a> {
                 let checked = if dev::is_dev(&command)
                     || Self::is_item_state(&command)
                     || Self::is_preset(&command)
+                    || Self::is_answer(&command)
+                    || Self::is_lookup_ready(&command)
+                    || Self::is_preview(&command)
+                    || Self::is_reset(&command)
                 {
                     Ok(0)
                 } else {
@@ -380,14 +507,16 @@ impl<'a> CommandStage<'a> {
             };
             self.validate_setting(key, value, bytes)?;
         }
-        Ok(())
+        self.validate_speech_room(batch)?;
+        self.validate_plugin_requests(batch)
     }
 
     /// A batch refused whole, whatever else it holds, the stage as it was.
+    #[inline(never)]
     fn refused_before_checks(&self, batch: &CommandBatch<'_>) -> Option<i32> {
-        // `answer_plugin` and a write of a grant are refused for every plugin
-        // (`refused_outright`).
-        if let Some(status) = refused_outright(batch) {
+        // A write of a grant is refused for every plugin (`refused_outright`),
+        // `answer_plugin` for one that did not declare `uses.install`.
+        if let Some(status) = refused_outright(batch).or_else(|| self.answers_denied(batch)) {
             return Some(status);
         }
         // In a work run's callback only the listed commands are staged (the
@@ -395,17 +524,25 @@ impl<'a> CommandStage<'a> {
         (self.quiet && batch.iter().any(|command| !allowed_in_a_run(&command))).then_some(ERR_STATE)
     }
 
-    /// How many of `batch` go to the staged `Command`s (before the images).
+    /// How many of `batch` go to the staged `Ask`s (before the images).
     fn stored_count(batch: &CommandBatch<'_>) -> usize {
         batch
             .iter()
             .filter(|command| {
                 !matches!(
                     command,
-                    WireCommand::Redraw { .. } | WireCommand::SetHint { .. }
+                    WireCommand::Redraw { .. }
+                        | WireCommand::RedrawArea { .. }
+                        | WireCommand::SetHint { .. }
+                        | WireCommand::WidgetChanged { .. }
+                        | WireCommand::ScreenPolicy { .. }
+                        | WireCommand::ScreenReady {}
                 ) && !dev::is_dev(command)
                     && !Self::is_item_state(command)
                     && !Self::is_preset(command)
+                    && !Self::is_answer(command)
+                    && !Self::is_lookup_ready(command)
+                    && !Self::is_reset(command)
             })
             .count()
     }
@@ -439,6 +576,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// How many of `batch` are image commands the host admitted.
+    #[inline(never)]
     fn image_count(&self, batch: &CommandBatch<'_>, images: bool) -> usize {
         if !images {
             return 0;
@@ -451,6 +589,7 @@ impl<'a> CommandStage<'a> {
 
     /// Keep every command of a validated batch in order (capacity is reserved)
     /// and reserve the request entries of its DEV commands, last.
+    #[inline(never)]
     fn push_batch(
         &mut self,
         batch: &CommandBatch<'_>,
@@ -458,9 +597,14 @@ impl<'a> CommandStage<'a> {
         images: bool,
     ) -> Result<(), i32> {
         for command in batch.iter() {
-            if matches!(command, WireCommand::Redraw { .. })
-                || Self::is_item_state(&command)
+            if matches!(
+                command,
+                WireCommand::Redraw { .. } | WireCommand::RedrawArea { .. }
+            ) || Self::is_item_state(&command)
                 || Self::is_preset(&command)
+                || Self::is_answer(&command)
+                || Self::is_lookup_ready(&command)
+                || Self::is_preview(&command)
             {
                 continue;
             }
@@ -468,8 +612,21 @@ impl<'a> CommandStage<'a> {
             if matches!(command, WireCommand::SetHint { .. }) {
                 continue;
             }
+            // Listed for the table, not a kernel command; room is reserved.
+            if let WireCommand::WidgetChanged { instance } = command {
+                self.staged_widgets.push(instance);
+                continue;
+            }
+            // Kept apart, applied before the others (`stage_policy`).
+            if matches!(
+                command,
+                WireCommand::ScreenPolicy { .. } | WireCommand::ScreenReady {}
+            ) {
+                self.stage_policy(&command)?;
+                continue;
+            }
             if dev::is_dev(&command) {
-                self.dev_push(command)?;
+                self.dev_push(&command)?;
                 continue;
             }
             // A close of the root and a `back_to` with nothing above change
@@ -477,27 +634,58 @@ impl<'a> CommandStage<'a> {
             if self.nav_no_effect(&command) {
                 continue;
             }
-            if images && let Some(image) = image_service::commands::owned(&command) {
-                // Capacity is reserved, so this push cannot reallocate.
-                self.staged_images.push(image?);
+            if images && self.stage_image(&command)? {
                 continue;
             }
-            let owned = self.owned(command)?;
-            if let WireCommand::Open { mode, handover, .. } = command {
-                self.record_open(self.staged.len(), mode, handover)?;
+            // As many `Ask`s as settings it resets; room is reserved.
+            if let WireCommand::ResetSetting { key, flags } = command {
+                self.stage_reset(key, flags)?;
+                continue;
             }
-            // Capacity is reserved, so this push cannot reallocate.
-            self.staged.push(owned);
+            self.stage_owned(&command)?;
         }
         self.dev_commit(dev_start)
     }
 
+    /// Keeps an image command in its own list; `false` for another command.
+    /// Its own frame: the copy of an image command is big, and is not held
+    /// beside the others on the frame of `push_batch` (the S3 limit).
+    #[inline(never)]
+    fn stage_image(&mut self, command: &WireCommand<'_>) -> Result<bool, i32> {
+        let Some(image) = image_service::commands::owned(command) else {
+            return Ok(false);
+        };
+        // Capacity is reserved, so this push cannot reallocate.
+        self.staged_images.push(image?);
+        Ok(true)
+    }
+
+    /// Converts and keeps one ordinary command (and records an open).
+    #[inline(never)]
+    fn stage_owned(&mut self, command: &WireCommand<'_>) -> Result<(), i32> {
+        let owned = self.owned(*command)?;
+        if let WireCommand::Open { mode, handover, .. } = *command {
+            self.record_open(self.staged.len(), mode, handover)?;
+        }
+        // Capacity is reserved, so this push cannot reallocate.
+        self.staged.push(owned);
+        Ok(())
+    }
+
     /// Convert one admitted command, copying text fallibly and checking it.
-    fn owned(&self, command: WireCommand<'_>) -> Result<Command, i32> {
+    #[inline(never)]
+    fn owned(&self, command: WireCommand<'_>) -> Result<Ask, i32> {
         let WireCommand::SetSetting { key, value } = command else {
             return self.owned_ui(command);
         };
         let spec = self.admitted(key)?;
+        let value = Self::owned_value(spec, value)?;
+        Ok(Ask::SetSetting(Self::owned_key(spec, key)?, value))
+    }
+
+    /// A value `spec` takes, copied (text fallibly); "not set" and one it
+    /// does not take are `ERR_INVALID`.
+    fn owned_value(spec: &SettingSpec, value: SettingValueRef<'_>) -> Result<SettingValue, i32> {
         let value = match value {
             SettingValueRef::Bool(value) => SettingValue::Bool(value),
             SettingValueRef::Int(value) => SettingValue::Int(value),
@@ -514,14 +702,50 @@ impl<'a> CommandStage<'a> {
         if !spec.accepts(&value) {
             return Err(ERR_INVALID);
         }
-        // Keys are at most COMMAND_MAX_KEY_BYTES; a placement key is parsed.
-        let id = if key == spec.id.as_str() {
-            spec.id.try_clone().ok_or(ERR_NO_MEMORY)?
-        } else {
-            ui::copy_id(key)?
-        };
-        Ok(Command::SetSetting(id, value))
+        Ok(value)
     }
+
+    /// The id of the admitted `key` of `spec`, copied fallibly. Keys are at
+    /// most `COMMAND_MAX_KEY_BYTES`; a placement key is parsed.
+    fn owned_key(spec: &SettingSpec, key: &str) -> Result<Id, i32> {
+        if key == spec.id.as_str() {
+            spec.id.try_clone().ok_or(ERR_NO_MEMORY)
+        } else {
+            ui::copy_id(key)
+        }
+    }
+}
+
+/// [`CommandStage::admitted`] for plugin `owner`, which the settings editor
+/// and the kernel are not (`guarded_exempt`).
+fn admitted<'a>(
+    settings: &'a Settings,
+    owner: &Id,
+    guarded_exempt: bool,
+    key: &str,
+) -> Result<&'a SettingSpec, i32> {
+    // No room to read what its plugin describes of it is told as that.
+    let spec = settings.try_spec(key).map_err(|_| ERR_NO_MEMORY)?;
+    let spec = spec.ok_or(ERR_INVALID)?;
+    if spec.extra().secret {
+        return Err(ERR_UNSUPPORTED);
+    }
+    if spec.guarded && !guarded_exempt && key.split('.').next() != Some(owner.as_str()) {
+        return Err(ERR_INVALID);
+    }
+    Ok(spec)
+}
+
+/// What a batch stages beside its `Ask`s, checked before anything is
+/// staged ([`CommandStage::validate_kept`]); `bytes` count against the budget.
+struct Kept {
+    item_states: Vec<super::item_state::ItemPush>,
+    presets: Vec<alloc::boxed::Box<str>>,
+    answers: Vec<super::plugin_requests::Answer>,
+    lookups: Vec<u64>,
+    /// The preview set of the batch (`commands_preview.rs`); empty, an end.
+    preview: Option<preview::PreviewSet>,
+    bytes: usize,
 }
 
 impl fmt::Debug for CommandStage<'_> {
@@ -538,14 +762,18 @@ impl fmt::Debug for CommandStage<'_> {
 
 /// Whether a callback of a work run may stage `command` (`work.md` section
 /// 2, "background work is quiet"): a redraw of its own screens, settings,
-/// pictures, widget values and item states, and the network. Everything else
-/// is refused, so a command added later (a notice, a preview, an install or
-/// firmware confirmation, Bluetooth pairing, an `open`) shows nothing in the
-/// background until it is named here.
+/// pictures, widget values and item states, the network, a ready lookup (a
+/// provider's fetch ends in its run, `document.md` 7) and a notify with the
+/// `announce` bit (`ui.md` section 7: device messages and rules the user set
+/// up, which the kernel shows at its next pump, in its queue of waiting
+/// notices). Everything else is refused, so a command added later (a plain
+/// notice, a preview, an install or firmware confirmation, Bluetooth pairing,
+/// an `open`) shows nothing in the background until it is named here.
 fn allowed_in_a_run(command: &WireCommand<'_>) -> bool {
     matches!(
         command,
         WireCommand::Redraw { .. }
+            | WireCommand::RedrawArea { .. }
             | WireCommand::SetSetting { .. }
             | WireCommand::ResetSetting { .. }
             | WireCommand::SetItemState { .. }
@@ -560,7 +788,8 @@ fn allowed_in_a_run(command: &WireCommand<'_>) -> bool {
             | WireCommand::WifiHost { .. }
             | WireCommand::NetworkNone {}
             | WireCommand::GoOnline { .. }
-    )
+            | WireCommand::LookupReady { .. }
+    ) || matches!(command, WireCommand::Notify { flags, .. } if flags & ui::NOTIFY_ANNOUNCE != 0)
 }
 
 /// Allocation-free command slot inside a pinned host context.
@@ -654,21 +883,15 @@ impl CommandScope {
 
 /// A batch no plugin may send: `ERR_DENIED` for the whole of it.
 ///
-/// `answer_plugin` needs the install feature (`uses.install`, DEV,
-/// `docs/abi/device.md` section 1). Until command staging checks features (DEV
-/// host side), it is refused for every plugin, wherever it sits in the batch.
+/// (`answer_plugin` needs the install feature, `uses.install`: refused for
+/// the others in `commands_answers.rs`.)
 ///
 /// User grants are the host's alone (`screens-input.md`, guarded grants): a
 /// command that sets, resets or previews a `core.grant.*` setting refuses the
 /// whole batch, for every plugin, the one the grant names and the settings
 /// editor included.
 fn refused_outright(batch: &CommandBatch<'_>) -> Option<i32> {
-    batch
-        .iter()
-        .any(|command| {
-            matches!(command, WireCommand::AnswerPlugin { .. }) || touches_grant(command)
-        })
-        .then_some(ERR_DENIED)
+    batch.iter().any(touches_grant).then_some(ERR_DENIED)
 }
 
 /// Whether `command` writes a user grant (`core.grant.*`). `ApplyPreset` names
@@ -700,12 +923,24 @@ impl fmt::Debug for CommandScope {
 mod limit_tests;
 
 #[cfg(test)]
+#[path = "commands_redraw_below_tests.rs"]
+mod redraw_below_tests;
+
+#[cfg(test)]
 #[path = "commands_hint_tests.rs"]
 mod hint_tests;
 
 #[cfg(test)]
 #[path = "commands_grant_tests.rs"]
 mod grant_tests;
+
+#[cfg(test)]
+#[path = "commands_reset_tests.rs"]
+mod reset_tests;
+
+#[cfg(test)]
+#[path = "commands_preview_tests.rs"]
+mod preview_tests;
 
 #[cfg(test)]
 mod tests {
@@ -727,6 +962,19 @@ mod tests {
         assert!(stage.staged().is_empty());
     }
 
+    #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
+    #[test]
+    fn a_setting_there_is_no_room_to_read_is_not_an_invalid_key() {
+        use crate::native_host::described_settings::tests::{no_room_for_a_spec, probe};
+        let (_shown, settings) = probe();
+        let owner = Id::new_static("probe");
+        let stage = CommandStage::new(&owner, &settings, None, 1, 40);
+        no_room_for_a_spec();
+        assert_eq!(stage.admitted("probe.one").err(), Some(ERR_NO_MEMORY));
+        assert_eq!(stage.admitted("probe.none").err(), Some(ERR_INVALID));
+        assert!(stage.admitted("probe.one").is_ok());
+    }
+
     #[test]
     fn overlapping_submission_refuses_without_panicking() {
         let scope = CommandScope::new();
@@ -735,3 +983,7 @@ mod tests {
         assert_eq!(unsafe { scope.submit(core::ptr::null(), 0) }, ERR_BUSY);
     }
 }
+
+#[cfg(test)]
+#[path = "commands_enable_tests.rs"]
+mod enable_tests;

@@ -3,10 +3,13 @@
 //! refused.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 use super::super::*;
+use super::PolicyChange;
+use crate::Ask;
 use crate::native_host::stack_rows::{GUARDS, OVERLAY, StackRow};
+use alloc::vec;
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Command, Params, ScreenKey, StackEntry};
+use paperpaw_sdk::{Params, ScreenKey, StackEntry};
 
 const OWN: u64 = 13;
 const OTHER: u64 = 12;
@@ -42,8 +45,8 @@ fn submit(
     top: u32,
     hop: u8,
     commands: &[WireCommand<'_>],
-) -> (i32, Vec<Command>) {
-    let env = kernel.shared.env(Instant(0));
+) -> (i32, Vec<Ask>) {
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
         .with_ui(&env, Some(ScreenKey::new(top)), hop, 100)
@@ -70,11 +73,11 @@ fn close_follows_the_submitters_rights_and_the_guard() {
     for instance in [0, 3] {
         let (status, staged) = submit(&kernel, 3, 0, &[close(instance)]);
         assert_eq!(status, OK);
-        assert!(matches!(staged[..], [Command::Close(key)] if key == ScreenKey::new(3)));
+        assert!(matches!(staged[..], [Ask::Close(key)] if key == ScreenKey::new(3)));
     }
     let (status, staged) = submit(&kernel, 3, 0, &[close(2)]);
     assert_eq!(status, OK);
-    assert!(matches!(staged[..], [Command::Close(key)] if key == ScreenKey::new(2)));
+    assert!(matches!(staged[..], [Ask::Close(key)] if key == ScreenKey::new(2)));
     assert_eq!(submit(&kernel, 3, 0, &[close(1)]).0, ERR_DENIED);
     assert_eq!(submit(&kernel, 3, 0, &[close(99)]).0, ERR_NOT_FOUND);
     // Outside its own top screen, 0 is a state error.
@@ -110,7 +113,7 @@ fn back_to_names_the_topmost_open_screen_and_does_nothing_where_none_is() {
         }],
     );
     assert_eq!(status, OK);
-    assert!(matches!(&staged[..], [Command::BackTo(id)] if id.as_str() == "base.home"));
+    assert!(matches!(&staged[..], [Ask::BackTo(id)] if id.as_str() == "base.home"));
     // Nothing open: OK, nothing staged. The top itself: nothing above.
     for target in ["nowhere.screen", "probe.screen"] {
         let (status, staged) = submit(&kernel, 3, 0, &[WireCommand::BackTo { target }]);
@@ -148,10 +151,10 @@ fn a_key_layer_is_the_own_top_screens_and_an_empty_one_removes_it() {
         }],
     );
     assert_eq!(status, OK);
-    assert!(matches!(&staged[..], [Command::SetKeyLayer(key, Some(id))]
+    assert!(matches!(&staged[..], [Ask::SetKeyLayer(key, Some(id))]
         if *key == ScreenKey::new(3) && id.as_str() == "probe.book"));
     let (_, staged) = submit(&kernel, 3, 0, &[WireCommand::SetKeyLayer { layer: "" }]);
-    assert!(matches!(staged[..], [Command::SetKeyLayer(_, None)]));
+    assert!(matches!(staged[..], [Ask::SetKeyLayer(_, None)]));
     // Not from a callback of a screen that is not its own top one.
     assert_eq!(
         submit(
@@ -172,7 +175,7 @@ fn show_hints_is_always_open() {
     let kernel = kernel(&[BASE, MINE]);
     let (status, staged) = submit(&kernel, 3, 0, &[WireCommand::ShowHints {}]);
     assert_eq!(status, OK);
-    assert!(matches!(staged[..], [Command::ShowHints]));
+    assert!(matches!(staged[..], [Ask::ShowHints]));
 }
 
 #[test]
@@ -181,7 +184,7 @@ fn a_raised_input_is_the_submitters_to_raise_and_never_the_power_keys() {
     let raise = |input| submit(&kernel, 3, 0, &[WireCommand::RaiseInput { input }]);
     let (status, staged) = raise("button.menu");
     assert_eq!(status, OK);
-    assert!(matches!(&staged[..], [Command::Input(name)] if name == "button.menu"));
+    assert!(matches!(&staged[..], [Ask::Input(name)] if name == "button.menu"));
     assert_eq!(raise("input.probe.next").0, OK);
     assert_eq!(raise("gesture.probe.swirl").0, OK);
     assert_eq!(raise("input.other.next").0, ERR_DENIED);
@@ -232,9 +235,9 @@ fn a_raised_input_is_the_submitters_to_raise_and_never_the_power_keys() {
 }
 
 #[test]
-fn a_stage_without_the_stack_refuses_them_and_screen_policy_is_unsupported() {
+fn a_stage_without_the_stack_refuses_them() {
     let kernel = kernel(&[BASE, MINE]);
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let owner = Id::new_static("probe");
     let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096).with_ui(
         &env,
@@ -246,19 +249,6 @@ fn a_stage_without_the_stack_refuses_them_and_screen_policy_is_unsupported() {
     let len = commands_encode(&[WireCommand::ShowHints {}], &mut bytes).unwrap();
     assert_eq!(
         stage.stage(&commands_decode(&bytes[..len]).unwrap()),
-        ERR_UNSUPPORTED
-    );
-    assert_eq!(
-        submit(
-            &kernel,
-            3,
-            0,
-            &[WireCommand::ScreenPolicy {
-                instance: 0,
-                flags: 2
-            }]
-        )
-        .0,
         ERR_UNSUPPORTED
     );
 }
@@ -296,34 +286,37 @@ fn more_than_sixteen_screens_fail_closed() {
 /// A kernel with the screens of plugin `lock` (`lock.screen` guards the
 /// device) and of plugin `probe`.
 fn guarded_kernel() -> crate::Kernel {
-    use paperpaw_sdk::{Manifest, Plugin, Registrar, Screen, ScreenSpec, Version};
+    use crate::Staging;
+    use paperpaw_sdk::{Manifest, Version};
     struct Plain;
-    impl Screen for Plain {
-        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-        fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+    impl crate::testing::Fake for Plain {
+        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
+        fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
         }
     }
     struct Guard;
-    impl Screen for Guard {
-        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &paperpaw_sdk::Env<'_>) {}
-        fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+    impl crate::testing::Fake for Guard {
+        fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
+        fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
             paperpaw_sdk::Handled::No
         }
-        fn guards(&self) -> bool {
-            true
+        fn flags(&self) -> u32 {
+            crate::testing::GUARDS
         }
     }
-    struct Screens(&'static str, &'static [&'static str]);
-    impl Plugin for Screens {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static(self.0), self.0, Version::new(1, 0, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-        fn register(&self, r: &mut Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
-            for id in self.1 {
+    fn screens_manifest(id: &'static str) -> Manifest {
+        Manifest::new(Id::new_static(id), id, Version::new(1, 0, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING)
+    }
+
+    fn screens(
+        names: &'static [&'static str],
+    ) -> impl Fn(&mut Staging) -> Result<(), paperpaw_sdk::RegisterError> {
+        move |r| {
+            for id in names {
                 let guard = id.ends_with(".screen");
-                r.add_screen(ScreenSpec::new(
+                r.add_fake(crate::testing::FakeSpec::new(
                     Id::new_static(id),
                     "t.title",
                     alloc::boxed::Box::new(move |_, _| {
@@ -339,14 +332,20 @@ fn guarded_kernel() -> crate::Kernel {
         }
     }
     crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Screens("probe", &["probe.base", "probe.old", "probe.more"]))
-        .plugin(Screens("lock", &["lock.screen", "lock.next"]))
+        .items(
+            screens_manifest("probe"),
+            screens(&["probe.base", "probe.old", "probe.more"]),
+        )
+        .items(
+            screens_manifest("lock"),
+            screens(&["lock.screen", "lock.next"]),
+        )
         .build()
         .unwrap()
 }
 
 fn open(kernel: &mut crate::Kernel, screen: &'static str) {
-    kernel.apply(Command::OpenScreen(Id::new_static(screen), Params::new()));
+    kernel.apply(Ask::OpenScreen(Id::new_static(screen), Params::new()));
 }
 
 fn stack_of(kernel: &crate::Kernel) -> Vec<&str> {
@@ -378,7 +377,7 @@ fn the_drain_applies_the_guards_own_commands_and_holds_the_others() {
         kernel.take_warnings();
         // `back_to`: the guard's plugin closes what is above (the guard too);
         // another plugin's closes nothing.
-        kernel.drain_native_command(submitter, Command::BackTo(Id::new_static("probe.base")));
+        kernel.drain_native_command(submitter, Ask::BackTo(Id::new_static("probe.base")));
         if guard_plugin {
             assert_eq!(stack_of(&kernel), ["probe.base"]);
         } else {
@@ -395,9 +394,9 @@ fn the_drain_applies_the_guards_own_commands_and_holds_the_others() {
         open(&mut kernel, screen);
     }
     let guard_key = kernel.shared.stack.last().unwrap().key;
-    kernel.drain_native_command(&probe, Command::Close(guard_key));
+    kernel.drain_native_command(&probe, Ask::Close(guard_key));
     assert_eq!(stack_of(&kernel), ["probe.base", "lock.screen"]);
-    kernel.drain_native_command(&lock, Command::Close(guard_key));
+    kernel.drain_native_command(&lock, Ask::Close(guard_key));
     assert_eq!(stack_of(&kernel), ["probe.base"]);
     // A raised input: held for another plugin, raised for the guard's (an
     // input no key map reads is told in the log only where it was raised).
@@ -408,7 +407,7 @@ fn the_drain_applies_the_guards_own_commands_and_holds_the_others() {
         }
         kernel.take_warnings();
         let submitter = if guard_plugin { &lock } else { &probe };
-        kernel.drain_native_command(submitter, Command::Input("bogus.key".into()));
+        kernel.drain_native_command(submitter, Ask::Input("bogus.key".into()));
         let told = kernel
             .take_warnings()
             .iter()
@@ -431,8 +430,335 @@ fn the_drain_applies_the_guards_own_commands_and_holds_the_others() {
         };
         kernel.drain_native_command(
             submitter,
-            Command::OpenScreen(Id::new_static(screen), Params::new()),
+            Ask::OpenScreen(Id::new_static(screen), Params::new()),
         );
         assert_eq!(stack_of(&kernel), expected);
     }
+}
+
+/// What `submit` leaves of a batch: the commands and the policy changes.
+fn submit_policy(
+    kernel: &crate::Kernel,
+    top: u32,
+    commands: &[WireCommand<'_>],
+) -> (i32, Vec<Ask>, Vec<PolicyChange>) {
+    let env = kernel.shared.place(Instant(0));
+    let owner = Id::new_static("probe");
+    let mut stage = CommandStage::new(&owner, env.settings(), None, 16, 4096)
+        .with_ui(&env, Some(ScreenKey::new(top)), 0, 100)
+        .with_stack(&kernel.shared.stack_rows, OWN);
+    let mut bytes = [0; 1024];
+    let len = commands_encode(commands, &mut bytes).unwrap();
+    let status = stage.stage(&commands_decode(&bytes[..len]).unwrap());
+    let policies = stage.take_policies();
+    (status, stage.into_commands(), policies)
+}
+
+fn policy(instance: u32, flags: u32) -> WireCommand<'static> {
+    WireCommand::ScreenPolicy { instance, flags }
+}
+
+#[test]
+fn a_screen_policy_is_the_submitters_own_and_staged_apart() {
+    let kernel = kernel(&[BASE, MINE]);
+    // The own top one (0 or by number): staged apart from the commands.
+    for instance in [0, 3] {
+        let (status, staged, policies) = submit_policy(&kernel, 3, &[policy(instance, 0x12)]);
+        assert_eq!(status, OK);
+        assert!(staged.is_empty());
+        assert_eq!(
+            policies,
+            [PolicyChange {
+                instance: 3,
+                flags: 0x12,
+                ready: false,
+            }]
+        );
+    }
+    // Bit 9 (`grays`) is a policy as well, alone or beside the others.
+    for flags in [0x200, 0x212] {
+        let (status, _, policies) = submit_policy(&kernel, 3, &[policy(0, flags)]);
+        assert_eq!(status, OK, "{flags:#x}");
+        assert_eq!(policies.len(), 1);
+        assert_eq!(policies[0].flags, flags);
+    }
+    // Bits other than 1, 4, 5 and 9, among them 8 (`hints_hidden`: declared
+    // only), alone or beside the allowed ones.
+    for flags in [1, 4, 8, 0x40, 0x100, 0x112, 0x400, 0x600] {
+        assert_eq!(
+            submit_policy(&kernel, 3, &[policy(0, flags)]).0,
+            ERR_INVALID
+        );
+    }
+    // Another plugin's instance, one that is not open.
+    assert_eq!(submit_policy(&kernel, 3, &[policy(1, 0x10)]).0, ERR_DENIED);
+    assert_eq!(
+        submit_policy(&kernel, 3, &[policy(9, 0x10)]).0,
+        ERR_NOT_FOUND
+    );
+    // Outside its own top screen the own top one is `ERR_STATE`.
+    assert_eq!(submit_policy(&kernel, 1, &[policy(0, 0x10)]).0, ERR_STATE);
+    // Whole batch refused: nothing of it is kept.
+    let (status, staged, policies) =
+        submit_policy(&kernel, 3, &[WireCommand::ShowHints {}, policy(1, 0x10)]);
+    assert_eq!(status, ERR_DENIED);
+    assert!(staged.is_empty() && policies.is_empty());
+}
+
+#[test]
+fn guards_turn_on_only_for_the_top_and_off_anywhere() {
+    // Own instance below another plugin's screen: guards on is `ERR_STATE`,
+    // `secret` and `holds_edges` and guards off still work.
+    let below = kernel(&[("probe.screen", 3, OWN, 0), ("base.home", 1, OTHER, 0)]);
+    assert_eq!(submit_policy(&below, 1, &[policy(3, 0x02)]).0, ERR_STATE);
+    assert_eq!(submit_policy(&below, 1, &[policy(3, 0x30)]).0, OK);
+    assert_eq!(submit_policy(&below, 1, &[policy(3, 0)]).0, OK);
+    // The own top one: on. Another's host screen above does not count.
+    let top = kernel(&[
+        BASE,
+        MINE,
+        ("core.sleep", 4, 0, crate::native_host::stack_rows::HOST),
+    ]);
+    assert_eq!(submit_policy(&top, 3, &[policy(3, 0x02)]).0, OK);
+    // Already guarding under another's screen: it may stay on.
+    let guarding = kernel(&[("probe.screen", 3, OWN, GUARDS), ("base.home", 1, OTHER, 0)]);
+    assert_eq!(submit_policy(&guarding, 1, &[policy(3, 0x02)]).0, OK);
+}
+
+/// `grays` (bit 9) set at run time is what the frame says about the screen on
+/// top: on and off page by page, and nothing of it under a screen that lies
+/// over the panel's content (the screen below shows through).
+#[test]
+fn a_run_time_grays_policy_is_what_the_frame_says_of_the_top_screen() {
+    let probe = Id::new_static("probe");
+    let mut kernel = guarded_kernel();
+    for screen in ["probe.base", "probe.old"] {
+        open(&mut kernel, screen);
+    }
+    let key = kernel.shared.stack.last().unwrap().key;
+    let change = |flags| PolicyChange {
+        instance: key.serial(),
+        flags,
+        ready: false,
+    };
+    kernel.render(&mut |_, _| {});
+    kernel.finish();
+    assert!(!kernel.stack.last().unwrap().grays());
+    // On: the next frame is the whole screen in grays.
+    kernel.native_screen_policies(&probe, OWN, vec![change(0x200)]);
+    assert!(kernel.stack.last().unwrap().grays());
+    kernel.render(&mut |_, _| {});
+    assert!(kernel.finish().grays());
+    // Off, with another bit of the policy kept apart from it.
+    kernel.native_screen_policies(&probe, OWN, vec![change(0x10)]);
+    assert!(!kernel.stack.last().unwrap().grays());
+    kernel.render(&mut |_, _| {});
+    assert!(!kernel.finish().grays());
+}
+
+/// A policy the screen has already changes nothing, so nothing is drawn again:
+/// the reader says it at every show (Senior R1 on #1394, a second grays frame).
+#[test]
+fn an_unchanged_policy_does_not_draw_the_screen_again() {
+    let probe = Id::new_static("probe");
+    let mut kernel = guarded_kernel();
+    for screen in ["probe.base", "probe.old"] {
+        open(&mut kernel, screen);
+    }
+    let key = kernel.shared.stack.last().unwrap().key;
+    let change = |flags| PolicyChange {
+        instance: key.serial(),
+        flags,
+        ready: false,
+    };
+    kernel.render(&mut |_, _| {});
+    kernel.finish();
+    // A new policy draws the screen again.
+    kernel.native_screen_policies(&probe, OWN, vec![change(0x200)]);
+    assert!(kernel.output.redraw, "a changed policy is drawn");
+    kernel.render(&mut |_, _| {});
+    kernel.finish();
+    assert!(!kernel.output.redraw);
+    // The same again: nothing to draw.
+    kernel.native_screen_policies(&probe, OWN, vec![change(0x200)]);
+    assert!(
+        !kernel.output.redraw,
+        "the same policy drew the screen again"
+    );
+    // Another one does.
+    kernel.native_screen_policies(&probe, OWN, vec![change(0)]);
+    assert!(kernel.output.redraw);
+}
+
+/// The kernel applies the change on the real stack: the instance guards or is
+/// secret at once, stays so when the stack is synced again, and goes back.
+#[test]
+fn the_kernel_applies_a_policy_to_the_real_screen() {
+    let probe = Id::new_static("probe");
+    let mut kernel = guarded_kernel();
+    for screen in ["probe.base", "probe.old"] {
+        open(&mut kernel, screen);
+    }
+    let key = kernel.shared.stack.last().unwrap().key;
+    assert!(!kernel.is_secret());
+    // Secret on, then off (any own instance).
+    let change = |flags| PolicyChange {
+        instance: key.serial(),
+        flags,
+        ready: false,
+    };
+    kernel.native_screen_policies(&probe, OWN, vec![change(0x10)]);
+    assert!(kernel.is_secret() && kernel.guard().is_none());
+    kernel.sync_stack();
+    assert!(kernel.is_secret());
+    kernel.native_screen_policies(&probe, OWN, vec![change(0)]);
+    assert!(!kernel.is_secret());
+    // Guards on needs the kernel's rows to name the submitter's top screen.
+    kernel.take_warnings();
+    kernel.native_screen_policies(&probe, OWN, vec![change(0x02)]);
+    assert!(
+        kernel.guard().is_none(),
+        "no row names the submitter: refused"
+    );
+    assert_eq!(kernel.take_warnings().len(), 1);
+    let rows: Vec<StackRow> = kernel
+        .stack
+        .iter()
+        .map(|active| StackRow {
+            instance: active.serial,
+            owner: if active.serial == key.serial() {
+                OWN
+            } else {
+                OTHER
+            },
+            flags: 0,
+        })
+        .collect();
+    kernel.shared.stack_rows.update(rows);
+    kernel.native_screen_policies(&probe, OWN, vec![change(0x02)]);
+    assert_eq!(kernel.guard(), Some(kernel.stack.len() - 1));
+    assert!(kernel.is_secret());
+    // Another plugin's change and a gone screen are dropped.
+    kernel.take_warnings();
+    kernel.native_screen_policies(&Id::new_static("lock"), 12, vec![change(0)]);
+    kernel.native_screen_policies(
+        &probe,
+        OWN,
+        vec![PolicyChange {
+            instance: 999,
+            flags: 0,
+            ready: false,
+        }],
+    );
+    assert!(kernel.guard().is_some());
+    assert_eq!(kernel.take_warnings().len(), 2);
+    // Off: nothing guards.
+    kernel.native_screen_policies(&probe, OWN, vec![change(0)]);
+    assert!(kernel.guard().is_none());
+}
+
+/// The lock's keyboard (another plugin's screen above the lock) cannot take
+/// the guard over: guards on is `ERR_STATE` while another plugin's screen
+/// guards, at submit and at apply, and the lock stays.
+#[test]
+fn a_screen_above_anothers_guard_cannot_turn_guards_on() {
+    let above = kernel(&[
+        BASE,
+        ("lock.screen", 2, OTHER, GUARDS),
+        ("kbd.screen", 3, OWN, 0),
+    ]);
+    for instance in [0, 3] {
+        assert_eq!(
+            submit_policy(&above, 3, &[policy(instance, 0x02)]).0,
+            ERR_STATE
+        );
+    }
+    // The whole batch is refused, whatever else it holds.
+    let (status, staged, policies) =
+        submit_policy(&above, 3, &[WireCommand::ShowHints {}, policy(3, 0x02)]);
+    assert_eq!(status, ERR_STATE);
+    assert!(staged.is_empty() && policies.is_empty());
+    // Not the guard's own business: secret and edges still work.
+    assert_eq!(submit_policy(&above, 3, &[policy(3, 0x30)]).0, OK);
+    // The guard's plugin itself may (it is the guard already).
+    let own = kernel(&[
+        BASE,
+        ("lock.screen", 2, OWN, GUARDS),
+        ("kbd.screen", 3, OWN, 0),
+    ]);
+    assert_eq!(submit_policy(&own, 3, &[policy(3, 0x02)]).0, OK);
+}
+
+#[test]
+fn the_kernel_refuses_guards_on_above_anothers_guard_at_apply() {
+    let probe = Id::new_static("probe");
+    let lock = Id::new_static("lock");
+    let mut kernel = guarded_kernel();
+    open(&mut kernel, "probe.base");
+    open(&mut kernel, "lock.screen");
+    // The lock opens the keyboard (another plugin's screen) above itself.
+    kernel.drain_native_command(
+        &lock,
+        Ask::OpenScreen(Id::new_static("probe.more"), Params::new()),
+    );
+    assert_eq!(
+        stack_of(&kernel),
+        ["probe.base", "lock.screen", "probe.more"]
+    );
+    let keyboard = kernel.stack.last().unwrap().serial;
+    // The kernel's rows name the owners: lock 12, the keyboard (probe) OWN.
+    let rows: Vec<StackRow> = kernel
+        .stack
+        .iter()
+        .map(|active| StackRow {
+            instance: active.serial,
+            owner: if active.serial == keyboard {
+                OWN
+            } else {
+                OTHER
+            },
+            flags: if active.guards() { GUARDS } else { 0 },
+        })
+        .collect();
+    kernel.shared.stack_rows.update(rows);
+    kernel.take_warnings();
+    kernel.native_screen_policies(
+        &probe,
+        OWN,
+        vec![PolicyChange {
+            instance: keyboard,
+            flags: 0x02,
+            ready: false,
+        }],
+    );
+    // The lock is still the guard, nothing else guards, one warning.
+    assert_eq!(kernel.guard(), Some(1));
+    assert!(!kernel.stack[2].guards());
+    assert_eq!(kernel.take_warnings().len(), 1);
+    // The lock closes itself still (it was never displaced).
+    let lock_key = kernel.shared.stack[1].key;
+    kernel.drain_native_command(&lock, Ask::Close(lock_key));
+    assert_eq!(stack_of(&kernel), ["probe.base", "probe.more"]);
+}
+
+/// `command.screen_ready` is the own top instance's, else `ERR_STATE`, and is
+/// staged apart from the commands like a policy.
+#[test]
+fn screen_ready_is_the_own_top_instance_and_staged_apart() {
+    let kernel = kernel(&[BASE, MINE]);
+    let (status, staged, changes) = submit_policy(&kernel, 3, &[WireCommand::ScreenReady {}]);
+    assert_eq!(status, OK);
+    assert!(staged.is_empty());
+    assert_eq!(
+        changes,
+        [PolicyChange {
+            instance: 3,
+            flags: 0,
+            ready: true,
+        }]
+    );
+    // From a callback of a screen that is not the top one.
+    let (status, staged, changes) = submit_policy(&kernel, 1, &[WireCommand::ScreenReady {}]);
+    assert_eq!(status, ERR_STATE);
+    assert!(staged.is_empty() && changes.is_empty());
 }

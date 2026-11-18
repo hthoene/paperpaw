@@ -6,7 +6,7 @@ use paperpaw_native::host_glue::{ERR_INVALID, PpBuffer, PpBytes, buffers};
 
 /// # Safety
 /// The context and all nonempty pairs are live and disjoint for this call.
-pub(super) unsafe extern "C" fn run<S>(
+pub(super) unsafe extern "C" fn run<S: 'static>(
     ctx: *mut c_void,
     stage: PpBytes,
     cursor: u32,
@@ -19,12 +19,13 @@ pub(super) unsafe extern "C" fn run<S>(
     };
     // The plugin waits for the host (and the broker's subscribers, which are
     // plugin calls of their own) from here to the return.
-    let _slot = crate::native_host::host_slot::enter();
+    let _slot =
+        crate::native_host::host_slot::enter_as(crate::native_host::host_slot::Id::StageRun);
     context
         .environment
         .with_frame(|frame| {
             // SAFETY: the generated slot contract supplies live, disjoint buffers.
-            unsafe { in_frame(frame, context.id.as_ref(), stage, cursor, input, out) }
+            unsafe { in_frame(frame, context.plugin_id(), stage, cursor, input, out) }
         })
         .and_then(core::convert::identity)
         .map_or_else(|error| error, |n| n as i32)

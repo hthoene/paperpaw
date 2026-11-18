@@ -548,4 +548,16 @@ mod tests {
         // Half the year: 2 July at noon, in a common year.
         assert_eq!(progress(&at(2026, 7, 2, 12)).permille, 500);
     }
+
+    #[test]
+    fn leap_days_and_the_last_minute_of_a_common_year() {
+        let leap = progress(&at(2028, 2, 29, 0));
+        assert_eq!((leap.day, leap.days, leap.left), (60, 366, 306));
+        let last = progress(&LocalTime::new(2026, 12, 31, 23, 59, 59));
+        assert_eq!((last.day, last.days, last.left), (365, 365, 0));
+        assert_eq!(last.permille, 999);
+        // The week of the first days of a year may belong to the one before.
+        assert_eq!(progress(&at(2027, 1, 1, 0)).week, 53);
+        assert_eq!(progress(&at(2026, 12, 31, 0)).week, 53);
+    }
 }

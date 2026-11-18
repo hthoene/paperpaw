@@ -1,0 +1,3 @@
+### Changed
+
+- **The host's own screens are rewritten without the SDK kit (#293, step S5c).** The kernel's stack now holds a plugin's native screen or one of the host's own five: the firmware confirmation, the placeholder (all a safe-mode start shows), the update finishing, the notice where no plugin shows notices, and what holds a screen's place while it is made anew. The kernel draws them itself from its fonts, settings and texts; they look as before, with the same texts, keys and timing. The developer firmware's waveform lab (feature `waveform-lab`) is removed. Interface 7 and api.txt unchanged. The one-time notices at start (the Literata hint, low memory) are host screens on the same box as the firmware confirmation.

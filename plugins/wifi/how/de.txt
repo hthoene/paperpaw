@@ -1,5 +1,0 @@
-WLAN verbindet sich mit Netzwerken, wenn etwas eines braucht, und schaltet den Funk danach wieder aus, das spart Akku und Speicher. Es gilt dort, wo PaperPaw das WLAN selbst verwaltet, etwa beim X4; sonst macht das System es.
-
-Der Funk ist zuerst aus. Er geht an, wenn ein Plugin das Netzwerk will, verbindet sich mit dem zuletzt gewählten gespeicherten Netzwerk (oder dem stärksten, wie Zuerst verbinden sagt) und geht eine Minute nach der letzten Nutzung wieder aus (Ausschalten nach ändert das). Öffne die WLAN-Seite in den Einstellungen, oder tippe auf das WLAN-Zeichen in der Statusleiste. Netzwerke zeigt die Netzwerke in Reichweite: wähle eines und gib sein Passwort ein. Die Menütaste oder langes Drücken vergisst ein gespeichertes Netzwerk.
-
-Mit dem Handy einrichten erlaubt, Netzwerk und Passwort am Handy zu wählen; solange kein Netzwerk gespeichert ist, steht es als Erstes unter dem WLAN-Schalter.

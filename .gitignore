@@ -4,13 +4,10 @@
 # A build run from inside a plugin's folder (CARGO_TARGET_DIR=$PWD/target there).
 /plugins/*/target/
 /crates/*/target/
+/crates/*/tests/*/target/
 /tools/*/target/
 # The X4's firmware builds on its own (see shells/xteink).
 /shells/xteink/target/
-# Native plugins, built in workspaces of their own.
-/samples/hello-native/target/
-/crates/paperpaw-core/tests/native-plugin/target/
-/tools/plugin-files/target/
 **/*.rs.bk
 
 # Emulator output

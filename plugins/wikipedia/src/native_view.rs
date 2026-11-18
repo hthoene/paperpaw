@@ -15,7 +15,7 @@ use paperpaw_sdk::{
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
         formatting::Arg,
-        i18n,
+        i18n, lookup,
         net::{BODY_PART, HttpDone, Net, REPLY, REQUEST_INPUT, Reason, Request, RequestId},
         snapshot,
         ui::{HandoverId, Ui},
@@ -75,6 +75,16 @@ impl View {
             // A hand-over that cannot be read is a screen for no word, not a failed open:
             // the screen must exist for the draws that follow.
             let _ = read_params(host, ui, handover, &mut view.word, &mut view.language);
+            // The entry's text handed over (`document.md` 7, the panel's
+            // *Open Wikipedia ›*): shown, not fetched again. A text that cannot
+            // be read is fetched instead.
+            let given = read_given(host, ui, handover).unwrap_or_default();
+            if !given.trim().is_empty() {
+                view.body = Body::Summary {
+                    title: None,
+                    text: given,
+                };
+            }
         }
         view.word = clean(&view.word, MAX_WORD)?;
         view.language = clean(&view.language, MAX_LANGUAGE)?;
@@ -94,21 +104,31 @@ impl View {
             self.body = Body::Message("wikipedia.not-found");
             return Ok(());
         }
-        let url = native_model::summary_url(&self.language, &self.word)?;
-        let headers = [
-            paperpaw_sdk::native::net::Header::new("User-Agent", "PaperPaw/0.1 (e-reader)")?,
-            paperpaw_sdk::native::net::Header::new("Accept", "application/json")?,
-        ];
-        let request = Request::get(FETCHED_TOKEN, &url)?
-            .headers(&headers)?
-            .max_body(MAX_BODY as u32);
-        let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
-        match net.request(host, &request, &mut input, &mut out) {
+        match request_summary(host, net, &self.language, &self.word) {
             Ok(id) => self.request = Some(id),
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => self.body = Body::Message("wikipedia.failed"),
         }
         Ok(())
+    }
+
+    /// Shows `text` (a summary the plugin has, or the one handed over),
+    /// with the article's `title` where there is one: nothing is fetched.
+    pub fn show(&mut self, title: Option<String>, text: String) {
+        self.page = None;
+        self.body = Body::Summary { title, text };
+    }
+
+    /// Whether the screen still has to fetch its summary.
+    #[must_use]
+    pub const fn is_loading(&self) -> bool {
+        matches!(self.body, Body::Loading)
+    }
+
+    /// The word the screen is for.
+    #[must_use]
+    pub fn word(&self) -> &str {
+        &self.word
     }
 
     /// Says why no request could be made at all (no network service).
@@ -341,13 +361,40 @@ impl View {
     }
 }
 
+/// The id of the summary screen (what a provider's entry opens).
+pub const SCREEN: &str = "wikipedia.lookup";
+
+/// Asks `core.net` for the summary of `word`'s article in `language`
+/// (`FETCHED_TOKEN`, at most [`MAX_BODY`]).
+///
+/// # Errors
+/// `NoMemory`; the host's refusals.
+pub fn request_summary(
+    host: &Host<'_>,
+    net: &Net,
+    language: &str,
+    word: &str,
+) -> Result<RequestId, Error> {
+    let url = native_model::summary_url(language, word)?;
+    let headers = [
+        paperpaw_sdk::native::net::Header::new("User-Agent", "PaperPaw/0.1 (e-reader)")?,
+        paperpaw_sdk::native::net::Header::new("Accept", "application/json")?,
+    ];
+    let request = Request::get(FETCHED_TOKEN, &url)?
+        .headers(&headers)?
+        .max_body(MAX_BODY as u32);
+    let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
+    net.request(host, &request, &mut input, &mut out)
+}
+
 /// The body of a finished request, read in parts into one text; over
 /// [`MAX_BODY`] or not UTF-8 is `NoSpace` / `Invalid` (no summary).
-fn read_body(host: &Host<'_>, net: &Net, done: &HttpDone) -> Result<String, Error> {
+pub fn read_body(host: &Host<'_>, net: &Net, done: &HttpDone) -> Result<String, Error> {
     if done.truncated() || done.body_len() as usize > MAX_BODY {
         return Err(Error::NoSpace);
     }
-    let (mut input, mut out) = (buffer(REQUEST_INPUT)?, buffer(REPLY)?);
+    // The input is one read row (an id and an offset); the reply a part.
+    let (mut input, mut out) = ([0_u8; READ_INPUT], buffer(REPLY)?);
     let mut bytes: Vec<u8> = Vec::new();
     bytes
         .try_reserve_exact(done.body_len() as usize)
@@ -386,6 +433,8 @@ fn wants_online(region: Rect, input: &Input<'_>) -> bool {
 
 /// The most bytes of a word a request carries, and of a language.
 const MAX_WORD: usize = 256;
+/// The input of one body read: the batch of one `service_net_read` row.
+const READ_INPUT: usize = 64;
 const MAX_LANGUAGE: usize = 35;
 
 /// `text` cut at a character to at most `max` bytes.
@@ -415,6 +464,40 @@ fn read_params(
         }
     }
     Ok(())
+}
+
+/// The text of `handover` (`core.ui` op 10, `ui.md` 3.1): an entry's text,
+/// at most [`lookup::MAX_ENTRY`] bytes. A longer text is not an entry's and
+/// is left out (empty), as is none.
+fn read_given(host: &Host<'_>, ui: &Ui, handover: HandoverId) -> Result<String, Error> {
+    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    let mut given = String::new();
+    let mut offset = 0;
+    // The total the first part says: every later part is held to it.
+    let mut total = None;
+    loop {
+        let part = ui.text_read(host, handover.text(), offset, &mut input, &mut out)?;
+        let said = usize::try_from(part.total()).map_err(|_| Error::NoSpace)?;
+        let total = *total.get_or_insert(said);
+        if total > lookup::MAX_ENTRY {
+            return Ok(String::new());
+        }
+        // A part with another total, or past the first, is a text that
+        // changed under the read: left out like a longer one.
+        if said != total || given.len().saturating_add(part.data().len()) > total {
+            return Ok(String::new());
+        }
+        if given.capacity() < total {
+            given
+                .try_reserve_exact(total)
+                .map_err(|_| Error::NoMemory)?;
+        }
+        given.push_str(part.data());
+        match part.next_offset() {
+            Some(next) => offset = next,
+            None => return Ok(given),
+        }
+    }
 }
 
 #[cfg(test)]

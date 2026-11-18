@@ -145,7 +145,6 @@ name = "paperpaw-config"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-sort",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -164,17 +163,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-epub-family"
+version = "1.0.5"
+dependencies = [
+ "miniz_oxide",
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "paperpaw-config",
+ "paperpaw-epub-family",
  "paperpaw-http",
  "paperpaw-hyphen",
  "paperpaw-i18n",
  "paperpaw-image",
  "paperpaw-json",
- "paperpaw-plugin-format-epub",
+ "paperpaw-plugin-format-rtf",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
  "paperpaw-plugin-koreader",
@@ -190,7 +198,6 @@ name = "paperpaw-graphics"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -208,7 +215,6 @@ dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
  "paperpaw-sort",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -224,7 +230,6 @@ name = "paperpaw-json"
 version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
 ]
 
 [[package]]
@@ -253,16 +258,15 @@ name = "paperpaw-platform"
 version = "0.6.0-beta.3"
 
 [[package]]
-name = "paperpaw-plugin-format-epub"
-version = "1.0.5"
+name = "paperpaw-plugin-format-rtf"
+version = "1.0.0"
 dependencies = [
- "miniz_oxide",
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-format-txt"
-version = "1.0.2"
+version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
 ]
@@ -304,7 +308,6 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-qr",
  "paperpaw-sort",
- "paperpaw-table",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-xml",
@@ -331,10 +334,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-table"
-version = "0.6.0-beta.3"
-
-[[package]]
 name = "paperpaw-text"
 version = "0.6.0-beta.3"
 dependencies = [
@@ -343,7 +342,6 @@ dependencies = [
  "paperpaw-lang",
  "paperpaw-platform",
  "paperpaw-sort",
- "paperpaw-table",
  "read-fonts",
  "skrifa",
 ]
@@ -365,9 +363,6 @@ dependencies = [
 [[package]]
 name = "paperpaw-xml"
 version = "0.6.0-beta.3"
-dependencies = [
- "paperpaw-table",
-]
 
 [[package]]
 name = "paperpaw-zip"
@@ -375,6 +370,7 @@ version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide",
  "paperpaw-platform",
+ "paperpaw-sort",
 ]
 
 [[package]]

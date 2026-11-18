@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::super::event_pending::Visibility;
+use crate::Staging;
 use crate::native_host::{
     codec,
     commands::CommandStage,
@@ -15,8 +16,7 @@ use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
 use paperpaw_sdk::{
-    Id, Manifest, Plugin, RegisterError, Registrar, SettingExtra, SettingKind, SettingSpec,
-    SettingValue, Version,
+    Id, Manifest, RegisterError, SettingExtra, SettingKind, SettingSpec, SettingValue, Version,
 };
 
 /// What a plugin was told: the key and the old value's bytes.
@@ -25,6 +25,7 @@ type Hints = Rc<RefCell<Vec<(u32, u32)>>>;
 
 const SETTING: &[u32] = &[wire::EVENT_SETTING_CHANGED_TAG];
 const HINTS: &[u32] = &[70, 71, 72, 73, 74];
+const RADIO: &[u32] = &[92, 94, 95];
 
 struct Probe {
     name: char,
@@ -45,13 +46,20 @@ impl NativeInstance for Probe {
     fn subscribed(&self, tag: u32) -> bool {
         self.tags.contains(&tag)
     }
-    fn service_event(&self, bytes: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn service_event(&self, bytes: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         let record = codec::decode_any_single(bytes).unwrap();
         let (tag, state) = match &record {
             wire::Record::EventPluginsChanged(_) => (wire::EVENT_PLUGINS_CHANGED_TAG, 0),
             wire::Record::EventWifiChanged(event) => (wire::EVENT_WIFI_CHANGED_TAG, event.state),
             wire::Record::EventPowerChanged(event) => (wire::EVENT_POWER_CHANGED_TAG, event.level),
             wire::Record::EventStatusChanged(_) => (wire::EVENT_STATUS_CHANGED_TAG, 0),
+            wire::Record::EventRegistryChanged(event) => {
+                (wire::EVENT_REGISTRY_CHANGED_TAG, event.what)
+            }
+            wire::Record::EventPreviewChanged(_) => (wire::EVENT_PREVIEW_CHANGED_TAG, 0),
+            wire::Record::EventWifiScanned(event) => (wire::EVENT_WIFI_SCANNED_TAG, event.networks),
+            wire::Record::EventNetworkWanted(_) => (wire::EVENT_NETWORK_WANTED_TAG, 0),
+            wire::Record::EventNetworkIdle(_) => (wire::EVENT_NETWORK_IDLE_TAG, 0),
             wire::Record::EventChargeChanged(event) => {
                 (wire::EVENT_CHARGE_CHANGED_TAG, event.flags)
             }
@@ -74,7 +82,7 @@ impl NativeInstance for Probe {
     fn service_event_staged(
         &self,
         bytes: &[u8],
-        env: &paperpaw_sdk::Env<'_>,
+        env: &crate::Place<'_>,
         _: &mut CommandStage<'_>,
     ) -> Result<i32, i32> {
         self.service_event(bytes, env)
@@ -82,17 +90,17 @@ impl NativeInstance for Probe {
 }
 
 impl Dispatch for Probe {
-    fn event(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn event(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
-    fn input(&self, _: u32, _: &[u8], _: &paperpaw_sdk::Env<'_>) -> Result<i32, i32> {
+    fn input(&self, _: u32, _: &[u8], _: &crate::Place<'_>) -> Result<i32, i32> {
         Err(ERR_INVALID)
     }
     fn draw(
         &self,
         _: u32,
         _: &wire::DrawFrame<'_>,
-        _: &paperpaw_sdk::Env<'_>,
+        _: &crate::Place<'_>,
         _: &mut paperpaw_graphics::Canvas<'_>,
     ) -> Result<i32, i32> {
         Err(ERR_INVALID)
@@ -103,14 +111,14 @@ impl Dispatch for Probe {
 /// Declares settings: its own `id.plain` (readable by all), and one secret
 /// and one secret with a placement (`id.widget.token`, placed as
 /// `id.widget@2.token`).
-struct Declares(&'static str, [&'static str; 3]);
-impl Plugin for Declares {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static(self.0), "Declares", Version::new(1, 0, 0))
-    }
-    fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
+fn declares_manifest(id: &'static str) -> Manifest {
+    Manifest::new(Id::new_static(id), "Declares", Version::new(1, 0, 0))
+}
+
+fn declares(names: [&'static str; 3]) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |registrar| {
         static SECRET: SettingExtra = SettingExtra::new().secret();
-        let [plain, token, widget] = self.1;
+        let [plain, token, widget] = names;
         registrar.add_setting(SettingSpec::new(
             Id::new_static(plain),
             "plain",
@@ -151,9 +159,19 @@ fn world(b_subscribes: bool) -> World {
 /// Plugins `a` (event 64) and `b` (the tags `b_tags`).
 fn world_with(b_tags: &'static [u32]) -> World {
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
-        .plugin(Declares("a", ["a.plain", "a.token", "a.widget.token"]))
-        .plugin(Declares("b", ["b.plain", "b.token", "b.widget.token"]))
-        .plugin(Declares("c", ["c.size", "c.token", "c.widget.token"]))
+        .wifi(true)
+        .items(
+            declares_manifest("a"),
+            declares(["a.plain", "a.token", "a.widget.token"]),
+        )
+        .items(
+            declares_manifest("b"),
+            declares(["b.plain", "b.token", "b.widget.token"]),
+        )
+        .items(
+            declares_manifest("c"),
+            declares(["c.size", "c.token", "c.widget.token"]),
+        )
         .build()
         .unwrap();
     let order = Rc::new(RefCell::new(Vec::new()));
@@ -328,8 +346,11 @@ fn a_plugin_that_stopped_loses_what_waited() {
             .is_empty()
     );
     let (owner, _) = &w.a;
+    // A waiting event keeps its plugin from sleeping again (#248, D3).
+    assert!(w.kernel.shared.native_instances.waits_for(*owner));
     w.kernel.shared.native_instances.stop(*owner).unwrap();
     run(&mut w);
+    assert!(!w.kernel.shared.native_instances.waits_for(w.a.0));
     assert!(w.a.1.borrow().is_empty());
     assert!(
         w.kernel
@@ -500,4 +521,267 @@ fn a_key_that_turned_secret_before_delivery_is_not_told() {
         .unwrap();
     run(&mut w);
     assert!(w.a.1.borrow().is_empty(), "checked again at delivery");
+}
+
+const REGISTRY: &[u32] = &[
+    wire::EVENT_REGISTRY_CHANGED_TAG,
+    wire::EVENT_PREVIEW_CHANGED_TAG,
+];
+
+#[test]
+fn registry_bits_raised_before_they_were_told_are_one_event_with_every_bit() {
+    let mut w = world_with(REGISTRY);
+    w.kernel.native_registry_changed(1);
+    w.kernel.native_registry_changed(1 << 4);
+    w.kernel.native_registry_changed(1);
+    run(&mut w);
+    assert_eq!(*w.hints.borrow(), [(75, 0b1_0001)]);
+    assert_eq!(*w.order.borrow(), ['b']);
+    assert!(w.a.1.borrow().is_empty(), "a did not subscribe");
+    // Told: the next one starts from none.
+    w.kernel.native_registry_changed(1 << 2);
+    run(&mut w);
+    assert_eq!(w.hints.borrow()[1], (75, 0b100));
+}
+
+#[test]
+fn no_registry_bit_is_no_event_and_a_plugin_that_stopped_is_not_called() {
+    let mut w = world_with(REGISTRY);
+    w.kernel.native_registry_changed(0);
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
+    w.kernel.native_registry_changed(1);
+    let owner = w.b.0;
+    w.kernel.shared.native_instances.stop(owner).unwrap();
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
+    assert!(
+        w.kernel
+            .shared
+            .native_instances
+            .setting_events
+            .waiting()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_changed_preview_reaches_its_subscribers_once_and_in_order_with_the_registry() {
+    let mut w = world_with(REGISTRY);
+    w.kernel.native_hint(wire::EVENT_PREVIEW_CHANGED_TAG);
+    w.kernel.native_registry_changed(2);
+    w.kernel.native_hint(wire::EVENT_PREVIEW_CHANGED_TAG);
+    run(&mut w);
+    // Each once, in the order of the last time it was raised.
+    assert_eq!(*w.hints.borrow(), [(75, 2), (76, 0)]);
+}
+
+#[test]
+fn a_registry_event_is_not_queued_for_a_plugin_that_subscribed_to_nothing_of_it() {
+    let w = world(false);
+    w.kernel.native_registry_changed(1);
+    w.kernel.native_hint(wire::EVENT_PREVIEW_CHANGED_TAG);
+    assert!(
+        w.kernel
+            .shared
+            .native_instances
+            .setting_events
+            .waiting()
+            .is_empty()
+    );
+}
+
+#[test]
+fn switching_a_plugin_off_tells_every_registry_bit_and_a_preview_tells_the_preview() {
+    let mut w = world_with(REGISTRY);
+    let id = Id::try_parse("c").unwrap();
+    w.kernel.set_plugin_enabled(&id, false);
+    run(&mut w);
+    assert_eq!(*w.hints.borrow(), [(75, 0xFF)]);
+    w.hints.borrow_mut().clear();
+    let key = Id::try_parse("c.size").unwrap();
+    w.kernel
+        .preview_settings(alloc::vec![(key, Some(paperpaw_sdk::SettingValue::Int(3)))]);
+    run(&mut w);
+    assert_eq!(*w.hints.borrow(), [(76, 0)]);
+    // Ending the shown preview tells; ending it again tells nothing.
+    w.hints.borrow_mut().clear();
+    w.kernel.preview_settings(alloc::vec::Vec::new());
+    run(&mut w);
+    assert_eq!(*w.hints.borrow(), [(76, 0)]);
+    w.hints.borrow_mut().clear();
+    w.kernel.preview_settings(alloc::vec::Vec::new());
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
+}
+
+#[test]
+fn the_dropped_bit_goes_to_the_submitter_alone_and_only_if_it_subscribed() {
+    use crate::native_host::REGISTRY_DROPPED;
+    let mut w = world_with(REGISTRY);
+    // `a` did not subscribe to 75, `b` did: a drop of a's batch tells nobody,
+    // a drop of b's tells b alone.
+    w.kernel
+        .native_registry_dropped(&Id::try_parse("a").unwrap());
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
+    w.kernel
+        .native_registry_dropped(&Id::try_parse("b").unwrap());
+    w.kernel.native_registry_changed(1);
+    run(&mut w);
+    // One event, the bits of both together; never a bit for another plugin.
+    assert_eq!(*w.hints.borrow(), [(75, REGISTRY_DROPPED | 1)]);
+    assert_eq!(*w.order.borrow(), ['b']);
+}
+
+#[test]
+fn a_registry_bit_for_a_plugin_that_is_not_running_is_not_kept() {
+    let mut w = world_with(REGISTRY);
+    let id = Id::try_parse("b").unwrap();
+    let owner = w.b.0;
+    w.kernel.shared.native_instances.stop(owner).unwrap();
+    w.kernel.native_registry_dropped(&id);
+    assert!(
+        w.kernel
+            .shared
+            .native_instances
+            .setting_events
+            .waiting()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_registry_bit_raised_while_the_queues_are_borrowed_is_dropped_without_a_panic() {
+    let mut w = world_with(REGISTRY);
+    let events = &w.kernel.shared.native_instances.setting_events;
+    {
+        let _held = events.queues.borrow_mut();
+        w.kernel.native_registry_changed(1);
+        w.kernel
+            .native_registry_dropped(&Id::try_parse("b").unwrap());
+    }
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
+}
+
+/// The queues now held, and the room the list keeps.
+fn held(w: &World) -> (usize, usize) {
+    let events = &w.kernel.shared.native_instances.setting_events;
+    let queues = events.queues.borrow();
+    (queues.len(), queues.capacity())
+}
+
+#[test]
+fn an_idle_device_holds_no_event_queue_once_the_events_are_told() {
+    let mut w = world(false);
+    w.kernel.native_setting_publish("c.size", Ok(&int(7)));
+    assert_eq!(held(&w).0, 1, "waits for the pump");
+    run(&mut w);
+    assert_eq!(*w.a.1.borrow(), [("c.size".into(), int(7))]);
+    assert_eq!(held(&w), (0, 0), "told: the queue and the list are freed");
+    // The next event makes the queue again, and it is told as before.
+    w.kernel.native_setting_publish("c.size", Ok(&int(8)));
+    run(&mut w);
+    assert_eq!(w.a.1.borrow().len(), 2);
+    assert_eq!(held(&w), (0, 0));
+}
+
+#[test]
+fn a_change_nobody_may_be_told_leaves_no_empty_queue_behind() {
+    let w = world(false);
+    // The secret of another plugin is not announced: nothing is queued.
+    w.kernel.native_setting_publish("b.secret", Ok(&int(1)));
+    assert_eq!(held(&w), (0, 0));
+}
+
+#[test]
+fn a_lost_edge_is_made_up_by_the_reread_on_the_queue_that_is_still_there() {
+    let mut w = world(false);
+    w.kernel.native_setting_publish("c.size", Ok(&int(7)));
+    let events = &w.kernel.shared.native_instances.setting_events;
+    let owner = events.waiting()[0];
+    // The edge is taken and its encode fails: the queue is not freed yet, so
+    // the reread needs no allocation in that state.
+    assert!(events.take(owner).is_some());
+    assert_eq!(
+        held(&w).0,
+        1,
+        "the empty queue stays until the delivery ends"
+    );
+    events.reread(owner, 5);
+    assert_eq!(events.waiting(), [owner]);
+    run(&mut w);
+    assert_eq!(*w.a.1.borrow(), [(String::new(), Vec::new())]);
+    assert_eq!(held(&w), (0, 0), "told: given back");
+}
+
+/// Makes plugin `manager` the network manager (`core.network-manager`, which
+/// the kernel defines with the default `wifi`).
+fn manager(w: &mut World, manager: &'static str) {
+    w.kernel
+        .shared
+        .settings
+        .set(
+            crate::native_host::commands::dev::NETWORK_MANAGER,
+            paperpaw_sdk::SettingValue::Text(manager.into()),
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_scan_tells_its_subscribers_how_many_networks_it_found() {
+    use crate::WifiEvent;
+    use paperpaw_platform::Instant;
+    use paperpaw_sdk::wifi::WifiNetwork;
+    let mut w = world_with(RADIO);
+    let net = |ssid: &str, signal| WifiNetwork::new(String::from(ssid), signal, true);
+    w.kernel.wifi_event(
+        Instant(1),
+        WifiEvent::Scanned(alloc::vec![
+            net("Home", -50),
+            net("", -40),
+            net("Cafe", -70)
+        ]),
+    );
+    run(&mut w);
+    // Hidden names are left out: the count is what Wi-Fi keeps.
+    assert_eq!(*w.hints.borrow(), [(92, 2)]);
+    assert!(w.a.1.borrow().is_empty());
+}
+
+#[test]
+fn wanted_and_idle_go_to_the_network_manager_alone_and_scanned_to_every_subscriber() {
+    let mut w = world_with(RADIO);
+    manager(&mut w, "a");
+    for tag in [92, 94, 95] {
+        w.kernel.native_hint(tag);
+    }
+    run(&mut w);
+    // `b` is no manager: only the scan; `a` subscribed to none of them.
+    assert_eq!(*w.hints.borrow(), [(92, 0)]);
+    let mut w = world_with(RADIO);
+    manager(&mut w, "b");
+    for tag in [94, 95, 94] {
+        w.kernel.native_hint(tag);
+    }
+    run(&mut w);
+    assert_eq!(*w.hints.borrow(), [(95, 0), (94, 0)]);
+}
+
+#[test]
+fn without_a_network_manager_wanted_and_idle_go_nowhere() {
+    let mut w = world_with(RADIO);
+    w.kernel.native_hint(wire::EVENT_NETWORK_WANTED_TAG);
+    w.kernel.native_hint(wire::EVENT_NETWORK_IDLE_TAG);
+    run(&mut w);
+    assert!(w.hints.borrow().is_empty());
+    assert!(
+        w.kernel
+            .shared
+            .native_instances
+            .setting_events
+            .waiting()
+            .is_empty()
+    );
 }

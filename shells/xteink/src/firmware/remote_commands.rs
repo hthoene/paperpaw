@@ -181,6 +181,8 @@ impl Firmware {
             }
             Command::SetTime(unix_ms) => {
                 crate::clock::set(now(), unix_ms);
+                // As the network does (`network`): a clock chip keeps it through a restart.
+                crate::input::keep_time(unix_ms);
                 remote::ok();
             }
             Command::Restart => {
@@ -188,6 +190,9 @@ impl Firmware {
                 self.pause_trial();
                 let at = self.kernel_now();
                 let _ = self.kernel.stop(at);
+                // The stop route's depth is kept for the next start (test image).
+                #[cfg(feature = "test-image")]
+                crate::high_water::before_sleep();
                 self.network.leave();
                 remote::ok();
                 esp_hal::system::software_reset();

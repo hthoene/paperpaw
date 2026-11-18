@@ -10,7 +10,12 @@ use crate::report::Finding;
 /// The findings on the setting groups of the plugins `ours` names.
 pub(super) fn groups(kernel: &Kernel, ours: &dyn Fn(&str) -> Option<String>) -> Vec<Finding> {
     let settings = kernel.settings();
-    let widgets = kernel.widgets();
+    let widgets: Vec<String> = kernel
+        .widgets()
+        .everywhere()
+        .into_iter()
+        .map(|(id, _, _)| id.to_string())
+        .collect();
     let mut findings = Vec::new();
     for group in settings.groups() {
         let id = group.id.as_str();
@@ -19,7 +24,7 @@ pub(super) fn groups(kernel: &Kernel, ours: &dyn Fn(&str) -> Option<String>) -> 
         };
         // A widget's own group is not on the main page, nor a part of
         // another group (shown on that group's page).
-        if widgets.has(id) || group.parent.is_some() {
+        if widgets.iter().any(|widget| widget == id) || group.parent.is_some() {
             continue;
         }
         if group.order == 0 {
@@ -49,7 +54,7 @@ pub(super) fn groups(kernel: &Kernel, ours: &dyn Fn(&str) -> Option<String>) -> 
         // and none in its widgets' own.
         let own_widgets: Vec<&str> = widgets
             .iter()
-            .map(|(widget, _)| widget.as_str())
+            .map(String::as_str)
             .filter(|widget| ours(widget).as_deref() == Some(plugin.as_str()))
             .collect();
         let in_own = own_widgets.iter().any(|widget| {
@@ -74,7 +79,7 @@ pub(super) fn groups(kernel: &Kernel, ours: &dyn Fn(&str) -> Option<String>) -> 
         }
     }
     // A widget's setting kept in another group than the widget's own.
-    for (widget, _) in widgets.iter() {
+    for widget in &widgets {
         let Some(plugin) = ours(widget.as_str()) else {
             continue;
         };
@@ -82,8 +87,8 @@ pub(super) fn groups(kernel: &Kernel, ours: &dyn Fn(&str) -> Option<String>) -> 
         for spec in settings.specs() {
             let group = settings.group_of(spec);
             if spec.id.as_str().starts_with(&prefix)
-                && group != *widget
-                && !widgets.has(group.as_str())
+                && group.as_str() != widget
+                && !widgets.iter().any(|w| w == group.as_str())
             {
                 findings.push(
                     Finding::warning(
@@ -105,17 +110,10 @@ pub(super) fn groups(kernel: &Kernel, ours: &dyn Fn(&str) -> Option<String>) -> 
 
 #[cfg(test)]
 mod tests {
-    use paperpaw_sdk::widgets::{Drawn, WidgetSpec};
-    use paperpaw_sdk::{
-        Id, Manifest, MemoryStorage, Plugin, RegisterError, Registrar, SettingGroupSpec,
-        SettingSpec, Version,
-    };
+    use paperpaw_core::kit::widgets::{Drawn, WidgetSpec};
+    use paperpaw_sdk::{Id, Manifest, MemoryStorage, SettingGroupSpec, SettingSpec, Version};
 
     use super::*;
-
-    /// A widget plugin as the workshop's duck: a group of the main page
-    /// with no order and no icon, its widget's settings in it.
-    struct Duck;
 
     static SETTINGS: [SettingSpec; 1] = [SettingSpec::switch(
         "duck.widget.big",
@@ -124,21 +122,20 @@ mod tests {
         Id::new_static("duck.group"),
     )];
 
-    impl Plugin for Duck {
-        fn manifest(&self) -> Manifest {
-            Manifest::new(Id::new_static("duck"), "Duck", Version::new(0, 1, 0))
-                .uses(paperpaw_sdk::Uses::NOTHING)
-        }
-
-        fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-            r.add_setting_group(SettingGroupSpec::new(Id::new_static("duck.group"), "Duck"))?;
-            r.add_widget(WidgetSpec::drawn(
+    /// A widget plugin as the workshop's duck: a group of the main page
+    /// with no order and no icon, its widget's settings in it.
+    fn duck(builder: paperpaw_core::KernelBuilder) -> paperpaw_core::KernelBuilder {
+        let manifest = Manifest::new(Id::new_static("duck"), "Duck", Version::new(0, 1, 0))
+            .uses(paperpaw_sdk::Uses::NOTHING);
+        builder.items(manifest, |items| {
+            items.add_setting_group(SettingGroupSpec::new(Id::new_static("duck.group"), "Duck"))?;
+            items.add_widget(WidgetSpec::drawn(
                 Id::new_static("duck.widget"),
                 "Duck",
                 Drawn::new(|_, _| 10, |_, _, _| {}),
             ))?;
-            r.add_settings(&SETTINGS)
-        }
+            items.add_settings(&SETTINGS)
+        })
     }
 
     #[test]
@@ -146,9 +143,7 @@ mod tests {
         let device = paperpaw_emulator::profiles::find("xteink-x4-pro")
             .unwrap()
             .device;
-        let kernel = Kernel::builder(device)
-            .storage(MemoryStorage::new())
-            .plugin(Duck)
+        let kernel = duck(Kernel::builder(device).storage(MemoryStorage::new()))
             .build()
             .unwrap();
         let ours = |id: &str| id.starts_with("duck.").then(|| String::from("duck"));

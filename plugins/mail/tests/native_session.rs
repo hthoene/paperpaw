@@ -1,8 +1,8 @@
-//! The native mail sessions give the same dialogue as the interface-6 ones on
-//! the same fake servers: the same lines sent, the same events, the same files
-//! on the card, in pieces of any size, over TLS from the start and with
-//! STARTTLS, and where they differ (a refused allocation, a socket that says
-//! no) they say so.
+//! The native mail sessions give the dialogue interface 6 gave on the same fake
+//! servers (kept in `testdata/pins/`): the same lines sent, the same events,
+//! the same files on the card, in pieces of any size, over TLS from the start
+//! and with STARTTLS, and where they differ (a refused allocation, a socket
+//! that says no) they say so.
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
@@ -10,14 +10,13 @@
 )]
 
 mod fake;
+mod pin;
 
-use fake::{Fake, Proto, Script};
+use fake::{Fake, Input, Proto, Script};
 use paperpaw_plugin_mail::native_model::fail::Fail;
 use paperpaw_plugin_mail::native_model::mem::{Error, Secret};
 use paperpaw_plugin_mail::native_model::session as new;
 use paperpaw_plugin_mail::native_model::store as new_store;
-use paperpaw_plugin_mail::session as old;
-use paperpaw_plugin_mail::store as old_store;
 use paperpaw_sdk::native::sockets::{Reason, Untrusted};
 use paperpaw_sdk::{CertificateHash, Distrust, KeyHash, MemoryStorage, SocketError, Tls};
 
@@ -46,43 +45,43 @@ fn tls_of(pin: Option<[u8; 32]>) -> Tls {
 
 impl new::Io for NativeIo<'_> {
     fn connect_tls(&mut self, host: &str, port: u16, pin: Option<[u8; 32]>) -> Result<(), Error> {
-        old::Io::connect_tls(self.0, host, port, tls_of(pin));
+        self.0.connect_tls(host, port, tls_of(pin));
         Ok(())
     }
     fn connect_plain(&mut self, host: &str, port: u16) -> Result<(), Error> {
-        old::Io::connect_plain(self.0, host, port);
+        self.0.connect_plain(host, port);
         Ok(())
     }
     fn start_tls(&mut self, pin: Option<[u8; 32]>) -> Result<(), Error> {
-        old::Io::start_tls(self.0, tls_of(pin));
+        self.0.start_tls(tls_of(pin));
         Ok(())
     }
     fn send(&mut self, data: &[u8]) -> Result<(), Error> {
-        old::Io::send(self.0, data.to_vec());
+        self.0.send(data.to_vec());
         Ok(())
     }
     fn send_message(&mut self, data: Vec<u8>) -> Result<(), Error> {
-        old::Io::send(self.0, data);
+        self.0.send(data);
         Ok(())
     }
     fn read_bytes(&mut self, max: u32) -> Result<(), Error> {
-        old::Io::read_bytes(self.0, max);
+        self.0.read_bytes(max);
         Ok(())
     }
     fn read_file(&mut self, path: &str, len: u64) -> Result<(), Error> {
-        old::Io::read_file(self.0, path, len);
+        self.0.read_file(path, len);
         Ok(())
     }
     fn close(&mut self) {
-        old::Io::close(self.0);
+        self.0.close();
     }
 }
 
 /// The notice the fake made, as the native session takes it.
-fn to_new(input: &old::Input) -> new::Input<'_> {
+fn to_new(input: &Input) -> new::Input<'_> {
     match input {
-        old::Input::Connected => new::Input::Connected,
-        old::Input::Secured {
+        Input::Connected => new::Input::Connected,
+        Input::Secured {
             certificate,
             key,
             time_checked,
@@ -91,7 +90,7 @@ fn to_new(input: &old::Input) -> new::Input<'_> {
             key: *key.sha256(),
             time_checked: *time_checked,
         },
-        old::Input::Untrusted {
+        Input::Untrusted {
             certificate,
             key,
             why,
@@ -103,36 +102,18 @@ fn to_new(input: &old::Input) -> new::Input<'_> {
                 _ => Untrusted::UnknownIssuer,
             },
         },
-        old::Input::Bytes(bytes) => new::Input::Bytes(bytes),
-        old::Input::Saved(path) => new::Input::Saved(path),
-        old::Input::Closed => new::Input::Closed,
-        old::Input::Failed(..) => new::Input::Failed(Reason::Io),
+        Input::Bytes(bytes) => new::Input::Bytes(bytes),
+        Input::Saved(path) => new::Input::Saved(path),
+        Input::Closed => new::Input::Closed,
+        Input::Failed(..) => new::Input::Failed(Reason::Io),
     }
 }
 
-/// An event as text, the same for both: a certificate is its hashes.
-fn old_told(event: &old::Event) -> String {
-    match event {
-        old::Event::Untrusted { why, .. } => format!("Untrusted({why:?})"),
-        other => format!("{other:?}"),
-    }
-}
-
+/// An event as text: a certificate is its hashes.
 fn new_told(event: &new::Event) -> String {
     match event {
         new::Event::Untrusted { why, .. } => format!("Untrusted({why:?})"),
         other => format!("{other:?}"),
-    }
-}
-
-fn old_endpoint(security: old::Security, port: u16) -> old::Endpoint {
-    old::Endpoint {
-        host: "mail.example.org".into(),
-        port,
-        security,
-        user: "ada".into(),
-        password: "secret".into(),
-        pin: None,
     }
 }
 
@@ -164,42 +145,7 @@ fn finished(events: &[String]) -> bool {
         .any(|e| e == "Done" || e.starts_with("Failed") || e.starts_with("Untrusted"))
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Which {
-    Old,
-    New,
-}
-
-fn tasks_old(account: u8, messages: usize, all: bool) -> Vec<old::Task> {
-    let mut tasks = vec![
-        old::Task::Folders {
-            out: old_store::folders_file(account),
-        },
-        old::Task::Sync {
-            folder: "INBOX".into(),
-            count: 50,
-            index: old_store::index_file(account, "INBOX"),
-            status: old_store::status_file(account, "INBOX"),
-            now: 1_793_693_700,
-        },
-    ];
-    if all {
-        tasks.push(old::Task::Body {
-            folder: "INBOX".into(),
-            uid: (messages as u32) * 10,
-            out: old_store::raw_file(account, "INBOX", (messages as u32) * 10),
-        });
-        tasks.push(old::Task::Flag {
-            folder: "INBOX".into(),
-            uid: 10,
-            flag: "\\Seen",
-            on: true,
-        });
-    }
-    tasks
-}
-
-/// The same tasks, with the paths the native store keeps.
+/// The tasks of a read, with the paths the native store keeps.
 fn tasks_new(account: u8, messages: usize, all: bool) -> Vec<new::Task> {
     let mut tasks = vec![
         new::Task::Folders {
@@ -229,72 +175,37 @@ fn tasks_new(account: u8, messages: usize, all: bool) -> Vec<new::Task> {
     tasks
 }
 
-fn run_imap(
-    which: Which,
-    script: Script,
-    security: old::Security,
-    tasks: &(Vec<old::Task>, Vec<new::Task>),
-) -> Run {
-    let port = if security == old::Security::Implicit {
+fn run_imap(script: Script, security: new::Security, tasks: &[new::Task]) -> Run {
+    let port = if security == new::Security::Implicit {
         993
     } else {
         143
     };
     let mut fake = Fake::new(Proto::Imap, script);
     let mut events: Vec<String> = Vec::new();
-    match which {
-        Which::Old => {
-            let mut session = old::Imap::new(old_endpoint(security, port), tasks.0.clone());
-            events.extend(session.start(&mut fake).iter().map(old_told));
-            for _ in 0..200_000 {
-                if finished(&events) {
-                    break;
-                }
-                let Some(input) = fake.next_input() else {
-                    break;
-                };
-                if matches!(input, old::Input::Secured { .. }) {
-                    fake.switched();
-                }
-                let storage = fake.storage.clone();
-                events.extend(
-                    session
-                        .step(input, &mut fake, &*storage)
-                        .iter()
-                        .map(old_told),
-                );
-            }
+    let mut session = new::Imap::new(new_endpoint(security, port), tasks.to_vec());
+    events.extend(
+        session
+            .start(&mut NativeIo(&mut fake))
+            .unwrap()
+            .iter()
+            .map(new_told),
+    );
+    for _ in 0..200_000 {
+        if finished(&events) {
+            break;
         }
-        Which::New => {
-            let security = match security {
-                old::Security::Implicit => new::Security::Implicit,
-                _ => new::Security::StartTls,
-            };
-            let mut session = new::Imap::new(new_endpoint(security, port), tasks.1.clone());
-            events.extend(
-                session
-                    .start(&mut NativeIo(&mut fake))
-                    .unwrap()
-                    .iter()
-                    .map(new_told),
-            );
-            for _ in 0..200_000 {
-                if finished(&events) {
-                    break;
-                }
-                let Some(input) = fake.next_input() else {
-                    break;
-                };
-                if matches!(input, old::Input::Secured { .. }) {
-                    fake.switched();
-                }
-                let storage = fake.storage.clone();
-                let told = session
-                    .step(to_new(&input), &mut NativeIo(&mut fake), &*storage)
-                    .unwrap();
-                events.extend(told.iter().map(new_told));
-            }
+        let Some(input) = fake.next_input() else {
+            break;
+        };
+        if matches!(input, Input::Secured { .. }) {
+            fake.switched();
         }
+        let storage = fake.storage.clone();
+        let told = session
+            .step(to_new(&input), &mut NativeIo(&mut fake), &*storage)
+            .unwrap();
+        events.extend(told.iter().map(new_told));
     }
     Run {
         events,
@@ -305,61 +216,43 @@ fn run_imap(
     }
 }
 
-/// The files both sessions leave, by name.
-fn files(run: &Run, which: Which, account: u8) -> Vec<(String, Option<Vec<u8>>)> {
+/// The files a session leaves, by name.
+fn files(run: &Run, account: u8) -> Vec<(String, Option<Vec<u8>>)> {
     let st = run.fake.storage.clone();
-    let (folders, index, status, raw) = match which {
-        Which::Old => (
-            old_store::folders_file(account),
-            old_store::index_file(account, "INBOX"),
-            old_store::status_file(account, "INBOX"),
-            old_store::raw_file(account, "INBOX", 30),
-        ),
-        Which::New => (
-            new_store::folders_file(account).unwrap(),
-            new_store::index_file(account, "INBOX").unwrap(),
-            new_store::status_file(account, "INBOX").unwrap(),
-            new_store::raw_file(account, "INBOX", 30).unwrap(),
-        ),
-    };
     [
-        ("folders", folders),
-        ("index", index),
-        ("status", status),
-        ("raw", raw),
+        ("folders", new_store::folders_file(account).unwrap()),
+        ("index", new_store::index_file(account, "INBOX").unwrap()),
+        ("status", new_store::status_file(account, "INBOX").unwrap()),
+        ("raw", new_store::raw_file(account, "INBOX", 30).unwrap()),
     ]
     .into_iter()
     .map(|(name, path)| (name.to_string(), st.get(&path)))
     .collect()
 }
 
-/// Runs both and says where they differ.
-fn same_imap(
+/// Runs a read and gives what it did to `pin`.
+fn pinned_imap(
+    pin: &mut pin::Pin,
     script: Script,
-    security: old::Security,
+    security: new::Security,
     messages: usize,
     all: bool,
     label: &str,
-) -> (Run, Run) {
-    let tasks = (tasks_old(1, messages, all), tasks_new(1, messages, all));
-    let old = run_imap(Which::Old, script.clone(), security, &tasks);
-    let new = run_imap(Which::New, script, security, &tasks);
-    assert_eq!(old.events, new.events, "{label}: events");
-    assert_eq!(old.sent, new.sent, "{label}: lines sent");
-    assert_eq!(old.closed, new.closed, "{label}: closed");
-    assert_eq!(old.switches, new.switches, "{label}: TLS switches");
-    assert_eq!(
-        files(&old, Which::Old, 1),
-        files(&new, Which::New, 1),
-        "{label}: files"
-    );
-    (old, new)
+) -> Run {
+    let run = run_imap(script, security, &tasks_new(1, messages, all));
+    pin.check(format!("{label}: events"), &run.events);
+    pin.check(format!("{label}: lines sent"), &run.sent);
+    pin.check(format!("{label}: closed"), run.closed);
+    pin.check(format!("{label}: TLS switches"), run.switches);
+    pin.check(format!("{label}: files"), files(&run, 1));
+    run
 }
 
 #[test]
-fn the_whole_read_is_the_same_in_pieces_of_any_size() {
+fn the_whole_read_is_what_interface_6_did_in_pieces_of_any_size() {
+    let mut pin = pin::Pin::new("the_whole_read_is_what_interface_6_did_in_pieces_of_any_size");
     for chunk in [1usize, 3, 17, 100, 1000, 100_000] {
-        for security in [old::Security::Implicit, old::Security::StartTls] {
+        for security in [new::Security::Implicit, new::Security::StartTls] {
             let mut script = Script {
                 chunk,
                 ..Script::default()
@@ -369,14 +262,15 @@ fn the_whole_read_is_the_same_in_pieces_of_any_size() {
                 message(2, ""),
                 message(3, "\\Flagged"),
             ];
-            let (old, new) = same_imap(
+            let new = pinned_imap(
+                &mut pin,
                 script,
                 security,
                 3,
                 true,
                 &format!("chunk {chunk} {security:?}"),
             );
-            assert_eq!(old.events.last().map(String::as_str), Some("Done"));
+            assert_eq!(new.events.last().map(String::as_str), Some("Done"));
             assert!(!new.fake.sent_plain_password);
             // The files really were written (a native read gives them back).
             let st = new.fake.storage.clone();
@@ -385,10 +279,13 @@ fn the_whole_read_is_the_same_in_pieces_of_any_size() {
             assert_eq!(rows.iter().map(|r| r.uid).collect::<Vec<_>>(), [30, 20, 10]);
         }
     }
+    pin.finish();
 }
 
 #[test]
-fn the_logins_the_failures_and_the_empty_folder_are_the_same() {
+fn the_logins_the_failures_and_the_empty_folder_are_what_interface_6_did() {
+    let mut pin =
+        pin::Pin::new("the_logins_the_failures_and_the_empty_folder_are_what_interface_6_did");
     let sasl = Script {
         capability: "IMAP4rev1 AUTH=PLAIN SASL-IR".into(),
         ..Script::default()
@@ -422,13 +319,15 @@ fn the_logins_the_failures_and_the_empty_folder_are_the_same() {
         ("no clock", no_clock),
         ("empty", Script::default()),
     ] {
-        let (old, _) = same_imap(script, old::Security::Implicit, 0, false, label);
-        assert!(finished(&old.events), "{label}: {:?}", old.events);
+        let run = pinned_imap(&mut pin, script, new::Security::Implicit, 0, false, label);
+        assert!(finished(&run.events), "{label}: {:?}", run.events);
     }
+    pin.finish();
 }
 
 #[test]
-fn a_large_message_is_the_same_cut_at_what_was_asked() {
+fn a_large_message_is_cut_at_what_was_asked_as_interface_6_cut_it() {
+    let mut pin = pin::Pin::new("a_large_message_is_cut_at_what_was_asked_as_interface_6_cut_it");
     let big = format!(
         "From: a@b.c\r\nSubject: big\r\n\r\n{}",
         "line of text for a big message\r\n".repeat(9000)
@@ -437,34 +336,21 @@ fn a_large_message_is_the_same_cut_at_what_was_asked() {
         messages: vec![(10, "".into(), big)],
         ..Script::default()
     };
-    let tasks = (
-        vec![old::Task::Body {
-            folder: "INBOX".into(),
-            uid: 10,
-            out: old_store::raw_file(1, "INBOX", 10),
-        }],
-        vec![new::Task::Body {
-            folder: "INBOX".into(),
-            uid: 10,
-            out: new_store::raw_file(1, "INBOX", 10).unwrap(),
-        }],
-    );
-    let old = run_imap(Which::Old, script.clone(), old::Security::Implicit, &tasks);
-    let new = run_imap(Which::New, script, old::Security::Implicit, &tasks);
-    assert_eq!(old.events, new.events);
-    assert_eq!(old.events.last().map(String::as_str), Some("Done"));
-    let a = old
-        .fake
-        .storage
-        .get(&old_store::raw_file(1, "INBOX", 10))
-        .unwrap();
+    let tasks = vec![new::Task::Body {
+        folder: "INBOX".into(),
+        uid: 10,
+        out: new_store::raw_file(1, "INBOX", 10).unwrap(),
+    }];
+    let new = run_imap(script, new::Security::Implicit, &tasks);
+    pin.check("events", &new.events);
+    assert_eq!(new.events.last().map(String::as_str), Some("Done"));
     let b = new
         .fake
         .storage
         .get(&new_store::raw_file(1, "INBOX", 10).unwrap())
         .unwrap();
-    assert_eq!(a.len(), old_store::MAX_FETCH);
-    assert_eq!(a, b);
+    assert_eq!(b.len(), new_store::MAX_FETCH);
+    pin.check("the message", &b);
     assert!(new.fake.reads < 100);
     // The scratch file of the rest is gone.
     let st = new.fake.storage.clone();
@@ -475,16 +361,25 @@ fn a_large_message_is_the_same_cut_at_what_was_asked() {
         ))
         .is_none()
     );
+    pin.finish();
 }
 
 #[test]
-fn a_hung_up_connection_and_the_stages_are_the_same() {
+fn a_hung_up_connection_and_the_stages_are_what_interface_6_did() {
+    let mut pin = pin::Pin::new("a_hung_up_connection_and_the_stages_are_what_interface_6_did");
     let script = Script {
         messages: vec![message(1, "")],
         ..Script::default()
     };
-    let (old, _) = same_imap(script.clone(), old::Security::Implicit, 1, true, "stages");
-    let stages: Vec<&str> = old
+    let run = pinned_imap(
+        &mut pin,
+        script.clone(),
+        new::Security::Implicit,
+        1,
+        true,
+        "stages",
+    );
+    let stages: Vec<&str> = run
         .events
         .iter()
         .filter(|e| e.starts_with("Stage"))
@@ -492,68 +387,38 @@ fn a_hung_up_connection_and_the_stages_are_the_same() {
         .collect();
     assert_eq!(stages.len(), 6);
     // The server hangs up after five inputs.
-    let mut told = Vec::new();
-    for which in [Which::Old, Which::New] {
-        let mut fake = Fake::new(Proto::Imap, script.clone());
-        let st = MemoryStorage::new();
-        let mut events: Vec<String> = Vec::new();
-        let mut inputs = 0;
-        match which {
-            Which::Old => {
-                let mut session = old::Imap::new(
-                    old_endpoint(old::Security::Implicit, 993),
-                    tasks_old(1, 1, true),
-                );
-                events.extend(session.start(&mut fake).iter().map(old_told));
-                while let Some(input) = fake.next_input() {
-                    inputs += 1;
-                    let input = if inputs == 5 {
-                        old::Input::Closed
-                    } else {
-                        input
-                    };
-                    events.extend(session.step(input, &mut fake, &st).iter().map(old_told));
-                    if inputs == 5 {
-                        break;
-                    }
-                }
-            }
-            Which::New => {
-                let mut session = new::Imap::new(
-                    new_endpoint(new::Security::Implicit, 993),
-                    tasks_new(1, 1, true),
-                );
-                events.extend(
-                    session
-                        .start(&mut NativeIo(&mut fake))
-                        .unwrap()
-                        .iter()
-                        .map(new_told),
-                );
-                while let Some(input) = fake.next_input() {
-                    inputs += 1;
-                    let input = if inputs == 5 {
-                        old::Input::Closed
-                    } else {
-                        input
-                    };
-                    let told = session
-                        .step(to_new(&input), &mut NativeIo(&mut fake), &st)
-                        .unwrap();
-                    events.extend(told.iter().map(new_told));
-                    if inputs == 5 {
-                        break;
-                    }
-                }
-            }
+    let mut fake = Fake::new(Proto::Imap, script);
+    let st = MemoryStorage::new();
+    let mut events: Vec<String> = Vec::new();
+    let mut inputs = 0;
+    let mut session = new::Imap::new(
+        new_endpoint(new::Security::Implicit, 993),
+        tasks_new(1, 1, true),
+    );
+    events.extend(
+        session
+            .start(&mut NativeIo(&mut fake))
+            .unwrap()
+            .iter()
+            .map(new_told),
+    );
+    while let Some(input) = fake.next_input() {
+        inputs += 1;
+        let input = if inputs == 5 { Input::Closed } else { input };
+        let told = session
+            .step(to_new(&input), &mut NativeIo(&mut fake), &st)
+            .unwrap();
+        events.extend(told.iter().map(new_told));
+        if inputs == 5 {
+            break;
         }
-        told.push(events);
     }
-    assert_eq!(told[0], told[1]);
+    pin.check("hung up", &events);
     assert_eq!(
-        told[0].last().map(String::as_str),
+        events.last().map(String::as_str),
         Some("Failed(Network(Lost))")
     );
+    pin.finish();
 }
 
 #[test]
@@ -570,21 +435,24 @@ fn a_pinned_key_is_what_the_native_session_asks_for() {
 // ---- SMTP ----
 
 fn outgoing_parts() -> (String, Vec<String>, Vec<u8>) {
-    let draft = paperpaw_plugin_mail::compose::Draft {
-        from: "ada@example.org".into(),
-        to: "bob@example.org, carol@example.org".into(),
-        subject: "Hi".into(),
-        body: "Line\n.dot first\n".into(),
-        ..Default::default()
-    };
+    let mut draft =
+        paperpaw_plugin_mail::native_model::compose::Draft::with_sender("", "ada@example.org")
+            .unwrap();
+    draft.to = "bob@example.org, carol@example.org".into();
+    draft.subject = "Hi".into();
+    draft.body = "Line\n.dot first\n".into();
     let to = draft.check().unwrap();
-    let data =
-        paperpaw_plugin_mail::smtp::data(&draft.message("Tue, 3 Nov 2026 09:15:00 +0000", "1"));
+    let data = paperpaw_plugin_mail::native_model::smtp::data(
+        &draft
+            .message("Tue, 3 Nov 2026 09:15:00 +0000", "1")
+            .unwrap(),
+    )
+    .unwrap();
     (draft.from.clone(), to, data)
 }
 
-fn run_smtp(which: Which, script: Script, security: old::Security) -> Run {
-    let port = if security == old::Security::Implicit {
+fn run_smtp(script: Script, security: new::Security) -> Run {
+    let port = if security == new::Security::Implicit {
         465
     } else {
         587
@@ -592,58 +460,31 @@ fn run_smtp(which: Which, script: Script, security: old::Security) -> Run {
     let (from, to, data) = outgoing_parts();
     let mut fake = Fake::new(Proto::Smtp, script);
     let mut events: Vec<String> = Vec::new();
-    match which {
-        Which::Old => {
-            let mut session = old::Smtp::new(
-                old_endpoint(security, port),
-                old::Outgoing { from, to, data },
-            );
-            events.extend(session.start(&mut fake).iter().map(old_told));
-            for _ in 0..100_000 {
-                if finished(&events) {
-                    break;
-                }
-                let Some(input) = fake.next_input() else {
-                    break;
-                };
-                if matches!(input, old::Input::Secured { .. }) {
-                    fake.switched();
-                }
-                events.extend(session.step(input, &mut fake).iter().map(old_told));
-            }
+    let mut session = new::Smtp::new(
+        new_endpoint(security, port),
+        new::Outgoing::new(from, to, data),
+    );
+    events.extend(
+        session
+            .start(&mut NativeIo(&mut fake))
+            .unwrap()
+            .iter()
+            .map(new_told),
+    );
+    for _ in 0..100_000 {
+        if finished(&events) {
+            break;
         }
-        Which::New => {
-            let security = match security {
-                old::Security::Implicit => new::Security::Implicit,
-                _ => new::Security::StartTls,
-            };
-            let mut session = new::Smtp::new(
-                new_endpoint(security, port),
-                new::Outgoing::new(from, to, data),
-            );
-            events.extend(
-                session
-                    .start(&mut NativeIo(&mut fake))
-                    .unwrap()
-                    .iter()
-                    .map(new_told),
-            );
-            for _ in 0..100_000 {
-                if finished(&events) {
-                    break;
-                }
-                let Some(input) = fake.next_input() else {
-                    break;
-                };
-                if matches!(input, old::Input::Secured { .. }) {
-                    fake.switched();
-                }
-                let told = session
-                    .step(to_new(&input), &mut NativeIo(&mut fake))
-                    .unwrap();
-                events.extend(told.iter().map(new_told));
-            }
+        let Some(input) = fake.next_input() else {
+            break;
+        };
+        if matches!(input, Input::Secured { .. }) {
+            fake.switched();
         }
+        let told = session
+            .step(to_new(&input), &mut NativeIo(&mut fake))
+            .unwrap();
+        events.extend(told.iter().map(new_told));
     }
     Run {
         events,
@@ -654,35 +495,43 @@ fn run_smtp(which: Which, script: Script, security: old::Security) -> Run {
     }
 }
 
-fn same_smtp(script: Script, security: old::Security, label: &str) -> Run {
-    let old = run_smtp(Which::Old, script.clone(), security);
-    let new = run_smtp(Which::New, script, security);
-    assert_eq!(old.events, new.events, "{label}: events");
-    assert_eq!(old.sent, new.sent, "{label}: lines sent");
-    assert_eq!(old.closed, new.closed, "{label}: closed");
-    assert_eq!(old.switches, new.switches, "{label}: TLS switches");
-    assert_eq!(old.fake.smtp_got, new.fake.smtp_got, "{label}: the message");
-    new
+/// Runs a send and gives what it did to `pin`.
+fn pinned_smtp(pin: &mut pin::Pin, script: Script, security: new::Security, label: &str) -> Run {
+    let run = run_smtp(script, security);
+    pin.check(format!("{label}: events"), &run.events);
+    pin.check(format!("{label}: lines sent"), &run.sent);
+    pin.check(format!("{label}: closed"), run.closed);
+    pin.check(format!("{label}: TLS switches"), run.switches);
+    pin.check(format!("{label}: the message"), &run.fake.smtp_got);
+    run
 }
 
 #[test]
-fn a_message_is_sent_the_same_in_pieces_of_any_size() {
+fn a_message_is_sent_as_interface_6_sent_it_in_pieces_of_any_size() {
+    let mut pin = pin::Pin::new("a_message_is_sent_as_interface_6_sent_it_in_pieces_of_any_size");
     for chunk in [1usize, 5, 1000] {
-        for security in [old::Security::Implicit, old::Security::StartTls] {
+        for security in [new::Security::Implicit, new::Security::StartTls] {
             let script = Script {
                 chunk,
                 ..Script::default()
             };
-            let new = same_smtp(script, security, &format!("chunk {chunk} {security:?}"));
+            let new = pinned_smtp(
+                &mut pin,
+                script,
+                security,
+                &format!("chunk {chunk} {security:?}"),
+            );
             assert_eq!(new.events.last().map(String::as_str), Some("Done"));
             assert!(new.fake.smtp_got.is_some());
             assert!(!new.fake.sent_plain_password);
         }
     }
+    pin.finish();
 }
 
 #[test]
-fn the_smtp_failures_are_the_same() {
+fn the_smtp_failures_are_what_interface_6_did() {
+    let mut pin = pin::Pin::new("the_smtp_failures_are_what_interface_6_did");
     let no_starttls = Script {
         smtp_extensions: vec!["AUTH PLAIN".into()],
         ..Script::default()
@@ -713,18 +562,19 @@ fn the_smtp_failures_are_the_same() {
         ..Script::default()
     };
     for (label, script, security) in [
-        ("no starttls", no_starttls, old::Security::StartTls),
-        ("login only", login_only.clone(), old::Security::Implicit),
-        ("login only starttls", login_only, old::Security::StartTls),
-        ("wrong login password", wrong, old::Security::Implicit),
-        ("refused recipient", refused, old::Security::Implicit),
-        ("too large", small, old::Security::Implicit),
-        ("untrusted", untrusted, old::Security::Implicit),
-        ("no clock", no_clock, old::Security::Implicit),
+        ("no starttls", no_starttls, new::Security::StartTls),
+        ("login only", login_only.clone(), new::Security::Implicit),
+        ("login only starttls", login_only, new::Security::StartTls),
+        ("wrong login password", wrong, new::Security::Implicit),
+        ("refused recipient", refused, new::Security::Implicit),
+        ("too large", small, new::Security::Implicit),
+        ("untrusted", untrusted, new::Security::Implicit),
+        ("no clock", no_clock, new::Security::Implicit),
     ] {
-        let run = same_smtp(script, security, label);
+        let run = pinned_smtp(&mut pin, script, security, label);
         assert!(finished(&run.events), "{label}: {:?}", run.events);
     }
+    pin.finish();
 }
 
 // ---- where the native session differs ----

@@ -9,7 +9,7 @@ pub(crate) const SECRET: u8 = 4;
 pub(crate) const HOST: u8 = 8;
 pub(crate) const GUARD_DIALOG: u8 = 16;
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct StackRow {
     pub(crate) instance: u32,
     pub(crate) owner: u64,
@@ -35,6 +35,12 @@ pub(crate) struct StackRows {
     rows: [Cell<StackRow>; STACK_MAX],
     len: Cell<u8>,
     generation: Cell<u64>,
+    /// How often the stack differed after an update (wrapping): what
+    /// `event.stack_changed` is raised from (`stack_events`).
+    changes: Cell<u32>,
+    /// The `changes` each subscriber of `event.stack_changed` was last told
+    /// (`(owner, changes)`), kept by `stack_events`.
+    pub(super) told: core::cell::RefCell<alloc::vec::Vec<(u64, u32)>>,
     closes: [Cell<PendingUi>; STACK_MAX],
     close_error: Cell<i32>,
     cleanup_sweep: Cell<bool>,
@@ -43,6 +49,9 @@ pub(crate) struct StackRows {
     /// What the open instances relabel in the row of button hints
     /// (`command.set_hint`); an instance's labels go when it leaves the stack.
     labels: core::cell::RefCell<super::hint_labels::HintLabels>,
+    /// The screen whose `redraw_area` follow-up is being drawn: its draws
+    /// get `draw.frame.id` bit 0 (`commands_redraw.rs`).
+    followup: Cell<Option<paperpaw_sdk::ScreenKey>>,
 }
 impl Default for StackRows {
     fn default() -> Self {
@@ -50,11 +59,14 @@ impl Default for StackRows {
             rows: [const { Cell::new(EMPTY) }; STACK_MAX],
             len: Cell::new(0),
             generation: Cell::new(1),
+            changes: Cell::new(0),
+            told: core::cell::RefCell::default(),
             closes: [const { Cell::new(NO_PENDING) }; STACK_MAX],
             close_error: Cell::new(0),
             cleanup_sweep: Cell::new(false),
             running: Cell::new((0, 0)),
             labels: core::cell::RefCell::default(),
+            followup: Cell::new(None),
         }
     }
 }
@@ -77,6 +89,23 @@ impl Drop for ScreenCallback<'_> {
 }
 
 impl StackRows {
+    /// The (owner, instance) of the callback running now (tests).
+    #[cfg(test)]
+    pub(crate) fn running(&self) -> (u64, u32) {
+        self.running.get()
+    }
+
+    /// The frame drawn now is the follow-up of `screen`'s areas (none: no
+    /// screen's), set by the kernel around a frame.
+    pub(crate) fn set_followup(&self, screen: Option<paperpaw_sdk::ScreenKey>) {
+        self.followup.set(screen);
+    }
+
+    /// Whether the frame drawn now is the follow-up of `screen`'s areas.
+    pub(crate) fn is_followup(&self, screen: paperpaw_sdk::ScreenKey) -> bool {
+        self.followup.get() == Some(screen)
+    }
+
     /// A callback of the screen `instance` of `owner` begins on the stack; the
     /// guard ends it. Host-only: the pair comes from the dispatcher, never from
     /// plugin bytes.
@@ -132,6 +161,19 @@ impl StackRows {
         self.uncovered(owner, at)
     }
 
+    /// Whether `owner` has a screen of its own on the stack, shown or covered
+    /// (its dialogs count). `None` for a stale or overflowed snapshot. No
+    /// allocation.
+    pub(crate) fn has_screen(&self, owner: u64) -> Option<bool> {
+        if owner == 0 || !self.valid(self.generation.get()) {
+            return None;
+        }
+        Some((0..self.len()).any(|index| {
+            self.row(index)
+                .is_some_and(|row| !row.host && row.owner == owner)
+        }))
+    }
+
     /// The instance of the row at `at` when it is `owner`'s own non-host row
     /// and nothing above it covers it (see [`Self::showing_screen`]).
     fn uncovered(&self, owner: u64, at: usize) -> Option<u64> {
@@ -153,6 +195,10 @@ impl StackRows {
 
     pub(crate) fn generation(&self) -> u64 {
         self.generation.get()
+    }
+    /// How often the stack changed (wrapping), for `event.stack_changed`.
+    pub(super) fn changes(&self) -> u32 {
+        self.changes.get()
     }
     pub(crate) fn valid(&self, generation: u64) -> bool {
         generation != 0
@@ -231,8 +277,10 @@ impl StackRows {
     }
     pub(crate) fn update(&self, rows: impl IntoIterator<Item = StackRow>) {
         let mut count = 0;
+        let mut differs = false;
         for row in rows {
             if let Some(slot) = self.rows.get(count) {
+                differs |= slot.get() != row;
                 slot.set(row);
             }
             count += 1;
@@ -240,7 +288,11 @@ impl StackRows {
                 break;
             }
         }
+        differs |= usize::from(self.len.get()) != count;
         self.len.set(u8::try_from(count).unwrap_or(u8::MAX));
+        if differs {
+            self.changes.set(self.changes.get().wrapping_add(1));
+        }
         for pending in &self.closes {
             let action = pending.get();
             let instance = action.instance;
@@ -265,6 +317,13 @@ impl StackRows {
         } else {
             generation.checked_add(1).unwrap_or(0)
         });
+    }
+    /// Whether the instance is secret now, by the kernel's last stack update (its
+    /// run-time policy included); one the rows do not hold, or a stale snapshot,
+    /// counts as secret (fail closed).
+    pub(crate) fn secret_now(&self, instance: u32) -> bool {
+        self.instance(instance, self.generation.get())
+            .is_none_or(|row| row.secret || row.guards)
     }
     pub(crate) fn instance(&self, instance: u32, generation: u64) -> Option<Row> {
         if !self.valid(generation) || instance == 0 {
@@ -584,6 +643,22 @@ mod tests {
         // An overflowed snapshot fails closed.
         let many: alloc::vec::Vec<StackRow> = (1..=17).map(|n| row(n, 9, 0)).collect();
         assert_eq!(topmost(&many, 9), None);
+    }
+
+    #[test]
+    fn an_instance_is_secret_now_by_the_last_update_and_a_missing_one_is_secret() {
+        let rows = StackRows::default();
+        rows.update([row(1, 9, 0), row(2, 9, SECRET), row(3, 9, GUARDS)]);
+        assert!(!rows.secret_now(1));
+        assert!(rows.secret_now(2));
+        assert!(rows.secret_now(3));
+        // Not on the stack, or no instance: fail closed.
+        assert!(rows.secret_now(7));
+        assert!(rows.secret_now(0));
+        // A policy that changed at run time shows with the next update.
+        rows.update([row(1, 9, SECRET), row(2, 9, 0)]);
+        assert!(rows.secret_now(1));
+        assert!(!rows.secret_now(2));
     }
 }
 

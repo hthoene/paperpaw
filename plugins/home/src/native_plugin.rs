@@ -1,7 +1,8 @@
 //! The flat home screen plugin, first slice: what needs no dashboard.
 //!
-//! Here: the editor of the footer's items (the kit's status items view on the
-//! screen `status-items`), the two actions (*Edit home screen*, *All tools*),
+//! Here: the editor of the footer's items and of the status line's parts (the
+//! kit's status items view on the screen `status-items`; for the line, the
+//! status lines other plugins draw), the two actions (*Edit home screen*, *All tools*),
 //! and the declarations the image carries. The dashboard, *Add* and the tools
 //! drawer are declared and answer `Unsupported` when opened until their
 //! slices (`PORTING-7.md`); nothing opens them while the interface-6 home
@@ -12,13 +13,13 @@ use paperpaw_sdk::{
     native::{
         Error, Host, Plugin,
         callbacks::{DrawFrame, DrawPurpose, Input},
-        commands::CommandSender,
+        commands::{CommandSender, RedrawMode},
         events::{Event, Incoming, kinds},
         registrations,
         registry::StatusScope,
         reply::Reply,
         settings::{self, SettingValue},
-        ui::{HandoverId, Instance, Open, Param, Ui},
+        ui::{HandoverId, Instance, Open, Param, Ui, UiCursor},
     },
 };
 use paperpaw_ui_kit::read_event;
@@ -33,24 +34,53 @@ mod image {
     include!(concat!(env!("OUT_DIR"), "/home_declarations.rs"));
 }
 
-use crate::declarations::{ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, STATUS_ITEMS};
+use crate::declarations::{
+    ADD, ALL_TOOLS, DASHBOARD, DRAWER, EDIT_PAGES, LIBRARY_CHANGED, REGISTRY_CHANGED,
+    SETTING_CHANGED, STACK_CHANGED, STATUS_ITEMS, STATUS_PARTS, TICK, WIDGET_CHANGED,
+};
 use crate::native_add_screen::{self as add_screen, AddScreen};
-use crate::native_dashboard::Dashboard;
+use crate::native_dashboard::{Dashboard, redraw};
 use crate::native_drawer::{self as drawer, Drawer};
+use crate::native_lines;
+use crate::native_reflow::fit;
+use crate::native_source::is_grid_setting;
+use crate::native_widgets::Widgets;
+
+/// Whether the home screen, shown again with covers ready, is drawn first with
+/// the covers' places and the covers come in the frame right after it (about
+/// 0.5 s later on the X4, as the reader does for the pictures of a page;
+/// #294): the first frame spends no time on decoding them (about 270 ms). The
+/// switch is this line.
+pub const COVERS_IN_FOLLOWUP: bool = true;
 
 /// The setting the footer's editor changes.
 const FOOTER_ITEMS: &str = "home.footer.items";
+/// The status line widget, whose settings (`home.status.<part>`, or of one
+/// placement `home.status@<placement>.<part>`) end in the parts
+/// `STATUS_PARTS` names.
+const STATUS_WIDGET: &str = "home.status";
+/// The part that lists whole lines, not items.
+const LINE_PART: &str = "line";
 /// The screen the editor is declared as.
 const ITEMS_SCREEN: &str = "home.status-items";
 const DASHBOARD_SCREEN: &str = "home.dashboard";
 /// Space for the two commands that open a screen.
 const COMMANDS: usize = 512;
 
-/// A footer items editor: the setting it changes and its view.
+/// An items (or lines) editor: the setting it changes and its view.
 #[derive(Debug)]
 struct Editor {
     setting: String,
     view: StatusItemsView,
+}
+
+/// A setting the screen `status-items` edits: its full id, its title, and
+/// whether it lists status lines (else status items).
+#[derive(Debug, PartialEq, Eq)]
+struct Edited {
+    setting: String,
+    title: &'static str,
+    lines: bool,
 }
 
 /// The interface-7 home screen plugin.
@@ -58,6 +88,8 @@ struct Editor {
 pub struct NativeHome {
     ui: Option<Ui>,
     screens: Screens<Slot>,
+    /// The instances of the home screen's own widgets.
+    widgets: Widgets,
 }
 
 /// What an open screen of this plugin is.
@@ -77,9 +109,11 @@ impl Plugin for NativeHome {
     fn make(host: &Host<'_>) -> Result<Self, Error> {
         for batch in image::SETTINGS
             .iter()
+            .chain(image::WIDGETS)
             .chain(image::SCREENS)
             .chain(image::NAVIGATION)
             .chain(image::EVENTS)
+            .chain(image::HELP)
         {
             registrations::submit(host, batch)?;
         }
@@ -92,10 +126,12 @@ impl Plugin for NativeHome {
         host: &Host<'_>,
         token: u32,
         incoming: Incoming<'_>,
-        _: &mut Reply<'_>,
+        reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        self.widgets.fresh();
+        self.new_epoch();
         self.ensure_ui(host)?;
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::SettingChanged, kinds::Tick, kinds::WidgetChanged, kinds::StackChanged, kinds::RegistryChanged, kinds::LibraryChanged, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
         else {
             return Ok(());
         };
@@ -136,22 +172,74 @@ impl Plugin for NativeHome {
                 ..
             } if token == DASHBOARD => {
                 self.screens.shown(DASHBOARD, instance)?;
-                if let Some(Slot::Dashboard(dashboard)) = self.screens.get(instance) {
-                    dashboard.shown(last_input);
-                }
-                Ok(())
+                self.dashboard_shown(host, instance, last_input)
             }
             Event::ScreenClosed { instance, .. } => {
                 self.screens.close(instance);
                 Ok(())
             }
-            // The pages are fitted to a new grid by the dashboard's slice, which
-            // measures widgets (`PORTING-7.md`).
+            // The minute tick, and a widget that says it shows something new
+            // (`event.widget_changed`): what shows is laid out and drawn anew.
+            Event::WidgetMade {
+                widget, instance, ..
+            } => self.widgets.made(widget, instance),
+            Event::WidgetDropped { instance, .. } => {
+                self.widgets.dropped(instance);
+                Ok(())
+            }
+            Event::StageCall {
+                stage: "core.widget",
+                payload,
+                ..
+            } => self.widgets.stage(host, self.ui()?, payload, reply),
+            // A widget that shows something new says so (`widget_changed`, told
+            // back as the event below): the page is not drawn again for a minute
+            // in which none did (#308).
+            Event::Tick { .. } if token == TICK => {
+                self.covers_now();
+                self.widgets
+                    .tick(host, self.ui.as_ref().ok_or(Error::State)?);
+                Ok(())
+            }
+            Event::WidgetChanged { instance, .. } if token == WIDGET_CHANGED => {
+                self.widget_changed(host, instance)
+            }
+            Event::LibraryChanged { what, .. } if token == LIBRARY_CHANGED && what.cover() => {
+                self.covers_ready(host)
+            }
+            Event::StackChanged { .. } if token == STACK_CHANGED => self.covered(host),
+            // What the page reads was changed (a plugin came or went, a menu
+            // or widget changed): a page kept under another screen is laid out
+            // again when it is shown.
+            Event::RegistryChanged { .. } if token == REGISTRY_CHANGED => {
+                self.forget_looks();
+                if self.invalidate_covered() {
+                    self.refresh(host)?;
+                }
+                Ok(())
+            }
+            // The grid's columns or rows changed: the pages are fitted to it.
+            Event::SettingChanged { key, .. } if token == SETTING_CHANGED => {
+                self.forget_looks();
+                let again = self.invalidate_covered();
+                if is_grid_setting(key) {
+                    fit(host)?;
+                    self.refresh(host)?;
+                } else if again {
+                    self.refresh(host)?;
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if frame.purpose == DrawPurpose::Widget {
+            return self
+                .widgets
+                .draw(host, self.ui.as_ref().ok_or(Error::State)?, frame);
+        }
         if !matches!(frame.purpose, DrawPurpose::Screen) {
             return Ok(());
         }
@@ -159,14 +247,40 @@ impl Plugin for NativeHome {
         match self.screens.top(token).ok_or(Error::State)? {
             Slot::Items(editor) => editor.view.draw(host, &mut frame),
             Slot::Dashboard(dashboard) => dashboard.draw(host, ui, &mut frame),
-            Slot::Add(add) => add.draw(host, &mut frame),
+            Slot::Add(add) => add.draw(host, ui, &mut frame),
             Slot::Drawer(drawer) => drawer.draw(host, &mut frame),
         }
     }
 
     fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        // A press that only moves the focus changes nothing the widgets show:
+        // what they kept of the books and composed stays for the next draw.
+        let step = match self.screens.top(token) {
+            Some(Slot::Dashboard(dashboard)) if dashboard.is_focus_step(&input) => {
+                dashboard.focus_step();
+                true
+            }
+            _ => false,
+        };
+        if step {
+            self.widgets.focus_step();
+        } else {
+            self.widgets.fresh();
+            self.new_epoch();
+        }
         self.ensure_ui(host)?;
         let ui = self.ui.as_ref().ok_or(Error::State)?;
+        // A tap on a book of the card or the shelf.
+        if let Input::Widget {
+            instance,
+            target,
+            kind,
+            ..
+        } = input
+        {
+            let opened = self.widgets.input(host, ui, instance, target, kind)?;
+            return Ok(if opened { Handled::Yes } else { Handled::No });
+        }
         match self.screens.top(token) {
             Some(Slot::Items(editor)) => editor.view.input(host, &editor.setting, &input),
             Some(Slot::Dashboard(dashboard)) => dashboard.input(host, ui, &input),
@@ -177,7 +291,15 @@ impl Plugin for NativeHome {
     }
 }
 
+/// The room the stack query's request needs (a cursor).
+const STACK_REQUEST: usize = 256;
+
 impl NativeHome {
+    #[cfg(test)]
+    pub(crate) fn test_widgets(&mut self) -> &mut Widgets {
+        &mut self.widgets
+    }
+
     /// Opens `core.ui` in the first live callback; the handle serves later ones.
     fn ensure_ui(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
@@ -188,6 +310,186 @@ impl NativeHome {
 
     fn ui(&self) -> Result<&Ui, Error> {
         self.ui.as_ref().ok_or(Error::State)
+    }
+
+    /// Nothing waits for the frame after the page's any more (a minute came):
+    /// what is drawn next has its covers.
+    fn covers_now(&mut self) {
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                dashboard.covers_later(false);
+            }
+        }
+    }
+
+    fn dashboard_shown(
+        &mut self,
+        host: &Host<'_>,
+        instance: Instance,
+        last_input: Option<paperpaw_sdk::keys::InputMode>,
+    ) -> Result<(), Error> {
+        if let Some(Slot::Dashboard(dashboard)) = self.screens.get(instance) {
+            dashboard.shown(last_input);
+        }
+        if COVERS_IN_FOLLOWUP {
+            self.covers_later(host, instance)?;
+        }
+        Ok(())
+    }
+
+    /// The page is shown again with covers ready (`COVERS_IN_FOLLOWUP`): it is
+    /// drawn with their places, and the cards' and shelves' areas again in the
+    /// frame right after, with the covers.
+    fn covers_later(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        let Some(Slot::Dashboard(dashboard)) = self.screens.get(instance) else {
+            return Ok(());
+        };
+        if !dashboard.any_cover_ready() {
+            return Ok(());
+        }
+        let areas = dashboard.cover_areas()?;
+        if areas.is_empty() {
+            return Ok(());
+        }
+        let mut scratch = [0; 128];
+        let mut sender = CommandSender::new(host, &mut scratch);
+        sender.queue_redraw(RedrawMode::Partial)?;
+        for area in areas {
+            sender.queue_redraw_area(RedrawMode::Partial, area)?;
+        }
+        dashboard.covers_later(true);
+        Ok(())
+    }
+
+    fn covers_ready(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.widgets.covers_ready(host);
+        let waiting = self
+            .screens
+            .all()
+            .any(|slot| matches!(slot, Slot::Dashboard(dashboard) if dashboard.waits_for_covers()));
+        // Asked only where a card waits: the stack is not read for nothing.
+        let shown = waiting && self.stack_top(host)? == self.screens.top_instance(DASHBOARD);
+        // Every page forgets; the first refusal is the answer.
+        let mut result = Ok(());
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                let drawn = dashboard.covers_ready(host, shown);
+                if result.is_ok() {
+                    result = drawn;
+                }
+            }
+        }
+        result
+    }
+
+    /// The dashboard shows something new (the minute passed, a widget
+    /// changed): laid out and drawn anew, as interface 6 did, where it is on
+    /// top; under another screen nothing is drawn (it is laid out when shown).
+    fn refresh(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let Some(instance) = self.screens.top_instance(DASHBOARD) else {
+            return Ok(());
+        };
+        if self.stack_top(host)? != Some(instance) {
+            return Ok(());
+        }
+        if let Some(Slot::Dashboard(dashboard)) = self.screens.get(instance) {
+            dashboard.mark_stale();
+        }
+        redraw(host)
+    }
+
+    /// A widget shows something new. One whose height does not depend on what it
+    /// shows (the clock, the date, the status line) draws its own place again
+    /// where the page stands as it was laid out; else the page is laid out and
+    /// drawn anew (#308).
+    fn widget_changed(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        if let Some(top) = self.screens.top_instance(DASHBOARD)
+            && let Some(Slot::Dashboard(dashboard)) = self.screens.get(top)
+            && let Some(rect) = dashboard.widget_place(instance)
+            && self.widgets.keeps_height(host, instance, rect)?
+            && self.stack_top(host)? == Some(top)
+            && let Some(Slot::Dashboard(dashboard)) = self.screens.get(top)
+        {
+            let area = dashboard.widget_area(rect);
+            let mut scratch = [0; 64];
+            return CommandSender::new(host, &mut scratch)
+                .queue_redraw_area(RedrawMode::Partial, area);
+        }
+        // Under another screen the page is laid out when it is shown.
+        self.invalidate_covered();
+        self.refresh(host)
+    }
+
+    /// A call into the plugin that is no draw: what the dashboards' widgets
+    /// composed for the bands of a frame is not for the next one.
+    fn new_epoch(&mut self) {
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                dashboard.new_epoch();
+            }
+        }
+    }
+
+    /// A setting or the registry changed: a dashboard under another screen is
+    /// laid out again when it is shown; `true` where one on top, shown a moment
+    /// ago, has to be drawn again.
+    fn forget_looks(&mut self) {
+        self.widgets.forget_looks();
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                dashboard.forget_looks();
+            }
+        }
+    }
+
+    fn invalidate_covered(&mut self) -> bool {
+        let mut again = false;
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                again |= dashboard.invalidate_covered();
+            }
+        }
+        again
+    }
+
+    /// The stack changed: a dashboard under another screen keeps its page (a
+    /// book is read, the page is laid out only if something it shows changed).
+    fn covered(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        // A page already covered, or just shown, has nothing to learn from the
+        // stack: the first frame of a return did not ask for it (#294).
+        let mut holding = false;
+        for slot in self.screens.all() {
+            if let Slot::Dashboard(dashboard) = slot {
+                holding |= dashboard.needs_stack();
+            }
+        }
+        if !holding {
+            return Ok(());
+        }
+        let top = self.stack_top(host)?;
+        for (instance, slot) in self.screens.all_with_instance() {
+            if let Slot::Dashboard(dashboard) = slot
+                && Some(instance) != top
+            {
+                dashboard.cover();
+            }
+        }
+        Ok(())
+    }
+
+    /// The instance on top of the screen stack, if there is one.
+    fn stack_top(&self, host: &Host<'_>) -> Result<Option<Instance>, Error> {
+        // The request is a cursor and no more; the reply is a page of rows.
+        let mut input = buffer(STACK_REQUEST)?;
+        let mut output = buffer(SERVICE_BUFFER)?;
+        let page = self
+            .ui()?
+            .stack(host, UiCursor::start(), &mut input, &mut output)?;
+        Ok(page
+            .into_iter()
+            .next()
+            .transpose()?
+            .map(|row| row.instance()))
     }
 
     /// *Edit home screen*: the home slot opens (or the dashboard turns to
@@ -265,12 +567,14 @@ impl NativeHome {
         AddScreen::new(host, page, kind)
     }
 
-    /// The editor for the setting the handover names (`id`): the items there
-    /// are, and what the setting holds now.
+    /// The editor for the setting the handover names (`id`): the items (or,
+    /// for the status line's line, the lines) there are, and what the setting
+    /// holds now. As interface 6's items screen, it stays open while the
+    /// choice changes (each change is set at once); *Back* leaves it.
     fn items_editor(&self, host: &Host<'_>, handover: Option<HandoverId>) -> Result<Editor, Error> {
         let mut input = buffer(SERVICE_BUFFER)?;
         let mut output = buffer(SERVICE_BUFFER)?;
-        let setting = match handover {
+        let edited = match handover {
             Some(handover) => editor_setting(
                 self.ui()?
                     .params(host, handover, &mut input, &mut output)?
@@ -278,16 +582,25 @@ impl NativeHome {
             )?,
             None => return Err(Error::Invalid),
         };
+        drop((input, output));
         let mut scratch = buffer(SERVICE_BUFFER)?;
-        let held = match settings::read_setting(host, &setting, &mut scratch)? {
+        let held = match settings::read_setting(host, &edited.setting, &mut scratch)? {
             SettingValue::Text(text) => copy(text)?,
             _ => String::new(),
         };
-        let entries = read_entries(host, StatusScope::Items)?;
+        drop(scratch);
+        let entries = if edited.lines {
+            native_lines::entries(host)?
+        } else {
+            read_entries(host, StatusScope::Items)?
+        };
         let texts = Texts::read(host)?;
-        let title = Messages::new()?.copy(host, "home.setting.footer-items")?;
+        let title = Messages::new()?.copy(host, edited.title)?;
         let view = StatusItemsView::new(entries, &held, title, texts)?;
-        Ok(Editor { setting, view })
+        Ok(Editor {
+            setting: edited.setting,
+            view,
+        })
     }
 }
 
@@ -324,12 +637,28 @@ fn edit_mode<'a>(
     Ok(edits)
 }
 
-/// The setting a handover names (`id`): the only one this screen is declared as
-/// the editor of. No `id`, another one or one repeated differently is
-/// `Invalid`.
+/// What the screen `status-items` edits for `id`: the footer's items, and the
+/// status line widget's parts it is declared as the editor of (`STATUS_PARTS`),
+/// also of one placement; its part `line` lists lines.
+fn edited(id: &str) -> Option<(&'static str, bool)> {
+    if id == FOOTER_ITEMS {
+        return Some(("home.setting.footer-items", false));
+    }
+    let (placement, name) = id.strip_prefix(STATUS_WIDGET)?.rsplit_once('.')?;
+    if !placement.is_empty() && !(placement.len() > 1 && placement.starts_with('@')) {
+        return None;
+    }
+    STATUS_PARTS
+        .iter()
+        .find(|&&(part, _, _, _, editor)| editor && part == name)
+        .map(|&(part, _, title, _, _)| (title, part == LINE_PART))
+}
+
+/// The setting a handover names (`id`): one this screen is declared as the
+/// editor of. No `id`, another one or one repeated differently is `Invalid`.
 fn editor_setting<'a>(
     params: impl Iterator<Item = Result<(&'a str, &'a str), Error>>,
-) -> Result<String, Error> {
+) -> Result<Edited, Error> {
     let mut setting = None;
     for param in params {
         let (key, value) = param?;
@@ -340,10 +669,13 @@ fn editor_setting<'a>(
             setting = Some(value);
         }
     }
-    match setting {
-        Some(FOOTER_ITEMS) => copy(FOOTER_ITEMS),
-        _ => Err(Error::Invalid),
-    }
+    let setting = setting.ok_or(Error::Invalid)?;
+    let (title, lines) = edited(setting).ok_or(Error::Invalid)?;
+    Ok(Edited {
+        setting: copy(setting)?,
+        title,
+        lines,
+    })
 }
 
 #[cfg(test)]
@@ -361,7 +693,48 @@ mod tests {
     #[test]
     fn the_footer_items_setting_is_the_one_named() {
         let named = [("mode", "edit"), ("id", FOOTER_ITEMS)];
-        assert_eq!(editor_setting(pairs(&named)).unwrap(), FOOTER_ITEMS);
+        let edited = editor_setting(pairs(&named)).unwrap();
+        assert_eq!(edited.setting, FOOTER_ITEMS);
+        assert_eq!(edited.title, "home.setting.footer-items");
+        assert!(!edited.lines);
+    }
+
+    #[test]
+    fn the_status_lines_line_lists_lines_and_its_parts_items() {
+        let line = editor_setting(pairs(&[("id", "home.status.line")])).unwrap();
+        assert_eq!(line.setting, "home.status.line");
+        assert_eq!(line.title, "home.status.line");
+        assert!(line.lines);
+        for (id, title) in [
+            ("home.status.left", "home.status.left"),
+            ("home.status.center", "home.status.center"),
+            ("home.status.right", "home.status.right"),
+        ] {
+            let part = editor_setting(pairs(&[("id", id)])).unwrap();
+            assert_eq!((part.setting.as_str(), part.title), (id, title));
+            assert!(!part.lines, "{id}");
+        }
+        // Of one placement, as the settings of a placed widget are named.
+        let placed = [("id", "home.status@home.page-1/0.line")];
+        let placed = editor_setting(pairs(&placed)).unwrap();
+        assert_eq!(placed.setting, "home.status@home.page-1/0.line");
+        assert!(placed.lines);
+        let placed = editor_setting(pairs(&[("id", "home.status@2.right")])).unwrap();
+        assert!(!placed.lines);
+        for other in ["home.status@.line", "home.statusx.line", "home.status-bar"] {
+            assert_eq!(
+                editor_setting(pairs(&[("id", other)])),
+                Err(Error::Invalid),
+                "{other}"
+            );
+        }
+        // The look of the line is not edited here.
+        let look = [("id", "home.status.paper")];
+        assert_eq!(editor_setting(pairs(&look)), Err(Error::Invalid));
+        assert_eq!(
+            editor_setting(pairs(&[("id", "home.status.")])),
+            Err(Error::Invalid)
+        );
     }
 
     #[test]

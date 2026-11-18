@@ -217,7 +217,11 @@ fn documents_and_plugins_ending_end_their_images() {
     assert_eq!(t.info(A, d1), Err(ERR_NOT_FOUND));
     assert_eq!(t.info(B, other), Err(ERR_NOT_FOUND), "any opener's");
     assert!(t.info(A, d2).is_ok() && t.info(A, own).is_ok());
+    // An image id keeps its plugin from sleeping again (#248, D3).
+    assert_eq!(t.owner_holds(A), Ok(true));
     t.owner_stopped(A).unwrap();
+    assert_eq!(t.owner_holds(A), Ok(false));
+    assert_eq!(t.owner_holds(B), Ok(false), "B's went with document 1");
     assert_eq!(t.info(A, d2), Err(ERR_NOT_FOUND));
     assert_eq!(t.info(A, own), Err(ERR_NOT_FOUND));
     t.owner_stopped(A).unwrap();
@@ -299,12 +303,112 @@ fn drawing_is_banded_clipped_and_checked() {
         Err(ERR_NOT_FOUND)
     );
     // Reserved flag bits are unsupported, never silently ignored.
-    for bad in [4, 8, 0x80, 0x1_0000, u32::MAX, FILL | 0x40] {
+    for bad in [0x20, 0x40, 0x80, 0x1_0000, u32::MAX, FILL | 0x40] {
         assert_eq!(
             t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, bad),
             Err(ERR_UNSUPPORTED)
         );
     }
+}
+
+#[test]
+fn stretch_fills_the_rectangle_and_drops_the_shape() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 4, 40);
+    let id = add(&t, A, doc(1, 0), "c/p.gray").unwrap();
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    // 8x4 into 20x20 at (10, 10): every pixel of the rectangle, none outside.
+    t.draw(A, id, &mut canvas, &storage, 10, 10, 20, 20, STRETCH)
+        .unwrap();
+    for (x, y) in [(10, 10), (29, 10), (10, 29), (29, 29), (20, 12)] {
+        assert_eq!(gray(&canvas, x, y), 40, "({x}, {y})");
+    }
+    for (x, y) in [(9, 20), (30, 20), (20, 9), (20, 30)] {
+        assert_eq!(gray(&canvas, x, y), 255, "({x}, {y})");
+    }
+    // An empty rectangle draws nothing; one over 65,535 pixels is invalid.
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 0, 20, STRETCH),
+        Ok(())
+    );
+    assert_eq!(
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 65_536, 20, STRETCH),
+        Err(ERR_INVALID)
+    );
+}
+
+#[test]
+fn flags_that_choose_two_ways_at_once_are_invalid_before_anything_else() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 4, 40);
+    let id = add(&t, A, doc(1, 0), "c/p.gray").unwrap();
+    let mut fb = screen();
+    let mut canvas = fb.canvas();
+    for bad in [FILL | STRETCH, DOTS | GRAYS, FILL | STRETCH | SMALL | DOTS] {
+        assert_eq!(
+            t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, bad),
+            Err(ERR_INVALID),
+            "{bad:#x}"
+        );
+        assert_eq!(
+            t.draw(B, id, &mut canvas, &storage, 0, 0, 8, 4, bad),
+            Err(ERR_INVALID),
+            "{bad:#x}: invalid whoever asks"
+        );
+    }
+    assert_eq!(gray(&canvas, 3, 2), 255, "nothing was drawn");
+    // Each alone, and with the others that go with it, is fine.
+    for good in [
+        FILL,
+        STRETCH,
+        DOTS,
+        GRAYS,
+        STRETCH | DOTS | SMALL,
+        FILL | GRAYS,
+    ] {
+        assert_eq!(
+            t.draw(A, id, &mut canvas, &storage, 0, 0, 8, 4, good),
+            Ok(()),
+            "{good:#x}"
+        );
+    }
+}
+
+#[test]
+fn dots_are_black_and_white_where_the_panel_has_grays_and_grays_are_the_panels() {
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 16, 16, 128);
+    let id = t.add(A, doc(1, 0), "c/p.gray", 16, 16, false).unwrap();
+    let count = |flags| {
+        let mut fb = screen();
+        let mut canvas = fb.canvas();
+        t.draw(A, id, &mut canvas, &storage, 0, 0, 16, 16, flags)
+            .unwrap();
+        let mut seen = [0_u32; 3];
+        for y in 0..16 {
+            for x in 0..16 {
+                match gray(&canvas, x, y) {
+                    0 => seen[0] += 1,
+                    255 => seen[1] += 1,
+                    128 => seen[2] += 1,
+                    other => panic!("an unexpected gray {other}"),
+                }
+            }
+        }
+        seen
+    };
+    // The panel's own rule on a Gray8 frame: the gray as it is.
+    assert_eq!(count(0), [0, 0, 256]);
+    assert_eq!(count(GRAYS), [0, 0, 256]);
+    // Dots: only black and white, about half each.
+    let [black, white, mid] = count(DOTS);
+    assert_eq!(mid, 0);
+    assert_eq!(black + white, 256);
+    assert!((96..=160).contains(&white), "{white} white of 256");
 }
 
 fn alpha_file(storage: &MemoryStorage, path: &str, width: u32, height: u32, gray: u8, alpha: u8) {
@@ -616,6 +720,93 @@ fn a_fmt_image_record_becomes_the_openers_doc_image() {
     );
 }
 
+#[test]
+fn a_picture_not_decoded_yet_comes_without_an_id_and_its_index() {
+    use super::super::stages_wire::core_format_v1::FmtImage;
+    let t = ImageTable::new();
+    // No cache file yet: the format decodes it when the opener asks (op 16).
+    let storage = MemoryStorage::new();
+    let pending = FmtImage::new("img/12.gray", 12, 300, 200, 1);
+    let edge = FmtImage::new("img/13.gray", 13, 1_600, 1, 1);
+    assert!(matches!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &edge, true, true),
+        Ok(Some(doc)) if doc.image == 0 && doc.width == 1_600
+    ));
+    assert_eq!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &pending, true, true),
+        Ok(Some(wire::ServiceDocImage {
+            image: 0,
+            index: 12,
+            width: 300,
+            height: 200,
+            flags: 0b10,
+        }))
+    );
+    // Nothing was handed out for it.
+    assert!(t.info(A, 1).is_err());
+    // A decoded picture whose file is not there is still left out.
+    let decoded = FmtImage::new("img/12.gray", 12, 300, 200, 0);
+    assert_eq!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &decoded, true, true),
+        Ok(None)
+    );
+    // A pending one is still checked for what can be checked without the
+    // file: the path and a size a document image can have (1 to 1,600).
+    for (n, bad) in [
+        FmtImage::new("../x.gray", 12, 300, 200, 1),
+        FmtImage::new(".host/x.gray", 12, 300, 200, 1),
+        FmtImage::new("img/12.gray", 12, 0, 200, 1),
+        FmtImage::new("img/12.gray", 12, 300, 1_601, 1),
+        FmtImage::new("img/12.gray", 12, u32::MAX, 200, 1),
+    ]
+    .iter()
+    .enumerate()
+    {
+        assert_eq!(
+            t.map_fmt_image(&storage, A, 7, CACHE, bad, true, true),
+            Ok(None),
+            "case {n}"
+        );
+    }
+}
+
+#[test]
+fn a_picture_not_decoded_yet_is_checked_at_the_edges() {
+    use super::super::stages_wire::core_format_v1::FmtImage;
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    // A file there whose header says another size does not vouch for the
+    // record: no id, the record's own size, as for a file not there yet.
+    gray_file(&storage, ".paperpaw/cache/k/f/c/a.gray", 8, 4, 40);
+    let other_size = FmtImage::new("a.gray", 6, 9, 4, 1);
+    assert_eq!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &other_size, true, true),
+        Ok(Some(wire::ServiceDocImage {
+            image: 0,
+            index: 6,
+            width: 9,
+            height: 4,
+            flags: 0b10,
+        }))
+    );
+    assert!(t.info(A, 1).is_err(), "no id handed out");
+    // One pixel wide, 1,600 high: the narrowest and tallest box.
+    let tall = FmtImage::new("img/14.gray", 14, 1, 1_600, 1);
+    assert!(matches!(
+        t.map_fmt_image(&storage, A, 7, CACHE, &tall, true, true),
+        Ok(Some(doc)) if doc.image == 0 && (doc.width, doc.height) == (1, 1_600)
+    ));
+    // The cache folder, `/` and the path: 512 bytes pass, 513 do not.
+    let folders = std::vec!["d".repeat(98); 4].join("/");
+    let room = PATH_MAX - CACHE.len() - 1 - folders.len() - 1;
+    for (name, kept) in [("n".repeat(room), true), ("n".repeat(room + 1), false)] {
+        let path = std::format!("{folders}/{name}");
+        let image = FmtImage::new(&path, 15, 300, 200, 1);
+        let mapped = t.map_fmt_image(&storage, A, 7, CACHE, &image, true, true);
+        assert_eq!(mapped.map(|doc| doc.is_some()), Ok(kept), "{}", path.len());
+    }
+}
+
 /// A card whose reads stop working after a number of them.
 struct Flaky {
     inner: MemoryStorage,
@@ -903,4 +1094,161 @@ fn the_draw_scratch_is_the_devices_32_kib_on_the_x4_and_more_elsewhere() {
         Ok(())
     );
     assert!(gray(&canvas, 20, 15) < 255);
+}
+
+/// A card that counts the bytes read from it.
+struct Counted {
+    card: MemoryStorage,
+    read: core::cell::Cell<u64>,
+}
+
+impl paperpaw_sdk::Storage for Counted {
+    fn read_at(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_sdk::StorageError> {
+        let n = self.card.read_at(path, offset, buf)?;
+        self.read.set(self.read.get() + n as u64);
+        Ok(n)
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_sdk::StorageError> {
+        self.card.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        self.card.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        self.card.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_sdk::DirEntry<'_>),
+    ) -> Result<(), paperpaw_sdk::StorageError> {
+        self.card.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        self.card.remove(path)
+    }
+}
+
+/// A plugin's picture drawn by the host (slot 37) in the bands of a frame is
+/// read once for the frame: each band goes on where the one above ended. The
+/// X4 read a cover 2.5 times for its four bands, every band from the
+/// picture's first row (#250). The pixels are those of the frame in one band,
+/// and a frame drawn once more after its end (sent again, the kept copy lost)
+/// reads and shows the same.
+#[test]
+fn the_bands_of_a_frame_read_a_plugins_picture_once() {
+    let t = ImageTable::new();
+    let card = MemoryStorage::new();
+    let (width, height) = (400_u32, 600_u32);
+    let mut writer = GrayWriter::new(&card, "c/cover.gray");
+    writer.start(width, height).unwrap();
+    for y in 0..height {
+        let row: std::vec::Vec<u8> = (0..width)
+            .map(|x| ((x * 255 / (width - 1) + y * 3) % 256) as u8)
+            .collect();
+        writer.row(&row).unwrap();
+    }
+    writer.finish().unwrap();
+    let id = t
+        .add(A, doc(1, 0), "c/cover.gray", width, height, false)
+        .unwrap();
+    let storage = Counted {
+        card,
+        read: core::cell::Cell::new(0),
+    };
+    // A frame of 220 x 320 in bands of `rows` rows: its pixels and the bytes
+    // read for it.
+    let frame = |rows: u16| {
+        let before = storage.read.get();
+        let mut joined = Framebuffer::new(220, 320, PixelFormat::Mono1).unwrap();
+        let mut band = Framebuffer::banded(220, 320, rows, PixelFormat::Mono1).unwrap();
+        for top in (0..320).step_by(usize::from(rows)) {
+            band.set_top(top);
+            band.canvas().clear(paperpaw_platform::Color::WHITE);
+            t.draw(A, id, &mut band.canvas(), &storage, 10, 12, 200, 300, 0)
+                .unwrap();
+            joined.write_rows(top, band.view());
+        }
+        band.end_frame();
+        (joined.view().data.to_vec(), storage.read.get() - before)
+    };
+    let (whole, once) = frame(320);
+    assert!(once >= 200_000, "{once} bytes for the picture in one band");
+    for rows in [80, 64, 36] {
+        let bands = 320_u64.div_ceil(u64::from(rows));
+        // Each call may read a last chunk of rows (8 KiB) beyond its own.
+        let most = once + bands * 8 * 1024;
+        let (first, read) = frame(rows);
+        assert_eq!(whole, first, "bands of {rows} rows");
+        assert!(
+            read <= most,
+            "{read} bytes in bands of {rows} rows, {once} in one"
+        );
+        let (again, read) = frame(rows);
+        assert_eq!(whole, again, "bands of {rows} rows, drawn once more");
+        assert!(read <= most, "{read} bytes the second time");
+    }
+}
+
+#[test]
+fn the_picture_look_changes_the_grays_before_they_are_dithered() {
+    use crate::kit::ui::picture_look::{
+        CONTRAST_LEVELS, DITHER_LEVELS, GAMMA_LEVELS, PictureLook, Steps,
+    };
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 40, 128);
+    let id = t.add(A, doc(1, 0), "c/p.gray", 8, 40, false).unwrap();
+    let drawn = |band: bool| {
+        let mut fb = Framebuffer::new(40, 40, PixelFormat::Mono1).unwrap();
+        fb.canvas().clear(paperpaw_platform::Color::WHITE);
+        for (top, bottom) in if band {
+            std::vec![(0_u16, 17_u16), (17, 40)]
+        } else {
+            std::vec![(0, 40)]
+        } {
+            let mut canvas = fb.canvas();
+            let mut part = canvas.clipped(Rect::new(0, top, 40, bottom - top));
+            t.draw(A, id, &mut part, &storage, 0, 0, 40, 40, FILL)
+                .unwrap();
+        }
+        let canvas = fb.canvas();
+        (0..40)
+            .flat_map(|y| (0..40).map(move |x| (x, y)))
+            .map(|(x, y)| gray(&canvas, x, y))
+            .collect::<std::vec::Vec<u8>>()
+    };
+    let white = |pixels: &[u8]| pixels.iter().filter(|&&g| g == 255).count();
+    let standard = drawn(false);
+    assert!(
+        (700..=900).contains(&white(&standard)),
+        "{}",
+        white(&standard)
+    );
+    let steps = |c: usize, g: usize, d: usize| {
+        Steps::of(CONTRAST_LEVELS[c], GAMMA_LEVELS[g], DITHER_LEVELS[d])
+    };
+    // The same steps as today: the same picture.
+    t.set_look(steps(1, 2, 0));
+    assert_eq!(drawn(false), standard);
+    t.set_look(steps(1, 4, 0));
+    assert!(white(&drawn(false)) < white(&standard) - 300);
+    t.set_look(steps(1, 0, 0));
+    assert!(white(&drawn(false)) > white(&standard) + 300);
+    // A dither of its own: other pixels, the same tone; the ordered one the
+    // same in bands.
+    for dither in [1, 2] {
+        t.set_look(steps(1, 2, dither));
+        let other = drawn(false);
+        assert_ne!(other, standard, "dither {dither}");
+        assert!((700..=900).contains(&white(&other)), "dither {dither}");
+    }
+    assert_eq!(drawn(false), drawn(true));
+    t.set_look(PictureLook::standard().steps());
+    assert_eq!(drawn(false), standard);
 }

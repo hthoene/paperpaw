@@ -34,8 +34,21 @@ mod image {
     include!(concat!(env!("OUT_DIR"), "/plugin_manager_declarations.rs"));
 }
 
-/// Pages of one list read at most (the plugins are about seventy).
-const MOST_PAGES: usize = 16;
+/// The most a registry or device query takes (`max_input` of the query ops).
+const REQUEST_BYTES: usize = 256;
+/// The plugins not installed at a start and the safe mode's reason with the
+/// plugins it names.
+type StartFacts = (
+    Vec<(String, NotInstalled)>,
+    Option<(SafeMode, String, String)>,
+);
+/// Pages of one list read at most. The registry hands a list over in pages of
+/// the service buffer; the emulator links about eighty plugins and the sixteen
+/// pages that were allowed before cut its last plugins (Calendar, Tasks, Smart
+/// home …) out of the list without a word.
+const MOST_PAGES: usize = 64;
+/// The most plugin rows reserved at once from the registry's total.
+const MOST_ROWS: usize = 256;
 /// The longest description kept for a row: a note shows two lines.
 const MOST_DESCRIPTION: usize = 160;
 /// The places already seen, one `slot screen` a line, kept in the data folder.
@@ -245,7 +258,8 @@ impl NativePluginManager {
         let Some(handover) = handover else {
             return Ok(String::new());
         };
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let mut input = [0; REQUEST_BYTES];
+        let mut out = buffer(SERVICE_BUFFER)?;
         let ui = self.ui.as_ref().ok_or(Error::State)?;
         for param in ui.params(host, handover, &mut input, &mut out)? {
             let param = param?;
@@ -292,7 +306,8 @@ impl NativePluginManager {
     /// Every plugin the host knows: the host first, then by name.
     fn read_plugins(&self, host: &Host<'_>) -> Result<Vec<PluginRow>, Error> {
         let registry = self.registry()?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let mut input = [0; REQUEST_BYTES];
+        let mut out = buffer(SERVICE_BUFFER)?;
         'again: for _ in 0..2 {
             let mut rows = Vec::new();
             let mut cursor = PageCursor::start();
@@ -303,6 +318,11 @@ impl NativePluginManager {
                     Err(Error::State) => continue 'again,
                     Err(error) => return Err(error),
                 };
+                // The registry says how many rows there are: reserve them once
+                // (a list that grows by doubling holds up to twice what it needs).
+                let wanted = usize::try_from(page.end().total()).unwrap_or(MOST_ROWS);
+                rows.try_reserve_exact(wanted.min(MOST_ROWS).saturating_sub(rows.len()))
+                    .map_err(|_| Error::NoMemory)?;
                 for plugin in page.rows() {
                     push(
                         &mut rows,
@@ -330,6 +350,7 @@ impl NativePluginManager {
                             },
                             flags: plugin.flags(),
                             problem: Problem::from_wire(plugin.problem()),
+                            problem_arg: plugin.problem_arg(),
                             update: copy(plugin.update())?,
                         },
                     )?;
@@ -349,7 +370,8 @@ impl NativePluginManager {
 
     /// The description of a plugin, cut to what a note shows.
     fn description(&self, host: &Host<'_>, id: &str) -> Result<String, Error> {
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let mut input = [0; REQUEST_BYTES];
+        let mut out = buffer(SERVICE_BUFFER)?;
         match self.registry()?.plugin(host, id, &mut input, &mut out) {
             Ok(detail) => cut(detail.description().unwrap_or("")),
             Err(Error::NotFound) => Ok(String::new()),
@@ -390,7 +412,8 @@ impl NativePluginManager {
     /// The actions of the menu of places to get more: the action and its title.
     fn more(&self, host: &Host<'_>) -> Result<Vec<(String, String)>, Error> {
         let registry = self.registry()?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let mut input = [0; REQUEST_BYTES];
+        let mut out = buffer(SERVICE_BUFFER)?;
         let mut found = Vec::new();
         let mut cursor = PageCursor::start();
         for _ in 0..MOST_PAGES {
@@ -450,7 +473,8 @@ impl NativePluginManager {
             },
             Some(View::Places(view)) => match view.picks.get(index) {
                 Some(Pick::Slot(place)) => {
-                    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+                    let mut input = [0; REQUEST_BYTES];
+                    let mut out = buffer(SERVICE_BUFFER)?;
                     let handover = self.ui.as_ref().ok_or(Error::State)?.handover(
                         host,
                         &[Param::new(SLOT, place)?],
@@ -492,17 +516,31 @@ impl NativePluginManager {
     /// What happened at the start to the plugins with code: a notice each,
     /// the more important, safe mode's, last.
     fn notices(&self, host: &Host<'_>) -> Result<(), Error> {
-        let device = self.device.as_ref().ok_or(Error::State)?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let mut say = Speaker::new(host)?;
-        let plugins = self.read_plugins(host)?;
-        let name = |id: &str| -> Result<String, Error> {
-            match plugins.iter().find(|p| p.id == id) {
-                Some(row) => copy(&row.name),
-                None => copy(id),
-            }
-        };
+        // A plugin's name is asked of the registry where a notice names it: the
+        // whole list (about seventy rows) is not read, and nothing of the model
+        // is held at a start. The list is read when its screen opens.
+        let name = |id: &str| self.plugin_name(host, id);
         let mut scratch = [0; 512];
+        // The device's answers are read first and their buffer freed, so a name
+        // asked later does not hold a second one beside it.
+        let (skipped, safe) = self.read_start_facts(host)?;
+        if let Some(text) = native_model::not_installed_notice(&mut say, &skipped, name)? {
+            CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?.announce())?;
+        }
+        let Some((reason, crashed, last_loaded)) = safe else {
+            return Ok(());
+        };
+        let text = native_model::safe_mode_notice(&mut say, reason, &crashed, &last_loaded, name)?;
+        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?.announce())
+    }
+
+    /// The plugins not installed at the start, and the safe mode's reason with
+    /// the plugins named for it; read with one buffer, freed on return.
+    fn read_start_facts(&self, host: &Host<'_>) -> Result<StartFacts, Error> {
+        let device = self.device.as_ref().ok_or(Error::State)?;
+        let mut input = [0; REQUEST_BYTES];
+        let mut out = buffer(SERVICE_BUFFER)?;
         let mut skipped = Vec::new();
         let mut cursor = DeviceCursor::start();
         for _ in 0..MOST_PAGES {
@@ -523,27 +561,18 @@ impl NativePluginManager {
                 None => break,
             }
         }
-        if let Some(text) = native_model::not_installed_notice(&mut say, &skipped, name)? {
-            CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?.announce())?;
-        }
         let native = match device.native(host, &mut input, &mut out) {
             Ok(native) => native,
-            Err(Error::NotFound) => return Ok(()),
+            Err(Error::NotFound) => return Ok((skipped, None)),
             Err(error) => return Err(error),
         };
         let reason = match native.safe_mode() {
-            NativeSafeMode::None => return Ok(()),
+            NativeSafeMode::None => return Ok((skipped, None)),
             NativeSafeMode::User => SafeMode::User,
             _ => SafeMode::Failures,
         };
-        let text = native_model::safe_mode_notice(
-            &mut say,
-            reason,
-            native.crashed(),
-            native.last_loaded(),
-            name,
-        )?;
-        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?.announce())
+        let safe = (reason, copy(native.crashed())?, copy(native.last_loaded())?);
+        Ok((skipped, Some(safe)))
     }
 
     /// The places that have several screens, with their offers: asks once
@@ -552,7 +581,8 @@ impl NativePluginManager {
     /// used, e.g. a fallback). The first start only notes what there is.
     fn offer(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let registry = self.registry()?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let mut input = [0; REQUEST_BYTES];
+        let mut out = buffer(SERVICE_BUFFER)?;
         // The places: id, the screen used, whether the user chose, the title.
         let mut slots: Vec<(String, String, bool, String)> = Vec::new();
         let mut cursor = PageCursor::start();
@@ -579,7 +609,7 @@ impl NativePluginManager {
         let mut now: Vec<String> = Vec::new();
         let mut candidates: Vec<(String, String, bool, String)> = Vec::new();
         for (slot, used, bound, title) in &slots {
-            let offers = self.offers(host, slot)?;
+            let offers = self.offers(host, slot, &mut input, &mut out)?;
             if native_model::choosable(&offers) < 2 {
                 continue;
             }
@@ -642,7 +672,6 @@ impl NativePluginManager {
         let no = messages.copy(host, "plugin-manager.screens.use.no")?;
         let labels = concat(&[&yes, "\n", &no])?;
         let question = Question::confirm(&heading, &text)?.confirm_labels(&labels)?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let request = self
             .ui
             .as_ref()
@@ -673,13 +702,21 @@ impl NativePluginManager {
     }
 
     /// The screens offered for a place, highest priority first.
-    fn offers(&self, host: &Host<'_>, slot: &str) -> Result<Vec<Offer>, Error> {
+    ///
+    /// Reads with the caller's buffers: a start that holds its own pair
+    /// would otherwise hold a second one beside them (X4 heap).
+    fn offers(
+        &self,
+        host: &Host<'_>,
+        slot: &str,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<Vec<Offer>, Error> {
         let registry = self.registry()?;
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let mut offers = Vec::new();
         let mut cursor = PageCursor::start();
         for _ in 0..MOST_PAGES {
-            let page = registry.slot_offers(host, slot, cursor, &mut input, &mut out)?;
+            let page = registry.slot_offers(host, slot, cursor, input, out)?;
             for item in page.rows() {
                 push(
                     &mut offers,
@@ -697,10 +734,23 @@ impl NativePluginManager {
         Ok(offers)
     }
 
+    /// What a plugin is called: its name, else its id (a plugin the registry
+    /// does not know, such as one that was not installed).
+    fn plugin_name(&self, host: &Host<'_>, id: &str) -> Result<String, Error> {
+        let mut input = [0; REQUEST_BYTES];
+        let mut out = buffer(SERVICE_BUFFER)?;
+        match self.registry()?.plugin(host, id, &mut input, &mut out) {
+            Ok(detail) => copy(detail.plugin().name()),
+            Err(Error::NotFound) => copy(id),
+            Err(error) => Err(error),
+        }
+    }
+
     /// What a candidate screen is called: its plugin's name, else its own id.
     fn screen_name(&self, host: &Host<'_>, screen: &str) -> Result<String, Error> {
         let owner = screen.split_once('.').map_or(screen, |(plugin, _)| plugin);
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let mut input = [0; REQUEST_BYTES];
+        let mut out = buffer(SERVICE_BUFFER)?;
         match self.registry()?.plugin(host, owner, &mut input, &mut out) {
             Ok(detail) => copy(detail.plugin().name()),
             Err(Error::NotFound) => copy(screen),
@@ -714,7 +764,8 @@ impl NativePluginManager {
         let mut messages = Messages::new()?;
         let mut picks = Vec::new();
         let mut items = Vec::new();
-        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let mut input = [0; REQUEST_BYTES];
+        let mut out = buffer(SERVICE_BUFFER)?;
         let automatic = messages.copy(host, "plugin-manager.screens.automatic")?;
         let mut title = String::new();
         let mut cursor = PageCursor::start();
@@ -734,7 +785,7 @@ impl NativePluginManager {
             }
             let next = page.end().next_cursor();
             for (id, used, bound, name) in rows {
-                let offers = self.offers(host, &id)?;
+                let offers = self.offers(host, &id, &mut input, &mut out)?;
                 if slot.is_empty() {
                     if native_model::choosable(&offers) < 2 {
                         continue;

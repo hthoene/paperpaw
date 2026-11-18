@@ -155,7 +155,9 @@ pub enum BlockKind {
     /// given here when first used and never reused; these are reserved:
     /// 0 unspecified, 1 a table's row (now [`BlockKind::TableRow`]), 2 a list
     /// item, 3 a rule (a line across), 4 a figure's caption, 5 an aside
-    /// (a sidebar, a note shown in place), 6 a verse line, 7 maths.
+    /// (a sidebar, a note shown in place, a callout: the layout draws a
+    /// box around its lines), 6 a verse line, 7 maths, 8 a paragraph of a
+    /// block quote (the layout draws a rule at the start of its lines).
     ///
     /// A build that doesn't know a kind lays it out as a paragraph
     /// without a first-line indent, as it does headings and preformatted
@@ -1103,6 +1105,15 @@ pub trait Document {
     /// or status lines.
     fn whole_pages(&self) -> bool {
         false
+    }
+
+    /// Whether the pictures of blocks are made when a page shows them
+    /// ([`Document::prepare_image`]) rather than when the block is read:
+    /// then a block's picture may name a file that is not there yet (given
+    /// its size). Documents of text and pictures do; documents of whole
+    /// pages do not unless they say so.
+    fn pictures_deferred(&self) -> bool {
+        !self.whole_pages()
     }
 
     /// Length of a section in source units, for progress calculation.

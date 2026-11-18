@@ -111,7 +111,10 @@ fn check_live(access: &Access<'_>, font: u32) -> u32 {
 fn usage_slots_preserve_failures_read_positionally_and_expire_at_core_callback_end() {
     let pool = HostResources::try_new().unwrap();
     let owner = pool.try_owner().unwrap();
-    let scope = pin!(EnvironmentScope::with_resources(owner.try_view().unwrap()));
+    let view = owner.try_view().unwrap();
+    let scope = pin!(EnvironmentScope::new());
+    // SAFETY: the view outlives the scope's callbacks.
+    unsafe { scope.expire_view(&view) };
     let declared = DeclaredServices::try_from_iter(
         [paperpaw_native::metadata::Declared {
             key: "core.usage",
@@ -129,7 +132,7 @@ fn usage_slots_preserve_failures_read_positionally_and_expire_at_core_callback_e
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let frame = CoreFrame {
         callback: None,
         instance: None,
@@ -144,6 +147,8 @@ fn usage_slots_preserve_failures_read_positionally_and_expire_at_core_callback_e
         usage: &kernel.shared.usage,
         plugins: &kernel.shared.plugins,
         work: &kernel.shared.work_states,
+        log: Default::default(),
+        ui: None,
     };
     let mut handle = 0x1234;
     let font = owner.insert_font(FontKey::Role(FontRole::Ui)).unwrap();

@@ -4,6 +4,7 @@
 //! read until the messages read are forgotten.
 
 use super::*;
+use crate::Staging;
 use paperpaw_platform::buttons;
 use paperpaw_sdk::{Hint, Params};
 
@@ -17,26 +18,19 @@ const FILLERS: usize = 600;
 /// every plugin's name and description does.
 struct Wordy;
 
-impl Screen for Wordy {
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+impl crate::testing::Fake for Wordy {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         canvas.fill_rect(0, 0, 10, 10, Color::BLACK);
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
 
-struct WordyPlugin;
-
-impl Plugin for WordyPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("wordy"), "Wordy", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn wordy_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
             WORDY,
             "wordy",
             Box::new(|env, _| {
@@ -47,6 +41,12 @@ impl Plugin for WordyPlugin {
             }),
         ))
     }
+}
+
+/// What [`wordy_plugin`] registers under.
+fn wordy_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("wordy"), "Wordy", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 /// A card with the data plugin `pack`: the language `xx`, whose words for
@@ -72,7 +72,7 @@ fn card() -> paperpaw_sdk::MemoryStorage {
 
 fn kernel(language: &str) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WordyPlugin)
+        .items(wordy_plugin_manifest(), wordy_plugin())
         .storage(card())
         .button_row(&[
             buttons::BACK,

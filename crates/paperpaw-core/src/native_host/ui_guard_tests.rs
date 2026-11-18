@@ -189,12 +189,26 @@ fn close_follows_the_navigation_rules_without_a_guard() {
 fn input_filters_and_key_bindings_stay_inside_the_lock() {
     let rows = locked();
     let v = view(&rows);
-    // The top (a guard dialog) is secret: its plugin's filters and the
-    // guard's run, no others.
+    // The top is the guard dialog (secret or not): its plugin's filter and
+    // the guard's run, no others.
     assert!(filter_runs(v, LOCK));
-    assert!(filter_runs(v, KEYBOARD));
+    assert!(filter_runs(v, KEYBOARD), "non-secret guard question");
     assert!(!filter_runs(v, MAIL));
     assert!(!filter_runs(v, READER));
+    let mut secret = locked();
+    secret[2].secret = true;
+    assert!(
+        filter_runs(view(&secret), KEYBOARD),
+        "secret guard question"
+    );
+    assert!(filter_runs(view(&secret), LOCK));
+    assert!(!filter_runs(view(&secret), MAIL));
+    // A row of the keyboard's plugin above the guard that is not the guard's
+    // dialog gets no filter call.
+    let mut other = locked();
+    other[2].guard_dialog = false;
+    assert!(!filter_runs(view(&other), KEYBOARD));
+    assert!(filter_runs(view(&other), LOCK));
     // No guard and nothing secret: every filter runs.
     assert!(filter_runs(view(&plain()), MAIL));
     // A secret screen without a guard (a password field): own plugin's only.
@@ -455,6 +469,50 @@ fn phone_typing_is_refused_while_anything_guards() {
     assert!(!own.below_guard);
     let other = ask_admission(v, &ask(MAIL, 0, ""), OpenRequests::default(), false).unwrap();
     assert!(other.below_guard);
+}
+
+/// The host's firmware confirmation: a host row that guards.
+fn confirmation(instance: u32) -> Row {
+    let mut confirm = row(instance, CORE);
+    confirm.host = true;
+    confirm.guards = true;
+    confirm
+}
+
+#[test]
+fn the_host_confirmation_above_a_plugin_screen_is_the_input_target() {
+    // page < menu < confirmation (host, guards): no plugin sees the keys.
+    let rows = alloc::vec![row(1, READER), row(2, MENU), confirmation(3)];
+    let v = view(&rows);
+    assert_eq!(input_target(v), Some(3));
+    assert!(may_receive_input(v, 3));
+    assert!(!may_receive_input(v, 2));
+    // The plugin underneath: no filter, no binding, no raised input.
+    for plugin in [READER, MENU, MAIL] {
+        assert!(!filter_runs(v, plugin), "{plugin} filter must not run");
+        assert!(
+            !binding_runs(v, Some(plugin)),
+            "{plugin} binding must not run"
+        );
+        assert_eq!(raise_allowed(v, plugin), Err(ERR_DENIED));
+    }
+    // Host actions still run.
+    assert!(binding_runs(v, None));
+    assert!(!filter_runs(v, CORE));
+}
+
+#[test]
+fn the_host_confirmation_above_the_keyboard_leaves_no_keyboard_filter() {
+    let mut lock = row(2, LOCK);
+    lock.guards = true;
+    let mut keyboard = row(3, KEYBOARD);
+    keyboard.guard_dialog = true;
+    let rows = alloc::vec![row(1, READER), lock, keyboard, confirmation(4)];
+    let v = view(&rows);
+    assert_eq!(input_target(v), Some(4));
+    assert!(!filter_runs(v, KEYBOARD));
+    assert!(!filter_runs(v, LOCK));
+    assert_eq!(raise_allowed(v, LOCK), Err(ERR_DENIED));
 }
 
 #[test]

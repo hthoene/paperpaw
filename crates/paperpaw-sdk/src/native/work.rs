@@ -589,8 +589,9 @@ impl Work {
     /// while the device is awake, and is lost at the next start: declare it
     /// again then.
     ///
-    /// `input` holds the encoded record (256 bytes are enough); the reply is
-    /// empty, so `out` may be empty.
+    /// `input` holds the encoded record (256 bytes are enough). The reply is
+    /// empty, but `out` must hold at least 64 bytes: the host checks the
+    /// op's `max_reply` (64, `work.md` 1) and answers `NoSpace` for less.
     ///
     /// The plugin must have subscribed to
     /// [`EventKind::WorkDue`](super::declare::EventKind::WorkDue) with its
@@ -604,11 +605,12 @@ impl Work {
     ///
     /// # Errors
     /// [`Error::Invalid`] for what [`WorkSpec::check`] refuses (nothing is
-    /// sent); [`Error::NoSpace`] when `input` is too small; the host's
-    /// refusals: `Denied` for network work without `uses.network` or with the
-    /// plugin's network turned off, `Full` above the plugin's or the device's
-    /// limits, `NoMemory`, `Unsupported` for a bit this host does not know,
-    /// `State` outside a callback or without the `WorkDue` subscription.
+    /// sent); [`Error::NoSpace`] when `input` is too small or `out` under 64
+    /// bytes; the host's refusals: `Denied` for network work without
+    /// `uses.network` or with the plugin's network turned off, `Full` above
+    /// the plugin's or the device's limits, `NoMemory`, `Unsupported` for a
+    /// bit this host does not know, `State` outside a callback or without the
+    /// `WorkDue` subscription.
     pub fn declare(
         &self,
         host: &Host<'_>,
@@ -622,10 +624,11 @@ impl Work {
 
     /// Remove the work declared with `key`. A missing key is not an error,
     /// and a work whose event is already delivered is not called back.
+    /// `out` must hold at least 64 bytes, as for [`Self::declare`].
     ///
     /// # Errors
     /// [`Error::Invalid`] for a bad key (nothing is sent); the host's
-    /// refusals.
+    /// refusals, `NoSpace` for an `out` under 64 bytes.
     pub fn cancel(
         &self,
         host: &Host<'_>,
@@ -643,10 +646,11 @@ impl Work {
         )
     }
 
-    /// Remove all of the plugin's work.
+    /// Remove all of the plugin's work. `out` must hold at least 64 bytes,
+    /// as for [`Self::declare`].
     ///
     /// # Errors
-    /// The host's refusals.
+    /// The host's refusals, `NoSpace` for an `out` under 64 bytes.
     pub fn cancel_all(
         &self,
         host: &Host<'_>,

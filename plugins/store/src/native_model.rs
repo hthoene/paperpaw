@@ -106,6 +106,11 @@ impl Out {
     }
 }
 
+/// The author's key an id names, where the library knows one.
+pub type AuthorFn<'a> = dyn Fn(&str) -> Option<[u8; 32]> + 'a;
+/// The plugins already stopped.
+pub type StoppedFn<'a> = dyn Fn() -> Vec<String> + 'a;
+
 /// A plugin the library offers for this device: a data plugin, or a code
 /// plugin with a build for this PaperPaw.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -490,6 +495,47 @@ pub fn list_url(
     ])
 }
 
+/// The address of plugin `id`'s page, beside the list at `list` (the setting's,
+/// without the device and the language) and with its query (a library may want
+/// a key there), for `device` in `language`, a community plugin too where
+/// `community`, and the builds for `abi` where it is named.
+///
+/// The page is `plugins/<id>.json` in the folder of the list's address, as
+/// interface 6 joined it. **A difference on purpose:** an address whose path has
+/// a `.` or `..` segment is refused (`Invalid`: the join here does not resolve
+/// them, and no library has asked for it).
+///
+/// # Errors
+/// `NoMemory` when the address cannot be kept; `Invalid` for an address that is
+/// no `scheme://host/path` or whose path has dot segments.
+pub fn plugin_url(
+    list: &str,
+    device: &str,
+    language: &str,
+    id: &str,
+    community: bool,
+    abi: Option<&str>,
+) -> Result<String, Error> {
+    let list = list.split('#').next().unwrap_or(list);
+    let (address, query) = list.split_once('?').unwrap_or((list, ""));
+    let (scheme, rest) = address.split_once("://").ok_or(Error::Invalid)?;
+    let host_end = rest.find('/').unwrap_or(rest.len());
+    let (host, path) = rest.split_at(host_end);
+    if path.split('/').any(|segment| matches!(segment, "." | "..")) {
+        return Err(Error::Invalid);
+    }
+    let dir = path
+        .get(..path.rfind('/').map_or(0, |at| at + 1))
+        .unwrap_or("");
+    let dir = if dir.is_empty() { "/" } else { dir };
+    let mut page = concat(&[scheme, "://", host, dir, "plugins/", &encode(id)?, ".json"])?;
+    if !query.is_empty() {
+        let mut joined = concat(&[&page, "?", query])?;
+        core::mem::swap(&mut page, &mut joined);
+    }
+    list_url(&page, device, language, community, abi)
+}
+
 /// Entries of a list of revocations looked at, most: a bound on the reading,
 /// apart from what is kept. Past it a list is not read further.
 pub const MAX_READ: usize = 4096;
@@ -542,7 +588,9 @@ impl Revocations {
     }
 
     /// The entry is complete: kept if it is well formed, is of a plugin here
-    /// (`here`) whose author's key it names (`author_of`), and is new. `stopped`
+    /// (`here`) whose author's key it names (`author_of`; where `host_checks` the
+    /// host keeps the pins and the entry goes to it whatever `author_of` says), and
+    /// is new. `stopped`
     /// names the plugins already stopped, asked for only when an entry could
     /// be new.
     ///
@@ -551,8 +599,7 @@ impl Revocations {
     pub fn entry_done(
         &mut self,
         here: &dyn Fn(&str) -> bool,
-        author_of: &dyn Fn(&str) -> Option<[u8; 32]>,
-        stopped: &dyn Fn() -> Vec<String>,
+        (author_of, stopped, host_checks): (&AuthorFn<'_>, &StoppedFn<'_>, bool),
     ) -> Result<(), Error> {
         let key = hex::decode_array::<32>(&self.key);
         let signature = hex::decode_array::<64>(&self.signature);
@@ -567,7 +614,7 @@ impl Revocations {
             || self.pending.len() >= MAX_REVOKED
             || plugin.is_empty()
             || !here(&plugin)
-            || author_of(&plugin) != Some(key)
+            || (!host_checks && author_of(&plugin) != Some(key))
             || self.pending.iter().any(|r| r.plugin == plugin)
         {
             return Ok(());
@@ -591,4 +638,88 @@ impl Revocations {
     pub fn pending(&self) -> &[Revoked] {
         &self.pending
     }
+}
+
+/// `href` made absolute with `base`, a page's address, as browsers resolve
+/// links (`/a`, `../b`, `?q`, `//host/c`): the interface-6 `join_url` with a
+/// refusal path (`NoMemory`), tested to give its answers.
+///
+/// # Errors
+/// `NoMemory` when the address cannot be kept.
+pub fn join_url(base: &str, href: &str) -> Result<String, Error> {
+    if paperpaw_sdk::document::is_external(href) {
+        return copy(href);
+    }
+    let Some((scheme, rest)) = base.split_once("://") else {
+        return copy(href);
+    };
+    if let Some(net) = href.strip_prefix("//") {
+        return concat(&[scheme, "://", net]);
+    }
+    let host_end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (host, after) = rest.split_at(host_end);
+    let path = after.split(['?', '#']).next().unwrap_or("");
+    let path = if path.is_empty() { "/" } else { path };
+    let joined = if href.starts_with('/') {
+        copy(href)?
+    } else if href.starts_with('?') {
+        concat(&[path, href])?
+    } else if href.starts_with('#') {
+        let without = after.split('#').next().unwrap_or("");
+        concat(&[if without.is_empty() { "/" } else { without }, href])?
+    } else {
+        let dir = path
+            .get(..path.rfind('/').map_or(0, |i| i + 1))
+            .unwrap_or("");
+        concat(&[dir, href])?
+    };
+    let path = normalize(&joined)?;
+    concat(&[scheme, "://", host, &path])
+}
+
+/// Resolves `.` and `..` in the path of `target`, keeping its query and
+/// fragment.
+fn normalize(target: &str) -> Result<String, Error> {
+    let split = target.find(['?', '#']).unwrap_or(target.len());
+    let (path, tail) = target.split_at(split);
+    let count = path.bytes().filter(|b| *b == b'/').count() + 1;
+    let mut parts: Vec<&str> = Vec::new();
+    parts
+        .try_reserve_exact(count)
+        .map_err(|_| Error::NoMemory)?;
+    for (i, segment) in path.split('/').enumerate() {
+        let last = i + 1 == count;
+        match segment {
+            "." => {
+                if last {
+                    parts.push("");
+                }
+            }
+            ".." => {
+                if parts.len() > 1 {
+                    parts.pop();
+                }
+                if last {
+                    parts.push("");
+                }
+            }
+            segment => parts.push(segment),
+        }
+    }
+    let mut out = Out(String::new());
+    out.0
+        .try_reserve_exact(path.len() + tail.len() + 1)
+        .map_err(|_| Error::NoMemory)?;
+    // As the old join: a path that does not start with a slash gets one.
+    if !(parts.len() > 1 && parts.first().is_some_and(|first| first.is_empty())) {
+        out.ch('/')?;
+    }
+    for (n, part) in parts.iter().enumerate() {
+        if n > 0 {
+            out.ch('/')?;
+        }
+        out.text(part)?;
+    }
+    out.text(tail)?;
+    Ok(out.0)
 }

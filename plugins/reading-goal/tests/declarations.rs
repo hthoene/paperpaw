@@ -105,9 +105,9 @@ fn the_figure_is_asked_by_a_stage_of_its_own() {
         all.contains("StageSpec") && all.contains("read-today"),
         "{all}"
     );
-    // A day in (4 bytes), a day and the seconds out (8), one reply.
+    // A day in (4 bytes), one framed reading record out (16 bytes).
     assert!(
-        all.contains("max_input: 4") && all.contains("max_reply: 8"),
+        all.contains("max_input: 4") && all.contains("max_reply: 16"),
         "{all}"
     );
     assert!(all.contains("max_records: 1"), "{all}");
@@ -170,4 +170,21 @@ fn the_sleep_screen_is_offered_below_the_sleep_plugins_own_and_chosen_by_sleep_s
             && all.contains("reading-goal.sleep"),
         "{all}"
     );
+}
+
+/// A widget that `previews` a settings group is made for that group's settings
+/// page and never offered in the Add picker (`registry.md`, op 19). Beta 3's
+/// *Reading cat* declared none, so it stays pickable.
+#[test]
+fn the_widget_previews_no_settings_group() {
+    let mut seen = 0;
+    for batch in batches(|sink| declarations::widgets(&mut Declarations::new(sink))) {
+        for record in records_decode(&batch).unwrap().iter() {
+            if let Record::WidgetSpec(spec) = record {
+                assert_eq!(spec.previews, "", "{}", spec.name);
+                seen += 1;
+            }
+        }
+    }
+    assert_eq!(seen, 1);
 }

@@ -4,16 +4,17 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail the test")]
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::services_wire;
 use crate::native_host::admitted_features::AdmittedFeatures;
 use crate::native_host::call_services::validate_reply;
 use alloc::{string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_i18n::Translator;
-use paperpaw_native::host_glue::ERR_NO_MEMORY;
+use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY};
 use paperpaw_native::metadata::Feature;
 use paperpaw_platform::{DirEntry, Instant, StorageError};
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 use std::collections::BTreeMap;
 
 static WIRED: &[Feature<'static>] = &[Feature {
@@ -144,6 +145,11 @@ struct Seal {
     key: u8,
     seals: bool,
     nonce: Cell<u8>,
+    /// The random numbers are weak now: a seal is `ERR_STATE` (the X4 with
+    /// its radio off).
+    weak: Rc<Cell<bool>>,
+    /// Opens nothing now, with this status (a busy or unreadable flash).
+    open_fault: Cell<Option<i32>>,
 }
 
 impl Seal {
@@ -152,6 +158,8 @@ impl Seal {
             key,
             seals: true,
             nonce: Cell::new(1),
+            weak: Rc::new(Cell::new(false)),
+            open_fault: Cell::new(None),
         }
     }
     fn tag(&self, aad: &[u8], body: &[u8]) -> [u8; 16] {
@@ -168,6 +176,9 @@ impl Sealer for Seal {
         self.seals
     }
     fn seal(&self, aad: &[u8], plain: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        if self.weak.get() {
+            return Err(ERR_STATE);
+        }
         let nonce = [self.nonce.replace(self.nonce.get().wrapping_add(1)); 12];
         let total = 12 + plain.len() + 16;
         let out = out.get_mut(..total).ok_or(ERR_NO_SPACE)?;
@@ -180,10 +191,15 @@ impl Sealer for Seal {
         Ok(total)
     }
     fn open(&self, aad: &[u8], sealed: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-        let body_len = sealed.len().checked_sub(28).ok_or(ERR_IO)?;
+        if let Some(fault) = self.open_fault.get() {
+            return Err(fault);
+        }
+        // As the device's sealer: too short is `ERR_INVALID`, another key's
+        // value `ERR_NOT_FOUND`.
+        let body_len = sealed.len().checked_sub(28).ok_or(ERR_INVALID)?;
         let (body, tag) = sealed.split_at(12 + body_len);
         if self.tag(aad, body) != tag {
-            return Err(ERR_IO);
+            return Err(ERR_NOT_FOUND);
         }
         let out = out.get_mut(..body_len).ok_or(ERR_NO_SPACE)?;
         for (i, b) in body[12..].iter().enumerate() {
@@ -211,6 +227,7 @@ struct Host {
     source: Source,
     has_source: bool,
     notices: Cell<u32>,
+    unopened: Cell<u32>,
 }
 impl SecretsHost for Host {
     fn storage(&self) -> &dyn Storage {
@@ -225,13 +242,16 @@ impl SecretsHost for Host {
     fn unreadable(&self) {
         self.notices.set(self.notices.get() + 1);
     }
+    fn unopened(&self) {
+        self.unopened.set(self.unopened.get() + 1);
+    }
 }
 
 /// The rows (owner, name, label, flags), `next`, `last`.
 type Page = (Vec<(String, String, String, u32)>, u32, bool);
 
 struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     hosts: crate::native_host::host_services::HostServices,
     host: Rc<Host>,
     /// The nth allocation inside the backend fails (0: none).
@@ -401,6 +421,7 @@ fn host(seal: Seal) -> Rc<Host> {
         },
         has_source: true,
         notices: Cell::new(0),
+        unopened: Cell::new(0),
     })
 }
 
@@ -408,7 +429,16 @@ fn with_host<R>(host: Rc<Host>, wire_it: bool, f: impl FnOnce(&View<'_>) -> R) -
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    with_kernel(&kernel, host, wire_it, f)
+}
+
+fn with_kernel<R>(
+    kernel: &crate::Kernel,
+    host: Rc<Host>,
+    wire_it: bool,
+    f: impl FnOnce(&View<'_>) -> R,
+) -> R {
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     if wire_it {
         hosts
@@ -708,25 +738,118 @@ fn interface_6_values_are_read_and_become_sealed_at_the_first_save() {
 }
 
 #[test]
-fn a_device_that_only_veils_keeps_interface_6s_file_readable_by_interface_6() {
+fn a_device_that_does_not_seal_refuses_keep_and_writes_nothing_but_still_reads_veiled_lines() {
+    let old = interface6(&[
+        ("mail.password", "mail.password", false, "old-pw"),
+        ("wifi.Home", "wifi.Home", true, "wpw"),
+    ]);
     let mut seal = Seal::new(9);
     seal.seals = false;
     with_host(host(seal), true, |v| {
-        v.keep("mail", "password", "L", "pw").unwrap();
-        v.keep("wifi", "net\twork", "", "w").unwrap();
-        // The veiled form: the SDK's own reader (interface 6) takes the file.
-        let secrets = paperpaw_sdk::secrets::Secrets::decode(&text(&v.host.card.file()));
-        assert_eq!(secrets.get("mail.password"), Some("pw"));
-        assert_eq!(secrets.get("wifi.net\twork"), Some("w"));
-        assert!(!text(&v.host.card.file()).contains("s1:"));
-        // And a sealed line from an X4 card is absent and kept.
+        v.host.card.put(file::FILE, &old);
+        // Veiled values are read.
+        assert_eq!(v.get("mail", "password").unwrap().0, "old-pw");
+        // A keep (new, or a changed one) is refused with nothing written: the
+        // file is byte for byte what it was, and no temporary file is left.
+        assert_eq!(
+            v.keep("mail", "password", "L", "new").err(),
+            Some(ERR_STATE)
+        );
+        assert_eq!(v.keep("stats", "webdav", "", "d").err(), Some(ERR_STATE));
+        assert_eq!(v.host.card.file(), old);
+        assert_eq!(v.host.card.renames.get(), 0);
+        assert!(v.host.card.files.borrow().get(file::TEMP).is_none());
+        // Nothing to upgrade where nothing seals: the veiled lines stay.
+        assert_eq!(v.services().upgrade(), Ok(false));
+        assert_eq!(v.host.card.file(), old);
+        // A sealed line from an X4 card is absent and kept by a remove.
         let mut file = v.host.card.file();
         file.extend_from_slice(b"mail.sealed\t\t\ts1:00aa\n");
         v.host.card.put(file::FILE, &file);
         assert_eq!(v.get("mail", "sealed").err(), Some(ERR_NOT_FOUND));
-        v.keep("mail", "more", "", "x").unwrap();
-        assert!(text(&v.host.card.file()).contains("mail.sealed\t\t\ts1:00aa\n"));
+    });
+}
+
+#[test]
+fn a_sealed_line_that_does_not_open_tells_the_host_and_a_veiled_or_good_one_does_not() {
+    with_view(|v| {
+        v.keep("mail", "password", "", "pw").unwrap();
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
+        assert_eq!(v.host.unopened.get(), 0, "it opened");
+        // Interface 6's veiled values open everywhere.
+        let mut file = interface6(&[("stats.webdav", "stats.webdav", false, "d")]);
+        file.extend_from_slice(&v.host.card.file());
+        v.host.card.put(file::FILE, &file);
+        assert_eq!(v.get("stats", "webdav").unwrap().0, "d");
+        assert_eq!(v.host.unopened.get(), 0);
+        // A line sealed on another device (here: bytes no key here opens).
+        file.extend_from_slice(b"mail.other\t\t\ts1:");
+        file.extend_from_slice(&[b'0'; 2 * 30]);
+        file.push(b'\n');
+        v.host.card.put(file::FILE, &file);
+        assert_eq!(v.get("mail", "other").err(), Some(ERR_NOT_FOUND));
+        assert_eq!(v.host.unopened.get(), 1, "told once for the call");
+        // Each call that meets it says so; the kernel tells the user once.
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
+        assert!(v.host.unopened.get() >= 1);
+    });
+}
+
+#[test]
+fn a_line_that_does_not_open_stays_byte_for_byte_until_its_plugin_saves_anew() {
+    // A test image's value (#2460's form) or another device's: no key opens it.
+    let foreign: &[u8] = b"wifi.Home\tHome\t\ts1:fe5645494c3b1dc5a1b2c3d4\n";
+    with_view(|v| {
+        v.host.card.put(file::FILE, foreign);
+        assert_eq!(v.get("wifi", "Home").err(), Some(ERR_NOT_FOUND));
+        // Other saves and the start-up upgrade keep it as it is.
+        v.keep("mail", "password", "", "pw").unwrap();
         assert_eq!(v.services().upgrade(), Ok(false));
+        let file = v.host.card.file();
+        assert!(file.windows(foreign.len()).any(|w| w == foreign));
+        // Its own plugin saves a new value: that one replaces it, sealed.
+        v.keep("wifi", "Home", "Home", "new").unwrap();
+        assert_eq!(v.get("wifi", "Home").unwrap().0, "new");
+        let file = v.host.card.file();
+        assert!(!file.windows(foreign.len()).any(|w| w == foreign));
+        assert_eq!(text(&file).matches("wifi.Home").count(), 1);
+    });
+}
+
+#[test]
+fn a_failed_upgrade_leaves_the_veiled_lines_as_they_are() {
+    let old = interface6(&[("mail.password", "mail.password", false, "old-pw")]);
+    with_host(host(Seal::new(9)), true, |v| {
+        v.host.card.put(file::FILE, &old);
+        v.host.card.fail_rename.set(true);
+        assert!(v.services().upgrade().is_err());
+        assert_eq!(v.host.card.file(), old);
+        v.host.card.fail_rename.set(false);
+        assert_eq!(v.services().upgrade(), Ok(true));
+        assert!(text(&v.host.card.file()).contains("s1:"));
+    });
+}
+
+#[test]
+fn an_upgrade_with_weak_numbers_changes_nothing_and_says_so_until_they_are_strong() {
+    let old = interface6(&[("mail.password", "mail.password", false, "old-pw")]);
+    let seal = Seal::new(9);
+    let weak = seal.weak.clone();
+    with_host(host(seal), true, |v| {
+        v.host.card.put(file::FILE, &old);
+        // A power cut left a part of a rewrite: it is no file of ours.
+        v.host.card.put(file::TEMP, b"mail.password\t\t\ts1:00");
+        weak.set(true);
+        // At start, the radio off: nothing sealed, the shell tries again.
+        assert_eq!(v.services().upgrade(), Err(ERR_STATE));
+        assert_eq!(v.host.card.file(), old);
+        assert_eq!(v.get("mail", "password").unwrap().0, "old-pw");
+        // The radio on: sealed, and the value reads as before.
+        weak.set(false);
+        assert_eq!(v.services().upgrade(), Ok(true));
+        assert!(text(&v.host.card.file()).contains("s1:"));
+        assert_eq!(v.get("mail", "password").unwrap().0, "old-pw");
+        assert_eq!(v.services().upgrade(), Ok(false), "once");
     });
 }
 
@@ -823,6 +946,39 @@ fn only_the_owner_reads_a_value_the_editor_lists_and_changes_what_the_feature_al
         v.remove("settings", "kosync", "key").unwrap();
         v.remove("settings", "kosync", "key").unwrap();
         assert_eq!(v.get("kosync", "key").err(), Some(ERR_NOT_FOUND));
+    });
+}
+
+/// The editor keeps the value of a secret setting its owner declares
+/// before there is one, changeable, and clears it (#81, `secrets.md` 4); a
+/// plain setting's name gives it no such right.
+#[test]
+fn the_editor_keeps_and_clears_a_declared_secret_settings_value() {
+    static SECRET: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new().secret();
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    use paperpaw_sdk::builtin::groups::OTHER;
+    for spec in [
+        paperpaw_sdk::SettingSpec::text("mail.password", "mail.password", "", OTHER)
+            .with_extra(&SECRET),
+        paperpaw_sdk::SettingSpec::text("mail.user", "mail.user", "", OTHER),
+    ] {
+        kernel.shared.settings.define(spec).unwrap();
+    }
+    with_kernel(&kernel, host(Seal::new(0x5a)), true, |v| {
+        assert_eq!(
+            v.keep_flags("settings", "mail", "user", "", "x", 0).err(),
+            Some(ERR_NOT_FOUND)
+        );
+        v.keep_flags("settings", "mail", "password", "Password", "pw", 0)
+            .unwrap();
+        assert_eq!(
+            v.get("mail", "password").unwrap(),
+            ("pw".into(), "Password".into(), 1)
+        );
+        v.remove("settings", "mail", "password").unwrap();
+        assert_eq!(v.get("mail", "password").err(), Some(ERR_NOT_FOUND));
     });
 }
 
@@ -1116,8 +1272,13 @@ fn a_large_file_streams_through_a_small_heap() {
             ("keep", keep),
             ("remove", remove),
         ] {
-            // The 4 KiB buffer, a line, two value buffers: about 9 KiB for a 59 KiB file.
-            assert!(bytes < 10 * 1024, "{what} held {bytes} bytes");
+            // The read buffer, two value buffers, and a line for a rewrite: about
+            // 7.5 KiB for a 59 KiB file.
+            assert!(bytes < 8 * 1024, "{what} held {bytes} bytes");
+        }
+        // `get` and `list` (the settings screen's calls) hold no line buffer.
+        for (what, bytes) in [("get", get), ("list", list)] {
+            assert!(bytes < 5 * 1024 + 512, "{what} held {bytes} bytes");
         }
         assert!(v.host.card.largest_read.get() <= READ_BUF);
         assert_eq!(v.get("p04x", "extra").unwrap().0, "new");
@@ -1236,5 +1397,83 @@ fn get_takes_an_empty_plugin_only_and_an_explicit_id_is_denied_even_the_callers_
                 "{caller} asks for {plugin}"
             );
         }
+    });
+}
+
+#[test]
+fn a_line_of_line_max_is_read_and_one_byte_more_is_handed_over_whole() {
+    let mut file = Vec::new();
+    file.extend_from_slice(&[b'a'; LINE_MAX]);
+    file.push(b'\n');
+    file.extend_from_slice(&[b'b'; LINE_MAX + 1]);
+    file.push(b'\n');
+    file.extend_from_slice(b"ok\n");
+    with_view(|v| {
+        v.host.card.put(file::FILE, &file);
+        let mut buf = Buf::new(READ_BUF).unwrap();
+        let mut pieces: Vec<(bool, usize, bool)> = Vec::new();
+        file::scan(&v.host.card, file::FILE, &mut buf, &mut |piece| {
+            pieces.push(match piece {
+                Piece::Line(line) => (true, line.len(), true),
+                Piece::Opaque { bytes, end } => (false, bytes.len(), end),
+            });
+            Ok(Flow::Go)
+        })
+        .unwrap();
+        // The first line whole, with its break; the longer one in opaque
+        // parts that add up to it, the last marked; the short line after it.
+        assert_eq!(pieces[0], (true, LINE_MAX + 1, true));
+        let (parts, last) = (&pieces[1..pieces.len() - 1], pieces[pieces.len() - 1]);
+        assert!(parts.iter().all(|(line, _, _)| !line));
+        assert_eq!(
+            parts.iter().map(|(_, len, _)| len).sum::<usize>(),
+            LINE_MAX + 1
+        );
+        assert!(parts[parts.len() - 1].2);
+        assert!(parts[..parts.len() - 1].iter().all(|(_, _, end)| !end));
+        assert_eq!(last, (true, 3, true));
+    });
+}
+
+#[test]
+fn a_secret_after_an_over_long_line_is_still_read_and_the_long_line_kept() {
+    let long = std::format!("mail.long\t\t\t{}\n", "ab".repeat(LINE_MAX));
+    let mut file = long.clone().into_bytes();
+    file.extend_from_slice(&interface6(&[("mail.password", "L", true, "pw")]));
+    with_view(|v| {
+        v.host.card.put(file::FILE, &file);
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
+        assert_eq!(v.names("mail"), ["password"]);
+        v.keep("mail", "other", "", "o").unwrap();
+        let after = v.host.card.file();
+        assert!(
+            after.starts_with(long.as_bytes()),
+            "the long line is kept first"
+        );
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
+    });
+}
+
+/// Senior R1 (#254): only the sealer's `ERR_NOT_FOUND` is "another device". A
+/// busy flash (an update holds it) or one that does not read is absent for
+/// the call, and nobody is told the values came from elsewhere.
+#[test]
+fn a_busy_or_unreadable_flash_is_not_another_device() {
+    with_view(|v| {
+        v.keep("mail", "password", "", "pw").unwrap();
+        for fault in [ERR_BUSY, ERR_IO] {
+            v.host.seal.open_fault.set(Some(fault));
+            assert_eq!(v.get("mail", "password").err(), Some(ERR_NOT_FOUND));
+            assert_eq!(v.host.unopened.get(), 0, "not another device");
+        }
+        // A value too short to be sealed is damaged, not another device's.
+        v.host.seal.open_fault.set(None);
+        let mut file = v.host.card.file();
+        file.extend_from_slice(b"mail.short\t\t\ts1:00aa\n");
+        v.host.card.put(file::FILE, &file);
+        assert_eq!(v.get("mail", "short").err(), Some(ERR_NOT_FOUND));
+        assert_eq!(v.host.unopened.get(), 0);
+        // The flash is back: the value opens again.
+        assert_eq!(v.get("mail", "password").unwrap().0, "pw");
     });
 }

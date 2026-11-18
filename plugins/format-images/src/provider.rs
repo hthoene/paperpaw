@@ -14,6 +14,7 @@ use paperpaw_sdk::document::{Block, BlockKind, Document, DocumentError, Locator}
 use paperpaw_sdk::image::Fit;
 use paperpaw_sdk::native::{
     Error, Host,
+    files::{self, Files},
     stage_schemas::core_format_v1::{self as stage, Record},
     storage::{self, Root},
 };
@@ -33,15 +34,17 @@ mod op {
 
 /// Open documents (the host allows 8 elsewhere, 2 on the X4).
 pub const MAX_DOCUMENTS: usize = 8;
-/// The format's id, as `crate::FORMAT` spells it.
+/// The format's id: the declaration's plugin id and format name.
 const FORMAT_ID: &str = "format-images.pictures";
 /// The code a refused allocation travels as through `StorageError`.
-const NO_MEMORY: u16 = 0x6e6d;
+pub(crate) const NO_MEMORY: u16 = 0x6e6d;
 const TEXT: usize = 1024;
 /// Rows of a reply, one of them the closing `fmt.end`.
 const ROWS: usize = 64;
 const END_LAST: u32 = 1;
-const END_MORE: u32 = 2;
+/// The `generation` of a paged list (`document.md` section 3: the format's own for the
+/// document, never 0): the lists of a document do not change, so one value serves.
+const LIST_GENERATION: u32 = 1;
 const FLAG_WHOLE_PAGES: u32 = 1;
 
 /// The book (path `""`) and the cache (any other path) as one storage.
@@ -131,8 +134,17 @@ impl Storage for HostIo<'_, '_> {
         Ok(())
     }
 
-    fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
-        Err(StorageError::Unsupported)
+    /// The book's folder (root 3, `core.files`) a page of names at a time:
+    /// nothing is kept of a page after its names were visited.
+    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+        if dir.starts_with(CACHE) {
+            return Err(StorageError::Unsupported);
+        }
+        let files = Files::open(self.host).map_err(storage_error)?;
+        let listed = list_pages(self.host, &files, dir, visit);
+        let released = files.release(self.host);
+        listed?;
+        released.map_err(storage_error)
     }
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {
@@ -141,6 +153,42 @@ impl Storage for HostIo<'_, '_> {
             return Err(StorageError::Unsupported);
         }
         storage::remove(self.host, root, name).map_err(storage_error)
+    }
+}
+
+/// The listing of root 3's `dir` through `files`, its two buffers (the only
+/// memory of the listing, given back at its end) taken fallibly.
+fn list_pages(
+    host: &Host<'_>,
+    files: &Files,
+    dir: &str,
+    visit: &mut dyn FnMut(DirEntry<'_>),
+) -> Result<(), StorageError> {
+    let mut input: Vec<u8> = Vec::new();
+    let mut output: Vec<u8> = Vec::new();
+    for (buffer, size) in [
+        (&mut input, files::INPUT_BYTES),
+        (&mut output, files::OUTPUT_BYTES),
+    ] {
+        buffer
+            .try_reserve_exact(size)
+            .map_err(|_| StorageError::Other(NO_MEMORY))?;
+        buffer.resize(size, 0);
+    }
+    let mut cursor = 0;
+    loop {
+        let page = files
+            .list(host, Root::Book, dir, cursor, &mut input, &mut output)
+            .map_err(storage_error)?;
+        for entry in page.entries() {
+            if !entry.unaddressable() {
+                visit(DirEntry::new(entry.name(), entry.is_folder(), entry.size()));
+            }
+        }
+        match page.next() {
+            Some(next) => cursor = next,
+            None => return Ok(()),
+        }
     }
 }
 
@@ -197,9 +245,9 @@ fn page(rows: &[Record<'_>], from: usize, total: usize, out: &mut [u8]) -> Resul
         frame.clear();
         frame.extend(rows.iter().take(take).cloned());
         frame.push(Record::FmtEnd(stage::FmtEnd::new(
-            if more { END_MORE } else { 0 },
+            if more { 0 } else { END_LAST },
             u32::try_from(total).map_err(|_| Error::Invalid)?,
-            0,
+            LIST_GENERATION,
             u32::try_from(next).map_err(|_| Error::Invalid)?,
             None,
         )));
@@ -372,7 +420,10 @@ impl ImagesProvider {
                 )
             }
             10 | 11 | 12 | 13 | 15 => Err(Error::NotFound),
-            9 | 14 | 16 => one(Record::FmtEnd(stage::FmtEnd::new(0, 0, 0, 0, None)), out),
+            9 | 14 | 16 => one(
+                Record::FmtEnd(stage::FmtEnd::new(END_LAST, 0, LIST_GENERATION, 0, None)),
+                out,
+            ),
             _ => Err(Error::Unsupported),
         }
     }

@@ -3,16 +3,23 @@
 //! shared harness; the ops' tests are in `tests/query.rs` and `tests/write.rs`.
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::services_wire::{self, ServiceOp};
 use crate::native_host::call_services::validate_reply;
 use alloc::vec::Vec;
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::ERR_DENIED;
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 
 #[path = "tests/catalog_reads.rs"]
 mod catalog_reads;
+#[path = "tests/edit_host.rs"]
+mod edit_host;
+#[path = "tests/first_session.rs"]
+mod first_session;
+#[path = "tests/position_host.rs"]
+mod position_host;
 #[path = "tests/query.rs"]
 mod query;
 #[path = "tests/write.rs"]
@@ -36,14 +43,16 @@ const WIRED: &[paperpaw_native::metadata::Feature<'static>] = &[
 /// A frame, and the caller plugin `files` (owner 7) with the library host
 /// wired (or not) and `uses.library` / `uses.storage` as the fields say.
 pub(super) struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
+    /// The settings the frame shows: `files.archive` as the test set it.
+    settings: Settings,
     hosts: crate::native_host::host_services::HostServices,
     pub(super) granted: bool,
     pub(super) storage: bool,
 }
 impl Frame for View<'_> {
     fn settings(&self) -> &Settings {
-        self.env.settings()
+        &self.settings
     }
     fn translator(&self) -> &Translator {
         self.env.i18n()
@@ -66,6 +75,8 @@ impl View<'_> {
 std::thread_local! {
     /// Whether the caller declared `uses.storage` (each test has its thread).
     pub(super) static STORAGE: core::cell::Cell<bool> = const { core::cell::Cell::new(true) };
+    /// The value of the `files.archive` setting the frame has ("" for none).
+    pub(super) static ARCHIVE: core::cell::Cell<&'static str> = const { core::cell::Cell::new("") };
 }
 
 /// Run `body` with a frame over `host`.
@@ -73,11 +84,26 @@ pub(super) fn with<R>(host: Rc<dyn LibHost>, body: impl FnOnce(&View<'_>) -> R) 
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let mut settings = Settings::new();
+    // An empty value is no setting at all (the files plugin is not there).
+    let archive = ARCHIVE.with(core::cell::Cell::get);
+    if !archive.is_empty() {
+        settings
+            .define(paperpaw_sdk::SettingSpec::new(
+                paperpaw_sdk::Id::new_static("files.archive"),
+                "archive",
+                paperpaw_sdk::SettingKind::Text,
+                paperpaw_sdk::SettingValue::Text(archive.into()),
+                paperpaw_sdk::builtin::groups::OTHER,
+            ))
+            .unwrap();
+    }
+    let env = kernel.shared.place(Instant(0));
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_library(host).unwrap();
     body(&View {
         env: &env,
+        settings,
         hosts,
         granted: true,
         storage: STORAGE.with(core::cell::Cell::get),
@@ -128,9 +154,10 @@ fn a_frame_without_the_host_refuses_the_family() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let view = View {
         env: &env,
+        settings: Settings::new(),
         hosts: crate::native_host::host_services::HostServices::new(),
         granted: true,
         storage: true,

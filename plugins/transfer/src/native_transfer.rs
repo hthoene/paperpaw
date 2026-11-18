@@ -1,7 +1,6 @@
 //! What the transfer decides without the host: the address a server is opened
 //! at, which names a book may be put under, which file is read-only, and what
-//! an offer from a computer over the cable says. The same rules as the
-//! interface-6 plugin (`link.rs`, `web.rs`, `cable.rs`), with fallible
+//! an offer from a computer over the cable says, with fallible
 //! allocation and the text given by the caller instead of read from a
 //! storage. Serving, the screens and the installs are the native plugin's
 //! (see `PORTING-7.md`).
@@ -139,12 +138,23 @@ impl Offer {
                 return Ok(None);
             }
         }
-        let empty = offer.plugin.as_ref().is_none_or(|(_, f)| f.is_empty());
-        Ok((!(empty && offer.books.is_empty())).then_some(offer))
+        Ok(offer.finish())
     }
 
-    /// Takes a line of the offer: `Ok(None)` where it is not understood.
-    fn take(&mut self, line: &str) -> Result<Option<()>, Error> {
+    /// The offer once every line was taken: `None` where nothing is offered.
+    #[must_use]
+    pub fn finish(self) -> Option<Offer> {
+        let empty = self.plugin.as_ref().is_none_or(|(_, f)| f.is_empty());
+        (!(empty && self.books.is_empty())).then_some(self)
+    }
+
+    /// Takes a line of the offer (already trimmed, at most [`MAX_LINE`] bytes,
+    /// and not more than [`MAX_FILES`] of them: the caller counts):
+    /// `Ok(None)` where it is not understood.
+    ///
+    /// # Errors
+    /// `NoMemory` when the line cannot be kept.
+    pub fn take(&mut self, line: &str) -> Result<Option<()>, Error> {
         let Some((word, rest)) = line.split_once(' ') else {
             return Ok(None);
         };
@@ -241,3 +251,7 @@ fn digest(hex: &str) -> Option<[u8; 32]> {
     }
     Some(out)
 }
+
+#[cfg(test)]
+#[path = "native_transfer_tests.rs"]
+mod tests;

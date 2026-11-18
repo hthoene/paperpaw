@@ -1,8 +1,9 @@
-//! The public settings bridge uses a real dispatch Env and the existing codec.
+//! The public settings bridge uses a real dispatch Place and the existing codec.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
+use paperpaw_core::Staging;
 use paperpaw_core::native_host::environment::{EnvironmentScope, SettingValueRef, settings_decode};
 use paperpaw_native::host_glue::{ERR_STATE, ERR_UTF8};
-use paperpaw_sdk::{Manifest, Plugin, RegisterError, Registrar, SettingSpec, builtin};
+use paperpaw_sdk::{Manifest, RegisterError, SettingSpec, builtin};
 use std::{cell::Cell, pin::pin, rc::Rc};
 
 use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
@@ -23,21 +24,17 @@ fn read(scope: &EnvironmentScope, key: &[u8], out: &mut [u8]) -> i32 {
     // SAFETY: borrowed slices are live, exclusive/disjoint and not host state.
     unsafe { scope.settings_read(key.as_ptr(), key.len(), out.as_mut_ptr(), out.len()) }
 }
-struct Probe(Rc<Cell<u32>>);
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            paperpaw_sdk::Id::new_static("probe"),
-            "Probe",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+std::thread_local! {
+    /// How often the probe ran, in the test running (a handler holds none).
+    static COUNT: std::cell::RefCell<Option<Rc<Cell<u32>>>> = const { std::cell::RefCell::new(None) };
+}
+
+fn probe(kept: Rc<Cell<u32>>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
         r.add_settings(&SETTINGS)?;
-        let count = self.0.clone();
-        r.subscribe(
-            builtin::events::STARTED,
-            Box::new(move |env, _, _| {
+        COUNT.with(|count| *count.borrow_mut() = Some(kept.clone()));
+        r.subscribe(builtin::events::STARTED, |k, _| {
+            k.with_env(|env, _| {
                 let scope = pin!(EnvironmentScope::new());
                 let mut bytes = [0xa5; 64];
                 assert_eq!(read(&scope, b"probe.flag", &mut bytes), ERR_STATE);
@@ -85,16 +82,29 @@ impl Plugin for Probe {
                     .as_ref()
                     .scope(env, || assert!(read(&scope, b"probe.flag", &mut bytes) > 0))
                     .unwrap();
-                count.set(count.get() + 1);
-            }),
-        )
+                COUNT.with(|count| {
+                    if let Some(count) = count.borrow().as_ref() {
+                        count.set(count.get() + 1);
+                    }
+                });
+            })
+        })
     }
+}
+
+/// What [`probe`] registers under.
+fn probe_manifest() -> Manifest {
+    Manifest::new(
+        paperpaw_sdk::Id::new_static("probe"),
+        "Probe",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    )
 }
 #[test]
 fn typed_settings_query_and_cleanup_use_actual_dispatch_frame() {
     let count = Rc::new(Cell::new(0));
     let mut kernel = paperpaw_core::Kernel::builder(DEVICE)
-        .plugin(Probe(count.clone()))
+        .items(probe_manifest(), probe(count.clone()))
         .build()
         .unwrap();
     kernel.start(paperpaw_platform::Instant(0));

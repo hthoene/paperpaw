@@ -49,7 +49,13 @@ class EntryLayoutTests(unittest.TestCase):
         profiles = {p['name']: p for p in schema['metadata']['profiles']}
         expected = {'linux-x86_64-sysv64-le': (64, 32, 8),
                     'esp32c3-riscv32imc-ilp32-soft-le': (32, 20, 4),
-                    'esp32s3-xtensa-lx7-ilp32-windowed-le': (32, 20, 4)}
+                    'esp32s3-xtensa-lx7-ilp32-windowed-le': (32, 20, 4),
+                    # Linked plugins only (Decision 172): no card file loads there.
+                    'windows-x86_64-win64-le': (64, 32, 8),
+                    'macos-x86_64-sysv64-le': (64, 32, 8),
+                    'macos-aarch64-darwinpcs-le': (64, 32, 8),
+                    'android-aarch64-aapcs64-le': (64, 32, 8),
+                    'web-wasm32-c-le': (32, 20, 4)}
         self.assertEqual(set(profiles), set(expected))
         for name, values in expected.items():
             with self.subTest(profile=name):
@@ -112,19 +118,35 @@ class EntryLayoutTests(unittest.TestCase):
             self.skipTest('the esp toolchain (xtensa-esp32s3-none-elf) is not installed')
         self.no_std_entry_layouts([rustup, 'run', 'esp', 'rustc'], 'xtensa-esp32s3-none-elf')
 
-    def no_std_entry_layouts(self, rustc, target):
+    def test_linked_only_profiles_match_their_targets_layouts(self):
+        # The profiles of the shells that host linked plugins only (Decision
+        # 172), each where its Rust target is installed (CI installs them).
+        installed = subprocess.run(['rustup', 'target', 'list', '--installed'],
+                                   capture_output=True, text=True).stdout.split()
+        for target, bits in (('x86_64-pc-windows-msvc', 64), ('x86_64-apple-darwin', 64),
+                             ('aarch64-apple-darwin', 64), ('aarch64-linux-android', 64),
+                             ('wasm32-unknown-unknown', 32)):
+            with self.subTest(target=target):
+                if target not in installed:
+                    self.skipTest(f'the Rust target {target} is not installed')
+                self.no_std_entry_layouts(['rustc'], target, bits)
+
+    def no_std_entry_layouts(self, rustc, target, bits=32):
+        word = bits // 8
         assertions = ['#![no_std]', raw_module(), 'const _: () = {']
-        for kind, size, align, offsets in (
-                ('PpEntry', 20, 4, (0, 4, 6, 8, 16)),
-                ('PpPlugin', 24, 4, (0, 4, 8, 12, 16, 20))):
+        layouts = ((('PpEntry', 20, 4, (0, 4, 6, 8, 16)),
+                    ('PpPlugin', 24, 4, (0, 4, 8, 12, 16, 20))) if bits == 32 else
+                   (('PpEntry', 32, 8, (0, 4, 6, 8, 24)),
+                    ('PpPlugin', 48, 8, (0, 8, 16, 24, 32, 40))))
+        for kind, size, align, offsets in layouts:
             assertions.append(f'assert!(core::mem::size_of::<{kind}>() == {size});')
             assertions.append(f'assert!(core::mem::align_of::<{kind}>() == {align});')
             for field, offset in zip(FIELDS[kind], offsets):
                 assertions.append(
                     f'assert!(core::mem::offset_of!({kind}, {field}) == {offset});')
         for kind in ('*mut core::ffi::c_void', MAKE, DROP, DISPATCH_EVENT, DRAW):
-            assertions.append(f'assert!(core::mem::size_of::<{kind}>() == 4);')
-            assertions.append(f'assert!(core::mem::align_of::<{kind}>() == 4);')
+            assertions.append(f'assert!(core::mem::size_of::<{kind}>() == {word});')
+            assertions.append(f'assert!(core::mem::align_of::<{kind}>() == {word});')
         assertions.extend(['assert!(core::mem::size_of::<u64>() == 8);',
                            'assert!(core::mem::align_of::<u64>() == 8);'])
         assertions.append('};')

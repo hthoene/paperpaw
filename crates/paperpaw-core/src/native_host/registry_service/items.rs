@@ -7,6 +7,7 @@
 use super::{
     Row,
     fixed::{Fixed, caps, clip, translated},
+    menu_native::Native,
     schema,
     sources::Sources,
 };
@@ -16,7 +17,7 @@ use crate::native_host::{
 };
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_UNSUPPORTED};
-use paperpaw_sdk::{Id, keys::InputKind};
+use paperpaw_sdk::Id;
 
 /// `reg_item.flags` of actions, screens and inputs.
 const SEALED: u32 = 1 << 1;
@@ -24,6 +25,8 @@ const GESTURE: u32 = 1 << 2;
 const DECLARED: u32 = 1 << 4;
 /// `reg_slot.flags`: the user bound it.
 const USER_BOUND: u32 = 1;
+/// `reg_group.icon` of a group nobody named an icon for, as Beta 3 showed it.
+const GROUP_ICON: &str = "puzzle";
 
 const ID: usize = caps::ID;
 const TITLE: usize = caps::TITLE;
@@ -68,17 +71,33 @@ fn groups(
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> Result<(), i32> {
     let translator = sources.env.i18n();
+    let menus = sources.env.menus();
+    let store = match sources.directory {
+        Some(directory) => Some(directory.store.try_borrow().map_err(|_| ERR_BUSY)?),
+        None => None,
+    };
+    let native = store
+        .as_deref()
+        .map(|store| Native::new(store, sources.env.caps()));
     for group in sources.env.settings().groups() {
         let parent = group.parent.as_ref().map_or("", Id::as_str);
         if !scope.is_empty() && parent != scope {
             continue;
         }
+        // Its icon by name, found as a menu row's is: the kernel's or a code
+        // plugin's, else a natively declared one (`icon.spec`).
+        let declared = native.as_ref().and_then(|n| n.icon(group.id.as_str()));
+        let icon = menus
+            .icon(group.id.as_str())
+            .or_else(|| declared.as_ref().map(Fixed::as_str))
+            .unwrap_or(GROUP_ICON);
         let row = Record::ServiceRegGroup(wire::ServiceRegGroup {
             id: group.id.as_str(),
             parent,
             page: group.page.as_ref().map_or("", Id::as_str),
             order: group.order,
             title: translated(translator, &group.title, caps::TITLE),
+            icon,
         });
         if visit(&row).is_break() {
             break;
@@ -138,7 +157,7 @@ fn offers(
         return Ok(());
     }
     let translator = sources.env.i18n();
-    // The walk allocates nothing (`Env::each_slot_screen`); a break ends it.
+    // The walk allocates nothing (`Place::each_slot_screen`); a break ends it.
     sources.env.each_slot_screen(scope, &mut |screen| {
         let title = sources
             .env
@@ -298,20 +317,6 @@ fn inputs_flow(
         for pinch in PINCHES {
             put(&["pinch.", pinch], true)?;
         }
-    }
-    // A plugin's own: `input.<id>` or `gesture.<id>`, by the owner.
-    for spec in env.inputs() {
-        if spec.need.is_some_and(|need| !need.met(env.caps())) {
-            continue;
-        }
-        let gesture = spec.kind == InputKind::Gesture;
-        let prefix = if gesture { "gesture." } else { "input." };
-        let Some(id) = Fixed::<ID>::of(&[prefix, spec.id.as_str()]) else {
-            continue;
-        };
-        let flags = DECLARED | if gesture { GESTURE } else { 0 };
-        let title = translated(translator, &spec.title, TITLE);
-        visit(&item(id.as_str(), namespace_of(&spec.id), flags, title))?;
     }
     native_inputs(sources, visit)
 }

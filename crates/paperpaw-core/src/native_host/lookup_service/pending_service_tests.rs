@@ -23,7 +23,7 @@ struct Host {
     ready: Cell<bool>,
 }
 impl LookupHost for Host {
-    fn ask(&self, _: u64, ask: &Ask<'_>, out: &mut [u8]) -> Result<usize, i32> {
+    fn ask(&self, _frame: &dyn Frame, _: u64, ask: &Ask<'_>, out: &mut [u8]) -> Result<usize, i32> {
         let (provider, pending) = match ask.cursor {
             0 => ("wiki", !self.ready.get()),
             1 => ("translate", !self.ready.get()),
@@ -37,18 +37,23 @@ impl LookupHost for Host {
                 title: "Word",
                 text: if pending { "" } else { "definition" },
                 flags: more | if pending { PENDING } else { 0 },
+                opens: "",
             }),
             out,
         )
     }
-    fn provider_owner(&self, name: &str) -> Option<u64> {
+    fn provider_owner(&self, _frame: &dyn Frame, name: &str) -> Option<u64> {
         match name {
             "wiki" => Some(WIKI),
             "translate" => Some(TRANSLATE),
             _ => None,
         }
     }
-    fn subscribed(&self, asker: u64) -> bool {
+    fn subscribed(
+        &self,
+        _hosts: &crate::native_host::host_services::HostServices,
+        asker: u64,
+    ) -> bool {
         self.subscribed.borrow().contains(&asker)
     }
     fn now_ms(&self) -> u64 {
@@ -66,7 +71,7 @@ struct Rig {
 }
 impl Frame for Rig {
     fn settings(&self) -> &Settings {
-        self.kernel.shared.env(Instant(0)).settings()
+        self.kernel.shared.place(Instant(0)).settings()
     }
     fn translator(&self) -> &Translator {
         unreachable!("the lookup backend never translates")
@@ -81,7 +86,7 @@ fn rig(subscribed: &[u64]) -> Rig {
     });
     let hosts = crate::native_host::host_services::HostServices::new();
     let shared: Rc<dyn LookupHost> = host.clone();
-    hosts.wire_lookup(shared).unwrap();
+    hosts.wire_lookup(shared, Default::default()).unwrap();
     Rig {
         host,
         hosts,
@@ -157,6 +162,20 @@ fn a_pending_ask_is_kept_for_a_subscribed_asker_and_ready_tells_it_once() {
 }
 
 #[test]
+fn the_table_of_pending_asks_is_made_by_the_first_kept_ask_and_not_before() {
+    let rig = rig(&[7]);
+    assert!(rig.service().pending.borrow().is_none());
+    // An answer at once keeps nothing: still no table.
+    rig.host.ready.set(true);
+    rig.ask(7, "tree", 0);
+    assert!(rig.service().pending.borrow().is_none());
+    // A command that matches nothing makes it, and counts.
+    assert_eq!(rig.ready(WIKI, "tree"), Vec::<u64>::new());
+    assert!(rig.service().pending.borrow().is_some());
+    assert_eq!(rig.service().unmatched(), 1);
+}
+
+#[test]
 fn an_asker_that_does_not_subscribe_has_nothing_recorded() {
     let rig = rig(&[]);
     // The asker sees `pending` and may ask again itself.
@@ -193,6 +212,9 @@ fn a_full_table_answers_the_empty_entry_and_logs_it() {
     assert!(rig.host.log.borrow().is_empty());
     assert_eq!(rig.ask(7, "w4", 0), ("wiki".into(), 1, String::new()));
     assert_eq!(rig.service().pending_len(), 4);
+    assert_eq!(rig.host.log.borrow().len(), 1);
+    // Another ask meeting the full table adds no second line this minute.
+    assert_eq!(rig.ask(7, "w5", 0).1, 1);
     assert_eq!(rig.host.log.borrow().len(), 1);
     // The last provider's page keeps its own bits (none more).
     assert_eq!(rig.ask(7, "w4", 2).1, 0);
@@ -238,7 +260,7 @@ fn unmatched_ready_commands_log_one_line_a_minute() {
 fn the_event_record_carries_the_time_and_the_provider() {
     let mut out = [0_u8; 96];
     let used = ready_event(123_456, "wiki", &mut out).unwrap();
-    let Record::EventLookupReady(event) = wire::record_decode_one(&out[..used]).unwrap() else {
+    let Record::EventLookupReady(event) = wire::records_decode_single(&out[..used]).unwrap() else {
         panic!("an event")
     };
     assert_eq!((event.now_ms, event.provider), (123_456, "wiki"));

@@ -3,3 +3,7 @@ The sleep screen decides what the screen shows while the device sleeps. E-ink ke
 Choose it in the settings, under Device, Sleep screen, with Show: a sleeping cat (the default), the book's cover, my pictures, the logo and "Sleeping", widgets, the page as it is, or the page with a picture. My pictures shows the files of the Pictures folder one after the other.
 
 Without a cover or a picture the cat shows. Where the system draws the sleep screen itself, these settings are hidden.
+
+The off screen, Show when switched off, is drawn once as the device is switched off, from the power menu or after the time of Switch off after sleeping (not when a low battery cuts the power). It is as the sleep screen unless you choose the logo and "Switched off", the cat, the cover or my pictures. Another plugin can offer a screen for it.
+
+The start and the restart screen, Show when starting and Show when restarting, are the device's own unless another plugin offers a screen for them. Plugins do not run yet while the device starts: the screen chosen for the start is drawn ahead, as the device switches off or restarts, and shown at the next start. A screen that is not ready in time, or a picture that is damaged, gives way to the device's own; the device switches off or restarts in any case.

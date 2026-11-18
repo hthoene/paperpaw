@@ -1,61 +1,54 @@
-//! Refreshes: why the panel is refreshed, verdicts of
-//! filters (a mode, grays, later), a mode set exactly, a screen's own
-//! mode when it opens.
+//! Refreshes: a mode set exactly, a screen's own mode when it opens,
+//! the periodic full refresh.
 
 use super::*;
+use crate::Staging;
 use paperpaw_sdk::Params;
-use paperpaw_sdk::filters::{Refresh, RefreshCause, RefreshFilterSpec, RefreshVerdict};
 
 const PAGE: Id = Id::new_static("r.page");
 const SHEET: Id = Id::new_static("r.sheet");
 const STATUS: Id = Id::new_static("r.status");
 const EXACT: Id = Id::new_static("r.exact");
-const GRAYS: Id = Id::new_static("r.grays");
 const TURN: Id = Id::new_static("r.turn");
 const LOCK: Id = Id::new_static("r.lock");
-const OPEN: Id = Id::new_static("r.open");
-
-type Seen = Rc<RefCell<Vec<Refresh>>>;
+const ITEM: Id = Id::new_static("r.item");
+const READING: Id = Id::new_static("r.reading");
 
 /// A page that guards the device.
 struct Lock;
 
-impl Screen for Lock {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl crate::testing::Fake for Lock {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn guards(&self) -> bool {
-        true
+    fn flags(&self) -> u32 {
+        crate::testing::GUARDS
     }
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         Page.on_action(action, cx)
     }
 }
 
 /// A page: its status line changes (`r.status`), a change it sets the
-/// mode of exactly (`r.exact`), a change that wants grays (`r.grays`).
+/// mode of exactly (`r.exact`).
 struct Page;
 
-impl Screen for Page {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl crate::testing::Fake for Page {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
         if *action == STATUS {
             cx.request_redraw_area(Rect::new(0, 0, 10, 5));
-            cx.refresh_cause(RefreshCause::Status);
         } else if *action == EXACT {
             cx.request_redraw_area(Rect::new(0, 20, 10, 5));
             cx.request_refresh(RefreshMode::Full);
             cx.set_refresh(RefreshMode::Fast);
-        } else if *action == GRAYS {
-            cx.request_redraw_area(Rect::new(0, 40, 10, 5));
+        } else if *action == ITEM {
+            // A line of the screen, as a clock or a focus moved.
+            cx.request_redraw_area(Rect::new(0, 60, 10, 5));
         } else if *action == TURN {
             // A page turned: the whole screen.
             cx.request_redraw();
-        } else if *action == OPEN {
-            // A screen opened, said to be a status line.
-            cx.refresh_cause(RefreshCause::Status);
-            cx.command(Command::OpenScreen(SHEET, paperpaw_sdk::Params::new()));
         } else {
             return Handled::No;
         }
@@ -63,68 +56,52 @@ impl Screen for Page {
     }
 }
 
-struct Refreshing(Seen);
-
-impl Plugin for Refreshing {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("r"), "Refreshing", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn refreshing_items() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
             PAGE,
             "page",
             Box::new(|_, _| Box::new(Page)),
         ))?;
-        r.add_screen(
-            ScreenSpec::new(SHEET, "sheet", Box::new(|_, _| Box::new(Page)))
+        r.add_fake(
+            crate::testing::FakeSpec::new(SHEET, "sheet", Box::new(|_, _| Box::new(Page)))
                 .refresh_on_open(RefreshMode::Fast),
         )?;
-        r.add_screen(ScreenSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             LOCK,
             "lock",
             Box::new(|_, _| Box::new(Lock)),
         ))?;
+        r.add_fake(crate::testing::FakeSpec::new(
+            READING,
+            "reading",
+            Box::new(|_, _| Box::new(Page)),
+        ))?;
         r.bind_slot(slots::HOME, PAGE, Priority::DEFAULT)?;
-        let seen = self.0.clone();
-        r.add_refresh_filter(RefreshFilterSpec::new(
-            Id::new_static("r.filter"),
-            "",
-            Box::new(move |_, refresh| {
-                seen.borrow_mut().push(refresh.clone());
-                match refresh.cause {
-                    // A status line changed: shown with what comes next;
-                    // screens too, as far as the kernel lets it.
-                    RefreshCause::Status | RefreshCause::Screens => RefreshVerdict::Defer,
-                    _ if refresh.region.y == 40 => RefreshVerdict::Grays(true),
-                    _ => RefreshVerdict::Keep,
-                }
-            }),
-        ))
+        r.bind_slot(slots::READER, READING, Priority::DEFAULT)
     }
 }
 
-fn refreshing() -> (Kernel, Seen) {
-    let seen = Seen::default();
+/// What [`refreshing_items`] registers under.
+fn refreshing_manifest() -> Manifest {
+    Manifest::new(Id::new_static("r"), "Refreshing", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
+}
+
+fn refreshing() -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Refreshing(seen.clone()))
+        .items(refreshing_manifest(), refreshing_items())
         .build()
         .unwrap();
     kernel.start(Instant(0));
     render(&mut kernel);
-    seen.borrow_mut().clear();
-    (kernel, seen)
+    kernel
 }
 
-/// Filters hear why the panel is refreshed: a screen opened, a status
-/// line; a refresh deferred goes with the next one.
+/// A mode set exactly wins over the full refresh requested.
 #[test]
-fn a_deferred_refresh_goes_with_the_next() {
-    let (mut kernel, seen) = refreshing();
-    let effects = kernel.run_action(Instant(10), STATUS);
-    assert_eq!(effects.refresh(), None);
-    assert_eq!(seen.borrow()[0].cause, RefreshCause::Status);
+fn a_mode_set_exactly_wins() {
+    let mut kernel = refreshing();
     let effects = kernel.run_action(Instant(20), EXACT);
     let (region, mode) = effects.refresh().unwrap();
     assert_eq!(
@@ -132,30 +109,18 @@ fn a_deferred_refresh_goes_with_the_next() {
         RefreshMode::Fast,
         "set exactly, over the full requested"
     );
-    assert!(
-        region.contains(Point::new(1, 1)),
-        "the status line: {region:?}"
-    );
     assert!(region.contains(Point::new(1, 21)), "{region:?}");
-    let effects = kernel.run_action(Instant(30), GRAYS);
-    assert!(effects.grays, "a filter wanted grays");
 }
 
-/// A screen opened in the mode it asks for; the filters hear it was a
-/// screen, on top, and how many partial refreshes were made since the
-/// panel was last cleaned.
+/// A screen opened in the mode it asks for.
 #[test]
 fn a_screen_opens_in_its_own_mode() {
-    let (mut kernel, seen) = refreshing();
+    let mut kernel = refreshing();
     let effects = kernel.open_screen(Instant(10), SHEET, Params::new());
     assert_eq!(
         effects.refresh().map(|(_, mode)| mode),
         Some(RefreshMode::Fast)
     );
-    let refresh = seen.borrow()[0].clone();
-    assert_eq!(refresh.cause, RefreshCause::Screens);
-    assert_eq!(refresh.screen, Some(SHEET));
-    assert!(!refresh.periodic);
     let effects = kernel.open_screen(Instant(20), PAGE, Params::new());
     assert_eq!(
         effects.refresh().map(|(_, mode)| mode),
@@ -163,146 +128,136 @@ fn a_screen_opens_in_its_own_mode() {
     );
 }
 
-/// The periodic full refresh says it is one; a clearing refresh cleans
-/// the panel as a full one does.
+/// A clearing refresh cleans the panel as a full one does: the periodic
+/// full refresh counts from it.
 #[test]
-fn the_periodic_full_refresh_says_so() {
-    let (mut kernel, seen) = refreshing();
+fn the_periodic_full_refresh_counts_from_a_clearing_one() {
+    let mut kernel = refreshing();
     kernel
         .set_setting(Instant(1), settings::FULL_REFRESH_INTERVAL.as_str(), "2")
         .unwrap();
     render(&mut kernel);
     let screen = kernel.framebuffer.bounds();
-    kernel
-        .frame
-        .refresh
-        .done(RefreshMode::Clear, screen, screen);
-    seen.borrow_mut().clear();
-    for at in [10, 20] {
-        kernel.run_action(Instant(at), TURN);
-        render(&mut kernel);
-    }
-    let seen = seen.borrow();
-    assert_eq!(seen[0].since_full, 0);
-    assert!(!seen[0].periodic);
-    assert!(seen[1].periodic, "{:?}", seen[1]);
-    assert_eq!(seen[1].mode, RefreshMode::Full);
+    kernel.frame.refresh.done(
+        RefreshMode::Clear,
+        screen,
+        screen,
+        crate::refresh::Intervals::default(),
+    );
+    assert_eq!(kernel.frame.refresh.since_full(), 0);
+    let modes: Vec<_> = [10, 20]
+        .map(|at| {
+            let mode = kernel.run_action(Instant(at), TURN).refresh().map(|r| r.1);
+            render(&mut kernel);
+            mode
+        })
+        .into();
+    assert_eq!(modes, [Some(RefreshMode::Partial), Some(RefreshMode::Full)]);
 }
 
-/// Refreshes are deferred at most three times in a row, and never while
-/// a screen guards the device.
+/// Where the menus' full refresh is set (#255), small refreshes in a menu
+/// count and the third flashes the whole screen; on the reading screen
+/// (the reader's slot) they neither count nor flash.
 #[test]
-fn refreshes_are_deferred_seldom() {
-    let (mut kernel, _) = refreshing();
-    for at in [10, 20, 30] {
-        assert_eq!(kernel.run_action(Instant(at), STATUS).refresh(), None);
-    }
-    assert!(kernel.run_action(Instant(40), STATUS).refresh().is_some());
-    kernel.open_screen(Instant(50), LOCK, Params::new());
+fn small_refreshes_flash_in_menus_but_never_while_reading() {
+    let mut kernel = refreshing();
+    kernel
+        .set_setting(Instant(1), crate::refresh::UI_FULL_REFRESH_INTERVAL, "3")
+        .unwrap();
+    // Screens open without a flash, as on the X4: what reading counted
+    // would show in the menu.
+    kernel
+        .set_setting(Instant(1), settings::FLASH_SCREENS.as_str(), "false")
+        .unwrap();
+    kernel.open_slot(Instant(2), slots::READER, Params::new());
     render(&mut kernel);
-    assert!(
-        kernel.run_action(Instant(60), STATUS).refresh().is_some(),
-        "under the lock"
+    assert_eq!(kernel.active_screen(), Some(&READING));
+    let screen = kernel.framebuffer.bounds();
+    let modes = |kernel: &mut Kernel, start: u64| {
+        (0..5)
+            .map(|at| {
+                let (region, mode) = kernel
+                    .run_action(Instant(start + at * 10), ITEM)
+                    .refresh()
+                    .unwrap();
+                render(kernel);
+                (mode, region == screen)
+            })
+            .collect::<Vec<_>>()
+    };
+    let small = (RefreshMode::Partial, false);
+    let flash = (RefreshMode::Full, true);
+    assert_eq!(modes(&mut kernel, 10), [small; 5], "reading");
+    kernel.open_screen(Instant(100), PAGE, Params::new());
+    render(&mut kernel);
+    assert_eq!(kernel.active_screen(), Some(&PAGE));
+    // Reading counted nothing: the third in the menu flashes, not the first.
+    assert_eq!(
+        modes(&mut kernel, 200),
+        [small, small, flash, small, small],
+        "in a menu"
     );
 }
 
-/// A screen opened is refreshed, whatever cause a screen said.
-#[test]
-fn a_screen_opened_is_never_deferred() {
-    let (mut kernel, _) = refreshing();
-    let effects = kernel.run_action(Instant(10), OPEN);
-    assert!(effects.refresh().is_some());
-    assert_eq!(kernel.active_screen(), Some(&SHEET));
-}
-
-/// Counts the refreshes it sees.
-struct Spy(Rc<core::cell::Cell<u32>>);
-
-impl Plugin for Spy {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("spy"), "Spy", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let seen = self.0.clone();
-        r.add_refresh_filter(RefreshFilterSpec::new(
-            Id::new_static("spy.refresh"),
-            "",
-            Box::new(move |_, _| {
-                seen.set(seen.get() + 1);
-                RefreshVerdict::Keep
-            }),
-        ))
-    }
-}
-
-/// While a screen guards the device, another plugin's refresh filters see
-/// no refresh, and presses are not counted: neither tells how long a code
-/// typed is.
+/// While a screen guards the device, presses are not counted: that would
+/// tell how long a code typed is.
 #[test]
 fn nothing_counts_what_is_typed_into_a_guard() {
-    let seen = Rc::new(core::cell::Cell::new(0));
-    let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Refreshing(Seen::default()))
-        .plugin(Spy(seen.clone()))
-        .build()
-        .unwrap();
-    kernel.start(Instant(0));
-    render(&mut kernel);
+    let mut kernel = refreshing();
     kernel.open_screen(Instant(10), LOCK, paperpaw_sdk::Params::new());
     render(&mut kernel);
-    let (before, inputs) = (seen.get(), kernel.shared.usage.inputs);
+    let inputs = kernel.shared.usage.inputs;
     press(&mut kernel, 1000, "confirm");
     kernel.run_action(Instant(2000), STATUS);
     render(&mut kernel);
-    assert_eq!(seen.get(), before);
     assert_eq!(kernel.shared.usage.inputs, inputs);
 }
 
-/// A valid home screen that draws only an overlay, as a plugin may do.
-struct OverlayHome;
 struct OverlayHomeScreen;
 
-impl Screen for OverlayHomeScreen {
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
+impl crate::testing::Fake for OverlayHomeScreen {
+    fn region(&self, _: &Place<'_>) -> Option<Rect> {
         Some(Rect::new(0, 45, 90, 45))
     }
 
-    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Env<'_>) {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
         canvas.fill_rect(0, 45, 90, 45, Color::BLACK);
     }
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
 
-impl Plugin for OverlayHome {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("initial"), "Initial", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+/// A valid home screen that draws only an overlay, as a plugin may do.
+fn overlay_home() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         const HOME: Id = Id::new_static("initial.home");
-        r.add_screen(ScreenSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             HOME,
             "Home",
             Box::new(|_, _| Box::new(OverlayHomeScreen)),
         ))?;
         r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)?;
-        r.on(paperpaw_sdk::builtin::events::STARTED, |_, _, out| {
-            out.push(Command::Sleep);
-            out.push(Command::Restart);
+        r.on(paperpaw_sdk::builtin::events::STARTED, |k, p| {
+            k.with_event(&paperpaw_sdk::builtin::events::STARTED, p, |_, _, out| {
+                out.push(Ask::Sleep);
+                out.push(Ask::Restart);
+            });
         })
     }
+}
+
+/// What [`overlay_home`] registers under.
+fn overlay_home_manifest() -> Manifest {
+    Manifest::new(Id::new_static("initial"), "Initial", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 #[test]
 fn startup_overlay_replaces_every_row_and_preserves_start_effects() {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(OverlayHome)
+        .items(overlay_home_manifest(), overlay_home())
         .sleep(true)
         .frame_rows(10)
         .build()
@@ -329,7 +284,7 @@ fn startup_overlay_replaces_every_row_and_preserves_start_effects() {
 #[test]
 fn a_full_redraw_keeps_deferred_work_and_its_final_frame() {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Opener)
+        .items(crate::tests::opener_manifest(), crate::tests::opener())
         .busy_mark(true)
         .clock(still_clock)
         .frame_rows(10)
@@ -360,13 +315,16 @@ fn a_full_redraw_keeps_deferred_work_and_its_final_frame() {
 fn two_small_items_far_apart_are_no_page_and_keep_a_picture_in_place() {
     let shown = Rc::new(RefCell::new(true));
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(PicturePlugin(shown.clone()))
+        .items(
+            crate::tests::picture_plugin_manifest(),
+            crate::tests::picture_plugin(shown.clone()),
+        )
         .build()
         .unwrap();
     kernel.start(Instant(0));
     render(&mut kernel);
     let mode = |effects: crate::Effects| effects.refresh();
-    kernel.apply(Command::Redraw(RefreshMode::Partial));
+    kernel.apply(Ask::Redraw(RefreshMode::Partial));
     kernel.finish();
     render(&mut kernel);
     assert!(kernel.frame.pictures_shown);
@@ -387,6 +345,48 @@ fn two_small_items_far_apart_are_no_page_and_keep_a_picture_in_place() {
     // A whole screen drawn anew still is a page, and leaving the
     // picture still refreshes in full.
     *shown.borrow_mut() = false;
-    kernel.apply(Command::Redraw(RefreshMode::Partial));
+    kernel.apply(Ask::Redraw(RefreshMode::Partial));
     assert_eq!(mode(kernel.finish()).map(|m| m.1), Some(RefreshMode::Full));
+}
+
+/// A page's pictures drawn after its text (`command.redraw_area`) are no
+/// page turned, however large: their frame is not counted, nor is it the
+/// one made the full refresh of the whole screen that is due.
+#[test]
+fn a_followup_of_most_of_the_screen_is_no_page_turned() {
+    let mut kernel = refreshing();
+    kernel
+        .set_setting(Instant(1), settings::FULL_REFRESH_INTERVAL.as_str(), "3")
+        .unwrap();
+    render(&mut kernel);
+    let screen = kernel.framebuffer.bounds();
+    kernel.frame.refresh.done(
+        RefreshMode::Clear,
+        screen,
+        screen,
+        crate::refresh::Intervals::default(),
+    );
+    // Two pages turned: the third is the full one.
+    for at in [10, 20] {
+        kernel.run_action(Instant(at), TURN);
+        render(&mut kernel);
+    }
+    assert_eq!(kernel.frame.refresh.since_full(), 2);
+    // The second page's pictures, three quarters of the screen.
+    let key = kernel.shared.stack.last().unwrap().key;
+    let (width, height) = (u32::from(screen.width), u32::from(screen.height) * 3 / 4);
+    let area = crate::native_host::commands::Area::new(0, 0, width, height).unwrap();
+    kernel.frame.followup = Some(crate::native_host::commands::Followup {
+        screen: key,
+        mode: Some(RefreshMode::Partial),
+        areas: alloc::vec![area],
+    });
+    let (region, mode) = kernel.tick(Instant(30)).refresh().unwrap();
+    assert_eq!(mode, RefreshMode::Partial);
+    assert_eq!(u32::from(region.height), height, "the pictures' box only");
+    render(&mut kernel);
+    assert_eq!(kernel.frame.refresh.since_full(), 2);
+    // The page turned next is.
+    let (region, mode) = kernel.run_action(Instant(40), TURN).refresh().unwrap();
+    assert_eq!((region, mode), (screen, RefreshMode::Full));
 }

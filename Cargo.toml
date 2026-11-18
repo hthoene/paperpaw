@@ -11,7 +11,6 @@ members = [
     "crates/paperpaw-i18n",
     "crates/paperpaw-graphics",
     "crates/paperpaw-lang",
-    "crates/paperpaw-table",
     "crates/paperpaw-text",
     "crates/paperpaw-document",
     "crates/paperpaw-layout",
@@ -33,6 +32,7 @@ members = [
     "crates/paperpaw-scripted-host",
     "crates/paperpaw-json",
     "crates/paperpaw-qr",
+    "crates/paperpaw-caldav",
     "crates/paperpaw-ui-kit",
     "crates/paperpaw-hid",
     "crates/paperpaw-sort",
@@ -43,10 +43,16 @@ members = [
     "plugins/fonts-browser",
     "plugins/store",
     "plugins/format-mobi",
+    "plugins/format-rtf",
     "plugins/format-docx",
     "plugins/format-images",
     "plugins/format-txt",
+    "crates/paperpaw-epub-family",
     "plugins/format-epub",
+    "plugins/format-html",
+    "plugins/format-fb2",
+    "plugins/format-markdown",
+    "plugins/format-cbz",
     "plugins/format-xtc",
     "plugins/reader",
     "plugins/files",
@@ -85,14 +91,20 @@ members = [
     "plugins/mail",
     "plugins/wallabag",
     "plugins/about",
+    "plugins/anki",
+    "plugins/picture-frame",
+    "plugins/file-sync",
     "plugins/setup",
     "plugins/update",
     "plugins/widgets",
-    "samples/hello-plugin",
-    "samples/frame-test",
-    "samples/interlinear",
     "plugins/news",
     "plugins/weather",
+    "plugins/pomodoro",
+    "plugins/smart-home",
+    "plugins/puzzles",
+    "plugins/edge-light",
+    "plugins/tasks",
+    "plugins/calendar",
     "plugins/plugin-manager",
     "plugins/settings",
     "plugins/home",
@@ -106,7 +118,7 @@ members = [
     "tools/publish",
     "tools/dev",
     "tools/checks",
-    "tools/library-bench",
+    "tools/stack-budget",
 ]
 
 [workspace.package]
@@ -126,7 +138,6 @@ paperpaw-serve = { path = "crates/paperpaw-serve", version = "0.6.0-beta.3" }
 paperpaw-i18n = { path = "crates/paperpaw-i18n", version = "0.6.0-beta.3" }
 paperpaw-graphics = { path = "crates/paperpaw-graphics", version = "0.6.0-beta.3" }
 paperpaw-lang = { path = "crates/paperpaw-lang", version = "0.6.0-beta.3" }
-paperpaw-table = { path = "crates/paperpaw-table", version = "0.6.0-beta.3" }
 paperpaw-sort = { path = "crates/paperpaw-sort", version = "0.6.0-beta.3" }
 paperpaw-text = { path = "crates/paperpaw-text", version = "0.6.0-beta.3" }
 paperpaw-document = { path = "crates/paperpaw-document", version = "0.6.0-beta.3" }
@@ -141,14 +152,16 @@ paperpaw-update = { path = "crates/paperpaw-update", version = "0.6.0-beta.3" }
 paperpaw-digest = { path = "crates/paperpaw-digest", version = "0.6.0-beta.3" }
 paperpaw-native = { path = "crates/paperpaw-native", version = "0.6.0-beta.3" }
 paperpaw-publish = { path = "tools/publish" }
+paperpaw-stack-budget = { path = "tools/stack-budget" }
 paperpaw-json = { path = "crates/paperpaw-json", version = "0.6.0-beta.3" }
 paperpaw-qr = { path = "crates/paperpaw-qr", version = "0.6.0-beta.3" }
+paperpaw-caldav = { path = "crates/paperpaw-caldav", version = "0.6.0-beta.3" }
 paperpaw-ui-kit = { path = "crates/paperpaw-ui-kit", version = "0.6.0-beta.3" }
 paperpaw-hid = { path = "crates/paperpaw-hid", version = "0.6.0-beta.3" }
 paperpaw-sdk = { path = "crates/paperpaw-sdk", version = "0.6.0-beta.3" }
 paperpaw-core = { path = "crates/paperpaw-core", version = "0.6.0-beta.3" }
 paperpaw-hyphen = { path = "crates/paperpaw-hyphen", version = "0.6.0-beta.3" }
-paperpaw-default-packs = { path = "crates/paperpaw-default-packs", version = "0.6.0-beta.3" }
+paperpaw-default-packs = { path = "crates/paperpaw-default-packs" }
 paperpaw-image = { path = "crates/paperpaw-image", version = "0.6.0-beta.3" }
 paperpaw-app = { path = "crates/paperpaw-app", version = "0.6.0-beta.3" }
 paperpaw-fs = { path = "crates/paperpaw-fs", version = "0.6.0-beta.3" }
@@ -167,11 +180,12 @@ paperpaw-plugin-notes-overview = { path = "plugins/notes-overview", version = "1
 paperpaw-plugin-picture-home = { path = "plugins/picture-home", version = "1.0.0" }
 paperpaw-plugin-notes-vault = { path = "plugins/notes-vault", version = "1.0.0" }
 paperpaw-plugin-format-mobi = { path = "plugins/format-mobi", version = "1.0.2" }
+paperpaw-plugin-format-rtf = { path = "plugins/format-rtf", version = "1.0.0" }
 paperpaw-plugin-format-docx = { path = "plugins/format-docx", version = "1.0.2" }
 paperpaw-plugin-format-images = { path = "plugins/format-images", version = "1.0.2" }
 paperpaw-plugin-wifi = { path = "plugins/wifi", version = "1.0.2" }
 paperpaw-plugin-bluetooth = { path = "plugins/bluetooth", version = "1.0.3" }
-paperpaw-plugin-power = { path = "plugins/power", version = "1.1.2" }
+paperpaw-plugin-power = { path = "plugins/power", version = "1.1.3" }
 paperpaw-plugin-file-manager = { path = "plugins/file-manager", version = "1.0.3" }
 paperpaw-plugin-transfer = { path = "plugins/transfer", version = "1.0.3" }
 paperpaw-plugin-browser = { path = "plugins/browser", version = "1.0.3" }
@@ -194,10 +208,19 @@ paperpaw-plugin-joplin = { path = "plugins/joplin", version = "1.0.2" }
 paperpaw-plugin-koreader = { path = "plugins/koreader", version = "1.0.6" }
 paperpaw-plugin-wallabag = { path = "plugins/wallabag", version = "1.0.2" }
 paperpaw-plugin-about = { path = "plugins/about", version = "1.0.3" }
+paperpaw-plugin-anki = { path = "plugins/anki", version = "1.0.0" }
+paperpaw-plugin-picture-frame = { path = "plugins/picture-frame", version = "1.0.0" }
+paperpaw-plugin-file-sync = { path = "plugins/file-sync", version = "1.0.0" }
 paperpaw-plugin-setup = { path = "plugins/setup", version = "1.0.4" }
 paperpaw-plugin-update = { path = "plugins/update", version = "1.0.2" }
 paperpaw-plugin-news = { path = "plugins/news", version = "1.0.5" }
 paperpaw-plugin-weather = { path = "plugins/weather", version = "1.0.2" }
+paperpaw-plugin-pomodoro = { path = "plugins/pomodoro", version = "1.0.0" }
+paperpaw-plugin-smart-home = { path = "plugins/smart-home", version = "1.0.0" }
+paperpaw-plugin-puzzles = { path = "plugins/puzzles", version = "1.0.0" }
+paperpaw-plugin-edge-light = { path = "plugins/edge-light", version = "1.0.0" }
+paperpaw-plugin-tasks = { path = "plugins/tasks", version = "1.0.0" }
+paperpaw-plugin-calendar = { path = "plugins/calendar", version = "1.0.0" }
 paperpaw-plugin-widgets = { path = "plugins/widgets", version = "1.0.3" }
 paperpaw-plugin-keyboard = { path = "plugins/keyboard", version = "1.1.0" }
 paperpaw-plugin-plugin-manager = { path = "plugins/plugin-manager", version = "1.0.4" }
@@ -205,7 +228,12 @@ paperpaw-plugin-home = { path = "plugins/home", version = "1.0.2" }
 paperpaw-plugin-settings = { path = "plugins/settings", version = "1.0.2" }
 paperpaw-plugin-files = { path = "plugins/files", version = "1.0.3" }
 paperpaw-plugin-reader = { path = "plugins/reader", version = "1.0.3" }
-paperpaw-plugin-format-epub = { path = "plugins/format-epub", version = "1.0.3" }
+paperpaw-epub-family = { path = "crates/paperpaw-epub-family", version = "1.0.5" }
+paperpaw-plugin-format-epub = { path = "plugins/format-epub", version = "1.0.5" }
+paperpaw-plugin-format-html = { path = "plugins/format-html", version = "1.0.5" }
+paperpaw-plugin-format-fb2 = { path = "plugins/format-fb2", version = "1.0.5" }
+paperpaw-plugin-format-markdown = { path = "plugins/format-markdown", version = "1.0.5" }
+paperpaw-plugin-format-cbz = { path = "plugins/format-cbz", version = "1.0.5" }
 paperpaw-plugin-format-txt = { path = "plugins/format-txt", version = "1.0.1" }
 paperpaw-plugin-format-xtc = { path = "plugins/format-xtc", version = "1.0.1" }
 paperpaw-plugin-fonts-default = { path = "plugins/fonts-default", version = "1.0.1", default-features = false }
@@ -214,9 +242,9 @@ proptest = { version = "1.5", default-features = false, features = ["std"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
-# `paperpaw_plugin`: set where native plugin files are built (ADR 0024,
-# samples/hello-native). `fuzzing`: set by cargo-fuzz.
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(paperpaw_plugin)", "cfg(paperpaw_table_host)", "cfg(fuzzing)"] }
+# `paperpaw_plugin`: set where plugin files of the format before interface 7
+# were built (ADR 0024). `fuzzing`: set by cargo-fuzz.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(paperpaw_plugin)", "cfg(fuzzing)"] }
 missing_debug_implementations = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }
 

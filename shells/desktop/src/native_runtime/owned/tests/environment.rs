@@ -1,8 +1,10 @@
-//! Actual foreign callbacks read the current Env through the pinned owner.
+//! Actual foreign callbacks read the current Place through the pinned owner.
 use super::super::environment as bridge;
 use super::*;
+use paperpaw_core::KernelBuilder;
+use paperpaw_core::Place;
 use paperpaw_core::native_host::environment::SNAPSHOT_BYTES;
-use paperpaw_core::sdk::{Env, Manifest, Plugin, RegisterError, Registrar, SettingSpec, builtin};
+use paperpaw_core::sdk::{Manifest, SettingSpec, builtin};
 use paperpaw_native::host_glue::PpBuffer;
 use paperpaw_platform::{
     Battery, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
@@ -66,43 +68,43 @@ static TEXT: [SettingSpec; 1] = [SettingSpec::text(
     builtin::groups::OTHER,
 )];
 
-type Run = Rc<dyn Fn(&Env<'_>)>;
-struct Probe {
-    run: Run,
-    specs: &'static [SettingSpec],
+type Run = Rc<dyn Fn(&Place<'_>)>;
+std::thread_local! {
+    /// What runs with the live `Place` once the kernel has started, in the
+    /// test running (the handler is a plain function and holds nothing).
+    static CAPTURE: std::cell::RefCell<Option<Run>> = const { std::cell::RefCell::new(None) };
 }
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            paperpaw_core::sdk::Id::new_static("abi7-tick-draw"),
-            "Scope probe",
-            paperpaw_core::sdk::Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, registrar: &mut Registrar) -> Result<(), RegisterError> {
-        registrar.add_settings(self.specs)?;
-        let run = self.run.clone();
-        registrar.subscribe(
-            builtin::events::STARTED,
-            Box::new(move |env, _, _| run(env)),
-        )
-    }
+/// Settings `specs`, and `run` with the live `Place` when the kernel has started.
+fn probe(builder: KernelBuilder, run: Run, specs: &'static [SettingSpec]) -> KernelBuilder {
+    let manifest = Manifest::new(
+        paperpaw_core::sdk::Id::new_static("abi7-tick-draw"),
+        "Scope probe",
+        paperpaw_core::sdk::Version::new(1, 0, 0),
+    );
+    CAPTURE.with(|capture| *capture.borrow_mut() = Some(run));
+    builder.items(manifest, move |items| {
+        items.add_settings(specs)?;
+        items.subscribe(builtin::events::STARTED, |k, _| {
+            if let Some(run) = CAPTURE.with(|capture| capture.borrow().clone()) {
+                k.with_env(|env, _| run(env));
+            }
+        })
+    })
 }
 
 pub(super) fn run(
     specs: &'static [SettingSpec],
     value: &str,
     status: SystemStatus,
-    callback: impl Fn(&Env<'_>) + 'static,
+    callback: impl Fn(&Place<'_>) + 'static,
 ) {
     let calls = Rc::new(Cell::new(0));
     let observed = calls.clone();
-    let run = Rc::new(move |env: &Env<'_>| {
+    let run = Rc::new(move |env: &Place<'_>| {
         callback(env);
         observed.set(observed.get() + 1);
     });
-    let mut kernel = paperpaw_core::Kernel::builder(DEVICE)
-        .plugin(Probe { run, specs })
+    let mut kernel = probe(paperpaw_core::Kernel::builder(DEVICE), run, specs)
         .setting_default_text(KEY, value)
         .build()
         .unwrap();
@@ -247,7 +249,7 @@ fn foreign_callbacks_copy_snapshot_and_typed_settings_only_during_admission() {
     }
 }
 
-fn check_foreign(fixture: &Fixture, env: &Env<'_>) {
+fn check_foreign(fixture: &Fixture, env: &Place<'_>) {
     let (plugin, evidence) = fixture.open();
     let batch = plugin
         .make_registered(plugin.begin::<Registration>().unwrap())

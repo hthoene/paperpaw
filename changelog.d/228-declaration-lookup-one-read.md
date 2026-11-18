@@ -1,0 +1,3 @@
+### Changed
+
+- **Looking a declaration up by name in a plugin's image is about 45 % cheaper** (#248, #228). A plugin whose declarations stay in its image (no index kept on the heap) was read once per batch for every lookup, and every record of the kind was decoded to compare its name. A lookup now reads the image once, walks each batch's frames once and decodes only the records whose bytes hold the name. Opening the settings group of the stats plugin (93 widget settings) costs 3.05 instead of 5.57 thousand million instructions (emulator only, development build); the answers are the same. A record that cannot hold the name is no longer decoded, so a decoding error in it is not reported by a lookup of another name (it still is where the records are listed).

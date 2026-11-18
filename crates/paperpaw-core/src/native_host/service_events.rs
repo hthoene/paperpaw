@@ -1,5 +1,7 @@
 //! What the kernel's event pump asks of a host service that raises events
-//! to plugins: `core.net` (99-102) and `core.sockets` (106, 107) today.
+//! to plugins: `core.net` (99-102), `core.sockets` (106, 107),
+//! `core.document` (`event.document_closed`, 108) and `core.lookup`
+//! (`event.lookup_ready`, 110) today.
 //!
 //! The service queues its events as the shell reports (`NetReports`,
 //! `SockReports`); it never calls a plugin. The kernel, between callbacks,
@@ -10,7 +12,7 @@
 //! callback gets it again). What the plugin may read of the event (a finished
 //! request's answer, a socket's bytes) is readable from the start of that
 //! callback to its return and not after.
-use super::{net_service, sock_service};
+use super::{doc_service, lookup_service::LookupServices, net_service, sock_service};
 
 /// The largest encoded event of a service: the served request of `core.net`
 /// (a 16-byte method, a 1,024-byte target and the fixed fields).
@@ -20,6 +22,12 @@ pub(crate) const EVENT_BUFFER: usize = 1_280;
 /// the service's table: `ERR_BUSY` when the table is borrowed (call again
 /// on the next pass).
 pub(crate) trait ServiceEvents {
+    /// Whether its events go to the plugins that subscribed to their tag only
+    /// (the pump drops one for any other, uncalled). `false`: every event goes
+    /// to its owner (a request's replies).
+    fn subscribers_only(&self) -> bool {
+        false
+    }
     /// The oldest event of `owner`, encoded into `out` as a one-record batch;
     /// its length and the work run it belongs to (`None`: no run), or `None`
     /// when there is no event. A failure consumes nothing.
@@ -66,6 +74,18 @@ pub(crate) trait ServiceEvents {
     /// host that serves it, in milliseconds); `None` when nothing waits on
     /// the clock. A borrowed table answers `Some(0)`: look again.
     fn next_deadline(&self) -> Option<u64>;
+
+    /// The kernel's clock in milliseconds, before the pass's events are
+    /// taken: what a service stamps its events with where it keeps no clock
+    /// of its own.
+    fn set_now(&self, _now_ms: u64) {}
+
+    /// The plugin `owner` started (the kernel took it in): what a power cut
+    /// left of it is cleaned up or restored (a `.received/` folder, a staged
+    /// file kept after a failed rename). Never fails: what cannot be done
+    /// now is tried again at the next claim or the plugin's stop. Default:
+    /// nothing to do.
+    fn owner_started(&self, _owner: u64) {}
 }
 
 impl ServiceEvents for net_service::NetServices {
@@ -87,6 +107,43 @@ impl ServiceEvents for net_service::NetServices {
     fn next_deadline(&self) -> Option<u64> {
         net_service::next_deadline(&*self.0)
     }
+    fn owner_started(&self, owner: u64) {
+        net_service::owner_started(&*self.0, owner);
+    }
+}
+
+impl ServiceEvents for doc_service::DocServices {
+    /// A document's state and its end are told to an opener that subscribed
+    /// (`event.document_changed` 88, `event.document_closed` 108), as
+    /// `lookup_ready`: one that did not is not called for them.
+    fn subscribers_only(&self) -> bool {
+        true
+    }
+    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
+        // Never in a work run: a document's events belong to no request.
+        Ok(self.0.next_event(owner, out)?.map(|length| (length, None)))
+    }
+    fn event_delivered(&self, _owner: u64) -> Result<(), i32> {
+        // The event was taken when it was encoded: nothing the callback read
+        // stays to be freed.
+        Ok(())
+    }
+    fn screen_closed(&self, _owner: u64, _screen: u64) -> Result<(), i32> {
+        Ok(())
+    }
+    fn work_ended(&self, _owner: u64, _run: u64) -> Result<(), i32> {
+        Ok(())
+    }
+    fn tick(&self) -> Result<(), i32> {
+        Ok(())
+    }
+    fn next_deadline(&self) -> Option<u64> {
+        // An event waits: look again at once.
+        self.0.events_waiting().then_some(0)
+    }
+    fn set_now(&self, now_ms: u64) {
+        self.0.set_now(now_ms);
+    }
 }
 
 impl ServiceEvents for sock_service::SockServices {
@@ -107,5 +164,41 @@ impl ServiceEvents for sock_service::SockServices {
     }
     fn next_deadline(&self) -> Option<u64> {
         sock_service::next_deadline(&*self.0)
+    }
+    fn owner_started(&self, owner: u64) {
+        sock_service::owner_started(&*self.0, owner);
+    }
+}
+
+impl ServiceEvents for LookupServices {
+    /// `event.lookup_ready` goes to an asker that subscribed only
+    /// (`document.md` 7): one that did not has no pending ask either.
+    fn subscribers_only(&self) -> bool {
+        true
+    }
+    fn next_event(&self, owner: u64, out: &mut [u8]) -> Result<Option<(usize, Option<u64>)>, i32> {
+        // Never in a work run: the event answers the asker's own ask.
+        Ok(LookupServices::next_event(self, owner, out)?.map(|length| (length, None)))
+    }
+    fn event_delivered(&self, _owner: u64) -> Result<(), i32> {
+        // Taken when it was encoded: nothing stays to be freed.
+        Ok(())
+    }
+    fn screen_closed(&self, _owner: u64, _screen: u64) -> Result<(), i32> {
+        Ok(())
+    }
+    fn work_ended(&self, _owner: u64, _run: u64) -> Result<(), i32> {
+        Ok(())
+    }
+    fn tick(&self) -> Result<(), i32> {
+        Ok(())
+    }
+    fn next_deadline(&self) -> Option<u64> {
+        // An event waits: look again at once. The pending asks' deadlines
+        // need no pass: an ask past its deadline matches nothing.
+        self.events_waiting().then_some(0)
+    }
+    fn set_now(&self, now_ms: u64) {
+        self.set_clock(now_ms);
     }
 }

@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-update"
 description = "PaperPaw firmware updates: finds an update file on the card or on the update server, says what it is and what plugins cannot come along, and installs it, on devices whose firmware PaperPaw is"
-version = "1.0.7"
+version = "1.0.9"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -16,20 +16,19 @@ linked = []
 native-entry = []
 
 [dependencies]
-# Installs firmware and fetches code plugins for it (kernel).
-paperpaw-sdk = { workspace = true, features = ["kernel"] }
+paperpaw-sdk.workspace = true
 paperpaw-ui-kit.workspace = true
 
 [build-dependencies]
-paperpaw-sdk.workspace = true
+# `kernel` only for the build script (not unified with the plugin's own use of
+# the SDK): it makes the tables a linked build keeps in the program.
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
 paperpaw-core.workspace = true
-paperpaw-digest.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-native.workspace = true
-paperpaw-platform.workspace = true
-paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
+paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 paperpaw-update.workspace = true
 
 [lints]

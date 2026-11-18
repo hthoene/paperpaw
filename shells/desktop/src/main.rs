@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use paperpaw_emulator::device::Device;
-use paperpaw_emulator::{budget, cable, device, headless, profiles, trace};
+use paperpaw_emulator::{budget, cable, device, headless, profiles, repl, trace};
 
 const USAGE: &str = "\
 PaperPaw emulator
@@ -25,8 +25,9 @@ OPTIONS:
                           Check a plugin with paperpaw-dev (beside this program),
                           its findings as JSON on standard output
     --trust-code          Load code plugins built for this computer from the
-                          library (plugins/<id>/code-host.dll, .so or .dylib),
-                          those there installed first; without it, none
+                          library (plugins/<id>/code-host.so, interface 7;
+                          Linux x86-64), those there installed first;
+                          without it, none
     --abi7-dev-loader     Developer switch (also PAPERPAW_ABI7_DEV_LOADER=1):
                           load interface-7 code plugins of the library
                           (plugins/<id>/code-host.so) without applying what
@@ -41,6 +42,8 @@ OPTIONS:
     --headless            Run without a window
     --script <steps>      Input steps, e.g. \"page-forward,long:confirm,tap:100:200\"
     --screenshot <file>   Save a PNG of the panel after the script (headless)
+    --repl                Headless: the X4 remote's commands from standard input,
+                          answered as the X4 does (`tools/x4-remote.py --emulator`)
     --library <dir>       Folder emulating the device storage
                           (default: samples/library)
     --screenshot-dir <d>  Where F12 saves screenshots (default: out)
@@ -94,6 +97,8 @@ struct Options {
     heap_report: bool,
     /// The cable transfer on standard input and output.
     cable: bool,
+    /// The X4 remote's commands on standard input and output.
+    repl: bool,
     /// Install the code plugins built for this computer on the card.
     trust_code: bool,
     /// Requests answered from the emulator's fixtures (`--network`).
@@ -113,6 +118,20 @@ fn main() -> ExitCode {
     }
 }
 
+/// Line by line until standard input ends, time passing as it does.
+fn cable_loop(device: &mut Device) {
+    let lines = cable::lines();
+    loop {
+        match lines.recv_timeout(std::time::Duration::from_millis(50)) {
+            Ok(line) => device.cable_line(&line),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+        device.tick_if_due();
+        cable::send(&device.take_cable_lines());
+    }
+}
+
 fn run() -> Result<(), String> {
     let Some(options) = parse_args(std::env::args().skip(1))? else {
         return Ok(());
@@ -123,8 +142,10 @@ fn run() -> Result<(), String> {
 
     // Checked before the library is touched: a run that ends on a wrong
     // argument leaves the library as it was.
-    if !options.headless && (options.script.is_some() || options.screenshot.is_some()) {
-        return Err("--script and --screenshot require --headless".into());
+    if !options.headless
+        && (options.script.is_some() || options.screenshot.is_some() || options.repl)
+    {
+        return Err("--script, --screenshot and --repl require --headless".into());
     }
     let library = options
         .library
@@ -180,19 +201,12 @@ fn run() -> Result<(), String> {
         if let Some(script) = &options.script {
             headless::run_script(&mut device, script)?;
         }
+        if options.repl {
+            repl::serve(&mut device);
+            return Ok(());
+        }
         if options.cable {
-            // Line by line until standard input ends, time passing as it
-            // does.
-            let lines = cable::lines();
-            loop {
-                match lines.recv_timeout(std::time::Duration::from_millis(50)) {
-                    Ok(line) => device.cable_line(&line),
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                }
-                device.tick_if_due();
-                cable::send(&device.take_cable_lines());
-            }
+            cable_loop(&mut device);
             // Standard output is the cable's: nothing more on it.
             return Ok(());
         }
@@ -335,6 +349,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Option<Options>,
             }
             "--headless" => options.headless = true,
             "--cable" => options.cable = true,
+            "--repl" => options.repl = true,
             "--script" => options.script = Some(value("--script")?),
             "--screenshot" => options.screenshot = Some(PathBuf::from(value("--screenshot")?)),
             "--library" => options.library = Some(PathBuf::from(value("--library")?)),

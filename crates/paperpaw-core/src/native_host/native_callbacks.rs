@@ -11,6 +11,18 @@ struct State {
     /// hand-over: set by the kernel just before `Screen::on_reopen`, taken by
     /// the native screen in it (no allocation: a cell, not a carried value).
     open_info: Cell<Option<super::ui_store::Info>>,
+    /// A native screen's `draw` callback returned `OK` since the kernel last
+    /// cleared this (the first draw of an instance raises `event.screen_ready`).
+    drew: Cell<bool>,
+    /// Event batches being delivered and registration transactions open: no
+    /// parked plugin is made again while one is (#248, parked plugins M5).
+    holds: Cell<u16>,
+    /// The kernel's time (ms), for the wait before a parked plugin is tried
+    /// again after it found no memory.
+    now_ms: Cell<u64>,
+    /// An unpark found no memory since the kernel last looked: memory
+    /// pressure, on which one idle plugin is parked again (#248, D3).
+    pressure: Cell<bool>,
 }
 impl State {
     fn enter(&self, fresh: bool) -> Result<u64, i32> {
@@ -61,6 +73,36 @@ impl CallbackClock {
     pub(crate) fn set_open_info(&self, info: Option<super::ui_store::Info>) {
         self.state().open_info.set(info);
     }
+    /// Whether a native screen's draw returned `OK` since the last call;
+    /// clears it.
+    pub(crate) fn take_drew(&self) -> bool {
+        self.state().drew.take()
+    }
+    /// Whether a parked plugin may be made again now: no callback running,
+    /// no event batch being delivered, no registration transaction open.
+    pub(crate) fn safe_point(&self) -> bool {
+        let state = self.state();
+        state.depth.get() == 0 && state.holds.get() == 0
+    }
+    /// The kernel's time now (set at each tick and call).
+    pub(crate) fn set_now(&self, now_ms: u64) {
+        self.state().now_ms.set(now_ms);
+    }
+    /// Whether an unpark found no memory since the last call; clears it.
+    pub(crate) fn take_pressure(&self) -> bool {
+        self.state().pressure.replace(false)
+    }
+    /// Holds unparking off until the returned guard is dropped (an event
+    /// batch being delivered, a registration transaction). `None` where the
+    /// clock is not shared yet (no native plugin): nothing is parked then.
+    pub(crate) fn hold(&self) -> Option<Hold> {
+        let Source::Shared(state) = &self.0 else {
+            return None;
+        };
+        let state = state.try_clone()?;
+        state.holds.set(state.holds.get().saturating_add(1));
+        Some(Hold(state))
+    }
     pub(crate) fn runtime(&mut self) -> Result<CallbackRuntime, i32> {
         if self.depth() != 0 {
             return Err(ERR_STATE);
@@ -70,6 +112,10 @@ impl CallbackClock {
                 depth: Cell::new(0),
                 epoch: Cell::new(state.epoch.get()),
                 open_info: Cell::new(state.open_info.get()),
+                drew: Cell::new(state.drew.get()),
+                holds: Cell::new(state.holds.get()),
+                now_ms: Cell::new(state.now_ms.get()),
+                pressure: Cell::new(state.pressure.get()),
             };
             let shared = Shared::try_new(value).map_err(|_| ERR_NO_MEMORY)?;
             self.0 = Source::Shared(shared);
@@ -81,8 +127,40 @@ impl CallbackClock {
     }
 }
 
+/// Unparking held off while it lives ([`CallbackClock::hold`]).
+#[must_use]
+pub(crate) struct Hold(Shared<State>);
+impl Drop for Hold {
+    fn drop(&mut self) {
+        self.0.holds.set(self.0.holds.get().saturating_sub(1));
+    }
+}
+
 pub(crate) struct CallbackRuntime(Shared<State>);
 impl CallbackRuntime {
+    /// The same clock again (a shared count, no copy).
+    pub(crate) fn try_clone(&self) -> Option<Self> {
+        self.0.try_clone().map(Self)
+    }
+    /// As [`CallbackClock::safe_point`], read through a lease's clock.
+    pub(crate) fn safe_point(&self) -> bool {
+        self.0.depth.get() == 0 && self.0.holds.get() == 0
+    }
+    /// An unpark found no memory (see [`CallbackClock::take_pressure`]).
+    pub(crate) fn note_pressure(&self) {
+        self.0.pressure.set(true);
+    }
+    /// As [`CallbackClock::set_now`]'s time.
+    pub(crate) fn now_ms(&self) -> u64 {
+        self.0.now_ms.get()
+    }
+    /// As [`CallbackClock::hold`], taken by an unpark itself (its own
+    /// registration transaction).
+    pub(crate) fn hold(&self) -> Option<Hold> {
+        let state = self.0.try_clone()?;
+        state.holds.set(state.holds.get().saturating_add(1));
+        Some(Hold(state))
+    }
     pub(crate) fn enter(&self) -> Result<NativeCallbackEpoch, i32> {
         let state = self.0.try_clone().ok_or(ERR_NO_MEMORY)?;
         let epoch = state.enter(true)?;
@@ -90,7 +168,13 @@ impl CallbackRuntime {
             state,
             epoch,
             ending: None,
+            failed: Cell::new(false),
         })
+    }
+
+    /// Notes that a native screen's `draw` returned `OK` (see `take_drew`).
+    pub(crate) fn mark_drew(&self) {
+        self.0.drew.set(true);
     }
 
     /// Takes the hand-over info the kernel set for this `on_reopen`.
@@ -104,20 +188,23 @@ pub(crate) struct NativeCallbackEpoch {
     state: Shared<State>,
     epoch: u64,
     /// The pool and plugin whose status handles end with this callback.
-    ending: Option<(super::resources::OwnerResourceView, u64)>,
+    ending: Option<(super::HostResources, u64)>,
+    /// Whether the callback returned a failure (what it asked never starts).
+    failed: Cell<bool>,
 }
 impl NativeCallbackEpoch {
+    /// The callback returned a failure status.
+    pub(crate) fn set_failed(&self) {
+        self.failed.set(true);
+    }
+
     pub(crate) fn epoch(&self) -> u64 {
         self.epoch
     }
 
     /// When this callback returns, `plugin`'s status handles of it end
     /// (`core.ui` ops 14 and 15, valid inside the callback only).
-    pub(crate) fn ending_status_handles(
-        mut self,
-        pool: super::resources::OwnerResourceView,
-        plugin: u64,
-    ) -> Self {
+    pub(crate) fn ending_status_handles(mut self, pool: super::HostResources, plugin: u64) -> Self {
         self.ending = Some((pool, plugin));
         self
     }
@@ -126,12 +213,15 @@ impl Drop for NativeCallbackEpoch {
     fn drop(&mut self) {
         self.state.leave();
         if let Some((pool, plugin)) = self.ending.take()
-            && let Some(ui) = pool.ui()
+            && let Some(ui) = pool.hosts().ui()
         {
             // A refusal (the table busy) leaves the handles to the plugin's
             // next grant, which drops its earlier callbacks', and to its
             // stop; none outlives its callback in a lookup (epoch check).
             ui.callback_ended(plugin, self.epoch).ok();
+            if self.failed.get() {
+                ui.callback_failed(plugin, self.epoch).ok();
+            }
         }
     }
 }
@@ -156,6 +246,16 @@ mod tests {
         drop(outer);
         assert_eq!(clock.depth(), 0);
         assert!(runtime.enter().unwrap().epoch() > first);
+    }
+    #[test]
+    fn a_good_native_draw_is_seen_once_by_the_kernel() {
+        let mut clock = CallbackClock::default();
+        let runtime = clock.runtime().unwrap();
+        assert!(!clock.take_drew());
+        runtime.mark_drew();
+        assert!(clock.take_drew());
+        // Taken: the next draw has to say it again (a trap or a failure does not).
+        assert!(!clock.take_drew());
     }
     #[test]
     fn exhaustion_never_wraps_and_does_not_enter_a_callback() {

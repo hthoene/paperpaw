@@ -149,21 +149,22 @@ impl NativeAbout {
 }
 
 /// Reads the firmware, the plugins built in and the build code plugins need.
-/// A part the device has none of (`NotFound`) is not an error.
+/// A part the device has none of, or the host has no backend for (`NotFound`,
+/// `Unsupported`: the desktop), is not an error: its row is left out.
 fn read_facts(host: &Host<'_>, device: &Device) -> Result<Facts, Error> {
     let mut input = buffer(SERVICE_BUFFER)?;
     let mut out = buffer(SERVICE_BUFFER)?;
     let mut facts = Facts::default();
     match device.firmware(host, &mut input, &mut out) {
         Ok(firmware) => facts.version = Some(copy(firmware.version())?),
-        Err(Error::NotFound) => {}
+        Err(Error::NotFound | Error::Unsupported) => {}
         Err(error) => return Err(error),
     }
     let mut cursor = DeviceCursor::start();
     for _ in 0..MOST_PAGES {
         let page = match device.builtins(host, cursor, &mut input, &mut out) {
             Ok(page) => page,
-            Err(Error::NotFound) => break,
+            Err(Error::NotFound | Error::Unsupported) => break,
             Err(error) => return Err(error),
         };
         facts.built_in = page.end().total();
@@ -177,10 +178,14 @@ fn read_facts(host: &Host<'_>, device: &Device) -> Result<Facts, Error> {
     }
     match device.native(host, &mut input, &mut out) {
         Ok(native) => facts.native = Some((native.abi_major(), native.abi_draft())),
-        Err(Error::NotFound) => {}
+        Err(Error::NotFound | Error::Unsupported) => {}
         Err(error) => return Err(error),
     }
-    read_lines(host, &mut facts)?;
+    // No stage run to be had (or none allowed): the page has no lines of others.
+    match read_lines(host, &mut facts) {
+        Ok(()) | Err(Error::NotFound | Error::Unsupported) => {}
+        Err(error) => return Err(error),
+    }
     Ok(facts)
 }
 

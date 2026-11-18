@@ -187,18 +187,18 @@ fn capacity_refusal_preserves_record_and_poisoned_transaction() {
     let slot = owner.as_ref().context();
     let mut construction = owner.as_ref().begin("weather").unwrap();
     slot.scope(&mut construction, || {
-        for number in 0..8 {
+        for number in 0..32 {
             slot.submit(Box::new(number)).unwrap();
         }
-        let record = Box::new(8);
+        let record = Box::new(32);
         let address = ptr::from_ref(record.as_ref());
         let (error, returned) = slot.submit(record).unwrap_err();
         assert_eq!(error, Error::Capacity);
         assert_eq!(ptr::from_ref(returned.as_ref()), address);
-        assert_eq!(*returned, 8);
+        assert_eq!(*returned, 32);
         assert_eq!(
-            slot.submit(Box::new(9)),
-            Err((Error::Capacity, Box::new(9)))
+            slot.submit(Box::new(33)),
+            Err((Error::Capacity, Box::new(33)))
         );
     })
     .unwrap();
@@ -418,7 +418,7 @@ fn capacity_failure_precedes_later_decoder_rejection() {
     let slot = owner.as_ref().context();
     let mut construction = owner.as_ref().begin("weather").unwrap();
     slot.scope(&mut construction, || {
-        for _ in 0..8 {
+        for _ in 0..32 {
             assert!(slot.submit(Record(dropped.clone())).is_ok());
         }
         let (error, refused) = slot.submit(Record(dropped.clone())).unwrap_err();
@@ -437,5 +437,5 @@ fn capacity_failure_precedes_later_decoder_rejection() {
         }),
         Err(Error::Capacity)
     ));
-    assert_eq!(dropped.get(), 9);
+    assert_eq!(dropped.get(), 33);
 }

@@ -178,18 +178,23 @@ fn linked_entry_preserves_required_feature_refusals() {
 #[test]
 fn linked_host_copies_service_admission_before_any_factory_call() {
     MAKES.with(|count| count.set(0));
+    static ID: &str = "fixture";
     let admitted = check(entry(METADATA, |_| {}), METADATA, &host()).unwrap();
     // SAFETY: this test's factory and data are static and never unloaded.
     let hosted = unsafe {
         admitted.hosted(
             NoHeap,
-            "fixture",
+            paperpaw_sdk::Id::new_static(ID),
             |_, _, _, _| {},
             super::super::HostResources::try_new().unwrap(),
+            (core::ptr::null(), 0),
         )
     }
     .unwrap();
     assert_eq!(MAKES.with(Cell::get), 0);
+    // The caller is the shell's text, not a copy on the heap (#248, D4).
+    let caller = hosted.owner().context().plugin_id().as_ptr();
+    assert_eq!(caller, ID.as_ptr());
     assert_eq!(hosted.image(), Some(&[][..]));
     let transaction = hosted
         .begin::<super::super::registrations::Registration>()
@@ -227,9 +232,10 @@ fn linked_host_retains_available_features_after_admission() {
     let hosted = unsafe {
         admitted.hosted(
             NoHeap,
-            "fixture",
+            paperpaw_sdk::Id::new_static("fixture"),
             |_, _, _, _| {},
             super::super::HostResources::try_new().unwrap(),
+            (core::ptr::null(), 0),
         )
     }
     .unwrap();

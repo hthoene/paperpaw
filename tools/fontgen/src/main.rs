@@ -417,6 +417,71 @@ mod tests {
         std::fs::remove_file(out).ok();
     }
 
+    /// Amharic books (#159): the Ethiopic pack as `script-pack.py` asks for
+    /// it (here one size) opens within the X4's limits and draws the
+    /// syllables, the wordspace and the full stop through the pack as the
+    /// device reads it, a glyph at a time; what stays in memory is small.
+    #[test]
+    fn the_ethiopic_pack_draws_amharic_within_the_x4s_limits() {
+        use paperpaw_text::{LARGE_SCRIPT, PackLimits, PackSource, StoredPack};
+        struct Memory(Vec<u8>);
+        impl PackSource for Memory {
+            fn read_at(&self, at: u64, buf: &mut [u8]) -> bool {
+                let bytes = usize::try_from(at)
+                    .ok()
+                    .and_then(|at| self.0.get(at..)?.get(..buf.len()));
+                bytes.is_some_and(|bytes| {
+                    buf.copy_from_slice(bytes);
+                    true
+                })
+            }
+        }
+        const CHARS: [&str; 3] = ["U+1200-139F", "U+2D80-2DDF", "U+AB00-AB2F"];
+        let script = concat!(env!("CARGO_MANIFEST_DIR"), "/../script-pack.py");
+        let listed = CHARS.map(|c| format!("\"{c}\"")).join(", ");
+        assert!(
+            std::fs::read_to_string(script).unwrap().contains(&listed),
+            "script-pack.py's ethiopic set is not {listed}"
+        );
+        let font = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../fonts/NotoSerifEthiopic.ttf"
+        );
+        let out = std::env::temp_dir().join(format!("fontgen-ethi-{}.ppfp", std::process::id()));
+        let chars = CHARS.join(",");
+        let args = [
+            font,
+            out.to_str().unwrap(),
+            "--sizes",
+            "20",
+            "--chars",
+            &chars,
+            "--axis",
+            "wght=400",
+        ];
+        run(args.iter().map(|a| (*a).to_string()).collect()).unwrap();
+        let data = std::fs::read(&out).unwrap();
+        std::fs::remove_file(out).ok();
+        let pack = StoredPack::open_within(std::rc::Rc::new(Memory(data)), PackLimits::SMALL)
+            .expect("the pack opens within the limits of a 256 KiB heap");
+        // Every character of the three ranges the font has: an alphabet's
+        // few hundred, so the glyph cache stays the built-in packs'.
+        assert_eq!(pack.chars(), 495);
+        assert!(pack.chars() < LARGE_SCRIPT);
+        // ሰላም፡ዓለም። ("hello, world."), a numeral, and a letter of each of
+        // Ethiopic Supplement, Extended and Extended-A.
+        for c in "ሰላም፡ዓለም።፩\u{1380}\u{2d80}\u{ab01}".chars() {
+            assert!(pack.has_char(c), "{c}");
+            assert!(pack.advance(c, 20.0) > 0.0, "{c}");
+            assert!(pack.render(c, 20.0).unwrap().width > 0, "{c}");
+        }
+        // Latin stays the built-in fonts'; a code point the block leaves
+        // unassigned is not there.
+        assert!(!pack.has_char('a') && !pack.has_char('\u{1249}'));
+        // Its index and the advances of the size in use (1.5 KiB).
+        assert!(pack.bytes() <= 2048, "{} B held", pack.bytes());
+    }
+
     #[test]
     fn set_files_say_their_format() {
         let dir = std::env::temp_dir().join(format!("fontgen-sets-{}", std::process::id()));

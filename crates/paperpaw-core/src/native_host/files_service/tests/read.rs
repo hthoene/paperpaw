@@ -143,6 +143,40 @@ fn root_one_hides_the_protected_folders_by_name_and_by_alias() {
 }
 
 #[test]
+fn root_one_does_not_list_paperpaw_ini_in_any_case() {
+    let (card, host) = fixture();
+    card.file("paperpaw.ini", 7);
+    card.file("Books/paperpaw.ini", 1);
+    card.file("PAPERPAW.INI.bak", 1);
+    // The top hides it; its neighbours and a same-named file below stay.
+    assert_eq!(
+        list_all(&host, 1, "").unwrap(),
+        ["Books", "PAPERPAW.INI.bak"]
+    );
+    assert_eq!(list_all(&host, 1, "Books").unwrap(), ["paperpaw.ini"]);
+    for name in [
+        "paperpaw.ini",
+        "PAPERPAW.INI",
+        "Paperpaw.ini",
+        "paperpaw.ını",
+    ] {
+        assert_eq!(
+            call(&host, 2, path(1, name)),
+            Err(ERR_INVALID),
+            "stat {name}"
+        );
+        assert_eq!(
+            call(&host, 1, list_record(1, name, 0)),
+            Err(ERR_INVALID),
+            "list {name}"
+        );
+    }
+    // The host's own read of it (the kernel's settings) is the storage's, and
+    // whole.
+    assert!(card.has("paperpaw.ini"));
+}
+
+#[test]
 fn the_protected_folders_are_known_as_the_fat_driver_folds_names() {
     // The driver compares names in upper case, the whole name: `ı` is `I`,
     // `ſ` is `S`, so these reach `plugins` and `.paperpaw` unless refused.
@@ -375,4 +409,92 @@ fn a_card_that_is_away_is_an_io_error_for_every_read() {
     assert_eq!(call(&host, 3, path(1, "")), Err(ERR_IO));
     card.gone.set(false);
     assert!(call(&host, 2, path(1, "")).is_ok(), "present again");
+}
+
+/// The deepest route of a plugin's call into the files host: the service's
+/// listing over a real FAT card, on a thread with the device's stack
+/// (`paperpaw-stack-budget`, #256). The meter sits at every block the card
+/// reads and at every entry the FAT hands to the service.
+#[test]
+fn a_listing_on_a_fat_card_stays_within_the_device_stack() {
+    use paperpaw_stack_budget::{Meter, Route, S3, card, on_device_stack_plus};
+
+    struct Marked(&'static card::Fat, Rc<Meter>);
+    impl Storage for Marked {
+        fn read_at(&self, path: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+            self.0.read_at(path, at, buf)
+        }
+        fn size(&self, path: &str) -> Result<u64, StorageError> {
+            self.0.size(path)
+        }
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.write(path, data)
+        }
+        fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.append(path, data)
+        }
+        fn list(&self, dir: &str, v: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.0.list(dir, v)
+        }
+        fn list_from(
+            &self,
+            dir: &str,
+            from: u64,
+            visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+        ) -> Result<Option<u64>, StorageError> {
+            self.0.list_from(dir, from, &mut |entry| {
+                self.1.mark();
+                visit(entry)
+            })
+        }
+        fn remove(&self, path: &str) -> Result<(), StorageError> {
+            self.0.remove(path)
+        }
+    }
+
+    // 5,296 bytes when set, and a fifth more (see `tools/stack-budget`).
+    const ROUTE: Route = Route {
+        name: "core.files list on a FAT card",
+        ceiling: 6400,
+    };
+    // The harness builds a kernel on the same thread before the route starts.
+    let depth = on_device_stack_plus(S3, 1 << 20, || {
+        let meter = Rc::new(Meter::new());
+        let fat = card::fat(&meter);
+        for i in 0..70 {
+            fat.write(
+                &std::format!("Books/a-long-file-name-number-{i:04}.epub"),
+                b"x",
+            )
+            .unwrap();
+        }
+        let marked: &'static Marked =
+            std::boxed::Box::leak(std::boxed::Box::new(Marked(fat, Rc::clone(&meter))));
+        let (card, host) = fixture();
+        card.backing.set(Some(marked));
+        // The route begins at the service's call, not at the harness's
+        // kernel (a local of `with`): each page is one call.
+        let (mut deepest, mut cursor, mut names) = (0, 0, 0);
+        loop {
+            let id = 1;
+            let bytes = input(id, list_record(1, "Books", cursor));
+            let mut out = std::vec![0; schema_op(id).max_reply];
+            let length = with(&host, NORMAL, |frame| {
+                meter.start();
+                frame.run(schema_op(id), &bytes, &mut out)
+            })
+            .unwrap();
+            deepest = deepest.max(meter.deepest());
+            let (rows, end) = rows(&out[..length]);
+            names += rows.len();
+            let end = end.unwrap();
+            if end.flags & 1 != 0 {
+                break;
+            }
+            cursor = end.cursor.unwrap();
+        }
+        assert_eq!(names, 70, "the whole folder, in pages");
+        ROUTE.assert_within_depth(deepest)
+    });
+    std::println!("stack route {}: {depth} B", ROUTE.name);
 }

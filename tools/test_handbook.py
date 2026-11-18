@@ -91,10 +91,16 @@ class Handbook(unittest.TestCase):
         # (the checks above), and the few generated source files are 31 KB zipped
         # together. About 30 plugins are still to port and add their sources, so
         # the bound is 5.5 MB; a stray asset or generated table still shows.
+        # And past 5.5 MB (5.55 MB at train 9) with the plugin sources and the
+        # service docs the round still adds (the ported plugins' sources are
+        # what an author reads): the bound is 6.0 MB, the same kind of growth.
+        # And past 6.0 MB (6.02 MB at train 34: the dictionary, lookup and
+        # Wikipedia sources, the hyphenate SDK, the screens' sources): the bound
+        # is 6.5 MB. Checked as before: no test, asset or generated table is in.
         # The Workshop takes no whole handbook into a prompt (it hands out topics of
         # at most MAX_TOPIC_TOKENS, src/handbook/handbook.ts), so its size has no
         # hard limit there: this keeps growth seen, a step at a time.
-        self.assertLess(size, 5_500_000, "near 5.5 MB")
+        self.assertLess(size, 6_500_000, "near 6.5 MB")
 
 
 if __name__ == "__main__":

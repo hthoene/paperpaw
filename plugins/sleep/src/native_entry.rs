@@ -13,10 +13,29 @@ const SLEEP_ABI_METADATA: &[u8] = include_bytes!("../native/metadata.host.bin");
 ))]
 const SLEEP_ABI_METADATA: &[u8] = include_bytes!("../native/metadata.bin");
 #[cfg(all(
-    any(feature = "linked", feature = "native-entry"),
+    feature = "native-entry",
+    not(feature = "linked"),
+    target_arch = "xtensa",
+    target_os = "none"
+))]
+const SLEEP_ABI_METADATA: &[u8] = include_bytes!("../native/metadata.s3.bin");
+// Linked on any other target: the host's metadata, which the SDK sets to the
+// profile of the target the program is built for (Decision 172).
+#[cfg(all(
+    feature = "linked",
     not(any(
         all(target_arch = "x86_64", target_os = "linux"),
         all(target_arch = "riscv32", target_os = "none")
+    ))
+))]
+const SLEEP_ABI_METADATA: &[u8] = include_bytes!("../native/metadata.host.bin");
+#[cfg(all(
+    feature = "native-entry",
+    not(feature = "linked"),
+    not(any(
+        all(target_arch = "x86_64", target_os = "linux"),
+        all(target_arch = "riscv32", target_os = "none"),
+        all(target_arch = "xtensa", target_os = "none")
     ))
 ))]
 compile_error!("The sleep screen needs a generated ABI metadata profile for this target");

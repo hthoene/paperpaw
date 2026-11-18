@@ -1,10 +1,11 @@
 //! The catalog's job, one step at a time: what it does to the library's
 //! files.
 
+use crate::Place;
 use alloc::string::String;
 
+use crate::kit::library;
 use paperpaw_sdk::builtin::{settings, slots};
-use paperpaw_sdk::{Env, library};
 
 /// What the kernel does to the catalog: walk the library, or catch up;
 /// before either, once, move the books' details and covers that earlier
@@ -12,6 +13,9 @@ use paperpaw_sdk::{Env, library};
 pub(super) enum CatalogJob {
     Walk(library::catalog::Walk),
     Rewrite(library::catalog::Rewrite),
+    /// The books opened last that the catalog lacks, appended to it before
+    /// the first walk after a start ([`library::catalog::CatchUp`]).
+    CatchUp(library::catalog::CatchUp),
     Split(library::split::Split),
     /// The books sorted for the view of them ([`library::sorted`]), after
     /// the catalog was made anew.
@@ -26,10 +30,11 @@ pub(super) enum CatalogJob {
 }
 
 impl CatalogJob {
-    pub(super) fn step(&mut self, env: &Env<'_>) -> Result<bool, paperpaw_sdk::StorageError> {
+    pub(super) fn step(&mut self, env: &Place<'_>) -> Result<bool, paperpaw_sdk::StorageError> {
         match self {
             CatalogJob::Walk(walk) => walk.step(env),
             CatalogJob::Rewrite(rewrite) => rewrite.step(env),
+            CatalogJob::CatchUp(catch_up) => catch_up.step(env),
             CatalogJob::Split(split) => split.step(env.storage(), env.book_data()),
             CatalogJob::Sort(sort) => sort.step(env),
             CatalogJob::Shown(_, sort) => {
@@ -69,7 +74,7 @@ impl CatalogJob {
             CatalogJob::Walk(walk) => walk.abort(storage),
             CatalogJob::Rewrite(rewrite) => rewrite.abort(storage),
             // Each move is whole: the next goes on from what is left.
-            CatalogJob::Split(_) => {}
+            CatalogJob::Split(_) | CatalogJob::CatchUp(_) => {}
             CatalogJob::Sort(sort) => sort.abort(storage),
             CatalogJob::Shown(walk, sort) => {
                 if let Some(sort) = sort {
@@ -84,7 +89,7 @@ impl CatalogJob {
         match self {
             CatalogJob::Walk(walk) => walk.pause(),
             CatalogJob::Rewrite(rewrite) => rewrite.pause(),
-            CatalogJob::Split(_) => {}
+            CatalogJob::Split(_) | CatalogJob::CatchUp(_) => {}
             CatalogJob::Sort(sort) | CatalogJob::Shown(_, Some(sort)) => sort.pause(storage),
             CatalogJob::Shown(_, None) => {}
         }
@@ -118,6 +123,70 @@ impl super::Catalog {
         };
         Some(job.as_ref().and_then(CatalogJob::progress_ppm).unwrap_or(0))
     }
+
+    /// Stops the job under way, for one begun anew: what it took is given
+    /// back, a move of the details it cut short is wanted again.
+    // Its own frame, as `start`: each moves a job, and the step's frame
+    // stays under the firmware's frame limit for host code.
+    #[inline(never)]
+    pub(super) fn stop(&self, job: &mut Option<CatalogJob>, storage: &dyn paperpaw_sdk::Storage) {
+        let Some(stopped) = job.take() else {
+            return;
+        };
+        let walk = stopped.is_walk();
+        self.split
+            .set(self.split.get() || matches!(stopped, CatalogJob::Split(_)));
+        stopped.abort(storage);
+        self.give_back(walk);
+    }
+
+    /// Starts the job that is wanted, where none runs: a walk, catching up,
+    /// or sorting the books. `Some` with how the step ends where there is
+    /// nothing to do or the job could not start.
+    #[inline(never)]
+    pub(super) fn start(
+        &self,
+        env: &Place<'_>,
+        job: &mut Option<CatalogJob>,
+        out: &mut crate::Asks,
+    ) -> Option<paperpaw_sdk::work::Step> {
+        use paperpaw_sdk::work::Step;
+        let fresh = core::mem::take(&mut *self.fresh.borrow_mut());
+        // The first walk after a start: the books opened last that a
+        // catalog there lacks are appended to it first, so that they show
+        // before the walk ends. The walk stays wanted.
+        let catch_up = self.walk.get()
+            && !self.caught.replace(true)
+            && library::catalog::state(env.storage()) != library::catalog::State::Missing;
+        let walk = !catch_up && self.walk.replace(false);
+        let started = if catch_up {
+            library::catalog::CatchUp::start(env).map(CatalogJob::CatchUp)
+        } else if walk {
+            library::catalog::Walk::start(env, fresh.clone()).map(CatalogJob::Walk)
+        } else if !fresh.is_empty() || library::catalog::log_is_long(env.storage()) {
+            library::catalog::Rewrite::start(env, fresh.clone()).map(CatalogJob::Rewrite)
+        } else if let Some(archive) = self.sort_wanted(env) {
+            library::sorted::Build::start(env, &archive).map(CatalogJob::Sort)
+        } else {
+            self.urgent.set(false);
+            return Some(Step::Done);
+        };
+        *self.taken.borrow_mut() = fresh;
+        match started {
+            Ok(started) => {
+                *job = Some(started);
+                None
+            }
+            Err(error) => {
+                self.give_back(walk);
+                out.push(crate::Ask::emit(
+                    &paperpaw_sdk::builtin::events::CATALOG_FAILED,
+                    (),
+                ));
+                Some(Step::Failed(alloc::format!("catalog: {error:?}")))
+            }
+        }
+    }
 }
 
 /// After a step that did not end the job: a first walk that put the books
@@ -126,9 +195,9 @@ impl super::Catalog {
 /// (`CATALOG_CHANGED`, as of a catalog made anew); the walk goes on.
 pub(super) fn after_step(
     catalog: &super::Catalog,
-    env: &Env<'_>,
+    env: &Place<'_>,
     job: &mut Option<CatalogJob>,
-    out: &mut paperpaw_sdk::Commands,
+    out: &mut crate::Asks,
 ) -> paperpaw_sdk::work::Step {
     use paperpaw_sdk::builtin::events;
     let published = match job {
@@ -146,13 +215,13 @@ pub(super) fn after_step(
                     CatalogJob::Shown(alloc::boxed::Box::new(walk), Some(sort))
                 }
                 None => {
-                    out.push(events::CATALOG_CHANGED.emit(()));
+                    out.push(crate::Ask::emit(&events::CATALOG_CHANGED, ()));
                     CatalogJob::Walk(walk)
                 }
             });
         }
         Some(CatalogJob::Shown(walk, None)) => {
-            out.push(events::CATALOG_CHANGED.emit(()));
+            out.push(crate::Ask::emit(&events::CATALOG_CHANGED, ()));
             *job = Some(CatalogJob::Walk(*walk));
         }
         other => *job = other,
@@ -166,7 +235,7 @@ pub(super) fn after_step(
 /// goes on, also on a device of little memory (the X4): the library holds
 /// a few kilobytes of the sorted books ([`library::sorted`]), and says
 /// they are being prepared until the job made them.
-pub(super) fn waits(env: &Env<'_>) -> bool {
+pub(super) fn waits(env: &Place<'_>) -> bool {
     let shown = env.stack().iter().rev().find(|entry| !entry.overlay);
     shown.is_some_and(|entry| entry.slot.as_ref() == Some(&slots::READER))
 }
@@ -174,7 +243,7 @@ pub(super) fn waits(env: &Env<'_>) -> bool {
 /// The library's folder is there from the first start on: made where it
 /// is not (never removed), so that books copied onto the card or sent
 /// over Wi-Fi have their place from the start.
-pub(super) fn make_library_folder(env: &Env<'_>) {
+pub(super) fn make_library_folder(env: &Place<'_>) {
     let folder = env.settings().read(&settings::LIBRARY_FOLDER);
     let folder = folder.trim_matches('/');
     if folder.is_empty() || paperpaw_sdk::files::is_dir(env.storage(), folder) {
@@ -192,10 +261,7 @@ pub(super) fn make_library_folder(env: &Env<'_>) {
 /// The sorted books, for a view leaving an archive out
 /// ([`library::sorted`]): made where they are not of the library there
 /// is now. And the walk wanted again after a wake.
-pub(super) fn register_sorted(
-    r: &mut paperpaw_sdk::Registrar,
-    catalog: &alloc::rc::Rc<super::Catalog>,
-) -> Result<(), paperpaw_sdk::RegisterError> {
+pub(super) fn register_sorted(r: &mut crate::Staging) -> Result<(), paperpaw_sdk::RegisterError> {
     use paperpaw_sdk::builtin::events;
     // Woken from a light sleep (no start): walked again as after a start,
     // for books copied while it slept (the card in a computer). By the
@@ -203,30 +269,44 @@ pub(super) fn register_sorted(
     // does not ask again; under a book the walk waits until it closes).
     // A walk under way at the sleep starts again (it may have passed the
     // folder a book came into); nothing else under way is started again.
-    let woken = alloc::rc::Rc::clone(catalog);
-    r.on(events::RESUME, move |env, _, out| {
-        woken.walked.set(false);
-        let walking = woken.job.borrow().as_ref().is_some_and(CatalogJob::is_walk);
-        let open = env
-            .stack()
-            .iter()
-            .any(|entry| entry.slot.as_ref() == Some(&paperpaw_sdk::builtin::slots::LIBRARY));
-        if walking {
-            woken.want_walk(true, true, out);
-        } else if open && !env.formats().is_empty() {
-            // Other work under way (sorting, catching up) ends first.
-            woken.walk.set(true);
-            woken.declare(true, out);
+    // Not where the shell said the storage came through the sleep as it
+    // was left (`Kernel::resume_storage_kept`: a card that kept its power,
+    // #305): nothing was copied, nothing is walked again, and a walk under
+    // way goes on where it was.
+    r.on(events::RESUME, |k, p| {
+        if k.storage_kept {
+            return;
         }
+        k.with_core_event(&events::RESUME, p, |env, core, _, out| {
+            core.catalog.walked.set(false);
+            let walking = core
+                .catalog
+                .job
+                .borrow()
+                .as_ref()
+                .is_some_and(CatalogJob::is_walk);
+            let open = env
+                .stack()
+                .iter()
+                .any(|entry| entry.slot.as_ref() == Some(&paperpaw_sdk::builtin::slots::LIBRARY));
+            if walking {
+                core.catalog.want_walk(true, true, out);
+            } else if open && !env.formats().is_empty() {
+                // Other work under way (sorting, catching up) ends first.
+                core.catalog.walk.set(true);
+                core.catalog.declare(true, out);
+            }
+        });
     })?;
-    let catalog = alloc::rc::Rc::clone(catalog);
-    r.on(events::SORTED_WANTED, move |env, wanted, out| {
-        let mut archives = catalog.archives.borrow_mut();
-        library::sorted::asked(env.storage(), &mut archives, &wanted.archive);
-        drop(archives);
-        if catalog.sort_wanted(env).is_some() {
-            catalog.declare(true, out);
-        }
+    r.on(events::SORTED_WANTED, |k, p| {
+        k.with_core_event(&events::SORTED_WANTED, p, |env, core, wanted, out| {
+            let mut archives = core.catalog.archives.borrow_mut();
+            library::sorted::asked(env.storage(), &mut archives, &wanted.archive);
+            drop(archives);
+            if core.catalog.sort_wanted(env).is_some() {
+                core.catalog.declare(true, out);
+            }
+        });
     })
 }
 

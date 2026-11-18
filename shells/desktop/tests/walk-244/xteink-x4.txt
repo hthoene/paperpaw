@@ -1,0 +1,416 @@
+== home
+Button "Start reading, Choose a book from your library." at 35,182 409x243
+Button "Edit" at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Text "Select" at 154,758 115x42
+Button "Start reading, Choose a book from your library." (focused) at 35,182 409x243
+Button "Edit" at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Text "Select" at 154,758 115x42
+Button "Start reading, Choose a book from your library." at 35,182 409x243
+Button "Edit" (focused) at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Text "Select" at 154,758 115x42
+Button "Start reading, Choose a book from your library." (focused) at 35,182 409x243
+Button "Edit" at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Text "Select" at 154,758 115x42
+Button "Start reading, Choose a book from your library." (focused) at 35,182 409x243
+Button "Edit" at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Dialog "" at 0,288 480x467
+Row "Quick panel" (focused) at 0,311 480x61
+Row "Home" at 0,372 480x61
+Row "Library" at 0,433 480x61
+Row "Tools" at 0,494 480x61
+Row "Edit home screen" at 0,555 480x61
+Row "Night mode" (off) at 0,616 480x61
+Row "Settings" at 0,677 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Button "Start reading, Choose a book from your library." at 35,182 409x243
+Button "Edit" at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Text "Select" at 154,758 115x42
+Text "All tools" at 35,9 94x40
+Button "Library" (focused) at 35,92 102x109
+Button "Vocabulary" at 137,92 102x109
+Button "Flash cards" at 239,92 102x109
+Button "News" at 341,92 102x109
+Button "Files" at 35,235 102x109
+Button "Catalogs" at 137,235 102x109
+Button "Wi-Fi transfer" at 239,235 102x109
+Button "Plugin store" at 341,235 102x109
+Button "Settings" at 35,378 102x109
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Text "All tools" at 35,9 94x40
+Button "Library" at 35,92 102x109
+Button "Vocabulary" (focused) at 137,92 102x109
+Button "Flash cards" at 239,92 102x109
+Button "News" at 341,92 102x109
+Button "Files" at 35,235 102x109
+Button "Catalogs" at 137,235 102x109
+Button "Wi-Fi transfer" at 239,235 102x109
+Button "Plugin store" at 341,235 102x109
+Button "Settings" at 35,378 102x109
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Text "All tools" at 35,9 94x40
+Button "Library" at 35,92 102x109
+Button "Vocabulary" at 137,92 102x109
+Button "Flash cards" (focused) at 239,92 102x109
+Button "News" at 341,92 102x109
+Button "Files" at 35,235 102x109
+Button "Catalogs" at 137,235 102x109
+Button "Wi-Fi transfer" at 239,235 102x109
+Button "Plugin store" at 341,235 102x109
+Button "Settings" at 35,378 102x109
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Text "All tools" at 35,9 94x40
+Button "Library" at 35,92 102x109
+Button "Vocabulary" at 137,92 102x109
+Button "Flash cards" at 239,92 102x109
+Button "News" at 341,92 102x109
+Button "Files" at 35,235 102x109
+Button "Catalogs" at 137,235 102x109
+Button "Wi-Fi transfer" at 239,235 102x109
+Button "Plugin store" at 341,235 102x109
+Button "Settings" (focused) at 35,378 102x109
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Text "All tools" at 35,9 94x40
+Button "Library" (focused) at 35,92 102x109
+Button "Vocabulary" at 137,92 102x109
+Button "Flash cards" at 239,92 102x109
+Button "News" at 341,92 102x109
+Button "Files" at 35,235 102x109
+Button "Catalogs" at 137,235 102x109
+Button "Wi-Fi transfer" at 239,235 102x109
+Button "Plugin store" at 341,235 102x109
+Button "Settings" at 35,378 102x109
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Button "Start reading, Choose a book from your library." at 35,182 409x243
+Button "Edit" at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Text "Select" at 154,758 115x42
+xteink-x4: screen home.dashboard
+== tools
+Text "Library" at 35,9 84x40
+Text "Show" at 35,87 57x35
+Text "All books · 4 books" at 259,87 186x35
+Text "Alice's Adventures in W…" at 120,143 253x35
+Text "Lewis Carroll" at 120,177 108x29
+Text "A" at 59,163 20x52
+Text "Alice's Adventures in W…" at 120,251 253x35
+Text "Lewis Carroll" at 120,285 108x29
+Text "A" at 59,271 20x52
+Text "Die Verwandlung" at 120,359 171x35
+Text "Franz Kafka" at 120,393 98x29
+Text "D" at 57,379 23x52
+Text "Die Verwandlung" at 120,467 171x35
+Text "Franz Kafka" at 120,501 98x29
+Text "D" at 57,487 23x52
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Vocabulary" at 0,0 480x58
+Text "No words yet" at 163,358 154x40
+Text "Words you look up while reading appear" at 72,414 336x29
+Text "here, with their sentences." at 129,442 221x29
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Flash cards" at 0,0 480x58
+Row "Review, 0 cards due" (focused) at 0,75 480x97
+Row "Edit with your phone, Make your first deck on a phone: type cards, or, add many from a CSV, TSV or Anki file." at 0,172 480x125
+Row "Cards on the SD card, Choose this to make the folder Flashcards for, CSV, TSV or Anki files." at 0,297 480x125
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "News" at 0,0 480x58
+Row "Add a feed, Its address (RSS or Atom), from the website." (focused) at 0,75 480x97
+Text "No feeds yet" at 167,378 145x40
+Text "Add the feed of a newspaper or a blog" at 82,434 315x29
+Text "(its RSS address, from its website)." at 96,462 287x29
+Text "Fetching then makes a book of its" at 100,490 280x29
+Text "newest articles, to read like any other." at 82,518 316x29
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Text "Device" at 35,9 78x40
+Text "books" at 35,87 62x35
+Text "New folder" at 185,689 110x35
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Catalogs" at 0,0 480x58
+Row "Project Gutenberg, www.gutenberg.org" (focused) at 0,75 480x97
+Row "Add catalog" at 0,172 480x61
+Text "Hold Select on a catalog to sync, edit or remove" at 35,666 396x29
+Text "it." at 35,694 17x29
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Wi-Fi transfer" at 0,0 480x58
+Text "No Wi-Fi" at 191,336 98x40
+Text "Join a Wi-Fi network in the settings" at 94,392 292x29
+Text "under Wi-Fi, then open Wi-Fi transfer" at 86,420 307x29
+Text "again." at 214,448 52x29
+Text "Without a router" at 171,684 138x29
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Plugin store" at 0,0 480x58
+Row "Search" (focused) at 0,75 480x61
+Row "New" at 0,136 480x61
+Row "Reading, 2" at 0,197 480x61
+Row "Look, 1" at 0,258 480x61
+Row "Sources, PaperPaw" at 0,319 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Text "1 / 3" at 411,14 35x29
+Heading "Settings" at 0,0 480x58
+Row "Search" (focused) at 0,75 480x61
+Heading "Books" at 0,136 480x52
+Row "Reading" at 0,188 480x61
+Row "Library" at 0,249 480x61
+Heading "Device" at 0,310 480x52
+Row "Display" at 0,362 480x61
+Row "Sleep screen" at 0,423 480x61
+Row "Controls" at 0,484 480x61
+Row "Keyboard" at 0,545 480x61
+Row "Wi-Fi" at 0,606 480x61
+Row "Power" at 0,667 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+xteink-x4: screen home.dashboard
+== settings
+Text "1 / 3" at 411,14 35x29
+Heading "Settings" at 0,0 480x58
+Row "Search" (focused) at 0,75 480x61
+Heading "Books" at 0,136 480x52
+Row "Reading" at 0,188 480x61
+Row "Library" at 0,249 480x61
+Heading "Device" at 0,310 480x52
+Row "Display" at 0,362 480x61
+Row "Sleep screen" at 0,423 480x61
+Row "Controls" at 0,484 480x61
+Row "Keyboard" at 0,545 480x61
+Row "Wi-Fi" at 0,606 480x61
+Row "Power" at 0,667 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Display" at 0,0 480x58
+Row "Turn the screen, Upright, Upright or on its side. With “Only this book” on,, it applies to that book alone." (focused) at 0,75 480x125
+Row "More" at 0,200 480x61
+Row "Reset to defaults" at 0,261 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Turn the screen" at 0,0 480x58
+Row "Upright" (focused) at 0,75 480x61
+Row "On its side" at 0,136 480x61
+Row "Upside down" at 0,197 480x61
+Row "On its other side" at 0,258 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Display" at 0,0 480x58
+Row "Turn the screen, Upright, Upright or on its side. With “Only this book” on,, it applies to that book alone." (focused) at 0,75 480x125
+Row "More" at 0,200 480x61
+Row "Reset to defaults" at 0,261 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Display · More" at 0,0 480x58
+Row "Flash on screen change, Redraw fully when a screen opens: no traces of, the last one, but slower." (focused) (off) at 0,75 480x125
+Row "Full refresh in menus, 0, A flash after this many menu changes removes, ghosting; 0 never flashes." at 0,200 480x125
+Row "Reset to defaults" at 0,325 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Display · More" at 0,0 480x58
+Row "Flash on screen change, Redraw fully when a screen opens: no traces of, the last one, but slower." (focused) (on) at 0,75 480x125
+Row "Full refresh in menus, 0, A flash after this many menu changes removes, ghosting; 0 never flashes." at 0,200 480x125
+Row "Reset to defaults" at 0,325 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Display · More" at 0,0 480x58
+Row "Flash on screen change, Redraw fully when a screen opens: no traces of, the last one, but slower." (on) at 0,75 480x125
+Row "Full refresh in menus, 0, A flash after this many menu changes removes, ghosting; 0 never flashes." (focused) at 0,200 480x125
+Row "Reset to defaults" at 0,325 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Display · More" at 0,0 480x58
+Row "Flash on screen change, Redraw fully when a screen opens: no traces of, the last one, but slower." (on) at 0,75 480x125
+Row "Full refresh in menus, 0, A flash after this many menu changes removes, ghosting; 0 never flashes." (focused) at 0,200 480x125
+Row "Reset to defaults" at 0,325 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Display · More" at 0,0 480x58
+Row "Flash on screen change, Redraw fully when a screen opens: no traces of, the last one, but slower." (on) at 0,75 480x125
+Row "Full refresh in menus, 0, A flash after this many menu changes removes, ghosting; 0 never flashes." at 0,200 480x125
+Row "Reset to defaults" (focused) at 0,325 480x61
+Dialog "" at 0,541 480x214
+Heading "Settings" at 0,564 480x52
+Row "Yes, reset" (focused) at 0,616 480x61
+Row "Cancel" at 0,677 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Heading "Display · More" at 0,0 480x58
+Row "Flash on screen change, Redraw fully when a screen opens: no traces of, the last one, but slower." (on) at 0,75 480x125
+Row "Full refresh in menus, 0, A flash after this many menu changes removes, ghosting; 0 never flashes." at 0,200 480x125
+Row "Reset to defaults" (focused) at 0,325 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Text "1 / 3" at 411,14 35x29
+Heading "Settings" at 0,0 480x58
+Row "Search" at 0,75 480x61
+Heading "Books" at 0,136 480x52
+Row "Reading" at 0,188 480x61
+Row "Library" at 0,249 480x61
+Heading "Device" at 0,310 480x52
+Row "Display" (focused) at 0,362 480x61
+Row "Sleep screen" at 0,423 480x61
+Row "Controls" at 0,484 480x61
+Row "Keyboard" at 0,545 480x61
+Row "Wi-Fi" at 0,606 480x61
+Row "Power" at 0,667 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Button "Start reading, Choose a book from your library." at 35,182 409x243
+Button "Edit" at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Text "Select" at 154,758 115x42
+Button "Start reading, Choose a book from your library." at 35,182 409x243
+Button "Edit" at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Text "Select" at 154,758 115x42
+xteink-x4: screen home.dashboard
+== book
+Text "Library" at 35,9 84x40
+Text "Show" at 35,87 57x35
+Text "All books · 4 books" at 259,87 186x35
+Text "Alice's Adventures in W…" at 120,143 253x35
+Text "Lewis Carroll" at 120,177 108x29
+Text "A" at 59,163 20x52
+Text "Alice's Adventures in W…" at 120,251 253x35
+Text "Lewis Carroll" at 120,285 108x29
+Text "A" at 59,271 20x52
+Text "Die Verwandlung" at 120,359 171x35
+Text "Franz Kafka" at 120,393 98x29
+Text "D" at 57,379 23x52
+Text "Die Verwandlung" at 120,467 171x35
+Text "Franz Kafka" at 120,501 98x29
+Text "D" at 57,487 23x52
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Text "0 %" at 414,753 31x29
+Text "<time>"
+Text "0 %" at 414,753 31x29
+Text "<time>"
+Text "0 %" at 414,753 31x29
+Text "<time>"
+Text "0 %" at 414,753 31x29
+Text "<time>"
+Text "Alice's Adventures in Wonderland" at 35,16 335x35
+Text "0 %" at 414,58 31x29
+Button "Font" (focused) at 27,113 62x101
+Button "Contents" at 128,113 104x101
+Button "Search" at 272,113 74x101
+Button "Notes" at 386,113 67x101
+Button "Night" at 27,214 62x101
+Button "Bookmark" at 128,214 104x101
+Button "More" at 272,214 74x101
+Button "Home" at 386,214 67x101
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Text "0 %" at 414,753 31x29
+Text "<time>"
+Dialog "" at 0,166 480x589
+Row "Skim through the book" (focused) at 0,189 480x61
+Row "Go to page" at 0,250 480x61
+Row "Go to a percentage" at 0,311 480x61
+Row "Turn pages automatically" at 0,372 480x61
+Row "Select text" at 0,433 480x61
+Row "Links and marks" at 0,494 480x61
+Row "Next status line" at 0,555 480x61
+Row "Mark vocabulary" (off) at 0,616 480x61
+Row "Settings" at 0,677 480x61
+Dialog "" at 0,166 480x589
+Row "Skim through the book" (focused) at 0,189 480x61
+Row "Go to page" at 0,250 480x61
+Row "Go to a percentage" at 0,311 480x61
+Row "Turn pages automatically" at 0,372 480x61
+Row "Select text" at 0,433 480x61
+Row "Links and marks" at 0,494 480x61
+Row "Next status line" at 0,555 480x61
+Row "Mark vocabulary" (off) at 0,616 480x61
+Row "Settings" at 0,677 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Text "0 %" at 414,753 31x29
+Text "<time>"
+Text "Alice's Adventures in Wonderland" at 35,16 335x35
+Text "0 %" at 414,58 31x29
+Button "Font" at 27,113 62x101
+Button "Contents" at 128,113 104x101
+Button "Search" at 272,113 74x101
+Button "Notes" at 386,113 67x101
+Button "Night" at 27,214 62x101
+Button "Bookmark" at 128,214 104x101
+Button "More" (focused) at 272,214 74x101
+Button "Home" at 386,214 67x101
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Text "0 %" at 414,753 31x29
+Text "<time>"
+Button "Continue reading, Alice's Adventures in, Wonderland, 0 %" at 35,182 409x243
+Button "Edit" at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Text "Select" at 154,758 115x42
+xteink-x4: screen home.dashboard
+== power
+Button "Start reading, Choose a book from your library." at 35,182 409x243
+Button "Edit" at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Dialog "" at 0,480 480x275
+Heading "Power" at 0,503 480x52
+Row "Sleep" (focused) at 0,555 480x61
+Row "Switch off" at 0,616 480x61
+Row "Restart" at 0,677 480x61
+Text "Back" at 39,758 97x42
+Text "Select" at 154,758 115x42
+Button "Start reading, Choose a book from your library." at 35,182 409x243
+Button "Edit" at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Text "Select" at 154,758 115x42
+Button "Start reading, Choose a book from your library." at 35,182 409x243
+Button "Edit" at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Image "A sleeping cat" at 35,265 410x270
+Button "Start reading, Choose a book from your library." at 35,182 409x243
+Button "Edit" at 384,694 61x61
+Text "<time>"
+Text "<date>"
+Text "<time>"
+Text "Select" at 154,758 115x42
+xteink-x4: screen home.dashboard

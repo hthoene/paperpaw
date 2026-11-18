@@ -1,5 +1,5 @@
 //! Acceptance of the interface-7 port, pending on the host. The interface-6
-//! sleep screen is pinned by `sleep_screen.rs` and `over_page.rs` on a kernel
+//! sleep screen was pinned by its hosted suites on a kernel (removed, #244)
 //! and by the goldens; these cases are the same behaviours through the
 //! production loader with the native plugin. They never pass by themselves.
 #![allow(clippy::unwrap_used, reason = "acceptance assertions")]
@@ -14,7 +14,7 @@ const CASES: [Case; 5] = [
     Case {
         name: "sleep-images",
         golden: None,
-        blocked_by: &["IMG-slots-36-37", "FS"],
+        blocked_by: &["H1"],
     },
     // The message with PaperPaw's logo, the page as it is, and a mode of
     // another plugin shown in place.
@@ -30,11 +30,11 @@ const CASES: [Case; 5] = [
         blocked_by: &["H1", "H3"],
     },
     // Asleep, the screen takes every button but Sleep and Home, and its hints
-    // stay hidden: no native declaration of a screen's hint visibility yet.
+    // stay hidden (declared, `hints_hidden`; the host's input waits for H4).
     Case {
         name: "sleep-buttons-and-hints",
         golden: None,
-        blocked_by: &["H4", "HINTS-visibility"],
+        blocked_by: &["H4"],
     },
     // The screen closes when the device wakes; what opened as it woke stays.
     Case {
@@ -55,7 +55,7 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED IMG-slots-36-37/FS: image slots (PR 391) and core.files are not on integration"]
+#[ignore = "BLOCKED H1: the native plugin is not constructed by the production loader yet (the images are ported, not accepted)"]
 fn sleep_images() {
     CASES[0].refuse().unwrap();
 }
@@ -73,7 +73,7 @@ fn sleep_widgets() {
 }
 
 #[test]
-#[ignore = "BLOCKED H4/HINTS-visibility: input is not qualified; hints visibility has no declaration"]
+#[ignore = "BLOCKED H4: input is not qualified"]
 fn sleep_buttons_and_hints() {
     CASES[3].refuse().unwrap();
 }

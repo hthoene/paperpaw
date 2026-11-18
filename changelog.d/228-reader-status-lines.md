@@ -1,0 +1,3 @@
+### Added
+
+- **The interface-7 reader has its status lines** (#228). The line above and the line below the text switch between the lines you chose (items, progress bar, empty) with a tap or the *Next status line* menu entries, and the choice is kept as before. The reader declares its places, its title, chapter, page and progress items, its progress and empty lines, and the status settings (text size, edge, lines, parts, battery percent). A place's height depends only on the status text size, so switching lines never changes the pages. `paperpaw-ui-kit`'s status line can now show a plugin's own items.

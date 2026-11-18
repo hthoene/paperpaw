@@ -1,12 +1,13 @@
 //! Host-only UI authority and deferred redraw effects for one callback.
 use super::*;
+use crate::Place;
 use crate::native_host::stack_rows::StackRows;
-use paperpaw_native::host_glue::ERR_NOT_FOUND;
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL, ERR_NOT_FOUND};
 use paperpaw_platform::RefreshMode;
-use paperpaw_sdk::{Env, IdError, Params, ScreenKey};
+use paperpaw_sdk::{IdError, Params, ScreenKey};
 
 pub(super) struct UiContext<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     screen: Option<ScreenKey>,
     hop: u8,
     open_budget: u32,
@@ -16,13 +17,16 @@ pub(super) struct UiContext<'a> {
         &'a core::cell::RefCell<crate::native_host::hint_labels::HintLabels>,
         bool,
     )>,
+    /// The widget table and the caller's owner key, to check
+    /// `command.widget_changed` (without it the command is `ERR_UNSUPPORTED`).
+    widgets: Option<(&'a crate::native_host::ui_service::UiServices, u64)>,
     /// The kernel's stack and the submitter's owner id, for the navigation
     /// commands (`commands_nav.rs`); without it they are `ERR_UNSUPPORTED`.
     stack: Option<super::nav::NavStack<'a>>,
 }
 
 impl<'a> UiContext<'a> {
-    pub(super) fn env(&self) -> &'a Env<'a> {
+    pub(super) fn env(&self) -> &'a Place<'a> {
         self.env
     }
 
@@ -39,12 +43,16 @@ impl<'a> UiContext<'a> {
 pub(crate) struct Redraw {
     pub(crate) screen: ScreenKey,
     pub(crate) mode: Option<RefreshMode>,
+    /// The whole screen (`command.redraw`), else only `areas`
+    /// (`command.redraw_area`, `commands_redraw.rs`).
+    pub(crate) whole: bool,
+    pub(crate) areas: Vec<super::Area>,
 }
 
 impl<'a> CommandStage<'a> {
     pub(crate) fn with_ui(
         mut self,
-        env: &'a Env<'a>,
+        env: &'a Place<'a>,
         screen: Option<ScreenKey>,
         hop: u8,
         open_budget: u32,
@@ -55,9 +63,32 @@ impl<'a> CommandStage<'a> {
             hop,
             open_budget,
             labels: None,
+            widgets: None,
             stack: None,
         });
         self
+    }
+
+    /// Admits `command.widget_changed` for owner `owner_key`: the instance
+    /// must be one of its own widgets in `ui`'s table.
+    #[must_use]
+    pub(crate) fn with_widgets(
+        mut self,
+        ui: Option<&'a crate::native_host::ui_service::UiServices>,
+        owner_key: u64,
+    ) -> Self {
+        if let (Some(context), Some(ui)) = (&mut self.ui, ui) {
+            context.widgets = Some((ui, owner_key));
+        }
+        self
+    }
+
+    /// The checked widget changes, in order, for the host to apply after the
+    /// callback ([`UiServices::widgets_changed`]); call it before
+    /// [`Self::into_commands`].
+    #[must_use]
+    pub(crate) fn take_widget_changes(&mut self) -> Vec<u32> {
+        core::mem::take(&mut self.staged_widgets)
     }
 
     /// Admits `command.set_hint`: `labels` keeps what instances relabel,
@@ -98,6 +129,7 @@ impl<'a> CommandStage<'a> {
     /// fit (at most 8 actions per instance, counting what is staged) and takes
     /// the room for them ahead; nothing is listed on a refusal. On a device
     /// without a row of hints they do nothing.
+    #[inline(never)]
     pub(super) fn reserve_hints(&mut self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let Some((labels, true)) = self.ui.as_ref().and_then(|ui| ui.labels) else {
             return Ok(());
@@ -160,6 +192,7 @@ impl<'a> CommandStage<'a> {
         Ok(())
     }
 
+    #[inline(never)]
     pub(super) fn validate_open_budget(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
         let Some(ui) = &self.ui else {
             return Ok(());
@@ -170,10 +203,10 @@ impl<'a> CommandStage<'a> {
             .filter(|command| {
                 matches!(
                     command,
-                    Command::OpenScreen(..)
-                        | Command::OpenSlot(..)
-                        | Command::OpenInSlot(..)
-                        | Command::Replace(..)
+                    Ask::OpenScreen(..)
+                        | Ask::OpenSlot(..)
+                        | Ask::OpenInSlot(..)
+                        | Ask::Replace(..)
                 )
             })
             .count();
@@ -193,16 +226,24 @@ impl<'a> CommandStage<'a> {
     }
 
     /// UI callers drain this form so redraw-only never becomes a refresh.
-    pub(crate) fn into_ui_output(mut self) -> (Vec<Command>, Option<Redraw>, u8) {
+    pub(crate) fn into_ui_output(mut self) -> (Vec<Ask>, Option<Redraw>, u8) {
+        self.take_ui_output()
+    }
+
+    /// As [`Self::into_ui_output`], out of a stage its caller keeps: it is
+    /// emptied where it is, not moved (a move copies it, some 500 bytes).
+    pub(crate) fn take_ui_output(&mut self) -> (Vec<Ask>, Option<Redraw>, u8) {
         let screen = self.ui.as_ref().and_then(|ui| ui.screen);
-        let redraw = self.redraw.zip(screen).map(|(mode, screen)| Redraw {
+        let asked = self.redraw.take();
+        let whole = asked.is_some();
+        let areas = core::mem::take(&mut self.areas);
+        let mode = asked.max(areas.mode);
+        let redraw = mode.zip(screen).map(|(mode, screen)| Redraw {
             screen,
-            mode: match mode {
-                1 => Some(RefreshMode::Fast),
-                2 => Some(RefreshMode::Partial),
-                3 => Some(RefreshMode::Full),
-                _ => None,
-            },
+            mode: super::redraw::refresh_mode(mode),
+            whole,
+            // With the whole screen: drawn in the frame after it.
+            areas: areas.list,
         });
         (
             core::mem::take(&mut self.staged),
@@ -218,6 +259,16 @@ impl<'a> CommandStage<'a> {
             return Err(ERR_STATE);
         }
         Ok(top.key)
+    }
+
+    /// The submitting plugin's screen of this callback, for a `redraw`: it has
+    /// only overlays above it (`native_screen::redrawable`), not just the top.
+    pub(super) fn own_redrawable(&self) -> Result<ScreenKey, i32> {
+        let ui = self.ui.as_ref().ok_or(ERR_UNSUPPORTED)?;
+        let key = ui.screen.ok_or(ERR_STATE)?;
+        super::super::native_screen::redrawable(ui.env.stack(), key, Some(self.owner.as_str()))
+            .map(|_| key)
+            .ok_or(ERR_STATE)
     }
 
     pub(super) fn validate_ui(&self, command: WireCommand<'_>) -> Result<usize, i32> {
@@ -246,7 +297,9 @@ impl<'a> CommandStage<'a> {
                 }
                 Ok(action.len())
             }
-            WireCommand::Redraw { .. } | WireCommand::CloseScreen => self.own_top().map(|_| 0),
+            WireCommand::Redraw { .. } => self.own_redrawable().map(|_| 0),
+            WireCommand::CloseScreen => self.own_top().map(|_| 0),
+            WireCommand::RedrawArea { mode, .. } => self.validate_redraw_area(mode),
             command if super::nav::is_nav(&command) => self.validate_nav(command),
             WireCommand::SetHint {
                 action,
@@ -260,27 +313,200 @@ impl<'a> CommandStage<'a> {
                 self.own_top()?;
                 Ok(action.len() + label.len())
             }
+            WireCommand::WidgetChanged { instance } => {
+                let (ui, owner) = ui.widgets.ok_or(ERR_UNSUPPORTED)?;
+                ui.widget_check_changed(owner, instance)?;
+                Ok(0)
+            }
+            // Bit 0 `announce`; the other bits are `ERR_INVALID` (ui.md, messages).
+            WireCommand::Notify { text, flags } => {
+                if flags & !NOTIFY_ANNOUNCE != 0 {
+                    return Err(ERR_INVALID);
+                }
+                Ok(text.len())
+            }
+            // Speech (`speech.rs`): a device without it says status 3 at once.
+            WireCommand::Speak {
+                text,
+                language,
+                rate,
+                flags,
+                ..
+            } => {
+                crate::native_host::speech::check(rate, flags)?;
+                Ok(text.len() + language.len())
+            }
+            WireCommand::StopSpeaking {} => Ok(0),
+            // A book scope (`book_scope.rs`): from the submitter's own top
+            // screen only, a path that may name a book or empty (the end).
+            WireCommand::SetScope { path } => {
+                self.own_top()?;
+                if !path.is_empty() && !crate::native_host::book_scope::book_path_ok(path) {
+                    return Err(ERR_INVALID);
+                }
+                Ok(path.len())
+            }
+            // Plugin requests (`plugin_requests.rs`): every id valid here, the
+            // room for the request in `validate_plugin_requests`.
+            WireCommand::RequestPlugins { plugins } => {
+                for id in plugins.split('\n').filter(|id| !id.is_empty()) {
+                    copy_id(id)?;
+                    // `core` is not a plugin to ask for (`registry.md` 5): the
+                    // whole batch is refused.
+                    if id == crate::core_plugin::CORE.as_str() {
+                        return Err(ERR_DENIED);
+                    }
+                }
+                Ok(plugins.len())
+            }
+            WireCommand::SetPluginEnabled { plugin, enabled } => {
+                self.validate_switch(ui.env.plugins(), plugin, enabled != 0)
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }
 
-    pub(super) fn owned_ui(&self, command: WireCommand<'_>) -> Result<Command, i32> {
+    /// A plugin switched for the next start (`registry.md` 4.2), the whole
+    /// batch refused otherwise: only a plugin admitted with `uses.registry`
+    /// switches plugins; `core` is the host's own, a plugin does not switch
+    /// itself off, and neither one the device cannot be without (the sole
+    /// provider of a standard slot or of the interface font).
+    fn validate_switch(
+        &self,
+        plugins: &paperpaw_sdk::Plugins,
+        plugin: &str,
+        enabled: bool,
+    ) -> Result<usize, i32> {
+        copy_id(plugin)?;
+        if !self.registry
+            || plugin == crate::core_plugin::CORE.as_str()
+            || (!enabled && plugin == self.owner.as_str())
+        {
+            return Err(ERR_DENIED);
+        }
+        let info = plugins.get(plugin).ok_or(ERR_NOT_FOUND)?;
+        if !enabled && !info.can_switch_off() {
+            return Err(ERR_DENIED);
+        }
+        Ok(plugin.len())
+    }
+
+    /// At most `speech::MAX_TEXTS` texts per plugin: a queued `command.speak`
+    /// beyond is `ERR_FULL`, the batch refused whole (what is staged already
+    /// and what the batch holds count with the kernel's own).
+    pub(super) fn validate_speech_room(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        use crate::native_host::speech::{QUEUE, count, is_reply, is_stop};
+        let mut texts = self.speech_held;
+        for command in &self.staged {
+            if let Ask::Speak(speech) = command {
+                if is_reply(speech.reply()) {
+                    let _ = count(&mut texts, Some(speech.is_queued()));
+                } else if is_stop(speech.reply()) {
+                    let _ = count(&mut texts, None);
+                }
+            }
+        }
+        for command in batch.iter() {
+            match command {
+                WireCommand::Speak { flags, .. } => count(&mut texts, Some(flags & QUEUE != 0))?,
+                WireCommand::StopSpeaking {} => count(&mut texts, None)?,
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// At most `plugin_requests::MAX_OPEN` requests are open device-wide, and
+    /// `MAX_PER_PLUGIN` per plugin:
+    /// another is `ERR_FULL` at submit, the batch refused whole (what is staged
+    /// already and what the batch holds count with the kernel's own).
+    pub(super) fn validate_plugin_requests(&self, batch: &CommandBatch<'_>) -> Result<(), i32> {
+        use crate::native_host::plugin_requests::{MAX_OPEN, MAX_PER_PLUGIN};
+        let staged = self
+            .staged
+            .iter()
+            .filter(|command| matches!(command, Ask::RequestPlugins { .. }))
+            .count();
+        let mut open = self.requests_open + staged;
+        let mut own = usize::from(self.own_requests) + staged;
+        for command in batch.iter() {
+            if matches!(command, WireCommand::RequestPlugins { .. }) {
+                // Device-wide, and per plugin so that one cannot hold every
+                // slot: `ERR_FULL`, the batch refused whole.
+                if open >= MAX_OPEN || own >= MAX_PER_PLUGIN {
+                    return Err(ERR_FULL);
+                }
+                open += 1;
+                own += 1;
+            }
+        }
+        Ok(())
+    }
+
+    #[inline(never)]
+    pub(super) fn owned_ui(&self, command: WireCommand<'_>) -> Result<Ask, i32> {
         match command {
             WireCommand::OpenScreen { screen } => {
-                Ok(Command::OpenScreen(copy_id(screen)?, Params::new()))
+                Ok(Ask::OpenScreen(copy_id(screen)?, Params::new()))
             }
             WireCommand::Open {
                 target, mode, slot, ..
             } => super::open::command(target, mode, slot),
             WireCommand::RunAction { action } => {
-                Ok(Command::RunAction(copy_id(action)?, Params::new()))
+                Ok(Ask::RunAction(copy_id(action)?, Params::new()))
             }
-            WireCommand::CloseScreen => Ok(Command::Close(self.own_top()?)),
+            WireCommand::CloseScreen => Ok(Ask::Close(self.own_top()?)),
             command if super::nav::is_nav(&command) => self.owned_nav(command),
+            WireCommand::Notify { text, flags } => {
+                let mut owned = alloc::string::String::new();
+                owned
+                    .try_reserve_exact(text.len())
+                    .map_err(|_| ERR_NO_MEMORY)?;
+                owned.push_str(text);
+                Ok(if flags & NOTIFY_ANNOUNCE != 0 {
+                    Ask::Announce(owned)
+                } else {
+                    Ask::Notify(owned)
+                })
+            }
+            WireCommand::Speak {
+                cookie,
+                text,
+                language,
+                rate,
+                flags,
+            } => crate::native_host::speech::speak(
+                self.owner,
+                (cookie, text, language),
+                (rate, flags),
+            ),
+            WireCommand::StopSpeaking {} => crate::native_host::speech::stop(self.owner),
+            WireCommand::SetScope { path: "" } => Ok(Ask::SetScope(None)),
+            WireCommand::SetScope { path } => {
+                let file = crate::native_host::book_scope::file(self.owner.as_str(), path)?;
+                Ok(Ask::SetScope(Some(file)))
+            }
+            WireCommand::RequestPlugins { plugins } => {
+                let mut ids = alloc::vec::Vec::new();
+                ids.try_reserve_exact(plugins.split('\n').count())
+                    .map_err(|_| ERR_NO_MEMORY)?;
+                for id in plugins.split('\n').filter(|id| !id.is_empty()) {
+                    ids.push(copy_id(id)?);
+                }
+                let by = self.owner.try_clone().ok_or(ERR_NO_MEMORY)?;
+                Ok(Ask::RequestPlugins { by, plugins: ids })
+            }
+            WireCommand::SetPluginEnabled { plugin, enabled } => {
+                Ok(Ask::SetPluginEnabled(copy_id(plugin)?, enabled != 0))
+            }
             _ => Err(ERR_UNSUPPORTED),
         }
     }
 }
+
+/// `command.notify` flags bit 0: also from background work and when no screen
+/// of the plugin shows.
+pub(super) const NOTIFY_ANNOUNCE: u32 = 1;
 
 pub(super) fn copy_id(text: &str) -> Result<Id, i32> {
     Id::try_parse(text).map_err(|error| match error {
@@ -294,7 +520,7 @@ impl crate::Kernel {
     pub(crate) fn drain_native_ui(
         &mut self,
         owner: &Id,
-        commands: Vec<Command>,
+        commands: Vec<Ask>,
         redraw: Option<Redraw>,
     ) {
         self.drain_native_opens(owner, commands, redraw, super::Opens::default());
@@ -307,12 +533,33 @@ impl crate::Kernel {
     pub(crate) fn drain_native_opens(
         &mut self,
         owner: &Id,
-        commands: Vec<Command>,
+        commands: Vec<Ask>,
         redraw: Option<Redraw>,
         opens: super::Opens,
     ) {
-        let super::Opens { at, claims } = opens;
+        let clock = self.dev_clock();
+        let host = super::dev::DevHost {
+            clock: &clock,
+            stored: &super::dev::NoStoredNetworks,
+        };
+        let dev = super::dev::DevBatch::default();
+        self.drain_native_batch(owner, (commands, redraw, opens), dev, &host);
+    }
+
+    /// As [`Self::drain_native_opens`], with the DEV commands of the batch
+    /// applied in their place among the others (`commands_dev.rs`): a power
+    /// command after every command before it. The shell acts on the
+    /// kernel's sleep, power-off and restart flags once the frame is shown.
+    pub(crate) fn drain_native_batch(
+        &mut self,
+        owner: &Id,
+        (commands, redraw, mut opens): (Vec<Ask>, Option<Redraw>, super::Opens),
+        mut dev: super::dev::DevBatch,
+        host: &super::dev::DevHost<'_>,
+    ) {
+        let (at, claims) = opens.take();
         for (index, command) in commands.into_iter().enumerate() {
+            self.apply_dev_until(owner, &mut dev, Some(index), host);
             let staged = at.iter().find(|open| open.index == index);
             // A replace is the submitter's own top screen's, nobody else's: if
             // another is on top by now (an earlier open of the same batch), it
@@ -334,11 +581,17 @@ impl crate::Kernel {
             // its claim is freed and the instance's old hand-over stays.
             self.release_pending_handover();
         }
+        self.apply_dev_until(owner, &mut dev, None, host);
         // Nothing stays claimed once the batch is applied.
+        let mut kept = false;
         if let Some(store) = self.shared.native_instances.ui_store() {
             for claims in claims {
-                let _ = store.rollback(claims);
+                kept |= store.rollback(claims).is_err();
             }
+        }
+        if kept {
+            // The store was in use: the claims stay until the owner's stop.
+            self.warn_runtime("native hand-over claims could not be freed: the store is busy");
         }
         self.finish_native_redraw(owner, redraw);
     }
@@ -346,34 +599,35 @@ impl crate::Kernel {
     fn release_pending_handover(&mut self) {
         if let Some(Some(id)) = self.shared.native_instances.take_pending_handover()
             && let Some(store) = self.shared.native_instances.ui_store()
+            && store.release(id).is_err()
         {
-            let _ = store.release(id);
+            self.warn_runtime("a native hand-over could not be freed: the store is busy");
         }
     }
 
     /// Apply one staged command of `owner`; a close of a screen that is gone
     /// is dropped with a warning.
-    pub(crate) fn drain_native_command(&mut self, owner: &Id, command: Command) {
+    pub(crate) fn drain_native_command(&mut self, owner: &Id, command: Ask) {
         // The guard's own plugin's commands are the guard's own, as the
         // interface-6 guard's are: its screens open and close above and
         // including itself, and its raised input is not held (ui.md 4.3). Any
         // other plugin's are held below it. Judged for each command, as an
-        // earlier one of the batch may have closed the guard.
+        // earlier one of the batch may have closed the guard. The marks the
+        // caller had are put back.
         let own_guard = self
             .guard()
             .and_then(|guard| self.stack.get(guard))
             .is_some_and(|guard| guard.id.namespace() == owner.as_str());
-        self.from_guard = own_guard;
-        self.from_guard_own = own_guard;
+        let before = (self.from_guard, self.from_guard_own);
+        (self.from_guard, self.from_guard_own) = (own_guard, own_guard);
         self.drain_native_command_as(owner, command);
-        self.from_guard = false;
-        self.from_guard_own = false;
+        (self.from_guard, self.from_guard_own) = before;
     }
 
-    fn drain_native_command_as(&mut self, owner: &Id, command: Command) {
+    fn drain_native_command_as(&mut self, owner: &Id, command: Ask) {
         // A close names an instance still open that is the owner's own or an
         // overlay (`command.close`, ui.md 1.3).
-        if let Command::Close(key) = &command
+        if let Ask::Close(key) = &command
             && !self.shared.stack.iter().any(|entry| {
                 entry.key == *key && (entry.screen.namespace() == owner.as_str() || entry.overlay)
             })
@@ -381,9 +635,29 @@ impl crate::Kernel {
             self.warn_runtime("native close dropped: its screen no longer exists");
             return;
         }
+        // A notify without the announce bit is for a plugin that shows a
+        // screen: otherwise it is dropped (`OK` at submit, logged here).
+        if matches!(command, Ask::Notify(_))
+            && !self
+                .shared
+                .stack
+                .iter()
+                .any(|entry| entry.screen.namespace() == owner.as_str())
+        {
+            self.warn_runtime("native notify dropped: the plugin shows no screen");
+            return;
+        }
+        // A preview is shown for a screen of the owner on top; an end ends
+        // the owner's own (`commands_preview.rs`).
+        if let Ask::PreviewSettings(values) = &command
+            && !self.native_preview_applies(owner, values.is_empty())
+        {
+            self.warn_runtime("native preview dropped: it is no longer the plugin's");
+            return;
+        }
         // A key map layer is laid for the owner's own screen on top, the one
         // that asked, if it still is.
-        if let Command::SetKeyLayer(key, layer) = command {
+        if let Ask::SetKeyLayer(key, layer) = command {
             if self.native_top(owner, key) {
                 self.set_key_layer(key, layer);
             } else {
@@ -394,17 +668,118 @@ impl crate::Kernel {
         self.apply(command);
     }
 
-    /// The deferred redraw, if its screen is still on top.
+    /// Applies the policy changes a callback of `owner` (host owner id
+    /// `owner_key`) asked for (`command.screen_policy`, ui.md 1.2), before its
+    /// other commands. A change for a screen that is gone, or that turns
+    /// `guards` on where the screen is no longer the top one, is dropped with
+    /// a warning; the stage judged it at submit.
+    #[allow(
+        dead_code,
+        reason = "the command runner (shell_commands) calls it, wired with the shell"
+    )]
+    pub(crate) fn native_screen_policies(
+        &mut self,
+        owner: &Id,
+        owner_key: u64,
+        changes: Vec<super::nav::PolicyChange>,
+    ) {
+        use crate::screens::POLICY_GUARDS;
+        let mut changed = false;
+        for change in changes {
+            let Some(index) = self.stack.iter().position(|active| {
+                active.serial == change.instance && active.id.namespace() == owner.as_str()
+            }) else {
+                self.warn_runtime(if change.ready {
+                    "native screen_ready dropped: its screen is gone"
+                } else {
+                    "native screen policy dropped: its screen is gone"
+                });
+                continue;
+            };
+            if change.ready {
+                // Not a policy: the screen says it is ready (ui.md 7).
+                self.native_command_ready(index);
+                continue;
+            }
+            // The policy the screen has already: nothing changes, so nothing is
+            // drawn again (a screen that says it at every show would draw twice).
+            if self.stack[index].policy == Some(change.flags) {
+                continue;
+            }
+            let turns_on = change.flags & POLICY_GUARDS != 0 && !self.stack[index].guards();
+            if turns_on
+                && crate::native_host::ui_guard::guard_on_allowed(
+                    &*self.shared.stack_rows,
+                    owner_key,
+                    change.instance,
+                )
+                .is_err()
+            {
+                self.warn_runtime("native screen policy dropped: its screen is no longer on top");
+                continue;
+            }
+            self.stack[index].policy = Some(change.flags);
+            changed = true;
+        }
+        if changed {
+            // The stack rows and the guard follow; what the guard held waits
+            // no longer once none guards.
+            self.sync_stack();
+            self.release_held_notice();
+            self.output.redraw = true;
+        }
+    }
+
+    /// The deferred redraw, if its screen still has only overlays above it
+    /// (`native_screen::redrawable`, as at submit): in its own region, not the
+    /// top's; the overlays over it are drawn again after it.
     pub(crate) fn finish_native_redraw(&mut self, owner: &Id, redraw: Option<Redraw>) {
         if let Some(redraw) = redraw {
-            if !self.native_top(owner, redraw.screen) {
-                self.warn_runtime("native redraw dropped: its screen is no longer on top");
+            let Some(at) = super::super::native_screen::redrawable(
+                &self.shared.stack,
+                redraw.screen,
+                Some(owner.as_str()),
+            ) else {
+                // A normal state, not a fault: a screen opened or closed over it
+                // after the plugin asked, which draws itself (#308).
+                return;
+            };
+            if !redraw.whole {
+                // Each area on its own, now.
+                self.redraw_areas(redraw.screen, &redraw.areas, redraw.mode);
                 return;
             }
-            match redraw.mode {
-                Some(mode) => self.apply(Command::Redraw(mode)),
+            self.redraw_screen(at, redraw.mode);
+            // Areas asked for with it: in the frame after (a newer one
+            // replaces a follow-up still waiting).
+            if !redraw.areas.is_empty() {
+                self.frame.followup = Some(super::Followup {
+                    screen: redraw.screen,
+                    mode: redraw.mode,
+                    areas: redraw.areas,
+                });
+            }
+        }
+    }
+
+    /// The whole of the screen at `at` drawn again: the top as `command.redraw`
+    /// does, one with overlays above it in its own region.
+    fn redraw_screen(&mut self, at: usize, mode: Option<RefreshMode>) {
+        if at + 1 == self.shared.stack.len() {
+            match mode {
+                Some(mode) => self.apply(Ask::Redraw(mode)),
                 None => self.output.redraw = true,
             }
+            return;
+        }
+        let region = self.region_of(at);
+        self.invalidate(region);
+        if let Some(mode) = mode {
+            if mode == RefreshMode::Full {
+                let bounds = self.framebuffer.bounds();
+                self.invalidate(bounds);
+            }
+            self.output.request_refresh(mode);
         }
     }
 
@@ -423,27 +798,19 @@ mod tests {
     use paperpaw_platform::Instant;
 
     fn screens_kernel() -> crate::Kernel {
-        use paperpaw_sdk::{Manifest, Plugin, Registrar, Screen, ScreenSpec, Version};
+        use crate::Staging;
+        use paperpaw_sdk::{Manifest, RegisterError, Version};
         struct Empty;
-        impl Screen for Empty {
-            fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Env<'_>) {}
-            fn on_action(
-                &mut self,
-                _: &Id,
-                _: &mut paperpaw_sdk::Cx<'_, '_>,
-            ) -> paperpaw_sdk::Handled {
+        impl crate::testing::Fake for Empty {
+            fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &Place<'_>) {}
+            fn on_action(&mut self, _: &Id, _: &mut crate::Turn<'_, '_>) -> paperpaw_sdk::Handled {
                 paperpaw_sdk::Handled::No
             }
         }
-        struct Screens;
-        impl Plugin for Screens {
-            fn manifest(&self) -> Manifest {
-                Manifest::new(Id::new_static("probe"), "Probe", Version::new(1, 0, 0))
-                    .uses(paperpaw_sdk::Uses::NOTHING)
-            }
-            fn register(&self, r: &mut Registrar) -> Result<(), paperpaw_sdk::RegisterError> {
+        fn screens() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+            |r| {
                 for id in ["probe.base", "probe.old", "probe.new"] {
-                    r.add_screen(ScreenSpec::new(
+                    r.add_fake(crate::testing::FakeSpec::new(
                         Id::new_static(id),
                         "probe.title",
                         alloc::boxed::Box::new(|_, _| alloc::boxed::Box::new(Empty)),
@@ -452,8 +819,14 @@ mod tests {
                 Ok(())
             }
         }
+
+        /// What [`screens`] registers under.
+        fn screens_manifest() -> Manifest {
+            Manifest::new(Id::new_static("probe"), "Probe", Version::new(1, 0, 0))
+                .uses(paperpaw_sdk::Uses::NOTHING)
+        }
         crate::Kernel::builder(crate::tests::DEVICE)
-            .plugin(Screens)
+            .items(screens_manifest(), screens())
             .build()
             .unwrap()
     }
@@ -462,10 +835,7 @@ mod tests {
     fn screen_keys_exhaust_without_wrap_or_reuse() {
         let mut kernel = screens_kernel();
         kernel.next_serial = u32::MAX - 1;
-        kernel.apply(Command::OpenScreen(
-            Id::new_static("probe.old"),
-            Params::new(),
-        ));
+        kernel.apply(Ask::OpenScreen(Id::new_static("probe.old"), Params::new()));
         assert_eq!(
             kernel.shared.stack.last().unwrap().key,
             ScreenKey::new(u32::MAX - 1)
@@ -473,10 +843,7 @@ mod tests {
         assert_eq!(kernel.next_serial, u32::MAX);
         kernel.take_warnings();
         for _ in 0..2 {
-            kernel.apply(Command::OpenScreen(
-                Id::new_static("probe.new"),
-                Params::new(),
-            ));
+            kernel.apply(Ask::OpenScreen(Id::new_static("probe.new"), Params::new()));
             assert_eq!(kernel.next_serial, u32::MAX);
             assert_eq!(kernel.shared.stack.len(), 1);
             assert_eq!(kernel.shared.stack[0].key, ScreenKey::new(u32::MAX - 1));
@@ -493,7 +860,7 @@ mod tests {
     #[test]
     fn exhausted_screen_key_budget_returns_slot_status_without_mutating_stage() {
         let kernel = screens_kernel();
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let owner = Id::new_static("probe");
         for remaining in [0, 1] {
             let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
@@ -532,14 +899,11 @@ mod tests {
     #[test]
     fn drain_exhaustion_keeps_key_and_stack_and_warns_for_missing_close() {
         let mut kernel = screens_kernel();
-        kernel.apply(Command::OpenScreen(
-            Id::new_static("probe.base"),
-            Params::new(),
-        ));
+        kernel.apply(Ask::OpenScreen(Id::new_static("probe.base"), Params::new()));
         kernel.next_serial = u32::MAX - 1;
         let owner = Id::new_static("probe");
         let (mut commands, redraw, _) = {
-            let env = kernel.shared.env(Instant(0));
+            let env = kernel.shared.place(Instant(0));
             let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(
                 &env,
                 None,
@@ -558,14 +922,11 @@ mod tests {
             stage.into_ui_output()
         };
         // Another callback consumes the last available key before this drain.
-        kernel.apply(Command::OpenScreen(
-            Id::new_static("probe.old"),
-            Params::new(),
-        ));
+        kernel.apply(Ask::OpenScreen(Id::new_static("probe.old"), Params::new()));
         kernel.take_warnings();
         // A native close normally stamps an existing screen at submission.
         // Exercise the drain's defensive refusal for a target that never opened.
-        commands.push(Command::Close(ScreenKey::new(u32::MAX)));
+        commands.push(Ask::Close(ScreenKey::new(u32::MAX)));
         kernel.drain_native_ui(&owner, commands, redraw);
         assert_eq!(kernel.next_serial, u32::MAX);
         assert_eq!(kernel.shared.stack.len(), 2);
@@ -588,13 +949,13 @@ mod tests {
         for already_closed in [false, true] {
             let mut kernel = screens_kernel();
             for id in ["probe.base", "probe.old"] {
-                kernel.apply(Command::OpenScreen(Id::new_static(id), Params::new()));
+                kernel.apply(Ask::OpenScreen(Id::new_static(id), Params::new()));
             }
             let original = kernel.shared.stack.last().unwrap().key;
             let owner = Id::new_static("probe");
             let (commands, redraw, _) =
                 {
-                    let env = kernel.shared.env(Instant(0));
+                    let env = kernel.shared.place(Instant(0));
                     let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096)
                         .with_ui(&env, Some(original), 0, u32::MAX - kernel.next_serial);
                     let mut bytes = [0; 192];
@@ -612,7 +973,7 @@ mod tests {
                     stage.into_ui_output()
                 };
             if already_closed {
-                kernel.apply(Command::Close(original));
+                kernel.apply(Ask::Close(original));
             }
             kernel.take_warnings();
             kernel.drain_native_ui(&owner, commands, redraw);
@@ -648,7 +1009,7 @@ mod tests {
             false,
             key,
         ));
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let owner = Id::new_static("probe");
         let mut stage = CommandStage::new(&owner, env.settings(), None, 8, 4096).with_ui(
             &env,
@@ -692,7 +1053,7 @@ mod tests {
             OK
         );
         let (commands, redraw, hop) = stage.into_ui_output();
-        assert!(matches!(commands.as_slice(), [Command::Close(k)] if *k == key));
+        assert!(matches!(commands.as_slice(), [Ask::Close(k)] if *k == key));
         let redraw = redraw.unwrap();
         assert_eq!(redraw.screen, key);
         assert_eq!(redraw.mode, Some(RefreshMode::Partial));
@@ -726,7 +1087,133 @@ mod tests {
             ERR_BUSY
         );
         assert_eq!(submit(&mut stage, &[WireCommand::Redraw { mode: 0 }]), OK);
+        // A stage its caller keeps is emptied where it is: no redraw twice.
+        assert!(stage.take_ui_output().1.is_some());
+        assert!(stage.take_ui_output().1.is_none());
     }
+    #[test]
+    fn an_area_redraw_marks_only_its_areas_weighed_one_by_one() {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let owner = Id::new_static("probe");
+        let key = ScreenKey::new(7);
+        kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+            Id::new_static("probe.screen"),
+            None,
+            false,
+            key,
+        ));
+        let content = kernel.content();
+        let (a, b) = (
+            paperpaw_platform::Rect::new(content.x + 2, content.y + 3, 10, 8),
+            paperpaw_platform::Rect::new(content.x + 40, content.y + 30, 20, 15),
+        );
+        // From the region's corner (the content here: no screen in the stack).
+        let area = |r: paperpaw_platform::Rect| {
+            super::super::Area::new(
+                i32::from(r.x - content.x),
+                i32::from(r.y - content.y),
+                u32::from(r.width),
+                u32::from(r.height),
+            )
+            .unwrap()
+        };
+        // One far outside the screen marks nothing.
+        let outside = super::super::Area::new(500, 500, 100, 100).unwrap();
+        kernel.frame.pending = None;
+        kernel.frame.pending_weight = 0;
+        kernel.output.redraw = false;
+        kernel.output.refresh = None;
+        kernel.drain_native_ui(
+            &owner,
+            Vec::new(),
+            Some(Redraw {
+                screen: key,
+                mode: Some(RefreshMode::Partial),
+                whole: false,
+                areas: alloc::vec![area(a), area(b), outside],
+            }),
+        );
+        assert!(!kernel.output.redraw, "not the whole screen");
+        assert_eq!(kernel.output.refresh, Some(RefreshMode::Partial));
+        assert_eq!(kernel.frame.pending, Some(a.union(&b)));
+        // What the refresh weighs: the two areas, not the rectangle around them.
+        assert_eq!(kernel.frame.pending_weight, 10 * 8 + 20 * 15);
+    }
+
+    #[test]
+    fn areas_asked_with_the_whole_screen_follow_in_the_next_frame() {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let owner = Id::new_static("probe");
+        let key = ScreenKey::new(7);
+        kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+            Id::new_static("probe.screen"),
+            None,
+            false,
+            key,
+        ));
+        let content = kernel.content();
+        let picture = paperpaw_platform::Rect::new(content.x + 5, content.y + 10, 30, 20);
+        let area = super::super::Area::new(
+            i32::from(picture.x - content.x),
+            i32::from(picture.y - content.y),
+            u32::from(picture.width),
+            u32::from(picture.height),
+        )
+        .unwrap();
+        let redraw = |areas| Redraw {
+            screen: key,
+            mode: Some(RefreshMode::Partial),
+            whole: true,
+            areas,
+        };
+        kernel.output.redraw = false;
+        kernel.drain_native_ui(&owner, Vec::new(), Some(redraw(alloc::vec![area])));
+        // The page first; the picture waits, and the shell is to come back.
+        assert!(kernel.output.redraw);
+        assert!(kernel.frame.followup.is_some());
+        assert_eq!(kernel.followup_due(true), Some(kernel.shared.now));
+        kernel.run_followup();
+        assert!(
+            kernel.frame.followup.is_some(),
+            "not before the page is drawn"
+        );
+        // The page was drawn: only the picture now, weighed alone.
+        kernel.output.redraw = false;
+        kernel.output.refresh = None;
+        kernel.frame.pending = None;
+        kernel.frame.unrendered = None;
+        kernel.frame.pending_weight = 0;
+        kernel.run_followup();
+        assert_eq!(kernel.frame.pending, Some(picture));
+        assert_eq!(kernel.frame.pending_weight, 30 * 20);
+        // Its frame is the follow-up's: the screen's draws are marked while
+        // it is drawn (and drawn again for the panel), not after.
+        assert_eq!(kernel.frame.followup_frame, Some(key));
+        kernel.frame.unrendered = kernel.frame.pending.take();
+        kernel.render(&mut |_, _| {});
+        assert!(!kernel.shared.stack_rows.is_followup(key));
+        assert_eq!(kernel.output.refresh, Some(RefreshMode::Partial));
+        assert_eq!(
+            (kernel.frame.followup.is_none(), kernel.followup_due(false)),
+            (true, None)
+        );
+        // A follow-up whose screen left the top is dropped.
+        kernel.drain_native_ui(&owner, Vec::new(), Some(redraw(alloc::vec![area])));
+        kernel.output.redraw = false;
+        kernel.frame.pending = None;
+        kernel.frame.unrendered = None;
+        kernel.shared.stack.clear();
+        kernel.run_followup();
+        assert_eq!(
+            (kernel.frame.followup.is_none(), kernel.frame.pending),
+            (true, None)
+        );
+    }
+
     #[test]
     fn redraw_only_preserves_refresh_and_stale_instance_effects_are_dropped() {
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
@@ -748,6 +1235,8 @@ mod tests {
             Some(Redraw {
                 screen: key,
                 mode: None,
+                whole: true,
+                areas: Vec::new(),
             }),
         );
         assert!(kernel.output.redraw);
@@ -766,10 +1255,12 @@ mod tests {
         ));
         kernel.drain_native_ui(
             &owner,
-            alloc::vec![Command::Close(key)],
+            alloc::vec![Ask::Close(key)],
             Some(Redraw {
                 screen: key,
                 mode: Some(RefreshMode::Full),
+                whole: true,
+                areas: Vec::new(),
             }),
         );
         assert!(!kernel.output.redraw);

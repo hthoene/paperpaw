@@ -248,7 +248,11 @@ pub struct DrawFrame<'a> {
     pub clip_top: i32,
     /// Exclusive last row permitted by the host canvas clip.
     pub clip_bottom: i32,
-    /// Purpose-specific identifier.
+    /// Purpose-specific identifier. For a screen, bit 0 marks the draws of
+    /// the frame that draws the follow-up of its
+    /// [`queue_redraw_area`](super::commands::CommandSender::queue_redraw_area)
+    /// areas (every band and send of it) and bit 1 a draw that only counts
+    /// its pictures ([`DrawFrame::pictures_only`]); otherwise 0.
     pub id: u32,
     /// Purpose-specific bytes, borrowed for this callback only.
     pub payload: &'a [u8],
@@ -283,6 +287,16 @@ impl<'a> DrawFrame<'a> {
         let mut frame: DrawFrame<'cb> = self;
         frame.host = Some(host);
         frame
+    }
+
+    /// Whether this draw of a screen only counts the pictures it draws
+    /// (`id` bit 1): the host draws the screen aside to learn whether it has
+    /// pictures enough to be shown in grays, and shows nothing of it. A
+    /// screen may leave out all but its pictures (text, lines, status
+    /// items); one that draws as always is right too, only slower.
+    #[must_use]
+    pub const fn pictures_only(&self) -> bool {
+        matches!(self.purpose, DrawPurpose::Screen) && self.id & (1 << 1) != 0
     }
 
     /// Borrow the drawing canvas installed for this frame's callback.

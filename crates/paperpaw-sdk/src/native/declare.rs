@@ -52,6 +52,11 @@ pub(crate) mod records_wire;
 )]
 pub(crate) mod settings_value;
 
+#[cfg(feature = "kernel")]
+pub use crate::settings::{
+    fixed_groups_source, fixed_ids_source, fixed_settings_source, fixed_titles_source,
+};
+
 use records_wire::{
     ActionSpec, ResourceFontExtension, ResourceFontFace, ResourceHyphenation, ScreenSpec,
     SettingExtra, SettingGroup, SettingSpec, WireEncode, records_encode_of,
@@ -60,6 +65,8 @@ use settings_value::{SettingValueRef, settings_encode};
 
 mod format;
 pub use format::FormatDecl;
+mod reader;
+pub use reader::ReaderDecl;
 mod lookup;
 pub use lookup::LookupProviderDecl;
 mod library;
@@ -135,6 +142,22 @@ pub enum DeclareError {
     Sink(i32),
     /// The builder could not allocate memory. No further submission is possible.
     NoMemory,
+}
+
+impl DeclareError {
+    /// The cause as the error a plugin's `make` returns: the host's or the
+    /// encoder's status is kept, no memory stays no memory, and an item that
+    /// was refused before it was sent is [`Error::Invalid`](super::Error::Invalid).
+    #[must_use]
+    pub const fn to_error(self) -> super::Error {
+        match self {
+            DeclareError::Encode(status) | DeclareError::Sink(status) => {
+                super::Error::from_status(status)
+            }
+            DeclareError::NoMemory => super::Error::NoMemory,
+            _ => super::Error::Invalid,
+        }
+    }
 }
 
 impl fmt::Display for DeclareError {
@@ -455,6 +478,30 @@ impl ScreenDecl<'_> {
     #[must_use]
     pub const fn holds_edges(mut self) -> Self {
         self.policy_flags |= 32;
+        self
+    }
+    /// The screen's content is best in grays (a page with a picture, smooth
+    /// text): where the panel has few but shows more with a refresh of its own
+    /// (the X4), the whole screen is shown so while it is on top with nothing
+    /// over it. A screen that changes it page by page sets it at run time
+    /// ([`ScreenPolicy::grays`](crate::native::ui::ScreenPolicy::grays)).
+    #[must_use]
+    pub const fn grays(mut self) -> Self {
+        self.policy_flags |= 512;
+        self
+    }
+    /// An overlay that washes out what lies below it while it shows, so that it
+    /// stands out (a menu, a panel); not one looked through (a keyboard over
+    /// its field). No effect on a screen that is no overlay.
+    #[must_use]
+    pub const fn dims_below(mut self) -> Self {
+        self.policy_flags |= 1024;
+        self
+    }
+    /// Show no row of button hints with this screen (the sleep screen).
+    #[must_use]
+    pub const fn hints_hidden(mut self) -> Self {
+        self.policy_flags |= 256;
         self
     }
 }

@@ -1,5 +1,5 @@
 use super::*;
-use alloc::string::ToString;
+use alloc::{format, string::ToString};
 
 /// Every character is 10 wide.
 fn ten(text: &str) -> Result<f32, Error> {
@@ -109,4 +109,21 @@ fn keys_at_the_ends_are_taken_and_other_keys_are_not() {
     );
     assert_eq!(panel.decide(5, region, &action("core.up")), Step::Edge);
     assert_eq!(panel.decide(5, region, &action("core.menu")), Step::Ignored);
+}
+
+#[test]
+fn a_definition_over_the_entry_limit_is_wrapped_whole_to_its_last_word() {
+    let long = (0..1_200)
+        .map(|n| format!("w{n}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(long.len() > 2_048 * 2);
+    let panel = Panel::new(&[entry("A", &long)], "", ten, 200.0).unwrap();
+    let shown = panel
+        .page(10_000)
+        .map(|(t, _)| t)
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(shown.ends_with("w1199"), "{shown}");
+    assert_eq!(shown.split(' ').count(), 1_200);
 }

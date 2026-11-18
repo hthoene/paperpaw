@@ -1,8 +1,7 @@
-//! The native converter (`native_convert`) against the interface-6 one
-//! (`convert.rs`): the same page and the same result for the same feed, at
-//! any size of the pieces it comes in, and refusing instead of aborting when
-//! memory runs short.
-use crate::convert;
+//! The native converter (`native_convert`) against the pages the interface-6
+//! converter made (`testdata/pinned_pages.txt`, a hash of each page): the same
+//! page and the same result for the same feed, at any size of the pieces it
+//! comes in, and refusing instead of aborting when memory runs short.
 use crate::fail_alloc::sweep;
 use crate::native_convert::{Converter, HEAD, TAIL, paragraphs};
 use alloc::format;
@@ -10,7 +9,6 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use paperpaw_sdk::native::Error;
-use paperpaw_sdk::{MemoryStorage, Storage};
 
 /// The date as the plugin's own text would be, kept fallibly: the sweeps
 /// must see a refusal here as one, not as an abort.
@@ -22,24 +20,33 @@ pub(crate) fn day_text(year: i32, month: u8, day: u8) -> Result<String, Error> {
     Ok(out)
 }
 
-pub(crate) fn old(
-    feed: &[u8],
-    max_articles: usize,
-    max_text: usize,
-) -> (Result<convert::Converted, ()>, Vec<u8>) {
-    let storage = MemoryStorage::new();
-    storage.write("feed.xml", feed).unwrap();
-    let result = convert::convert(
-        &storage,
-        "feed.xml",
-        "out.html",
-        max_articles,
-        max_text,
-        &|y, m, d| day_text(y, m, d).unwrap(),
-    );
-    (
-        result.map_err(|_| ()),
-        storage.get("out.html").unwrap_or_default(),
+/// FNV-1a of a page, as the pinned file keeps it.
+pub(crate) fn fnv(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x100_0000_01b3)
+    })
+}
+
+/// What the pinned file says of feed `feed` read with these limits.
+pub(crate) fn pinned(feed: usize, max_articles: usize, max_text: usize) -> &'static str {
+    let key = format!("{feed} {max_articles} {max_text}: ");
+    include_str!("../testdata/pinned_pages.txt")
+        .lines()
+        .find_map(|line| line.strip_prefix(key.as_str()))
+        .expect("a pinned case")
+}
+
+/// The same line from what the native code made.
+pub(crate) fn pinned_line(
+    title: &str,
+    articles: usize,
+    headlines: &[String],
+    page: &[u8],
+) -> String {
+    format!(
+        "{title:?} {articles} {headlines:?} page={}:{:016x}",
+        page.len(),
+        fnv(page)
     )
 }
 
@@ -122,7 +129,7 @@ pub(crate) fn feeds() -> Vec<String> {
 
 #[test]
 fn feeds_become_the_pages_of_interface_6() {
-    for feed in feeds() {
+    for (index, feed) in feeds().iter().enumerate() {
         for (max_articles, max_text) in [
             (10, 10_000),
             (5, 100),
@@ -130,24 +137,14 @@ fn feeds_become_the_pages_of_interface_6() {
             (200, 64 * 1024),
             (0, 100),
         ] {
-            let (want, page) = old(feed.as_bytes(), max_articles, max_text);
+            let want = pinned(index, max_articles, max_text);
             for piece in [1, 5, 64, 512, 2048] {
-                let got = new(feed.as_bytes(), piece, max_articles, max_text);
-                match (&want, &got) {
-                    (Ok(w), Ok((g, got_page))) => {
-                        assert_eq!(
-                            (&w.title, w.articles, &w.headlines),
-                            (&g.title, g.articles, &g.headlines),
-                            "{piece} {max_articles} {max_text} {feed:.60}"
-                        );
-                        assert_eq!(
-                            String::from_utf8_lossy(&page),
-                            String::from_utf8_lossy(got_page),
-                            "{piece} {max_articles} {max_text} {feed:.60}"
-                        );
-                    }
-                    other => panic!("{other:?} {feed:.60}"),
-                }
+                let (got, page) = new(feed.as_bytes(), piece, max_articles, max_text).unwrap();
+                assert_eq!(
+                    pinned_line(&got.title, got.articles, &got.headlines, &page),
+                    want,
+                    "{piece} {max_articles} {max_text} {feed:.60}"
+                );
             }
         }
     }
@@ -159,30 +156,6 @@ fn a_page_begins_and_ends_as_ever() {
     let page = String::from_utf8(page).unwrap();
     assert!(page.starts_with(HEAD));
     assert!(page.ends_with(TAIL));
-    assert_eq!(HEAD, convert::HEAD);
-}
-
-#[test]
-fn paragraphs_are_those_of_interface_6() {
-    for markup in [
-        "",
-        "<p>One</p><p>Two &amp; <b>three</b></p>",
-        "text <br> more <BR/> end",
-        "<script>x</script>a<style>y</style>b<SCRIPT/>c",
-        "<ul><li>a</li><li>b</li></ul>",
-        "&lt;p&gt;not markup&lt;/p&gt;",
-        "<![CDATA[raw <b>]]>",
-        &"word ".repeat(3000),
-    ] {
-        for max in [0, 10, 100, 10_000] {
-            let want = convert::paragraphs(markup, max);
-            assert_eq!(
-                paragraphs(markup, max).unwrap(),
-                want.unwrap(),
-                "{markup:.40} {max}"
-            );
-        }
-    }
 }
 
 #[test]

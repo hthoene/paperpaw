@@ -1,123 +1,115 @@
-//! The native declarations name what the interface-6 registration names: the
-//! settings (ids, kinds, defaults, choices, titles, help), the group, the
-//! screens, the slot, the action with its key binding, and the first-run step.
+//! The native declarations (settings, screens, navigation, stages) are what the
+//! image holds, and the host takes them as far as it has wired them.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
+use paperpaw_core::native_host::{
+    declarations::{validate_batch, validate_record},
+    registrations::records_decode,
+};
+use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+
 #[path = "../declarations.rs"]
 mod declarations;
-use paperpaw_plugin_keyboard::Keyboard;
-use paperpaw_sdk::native::declare::Declarations;
-use paperpaw_sdk::{Contribution, Id, Plugin, Registrar, SettingKind};
 
-fn legacy() -> Vec<Contribution> {
-    let mut r = Registrar::new(Id::new_static("keyboard"));
-    Keyboard.register(&mut r).unwrap();
-    r.into_contributions()
+mod image {
+    include!(concat!(env!("OUT_DIR"), "/keyboard_declarations.rs"));
 }
 
-fn batches(
-    declare: impl FnOnce(&mut Declarations<&mut dyn FnMut(&[u8]) -> Result<(), i32>>),
-) -> Vec<Vec<u8>> {
-    let mut out = Vec::new();
-    {
-        let mut sink = |b: &[u8]| -> Result<(), i32> {
-            out.push(b.to_vec());
-            Ok(())
-        };
-        let mut d = Declarations::new(&mut sink as &mut dyn FnMut(&[u8]) -> Result<(), i32>);
-        declare(&mut d);
-    }
-    out
+/// The batches `$declare` submits.
+macro_rules! batches {
+    ($declare:path) => {{
+        let mut out: Vec<Vec<u8>> = Vec::new();
+        {
+            let mut d = paperpaw_sdk::native::declare::Declarations::new(|batch: &[u8]| {
+                out.push(batch.to_vec());
+                Ok(())
+            });
+            $declare(&mut d).unwrap();
+        }
+        out
+    }};
 }
 
 #[test]
-fn settings_match_the_interface_6_registration() {
-    let mut found = Vec::new();
-    for contribution in legacy() {
-        if let Contribution::FixedSettings(settings) = contribution {
-            for spec in settings.iter() {
-                found.push((
-                    spec.id.as_str().to_string(),
-                    spec.title.to_string(),
-                    spec.description.as_deref().map(str::to_string),
-                    spec.group.as_str().to_string(),
-                    matches!(spec.kind, SettingKind::List),
-                ));
-            }
-        }
-    }
-    found.sort();
-    let mut expected: Vec<(String, String, Option<String>, String, bool)> = [
-        ("auto-capitals", false),
-        ("key-shape", false),
-        ("layouts", true),
-        ("size", false),
-        ("umlaut-keys", false),
-    ]
-    .iter()
-    .map(|(name, list)| {
+fn the_image_is_what_the_builder_makes() {
+    for (name, built, image) in [
         (
-            format!("keyboard.{name}"),
-            format!("keyboard.setting.{name}"),
-            Some(format!("keyboard.setting.{name}.help")),
-            "keyboard.group".to_string(),
-            *list,
-        )
-    })
-    .collect();
-    expected.sort();
-    assert_eq!(found, expected);
-    // The native declarations encode without a refusal, in one batch.
-    assert_eq!(batches(|d| declarations::settings(d).unwrap()).len(), 1);
-}
-
-#[test]
-fn screens_slot_and_action_match() {
-    let mut screens = Vec::new();
-    let mut slots = Vec::new();
-    let mut actions = Vec::new();
-    let mut keymaps = Vec::new();
-    for contribution in legacy() {
-        match contribution {
-            Contribution::FixedScreens(list) => {
-                for s in list.iter() {
-                    screens.push((s.id().as_str().to_string(), s.title().to_string()));
-                }
-            }
-            Contribution::Screen(s) => {
-                screens.push((s.id.as_str().to_string(), s.title.to_string()));
-            }
-            Contribution::SlotBinding { slot, screen, .. } => {
-                slots.push((slot.to_string(), screen.to_string()));
-            }
-            Contribution::Action(spec) => actions.push(spec.id.as_str().to_string()),
-            Contribution::Keymap(text) => keymaps.push(text.to_string()),
-            _ => {}
+            "settings",
+            batches!(declarations::settings),
+            image::SETTINGS,
+        ),
+        ("screens", batches!(declarations::screens), image::SCREENS),
+        (
+            "navigation",
+            batches!(declarations::navigation),
+            image::NAVIGATION,
+        ),
+        ("stages", batches!(declarations::stages), image::STAGE_SPECS),
+    ] {
+        assert_eq!(built.len(), image.len(), "{name}");
+        for (built, image) in built.iter().zip(image) {
+            assert_eq!(built.as_slice(), *image, "{name}");
         }
     }
-    screens.sort();
-    assert_eq!(
-        screens,
-        [
-            (
-                "keyboard.choose".to_string(),
-                "keyboard.setting.layouts".to_string()
-            ),
-            ("keyboard.screen".to_string(), "keyboard.title".to_string()),
-        ]
+}
+
+/// The declarations name the settings, the group, the screens, the slot, the
+/// action with its key binding and the first-run step by their ids and texts.
+#[test]
+fn the_declarations_name_the_settings_the_screens_and_the_slot() {
+    fn holds(batches: &[Vec<u8>], names: &[&str]) {
+        for name in names {
+            assert!(
+                batches
+                    .iter()
+                    .any(|b| b.windows(name.len()).any(|w| w == name.as_bytes())),
+                "{name}"
+            );
+        }
+    }
+    holds(
+        &batches!(declarations::settings),
+        &[
+            "keyboard.group",
+            "keyboard.title",
+            "keyboard.setting.layouts",
+            "keyboard.setting.layouts.help",
+            "keyboard.setting.umlaut-keys",
+            "keyboard.setting.key-shape",
+            "keyboard.setting.size",
+            "keyboard.setting.auto-capitals",
+            "keyboard.layout.auto",
+        ],
     );
-    assert_eq!(
-        slots,
-        [("core.keyboard".to_string(), "keyboard.screen".to_string())]
+    holds(
+        &batches!(declarations::screens),
+        &["keyboard.title", "keyboard.setting.layouts"],
     );
-    assert_eq!(actions, ["keyboard.done"]);
-    assert!(
-        keymaps
-            .iter()
-            .any(|k| k.contains("[keymap.keyboard.screen]")
-                && k.contains("long.back = keyboard.done"))
+    holds(
+        &batches!(declarations::navigation),
+        &["keyboard.done-action", "long.back"],
     );
-    assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);
-    assert_eq!(batches(|d| declarations::navigation(d).unwrap()).len(), 1);
+}
+
+/// The host takes the screens; the other families it refuses as unsupported
+/// until it wires them (`screens-input.md` section 1), so `make` is refused
+/// until then: the same state as the other native plugins, pending #944.
+#[test]
+fn the_host_admits_the_screens_and_refuses_the_rest_as_unsupported() {
+    for batch in batches!(declarations::screens) {
+        let records = records_decode(&batch).unwrap();
+        validate_batch("keyboard", &records).unwrap();
+    }
+    for batch in batches!(declarations::settings)
+        .into_iter()
+        .chain(batches!(declarations::navigation))
+    {
+        let records = records_decode(&batch).unwrap();
+        for record in records.iter() {
+            if let Err(status) = validate_record("keyboard", &record) {
+                assert_eq!(status, ERR_UNSUPPORTED, "{record:?}");
+            }
+        }
+    }
 }
 
 #[test]
@@ -142,7 +134,7 @@ fn the_layouts_stage_is_declared_with_the_codecs_bounds() {
         registrations::{Record, records_decode},
     };
     let mut stages = 0;
-    for batch in batches(|d| declarations::stages(d).unwrap()) {
+    for batch in batches!(declarations::stages) {
         let records = records_decode(&batch).unwrap();
         validate_batch("keyboard", &records).unwrap();
         for record in records.iter() {

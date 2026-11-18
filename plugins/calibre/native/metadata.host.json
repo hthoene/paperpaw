@@ -87,6 +87,46 @@
       "name": "canvas.clip"
     },
     {
+      "kind": "host",
+      "name": "services.query"
+    },
+    {
+      "kind": "host",
+      "name": "storage.size"
+    },
+    {
+      "kind": "host",
+      "name": "storage.read_at"
+    },
+    {
+      "kind": "host",
+      "name": "storage.write"
+    },
+    {
+      "kind": "host",
+      "name": "storage.append"
+    },
+    {
+      "kind": "host",
+      "name": "storage.remove"
+    },
+    {
+      "kind": "host",
+      "name": "storage.rename"
+    },
+    {
+      "kind": "host",
+      "name": "storage.sync"
+    },
+    {
+      "kind": "host",
+      "name": "blob.read"
+    },
+    {
+      "kind": "host",
+      "name": "blob.release"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },
@@ -103,6 +143,27 @@
       "name": "input"
     }
   ],
-  "services": [],
-  "features": []
+  "services": [
+    "core.device",
+    "core.document",
+    "core.files",
+    "core.library",
+    "core.secrets",
+    "core.sockets",
+    "core.ui"
+  ],
+  "features": [
+    {
+      "key": "uses.library",
+      "required": false
+    },
+    {
+      "key": "uses.network",
+      "required": false
+    },
+    {
+      "key": "uses.storage",
+      "required": false
+    }
+  ]
 }

@@ -309,6 +309,12 @@ fn whole_answer<S: Storage + ?Sized>(
 /// goes on. Power loss or a failing call: what was removed is gone, the rest is
 /// whole, and calling again from the last place or from 0 goes on.
 ///
+/// A folder that is **gone** when the walk lists it (`NotFound`: a place named
+/// one removed since, or a storage whose folders are only their files, where
+/// one loses its last file and is no folder any more) holds nothing: the walk
+/// goes on in its parent from its start, and a root gone after removals is
+/// done.
+///
 /// Names that no path can hold (a trailing dot, a reserved name, over 255
 /// bytes) are removed by their place ([`Storage::remove_listed`]: a file, or a
 /// folder with nothing in it). Folders with something in them are walked
@@ -374,14 +380,18 @@ pub fn remove_tree_step<S: Storage + ?Sized>(
             // The folder a resumed place names is gone or no longer a
             // folder: stale. That folder's parent starts over at 0 (the
             // place is used once), never an error.
-            Err(StorageError::NotFound | StorageError::InvalidPath)
-                if level > 0 && level == target =>
-            {
-                target = usize::MAX;
+            // A folder that is gone counts as empty (see the doc).
+            Err(StorageError::NotFound | StorageError::InvalidPath) if level > 0 => {
+                if level <= target {
+                    target = usize::MAX;
+                }
                 level -= 1;
                 positions.truncate(level + 1);
                 positions[level] = 0;
                 continue;
+            }
+            Err(StorageError::NotFound) if level == 0 && here == 0 && removed > 0 => {
+                return Ok(TreeStep::new(removed, true, 0));
             }
             Err(error) => return Err(error),
         };

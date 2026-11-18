@@ -163,7 +163,8 @@ record.
   events of that run's requests and sockets), a plugin may submit only these commands: `redraw`,
   `set_setting`, `reset_setting`, `set_item_state`, `widget_changed`, `image_prepare`,
   `image_release` and the network ones (`wifi_on`, `wifi_off`, `wifi_scan`, `wifi_join`,
-  `wifi_leave`, `wifi_host`, `network_none`, `go_online`). Every other command is `ERR_STATE` at
+  `wifi_leave`, `wifi_host`, `network_none`, `go_online`) and `lookup_ready` (a lookup provider's
+  fetch ends in its run, `document.md` 7). Every other command is `ERR_STATE` at
   submit, a notice, a dialog, `open` and every command added later alike (the host names a new
   one here before a run may send it), and so are UI calls that would ask the user. Service calls
   (data, network requests, sockets, work declarations) are no commands and stay allowed. The
@@ -180,7 +181,7 @@ record.
 | 104 | `event.work_refused` | `now_ms: u64`, `token: u32`, `reason: u32`, `key: str 64` |
 | 105 | `event.work_allowed` | `now_ms: u64` |
 
-- [D] **Subscriptions** (draft 30): the three go only to the plugin whose work it is, and only
+- [D] **Subscriptions**: the three go only to the plugin whose work it is, and only
   when it subscribed to them with `registration.event`, as every event (`network.md` 4 for 99).
   `declare` without a subscription to 103 is `ERR_STATE`: its work could never be told it is due.
   104 and 105 are the plugin's choice: one that did not subscribe to 104 finds a refused work gone

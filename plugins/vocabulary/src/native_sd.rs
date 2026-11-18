@@ -189,7 +189,7 @@ fn rows(words: &mut impl Words, shown: Shown<'_>) -> Result<(Vec<Item>, Vec<Targ
         .try_reserve_exact(room)
         .map_err(|_| Error::NoMemory)?;
     let note = crate::native_decks::files_note(words, shown.folder, shown.pending)?;
-    items.push(Item::noted(
+    items.push(Item::whole(
         &words.copy("vocabulary.sd.update")?,
         GO,
         &note,
@@ -227,7 +227,7 @@ fn rows(words: &mut impl Words, shown: Shown<'_>) -> Result<(Vec<Item>, Vec<Targ
                 },
             ],
         )?;
-        items.push(Item::noted(&title, GO, &note)?);
+        items.push(Item::whole(&title, GO, &note)?);
         targets.push(Target::Save(deck.id));
         if let Some(link) = link {
             let title = words.format(
@@ -249,7 +249,7 @@ fn rows(words: &mut impl Words, shown: Shown<'_>) -> Result<(Vec<Item>, Vec<Targ
                     value: &link.name,
                 }],
             )?;
-            items.push(Item::noted(&title, &value, &help)?);
+            items.push(Item::whole(&title, &value, &help)?);
             targets.push(Target::Mirror(deck.id));
         }
     }
@@ -560,7 +560,7 @@ impl Run {
             .map_err(|_| Error::NoMemory)?;
         for (title, note) in &rows {
             let title = if title.is_empty() { " " } else { title };
-            items.push(Item::noted(title, "", note)?);
+            items.push(Item::whole(title, "", note)?);
         }
         self.rows = rows;
         self.list = ItemList::new(items);

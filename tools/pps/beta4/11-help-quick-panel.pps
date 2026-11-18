@@ -1,0 +1,38 @@
+# Beta 4 suite 11: hints (help) and the reader's quick panel.
+include:common.pps
+
+# "Show hints again", then the next screen that opens (Home) shows its note: "How it works here", Got it / No more hints.
+# A button closes it. (Hints are off in the rest of the suite.)
+test:11a-help-hints {
+  call:home
+  set:help.show=on
+  show:help.again
+  until:The hints show again:8000
+  slot:core.home
+  until:How it works here:8000
+  expect:Got it
+  expect:No more hints
+  confirm
+  wait:1500
+  expect-not:How it works here
+  expect:Edit
+  set:help.show=off
+  no-warn
+}
+
+test:11b-quick-panel-keys {
+  call:home
+  open:$book
+  wait:4000
+  confirm
+  until:Bookmark:8000
+  # Right and Left move through the panel's eight buttons, Select does the one in focus, Back closes it
+  focus:Home
+  expect-focus:Home
+  left
+  expect-focus:More
+  back
+  wait:1000
+  expect-not:Bookmark
+  no-warn
+}

@@ -4,8 +4,9 @@ Version 1.0.3 (bumped since Beta 3 already; no further bump). The Word documents
 slice 1 (PR #617) the fallible converter and the `core.format` provider; slice 2 (this one) the declaration, native
 entry, metadata and `.ppn`, as format-txt, format-xtc and format-images did (PR #611, #612, #614).
 
-Status: **not complete** until the removal step below (the interface-6 `DocxFormat` is still beside the native one;
-nothing registers both in a shipped build: `NativeDocx` is not in `paperpaw_app::NATIVE_PLUGINS` yet).
+Status: **complete** (native only, #228, ticket 228). The interface-6 form is removed (see "Removal step" below, done);
+`NativeDocx` is in `paperpaw_app::NATIVE_PLUGINS` and in `tools/plugin-files7/complete.txt`. Until the shells activate
+native plugins, the interface-6 app opens no `.docx` (held until activation).
 
 ## Ported
 
@@ -20,11 +21,13 @@ the cache root 6 (the names of the cache's files: `blocks.bin`, `index.bin`, `li
 `urls.idx`, `urls.bin`, `marks.bin`, `pictures.txt`, `info.txt`, `media-<n>`, `img-<n>.gray`, `done` last); the host
 owns the stamp (`.complete`).
 
-- **The shared code is the interface-6 code.** The converter (`DocxDocument::convert`, `writer.rs`, `parts.rs`),
-  the cache (`cache.rs`) and the pictures (`images.rs`) serve both openers (`DocxDocument::open` for interface 6,
-  `DocxDocument::native` for the provider: the archive and the cache are both `""`). `tests/provider.rs` compares
-  blocks (text, kind, offsets, runs, alignment), contents, links, places, metadata and the pictures' pixels with
-  `DocxDocument` on the same documents.
+- **One converter and reader.** The converter (`DocxDocument::convert`, `writer.rs`, `parts.rs`), the cache
+  (`cache.rs`) and the pictures (`images.rs`) serve the provider through `DocxDocument::native` (the archive and the
+  cache are both `""`). `tests/provider.rs` compares blocks (text, kind, offsets, runs, alignment), contents, links,
+  places, metadata and the pictures' pixels with `DocxDocument` converted and read on a cache of its own;
+  `tests/docx.rs` pins what the text, headings, lists, tables, links and pictures of a Word document are (it
+  converts and reads on the provider's roots) and the hostile and damaged documents, `tests/docx_memory.rs` that
+  converting needs the same memory for a short and a long document.
 - **Everything is fallible.** Every allocation of the converter (parts, styles, relationships, the writer's text,
   runs, titles, pending bookmarks, the cache's buffers), of the cache reader and of the pictures is reserved with
   `try_reserve` (`src/mem.rs`) or latched (`Output`, `Writer`, `Parts` set an `oom` flag the conversion ends with);
@@ -75,11 +78,37 @@ equals the reading of a provider that had none. `tests/provider.rs` has a hostil
 cuts through open, prepare and reads: no panic), failed documents (not a document, short, text, empty: no cache is
 left) and bad calls (unknown document, an id opened twice, too many documents, bad input).
 
-## Removal step (one sweep, with the reader port and Core #944)
+## Removal step (done: native only)
 
-1. `DocxFormat` and its `Plugin` impl (`FORMAT`, `add_book_cache`, `add_format`, the `HOW` table kept for the manifest),
-   `document::opener`;
+Removed with the interface-6 form:
+
+1. `DocxFormat` and its `Plugin` impl (`FORMAT`, `PLUGIN`, the manifest, `add_book_cache`, `add_format`), and
+   `document::opener`. The `HOW` and `CATALOGS` statics are gone too: nothing in the native registry reads them
+   (the texts in `how/` and `i18n/` stay for the native how-to and the built catalogs).
 2. `DocxDocument::open` with its plugin-folder cache, `fingerprint` and the `VERSION` stamp (the native cache's
-   stamp is the host's);
-3. the app's store-offer line and the other plugins' tests that register `DocxFormat`;
-4. list `NativeDocx` in `NATIVE_PLUGINS` and `tools/plugin-files7/complete.txt`.
+   stamp is the host's). The title fallback to the file name went with it (see Gaps).
+3. The app's store-offer line (`install_with`), the entry in `STORE_PLUGINS` and the `store-plugins` dependency (the
+   dependency is `native-linked`'s now), the interface-6 plugin file (`tools/plugin-files`: bin, dependency, the
+   `plugins.txt` line is a comment like the other plugins that wait for interface 7).
+4. `NativeDocx` is listed in `NATIVE_PLUGINS` (with `paperpaw-plugin-format-docx/linked` in `native-linked`) and in
+   `tools/plugin-files7/complete.txt`.
+
+Tests: `tests/docx.rs` and `tests/docx_memory.rs` convert and read through `DocxDocument::convert` and `native` on
+the provider's roots instead of `DocxDocument::open`; two tests of pure interface-6 plumbing are dropped (the stamp
+that did not convert again, and nothing left in the plugin's folder after a failed conversion: the provider's
+failed-document test and `a_cache_that_is_whole_opens_ready_at_once` cover the cache now). The title test pins the
+native behaviour (no title without properties). `tests/provider.rs` compares with the reader, not with interface 6.
+In the emulator, the Word snapshot cases and the three Word memory tests need native activation and are ignored with
+that reason (assertions kept).
+
+## Still blocked on the host
+
+- **Activation:** the shells do not register native plugins yet; until then no `.docx` opens in the app, and the
+  ignored cases above stay ignored. `tests/hosted_construction.rs` stays ignored, BLOCKED #944 (the host's format
+  broker admits no formats yet).
+- **Title from the file name** belongs to the library (root 3 has no name).
+- **Resumable preparing** (`prepare` is one long call) needs a resumable archive reader.
+
+- **Beta 3 caches stay on cards.** The interface-6 plugin-folder caches (`.paperpaw/plugins/format-docx/<hash>/`) of
+  books opened with Beta 3 are no longer read or written after this removal; they stay on the card until a cleanup
+  (follow-up, not part of this PR: the host or the library removes them, or the owner deletes `.paperpaw/plugins`).

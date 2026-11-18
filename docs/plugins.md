@@ -32,59 +32,82 @@ folder into a plugin's own project (or one's own skills) to use it
 there. The SDK's API documentation (`cargo doc -p paperpaw-sdk
 --open`) has every detail.
 
-## The sample plugin
+## Your first plugin with code
 
-[`samples/hello-plugin`](../samples/hello-plugin/src/lib.rs) is a small
-plugin to start from. It adds *Hello* to the tools menu, which opens a
-screen greeting you by a name set in the settings, with the number of
-books opened since the start. Try it in the emulator:
+`paperpaw-dev new` makes the plugin to start from. It adds *Hello* to the
+tools menu, which opens a screen greeting you by a name set in the
+settings, with the number of books opened since the start. From an empty
+folder:
 
 ```sh
-cargo run -p paperpaw-emulator --features hello -- --profile boox-go-7 --set hello.name=Ada
+paperpaw-dev new --github my-plugin --code
+cd my-plugin
+paperpaw-dev build --device emulator
+paperpaw-emu --library dist/emulator --trust-code
 ```
 
-*Hello* is among the tools: open *Tools* in the main menu, then
-*Hello*.
+The plugin is a crate of its own that needs only `paperpaw-sdk`. In the
+emulator open *Tools* in the main menu, then the plugin's entry. The
+setting is in *Settings*, in the group *Other*. Edit `src/main.rs`, build
+and start again to see a change. `paperpaw-dev build` (without
+`--device`) builds it for the Xteink X4 and X3 and packs it into
+`dist/x4/my-plugin`, as it goes onto a card; `--device x4-pro` is for the
+X4 Pro and X4 Classic. `CODE.md` in the new folder says what the build
+needs and what the packer refuses.
 
 ### The plugin
 
-A plugin is a type implementing [`Plugin`]: a manifest and a `register`
-function. `register` runs once at start-up and adds the plugin's
-contributions through a [`Registrar`]:
+A plugin with code is a type implementing the SDK's native `Plugin`
+(`paperpaw_sdk::native::Plugin`). The device builds it with `make`, once, when
+the plugin is loaded. `make` says what the plugin brings by sending
+*declarations*: screens, actions, menu entries, settings, the events it
+wants to hear. After that the device calls the plugin only for what it
+asked for: `event` for an action or an event, `draw` for a screen, `input`
+for its keys and touches.
 
 ```rust
-pub const PLUGIN: Id = Id::new_static("hello");
-pub const OPEN: Id = Id::new_static("hello.open");
-pub const SCREEN: Id = Id::new_static("hello.screen");
-
-pub struct Hello;
-
-impl Plugin for Hello {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(PLUGIN, "Hello", Version::new(0, 1, 0))
-            .description("A sample plugin to start from.")
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_action(ActionSpec::new(OPEN, "hello.title").handler(|_, _, out| {
-            out.push(Command::OpenScreen(SCREEN, Params::new()));
-        }))?;
-        r.add_menu_entry(MenuEntry::new(menus::TOOLS, OPEN).order(90))?;
-        r.add_icon(OPEN, Cow::Borrowed("star"))?;
-        // … the screen, a setting, an event, translations
-        Ok(())
-    }
+fn declare(host: &Host<'_>) -> Result<(), DeclareError> {
+    let mut declarations =
+        Declarations::new(|batch| registrations::submit(host, batch).map_err(i32::from));
+    declarations.screen(ScreenDecl::new("screen", "my-plugin.title", SCREEN))?;
+    declarations.action(ActionDecl::new("open", "my-plugin.title", OPEN))?;
+    declarations.menu_entry(MenuEntryDecl::new("core.tools", "my-plugin.open"))?;
+    // The name to greet: listed in the settings, saved by the device.
+    let group = groups::OTHER;
+    let mut name = SpecDecl::new("name", Kind::Text(""), group.as_str(), "my-plugin.setting.name");
+    name.help = "my-plugin.setting.name.help";
+    declarations.spec(name)?;
+    // Every reader says when a book opens.
+    declarations.subscribe_event(EventKind::BookOpened, OPENED)?;
+    declarations.submit()
 }
 ```
 
-Every id starts with the plugin's id (`hello.open`); `core` is the
-kernel's. Titles are translation keys, translated where they are shown.
+Every id starts with the plugin's id (`my-plugin.open`); `core` is the
+device's. Titles are translation keys of `plugin/i18n/<language>.ini`,
+translated where they are shown. The numbers (`SCREEN`, `OPEN`,
+`OPENED`) are the plugin's own: the device hands one back with what
+belongs to it, so `event` and `draw` know which it is.
 
-Icons are named as in [Tabler Icons](https://tabler.io/icons), any of
-them (`paperpaw_sdk::icons` knows every name). PaperPaw's icon font holds
-the ones it uses itself; for another, bring its drawing as an icon pack
-(see below), else none shows.
+What the plugin does with an action or an event is written in `event`: it
+keeps what it learns in its own type (here the books opened) and asks
+the device for what it wants done with a command
+(`CommandSender::open_screen`). `draw` paints a screen with the canvas
+the device hands it and a font it acquires; the greeting reads the
+setting with `settings::read_setting` each time the screen is drawn.
+`input` returns `Handled::No` for what the plugin does not handle: the
+device's own keys (back, home) keep working.
+
+`native/metadata.json` lists the functions of the device that the code
+calls; `paperpaw-dev metadata` turns it into the records the plugin file
+carries, and a call that is not listed is refused on the device. Say what
+the plugin needs there when you add a call.
+
+The sections that follow, up to *What plugins contribute*, describe the
+kernel's own interface for plugins that are compiled into PaperPaw
+(`Plugin`, `Registrar`, `Screen`, `Env`). It is being replaced by the
+declarations above: a plugin written today starts from
+`paperpaw-dev new --code`.
 
 ### Reading and changing: `Env` and commands
 
@@ -259,8 +282,6 @@ title or a button's word: a title is measured first and keeps its whole
 width, a box or control beside it takes what is left, and where that is
 too little the row takes a second line (ask the block for its row's
 height); only a value, the reader's own text in a field, may be
-shortened. `paperpaw-dev ui-kit` draws every block below on every
-device, in every look, light and dark, and checks that no label is
 shortened.
 
 | For | Use |
@@ -496,16 +517,13 @@ short one.
 
 ### Testing
 
-Plugins are tested with the real kernel and an in-memory storage, as the
-sample's [test](../samples/hello-plugin/tests/hello.rs) does. The kernel
-comes from the crate `paperpaw-core`, a dev-dependency. Build a kernel
-with the plugin and send it input. Then look at the open screen, the
-settings, the files and the HTTP requests it makes (`Kernel::take_io`).
-Answer them with `Kernel::http_response`. The emulator then shows how it
-looks and how much memory it needs on each device:
+Build the plugin for the emulator (`paperpaw-dev build --device emulator`)
+and start it as the plugin's users will meet it: the emulator shows how it
+looks and how much memory it needs on each device, and its headless mode
+runs a script of keys and actions and takes a picture:
 
 ```sh
-cargo run -p paperpaw-emulator --features hello -- --profile xteink-x4 --headless --script "run:hello.open" --screenshot out.png --heap-report
+paperpaw-emu --library dist/emulator --trust-code --profile xteink-x4 --headless --script "run:my-plugin.open" --screenshot out.png --heap-report
 ```
 
 Before a plugin is published, `paperpaw-dev` checks all of it on every
@@ -589,7 +607,6 @@ end. PaperPaw's CI checks its screens so.
 | `flows` | Scripted flows with assertions (`--flow a.flow`): each step's heap and frame time against the X4's budgets, and each flow played again at the edges; see below. |
 | `package` | A data plugin as the device's installer and the plugin library take it (id, paths, file count and sizes, file kinds, `formats`, settings and presets that exist), installed on each device as the store does; a `.ppn` file checked as the device checks it (header, digest, the author's signature), with its fingerprint and sizes; flows and test pictures left in a data plugin's folder, which would ship with it (`package.tests`). `--release <version>` (for a `.ppn`, the release's fingerprint) tells whether that release takes it. |
 | `snapshots` | Screens and widgets compared with reference pictures (`--snapshots <dir>`, `tests/snapshots` by default); `--bless` writes them anew. |
-| `ui-kit` | Every building block of the SDK's `ui` module (see [Which building block for what](#which-building-block-for-what)), drawn as the gallery draws screens: on every device, in every look, light and dark, with and without the focus. Not part of `check`. |
 
 The pseudo-language makes every English text about a third longer and
 accents its letters (`[Šéţţîñĝš ~~]`); with `--language pseudo` the
@@ -1223,8 +1240,6 @@ PageLayerSpec::new(id, "interlinear.words", draw)
     })
 ```
 
-`samples/interlinear` is all of this as a plugin to start from.
-
 A frame (`layers::PageFrameSpec`) sets the text in columns: two
 columns, two pages side by side. The setting `core.page-frame` (each
 book may have its own) offers every frame by its id, named by the
@@ -1718,11 +1733,6 @@ reason).lasting(...))` on a screen (it ends when the screen closes), or
 `Command::KeepAwake` from work and services; renew it before it ends,
 let go with `Command::LetSleep`. The reader can switch holds off.
 
-`samples/frame-test` does all of this and shows what it measures (frames
-a second, the work as hot and as ordinary code, the drawing, the heap):
-`cargo run -p paperpaw-emulator --features frame-test`, then *Frame
-test* in the tools.
-
 ### Work in the background
 
 What a plugin does on its own, not because the reader just asked for
@@ -1867,16 +1877,31 @@ The emulator's X4 profile enforces the budget. After a run with
 
 ## Plugins as files
 
+> **Out of date for plugin interface 7 (#244).** What follows describes how a
+> plugin with code was built as a file for the interface before 7. Its sample
+> (`samples/hello-native`), the macro `paperpaw_sdk::plugin!` and the
+> fingerprint check are gone, and devices refuse such files. PaperPaw's own store plugins are built by
+> [`tools/plugin-files7`](../tools/plugin-files7/README.md) with
+> `paperpaw_sdk::native_plugin!`. `paperpaw-dev new --code` and the author
+> release workflow do not yet make a plugin with code for interface 7; plugins
+> without code are not affected.
+
 A code plugin can also be a file, `code.ppn`, in a plugin's folder on
 the card, which the X4 and the X4 Pro load at their
 start (ADR 0024): from the plugin store, from the web flasher with the
 firmware, or sent from a computer over the USB cable or the Wi-Fi
 transfer, where the device asks first ([USB transfer](usb-transfer.md)).
-Only code installed runs. An installer names the file by its digest
-(`native::remember_code`, kept in `.paperpaw`, which plugins' folders do
-not reach), and a file put into a plugin's folder otherwise is not run;
-the plugin manager says why. An author trying their own build sends it
-with `tools/usb-transfer.py install <folder>`. Its code is the same as that
+An installed plugin runs only the file installed. An installer names the
+file by its digest (`native::remember_code`, kept in `.paperpaw`, which
+plugins' folders do not reach), and a file put into its folder otherwise
+is not run; the plugin manager says why. Code copied to the card that was
+never installed runs without a question and unsigned (Decision 205); the
+plugin manager marks it "not signed". Three limits hold for it: an id with
+an author's key pinned (a plugin once installed signed) never runs such
+code, the file must still hold to its own header, and a plugin that
+declares `uses.install` or `uses.firmware` is not loaded until it is
+installed. An author trying their own build copies its folder to the card,
+or sends it with `tools/usb-transfer.py install <folder>`. Its code is the same as that
 of a plugin built in, and it runs as part of PaperPaw, at full speed
 and without a sandbox: it can do
 whatever PaperPaw can, also past the SDK. The X4 Pro runs it from its
@@ -1893,10 +1918,6 @@ from PaperPaw's: a release builds one that did not change again for its
 firmware, at the version it has, and a fix comes as a newer version,
 with a release or alone between releases
 ([`tools/plugin-files`](../tools/plugin-files/README.md)).
-
-[`samples/hello-native`](../samples/hello-native) is the sample plugin
-above as a file, in a workspace of its own as a plugin's own repository
-is, with a CI job to start from.
 
 ### The crate
 
@@ -1977,22 +1998,28 @@ show which plugins wait for a build. Interface 4 came with 0.5.0-beta.8
 (right-to-left text, shared functions, plugin files of format 4, TLS
 sockets, screens that fit another size; interface 5 was never released): a plugin
 built for an earlier interface is to be built again for it. Interface 7, the
-plugin boundary of 1.0 (ADR 0034), is a draft until it is frozen: a plugin
-built for one draft is refused by a build of the next one (`native::DRAFT`
-is part of the fingerprint) and is built again for it.
+plugin boundary of 1.0 (ADR 0034), may still change until it is frozen at
+1.0: a plugin built from an earlier tree is built again.
 
 ### The file in the emulator
 
 The desktop emulator loads a plugin's code built for the computer it runs
-on: a `cdylib` crate with the same
-`plugin!` line, built with the emulator's toolchain against its SDK with
-the `outline` feature (the target section above gives it), is `code-host.dll`, `code-host.so` or `code-host.dylib`
-in the plugin's folder (`plugins/<id>/` of the emulator's library,
-beside its `plugin.ini`). The emulator runs such code only when it is started
+on: an interface-7 `cdylib` library (it exports `PAPERPAW_METADATA`;
+`tools/plugin-host-libs` builds some of PaperPaw's own this way) is
+`code-host.so` in the plugin's folder (`plugins/<id>/` of the emulator's
+library, beside its `plugin.ini`). The emulator runs such code only when it is started
 with `--trust-code`, which installs every such file in the library first
 (as on a device, only code installed runs); without it, none, whatever
 the library says is installed: a library copied from elsewhere runs no
 code of its own.
+
+A plugin made by `paperpaw-dev new --code` needs none of what follows:
+`paperpaw-dev build --device emulator` (Linux, x86-64) links its program as
+such a library and leaves `dist/emulator`, a library for the emulator with
+the plugin in it, and `paperpaw-emu --library dist/emulator --trust-code`
+starts it as an X4 with the X4's memory. The emulator takes the plugin only
+if the compiler that built it built the plugin too (the one the plugin's
+`rust-toolchain.toml` names).
 
 On Linux, the plugin's own `build.rs` must disable the C startup files for
 its shared library. Those files add initializers that interface 7's host
@@ -2025,6 +2052,14 @@ Over `--stdio`, `start` with `"trust_code": true` does the same, and
 `reload` loads a new build; `ready` says the fingerprint and compiler
 the emulator takes.
 
+With `--trust-code` the emulator hosts the interface-7 libraries of the
+library's plugin folders as the devices host their plugin files (Linux
+x86-64; on other computers a card's code is listed as not supported): each
+is checked from its bytes before anything of it runs, and the kernel admits
+it with everything it declares. A library built for interface 6 (with
+`plugin!`, as for Beta 3) is told from its bytes and listed as *built for an
+older PaperPaw*; nothing of it is loaded. No other switch is needed.
+
 #### Interface-7 libraries (developer switch)
 
 For work on the interface-7 loader, the emulator can load interface-7 host
@@ -2032,11 +2067,12 @@ plugins from the library. It is off by default and independent of
 `--trust-code`: start with `--abi7-dev-loader` or `PAPERPAW_ABI7_DEV_LOADER=1`
 (Linux x86-64 only). A plugin folder's `code-host.so` is told from its bytes:
 `PAPERPAW_METADATA` alone is interface 7, `PAPERPAW_API` alone is
-interface 6 and left to the loader above, anything else is refused and
-said. Nothing is guessed.
+interface 6 (built for an older PaperPaw: never loaded), anything else is
+refused and said. Nothing is guessed.
 
 For each interface-7 file the emulator checks the strict freestanding rule
-(no `NEEDED`, no undefined symbols, only the two entry exports), opens a
+(no `NEEDED`, no undefined symbols, only the two entry exports and the heap
+word `PAPERPAW_HEAP`, which it fills before the plugin starts), opens a
 private read-only copy under the id of the plugin's *folder* (never the id the
 library reports), and stages what the plugin declares. What is staged is
 kept, not applied: nothing a plugin declares reaches the app yet, and no draw
@@ -2266,7 +2302,8 @@ little memory can use them ([ADR 0018](adr/0018-font-packs-for-other-scripts.md)
 Arabic and Hebrew (with where their marks sit) and Korean (the Hangul
 of KS X 1001, ready as `script-korean`, and the other 8,822 syllables as
 `script-korean-extra`, about 30 MiB; neither offered yet) from the fonts
-in `tools/fonts`. A pack that extends a face with sizes larger than its own,
+in `tools/fonts`, and Ethiopic for Amharic and Tigrinya (`script-ethiopic`, from
+Noto Serif Ethiopic). A pack that extends a face with sizes larger than its own,
 and has its letters (at least those of `aenoAEO0` the face has), draws
 text asked that large, and the font size goes as far; a pack of another
 script's letters adds those letters only, in whatever sizes: the X4's firmware has
@@ -2356,6 +2393,21 @@ ui-separators = core.separators.none
 ui-title = 140
 ui-row = 180
 ```
+
+More of the look is a setting as well, each leaving the look as it is until
+a theme sets it: `ui-shadow` (`core.shadow.none`, `.hard`: a hard shadow under
+dialogs and chips), `ui-frame` (`core.frame.own` or one of `.none`, `.line`,
+`.card`, `.dark`: the plate of sheets, dialogs and chips), `ui-density`
+(`core.density.compact`, `.regular`, `.roomy`: the margins and gaps),
+`ui-button` (`core.button.outlined`, `.filled`, `.flat`: buttons not chosen),
+and `ui-focus = core.focus.soft` (a light bar; a frame on panels of black and
+white alone). The colours of the parts sit in `ui-palette` beside the grays:
+`panel` (plates), `focus` (the chosen row's bar), `control` (filled
+buttons), `outline` (lines round plates and chips), `chip` (the chosen chip)
+and `bar` (a dark header); a part the theme does not colour keeps its look.
+`samples/plugins/theme-slate` sets them all. The palette text is read in 512
+bytes, enough for every name with a colour each; the kit's tests fail before
+more names come than that.
 
 Pebble, a theme with lists on cards for touch screens, comes with
 PaperPaw, switched off in the plugin manager.
@@ -2570,6 +2622,25 @@ The sample's `build.sh`, which the job runs, builds both readers, packs
 and signs the files, and zips the folder, with and without `store/`; the
 job attaches them to the tag's release with their SHA-256. Building twice, in two folders, and
 comparing the files with `cmp` shows that the build holds.
+
+### A plugin source of your own
+
+Plugins can also be offered without the library at paperpaw.org: a
+**community plugin source** is a plugin list of your own on any `https://`
+web server, which readers add on their device by its address (*Plugin
+store*, *Sources*). PaperPaw does not check a source or its plugins, and
+says so before one is added. The source signs its list with an Ed25519 key;
+a device keeps the key of the first list it reads and from then on takes
+only lists, and code plugins, signed with it.
+
+[`templates/plugin-source`](../templates/plugin-source) is a repository to
+copy: an example plugin with code and a GitHub Actions workflow that builds
+it for every device, signs it with your key (a repository secret) and
+publishes the source with GitHub Pages; its README has the steps.
+`paperpaw-sign pack-source <folder> <out>` makes a source by hand, from
+the folders of its plugins and their signed builds
+(`<id>-<version>-<device>.ppn` beside each folder), and `paperpaw-sign
+check-source <out>/plugins.json` checks the signature as a device does.
 
 ### Publishing from GitHub
 
@@ -2794,8 +2865,13 @@ most 4 requests wait and 8 pictures are kept per plugin; give each back with
 (`image.info`; `not_decoded()` says the format has not decoded it yet), and
 `Canvas::draw_image(id, rect, ImageStyle)` draws it scaled into the rectangle, centred,
 clipped by the canvas, only inside a draw callback (`State` elsewhere).
-`ImageStyle::new().fill()` crops to fill, `.small()` keeps a small picture out of the
-ghosting refresh, `.transparency(0..=255)` blends (255 draws nothing). `NotFound` is an
+`ImageStyle::new().fill()` crops to fill, `.stretch()` scales to the rectangle and drops the
+shape, `.dots()` draws black and white dots also on a panel with grays and `.grays()` in the
+panel's grays, `.small()` keeps a small picture out of the ghosting refresh,
+`.transparency(0..=255)` blends (255 draws nothing). `PrepareImage::turn()` applies a JPEG's EXIF
+orientation (the size in `ImageReady` is the size after the turn), `.tone(&[u8; 256])` maps every
+gray through the plugin's own table while the picture is decoded, and `ImageReady::luma()` is the
+mean brightness of an 8 by 8 grid over the picture. `NotFound` is an
 ended id: prepare it again. The host reads the file in bands, so a card failure can leave
 the bands drawn so far.
 
@@ -2819,6 +2895,15 @@ preparation state (`Preparation`), `close` ends the document, `xpointer` turns a
 bytes) back. An answer for another document is `Invalid`. Reading blocks and the
 table of contents are not in this client yet. The host answers `Busy` while a
 document is preparing.
+
+`Documents::metadata(host, document, input, out)` reads what the format says about the book:
+`title()`, `language()` (a BCP 47 tag, empty for none), `series()`, `series_index()`,
+`right_to_left()`, `writing_mode()`, `sections()`, the counts `authors()` and `subjects()` and
+`description_bytes()`, with `title_cut()` and `series_cut()` where a text was cut for the
+reply. `Documents::text(host, document, DocTextQuery::description(), input, out)` reads any
+text whole in parts of at most 1,024 bytes (`title()`, `author(index)`, `subject(index)`,
+`description()`, `series()`; `.from(offset)` and `DocTextPart::next_offset()` continue; an
+index past the count is `NotFound`). `input` of 64 and `out` of 4,096 bytes suffice.
 
 `Documents::readers(host, scope, cursor, input, out)` lists the reading apps for "Open with" and
 the default reader, in pages of at most 64 rows: `scope` keeps the readers that show the format
@@ -2927,6 +3012,14 @@ character (`char::is_control`: C0, DEL and C1, so a tab or line break either, an
 values fill what the book's file does not name: where the file names a field, its own value wins
 on (re)index. The last provider's values replace earlier ones, and there is one tag list per
 book. They are kept with the book's data and follow it when the book moves. `input` is 4,096 bytes and `out` 64.
+`Documents::format_for(host, root, path, sniff, input, out)` tells which format reads a file
+(`Root::Data`, or `Root::Library` for the user's files, which needs `uses.storage`): by its extension,
+and when none matches and `sniff` is set, by the file's first 512 bytes. The answer is a `Format`
+(`id()`, `title()`, `extensions()`, `priority()`); `NotFound` means no format reads it, so a file
+manager offers Open only where there is one, and `Documents::readers(host, format.id(), ..)` lists
+the readers for Open with. `Documents::formats(host, cursor, input, out)` lists every format in
+pages (`FormatPage`, `FormatCursor`). `input` is 1,024 bytes for `format_for` and 256 for
+`formats`; `out` 4,096 for both.
 
 ### Book fields and badges
 
@@ -3026,7 +3119,14 @@ A stale generation returns `State`; start the query again instead of skipping ro
 `Entry::badges()` exposes the host's badge texts without a second lookup.
 
 Identify a book with `BookRef::path(path)?` or a catalog key and its page generation.
-`set_finished(host, book, true, input, out)` changes only the finished status.
+`set_finished(host, book, true, input, out)` changes only the finished status and
+`set_favourite(host, book, true, input, out)` only the favourite status; both are idempotent.
+`Library::book_text(host, book, BookTextQuery::title(), input, out)` reads a whole title,
+`author()`, `series()`, the tag at `tag(index)` or the plugin field at `field(index)` (as
+`id=value`), the lists' lengths being `Book::tags()` and `Book::fields()`, in parts of at most
+1,024 bytes: continue with `BookTextPart::next_offset()` (`.from(offset)`) until it is `None`
+(`input` of 1,024 and `out` of 4,096 bytes suffice; an index past the count is `NotFound`).
+The catalog rows and `Library::book` cut long values; this does not.
 `set_field` takes the full `plugin.name` field id owned by the caller; an empty
 value removes it.
 The SDK leaves field enumeration out until the host contract supports lossless
@@ -3142,3 +3242,4 @@ present. Consume each borrowed part before reusing the output buffer. Text calls
 have no annotation-generation input, so a multi-call export must handle concurrent
 edits; it does not acquire a snapshot. A caller can recheck annotation generation
 and restart if it changed.
+

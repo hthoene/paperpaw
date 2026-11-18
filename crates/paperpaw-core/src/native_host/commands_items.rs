@@ -142,6 +142,7 @@ impl<'a> CommandStage<'a> {
 
     /// The item-state records of `batch`, checked and copied; their bytes
     /// are the second part of the answer.
+    #[inline(never)]
     pub(super) fn validate_item_states(
         &self,
         batch: &super::CommandBatch<'_>,
@@ -172,7 +173,7 @@ impl<'a> CommandStage<'a> {
             }
             let mut buffer = [0_u8; 192];
             let id = full(&mut buffer, self.owner.as_str(), item).ok_or(ERR_INVALID)?;
-            let setting = env.settings().spec(id).is_some();
+            let setting = env.settings().knows(id);
             let declared =
                 setting || env.actions().contains(id) || self.is_setup_step(admit, item)?;
             if !declared {

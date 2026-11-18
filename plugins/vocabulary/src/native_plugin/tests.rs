@@ -3,7 +3,7 @@
 
 use paperpaw_sdk::{MemoryStorage, Storage, StorageError};
 
-use super::recover;
+use super::{NativeVocabulary, State, recover};
 
 #[test]
 fn a_word_list_left_half_written_is_put_right() {
@@ -44,4 +44,16 @@ fn nothing_to_put_right_changes_nothing() {
     folder.write("words.txt", b"w\n").unwrap();
     recover(&folder);
     assert_eq!(folder.get("words.txt").unwrap(), b"w\n");
+}
+
+/// At rest the plugin is one pointer and a length: the state (the screens open,
+/// the widgets, the question asked) is made on first use (#248).
+#[test]
+fn at_rest_the_plugin_holds_a_pointer_and_not_the_state() {
+    assert_eq!(
+        core::mem::size_of::<NativeVocabulary>(),
+        core::mem::size_of::<Option<alloc::boxed::Box<[State]>>>()
+    );
+    assert!(core::mem::size_of::<State>() > core::mem::size_of::<NativeVocabulary>());
+    assert!(NativeVocabulary::default().state.is_none());
 }

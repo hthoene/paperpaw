@@ -490,6 +490,16 @@ impl<B: Storage, M: Storage> Storage for Mounted<B, M> {
         storage.append(path, data)
     }
 
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        let (storage, path) = self.route(path);
+        storage.write_at(path, offset, data)
+    }
+
+    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
+        let (storage, path) = self.route(path);
+        storage.truncate(path, len)
+    }
+
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
         if dir.is_empty() {
             // The root lists the mount point next to the base's entries;
@@ -646,16 +656,41 @@ impl<B: Storage, M: Storage> Storage for Mounted<B, M> {
 /// ([`is_reserved_name`]). Every storage refuses other paths, so a path
 /// means the same entry on each.
 pub fn is_valid_path(path: &str) -> bool {
-    !path.is_empty()
-        && !path.contains(['\\', ':'])
-        && !path.chars().any(char::is_control)
-        && path.split('/').all(|segment| {
-            !segment.is_empty()
-                && segment != "."
-                && segment != ".."
-                && !segment.ends_with(['.', ' '])
-                && !is_reserved_name(segment)
-        })
+    // One pass over the bytes: every storage call checks its path, and the
+    // layers it goes through check it again (#250).
+    let bytes = path.as_bytes();
+    let mut start = 0;
+    for (at, &byte) in bytes.iter().enumerate() {
+        match byte {
+            // `/` is one byte: both sides are whole characters.
+            b'/' => {
+                if !path.get(start..at).is_some_and(is_valid_segment) {
+                    return false;
+                }
+                start = at + 1;
+            }
+            // The controls U+0000 to U+001F and U+007F, backslash, colon.
+            0..=0x1f | 0x7f | b'\\' | b':' => return false,
+            // The controls U+0080 to U+009F: `C2 80` to `C2 9F`.
+            0xc2 if matches!(bytes.get(at + 1), Some(0x80..=0x9f)) => return false,
+            _ => {}
+        }
+    }
+    path.get(start..).is_some_and(is_valid_segment)
+}
+
+/// Whether `segment` (what is between a path's slashes) may be a name: not
+/// empty, no dot or space at its end (so not `.` or `..`), no device's name.
+fn is_valid_segment(segment: &str) -> bool {
+    match segment.as_bytes() {
+        [] | [.., b'.' | b' '] => false,
+        // Only these letters begin a device's name ([`is_reserved_name`]).
+        [
+            b'a' | b'A' | b'c' | b'C' | b'l' | b'L' | b'n' | b'N' | b'p' | b'P',
+            ..,
+        ] => !is_reserved_name(segment),
+        _ => true,
+    }
 }
 
 /// Whether Windows takes file `name` for a device, whatever follows its
@@ -753,6 +788,61 @@ mod tests {
         fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
             Some(a.eq_ignore_ascii_case(self.0) && b.eq_ignore_ascii_case(self.0))
         }
+    }
+
+    /// A storage that takes in-place writes and cuts, and says it did.
+    struct InPlace(core::cell::Cell<u32>);
+
+    impl Storage for InPlace {
+        fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+            Ok(0)
+        }
+
+        fn size(&self, _: &str) -> Result<u64, StorageError> {
+            Ok(0)
+        }
+
+        fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+
+        fn write_at(&self, _: &str, _: u64, _: &[u8]) -> Result<(), StorageError> {
+            self.0.set(self.0.get() + 1);
+            Ok(())
+        }
+
+        fn truncate(&self, _: &str, _: u64) -> Result<(), StorageError> {
+            self.0.set(self.0.get() + 10);
+            Ok(())
+        }
+
+        fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            Ok(())
+        }
+
+        fn remove(&self, _: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+    }
+
+    /// A save in place (the position file, #305) must reach the card on both
+    /// sides of the mount: a wrapper that says `Unsupported` sends every turn
+    /// to the whole-file write (12 commands instead of 1 block, #308).
+    #[test]
+    fn mounted_storage_forwards_writes_in_place() {
+        let storage = Mounted::new(
+            InPlace(Default::default()),
+            "books",
+            InPlace(Default::default()),
+        );
+        assert_eq!(storage.write_at("positions/a", 512, b"x"), Ok(()));
+        assert_eq!(storage.write_at("books/a", 0, b"x"), Ok(()));
+        assert_eq!(storage.truncate("books/a", 1), Ok(()));
+        assert_eq!((storage.base.0.get(), storage.mounted.0.get()), (1, 11));
     }
 
     /// Paths on both sides of the mount are never one entry; paths on one
@@ -853,6 +943,94 @@ mod tests {
             ".x",
         ] {
             assert!(is_valid_path(ok), "{ok}");
+        }
+    }
+
+    /// [`is_valid_path`] as it was before it read the bytes in one pass.
+    fn valid_rule_by_rule(path: &str) -> bool {
+        !path.is_empty()
+            && !path.contains(['\\', ':'])
+            && !path.chars().any(char::is_control)
+            && path.split('/').all(|segment| {
+                !segment.is_empty()
+                    && segment != "."
+                    && segment != ".."
+                    && !segment.ends_with(['.', ' '])
+                    && !is_reserved_name(segment)
+            })
+    }
+
+    #[test]
+    fn a_path_read_in_one_pass_is_valid_as_rule_by_rule() {
+        extern crate std;
+        use std::{format, string::String};
+        // Every text of up to five of these: separators, dots and spaces,
+        // what no path may hold, the first and last controls of one and of
+        // two bytes and their neighbours (U+00A0 begins as U+009F does), a
+        // superscript digit.
+        let letters = [
+            'a', 'c', 'o', 'n', '1', '.', ' ', '/', '\\', ':', '\u{1}', '\u{1f}', '\u{7f}',
+            '\u{80}', '\u{85}', '\u{9f}', '\u{a0}', '\u{b9}', '\u{e9}',
+        ];
+        let mut checked = 0u32;
+        let mut text = String::new();
+        for length in 0..=5u32 {
+            for mut n in 0..letters.len().pow(length) {
+                text.clear();
+                for _ in 0..length {
+                    text.push(letters[n % letters.len()]);
+                    n /= letters.len();
+                }
+                assert_eq!(is_valid_path(&text), valid_rule_by_rule(&text), "{text:?}");
+                checked += 1;
+            }
+        }
+        // 1 + 19 + 19^2 ... + 19^5 texts.
+        assert_eq!(checked, 2_613_660);
+        // Names of devices and their neighbours, up to three in a path.
+        let names = [
+            "con",
+            "CON",
+            "Prn",
+            "aux",
+            "nul",
+            "NUL.txt",
+            "com1",
+            "COM\u{b9}",
+            "com",
+            "com10",
+            "lpt9",
+            "LPT",
+            "lpt9.tar.gz",
+            "con ",
+            "con .a",
+            "aux.",
+            "co",
+            "cone",
+            "a",
+            "l",
+            "p\u{e9}",
+            "n\u{85}",
+            "..",
+            ".",
+            "x.",
+            " ",
+            "",
+        ];
+        for a in names {
+            assert_eq!(is_valid_path(a), valid_rule_by_rule(a), "{a:?}");
+            for b in names {
+                let two = format!("{a}/{b}");
+                assert_eq!(is_valid_path(&two), valid_rule_by_rule(&two), "{two:?}");
+                for c in names {
+                    let three = format!("{two}/{c}");
+                    assert_eq!(
+                        is_valid_path(&three),
+                        valid_rule_by_rule(&three),
+                        "{three:?}"
+                    );
+                }
+            }
         }
     }
 }

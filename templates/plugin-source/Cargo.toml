@@ -1,0 +1,30 @@
+[package]
+name = "hello-paw"
+description = "Hello paw, a PaperPaw plugin"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# The repository is its own workspace.
+[workspace]
+
+# The plugin file is made from this program: no `main`, no standard library.
+[[bin]]
+name = "hello-paw"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+# The SDK of the PaperPaw release the plugin is built for. A plugin file runs on firmware of
+# the same plugin interface; the store's catalogue says which firmware takes it.
+paperpaw-sdk = "=0.6.0-beta.3"
+
+# As the firmware is built: small code, one unit, no unwinding.
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+# Lines in the ELF, for naming the functions of a crash's calls.
+debug = "line-tables-only"

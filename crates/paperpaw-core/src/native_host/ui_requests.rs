@@ -22,7 +22,7 @@ const FOLDER_MAX: usize = 512;
 /// Kinds and flags of `ui_ask` (ui.md 3.1).
 const KINDS: u32 = 4;
 const LIVE: u32 = 1;
-const SECRET: u32 = 1 << 2;
+pub(super) const SECRET: u32 = 1 << 2;
 const ONLY_YES: u32 = 1 << 8;
 const TEXT_FLAGS: u32 = 0xFF;
 const CONFIRM_FLAGS: u32 = 0x300;
@@ -158,6 +158,8 @@ pub(super) struct Request {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Start {
     pub(crate) request: u32,
+    /// The plugin that asked.
+    pub(crate) asker: u64,
     pub(crate) kind: u32,
     pub(crate) remote: bool,
     pub(crate) secret: bool,
@@ -391,6 +393,7 @@ impl UiStore {
                 let r = &inner.requests[at];
                 start(Start {
                     request: r.id,
+                    asker: r.asker,
                     kind: r.kind,
                     remote: r.remote,
                     secret: r.secret,
@@ -400,8 +403,79 @@ impl UiStore {
         Ok(())
     }
 
-    /// The stack opened the dialog of a starting request.
-    pub(crate) fn dialog_opened(&self, request: u32, instance: u32) -> Result<(), i32> {
+    /// The asker's callback of `who` returned a failure: what it asked in that
+    /// callback never starts (`not_started`, no dialog opens).
+    pub(crate) fn callback_failed(&self, who: Stamp) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
+        for at in 0..inner.requests.len() {
+            let request = &inner.requests[at];
+            if request.asker == who.owner && request.phase == (Phase::Asked { epoch: who.epoch }) {
+                Self::cancel_at(&mut inner, at, NOT_STARTED);
+            }
+        }
+        Ok(())
+    }
+
+    /// No callback is running (the dialog pump runs between callbacks): every
+    /// request still asked has had its callback return, so it starts, or is
+    /// cancelled with `not_started` when its initial text was left begun.
+    pub(crate) fn callbacks_over(&self) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
+        for at in 0..inner.requests.len() {
+            if !matches!(inner.requests[at].phase, Phase::Asked { .. }) {
+                continue;
+            }
+            let request = &inner.requests[at];
+            if request.text.bytes > 0 && !request.text.committed {
+                Self::cancel_at(&mut inner, at, NOT_STARTED);
+            } else {
+                inner.requests[at].phase = Phase::Starting;
+            }
+        }
+        Ok(())
+    }
+
+    /// A question the host asked itself (no callback asked it, so none has to
+    /// return first): starting at once, for the host to open its dialog.
+    /// `None` where `request` is not one just asked.
+    pub(crate) fn host_started(&self, request: u32) -> Option<Start> {
+        let mut inner = self.inner().ok()?;
+        let at = Self::request_at(&inner, request)?;
+        let r = &mut inner.requests[at];
+        if !matches!(r.phase, Phase::Asked { .. }) {
+            return None;
+        }
+        r.phase = Phase::Starting;
+        Some(Start {
+            request: r.id,
+            asker: r.asker,
+            kind: r.kind,
+            remote: r.remote,
+            secret: r.secret,
+        })
+    }
+
+    /// The oldest request whose dialog the stack has yet to open.
+    pub(crate) fn next_starting(&self) -> Option<Start> {
+        let inner = self.inner.try_borrow().ok()?;
+        inner
+            .requests
+            .iter()
+            .find(|r| r.phase == Phase::Starting)
+            .map(|r| Start {
+                request: r.id,
+                asker: r.asker,
+                kind: r.kind,
+                remote: r.remote,
+                secret: r.secret,
+            })
+    }
+
+    /// The stack is about to open the dialog of a starting request as the
+    /// instance `instance` (the next serial): the request is open for it from
+    /// here, so that the dialog reads its question (op 2) and its text in its
+    /// own `screen_opened`, which runs inside the open.
+    pub(crate) fn dialog_opening(&self, request: u32, instance: u32) -> Result<(), i32> {
         let mut inner = self.inner()?;
         let at = Self::request_at(&inner, request).ok_or(ERR_NOT_FOUND)?;
         if inner.requests[at].phase != Phase::Starting {
@@ -412,12 +486,33 @@ impl UiStore {
         Ok(())
     }
 
+    /// The stack opened the dialog of a starting request (or of one
+    /// [`Self::dialog_opening`] named: it keeps the instance that was open
+    /// first, or is bound to the one that opened).
+    pub(crate) fn dialog_opened(&self, request: u32, instance: u32) -> Result<(), i32> {
+        let mut inner = self.inner()?;
+        let at = Self::request_at(&inner, request).ok_or(ERR_NOT_FOUND)?;
+        if !matches!(
+            inner.requests[at].phase,
+            Phase::Starting | Phase::Open { .. }
+        ) {
+            return Err(ERR_STATE);
+        }
+        inner.requests[at].phase = Phase::Open { dialog: instance };
+        inner.requests[at].dialog = Some(instance);
+        Ok(())
+    }
+
     /// The dialog of a starting request could not open (the stack is full, a
-    /// guard refused): cancelled with `not_started`.
+    /// guard refused): cancelled with `not_started`, also where it was named
+    /// open for the instance that did not come.
     pub(crate) fn dialog_failed(&self, request: u32) -> Result<(), i32> {
         let mut inner = self.inner_busy()?;
         if let Some(at) = Self::request_at(&inner, request)
-            && inner.requests[at].phase == Phase::Starting
+            && matches!(
+                inner.requests[at].phase,
+                Phase::Starting | Phase::Open { .. }
+            )
         {
             Self::cancel_at(&mut inner, at, NOT_STARTED);
         }
@@ -654,6 +749,80 @@ impl UiStore {
         })
     }
 
+    /// [`Self::take_delivery`] for the answer to `request` of `asker` alone.
+    pub(crate) fn take_delivery_of(&self, asker: u64, request: u32) -> Option<Delivery> {
+        let waiting =
+            self.inner.try_borrow().ok()?.requests.iter().any(|r| {
+                r.id == request && r.asker == asker && r.pending.is_some() && !r.delivering
+            });
+        if !waiting {
+            return None;
+        }
+        let mut inner = self.inner().ok()?;
+        let at = Self::request_at(&inner, request)?;
+        let r = &mut inner.requests[at];
+        let answer = r.pending.take()?;
+        r.delivering = true;
+        Some(Delivery {
+            request: r.id,
+            kind: r.kind,
+            outcome: answer.outcome,
+            choice: answer.choice,
+            length: answer.length,
+            flags: answer.flags | DIALOG_CLOSED,
+        })
+    }
+
+    /// Whether an answer waits for `asker`.
+    pub(crate) fn has_delivery(&self, asker: u64) -> bool {
+        self.inner.try_borrow().is_ok_and(|inner| {
+            inner
+                .requests
+                .iter()
+                .any(|r| r.asker == asker && r.pending.is_some() && !r.delivering)
+        })
+    }
+
+    /// Whether a question waits for its dialog to open: asked by a callback
+    /// that returned, or starting (the dialog pump opens it).
+    pub(crate) fn any_to_open(&self) -> bool {
+        self.inner.try_borrow().is_ok_and(|inner| {
+            inner
+                .requests
+                .iter()
+                .any(|r| matches!(r.phase, Phase::Asked { .. } | Phase::Starting))
+        })
+    }
+
+    /// Whether an answer waits for any asker.
+    pub(crate) fn any_delivery(&self) -> bool {
+        self.inner.try_borrow().is_ok_and(|inner| {
+            inner
+                .requests
+                .iter()
+                .any(|r| r.pending.is_some() && !r.delivering)
+        })
+    }
+
+    /// The callback for `delivery` could not run (the plugin was busy or not
+    /// known): the answer waits as it was, for the next pass.
+    pub(crate) fn undo_delivery(&self, delivery: &Delivery) -> Result<(), i32> {
+        let mut inner = self.inner_busy()?;
+        if let Some(at) = Self::request_at(&inner, delivery.request) {
+            let r = &mut inner.requests[at];
+            if r.delivering && r.pending.is_none() {
+                r.delivering = false;
+                r.pending = Some(Answer {
+                    outcome: delivery.outcome,
+                    choice: delivery.choice,
+                    length: delivery.length,
+                    flags: delivery.flags,
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// The callback that delivered `request` returned: a final answer frees the
     /// request and its text whatever the callback's status; typing keeps it.
     pub(crate) fn delivered(&self, request: u32) -> Result<(), i32> {
@@ -709,6 +878,11 @@ impl UiStore {
             }
         }
         Ok(())
+    }
+
+    /// Whether `owner` asked a request still open (#248, D3).
+    pub(super) fn requests_owner_holds(inner: &Inner, owner: u64) -> bool {
+        inner.requests.iter().any(|r| r.asker == owner)
     }
 
     pub(super) fn requests_owner_stopped(inner: &mut Inner, owner: u64) {

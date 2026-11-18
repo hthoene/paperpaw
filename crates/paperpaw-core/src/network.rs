@@ -24,6 +24,7 @@ pub(crate) struct IoState {
     /// What the shell is to do with the radio ([`Io::Wifi`]).
     pub(crate) wifi_calls: Vec<WifiCommand>,
     /// Bluetooth, where the kernel uses a radio ([`Io::Bluetooth`]).
+    #[cfg(feature = "bluetooth")]
     pub(crate) bluetooth: Option<io::bluetooth::Radio>,
     /// What the shell is to do with the firmware ([`Io::Firmware`]).
     pub(crate) firmware_calls: Vec<FirmwareCommand>,
@@ -39,11 +40,19 @@ pub(crate) struct IoState {
 }
 
 impl Kernel {
+    /// Wi-Fi as plugins see it (state, the networks last found, whether a
+    /// scan runs, whether the network is wanted or busy), for a shell that
+    /// tells its own host services of it (`core.device`, ops 8 and 9). `None`
+    /// where the kernel is built without Wi-Fi.
+    pub fn wifi_model(&self) -> Option<&paperpaw_sdk::wifi::Wifi> {
+        self.shared.wifi.as_ref()
+    }
+
     /// What happened with Wi-Fi: plugins hear of it, and network work that
     /// waited goes on once there is a network.
     pub fn wifi_event(&mut self, now: Instant, event: WifiEvent) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // While the reader waits for the network, what Wi-Fi says is theirs.
         self.shared.reader = self.io.http.reader_waits();
         // Native plugins' join and host requests end by what the radio says.
@@ -59,10 +68,15 @@ impl Kernel {
                     if !state.is_on() {
                         wifi.scanning = false;
                     }
+                    let radio = state.is_on();
                     wifi.state = state;
-                    self.output.commands.push(events::WIFI_CHANGED.emit(()));
+                    // The radio's noise seals what the start could not.
+                    if radio {
+                        self.move_left_secrets();
+                    }
+                    self.output.emit(&events::WIFI_CHANGED, ());
                     // Status lines show it (`wifi.status`).
-                    self.output.commands.push(events::STATUS_CHANGED.emit(()));
+                    self.output.emit(&events::STATUS_CHANGED, ());
                     self.native_hint(crate::native_host::registrations::EVENT_WIFI_CHANGED_TAG);
                     self.native_hint(crate::native_host::registrations::EVENT_STATUS_CHANGED_TAG);
                 }
@@ -81,12 +95,12 @@ impl Kernel {
                 });
                 wifi.networks = networks;
                 wifi.scanning = false;
-                self.output.commands.push(events::WIFI_SCANNED.emit(()));
+                self.output.emit(&events::WIFI_SCANNED, ());
+                self.native_hint(crate::native_host::registrations::EVENT_WIFI_SCANNED_TAG);
             }
             WifiEvent::Failed { ssid, reason } => {
                 self.output
-                    .commands
-                    .push(events::WIFI_FAILED.emit(events::WifiFailed::new(ssid, reason)));
+                    .emit(&events::WIFI_FAILED, events::WifiFailed::new(ssid, reason));
             }
         }
         self.finish()
@@ -126,10 +140,12 @@ impl Kernel {
             return;
         };
         let waiting = work && !wifi.state.is_online();
+        let (mut wanted, mut idle) = (false, false);
         match (waiting, self.io.network_waiting) {
             (true, None) => {
-                self.io.network_waiting = Some(self.now);
-                self.output.commands.push(events::NETWORK_WANTED.emit(()));
+                self.io.network_waiting = Some(self.shared.now);
+                self.output.emit(&events::NETWORK_WANTED, ());
+                wanted = true;
             }
             (false, Some(_)) => self.io.network_waiting = None,
             _ => {}
@@ -141,9 +157,17 @@ impl Kernel {
             self.io.http.busy() || self.io.servers.busy() || self.io.sockets.any() || native_live;
         wifi.busy = busy;
         if self.io.network_busy && !busy {
-            self.output.commands.push(events::NETWORK_IDLE.emit(()));
+            self.output.emit(&events::NETWORK_IDLE, ());
+            idle = true;
         }
         self.io.network_busy = busy;
+        // The native network manager hears the same (`device.md` section 3).
+        if wanted {
+            self.native_hint(crate::native_host::registrations::EVENT_NETWORK_WANTED_TAG);
+        }
+        if idle {
+            self.native_hint(crate::native_host::registrations::EVENT_NETWORK_IDLE_TAG);
+        }
     }
 
     /// When network work that waits fails, if it does not get one first.
@@ -183,7 +207,7 @@ impl Kernel {
     /// What happened with a socket or a broadcast.
     pub fn socket_event(&mut self, now: Instant, event: SocketEvent) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // Servers and sockets are the reader's connection.
         self.shared.reader = true;
         let storage = &*self.shared.storage;
@@ -196,7 +220,7 @@ impl Kernel {
     /// What happened with a server: started, failed, a request.
     pub fn server_event(&mut self, now: Instant, event: ServerEvent) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // Servers and sockets are the reader's connection.
         self.shared.reader = true;
         let storage = &*self.shared.storage;
@@ -218,7 +242,7 @@ impl Kernel {
             return Effects::default();
         };
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // The computer at the cable is the reader's.
         self.shared.reader = true;
         self.last_activity = now;
@@ -227,6 +251,15 @@ impl Kernel {
             .last
             .is_none_or(|last| now.0.saturating_sub(last) >= io::cable::PAUSE_MS);
         cable.last = Some(now.0);
+        // The native server on the cable takes the lines, unless an
+        // interface-6 server runs on it (`native_host::cable_pump`).
+        let line = match self.native_cable_for_line() {
+            Some(device) => match self.native_cable_line(&device, line, paused) {
+                Some(line) => line,
+                None => return self.finish(),
+            },
+            None => line,
+        };
         match line {
             Line::Request {
                 n,
@@ -239,36 +272,31 @@ impl Kernel {
                     // pause) opens it again.
                     if self.io.servers.cable.ended && !paused {
                         let cable = &mut self.io.servers.cable;
-                        cable.refuse(n, 403, "ended on the device");
+                        cable.refuse_upload(n, len, 403, "ended on the device");
                         return self.finish();
                     }
                     self.io.servers.cable.ended = false;
                     self.output
                         .commands
-                        .push(Command::OpenSlot(slots::CABLE, Params::new()));
+                        .push(Ask::OpenSlot(slots::CABLE, Params::new()));
                     self.run_commands();
                 }
                 let Some(server) = self.io.servers.cable_server() else {
                     self.io
                         .servers
                         .cable
-                        .refuse(n, 503, "nothing serves the cable");
+                        .refuse_upload(n, len, 503, "nothing serves the cable");
                     return self.finish();
                 };
                 let storage = &*self.shared.storage;
                 if storage.free_space().is_some_and(|free| len > free) {
-                    self.io.servers.cable.refuse(n, 507, "not enough room");
+                    self.io
+                        .servers
+                        .cable
+                        .refuse_upload(n, len, 507, "not enough room");
                     return self.finish();
                 }
-                let (request, cut) = self.io.servers.cable.begin(n, len);
-                // A body still coming, cut short by this request: let go,
-                // and told, unless the computer gave this request its
-                // number (it gave the other up): the answer is the new one's.
-                match cut {
-                    Some((m, cut)) if m == n => self.cable_close(cut),
-                    Some((m, cut)) => self.cable_cut(m, cut, "cut short by another request"),
-                    None => {}
-                }
+                let request = self.cable_begin(n, len);
                 let storage = &*self.shared.storage;
                 let event = ServerEvent::Request {
                     server,
@@ -281,6 +309,9 @@ impl Kernel {
                     .servers
                     .event(event, storage, &mut self.output.commands);
             }
+            // The rest of a refused body is passed over, not answered a line
+            // at a time.
+            Line::Data { n, bytes } if self.io.servers.cable.swallowed(n, bytes.len()) => {}
             Line::Data { n, bytes } => match self.io.servers.cable.data(n, bytes.len()) {
                 Some((request, last)) => {
                     let event = ServerEvent::Body {
@@ -317,6 +348,24 @@ impl Kernel {
         self.io.servers.cable.refuse(n, 400, why);
     }
 
+    /// The kernel's number for the computer's request `n` with `len` bytes
+    /// of body. A body still coming, cut short by it, is let go and told,
+    /// unless the computer gave this request its number (it gave the other
+    /// up: the answer is the new one's); an earlier request by this number,
+    /// given up by the computer, ends.
+    fn cable_begin(&mut self, n: u32, len: u64) -> u32 {
+        let (request, cut, replaced) = self.io.servers.cable.begin(n, len);
+        match cut {
+            Some((m, cut)) if m == n => self.cable_close(cut),
+            Some((m, cut)) => self.cable_cut(m, cut, "cut short by another request"),
+            None => {}
+        }
+        if let Some(replaced) = replaced {
+            self.cable_close(replaced);
+        }
+        request
+    }
+
     /// The kernel's request `request` of the cable ends: its body is let
     /// go, its plugin told.
     fn cable_close(&mut self, request: u32) {
@@ -331,19 +380,30 @@ impl Kernel {
     /// after every kernel call, as [`Kernel::take_io`] is taken. Answers
     /// go a line at a time, so a long one is never written out whole.
     pub fn next_cable_line(&mut self) -> Option<String> {
-        self.io.servers.cable.next_line()
+        self.io
+            .servers
+            .cable
+            .next_line()
+            .or_else(|| self.native_cable_next_line())
     }
 
     /// All the lines to send to the computer at the cable, in order (see
     /// [`Kernel::next_cable_line`]).
     pub fn take_cable_lines(&mut self) -> Vec<String> {
-        core::iter::from_fn(|| self.io.servers.cable.next_line()).collect()
+        core::iter::from_fn(|| {
+            self.io
+                .servers
+                .cable
+                .next_line()
+                .or_else(|| self.native_cable_next_line())
+        })
+        .collect()
     }
 
     /// Delivers the answer to a request ([`Io::Http`]).
     pub fn http_response(&mut self, now: Instant, response: HttpResponse) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         // The answer to the reader's request is the reader's.
         self.shared.reader = self.io.http.of_reader(response.id);
         let storage = &*self.shared.storage;
@@ -366,7 +426,7 @@ impl Kernel {
         total: Option<u64>,
     ) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.io
             .http
             .progress(id, received, total, now, &mut self.output.commands);
@@ -380,6 +440,7 @@ impl Kernel {
     pub fn take_io(&mut self) -> Vec<Io> {
         let mut io: Vec<Io> = self.io.wifi_calls.drain(..).map(Io::Wifi).collect();
         io.extend(self.io.firmware_calls.drain(..).map(Io::Firmware));
+        #[cfg(feature = "bluetooth")]
         if let Some(radio) = &mut self.io.bluetooth {
             io.extend(radio.take().into_iter().map(Io::Bluetooth));
         }
@@ -411,12 +472,12 @@ impl Kernel {
         self.shared.storage.read_at(path, at, buffer)
     }
 
-    /// Answers a [`Command::ReadClipboard`] with the text known here.
+    /// Answers a [`Ask::ReadClipboard`] with the text known here.
     pub(crate) fn reply_clipboard(&mut self, reply: Id, params: Params) {
-        let typed = paperpaw_sdk::Typed::new(self.shared.clipboard.clone(), params);
+        let typed = paperpaw_sdk::Typed::new(self.shared.clipboard.get(), params);
         self.output
             .commands
-            .push(Command::Emit(reply, typed.to_params()));
+            .push(Ask::Emit(reply, typed.to_params()));
     }
 
     /// Whether plugins serve, e.g. to keep polling for requests.
@@ -427,12 +488,12 @@ impl Kernel {
     /// How an install goes: plugins hear of it.
     pub fn firmware_state(&mut self, now: Instant, state: FirmwareState) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         if let Some(firmware) = &mut self.shared.firmware
             && firmware.state != state
         {
             firmware.state = state;
-            self.output.commands.push(events::FIRMWARE_CHANGED.emit(()));
+            self.output.emit(&events::FIRMWARE_CHANGED, ());
         }
         self.finish()
     }
@@ -441,7 +502,7 @@ impl Kernel {
     /// not be.
     pub fn speech_done(&mut self, now: Instant, id: u32, spoken: bool) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         self.io.speech.done(id, spoken, &mut self.output.commands);
         self.finish()
     }
@@ -456,9 +517,9 @@ impl Kernel {
     /// copied here is used).
     pub fn clipboard_text(&mut self, now: Instant, text: Option<String>) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
-        self.now = now;
+        self.shared.now = now;
         if let Some(text) = text {
-            self.shared.clipboard = crate::commands::clipped(&text);
+            self.shared.clipboard.set(crate::commands::clipped(&text));
         }
         for (reply, params) in self.io.clipboard.answered() {
             self.reply_clipboard(reply, params);

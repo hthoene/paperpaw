@@ -2,6 +2,7 @@
 //! feature, the path rules and the root-1 exclusions, in the order the contract
 //! lists them, then the path joined for the storage in a stack buffer.
 use super::View;
+use crate::native_host::data_plugin_folders::{below_folder, plugin_folder_of};
 use crate::native_host::storage::{MAX_FOLDER, MAX_JOINED, PREFIX, relative_path};
 use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 
@@ -17,9 +18,6 @@ pub(super) const BOOK: u32 = 3;
 
 /// The host's folder in root 0, where served request bodies arrive.
 const RECEIVED: &str = ".received";
-/// The install folders, and the kernel's, which root 1 never reaches.
-const INSTALL: &str = "plugins";
-const KERNEL: &str = ".paperpaw";
 
 /// What a call does to the path, for the root rules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,8 +142,21 @@ pub(super) fn resolve(
         relative_path(path.as_bytes())?;
     }
     let first = path.split('/').next().unwrap_or_default();
-    if root == CARD && !first.is_empty() && reaches_protected(view, first) {
-        return Err(ERR_INVALID);
+    if root == CARD && !first.is_empty() {
+        // A running data plugin's folder is shown, read only (`files.md` 1.1);
+        // the folder of any other plugin stays hidden.
+        if plugin_folder_of(path).is_some_and(|name| view.host.data_folder(name)) {
+            if intent == Intent::Change {
+                return Err(ERR_DENIED);
+            }
+            // Its code and the host's files are not shown (`files.md` 1.1).
+            if below_folder(path).is_some_and(|(folder, entry)| view.host.host_file(folder, entry))
+            {
+                return Err(ERR_INVALID);
+            }
+        } else if reaches_protected(view, first) {
+            return Err(ERR_INVALID);
+        }
     }
     // Filled in the caller's place: a path is 640 bytes, and a copy of it per
     // return would put several of them in the frame of an op with two.
@@ -258,10 +269,10 @@ fn push(target: &mut Target, bytes: &[u8]) -> Result<(), i32> {
     Ok(())
 }
 
-/// Whether a first segment of root 1 is `plugins` or `.paperpaw`, by
-/// spelling in any case or by identity (the host).
+/// Whether a first segment of root 1 is `plugins`, `.paperpaw` or
+/// `paperpaw.ini`, by spelling in any case or by identity (the host).
 pub(super) fn reaches_protected(view: &View<'_>, first: &str) -> bool {
-    same_fold(first, INSTALL) || same_fold(first, KERNEL) || view.host.excluded(CARD, "", first)
+    super::super::owner_paths::protected_first(first) || view.host.excluded(CARD, "", first)
 }
 
 /// Whether `a` and `b` are one name to the FAT driver: in upper case, the

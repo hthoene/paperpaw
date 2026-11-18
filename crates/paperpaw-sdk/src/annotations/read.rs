@@ -264,7 +264,7 @@ impl Number {
 
 /// A text column being read through its window.
 #[derive(Clone, Copy, Default)]
-struct Slot {
+pub(super) struct Slot {
     window: Window,
     /// Where its bytes lie in the scratch.
     at: usize,
@@ -280,7 +280,7 @@ impl Slot {
         }
         self.whole = self.whole.saturating_add(1);
     }
-    fn part<'a>(&self, scratch: &'a [u8]) -> Part<'a> {
+    pub(super) fn part<'a>(&self, scratch: &'a [u8]) -> Part<'a> {
         let bytes = &scratch[self.at..self.at + self.filled];
         let text = match core::str::from_utf8(bytes) {
             Ok(text) => text,
@@ -348,7 +348,7 @@ impl<'s> Reader<'s> {
     }
 }
 
-fn file_of(book: &str) -> Result<alloc::string::String, Error> {
+pub(super) fn file_of(book: &str) -> Result<alloc::string::String, Error> {
     let mut digits = [0_u8; crate::library::KEY_LEN];
     let key = crate::library::key_into(book, &mut digits);
     let mut name = alloc::string::String::new();
@@ -384,7 +384,7 @@ pub fn try_head(storage: &dyn Storage, book: &str) -> Result<Head, Error> {
     head_of(storage, &file_of(book)?)
 }
 
-fn head_of(storage: &dyn Storage, file: &str) -> Result<Head, Error> {
+pub(super) fn head_of(storage: &dyn Storage, file: &str) -> Result<Head, Error> {
     let mut head = Head {
         version: 0,
         generation: 1,
@@ -540,16 +540,16 @@ fn line_shape(tabs: usize, length: usize, comment: bool, most: usize) -> Shape {
 }
 
 /// What `capture` keeps of a row besides the slots.
-struct Captured {
-    id: u32,
-    kind: Kind,
-    start: Locator,
-    end: Locator,
-    percent: u8,
-    created: i64,
-    updated: i64,
-    conversion: Option<u64>,
-    slots: [Slot; 5],
+pub(super) struct Captured {
+    pub(super) id: u32,
+    pub(super) kind: Kind,
+    pub(super) start: Locator,
+    pub(super) end: Locator,
+    pub(super) percent: u8,
+    pub(super) created: i64,
+    pub(super) updated: i64,
+    pub(super) conversion: Option<u64>,
+    pub(super) slots: [Slot; 5],
 }
 
 /// The fields of a line as they are taken, byte by byte.
@@ -695,6 +695,32 @@ fn capture(
         line.take(role, byte, scratch);
     }
     Ok(line.finish(fields, version))
+}
+
+/// The row `line` (without its newline) is in a file of `version`, its texts
+/// read through `windows` into `scratch`; `None` where it is no row. The
+/// writer of version 3 reads the lines it rewrites with this.
+pub(super) fn parse_line(
+    line: &[u8],
+    version: u32,
+    windows: &Windows,
+    scratch: &mut [u8],
+) -> Option<Captured> {
+    let most = match version {
+        0..=1 => 10,
+        2 => 13,
+        _ => 15,
+    };
+    let tabs = line.iter().filter(|b| **b == TAB).count();
+    let comment = line.starts_with(b"# ");
+    let Shape::Line { fields } = line_shape(tabs, line.len(), comment, most) else {
+        return None;
+    };
+    let mut bytes = line.iter().copied();
+    let mut next = || Ok(bytes.next());
+    capture(&mut next, fields, version, windows, scratch)
+        .ok()
+        .flatten()
 }
 
 /// Whether `line` (without its newline) is a row in a file of `version`: the

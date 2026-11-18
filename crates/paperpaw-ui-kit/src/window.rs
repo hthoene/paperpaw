@@ -8,6 +8,7 @@ use crate::{
     paint, text,
 };
 use alloc::vec::Vec;
+use paperpaw_sdk::native::canvas::PartRole;
 use paperpaw_sdk::{
     Point, Rect,
     native::{
@@ -69,6 +70,11 @@ impl Window {
             first: page * per_page,
         }
     }
+}
+
+/// Rows of `high` pixels that `room` holds, at least one.
+fn per_page(room: u16, high: u16) -> usize {
+    (usize::from(room) / usize::from(high.max(1))).max(1)
 }
 
 /// A paged list of rows read from a [`RowSource`] page by page. Every row
@@ -220,12 +226,13 @@ impl WindowList {
         }
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let style = Style::read(host, &display, &font)?;
+        let mut style = Style::read(host, &display, &font)?;
+        style.describing = paint::asking(frame);
         let (width, height) = (display.display_width(), display.display_height());
         let top = style.header.saturating_add(style.gap);
         let area = Rect::new(0, top, width, height.saturating_sub(top));
         let high = self.row_height(&font, &style)?;
-        let per_page = (usize::from(area.height) / usize::from(high.max(1))).max(1);
+        let per_page = per_page(area.height, high);
         let len = source.len();
         let Window {
             focus,
@@ -257,7 +264,7 @@ impl WindowList {
         source.fill(host, first, per_page, &mut rows)?;
         rows.truncate(per_page);
         let mut body = Vec::new();
-        paint::push(&mut body, Paint::Fill(area, style.paper))?;
+        paint::push(&mut body, Paint::Fill(style.page(area), style.paper))?;
         let mut hits = Vec::new();
         hits.try_reserve_exact(rows.len())
             .map_err(|_| Error::NoMemory)?;
@@ -277,6 +284,47 @@ impl WindowList {
         self.per_page = per_page;
         self.focus = focus;
         Ok(())
+    }
+
+    /// The page the next draw shows of a list of `len` rows: its first row and
+    /// how many rows a page holds on this display. A source that reads its rows
+    /// from storage reads them with this before the draw (a draw reads nothing:
+    /// the X4 draws a frame in bands, each a `draw`).
+    ///
+    /// # Errors
+    /// Snapshot, font and style errors.
+    pub fn page_of(&self, host: &Host<'_>, len: usize) -> Result<(usize, usize), Error> {
+        let display = snapshot::capture_snapshot(host)?;
+        let font = Font::acquire_role(host, FontRole::Ui)?;
+        let high = Style::read(host, &display, &font).and_then(|style| {
+            let top = style.header.saturating_add(style.gap);
+            let room = display.display_height().saturating_sub(top);
+            self.row_height(&font, &style).map(|high| (room, high))
+        });
+        font.release()?;
+        let (room, high) = high?;
+        let per_page = per_page(room, high);
+        Ok((Window::of(self.focus, len, per_page).first, per_page))
+    }
+
+    /// Cuts the notes of `rows` to the line a row has for them, as a draw
+    /// would, so that a source that keeps its rows ahead pays the cut once
+    /// and not in every band of every frame (a draw finds a cut note fits).
+    ///
+    /// # Errors
+    /// Snapshot, font and style errors and [`Error::NoMemory`].
+    pub fn fit_notes(&self, host: &Host<'_>, rows: &mut [RowItem]) -> Result<(), Error> {
+        let display = snapshot::capture_snapshot(host)?;
+        let font = Font::acquire_role(host, FontRole::Ui)?;
+        let cut = Style::read(host, &display, &font).and_then(|style| {
+            let room = f32::from(display.display_width().saturating_sub(2 * style.margin)).max(1.0);
+            for row in rows.iter_mut().filter(|row| !row.note.is_empty()) {
+                row.note = text::fit(&font, style.small, &row.note, room)?;
+            }
+            Ok(())
+        });
+        font.release()?;
+        cut
     }
 
     /// The one height of every row.
@@ -300,6 +348,7 @@ fn draw_window_row(
 ) -> Result<(), Error> {
     let band = Rect::new(rect.x, rect.y, rect.width, style.row.min(rect.height));
     crate::list::backdrop(paint, style, rect, focused)?;
+    paint::describe(paint, style.describing, PartRole::Row, rect, focused, false)?;
     let ink = crate::list::ink(style, focused);
     crate::list::columns(paint, font, style, band, &row.title, &row.value, ink)?;
     if row.note.is_empty() {
@@ -309,14 +358,15 @@ fn draw_window_row(
     let note = text::fit(font, style.small, &row.note, room)?;
     let line = crate::geometry::line_px(font, style.small)?;
     let color = if focused && !style.ring {
-        style.paper
+        style.on_bar()
     } else {
         style.note
     };
-    text::label(
+    // Cut to fit above: a second measure would find it fits.
+    text::push_run(
         paint,
         font,
-        &note,
+        note,
         style.small,
         f32::from(rect.x) + f32::from(style.margin),
         Rect::new(rect.x, band.y.saturating_add(band.height), rect.width, line),

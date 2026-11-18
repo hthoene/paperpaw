@@ -227,48 +227,10 @@ fn fingerprints_as_text() {
     assert_eq!(Fingerprint::parse("+085073a61323717"), None);
 }
 
-/// A plugin of another interface, or needing more than this
-/// PaperPaw has, is said to be older or to need a newer PaperPaw, not
-/// "another build".
+/// A file of an older format is said to be older, by the interface its
+/// fingerprint names.
 #[test]
 fn older_and_newer_plugins_are_said_as_such() {
-    let native = Native::new("code.ppn");
-    let header = Header::read(&file()).unwrap();
-    let fits = Header {
-        fingerprint: FINGERPRINT.0,
-        ..header
-    };
-    assert_eq!(native.problem(&fits), None);
-    assert_eq!(native.problem(&header), Some(PluginProblem::OtherBuild));
-    let older = Header {
-        interface: INTERFACE - 1,
-        ..fits
-    };
-    assert_eq!(
-        native.problem(&older),
-        Some(PluginProblem::OlderInterface {
-            built_for: INTERFACE - 1
-        })
-    );
-    for newer in [
-        Header {
-            interface: INTERFACE + 1,
-            ..fits
-        },
-        Header {
-            needs_api: native.api_size + 4,
-            ..fits
-        },
-        Header {
-            families: [native.family_revs[0] + 1, 0, 0, 0, 0, 0, 0, 0],
-            ..fits
-        },
-    ] {
-        assert_eq!(
-            native.problem(&newer),
-            Some(PluginProblem::NeedsNewerPaperPaw)
-        );
-    }
     // A file of an older format: its fingerprint names its interface.
     let mut old = file();
     old[4] = 3;
@@ -427,4 +389,158 @@ fn a_file_of_another_interface_says_so() {
     );
     let other = Fingerprint::of(INTERFACE, build ^ 1);
     assert!(other.misfit().unwrap().contains("same plugin interface"));
+}
+
+/// Interface-7 plugin files (format 5), checked whole as the format before
+/// is: what an installer names as the code installed.
+#[cfg(feature = "kernel")]
+mod either_format {
+    use super::super::{Problem, check_code, code_sha256, signature};
+    use crate::MemoryStorage;
+    use paperpaw_platform::Storage;
+
+    /// The X4's (ESP32-C3) and the X4 Pro's (ESP32-S3) files.
+    const X4: &[u8] = include_bytes!("../../../paperpaw-native/tests/data/abi7-x4-min.ppn");
+    const X4_PRO: &[u8] = include_bytes!("../../../paperpaw-native/tests/data/target9-aids.ppn");
+
+    fn card(file: &[u8]) -> MemoryStorage {
+        let card = MemoryStorage::new();
+        card.write("code.ppn", file).unwrap();
+        card
+    }
+
+    #[test]
+    fn an_interface_7_file_is_checked_whole_for_either_chip() {
+        for file in [X4, X4_PRO] {
+            // Without its author's signature, where it has one.
+            let signed = file.len() as u64 - signature::SIGNATURE_LEN as u64;
+            let sha256: [u8; 32] = file[64..96].try_into().unwrap();
+            let checked = check_code(&card(file), "code.ppn").unwrap();
+            assert_eq!(checked.0, sha256);
+            assert_eq!(code_sha256(&card(file), "code.ppn"), Some(sha256));
+            if let Some(signature) = checked.1 {
+                assert_eq!(u64::from(signature.signed_len), signed);
+            }
+        }
+    }
+
+    #[test]
+    fn a_signed_interface_7_file_names_its_author_and_a_changed_one_is_refused() {
+        let seed = [7u8; 32];
+        let trailer = signature::sign(X4, &seed);
+        let mut file = X4.to_vec();
+        file.extend_from_slice(&trailer.to_bytes());
+        let (_, signature) = check_code(&card(&file), "code.ppn").unwrap();
+        assert_eq!(signature.map(|s| s.key), Some(trailer.key));
+        // A byte of the image changed: the digest no longer holds.
+        let mut changed = file.clone();
+        changed[200] ^= 1;
+        assert_eq!(
+            check_code(&card(&changed), "code.ppn"),
+            Err(Problem::Damaged)
+        );
+        // A byte of the signature changed: the digest holds, the signature not.
+        let mut forged = file.clone();
+        *forged.last_mut().unwrap() ^= 1;
+        assert_eq!(
+            check_code(&card(&forged), "code.ppn"),
+            Err(Problem::Signature)
+        );
+    }
+
+    #[test]
+    fn what_is_no_whole_plugin_file_is_refused_without_a_panic() {
+        assert_eq!(
+            check_code(&card(&X4[..X4.len() - 1]), "code.ppn"),
+            Err(Problem::Length)
+        );
+        assert_eq!(
+            check_code(&card(&X4[..95]), "code.ppn"),
+            Err(Problem::Length)
+        );
+        assert_eq!(check_code(&card(b"PPNP"), "code.ppn"), Err(Problem::Length));
+        assert_eq!(
+            check_code(&card(&[0; 300]), "code.ppn"),
+            Err(Problem::NotAPlugin)
+        );
+        // A format after 5, and a chip this build does not know.
+        let mut newer = X4.to_vec();
+        newer[4] = 6;
+        assert_eq!(
+            check_code(&card(&newer), "code.ppn"),
+            Err(Problem::NewerFormat)
+        );
+        let mut chip = X4.to_vec();
+        chip[6] = 77;
+        assert_eq!(
+            check_code(&card(&chip), "code.ppn"),
+            Err(Problem::UnknownChip)
+        );
+        assert_eq!(code_sha256(&card(&chip), "code.ppn"), None);
+        assert_eq!(code_sha256(&card(b"PPNP"), "code.ppn"), None);
+    }
+}
+
+/// The room is written when it changed, not at every start (#305): a write
+/// is a file made anew on the card.
+#[test]
+fn the_code_room_is_written_only_when_it_changed() {
+    use crate::{DirEntry, MemoryStorage, Storage, StorageError};
+    /// A storage that counts the files written.
+    struct Writes(MemoryStorage, core::cell::Cell<u32>);
+    impl Storage for Writes {
+        fn read_at(&self, path: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+            self.0.read_at(path, at, buf)
+        }
+        fn size(&self, path: &str) -> Result<u64, StorageError> {
+            self.0.size(path)
+        }
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.1.set(self.1.get() + 1);
+            self.0.write(path, data)
+        }
+        fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.append(path, data)
+        }
+        fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.0.list(dir, visit)
+        }
+        fn remove(&self, path: &str) -> Result<(), StorageError> {
+            self.0.remove(path)
+        }
+        fn create_dir(&self, _: &str) -> Result<(), StorageError> {
+            panic!("the write makes the folder");
+        }
+    }
+    let room = CodeRoom {
+        total: 65_536,
+        used: 24_576,
+        granule: 4096,
+        max_plugins: Some(2),
+        placed: 1,
+        shared: false,
+        larger: None,
+    };
+    let storage = Writes(MemoryStorage::new(), core::cell::Cell::new(0));
+    assert!(keep_code_room(&storage, Some(&room)));
+    assert_eq!(storage.1.get(), 1);
+    for _ in 0..3 {
+        assert!(keep_code_room(&storage, Some(&room)));
+    }
+    assert_eq!(storage.1.get(), 1, "the same room is not written again");
+    assert_eq!(code_room(&storage), Some(room));
+    let other = CodeRoom {
+        used: 28_672,
+        ..room
+    };
+    assert!(keep_code_room(&storage, Some(&other)));
+    assert_eq!(storage.1.get(), 2);
+    assert_eq!(code_room(&storage), Some(other));
+    // A longer file that begins the same is not the same.
+    storage
+        .0
+        .write(ROOM, b"65536 28672 4096 2 1 0 0\n77\n")
+        .unwrap();
+    assert!(keep_code_room(&storage, Some(&other)));
+    assert_eq!(storage.1.get(), 3);
 }

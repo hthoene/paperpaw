@@ -3,6 +3,7 @@
 //! the lease, the state rules, the paging rules and the checks of an answer.
 extern crate std;
 use super::*;
+use crate::Place;
 use crate::abi7::{
     context::{Frame, RowsEnd},
     services_wire::{self, ServiceOp},
@@ -15,7 +16,7 @@ use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_CANCELLED, ERR_DENIED, ERR_FULL, ERR_IO, ERR_NO_MEMORY, ERR_STATE,
 };
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 use wire::{
     ServiceDocAt as At, ServiceDocImage as Image, ServiceDocOpen as Open, ServiceDocOption as Opt,
     ServiceDocPage as Page, ServiceDocRef as Ref, ServiceDocState as State,
@@ -26,6 +27,8 @@ pub(crate) const FORMAT_OWNER: u64 = 99;
 
 #[path = "tests/blocks.rs"]
 mod blocks;
+#[path = "tests/cover.rs"]
+mod cover;
 #[path = "tests/lists.rs"]
 mod lists;
 #[path = "tests/reader.rs"]
@@ -60,7 +63,12 @@ pub(crate) struct Fake {
     table: DocumentTable,
     /// What the format answers next.
     pub(crate) answer: RefCell<Vec<u8>>,
+    /// Answers (or statuses) to give, oldest first, before `answer` is used.
+    pub(crate) queue: RefCell<Vec<Result<Vec<u8>, i32>>>,
     pub(crate) fails: Cell<Option<i32>>,
+    /// What an open's cache step answers (`DocHost::open_cache`): a busy
+    /// cache, not a busy format.
+    pub(crate) cache_fails: Cell<Option<i32>>,
     /// (op, document, cursor, generation, flags, index, image_side, cover_side)
     pub(crate) calls: RefCell<Vec<[u32; 8]>>,
     pub(crate) texts: RefCell<Vec<std::string::String>>,
@@ -68,6 +76,9 @@ pub(crate) struct Fake {
     pub(crate) roots: Cell<u32>,
     pub(crate) ended: RefCell<Vec<u32>>,
     pub(crate) images_ended: RefCell<Vec<u32>>,
+    /// Where the document's pictures really end (the production close path),
+    /// when a test wants it; else they are only recorded.
+    pub(crate) ending: Cell<Option<&'static crate::native_host::host_services::HostServices>>,
     /// The format plugin stops while the host is calling it (it crashed).
     pub(crate) stops_during_call: Cell<bool>,
     pub(crate) closed: RefCell<Vec<(u32, u32)>>,
@@ -81,6 +92,8 @@ pub(crate) struct Fake {
     pub(crate) owner: Cell<u64>,
     /// The owner of the fake format plugin.
     pub(crate) format_owner: Cell<u64>,
+    /// How often the format plugin's formats left the index.
+    pub(crate) formats_removed: Cell<u32>,
     /// (document, root, path) of each `reader_opened`, and the documents
     /// `reader_closed` was called for.
     pub(crate) readers: RefCell<Vec<(u32, u32, std::string::String)>>,
@@ -89,19 +102,34 @@ pub(crate) struct Fake {
     pub(crate) reader_refuses: Cell<Option<i32>>,
     /// Bit `n` set: owner `n` shows a screen.
     pub(crate) shows: Cell<u64>,
+    /// The documents `picture_left_out` was called for, in order.
+    pub(crate) left_out: RefCell<Vec<u32>>,
+    /// The kernel's start has not returned: no cover job begins.
+    pub(crate) jobs_blocked: Cell<bool>,
+    /// The user's quiet time is not over (`cover_quiet`).
+    pub(crate) noisy: Cell<bool>,
+    /// A `cover` asked for a job while `jobs_blocked`.
+    pub(crate) held_back: Cell<bool>,
+    /// The cover job's marker cannot be written (`cover_job_guard`).
+    pub(crate) guard_fails: Cell<bool>,
+    /// The paths the marker was written for, and whether it was removed.
+    pub(crate) guarded: RefCell<Vec<std::string::String>>,
 }
 impl Fake {
     pub(crate) fn new(limits: Limits) -> Rc<Self> {
         Rc::new(Self {
             table: DocumentTable::try_new(limits).unwrap(),
             answer: RefCell::new(Vec::new()),
+            queue: RefCell::new(Vec::new()),
             fails: Cell::new(None),
+            cache_fails: Cell::new(None),
             calls: RefCell::new(Vec::new()),
             texts: RefCell::new(Vec::new()),
             options_seen: Cell::new(0),
             roots: Cell::new(0b11),
             ended: RefCell::new(Vec::new()),
             images_ended: RefCell::new(Vec::new()),
+            ending: Cell::new(None),
             stops_during_call: Cell::new(false),
             closed: RefCell::new(Vec::new()),
             image: Cell::new(Some(Some(41))),
@@ -111,9 +139,16 @@ impl Fake {
             keyed: RefCell::new(Vec::new()),
             owner: Cell::new(OWNER),
             format_owner: Cell::new(FORMAT_OWNER),
+            formats_removed: Cell::new(0),
             readers: RefCell::new(Vec::new()),
             released: RefCell::new(Vec::new()),
             reader_refuses: Cell::new(None),
+            left_out: RefCell::new(Vec::new()),
+            jobs_blocked: Cell::new(false),
+            noisy: Cell::new(false),
+            held_back: Cell::new(false),
+            guard_fails: Cell::new(false),
+            guarded: RefCell::new(Vec::new()),
             shows: Cell::new(0),
         })
     }
@@ -122,6 +157,9 @@ impl Fake {
     }
 }
 impl DocHost for Fake {
+    fn as_dyn(&self) -> &dyn DocHost {
+        self
+    }
     fn table(&self) -> &DocumentTable {
         &self.table
     }
@@ -152,6 +190,9 @@ impl DocHost for Fake {
             .push((open.image_side, open.cover_side));
         Ok(0xc0de)
     }
+    fn open_cache(&self, _call: &FormatCall<'_>) -> Result<(), i32> {
+        self.cache_fails.get().map_or(Ok(()), Err)
+    }
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
         let mut options = 0;
         call.options.each(|_| options += 1);
@@ -173,6 +214,17 @@ impl DocHost for Fake {
         if let Some(error) = self.fails.get() {
             return Err(error);
         }
+        let queued = {
+            let mut queue = self.queue.borrow_mut();
+            (!queue.is_empty()).then(|| queue.remove(0))
+        };
+        if let Some(queued) = queued {
+            let bytes = queued?;
+            out.get_mut(..bytes.len())
+                .ok_or(ERR_NO_SPACE)?
+                .copy_from_slice(&bytes);
+            return Ok(bytes.len());
+        }
         let answer = self.answer.borrow();
         out.get_mut(..answer.len())
             .ok_or(ERR_NO_SPACE)?
@@ -184,6 +236,10 @@ impl DocHost for Fake {
     }
     fn end_images(&self, document: &Document) {
         self.images_ended.borrow_mut().push(document.id);
+        if let Some(hosts) = self.ending.get() {
+            // As the production host does: the document's pictures end now.
+            let _ = hosts.images().document_closed(document.id);
+        }
     }
     fn document_closed(&self, document: &Document, reason: u32) {
         self.closed.borrow_mut().push((document.id, reason));
@@ -203,6 +259,34 @@ impl DocHost for Fake {
     fn shows_screen(&self, owner: u64) -> bool {
         self.shows.get() & (1 << owner) != 0
     }
+    fn cover_jobs_allowed(&self) -> bool {
+        !self.jobs_blocked.get()
+    }
+    fn cover_quiet(&self) -> bool {
+        !self.noisy.get()
+    }
+    fn cover_at(&self, _path: &str) -> crate::native_host::doc_host::CoverAt {
+        use crate::native_host::doc_host::CoverAt;
+        // The host's table knows an unmade book; the fake's quiet time stands in.
+        if self.noisy.get() {
+            CoverAt::Unmade
+        } else {
+            CoverAt::Made
+        }
+    }
+    fn cover_job_guard(&self, path: &str) -> Result<(), i32> {
+        if self.guard_fails.get() {
+            return Err(ERR_IO);
+        }
+        self.guarded.borrow_mut().push(path.into());
+        Ok(())
+    }
+    fn cover_job_held_back(&self) {
+        self.held_back.set(true);
+    }
+    fn picture_left_out(&self, document: u32) {
+        self.left_out.borrow_mut().push(document);
+    }
     fn map_image(&self, _: &Document, _: &Image, in_block: bool) -> Result<Option<u32>, i32> {
         match self.image.get() {
             Some(Some(0)) if !in_block => Err(ERR_BUSY),
@@ -210,7 +294,13 @@ impl DocHost for Fake {
         }
     }
     fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
-        // The fake's format plugin is owner 99.
+        // The fake's format plugin is owner 99; what left the index is counted.
+        if owner == self.format_owner.get() {
+            self.formats_removed.set(self.formats_removed.get() + 1);
+            visit(FORMAT);
+        }
+    }
+    fn formats_owned(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
         if owner == self.format_owner.get() {
             visit(FORMAT);
         }
@@ -295,7 +385,7 @@ impl Fake {
 }
 
 pub(crate) struct View<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     hosts: crate::native_host::host_services::HostServices,
     fake: Rc<Fake>,
 }
@@ -325,7 +415,7 @@ pub(crate) fn with<R>(fake: &Rc<Fake>, body: impl FnOnce(&View<'_>) -> R) -> R {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let host: Rc<dyn DocHost> = fake.clone();
     let hosts = crate::native_host::host_services::HostServices::new();
     hosts.wire_documents(host).unwrap();
@@ -424,10 +514,11 @@ fn open_replies_with_the_hosts_own_fields_not_the_formats() {
     );
     assert_eq!((state.state, state.flags), (READY_STATE, 0b10));
     // The format was called with op 2, this id, the open flags, and the
-    // default picture sizes (1,600 and the larger of 300 and 3/8 of 800).
+    // default picture sizes (the screen's 800 and the larger of 300 and 3/8
+    // of 800).
     assert_eq!(
         fake.calls.borrow()[0],
-        [fmt::OPEN, 1, 0, 0, 0b101, 0, 1600, 300]
+        [fmt::OPEN, 1, 0, 0, 0b101, 0, 800, 300]
     );
 }
 const READY_STATE: u32 = 0;
@@ -737,18 +828,25 @@ fn a_stopped_format_ends_its_documents_and_their_openers_hear_it() {
 
 #[test]
 fn the_table_allocates_once_and_ids_run_out_without_wrapping() {
+    // The room is made at the first open: a table too large for the heap
+    // says so there, and keeps nothing.
+    let huge = DocumentTable::try_new(Limits {
+        per_owner: 1,
+        device: usize::MAX / 8,
+    })
+    .unwrap();
+    assert_eq!(huge.capacity(), 0);
     assert_eq!(
-        DocumentTable::try_new(Limits {
-            per_owner: 1,
-            device: usize::MAX / 8
-        })
-        .err(),
+        huge.open(1, true, FORMAT, 0, 0, &|_| true).err(),
         Some(ERR_NO_MEMORY)
     );
+    assert_eq!(huge.capacity(), 0);
     let fake = Fake::new(Limits::X4);
+    // A device that opens nothing keeps no room.
+    assert_eq!(fake.table.capacity(), 0);
+    let id = opened(&fake);
     let capacity = fake.table.capacity();
     assert!(capacity >= 2);
-    let id = opened(&fake);
     call(&fake, 18, &[doc_ref(id)]).unwrap();
     opened(&fake);
     assert_eq!(
@@ -771,7 +869,7 @@ fn a_frame_without_the_host_or_a_caller_refuses_the_family() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(Instant(0));
+    let env = kernel.shared.place(Instant(0));
     let fake = Fake::new(Limits::X4);
     let view = View {
         env: &env,
@@ -805,4 +903,14 @@ fn a_frame_without_the_host_or_a_caller_refuses_the_family() {
             generation: 0,
         },
     );
+}
+
+#[test]
+fn a_document_open_for_a_book_a_cover_or_a_job_is_seen_by_the_low_memory_look() {
+    let table = DocumentTable::try_new(Limits::X4).unwrap();
+    assert!(!table.any_open());
+    let (id, _) = table.open(1, true, FORMAT, 0, 0, &|_| true).unwrap();
+    assert!(table.any_open());
+    table.close(1, id).unwrap();
+    assert!(!table.any_open());
 }

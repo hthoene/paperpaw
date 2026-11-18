@@ -30,11 +30,16 @@ const STATUS: &str = "power.status";
 /// absent: the menu then has no entry for it).
 const TOUCH_LOCK: &str = "lock.touch";
 const TOUCH_TOGGLE: &str = "lock.touch-toggle";
-/// The sleep screen's slot, and the parameter that makes it say *off*.
+/// The sleep screen's slot, the off screen's, and the parameter that says why
+/// the device is switched off (`asked`: by the reader).
 const SLEEP_SLOT: &str = "core.sleep";
+const OFF_SLOT: &str = "core.off";
+const OFF_REASON: &str = "off-reason";
+const OFF_ASKED: &str = "asked";
 const SETTINGS_SLOT: &str = "core.settings";
 const GROUP: &str = "power.group";
-/// `core.ui` calls use buffers of the schema's capacity.
+/// `core.ui` and `core.device` calls use buffers of the schema's capacity (4,096
+/// bytes: the host refuses a smaller reply buffer).
 const UI_BUFFER: usize = 4096;
 /// A translated label or title fits this.
 const LABEL: usize = 128;
@@ -70,19 +75,7 @@ impl Plugin for NativePower {
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         // Only the kinds this plugin handles are read, so only their decoders are linked.
-        let Some(event) = [
-            incoming.decode_as::<kinds::Started>()?,
-            incoming.decode_as::<kinds::Resume>()?,
-            incoming.decode_as::<kinds::BatteryMeasured>()?,
-            incoming.decode_as::<kinds::ChargeChanged>()?,
-            incoming.decode_as::<kinds::SettingChanged>()?,
-            incoming.decode_as::<kinds::Answered>()?,
-            incoming.decode_as::<kinds::ActionRun>()?,
-            incoming.decode_as::<kinds::StageCall>()?,
-        ]
-        .into_iter()
-        .flatten()
-        .next() else {
+        let Some(event) = decode(&incoming)? else {
             return Ok(());
         };
         match (token, event) {
@@ -98,8 +91,10 @@ impl Plugin for NativePower {
                     Ok(())
                 }
             }
-            (EVENTS_TOKEN, Event::Answered { answer, .. }) => self.answered(host, answer),
-            (OPEN_TOKEN, Event::ActionRun { action: OPEN, .. }) => open_settings(host),
+            // Whatever the token: the host hands the dialog's answer to the asker on its own,
+            // under no subscription's token (see `declarations::events`).
+            (_, Event::Answered { answer, .. }) => self.answered(host, answer),
+            (OPEN_TOKEN, Event::ActionRun { action: OPEN, .. }) => self.open_settings(host),
             (MENU_TOKEN, Event::ActionRun { action: MENU, .. }) => self.ask(host),
             (STATUS_TOKEN, Event::StageCall { stage, payload, .. }) => {
                 status(host, stage, payload, reply)
@@ -119,9 +114,15 @@ impl NativePower {
     }
 
     /// The power button held: a small menu of what the device can do here.
+    #[inline(never)]
     fn ask(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let caps = device_caps(host)?;
         let locked = touch_locked(host);
+        // Touch locked: the way out must need no touch, so no menu.
+        if model::unlocks_touch(caps, locked) {
+            let mut scratch = [0; 128];
+            return CommandSender::new(host, &mut scratch).run_action(TOUCH_TOGGLE);
+        }
         let options = model::menu_options(caps, locked);
         let mut title_buffer = [0; LABEL];
         let title = copy_message(host, "power.menu.title", &mut title_buffer)?;
@@ -151,6 +152,7 @@ impl NativePower {
 
     /// What the option chosen in the power menu does. Nothing for a cancelled
     /// menu, an answer to another request or a typing update.
+    #[inline(never)]
     fn answered(
         &mut self,
         host: &Host<'_>,
@@ -174,14 +176,17 @@ impl NativePower {
         else {
             return Ok(());
         };
-        run(host, model::plan(item, asked.caps))
+        let step = model::plan(item, asked.caps);
+        // The service the menu was asked with, not a second one: the host gives a plugin
+        // one `core.ui` (a second open is `Full`, which left *Switch off* undone).
+        let ui = self.ui(host)?;
+        run(host, ui, step)
     }
-}
 
-/// Opens the power settings: what a tap on the mode's status item runs.
-fn open_settings(host: &Host<'_>) -> Result<(), Error> {
-    let ui = Ui::open(host)?;
-    let result = (|| {
+    /// Opens the power settings: what a tap on the mode's status item runs.
+    #[inline(never)]
+    fn open_settings(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let ui = self.ui(host)?;
         let mut input = buffer(UI_BUFFER)?;
         let mut out = buffer(UI_BUFFER)?;
         let handover = ui.handover(
@@ -192,17 +197,43 @@ fn open_settings(host: &Host<'_>) -> Result<(), Error> {
         )?;
         let mut scratch = [0; 256];
         CommandSender::new(host, &mut scratch).open(Open::slot(SETTINGS_SLOT)?.handover(handover))
-    })();
-    let released = ui.release(host);
-    result.and(released)
+    }
+}
+
+/// The event of one of the kinds this plugin handles, if it is one. One kind
+/// is tried after the other: an array of the eight decoded would hold eight
+/// events on the stack at once (over 2 KiB, the X4's band).
+#[inline(never)]
+fn decode<'a>(incoming: &Incoming<'a>) -> Result<Option<Event<'a>>, Error> {
+    macro_rules! first {
+        ($($kind:ident),+) => {
+            $(
+                if let Some(event) = incoming.decode_as::<kinds::$kind>()? {
+                    return Ok(Some(event));
+                }
+            )+
+        };
+    }
+    first!(
+        Started,
+        Resume,
+        BatteryMeasured,
+        ChargeChanged,
+        SettingChanged,
+        Answered,
+        ActionRun,
+        StageCall
+    );
+    Ok(None)
 }
 
 /// Does what a step of the power menu says.
-fn run(host: &Host<'_>, step: Step) -> Result<(), Error> {
+#[inline(never)]
+fn run(host: &Host<'_>, ui: &Ui, step: Step) -> Result<(), Error> {
     let mut scratch = [0; 512];
     match step {
-        Step::SleepWithScreen => show_then(host, PowerAction::Sleep, false, &mut scratch),
-        Step::OffWithScreen => show_then(host, PowerAction::PowerOff, true, &mut scratch),
+        Step::SleepWithScreen => show_then(host, ui, PowerAction::Sleep, false, &mut scratch),
+        Step::OffWithScreen => show_then(host, ui, PowerAction::PowerOff, true, &mut scratch),
         Step::Sleep => CommandSender::new(host, &mut scratch).sleep(),
         Step::Off => CommandSender::new(host, &mut scratch).power_off(),
         Step::Restart => CommandSender::new(host, &mut scratch).restart(),
@@ -210,30 +241,31 @@ fn run(host: &Host<'_>, step: Step) -> Result<(), Error> {
     }
 }
 
-/// The sleep screen first, then the power command in the same batch: the host
-/// draws the frame and acts when the panel is idle, so e-ink keeps a screen
+/// The sleep screen (the off screen, `core.off`, for `off`) first, then the power
+/// command in the same batch: the host draws the frame and acts when the panel is idle, so e-ink keeps a screen
 /// that shows what the device really is. Without the sleep screen (its plugin
 /// is off) the command acts alone.
+#[inline(never)]
 fn show_then(
     host: &Host<'_>,
+    ui: &Ui,
     action: PowerAction,
     off: bool,
     scratch: &mut [u8],
 ) -> Result<(), Error> {
     let shown = (|| {
         if off {
-            // `off`: the sleep screen's parameter (plugin `sleep`).
-            let ui = Ui::open(host)?;
-            let result = (|| {
-                let mut input = buffer(UI_BUFFER)?;
-                let mut out = buffer(UI_BUFFER)?;
-                let handover =
-                    ui.handover(host, &[Param::new("off", "1")?], &mut input, &mut out)?;
-                CommandSender::new(host, scratch)
-                    .show_then(Open::slot(SLEEP_SLOT)?.handover(handover), action)
-            })();
-            let released = ui.release(host);
-            result.and(released)
+            // The off screen, told why (`core.off`; plugin `sleep` by default).
+            let mut input = buffer(UI_BUFFER)?;
+            let mut out = buffer(UI_BUFFER)?;
+            let handover = ui.handover(
+                host,
+                &[Param::new(OFF_REASON, OFF_ASKED)?],
+                &mut input,
+                &mut out,
+            )?;
+            CommandSender::new(host, scratch)
+                .show_then(Open::slot(OFF_SLOT)?.handover(handover), action)
         } else {
             CommandSender::new(host, scratch).show_then(Open::slot(SLEEP_SLOT)?, action)
         }
@@ -252,6 +284,7 @@ fn show_then(
 }
 
 /// The mode to wear now: worn if another is worn.
+#[inline(never)]
 fn wear(host: &Host<'_>) -> Result<(), Error> {
     let mut scratch = [0; 64];
     let mode = match settings::read_setting(host, "power.mode", &mut scratch)? {
@@ -269,7 +302,7 @@ fn wear(host: &Host<'_>) -> Result<(), Error> {
     });
     let device = Device::open(host)?;
     let worn = (|| {
-        let (mut input, mut out) = ([0; 64], [0; 512]);
+        let (mut input, mut out) = ([0; 64], buffer(UI_BUFFER)?);
         let power = device.power(host, 0, &mut input, &mut out)?;
         let level = match power.level() {
             PowerLevel::Saving => Level::Saving,
@@ -299,7 +332,7 @@ fn wear(host: &Host<'_>) -> Result<(), Error> {
 fn device_caps(host: &Host<'_>) -> Result<Caps, Error> {
     let device = Device::open(host)?;
     let caps = (|| {
-        let (mut input, mut out) = ([0; 64], [0; 512]);
+        let (mut input, mut out) = ([0; 64], buffer(UI_BUFFER)?);
         let identity = device.device(host, &mut input, &mut out)?;
         Ok(Caps {
             sleep: identity.supports(DeviceCapability::Sleep),
@@ -340,6 +373,7 @@ fn flag(host: &Host<'_>, key: &str, default: bool) -> bool {
 
 /// The status item: nothing in Normal, so the lines stay calm; the mode's
 /// name while saving or offline.
+#[inline(never)]
 fn status(
     host: &Host<'_>,
     stage: &str,
@@ -378,7 +412,7 @@ fn status(
 fn worn_level(host: &Host<'_>) -> Result<Level, Error> {
     let device = Device::open(host)?;
     let level = (|| {
-        let (mut input, mut out) = ([0; 64], [0; 512]);
+        let (mut input, mut out) = ([0; 64], buffer(UI_BUFFER)?);
         Ok(match device.power(host, 0, &mut input, &mut out)?.level() {
             PowerLevel::Saving => Level::Saving,
             PowerLevel::Offline => Level::Offline,

@@ -37,10 +37,25 @@ impl<'a> Startup<'a> {
     }
 
     /// A normal start has no bundle progress, but still loads plugins.
-    /// Keep a bundle's final message if it already showed one.
-    pub fn starting_if_needed(&mut self) {
-        if !self.attempted {
-            self.update(Progress::Starting);
+    /// Keep a bundle's final message if it already showed one. The start
+    /// screen a plugin chose (drawn ahead onto the card, #219) shows instead
+    /// of *Starting PaperPaw* where it is whole and of the panel's size.
+    pub fn starting_if_needed(&mut self, storage: &dyn paperpaw_core::sdk::Storage) {
+        if self.attempted {
+            return;
+        }
+        let begun = crate::now();
+        match start_picture(self.panel, storage) {
+            Ok(()) => {
+                info!("start picture: shown in {} ms", crate::now().since(begun));
+                self.attempted = true;
+                self.last = Some(crate::now());
+            }
+            Err(paperpaw_core::start_picture::Bad::Missing) => self.update(Progress::Starting),
+            Err(bad) => {
+                warn!("start picture: {bad:?}; the built-in screen");
+                self.update(Progress::Starting);
+            }
         }
     }
 
@@ -110,6 +125,24 @@ impl<'a> Startup<'a> {
             }
         }
     }
+}
+
+/// The start picture on the card onto both planes, refreshed as the first
+/// starting frame is; the kernel's first frame waits for its waveform.
+fn start_picture(
+    panel: &mut Panel,
+    storage: &dyn paperpaw_core::sdk::Storage,
+) -> Result<(), paperpaw_core::start_picture::Bad> {
+    use paperpaw_core::start_picture::{Bad, show};
+    panel.wait().map_err(|_| Bad::Shown)?;
+    let (width, height) = panel.size();
+    show(storage, width, height, ROWS, &mut |top, rows| {
+        crate::power::feed();
+        panel.write_rows(top, rows, Planes::BOTH).is_ok()
+    })?;
+    panel
+        .start_refresh(Refresh::Half, true)
+        .map_err(|_| Bad::Shown)
 }
 
 /// The starting waveform may still be running when the kernel is ready.

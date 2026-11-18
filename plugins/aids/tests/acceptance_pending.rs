@@ -14,7 +14,7 @@ const CASES: [Case; 2] = [
     Case {
         name: "aids-reader-filter",
         golden: None,
-        blocked_by: &["READER-filter-stage"],
+        blocked_by: &["READER-filter-fire"],
     },
     // A configuration the payload cannot hold (more than 32 pairs, a string
     // over 96 bytes, a reply over 3,840 bytes) is refused visibly before it
@@ -37,7 +37,7 @@ fn the_cases_name_what_they_wait_for() {
 }
 
 #[test]
-#[ignore = "BLOCKED READER-filter-stage: the reader port does not call the stage yet"]
+#[ignore = "BLOCKED READER-filter-fire: the native reader screens do not ask the stage yet (stage defined in PR #807)"]
 fn aids_reader_filter() {
     CASES[0].refuse().unwrap();
 }

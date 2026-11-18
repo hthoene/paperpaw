@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-vocabulary"
 description = "PaperPaw vocabulary: the words looked up while reading, with their sentences"
-version = "1.1.5"
+version = "1.1.10"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -13,7 +13,7 @@ categories = ["no-std"]
 [package.metadata.paperpaw]
 # What the plugin reads from its folder on the card: the store's package
 # holds these files (tools/plugin-files/catalogue.py).
-card-files = ["data/phone.txt"]
+card-files = ["i18n/*.ini", "data/phone.txt"]
 
 [features]
 # The phone page carried in the code (the plugin as part of an app); a
@@ -31,7 +31,10 @@ paperpaw-ui-kit.workspace = true
 paperpaw-zip.workspace = true
 
 [build-dependencies]
-paperpaw-sdk.workspace = true
+# `kernel` only for the build script (not unified with the plugin's own use of
+# the SDK): it makes the table of settings a linked build keeps in the program.
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
+paperpaw-ui-kit.workspace = true
 
 [dev-dependencies]
 paperpaw-zip = { workspace = true, features = ["testing"] }
@@ -42,6 +45,7 @@ paperpaw-platform.workspace = true
 paperpaw-plugin-home.workspace = true
 paperpaw-plugin-sleep.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
+paperpaw-scripted-host = { path = "../../crates/paperpaw-scripted-host" }
 proptest.workspace = true
 
 [lints]

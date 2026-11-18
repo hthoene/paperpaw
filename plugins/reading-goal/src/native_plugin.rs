@@ -12,7 +12,6 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::{CommandSender, PluginEnabled},
         events::{AnswerOutcome, Answered, BookKind, Event, Incoming, kinds},
-        fonts::{Font, FontRole},
         image::{ImageId, ImageReady, ImageStyle, PrepareImage, PrepareRoot},
         registrations,
         registry::{PageCursor, Registry, RegistryPluginState},
@@ -48,8 +47,8 @@ mod image {
 const EVENTS: u32 = crate::declarations::EVENTS_TOKEN;
 /// The stage this plugin owns and runs, by its full id.
 const READ_TODAY: &str = "reading-goal.read-today";
-/// What a reply of the stage can take (a day and the seconds: 8 bytes).
-const REPLY: usize = Stage::out_len(8);
+/// The host-framed reply, sized from the stage's declared payload limit.
+const REPLY: usize = Stage::out_len(crate::declarations::READ_TODAY_REPLY);
 
 /// The minute tick's callback token, as declared.
 const TICK: u32 = crate::declarations::TICK_TOKEN;
@@ -58,8 +57,14 @@ const SLEEP: u32 = crate::declarations::SLEEP_TOKEN;
 /// The slot the settings fill, and the store's action.
 const SETTINGS_SLOT: &str = "core.settings";
 const STORE: &str = "store.open";
+/// The plugin manager's action: the list of plugins, with their switches.
+const PLUGINS: &str = "plugin-manager.open";
 /// The reading statistics' plugin and the goal setting a tap opens.
 const STATISTICS_ID: &str = "stats";
+/// This plugin, and the flag of a registry row that a plugin is linked into
+/// the firmware (`registry.md`, `reg_plugin.flags` bit 3).
+const OWN_ID: &str = "reading-goal";
+const LINKED: u32 = 1 << 3;
 const GOAL: &str = "stats.goal";
 /// The setting that names the folder of one's own pictures.
 const PICTURES: &str = "reading-goal.pictures";
@@ -93,7 +98,7 @@ pub struct NativeReadingGoal {
     items: Vec<Item>,
     /// The offer of the statistics, if open: its request and the state it
     /// was made for.
-    asked: Option<(RequestId, Statistics)>,
+    asked: Option<(RequestId, Statistics, bool)>,
     /// The cat's picture of the mood shown, and what is asked for it.
     pictures: Pictures,
 }
@@ -224,15 +229,7 @@ impl Plugin for NativeReadingGoal {
         let mut out = Vec::new();
         let picture = self.pictures.of(today.mood);
         let room = native_widget::draw(&mut cx, &mut out, area, &today, picture.is_some())?;
-        let bold = if out
-            .iter()
-            .any(|op| matches!(op, paperpaw_ui_kit::Paint::Bold { .. }))
-        {
-            Some(Font::acquire_role(host, FontRole::UiBold)?)
-        } else {
-            None
-        };
-        paint::replay_with(&mut frame, &cx.font, bold.as_ref(), &out)?;
+        paint::replay(&mut frame, &cx.font, &out)?;
         // The cat over what the frame drew. Where the host refuses it, the
         // widget is the frame and the minutes.
         if let (Some(image), Some(room)) = (picture, room) {
@@ -410,9 +407,8 @@ impl NativeReadingGoal {
             .unwrap_or(0);
         let mut step = from;
         while step < native_picture::steps(own) {
-            if let Some(candidate) = native_picture::candidate(folder, mood, step)
-                && let Some(root) = root_of(candidate.source)
-            {
+            if let Some(candidate) = native_picture::candidate(folder, mood, step) {
+                let root = root_of(candidate.source);
                 let cookie = native_picture::cookie(mood, step);
                 let request = PrepareImage::new(root, &candidate.path, cookie).side(side);
                 let mut scratch = [0u8; 640];
@@ -493,13 +489,11 @@ fn sleep_chosen(host: &Host<'_>) -> bool {
     )
 }
 
-/// Where the host reads a candidate from. The plugin's install folder (the
-/// cats) cannot be named by the SDK yet: `PrepareRoot::Bundle` (Services
-/// todo 308, Host todo 309), so the cats are left out until it exists.
-const fn root_of(source: Source) -> Option<PrepareRoot> {
+/// Where the host reads a candidate from.
+const fn root_of(source: Source) -> PrepareRoot {
     match source {
-        Source::Card => Some(PrepareRoot::Library),
-        Source::Bundle => None,
+        Source::Card => PrepareRoot::Library,
+        Source::Bundle => PrepareRoot::Bundle,
     }
 }
 
@@ -611,12 +605,16 @@ impl NativeReadingGoal {
     /// of switching them on or getting them. One offer at a time: the first
     /// is still open and its answer is the one that counts.
     fn tapped(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        let Some(labels) = native_widget::offer(self.statistics) else {
+        if self.statistics == Statistics::Counting {
+            return open_goal(host);
+        }
+        let may_switch = may_switch(host);
+        let Some(labels) = native_widget::offer(self.statistics, may_switch) else {
             return open_goal(host);
         };
         if self.asked.is_none() {
             let request = ask_offer(host, &labels)?;
-            self.asked = Some((request, self.statistics));
+            self.asked = Some((request, self.statistics, may_switch));
         }
         Ok(())
     }
@@ -624,13 +622,13 @@ impl NativeReadingGoal {
     /// The answer to the offer: switch the statistics on (at the next start,
     /// so started anew at once) or go to the store.
     fn answered(&mut self, host: &Host<'_>, answer: Answered) -> Result<(), Error> {
-        let Some((request, _)) = &self.asked else {
+        let Some((request, ..)) = &self.asked else {
             return Ok(());
         };
         if *request != answer.request() || answer.outcome() == AnswerOutcome::Typing {
             return Ok(());
         }
-        let Some((_, state)) = self.asked.take() else {
+        let Some((_, state, may_switch)) = self.asked.take() else {
             return Ok(());
         };
         if answer.outcome() != AnswerOutcome::Answered || answer.choice() != 0 {
@@ -639,8 +637,15 @@ impl NativeReadingGoal {
         let mut scratch = [0; 256];
         let mut commands = CommandSender::new(host, &mut scratch);
         match state {
+            // Where the plugin may not switch, the label said it opens the list.
+            Statistics::Off if !may_switch => commands.run_action(PLUGINS),
             Statistics::Off => {
-                commands.set_plugin_enabled(STATISTICS_ID, PluginEnabled::On)?;
+                match commands.set_plugin_enabled(STATISTICS_ID, PluginEnabled::On) {
+                    // A plugin file on the card is not given `uses.registry`
+                    // (the X4): the list of plugins has the switch.
+                    Err(Error::Denied) => return commands.run_action(PLUGINS),
+                    switched => switched?,
+                }
                 // Where the shell does not allow a restart the plugin is
                 // still switched on, for the next start.
                 commands.restart().ok();
@@ -672,19 +677,36 @@ fn settle(
 
 /// Whether the statistics count: running, off (or failed), or not installed.
 fn read_statistics(host: &Host<'_>) -> Result<Statistics, Error> {
+    let found = find_plugin(host, STATISTICS_ID)?;
+    Ok(Statistics::of(
+        found.map(|(state, _)| state == RegistryPluginState::Running),
+    ))
+}
+
+/// Whether this plugin is linked into the firmware (the emulator, Android),
+/// where it declares `uses.registry` and is given it. A plugin file on the
+/// card (the X4) is never given it: the host refuses its switch (#279).
+fn may_switch(host: &Host<'_>) -> bool {
+    find_plugin(host, OWN_ID)
+        .ok()
+        .flatten()
+        .is_some_and(|(_, flags)| flags & LINKED != 0)
+}
+
+/// The state and flags of the plugin `id` in the registry's list, if listed.
+fn find_plugin(host: &Host<'_>, id: &str) -> Result<Option<(RegistryPluginState, u32)>, Error> {
     let registry = Registry::open(host)?;
     let found = (|| {
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let mut cursor = PageCursor::start();
         for _ in 0..MOST_PAGES {
             let page = registry.plugins(host, cursor, &mut input, &mut out)?;
-            if let Some(plugin) = page.rows().find(|plugin| plugin.id() == STATISTICS_ID) {
-                let running = plugin.state() == RegistryPluginState::Running;
-                return Ok(Statistics::of(Some(running)));
+            if let Some(plugin) = page.rows().find(|plugin| plugin.id() == id) {
+                return Ok(Some((plugin.state(), plugin.flags())));
             }
             match page.end().next_cursor() {
                 Some(next) => cursor = next,
-                None => return Ok(Statistics::of(None)),
+                None => return Ok(None),
             }
         }
         Err(Error::NoSpace)

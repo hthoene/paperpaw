@@ -13,11 +13,11 @@ use android_activity::AndroidApp;
 use jni::JNIEnv;
 use jni::objects::{GlobalRef, JObject, JValue};
 use paperpaw_digest::fnv1a64;
+use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::{
     Align, Block, BlockKind, Document, DocumentError, ImageRef, Locator, Metadata, OffsetMap,
 };
 use paperpaw_sdk::image::{GrayFile, GrayWriter, ImageSink};
-use paperpaw_sdk::{Env, Storage};
 
 use crate::access::with_activity;
 
@@ -102,7 +102,7 @@ impl PdfDocument {
             Metadata::default().title(name.rsplit_once('.').map_or(name, |(s, _)| s).to_string());
         let cache = format!(
             "{}/{:016x}",
-            Env::plugin_dir(crate::plugin::PLUGIN.as_str()),
+            paperpaw_sdk::data::plugin_dir(crate::plugin::PLUGIN.as_str()),
             fnv1a64(path)
         );
         // Pages rendered from another file or for another screen go.

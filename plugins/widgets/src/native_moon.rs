@@ -155,15 +155,6 @@ fn lit_spans(radius: u32, degrees: i32, south: bool) -> Result<Vec<(i32, i32)>, 
     Ok(out)
 }
 
-#[cfg(test)]
-pub fn lit_spans_for_tests(
-    radius: u32,
-    degrees: i32,
-    south: bool,
-) -> Result<Vec<(i32, i32)>, Error> {
-    lit_spans(radius, degrees, south)
-}
-
 /// How much of the pixel at `left` (in eighths from the centre) the
 /// `spans` of its row light, 0 to 255.
 fn lit_share(spans: &[(i32, i32)], left: i32) -> u8 {

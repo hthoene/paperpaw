@@ -23,6 +23,14 @@
       "name": "registrations.submit"
     },
     {
+      "kind": "host",
+      "name": "settings.read"
+    },
+    {
+      "kind": "host",
+      "name": "i18n.copy"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },

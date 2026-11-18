@@ -94,6 +94,30 @@ fn a_heap_refusal_is_no_memory_and_leaves_the_table_as_it_was() {
 }
 
 #[test]
+fn a_heap_refusal_of_any_room_op_4_takes_leaves_no_instance_notice_or_room() {
+    use crate::native_host::shell::tests::FAIL_NTH;
+    let new = NewWidget {
+        owner: OWNER,
+        token: 1,
+        private: false,
+        widget: "a.w",
+        place: "p",
+    };
+    // The notice's text and list, then the instance's three tables.
+    for nth in 1..=5 {
+        let mut table = UiHandles::new(false);
+        FAIL_NTH.with(|n| n.set(nth));
+        let made = table.make_told(ME, 7, &new);
+        FAIL_NTH.with(|n| n.set(0));
+        assert_eq!(made, Err(ERR_NO_MEMORY), "allocation {nth}");
+        assert_eq!(table.widgets(), 0, "allocation {nth}");
+        assert_eq!(table.made_waiting(), 0, "allocation {nth}");
+        assert_eq!(table.made.capacity(), 0, "allocation {nth}: no room kept");
+        assert_eq!(table.make_told(ME, 7, &new), Ok(1), "allocation {nth}");
+    }
+}
+
+#[test]
 fn only_the_maker_drops_an_instance_and_only_once() {
     let mut table = UiHandles::new(false);
     let id = table.make_widget(OWNER, ME, 7, 1, false).unwrap();

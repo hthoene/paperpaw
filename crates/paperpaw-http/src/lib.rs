@@ -152,6 +152,18 @@ pub fn request(
     headers: &[(String, String)],
     body_len: Option<usize>,
 ) -> Vec<u8> {
+    request_keeping(method, url, headers, body_len, false)
+}
+
+/// [`request`], asking the server to keep the connection open
+/// (`keep_alive`) for the next request instead of closing it.
+pub fn request_keeping(
+    method: &str,
+    url: &Url<'_>,
+    headers: &[(String, String)],
+    body_len: Option<usize>,
+    keep_alive: bool,
+) -> Vec<u8> {
     let mut head = format!("{method} ");
     for &byte in url.path.as_bytes() {
         if byte <= b' ' || byte >= 0x7F || matches!(byte, b'"' | b'<' | b'>' | b'`' | b'{' | b'}') {
@@ -161,8 +173,9 @@ pub fn request(
         }
     }
     head.push_str(&format!(
-        " HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n",
-        url.host_header()
+        " HTTP/1.1\r\nHost: {}\r\nConnection: {}\r\n",
+        url.host_header(),
+        if keep_alive { "keep-alive" } else { "close" }
     ));
     let ours = ["host", "connection", "content-length"];
     for (name, value) in headers {
@@ -383,6 +396,9 @@ pub struct Head {
     /// `Content-Length`, if given.
     pub length: Option<u64>,
     pub chunked: bool,
+    /// The server keeps the connection open after the answer (HTTP/1.1
+    /// without `Connection: close`, or HTTP/1.0 with `keep-alive`).
+    pub keep_alive: bool,
     /// The headers asked for ([`Parser::wanting`]) that came, their names
     /// in lower case.
     pub headers: Vec<(String, String)>,
@@ -453,6 +469,17 @@ impl Parser {
     /// The head, once it came.
     pub fn head(&self) -> Option<&Head> {
         self.head.as_ref()
+    }
+
+    /// The response's end is told by its own length or chunks (or it has
+    /// no body), not by the connection's end: the connection can carry
+    /// another request after it.
+    pub fn delimited(&self) -> bool {
+        self.no_body
+            || self
+                .head
+                .as_ref()
+                .is_some_and(|head| head.length.is_some() || head.chunked)
     }
 
     /// The whole response came.
@@ -599,13 +626,15 @@ fn parse_head(bytes: &[u8], wanted: &[String]) -> Option<Head> {
     let mut lines = text.split("\r\n");
     let status_line = lines.next()?;
     let mut words = status_line.split_ascii_whitespace();
-    if !words.next()?.starts_with("HTTP/") {
+    let version = words.next()?;
+    if !version.starts_with("HTTP/") {
         return None;
     }
     let mut head = Head {
         status: words.next()?.parse().ok()?,
         ..Head::default()
     };
+    let mut keeps = version.eq_ignore_ascii_case("HTTP/1.1");
     for line in lines {
         let Some((name, value)) = line.split_once(':') else {
             continue;
@@ -620,6 +649,17 @@ fn parse_head(bytes: &[u8], wanted: &[String]) -> Option<Head> {
             "etag" => head.etag = Some(value.to_string()),
             "location" => head.location = Some(value.to_string()),
             "content-length" => head.length = Some(value.parse().ok()?),
+            "connection" => {
+                for token in value.split(',').map(str::trim) {
+                    if token.eq_ignore_ascii_case("close") {
+                        keeps = false;
+                        break;
+                    }
+                    if token.eq_ignore_ascii_case("keep-alive") {
+                        keeps = true;
+                    }
+                }
+            }
             "transfer-encoding" => {
                 head.chunked = value
                     .rsplit(',')
@@ -629,6 +669,7 @@ fn parse_head(bytes: &[u8], wanted: &[String]) -> Option<Head> {
             _ => {}
         }
     }
+    head.keep_alive = keeps;
     Some(head)
 }
 
@@ -675,6 +716,49 @@ mod tests {
         assert_eq!(Url::parse("ftp://host"), None);
         assert_eq!(Url::parse("http://"), None);
         assert_eq!(Url::parse("http://host:x/"), None);
+    }
+
+    #[test]
+    fn keep_alive_is_what_the_server_says() {
+        let head = |text: &str| parse_head(text.as_bytes(), &[]).unwrap();
+        assert!(head("HTTP/1.1 200 OK\r\nContent-Length: 1").keep_alive);
+        assert!(!head("HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 1").keep_alive);
+        assert!(!head("HTTP/1.1 200 OK\r\nconnection: Keep-Alive, Close").keep_alive);
+        assert!(!head("HTTP/1.0 200 OK\r\nContent-Length: 1").keep_alive);
+        assert!(head("HTTP/1.0 200 OK\r\nConnection: keep-alive").keep_alive);
+    }
+
+    #[test]
+    fn a_kept_request_asks_for_it_and_a_plain_one_closes() {
+        let url = Url::parse("https://h.org/a").unwrap();
+        let kept = request_keeping("GET", &url, &[], None, true);
+        assert!(
+            core::str::from_utf8(&kept)
+                .unwrap()
+                .contains("Connection: keep-alive\r\n")
+        );
+        let plain = request("GET", &url, &[], None);
+        assert!(
+            core::str::from_utf8(&plain)
+                .unwrap()
+                .contains("Connection: close\r\n")
+        );
+    }
+
+    #[test]
+    fn only_a_counted_or_chunked_answer_ends_without_the_connection() {
+        let mut counted = Parser::new("GET");
+        counted
+            .feed(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nab",
+                &mut |_| {},
+            )
+            .unwrap();
+        assert!(counted.done() && counted.delimited());
+        let mut open = Parser::new("GET");
+        open.feed(b"HTTP/1.1 200 OK\r\n\r\nab", &mut |_| {})
+            .unwrap();
+        assert!(!open.delimited());
     }
 
     #[test]

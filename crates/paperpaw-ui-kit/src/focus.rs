@@ -4,7 +4,7 @@ use paperpaw_sdk::{
     native::{
         Error, Host,
         callbacks::{Input, InputGestureKind},
-        commands::{CommandSender, RedrawMode},
+        commands::CommandSender,
     },
 };
 
@@ -111,8 +111,9 @@ impl ListFocus {
             }
             Step::Focus(target) => {
                 if target != self.focus {
-                    let mut scratch = [0; 64];
-                    CommandSender::new(host, &mut scratch).queue_redraw(RedrawMode::Partial)?;
+                    // The row the focus leaves and the one it reaches, as on
+                    // interface 6; the screen where the page turns.
+                    renderer.redraw_step(host, self.focus, target)?;
                     self.focus = target;
                 }
                 Ok(ListInput::Moved)

@@ -26,7 +26,7 @@ impl StatusAsk for StatusCalls<'_> {
         context: &[u8],
         out: &mut [u8],
     ) -> Result<usize, i32> {
-        if super::ui_store::is_x4(self.frame.env.device().memory) {
+        if super::ui_store::nested_closed(self.frame.env.device().memory) {
             return Err(ERR_UNSUPPORTED);
         }
         self.frame.callback_epoch()?;
@@ -51,7 +51,7 @@ impl StatusAsk for StatusCalls<'_> {
             .try_borrow()
             .map_err(|_| ERR_BUSY)?
             .native_lease(owner)?;
-        if lease.live()?.callback_depth() != 1 {
+        if lease.checked_depth()? != 1 {
             return Err(ERR_BUSY);
         }
         let input = input(items, context)?;
@@ -75,7 +75,7 @@ impl StatusAsk for StatusCalls<'_> {
     }
 }
 
-fn scratch(length: usize) -> Result<Vec<u8>, i32> {
+pub(super) fn scratch(length: usize) -> Result<Vec<u8>, i32> {
     let mut bytes = Vec::new();
     bytes.try_reserve_exact(length).map_err(|_| ERR_NO_MEMORY)?;
     bytes.resize(length, 0);

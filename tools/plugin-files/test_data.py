@@ -16,10 +16,14 @@ import data  # noqa: E402
 PACKS = {
     "script-arabic": "1.1.3",
     "script-hebrew": "1.1.3",
-    "script-greek": "1.0.2",
-    "script-cyrillic": "1.0.2",
-    "script-korean": "1.1.3",
-    "script-korean-extra": "1.0.2",
+    "script-thai": "1.0.0",
+    "script-greek": "1.0.3",
+    "script-cyrillic": "1.0.3",
+    "script-ethiopic": "1.0.0",
+    "script-korean": "1.1.4",
+    "script-korean-extra": "1.0.3",
+    "script-bengali": "1.0.0",
+    "script-devanagari": "1.0.0",
 }
 
 HYPHENATION = ["hyphenation"] + [
@@ -90,7 +94,7 @@ class ScriptPacks(unittest.TestCase):
 class Korean(unittest.TestCase):
     def test_the_korean_pack_is_ready(self):
         fields = ready()["script-korean"]
-        self.assertEqual(fields["version"], "1.1.3")
+        self.assertEqual(fields["version"], "1.1.4")
         self.assertEqual(fields["build"], "tools/script-pack.py")
         self.assertTrue(fields["off_by_default"])
         self.assertEqual(fields["licence"], "OFL-1.1")

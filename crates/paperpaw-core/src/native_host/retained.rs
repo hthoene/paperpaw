@@ -6,7 +6,9 @@ use core::mem::ManuallyDrop;
 use paperpaw_native::host_glue::Services;
 
 pub(crate) struct Retained<S: Services + 'static, M: 'static> {
-    batch: Option<shell::Batch<'static, S, M, Registration>>,
+    /// Only the records and their lease: the declarations staged beside them
+    /// were moved out or dropped at commit and keep no room here.
+    batch: Option<shell::Published<'static, S, M, Registration>>,
     host: ManuallyDrop<shell::Hosted<S, M>>,
 }
 
@@ -50,6 +52,7 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
     pub(crate) fn make_native_stored<R>(
         host: shell::Hosted<S, M>,
         map: impl FnOnce(&super::declaration_checks::View<'_>) -> Result<R, i32>,
+        refused: impl FnOnce(&str, super::declaration_checks::Cap),
     ) -> Result<(Self, R, super::raw_declarations::RawDeclarations), shell::Error> {
         let mut transaction = host.begin()?;
         // A batch lying wholly in the plugin's image is kept as offsets, not
@@ -57,7 +60,7 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
         transaction.set_image(host.image().unwrap_or(&[]))?;
         let (batch, staging, raw) = host
             .make_registered(transaction)?
-            .commit_native_stored(map)?;
+            .commit_native_stored(map, refused)?;
         // SAFETY: this holder retains the pinned owner and releases its batch
         // before the owner, as in make_native.
         let batch = unsafe { batch.into_retained() };
@@ -71,7 +74,7 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
         ))
     }
 
-    pub(crate) fn batch(&self) -> Result<&shell::Batch<'_, S, M, Registration>, Error> {
+    pub(crate) fn batch(&self) -> Result<&shell::Published<'_, S, M, Registration>, Error> {
         self.batch.as_ref().ok_or(Error::State)
     }
 
@@ -89,6 +92,21 @@ impl<S: Services + 'static, M: 'static> Retained<S, M> {
             batch.dispatch(index, depth, |_, record| visit(index, *record))?;
         }
         Ok(())
+    }
+
+    /// Whether a committed registration names the event `tag`. The records
+    /// are read in place, without dispatch admission: this is asked while
+    /// the plugin's own callback runs (`core.net` asks before it accepts a
+    /// request). Install admits one entry for each tag, at most 32 records.
+    pub(crate) fn subscribed(&self, tag: u32) -> bool {
+        self.batch.as_ref().is_some_and(|batch| {
+            (0..batch.len()).any(|index| {
+                matches!(
+                    batch.record(index),
+                    Some(Registration::Event { event_tag, .. }) if *event_tag == tag
+                )
+            })
+        })
     }
 }
 

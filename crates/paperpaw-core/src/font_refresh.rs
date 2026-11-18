@@ -4,6 +4,7 @@
 //! checking: where it cannot, what was chosen and offered before stays and
 //! a line in the warnings says so (the next refresh tries again).
 
+pub(crate) mod literata_notice;
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -11,10 +12,13 @@ use alloc::vec::Vec;
 use crate::plugins::FONT_SIZES;
 use core::mem;
 
+use crate::Ask;
 use paperpaw_sdk::builtin::settings as core_settings;
-use paperpaw_sdk::{Command, FontError, IdError};
+use paperpaw_sdk::{FontError, IdError};
 
 use super::*;
+
+pub(crate) mod widget_fonts;
 
 /// The `parts` one after another, with fallible allocation.
 pub(crate) fn fallible_string(parts: &[&str]) -> Option<String> {
@@ -55,9 +59,16 @@ impl Kernel {
     /// A warning from `source` made of `parts`; none where the heap has no
     /// room for it.
     pub(crate) fn try_warn(&mut self, source: WarningSource, parts: &[&str]) {
-        if let Some(message) = fallible_string(parts)
-            && self.warnings.try_reserve(1).is_ok()
-        {
+        if let Some(message) = fallible_string(parts) {
+            self.try_warn_made(source, message);
+        }
+    }
+
+    /// A warning from `source` whose `message` is made already (fallibly,
+    /// while what it names was borrowed); none where the heap has no room for
+    /// it.
+    pub(crate) fn try_warn_made(&mut self, source: WarningSource, message: String) {
+        if self.warnings.try_reserve(1).is_ok() {
             self.warn(source, None, message);
         }
     }
@@ -77,13 +88,17 @@ impl Kernel {
         }
     }
 
-    /// The reading font and status font choices: the registered families.
+    /// The reading font, status font and widget font choices: the registered
+    /// families that are there to set text (not one whose pack the card
+    /// lacks).
     pub(crate) fn offer_font_choices(&mut self) {
-        let Ok(families) = self.shared.fonts.try_families() else {
+        let Ok(mut families) = self.shared.fonts.try_families() else {
             return self.try_warn_runtime(&[
                 "not enough memory to update the font choices; they stay as they were",
             ]);
         };
+        let storage = self.shared.storage.as_ref();
+        families.retain(|family| self.shared.fonts.family_there(family, storage));
         let reading = choice_list(&[core_settings::DEFAULT_FONT], families.iter().copied());
         let status = choice_list(
             &[
@@ -92,9 +107,15 @@ impl Kernel {
             ],
             families.iter().copied(),
         );
+        let widgets = choice_list(
+            &[widget_fonts::MENUS, widget_fonts::BOOK],
+            families.iter().copied(),
+        );
         drop(families);
         self.offer_list(core_settings::READING_FONT.as_str(), reading);
         self.offer_list(core_settings::STATUS_FONT.as_str(), status);
+        self.offer_list(widget_fonts::GLOBAL, widgets);
+        self.offer_widget_families();
     }
 
     /// Chooses the reading font family from `core.reading-font` and loads
@@ -112,8 +133,9 @@ impl Kernel {
             .shared
             .settings
             .text(core_settings::READING_FONT.as_str());
+        let storage = self.shared.storage.as_ref();
         let family = (chosen != core_settings::DEFAULT_FONT
-            && self.shared.fonts.has_family(chosen))
+            && self.shared.fonts.family_there(chosen, storage))
         .then_some(chosen);
         let previous = self.shared.fonts.try_set_family(family)?;
         match self.shared.fonts.try_load(&self.shared.storage) {
@@ -202,7 +224,7 @@ impl Kernel {
             let id = core_settings::FONT_SIZE.id().try_clone();
             match id {
                 Some(id) if self.output.commands.try_reserve(1).is_ok() => {
-                    self.output.commands.push(Command::SetSetting(id, value));
+                    self.output.commands.push(Ask::SetSetting(id, value));
                 }
                 _ => self.try_warn_runtime(&[
                     "not enough memory to fit the font size; it is fitted at the next refresh",
@@ -212,51 +234,53 @@ impl Kernel {
     }
 
     /// The values plugins offer among other plugins' choices
-    /// ([`paperpaw_sdk::Registrar::add_choice`]), after the setting's own.
+    /// (`Staging::add_choice`), after the setting's own.
     /// A value that cannot be added for lack of memory is kept, with those
-    /// after it, for the next refresh.
+    /// after it, for the next refresh. While native plugins register (until
+    /// the start), one for a setting nobody declared yet waits too: a native
+    /// plugin declares its settings after the kernel is built.
     pub(crate) fn add_plugin_choices(&mut self) {
         let mut pending = mem::take(&mut self.plugin_choices);
-        pending.reverse();
-        while let Some((plugin, id, value)) = pending.pop() {
-            if let Err((plugin, id, value)) = self.add_plugin_choice(plugin, id, value) {
-                pending.push((plugin, id, value));
-                self.try_warn_runtime(&[
-                    "not enough memory to add the choices plugins offer; they are added at the next refresh",
-                ]);
-                break;
+        let mut no_room = false;
+        pending.retain(|(plugin, id, value)| {
+            if no_room {
+                return true;
             }
+            match self.add_plugin_choice(plugin, id, value) {
+                Offered::Taken => false,
+                Offered::Later => true,
+                Offered::NoRoom => {
+                    no_room = true;
+                    true
+                }
+            }
+        });
+        if no_room {
+            self.try_warn_runtime(&[
+                "not enough memory to add the choices plugins offer; they are added at the next refresh",
+            ]);
         }
-        pending.reverse();
         // Nothing was added to the list meanwhile.
         pending.append(&mut self.plugin_choices);
         self.plugin_choices = pending;
     }
 
-    /// Adds one value; gives it back where the heap has no room.
-    #[allow(
-        clippy::type_complexity,
-        reason = "the entry of `plugin_choices`, given back whole"
-    )]
-    fn add_plugin_choice(
-        &mut self,
-        plugin: Id,
-        id: Id,
-        value: Cow<'static, str>,
-    ) -> Result<(), (Id, Id, Cow<'static, str>)> {
+    /// Adds one value, or refuses it with a log line.
+    fn add_plugin_choice(&mut self, plugin: &Id, id: &Id, value: &str) -> Offered {
         let refused = match self.shared.settings.spec(id.as_str()) {
+            None if self.native_registering => return Offered::Later,
             None => Some("no such setting"),
             Some(spec) if spec.guarded => Some("it keeps the device safe"),
             Some(spec) => match &spec.kind {
-                paperpaw_sdk::SettingKind::Choice(choices) if choices.contains(&value) => {
+                paperpaw_sdk::SettingKind::Choice(choices) if choices.contains(value) => {
                     Some("it has that choice already")
                 }
-                paperpaw_sdk::SettingKind::Choice(_) => match Id::try_parse(&value) {
+                paperpaw_sdk::SettingKind::Choice(_) => match Id::try_parse(value) {
                     Ok(v) if v.namespace() == plugin.as_str() => None,
                     Ok(_) | Err(IdError::Invalid) => {
                         Some("the value is not in the plugin's namespace")
                     }
-                    Err(_) => return Err((plugin, id, value)),
+                    Err(_) => return Offered::NoRoom,
                 },
                 _ => Some("it is no choice"),
             },
@@ -268,7 +292,7 @@ impl Kernel {
                     WarningSource::Plugin(source),
                     &[
                         "choice `",
-                        &value,
+                        value,
                         "` for `",
                         id.as_str(),
                         "`: ",
@@ -277,100 +301,29 @@ impl Kernel {
                     ],
                 );
             }
-            return Ok(());
+            return Offered::Taken;
         }
         let Some(paperpaw_sdk::SettingKind::Choice(choices)) =
             self.shared.settings.spec(id.as_str()).map(|s| &s.kind)
         else {
-            return Ok(());
+            return Offered::Taken;
         };
-        let list = choice_list(&[], choices.iter().chain(core::iter::once(&*value)));
-        match list {
+        match choice_list(&[], choices.iter().chain(core::iter::once(value))) {
             Some(values) => {
                 self.shared.settings.set_choices(id.as_str(), values);
-                Ok(())
+                Offered::Taken
             }
-            None => Err((plugin, id, value)),
+            None => Offered::NoRoom,
         }
     }
+}
 
-    /// The reading apps to choose: the default one, and one for each
-    /// format (a setting each, in the reading settings' part for them),
-    /// each offering the readers that read its books. Where only one
-    /// does, there is nothing to choose and the setting is not listed.
-    /// Where the heap has no room what was offered stays.
-    pub(crate) fn offer_reading_apps(&mut self) {
-        if self.try_offer_reading_apps().is_err() {
-            self.try_warn_runtime(&[
-                "not enough memory to update the reading apps; they stay as they were",
-            ]);
-        }
-    }
-
-    fn try_offer_reading_apps(&mut self) -> Result<(), ()> {
-        let Shared {
-            readers,
-            formats,
-            settings,
-            ..
-        } = &mut self.shared;
-        let default = [core_settings::READING_APP_DEFAULT];
-        let several = readers.len() > 1;
-        let all = choice_list(
-            &default,
-            readers.iter().map(|r| r.id.as_str()).filter(|_| several),
-        )
-        .ok_or(())?;
-        settings.set_choices(core_settings::READING_APP.as_str(), all);
-        for format in formats.iter() {
-            let several = readers.reading(Some(&format.id)).nth(1).is_some();
-            let choices = choice_list(
-                &default,
-                readers
-                    .reading(Some(&format.id))
-                    .map(|r| r.id.as_str())
-                    .filter(|_| several),
-            )
-            .ok_or(())?;
-            let id =
-                fallible_string(&[core_settings::READING_APP.as_str(), ".", format.id.as_str()])
-                    .ok_or(())?;
-            if settings.spec(&id).is_some() {
-                settings.set_choices(&id, choices);
-                continue;
-            }
-            // Nothing to choose where one reader reads it: no setting
-            // (memory on small devices), until another comes.
-            if !several {
-                continue;
-            }
-            let setting = match Id::try_parse(&id) {
-                Ok(setting) => setting,
-                Err(IdError::Invalid) => continue,
-                Err(_) => return Err(()),
-            };
-            // The room first, so that defining it cannot fail for lack of it.
-            settings.try_reserve(1, 0).map_err(|_| ())?;
-            /// The reading apps' part, keeping apps not installed now.
-            static READING_APPS: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new()
-                .section("core.section.reading-apps")
-                .keeps_unknown();
-            let title = match &format.title {
-                Cow::Borrowed(title) => Cow::Borrowed(*title),
-                Cow::Owned(title) => Cow::Owned(fallible_string(&[title]).ok_or(())?),
-            };
-            let mut spec = paperpaw_sdk::SettingSpec::new(
-                setting,
-                "",
-                paperpaw_sdk::SettingKind::Choice(choices.into()),
-                paperpaw_sdk::SettingValue::Text(Cow::Borrowed(core_settings::READING_APP_DEFAULT)),
-                paperpaw_sdk::builtin::groups::READING_BEHAVIOUR,
-            )
-            .description("core.setting.reading-app.format.help")
-            .with_extra(&READING_APPS);
-            spec.title = paperpaw_sdk::Str::new(title);
-            let _ = settings.define(spec);
-        }
-        Ok(())
-    }
+/// What became of a value a plugin offers among another's choices.
+enum Offered {
+    /// Added, or refused with a log line: gone from the list.
+    Taken,
+    /// Its setting is not declared yet, while native plugins register.
+    Later,
+    /// No room: kept, with those after it, for the next refresh.
+    NoRoom,
 }

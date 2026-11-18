@@ -112,7 +112,12 @@ fn call(op: u32, document: u32, f: impl FnOnce(&mut stage::FmtCall<'static>)) ->
 }
 
 fn run(p: &mut TxtProvider, io: &dyn Io, input: &[u8]) -> Result<Vec<u8>, Error> {
-    let mut out = vec![0u8; 3840];
+    run_in(p, io, input, 3840)
+}
+
+/// [`run`] with a reply buffer of `size` bytes.
+fn run_in(p: &mut TxtProvider, io: &dyn Io, input: &[u8], size: usize) -> Result<Vec<u8>, Error> {
+    let mut out = vec![0u8; size];
     let n = p.call(io, input, &mut out)?;
     out.truncate(n);
     Ok(out)
@@ -144,11 +149,21 @@ fn fold(reply: &[u8], into: &mut Blockful) {
 
 /// One block as the provider gives it, joined from its fragments.
 fn block(p: &mut TxtProvider, io: &dyn Io, offset: u32) -> Result<(Blockful, usize), Error> {
+    block_in(p, io, offset, 3840)
+}
+
+/// [`block`] with reply buffers of `size` bytes.
+fn block_in(
+    p: &mut TxtProvider,
+    io: &dyn Io,
+    offset: u32,
+    size: usize,
+) -> Result<(Blockful, usize), Error> {
     let mut whole = Blockful::default();
     let mut fragments = 0;
     let (mut cursor, mut generation) = (0, 0);
     loop {
-        let reply = run(
+        let reply = run_in(
             p,
             io,
             &call(8, 1, |c| {
@@ -156,6 +171,7 @@ fn block(p: &mut TxtProvider, io: &dyn Io, offset: u32) -> Result<(Blockful, usi
                 c.cursor = cursor;
                 c.generation = generation;
             }),
+            size,
         )?;
         fold(&reply, &mut whole);
         fragments += 1;
@@ -317,6 +333,39 @@ fn a_long_block_comes_in_fragments_that_join_whole() {
     assert!(fragments > 1, "{fragments} fragments, {} rows", got.rows);
 }
 
+/// A reply buffer of any size from the smallest that holds the block's longest
+/// record to the most a reply may be: the fragments join to the same block. One
+/// that holds not even the first record is refused, not cut.
+#[test]
+fn fragments_at_any_cap_join_to_the_same_block() {
+    let mut book = Vec::new();
+    for _ in 0..450 {
+        book.extend_from_slice(b"ab\xe4\xf6 ");
+    }
+    let io = Roots::new(book);
+    let mut p = TxtProvider::new();
+    open(&mut p, &io);
+    let (whole, fragments) = block(&mut p, &io, 0).unwrap();
+    assert!(fragments > 1);
+    // The size of the first fragment at the most a reply holds: the cap itself.
+    let first = run(&mut p, &io, &call(8, 1, |c| c.offset = 0)).unwrap();
+    // From the smallest reply that holds this block's longest record (a text part
+    // of about 3 KiB) to one byte short of the most, and exactly the first fragment.
+    let sizes = (3200..3840)
+        .step_by(32)
+        .chain([3839, first.len(), first.len() - 1])
+        .filter(|size| *size >= 3200);
+    for size in sizes {
+        let (got, _) = block_in(&mut p, &io, 0, size).unwrap();
+        assert_eq!(got.header, whole.header, "size {size}");
+        assert_eq!(got.text, whole.text, "size {size}");
+        assert_eq!(got.maps, whole.maps, "size {size}");
+        assert_eq!(got.runs, whole.runs, "size {size}");
+    }
+    // Not even the first record fits: refused, not cut.
+    assert!(matches!(block_in(&mut p, &io, 0, 16), Err(Error::NoSpace)));
+}
+
 #[test]
 fn a_fragment_of_another_block_or_conversion_is_refused() {
     let io = Roots::new("b".repeat(5000).into_bytes());
@@ -399,7 +448,9 @@ fn metadata_sections_progress_and_texts() {
         .map(Result::unwrap)
         .collect();
     assert!(matches!(rows[0], stage::Record::FmtSection(s) if s.index == 0 && s.length > 0));
-    assert!(matches!(rows[1], stage::Record::FmtEnd(e) if e.total == 1 && e.flags == 0));
+    assert!(
+        matches!(rows[1], stage::Record::FmtEnd(e) if e.total == 1 && e.flags == 1 && e.generation == 1)
+    );
     let none = run(&mut p, &io, &call(7, 1, |c| c.cursor = 1)).unwrap();
     assert_eq!(stage::reply_decode(&none).unwrap().len(), 1);
     let mut ppm = |offset| {
@@ -412,6 +463,29 @@ fn metadata_sections_progress_and_texts() {
     };
     assert_eq!(ppm(0), 0);
     assert_eq!(ppm(u32::MAX), 1_000_000);
+}
+
+/// The SDK takes a page of the list only when its end names the cursor after
+/// the rows (`next`), and the last page ends at the total: the reader's
+/// progress (its status line's "0 %") is made of this list.
+#[test]
+fn the_section_list_ends_as_the_sdk_takes_it() {
+    let io = Roots::new(sample());
+    let mut p = TxtProvider::new();
+    open(&mut p, &io);
+    for (cursor, rows) in [(0, 1), (1, 0)] {
+        let reply = run(&mut p, &io, &call(7, 1, |c| c.cursor = cursor)).unwrap();
+        let records: Vec<_> = stage::reply_decode(&reply)
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let Some(stage::Record::FmtEnd(end)) = records.last() else {
+            panic!("no end");
+        };
+        assert_eq!(records.len(), rows + 1);
+        assert_eq!(end.next, cursor + rows as u32, "cursor {cursor}");
+        assert_eq!((end.flags, end.total, end.next), (1, 1, end.total));
+    }
 }
 
 #[test]
@@ -453,7 +527,7 @@ fn bad_calls_get_their_refusals() {
             .map(Result::unwrap)
             .collect();
         assert!(
-            matches!(rows[..], [stage::Record::FmtEnd(e)] if e.total == 0 && e.flags == 0),
+            matches!(rows[..], [stage::Record::FmtEnd(e)] if e.total == 0 && e.flags == 1 && e.generation == 1),
             "op {op}"
         );
     }
@@ -531,5 +605,29 @@ fn any_bytes_read_through_the_provider_without_panics() {
             }
             offset = end;
         }
+    }
+}
+
+/// What the host checks of a list's closing `fmt.end` (`document.md` section 3,
+/// the host's `page_end`): a generation that is never 0, only bit 0 (the last
+/// page) in the flags, and a next cursor past the asked one unless it is the
+/// last page. A list the host refuses makes the book fail to open.
+#[test]
+fn every_list_ends_the_way_the_host_accepts() {
+    let io = Roots::new(b"one line\n".to_vec());
+    let mut p = TxtProvider::new();
+    open(&mut p, &io);
+    for op in [7, 9, 14, 16] {
+        let reply = run(&mut p, &io, &call(op, 1, |_| {})).unwrap();
+        let rows: Vec<_> = stage::reply_decode(&reply)
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        let Some(stage::Record::FmtEnd(end)) = rows.last() else {
+            panic!("op {op}: no closing fmt.end");
+        };
+        assert_ne!(end.generation, 0, "op {op}");
+        assert_eq!(end.flags & !1, 0, "op {op}");
+        assert!(end.flags & 1 == 1 || end.next > 0, "op {op}");
     }
 }

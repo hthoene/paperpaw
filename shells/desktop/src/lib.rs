@@ -21,8 +21,18 @@ pub mod host;
 pub mod host_services;
 pub mod http;
 pub mod light;
+/// The first-party interface-7 plugins linked into the emulator, registered
+/// with the kernel (the reviewed Linux x86-64 profile only).
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+pub mod linked;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native;
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+pub mod native_net;
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+mod native_serve;
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+pub mod native_sock;
 pub mod offline;
 pub mod panel;
 #[cfg(not(target_arch = "wasm32"))]
@@ -30,6 +40,9 @@ pub mod private;
 pub mod profiles;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod registry;
+pub mod repl;
+#[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+mod sealing;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod stdio;
 pub mod trace;
@@ -42,12 +55,17 @@ static ALLOCATOR: budget::BudgetAllocator = budget::BudgetAllocator;
 /// the budget's own are run: the heap budget counts every thread's (one
 /// device's is the whole budget of an X4).
 #[cfg(test)]
-pub(crate) fn one_device_at_a_time() -> std::sync::MutexGuard<'static, ()> {
-    budget::accounting_tests::LOCK
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+pub(crate) fn one_device_at_a_time() -> budget::accounting_tests::Held {
+    budget::accounting_tests::hold()
 }
 
 /// Inactive interface-7 lifecycle qualification; not used by CodeLoader.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub mod native_runtime;
+#[cfg(all(
+    test,
+    feature = "native-linked",
+    target_os = "linux",
+    target_arch = "x86_64"
+))]
+mod x4_offer_tests;

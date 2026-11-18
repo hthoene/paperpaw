@@ -6,6 +6,13 @@ fn style() -> Style {
         corner: 4,
         pill: false,
         ring: false,
+        soft: false,
+        shadow: 0,
+        frame: None,
+        button: crate::style::ButtonLook::Outlined,
+        mono: false,
+        roles: crate::style::Roles::default(),
+        separator_dither: false,
         separator_ink: Color::BLACK,
         text: 22.0,
         small: 17.0,
@@ -30,6 +37,7 @@ fn style() -> Style {
         on_dark_muted: Color::gray(200),
         strong: false,
         rtl: false,
+        describing: false,
     }
 }
 
@@ -299,4 +307,111 @@ fn the_mirror_image_of_the_left_to_right_layout() {
         assert_eq!((x.y, x.width, x.height), (y.y, y.width, y.height));
         assert_eq!(rtl.flip(area, x), y);
     }
+}
+
+#[test]
+fn chips_tell_nothing_unless_somebody_asked() {
+    let style = style();
+    assert!(!style.describing);
+    let height = Chips::height(&style, 0);
+    let area = Rect::new(0, 0, 400, height);
+    let chips = Chips::from_widths(&style, 0, area, &[height * 2, height * 2]).unwrap();
+    let mut paint = Vec::new();
+    chips.frames(&mut paint, 0, Some(1)).unwrap();
+    assert!(paint.iter().all(|op| !matches!(op, Paint::Describe { .. })));
+}
+
+#[test]
+fn each_chip_tells_it_is_a_button_before_its_frame_where_somebody_asks() {
+    let mut style = style();
+    style.describing = true;
+    let height = Chips::height(&style, 0);
+    let area = Rect::new(0, 0, 400, height);
+    let mut chips = Chips::from_widths(&style, 0, area, &[height * 2, height * 2]).unwrap();
+    chips.set_describing(true);
+    let mut paint = Vec::new();
+    chips.frames(&mut paint, 0, Some(1)).unwrap();
+    let told: Vec<_> = paint
+        .iter()
+        .filter_map(|op| match op {
+            Paint::Describe { role, flags, rect } => Some((*role, flags.bits(), *rect)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(told.len(), 2);
+    assert_eq!(told[0].1, 0, "the first has no focus");
+    assert_eq!(told[1].1, 1, "the second has it");
+    assert!(told.iter().all(|(role, ..)| *role == PartRole::Button));
+    // Told before its frame is drawn.
+    assert!(matches!(paint[0], Paint::Describe { .. }));
+}
+
+fn one_chip(style: &Style) -> (Chips, Rect) {
+    let height = Chips::height(style, 0);
+    let area = Rect::new(0, 0, 1000, height);
+    let chips = Chips::from_widths(style, 0, area, &[height * 2]).unwrap();
+    let cell = chips.cell(0).unwrap();
+    (chips, cell)
+}
+
+#[test]
+fn a_hard_shadow_lies_inside_the_cell_under_the_plate() {
+    let mut style = style();
+    style.shadow = 3;
+    let (chips, cell) = one_chip(&style);
+    let mut paint = Vec::new();
+    chips.frames(&mut paint, 9, None).unwrap();
+    let body = Rect::new(cell.x, cell.y, cell.width - 3, cell.height - 3);
+    let below = Rect::new(cell.x + 3, cell.y + 3, body.width, body.height);
+    let expect = [
+        Paint::Focus(below, 4, None, Color::BLACK),
+        Paint::Focus(body, 4, None, Color::WHITE),
+        Paint::Focus(body, 4, Some(2), Color::BLACK),
+    ];
+    assert_eq!(alloc::format!("{paint:?}"), alloc::format!("{expect:?}"));
+}
+
+#[test]
+fn the_frame_the_theme_chose_sets_the_plate_of_a_chip_not_chosen() {
+    use crate::widget::Frame;
+    let mut style = style();
+    style.frame = Some(Frame::None);
+    let (chips, _) = one_chip(&style);
+    let mut paint = Vec::new();
+    chips.frames(&mut paint, 9, None).unwrap();
+    assert!(paint.is_empty(), "{paint:?}");
+    style.frame = Some(Frame::Card);
+    let (chips, cell) = one_chip(&style);
+    let mut paint = Vec::new();
+    chips.frames(&mut paint, 9, None).unwrap();
+    let expect = [Paint::Focus(cell, 4, None, Color::gray(230))];
+    assert_eq!(alloc::format!("{paint:?}"), alloc::format!("{expect:?}"));
+    // Dark: the darker ink is the plate and the lighter one the label's.
+    style.frame = Some(Frame::Dark);
+    let (chips, cell) = one_chip(&style);
+    let mut paint = Vec::new();
+    chips.frames(&mut paint, 9, None).unwrap();
+    let expect = [Paint::Focus(cell, 4, None, Color::BLACK)];
+    assert_eq!(alloc::format!("{paint:?}"), alloc::format!("{expect:?}"));
+    assert_eq!((chips.ink, chips.plate.paper), (Color::WHITE, Color::BLACK));
+}
+
+#[test]
+fn the_chosen_chip_and_the_outlines_take_the_colours_a_theme_gave_them() {
+    let mut style = style();
+    style.roles.chip = Some(Color::gray(120));
+    style.roles.outline = Some(Color::gray(60));
+    let (chips, cell) = one_chip(&style);
+    let mut paint = Vec::new();
+    chips.frames(&mut paint, 0, None).unwrap();
+    let expect = [
+        Paint::Focus(cell, 4, None, Color::gray(120)),
+        Paint::Focus(cell, 4, Some(2), Color::gray(60)),
+    ];
+    assert_eq!(alloc::format!("{paint:?}"), alloc::format!("{expect:?}"));
+    assert_eq!(
+        chips.on_chosen,
+        Color::WHITE,
+        "light label on a mid-dark chip"
+    );
 }

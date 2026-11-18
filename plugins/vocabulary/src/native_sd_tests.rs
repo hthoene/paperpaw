@@ -72,6 +72,35 @@ fn the_menu_has_an_update_row_then_a_save_row_for_each_deck() {
 }
 
 #[test]
+fn the_menu_rows_show_their_whole_long_texts_not_cut_with_an_ellipsis() {
+    let storage = MemoryStorage::new();
+    put(&storage, "Spanish.tsv", "casa\thouse\n");
+    crate::sync::tests::run(&storage, false, true);
+    let decks = cards::decks(&storage).unwrap();
+    let ledger = sync::sources(&storage).unwrap();
+    let pending = sync::pending(&storage, FOLDER).unwrap();
+    let shown = Shown {
+        folder: FOLDER,
+        pending,
+        decks: &decks,
+        ledger: &ledger,
+    };
+    let mut view = MenuView::new(&mut words("en"), shown).unwrap();
+    let rows: Vec<_> = view
+        .list()
+        .items()
+        .iter()
+        .filter_map(|item| match item {
+            Item::Row(row) => Some(row),
+            Item::Heading(_) => None,
+        })
+        .collect();
+    assert!(rows.len() >= 3);
+    // Each row has a note, and each is told whole: wrapped, not cut.
+    assert!(rows.iter().all(|row| !row.note.is_empty() && row.whole));
+}
+
+#[test]
 fn the_rows_say_what_each_does_in_both_languages() {
     let storage = MemoryStorage::new();
     put(&storage, "Spanish.tsv", "casa\thouse\n");
@@ -312,4 +341,28 @@ fn a_run_whose_step_cannot_be_done_ends_with_a_line_never_waits_for_a_step_that_
     run.abort(None);
     assert!(!run.working());
     assert!(rows_of(&run).is_empty());
+}
+
+#[test]
+fn what_a_turn_reads_through_both_is_counted_from_the_card_and_the_data_folder() {
+    use crate::native_card::Both;
+    use paperpaw_sdk::Storage;
+    let (data, card) = (MemoryStorage::new(), MemoryStorage::new());
+    card.write("a.txt", &[7; 1000]).unwrap();
+    data.write("decks.ini", &[1; 50]).unwrap();
+    let both = Both {
+        data: &data,
+        card: &card,
+        read: core::cell::Cell::new(0),
+    };
+    let mut buf = [0; 600];
+    assert_eq!(both.read_at("a.txt", 0, &mut buf), Ok(600));
+    assert_eq!(both.read_at("a.txt", 600, &mut buf), Ok(400));
+    assert_eq!(both.read.get(), 1000);
+    let path = alloc::format!("{}decks.ini", ".paperpaw/plugins/vocabulary/");
+    assert_eq!(both.read_at(&path, 0, &mut buf), Ok(50));
+    assert_eq!(both.read.get(), 1050);
+    // A read that fails counts nothing.
+    assert!(both.read_at("missing", 0, &mut buf).is_err());
+    assert_eq!(both.read.get(), 1050);
 }

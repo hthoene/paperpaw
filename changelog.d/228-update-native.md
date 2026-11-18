@@ -8,5 +8,5 @@
   offered as such, never blind. It sends the install to the device (which checks the file again and
   always asks you first), shows how far it is, restarts when the update is in place, says after the
   restart how it went and removes the file. A newer update on the card is offered once at start.
-  Searching online, downloading, the plugins an update leaves out, the weekly look and the dual-boot
-  notice are not native yet; the plugin is not offered as a file until they are.
+  The plugins an update leaves out and the dual-boot notice are not native yet; the plugin is not
+  offered as a file until they are.

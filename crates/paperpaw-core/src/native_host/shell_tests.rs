@@ -3,11 +3,13 @@
 //! order against the module, and the refusals.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 extern crate std;
+use super::frame_tests::in_frame;
 use super::*;
 use alloc::vec;
 use core::alloc::Layout;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::{ERR_INVALID, OK};
+use std::string::String;
 use std::vec::Vec;
 
 std::thread_local! {
@@ -20,106 +22,37 @@ std::thread_local! {
     /// Calls announced to the shell, and how many are open now.
     static CALLS: Cell<u32> = const { Cell::new(0) };
     static OPEN: Cell<i32> = const { Cell::new(0) };
+    /// The shell refuses every call (`Hooks::call_begin` answers `false`).
+    static REFUSE: Cell<bool> = const { Cell::new(false) };
     /// Host slots the shell announced on this thread, and how many are open.
     static SLOTS: Cell<u32> = const { Cell::new(0) };
     static SLOTS_OPEN: Cell<i32> = const { Cell::new(0) };
     /// Destructor runs that were outside any announced call.
     static UNCOVERED: Cell<u32> = const { Cell::new(0) };
-    /// The nth allocation of this thread fails (1-based; 0: none).
-    pub(in crate::native_host) static FAIL_NTH: Cell<u32> = const { Cell::new(0) };
-    /// Bytes this thread holds from the heap now, and the most it held.
-    pub(in crate::native_host) static HEAP_LIVE: Cell<usize> = const { Cell::new(0) };
-    pub(in crate::native_host) static HEAP_PEAK: Cell<usize> = const { Cell::new(0) };
-    /// Fixture work (a card in memory) is not counted while this is set.
-    pub(in crate::native_host) static HEAP_SHIELD: Cell<bool> = const { Cell::new(false) };
-    /// An address to watch (0: none) and whether a block holding it was freed.
-    static WATCH: Cell<usize> = const { Cell::new(0) };
-    static WATCH_FREED: Cell<bool> = const { Cell::new(false) };
-    static ZERO_WATCH: Cell<Option<(usize, usize)>> = const { Cell::new(None) };
-    static ZERO_RESULT: Cell<Option<bool>> = const { Cell::new(None) };
     /// `make` registers the one event only (the flat adapter routes no draw).
     static EVENT_ONLY: Cell<bool> = const { Cell::new(false) };
     /// `make` also registers for `event.tick`.
     static TICKS_TOO: Cell<bool> = const { Cell::new(false) };
+    /// The draw callback draws with `text.draw_inked` (`shell_inked_tests.rs`).
+    static DRAW_INKED: Cell<bool> = const { Cell::new(false) };
 }
 
-/// The test binary's allocator: the system's, failing on request so the
-/// refusals of a fallible construction can be tried.
-struct Failing;
+/// The test binary's allocator and its knobs (`shell_alloc_tests.rs`).
+#[path = "shell_alloc_tests.rs"]
+mod alloc_hook;
+pub(crate) use alloc_hook::refuse_nth;
+pub(in crate::native_host) use alloc_hook::{
+    FAIL_NTH, FAIL_SIZE, HEAP_LIVE, HEAP_PEAK, HEAP_SHIELD,
+};
 
-// SAFETY: forwards to the system allocator; failing returns null, which the
-// trait allows.
-unsafe impl core::alloc::GlobalAlloc for Failing {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let fail = FAIL_NTH.try_with(|n| {
-            let left = n.get();
-            if left == 0 {
-                return false;
-            }
-            n.set(left - 1);
-            left == 1
-        });
-        if fail == Ok(true) {
-            return ptr::null_mut();
-        }
-        // SAFETY: the caller's layout, forwarded.
-        let block = unsafe { std::alloc::System.alloc(layout) };
-        if !block.is_null() && HEAP_SHIELD.try_with(Cell::get) == Ok(false) {
-            let _ = HEAP_LIVE.try_with(|live| {
-                live.set(live.get() + layout.size());
-                let _ = HEAP_PEAK.try_with(|peak| peak.set(peak.get().max(live.get())));
-            });
-        }
-        block
-    }
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let _ = WATCH.try_with(|watch| {
-            let at = watch.get();
-            let start = ptr as usize;
-            if at != 0 && at >= start && at < start + layout.size() {
-                let _ = WATCH_FREED.try_with(|freed| freed.set(true));
-            }
-        });
-        if HEAP_SHIELD.try_with(Cell::get) == Ok(false) {
-            let _ = HEAP_LIVE.try_with(|live| live.set(live.get().saturating_sub(layout.size())));
-        }
-        let _ = ZERO_WATCH.try_with(|watch| {
-            if let Some((at, length)) = watch.get()
-                && at == ptr.addr()
-                && length <= layout.size()
-            {
-                // SAFETY: this allocation has not been freed yet. The backend
-                // initialized and registered this entire byte range for inspection.
-                let bytes = unsafe { core::slice::from_raw_parts(ptr, length) };
-                let zeroed = bytes.iter().all(|byte| *byte == 0);
-                watch.set(None);
-                let _ = ZERO_RESULT.try_with(|result| result.set(Some(zeroed)));
-            }
-        });
-        // SAFETY: allocated by `alloc` above.
-        unsafe { std::alloc::System.dealloc(ptr, layout) }
-    }
-}
-
-/// Observe the initialized scratch immediately before its actual deallocation.
-pub(crate) fn watch_zeroed_scratch(bytes: &[u8]) {
-    ZERO_RESULT.with(|result| result.set(None));
-    ZERO_WATCH.with(|watch| watch.set(Some((bytes.as_ptr().addr(), bytes.len()))));
-}
-
-pub(crate) fn scratch_zeroed_before_free() -> Option<bool> {
-    ZERO_RESULT.with(Cell::take)
-}
-
-#[global_allocator]
-static ALLOCATOR: Failing = Failing;
-
-const NORMAL: u8 = 0;
+pub(in crate::native_host) const NORMAL: u8 = 0;
 const FAILS: u8 = 1;
 /// `make` returns OK with an output table that does not validate.
 const BAD_TABLE: u8 = 2;
 /// `make` submits garbage, ignores the refusal and returns OK.
 const IGNORES_REFUSAL: u8 = 3;
+/// `make` reads the clock before it registers (#248: never parked).
+pub(in crate::native_host) const READS_CLOCK: u8 = 4;
 const TOKEN: u32 = 9;
 
 fn report(_: &Heap, owner: &str, _: super::super::TeardownStep, _: super::super::Error) {
@@ -135,7 +68,8 @@ fn logged() -> Vec<&'static str> {
     LOG.with(|log| log.borrow().clone())
 }
 
-fn reset(mode: u8) {
+pub(in crate::native_host) fn reset(mode: u8) {
+    super::frame_tests::clear();
     EXPECT_CORE.with(|expected| expected.set(false));
     LOG.with(|log| log.borrow_mut().clear());
     MODE.with(|m| m.set(mode));
@@ -143,13 +77,19 @@ fn reset(mode: u8) {
     MAKES.with(|m| m.set(0));
     CALLS.with(|c| c.set(0));
     OPEN.with(|o| o.set(0));
+    REFUSE.with(|r| r.set(false));
     UNCOVERED.with(|u| u.set(0));
     EVENT_ONLY.with(|e| e.set(false));
     TICKS_TOO.with(|e| e.set(false));
+    DRAW_INKED.with(|d| d.set(false));
+    ENTERED.with(|n| n.set(0));
+    LEFT.with(|n| n.set(0));
+    ENTER_IDS.with(|ids| ids.borrow_mut().clear());
+    REFUSE_ENTRY.with(|r| r.set(false));
 }
 
 /// The shell's heap and clock.
-struct Heap;
+pub(in crate::native_host) struct Heap;
 
 impl Services for Heap {
     fn alloc(&self, size: usize, align: usize) -> *mut u8 {
@@ -168,10 +108,28 @@ impl Services for Heap {
     fn micros(&self) -> u64 {
         0
     }
+    fn enter(&self, id: &str) -> bool {
+        ENTERED.with(|n| n.set(n.get() + 1));
+        ENTER_IDS.with(|ids| ids.borrow_mut().push(String::from(id)));
+        !REFUSE_ENTRY.with(Cell::get)
+    }
+    fn leave(&self, _: &str) {
+        LEFT.with(|n| n.set(n.get() + 1));
+    }
+}
+
+std::thread_local! {
+    /// What the shell was told of the entries of plugin code (`Services::enter`
+    /// and `leave`), and whether it refuses them.
+    pub(in crate::native_host) static ENTERED: Cell<u32> = const { Cell::new(0) };
+    pub(in crate::native_host) static LEFT: Cell<u32> = const { Cell::new(0) };
+    /// The ids `enter` was given, in order (the shell names them to safe mode).
+    pub(in crate::native_host) static ENTER_IDS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    pub(in crate::native_host) static REFUSE_ENTRY: Cell<bool> = const { Cell::new(false) };
 }
 
 /// What keeps the plugin alive: its destructor checks the module still is.
-struct Module;
+pub(in crate::native_host) struct Module;
 
 impl Module {
     fn new() -> Self {
@@ -196,6 +154,7 @@ struct Fake {
 
 unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *const PpPlugin) -> i32 {
     MAKES.with(|m| m.set(m.get() + 1));
+    in_frame(1, ctx);
     let mode = MODE.with(Cell::get);
     if mode == FAILS {
         return ERR_INVALID;
@@ -215,6 +174,11 @@ unsafe extern "C" fn make(host: *const PpHost, ctx: *mut c_void, out: *mut *cons
         unsafe { (table.heap_alloc)(ctx, size_of::<Fake>(), align_of::<Fake>(), &mut block) };
     if status != OK {
         return status;
+    }
+    if mode == READS_CLOCK {
+        let mut micros = 0;
+        // SAFETY: the table's own clock, a writable output.
+        let _ = unsafe { (table.clock_micros)(ctx, &mut micros) };
     }
     if mode == IGNORES_REFUSAL {
         // SAFETY: readable bytes for this synchronous call.
@@ -298,6 +262,7 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
     let fake = state.cast::<Fake>();
     // SAFETY: the block `make` wrote, destroyed once.
     let (host, ctx) = unsafe { ((*fake).host, (*fake).ctx) };
+    in_frame(8, ctx);
     // SAFETY: the table and context outlive the destructor.
     unsafe {
         ((*host).heap_dealloc)(ctx, state, size_of::<Fake>(), align_of::<Fake>());
@@ -306,6 +271,8 @@ unsafe extern "C" fn destroy(state: *mut c_void) {
 
 unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes, reply: PpBuffer) -> i32 {
     // Started and the other events 32-39 have no reply family (section 6).
+    // SAFETY: the block `make` wrote, live while it is dispatched.
+    in_frame(2, unsafe { (*state.cast::<Fake>()).ctx });
     if token != TOKEN || input.len != 3 || reply.ptr.is_null() || reply.cap != 0 {
         return ERR_INVALID;
     }
@@ -317,24 +284,29 @@ unsafe extern "C" fn event(state: *mut c_void, token: u32, input: PpBytes, reply
 }
 
 unsafe extern "C" fn draw(state: *mut c_void, token: u32, frame: PpBytes) -> i32 {
+    // SAFETY: as for `event`.
+    in_frame(4, unsafe { (*state.cast::<Fake>()).ctx });
     if !has_expected_core_frame(state) {
         return host_glue::ERR_STATE;
     }
     if token != TOKEN || frame.len == 0 || frame.ptr.is_null() {
         return ERR_INVALID;
     }
+    if DRAW_INKED.with(Cell::get) {
+        return inked::draw(state);
+    }
     // A positive result is a fault, never a length: the host maps it.
     if frame.len == 1 { 1 } else { OK }
 }
 
-fn frame() -> Vec<u8> {
+pub(in crate::native_host) fn frame() -> Vec<u8> {
     let mut bytes = [0; 64];
     let frame = super::super::frames::screen(0, 0, 8, 8, (0, 8));
     let len = super::super::frames::encode(&frame, &mut bytes).unwrap();
     bytes[..len].to_vec()
 }
 
-fn fake() -> Hosted<Heap, Module> {
+pub(in crate::native_host) fn fake() -> Hosted<Heap, Module> {
     // SAFETY: `make` is this file's plugin, always callable; no image.
     unsafe {
         Hosted::new(
@@ -351,7 +323,15 @@ fn fake() -> Hosted<Heap, Module> {
     .unwrap()
 }
 
-fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
+/// The fake's factory and report, and its module, to host it elsewhere.
+pub(in crate::native_host) fn parts() -> (Make, Report<Heap>) {
+    (make, report)
+}
+pub(in crate::native_host) fn module() -> Module {
+    Module::new()
+}
+
+pub(in crate::native_host) fn finish<S: Services, M>(hosted: &Hosted<S, M>) {
     hosted.owner().revoke();
     hosted.owner().finish().unwrap();
 }
@@ -366,6 +346,11 @@ fn a_made_plugin_registers_dispatches_and_is_destroyed_once_before_its_module() 
         .commit()
         .unwrap();
     assert_eq!(batch.len(), 2);
+    // The records are read in place, without dispatching; none past the end.
+    assert!(matches!(batch.record(0), Some(Registration::Event { .. })));
+    assert!(matches!(batch.record(1), Some(Registration::Draw { .. })));
+    assert!(batch.record(2).is_none() && batch.record(7).is_none());
+    assert_eq!(EVENTS.with(Cell::get), 0, "reading runs no plugin code");
     let depth = DispatchDepth::new();
     assert_eq!(
         dispatch_registration(&batch, 0, &depth, Invocation::Event(&[1, 2, 3])),
@@ -578,11 +563,11 @@ fn host_entries_outside_their_scope_are_refused() {
     // SAFETY: the pinned context of a live owner, valid byte buffers.
     unsafe {
         // A canvas call outside a draw dispatch.
-        assert_ne!((context.table.canvas_fill_rect)(ctx, 0, 0, 1, 1, 0), OK);
+        assert_ne!((context.table().canvas_fill_rect)(ctx, 0, 0, 1, 1, 0), OK);
         // An environment query outside a dispatch.
         let mut out = [0u8; 8];
         assert_ne!(
-            (context.table.env_snapshot)(
+            (context.table().env_snapshot)(
                 ctx,
                 PpBuffer {
                     ptr: out.as_mut_ptr(),
@@ -597,7 +582,7 @@ fn host_entries_outside_their_scope_are_refused() {
             registrations::registrations_encode(&[Registration::Draw { token: TOKEN }], &mut bytes)
                 .unwrap();
         assert_ne!(
-            (context.table.registrations_submit)(
+            (context.table().registrations_submit)(
                 ctx,
                 PpBytes {
                     ptr: bytes.as_ptr(),
@@ -617,9 +602,10 @@ pub(in crate::native_host) fn arm_failure(nth: u32) {
 
 #[test]
 fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_calls_make() {
-    // The 1st allocation is the room reserved for the owner's retirement (the
-    // owner is not admitted: a status), the 2nd the id, the 3rd the owner.
-    for nth in [1, 2, 3] {
+    // The 1st allocation is the room reserved for the owner's retirement and
+    // the 2nd the owner's place in the heap accounting (the owner is not
+    // admitted: a status), the 3rd the id, the 4th the owner.
+    for nth in [1, 2, 3, 4] {
         reset(NORMAL);
         let module = Module::new();
         let resources = super::super::HostResources::try_new().unwrap();
@@ -638,7 +624,7 @@ fn an_owner_that_cannot_be_placed_is_a_refusal_that_drops_the_module_and_never_c
             )
         };
         arm_failure(0);
-        let expected = if nth == 1 {
+        let expected = if nth <= 2 {
             Error::Status(host_glue::ERR_NO_MEMORY)
         } else {
             Error::Allocation
@@ -663,9 +649,13 @@ mod instance_tests {
     fn teardown_failed(_: &str, _: super::super::super::Error) {
         log("teardown_failed");
     }
-    fn begin(_: &str) {
+    fn begin(_: &str) -> bool {
+        if REFUSE.with(Cell::get) {
+            return false;
+        }
         CALLS.with(|c| c.set(c.get() + 1));
         OPEN.with(|o| o.set(o.get() + 1));
+        true
     }
     fn end(_: &str) {
         OPEN.with(|o| o.set(o.get() - 1));
@@ -679,7 +669,7 @@ mod instance_tests {
             call_end: end,
         }
     }
-    fn load() -> Result<Instance<Heap, Module>, Error> {
+    pub(super) fn load() -> Result<Instance<Heap, Module>, Error> {
         load_with(crate::native_host::HostResources::try_new().unwrap())
     }
     /// With the device's table made beforehand (a test that fails the nth
@@ -726,6 +716,17 @@ mod instance_tests {
         assert_eq!(SLOTS_OPEN.with(Cell::get), 0, "and ended");
         drop(instance);
         assert_eq!(SLOTS_OPEN.with(Cell::get), 0);
+    }
+
+    #[test]
+    fn an_instance_load_is_announced_by_its_hooks_alone() {
+        // `Instance` wraps each call in `Hooks`; the shell's `Services::enter`
+        // is for admission (`HostedAdmission`), so a call is not announced twice.
+        reset(NORMAL);
+        let instance = load().unwrap();
+        assert!(CALLS.with(Cell::get) >= 1, "the hooks announced make");
+        drop(instance);
+        assert_eq!(ENTERED.with(Cell::get), 0, "the services were not asked");
     }
 
     #[test]
@@ -808,239 +809,9 @@ mod instance_tests {
         assert!(CALLS.with(Cell::get) >= 5);
     }
 
-    #[test]
-    fn dropping_the_flat_plugin_unloads_in_order_with_the_destructor_inside_a_call() {
-        use crate::native_host::FlatHost;
-        use crate::native_host::flat::FlatPlugin;
-        reset(NORMAL);
-        EVENT_ONLY.with(|e| e.set(true));
-        let instance = load().unwrap();
-        let host = FlatHost {
-            meter: crate::meter::Meter::new(None),
-            directory: None,
-            stack_rows: alloc::rc::Rc::new(Default::default()),
-            font_removals: alloc::rc::Rc::new(
-                crate::native_host::font_removals::FontRemovals::new(),
-            ),
-            registry_generation: alloc::rc::Rc::new(
-                crate::native_host::registry_generation::RegistryGeneration::new(),
-            ),
-        };
-        let manifest = paperpaw_sdk::Manifest::new(
-            paperpaw_sdk::Id::parse("fake.plugin").unwrap(),
-            "fake",
-            paperpaw_sdk::Version::new(0, 0, 0),
-        );
-        let plugin = FlatPlugin::new(
-            manifest,
-            alloc::boxed::Box::new(instance),
-            crate::native_host::flat::FlatDepth::try_new().unwrap(),
-            &host,
-        )
-        .unwrap();
-        assert!(
-            logged().is_empty(),
-            "nothing is destroyed while the plugin is held"
-        );
-        // The kernel removes the plugin's subscriptions and queued work (they
-        // held the instance); the last reference going is the unload: stop,
-        // the batch's lease, cancel and release, finish (the destructor), then
-        // the module, each exactly once and no step failing.
-        drop(plugin);
-        assert_eq!(logged(), ["destroy", "module"]);
-        assert_eq!(
-            UNCOVERED.with(Cell::get),
-            0,
-            "the destructor ran inside a call"
-        );
-        assert_eq!(OPEN.with(Cell::get), 0, "every call ended");
-    }
-
-    #[test]
-    fn a_failing_cancel_or_release_is_told_once_and_the_unload_still_finishes() {
-        use crate::native_host::flat::FlatPlugin;
-        use crate::native_host::{Error as HostError, FlatHost, TeardownStep};
-        // A Busy step cannot be deferred from a drop: it is told, `finish`
-        // retries the same step (the fault is one-shot) and the destructor
-        // then runs; a step that failed for good is told through the owner's
-        // recorded error. Either way: told exactly once, destroy once.
-        for (step, error) in [
-            (TeardownStep::Cancel, HostError::Invalid),
-            (TeardownStep::Release, HostError::Invalid),
-            (TeardownStep::Release, HostError::Busy),
-        ] {
-            reset(NORMAL);
-            EVENT_ONLY.with(|e| e.set(true));
-            let host = FlatHost {
-                meter: crate::meter::Meter::new(None),
-                directory: None,
-                stack_rows: alloc::rc::Rc::new(Default::default()),
-                font_removals: alloc::rc::Rc::new(
-                    crate::native_host::font_removals::FontRemovals::new(),
-                ),
-                registry_generation: alloc::rc::Rc::new(
-                    crate::native_host::registry_generation::RegistryGeneration::new(),
-                ),
-            };
-            let manifest = paperpaw_sdk::Manifest::new(
-                paperpaw_sdk::Id::parse("fake.plugin").unwrap(),
-                "fake",
-                paperpaw_sdk::Version::new(0, 0, 0),
-            );
-            let instance = load().unwrap();
-            // Control for the kept-owner test: here the owner is freed.
-            WATCH_FREED.with(|f| f.set(false));
-            WATCH.with(|w| w.set(core::ptr::from_ref(&*instance.environment()) as usize));
-            let plugin = FlatPlugin::new(
-                manifest,
-                alloc::boxed::Box::new(instance),
-                crate::native_host::flat::FlatDepth::try_new().unwrap(),
-                &host,
-            )
-            .unwrap();
-            teardown_fault::arm(step, error);
-            drop(plugin);
-            assert!(
-                WATCH_FREED.with(Cell::get),
-                "{step:?} {error:?}: owner freed"
-            );
-            WATCH.with(|w| w.set(0));
-            assert_eq!(
-                logged(),
-                ["teardown_failed", "destroy", "module"],
-                "{step:?} {error:?}"
-            );
-            assert_eq!(OPEN.with(Cell::get), 0, "every call ended");
-        }
-    }
-
-    /// Points at the hosted plugin that `a_release_that_stays_busy...` keeps for good.
-    static KEPT_OWNER: core::sync::atomic::AtomicPtr<u8> =
+    /// Points at a hosted plugin a test keeps for good (a refused destructor).
+    pub(super) static KEPT_OWNER: core::sync::atomic::AtomicPtr<u8> =
         core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
-
-    #[test]
-    fn a_release_that_stays_busy_keeps_the_owner_and_reports_leaked_without_destroying() {
-        use crate::native_host::{Error as HostError, TeardownStep};
-        reset(NORMAL);
-        EVENT_ONLY.with(|e| e.set(true));
-        let host = flat_host();
-        let mut depth = None;
-        let instance = load().unwrap();
-        // An address inside the owner's allocation (its environment scope).
-        let watched_ptr = core::ptr::from_ref(&*instance.environment()).cast::<u8>();
-        let watched = watched_ptr.addr();
-        WATCH_FREED.with(|f| f.set(false));
-        WATCH.with(|w| w.set(watched));
-        // The kept hosted plugin (with its owner) is never freed, by design: a
-        // static that points at it keeps it reachable, so Miri's leak check
-        // (a leak is a bug elsewhere) does not report this one.
-        KEPT_OWNER.store(
-            instance.hosted_address(),
-            core::sync::atomic::Ordering::Relaxed,
-        );
-        let plugin = instance.into_plugin(manifest(), &mut depth, &host).unwrap();
-        teardown_fault::arm_persistent(TeardownStep::Release, HostError::Busy);
-        drop(plugin);
-        teardown_fault::disarm();
-        assert!(
-            !WATCH_FREED.with(Cell::get),
-            "the kept owner's memory was not freed: it stays readable"
-        );
-        // SAFETY: the owner was kept (never freed), so the scope inside it is
-        // still allocated; reading one byte of it only checks that.
-        let _ = unsafe { core::ptr::read_volatile(watched_ptr) };
-        WATCH.with(|w| w.set(0));
-        // Told once (the first attempt), refused again by `finish`: the owner
-        // is kept, so the destructor never ran and the module was not freed.
-        assert_eq!(logged(), ["teardown_failed", "leaked"]);
-        assert!(
-            MODULE_ALIVE.with(Cell::get),
-            "the module outlives the kept owner"
-        );
-        assert_eq!(OPEN.with(Cell::get), 0, "every call ended");
-    }
-
-    fn flat_host() -> crate::native_host::FlatHost {
-        crate::native_host::FlatHost {
-            meter: crate::meter::Meter::new(None),
-            directory: None,
-            stack_rows: alloc::rc::Rc::new(Default::default()),
-            font_removals: alloc::rc::Rc::new(
-                crate::native_host::font_removals::FontRemovals::new(),
-            ),
-            registry_generation: alloc::rc::Rc::new(
-                crate::native_host::registry_generation::RegistryGeneration::new(),
-            ),
-        }
-    }
-
-    fn manifest() -> paperpaw_sdk::Manifest {
-        paperpaw_sdk::Manifest::new(
-            paperpaw_sdk::Id::parse("fake.plugin").unwrap(),
-            "fake",
-            paperpaw_sdk::Version::new(0, 0, 0),
-        )
-    }
-
-    /// An allocation that fails at any step after `make` (the instance box,
-    /// the device's depth, the adapter's node and box) is a refusal that
-    /// unloads the plugin exactly once, inside an announced call; the first
-    /// plugin and a later one (sharing the depth) alike.
-    #[test]
-    fn an_allocation_failing_after_make_unloads_the_plugin_once_for_the_first_and_a_later_plugin() {
-        use crate::native_host::flat::FlatError;
-        let host = flat_host();
-        for later in [false, true] {
-            // The first plugin allocates the instance box, the device depth,
-            // the adapter's shared node and the adapter's box (4); a later
-            // one shares the depth (3). Every one of them can fail; past them
-            // the plugin is made.
-            let allocations = if later { 3 } else { 4 };
-            for nth in 1..=allocations + 2 {
-                reset(NORMAL);
-                EVENT_ONLY.with(|e| e.set(true));
-                let mut depth = None;
-                let first = later.then(|| {
-                    let plugin = load()
-                        .unwrap()
-                        .into_plugin(manifest(), &mut depth, &host)
-                        .unwrap();
-                    LOG.with(|l| l.borrow_mut().clear());
-                    plugin
-                });
-                let held = first.as_ref().map(|p| p.reference_counts());
-                // The next plugin's module is alive from here on.
-                let instance = load().unwrap();
-                let manifest = manifest();
-                arm_failure(nth);
-                let result = instance.into_plugin(manifest, &mut depth, &host);
-                arm_failure(0);
-                let context = alloc::format!("later {later}, allocation {nth}");
-                assert_eq!(UNCOVERED.with(Cell::get), 0, "{context}");
-                assert_eq!(OPEN.with(Cell::get), 0, "{context}");
-                match result {
-                    Err(why) => {
-                        assert!(nth <= allocations, "{context}: refused past the last");
-                        assert_eq!(why, FlatError::Allocation, "{context}");
-                        assert_eq!(logged(), ["destroy", "module"], "{context}: once");
-                        if let (Some(first), Some(held)) = (first.as_ref(), held) {
-                            assert_eq!(first.reference_counts(), held, "{context}: shares");
-                        }
-                    }
-                    Ok(plugin) => {
-                        assert!(nth > allocations, "{context}: made despite a failure");
-                        drop(plugin);
-                        assert_eq!(logged(), ["destroy", "module"], "{context}");
-                    }
-                }
-                // The other module died first; the first plugin's destructor
-                // checks its own is alive.
-                MODULE_ALIVE.with(|a| a.set(true));
-                drop(first);
-                assert_eq!(UNCOVERED.with(Cell::get), 0, "{context}: first");
-            }
-        }
-    }
 
     #[test]
     fn every_announced_call_is_ended_also_when_make_fails_or_a_load_is_refused() {
@@ -1258,6 +1029,7 @@ fn callback_admission_busy_preserves_read_output_before_raw_slot_entry() {
                     super::super::storage_slots::read_at(
                         &context.environment,
                         "fake",
+                        None,
                         0,
                         PpBytes {
                             ptr: b"state".as_ptr(),
@@ -1307,7 +1079,7 @@ fn kernel_dispatch_supplies_real_core_views_and_clears_them_after_callbacks() {
     let depth = DispatchDepth::new();
     let now = paperpaw_platform::Instant(12);
     EXPECT_CORE.with(|expected| expected.set(true));
-    let env = kernel.shared.env(now);
+    let env = kernel.shared.place(now);
     assert_eq!(
         dispatch_with_env(&batch, 0, &depth, Invocation::Event(&[1, 2, 3]), &env),
         Ok(host_glue::ERR_STATE)
@@ -1330,6 +1102,9 @@ fn kernel_dispatch_supplies_real_core_views_and_clears_them_after_callbacks() {
     finish(&hosted);
 }
 
+#[path = "shell_inked_tests.rs"]
+mod inked;
+
 #[path = "shell_service_oom_tests.rs"]
 mod service_oom;
 
@@ -1339,7 +1114,7 @@ fn stage_slot_missing_frame_and_zero_capacity_do_not_allocate() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let hosted = fake();
     let context = hosted.owner().context();
     let ctx = ptr::from_ref(context.get_ref()).cast_mut().cast();
@@ -1446,6 +1221,8 @@ mod format_scope_oom;
 mod lib_reads_oom;
 #[path = "stage_broker_oom_tests.rs"]
 mod stage_broker_oom;
+#[path = "stage_run_tests.rs"]
+mod stage_run;
 
 #[path = "shell_evt_oom_tests.rs"]
 mod evt_oom;
@@ -1455,5 +1232,47 @@ mod command_dispatch;
 #[path = "stage_broker_native_tests.rs"]
 mod stage_broker_native;
 
+#[path = "hosted_admission_tests.rs"]
+mod hosted_admission;
+#[path = "memory_notice_tests.rs"]
+mod memory_notice;
+#[path = "native_device_defaults_tests.rs"]
+mod native_device_defaults;
+#[path = "native_entry_hooks_tests.rs"]
+mod native_entry_hooks;
+std::thread_local! {
+    /// The image of the plugin `native_screen_install` hosts, where it has
+    /// one: its declaration batch, submitted from there and not copied (what
+    /// a plugin of the card does).
+    static IMAGE: Cell<&'static [u8]> = const { Cell::new(&[]) };
+}
+
+/// The image of the hosted test plugin, as a shell names it.
+fn image_of() -> (*const u8, usize) {
+    match IMAGE.with(Cell::get) {
+        [] => (core::ptr::null(), 0),
+        image => (image.as_ptr(), image.len()),
+    }
+}
+
+/// The batch the test plugin submits: the one in its image where it has an
+/// image, else `encoded`.
+fn from_image(encoded: &[u8]) -> PpBytes {
+    match IMAGE.with(Cell::get) {
+        [] => borrowed(encoded),
+        image => borrowed(image),
+    }
+}
+
+#[path = "native_late_config_tests.rs"]
+mod native_late_config;
 #[path = "native_screen_install_tests.rs"]
 mod native_screen_install;
+
+#[path = "shell_describe_tests.rs"]
+mod describe;
+#[path = "shell_refuse_tests.rs"]
+mod refuse;
+
+#[path = "shell/context_size_tests.rs"]
+mod context_size;

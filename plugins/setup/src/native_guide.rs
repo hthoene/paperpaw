@@ -765,6 +765,7 @@ mod tests {
             key: "core.language".into(),
             title: "Language".into(),
             help: String::new(),
+            unit_one: String::new(),
             unit: String::new(),
             editor: None,
             control: Control::Choice {

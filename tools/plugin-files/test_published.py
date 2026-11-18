@@ -110,5 +110,38 @@ class Published(unittest.TestCase):
         self.assertEqual(len(published.folders(self.folder, found, self.online.__getitem__)), 1)
 
 
+class PrivateRepositories(unittest.TestCase):
+    """With the job's token an asset comes from the API address (#217)."""
+
+    def setUp(self):
+        asset = {"name": "a-1.0.0-x4.ppn", "browser_download_url": "https://github.com/o/r/releases/download/t/a-1.0.0-x4.ppn",
+                 "url": "https://api.github.com/repos/o/r/releases/assets/7"}
+        text = json.dumps([[{"tag_name": "t", "created_at": "2026-11-01", "draft": False, "assets": [asset]}]])
+        self.public = published.assets(text)["a-1.0.0-x4.ppn"][1]
+        self.addCleanup(published.API_URLS.clear)
+
+    def test_without_a_token_the_public_address_is_asked_as_before(self):
+        asked = published.request(self.public)
+        self.assertEqual(asked.full_url, self.public)
+        self.assertIsNone(asked.get_header("Authorization"))
+
+    def test_with_a_token_the_api_gives_the_bytes(self):
+        asked = published.request(self.public, "s3cret")
+        self.assertEqual(asked.full_url, "https://api.github.com/repos/o/r/releases/assets/7")
+        self.assertEqual(asked.get_header("Authorization"), "Bearer s3cret")
+        self.assertEqual(asked.get_header("Accept"), "application/octet-stream")
+
+    def test_an_address_the_list_did_not_give_is_asked_as_it_is(self):
+        self.assertEqual(published.request("https://elsewhere/x", "s3cret").full_url, "https://elsewhere/x")
+
+    def test_the_token_does_not_follow_a_redirect_to_another_host(self):
+        asked = published.request(self.public, "s3cret")
+        handler = published.KeepTokenHome()
+        away = handler.redirect_request(asked, None, 302, "Found", {}, "https://objects.example/file?sig=1")
+        self.assertIsNone(away.get_header("Authorization"))
+        same = handler.redirect_request(asked, None, 302, "Found", {}, "https://api.github.com/other")
+        self.assertEqual(same.get_header("Authorization"), "Bearer s3cret")
+
+
 if __name__ == "__main__":
     unittest.main()

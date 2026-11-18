@@ -2,10 +2,11 @@
 use super::context::registry_views::{Asker, RegistryView, Row};
 use super::context::{DeviceUsageView, Frame, PluginRow, RowsEnd, usage_views};
 use super::snapshot_wire::Snapshot;
+use crate::Place;
 use core::ops::ControlFlow;
 use paperpaw_i18n::Translator;
 use paperpaw_native::host_glue::{ERR_NOT_FOUND, ERR_STATE};
-use paperpaw_sdk::{Env, Plugins, Settings, usage::Usage, work::WorkStates};
+use paperpaw_sdk::{Plugins, Settings, usage::Usage, work::WorkStates};
 
 /// Host-only callback identity, never decoded from plugin bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,16 +33,35 @@ pub(crate) struct CoreFrame<'a> {
     pub(crate) directory: Option<&'a crate::native_host::native_declarations::NativeDeclarations>,
     pub(crate) callback: Option<CallbackStamp>,
     pub(crate) instance: Option<u32>,
-    pub(crate) env: &'a Env<'a>,
-    pub(crate) meter: &'a crate::meter::Meter,
+    pub(crate) env: &'a Place<'a>,
+    pub(crate) meter: &'a alloc::rc::Rc<crate::meter::Meter>,
     pub(crate) font_removals: &'a crate::native_host::font_removals::FontRemovals,
     pub(crate) registry_generation: &'a crate::native_host::registry_generation::RegistryGeneration,
     pub(crate) usage: &'a Usage,
     pub(crate) plugins: &'a Plugins,
     pub(crate) work: &'a WorkStates,
+    /// The device's `core.ui` service: the widget handles slot 35 resolves.
+    pub(crate) ui: Option<&'a crate::native_host::ui_service::UiServices>,
+    /// The shell's device log, if it gave one (`Frame::log`).
+    pub(crate) log: crate::native_host::device_log::DeviceLog,
 }
 
 impl Frame for CoreFrame<'_> {
+    fn log(&self, line: core::fmt::Arguments<'_>) {
+        self.log.line(line);
+    }
+
+    fn stage_run(
+        &self,
+        _caller_id: &str,
+        full_stage: &str,
+        cursor: u32,
+        input: &[u8],
+        out: &mut [core::mem::MaybeUninit<u8>],
+    ) -> Result<usize, i32> {
+        crate::native_host::stage_run::run(self, full_stage, cursor, input, out)
+    }
+
     fn caller(&self) -> Result<u64, i32> {
         self.callback
             .filter(|stamp| stamp.epoch != 0)
@@ -71,6 +91,10 @@ impl Frame for CoreFrame<'_> {
     fn callback_depth(&self) -> Result<u8, i32> {
         self.callback_epoch()?;
         self.depth.map(|depth| depth.current()).ok_or(ERR_STATE)
+    }
+
+    fn kernel_env(&self) -> Option<&Place<'_>> {
+        Some(self.env)
     }
 
     fn with_stack(
@@ -124,6 +148,53 @@ impl Frame for CoreFrame<'_> {
         .ask(owner, token, items, context, out)
     }
 
+    fn call_native(
+        &self,
+        owner: u64,
+        token: u32,
+        input: &[u8],
+        reply: &mut [u8],
+        accept: &mut dyn FnMut(&[u8]) -> Result<(), i32>,
+    ) -> Result<usize, i32> {
+        crate::native_host::native_call::call(self, owner, token, input, reply, accept)
+    }
+
+    fn with_declarations(&self, visit: &mut dyn FnMut(&dyn core::any::Any)) -> Result<(), i32> {
+        self.callback_epoch()?;
+        let directory = self
+            .directory
+            .ok_or(paperpaw_native::host_glue::ERR_UNSUPPORTED)?;
+        let store = directory
+            .store
+            .try_borrow()
+            .map_err(|_| paperpaw_native::host_glue::ERR_BUSY)?;
+        visit(&*store);
+        Ok(())
+    }
+
+    fn host_status(&self, item: &str, out: &mut [u8]) -> Option<super::context::HostStatus> {
+        crate::native_host::ui_widget_ops::host_status::value(self.env, item, out)
+    }
+
+    fn widget_call(
+        &self,
+        owner: u64,
+        token: u32,
+        payload: &[u8],
+        out: &mut [u8],
+    ) -> Result<usize, i32> {
+        crate::native_host::native_widget::call(self, owner, token, payload, out)
+    }
+
+    fn compose(
+        &self,
+        _caller_id: &str,
+        request: &super::context::ComposeRequest,
+        canvas: &mut paperpaw_graphics::Canvas<'_>,
+    ) -> Result<(), i32> {
+        crate::native_host::ui_compose_host::compose_in(self, request, canvas)
+    }
+
     fn settings(&self) -> &Settings {
         self.env.settings()
     }
@@ -137,6 +208,12 @@ impl Frame for CoreFrame<'_> {
     }
     fn fonts(&self) -> Option<&paperpaw_sdk::Fonts> {
         Some(self.env.fonts())
+    }
+    fn fonts_memo(&self) -> Option<(&paperpaw_sdk::Fonts, Option<&paperpaw_sdk::RoleMemo>)> {
+        Some((self.env.fonts(), Some(&self.font_removals.memos.roles)))
+    }
+    fn setting_memo(&self) -> Option<&paperpaw_sdk::SettingMemo> {
+        Some(&self.font_removals.memos.places)
     }
     fn ink_threshold(&self) -> Result<u8, i32> {
         Ok(match self.env.device().display.format {

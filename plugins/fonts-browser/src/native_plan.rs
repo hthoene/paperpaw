@@ -3,8 +3,8 @@
 //! then checked against its SHA-1), and the folder the host is told to
 //! install (`command.install_plugin`, root 0). The same rules as the
 //! interface-6 `Package` check, with fallible allocation, and the file sizes
-//! that `docs/abi/network.md` §8 audits (`max_file` 512 KiB for packs,
-//! 1 MiB for font files).
+//! that `docs/abi/network.md` §8 audits (`max_file` 4 MiB for packs,
+//! 8 MiB for font files).
 use crate::native_catalog::Font;
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
@@ -17,9 +17,10 @@ use paperpaw_ui_kit::text::concat;
 pub const STAGING: &str = "staging";
 /// The longest id a plugin has.
 const MAX_PLUGIN_ID: usize = 40;
-/// The most a pack is, and a font file.
-pub const MAX_PACK: u64 = 512 * 1024;
-pub const MAX_OUTLINE: u64 = 1024 * 1024;
+/// The most a pack is, and a font file. Interface 6 asked for no cap of its
+/// own (the host's); the library's packs are up to about 700 KB.
+pub const MAX_PACK: u64 = 4 * 1024 * 1024;
+pub const MAX_OUTLINE: u64 = 8 * 1024 * 1024;
 
 /// The `max_file` of each request on this device.
 #[must_use]

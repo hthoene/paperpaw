@@ -97,6 +97,8 @@ pub const fn paperpaw_graphics::Blit::at(paperpaw_platform::geometry::Point) -> 
 pub const fn paperpaw_graphics::Blit::dither(self, paperpaw_graphics::Dither) -> Self
 pub const fn paperpaw_graphics::Blit::scale(self, u8) -> Self
 pub struct paperpaw_graphics::Canvas<'a>
+impl paperpaw_graphics::Canvas<'_>
+pub fn paperpaw_graphics::Canvas<'_>::try_describe(&mut self, paperpaw_graphics::Described, &str, usize, usize) -> bool
 impl<'a> paperpaw_graphics::Canvas<'a>
 pub fn paperpaw_graphics::Canvas<'a>::blit(&mut self, &paperpaw_graphics::Bitmap<'_>, paperpaw_graphics::Blit)
 pub fn paperpaw_graphics::Canvas<'a>::clear(&mut self, paperpaw_platform::pixel::Color)
@@ -182,6 +184,7 @@ pub struct paperpaw_graphics::Framebuffer
 impl paperpaw_graphics::Framebuffer
 pub fn paperpaw_graphics::Framebuffer::band(&self) -> paperpaw_platform::geometry::Rect
 pub fn paperpaw_graphics::Framebuffer::banded(u16, u16, u16, paperpaw_platform::pixel::PixelFormat) -> core::result::Result<Self, paperpaw_graphics::GraphicsError>
+pub fn paperpaw_graphics::Framebuffer::banded_in(u16, u16, u16, paperpaw_platform::pixel::PixelFormat, alloc::vec::Vec<u8>) -> core::result::Result<Self, paperpaw_graphics::GraphicsError>
 pub fn paperpaw_graphics::Framebuffer::blind(u16, u16) -> Self
 pub fn paperpaw_graphics::Framebuffer::bounds(&self) -> paperpaw_platform::geometry::Rect
 pub fn paperpaw_graphics::Framebuffer::byte_len(&self) -> usize
@@ -189,6 +192,7 @@ pub fn paperpaw_graphics::Framebuffer::canvas(&mut self) -> paperpaw_graphics::C
 pub fn paperpaw_graphics::Framebuffer::end_frame(&mut self)
 pub fn paperpaw_graphics::Framebuffer::format(&self) -> paperpaw_platform::pixel::PixelFormat
 pub fn paperpaw_graphics::Framebuffer::height(&self) -> u16
+pub fn paperpaw_graphics::Framebuffer::into_data(self) -> alloc::vec::Vec<u8>
 pub fn paperpaw_graphics::Framebuffer::is_blind(&self) -> bool
 pub fn paperpaw_graphics::Framebuffer::is_inverted(&self) -> bool
 pub fn paperpaw_graphics::Framebuffer::mono_coverage(&self) -> u8

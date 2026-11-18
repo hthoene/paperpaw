@@ -1,4 +1,4 @@
-# Stats on interface 7 (partly ported)
+# Stats on interface 7
 
 Status: **complete.** The plugin is the native plugin only: the interface-6 plugin (the `Stats` plugin in
 `lib.rs` and its registration, screens, widgets, sync, `book.rs`, `books.rs`, `calendar.rs`, `chart.rs`,
@@ -7,6 +7,7 @@ Status: **complete.** The plugin is the native plugin only: the interface-6 plug
 `common/`), its registration in `paperpaw-app` and its store-file builder (`tools/plugin-files`; `plugins.txt`
 keeps a comment line) are gone. What waits for hosts is listed under *Not tested here* at the end; the code
 that sends and reads it is in place.
+The X4 file (`stats`) packs at 486,328 B (format 5, interface 7.1, version 1.0.8; no frame over 2,048 B).
 
 ## Ported: the data layer's files (`src/store.rs`, `src/files.rs`)
 
@@ -426,8 +427,18 @@ that sends and reads it is in place.
 
 ## The stage of Reading goal
 
-- Reading goal owns the stage `reading-goal.read-today` (Kernel's ruling) and the statistics subscribe to it
-  (`declarations::stages`, token 5; `native_plugin.rs` `tell_today`). Asked with nothing or today's day they
-  answer the day and the seconds read on it (8 bytes, little-endian); another day is `NotFound`, a payload of
-  another length `Invalid`; nothing where the date is not known. The stage `stats.read-today` of the earlier
-  slices is gone (nothing asked it).
+- Reading goal owns the stage `reading-goal.read-today` (schema 1) and statistics subscribe
+  (`declarations::stages`, token 5; `native_plugin.rs` `tell_today`). Input stays empty for
+  today or a little-endian `i32` day. Reply is one `today.reading` record with `known: u32`,
+  `day: i32`, `seconds: u32`, 16 bytes including framing. `known=1` carries the figure;
+  `known=0, day=0, seconds=0` is the valid unknown-date answer. Another requested day
+  returns `NotFound`; invalid input length returns `Invalid`. Schema 1 is corrected before
+  either plugin's first interface-7 publication, without an SDK or interface change.
+  The payload schema and compact codec are owned by Reading goal:
+  `plugins/reading-goal/payloads/reading-goal.read-today-reply@1.def` and its
+  `src/read_today.rs`. Stats includes that codec directly; store builds use the repository
+  tree, so no second source or schema copy is needed.
+
+## Widgets and the settings pages
+
+The widgets are declared without `previews` (Kernel ruling, #228, as in Beta 3): they are offered in the Add picker, and a settings page does not show a sample of the widget. A preview-only widget would add one later.

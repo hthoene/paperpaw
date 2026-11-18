@@ -61,6 +61,9 @@ settings registry, and a limit on accepted commands.
    settings editor and `core` are exempt from the guarded restriction. A secret setting returns `ERR_UNSUPPORTED`; secrets keep
    their own path. The bytes of keys and text staged in this callback must
    stay within the stage's byte budget, or the batch returns `ERR_NO_SPACE`.
+   A setting a card plugin describes on demand is read from the plugin for
+   this check: without room for that, the batch returns `ERR_NO_MEMORY`,
+   never `ERR_INVALID`.
 5. The stage reserves room for the whole batch fallibly (`ERR_NO_MEMORY`), then
    converts each command, copying text with a fallible reservation and
    checking it against the spec. If any conversion fails, the commands of this

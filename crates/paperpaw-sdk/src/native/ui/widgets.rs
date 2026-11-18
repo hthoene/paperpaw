@@ -2,11 +2,10 @@
 use super::{Error, Host, Instance, Ui, UiPage, expect, one, schema, wire};
 use crate::native::callbacks::FrameRect as Rect;
 
-/// A widget instance returned by the host, including its own-widget marker.
+/// A widget instance made by the host for another plugin's widget.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WidgetHandle {
     instance: Instance,
-    own: bool,
 }
 impl WidgetHandle {
     /// The instance used by its widget_made/dropped events.
@@ -14,12 +13,17 @@ impl WidgetHandle {
     pub const fn instance(self) -> Instance {
         self.instance
     }
-    /// The widget belongs to the caller, which draws it directly; asking the
-    /// host to reenter that same plugin returns Busy.
-    #[must_use]
-    pub const fn is_own(self) -> bool {
-        self.own
-    }
+}
+
+/// The answer to making a widget.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MadeWidget {
+    /// The widget belongs to the caller, which measures, places and draws it
+    /// itself: the host never re-enters the caller, so there is no instance.
+    Own,
+    /// A host-made instance of another plugin's widget.
+    Widget(WidgetHandle),
 }
 
 /// A status draw handle decoded from a status_values reply.
@@ -109,10 +113,13 @@ impl WidgetTarget {
 }
 
 impl Ui {
-    /// Make a widget for the caller's own top screen instance.
+    /// Make a widget for the caller's own top screen instance. A widget of
+    /// the caller's own plugin answers [`MadeWidget::Own`] without an instance.
     ///
     /// # Errors
-    /// Returns invalid id syntax or the host's ownership/resource refusal.
+    /// Returns invalid id syntax, `Invalid` for an own marker with an
+    /// instance or an instance without the marker, or the host's
+    /// ownership/resource refusal.
     pub fn widget_make(
         &self,
         host: &Host<'_>,
@@ -120,7 +127,7 @@ impl Ui {
         place: &str,
         input: &mut [u8],
         out: &mut [u8],
-    ) -> Result<WidgetHandle, Error> {
+    ) -> Result<MadeWidget, Error> {
         let count = self.call(
             host,
             schema::OP_WIDGET_MAKE,
@@ -129,10 +136,15 @@ impl Ui {
             out,
         )?;
         let row: wire::ServiceUiInstance = expect(one(&out[..count])?)?;
-        Ok(WidgetHandle {
+        if row.flags & 1 != 0 {
+            if row.instance != 0 {
+                return Err(Error::Invalid);
+            }
+            return Ok(MadeWidget::Own);
+        }
+        Ok(MadeWidget::Widget(WidgetHandle {
             instance: Instance::new(row.instance).ok_or(Error::Invalid)?,
-            own: row.flags & 1 != 0,
-        })
+        }))
     }
     /// Drop a widget made by this screen.
     ///

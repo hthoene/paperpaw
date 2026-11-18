@@ -6,22 +6,27 @@
 //! `native_source` (what is read of the device); this file reads, draws and
 //! hands inputs on through the host.
 //!
-//! Not yet (ignored acceptance cases, `PORTING-7.md`): editing, the status line
-//! above the grid, the icons of tools and of the footer, the widgets of the
-//! home screen's own, and the widgets' updates.
+//! A widget of this plugin's own (the date, the clock, the card, the shelf, the
+//! status line) is drawn by the plugin itself (`native_made`): the host never
+//! calls it back from its own draw.
+//!
+//! Not yet (ignored acceptance cases, `PORTING-7.md`): the status bar above the
+//! grid, and what the host lacks to run any of it (H1, H4).
 use alloc::{string::String, vec::Vec};
+use core::cell::RefCell;
 use paperpaw_sdk::{
-    Color, Handled, Point, Rect,
+    Handled, Point, Rect,
     keys::InputMode,
     native::{
         Error, Host,
-        callbacks::{DrawFrame, Input, InputGestureKind},
+        callbacks::{DrawFrame, FrameRect, Input, InputGestureKind},
+        canvas::PartRole,
         commands::{CommandSender, RedrawMode},
         fonts::{Font, FontRole},
         snapshot::{self, Snapshot},
-        ui::{Compose, Ui, WidgetHandle, WidgetInputKind},
+        ui::{Ui, WidgetInputKind},
     },
-    widgets::grid::Geometry,
+    widgets::{CellSpan, grid::Geometry},
 };
 use paperpaw_ui_kit::{
     Messages, Paint, Style,
@@ -29,13 +34,18 @@ use paperpaw_ui_kit::{
     paint, text,
 };
 
+mod compose;
+use compose::compose_each;
+
 use crate::native_add_screen as add_screen;
 use crate::native_dash::{self as dash, Footer, Frame, Nav, Wanted};
 use crate::native_focus::{Button, Focus, Owner, Press, Step, Target};
 use crate::native_grid::{self as grid, What};
 use crate::native_icons::{self as icons, Face, Fonts, NAME_LINES, Tool};
+use crate::native_made::Made;
 use crate::native_measure::{self as measure, PLACE};
 use crate::native_pages;
+use crate::native_recent::Listing;
 use crate::native_shown::Shown;
 use crate::native_source::HostSource;
 
@@ -53,8 +63,16 @@ struct Cell {
     /// A tool's icon and state (none for a widget).
     face: Option<Face>,
     /// A widget's instance, where the host made one.
-    widget: Option<WidgetHandle>,
+    widget: Option<Made>,
+    /// The cells a widget declared (its least size, square), kept when it is
+    /// sized with a finger.
+    span: Option<CellSpan>,
 }
+
+/// The footer's actions: each action and its name. The names are kept with
+/// the page: finding one again when the screen is described would ask the
+/// registry's menu again (CR on #243, todo 592).
+type Actions = Vec<(String, String)>;
 
 /// The page as laid out: what shows, where, and what the buttons reach.
 #[derive(Debug)]
@@ -62,11 +80,10 @@ struct Laid {
     frame: Frame,
     cells: Vec<Cell>,
     targets: Vec<Target>,
-    /// The footer's actions, in the order of `footer.actions`.
-    actions: Vec<String>,
+    /// The footer's actions with their names, in the order of `footer.actions`.
+    actions: Actions,
     pages: usize,
     dots: bool,
-    tool_labels: bool,
     focus_at_once: bool,
     /// The arrow keys stay on the page.
     arrows_stay: bool,
@@ -85,6 +102,19 @@ struct Laid {
     /// screen is on its side.
     slot: usize,
     wide: bool,
+    /// What it was laid out for, checked when it is shown again.
+    kept: Kept,
+    /// How wide and high the corner of an item is that a finger sizes it by.
+    handle: u16,
+    /// The status line above the grid (`home.status-bar`), made and placed.
+    status: Option<(Made, Rect)>,
+    /// How far the focus ring reaches outside a target: what a focus step
+    /// draws again around it, kept here so that a step reads no style.
+    ring_room: i32,
+    /// The look the page is drawn in and the names of its tools wrapped in it,
+    /// read when the page was laid out: a draw (one per band of the frame, and
+    /// again at every return) reads no setting for it.
+    look: RefCell<Vec<Look>>,
 }
 
 /// Which of the footer's buttons are there.
@@ -94,6 +124,16 @@ struct Buttons {
     editing: bool,
     plus: bool,
     pencil: bool,
+}
+
+impl Buttons {
+    const fn new(editing: bool, pencil: bool) -> Self {
+        Self {
+            editing,
+            plus: editing,
+            pencil,
+        }
+    }
 }
 
 /// What a press on a target leaves to do besides what it did itself.
@@ -108,7 +148,15 @@ enum Next {
     Options(usize),
 }
 
+mod area;
 mod arrange;
+mod kept;
+mod look;
+mod names;
+mod turn;
+use area::focus_area;
+use kept::Kept;
+use look::Look;
 
 /// The dashboard.
 #[derive(Debug, Default)]
@@ -120,6 +168,19 @@ pub struct Dashboard {
     stale: bool,
     /// Shown (again): whether the focus shows is decided anew once laid out.
     reshow: bool,
+    /// Another screen is over this one: the page it holds is kept as it is.
+    covered: bool,
+    /// Shown, and not drawn or asked since: the stack change that came with
+    /// the show has nothing to tell (the screen is on top), and its query is
+    /// left out ([`Dashboard::needs_stack`]).
+    just_shown: bool,
+    /// Shown again with its page kept: what the book widgets' heights depend on
+    /// and the display are looked at once before it draws.
+    returned: bool,
+    /// Drawn after it was shown again: an event that changes what it shows,
+    /// which reaches it one call after the show, lays it out again (until the
+    /// next minute or the next cover).
+    fresh: bool,
     /// What the reader used last before the show (`None`: not known).
     last_input: Option<InputMode>,
     /// Editing the home screen: the pencil is *Done*, *Add* shows; what is
@@ -129,6 +190,14 @@ pub struct Dashboard {
     options: Option<arrange::Options>,
     /// An item the buttons are moving or sizing.
     moving: Option<arrange::Moving>,
+    /// An item a finger has taken along.
+    drag: Option<arrange::Drag>,
+    /// The top left of the screen's region at the last draw: where the
+    /// cells' places are counted from when a part of it is drawn again.
+    origin: (i32, i32),
+    /// What the card and the shelf of the page share of the library: the books
+    /// listed and what the host said of their files (#267).
+    listing: Listing,
 }
 
 impl Dashboard {
@@ -165,14 +234,64 @@ impl Dashboard {
     /// What shows is read and laid out again before the next draw or input.
     pub fn mark_stale(&mut self) {
         self.stale = true;
+        self.fresh = false;
     }
 
     /// Shown again (above another screen closed, a book left), after the
     /// reader used `last_input` last.
     pub fn shown(&mut self, last_input: Option<InputMode>) {
-        self.stale = true;
+        // The page it kept is not laid out again for nothing: only what
+        // [`Dashboard::changed_while_covered`] finds.
+        // Nothing said it was covered (the stack query failed, or the cover
+        // came and went in one call): what it shows is not known to be as it was.
+        if !self.covered {
+            self.stale = true;
+        }
+        self.covered = false;
+        self.just_shown = true;
+        self.returned = true;
+        self.fresh = true;
         self.reshow = true;
         self.last_input = last_input;
+        // A finger's drag does not outlive the screen's being covered.
+        self.drag = None;
+    }
+
+    /// Whether the page's cards and shelves have a cover ready (it may be
+    /// drawn in the frame after the page's).
+    #[must_use]
+    pub fn any_cover_ready(&self) -> bool {
+        self.listing.any_cover_ready()
+    }
+
+    /// The frame about to be drawn draws the covers' places (`on`), the covers
+    /// come in the frame after it; or nothing waits for it, what is drawn next
+    /// has its covers.
+    pub fn covers_later(&self, on: bool) {
+        self.listing.covers_later(on);
+    }
+
+    /// Where the cards and the shelves of the page are, as areas of the screen's
+    /// region: what is drawn again in the frame after the page's, for their
+    /// covers (`COVERS_IN_FOLLOWUP`). None while no page is laid out. A page
+    /// kept under another screen is as it was laid out: one that is laid out
+    /// again moves its widgets by the next frame's draw, which draws them whole.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`].
+    pub fn cover_areas(&self) -> Result<Vec<FrameRect>, Error> {
+        let mut areas = Vec::new();
+        let Some(laid) = self.laid.as_ref() else {
+            return Ok(areas);
+        };
+        for cell in &laid.cells {
+            if let Some(Made::Mine(mine)) = &cell.widget
+                && mine.has_covers()
+            {
+                paperpaw_ui_kit::mem::push(&mut areas, focus_area(cell.rect, 0, self.origin))?;
+            }
+        }
+        Ok(areas)
     }
 
     /// Lays the page out when it is stale: the widgets of the page before are
@@ -182,15 +301,23 @@ impl Dashboard {
     /// [`Error::NoMemory`] and the host's refusals; the old layout stays where
     /// the new one could not be made.
     pub fn ensure(&mut self, host: &Host<'_>, ui: &Ui) -> Result<(), Error> {
-        if !self.stale && self.laid.is_some() {
+        if !self.stale
+            && self.laid.is_some()
+            && (!core::mem::take(&mut self.returned) || !self.changed_while_covered(host))
+        {
+            self.show_focus();
             return Ok(());
         }
+        self.returned = false;
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
         let made = self.lay_out(host, ui, &display, &font);
         let released = font.release();
         let laid = made?;
         if let Err(error) = released {
+            if let Some((made, _)) = laid.status {
+                made.release(host, ui);
+            }
             release_cells(host, ui, laid.cells);
             return Err(error);
         }
@@ -199,17 +326,24 @@ impl Dashboard {
         self.options = None;
         self.moving = None;
         self.focus.clamp(laid.targets.len());
-        if self.reshow {
-            // As on interface 6: at every show the focus is drawn only if the
-            // reader chose to see it at once and used buttons last; a finger,
-            // a pen or an input the host does not know of get none.
+        self.laid = Some(laid);
+        self.show_focus();
+        self.drag = None;
+        self.stale = false;
+        Ok(())
+    }
+
+    /// As on interface 6: at every show the focus is drawn only if the reader
+    /// chose to see it at once and used buttons last; a finger, a pen or an
+    /// input the host does not know of get none.
+    fn show_focus(&mut self) {
+        if self.reshow
+            && let Some(laid) = &self.laid
+        {
             self.focus
                 .show(focus_at_show(laid.focus_at_once, self.last_input));
             self.reshow = false;
         }
-        self.laid = Some(laid);
-        self.stale = false;
-        Ok(())
     }
 
     fn lay_out(
@@ -219,6 +353,11 @@ impl Dashboard {
         display: &Snapshot,
         font: &Font<'_>,
     ) -> Result<Laid, Error> {
+        // Laid out anew: what the host said of the books is asked again.
+        self.listing.forget();
+        // The looks of the page, of each widget and of the status line read
+        // the interface's settings once between them.
+        let _sharing = self.listing.inputs().share();
         let Shown {
             mut src,
             metrics,
@@ -226,39 +365,31 @@ impl Dashboard {
             pages,
             wide,
             ..
-        } = Shown::read(host, display, font)?;
+        } = Shown::read_with(host, display, font, self.listing.inputs())?;
+        let turned = self.page_after_turn(&src, &pages, wide)?;
         let nav = self.nav.get_or_insert(Nav::new(pages.len()));
         nav.resize(pages.len());
+        if let Some(at) = turned {
+            nav.page = at;
+        }
         let (page, count) = (nav.page, nav.pages);
         let slot = pages.get(page).map_or(0, |p| p.slot);
-        let items = match pages.get(page) {
-            Some(page) => native_pages::expand(&src, &page.items)?,
-            None => Vec::new(),
-        };
-        Self::measure_unplaced(host, ui, &mut src, &frame.geometry, &items)?;
+        let items = pages.get(page).map_or_else(
+            || Ok(Vec::new()),
+            |page| native_pages::expand(&src, &page.items),
+        )?;
+        Self::measure_unplaced(host, (ui, &self.listing), &mut src, &frame.geometry, &items)?;
         let (shown, _) = grid::fit(&src, &frame.geometry, &items)?;
         let editing = self.editing;
         let pencil_on = editing || src.pencil;
         let (word, done_word) = self.pencil_word(host, display, font, pencil_on)?;
-        let footer = dash::footer(
-            &metrics,
-            frame.footer,
-            &Wanted {
-                editing,
-                pencil: pencil_on,
-                actions: src.footer.len(),
-                done_word,
-            },
-        )?;
+        let wanted = Wanted::new(editing, pencil_on, src.footer.len(), done_word);
+        let footer = dash::footer(&metrics, frame.footer, &wanted)?;
         let mut cells = Vec::new();
-        let buttons = Buttons {
-            editing,
-            plus: editing,
-            pencil: pencil_on,
-        };
+        let buttons = Buttons::new(editing, pencil_on);
         let made = Self::fill(
             host,
-            ui,
+            (ui, &self.listing),
             &src,
             &frame,
             &shown,
@@ -280,11 +411,25 @@ impl Dashboard {
                 return Err(error);
             }
         };
-        let footer_icons = icons::footer(host, &src, &footer.actions);
-        let pencil_icon = icons::pencil(host);
-        let (action_icons, pencil_icon) = match (footer_icons, pencil_icon) {
+        let (action_icons, pencil_icon) = match (
+            icons::footer(host, &src, &footer.actions),
+            icons::pencil(host),
+        ) {
             (Ok(actions), Ok(pencil)) => (actions, pencil),
             (Err(error), _) | (_, Err(error)) => {
+                release_cells(host, ui, cells);
+                return Err(error);
+            }
+        };
+        let (status, look) = match Self::status_and_look(
+            host,
+            ui,
+            (font, display),
+            (&cells, src.tool_labels, frame.status),
+            self.listing.inputs(),
+        ) {
+            Ok(both) => both,
+            Err(error) => {
                 release_cells(host, ui, cells);
                 return Err(error);
             }
@@ -296,7 +441,6 @@ impl Dashboard {
             actions,
             pages: count,
             dots: src.dots,
-            tool_labels: src.tool_labels,
             focus_at_once: src.focus_at_once,
             arrows_stay: src.arrows_stay,
             pencil: pencil_on.then_some((footer.pencil, word)),
@@ -306,7 +450,39 @@ impl Dashboard {
             items,
             slot,
             wide,
+            kept: Kept::of(host, &self.listing, display, &shown),
+            handle: (metrics.row / 2).max(16),
+            status,
+            ring_room: look.first().map_or(0, |look| ring_room(&look.style)),
+            look: RefCell::new(look),
         })
+    }
+
+    /// The status line above the grid: this plugin's own widget, placed where the
+    /// frame keeps its strip. One that cannot be made leaves the strip empty.
+    fn status_bar(
+        host: &Host<'_>,
+        ui: &Ui,
+        strip: Option<Rect>,
+    ) -> Result<Option<(Made, Rect)>, Error> {
+        let Some(rect) = strip else {
+            return Ok(None);
+        };
+        match Made::make(host, ui, native_pages::STATUS, PLACE) {
+            Ok(made) => match made.place(host, ui, rect) {
+                Ok(()) => Ok(Some((made, rect))),
+                Err(error) => {
+                    made.release(host, ui);
+                    // Refused (the nested gate on the X4): an empty strip.
+                    if error == Error::NoMemory {
+                        return Err(error);
+                    }
+                    Ok(None)
+                }
+            },
+            Err(Error::NotFound | Error::Denied) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// The widgets with no place yet (and no cells declared) are measured at the
@@ -315,7 +491,7 @@ impl Dashboard {
     /// host cannot measure keeps the default of one row.
     fn measure_unplaced(
         host: &Host<'_>,
-        ui: &Ui,
+        (ui, listing): (&Ui, &Listing),
         src: &mut HostSource,
         geometry: &Geometry,
         items: &[grid::Item],
@@ -328,7 +504,7 @@ impl Dashboard {
             if src.declares(id) {
                 continue;
             }
-            match measure::measure_widget(host, ui, id, PLACE, geometry) {
+            match measure::measure_widget(host, ui, id, PLACE, geometry, listing) {
                 Ok(Some((rows, least))) => src.measured(id, rows, least)?,
                 Ok(None) => {}
                 Err(Error::NoMemory) => return Err(Error::NoMemory),
@@ -342,22 +518,31 @@ impl Dashboard {
     /// actions. On an error the caller lets the cells made so far go.
     fn fill(
         host: &Host<'_>,
-        ui: &Ui,
+        (ui, listing): (&Ui, &Listing),
         src: &HostSource,
         frame: &Frame,
         shown: &[grid::Item],
         (footer, buttons): (&Footer, Buttons),
         cells: &mut Vec<Cell>,
-    ) -> Result<(Vec<Target>, Vec<String>), Error> {
+    ) -> Result<(Vec<Target>, Actions), Error> {
         for (index, item) in shown.iter().enumerate() {
-            if let Some(cell) = Self::cell(host, ui, src, &frame.geometry, (index, item))? {
+            if let Some(cell) = Self::cell(host, ui, listing, src, &frame.geometry, (index, item))?
+            {
                 push(cells, cell)?;
             }
         }
-        let targets = Self::targets(host, ui, cells, footer, buttons)?;
+        let targets = Self::targets(host, ui, listing, cells, footer, buttons)?;
         let mut actions = Vec::new();
-        for (action, _, _) in src.footer.iter().take(footer.actions.len()) {
-            push(&mut actions, text::copy(action)?)?;
+        let shown = src.footer.iter().take(footer.actions.len());
+        // A nameless action is told by a word for any action, not as nothing.
+        let unnamed = if shown.clone().any(|(_, name, _)| name.is_empty()) {
+            Messages::new()?.copy(host, names::UNNAMED)?
+        } else {
+            String::new()
+        };
+        for (action, name, _) in shown {
+            let name = names::action_name(name, &unnamed);
+            push(&mut actions, (text::copy(action)?, text::copy(name)?))?;
         }
         Ok((targets, actions))
     }
@@ -366,6 +551,7 @@ impl Dashboard {
     fn cell(
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         src: &HostSource,
         geometry: &Geometry,
         (index, item): (usize, &grid::Item),
@@ -380,48 +566,54 @@ impl Dashboard {
                 face = Some(icons::face(host, src, action)?);
                 (text::copy(src.tool_name(action))?, None)
             }
-            What::Widget(id) => {
-                let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-                match ui.widget_make(host, id, PLACE, &mut input, &mut out) {
-                    Ok(handle) => {
-                        let placed = ui.widget_place(
-                            host,
-                            handle,
-                            paint::frame_rect(rect),
-                            &mut input,
-                            &mut out,
-                        );
-                        if let Err(error) = placed {
-                            drop_widget(host, ui, handle);
+            What::Widget(id) => match Made::make(host, ui, id, PLACE) {
+                Ok(made) => {
+                    if let Err(error) = made.place(host, ui, rect) {
+                        made.release(host, ui);
+                        // A host that will not place another plugin's widget
+                        // here (the X4 until its nested gate is open, #250)
+                        // leaves it out of the page, as one that is gone.
+                        return if error == Error::NoMemory {
+                            Err(error)
+                        } else {
+                            Ok(None)
+                        };
+                    }
+                    match text::copy(Self::widget_title(src, id)) {
+                        Ok(name) => (name, Some(made)),
+                        Err(error) => {
+                            made.release(host, ui);
                             return Err(error);
                         }
-                        (text::copy(Self::widget_title(src, id))?, Some(handle))
                     }
-                    // A widget that is gone, or not for this screen: no cell.
-                    Err(Error::NotFound | Error::Denied) => return Ok(None),
-                    Err(error) => return Err(error),
                 }
-            }
+                // A widget that is gone, or not for this screen: no cell.
+                Err(Error::NotFound | Error::Denied) => return Ok(None),
+                Err(error) => return Err(error),
+            },
         };
         let what = match item.what.try_clone() {
             Ok(what) => what,
             Err(error) => {
-                if let Some(widget) = widget {
-                    drop_widget(host, ui, widget);
+                if let Some(made) = widget {
+                    made.release(host, ui);
                 }
                 return Err(error);
             }
         };
-        let least = match widget {
-            Some(handle) => match measure::measure_handle(host, ui, handle, geometry) {
-                Ok((_, least)) => least,
-                Err(Error::NoMemory) => {
-                    drop_widget(host, ui, handle);
-                    return Err(Error::NoMemory);
+        let measured = widget
+            .as_ref()
+            .map(|made| made.measure(host, ui, listing, geometry));
+        let least = match measured {
+            Some(Ok((_, least))) => least,
+            Some(Err(Error::NoMemory)) => {
+                if let Some(made) = widget {
+                    made.release(host, ui);
                 }
-                // A widget the host cannot measure may not be made lower than one.
-                Err(_) => 1,
-            },
+                return Err(Error::NoMemory);
+            }
+            // A widget the host cannot measure may not be made lower than one.
+            Some(Err(_)) => 1,
             None => 1,
         };
         Ok(Some(Cell {
@@ -432,6 +624,10 @@ impl Dashboard {
             name,
             face,
             widget,
+            span: match &item.what {
+                What::Widget(id) => src.span(id),
+                What::Tool(_) => None,
+            },
         }))
     }
 
@@ -449,13 +645,14 @@ impl Dashboard {
     fn targets(
         host: &Host<'_>,
         ui: &Ui,
+        listing: &Listing,
         cells: &[Cell],
         footer: &Footer,
         buttons: Buttons,
     ) -> Result<Vec<Target>, Error> {
         let mut targets = Vec::new();
         for (index, cell) in cells.iter().enumerate() {
-            match cell.widget {
+            match &cell.widget {
                 // Editing: an item is one target, whatever it is.
                 _ if buttons.editing => push(
                     &mut targets,
@@ -471,38 +668,20 @@ impl Dashboard {
                         owner: Owner::Tool(index),
                     },
                 )?,
-                Some(widget) if !widget.is_own() => {
-                    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-                    let found = ui.widget_targets(
-                        host,
-                        widget,
-                        paint::frame_rect(cell.rect),
-                        &mut input,
-                        &mut out,
-                    )?;
-                    for target in found {
-                        let target = target?;
-                        let at = target.rect();
+                Some(made) => {
+                    for (target, rect) in made.targets(host, (ui, listing), cell.rect)? {
                         push(
                             &mut targets,
                             Target {
-                                rect: Rect::new(
-                                    clamp(at.x),
-                                    clamp(at.y),
-                                    clamp(at.width),
-                                    clamp(at.height),
-                                ),
+                                rect,
                                 owner: Owner::Widget {
                                     item: index,
-                                    target: target.target(),
+                                    target,
                                 },
                             },
                         )?;
                     }
                 }
-                // Drawn by this plugin itself: the widgets of the home screen
-                // are not ported yet.
-                Some(_) => {}
             }
         }
         footer_targets(&mut targets, footer, buttons)?;
@@ -536,10 +715,34 @@ impl Dashboard {
         Ok((word, wide))
     }
 
+    /// Whether a stack change can tell this dashboard something: it holds a
+    /// page that no screen is known to cover, and it was not just shown. The
+    /// change that came with the show is answered without the stack query (the
+    /// first frame of a return made it, #294); a cover it missed shows as a
+    /// page laid out again at the next show, as one the stack query failed for.
+    pub fn needs_stack(&mut self) -> bool {
+        let shown = core::mem::take(&mut self.just_shown);
+        !shown && self.laid.is_some() && !self.covered
+    }
+
+    /// Another screen is over this one: its page, and the widgets made for it,
+    /// are kept as they are (what a book changed shows when it is drawn);
+    /// [`Dashboard::invalidate_covered`] and the look at the display and the
+    /// shelf when it is shown say whether it is laid out again.
+    pub fn cover(&mut self) {
+        if self.laid.is_some() {
+            self.covered = true;
+            self.fresh = false;
+        }
+    }
+
     /// The widgets of the page before are let go; a refusal is of no matter
     /// (the host drops them when the screen closes).
     fn drop_widgets(&mut self, host: &Host<'_>, ui: &Ui) {
         if let Some(laid) = self.laid.take() {
+            if let Some((made, _)) = laid.status {
+                made.release(host, ui);
+            }
             release_cells(host, ui, laid.cells);
         }
     }
@@ -555,66 +758,108 @@ impl Dashboard {
         ui: &Ui,
         frame: &mut DrawFrame<'_>,
     ) -> Result<(), Error> {
+        self.just_shown = false;
         self.ensure(host, ui)?;
         self.ensure_dialog(host)?;
+        self.describe_dialog(paint::asking(frame));
+        self.origin = (frame.rect.x, frame.rect.y);
         let Some(laid) = self.laid.as_ref() else {
             return Ok(());
         };
-        let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
-        let drawn = self.paint(host, frame, &display, &font, laid);
+        let drawn = self.paint(host, ui, frame, &font, laid);
         let released = font.release();
         drawn?;
         released
     }
 
-    /// The lines of the name of each tool shown (with names), with the top of its
-    /// cell, in the order of the cells that are tools.
-    fn tool_lines(
+    /// What each target is and which has the focus, for whoever asks what
+    /// shows (`canvas.describe`: automation, reading aloud, the tests), as
+    /// interface 6 told its cells.
+    fn describe_targets(
         &self,
-        font: &Font<'_>,
-        style: &Style,
-        laid: &Laid,
-    ) -> Result<Vec<(u16, Vec<String>)>, Error> {
-        let mut lines = Vec::new();
-        for cell in &laid.cells {
-            if cell.face.is_none() {
-                continue;
-            }
-            let own = if laid.tool_labels {
-                icons::name_lines(font, style, cell.rect, &cell.name)?
-            } else {
-                Vec::new()
-            };
-            push(&mut lines, (cell.rect.y, own))?;
-        }
-        Ok(lines)
-    }
-
-    fn paint(
-        &self,
-        host: &Host<'_>,
-        frame: &mut DrawFrame<'_>,
-        display: &Snapshot,
-        font: &Font<'_>,
+        below: &mut Vec<Paint>,
+        describing: bool,
         laid: &Laid,
     ) -> Result<(), Error> {
-        let style = Style::read(host, display, font)?;
-        let mut below = Vec::new();
-        let mut above = Vec::new();
-        let icon_font = paperpaw_ui_kit::icons::font(host)?;
-        let circle = paperpaw_ui_kit::icons::glyph(host, "circle")?;
-        let fonts = Fonts {
-            ui: font,
-            icons: icon_font.as_ref(),
-            circle: circle.as_ref(),
-        };
-        let wrapped = self.tool_lines(font, &style, laid)?;
+        for (at, target) in laid.targets.iter().enumerate() {
+            let focused = self.focus.shown() && self.focus.at() == at;
+            // The footer's buttons show icons: each is named, as interface 6
+            // named them (a cell is named by the text drawn in it).
+            let pencil = laid.pencil.as_ref().map(|(_, word)| word.as_str());
+            // A tool is told by its whole name, not by the first line of it.
+            let tool_name = match target.owner {
+                // The index is the cell's, widgets' cells among them.
+                Owner::Tool(n) => laid
+                    .cells
+                    .get(n)
+                    .filter(|cell| cell.face.is_some())
+                    .map(|cell| cell.name.as_str()),
+                _ => None,
+            };
+            match names::button_name(target.owner, pencil, &laid.actions).or(tool_name) {
+                Some(name) => paint::describe_named(
+                    below,
+                    describing,
+                    PartRole::Button,
+                    target.rect,
+                    name,
+                    focused,
+                    false,
+                )?,
+                None => paint::describe(
+                    below,
+                    describing,
+                    PartRole::Button,
+                    target.rect,
+                    focused,
+                    false,
+                )?,
+            }
+        }
+        Ok(())
+    }
+
+    fn compose_widgets(
+        host: &Host<'_>,
+        ui: &Ui,
+        listing: &Listing,
+        frame: &mut DrawFrame<'_>,
+        laid: &Laid,
+    ) -> Result<(), Error> {
+        let band = (
+            frame.clip_top.saturating_sub(frame.rect.y),
+            frame.clip_bottom.saturating_sub(frame.rect.y),
+        );
+        compose_each(
+            laid.cells
+                .iter()
+                .filter_map(|cell| Some((cell.widget.as_ref()?, cell.rect)))
+                .chain(laid.status.as_ref().map(|(made, rect)| (made, *rect))),
+            band,
+            |made, rect| made.draw(host, ui, listing, frame, rect),
+        )
+        .map(drop)
+    }
+
+    /// The tools of the page (and, while editing, the marks of every cell) into
+    /// `below`; a tool of another band than `band` (rows of the region) draws
+    /// nothing here: its cell and the name below its icon lie outside it.
+    fn paint_tools(
+        &self,
+        below: &mut Vec<Paint>,
+        fonts: &Fonts<'_, '_>,
+        look: &Look,
+        laid: &Laid,
+        band: (i32, i32),
+    ) -> Result<(), Error> {
+        let style = &look.style;
+        let wrapped = &look.wrapped;
         let mut tops: Vec<(u16, usize)> = Vec::new();
         tops.try_reserve_exact(wrapped.len())
             .map_err(|_| Error::NoMemory)?;
-        for (top, lines) in &wrapped {
-            tops.push((*top, lines.len()));
+        for (top, name) in wrapped {
+            tops.push((*top, name.lines.len()));
         }
         let row_lines = icons::row_lines(&tops)?;
         let mut tool = 0;
@@ -622,7 +867,7 @@ impl Dashboard {
             if self.editing {
                 // The cells show while editing.
                 paintpush(
-                    &mut below,
+                    below,
                     Paint::Focus(
                         cell.rect,
                         style.corner,
@@ -630,19 +875,62 @@ impl Dashboard {
                         style.ink,
                     ),
                 )?;
+                self.corner_mark(below, style, cell.rect, laid.handle)?;
             }
             if let Some(face) = cell.face {
+                let name = wrapped.get(tool).map(|(_, name)| name);
                 let shown = Tool {
-                    lines: wrapped
-                        .get(tool)
-                        .map_or(&[][..], |(_, lines)| lines.as_slice()),
+                    lines: name.map_or(&[][..], |name| name.lines.as_slice()),
+                    size: name.map_or(style.small, |name| name.size),
                     face,
                     row_lines: row_lines.get(tool).copied().unwrap_or(0),
                 };
-                icons::draw_tool(&mut below, &fonts, &style, cell.rect, &shown)?;
+                // A tool of another band draws nothing here: its cell, and the
+                // name below its icon, lie outside this band.
+                let room = (style.small * 3.0) as i32;
+                let (top, bottom) = (
+                    i32::from(cell.rect.y).saturating_sub(room),
+                    (i32::from(cell.rect.y) + i32::from(cell.rect.height)).saturating_add(room),
+                );
+                if top < band.1 && bottom > band.0 {
+                    let shape = look.shape_of(tool, fonts, cell.rect, &shown)?;
+                    icons::draw_tool(below, fonts, style, cell.rect, &shown, &shape)?;
+                }
                 tool += 1;
             }
         }
+        Ok(())
+    }
+
+    fn paint(
+        &self,
+        host: &Host<'_>,
+        ui: &Ui,
+        frame: &mut DrawFrame<'_>,
+        font: &Font<'_>,
+        laid: &Laid,
+    ) -> Result<(), Error> {
+        self.refresh_look(host, font, laid)?;
+        let looks = laid.look.borrow();
+        let Some(look) = looks.first() else {
+            return Ok(());
+        };
+        let style = &look.style;
+        let mut below = Vec::new();
+        let mut above = Vec::new();
+        self.describe_targets(&mut below, paint::asking(frame), laid)?;
+        let icon_font = paperpaw_ui_kit::icons::font(host)?;
+        let circle = paperpaw_ui_kit::icons::glyph(host, "circle")?;
+        let fonts = Fonts {
+            ui: font,
+            icons: icon_font.as_ref(),
+            circle: circle.as_ref(),
+        };
+        let band = (
+            frame.clip_top.saturating_sub(frame.rect.y),
+            frame.clip_bottom.saturating_sub(frame.rect.y),
+        );
+        self.paint_tools(&mut below, &fonts, look, laid, band)?;
         if let Some((rect, word)) = &laid.pencil {
             match (self.editing, fonts.icons, laid.pencil_icon.as_ref()) {
                 (false, Some(_), Some(glyph)) => paperpaw_ui_kit::icons::draw_centred(
@@ -653,7 +941,7 @@ impl Dashboard {
                     *rect,
                     style.note,
                 )?,
-                _ => name(&mut below, font, &style, *rect, word)?,
+                _ => name(&mut below, font, style, *rect, word)?,
             }
         }
         if let Some(icon_font) = fonts.icons {
@@ -671,31 +959,52 @@ impl Dashboard {
             }
         }
         if let Some(rect) = laid.plus {
-            name(&mut below, font, &style, rect, "+")?;
+            name(&mut below, font, style, rect, "+")?;
         }
         if let Some(nav) = self.nav {
             for dot in dash::dots(laid.footer_area(), style.gap, laid.pages, nav.page) {
                 if laid.dots {
-                    self::dot(&mut below, &dot, &style)?;
+                    self::dot(&mut below, &dot, style)?;
                 }
             }
         }
+        self.drag_frame(&mut above, style, laid)?;
         if self.focus.shown()
             && let Some(target) = laid.targets.get(self.focus.at())
         {
-            ring(&mut above, target.rect, &style)?;
+            ring(&mut above, target.rect, style)?;
         }
         paint::replay_icons(frame, font, fonts.icons, below.iter())?;
-        compose_each(
-            laid.cells
-                .iter()
-                .filter_map(|cell| Some((cell.widget.filter(|w| !w.is_own())?, cell.rect))),
-            |widget, rect| Ui::compose(host, Compose::Widget(widget), paint::frame_rect(rect)),
-        );
+        Self::compose_widgets(host, ui, &self.listing, frame, laid)?;
         paint::replay(frame, font, above.iter())?;
         let mut dialog = Vec::new();
         self.dialog_paint(font, &mut dialog)?;
         paint::replay(frame, font, dialog.iter())
+    }
+
+    /// Whether `input` only moves the focus on a page that is not being
+    /// arranged, or is the raw key the action comes after (it does nothing):
+    /// no book, widget or setting can change by it, so what the widgets read
+    /// and composed for the last draw stays (no library call, no new
+    /// composition: only the two targets are drawn again).
+    #[must_use]
+    pub fn is_focus_step(&self, input: &Input<'_>) -> bool {
+        if self.listing.shows_no_book() {
+            return false;
+        }
+        match *input {
+            Input::Key { .. } => true,
+            Input::Action { action, .. } => {
+                !self.editing && matches!(Press::of(action), Some(press) if press != Press::Confirm)
+            }
+            _ => false,
+        }
+    }
+
+    /// A focus step is taken: the next frame draws the books the last one
+    /// listed, with no question to the library.
+    pub fn focus_step(&self) {
+        self.listing.keep_for_next_frame();
     }
 
     /// Takes an input: the page buttons turn the page, the others move the
@@ -704,6 +1013,8 @@ impl Dashboard {
     /// # Errors
     /// Allocation and host errors.
     pub fn input(&mut self, host: &Host<'_>, ui: &Ui, input: &Input<'_>) -> Result<Handled, Error> {
+        self.just_shown = false;
+        self.listing.covers_later(false);
         self.ensure(host, ui)?;
         if let Some(handled) = self.arrange_input(host, ui, input)? {
             return Ok(handled);
@@ -721,6 +1032,8 @@ impl Dashboard {
                     }
                     Ok(Handled::Yes)
                 }
+                // Arranging keeps the page: a swipe is not the kernel's page turn.
+                Touch::Pass if self.editing => Ok(Handled::Yes),
                 Touch::Pass => Ok(Handled::No),
             },
             _ => Ok(Handled::No),
@@ -742,11 +1055,12 @@ impl Dashboard {
         let Some(laid) = self.laid.as_ref() else {
             return Ok(Handled::No);
         };
+        let left = self.focus.shown().then(|| self.focus.at());
         match self.focus.press(press, &laid.targets, laid.arrows_stay) {
             Step::Ignored => Ok(Handled::No),
             Step::Held => Ok(Handled::Yes),
-            Step::Shown(_) | Step::Moved(_) => {
-                redraw(host)?;
+            Step::Shown(at) | Step::Moved(at) => {
+                self.redraw_focus(host, laid, [left, Some(at)])?;
                 Ok(Handled::Yes)
             }
             Step::Run(at) => {
@@ -756,6 +1070,34 @@ impl Dashboard {
                 Ok(Handled::Yes)
             }
         }
+    }
+
+    /// Only the targets the focus left and came to are drawn again, each with
+    /// the room of its ring, not the page (as interface 6 drew only those
+    /// cells): a step takes a small part of a frame on the X4. A host that
+    /// refuses a part draws the page.
+    fn redraw_focus(
+        &self,
+        host: &Host<'_>,
+        laid: &Laid,
+        ats: [Option<usize>; 2],
+    ) -> Result<(), Error> {
+        // Nothing is allocated here: the focus has moved already, and a step
+        // that could not be drawn would leave it moved unseen.
+        let room = laid.ring_room;
+        let mut scratch = [0; 64];
+        let mut sender = CommandSender::new(host, &mut scratch);
+        for target in ats
+            .into_iter()
+            .flatten()
+            .filter_map(|at| laid.targets.get(at))
+        {
+            let area = focus_area(target.rect, room, self.origin);
+            if sender.queue_redraw_area(RedrawMode::Partial, area).is_err() {
+                return redraw(host);
+            }
+        }
+        Ok(())
     }
 
     fn turn(&mut self, host: &Host<'_>, ui: &Ui, forward: bool) -> Result<Handled, Error> {
@@ -783,6 +1125,28 @@ impl Dashboard {
         let Some(laid) = self.laid.as_ref() else {
             return Ok(Handled::No);
         };
+        // The status line's items that do something, by a tap only (they are out
+        // of the buttons' focus order, as on interface 6).
+        if !self.editing
+            && let Some((made, rect)) = laid
+                .status
+                .as_ref()
+                .filter(|(_, rect)| inside(*rect, point))
+        {
+            // A refusal of the line's targets leaves the tap to the grid.
+            match made.targets(host, (ui, &self.listing), *rect) {
+                Ok(found) => {
+                    for (target, at) in found {
+                        if inside(at, point) {
+                            made.input(host, (ui, &self.listing), target, point, kind)?;
+                            return Ok(Handled::Yes);
+                        }
+                    }
+                }
+                Err(Error::NoMemory) => return Err(Error::NoMemory),
+                Err(_) => {}
+            }
+        }
         // The nearest target the point is in: widgets' own first (they answer
         // at their places), then the tools and the buttons.
         let hit = laid
@@ -811,7 +1175,12 @@ impl Dashboard {
             self.next(host, ui, next)?;
             return Ok(Handled::Yes);
         }
-        Ok(Handled::No)
+        // Arranging: a tap on nothing is not for the menu the kernel opens.
+        Ok(if self.editing {
+            Handled::Yes
+        } else {
+            Handled::No
+        })
     }
 
     /// Does what a target is for: runs a tool or a footer action, tells a
@@ -842,19 +1211,18 @@ impl Dashboard {
                 CommandSender::new(host, &mut scratch).run_action(action)?;
             }
             Owner::Button(Button::Action(index)) => {
-                let Some(action) = laid.actions.get(index) else {
+                let Some((action, _)) = laid.actions.get(index) else {
                     return Ok(Next::Nothing);
                 };
                 let mut scratch = buffer(SERVICE_BUFFER)?;
                 CommandSender::new(host, &mut scratch).run_action(action)?;
             }
             Owner::Widget { item, target: id } => {
-                let Some(widget) = laid.cells.get(item).and_then(|cell| cell.widget) else {
+                let Some(made) = laid.cells.get(item).and_then(|cell| cell.widget.as_ref()) else {
                     return Ok(Next::Nothing);
                 };
                 let (point, kind) = touched.unwrap_or((middle(target.rect), WidgetInputKind::Tap));
-                let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
-                ui.widget_input(host, widget, id, point, kind, &mut input, &mut out)?;
+                made.input(host, (ui, &self.listing), id, point, kind)?;
             }
             Owner::Button(_) => {}
         }
@@ -962,35 +1330,11 @@ fn touch_of(kind: InputGestureKind) -> Touch {
     }
 }
 
-/// Composes each widget into its cell. One the host cannot compose is left
-/// out: the rest of the page still shows (as on interface 6). Returns how many
-/// were composed.
-fn compose_each<T>(
-    widgets: impl Iterator<Item = (T, Rect)>,
-    mut compose: impl FnMut(T, Rect) -> Result<(), Error>,
-) -> usize {
-    let mut composed = 0;
-    for (widget, rect) in widgets {
-        if compose(widget, rect).is_ok() {
-            composed += 1;
-        }
-    }
-    composed
-}
-
-/// Lets a widget go; a refusal is of no matter (the host drops them when the
-/// screen closes).
-fn drop_widget(host: &Host<'_>, ui: &Ui, widget: WidgetHandle) {
-    if let (Ok(mut input), Ok(mut out)) = (buffer(SERVICE_BUFFER), buffer(64)) {
-        let _ = ui.widget_drop(host, widget, &mut input, &mut out);
-    }
-}
-
 /// Lets the widgets of these cells go.
 fn release_cells(host: &Host<'_>, ui: &Ui, cells: Vec<Cell>) {
     for cell in cells {
-        if let Some(widget) = cell.widget {
-            drop_widget(host, ui, widget);
+        if let Some(made) = cell.widget {
+            made.release(host, ui);
         }
     }
 }
@@ -1051,7 +1395,7 @@ pub(crate) fn ring(paint: &mut Vec<Paint>, target: Rect, style: &Style) -> Resul
             rect,
             style.corner,
             Some(u32::from(style.line).max(2)),
-            Color::BLACK,
+            style.ink,
         ),
     )
 }
@@ -1065,6 +1409,15 @@ fn focus_at_show(at_once: bool, last_input: Option<InputMode>) -> bool {
 
 fn paintpush(paint: &mut Vec<Paint>, op: Paint) -> Result<(), Error> {
     paint::push(paint, op)
+}
+
+/// How far [`ring`] reaches outside its target: the air around it and its line.
+fn ring_room(style: &Style) -> i32 {
+    ring_room_of(style.gap, style.line)
+}
+
+fn ring_room_of(gap: u16, line: u16) -> i32 {
+    i32::from(gap / 2).saturating_add(i32::from(line.max(2)))
 }
 
 pub(crate) fn redraw(host: &Host<'_>) -> Result<(), Error> {
@@ -1086,10 +1439,6 @@ fn middle(rect: Rect) -> Point {
     )
 }
 
-fn clamp(value: impl TryInto<u16>) -> u16 {
-    value.try_into().unwrap_or(u16::MAX)
-}
-
 fn clamp_u32(value: u32) -> u16 {
     u16::try_from(value).unwrap_or(u16::MAX)
 }
@@ -1100,169 +1449,4 @@ fn clamp_i32(value: i32) -> u16 {
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, reason = "test assertions")]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_point_is_inside_a_rectangle_by_its_left_and_top_edges() {
-        let r = Rect::new(10, 20, 30, 40);
-        assert!(inside(r, Point::new(10, 20)));
-        assert!(inside(r, Point::new(39, 59)));
-        assert!(!inside(r, Point::new(40, 59)));
-        assert!(!inside(r, Point::new(39, 60)));
-        assert!(!inside(r, Point::new(9, 30)));
-    }
-
-    fn footer() -> Footer {
-        Footer {
-            pencil: Rect::new(300, 400, 60, 60),
-            plus: Rect::new(10, 400, 120, 60),
-            actions: [Rect::new(200, 400, 60, 60), Rect::new(240, 400, 60, 60)].into(),
-        }
-    }
-
-    fn owners(footer: &Footer, buttons: Buttons) -> Vec<Owner> {
-        let mut targets = Vec::new();
-        footer_targets(&mut targets, footer, buttons).unwrap();
-        targets.iter().map(|t| t.owner).collect()
-    }
-
-    #[test]
-    fn the_footer_buttons_are_reached_add_first_and_the_pencil_last() {
-        let f = footer();
-        let both = Buttons {
-            editing: true,
-            plus: true,
-            pencil: true,
-        };
-        assert_eq!(
-            owners(&f, both),
-            [
-                Owner::Button(Button::Plus),
-                Owner::Button(Button::Action(0)),
-                Owner::Button(Button::Action(1)),
-                Owner::Button(Button::Pencil)
-            ]
-        );
-        let none = Buttons {
-            editing: false,
-            plus: false,
-            pencil: false,
-        };
-        assert_eq!(owners(&f, none).len(), 2);
-        let pencil = Buttons {
-            editing: false,
-            plus: false,
-            pencil: true,
-        };
-        assert_eq!(
-            owners(&f, pencil).last(),
-            Some(&Owner::Button(Button::Pencil))
-        );
-    }
-
-    #[test]
-    fn the_pencil_toggles_editing_and_add_opens_its_screen() {
-        let pencil = Owner::Button(Button::Pencil);
-        assert_eq!(decide(pencil, false), Some(Next::Edit(true)));
-        assert_eq!(decide(pencil, true), Some(Next::Edit(false)));
-        assert_eq!(decide(Owner::Button(Button::Plus), true), Some(Next::Add));
-    }
-
-    #[test]
-    fn while_editing_an_item_offers_its_options_and_the_rest_runs_nothing() {
-        assert_eq!(decide(Owner::Tool(2), true), Some(Next::Options(2)));
-        assert_eq!(
-            decide(Owner::Widget { item: 1, target: 3 }, true),
-            Some(Next::Options(1))
-        );
-        assert_eq!(
-            decide(Owner::Button(Button::Action(0)), true),
-            Some(Next::Nothing)
-        );
-        // Not editing: it runs (the host decides what).
-        for owner in [
-            Owner::Tool(0),
-            Owner::Widget { item: 0, target: 1 },
-            Owner::Button(Button::Action(0)),
-        ] {
-            assert_eq!(decide(owner, false), None);
-        }
-    }
-
-    #[test]
-    fn a_dashboard_opened_again_keeps_its_page_and_focus() {
-        let mut nav = Nav::new(3);
-        assert!(nav.turn(true));
-        assert!(nav.turn(true));
-        let mut dashboard = Dashboard {
-            nav: Some(nav),
-            ..Dashboard::new()
-        };
-        dashboard.focus.show(true);
-        dashboard.stale = false;
-        dashboard.reopened(false);
-        assert_eq!(dashboard.nav.map(|n| n.page), Some(2));
-        assert!(dashboard.focus.shown());
-        assert!(!dashboard.editing());
-        // Not laid out again for nothing.
-        assert!(!dashboard.stale);
-        // Asked to edit: editing starts, the page stays.
-        dashboard.reopened(true);
-        assert!(dashboard.editing());
-        assert!(dashboard.stale);
-        assert_eq!(dashboard.nav.map(|n| n.page), Some(2));
-    }
-
-    #[test]
-    fn the_focus_shows_at_once_only_after_buttons() {
-        for (last, shown) in [
-            (Some(InputMode::Buttons), true),
-            (Some(InputMode::Touch), false),
-            (Some(InputMode::Pen), false),
-            (None, false),
-        ] {
-            assert_eq!(focus_at_show(true, last), shown, "{last:?}");
-            // The setting off: never at once.
-            assert!(!focus_at_show(false, last), "{last:?}");
-        }
-        let mut dashboard = Dashboard::new();
-        dashboard.shown(Some(InputMode::Touch));
-        assert!(dashboard.reshow && dashboard.stale);
-        assert_eq!(dashboard.last_input, Some(InputMode::Touch));
-    }
-
-    #[test]
-    fn a_long_press_is_taken_and_runs_nothing() {
-        assert_eq!(touch_of(InputGestureKind::LongPress), Touch::Held);
-        assert_eq!(touch_of(InputGestureKind::Tap), Touch::Tap);
-    }
-
-    #[test]
-    fn a_widget_that_fails_to_compose_leaves_the_rest_of_the_page_drawn() {
-        let cell = |n: u16| Rect::new(n * 10, 0, 10, 10);
-        let mut seen = Vec::new();
-        let composed = compose_each(
-            [(1_u32, cell(0)), (2, cell(1)), (3, cell(2))].into_iter(),
-            |id, rect| {
-                seen.push((id, rect.x));
-                if id == 2 { Err(Error::Denied) } else { Ok(()) }
-            },
-        );
-        // All three were tried, in order; the failing one alone is missing.
-        assert_eq!(seen, [(1, 0), (2, 10), (3, 20)]);
-        assert_eq!(composed, 2);
-        // A host that refuses every one: none composed, no error.
-        assert_eq!(
-            compose_each([(1_u32, cell(0)), (2, cell(1))].into_iter(), |_, _| Err(
-                Error::NoMemory
-            )),
-            0
-        );
-    }
-
-    #[test]
-    fn the_middle_of_a_target_is_where_a_button_press_taps() {
-        assert_eq!(middle(Rect::new(10, 20, 30, 40)), Point::new(25, 40));
-    }
-}
+mod tests;

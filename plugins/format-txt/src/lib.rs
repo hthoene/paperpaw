@@ -33,52 +33,12 @@ mod utf16;
 #[cfg(feature = "linked")]
 pub use native_entry::NATIVE_ENTRY;
 
-use alloc::borrow::Cow;
-use alloc::boxed::Box;
-use alloc::vec;
-
-use paperpaw_sdk::document::Document;
-use paperpaw_sdk::{Env, FormatSpec, Id, Manifest, Plugin, RegisterError, Registrar};
+use paperpaw_sdk::Id;
 
 pub use document::TxtDocument;
 
 pub const PLUGIN: Id = Id::new_static("format-txt");
 pub const FORMAT: Id = Id::new_static("format-txt.txt");
-
-/// The plain text format plugin.
-#[derive(Debug, Default)]
-pub struct TxtFormat;
-
-/// How it works, by language (see `Manifest::how`).
-static HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../how/en.txt")),
-    ("de", include_str!("../how/de.txt")),
-];
-
-impl Plugin for TxtFormat {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(PLUGIN, "Plain text", paperpaw_sdk::package_version!())
-            .description("Opens plain text files (.txt).")
-            .how(&HOW)
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        // Copies in UTF-8 of UTF-16 files, moved and removed with them.
-        r.add_book_cache(Env::plugin_dir(PLUGIN.as_str()), "")?;
-        r.add_format(FormatSpec::new(
-            FORMAT,
-            "format-txt.title",
-            vec![Cow::Borrowed("txt"), Cow::Borrowed("text")],
-            Box::new(|storage, path, _| {
-                TxtDocument::open(storage, path).map(|d| Box::new(d) as Box<dyn Document>)
-            }),
-        ))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
-        Ok(())
-    }
-}
 
 #[cfg(test)]
 mod tests {

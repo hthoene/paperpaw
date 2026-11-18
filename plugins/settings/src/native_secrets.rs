@@ -27,6 +27,8 @@ pub const MAX_VALUE: usize = 1024;
 pub const HIDDEN: &str = "••••••";
 /// The input and the reply a secrets call needs (`secrets.md`).
 const INPUT: usize = 1280;
+/// The input of `list` (the query): `secrets.md` gives it 256 bytes.
+const LIST_INPUT: usize = 256;
 const REPLY: usize = 4096;
 
 /// A secret kept by some plugin: never its value.
@@ -137,7 +139,7 @@ fn title(host: &Host<'_>, say: &mut Messages, label: &str, name: &str) -> Result
 /// [`Error::NoMemory`] and what the host says besides it not being there.
 pub fn read(host: &Host<'_>) -> Result<Vec<Kept>, Error> {
     let found = with(host, |secrets| {
-        let mut input = buffer(INPUT)?;
+        let mut input = buffer(LIST_INPUT)?;
         let mut reply = buffer(REPLY)?;
         let mut say = Messages::new()?;
         let mut kept: Vec<Kept> = Vec::new();
@@ -171,15 +173,16 @@ pub fn read(host: &Host<'_>) -> Result<Vec<Kept>, Error> {
     Ok(found.unwrap_or_default())
 }
 
-/// Whether the settings may list any secret and one is kept.
+/// Whether the settings may list any secret and one is kept, listed through
+/// the caller's buffers (`input` at least 256 bytes and `reply` at least 4,096:
+/// the bounds of `list`), so the check holds no buffer of its own while the
+/// main page is built.
 ///
 /// # Errors
 /// [`Error::NoMemory`] and what the host says besides it not being there.
-pub fn any(host: &Host<'_>) -> Result<bool, Error> {
+pub fn any_in(host: &Host<'_>, input: &mut [u8], reply: &mut [u8]) -> Result<bool, Error> {
     let found = with(host, |secrets| {
-        let mut input = buffer(INPUT)?;
-        let mut reply = buffer(REPLY)?;
-        match secrets.list(host, SecretList::all(), &mut input, &mut reply) {
+        match secrets.list(host, SecretList::all(), input, reply) {
             Ok(page) => Ok(page.end().total() > 0),
             Err(error) if nothing(&error) => Ok(false),
             Err(error) => Err(error),
@@ -190,12 +193,17 @@ pub fn any(host: &Host<'_>) -> Result<bool, Error> {
 
 /// Whether the row of the passwords and keys shows among the main page's
 /// `pages`: it is there (the menu has it) and the settings may list a secret
-/// that is kept. The service is asked only if the row is there.
+/// that is kept. The service is asked only if the row is there, through the
+/// caller's buffers (see [`any_in`]).
 ///
 /// # Errors
 /// [`Error::NoMemory`] and what the host says besides it not being there.
-pub fn shown(host: &Host<'_>, pages: &[crate::native_model::PageRow]) -> Result<bool, Error> {
-    Ok(pages.iter().any(|page| page.action == OPEN) && any(host)?)
+pub fn shown(
+    host: &Host<'_>,
+    pages: &[crate::native_model::PageRow],
+    (input, reply): (&mut [u8], &mut [u8]),
+) -> Result<bool, Error> {
+    Ok(pages.iter().any(|page| page.action == OPEN) && any_in(host, input, reply)?)
 }
 
 /// Replaces the value of owner `plugin`'s secret `name` (it must be kept and

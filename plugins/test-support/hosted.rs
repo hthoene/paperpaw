@@ -10,8 +10,8 @@
     reason = "shared by several test files; each uses part of the kit"
 )]
 use paperpaw_core::{
-    Kernel,
-    native_host::{HostResources, flat::FlatDepth},
+    Kernel, KernelBuilder,
+    native_host::{FixedTables, HostResources, HostWiring, flat::FlatDepth},
 };
 use paperpaw_native::host_glue::{PpEntry, Services};
 use paperpaw_native::metadata::{Feature, Host as AdmissionHost, Profile, Service};
@@ -76,6 +76,8 @@ struct Heap(Arc<Counters>);
 struct Counters {
     live: AtomicIsize,
     failures: Mutex<Vec<String>>,
+    /// What the host told the plugin it dropped: (callback token, status).
+    dropped: Mutex<Vec<(u32, i32)>>,
 }
 
 impl Services for Heap {
@@ -101,7 +103,9 @@ impl Services for Heap {
     }
 }
 
-fn report(_: &Heap, _: u32, _: i32) {}
+fn report(heap: &Heap, _: &str, token: u32, status: i32) {
+    heap.0.dropped.lock().unwrap().push((token, status));
+}
 
 fn teardown(
     heap: &Heap,
@@ -122,6 +126,10 @@ fn teardown(
 pub struct Installed {
     kernel: Option<Kernel>,
     heap: Heap,
+    /// The device table every plugin of the kernel shares, as in a shell.
+    resources: Option<HostResources>,
+    /// The device's one callback depth counter, shared the same way.
+    depth: Option<FlatDepth>,
 }
 
 impl Installed {
@@ -133,11 +141,23 @@ impl Installed {
     pub fn kernel(&mut self) -> &mut Kernel {
         self.kernel.as_mut().expect("installed")
     }
+
+    /// The callbacks the host dropped so far, as (token, status): a draw or an event the
+    /// plugin could not finish lands here, not in the kernel's warnings.
+    #[allow(
+        dead_code,
+        reason = "only the cases that go on to use the kernel call it"
+    )]
+    pub fn dropped(&self) -> Vec<(u32, i32)> {
+        self.heap.0.dropped.lock().unwrap().clone()
+    }
 }
 
 impl Drop for Installed {
     fn drop(&mut self) {
         drop(self.kernel.take());
+        drop(self.resources.take());
+        drop(self.depth.take());
         if std::thread::panicking() {
             return;
         }
@@ -168,6 +188,10 @@ const X4_BUTTONS: [&str; 7] = [
 pub struct Setup {
     device: DeviceInfo,
     config: String,
+    /// What else the kernel is built with (see [`Setup::with_kernel`]).
+    kernel: Vec<Arc<dyn Fn(KernelBuilder) -> KernelBuilder>>,
+    /// The host services wired for the plugin (see [`Setup::wired`]).
+    wiring: Vec<Arc<dyn Fn(HostWiring) -> HostWiring>>,
 }
 
 impl Default for Setup {
@@ -182,6 +206,8 @@ impl Default for Setup {
                 MemoryClass::Small,
             ),
             config: String::new(),
+            kernel: Vec::new(),
+            wiring: Vec::new(),
         }
     }
 }
@@ -199,7 +225,44 @@ impl Setup {
                 MemoryClass::Small,
             ),
             config: String::new(),
+            kernel: Vec::new(),
+            wiring: Vec::new(),
         }
+    }
+
+    /// The X4's screen and buttons with the memory of a larger reader
+    /// (`MemoryClass::Large`): where the host keeps no X4 limits, e.g. its
+    /// nested callbacks open.
+    pub fn large() -> Self {
+        let x4 = Self::x4();
+        Self {
+            device: DeviceInfo::new(
+                "large",
+                "A larger reader",
+                x4.device.display,
+                x4.device.input,
+                MemoryClass::Large,
+            ),
+            ..x4
+        }
+    }
+
+    /// Builds the kernel further with `step`, e.g. `|b| b.built_in_fonts(&DEFAULT_FONT_PACKS)`
+    /// for the fonts a screen draws with, or `|b| b.storage(..)` for files it reads. Steps run
+    /// in the order given.
+    pub fn with_kernel(mut self, step: impl Fn(KernelBuilder) -> KernelBuilder + 'static) -> Self {
+        self.kernel.push(Arc::new(step));
+        self
+    }
+
+    /// Wires host services for the plugin as a shell does
+    /// (`HostResources::wire`): `|w| w.lookup()`, `|w| w.library(..)`, ... Steps run in the
+    /// order given. Without any, a service the plugin declared answers as an unwired family
+    /// does; with one the call reaches the real host, and so the checks of the call path (a
+    /// reply buffer smaller than the op's `max_reply` is `ERR_NO_SPACE` there, as on a device).
+    pub fn wired(mut self, step: impl Fn(HostWiring) -> HostWiring + 'static) -> Self {
+        self.wiring.push(Arc::new(step));
+        self
     }
 
     /// The user's configuration, as the file `config.ini` writes it.
@@ -227,6 +290,78 @@ pub fn install_in(
     name: &str,
     services: &[&'static str],
 ) -> Result<Installed, String> {
+    install_with(setup, entry, name, services, FEATURES)
+}
+
+/// [`install_in`] on a host that offers only `features` (a shell that does not
+/// back a feature, e.g. the desktop without `uses.install`).
+pub fn install_with(
+    setup: &Setup,
+    entry: &'static PpEntry,
+    name: &str,
+    services: &[&'static str],
+    features: &'static [Feature<'static>],
+) -> Result<Installed, String> {
+    let heap = Heap::default();
+    // Held from here on, so a refused install is checked for leaks as well.
+    let mut installed = Installed {
+        kernel: Some(
+            setup
+                .kernel
+                .iter()
+                .fold(
+                    Kernel::builder(setup.device).user_config(setup.config.clone()),
+                    |builder, step| step(builder),
+                )
+                .build()
+                .map_err(|e| format!("{e:?}"))?,
+        ),
+        heap,
+        resources: None,
+        depth: None,
+    };
+    register(
+        &mut installed,
+        setup,
+        entry,
+        name,
+        services,
+        features,
+        FixedTables::NONE,
+    )?;
+    Ok(installed)
+}
+
+/// Installs one more linked plugin `name` in the kernel of `installed`, on the
+/// same counted heap and device table (a page of one plugin that shows
+/// another's widgets), with the fixed `tables` its build script made.
+pub fn also(
+    installed: &mut Installed,
+    entry: &'static PpEntry,
+    name: &str,
+    services: &[&'static str],
+    tables: FixedTables,
+) -> Result<(), String> {
+    register(
+        installed,
+        &Setup::default(),
+        entry,
+        name,
+        services,
+        FEATURES,
+        tables,
+    )
+}
+
+fn register(
+    installed: &mut Installed,
+    setup: &Setup,
+    entry: &'static PpEntry,
+    name: &str,
+    services: &[&'static str],
+    features: &'static [Feature<'static>],
+    tables: FixedTables,
+) -> Result<(), String> {
     let services: &'static [Service<'static>] = Box::leak(
         services
             .iter()
@@ -248,21 +383,35 @@ pub fn install_in(
             entry_bytes: 32,
         },
         services,
-        features: FEATURES,
+        features,
     };
     // SAFETY: a linked entry's metadata view is its own static bytes.
     let metadata = unsafe { std::slice::from_raw_parts(entry.metadata.ptr, entry.metadata.len) };
-    let heap = Heap::default();
-    // Held from here on, so a refused install is checked for leaks as well.
-    let mut installed = Installed {
-        kernel: Some(
-            Kernel::builder(setup.device)
-                .user_config(setup.config.clone())
-                .build()
-                .map_err(|e| format!("{e:?}"))?,
-        ),
-        heap: heap.clone(),
+    let heap = installed.heap.clone();
+    let resources = match installed.resources.as_ref() {
+        Some(shared) => shared.try_clone().ok_or("no memory for the device table")?,
+        None => {
+            let resources = HostResources::try_new().map_err(|e| format!("{e:?}"))?;
+            if !setup.wiring.is_empty() {
+                let wiring = setup
+                    .wiring
+                    .iter()
+                    .fold(HostWiring::new(), |wiring, step| step(wiring));
+                resources.wire(wiring).map_err(|e| format!("wire: {e:?}"))?;
+            }
+            installed.resources = resources.try_clone();
+            resources
+        }
     };
+    let depth = match installed.depth.as_ref() {
+        Some(shared) => shared
+            .try_clone()
+            .ok_or("no memory for the depth counter")?,
+        None => FlatDepth::try_new().map_err(|e| format!("{e:?}"))?,
+    };
+    installed.depth = depth.try_clone();
+    // The kernel keeps a linked plugin's id as the firmware does, for the run.
+    let name: &'static str = Box::leak(Box::from(name));
     // SAFETY: statically linked code and metadata live for the whole test.
     unsafe {
         installed.kernel().register_linked(
@@ -270,15 +419,16 @@ pub fn install_in(
             metadata,
             &host,
             name,
-            heap.clone(),
-            HostResources::try_new().map_err(|e| format!("{e:?}"))?,
-            &FlatDepth::try_new().map_err(|e| format!("{e:?}"))?,
+            heap,
+            resources,
+            &depth,
             teardown,
             report,
+            (core::ptr::null(), 0),
+            tables,
         )
     }
-    .map_err(|e| format!("{e:?}"))?;
-    Ok(installed)
+    .map_err(|e| format!("{e:?}"))
 }
 
 /// [`install`] and tear the plugin down again: `make` ran in a real
@@ -289,4 +439,22 @@ pub fn try_construct(
     services: &[&'static str],
 ) -> Result<(), String> {
     install(entry, name, services).map(drop)
+}
+
+/// [`try_construct`] on a host that does not offer the features named in `lacking`.
+pub fn try_construct_lacking(
+    entry: &'static PpEntry,
+    name: &str,
+    services: &[&'static str],
+    lacking: &[&str],
+) -> Result<(), String> {
+    let offered: &'static [Feature<'static>] = Box::leak(
+        FEATURES
+            .iter()
+            .filter(|f| !lacking.contains(&f.key))
+            .cloned()
+            .collect::<Vec<_>>()
+            .into_boxed_slice(),
+    );
+    install_with(&Setup::default(), entry, name, services, offered).map(drop)
 }

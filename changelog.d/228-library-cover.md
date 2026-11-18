@@ -1,0 +1,3 @@
+### Added
+
+- **`core.library` `cover` (op 7) in the production library host** (#228, #245). The first call for a book opens it through `core.document` as the caller (root 1, no `uses.storage` needed), asks the format for its cover (DOC op 15) and closes the document again; the picture is the caller's own image id, kept after the document ends, and the same book's cover has one id. Later calls find the picture in the book's document cache and decode nothing. Nothing is held between calls; a full document table or a format not running yet answer `ERR_BUSY` and raise `event.library_changed` bit 6 so the caller asks again, a book without a cover or whose format is still preparing (DOCX, MOBI before their first read) `ERR_NOT_FOUND`.

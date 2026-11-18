@@ -318,6 +318,10 @@ pub struct Profile {
     /// The device speaks text aloud (emulated: the text is logged and
     /// takes as long as it would to speak).
     pub speech: bool,
+    /// The host leaves `text.ink` (slot 30) unanswered, as the Xteink
+    /// firmware does until the probe is timed there (`x4-ink`): plugins
+    /// place text by its metrics, and the emulator must draw the same.
+    pub ink_unwired: bool,
     /// PaperPaw manages Wi-Fi itself, as on the X4 (emulated: made-up
     /// networks, see `wifi`); elsewhere the system does.
     pub wifi: bool,
@@ -331,6 +335,10 @@ pub struct Profile {
     /// PaperPaw shows its sleep screen and the device sleeps (the power
     /// button); Android shows its own.
     pub sleep: bool,
+    /// PaperPaw switches the device off (a plugin's request, the power menu's
+    /// *Switch off*): the X4s do; here the device is as asleep, the power button
+    /// wakes it.
+    pub power_off: bool,
     /// The buttons in a row below the screen, left to right (see
     /// `KernelBuilder::button_row`).
     pub button_row: &'static [&'static str],
@@ -378,10 +386,12 @@ pub const PROFILES: &[Profile] = &[
         row_align: 8,
         settings: &X4_SETTINGS,
         speech: false,
+        ink_unwired: true,
         wifi: true,
         bluetooth: 0,
         catalog_device: Some("x4"),
         sleep: true,
+        power_off: true,
         button_row: &X4_ROW,
         light: None,
         body: X4_BODY,
@@ -412,10 +422,12 @@ pub const PROFILES: &[Profile] = &[
         row_align: 8,
         settings: &X4_PRO_SETTINGS,
         speech: false,
+        ink_unwired: true,
         wifi: true,
         bluetooth: 2,
         catalog_device: Some("x4-pro"),
         sleep: true,
+        power_off: true,
         button_row: &[],
         // As the X4 Pro's shell has it: brightness in single percents,
         // cool and warm LEDs mixed in fives.
@@ -447,10 +459,12 @@ pub const PROFILES: &[Profile] = &[
         row_align: 8,
         settings: &X4_SETTINGS,
         speech: false,
+        ink_unwired: true,
         wifi: true,
         bluetooth: 0,
         catalog_device: Some("x4-classic"),
         sleep: true,
+        power_off: true,
         button_row: &X4_ROW,
         light: None,
         body: X4_BODY,
@@ -478,10 +492,12 @@ pub const PROFILES: &[Profile] = &[
         row_align: 8,
         settings: &X4_SETTINGS,
         speech: false,
+        ink_unwired: true,
         wifi: true,
         bluetooth: 0,
         catalog_device: Some("x4"),
         sleep: true,
+        power_off: true,
         button_row: &X4_ROW,
         light: None,
         body: X4_BODY,
@@ -514,10 +530,12 @@ pub const PROFILES: &[Profile] = &[
         row_align: 1,
         settings: &[],
         speech: true,
+        ink_unwired: false,
         wifi: false,
         bluetooth: 0,
         catalog_device: Some("android"),
         sleep: false,
+        power_off: false,
         button_row: &[],
         // Unverified: Onyx's levels from 0 to 255, warm and cool LEDs;
         // the Android shell takes the device's range, in steps of 1.
@@ -555,10 +573,12 @@ pub const PROFILES: &[Profile] = &[
         row_align: 1,
         settings: &[],
         speech: false,
+        ink_unwired: false,
         wifi: false,
         bluetooth: 0,
         catalog_device: None,
         sleep: true,
+        power_off: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,
@@ -582,10 +602,12 @@ pub const PROFILES: &[Profile] = &[
         row_align: 1,
         settings: &[],
         speech: false,
+        ink_unwired: false,
         wifi: false,
         bluetooth: 0,
         catalog_device: None,
         sleep: true,
+        power_off: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,
@@ -609,10 +631,12 @@ pub const PROFILES: &[Profile] = &[
         row_align: 1,
         settings: &[],
         speech: false,
+        ink_unwired: false,
         wifi: false,
         bluetooth: 0,
         catalog_device: None,
         sleep: true,
+        power_off: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,
@@ -637,10 +661,12 @@ pub const PROFILES: &[Profile] = &[
         // Only two buttons: everything works with forward and back.
         settings: &[("core.keymap-preset", "core.two-buttons")],
         speech: false,
+        ink_unwired: false,
         wifi: false,
         bluetooth: 0,
         catalog_device: None,
         sleep: true,
+        power_off: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,
@@ -687,6 +713,27 @@ mod tests {
         let side = |button| pro.keys.iter().find(|k| k.button == button).unwrap().place;
         assert_eq!(side(buttons::PAGE_BACK), Place::Left);
         assert_eq!(side(buttons::PAGE_FORWARD), Place::Right);
+    }
+
+    /// Slot 35 (`ui.compose`) is blocked by the memory class until the X4's
+    /// stack gate passes (`ui.md` 5.1, `ui_store::is_x4`): every profile with a
+    /// small ESP32-C3 heap (X4, X3, a later one) must declare `Small`, and a
+    /// profile that declares `Large` must not have that heap.
+    #[test]
+    fn a_small_esp32_c3_profile_has_the_memory_class_that_blocks_compose() {
+        use paperpaw_platform::MemoryClass;
+        for id in ["xteink-x4", "xteink-x3"] {
+            assert_eq!(find(id).unwrap().device.memory, MemoryClass::Small, "{id}");
+        }
+        for profile in PROFILES {
+            let small_heap = profile.heap_budget.is_some_and(|heap| heap <= 256 * KIB);
+            assert_eq!(
+                small_heap,
+                profile.device.memory == MemoryClass::Small,
+                "{}: a heap of 256 KiB or less is the small class, and only it",
+                profile.device.id
+            );
+        }
     }
 
     #[test]

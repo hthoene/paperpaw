@@ -910,6 +910,11 @@ fn the_device_has_a_cap_of_servers_over_all_plugins_and_a_serve_past_it_is_busy_
     assert_eq!(serve_call(&fake, OWNER, &serve_rec(1, 8084)), Err(ERR_BUSY));
     serving::server_failed(&fake, key).unwrap();
     serve(&fake, OWNER, &serve_rec(1, 8084)).unwrap();
+    // The cable's server holds no place: served again on a network port
+    // with the device's one taken, it is busy (Core F1 on #900).
+    *fake.listen_result.borrow_mut() = Some(Ok(""));
+    serve(&fake, OWNER + 1, &serve_rec(2, 0)).unwrap();
+    assert_eq!(serve(&fake, OWNER + 1, &serve_rec(2, 8085)), Err(ERR_BUSY));
     // The X4 Pro and Classic have two; other devices eight.
     let fake = Fake::servers(2);
     serve(&fake, OWNER, &serve_rec(1, 8080)).unwrap();

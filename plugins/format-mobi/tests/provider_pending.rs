@@ -1,10 +1,6 @@
 //! What the provider cannot do until other parts land. Each case names what is missing.
 
 #[test]
-#[ignore = "Declarations PR: Declarations::format (extensions mobi, azw, azw3, sniffs, no whole_pages) and the NATIVE_ENTRY and .ppn of the plugin are not written yet (Plugin Engineer)"]
-fn the_format_is_declared_with_its_extensions() {}
-
-#[test]
 #[ignore = "Host #417: the fmt.call adapter is not wired to a loaded plugin; activation is Core #944"]
 fn the_host_opens_a_book_through_the_provider() {}
 

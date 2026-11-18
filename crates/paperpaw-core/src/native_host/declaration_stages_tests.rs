@@ -229,6 +229,7 @@ fn memory_refused_at_any_reservation_installs_nothing() {
         let mut store = DeclarationStore::default();
         let mut allocations = Allocations {
             fail_after: Some(fail_after),
+            ..Default::default()
         };
         let result = install(&mut store, &reader, &records[..1], &mut allocations)
             .and_then(|()| install(&mut store, &notes, &records[1..], &mut allocations));

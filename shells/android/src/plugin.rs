@@ -4,15 +4,16 @@
 use std::borrow::Cow;
 
 use android_activity::AndroidApp;
+use paperpaw_core::Ask;
+use paperpaw_core::Staging;
+use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::kit::menus::MenuEntry;
 use paperpaw_sdk::builtin::{events, groups, menus, params};
 use paperpaw_sdk::document::Document;
-use paperpaw_sdk::{
-    ActionSpec, Canvas, Command, Cx, Env, FormatSpec, Handled, Id, Manifest, MenuEntry, MenuNeed,
-    Params, Plugin, Rect, RegisterError, Registrar, Screen, ScreenSpec, SettingSpec, Version,
-};
+use paperpaw_sdk::{FormatSpec, Id, Manifest, MenuNeed, RegisterError, SettingSpec, Version};
 
 use crate::lights::Lights;
-use paperpaw_sdk::setting::{Setting, Text};
+use paperpaw_sdk::setting::Setting;
 
 pub const PLUGIN: Id = Id::new_static("android");
 /// Asks for access to the shared storage, where the books are.
@@ -20,10 +21,7 @@ pub const ALLOW_STORAGE: Id = Id::new_static("android.allow-storage");
 /// PDF books, rendered by the system (see `pdf`).
 pub const PDF: Id = Id::new_static("android.pdf");
 /// The voice that reads aloud: opens the system's speech settings.
-pub const VOICE: Setting<Text> = Setting::new("android.voice");
-const VOICE_SCREEN: Id = Id::new_static("android.voice-screen");
-/// The settings for reading aloud, every reader's.
-const ALOUD_SECTION: &str = paperpaw_sdk::builtin::group_sections::ALOUD;
+pub const VOICE: Id = Id::new_static("android.voice");
 /// Frontlight brightness (0 switches it off).
 pub const FRONTLIGHT: Setting<i64> = Setting::new("android.frontlight");
 /// Frontlight colour temperature (higher is warmer).
@@ -41,6 +39,32 @@ pub struct Frontlight {
     pub warmth: i32,
 }
 
+/// What the plugin's handlers reach of the platform: they are plain
+/// functions and hold nothing (#293). The kernel runs on one thread.
+#[derive(Default)]
+struct Platform {
+    app: Option<AndroidApp>,
+    lights: Option<Lights>,
+    /// The light follows a level shown, not kept.
+    following: bool,
+    /// The screen's size in pixels, which PDF pages are rendered to fit.
+    screen: (u32, u32),
+}
+
+std::thread_local! {
+    static PLATFORM: std::cell::RefCell<Platform> = std::cell::RefCell::new(Platform::default());
+}
+
+/// The app, once registered.
+fn platform_app() -> Option<AndroidApp> {
+    PLATFORM.with(|platform| platform.borrow().app.clone())
+}
+
+/// The frontlight, where there is one.
+fn platform_lights() -> Option<Lights> {
+    PLATFORM.with(|platform| platform.borrow().lights)
+}
+
 /// The Android plugin.
 pub struct AndroidPlugin {
     pub app: AndroidApp,
@@ -51,21 +75,26 @@ pub struct AndroidPlugin {
     pub screen: (u32, u32),
 }
 
-impl Plugin for AndroidPlugin {
-    fn manifest(&self) -> Manifest {
+impl AndroidPlugin {
+    /// What [`AndroidPlugin::register`] registers under.
+    pub fn manifest() -> Manifest {
         Manifest::new(PLUGIN, "Android", Version::new(0, 1, 0))
             .description("Connects PaperPaw to Android, e.g. to your book folders.")
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let app = self.app.clone();
+    /// Its actions, settings, format and texts (`KernelBuilder::items` with
+    /// [`AndroidPlugin::manifest`]).
+    pub fn register(&self, r: &mut Staging) -> Result<(), RegisterError> {
+        PLATFORM.with(|platform| {
+            platform.borrow_mut().app = Some(self.app.clone());
+        });
         r.add_action(
-            ActionSpec::new(ALLOW_STORAGE, "android.allow-storage").handler(
-                move |_: &Env<'_>, _, _: &mut paperpaw_sdk::Commands| {
+            ActionSpec::new(ALLOW_STORAGE, "android.allow-storage").handler(|_, _, _| {
+                if let Some(app) = platform_app() {
                     crate::access::request(&app);
-                },
-            ),
+                }
+            }),
         )?;
         if !self.shared_storage {
             // First on the home screen until access is granted.
@@ -75,15 +104,19 @@ impl Plugin for AndroidPlugin {
             self.register_frontlight(r, frontlight)?;
         }
         self.register_voice(r)?;
-        let (app, screen) = (self.app.clone(), self.screen);
+        PLATFORM.with(|platform| platform.borrow_mut().screen = self.screen);
         r.add_format(FormatSpec::new(
             PDF,
             "android.pdf",
             vec![Cow::Borrowed("pdf")],
-            Box::new(move |storage, path, _| {
+            |storage, path, _| {
+                let Some(app) = platform_app() else {
+                    return Err(paperpaw_sdk::document::DocumentError::UnsupportedFormat);
+                };
+                let screen = PLATFORM.with(|platform| platform.borrow().screen);
                 crate::pdf::PdfDocument::open(&app, storage, path, screen)
                     .map(|d| Box::new(d) as Box<dyn Document>)
-            }),
+            },
         ))?;
         r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
         r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
@@ -91,55 +124,25 @@ impl Plugin for AndroidPlugin {
     }
 }
 
-/// Opens the system's speech settings and closes at once: the editor of
-/// [`VOICE`].
-struct VoiceSettings {
-    app: AndroidApp,
-}
-
-impl Screen for VoiceSettings {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-
-    fn region(&self, _: &Env<'_>) -> Option<Rect> {
-        Some(Rect::new(0, 0, 0, 0))
-    }
-
-    fn on_show(&mut self, cx: &mut Cx<'_, '_>) {
-        if !crate::speech::open_settings(&self.app) {
-            let text = cx.env().i18n().tr("android.voice.unavailable").to_string();
-            cx.command(Command::Notify(text));
-        }
-        cx.command(Command::Back);
-    }
-
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
-        Handled::No
-    }
-}
-
-/// The voice's part and editor: the system's speech settings.
-static VOICE_EXTRA: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new()
-    .section(ALOUD_SECTION)
-    .editor(VOICE_SCREEN);
 /// Set with a slider.
 static SLIDER: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new().slider();
 
 impl AndroidPlugin {
-    /// The voice for reading aloud, with its other settings; it is
-    /// chosen in the system's speech settings.
-    fn register_voice(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_setting(
-            SettingSpec::text(VOICE.static_str(), "android.voice", "", groups::READING)
-                .with_extra(&VOICE_EXTRA)
-                .description("android.voice.help"),
-        )?;
-        r.set_menu_need(VOICE, MenuNeed::Speech)?;
-        let app = self.app.clone();
-        r.add_screen(ScreenSpec::new(
-            VOICE_SCREEN,
-            "android.voice",
-            Box::new(move |_, _| Box::new(VoiceSettings { app: app.clone() })),
-        ))
+    /// The voice for reading aloud: chosen in the system's speech settings,
+    /// which the action opens from the reader's *More* menu.
+    fn register_voice(&self, r: &mut Staging) -> Result<(), RegisterError> {
+        let voice = ActionSpec::new(VOICE, "android.voice").describe("android.voice.help");
+        r.add_action(voice.handler(|env, _, out| {
+            let Some(app) = platform_app() else {
+                return;
+            };
+            if !crate::speech::open_settings(&app) {
+                let text = env.i18n().tr("android.voice.unavailable").to_string();
+                out.push(Ask::Notify(text));
+            }
+        }))?;
+        r.add_menu_entry(MenuEntry::new(menus::READER_MORE, VOICE))?;
+        r.set_menu_need(VOICE, MenuNeed::Speech)
     }
 
     /// Brightness and warmth as settings, also in the reader's panel and
@@ -147,7 +150,7 @@ impl AndroidPlugin {
     /// change goes to the device.
     fn register_frontlight(
         &self,
-        r: &mut Registrar,
+        r: &mut Staging,
         frontlight: Frontlight,
     ) -> Result<(), RegisterError> {
         let lights = frontlight.lights;
@@ -189,72 +192,67 @@ impl AndroidPlugin {
         }
         r.add_icon(FRONTLIGHT, Cow::Borrowed("bulb"))?;
         r.add_icon(WARMTH, Cow::Borrowed("temperature"))?;
-        let app = self.app.clone();
-        r.subscribe(
-            events::SETTING_CHANGED,
-            Box::new(
-                move |env: &Env<'_>, params: &Params, _: &mut paperpaw_sdk::Commands| {
-                    let id = params.get(params::ID).unwrap_or_default();
-                    let level = env.settings().int(id) as i32;
-                    // Only real changes reach the device: taking over its
-                    // own levels on start never writes back.
-                    if id == FRONTLIGHT.as_str() && lights.brightness(&app) != level {
-                        lights.set_brightness(&app, level);
-                    } else if id == WARMTH.as_str() && lights.warmth(&app) != level {
-                        lights.set_warmth(&app, level);
-                    }
-                },
-            ),
-        )?;
+        PLATFORM.with(|platform| platform.borrow_mut().lights = Some(lights));
+        r.subscribe(events::SETTING_CHANGED, |k, params| {
+            let (Some(app), Some(lights)) = (platform_app(), platform_lights()) else {
+                return;
+            };
+            let id = params.get(params::ID).unwrap_or_default();
+            let level = k.settings().int(id) as i32;
+            // Only real changes reach the device: taking over its
+            // own levels on start never writes back.
+            if id == FRONTLIGHT.as_str() && lights.brightness(&app) != level {
+                lights.set_brightness(&app, level);
+            } else if id == WARMTH.as_str() && lights.warmth(&app) != level {
+                lights.set_warmth(&app, level);
+            }
+        })?;
         // A level shown before it is kept, as a slider moves: the light
         // follows it at once, and goes back to the level kept if it is not
         // kept. Other values shown (the text size) leave it alone, so as
         // not to undo what the system's own controls set meanwhile.
-        let app = self.app.clone();
-        let following = std::cell::Cell::new(false);
-        r.subscribe(
-            events::PREVIEW_CHANGED,
-            Box::new(
-                move |env: &Env<'_>, _: &Params, _: &mut paperpaw_sdk::Commands| {
-                    let shown = |id: &Setting<i64>| {
-                        env.settings().get(id.as_str()) != env.settings().global(id.as_str())
-                    };
-                    let light = shown(&FRONTLIGHT) || shown(&WARMTH);
-                    if !following.replace(light) && !light {
-                        return;
-                    }
-                    let level = env.settings().read(&FRONTLIGHT) as i32;
-                    if lights.brightness(&app) != level {
-                        lights.set_brightness(&app, level);
-                    }
-                    let warmth = env.settings().read(&WARMTH) as i32;
-                    if lights.has_warmth() && lights.warmth(&app) != warmth {
-                        lights.set_warmth(&app, warmth);
-                    }
-                },
-            ),
-        )?;
+        r.subscribe(events::PREVIEW_CHANGED, |k, _| {
+            let (Some(app), Some(lights)) = (platform_app(), platform_lights()) else {
+                return;
+            };
+            let settings = k.settings();
+            let shown =
+                |id: &Setting<i64>| settings.get(id.as_str()) != settings.global(id.as_str());
+            let light = shown(&FRONTLIGHT) || shown(&WARMTH);
+            let following = PLATFORM
+                .with(|platform| core::mem::replace(&mut platform.borrow_mut().following, light));
+            if !following && !light {
+                return;
+            }
+            let level = settings.read(&FRONTLIGHT) as i32;
+            if lights.brightness(&app) != level {
+                lights.set_brightness(&app, level);
+            }
+            let warmth = settings.read(&WARMTH) as i32;
+            if lights.has_warmth() && lights.warmth(&app) != warmth {
+                lights.set_warmth(&app, warmth);
+            }
+        })?;
         // The device's levels are the truth (they also change through
         // the system's own controls): take them over on start.
-        let app = self.app.clone();
-        r.subscribe(
-            events::STARTED,
-            Box::new(
-                move |env: &Env<'_>, _: &Params, out: &mut paperpaw_sdk::Commands| {
-                    let levels = [
-                        (FRONTLIGHT, lights.brightness(&app)),
-                        (WARMTH, lights.warmth(&app)),
-                    ];
-                    for (id, level) in levels {
-                        let level = i64::from(level);
-                        let known = env.settings().get(id.as_str()).is_some();
-                        if known && env.settings().read(&id) != level {
-                            out.push(Command::set(&id, level));
-                        }
+        r.subscribe(events::STARTED, |k, _| {
+            let (Some(app), Some(lights)) = (platform_app(), platform_lights()) else {
+                return;
+            };
+            let levels = [
+                (FRONTLIGHT, lights.brightness(&app)),
+                (WARMTH, lights.warmth(&app)),
+            ];
+            k.with_env(|env, out| {
+                for (id, level) in levels {
+                    let level = i64::from(level);
+                    let known = env.settings().get(id.as_str()).is_some();
+                    if known && env.settings().read(&id) != level {
+                        out.push(Ask::set(&id, level));
                     }
-                },
-            ),
-        )?;
+                }
+            });
+        })?;
         Ok(())
     }
 }

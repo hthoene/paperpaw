@@ -38,9 +38,9 @@ Overlong, overflowing or truncated varints are malformed.
 | 34 | `event.suspend` | `now_ms: u64` |
 | 35 | `event.stopping` | `now_ms: u64` |
 | 36 | `event.battery_measured` | `now_ms: u64` |
-| 37 | `event.page_turned` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`; optional (appended, bits 0 and 1, no default: `Option<u32>`): `page: u32`, `pages: u32` (absent until the reader counted the pages; pages count from 1, so a present 0, or a page past the count, is refused) |
+| 37 | `event.page_turned` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`; optional (appended, bits 0 and 1, no default: `Option<u32>`): `page: u32`, `pages: u32` (absent until the reader counted the pages; pages count from 1, so a present 0, or a page past the count, is refused); optional `insert: u32` (bit 2) and `chapter_left: u32` (bit 3, draft 37: the pages after this one in the chapter, 0 on its last page; only with `page` and `pages`, at most `pages - page`) |
 | 64 | `event.setting_changed` | `now_ms: u64`, `key: str 128`, `old: bytes 512` (empty: no previous value) |
-| 65 | `event.book_opened` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`, `reason: u32`; optional `page: u32`, `pages: u32`, `insert: u32` (the rules of tag 37) |
+| 65 | `event.book_opened` | `now_ms: u64`, `section: u32`, `offset: u32`, `progress_ppm: u32`, `path: str 512`, `title: str 256`, `chapter: str 256`, `reason: u32`; optional `page: u32`, `pages: u32`, `insert: u32`, `chapter_left: u32` (the rules of tag 37) |
 | 66 | `event.book_closed` | as 65 |
 | 67 | `event.book_finished` | as 65 |
 | 68 | `event.book_moved` | `now_ms: u64`, `from: str 512`, `path: str 512` |
@@ -73,8 +73,9 @@ proposal's body table: it has no `name` (a language is its own identity), only
 ## Generated records
 
 Every record in `abi/abi.def` except tags 1-4 is generated from its declared
-fields, with no per-record generator code: the struct, `decode`, `encode` and
-body length. Fields use the closed wire types `u32 u64 i32 str bytes`. A `str`
+fields, with no per-record generator code: the struct and a table of its fields,
+which one decoder, one sizer and one writer walk (`tools/abi_tables.py`; no code
+is generated per record). Fields use the closed wire types `u32 u64 i32 str bytes`. A `str`
 or `bytes` field has a `max_bytes` cap of 1 to 4096; a scalar has 0. Required
 fields come first, in order. Optional fields are appended after them, with
 ordinals 0, 1, ... in field order (at most 8), and a `default`: an integer for a
@@ -178,6 +179,12 @@ declaration builder sends it once after any refused addition, so `make` fails
 even when the plugin ignores the builder's errors. Cross-record references
 (an extra's spec, a group's parent, `follows`) are checked at commit against the
 whole construction, independent of record order.
+
+A plugin whose construction declares or registers anything is admitted: one
+that only registers (events, stages, services, a tick) loads, as in interface 6.
+A construction with neither a declaration nor a registration is an invalid
+plugin (`ERR_INVALID`; the desktop lists it as damaged), never "needs a newer
+PaperPaw" (H1b ruling on #228).
 
 `native_host::declarations` checks each record without a registry and without
 allocating; `registrations::validate_records` decodes a whole batch, validates

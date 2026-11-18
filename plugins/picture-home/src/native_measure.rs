@@ -9,7 +9,7 @@
 use paperpaw_sdk::{
     native::{
         Error, Host,
-        ui::{Ui, WidgetHandle},
+        ui::{MadeWidget, Ui},
     },
     widgets::grid::Geometry,
 };
@@ -50,15 +50,31 @@ pub fn rows_of(geometry: &Geometry, height: u32, least: u32) -> (u8, u8) {
 pub fn measure_handle(
     host: &Host<'_>,
     ui: &Ui,
-    widget: WidgetHandle,
+    widget: MadeWidget,
     geometry: &Geometry,
 ) -> Result<(u8, u8), Error> {
-    if widget.is_own() {
-        return Ok((1, 1));
-    }
+    measure_shown(host, ui, widget, geometry).map(|(rows, least, _)| (rows, least))
+}
+
+/// [`measure_handle`], and whether the widget shows nothing now (a height of
+/// 0: the shelf with no book read). Interface 6's widgets drew their plates
+/// themselves, so one that showed nothing had none.
+///
+/// # Errors
+/// Allocation and the host's refusals.
+pub fn measure_shown(
+    host: &Host<'_>,
+    ui: &Ui,
+    widget: MadeWidget,
+    geometry: &Geometry,
+) -> Result<(u8, u8, bool), Error> {
+    let MadeWidget::Widget(widget) = widget else {
+        return Ok((1, 1, false));
+    };
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     let size = ui.widget_measure(host, widget, grid_width(geometry), &mut input, &mut out)?;
-    Ok(rows_of(geometry, size.height(), size.min_height()))
+    let (rows, least) = rows_of(geometry, size.height(), size.min_height());
+    Ok((rows, least, size.height() == 0))
 }
 
 /// Makes the widget `id` at `place`, measures it and lets it go; `None` where
@@ -81,7 +97,9 @@ pub fn measure_widget(
     };
     let measured = measure_handle(host, ui, widget, geometry);
     // A refusal to let it go is of no matter: the host drops it with the screen.
-    let _ = ui.widget_drop(host, widget, &mut input, &mut out);
+    if let MadeWidget::Widget(widget) = widget {
+        let _ = ui.widget_drop(host, widget, &mut input, &mut out);
+    }
     measured.map(Some)
 }
 

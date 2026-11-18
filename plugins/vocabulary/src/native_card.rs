@@ -372,6 +372,8 @@ impl Card for HostCard<'_, '_> {
 pub(crate) struct Both<'a> {
     pub(crate) data: &'a dyn Storage,
     pub(crate) card: &'a dyn Storage,
+    /// The bytes read through it so far (what a turn of work may cost).
+    pub(crate) read: core::cell::Cell<u64>,
 }
 
 impl core::fmt::Debug for Both<'_> {
@@ -395,7 +397,9 @@ impl Both<'_> {
 impl Storage for Both<'_> {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
         let (side, name) = self.pick(path);
-        side.read_at(name, offset, buf)
+        let n = side.read_at(name, offset, buf)?;
+        self.read.set(self.read.get().saturating_add(n as u64));
+        Ok(n)
     }
     fn size(&self, path: &str) -> Result<u64, StorageError> {
         let (side, name) = self.pick(path);
@@ -465,12 +469,25 @@ pub(crate) fn with_both<T>(
     host: &Host<'_>,
     work: impl FnOnce(&dyn Storage) -> Result<T, Error>,
 ) -> Result<T, Error> {
+    with_both_metered(host, |storage, _| work(storage))
+}
+
+/// [`with_both`], `work` also told how many bytes it has read so far.
+///
+/// # Errors
+/// As [`with_both`].
+pub(crate) fn with_both_metered<T>(
+    host: &Host<'_>,
+    work: impl FnOnce(&dyn Storage, &core::cell::Cell<u64>) -> Result<T, Error>,
+) -> Result<T, Error> {
     let card = CardStorage(HostCard::open(host)?);
     let data = paperpaw_sdk::native::storage::DataStorage::new(host);
-    let done = work(&Both {
+    let both = Both {
         data: &data,
         card: &card,
-    });
+        read: core::cell::Cell::new(0),
+    };
+    let done = work(&both, &both.read);
     let closed = card.0.close();
     let value = done?;
     closed?;

@@ -1,0 +1,138 @@
+# Beta 4 suite 02: the reader. Page turns, the reading menu, bookmarks, highlights through the menu (More > Select text).
+include:common.pps
+
+test:02a-page-turns {
+  call:home
+  open:$book
+  wait:5000
+  measure:turn:n=10:warm=1:settle=3000 {
+    page-forward
+  }
+  assert:turn.first_ms.median<=1000:a page turn within a second
+  assert:turn.first_ms.median<=baseline*1.1
+  assert:turn.frames.max<=2:no extra frames
+  assert:turn.unprompted.max==0:no frame nobody asked for
+  if:has:turn.card_writes {
+    assert:turn.card_writes.max<=1:at most one write command per turn
+  }
+  measure:turn-back:n=3:settle=3000 {
+    page-back
+  }
+  assert:turn-back.first_ms.median<=1000
+  no-warn
+}
+
+test:02b-reading-menu {
+  open:$book
+  wait:4000
+  confirm
+  until:Contents:8000
+  expect:Font
+  expect:Search
+  expect:Notes
+  expect:Night
+  expect:Bookmark
+  expect:More
+  expect:Home
+  back
+  wait:1500
+  expect-not:Bookmark
+  no-warn
+}
+
+# Night: the panel's switch is "on" when the setting is, and it turns the page around.
+test:02c-night-switch {
+  confirm
+  until:Night:8000
+  select:Night
+  wait:2500
+  confirm
+  until:Night:8000
+  select:Night
+  wait:2500
+  back
+  wait:1000
+  no-warn
+}
+
+# A bookmark through the menu: set, listed under Notes, removed again.
+test:02d-bookmark {
+  confirm
+  until:Bookmark:8000
+  select:Bookmark
+  wait:1500
+  confirm
+  until:Notes:8000
+  select:Notes
+  until:Bookmarks and highlights:8000
+  expect:Bookmark ·
+  back
+  wait:1500
+  confirm
+  until:Bookmark:8000
+  select:Bookmark
+  wait:1500
+  confirm
+  until:Notes:8000
+  select:Notes
+  until:Bookmarks and highlights:8000
+  expect-not:Bookmark ·
+  back
+  wait:1500
+  no-warn
+}
+
+# Highlight with the buttons only: More > Select text, two words with Right, Select, the bar's Highlight.
+# Menu path (More > Select text); variant B (hold Left) is suite 12.
+test:02e-highlight-via-menu {
+  call:home
+  open:$book
+  wait:4000
+  confirm
+  until:More:8000
+  select:More
+  until:Select text:8000
+  select:Select text
+  wait:1500
+  # now a word is chosen: Right widens, Select opens the bar (Look up, Highlight, Note, Copy, Extend)
+  right
+  right
+  confirm
+  until:Highlight:5000
+  # Highlight has the focus: Select makes it
+  confirm
+  wait:1500
+  confirm
+  until:Notes:8000
+  select:Notes
+  until:Bookmarks and highlights:8000
+  expect:Highlight ·
+  no-warn
+}
+
+# The same selection started by its action (not the menu): tells a menu problem from a selection problem.
+test:02f-highlight-by-action {
+  call:home
+  open:$book
+  wait:4000
+  run:reader.select-text
+  wait:1500
+  right
+  right
+  confirm
+  # 02e highlighted these words: the bar says Remove highlight now, so wait for Copy
+  until:Copy:5000
+  expect:Look up
+  back
+  wait:1000
+  no-warn
+}
+
+test:02g-menu-home {
+  confirm
+  until:Home:8000
+  select:Home
+  until:Continue reading:10000
+  expect:Edit
+  no-warn
+}

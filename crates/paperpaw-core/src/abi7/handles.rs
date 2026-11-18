@@ -7,7 +7,13 @@
 extern crate alloc;
 use alloc::vec::Vec;
 
-const GROWTH: usize = 8;
+/// Slots a full table grows by: four (#248, P2). The table only grows (an
+/// exhausted slot stays retired), so it holds what the device opened at most
+/// plus three; a step of eight held room for seven handles from the first
+/// service a plugin opened (1.1 KiB on the emulator), and a step of one
+/// moved the table for every handle opened at start (holes in the X4's
+/// heap).
+const GROWTH: usize = 4;
 const INDEX_BITS: u32 = 10;
 const SLOTS: usize = 1 << INDEX_BITS;
 const INDEX_MASK: u32 = (1 << INDEX_BITS) - 1;
@@ -156,6 +162,41 @@ impl<T> Handles<T> {
             return Err(Error::Capacity);
         }
         Ok(())
+    }
+
+    /// Whether `owner` holds any handle.
+    #[allow(
+        dead_code,
+        reason = "parked plugins (#2638); unused by tests/abi7_teardown.rs"
+    )]
+    pub(crate) fn holds(&self, owner: u64) -> bool {
+        self.slots.iter().any(|slot| {
+            slot.entry
+                .as_ref()
+                .is_some_and(|entry| entry.owner == owner)
+        })
+    }
+
+    /// How many handles are held, all owners together.
+    #[allow(dead_code, reason = "tests of parking again (#248, D3) only")]
+    pub(crate) fn live(&self) -> usize {
+        self.slots
+            .iter()
+            .filter(|slot| slot.entry.is_some())
+            .count()
+    }
+
+    /// Whether `owner` holds a handle of `kind`.
+    #[allow(
+        dead_code,
+        reason = "parked plugins (#248, D3); unused by tests/abi7_teardown.rs"
+    )]
+    pub(crate) fn holds_kind(&self, owner: u64, kind: Kind) -> bool {
+        self.slots.iter().any(|slot| {
+            slot.entry
+                .as_ref()
+                .is_some_and(|entry| entry.owner == owner && entry.kind == kind)
+        })
     }
 
     /// Host-only budget accounting; the visitor cannot reenter the registry.
@@ -313,6 +354,20 @@ pub(crate) const fn slot_bytes<T>() -> usize {
 mod tests {
     extern crate alloc;
     use super::*;
+
+    #[test]
+    fn holds_kind_sees_only_the_owners_handles_of_that_kind() {
+        struct Plain;
+        impl Release for Plain {
+            fn release(self) {}
+        }
+        let mut handles = Handles::new();
+        assert!(handles.insert(1, Kind::Service, Plain).is_ok());
+        assert!(handles.insert(2, Kind::Blob, Plain).is_ok());
+        assert!(handles.holds(1) && !handles.holds_kind(1, Kind::Blob));
+        assert!(handles.holds_kind(1, Kind::Service));
+        assert!(handles.holds_kind(2, Kind::Blob) && !handles.holds_kind(3, Kind::Blob));
+    }
 
     #[test]
     fn cancellation_visits_only_the_owner_before_resources_are_taken_and_released() {

@@ -4,8 +4,8 @@
 //! tests. The screens themselves follow (`PORTING-7.md`).
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
-    Declarations, DeclareError, EditorDecl, ExtraDecl, GroupDecl, Kind, ScreenDecl, SlotOfferDecl,
-    SpecDecl, StatusPlaceDecl, WidgetLayout, WidgetPlaceDecl,
+    Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Kind, ScreenDecl,
+    SlotOfferDecl, SpecDecl, StatusPlaceDecl, WidgetLayout, WidgetPlaceDecl,
 };
 
 /// Callback tokens: stable within this plugin.
@@ -13,6 +13,15 @@ pub const DASHBOARD: u32 = 10;
 pub const ADD: u32 = 11;
 pub const PICK: u32 = 12;
 pub const STATUS_ITEMS: u32 = 13;
+/// The minute tick: a bar that shows after a press goes, a bar that shows is
+/// drawn anew.
+pub const TICK: u32 = 14;
+/// A widget of the page says it shows something new (`event.widget_changed`):
+/// its cell is drawn anew.
+pub const WIDGET_CHANGED: u32 = 15;
+/// A picture the host prepared (`event.image_ready`, which the host sends only
+/// to a plugin that subscribes): the backdrop or a picture cell is drawn.
+pub const IMAGE_READY: u32 = 16;
 
 /// Pages at most.
 pub const MAX_PAGES: usize = 4;
@@ -484,5 +493,21 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     .map_err(|_| DeclareError::Empty("status place"))?;
     d.status_place(bar)?;
     d.menu_need("picture-home.focus-at-once", MenuNeed::NoTouch)?;
+    d.submit()
+}
+
+/// The minute tick, for the status bar, a widget that says it shows
+/// something new (`event.widget_changed`, which the host sends only to a maker
+/// that subscribes), for its cell, and a picture the host prepared
+/// (`event.image_ready`, likewise only to a subscriber), for the backdrop.
+///
+/// # Errors
+/// The declaration is refused.
+pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    d.subscribe_event(EventKind::Tick, TICK)?;
+    d.subscribe_event(EventKind::WidgetChanged, WIDGET_CHANGED)?;
+    d.subscribe_event(EventKind::ImageReady, IMAGE_READY)?;
     d.submit()
 }

@@ -1,18 +1,20 @@
 //! Slot-15 SetSetting: whole-batch validation, reserved-setting protection,
 //! and readback of the applied value in the next real callback.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
+use paperpaw_core::Place;
+use paperpaw_core::Staging;
 use paperpaw_core::native_host::commands::{
     COMMAND_MAX_BYTES, CommandAuthority, CommandScope, CommandStage, SecretText, WireCommand,
     commands_decode, commands_encode,
 };
 use paperpaw_core::native_host::environment::{EnvironmentScope, SettingValueRef, settings_decode};
+use paperpaw_core::{Ask, Asks};
 use paperpaw_native::host_glue::{
     ERR_DENIED, ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, ERR_UTF8, OK,
 };
 use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
 use paperpaw_sdk::{
-    Canvas, Command, Commands, Env, Id, Manifest, Plugin, Priority, RegisterError, Registrar,
-    Screen, ScreenSpec, SettingExtra, SettingSpec, SettingValue, builtin,
+    Canvas, Id, Manifest, Priority, RegisterError, SettingExtra, SettingSpec, SettingValue, builtin,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -22,7 +24,7 @@ use std::{
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "commands-test",
-    "Commands fixture",
+    "Asks fixture",
     DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
     InputCaps::new(true, false, false, &[]),
     MemoryClass::Small,
@@ -109,6 +111,7 @@ fn device_commands() -> [WireCommand<'static>; 29] {
             request: 6,
             author: &KEY,
             recovery: &KEY,
+            sha256: &KEY,
         },
         WireCommand::InstallRotation {
             request: 7,
@@ -206,7 +209,7 @@ fn submit(scope: &CommandScope, bytes: &[u8]) -> i32 {
     unsafe { scope.submit(bytes.as_ptr(), bytes.len()) }
 }
 
-fn read(env: &Env<'_>, key: &str) -> Vec<u8> {
+fn read(env: &Place<'_>, key: &str) -> Vec<u8> {
     let scope = pin!(EnvironmentScope::new());
     let mut out = [0; 64];
     let len = scope
@@ -224,7 +227,7 @@ fn refusals(scope: &CommandScope) {
     let flag = set("probe.flag", SettingValueRef::Bool(true));
     let long = "t".repeat(BYTES);
     let cases: [(Vec<u8>, i32); 15] = [
-        // Commands 56-59 decode but this host does not run them yet: the
+        // Asks 56-59 decode but this host does not run them yet: the
         // whole batch is refused, the flag before it included.
         (
             batch(&[flag, WireCommand::Redraw { mode: 3 }]),
@@ -302,7 +305,7 @@ fn refusals(scope: &CommandScope) {
 const BYTES: usize = 40;
 
 /// A panic in the callback clears the slot; afterwards a new scope works.
-fn unwinding(owner: &Id, env: &Env<'_>) {
+fn unwinding(owner: &Id, env: &Place<'_>) {
     let scope = pin!(CommandScope::new());
     let mut stage = CommandStage::new(owner, env.settings(), None, 1, BYTES);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -322,7 +325,7 @@ fn unwinding(owner: &Id, env: &Env<'_>) {
     assert_eq!(stage.staged().len(), 1);
 }
 
-fn started(env: &Env<'_>, out: &mut Commands) {
+fn started(env: &Place<'_>, out: &mut Asks) {
     let owner = Id::new_static("probe");
     let mut stage = CommandStage::new(&owner, env.settings(), None, 3, BYTES);
     let scope = pin!(CommandScope::new());
@@ -345,8 +348,8 @@ fn started(env: &Env<'_>, out: &mut Commands) {
     assert_eq!(
         stage.staged(),
         [
-            Command::SetSetting(Id::new_static("probe.flag"), SettingValue::Bool(true)),
-            Command::SetSetting(
+            Ask::SetSetting(Id::new_static("probe.flag"), SettingValue::Bool(true)),
+            Ask::SetSetting(
                 Id::new_static("probe.text"),
                 SettingValue::Text("Grüße".into())
             ),
@@ -362,7 +365,7 @@ fn started(env: &Env<'_>, out: &mut Commands) {
     cross_plugin_settings(&owner, env, out);
 }
 
-fn cross_plugin_settings(owner: &Id, env: &Env<'_>, out: &mut Commands) {
+fn cross_plugin_settings(owner: &Id, env: &Place<'_>, out: &mut Asks) {
     let mut stage = CommandStage::new(owner, env.settings(), None, 2, BYTES);
     let scope = pin!(CommandScope::new());
     let guarded = batch(&[
@@ -386,61 +389,79 @@ fn cross_plugin_settings(owner: &Id, env: &Env<'_>, out: &mut Commands) {
     out.extend(stage.into_commands());
 }
 
-struct Probe(Rc<RefCell<Vec<String>>>);
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("probe"),
-            "Probe",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+std::thread_local! {
+    /// The probe's log, in the test running (a handler holds none).
+    static PROBE_LOG: RefCell<Option<Rc<RefCell<Vec<String>>>>> = const { RefCell::new(None) };
+    /// The guarded writer, in the test running: its plugin, the authority
+    /// the host resolved for it and what its submit is to answer.
+    static WRITER: RefCell<Option<Writer>> = const { RefCell::new(None) };
+}
+
+/// The guarded writer's plugin, the authority the host resolved for it and
+/// what its submit is to answer.
+type Writer = (Id, Rc<Cell<Option<CommandAuthority>>>, i32);
+
+/// Writes `line` to the probe's log.
+fn note(line: String) {
+    PROBE_LOG.with(|log| {
+        if let Some(log) = log.borrow().as_ref() {
+            log.borrow_mut().push(line);
+        }
+    });
+}
+
+fn probe(kept: Rc<RefCell<Vec<String>>>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        PROBE_LOG.with(|log| *log.borrow_mut() = Some(kept.clone()));
         r.add_settings(&SETTINGS)?;
-        r.subscribe(
-            builtin::events::STARTED,
-            Box::new(|env, _, out| started(env, out)),
-        )?;
-        let log = self.0.clone();
-        r.subscribe(
-            builtin::events::SETTING_CHANGED,
-            Box::new(move |env, event, _| {
+        r.subscribe(builtin::events::STARTED, |k, _| {
+            k.with_env(started);
+        })?;
+        r.subscribe(builtin::events::SETTING_CHANGED, |k, event| {
+            k.with_env(|env, _| {
                 if event.get(builtin::params::ID) == Some("other.flag") {
                     assert!(env.settings().bool("other.flag"));
-                    log.borrow_mut().push("other.flag changed".into());
+                    note("other.flag changed".into());
                     return;
                 }
                 assert_ne!(event.get(builtin::params::ID), Some("other.guarded"));
                 let flag = read(env, "probe.flag");
                 let flag = settings_decode(&flag).unwrap();
                 let text = read(env, "probe.text");
-                log.borrow_mut()
-                    .push(format!("{flag:?} {:?}", settings_decode(&text)));
-            }),
-        )
+                note(format!("{flag:?} {:?}", settings_decode(&text)));
+            })
+        })
     }
 }
 
-struct Other;
-impl Plugin for Other {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("other"),
-            "Other",
-            paperpaw_sdk::Version::new(1, 0, 0),
-        )
-    }
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_settings(&FOREIGN)
-    }
+/// What [`probe`] registers under.
+fn probe_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static("probe"),
+        "Probe",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    )
+}
+
+fn other() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| r.add_settings(&FOREIGN)
+}
+
+/// What [`other`] registers under.
+fn other_manifest() -> Manifest {
+    Manifest::new(
+        Id::new_static("other"),
+        "Other",
+        paperpaw_sdk::Version::new(1, 0, 0),
+    )
 }
 
 #[test]
 fn staged_set_setting_is_read_back_in_the_next_callback() {
     let log = Rc::new(RefCell::new(Vec::new()));
     let mut kernel = paperpaw_core::Kernel::builder(DEVICE)
-        .plugin(Probe(log.clone()))
-        .plugin(Other)
+        .items(probe_manifest(), probe(log.clone()))
+        .items(other_manifest(), other())
         .build()
         .unwrap();
     kernel.start(paperpaw_platform::Instant(0));
@@ -466,9 +487,9 @@ fn staged_set_setting_is_read_back_in_the_next_callback() {
 }
 
 struct EmptyEditor;
-impl Screen for EmptyEditor {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-    fn on_action(&mut self, _: &Id, _: &mut paperpaw_sdk::Cx<'_, '_>) -> paperpaw_sdk::Handled {
+impl paperpaw_core::testing::Fake for EmptyEditor {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
+    fn on_action(&mut self, _: &Id, _: &mut paperpaw_core::Turn<'_, '_>) -> paperpaw_sdk::Handled {
         paperpaw_sdk::Handled::No
     }
 }
@@ -478,7 +499,7 @@ struct GuardedWriter {
     authority: Rc<Cell<Option<CommandAuthority>>>,
     expected: i32,
 }
-impl Plugin for GuardedWriter {
+impl GuardedWriter {
     fn manifest(&self) -> Manifest {
         let id = if self.editor { "editor" } else { "other" };
         Manifest::new(
@@ -487,12 +508,14 @@ impl Plugin for GuardedWriter {
             paperpaw_sdk::Version::new(1, 0, 0),
         )
     }
+}
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let owner = self.manifest().id;
-        if self.editor {
+fn guarded_writer(kept: GuardedWriter) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        let owner = kept.manifest().id;
+        if kept.editor {
             let screen = Id::new_static("editor.settings");
-            r.add_screen(ScreenSpec::new(
+            r.add_fake(paperpaw_core::testing::FakeSpec::new(
                 screen.clone(),
                 "Editor",
                 Box::new(|_, _| Box::new(EmptyEditor)),
@@ -501,11 +524,14 @@ impl Plugin for GuardedWriter {
         } else {
             r.add_settings(&FOREIGN)?;
         }
-        let authority = self.authority.clone();
-        let expected = self.expected;
-        r.subscribe(
-            builtin::events::STARTED,
-            Box::new(move |env, _, out| {
+        WRITER.with(|writer| {
+            *writer.borrow_mut() = Some((owner, kept.authority.clone(), kept.expected));
+        });
+        r.subscribe(builtin::events::STARTED, |k, _| {
+            let Some((owner, authority, expected)) = WRITER.with(|w| w.borrow().clone()) else {
+                return;
+            };
+            k.with_env(|env, out| {
                 let mut stage =
                     CommandStage::new(&owner, env.settings(), authority.get(), 1, BYTES);
                 let scope = pin!(CommandScope::new());
@@ -516,8 +542,8 @@ impl Plugin for GuardedWriter {
                     .unwrap();
                 assert_eq!(stage.staged().len(), usize::from(expected == OK));
                 out.extend(stage.into_commands());
-            }),
-        )
+            })
+        })
     }
 }
 
@@ -535,10 +561,10 @@ fn run_guarded_writer(editor: bool, resolve_authority: bool) {
     };
     let mut builder = paperpaw_core::Kernel::builder(DEVICE);
     if editor {
-        builder = builder.plugin(Other);
+        builder = builder.items(other_manifest(), other());
     }
     let owner = writer.manifest().id;
-    let mut kernel = builder.plugin(writer).build().unwrap();
+    let mut kernel = builder.guarded_writer(writer).build().unwrap();
     if resolve_authority {
         authority.set(Some(kernel.command_settings_authority(&owner)));
     }
@@ -559,4 +585,15 @@ fn a_plugins_own_guarded_setting_is_admitted() {
 #[test]
 fn no_host_authority_means_no_foreign_guarded_exemption() {
     run_guarded_writer(true, false);
+}
+
+/// Adds the fixtures that keep their fields (`TestPlugin`, `ServicePlugin`) to a builder.
+trait AddFixture {
+    fn guarded_writer(self, plugin: GuardedWriter) -> Self;
+}
+
+impl AddFixture for paperpaw_core::KernelBuilder {
+    fn guarded_writer(self, plugin: GuardedWriter) -> Self {
+        self.items(plugin.manifest(), guarded_writer(plugin))
+    }
 }

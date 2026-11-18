@@ -12,8 +12,30 @@
 
 use std::collections::VecDeque;
 
-use paperpaw_plugin_mail::session::{Input, Io};
-use paperpaw_sdk::{CertificateHash, KeyHash, MemoryStorage, Storage, Tls};
+use paperpaw_sdk::{CertificateHash, Distrust, KeyHash, MemoryStorage, SocketError, Storage, Tls};
+
+/// What the fake socket tells.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Input {
+    /// A plain connection is made.
+    Connected,
+    Secured {
+        certificate: CertificateHash,
+        key: KeyHash,
+        time_checked: bool,
+    },
+    Untrusted {
+        certificate: CertificateHash,
+        key: KeyHash,
+        why: Distrust,
+    },
+    Bytes(Vec<u8>),
+    /// A file read is complete.
+    Saved(String),
+    /// The other side closed (or the socket ended).
+    Closed,
+    Failed(SocketError, String),
+}
 
 /// What a test asks of the fake server.
 #[derive(Clone)]
@@ -35,6 +57,9 @@ pub struct Script {
     /// is refused.
     pub smtp_extensions: Vec<String>,
     pub refuse_rcpt: Option<String>,
+    /// Parts of messages the server gives for `UID FETCH uid BODY.PEEK[part]`:
+    /// (uid, part number, bytes).
+    pub parts: Vec<(u32, String, Vec<u8>)>,
 }
 
 impl Default for Script {
@@ -57,6 +82,7 @@ impl Default for Script {
                 "SIZE 1000000".into(),
             ],
             refuse_rcpt: None,
+            parts: Vec::new(),
         }
     }
 }
@@ -248,9 +274,10 @@ impl Fake {
         if self.auth == Auth::PlainWait {
             self.auth = Auth::None;
             let tag = self.pending_tag.clone();
-            let expect = paperpaw_plugin_mail::codec::base64_line(
+            let expect = paperpaw_plugin_mail::native_model::codec::base64_line(
                 format!("\0{}\0{}", self.script.user, self.script.password).as_bytes(),
-            );
+            )
+            .unwrap();
             if line == expect {
                 self.say(&format!("{tag} OK authenticated\r\n"));
             } else {
@@ -276,9 +303,10 @@ impl Fake {
                 self.pending_tag = tag;
                 self.say("+ \r\n");
             } else {
-                let expect = paperpaw_plugin_mail::codec::base64_line(
+                let expect = paperpaw_plugin_mail::native_model::codec::base64_line(
                     format!("\0{}\0{}", self.script.user, self.script.password).as_bytes(),
-                );
+                )
+                .unwrap_or_default();
                 if arg == expect {
                     self.say(&format!("{tag} OK authenticated\r\n"));
                 } else {
@@ -343,6 +371,34 @@ impl Fake {
             }
             text.push_str(&format!("{tag} OK done\r\n"));
             self.say(&text);
+        } else if upper.starts_with("UID FETCH")
+            && rest.contains("PEEK[")
+            && !rest.contains("PEEK[]")
+        {
+            let uid: u32 = rest.split(' ').nth(2).unwrap().parse().unwrap();
+            let part = rest
+                .split("PEEK[")
+                .nth(1)
+                .and_then(|s| s.split(']').next())
+                .unwrap()
+                .to_string();
+            let found = self
+                .script
+                .parts
+                .iter()
+                .find(|(u, p, _)| *u == uid && *p == part)
+                .map(|(_, _, bytes)| bytes.clone());
+            match found {
+                Some(bytes) => {
+                    self.say(&format!(
+                        "* 1 FETCH (UID {uid} BODY[{part}] {{{}}}\r\n",
+                        bytes.len()
+                    ));
+                    self.out.extend(bytes.iter().copied());
+                    self.say(&format!(")\r\n{tag} OK done\r\n"));
+                }
+                None => self.say(&format!("{tag} NO no such part\r\n")),
+            }
         } else if upper.starts_with("UID FETCH") {
             let uid: u32 = rest.split(' ').nth(2).unwrap().parse().unwrap();
             let found = self
@@ -391,7 +447,10 @@ impl Fake {
             }
             Auth::LoginPass => {
                 self.auth = Auth::None;
-                let pw = paperpaw_plugin_mail::codec::base64_line(self.script.password.as_bytes());
+                let pw = paperpaw_plugin_mail::native_model::codec::base64_line(
+                    self.script.password.as_bytes(),
+                )
+                .unwrap();
                 self.say(if line == pw {
                     "235 ok\r\n"
                 } else {
@@ -423,9 +482,10 @@ impl Fake {
             self.say("220 go ahead\r\n");
             self.starttls_pending = true;
         } else if upper.starts_with("AUTH PLAIN ") {
-            let expect = paperpaw_plugin_mail::codec::base64_line(
+            let expect = paperpaw_plugin_mail::native_model::codec::base64_line(
                 format!("\0{}\0{}", self.script.user, self.script.password).as_bytes(),
-            );
+            )
+            .unwrap();
             self.say(if line[11..] == expect {
                 "235 ok\r\n"
             } else {
@@ -457,8 +517,8 @@ impl Fake {
     }
 }
 
-impl Io for Fake {
-    fn connect_tls(&mut self, _host: &str, _port: u16, tls: Tls) {
+impl Fake {
+    pub fn connect_tls(&mut self, _host: &str, _port: u16, tls: Tls) {
         self.tls_used.push(tls);
         self.connected = true;
         self.secure = true;
@@ -466,13 +526,13 @@ impl Io for Fake {
         self.pending.push_back(self.secured());
     }
 
-    fn connect_plain(&mut self, _host: &str, _port: u16) {
+    pub fn connect_plain(&mut self, _host: &str, _port: u16) {
         self.connected = true;
         self.greet();
         self.pending.push_back(Input::Connected);
     }
 
-    fn start_tls(&mut self, tls: Tls) {
+    pub fn start_tls(&mut self, tls: Tls) {
         assert!(
             self.starttls_pending,
             "start_tls without the server's go-ahead"
@@ -489,11 +549,11 @@ impl Io for Fake {
         // The first thing the client may do after is read.
     }
 
-    fn send(&mut self, data: Vec<u8>) {
+    pub fn send(&mut self, data: Vec<u8>) {
         self.input_from_client(&data);
     }
 
-    fn read_bytes(&mut self, max: u32) {
+    pub fn read_bytes(&mut self, max: u32) {
         // The real kernel answers a read while the socket is secured with
         // `NotReady` and closes the socket.
         assert!(!self.switching, "read while the TLS switch is under way");
@@ -504,7 +564,7 @@ impl Io for Fake {
         self.want_bytes = Some(max);
     }
 
-    fn read_file(&mut self, path: &str, len: u64) {
+    pub fn read_file(&mut self, path: &str, len: u64) {
         assert!(!self.switching, "read while the TLS switch is under way");
         assert!(
             self.want_bytes.is_none() && self.want_file.is_none(),
@@ -513,7 +573,7 @@ impl Io for Fake {
         self.want_file = Some((path.to_string(), len));
     }
 
-    fn close(&mut self) {
+    pub fn close(&mut self) {
         self.closed = true;
     }
 }

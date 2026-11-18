@@ -1,12 +1,13 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail tests")]
 use super::*;
+use crate::Place;
 use alloc::vec::Vec;
 use core::{cell::Cell, mem::MaybeUninit, ptr};
 use paperpaw_native::host_glue as abi;
-use paperpaw_sdk::{Env, Settings};
+use paperpaw_sdk::Settings;
 
 struct Broker<'a> {
-    env: &'a Env<'a>,
+    env: &'a Place<'a>,
     calls: Cell<u32>,
     result: Result<usize, i32>,
     allocates: bool,
@@ -59,7 +60,7 @@ fn forwards_identity_cursor_and_payload_and_publishes_only_success() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     for result in [
         Ok(3),
         Err(abi::ERR_DENIED),
@@ -105,7 +106,7 @@ fn accepts_uninitialized_caller_output_without_reading_it() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let broker = Broker {
         env: &env,
         calls: Cell::new(0),
@@ -145,7 +146,7 @@ fn bad_ids_and_buffers_never_reach_the_broker_or_change_output() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let broker = Broker {
         env: &env,
         calls: Cell::new(0),
@@ -241,7 +242,7 @@ fn ordinary_query_frames_refuse_stage_execution() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let mut out = [0xa5; 8];
     // SAFETY: all bounded pairs are live and disjoint.
     assert_eq!(
@@ -268,7 +269,7 @@ fn every_pair_overlap_is_refused_before_forming_slices() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let broker = Broker {
         env: &env,
         calls: Cell::new(0),
@@ -321,7 +322,7 @@ fn broker_handles_oom_and_null_empty_output_without_slot_allocation() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let broker = Broker {
         env: &env,
         calls: Cell::new(0),
@@ -396,7 +397,7 @@ fn broker_can_initialize_exactly_the_output_capacity() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let broker = Broker {
         env: &env,
         calls: Cell::new(0),
@@ -435,7 +436,7 @@ fn oversized_broker_count_triggers_the_internal_debug_assertion() {
     let kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
         .unwrap();
-    let env = kernel.shared.env(paperpaw_platform::Instant(0));
+    let env = kernel.shared.place(paperpaw_platform::Instant(0));
     let broker = Broker {
         env: &env,
         calls: Cell::new(0),

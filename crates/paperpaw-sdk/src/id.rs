@@ -21,7 +21,7 @@ pub struct Id(Text);
 /// three): where it starts, and its length, whose top bit says it is
 /// owned (a `Box<str>`, freed with it). Ids are kept by the thousand,
 /// and so are the names menus give them.
-pub(crate) struct Text {
+pub struct Text {
     start: NonNull<u8>,
     len: usize,
 }
@@ -30,7 +30,7 @@ pub(crate) struct Text {
 const OWNED: usize = 1 << (usize::BITS - 1);
 
 impl Text {
-    pub(crate) const fn borrowed(text: &'static str) -> Self {
+    pub const fn borrowed(text: &'static str) -> Self {
         // SAFETY: a reference's pointer is never null.
         let start = unsafe { NonNull::new_unchecked(text.as_ptr().cast_mut()) };
         Self {
@@ -51,7 +51,7 @@ impl Text {
     }
 
     /// `text` as it came: in the program, or owned.
-    pub(crate) fn new(text: alloc::borrow::Cow<'static, str>) -> Self {
+    pub fn new(text: alloc::borrow::Cow<'static, str>) -> Self {
         match text {
             alloc::borrow::Cow::Borrowed(text) => Self::borrowed(text),
             alloc::borrow::Cow::Owned(text) => Self::owned(text),
@@ -63,7 +63,7 @@ impl Text {
     }
 
     /// The text where it is kept in the program, not owned.
-    pub(crate) const fn kept(&self) -> Option<&'static str> {
+    pub const fn kept(&self) -> Option<&'static str> {
         if self.is_owned() {
             return None;
         }
@@ -238,6 +238,18 @@ impl Id {
         }
     }
 
+    /// [`Id::parse`] of text kept for the whole run (a built-in key map's):
+    /// checked, then borrowed, so nothing is allocated (#248).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn parse_static(id: &'static str) -> Result<Id, InvalidId> {
+        if is_valid(id) {
+            Ok(Id(Text::borrowed(id)))
+        } else {
+            Err(InvalidId)
+        }
+    }
+
     /// [`Id::parse`] that never aborts on a full heap, for hosts that must
     /// not abort when memory runs out (the X4's plugin admission): checks
     /// the id first ([`IdError::Invalid`]), then copies it in one allocation
@@ -311,6 +323,15 @@ impl Id {
     pub fn is_owned_by(&self, plugin: &Id) -> bool {
         self.namespace() == plugin.as_str()
     }
+
+    /// The id where it is kept in the program, `None` where it is a copy on
+    /// the heap: for checks that a host keeps what it can in the program
+    /// (#248).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn kept(&self) -> Option<&'static str> {
+        self.0.kept()
+    }
 }
 
 impl Borrow<str> for Id {
@@ -349,7 +370,7 @@ impl fmt::Debug for Id {
     }
 }
 
-const fn is_valid(id: &str) -> bool {
+pub(crate) const fn is_valid(id: &str) -> bool {
     let bytes = id.as_bytes();
     if bytes.is_empty() {
         return false;

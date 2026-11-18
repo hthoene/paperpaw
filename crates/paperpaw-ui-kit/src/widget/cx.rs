@@ -1,8 +1,8 @@
 //! What a widget draws with in one callback: the host, its settings, the
-//! interface font, the look its settings make, the clock and the catalog.
+//! font chosen for it, the look its settings make, the clock and the catalog.
 //! Nothing here outlives the callback.
 use crate::{
-    Messages, Style,
+    Messages, SharedInputs, Style,
     widget::{Settings, Shape, settings::text_of},
 };
 use alloc::string::String;
@@ -20,6 +20,14 @@ use paperpaw_sdk::{
 /// a zone from the list.
 const ZONE_RULE: &str = "core.time-zone-rule";
 const ZONE: &str = "core.time-zone";
+
+/// The look a widget's context was made with, kept for the next one of the
+/// same display ([`Cx::open_kept`], [`Cx::keep`]).
+#[derive(Debug)]
+pub struct Kept {
+    display: (u16, u16),
+    shape: Shape,
+}
 
 /// One widget's drawing context.
 #[derive(Debug)]
@@ -39,7 +47,7 @@ impl<'a> Cx<'a> {
     /// The host's refusals and [`Error::NoMemory`].
     pub fn open(host: &'a Host<'a>, widget: &'a str) -> Result<Self, Error> {
         let settings = Settings::new(host, widget);
-        let font = Font::acquire_role(host, FontRole::Ui)?;
+        let font = widget_font(host, widget)?;
         let snapshot = snapshot::capture_snapshot(host)?;
         let style = Style::read(host, &snapshot, &font)?;
         Ok(Self {
@@ -52,19 +60,75 @@ impl<'a> Cx<'a> {
         })
     }
 
+    /// As [`Cx::open`], with the look (the interface's style and the widget's
+    /// own, some thirty settings) taken from `kept` where it is for this
+    /// display, read and made again where it is not. The widget's owner keeps
+    /// the look with [`Cx::keep`] and lets it go where a setting changes.
+    ///
+    /// # Errors
+    /// The host's refusals and [`Error::NoMemory`].
+    pub fn open_kept(
+        host: &'a Host<'a>,
+        widget: &'a str,
+        kept: Option<Kept>,
+    ) -> Result<Self, Error> {
+        Self::open_kept_with(host, widget, kept, &SharedInputs::default())
+    }
+
+    /// As [`Cx::open_kept`], with the interface's settings taken from `shared`
+    /// where a lay-out shares them ([`SharedInputs::share`]).
+    ///
+    /// # Errors
+    /// The host's refusals and [`Error::NoMemory`].
+    pub fn open_kept_with(
+        host: &'a Host<'a>,
+        widget: &'a str,
+        kept: Option<Kept>,
+        shared: &SharedInputs,
+    ) -> Result<Self, Error> {
+        let settings = Settings::new(host, widget);
+        let font = widget_font(host, widget)?;
+        let snapshot = snapshot::capture_snapshot(host)?;
+        let display = (snapshot.display_width(), snapshot.display_height());
+        let shape = match for_display(kept.map(|kept| (kept.display, kept.shape)), display) {
+            Some(shape) => shape,
+            None => Shape::read(&settings, shared.style(host, &snapshot, &font)?)?,
+        };
+        Ok(Self {
+            host,
+            settings,
+            shape,
+            font,
+            snapshot,
+            messages: Messages::new()?,
+        })
+    }
+
+    /// The look of this context, to be kept for the next one ([`Cx::open_kept`]).
+    #[must_use]
+    pub fn keep(self) -> Kept {
+        Kept {
+            display: (
+                self.snapshot.display_width(),
+                self.snapshot.display_height(),
+            ),
+            shape: self.shape,
+        }
+    }
+
     /// The style the widget draws in.
     #[must_use]
     pub const fn style(&self) -> &Style {
         &self.shape.style
     }
 
-    /// The seconds the chosen time zone is ahead of UTC at `unix`; 0 where
-    /// none is chosen (the system's zone is not known to a plugin).
+    /// The seconds the chosen time zone is ahead of UTC at `unix`; where
+    /// none is chosen, the system's offset from the callback's snapshot.
     ///
     /// # Errors
     /// The host's refusal.
     pub fn zone_offset(&self, unix: i64) -> Result<i32, Error> {
-        zone_offset(self.host, unix)
+        offset_or_system(self.host, unix, &self.snapshot)
     }
 
     /// The local date and time now, in the chosen zone, if the device
@@ -180,29 +244,21 @@ impl<'a> Cx<'a> {
     }
 }
 
-/// The seconds the chosen time zone is ahead of UTC at `unix`; 0 where none
-/// is chosen.
+/// The seconds the chosen time zone is ahead of UTC at `unix`; where none is
+/// chosen, the system's offset now (as the host's snapshot says; 0 while the
+/// device knows no time).
 ///
 /// # Errors
 /// The host's refusal.
 pub fn zone_offset(host: &Host<'_>, unix: i64) -> Result<i32, Error> {
-    let rule = text_of(host, ZONE_RULE, |rule| {
-        TimeZone::parse(rule.trim()).map(|zone| zone.offset_at(unix))
-    })?;
-    if let Some(offset) = rule {
-        return Ok(offset);
+    match chosen_offset(host, unix)? {
+        Some(offset) => Ok(offset),
+        None => Ok(system_offset(&snapshot::capture_snapshot(host)?)),
     }
-    text_of(host, ZONE, |id| {
-        TIME_ZONES
-            .iter()
-            .find(|(name, _)| *name == id)
-            .and_then(|(_, rule)| TimeZone::parse(rule))
-            .map_or(0, |zone| zone.offset_at(unix))
-    })
 }
 
-/// The local date and time of `snapshot`, in the chosen zone, if the device
-/// knows the time.
+/// The local date and time of `snapshot`, in the chosen zone (else the
+/// system's), if the device knows the time.
 ///
 /// # Errors
 /// The host's refusal.
@@ -210,8 +266,46 @@ pub fn local_time_in(host: &Host<'_>, snapshot: &Snapshot) -> Result<Option<Loca
     let Some(unix) = snapshot.unix_seconds() else {
         return Ok(None);
     };
-    let offset = zone_offset(host, unix)?;
+    let offset = offset_or_system(host, unix, snapshot)?;
     Ok(Some(UnixTime::from_secs(unix).local(offset)))
+}
+
+/// The chosen zone's offset at `unix`, else the system's from `snapshot`.
+fn offset_or_system(host: &Host<'_>, unix: i64, snapshot: &Snapshot) -> Result<i32, Error> {
+    Ok(chosen_or_system(
+        chosen_offset(host, unix)?,
+        snapshot.utc_offset_minutes(),
+    ))
+}
+
+/// The seconds the zone chosen in the settings (a POSIX rule, else one from
+/// the list) is ahead of UTC at `unix`; `None` where none is chosen
+/// ("automatic", empty or unknown), as Beta 3 then used the system's zone.
+fn chosen_offset(host: &Host<'_>, unix: i64) -> Result<Option<i32>, Error> {
+    let rule = text_of(host, ZONE_RULE, |rule| {
+        TimeZone::parse(rule.trim()).map(|zone| zone.offset_at(unix))
+    })?;
+    if rule.is_some() {
+        return Ok(rule);
+    }
+    text_of(host, ZONE, |id| {
+        TIME_ZONES
+            .iter()
+            .find(|(name, _)| *name == id)
+            .and_then(|(_, rule)| TimeZone::parse(rule))
+            .map(|zone| zone.offset_at(unix))
+    })
+}
+
+/// The system's offset in `snapshot`, in seconds; 0 where it gives none.
+fn system_offset(snapshot: &Snapshot) -> i32 {
+    chosen_or_system(None, snapshot.utc_offset_minutes())
+}
+
+/// The chosen zone's offset in seconds, else the system's (`system`, in
+/// minutes, from the snapshot), else 0 (the device knows no time).
+fn chosen_or_system(chosen: Option<i32>, system: Option<i16>) -> i32 {
+    chosen.unwrap_or_else(|| system.map_or(0, |minutes| i32::from(minutes) * 60))
 }
 
 /// The local date and time now, without a drawing context (to tell whether a
@@ -221,6 +315,29 @@ pub fn local_time_in(host: &Host<'_>, snapshot: &Snapshot) -> Result<Option<Loca
 /// The host's refusal.
 pub fn local_time_now(host: &Host<'_>) -> Result<Option<LocalTime>, Error> {
     local_time_in(host, &snapshot::capture_snapshot(host)?)
+}
+
+/// The key of the font the reader chose for a widget
+/// (`docs/abi/screens-input.md` section 4).
+const WIDGET_FONT: &str = "widget:";
+
+/// The font the reader chose for `widget` (its id with the placement): its
+/// own setting `<widget>.font`, else the one for all widgets, as the host
+/// resolves the key `widget:<id>`. The menus' font where the host knows no
+/// such key or the id is too long for one.
+///
+/// # Errors
+/// The host's refusal.
+pub fn widget_font<'a>(host: &'a Host<'a>, widget: &str) -> Result<Font<'a>, Error> {
+    use core::fmt::Write;
+    let mut key = super::settings::Stack::<128>::new();
+    if key.write_str(WIDGET_FONT).is_ok()
+        && key.write_str(widget).is_ok()
+        && let Ok(font) = Font::acquire(host, key.as_str())
+    {
+        return Ok(font);
+    }
+    Font::acquire_role(host, FontRole::Ui)
 }
 
 /// The font of `face` (one of [`super::options::FACES`]): the menus' font, or
@@ -235,4 +352,43 @@ pub fn face_font<'a>(host: &'a Host<'a>, face: &str) -> Result<Font<'a>, Error> 
         _ => FontRole::Ui,
     };
     Font::acquire_role(host, role)
+}
+
+/// What was kept for the display it was kept for, none for another one (the
+/// look depends on the display's size).
+fn for_display<S>(kept: Option<((u16, u16), S)>, display: (u16, u16)) -> Option<S> {
+    kept.filter(|(was, _)| *was == display)
+        .map(|(_, kept)| kept)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{chosen_or_system, for_display};
+
+    #[test]
+    fn a_kept_look_is_for_the_display_it_was_made_for() {
+        assert_eq!(
+            for_display(Some(((480, 800), "look")), (480, 800)),
+            Some("look")
+        );
+        // Turned, or another panel: read again.
+        assert_eq!(for_display(Some(((480, 800), "look")), (800, 480)), None);
+        assert_eq!(for_display(Some(((480, 800), "look")), (480, 480)), None);
+        assert_eq!(for_display::<&str>(None, (480, 800)), None);
+    }
+
+    #[test]
+    fn with_no_zone_chosen_the_systems_offset_counts() {
+        // 08:41 UTC on a device two hours ahead shows 10:41 (#257), as in
+        // Beta 3; before, the offset was 0 here.
+        assert_eq!(chosen_or_system(None, Some(120)), 7_200);
+        assert_eq!(chosen_or_system(None, Some(-330)), -19_800);
+    }
+
+    #[test]
+    fn a_chosen_zone_wins_and_no_time_is_utc() {
+        assert_eq!(chosen_or_system(Some(3_600), Some(120)), 3_600);
+        assert_eq!(chosen_or_system(Some(0), Some(120)), 0);
+        assert_eq!(chosen_or_system(None, None), 0);
+    }
 }

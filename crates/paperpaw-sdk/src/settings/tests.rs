@@ -635,8 +635,8 @@ fn a_layer_value_the_setting_no_longer_accepts_is_skipped() {
 #[test]
 fn room_for_made_settings_ends_at_the_places_there_are() {
     let mut s = Settings::new();
-    assert!(s.has_room_for(32_768));
-    assert!(!s.has_room_for(32_769));
+    assert!(s.has_room_for(16_384));
+    assert!(!s.has_room_for(16_385));
     assert!(!s.has_room_for(usize::MAX));
     s.define(SettingSpec::new(
         Id::new_static("a.b"),
@@ -646,6 +646,6 @@ fn room_for_made_settings_ends_at_the_places_there_are() {
         crate::builtin::groups::OTHER,
     ))
     .unwrap();
-    assert!(s.has_room_for(32_767));
-    assert!(!s.has_room_for(32_768));
+    assert!(s.has_room_for(16_383));
+    assert!(!s.has_room_for(16_384));
 }

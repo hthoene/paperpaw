@@ -1,0 +1,145 @@
+# Smart home (#135) on the emulator, against a fake Home Assistant server (token test-token-0123456789):
+#   tools/pps/smart-home/run-emulator.sh target/debug/paperpaw-emu out/smart-home
+# The plugin ships off on the emulator: the first test switches it on. The server lists 611 entities, 600 of
+# them filler sensors (609 are of a kind the plugin shows: no lock, no climate), so the list of states is read
+# from its file in pieces.
+include:../beta4/common.pps
+let:server=http://127.0.0.1:$port
+
+# `select:` only moves forward: go to the first row first.
+define:top {
+  repeat:30 {
+    left
+  }
+  wait:300
+}
+
+test:sh01-on {
+  set:help.show=off
+  set:core.sleep-after=0
+  set:core.language=en
+  call:settings-row:Manage plugins
+  until:Plugins:8000
+  select:Smart home:80
+  wait:1500
+  expect:Applies after a restart
+  restart
+  wait:4000
+  no-warn
+}
+
+# Without an address the dashboard says what to do, and offers the three rows.
+test:sh02-empty {
+  run:smart-home.open
+  until:Smart home:8000
+  expect:Enter the address of your Home Assistant
+  expect:Choose entities
+  expect:Connection
+  shot:$out/sh02-empty.png
+  no-warn
+}
+
+# The address, then a token the server refuses, then the right one.
+test:sh03-connect {
+  set:smart-home.server=$server
+  select:Connection:20
+  until:Access token:8000
+  expect:Server address
+  select:Access token
+  type-enter:wrong-token
+  wait:800
+  select:Test connection
+  until:did not accept the token:15000
+  shot:$out/sh03-denied.png
+  call:top
+  select:Access token
+  type-enter:test-token-0123456789
+  wait:800
+  select:Test connection
+  until:The server lists 611 entities:15000
+  shot:$out/sh03-connected.png
+  no-warn
+}
+
+# The picker: search, choose, a room for each.
+test:sh04-pick {
+  back
+  until:Smart home:8000
+  call:top
+  select:Choose entities:20
+  until:Search:8000
+  until:609 entities:15000
+  call:top
+  select:Search
+  type-enter:kitchen
+  until:Kitchen temperature:8000
+  expect:Kitchen humidity
+  select:Kitchen temperature
+  type-enter:Kitchen
+  wait:800
+  call:top
+  select:Kitchen humidity
+  type-enter:Kitchen
+  wait:800
+  call:top
+  select:Search
+  type-enter:lamp
+  until:Living room lamp:8000
+  call:top
+  select:Living room lamp
+  type-enter:Living room
+  wait:800
+  call:top
+  select:Search
+  type-enter:door
+  until:Front door:8000
+  call:top
+  select:Front door
+  type-enter:
+  wait:800
+  shot:$out/sh04-picked.png
+  no-warn
+}
+
+# The dashboard: the readings as the server wrote them (rounded), a switch that switches.
+test:sh05-dashboard {
+  back
+  until:Smart home:8000
+  call:top
+  until:Updated:15000
+  expect:21.54 °C
+  expect:48.2%
+  expect:Kitchen
+  expect:Living room
+  expect:Living room lamp
+  expect:Front door
+  expect:Closed
+  shot:$out/sh05-dashboard.png
+  call:top
+  select:Living room lamp:20
+  until:Off:8000
+  shot:$out/sh05-switched.png
+  call:top
+  select:Living room lamp:20
+  until:On:8000
+  no-warn
+}
+
+# The widgets on the home screen.
+test:sh06-widgets {
+  set:home.page-1=smart-home.value\,smart-home.list\,smart-home.switch\,smart-home.room
+  call:home
+  wait:2500
+  expect:21.54 °C
+  shot:$out/sh06-widgets.png
+  expect-not:Error
+  set:home.page-1=home.clock\, home.continue\, home.recent
+  no-warn
+}
+
+# What was kept on the card, and nothing of the token in it.
+test:sh07-kept {
+  cat:.paperpaw/plugins/smart-home/entities.txt
+  expect-not:test-token
+  no-warn
+}

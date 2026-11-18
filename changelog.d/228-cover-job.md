@@ -1,0 +1,3 @@
+### Added
+
+- **Covers of DOCX and MOBI books, made in the background** (#228, #245). A book whose format still has to prepare it gets its cover from one background job at a time: the first `cover` of it keeps the document open, the preparing loop converts it a step a pass between inputs, and `event.library_changed` bit 6 tells the screens to ask again. Any other open, sleep and a pulled card end the job first; nothing holds the device awake. A book whose job failed answers "not found" and is not tried again until the next start. A marker file `.paperpaw/cover-job.txt` names the book being tried, so a format that crashes on one book cannot crash the device at every start: the book counts as failed at the next start (after a plain power loss too, for that run only).

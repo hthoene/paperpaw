@@ -1,12 +1,14 @@
 //! What the home screen declares of itself (its pages, grid and footer
 //! settings, screens, slot, actions and menu entries), compared with the
-//! interface-6 registration by the declaration tests. The built-in widgets
-//! and the help hints follow (`PORTING-7.md`).
+//! interface-6 registration by the declaration tests, and the first-time help
+//! hints of the dashboard.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl,
-    KeyBindingDecl, Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, WidgetLayout,
-    WidgetPlaceDecl,
+    HelpHintDecl, KeyBindingDecl, Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl,
+    StatusPlaceDecl, WidgetDecl, WidgetLayout, WidgetPlaceDecl,
 };
+use paperpaw_sdk::native::ui::HintInput;
+use paperpaw_ui_kit::widget::options::{Opt, declare_all, shared_look};
 
 /// Callback tokens: stable within this plugin.
 pub const DASHBOARD: u32 = 10;
@@ -16,6 +18,22 @@ pub const STATUS_ITEMS: u32 = 13;
 pub const ALL_TOOLS: u32 = 1;
 pub const EDIT_PAGES: u32 = 2;
 pub const SETTING_CHANGED: u32 = 3;
+pub const TICK: u32 = 4;
+/// A widget of the plugin says it shows something new (`event.widget_changed`).
+pub const WIDGET_CHANGED: u32 = 5;
+/// The screen stack changed (`event.stack_changed`): a dashboard under another
+/// screen lets its page go.
+pub const STACK_CHANGED: u32 = 6;
+/// The registry changed (`event.registry_changed`): a page kept under another
+/// screen is laid out again when it is shown.
+pub const REGISTRY_CHANGED: u32 = 7;
+pub const LIBRARY_CHANGED: u32 = 8;
+/// Widget tokens: the widget's own callbacks (made, dropped, measured, drawn).
+pub const DATE: u32 = 20;
+pub const CLOCK: u32 = 21;
+pub const CARD: u32 = 22;
+pub const SHELF: u32 = 23;
+pub const STATUS_WIDGET: u32 = 24;
 
 /// Pages at most.
 pub const MAX_PAGES: usize = 8;
@@ -161,8 +179,8 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The dashboard, adding to a page, every tool at once, and the footer items'
-/// editor.
+/// The dashboard, adding to a page, every tool at once, and the editor of the
+/// footer's items and of the status line's parts and line.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
@@ -207,10 +225,263 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The grid's columns or rows changed: the pages are fitted to it.
+/// The grid's columns or rows changed (the pages are fitted to it), the
+/// minute tick (the status line, the clock and what else shows the time are
+/// drawn anew) and a widget that says it shows something new (the page is laid
+/// out and drawn anew where it is on top), the screen stack (the home screen
+/// under another screen keeps its page) and the registry (that page is laid out
+/// again when it is shown).
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;
+    d.subscribe_event(EventKind::Tick, TICK)?;
+    d.subscribe_event(EventKind::WidgetChanged, WIDGET_CHANGED)?;
+    d.subscribe_event(EventKind::StackChanged, STACK_CHANGED)?;
+    d.subscribe_event(EventKind::RegistryChanged, REGISTRY_CHANGED)?;
+    d.subscribe_event(EventKind::LibraryChanged, LIBRARY_CHANGED)?;
+    d.submit()
+}
+
+/// A built-in widget of the home screen.
+#[derive(Debug, Clone, Copy)]
+pub struct Def {
+    /// Relative to the plugin: `date` is `home.date`.
+    pub name: &'static str,
+    pub token: u32,
+    pub category: &'static str,
+    /// The catalog key of its name (and of its settings group).
+    pub title: &'static str,
+    /// Where the text sits by default; the widget's look settings (frame,
+    /// padding, paper, ink, corners, line, shadow) are the shared ones and
+    /// come first, then its own.
+    pub align: &'static str,
+    /// The frame it has at first.
+    pub frame: &'static str,
+    /// Whether it shows something new each minute (the time); the books are
+    /// asked about at the tick too, but a change of them is not a minute's.
+    pub live: bool,
+    /// The widget's own settings.
+    pub options: &'static [Opt],
+}
+
+impl Def {
+    /// Every setting of the widget in the order interface 6 registered them:
+    /// the shared look, then its own.
+    #[allow(
+        dead_code,
+        reason = "the tests read it; the build script reads the same file and does not"
+    )]
+    pub fn all(&self) -> impl Iterator<Item = Opt> + '_ {
+        shared_look(self.align)
+            .into_iter()
+            .map(|option| match option {
+                Opt::Frame(_) => Opt::Frame(self.frame),
+                other => other,
+            })
+            .chain(self.options.iter().copied())
+    }
+}
+
+/// The widget categories of the host's catalogue.
+const TIME: &str = "core.widgets.time";
+const BOOKS: &str = "core.widgets.books";
+
+/// The date in words, the clock with its date, the book being read and the
+/// recent ones.
+pub const WIDGETS: &[Def] = &[
+    Def {
+        name: "date",
+        token: DATE,
+        category: TIME,
+        title: "home.widget.date",
+        align: "core.align.center",
+        frame: "core.frame.none",
+        live: true,
+        options: &[Opt::Size("core.size.medium", false)],
+    },
+    Def {
+        name: "clock",
+        token: CLOCK,
+        category: TIME,
+        title: "home.widget.clock",
+        align: "core.align.center",
+        frame: "core.frame.none",
+        live: true,
+        options: &[
+            Opt::Size("core.size.medium", true),
+            Opt::Part("date", "home.setting.clock-date", true),
+        ],
+    },
+    Def {
+        name: "continue",
+        token: CARD,
+        category: BOOKS,
+        title: "home.widget.continue",
+        align: "core.align.left",
+        frame: "core.frame.line",
+        live: false,
+        options: &[
+            Opt::Part("cover", "home.setting.card-cover", true),
+            Opt::Part("progress", "home.setting.card-progress", true),
+        ],
+    },
+    Def {
+        name: "recent",
+        token: SHELF,
+        category: BOOKS,
+        title: "home.widget.recent",
+        align: "core.align.center",
+        frame: "core.frame.none",
+        live: false,
+        options: &[
+            Opt::Part("heading", "home.setting.recent-heading", true),
+            Opt::Part("titles", "home.setting.recent-titles", true),
+            Opt::Number(
+                "count",
+                "home.setting.recent-count",
+                1,
+                8,
+                6,
+                "home.setting.recent-count.help",
+            ),
+        ],
+    },
+];
+
+/// The status line's parts, each a list chosen on its picker: the whole lines
+/// shown instead (none; the first that is there shows), the time on the left,
+/// nothing in the centre, and Wi-Fi and the battery on the right. Name
+/// (relative to the widget), default, title, help, and whether the picker is
+/// home's items screen (for `line` in its lines mode, as interface 6 had the
+/// core screen `core.status-lines`).
+pub const STATUS_PARTS: &[(&str, &str, &str, &str, bool)] = &[
+    (
+        "line",
+        "",
+        "home.status.line",
+        "home.status.line.help",
+        true,
+    ),
+    (
+        "left",
+        "core.status.clock",
+        "home.status.left",
+        "home.status.part.help",
+        true,
+    ),
+    (
+        "center",
+        "",
+        "home.status.center",
+        "home.status.part.help",
+        true,
+    ),
+    (
+        "right",
+        "lock.touch-status, wifi.status, power.status, core.status.battery",
+        "home.status.right",
+        "home.status.part.help",
+        true,
+    ),
+];
+
+/// The look of the status line's frame (it has no alignment: its parts sit left,
+/// centre and right).
+pub const STATUS_LOOK: [Opt; 7] = [
+    Opt::Frame("core.frame.none"),
+    Opt::Padding,
+    Opt::Paper,
+    Opt::Ink,
+    Opt::Corners,
+    Opt::FrameLine,
+    Opt::Shadow,
+];
+
+/// The status line widget, its group of settings (the parts, then the look)
+/// and the place that names the three settings that list its items.
+fn status<F: FnMut(&[u8]) -> Result<(), i32>>(d: &mut Declarations<F>) -> Result<(), DeclareError> {
+    d.group(GroupDecl::new("status", "home.widget.status"))?;
+    let spec = WidgetDecl::new(
+        "status",
+        "home.widget.status",
+        "core.widgets.device",
+        STATUS_WIDGET,
+    )
+    .map_err(|_| DeclareError::TooLong("widget"))?
+    .live();
+    d.widget(spec)?;
+    for &(name, default, title, help, items) in STATUS_PARTS {
+        let name = ["status.", name].concat();
+        let mut part = SpecDecl::new(&name, Kind::List(default), "home.status", title);
+        part.help = help;
+        d.spec(part)?;
+        if items {
+            let mut extra = ExtraDecl::new(&name);
+            extra.editor = Some(EditorDecl::Screen("status-items"));
+            d.extra(extra)?;
+        }
+    }
+    declare_all(d, "status", "home.status", STATUS_LOOK)?;
+    let place = StatusPlaceDecl::new(
+        "status-line",
+        "home.widget.status",
+        "status.left",
+        "status.center",
+        "status.right",
+    )
+    .map_err(|_| DeclareError::TooLong("status place"))?;
+    d.status_place(place)?;
+    d.submit()
+}
+
+/// The built-in widgets: each has a group of settings
+/// of its own, named as it is.
+pub fn widgets<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    for widget in WIDGETS {
+        d.group(GroupDecl::new(widget.name, widget.title))?;
+        let mut spec = WidgetDecl::new(widget.name, widget.title, widget.category, widget.token)
+            .map_err(|_| DeclareError::TooLong("widget"))?;
+        if widget.live {
+            spec = spec.live();
+        }
+        d.widget(spec)?;
+        let group = ["home.", widget.name].concat();
+        declare_all(d, widget.name, &group, widget.all())?;
+        d.submit()?;
+    }
+    status(d)
+}
+
+/// The first time: how the gestures go, or the buttons (the dashboard's help
+/// hints, as interface 6 declared them; zones in thousandths of the screen).
+///
+/// # Errors
+/// A declaration is refused.
+pub fn help<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
+    let refused = |_| DeclareError::Empty("help hint");
+    for (text, input, zone) in [
+        ("home.tips.quick", HintInput::Touch, Some((0, 0, 1000, 120))),
+        ("home.tips.back", HintInput::Touch, Some((0, 400, 150, 300))),
+        ("home.tips.home", HintInput::Touch, None),
+        ("home.tips.tools", HintInput::Touch, None),
+        ("home.tips.arrange", HintInput::Touch, None),
+        ("home.tips.move", HintInput::Buttons, None),
+        ("home.tips.select", HintInput::Buttons, None),
+        ("home.tips.menu", HintInput::Buttons, None),
+        ("home.tips.panel", HintInput::Buttons, None),
+    ] {
+        let mut hint = HelpHintDecl::new("home.dashboard", text, input).map_err(refused)?;
+        if let Some((x, y, w, h)) = zone {
+            hint = hint
+                .zone(paperpaw_sdk::Rect::new(x, y, w, h))
+                .map_err(refused)?;
+        }
+        d.help_hint(hint)?;
+    }
     d.submit()
 }

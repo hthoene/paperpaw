@@ -1089,6 +1089,12 @@ pub(super) fn body(
     )
 }
 
+/// See [`super::owner_holds`].
+pub(super) fn owner_holds(host: &dyn NetHost, owner: u64) -> Result<bool, i32> {
+    let inner = host_table(host)?;
+    Ok(inner.reqs.iter().any(|r| r.owner == owner) || inner.serving.owner_holds(owner))
+}
+
 /// The plugin stopped: its requests go without events, its servers stop
 /// without events; the pool gets everything back.
 pub(super) fn owner_stopped(host: &dyn NetHost, owner: u64) -> Result<(), i32> {

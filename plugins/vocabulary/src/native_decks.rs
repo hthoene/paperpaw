@@ -273,6 +273,32 @@ pub(crate) fn open(host: &Host<'_>, ui: &Ui, target: Target) -> Result<(), Error
     CommandSender::new(host, &mut input).open(open)
 }
 
+/// Opens the review with the card `first` (its deck and id) first, or as it
+/// would on any day.
+///
+/// # Errors
+/// What the host says.
+pub(crate) fn open_review(
+    host: &Host<'_>,
+    ui: &Ui,
+    first: Option<(u32, u32)>,
+) -> Result<(), Error> {
+    let mut input = buffer(SERVICE_BUFFER)?;
+    let mut output = buffer(SERVICE_BUFFER)?;
+    let mut open = Open::screen(REVIEW)?;
+    if let Some((deck, id)) = first {
+        let (mut deck_digits, mut id_digits) = ([0u8; 20], [0u8; 20]);
+        let value = text::concat(&[
+            text::decimal(deck as usize, &mut deck_digits),
+            " ",
+            text::decimal(id as usize, &mut id_digits),
+        ])?;
+        let param = Param::new(crate::native_review::FIRST, &value)?;
+        open = open.handover(ui.handover(host, &[param], &mut input, &mut output)?);
+    }
+    CommandSender::new(host, &mut input).open(open)
+}
+
 #[cfg(test)]
 #[path = "native_decks_tests.rs"]
 mod tests;
