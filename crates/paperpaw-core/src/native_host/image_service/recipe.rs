@@ -524,6 +524,98 @@ pub(super) fn luma_grid(
     Some(grid)
 }
 
+/// A gray sink that passes every row on and sums the 8 by 8 grid of
+/// [`luma_grid`] as the rows go by, so that a decoded picture is not read
+/// again row by row from the card for it (one card call a row, 290 for a
+/// cat on the X4's sleep screen).
+pub(super) struct GridSink<'a, S: ImageSink> {
+    inner: &'a mut S,
+    width: usize,
+    height: usize,
+    seen: usize,
+    sums: [[u64; GRID]; GRID],
+}
+
+impl<'a, S: ImageSink> GridSink<'a, S> {
+    pub(super) fn new(inner: &'a mut S) -> Self {
+        Self {
+            inner,
+            width: 0,
+            height: 0,
+            seen: 0,
+            sums: [[0; GRID]; GRID],
+        }
+    }
+
+    /// The grid [`luma_grid`] makes of the same gray rows; none where the
+    /// rows were not all there.
+    pub(super) fn grid(&self) -> Option<[u8; LUMA_BYTES]> {
+        if self.width == 0 || self.seen != self.height {
+            return None;
+        }
+        let mut grid = [0_u8; LUMA_BYTES];
+        for (cell_y, sums) in self.sums.iter().enumerate() {
+            let (y0, y1) = self.cell_rows(cell_y);
+            for (cell_x, sum) in sums.iter().enumerate() {
+                let (x0, x1) = self.cell_columns(cell_x);
+                let count = ((y1 - y0) * (x1 - x0)) as u64;
+                *grid.get_mut(cell_y * GRID + cell_x)? =
+                    u8::try_from(sum / count.max(1)).unwrap_or(255);
+            }
+        }
+        Some(grid)
+    }
+
+    fn cell_rows(&self, cell_y: usize) -> (usize, usize) {
+        let y0 = cell_y * self.height / GRID;
+        (
+            y0,
+            ((cell_y + 1) * self.height / GRID).clamp(y0 + 1, self.height),
+        )
+    }
+
+    fn cell_columns(&self, cell_x: usize) -> (usize, usize) {
+        let x0 = cell_x * self.width / GRID;
+        (
+            x0,
+            ((cell_x + 1) * self.width / GRID).clamp(x0 + 1, self.width),
+        )
+    }
+}
+
+impl<S: ImageSink> ImageSink for GridSink<'_, S> {
+    fn start(&mut self, width: u32, height: u32) -> Result<(), ImageError> {
+        self.width = width as usize;
+        self.height = height as usize;
+        self.seen = 0;
+        self.sums = [[0; GRID]; GRID];
+        self.inner.start(width, height)
+    }
+
+    fn row(&mut self, gray: &[u8]) -> Result<(), ImageError> {
+        let y = self.seen;
+        self.seen += 1;
+        let mut row = [0_u64; GRID];
+        for (cell_x, sum) in row.iter_mut().enumerate() {
+            let (x0, x1) = self.cell_columns(cell_x);
+            *sum = gray
+                .get(x0..x1)
+                .map_or(0, |pixels| pixels.iter().map(|&g| u64::from(g)).sum());
+        }
+        for cell_y in 0..GRID {
+            let (y0, y1) = self.cell_rows(cell_y);
+            if (y0..y1).contains(&y)
+                && let Some(sums) = self.sums.get_mut(cell_y)
+            {
+                for (total, add) in sums.iter_mut().zip(row) {
+                    *total += add;
+                }
+            }
+        }
+        self.inner.row(gray)
+    }
+}
+
 #[cfg(test)]
 #[path = "recipe_tests.rs"]
 mod tests;
