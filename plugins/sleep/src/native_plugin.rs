@@ -12,7 +12,8 @@
 //! `native_widgets_edit`) its third.
 use crate::{
     declarations::{
-        EDIT, EVENTS, IMAGE_READY, PICK, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED, STARTED,
+        EDIT, EVENTS, IMAGE_READY, LIBRARY_CHANGED, PICK, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED,
+        STARTED,
     },
     native_picker::Picker,
     native_screen::{Sleeping, read_text},
@@ -96,6 +97,7 @@ impl Plugin for NativeSleep {
             kinds::ScreenShown,
             kinds::ScreenClosed,
             kinds::ImageReady,
+            kinds::LibraryChanged,
             kinds::Answered
         ) else {
             return Ok(());
@@ -176,6 +178,9 @@ impl Plugin for NativeSleep {
                 Ok(())
             }
             Event::ImageReady(ready) if token == IMAGE_READY => self.image_ready(host, &ready),
+            Event::LibraryChanged { what, .. } if token == LIBRARY_CHANGED && what.cover() => {
+                self.cover_ready(host)
+            }
             Event::Resume { .. } if token == EVENTS => self.woke(host),
             // At start and when the plugins changed: a stored foreign mode
             // binds the slot where the reader has not bound it, never unbinds.
@@ -471,6 +476,15 @@ impl NativeSleep {
             old.release(host);
         }
         self.screens.open(instance, view)
+    }
+
+    /// A cover the host was making is ready: the screens that waited for it ask
+    /// again.
+    fn cover_ready(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        for view in self.screens.all() {
+            view.cover_ready(host, &mut self.cookie)?;
+        }
+        Ok(())
     }
 
     /// A picture the host decoded: the screen it was asked for takes it; one
