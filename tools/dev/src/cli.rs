@@ -331,7 +331,10 @@ pub fn run_command(command: &str, context: &Context, report: &mut Report) -> Res
         "perf" => crate::perf::run(context, report),
         "package" => crate::package::run(context, report),
         "snapshots" => crate::snapshot::run(context, report),
+        #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         "sweep" => crate::sweep::run(context, report),
+        #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+        "sweep" => Err("sweep needs the linked plugins (Linux x86-64 only)".to_string()),
         other => Err(format!("unknown command `{other}` (see --help)")),
     }
 }
