@@ -1692,6 +1692,7 @@ dependencies = [
  "paperpaw-plugin-settings",
  "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
+ "paperpaw-plugin-smart-home",
  "paperpaw-plugin-stats",
  "paperpaw-plugin-store",
  "paperpaw-plugin-transfer",
@@ -2657,6 +2658,20 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-smart-home"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
 ]

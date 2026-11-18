@@ -263,6 +263,7 @@ dependencies = [
  "paperpaw-plugin-settings",
  "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
+ "paperpaw-plugin-smart-home",
  "paperpaw-plugin-stats",
  "paperpaw-plugin-store",
  "paperpaw-plugin-transfer",
@@ -579,6 +580,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-sleep"
 version = "1.0.6"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-smart-home"
+version = "1.0.0"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

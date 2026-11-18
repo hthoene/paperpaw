@@ -33,6 +33,7 @@ readwise notes
 read-later-cloud news
 rules system
 translate reading
+smart-home home
 stats reading
 vocabulary learning
 wallabag news
