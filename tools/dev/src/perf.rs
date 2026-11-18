@@ -116,8 +116,15 @@ impl Case {
 
     fn hide(&self, session: &mut Session) -> Result<(), String> {
         match self {
+            // The home slot closes what is above the home screen, but not
+            // a screen that guards the device (the firmware confirmation):
+            // what opens next would open below it, unseen, until the stack
+            // is full. Home and Back close that too, or it is an error.
             Case::Screen { .. } => {
                 cases::home(session);
+                if session.stack().len() > 1 {
+                    session.go_home()?;
+                }
                 Ok(())
             }
             Case::Widget { .. } => session.set(cases::PAGE, ""),
@@ -397,8 +404,8 @@ struct Run {
     limit: Option<usize>,
     app: usize,
     measured: Vec<Measured>,
-    /// Screens that showed something else when opened.
-    skipped: Vec<String>,
+    /// Screens that showed something else when opened, and what showed.
+    skipped: Vec<(String, String)>,
 }
 
 impl Run {
@@ -467,6 +474,29 @@ pub fn run(context: &Context, report: &mut Report) -> Result<(), String> {
     Ok(())
 }
 
+/// Opens and closes one screen, without parameters or else with a book's
+/// path; what showed instead where it did not open.
+fn measure_screen(
+    session: &mut Session,
+    id: &str,
+) -> Result<Result<(Case, Measured), String>, String> {
+    let mut shown = String::new();
+    for params in [
+        Vec::new(),
+        vec![(params::PATH.to_string(), session::BOOK.to_string())],
+    ] {
+        let case = Case::Screen {
+            id: id.to_string(),
+            params,
+        };
+        match measure(session, &case, CYCLES)? {
+            Ok(measured) => return Ok(Ok((case, measured))),
+            Err(other) => shown = other,
+        }
+    }
+    Ok(Err(shown))
+}
+
 /// Opens and closes every screen and widget of the target on one profile.
 #[expect(
     clippy::too_many_lines,
@@ -503,29 +533,37 @@ fn measure_variant(context: &Context, variant: &Variant) -> Result<Run, String> 
         skipped: Vec::new(),
     };
     let mut cases_done: Vec<Case> = Vec::new();
+    // A second device, its radio on, for a screen that closes while the
+    // radio is off (the Wi-Fi plugin's networks): made when one is needed.
+    let mut online: Option<Session> = None;
     for id in cases::screens(&session, &context.target) {
-        let mut tried = None;
-        for params in [
-            Vec::new(),
-            vec![(params::PATH.to_string(), session::BOOK.to_string())],
-        ] {
-            let case = Case::Screen {
-                id: id.clone(),
-                params,
-            };
-            if let Some(measured) = measure(&mut session, &case, CYCLES)? {
-                tried = Some((case, measured));
-                break;
+        let mut tried = measure_screen(&mut session, &id)?;
+        if tried.is_err() {
+            if online.is_none() {
+                let start = Start {
+                    wifi_online: true,
+                    ..Start::default()
+                };
+                let mut radio = Session::start(context, variant, &start)?;
+                cases::home(&mut radio);
+                drop(radio.frames());
+                online = Some(radio);
+            }
+            if let Some(radio) = online.as_mut()
+                && let Ok(found) = measure_screen(radio, &id)?
+            {
+                tried = Ok(found);
             }
         }
         match tried {
-            Some((case, measured)) => {
+            Ok((case, measured)) => {
                 cases_done.push(case);
                 run.measured.push(measured);
             }
-            None => run.skipped.push(id),
+            Err(shown) => run.skipped.push((id, shown)),
         }
     }
+    drop(online);
     let widgets = cases::widgets(&session, &context.target);
     if !widgets.is_empty() {
         let grid = cases::grid(&session);
@@ -550,7 +588,7 @@ fn measure_variant(context: &Context, variant: &Variant) -> Result<Run, String> 
                 // Open and closed several times in one size, enough for
                 // leaks; twice in the others, for a time to trust.
                 let cycles = if n == 0 { CYCLES } else { 2 };
-                if let Some(measured) = measure(&mut session, &case, cycles)? {
+                if let Ok(measured) = measure(&mut session, &case, cycles)? {
                     cases_done.push(case);
                     run.measured.push(measured);
                 }
@@ -599,9 +637,13 @@ fn measure_variant(context: &Context, variant: &Variant) -> Result<Run, String> 
     Ok(run)
 }
 
-/// Opens `case` and closes it `cycles` times; `None` if a screen showed
-/// something else.
-fn measure(session: &mut Session, case: &Case, cycles: usize) -> Result<Option<Measured>, String> {
+/// Opens `case` and closes it `cycles` times; the screen shown instead
+/// (`nothing` for none) if a screen showed something else.
+fn measure(
+    session: &mut Session,
+    case: &Case,
+    cycles: usize,
+) -> Result<Result<Measured, String>, String> {
     let library = session
         .device
         .library()
@@ -636,8 +678,9 @@ fn measure(session: &mut Session, case: &Case, cycles: usize) -> Result<Option<M
         case.show(session)?;
         let frames = session.frames();
         if !case.shown(session) {
+            let shown = session.screen().unwrap_or_else(|| String::from("nothing"));
             case.hide(session)?;
-            return Ok(None);
+            return Ok(Err(shown));
         }
         if let Some(last) = frames.last() {
             measured.came_up.push(last.millis);
@@ -680,7 +723,7 @@ fn measure(session: &mut Session, case: &Case, cycles: usize) -> Result<Option<M
         measured.after.push(live());
     }
     drop(session.frames());
-    Ok(Some(measured))
+    Ok(Ok(measured))
 }
 
 fn kib(bytes: impl Into<f64>) -> String {
@@ -787,17 +830,17 @@ fn findings(run: &Run, report: &mut Report) {
             .variant(variant.clone()),
         );
     }
-    if !run.skipped.is_empty() {
+    for (id, shown) in &run.skipped {
         report.add(
-            Finding::info(
+            Finding::error(
                 "perf.skipped",
-                "screens",
+                id.clone(),
                 format!(
-                    "Not measured, as opening them without parameters (or with a book's path) \
-                     showed another screen: {}.",
-                    run.skipped.join(", ")
+                    "{id} was not measured: opening it without parameters (or with a book's \
+                     path) showed {shown} instead."
                 ),
             )
+            .plugin(plugin_of(id))
             .variant(variant.clone()),
         );
     }
@@ -1074,7 +1117,13 @@ fn html(runs: &[Run]) -> String {
             let _ = write!(
                 body,
                 "<p>Not measured (showed another screen): {}.</p>",
-                escape(&run.skipped.join(", "))
+                escape(
+                    &run.skipped
+                        .iter()
+                        .map(|(id, _)| id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             );
         }
         let measured: Vec<&Measured> = run.measured.iter().collect();

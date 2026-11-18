@@ -53,6 +53,10 @@ pub struct Start {
     /// What the storage says it has free, in bytes (the computer's disk
     /// where `None`); for a library kept in a folder.
     pub free_space: Option<u64>,
+    /// Start with the radio on and joined (`--wifi online`), for what
+    /// needs a network to show (the Wi-Fi plugin's list of networks closes
+    /// while the radio is off, as it does on a device).
+    pub wifi_online: bool,
 }
 
 /// A device running the app in a variant.
@@ -156,6 +160,7 @@ impl Session {
         if context.fixtures {
             device.use_fixtures();
         }
+        device.set_wifi_online(start.wifi_online);
         device.start();
         device.tick_if_due();
         let mut session = Session {
@@ -244,6 +249,11 @@ impl Session {
     /// network's) are passed over when they come, and until then a
     /// request's state is on the heap without being kept.
     pub fn drain_requests(&mut self) {
+        if self.fixtures {
+            // Answered from the fixtures in emulated time, not the network's.
+            self.settle_network();
+            return;
+        }
         let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while self.device.network_settling() && std::time::Instant::now() < end {
             self.device
@@ -278,13 +288,17 @@ impl Session {
     /// Goes back to the home screen as one would: *Home*, else *Back* (a
     /// screen may keep *Home* to itself, as the keyboard does while a
     /// password is typed) and *Home* again; what was still open if that
-    /// did not reach it.
+    /// did not reach it. Back is pressed a second after what showed, as
+    /// a person would: a guarding screen (the firmware confirmation) drops
+    /// what comes at once.
     pub fn go_home(&mut self) -> Result<(), String> {
         self.run(actions::HOME.as_str())?;
         for _ in 0..self.stack().len() {
             if self.stack().len() == 1 {
                 return Ok(());
             }
+            self.device.advance(1000);
+            self.device.tick_if_due();
             self.run(actions::BACK.as_str())?;
             self.run(actions::HOME.as_str())?;
         }

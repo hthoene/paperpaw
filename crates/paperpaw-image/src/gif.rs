@@ -262,10 +262,6 @@ pub(crate) fn decode(
     clippy::too_many_arguments,
     reason = "its inputs are separate things; a struct of them would serve this call alone"
 )]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
 fn picture(
     reader: &mut Reader<'_>,
     width: u32,
@@ -275,56 +271,15 @@ fn picture(
     fit: Fit,
     sink: &mut dyn ImageSink,
 ) -> Result<(), ImageError> {
-    let left = u32::from(u16_le(reader)?);
-    let top = u32::from(u16_le(reader)?);
-    let w = u32::from(u16_le(reader)?);
-    let h = u32::from(u16_le(reader)?);
-    let packed = reader.byte()?;
-    if w == 0 || h == 0 {
-        return Err(ImageError::Invalid("GIF picture size"));
-    }
-    // A picture larger than its screen is no GIF this reads (the host
-    // refuses it the same way before it decodes), which also keeps it within
-    // the screen's limit; one that starts inside and reaches past the edge
-    // is cut there.
-    if w > width || h > height {
-        return Err(ImageError::Invalid("GIF picture larger than its screen"));
-    }
+    let Descriptor {
+        left,
+        top,
+        w,
+        h,
+        packed,
+    } = Descriptor::read(reader, width, height)?;
     let interlaced = packed & 0x40 != 0;
-    let mut colors = if packed & 0x80 != 0 {
-        palette(reader, 2 << (packed & 7))?
-    } else {
-        global.ok_or(ImageError::Invalid("GIF without colours"))?
-    };
-    if let Some(index) = transparent {
-        colors[usize::from(index)] = [WHITE; 3];
-    }
-    // Transparency where the picture has it and the sink wants it; then
-    // colour.
-    let alpha = transparent.is_some() && sink.wants_alpha();
-    let color = !alpha && sink.wants_color();
-    let channels = if alpha {
-        2
-    } else if color {
-        3
-    } else {
-        1
-    };
-    let mut grays: Vec<u8> = zeroed(colors.len())?;
-    for (gray, &[r, g, b]) in grays.iter_mut().zip(&colors) {
-        *gray = luma(u32::from(r), u32::from(g), u32::from(b));
-    }
-    // Pixel `x` of a row in colour `index`.
-    let paint = |row: &mut [u8], x: usize, index: u8| {
-        if alpha {
-            let opacity = if Some(index) == transparent { 0 } else { 255 };
-            row[x * 2..x * 2 + 2].copy_from_slice(&[grays[usize::from(index)], opacity]);
-        } else if color {
-            row[x * 3..x * 3 + 3].copy_from_slice(&colors[usize::from(index)]);
-        } else {
-            row[x] = grays[usize::from(index)];
-        }
-    };
+    let paint = Paint::new(reader, packed, global, transparent, &*sink)?;
     let mut lzw = Lzw::new(reader.byte()?)?;
     let mut bits = Bits {
         reader,
@@ -340,21 +295,9 @@ fn picture(
     let shown_w = right.saturating_sub(left);
     let shown_h = bottom.saturating_sub(top);
     let size = fit.size(width, height);
-    let mut scaler = Downscaler::new(width, height, size, channels)?;
+    let mut scaler = Downscaler::new(width, height, size, paint.channels())?;
     sink.start(scaler.out_width(), scaler.out_height())?;
-    let mut row: Vec<u8> = zeroed(width as usize * channels)?;
-    row.fill(WHITE);
-    // The screen around the picture: white, or clear.
-    if alpha {
-        for pixel in row.as_chunks_mut::<2>().0 {
-            pixel[1] = 0;
-        }
-    }
-    let mut blank: Vec<u8> = Vec::new();
-    blank
-        .try_reserve_exact(row.len())
-        .map_err(|_| ImageError::OutOfMemory)?;
-    blank.extend_from_slice(&row);
+    let (mut row, blank) = paint.screen_rows(width)?;
     // Interlaced: every row of the picture first, as far as it shows.
     let mut gathered: Vec<u8> = if interlaced {
         zeroed(shown_w as usize * shown_h as usize)?
@@ -372,8 +315,8 @@ fn picture(
     let mut sent = top.min(height);
     let mut pass_rows = interlace_rows(h);
     let mut failure = None;
-    // Rows stored in order are read as far as they show; interlaced ones
-    // to the end, the rows that show coming in every pass.
+    // Rows stored in order are read as far as they show. Interlaced ones
+    // are read to the end, as the rows that show come in every pass.
     let last = if interlaced { h } else { shown_h };
     'codes: while r < last {
         let Some(code) = bits.code(lzw.size)? else {
@@ -390,7 +333,7 @@ fn picture(
                     gathered[(r * shown_w + x) as usize] = index;
                 }
             } else if x < shown_w {
-                paint(&mut row, (left + x) as usize, index);
+                paint.pixel(&mut row, (left + x) as usize, index);
             }
             x += 1;
             if x == w {
@@ -420,7 +363,7 @@ fn picture(
         for pr in 0..shown_h as usize {
             let shown = &gathered[pr * shown_w..(pr + 1) * shown_w];
             for (px, &index) in shown.iter().enumerate() {
-                paint(&mut row, left as usize + px, index);
+                paint.pixel(&mut row, left as usize + px, index);
             }
             scaler.row(&row, sink)?;
         }
@@ -433,6 +376,134 @@ fn picture(
     }
     scaler.finish(sink)?;
     bits.finish()
+}
+
+/// A picture's descriptor: its top left corner, its size and its flags.
+struct Descriptor {
+    left: u32,
+    top: u32,
+    w: u32,
+    h: u32,
+    packed: u8,
+}
+
+impl Descriptor {
+    /// The picture's descriptor, checked against its `width`×`height` screen.
+    fn read(reader: &mut Reader<'_>, width: u32, height: u32) -> Result<Descriptor, ImageError> {
+        let left = u32::from(u16_le(reader)?);
+        let top = u32::from(u16_le(reader)?);
+        let w = u32::from(u16_le(reader)?);
+        let h = u32::from(u16_le(reader)?);
+        let packed = reader.byte()?;
+        if w == 0 || h == 0 {
+            return Err(ImageError::Invalid("GIF picture size"));
+        }
+        // A picture larger than its screen is no GIF this reads. The host
+        // refuses it the same way before it decodes, and this also keeps it
+        // within the screen's limit. One that starts inside and reaches past
+        // the edge is cut there.
+        if w > width || h > height {
+            return Err(ImageError::Invalid("GIF picture larger than its screen"));
+        }
+        Ok(Descriptor {
+            left,
+            top,
+            w,
+            h,
+            packed,
+        })
+    }
+}
+
+/// How a picture's colour indexes are painted.
+struct Paint {
+    colors: Vec<[u8; 3]>,
+    grays: Vec<u8>,
+    transparent: Option<u8>,
+    /// Transparency where the picture has it and the sink wants it, else
+    /// colour where the sink wants it.
+    alpha: bool,
+    color: bool,
+}
+
+impl Paint {
+    /// The picture's colours: its own table, if its flags in `packed` say
+    /// it has one, else the `global` one.
+    fn new(
+        reader: &mut Reader<'_>,
+        packed: u8,
+        global: Option<Vec<[u8; 3]>>,
+        transparent: Option<u8>,
+        sink: &dyn ImageSink,
+    ) -> Result<Self, ImageError> {
+        let mut colors = if packed & 0x80 != 0 {
+            palette(reader, 2 << (packed & 7))?
+        } else {
+            global.ok_or(ImageError::Invalid("GIF without colours"))?
+        };
+        if let Some(index) = transparent {
+            colors[usize::from(index)] = [WHITE; 3];
+        }
+        let alpha = transparent.is_some() && sink.wants_alpha();
+        let color = !alpha && sink.wants_color();
+        let mut grays: Vec<u8> = zeroed(colors.len())?;
+        for (gray, &[r, g, b]) in grays.iter_mut().zip(&colors) {
+            *gray = luma(u32::from(r), u32::from(g), u32::from(b));
+        }
+        Ok(Paint {
+            colors,
+            grays,
+            transparent,
+            alpha,
+            color,
+        })
+    }
+
+    fn channels(&self) -> usize {
+        if self.alpha {
+            2
+        } else if self.color {
+            3
+        } else {
+            1
+        }
+    }
+
+    /// Pixel `x` of a row in colour `index`.
+    #[inline(always)]
+    fn pixel(&self, row: &mut [u8], x: usize, index: u8) {
+        if self.alpha {
+            let opacity = if Some(index) == self.transparent {
+                0
+            } else {
+                255
+            };
+            row[x * 2..x * 2 + 2].copy_from_slice(&[self.grays[usize::from(index)], opacity]);
+        } else if self.color {
+            row[x * 3..x * 3 + 3].copy_from_slice(&self.colors[usize::from(index)]);
+        } else {
+            row[x] = self.grays[usize::from(index)];
+        }
+    }
+
+    /// A row of the screen `width` pixels wide to paint the picture's rows
+    /// into, and a row of the screen alone. The screen around the picture
+    /// is white, or clear.
+    fn screen_rows(&self, width: u32) -> Result<(Vec<u8>, Vec<u8>), ImageError> {
+        let mut row: Vec<u8> = zeroed(width as usize * self.channels())?;
+        row.fill(WHITE);
+        if self.alpha {
+            for pixel in row.as_chunks_mut::<2>().0 {
+                pixel[1] = 0;
+            }
+        }
+        let mut blank: Vec<u8> = Vec::new();
+        blank
+            .try_reserve_exact(row.len())
+            .map_err(|_| ImageError::OutOfMemory)?;
+        blank.extend_from_slice(&row);
+        Ok((row, blank))
+    }
 }
 
 /// The rows of an interlaced picture `height` rows high in the order

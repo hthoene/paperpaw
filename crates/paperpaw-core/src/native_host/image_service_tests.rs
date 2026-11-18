@@ -1252,3 +1252,102 @@ fn the_picture_look_changes_the_grays_before_they_are_dithered() {
     t.set_look(PictureLook::standard().steps());
     assert_eq!(drawn(false), standard);
 }
+
+/// A small picture keeps its drawn rows while Home is shown (#329): the draw
+/// after the room was taken fills them, and every draw after that reads
+/// nothing from the card and shows the same pixels, in any bands. On the X4 a
+/// focus move on Home read each cover's 57 KB again, 100 ms a cover. Rows
+/// not kept yet come from the card, a larger picture is never kept, and a
+/// screen opened over Home ends them.
+#[test]
+fn a_small_picture_drawn_again_on_home_reads_nothing_and_is_the_same() {
+    let t = ImageTable::new();
+    let card = MemoryStorage::new();
+    let (width, height) = (192_u32, 300_u32);
+    let mut writer = GrayWriter::new(&card, "c/cover.gray");
+    writer.start(width, height).unwrap();
+    for y in 0..height {
+        let row: std::vec::Vec<u8> = (0..width)
+            .map(|x| ((x * 255 / (width - 1) + y * 3) % 256) as u8)
+            .collect();
+        writer.row(&row).unwrap();
+    }
+    writer.finish().unwrap();
+    let id = t
+        .add(A, doc(1, 0), "c/cover.gray", width, height, false)
+        .unwrap();
+    let storage = Counted {
+        card,
+        read: core::cell::Cell::new(0),
+    };
+    // The bands `tops` (of `rows` rows) of a frame of 200 x 240 with the
+    // picture in `side` x `side` of it: its pixels and the bytes read.
+    let frame = |rows: u16, bands: usize, side: u32| {
+        let before = storage.read.get();
+        let mut joined = Framebuffer::new(200, 240, PixelFormat::Mono1).unwrap();
+        let mut band = Framebuffer::banded(200, 240, rows, PixelFormat::Mono1).unwrap();
+        for top in (0..240).step_by(usize::from(rows)).take(bands) {
+            band.set_top(top);
+            band.canvas().clear(paperpaw_platform::Color::WHITE);
+            t.draw(
+                A,
+                id,
+                &mut band.canvas(),
+                &storage,
+                20,
+                30,
+                side,
+                side,
+                SMALL,
+            )
+            .unwrap();
+            joined.write_rows(top, band.view());
+        }
+        band.end_frame();
+        (joined.view().data.to_vec(), storage.read.get() - before)
+    };
+    let (first, read) = frame(96, 3, 190);
+    assert!(read > 50_000, "{read} bytes for the picture");
+    // Another screen is shown: nothing is wished for, nothing kept.
+    t.tend_kept(false);
+    t.tend_kept(true);
+    assert!(frame(96, 3, 190).1 > 50_000);
+    // Home: the room is taken, and a draw of the first band alone fills its
+    // rows only; the rest still comes from the card.
+    t.tend_kept(true);
+    assert!(frame(96, 1, 190).1 > 0);
+    let (partly, read) = frame(96, 3, 190);
+    assert!(partly == first, "other pixels with a part of the rows kept");
+    assert!(read > 0, "rows not kept were not read");
+    // Kept whole: nothing is read, in these bands or others.
+    for (rows, bands) in [(96, 3), (240, 1), (64, 4), (96, 1)] {
+        let (kept, read) = frame(rows, bands, 190);
+        assert_eq!(read, 0, "{read} bytes read in bands of {rows} rows");
+        assert!(
+            bands * usize::from(rows) < 240 || kept == first,
+            "other pixels in bands of {rows} rows"
+        );
+    }
+    // Another size is another picture to keep: read, wished for, kept.
+    let (other, read) = frame(96, 3, 150);
+    assert!(other != first);
+    assert!(read > 50_000);
+    t.tend_kept(true);
+    assert!(frame(96, 3, 150).1 > 0);
+    let (again, read) = frame(96, 3, 150);
+    assert_eq!(read, 0, "{read} bytes read for the other size");
+    assert!(
+        again == other,
+        "the other size is other pixels from its kept rows"
+    );
+    // Drawn too large to keep, it is read every time, and the kept rows of
+    // the other size stay.
+    for _ in 0..3 {
+        t.tend_kept(true);
+        assert!(frame(240, 1, 400).1 > 10_000);
+    }
+    assert_eq!(frame(96, 3, 150).1, 0);
+    // A screen opens over Home: the rows end.
+    t.tend_kept(false);
+    assert!(frame(96, 3, 150).1 > 50_000);
+}

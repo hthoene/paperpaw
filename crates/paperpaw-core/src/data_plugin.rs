@@ -204,10 +204,6 @@ impl DataPlugin {
     }
 
     /// Adds what its folder declares (`Kernel::add_data`).
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than the limit from before it was set; split it when it is next changed"
-    )]
     pub(crate) fn register(&self, r: &mut Staging) -> Result<(), RegisterError> {
         for source in self.translations.take() {
             r.add_translations(Cow::Owned(source))?;
@@ -221,6 +217,32 @@ impl DataPlugin {
         if let Some(source) = self.keymap.take() {
             r.add_keymap(Cow::Owned(source))?;
         }
+        self.register_fonts(r)?;
+        self.register_files(r)?;
+        self.register_points(r)?;
+        for (role, font) in self.roles.take() {
+            let (role, font) = (parsed_id(&role, 0)?, parsed_id(&font, 0)?);
+            r.bind_font(role, font, paperpaw_sdk::Priority::DEFAULT)?;
+        }
+        if let Some(source) = self.read_later("marks.ini") {
+            let marks = crate::kit::decorations::MarkRules::parse(&self.manifest.id, &source)?;
+            for (role, title, look) in marks.roles {
+                crate::kit::decorations::add_role(&mut |s| r.add_setting(s), &role, title, look)?;
+            }
+            if !marks.decorator.is_empty() {
+                let id = Id::parse(&format!("{}.marks", self.manifest.id)).map_err(|_| {
+                    RegisterError::Invalid {
+                        message: Cow::Borrowed("no decorator id"),
+                    }
+                })?;
+                r.add_decorator(marks.decorator.into_spec(id, self.manifest.name.clone()))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Adds its font files, extension packs and faces.
+    fn register_fonts(&self, r: &mut Staging) -> Result<(), RegisterError> {
         let mut used: Vec<String> = Vec::new();
         for path in self.fonts.take() {
             let mut name = slug(path.rsplit('/').next().unwrap_or(&path));
@@ -287,6 +309,13 @@ impl DataPlugin {
             })?;
             r.add_font_face(FontFace::new(id, path, family, bold, italic))?;
         }
+        Ok(())
+    }
+
+    /// Adds what its settings, presets, actions, menus, icons and setup
+    /// files declare.
+    fn register_files(&self, r: &mut Staging) -> Result<(), RegisterError> {
+        let id = &self.manifest.id;
         if let Some(source) = self.read_later("settings.ini") {
             for entry in paperpaw_config::parse(&source) {
                 let entry = entry.map_err(|error| RegisterError::Parse {
@@ -310,7 +339,6 @@ impl DataPlugin {
                 r.add_preset(preset)?;
             }
         }
-        let id = &self.manifest.id;
         if let Some(source) = self.read_later("actions.ini") {
             for action in actions(id, &source)? {
                 r.add_data_action(action.spec, action.steps)?;
@@ -334,8 +362,12 @@ impl DataPlugin {
                 r.add_setup_step(step)?;
             }
         }
-        // The points' files, one at a time, at most `MAX_POINT_LINES`
-        // lines in all.
+        Ok(())
+    }
+
+    /// Adds the lines of its points' files, one file at a time and at
+    /// most `MAX_POINT_LINES` lines in all.
+    fn register_points(&self, r: &mut Staging) -> Result<(), RegisterError> {
         let prefix = format!("{}/points/", self.folder);
         let files: Vec<String> = self
             .later
@@ -358,24 +390,6 @@ impl DataPlugin {
                 }
                 lines_left -= 1;
                 r.contribute(point.clone(), Cow::Owned(line.to_string()))?;
-            }
-        }
-        for (role, font) in self.roles.take() {
-            let (role, font) = (parsed_id(&role, 0)?, parsed_id(&font, 0)?);
-            r.bind_font(role, font, paperpaw_sdk::Priority::DEFAULT)?;
-        }
-        if let Some(source) = self.read_later("marks.ini") {
-            let marks = crate::kit::decorations::MarkRules::parse(&self.manifest.id, &source)?;
-            for (role, title, look) in marks.roles {
-                crate::kit::decorations::add_role(&mut |s| r.add_setting(s), &role, title, look)?;
-            }
-            if !marks.decorator.is_empty() {
-                let id = Id::parse(&format!("{}.marks", self.manifest.id)).map_err(|_| {
-                    RegisterError::Invalid {
-                        message: Cow::Borrowed("no decorator id"),
-                    }
-                })?;
-                r.add_decorator(marks.decorator.into_spec(id, self.manifest.name.clone()))?;
             }
         }
         Ok(())

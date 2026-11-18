@@ -1248,3 +1248,63 @@ fn a_full_screen_see_through_picture_on_the_x4_stays_within_the_opaque_bounds() 
         "{clear_made} {opaque_made}"
     );
 }
+
+/// A card that counts the reads of the prepared pictures' cache files.
+struct CacheReads {
+    inner: MemoryStorage,
+    reads: core::cell::Cell<u32>,
+}
+
+impl Storage for CacheReads {
+    fn read_at(
+        &self,
+        p: &str,
+        o: u64,
+        b: &mut [u8],
+    ) -> Result<usize, paperpaw_platform::StorageError> {
+        if p.starts_with(DIR) {
+            self.reads.set(self.reads.get() + 1);
+        }
+        self.inner.read_at(p, o, b)
+    }
+    fn size(&self, p: &str) -> Result<u64, paperpaw_platform::StorageError> {
+        self.inner.size(p)
+    }
+    fn write(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.write(p, d)
+    }
+    fn append(&self, p: &str, d: &[u8]) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.append(p, d)
+    }
+    fn list(
+        &self,
+        d: &str,
+        v: &mut dyn FnMut(paperpaw_platform::DirEntry<'_>),
+    ) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.list(d, v)
+    }
+    fn remove(&self, p: &str) -> Result<(), paperpaw_platform::StorageError> {
+        self.inner.remove(p)
+    }
+}
+
+/// The sleep screen's cat took about 290 card calls to be made ready: the
+/// brightness grid read the decoded picture back one row at a time (#337).
+#[test]
+fn a_gray_picture_is_made_ready_without_reading_its_decoded_file_back() {
+    let card = CacheReads {
+        inner: MemoryStorage::new(),
+        reads: core::cell::Cell::new(0),
+    };
+    png(&card.inner, "cat.png", 400, 300);
+    let t = ImageTable::new();
+    t.prepare(A, "cat.png", 400, 1, false, &Recipe::default())
+        .unwrap();
+    t.prepare_step(&card, ENV).unwrap();
+    let ready = told(&t).unwrap();
+    assert_eq!(ready.status, READY);
+    // The grid is there (all 90); the one read of the cache is the header's
+    // probe, no row was read back for it.
+    assert_eq!(ready.luma, Some([90; 64]));
+    assert_eq!(card.reads.get(), 1);
+}

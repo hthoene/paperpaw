@@ -497,13 +497,9 @@ pub(crate) fn dc_level(dc: i32) -> u8 {
     (((tmp * 1448 + (1 << 13)) >> 14) + 128).clamp(0, 255) as u8
 }
 
-// Not inlined into `decode`: each format's frame on the stack alone,
+// Not inlined into `decode`, so each format's frame is on the stack alone,
 // not all three together.
 #[inline(never)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
 pub(crate) fn decode(
     reader: &mut Reader<'_>,
     fit: Fit,
@@ -539,38 +535,7 @@ pub(crate) fn decode(
             0xdb => read_quant(reader, len, &mut tables.quant)?,
             0xc0..=0xc2 => {
                 progressive = marker == 0xc2;
-                if reader.byte()? != 8 {
-                    return Err(ImageError::Unsupported("12-bit JPEG"));
-                }
-                height = u32::from(reader.u16_be()?);
-                width = u32::from(reader.u16_be()?);
-                let count = reader.byte()?;
-                if width == 0 || height == 0 || !(count == 1 || count == 3) {
-                    return Err(ImageError::Unsupported("JPEG components"));
-                }
-                components.clear();
-                // The room for all of them first: a refusal is an error
-                // here, and `push` never grows the list.
-                components
-                    .try_reserve_exact(usize::from(count))
-                    .map_err(|_| ImageError::OutOfMemory)?;
-                for _ in 0..count {
-                    let id = reader.byte()?;
-                    let hv = reader.byte()?;
-                    let quant = usize::from(reader.byte()? & 3);
-                    let (h, v) = (usize::from(hv >> 4), usize::from(hv & 15));
-                    if !(1..=4).contains(&h) || !(1..=4).contains(&v) {
-                        return Err(ImageError::Invalid("bad sampling"));
-                    }
-                    components.push(Component {
-                        id,
-                        h,
-                        v,
-                        quant,
-                        ..Component::default()
-                    });
-                }
-                reader.skip(len.saturating_sub(6 + 3 * usize::from(count)))?;
+                (width, height) = read_frame(reader, len, &mut components)?;
             }
             0xc3 | 0xc5..=0xc7 | 0xc9..=0xcb | 0xcd..=0xcf => {
                 return Err(ImageError::Unsupported("lossless or arithmetic-coded JPEG"));
@@ -594,21 +559,7 @@ pub(crate) fn decode(
                 return crate::progressive::decode(reader, frame, fit, sink);
             }
             0xda => {
-                let count = usize::from(reader.byte()?);
-                if components.is_empty() || count != components.len() {
-                    return Err(ImageError::Unsupported("non-interleaved JPEG scans"));
-                }
-                for _ in 0..count {
-                    let id = reader.byte()?;
-                    let tables = reader.byte()?;
-                    let component = components
-                        .iter_mut()
-                        .find(|c| c.id == id)
-                        .ok_or(ImageError::Invalid("unknown component"))?;
-                    component.dc = usize::from(tables >> 4 & 3);
-                    component.ac = usize::from(tables & 3);
-                }
-                reader.skip(3)?;
+                read_scan_header(reader, &mut components)?;
                 return scan(
                     reader,
                     &mut components,
@@ -621,6 +572,70 @@ pub(crate) fn decode(
             _ => reader.skip(len)?,
         }
     }
+}
+
+/// A frame header (`SOF`) of `len` bytes, its components into
+/// `components`: the image's width and height.
+fn read_frame(
+    reader: &mut Reader<'_>,
+    len: usize,
+    components: &mut Vec<Component>,
+) -> Result<(u32, u32), ImageError> {
+    if reader.byte()? != 8 {
+        return Err(ImageError::Unsupported("12-bit JPEG"));
+    }
+    let height = u32::from(reader.u16_be()?);
+    let width = u32::from(reader.u16_be()?);
+    let count = reader.byte()?;
+    if width == 0 || height == 0 || !(count == 1 || count == 3) {
+        return Err(ImageError::Unsupported("JPEG components"));
+    }
+    components.clear();
+    // The room for all of them first. A refusal is an error here, and
+    // `push` never grows the list.
+    components
+        .try_reserve_exact(usize::from(count))
+        .map_err(|_| ImageError::OutOfMemory)?;
+    for _ in 0..count {
+        let id = reader.byte()?;
+        let hv = reader.byte()?;
+        let quant = usize::from(reader.byte()? & 3);
+        let (h, v) = (usize::from(hv >> 4), usize::from(hv & 15));
+        if !(1..=4).contains(&h) || !(1..=4).contains(&v) {
+            return Err(ImageError::Invalid("bad sampling"));
+        }
+        components.push(Component {
+            id,
+            h,
+            v,
+            quant,
+            ..Component::default()
+        });
+    }
+    reader.skip(len.saturating_sub(6 + 3 * usize::from(count)))?;
+    Ok((width, height))
+}
+
+/// A baseline scan's header (`SOS`): the tables each component takes.
+fn read_scan_header(
+    reader: &mut Reader<'_>,
+    components: &mut [Component],
+) -> Result<(), ImageError> {
+    let count = usize::from(reader.byte()?);
+    if components.is_empty() || count != components.len() {
+        return Err(ImageError::Unsupported("non-interleaved JPEG scans"));
+    }
+    for _ in 0..count {
+        let id = reader.byte()?;
+        let tables = reader.byte()?;
+        let component = components
+            .iter_mut()
+            .find(|c| c.id == id)
+            .ok_or(ImageError::Invalid("unknown component"))?;
+        component.dc = usize::from(tables >> 4 & 3);
+        component.ac = usize::from(tables & 3);
+    }
+    reader.skip(3)
 }
 
 /// A quantization table segment (`DQT`) of `len` bytes.
@@ -687,10 +702,6 @@ pub(crate) fn read_huffman(
     clippy::too_many_arguments,
     reason = "its inputs are separate things; a struct of them would serve this call alone"
 )]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
 fn scan(
     reader: &mut Reader<'_>,
     components: &mut [Component],
@@ -705,31 +716,20 @@ fn scan(
             return Err(ImageError::Invalid("missing Huffman table"));
         }
     }
-    // A single component is not interleaved: its MCU is one block.
-    let single = components.len() == 1;
-    if single {
-        components[0].h = 1;
-        components[0].v = 1;
-    }
-    let h_max = components.iter().map(|c| c.h).max().unwrap_or(1);
-    let v_max = components.iter().map(|c| c.v).max().unwrap_or(1);
-    let luma = components[0];
-    // Luma at less than full resolution is rare; it is stretched.
-    let (sx, sy) = (h_max / luma.h, v_max / luma.v);
+    let ((h_max, v_max), (sx, sy)) = sampling(components);
     let mcus_x = (width as usize).div_ceil(8 * h_max);
     let mcus_y = (height as usize).div_ceil(8 * v_max);
 
-    // Each block decoded at n×n pixels of its 8×8 (8, 4, 2 or 1): an image
-    // made smaller is made smaller as it is decoded, from its lowest
-    // frequencies, not decoded whole and averaged; then averaged to the
-    // size it shows at.
+    // Each block is decoded at n×n pixels of its 8×8 (8, 4, 2 or 1). An
+    // image made smaller is made smaller as it is decoded, from its lowest
+    // frequencies, not decoded whole and averaged. Then it is averaged to
+    // the size it shows at.
     let size = fit.size(width, height);
     let n = block_side(width, height, size);
     let scale = (8 / n) as u32;
     let (out_width, out_height) = (width.div_ceil(scale), height.div_ceil(scale));
-    let mcu_w = n * h_max;
     let mcu_h = n * v_max;
-    let row_width = mcus_x * mcu_w;
+    let row_width = mcus_x * n * h_max;
 
     // Colour where it is wanted and the image has it (luma and chroma).
     let color = sink.wants_color() && components.len() == 3;
@@ -737,31 +737,19 @@ fn scan(
     sink.start(scaler.out_width(), scaler.out_height())?;
     let height = out_height;
 
-    // One row of MCUs of luma at full resolution, and for colour of each
-    // chroma component stretched to it.
-    let mut rows: Vec<u8> = zeroed(row_width * mcu_h)?;
-    let mut chroma: [Vec<u8>; 2] = if color {
-        [zeroed(row_width * mcu_h)?, zeroed(row_width * mcu_h)?]
-    } else {
-        [Vec::new(), Vec::new()]
-    };
-    let mut rgb: Vec<u8> = if color {
-        zeroed(row_width * 3)?
-    } else {
-        Vec::new()
-    };
+    let mut planes = Planes::new(color, row_width, mcu_h)?;
     let mut block = [0u8; 64];
-    // Zeroed for each block that is shown: a dropped one (chroma, for
-    // gray: two of three blocks) keeps none of its coefficients.
+    // Zeroed for each block that is shown. A dropped one keeps none of its
+    // coefficients: chroma for gray, two of three blocks.
     let mut coef = [0i32; 64];
     let mut bits = Bits::new(reader);
     let mut until_restart = restart_interval;
     let mut emitted = 0u32;
     let blocks_per_mcu: u64 = components.iter().map(|c| (c.h * c.v) as u64).sum();
     let mut blocks = 0u64;
-    // The data ended, or asked for more work than it may: the rest of
-    // the image is as data of zeros leaves it, each block at the level of
-    // its component's last DC.
+    // The data ended, or asked for more work than it may. The rest of the
+    // image is as data of zeros leaves it: each block at the level of its
+    // component's last DC.
     let mut ended = false;
 
     for _ in 0..mcus_y {
@@ -770,22 +758,15 @@ fn scan(
         }
         for mx in 0..mcus_x {
             if restart_interval > 0 && !ended {
-                if until_restart == 0 {
-                    bits.restart()?;
-                    for c in components.iter_mut() {
-                        c.prediction = 0;
-                    }
-                    until_restart = restart_interval;
-                }
-                until_restart -= 1;
+                count_restart(&mut bits, components, &mut until_restart, restart_interval)?;
             }
             blocks += blocks_per_mcu;
             let exhausted = bits.exhausted()?;
             if exhausted && !bits.resumes(restart_interval) || !bits.affords(blocks) {
                 ended = true;
             }
-            // Without data (up to the next restart, or for good), each
-            // block has only its DC, the last one.
+            // Without data, up to the next restart or for good, each block
+            // has only its DC, the last one.
             let flat = ended || exhausted;
             for (index, component) in components.iter_mut().enumerate() {
                 let dc = dc_tables[component.dc]
@@ -797,6 +778,13 @@ fn scan(
                 let q = &quant[component.quant];
                 // Whether the component's blocks are wanted.
                 let shown = index == 0 || color;
+                // The block's stretch where the component has less
+                // resolution than the largest.
+                let (sx, sy) = if index == 0 {
+                    (sx, sy)
+                } else {
+                    (h_max / component.h, v_max / component.v)
+                };
                 for by in 0..component.v {
                     for bx in 0..component.h {
                         if flat {
@@ -806,132 +794,258 @@ fn scan(
                             let dc_value = component.prediction.saturating_mul(i32::from(q[0]));
                             block[..n * n].fill(dc_level(dc_value));
                         } else {
-                            if shown {
-                                coef = [0i32; 64];
-                            }
-                            let t = bits.decode(dc)?;
-                            if t > 16 {
-                                return Err(ImageError::Invalid("bad DC"));
-                            }
-                            let diff = Bits::extend(bits.receive(u32::from(t))?, u32::from(t));
-                            // Damaged data must not overflow.
-                            component.prediction = component.prediction.wrapping_add(diff);
-                            coef[0] = component.prediction.saturating_mul(i32::from(q[0]));
-                            // Whether a coefficient decoded counts at this size.
-                            let mut shaded = false;
-                            let mut k = 1;
-                            while k < 64 {
-                                let rs = bits.decode(ac)?;
-                                let (r, s) = (usize::from(rs >> 4), u32::from(rs & 15));
-                                if s == 0 {
-                                    if r == 15 {
-                                        k += 16;
-                                        continue;
-                                    }
-                                    break;
-                                }
-                                k += r;
-                                if k > 63 {
-                                    return Err(ImageError::Invalid("bad AC"));
-                                }
-                                if shown {
-                                    let value = Bits::extend(bits.receive(s)?, s);
-                                    let at = usize::from(ZIGZAG[k]);
-                                    coef[at] = value.saturating_mul(i32::from(q[k]));
-                                    shaded |= at % 8 < n && at / 8 < n;
-                                } else {
-                                    bits.receive(s)?;
-                                }
-                                k += 1;
-                            }
+                            let tables = (dc, ac, q);
+                            let at = (&mut coef, &mut block);
+                            decode_block(&mut bits, tables, component, shown, n, at)?;
                             if !shown {
                                 continue;
                             }
-                            if shaded {
-                                idct_scaled(&coef, n, &mut block, n);
-                            } else {
-                                // One level: most blocks of a picture made
-                                // smaller.
-                                block[..n * n].fill(dc_level(coef[0]));
-                            }
                         }
-                        // Place the block, stretched where the component
-                        // has less resolution than the largest.
-                        let (sx, sy) = if index == 0 {
-                            (sx, sy)
-                        } else {
-                            (h_max / component.h, v_max / component.v)
-                        };
-                        let plane = match index {
-                            0 => &mut rows,
-                            1 => &mut chroma[0],
-                            _ => &mut chroma[1],
-                        };
+                        let plane = planes.plane(index);
                         let x0 = (mx * h_max + bx * sx) * n;
                         let y0 = by * sy * n;
-                        if (sx, sy) == (1, 1) {
-                            for (y, from) in block.chunks_exact(n).take(n).enumerate() {
-                                let at = (y0 + y) * row_width + x0;
-                                plane[at..at + n].copy_from_slice(from);
-                            }
-                        } else {
-                            for y in 0..n * sy {
-                                for x in 0..n * sx {
-                                    let at = (y0 + y) * row_width + x0 + x;
-                                    plane[at] = block[(y / sy) * n + x / sx];
-                                }
-                            }
-                        }
+                        place_block(&block, plane, n, (sx, sy), (x0, y0), row_width);
                     }
                 }
             }
         }
         // Data cut short in this MCU row is an error.
         bits.exhausted()?;
-        // Hand over the rows of this MCU row that belong to the image.
-        for y in 0..mcu_h {
-            if emitted == height {
-                break;
-            }
-            let luma_row = &rows[y * row_width..(y + 1) * row_width];
-            if color {
-                let at = y * row_width;
-                let (cb, cr) = (
-                    &chroma[0][at..at + row_width],
-                    &chroma[1][at..at + row_width],
-                );
-                for x in 0..row_width {
-                    let pixel = ycbcr_to_rgb(luma_row[x], cb[x], cr[x]);
-                    rgb[x * 3..x * 3 + 3].copy_from_slice(&pixel);
-                }
-                scaler.row(&rgb, sink)?;
-            } else {
-                scaler.row(luma_row, sink)?;
-            }
-            emitted += 1;
-        }
+        planes.hand_over(
+            (row_width, mcu_h),
+            (&mut emitted, height),
+            &mut scaler,
+            sink,
+        )?;
     }
     if ended && emitted < height {
         // Every row below is alike, each block at the same levels.
         let level =
             |c: &Component| dc_level(c.prediction.saturating_mul(i32::from(quant[c.quant][0])));
-        let alike = if color {
-            let pixel = ycbcr_to_rgb(
-                level(&components[0]),
-                level(&components[1]),
-                level(&components[2]),
-            );
-            for to in rgb.as_chunks_mut::<3>().0 {
-                to.copy_from_slice(&pixel);
-            }
-            &rgb[..]
-        } else {
-            rows[..row_width].fill(level(&components[0]));
-            &rows[..row_width]
-        };
+        let alike = planes.alike(components, row_width, level);
         scaler.rows_alike(alike, height - emitted, sink)?;
     }
     scaler.finish(sink)
+}
+
+/// Counts an MCU towards the next restart marker, and reads that marker
+/// where it is due: the components predict their DC from zero again.
+#[inline(always)]
+fn count_restart(
+    bits: &mut Bits<'_, '_>,
+    components: &mut [Component],
+    until_restart: &mut u32,
+    restart_interval: u32,
+) -> Result<(), ImageError> {
+    if *until_restart == 0 {
+        bits.restart()?;
+        for c in components.iter_mut() {
+            c.prediction = 0;
+        }
+        *until_restart = restart_interval;
+    }
+    *until_restart -= 1;
+    Ok(())
+}
+
+/// The largest sampling factors of a baseline scan's components, and how
+/// far luma is stretched to them.
+fn sampling(components: &mut [Component]) -> ((usize, usize), (usize, usize)) {
+    // A single component is not interleaved: its MCU is one block.
+    let single = components.len() == 1;
+    if single {
+        components[0].h = 1;
+        components[0].v = 1;
+    }
+    let h_max = components.iter().map(|c| c.h).max().unwrap_or(1);
+    let v_max = components.iter().map(|c| c.v).max().unwrap_or(1);
+    let luma = components[0];
+    // Luma at less than full resolution is rare. It is stretched.
+    ((h_max, v_max), (h_max / luma.h, v_max / luma.v))
+}
+
+/// One row of MCUs of a baseline scan: luma at full resolution, and for
+/// colour each chroma component stretched to it and a row of RGB.
+struct Planes {
+    color: bool,
+    rows: Vec<u8>,
+    chroma: [Vec<u8>; 2],
+    rgb: Vec<u8>,
+}
+
+impl Planes {
+    fn new(color: bool, row_width: usize, mcu_h: usize) -> Result<Self, ImageError> {
+        let rows: Vec<u8> = zeroed(row_width * mcu_h)?;
+        let chroma: [Vec<u8>; 2] = if color {
+            [zeroed(row_width * mcu_h)?, zeroed(row_width * mcu_h)?]
+        } else {
+            [Vec::new(), Vec::new()]
+        };
+        let rgb: Vec<u8> = if color {
+            zeroed(row_width * 3)?
+        } else {
+            Vec::new()
+        };
+        Ok(Planes {
+            color,
+            rows,
+            chroma,
+            rgb,
+        })
+    }
+
+    /// The plane of component `index`.
+    #[inline(always)]
+    fn plane(&mut self, index: usize) -> &mut [u8] {
+        match index {
+            0 => &mut self.rows,
+            1 => &mut self.chroma[0],
+            _ => &mut self.chroma[1],
+        }
+    }
+
+    /// Hands over the rows of this MCU row that belong to the image, up to
+    /// its `height`. `emitted` counts them.
+    #[inline(always)]
+    fn hand_over(
+        &mut self,
+        (row_width, mcu_h): (usize, usize),
+        (emitted, height): (&mut u32, u32),
+        scaler: &mut Downscaler,
+        sink: &mut dyn ImageSink,
+    ) -> Result<(), ImageError> {
+        for y in 0..mcu_h {
+            if *emitted == height {
+                break;
+            }
+            let luma_row = &self.rows[y * row_width..(y + 1) * row_width];
+            if self.color {
+                let at = y * row_width;
+                let (cb, cr) = (
+                    &self.chroma[0][at..at + row_width],
+                    &self.chroma[1][at..at + row_width],
+                );
+                for x in 0..row_width {
+                    let pixel = ycbcr_to_rgb(luma_row[x], cb[x], cr[x]);
+                    self.rgb[x * 3..x * 3 + 3].copy_from_slice(&pixel);
+                }
+                scaler.row(&self.rgb, sink)?;
+            } else {
+                scaler.row(luma_row, sink)?;
+            }
+            *emitted += 1;
+        }
+        Ok(())
+    }
+
+    /// A row where every block is at its component's `level`.
+    fn alike(
+        &mut self,
+        components: &[Component],
+        row_width: usize,
+        level: impl Fn(&Component) -> u8,
+    ) -> &[u8] {
+        if !self.color {
+            self.rows[..row_width].fill(level(&components[0]));
+            return &self.rows[..row_width];
+        }
+        let pixel = ycbcr_to_rgb(
+            level(&components[0]),
+            level(&components[1]),
+            level(&components[2]),
+        );
+        for to in self.rgb.as_chunks_mut::<3>().0 {
+            to.copy_from_slice(&pixel);
+        }
+        &self.rgb
+    }
+}
+
+/// Decodes the next block of `component` from `bits`. Where it is
+/// `shown`, its coefficients go to `coef` and its n×n pixels to `block`.
+#[inline(always)]
+fn decode_block(
+    bits: &mut Bits<'_, '_>,
+    (dc, ac, q): (&Huffman, &Huffman, &[u16; 64]),
+    component: &mut Component,
+    shown: bool,
+    n: usize,
+    (coef, block): (&mut [i32; 64], &mut [u8; 64]),
+) -> Result<(), ImageError> {
+    if shown {
+        *coef = [0i32; 64];
+    }
+    let t = bits.decode(dc)?;
+    if t > 16 {
+        return Err(ImageError::Invalid("bad DC"));
+    }
+    let diff = Bits::extend(bits.receive(u32::from(t))?, u32::from(t));
+    // Damaged data must not overflow.
+    component.prediction = component.prediction.wrapping_add(diff);
+    coef[0] = component.prediction.saturating_mul(i32::from(q[0]));
+    // Whether a coefficient decoded counts at this size.
+    let mut shaded = false;
+    let mut k = 1;
+    while k < 64 {
+        let rs = bits.decode(ac)?;
+        let (r, s) = (usize::from(rs >> 4), u32::from(rs & 15));
+        if s == 0 {
+            if r == 15 {
+                k += 16;
+                continue;
+            }
+            break;
+        }
+        k += r;
+        if k > 63 {
+            return Err(ImageError::Invalid("bad AC"));
+        }
+        if shown {
+            let value = Bits::extend(bits.receive(s)?, s);
+            let at = usize::from(ZIGZAG[k]);
+            coef[at] = value.saturating_mul(i32::from(q[k]));
+            shaded |= at % 8 < n && at / 8 < n;
+        } else {
+            bits.receive(s)?;
+        }
+        k += 1;
+    }
+    if !shown {
+        return Ok(());
+    }
+    if shaded {
+        idct_scaled(coef, n, block, n);
+    } else {
+        // One level: most blocks of a picture made smaller.
+        block[..n * n].fill(dc_level(coef[0]));
+    }
+    Ok(())
+}
+
+/// Places the n×n `block` in `plane` at `(x0, y0)`, stretched `sx` times
+/// across and `sy` times down.
+#[inline(always)]
+fn place_block(
+    block: &[u8; 64],
+    plane: &mut [u8],
+    n: usize,
+    (sx, sy): (usize, usize),
+    (x0, y0): (usize, usize),
+    row_width: usize,
+) {
+    if (sx, sy) == (1, 1) {
+        for (y, from) in block.chunks_exact(n).take(n).enumerate() {
+            let at = (y0 + y) * row_width + x0;
+            plane[at..at + n].copy_from_slice(from);
+        }
+    } else {
+        for y in 0..n * sy {
+            for x in 0..n * sx {
+                let at = (y0 + y) * row_width + x0 + x;
+                plane[at] = block[(y / sy) * n + x / sx];
+            }
+        }
+    }
 }
 
 /// JFIF's YCbCr as RGB.

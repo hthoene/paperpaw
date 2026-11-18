@@ -145,15 +145,42 @@ impl Bundle {
     /// The bundle `source` holds, checked whole against the format and
     /// against `image` (the SHA-256 the app image it must lie behind ends
     /// with), in `room` bytes at most.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than the limit from before it was set; split it when it is next changed"
-    )]
     pub fn read(
         source: &mut dyn Source,
         image: &[u8; 32],
         room: u32,
     ) -> Result<Bundle, BundleProblem> {
+        let head = Head::read(source, image, room)?;
+        let mut layout = Layout {
+            source,
+            next_text: head.texts_at,
+            texts_at: head.texts_at,
+            len: head.len,
+        };
+        let entries = layout.plugin_entries(&head)?;
+        let mut plugins = layout.plugins(&entries)?;
+        let files = layout.file_entries(&head)?;
+        layout.files(&entries, files, &mut plugins)?;
+        Ok(Bundle {
+            len: head.len,
+            plugins,
+        })
+    }
+}
+
+/// What a bundle's head says, checked.
+struct Head {
+    plugins: u16,
+    files: u32,
+    len: u32,
+    files_at: u32,
+    texts_at: u32,
+}
+
+impl Head {
+    /// The head of the bundle in `source`, checked against `image` and
+    /// `room` as [`Bundle::read`] says, and the digest of the rest.
+    fn read(source: &mut dyn Source, image: &[u8; 32], room: u32) -> Result<Head, BundleProblem> {
         let mut head = [0u8; HEAD_LEN as usize];
         if !source.read(0, &mut head) || head[..4] != BUNDLE_MAGIC {
             return Err(BundleProblem::NotABundle);
@@ -179,36 +206,63 @@ impl Bundle {
         if digest(source, HEAD_LEN, len)? != head[48..80] {
             return Err(BundleProblem::Damaged);
         }
-        let mut layout = Layout {
-            source,
-            next_text: texts_at,
-            texts_at,
+        Ok(Head {
+            plugins,
+            files,
             len,
-        };
-        let mut read = Vec::new();
-        read.try_reserve_exact(usize::from(plugins))
-            .map_err(|_| BundleProblem::TooLarge)?;
+            files_at,
+            texts_at,
+        })
+    }
+}
+
+/// A plugin's entry in the table, with its number of files.
+type PluginEntry = ([u8; PLUGIN_LEN as usize], u32);
+
+/// A file's entry in the table, with its path.
+type FileEntry = ([u8; FILE_LEN as usize], String);
+
+/// Reads a bundle's tables and texts, each where the layout puts it.
+struct Layout<'a> {
+    source: &'a mut dyn Source,
+    /// Where the next text must begin.
+    next_text: u32,
+    texts_at: u32,
+    len: u32,
+}
+
+impl Layout<'_> {
+    /// The plugins' entries. Their file counts must add up to the head's.
+    fn plugin_entries(&mut self, head: &Head) -> Result<Vec<PluginEntry>, BundleProblem> {
         let mut file_index = 0u32;
         let mut entries = Vec::new();
-        for i in 0..u32::from(plugins) {
+        for i in 0..u32::from(head.plugins) {
             let mut entry = [0u8; PLUGIN_LEN as usize];
-            layout.bytes(HEAD_LEN + PLUGIN_LEN * i, &mut entry)?;
+            self.bytes(HEAD_LEN + PLUGIN_LEN * i, &mut entry)?;
             let count = le32(&entry, 12);
-            if count < 1 || file_index + count > files {
+            if count < 1 || file_index + count > head.files {
                 return Err(BundleProblem::Layout);
             }
             entries.push((entry, count));
             file_index += count;
         }
-        if file_index != files {
+        if file_index != head.files {
             return Err(BundleProblem::Layout);
         }
-        // The texts in the layout's order: ids and versions, then paths.
-        for (entry, _) in &entries {
-            let id = layout.text(le32(entry, 0), le16(entry, 8))?;
-            let version = layout.text(le32(entry, 4), le16(entry, 10))?;
-            // `core` is the host's own id (`paperpaw-core`'s
-            // `RESERVED_PLUGIN_ID`): no bundle installs a plugin by it.
+        Ok(entries)
+    }
+
+    /// The plugins with their ids and versions, still without files. The
+    /// texts come in the layout's order: ids and versions, then paths.
+    fn plugins(&mut self, entries: &[PluginEntry]) -> Result<Vec<BundlePlugin>, BundleProblem> {
+        let mut read = Vec::new();
+        read.try_reserve_exact(entries.len())
+            .map_err(|_| BundleProblem::TooLarge)?;
+        for (entry, _) in entries {
+            let id = self.text(le32(entry, 0), le16(entry, 8))?;
+            let version = self.text(le32(entry, 4), le16(entry, 10))?;
+            // `core` is the host's own id (`RESERVED_PLUGIN_ID` in
+            // `paperpaw-core`). No bundle installs a plugin by it.
             if !is_plugin_id(&id)
                 || id == "core"
                 || !is_version(&version)
@@ -222,37 +276,51 @@ impl Bundle {
                 files: Vec::new(),
             });
         }
-        // Then every file's path; its bytes after the texts, each from a
-        // multiple of 4.
+        Ok(read)
+    }
+
+    /// The files' entries with their paths, after the plugins' texts.
+    fn file_entries(&mut self, head: &Head) -> Result<Vec<FileEntry>, BundleProblem> {
         let mut tables = Vec::new();
         tables
-            .try_reserve_exact(files as usize)
+            .try_reserve_exact(head.files as usize)
             .map_err(|_| BundleProblem::TooLarge)?;
-        for i in 0..files {
+        for i in 0..head.files {
             let mut entry = [0u8; FILE_LEN as usize];
-            layout.bytes(files_at + FILE_LEN * i, &mut entry)?;
-            let path = layout.text(le32(&entry, 0), le16(&entry, 4))?;
+            self.bytes(head.files_at + FILE_LEN * i, &mut entry)?;
+            let path = self.text(le32(&entry, 0), le16(&entry, 4))?;
             if le16(&entry, 6) != 0 {
                 return Err(BundleProblem::Layout);
             }
             tables.push((entry, path));
         }
-        let mut next_data = layout.next_text;
-        let mut tables = tables.into_iter();
-        for ((_, count), plugin) in entries.iter().zip(read.iter_mut()) {
+        Ok(tables)
+    }
+
+    /// Gives each plugin its files. Their bytes come after the texts, one
+    /// after the other, each from a multiple of 4, up to the bundle's end.
+    fn files(
+        &mut self,
+        entries: &[PluginEntry],
+        files: Vec<FileEntry>,
+        plugins: &mut [BundlePlugin],
+    ) -> Result<(), BundleProblem> {
+        let mut next_data = self.next_text;
+        let mut files = files.into_iter();
+        for ((_, count), plugin) in entries.iter().zip(plugins.iter_mut()) {
             plugin
                 .files
                 .try_reserve_exact(*count as usize)
                 .map_err(|_| BundleProblem::TooLarge)?;
-            for (entry, path) in tables.by_ref().take(*count as usize) {
+            for (entry, path) in files.by_ref().take(*count as usize) {
                 let at = le32(&entry, 8);
                 let size = le32(&entry, 12);
                 if at != next_data.next_multiple_of(4)
-                    || at.checked_add(size).is_none_or(|end| end > len)
+                    || at.checked_add(size).is_none_or(|end| end > self.len)
                 {
                     return Err(BundleProblem::Layout);
                 }
-                layout.zeros(next_data, at)?;
+                self.zeros(next_data, at)?;
                 next_data = at + size;
                 if !is_safe_path(&path)
                     || plugin
@@ -275,23 +343,12 @@ impl Bundle {
                 return Err(BundleProblem::Name);
             }
         }
-        if next_data != len {
+        if next_data != self.len {
             return Err(BundleProblem::Layout);
         }
-        Ok(Bundle { len, plugins: read })
+        Ok(())
     }
-}
 
-/// Reads a bundle's tables and texts, each where the layout puts it.
-struct Layout<'a> {
-    source: &'a mut dyn Source,
-    /// Where the next text must begin.
-    next_text: u32,
-    texts_at: u32,
-    len: u32,
-}
-
-impl Layout<'_> {
     fn bytes(&mut self, at: u32, buf: &mut [u8]) -> Result<(), BundleProblem> {
         if self.source.read(at, buf) {
             Ok(())

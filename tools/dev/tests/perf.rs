@@ -182,6 +182,9 @@ fn a_request_left_under_way_is_not_a_leak_of_the_stores_list() {
         out,
     );
     context.quick = true;
+    // Answered from the fixtures: the computer's network answers in its own
+    // time, which made this test depend on the machine it ran on.
+    context.fixtures = true;
     let mut report = Report::default();
     perf::run(&context, &mut report).unwrap();
     let leaks: Vec<_> = report
@@ -191,5 +194,32 @@ fn a_request_left_under_way_is_not_a_leak_of_the_stores_list() {
         .map(|f| f.message.clone())
         .collect();
     assert!(leaks.is_empty(), "{leaks:?}");
+    let _ = std::fs::remove_dir_all(&context.out);
+}
+
+/// The firmware confirmation guards the device: opening the home slot
+/// leaves it open, and every screen measured after it opened below it,
+/// unseen, until the stack was full (#336). It is closed before the next
+/// screen, and a screen not measured is an error naming it.
+#[test]
+fn screens_after_a_guarding_screen_are_measured() {
+    let out = std::env::temp_dir().join(format!("paperpaw-dev-perf-guard-{}", std::process::id()));
+    let mut context = Context::new(
+        Target {
+            plugins: vec!["core".into()],
+            ..Target::default()
+        },
+        out,
+    );
+    context.quick = true;
+    let mut report = Report::default();
+    perf::run(&context, &mut report).unwrap();
+    let skipped: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.check == "perf.skipped")
+        .map(|f| (f.level, f.place.clone()))
+        .collect();
+    assert!(skipped.is_empty(), "{skipped:?}");
     let _ = std::fs::remove_dir_all(&context.out);
 }

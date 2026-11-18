@@ -73,7 +73,7 @@ pub(crate) fn draw_image_over(
         },
         area,
         opacity,
-        true,
+        (true, None),
     );
 }
 
@@ -240,7 +240,32 @@ pub fn try_draw_picture(
     area: Rect,
     opacity: u8,
 ) -> Result<(), paperpaw_sdk::image::ImageError> {
-    draw_picture(canvas, storage, picture, area, opacity, false)
+    draw_picture(canvas, storage, picture, area, opacity, (false, None))
+}
+
+/// Told each dithered row a draw shows: the row of the picture's rectangle,
+/// the column of it the first gray lies in, and the grays (of the frame's
+/// levels, as they went into the frame).
+pub(crate) type ShownRows<'a> = &'a dyn Fn(usize, usize, &[u8]);
+
+/// [`try_draw_picture`] that tells `shown` the dithered rows it draws, for
+/// one who keeps them (the image table's kept covers, #329).
+pub(crate) fn try_draw_picture_told(
+    canvas: &mut Canvas<'_>,
+    storage: &dyn Storage,
+    picture: &Picture<'_>,
+    area: Rect,
+    opacity: u8,
+    shown: ShownRows<'_>,
+) -> Result<(), paperpaw_sdk::image::ImageError> {
+    draw_picture(
+        canvas,
+        storage,
+        picture,
+        area,
+        opacity,
+        (false, Some(shown)),
+    )
 }
 
 /// The columns (from, to) a picture is made over: a dithered one over all of
@@ -279,7 +304,7 @@ fn draw_picture(
     picture: &Picture<'_>,
     area: Rect,
     opacity: u8,
-    lenient: bool,
+    (lenient, told): (bool, Option<ShownRows<'_>>),
 ) -> Result<(), paperpaw_sdk::image::ImageError> {
     if area.intersection(&canvas.clip()).is_none() || opacity == 0 {
         return Ok(());
@@ -310,7 +335,7 @@ fn draw_picture(
         area,
         opacity,
         (lenient, picture.scratch_max),
-        (picture.tones, picture.look),
+        (picture.tones, picture.look, told),
     )
 }
 
@@ -454,7 +479,11 @@ fn draw_source(
     area: Rect,
     opacity: u8,
     (lenient, budget): (bool, usize),
-    (tones, look): (Tones, Option<&super::picture_look::PictureLook>),
+    (tones, look, told): (
+        Tones,
+        Option<&super::picture_look::PictureLook>,
+        Option<ShownRows<'_>>,
+    ),
 ) -> Result<(), paperpaw_sdk::image::ImageError> {
     let (left, top) = (i32::from(area.x), i32::from(area.y));
     let (w, h) = (usize::from(area.width), usize::from(area.height));
@@ -557,8 +586,8 @@ fn draw_source(
             Some(spreading) => {
                 spreading.row(&row, |x, gray| diffused[x] = gray);
                 if y >= shown {
-                    let at = (vx0 - mx0) as usize;
-                    canvas.draw_gray_row(vx0, y, &diffused[at..at + (vx1 - vx0) as usize]);
+                    let grays = &diffused[(vx0 - mx0) as usize..(vx1 - mx0) as usize];
+                    put_row(canvas, (vx0, y), grays, told, (oy, (vx0 - left) as usize));
                 }
             }
             None => draw_row(canvas, vx0, y, &row, blended, opacity),
@@ -570,6 +599,21 @@ fn draw_source(
         canvas.keep_diffusion(key, last, atkinson);
     }
     Ok(())
+}
+
+/// A dithered row of [`draw_source`] into the frame at `(x, y)`, and told to
+/// the one who keeps such rows, as the picture's `row` from `column` on.
+fn put_row(
+    canvas: &mut Canvas<'_>,
+    (x, y): (i32, i32),
+    grays: &[u8],
+    told: Option<ShownRows<'_>>,
+    (row, column): (usize, usize),
+) {
+    canvas.draw_gray_row(x, y, grays);
+    if let Some(told) = told {
+        told(row, column, grays);
+    }
 }
 
 /// The heap [`draw_source`] takes for a picture `sw` wide in `vw` visible

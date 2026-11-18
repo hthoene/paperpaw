@@ -346,13 +346,9 @@ impl Rows<'_> {
     }
 }
 
-// Not inlined into `decode`: each format's frame on the stack alone,
+// Not inlined into `decode`, so each format's frame is on the stack alone,
 // not all three together.
 #[inline(never)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
 pub(crate) fn decode(
     reader: &mut Reader<'_>,
     fit: Fit,
@@ -365,59 +361,20 @@ pub(crate) fn decode(
     }
     let mut header: Option<Header> = None;
     // Made at the first `PLTE` or `tRNS` of a palette image, or at its
-    // rows; dropped once the rows' tables are made from it.
+    // rows. Dropped once the rows' tables are made from it.
     let mut entries: Option<Palette> = None;
     let mut key: Option<[u16; 3]> = None;
     let mut rows: Option<Rows<'_>> = None;
     let mut sink = Some(sink);
     // Inflate state, created at the first IDAT chunk.
-    let mut decoder: Vec<DecompressorOxide> = Vec::new();
-    let mut window: Vec<u8> = Vec::new();
-    let mut position = 0usize;
-    // Inflating into a window of exactly the image's data (it fits the
-    // history): the output never wraps.
-    let mut whole = false;
-    // The data went on past the rows of an image whose window holds just
-    // them: nothing more is inflated.
-    let mut surplus = false;
-    let mut zlib_header = 2usize;
-    // Read from the stream a piece at a time: made with the window.
-    let mut chunk: Vec<u8> = Vec::new();
+    let mut inflate = Inflate::default();
 
     loop {
         let len = reader.u32_be()? as usize;
         let mut kind = [0u8; 4];
         reader.fill(&mut kind)?;
         match &kind {
-            b"IHDR" => {
-                let width = reader.u32_be()?;
-                let height = reader.u32_be()?;
-                let depth = reader.byte()?;
-                let color = reader.byte()?;
-                let _compression = reader.byte()?;
-                let _filter = reader.byte()?;
-                let interlace = reader.byte()?;
-                reader.skip(len.saturating_sub(13))?;
-                let valid = matches!(
-                    (color, depth),
-                    (0, 1 | 2 | 4 | 8 | 16) | (3, 1 | 2 | 4 | 8) | (2 | 4 | 6, 8 | 16)
-                );
-                if width == 0 || height == 0 || !valid {
-                    return Err(ImageError::Invalid("bad PNG header"));
-                }
-                if interlace != 0 {
-                    return Err(ImageError::Unsupported("interlaced PNG"));
-                }
-                if width > 1 << 16 || height > 1 << 16 {
-                    return Err(ImageError::TooLarge);
-                }
-                header = Some(Header {
-                    width,
-                    height,
-                    depth,
-                    color,
-                });
-            }
+            b"IHDR" => header = Some(read_header(reader, len)?),
             b"PLTE" => {
                 let count = (len / 3).min(256);
                 let palette = match &mut entries {
@@ -441,160 +398,27 @@ pub(crate) fn decode(
             }
             // The one colour of a gray or RGB image shown as clear.
             b"tRNS" if header.as_ref().is_some_and(|h| matches!(h.color, 0 | 2)) => {
-                let samples = if header.as_ref().is_some_and(|h| h.color == 0) {
-                    1
-                } else {
-                    3
-                };
-                if len >= samples * 2 {
-                    let mut value = [0u16; 3];
-                    for sample in value.iter_mut().take(samples) {
-                        *sample = u16::from_be_bytes([reader.byte()?, reader.byte()?]);
-                    }
-                    key = Some(value);
-                    reader.skip(len - samples * 2)?;
-                } else {
-                    reader.skip(len)?;
-                }
+                let gray = header.as_ref().is_some_and(|h| h.color == 0);
+                key = read_key(reader, len, gray)?.or(key);
             }
             b"IDAT" => {
                 if rows.is_none() {
                     let h = header
                         .take()
                         .ok_or(ImageError::Invalid("IDAT before IHDR"))?;
-                    // Only a palette image has entries to show.
-                    let (mut palette, mut colors, mut see_through) =
-                        (Vec::new(), Vec::new(), Vec::new());
-                    let mut clear_entry = false;
-                    if h.color == 3 {
-                        let entries = match &mut entries {
-                            Some(entries) => entries,
-                            none => none.insert(Palette::new()?),
-                        };
-                        clear_entry = entries.alpha.iter().any(|&a| a < 255);
-                        (palette, colors, see_through) = entry_tables(entries)?;
-                    }
-                    entries = None;
-                    let size = fit.size(h.width, h.height);
                     let sink = sink.take().ok_or(ImageError::Invalid("state"))?;
-                    // Transparency where the image has it and the sink
-                    // wants it; then colour.
-                    let has_alpha =
-                        matches!(h.color, 4 | 6) || (h.color == 3 && clear_entry) || key.is_some();
-                    let with_alpha = has_alpha && sink.wants_alpha();
-                    let color = !with_alpha && sink.wants_color();
-                    let channels = if with_alpha {
-                        2
-                    } else if color {
-                        3
-                    } else {
-                        1
-                    };
-                    let scaler = Downscaler::new(h.width, h.height, size, channels)?;
-                    sink.start(scaler.out_width(), scaler.out_height())?;
-                    let row_len = h.row_bytes() + 1;
-                    // An image whose rows fit the deflate history inflates
-                    // whole into a window of its size (a 6 KiB icon no
-                    // longer asks for a 32 KiB piece); a larger one wraps
-                    // through the full history.
-                    let data = u64::from(h.height).saturating_mul(row_len as u64);
-                    whole = data <= WINDOW as u64;
-                    rows = Some(Rows {
-                        palette,
-                        colors,
-                        see_through,
-                        key,
-                        color,
-                        alpha: with_alpha,
-                        previous: zeroed(row_len)?,
-                        current: zeroed(row_len)?,
-                        filled: 0,
-                        gray: zeroed(h.width as usize * channels)?,
-                        done: 0,
-                        scaler,
-                        sink,
-                        header: h,
-                    });
-                    decoder
-                        .try_reserve_exact(1)
-                        .map_err(|_| ImageError::OutOfMemory)?;
-                    // Made in place: pushed, its 11 KB went over the stack
-                    // first.
-                    decoder.resize_with(1, DecompressorOxide::default);
-                    window = zeroed(if whole {
-                        (data as usize).max(1)
-                    } else {
-                        WINDOW
-                    })?;
-                    chunk = zeroed(1024)?;
+                    let (state, data) = start_rows(h, entries.take(), key, fit, sink)?;
+                    rows = Some(state);
+                    inflate.start(data)?;
                 }
                 let Some(state) = rows.as_mut() else {
                     return Err(ImageError::Invalid("state"));
                 };
-                let mut left = len;
-                while left > 0 {
-                    let n = left.min(chunk.len());
-                    reader.fill(&mut chunk[..n])?;
-                    left -= n;
-                    let mut input = &chunk[..n];
-                    // The 2-byte zlib header precedes the deflate data.
-                    let skip = zlib_header.min(input.len());
-                    input = &input[skip..];
-                    zlib_header -= skip;
-                    while !input.is_empty() && !surplus {
-                        let (status, used, written) = decompress(
-                            &mut decoder[0],
-                            input,
-                            &mut window,
-                            position,
-                            inflate_flags::TINFL_FLAG_HAS_MORE_INPUT | non_wrapping(whole),
-                        );
-                        input = &input[used..];
-                        state.push(&window[position..position + written])?;
-                        position = advance(position, written, whole);
-                        if whole && status == TINFLStatus::HasMoreOutput && position == window.len()
-                        {
-                            // More data than the rows: the rest is left
-                            // unread, as a wrapping window's is.
-                            surplus = true;
-                            input = &[];
-                        }
-                        match status {
-                            TINFLStatus::Done => {
-                                input = &[];
-                            }
-                            TINFLStatus::HasMoreOutput | TINFLStatus::NeedsMoreInput => {}
-                            _ => return Err(ImageError::Invalid("corrupt PNG data")),
-                        }
-                        if used == 0 && written == 0 && status != TINFLStatus::HasMoreOutput {
-                            break;
-                        }
-                    }
-                }
+                inflate.feed(reader, len, state)?;
             }
             b"IEND" => {
                 let state = rows.as_mut().ok_or(ImageError::Invalid("no image data"))?;
-                // Flush what the decoder still holds.
-                loop {
-                    if surplus {
-                        break;
-                    }
-                    let (status, _, written) = decompress(
-                        &mut decoder[0],
-                        &[],
-                        &mut window,
-                        position,
-                        non_wrapping(whole),
-                    );
-                    state.push(&window[position..position + written])?;
-                    position = advance(position, written, whole);
-                    if whole && status == TINFLStatus::HasMoreOutput && position == window.len() {
-                        break;
-                    }
-                    if written == 0 || status != TINFLStatus::HasMoreOutput {
-                        break;
-                    }
-                }
+                inflate.finish(state)?;
                 if state.done < state.header.height {
                     return Err(ImageError::Invalid("truncated PNG data"));
                 }
@@ -604,5 +428,248 @@ pub(crate) fn decode(
         }
         // CRC
         reader.skip(4)?;
+    }
+}
+
+/// The image header (`IHDR`), `len` bytes, checked.
+fn read_header(reader: &mut Reader<'_>, len: usize) -> Result<Header, ImageError> {
+    let width = reader.u32_be()?;
+    let height = reader.u32_be()?;
+    let depth = reader.byte()?;
+    let color = reader.byte()?;
+    let _compression = reader.byte()?;
+    let _filter = reader.byte()?;
+    let interlace = reader.byte()?;
+    reader.skip(len.saturating_sub(13))?;
+    let valid = matches!(
+        (color, depth),
+        (0, 1 | 2 | 4 | 8 | 16) | (3, 1 | 2 | 4 | 8) | (2 | 4 | 6, 8 | 16)
+    );
+    if width == 0 || height == 0 || !valid {
+        return Err(ImageError::Invalid("bad PNG header"));
+    }
+    if interlace != 0 {
+        return Err(ImageError::Unsupported("interlaced PNG"));
+    }
+    if width > 1 << 16 || height > 1 << 16 {
+        return Err(ImageError::TooLarge);
+    }
+    Ok(Header {
+        width,
+        height,
+        depth,
+        color,
+    })
+}
+
+/// The colour of a `gray` or RGB image that is shown as clear (`tRNS`),
+/// `len` bytes. `None` where it is too short to say one.
+fn read_key(
+    reader: &mut Reader<'_>,
+    len: usize,
+    gray: bool,
+) -> Result<Option<[u16; 3]>, ImageError> {
+    let samples = if gray { 1 } else { 3 };
+    if len < samples * 2 {
+        reader.skip(len)?;
+        return Ok(None);
+    }
+    let mut value = [0u16; 3];
+    for sample in value.iter_mut().take(samples) {
+        *sample = u16::from_be_bytes([reader.byte()?, reader.byte()?]);
+    }
+    reader.skip(len - samples * 2)?;
+    Ok(Some(value))
+}
+
+/// The rows of image `h`, its tables made from the palette `entries`,
+/// handed to `sink` at the size `fit` asks for. Also the bytes of its
+/// data inflated.
+// Inlined into `decode` as before it was split: apart, its frame came on
+// top of `decode`'s and the picture path took 304 B more stack on the S3.
+#[inline(always)]
+fn start_rows<'s>(
+    h: Header,
+    mut entries: Option<Palette>,
+    key: Option<[u16; 3]>,
+    fit: Fit,
+    sink: &'s mut dyn ImageSink,
+) -> Result<(Rows<'s>, u64), ImageError> {
+    // Only a palette image has entries to show.
+    let (mut palette, mut colors, mut see_through) = (Vec::new(), Vec::new(), Vec::new());
+    let mut clear_entry = false;
+    if h.color == 3 {
+        let entries = match &mut entries {
+            Some(entries) => entries,
+            none => none.insert(Palette::new()?),
+        };
+        clear_entry = entries.alpha.iter().any(|&a| a < 255);
+        (palette, colors, see_through) = entry_tables(entries)?;
+    }
+    drop(entries);
+    let size = fit.size(h.width, h.height);
+    // Transparency where the image has it and the sink wants it, else
+    // colour where the sink wants it.
+    let has_alpha = matches!(h.color, 4 | 6) || (h.color == 3 && clear_entry) || key.is_some();
+    let with_alpha = has_alpha && sink.wants_alpha();
+    let color = !with_alpha && sink.wants_color();
+    let channels = if with_alpha {
+        2
+    } else if color {
+        3
+    } else {
+        1
+    };
+    let scaler = Downscaler::new(h.width, h.height, size, channels)?;
+    sink.start(scaler.out_width(), scaler.out_height())?;
+    let row_len = h.row_bytes() + 1;
+    let data = u64::from(h.height).saturating_mul(row_len as u64);
+    let rows = Rows {
+        palette,
+        colors,
+        see_through,
+        key,
+        color,
+        alpha: with_alpha,
+        previous: zeroed(row_len)?,
+        current: zeroed(row_len)?,
+        filled: 0,
+        gray: zeroed(h.width as usize * channels)?,
+        done: 0,
+        scaler,
+        sink,
+        header: h,
+    };
+    Ok((rows, data))
+}
+
+/// Inflating the image data of the `IDAT` chunks.
+struct Inflate {
+    decoder: Vec<DecompressorOxide>,
+    window: Vec<u8>,
+    position: usize,
+    /// Inflating into a window of exactly the image's data, which fits the
+    /// history: the output never wraps.
+    whole: bool,
+    /// The data went on past the rows of an image whose window holds just
+    /// them: nothing more is inflated.
+    surplus: bool,
+    zlib_header: usize,
+    /// Read from the stream a piece at a time. Made with the window.
+    chunk: Vec<u8>,
+}
+
+impl Default for Inflate {
+    fn default() -> Self {
+        Inflate {
+            decoder: Vec::new(),
+            window: Vec::new(),
+            position: 0,
+            whole: false,
+            surplus: false,
+            zlib_header: 2,
+            chunk: Vec::new(),
+        }
+    }
+}
+
+impl Inflate {
+    /// Makes the decoder and the window for `data` bytes of image data.
+    fn start(&mut self, data: u64) -> Result<(), ImageError> {
+        // An image whose rows fit the deflate history inflates whole into
+        // a window of its size: a 6 KiB icon no longer asks for a 32 KiB
+        // piece. A larger one wraps through the full history.
+        self.whole = data <= WINDOW as u64;
+        self.decoder
+            .try_reserve_exact(1)
+            .map_err(|_| ImageError::OutOfMemory)?;
+        // Made in place: pushed, its 11 KB went over the stack first.
+        self.decoder.resize_with(1, DecompressorOxide::default);
+        self.window = zeroed(if self.whole {
+            (data as usize).max(1)
+        } else {
+            WINDOW
+        })?;
+        self.chunk = zeroed(1024)?;
+        Ok(())
+    }
+
+    /// Inflates an `IDAT` chunk of `len` bytes into the rows.
+    fn feed(
+        &mut self,
+        reader: &mut Reader<'_>,
+        len: usize,
+        state: &mut Rows<'_>,
+    ) -> Result<(), ImageError> {
+        let whole = self.whole;
+        let mut left = len;
+        while left > 0 {
+            let n = left.min(self.chunk.len());
+            reader.fill(&mut self.chunk[..n])?;
+            left -= n;
+            let mut input = &self.chunk[..n];
+            // The 2-byte zlib header precedes the deflate data.
+            let skip = self.zlib_header.min(input.len());
+            input = &input[skip..];
+            self.zlib_header -= skip;
+            while !input.is_empty() && !self.surplus {
+                let (status, used, written) = decompress(
+                    &mut self.decoder[0],
+                    input,
+                    &mut self.window,
+                    self.position,
+                    inflate_flags::TINFL_FLAG_HAS_MORE_INPUT | non_wrapping(whole),
+                );
+                input = &input[used..];
+                state.push(&self.window[self.position..self.position + written])?;
+                self.position = advance(self.position, written, whole);
+                if whole
+                    && status == TINFLStatus::HasMoreOutput
+                    && self.position == self.window.len()
+                {
+                    // More data than the rows: the rest is left unread, as
+                    // a wrapping window's is.
+                    self.surplus = true;
+                    input = &[];
+                }
+                match status {
+                    TINFLStatus::Done => {
+                        input = &[];
+                    }
+                    TINFLStatus::HasMoreOutput | TINFLStatus::NeedsMoreInput => {}
+                    _ => return Err(ImageError::Invalid("corrupt PNG data")),
+                }
+                if used == 0 && written == 0 && status != TINFLStatus::HasMoreOutput {
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Flushes what the decoder still holds into the rows.
+    fn finish(&mut self, state: &mut Rows<'_>) -> Result<(), ImageError> {
+        let whole = self.whole;
+        loop {
+            if self.surplus {
+                break;
+            }
+            let (status, _, written) = decompress(
+                &mut self.decoder[0],
+                &[],
+                &mut self.window,
+                self.position,
+                non_wrapping(whole),
+            );
+            state.push(&self.window[self.position..self.position + written])?;
+            self.position = advance(self.position, written, whole);
+            if whole && status == TINFLStatus::HasMoreOutput && self.position == self.window.len() {
+                break;
+            }
+            if written == 0 || status != TINFLStatus::HasMoreOutput {
+                break;
+            }
+        }
+        Ok(())
     }
 }

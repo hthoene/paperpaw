@@ -11,7 +11,7 @@ use android_activity::{AndroidApp, InputStatus, MainEvent, PollEvent, WindowMana
 use ndk::hardware_buffer_format::HardwareBufferFormat;
 use ndk::native_window::NativeWindow;
 use paperpaw_core::kit::library;
-use paperpaw_core::{Effects, Io, Kernel};
+use paperpaw_core::{Effects, Io, Kernel, KernelBuilder};
 use paperpaw_fs::DirStorage;
 use paperpaw_graphics::Framebuffer;
 use paperpaw_platform::{
@@ -81,11 +81,32 @@ struct Running {
 /// How often the battery and time zone are read again.
 const STATUS_EVERY_MS: u64 = 60_000;
 
+/// The time since the app started, as the kernel counts it.
+#[derive(Clone, Copy)]
+struct Clock(StdInstant);
+
+impl Clock {
+    fn now(self) -> Instant {
+        Instant(self.0.elapsed().as_millis() as u64)
+    }
+}
+
+/// What the event loop keeps from one round to the next.
+struct Activity {
+    clock: Clock,
+    epd: Option<Epd>,
+    lights: Option<Lights>,
+    running: Option<Running>,
+    window: Option<NativeWindow>,
+    quit: bool,
+    /// In the background (or the screen is off): timers wait, unless
+    /// reading aloud goes on, and nothing is shown.
+    paused: bool,
+    /// The frame changed and is still to be shown.
+    unshown: bool,
+}
+
 #[unsafe(no_mangle)]
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
 fn android_main(app: AndroidApp) {
     android_logger::init_once(
         android_logger::Config::default()
@@ -93,218 +114,188 @@ fn android_main(app: AndroidApp) {
             .with_tag("PaperPaw"),
     );
     log_panics();
-    let start = StdInstant::now();
-    let now = move || Instant(start.elapsed().as_millis() as u64);
-    let mut epd = Epd::detect(&app);
-    let lights = Lights::detect(&app);
-    let mut running: Option<Running> = None;
-    let mut window: Option<NativeWindow> = None;
-    let mut quit = false;
-    // In the background (or the screen is off): timers wait, unless
-    // reading aloud goes on, and nothing is shown.
-    let mut paused = false;
-    // The frame changed and is still to be shown.
-    let mut unshown = false;
+    let mut activity = Activity {
+        clock: Clock(StdInstant::now()),
+        epd: Epd::detect(&app),
+        lights: Lights::detect(&app),
+        running: None,
+        window: None,
+        quit: false,
+        paused: false,
+        unshown: false,
+    };
+    while !activity.quit {
+        let ticking = activity.ticking();
+        let timeout = activity.timeout(ticking);
+        app.poll_events(timeout, |event| {
+            if let PollEvent::Main(event) = event {
+                activity.main_event(&app, event);
+            }
+        });
+        activity.round(&app, ticking);
+    }
+}
 
-    while !quit {
-        let ticking = !paused || running.as_ref().is_some_and(|r| r.kernel.speaking());
-        let mut timeout = running
+impl Activity {
+    /// Whether timers run: in the foreground, and in the background while
+    /// reading aloud goes on.
+    fn ticking(&self) -> bool {
+        !self.paused || self.running.as_ref().is_some_and(|r| r.kernel.speaking())
+    }
+
+    /// How long the system's events are waited for: until the kernel's
+    /// next timer, if timers run.
+    fn timeout(&self, ticking: bool) -> Option<Duration> {
+        let mut timeout = self
+            .running
             .as_ref()
             .and_then(|r| r.wake_at)
             .filter(|_| ticking)
-            .map(|at| Duration::from_millis(at.since(now())));
+            .map(|at| Duration::from_millis(at.since(self.clock.now())));
         // Speech waiting for the engine looks again soon.
-        if running.as_ref().is_some_and(|r| r.speech.waiting()) {
+        if self.running.as_ref().is_some_and(|r| r.speech.waiting()) {
             let poll = crate::speech::POLL;
             timeout = Some(timeout.map_or(poll, |t| t.min(poll)));
         }
-        app.poll_events(timeout, |event| {
-            let PollEvent::Main(event) = event else {
-                return;
-            };
-            match event {
-                MainEvent::InitWindow { .. } => {
-                    window = app.native_window();
-                    if let Some(window) = &window {
-                        if running.is_none() {
-                            running = start_kernel(&app, window, lights, now());
-                        }
-                        if let Some(running) = &running {
-                            // A new or returning window: start clean.
-                            if let Some(epd) = epd.as_mut() {
-                                epd.set(RefreshMode::Full);
-                            }
-                            present(window, &running.frame, running.kernel.colors(), None);
-                        }
-                    }
-                }
-                MainEvent::RedrawNeeded { .. }
-                | MainEvent::WindowResized { .. }
-                | MainEvent::ConfigChanged { .. } => {
-                    if let (Some(window), Some(running)) = (&window, running.as_mut()) {
-                        // Turned: the same screens, made anew for the new size.
-                        let size = (window.width(), window.height());
-                        let frame = (
-                            i32::from(running.frame.width()),
-                            i32::from(running.frame.height()),
-                        );
-                        if size != frame
-                            && let (Ok(width), Ok(height)) =
-                                (u16::try_from(size.0), u16::try_from(size.1))
-                            && let Ok(new) = Framebuffer::new(width, height, running.frame.format())
-                        {
-                            running.frame = new;
-                            let effects = running.kernel.resize(now(), width, height);
-                            apply(running, effects);
-                            running.changed_rows = None;
-                            if let Some(epd) = epd.as_mut() {
-                                epd.set(RefreshMode::Full);
-                            }
-                        }
-                        present(window, &running.frame, running.kernel.colors(), None);
-                    }
-                }
-                MainEvent::Resume { .. } => {
-                    paused = false;
-                    // The time zone or the battery may have changed.
-                    if let Some(running) = running.as_mut() {
-                        running.status_read = Instant(0);
-                        let effects = running.kernel.resume(now());
-                        unshown |= apply(running, effects);
-                    }
-                    // Back from the settings page that grants storage
-                    // access: restart with the shared storage.
-                    if let Some(running) = running.as_mut()
-                        && !running.shared_storage
-                        && access::granted(&app)
-                    {
-                        running.restart = true;
-                    }
-                }
-                MainEvent::Pause => {
-                    paused = true;
-                    // Other apps get the device's own refresh setting.
-                    if let Some(epd) = epd.as_mut() {
-                        epd.reset();
-                    }
-                    // Plugins save or send what is pending (e.g. progress).
-                    if let Some(running) = running.as_mut() {
-                        let effects = running.kernel.suspend(now());
-                        unshown |= apply(running, effects);
-                    }
-                }
-                MainEvent::GainedFocus => {
-                    // Maybe copied something in another app (not read
-                    // until pasted).
-                    if let Some(running) = running.as_mut() {
-                        let available = crate::clipboard::has_text(&app);
-                        running.kernel.set_clipboard_available(available);
-                    }
-                }
-                MainEvent::TerminateWindow { .. } => window = None,
-                MainEvent::Destroy => quit = true,
-                _ => {}
-            }
-        });
+        timeout
+    }
 
-        let Some(state) = running.as_mut() else {
-            continue;
-        };
-        let mut changed = core::mem::take(&mut unshown);
-        if let Ok(mut events) = app.input_events_iter() {
-            while events.next(|event| {
-                // What PaperPaw takes is handled, also when it brings no
-                // event (a held key's repeats): Android would otherwise act
-                // on it too, e.g. change the volume.
-                let Some(events) = input(event) else {
-                    return InputStatus::Unhandled;
-                };
-                for event in events {
-                    let effects = state.kernel.handle(now(), event);
-                    changed |= apply(state, effects);
+    /// An event of the activity's life: its window, the foreground, focus.
+    fn main_event(&mut self, app: &AndroidApp, event: MainEvent<'_>) {
+        match event {
+            MainEvent::InitWindow { .. } => {
+                self.window = app.native_window();
+                if let Some(window) = &self.window {
+                    if self.running.is_none() {
+                        self.running = start_kernel(app, window, self.lights, self.clock.now());
+                    }
+                    if let Some(running) = &self.running {
+                        // A new or returning window: start clean.
+                        show_clean(window, self.epd.as_mut(), running);
+                    }
                 }
-                InputStatus::Handled
-            }) {}
+            }
+            MainEvent::RedrawNeeded { .. }
+            | MainEvent::WindowResized { .. }
+            | MainEvent::ConfigChanged { .. } => self.redraw(),
+            MainEvent::Resume { .. } => self.resume(app),
+            MainEvent::Pause => {
+                self.paused = true;
+                // Other apps get the device's own refresh setting.
+                if let Some(epd) = self.epd.as_mut() {
+                    epd.reset();
+                }
+                // Plugins save or send what is pending (e.g. progress).
+                if let Some(running) = self.running.as_mut() {
+                    let effects = running.kernel.suspend(self.clock.now());
+                    self.unshown |= apply(running, effects);
+                }
+            }
+            MainEvent::GainedFocus => {
+                // Maybe copied something in another app (not read
+                // until pasted).
+                if let Some(running) = self.running.as_mut() {
+                    let available = crate::clipboard::has_text(app);
+                    running.kernel.set_clipboard_available(available);
+                }
+            }
+            MainEvent::TerminateWindow { .. } => self.window = None,
+            MainEvent::Destroy => self.quit = true,
+            _ => {}
         }
-        if now().since(state.status_read) >= STATUS_EVERY_MS || state.status_read == Instant(0) {
-            let at = now();
-            state.status_read = at;
-            let effects = state.kernel.set_status(at, status::read(&app, at));
-            changed |= apply(state, effects);
+    }
+
+    /// Shows the frame again; if the window was turned, the same screens
+    /// are made anew for its new size first.
+    fn redraw(&mut self) {
+        let (Some(window), Some(running)) = (&self.window, self.running.as_mut()) else {
+            return;
+        };
+        let size = (window.width(), window.height());
+        let frame = (
+            i32::from(running.frame.width()),
+            i32::from(running.frame.height()),
+        );
+        if size != frame
+            && let (Ok(width), Ok(height)) = (u16::try_from(size.0), u16::try_from(size.1))
+            && let Ok(new) = Framebuffer::new(width, height, running.frame.format())
+        {
+            running.frame = new;
+            let effects = running.kernel.resize(self.clock.now(), width, height);
+            apply(running, effects);
+            running.changed_rows = None;
+            if let Some(epd) = self.epd.as_mut() {
+                epd.set(RefreshMode::Full);
+            }
         }
-        while let Some((id, received, total)) = state.net.next_progress() {
-            let effects = state.kernel.http_progress(now(), id, received, total);
-            changed |= apply(state, effects);
+        present(window, &running.frame, running.kernel.colors(), None);
+    }
+
+    /// Back in the foreground.
+    fn resume(&mut self, app: &AndroidApp) {
+        self.paused = false;
+        let Some(running) = self.running.as_mut() else {
+            return;
+        };
+        // The time zone or the battery may have changed.
+        running.status_read = Instant(0);
+        let effects = running.kernel.resume(self.clock.now());
+        self.unshown |= apply(running, effects);
+        // Back from the settings page that grants storage access: restart
+        // with the shared storage.
+        if !running.shared_storage && access::granted(app) {
+            running.restart = true;
         }
-        while let Some(response) = state.net.next() {
-            let effects = state.kernel.http_response(now(), response);
-            changed |= apply(state, effects);
-        }
-        while let Some(event) = state.servers.next() {
-            let effects = state.kernel.server_event(now(), event);
-            changed |= apply(state, effects);
-        }
-        while let Some(event) = state.sockets.take_event() {
-            let effects = state.kernel.socket_event(now(), event);
-            changed |= apply(state, effects);
-        }
-        let kernel = &state.kernel;
-        state
-            .servers
-            .pump(|path, at, buffer| kernel.read_served(path, at, buffer).ok());
-        if core::mem::take(&mut state.clipboard_wanted) {
-            let text = crate::clipboard::read(&app);
-            let effects = state.kernel.clipboard_text(now(), text);
-            changed |= apply(state, effects);
-        }
-        for (id, spoken) in state.speech.poll() {
-            let effects = state.kernel.speech_done(now(), id, spoken);
-            changed |= apply(state, effects);
-        }
-        if ticking && state.wake_at.is_some_and(|at| at <= now()) {
+    }
+
+    /// One round after the system's events: the kernel gets what came in,
+    /// a due timer runs, and what changed is shown.
+    fn round(&mut self, app: &AndroidApp, ticking: bool) {
+        let clock = self.clock;
+        let Some(state) = self.running.as_mut() else {
+            return;
+        };
+        let mut changed = core::mem::take(&mut self.unshown);
+        changed |= deliver(state, app, clock);
+        if ticking && state.wake_at.is_some_and(|at| at <= clock.now()) {
             // What changed shows before the timer runs: it may take a
             // while (e.g. reading a folder on an SD card) and say so first.
             if changed
-                && !paused
-                && let Some(window) = &window
+                && !self.paused
+                && let Some(window) = &self.window
             {
-                show(window, epd.as_mut(), state);
+                show(window, self.epd.as_mut(), state);
                 changed = false;
             }
-            let effects = state.kernel.tick(now());
+            let effects = state.kernel.tick(clock.now());
             changed |= apply(state, effects);
         }
-        // The screen stays on while reading aloud: a sleeping device would
-        // stop after the sentence.
-        let speaking = state.kernel.speaking();
-        if speaking != state.awake {
-            state.awake = speaking;
-            let (on, none) = (
-                WindowManagerFlags::KEEP_SCREEN_ON,
-                WindowManagerFlags::empty(),
-            );
-            if speaking {
-                app.set_window_flags(on, none);
-            } else {
-                app.set_window_flags(none, on);
-            }
-        }
+        keep_awake(state, app);
         if changed {
-            match &window {
-                Some(window) if !paused => show(window, epd.as_mut(), state),
-                _ => unshown = true,
+            match &self.window {
+                Some(window) if !self.paused => show(window, self.epd.as_mut(), state),
+                _ => self.unshown = true,
             }
         }
         for warning in state.kernel.take_warnings() {
             log::warn!("{warning}");
         }
-        if state.restart
-            && let Some(window) = &window
-        {
-            log::info!("restarting");
+        if state.restart {
+            self.restart(app);
+        }
+    }
+
+    /// Builds the kernel again (it asked for it, e.g. plugins were
+    /// switched), once there is a window to build it for.
+    fn restart(&mut self, app: &AndroidApp) {
+        let Some(window) = &self.window else {
+            return;
+        };
+        log::info!("restarting");
+        if let Some(old) = self.running.as_mut() {
             // The new kernel does not read aloud (yet): the screen may
             // turn off again.
-            if state.awake {
+            if old.awake {
                 app.set_window_flags(
                     WindowManagerFlags::empty(),
                     WindowManagerFlags::KEEP_SCREEN_ON,
@@ -313,18 +304,99 @@ fn android_main(app: AndroidApp) {
             // The old kernel goes first: plugins save what is pending, its
             // files are closed and its memory is free before the new one
             // starts.
-            if let Some(running) = running.as_mut() {
-                running.kernel.stop(now());
+            old.kernel.stop(self.clock.now());
+        }
+        drop(self.running.take());
+        self.running = start_kernel(app, window, self.lights, self.clock.now());
+        if let Some(running) = &self.running {
+            show_clean(window, self.epd.as_mut(), running);
+        }
+        self.unshown = false;
+    }
+}
+
+/// Shows the whole frame with a full refresh.
+fn show_clean(window: &NativeWindow, epd: Option<&mut Epd>, running: &Running) {
+    if let Some(epd) = epd {
+        epd.set(RefreshMode::Full);
+    }
+    present(window, &running.frame, running.kernel.colors(), None);
+}
+
+/// Gives the kernel what came in since the last round: input, the battery
+/// and time zone, the network's answers, the servers' and sockets' events,
+/// the clipboard's text and what was read aloud. `true` if the screen
+/// changed.
+fn deliver(state: &mut Running, app: &AndroidApp, clock: Clock) -> bool {
+    let now = || clock.now();
+    let mut changed = false;
+    if let Ok(mut events) = app.input_events_iter() {
+        while events.next(|event| {
+            // What PaperPaw takes is handled, also when it brings no
+            // event (a held key's repeats): Android would otherwise act
+            // on it too, e.g. change the volume.
+            let Some(events) = input(event) else {
+                return InputStatus::Unhandled;
+            };
+            for event in events {
+                let effects = state.kernel.handle(now(), event);
+                changed |= apply(state, effects);
             }
-            drop(running.take());
-            running = start_kernel(&app, window, lights, now());
-            if let Some(running) = &running {
-                if let Some(epd) = epd.as_mut() {
-                    epd.set(RefreshMode::Full);
-                }
-                present(window, &running.frame, running.kernel.colors(), None);
-            }
-            unshown = false;
+            InputStatus::Handled
+        }) {}
+    }
+    if now().since(state.status_read) >= STATUS_EVERY_MS || state.status_read == Instant(0) {
+        let at = now();
+        state.status_read = at;
+        let effects = state.kernel.set_status(at, status::read(app, at));
+        changed |= apply(state, effects);
+    }
+    while let Some((id, received, total)) = state.net.next_progress() {
+        let effects = state.kernel.http_progress(now(), id, received, total);
+        changed |= apply(state, effects);
+    }
+    while let Some(response) = state.net.next() {
+        let effects = state.kernel.http_response(now(), response);
+        changed |= apply(state, effects);
+    }
+    while let Some(event) = state.servers.next() {
+        let effects = state.kernel.server_event(now(), event);
+        changed |= apply(state, effects);
+    }
+    while let Some(event) = state.sockets.take_event() {
+        let effects = state.kernel.socket_event(now(), event);
+        changed |= apply(state, effects);
+    }
+    let kernel = &state.kernel;
+    state
+        .servers
+        .pump(|path, at, buffer| kernel.read_served(path, at, buffer).ok());
+    if core::mem::take(&mut state.clipboard_wanted) {
+        let text = crate::clipboard::read(app);
+        let effects = state.kernel.clipboard_text(now(), text);
+        changed |= apply(state, effects);
+    }
+    for (id, spoken) in state.speech.poll() {
+        let effects = state.kernel.speech_done(now(), id, spoken);
+        changed |= apply(state, effects);
+    }
+    changed
+}
+
+/// Keeps the screen on while reading aloud: a sleeping device would stop
+/// after the sentence.
+fn keep_awake(state: &mut Running, app: &AndroidApp) {
+    let speaking = state.kernel.speaking();
+    if speaking != state.awake {
+        state.awake = speaking;
+        let (on, none) = (
+            WindowManagerFlags::KEEP_SCREEN_ON,
+            WindowManagerFlags::empty(),
+        );
+        if speaking {
+            app.set_window_flags(on, none);
+        } else {
+            app.set_window_flags(none, on);
         }
     }
 }
@@ -350,16 +422,118 @@ fn log_panics() {
 }
 
 /// Builds the kernel for the window's size.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
 fn start_kernel(
     app: &AndroidApp,
     window: &NativeWindow,
     lights: Option<Lights>,
     now: Instant,
 ) -> Option<Running> {
+    let (device, format) = device_info(app, window)?;
+    let storage = own_storage(app)?;
+    let shared = Shared::open(app);
+    let shared_storage = shared.is_some();
+    // The plugins the store offers as files are built in here (an app
+    // from Play may load no code from files), switched off for a new
+    // reader until wanted; for one who ran PaperPaw before, as they were.
+    let ran_before = paperpaw_app::ran_before(&storage);
+    let builder = Kernel::builder(device)
+        .clock(micros)
+        .random(random)
+        .plugin_dir("plugins")
+        .network(true)
+        // Plugins' secure sockets (rustls with ring).
+        .tls_sessions(paperpaw_serve::TLS_SESSIONS)
+        .catalog_device("android")
+        .system_clipboard(true)
+        .speech(true)
+        .rotation(true)
+        .colors(true);
+    let mut builder = match shared {
+        Some(shared) => shared.mount(builder, storage),
+        None => builder.storage(storage),
+    };
+    // The system language, unless the user chose another one.
+    if let Some(language) = app.config().language() {
+        builder = builder.setting_default(&settings::LANGUAGE, language.into());
+    }
+    // No code plugins here (ADR 0024, amended): they are listed as
+    // unsupported, never opened.
+    let builder = crate::code::policy(builder);
+    let builder = paperpaw_app::install_with(
+        builder,
+        paperpaw_app::Fonts::Outline,
+        paperpaw_app::StorePlugins::Off(&|_| ran_before),
+    )
+    .items(AndroidPlugin::manifest(), {
+        let plugin = AndroidPlugin {
+            app: app.clone(),
+            shared_storage,
+            screen: (
+                u32::from(device.display.width),
+                u32::from(device.display.height),
+            ),
+            frontlight: lights.map(|lights| Frontlight {
+                lights,
+                brightness: lights.brightness(app),
+                warmth: lights.warmth(app),
+            }),
+        };
+        move |r| plugin.register(r)
+    });
+    let mut kernel = match builder.build() {
+        Ok(kernel) => kernel,
+        Err(e) => {
+            log::error!("cannot start: {e}");
+            return None;
+        }
+    };
+    let frame = Framebuffer::new(device.display.width, device.display.height, format).ok()?;
+    let _ = kernel.set_status(now, status::read(app, now));
+    let effects = kernel.start(now);
+    let mut running = Running::new(app, kernel, frame, shared_storage, now);
+    apply(&mut running, effects);
+    Some(running)
+}
+
+impl Running {
+    /// The app with a kernel just built, nothing shown yet.
+    fn new(
+        app: &AndroidApp,
+        kernel: Kernel,
+        frame: Framebuffer,
+        shared_storage: bool,
+        now: Instant,
+    ) -> Self {
+        Self {
+            kernel,
+            frame,
+            wake_at: None,
+            restart: false,
+            shared_storage,
+            refresh: None,
+            changed_rows: None,
+            status_read: now,
+            net: crate::net::Net::new(app),
+            app: app.clone(),
+            servers: {
+                let waker = app.create_waker();
+                paperpaw_serve::Servers::new(move || waker.wake())
+            },
+            sockets: {
+                let waker = app.create_waker();
+                paperpaw_serve::Sockets::new(move || waker.wake())
+            },
+            speech: crate::speech::Speech::new(app),
+            clipboard_wanted: false,
+            awake: false,
+            rotation: Rotation::Deg0,
+        }
+    }
+}
+
+/// The device as the kernel sees it, for the window's size, and the format
+/// of its frames.
+fn device_info(app: &AndroidApp, window: &NativeWindow) -> Option<(DeviceInfo, PixelFormat)> {
     let (width, height) = (window.width(), window.height());
     let dpi = app.config().density().unwrap_or(160);
     // Gray for monochrome e-ink, colour (for pictures) elsewhere.
@@ -402,6 +576,13 @@ fn start_kernel(
         ),
         paperpaw_platform::MemoryClass::Large,
     );
+    Some((device, format))
+}
+
+/// The app's own folder as storage: the sample books and English
+/// hyphenation are put there once, and passwords are kept where only
+/// PaperPaw reads them.
+fn own_storage(app: &AndroidApp) -> Option<Volumes> {
     let internal = app.internal_data_path();
     let root = app
         .external_data_path()
@@ -422,7 +603,7 @@ fn start_kernel(
         log::info!("English hyphenation: {seeded:?}");
     }
     // The passwords where only PaperPaw reads them (see `private`).
-    let storage = Volumes(
+    Some(Volumes(
         match internal
             .filter(|internal| *internal != root)
             .map(DirStorage::new)
@@ -434,35 +615,44 @@ fn start_kernel(
             }
             None => Box::new(storage),
         },
-    );
-    // The shared storage as `storage`, if the user allowed access; the
-    // library is then its `Books` folder unless the user chose another.
-    let shared = access::granted(app)
-        .then(|| access::storage_dir(app))
-        .flatten()
-        .and_then(|dir| {
-            // Data plugins and dictionaries are copied there.
-            for folder in [PLUGINS, DICTIONARIES, FONTS] {
-                if let Err(e) = std::fs::create_dir_all(dir.join(folder)) {
-                    log::warn!("{}: {e}", dir.join(folder).display());
-                }
+    ))
+}
+
+/// What the shared storage adds, if the user allowed access to it.
+struct Shared {
+    storage: DirStorage,
+    /// Where dictionaries are on it: KOReader's folder if it is there, else
+    /// PaperPaw's.
+    dictionaries: &'static str,
+    /// SD cards next to the shared storage, with the same access, each with
+    /// the name it is mounted as.
+    removable: Vec<(&'static str, DirStorage)>,
+}
+
+impl Shared {
+    fn open(app: &AndroidApp) -> Option<Self> {
+        let dir = access::granted(app)
+            .then(|| access::storage_dir(app))
+            .flatten()?;
+        // Data plugins and dictionaries are copied there.
+        for folder in [PLUGINS, DICTIONARIES, FONTS] {
+            if let Err(e) = std::fs::create_dir_all(dir.join(folder)) {
+                log::warn!("{}: {e}", dir.join(folder).display());
             }
-            match DirStorage::new(&dir) {
-                Ok(shared) => Some(shared),
-                Err(e) => {
-                    log::warn!("{}: {e}", dir.display());
-                    None
-                }
+        }
+        let storage = match DirStorage::new(&dir) {
+            Ok(shared) => shared,
+            Err(e) => {
+                log::warn!("{}: {e}", dir.display());
+                return None;
             }
-        });
-    // KOReader's dictionaries if there are any, else PaperPaw's folder.
-    let dictionaries = access::storage_dir(app)
-        .filter(|dir| shared.is_some() && dir.join(KOREADER_DICTIONARIES).is_dir())
-        .map_or(DICTIONARIES, |_| KOREADER_DICTIONARIES);
-    let shared_storage = shared.is_some();
-    // SD cards next to the shared storage, with the same access.
-    let removable: Vec<(&'static str, DirStorage)> = if shared_storage {
-        access::removable_dirs(app)
+        };
+        let dictionaries = if dir.join(KOREADER_DICTIONARIES).is_dir() {
+            KOREADER_DICTIONARIES
+        } else {
+            DICTIONARIES
+        };
+        let removable = access::removable_dirs(app)
             .into_iter()
             .filter_map(|dir| match DirStorage::new(&dir) {
                 Ok(volume) => Some(volume),
@@ -480,30 +670,23 @@ fn start_kernel(
                 // Once per start: the mount points live as long as the app.
                 (&*Box::leak(name.into_boxed_str()), volume)
             })
-            .collect()
-    } else {
-        Vec::new()
-    };
-    // The plugins the store offers as files are built in here (an app
-    // from Play may load no code from files), switched off for a new
-    // reader until wanted; for one who ran PaperPaw before, as they were.
-    let ran_before = paperpaw_app::ran_before(&storage);
-    let mut builder = Kernel::builder(device)
-        .clock(micros)
-        .random(random)
-        .plugin_dir("plugins")
-        .network(true)
-        // Plugins' secure sockets (rustls with ring).
-        .tls_sessions(paperpaw_serve::TLS_SESSIONS)
-        .catalog_device("android")
-        .system_clipboard(true)
-        .speech(true)
-        .rotation(true)
-        .colors(true);
-    builder = match shared {
-        Some(shared) => builder
-            .storage(removable.into_iter().fold(
-                Volumes(Box::new(Mounted::new(storage, SHARED, shared))),
+            .collect();
+        Some(Self {
+            storage,
+            dictionaries,
+            removable,
+        })
+    }
+
+    /// The kernel's storage with the shared storage as `storage` and the SD
+    /// cards next to it; plugins, fonts and dictionaries are read from the
+    /// shared storage too, and the library is its `Books` folder unless the
+    /// user chose another.
+    fn mount(self, builder: KernelBuilder, own: Volumes) -> KernelBuilder {
+        let dictionaries = self.dictionaries;
+        builder
+            .storage(self.removable.into_iter().fold(
+                Volumes(Box::new(Mounted::new(own, SHARED, self.storage))),
                 |all, (name, volume)| Volumes(Box::new(Mounted::new(all, name, volume))),
             ))
             .plugin_dir(format!("{SHARED}/{PLUGINS}"))
@@ -514,73 +697,8 @@ fn start_kernel(
             .setting_default(
                 &paperpaw_plugin_dictionary::FOLDER,
                 format!("{SHARED}/{dictionaries}").into(),
-            ),
-        None => builder.storage(storage),
-    };
-    // The system language, unless the user chose another one.
-    if let Some(language) = app.config().language() {
-        builder = builder.setting_default(&settings::LANGUAGE, language.into());
+            )
     }
-    // No code plugins here (ADR 0024, amended): they are listed as
-    // unsupported, never opened.
-    let builder = crate::code::policy(builder);
-    let builder = paperpaw_app::install_with(
-        builder,
-        paperpaw_app::Fonts::Outline,
-        paperpaw_app::StorePlugins::Off(&|_| ran_before),
-    )
-    .items(AndroidPlugin::manifest(), {
-        let plugin = AndroidPlugin {
-            app: app.clone(),
-            shared_storage,
-            screen: (
-                u32::from(device.display.width),
-                u32::from(device.display.height),
-            ),
-            frontlight: lights.map(|lights| Frontlight {
-                lights,
-                brightness: lights.brightness(app),
-                warmth: lights.warmth(app),
-            }),
-        };
-        move |r| plugin.register(r)
-    });
-    let mut kernel = match builder.build() {
-        Ok(kernel) => kernel,
-        Err(e) => {
-            log::error!("cannot start: {e}");
-            return None;
-        }
-    };
-    let frame = Framebuffer::new(device.display.width, device.display.height, format).ok()?;
-    let _ = kernel.set_status(now, status::read(app, now));
-    let effects = kernel.start(now);
-    let mut running = Running {
-        kernel,
-        frame,
-        wake_at: None,
-        restart: false,
-        shared_storage,
-        refresh: None,
-        changed_rows: None,
-        status_read: now,
-        net: crate::net::Net::new(app),
-        app: app.clone(),
-        servers: {
-            let waker = app.create_waker();
-            paperpaw_serve::Servers::new(move || waker.wake())
-        },
-        sockets: {
-            let waker = app.create_waker();
-            paperpaw_serve::Sockets::new(move || waker.wake())
-        },
-        speech: crate::speech::Speech::new(app),
-        clipboard_wanted: false,
-        awake: false,
-        rotation: Rotation::Deg0,
-    };
-    apply(&mut running, effects);
-    Some(running)
 }
 
 /// Copies the sample books from the APK on first start, so there is

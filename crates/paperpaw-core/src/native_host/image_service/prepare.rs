@@ -658,9 +658,10 @@ impl ImageTable {
         if png_row_over(storage, &job.source, env.png_row_max) {
             return fail(TOO_LARGE);
         }
-        if let Err(status) = make(storage, &job, (&path, number), side, colour, env) {
-            return fail(status);
-        }
+        let summed = match make(storage, &job, (&path, number), side, colour, env) {
+            Ok(grid) => grid,
+            Err(status) => return fail(status),
+        };
         // What the decoder wrote must be whole: its size is its header's.
         let Ok((kind, width, height)) = crate::kit::ui::probe_picture(storage, &path) else {
             let _ = storage.remove(&path);
@@ -671,7 +672,11 @@ impl ImageTable {
             crate::kit::ui::PictureKind::Alpha => 2,
             _ => 1,
         };
-        let luma = recipe::luma_grid(storage, &path, (width as usize, height as usize, channels));
+        // Summed while a gray picture was decoded; read back from the file
+        // for the others (colour, see-through, a turned JPEG).
+        let luma = summed.or_else(|| {
+            recipe::luma_grid(storage, &path, (width as usize, height as usize, channels))
+        });
         let colour = kind == crate::kit::ui::PictureKind::Color;
         match self.add_prepared(job.owner, number, width, height, colour) {
             Ok(image) => Ready {
@@ -707,7 +712,7 @@ fn run(
     to: &str,
     side: u32,
     (made, tone): (Made, Option<&[u8]>),
-) -> Result<(), ImageError> {
+) -> Result<Option<[u8; recipe::LUMA_BYTES]>, ImageError> {
     let mut head = [0_u8; 8];
     let n = storage
         .read_at(from, 0, &mut head)
@@ -726,17 +731,20 @@ fn run(
         Made::Colour => {
             let mut writer = ColorWriter::new(storage, to);
             decode_into(format, &mut source, fit, &mut writer, tone)?;
-            writer.finish()
+            writer.finish().map(|()| None)
         }
         Made::Gray => {
+            // The brightness grid is summed as the rows are written.
             let mut writer = GrayWriter::new(storage, to);
-            decode_into(format, &mut source, fit, &mut writer, tone)?;
-            writer.finish()
+            let mut gridded = recipe::GridSink::new(&mut writer);
+            decode_into(format, &mut source, fit, &mut gridded, tone)?;
+            let grid = gridded.grid();
+            writer.finish().map(|()| grid)
         }
         Made::SeeThrough => {
             let mut writer = AlphaWriter::new(storage, to);
             decode_into(format, &mut source, fit, &mut writer, tone)?;
-            writer.finish()
+            writer.finish().map(|()| None)
         }
     }
 }
@@ -776,7 +784,7 @@ fn make(
     side: u32,
     colour: bool,
     env: Within,
-) -> Result<(), u32> {
+) -> Result<Option<[u8; recipe::LUMA_BYTES]>, u32> {
     let tone = job.recipe.tone.as_deref();
     // The orientation is read before the decode, so that a picture that is
     // not turned is decoded straight into its file.
@@ -805,7 +813,7 @@ fn make(
     }
     let first = first_name(job.owner, number).map_err(|_| NO_MEMORY)?;
     // Only a JPEG is turned: gray or colour.
-    let turned = run(storage, &job.source, &first, side, (made, tone)).and_then(|()| {
+    let turned = run(storage, &job.source, &first, side, (made, tone)).and_then(|_| {
         recipe::turn_file(
             storage,
             (&first, path),
@@ -815,7 +823,7 @@ fn make(
         )
     });
     let _ = storage.remove(&first);
-    turned.map_err(|error| {
+    turned.map(|()| None).map_err(|error| {
         let _ = storage.remove(path);
         status_of(&error)
     })

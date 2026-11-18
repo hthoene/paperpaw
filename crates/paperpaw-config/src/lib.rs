@@ -360,10 +360,6 @@ pub fn set(source: &str, section: &str, key: &str, value: &str) -> String {
 
 /// Returns `source` with each `(section, key, value)` of `entries` set, as
 /// calls of [`set`] one after another would, in a single pass over the file.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
 pub fn set_all<S, K, V>(source: &str, entries: impl IntoIterator<Item = (S, K, V)>) -> String
 where
     S: AsRef<str>,
@@ -371,117 +367,186 @@ where
     V: AsRef<str>,
 {
     let entries: Vec<(S, K, V)> = entries.into_iter().collect();
-
-    // The new lines: one per key, in the order the keys first come, with
-    // the last value given.
-    let mut texts: Vec<String> = Vec::new();
-    let mut keys: Vec<(&str, &str)> = Vec::new();
-    let mut index: BTreeMap<(&str, &str), usize> = BTreeMap::new();
-    for (section, key, value) in &entries {
-        let (section, key) = (section.as_ref(), key.as_ref());
-        if !(section.is_empty() || is_section(section)) || !is_identifier(key) {
-            continue;
-        }
-        let text = alloc::format!("{key} = {}", quote(value.as_ref()));
-        if let Some(&t) = index.get(&(section, key)) {
-            texts[t] = text;
-        } else {
-            index.insert((section, key), texts.len());
-            texts.push(text);
-            keys.push((section, key));
-        }
-    }
-    if texts.is_empty() {
+    let new = NewLines::of(&entries);
+    if new.texts.is_empty() {
         return String::from(source);
     }
-
-    // Where `set` would put the next entry of each of these sections
-    // (before which line: after its last entry, else after its header),
-    // and the line of each key (the last one, as it is the one read).
-    // Inserted one by one: collecting into a map sorts with `sort_by`,
-    // whose scratch takes 4 KiB of stack (too much on the X4). So below,
-    // where an unstable sort orders alike.
-    let mut anchors: BTreeMap<&str, (Option<usize>, Option<usize>)> = BTreeMap::new();
-    for &(section, _) in &keys {
-        anchors.insert(section, (None, None));
-    }
-    let mut line_of: Vec<Option<usize>> = alloc::vec![None; texts.len()];
-    let mut current = "";
-    let mut line_count = 0;
-    for (i, raw) in source.lines().enumerate() {
-        line_count = i + 1;
-        let text = raw.trim();
-        if let Some(name) = text.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
-            current = name.trim();
-            if let Some((after_header, _)) = anchors.get_mut(current) {
-                *after_header = Some(i + 1);
-            }
-            continue;
-        }
-        if text.is_empty() || text.starts_with(['#', ';']) {
-            continue;
-        }
-        let (Some((key, _)), Some((_, after_entry))) =
-            (text.split_once('='), anchors.get_mut(current))
-        else {
-            continue;
-        };
-        *after_entry = Some(i + 1);
-        if let Some(&t) = index.get(&(current, key.trim())) {
-            line_of[t] = Some(i);
-        }
-    }
-
-    // Each new line goes in place of a line, before a line, or into a
-    // section appended at the end.
-    let mut replaced: BTreeMap<usize, usize> = BTreeMap::new();
-    let mut inserted: Vec<(usize, usize)> = Vec::new();
-    let mut appended: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
-    for (t, &(section, _)) in keys.iter().enumerate() {
-        let (after_header, after_entry) = anchors[section];
-        if let Some(line) = line_of[t] {
-            replaced.insert(line, t);
-        } else if let Some(at) = after_entry
-            .or(after_header)
-            .or(section.is_empty().then_some(0))
-        {
-            inserted.push((at, t));
-        } else {
-            appended.entry(section).or_default().push(t);
-        }
-    }
-    // In the order `set` would append them (each line in one section only).
-    let mut appended: Vec<(&str, Vec<usize>)> = appended.into_iter().collect();
-    paperpaw_sort::sort_by_key(&mut appended, |(_, lines)| lines[0]);
-
-    let mut out = if replaced.is_empty() && inserted.is_empty() {
+    let found = Found::scan(source, &new);
+    let mut places = Places::of(&new, &found);
+    let mut out = if places.replaced.is_empty() && places.inserted.is_empty() {
         String::from(source)
     } else {
-        // Lines inserted at the same place keep their order: the second
-        // of each pair counts up as they were pushed.
-        paperpaw_sort::sort(&mut inserted);
-        let mut inserted = inserted.iter().peekable();
-        let mut insert_before = |i: usize, out: &mut String| {
-            while let Some(&(_, t)) = inserted.next_if(|&&(at, _)| at == i) {
-                out.push_str(&texts[t]);
-                out.push('\n');
-            }
+        rewrite(source, &new.texts, &mut places, found.line_count)
+    };
+    append_sections(&mut out, source, &new.texts, places.appended);
+    out
+}
+
+/// The new lines of [`set_all`]: one per key, in the order the keys first
+/// come, with the last value given.
+struct NewLines<'e> {
+    texts: Vec<String>,
+    keys: Vec<(&'e str, &'e str)>,
+    index: BTreeMap<(&'e str, &'e str), usize>,
+}
+
+impl<'e> NewLines<'e> {
+    fn of<S, K, V>(entries: &'e [(S, K, V)]) -> Self
+    where
+        S: AsRef<str>,
+        K: AsRef<str>,
+        V: AsRef<str>,
+    {
+        let mut new = Self {
+            texts: Vec::new(),
+            keys: Vec::new(),
+            index: BTreeMap::new(),
         };
-        let mut out = String::with_capacity(source.len() + 64);
+        for (section, key, value) in entries {
+            let (section, key) = (section.as_ref(), key.as_ref());
+            if !(section.is_empty() || is_section(section)) || !is_identifier(key) {
+                continue;
+            }
+            let text = alloc::format!("{key} = {}", quote(value.as_ref()));
+            if let Some(&t) = new.index.get(&(section, key)) {
+                new.texts[t] = text;
+            } else {
+                new.index.insert((section, key), new.texts.len());
+                new.texts.push(text);
+                new.keys.push((section, key));
+            }
+        }
+        new
+    }
+}
+
+/// What [`set_all`] finds in the file for its new lines.
+struct Found<'e> {
+    /// For each section of a new line: the line after its header and the
+    /// line after its last entry. `set` puts a new entry before the second,
+    /// else before the first.
+    anchors: BTreeMap<&'e str, (Option<usize>, Option<usize>)>,
+    /// The line of each key, if it is there. The last one counts, as it is
+    /// the one read.
+    line_of: Vec<Option<usize>>,
+    line_count: usize,
+}
+
+impl<'e> Found<'e> {
+    fn scan(source: &str, new: &NewLines<'e>) -> Self {
+        // Inserted one by one: collecting into a map sorts with `sort_by`.
+        // Its scratch takes 4 KiB of stack, which is too much on the X4.
+        let mut anchors: BTreeMap<&str, (Option<usize>, Option<usize>)> = BTreeMap::new();
+        for &(section, _) in &new.keys {
+            anchors.insert(section, (None, None));
+        }
+        let mut line_of: Vec<Option<usize>> = alloc::vec![None; new.texts.len()];
+        let mut current = "";
+        let mut line_count = 0;
         for (i, raw) in source.lines().enumerate() {
-            insert_before(i, &mut out);
-            out.push_str(replaced.get(&i).map_or(raw, |&t| &texts[t]));
+            line_count = i + 1;
+            let text = raw.trim();
+            if let Some(name) = text.strip_prefix('[').and_then(|t| t.strip_suffix(']')) {
+                current = name.trim();
+                if let Some((after_header, _)) = anchors.get_mut(current) {
+                    *after_header = Some(i + 1);
+                }
+                continue;
+            }
+            if text.is_empty() || text.starts_with(['#', ';']) {
+                continue;
+            }
+            let (Some((key, _)), Some((_, after_entry))) =
+                (text.split_once('='), anchors.get_mut(current))
+            else {
+                continue;
+            };
+            *after_entry = Some(i + 1);
+            if let Some(&t) = new.index.get(&(current, key.trim())) {
+                line_of[t] = Some(i);
+            }
+        }
+        Self {
+            anchors,
+            line_of,
+            line_count,
+        }
+    }
+}
+
+/// Where each new line of [`set_all`] goes: in place of a line, before a
+/// line, or into a section appended at the end.
+struct Places<'e> {
+    replaced: BTreeMap<usize, usize>,
+    inserted: Vec<(usize, usize)>,
+    /// In the order `set` would append them. Each line is in one section only.
+    appended: Vec<(&'e str, Vec<usize>)>,
+}
+
+impl<'e> Places<'e> {
+    fn of(new: &NewLines<'e>, found: &Found<'e>) -> Self {
+        let mut replaced: BTreeMap<usize, usize> = BTreeMap::new();
+        let mut inserted: Vec<(usize, usize)> = Vec::new();
+        let mut appended: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+        for (t, &(section, _)) in new.keys.iter().enumerate() {
+            let (after_header, after_entry) = found.anchors[section];
+            if let Some(line) = found.line_of[t] {
+                replaced.insert(line, t);
+            } else if let Some(at) = after_entry
+                .or(after_header)
+                .or(section.is_empty().then_some(0))
+            {
+                inserted.push((at, t));
+            } else {
+                appended.entry(section).or_default().push(t);
+            }
+        }
+        // An unstable sort: a stable one would take 4 KiB of stack.
+        let mut appended: Vec<(&str, Vec<usize>)> = appended.into_iter().collect();
+        paperpaw_sort::sort_by_key(&mut appended, |(_, lines)| lines[0]);
+        Self {
+            replaced,
+            inserted,
+            appended,
+        }
+    }
+}
+
+/// `source` with the replaced and inserted lines of `places`.
+fn rewrite(source: &str, texts: &[String], places: &mut Places<'_>, line_count: usize) -> String {
+    // Lines inserted at the same place keep their order: the second value
+    // of each pair counts up in the order they were pushed.
+    paperpaw_sort::sort(&mut places.inserted);
+    let mut inserted = places.inserted.iter().peekable();
+    let mut insert_before = |i: usize, out: &mut String| {
+        while let Some(&(_, t)) = inserted.next_if(|&&(at, _)| at == i) {
+            out.push_str(&texts[t]);
             out.push('\n');
         }
-        insert_before(line_count, &mut out);
-        out
     };
+    let mut out = String::with_capacity(source.len() + 64);
+    for (i, raw) in source.lines().enumerate() {
+        insert_before(i, &mut out);
+        out.push_str(places.replaced.get(&i).map_or(raw, |&t| &texts[t]));
+        out.push('\n');
+    }
+    insert_before(line_count, &mut out);
+    out
+}
+
+/// Appends the sections of [`set_all`] that the file does not have yet.
+fn append_sections(
+    out: &mut String,
+    source: &str,
+    texts: &[String],
+    appended: Vec<(&str, Vec<usize>)>,
+) {
     for (section, lines) in appended {
         if !out.is_empty() && !out.ends_with('\n') {
             out.push('\n');
         }
-        // A blank line before it, unless the file was empty when `set`
-        // would have appended it (lines placed earlier made it longer).
+        // A blank line before it, unless the file was still empty when
+        // `set` would have appended it. Lines placed earlier made it longer.
         if !source.is_empty() || lines[0] > 0 {
             out.push('\n');
         }
@@ -493,7 +558,6 @@ where
             out.push('\n');
         }
     }
-    out
 }
 
 /// Returns `source` without `key` in `section`; the rest stays as it is.

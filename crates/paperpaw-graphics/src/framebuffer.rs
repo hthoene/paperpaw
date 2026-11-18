@@ -706,11 +706,69 @@ impl Framebuffer {
         self.count_picture(u32::try_from(grays.len()).unwrap_or(u32::MAX));
         let offsets: [i32; 4] = core::array::from_fn(|column| self.offset(column as u16, y));
         let keep = self.inverted && self.pictures_kept;
+        match self.format {
+            PixelFormat::Mono1 => return self.put_levels::<1>(x, y, grays, offsets, keep),
+            PixelFormat::Gray2 => return self.put_levels::<2>(x, y, grays, offsets, keep),
+            PixelFormat::Gray4 => return self.put_levels::<4>(x, y, grays, offsets, keep),
+            _ => {}
+        }
         for (px, &gray) in (x..).zip(grays) {
             let gray = (i32::from(gray) + offsets[usize::from(px % 4)]).clamp(0, 255) as u8;
             let gray = if keep { 255 - gray } else { gray };
             let value = self.encode(Color::gray(gray));
             self.store(px, y, value);
+        }
+    }
+
+    /// [`Framebuffer::put_gray_row`] for formats of `BITS` bits a pixel
+    /// (1, 2 or 4): each gray to its level without the colour detour, and
+    /// whole bytes made of the pixels in them rather than one read and
+    /// write for each pixel.
+    fn put_levels<const BITS: usize>(
+        &mut self,
+        x: u16,
+        y: u16,
+        grays: &[u8],
+        offsets: [i32; 4],
+        keep: bool,
+    ) {
+        let top = (1u32 << BITS) - 1;
+        // What is shown is turned over once for the night frame, but not
+        // where its pictures are kept (that undoes it).
+        let turn = self.inverted != keep;
+        let level = |px: u16, gray: u8| {
+            let gray = (i32::from(gray) + offsets[usize::from(px % 4)]).clamp(0, 255) as u32;
+            let gray = if turn { 255 - gray } else { gray };
+            ((gray * top + 127) / 255) as u8
+        };
+        let start = usize::from(y - self.top) * self.stride;
+        let row = &mut self.data[start..start + self.stride];
+        let per_byte = 8 / BITS;
+        let mut px = x;
+        let mut rest = grays;
+        let one = |row: &mut [u8], px: u16, gray: u8| {
+            let shift = 8 - BITS - (usize::from(px) * BITS) % 8;
+            let byte = &mut row[usize::from(px) * BITS / 8];
+            *byte = (*byte & !((top as u8) << shift)) | (level(px, gray) << shift);
+        };
+        // The pixels up to the first whole byte.
+        while !rest.is_empty() && usize::from(px) % per_byte != 0 {
+            one(row, px, rest[0]);
+            (px, rest) = (px + 1, &rest[1..]);
+        }
+        let (whole, tail) = rest.split_at(rest.len() / per_byte * per_byte);
+        let first = usize::from(px) / per_byte;
+        for (byte, pixels) in row[first..].iter_mut().zip(whole.chunks_exact(per_byte)) {
+            let mut made = 0u8;
+            for (i, &gray) in pixels.iter().enumerate() {
+                made = (made << BITS) | level(px + i as u16, gray);
+            }
+            *byte = made;
+            px += per_byte as u16;
+        }
+        for &gray in tail {
+            one(row, px, gray);
+            px += 1;
         }
     }
 
@@ -900,6 +958,34 @@ fn saturate(rgb: [u8; 3], percent: u16) -> [u8; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gray_rows_are_stored_as_pixel_by_pixel() {
+        for format in [PixelFormat::Mono1, PixelFormat::Gray2, PixelFormat::Gray4] {
+            for (inverted, kept) in [(false, false), (true, false), (true, true)] {
+                let mut fast = Framebuffer::new(67, 4, format).unwrap();
+                let mut plain = Framebuffer::new(67, 4, format).unwrap();
+                for fb in [&mut fast, &mut plain] {
+                    fb.set_inverted(inverted);
+                    fb.set_pictures_kept(kept);
+                }
+                let grays: Vec<u8> = (0..67u32).map(|i| (i * 37 % 256) as u8).collect();
+                for (y, x, len) in [(0, 0, 67), (1, 3, 50), (2, 1, 2), (3, 5, 1), (3, 6, 0)] {
+                    fast.put_gray_row(x, y, &grays[..len]);
+                    let offsets: [i32; 4] = core::array::from_fn(|c| plain.offset(c as u16, y));
+                    let keep = plain.inverted && plain.pictures_kept;
+                    for (px, &gray) in (x..).zip(&grays[..len]) {
+                        let gray =
+                            (i32::from(gray) + offsets[usize::from(px % 4)]).clamp(0, 255) as u8;
+                        let gray = if keep { 255 - gray } else { gray };
+                        let value = plain.encode(Color::gray(gray));
+                        plain.store(px, y, value);
+                    }
+                }
+                assert_eq!(fast.data, plain.data, "{format:?} {inverted} {kept}");
+            }
+        }
+    }
 
     #[test]
     fn a_frame_made_in_the_room_of_another_allocates_nothing() {

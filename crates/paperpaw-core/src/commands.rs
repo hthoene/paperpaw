@@ -125,10 +125,6 @@ impl Kernel {
     /// frame: its locals are not on the stack while [`Self::finish`] runs
     /// the plugins' callbacks (a nested callback's route on the X4, #250).
     #[inline(never)]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than the limit from before it was set; split it when it is next changed"
-    )]
     fn finish_frame(&mut self) -> Effects {
         if let Some(row) = self.hint_row() {
             // A screen that read much as it opened may have filled what is
@@ -163,20 +159,7 @@ impl Kernel {
         let set = self.output.refresh_set.take();
         let requested = set.or(self.output.refresh.take());
         self.output.refresh.take();
-        // The screen on top, nothing over it (or all of the screen its
-        // own, what is below showing through), best in grays.
-        let bounds = self.framebuffer.bounds();
-        // Whether it is shown whole, best in grays, its pictures may be.
-        let (whole, grays, pictures) = self.stack.last().map_or((false, false, false), |top| {
-            let whole = match top.screen.region(&self.shared.place(self.shared.now)) {
-                None => true,
-                Some(region) => {
-                    top.screen.shows_through() != ShowsThrough::Nothing
-                        && region.intersection(&bounds) == Some(bounds)
-                }
-            };
-            (whole, top.grays(), true)
-        });
+        let (whole, grays, pictures) = self.top_shown();
         let grays = whole && grays;
         let again = mem::take(&mut self.frame.again);
         // How the screen on top runs (ADR 0030): its own refreshes, the
@@ -190,98 +173,17 @@ impl Kernel {
             pace: mode.frame_interval(),
             ..Effects::default()
         };
-        if let Some(dirty) = self.frame.pending.take() {
-            let area = |r: Rect| u32::from(r.width) * u32::from(r.height);
-            let weight = mem::take(&mut self.frame.pending_weight);
-            self.frame.unrendered = Some(self.frame.unrendered.map_or(dirty, |u| u.union(&dirty)));
-            // Staging far apart make a large region without being much.
-            let weight = weight.min(area(dirty));
-            let every = self.refresh_intervals(&mode);
-            let screen = self.framebuffer.bounds();
-            let mut requested = match mode.wants_fastest() && set.is_none() {
-                true => Self::fastest_mode(&mode, requested),
-                false => requested.unwrap_or(RefreshMode::Partial),
-            };
-            // Leaving large pictures: a fast refresh would keep their ghost
-            // (not where the mode was set exactly).
-            let left = self.stack.last().map(|s| s.serial) != self.frame.pictures_on;
-            if (FULL_AFTER_LEAVING_PICTURES || !left)
-                && set.is_none()
-                && !mode.does_clean_itself()
-                && self.frame.pictures_shown
-                && weight * 2 >= area(screen)
-            {
-                requested = RefreshMode::Full;
-            }
-            // A screen with pictures drawn whole, or most of it, in black and
-            // white first, its grays after a calm (`gray_later`, Decision
-            // 196); not what changes on it after, and not where the screen
-            // set its refresh exactly (a focus moved far: the parts apart).
-            let big = set.is_none() && !mode.does_clean_itself() && weight * 2 >= area(screen);
-            let (grays, gray_frame) = self.gray_decide(GrayRule {
-                grays,
-                pass: gray_pass,
-                again,
-                whole,
-                big,
-                pictures,
-                sleeping: effects.sleep || effects.power_off,
-            });
-            // A page's pictures drawn after its text are no page turned,
-            // however large: not counted, nor made the full refresh of the
-            // whole screen that is due (leaving them refreshes in full).
-            let counted = if followup || gray_pass { 0 } else { weight };
-            self.frame.refresh.weigh(Some(counted));
-            let (mode, region) = self.frame.refresh.decide(requested, dirty, screen, every);
-            self.frame.refresh.done(mode, region, screen, every);
-            self.frame.refresh.weigh(None);
-            effects.refresh = Some((region, mode));
-            effects.grays = grays;
-            self.gray_frame(gray_frame);
-            self.frame_asked();
-            self.shared.usage.refreshed(mode, region);
-            let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
-            self.shared.meter.refreshed(top, mode, region);
-        }
-        let input = [
-            self.input.recognizer.next_deadline(&self.thresholds()),
-            self.input.pending.as_ref().map(|(_, until, _)| *until),
-        ]
-        .into_iter()
-        .flatten()
-        .min();
-        let notice = self.notice.as_ref().map(|(_, until)| *until);
-        let work = self.works.next_wake(&self.base_power(), self.last_activity);
-        // After a screenshot is drawn, a message says where it went.
-        let shot = self
-            .frame
-            .screenshot
-            .is_some()
-            .then(|| self.shared.now.add_millis(300));
-        // Only the screen on top runs: a covered one's time waits.
-        let timer = self.screen_timer();
-        effects.wake_at = [
-            self.hint.until,
-            input,
-            timer,
-            notice,
-            work,
-            self.free_count.due(),
-            self.sleep_due(),
-            shot,
-            self.network_deadline(),
-            self.online_ends(),
-            self.bluetooth_deadline(),
-            self.escape_due(),
-            self.native_unload_due(),
-            self.service_due(),
-            self.work_pump_due(),
-            self.followup_due(effects.refresh.is_some()),
-            self.gray_wake(effects.refresh.is_some()),
-        ]
-        .into_iter()
-        .flatten()
-        .min();
+        let rule = GrayRule {
+            grays,
+            pass: gray_pass,
+            again,
+            whole,
+            big: false,
+            pictures,
+            sleeping: effects.sleep || effects.power_off,
+        };
+        self.refresh_dirty(&mode, set, requested, followup, rule, &mut effects);
+        effects.wake_at = self.next_wake(effects.refresh.is_some());
         if self.lease.is_some() {
             self.note_room();
         }
@@ -303,6 +205,127 @@ impl Kernel {
         self.shared.reader = false;
         self.forget_read_messages();
         effects
+    }
+
+    /// Whether the screen on top is shown whole, best in grays, and
+    /// whether its pictures may be. Whole means nothing is over it, or it
+    /// covers all of the screen while what is below shows through.
+    fn top_shown(&self) -> (bool, bool, bool) {
+        let bounds = self.framebuffer.bounds();
+        self.stack.last().map_or((false, false, false), |top| {
+            let whole = match top.screen.region(&self.shared.place(self.shared.now)) {
+                None => true,
+                Some(region) => {
+                    top.screen.shows_through() != ShowsThrough::Nothing
+                        && region.intersection(&bounds) == Some(bounds)
+                }
+            };
+            (whole, top.grays(), true)
+        })
+    }
+
+    /// Decides how the area waiting to be drawn refreshes, if there is
+    /// one, and puts the refresh into `effects`. `set` is the mode a
+    /// screen set exactly, `requested` the one it asked for.
+    fn refresh_dirty(
+        &mut self,
+        mode: &paperpaw_sdk::realtime::ScreenMode,
+        set: Option<RefreshMode>,
+        requested: Option<RefreshMode>,
+        followup: bool,
+        rule: GrayRule,
+        effects: &mut Effects,
+    ) {
+        let Some(dirty) = self.frame.pending.take() else {
+            return;
+        };
+        let area = |r: Rect| u32::from(r.width) * u32::from(r.height);
+        let weight = mem::take(&mut self.frame.pending_weight);
+        self.frame.unrendered = Some(self.frame.unrendered.map_or(dirty, |u| u.union(&dirty)));
+        // Small areas far apart make a large region: weigh what changed.
+        let weight = weight.min(area(dirty));
+        let every = self.refresh_intervals(mode);
+        let screen = self.framebuffer.bounds();
+        let mut requested = match mode.wants_fastest() && set.is_none() {
+            true => Self::fastest_mode(mode, requested),
+            false => requested.unwrap_or(RefreshMode::Partial),
+        };
+        // Leaving large pictures: a fast refresh would keep their ghost
+        // (not where the mode was set exactly).
+        let left = self.stack.last().map(|s| s.serial) != self.frame.pictures_on;
+        if (FULL_AFTER_LEAVING_PICTURES || !left)
+            && set.is_none()
+            && !mode.does_clean_itself()
+            && self.frame.pictures_shown
+            && weight * 2 >= area(screen)
+        {
+            requested = RefreshMode::Full;
+        }
+        // A screen with pictures drawn whole, or most of it, in black and
+        // white first, its grays after a calm (`gray_later`, Decision
+        // 196); not what changes on it after, and not where the screen
+        // set its refresh exactly (a focus moved far: the parts apart).
+        let big = set.is_none() && !mode.does_clean_itself() && weight * 2 >= area(screen);
+        let (grays, gray_frame) = self.gray_decide(GrayRule { big, ..rule });
+        // Pictures drawn after the text of their page are not a page turn,
+        // however large. They are not counted, and they never become the
+        // full refresh that is due. Leaving them refreshes in full.
+        let counted = if followup || rule.pass { 0 } else { weight };
+        self.frame.refresh.weigh(Some(counted));
+        let (mode, region) = self.frame.refresh.decide(requested, dirty, screen, every);
+        self.frame.refresh.done(mode, region, screen, every);
+        self.frame.refresh.weigh(None);
+        effects.refresh = Some((region, mode));
+        effects.grays = grays;
+        self.gray_frame(gray_frame);
+        self.frame_asked();
+        self.shared.usage.refreshed(mode, region);
+        let top = self.stack.last().map_or(meter::CORE, |s| s.id.namespace());
+        self.shared.meter.refreshed(top, mode, region);
+    }
+
+    /// The earliest time the shell must call again. `refreshed` says
+    /// whether this frame refreshes the panel.
+    fn next_wake(&mut self, refreshed: bool) -> Option<Instant> {
+        let input = [
+            self.input.recognizer.next_deadline(&self.thresholds()),
+            self.input.pending.as_ref().map(|(_, until, _)| *until),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
+        let notice = self.notice.as_ref().map(|(_, until)| *until);
+        let work = self.works.next_wake(&self.base_power(), self.last_activity);
+        // After a screenshot is drawn, a message says where it went.
+        let shot = self
+            .frame
+            .screenshot
+            .is_some()
+            .then(|| self.shared.now.add_millis(300));
+        // Only the screen on top runs: a covered one's time waits.
+        let timer = self.screen_timer();
+        [
+            self.hint.until,
+            input,
+            timer,
+            notice,
+            work,
+            self.free_count.due(),
+            self.sleep_due(),
+            shot,
+            self.network_deadline(),
+            self.online_ends(),
+            self.bluetooth_deadline(),
+            self.escape_due(),
+            self.native_unload_due(),
+            self.service_due(),
+            self.work_pump_due(),
+            self.followup_due(refreshed),
+            self.gray_wake(refreshed),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Forgets the messages read from catalogs on the card (ADR 0033),

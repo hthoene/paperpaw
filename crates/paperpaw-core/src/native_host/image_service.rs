@@ -147,6 +147,9 @@ struct Entry {
     used_now: bool,
     /// When it was drawn last (a device counter), 0 for never.
     drawn: u64,
+    /// Its drawn rows, kept while Home is shown, or the wish for them
+    /// ([`kept`]).
+    kept: Option<kept::Kept>,
 }
 
 struct Inner {
@@ -177,6 +180,7 @@ impl Inner {
 }
 
 pub(crate) mod commands;
+mod kept;
 pub(crate) mod prepare;
 pub(crate) mod recipe;
 
@@ -409,6 +413,7 @@ impl ImageTable {
             protected: origin != Origin::Prepared,
             used_now: false,
             drawn: 0,
+            kept: None,
         };
         inner.next_id = id;
         match evict {
@@ -730,6 +735,11 @@ impl ImageTable {
             return Err(ERR_INVALID);
         }
         let opacity = 255 - u8::try_from((flags >> TRANSPARENCY_SHIFT) & 0xff).unwrap_or(0);
+        let target = (x, y, width, height);
+        // Its rows as they were drawn before, where they are kept: no card.
+        if self.draw_kept(owner, id, canvas, target, flags) {
+            return self.drawn(owner, id);
+        }
         let (path, w, h) = {
             let inner = self.inner.try_borrow().map_err(|_| ERR_BUSY)?;
             let e = inner
@@ -778,19 +788,204 @@ impl ImageTable {
         let picture = crate::kit::ui::Picture::new(&path, kind, w, h, self.scratch_max.get())
             .with_tones(tones)
             .with_look(&look);
+        // The rows this draw shows are kept where there is room for them, and
+        // wished for where not yet.
+        let keeping = (kind != crate::kit::ui::PictureKind::Alpha)
+            .then(|| self.keeping(owner, id, canvas, &place, target, (flags, look.steps())))
+            .flatten();
+        let keep = |row: usize, column: usize, grays: &[u8]| {
+            if let (Some(shape), Ok(mut inner)) = (keeping, self.inner.try_borrow_mut())
+                && let Some(kept) = inner
+                    .entries
+                    .iter_mut()
+                    .find(|e| e.id == id && e.owner == owner)
+                    .and_then(|e| e.kept.as_mut())
+                    .filter(|kept| kept.is(&shape))
+            {
+                kept.take(row, column, grays);
+            }
+        };
         let mut child = canvas.clipped(visible).offset(place.left, place.top);
         let area = Rect::new(0, 0, place.width, place.height);
+        let draw = |child: &mut Canvas<'_>| {
+            if keeping.is_some() {
+                crate::kit::ui::try_draw_picture_told(
+                    child, storage, &picture, area, opacity, &keep,
+                )
+            } else {
+                crate::kit::ui::try_draw_picture(child, storage, &picture, area, opacity)
+            }
+        };
         let mut drawn = Ok(());
         if flags & SMALL != 0 {
-            child.small_pictures(|child| {
-                drawn = crate::kit::ui::try_draw_picture(child, storage, &picture, area, opacity);
-            });
+            child.small_pictures(|child| drawn = draw(child));
         } else {
-            drawn = crate::kit::ui::try_draw_picture(&mut child, storage, &picture, area, opacity);
+            drawn = draw(&mut child);
         }
         // Nothing is marked drawn for a draw that failed.
         drawn.map_err(draw_status)?;
         self.drawn(owner, id)
+    }
+
+    /// Whether a draw with `flags` on `canvas` is one whose rows are kept:
+    /// opaque, in a frame of black and white that is drawn, not only
+    /// described.
+    fn keeps(canvas: &Canvas<'_>, flags: u32) -> bool {
+        (flags >> TRANSPARENCY_SHIFT) & 0xff == 0
+            && flags & GRAYS == 0
+            && !canvas.is_blind()
+            && (flags & DOTS != 0 || canvas.picture_levels() == Some(2))
+    }
+
+    /// Draws `id` into `target` from its kept rows ([`kept`]): `true` where
+    /// they are the rows of this very draw and hold all that the canvas
+    /// shows of it. Nothing is drawn where not.
+    fn draw_kept(
+        &self,
+        owner: u64,
+        id: u32,
+        canvas: &mut Canvas<'_>,
+        target: (i32, i32, u32, u32),
+        flags: u32,
+    ) -> bool {
+        if !Self::keeps(canvas, flags) {
+            return false;
+        }
+        let (Ok(inner), Ok(look)) = (self.inner.try_borrow(), self.look.try_borrow()) else {
+            return false;
+        };
+        let Some((e, kept)) = inner
+            .entries
+            .iter()
+            .find(|e| e.id == id && e.owner == owner)
+            .and_then(|e| Some((e, e.kept.as_ref()?)))
+        else {
+            return false;
+        };
+        let (x, y, width, height) = target;
+        let placed = if flags & STRETCH != 0 {
+            stretched(x, y, width, height)
+        } else {
+            place(x, y, width, height, e.width, e.height, flags & FILL != 0)
+        };
+        let Some((shape, left, top)) = placed
+            .ok()
+            .flatten()
+            .and_then(|place| kept::Shape::of(&place, target, flags, look.steps()))
+        else {
+            return false;
+        };
+        let clip = canvas.clip();
+        let (wide, tall) = shape.size();
+        let from = top.max(i32::from(clip.y));
+        let to = (top + i32::from(tall)).min(i32::try_from(clip.bottom()).unwrap_or(i32::MAX));
+        if !kept.is(&shape) || kept.waits() {
+            return false;
+        }
+        // None of its rows are on the canvas (another band's): still a draw.
+        if from >= to {
+            return true;
+        }
+        let mut row = Vec::new();
+        if !kept.has((from - top) as u16, (to - top) as u16)
+            || row.try_reserve_exact(usize::from(wide)).is_err()
+        {
+            return false;
+        }
+        row.resize(usize::from(wide), 0);
+        let mut put = |canvas: &mut Canvas<'_>| {
+            for y in from..to {
+                kept.row((y - top) as u16, &mut row);
+                canvas.draw_gray_row(left, y, &row);
+            }
+        };
+        if flags & SMALL != 0 {
+            canvas.small_pictures(put);
+        } else {
+            put(canvas);
+        }
+        true
+    }
+
+    /// The shape whose rows the draw of `id` that begins now may keep
+    /// ([`kept::Kept::take`]): the room for them is there. Where it is not,
+    /// the draw wishes for it ([`ImageTable::tend_kept`] takes it between
+    /// frames), and rows of another shape end.
+    fn keeping(
+        &self,
+        owner: u64,
+        id: u32,
+        canvas: &Canvas<'_>,
+        place: &Place,
+        target: (i32, i32, u32, u32),
+        (flags, look): (u32, crate::kit::ui::picture_look::Steps),
+    ) -> Option<kept::Shape> {
+        if !Self::keeps(canvas, flags) {
+            return None;
+        }
+        let (shape, ..) = kept::Shape::of(place, target, flags, look)?;
+        let mut inner = self.inner.try_borrow_mut().ok()?;
+        let e = inner
+            .entries
+            .iter_mut()
+            .find(|e| e.id == id && e.owner == owner)?;
+        match e.kept.as_ref() {
+            Some(kept) if kept.is(&shape) => (!kept.waits()).then_some(shape),
+            _ => {
+                e.kept = Some(kept::Kept::wished(shape));
+                None
+            }
+        }
+    }
+
+    /// Between frames: with `home` (the home screen on top, nothing over it)
+    /// the room the draws wished for is taken, [`kept::ALL`] bytes together
+    /// (rows of pictures drawn longer ago give way); without it every kept
+    /// row and wish ends, so that the screen shown instead has the memory.
+    pub(crate) fn tend_kept(&self, home: bool) {
+        let Ok(mut inner) = self.inner.try_borrow_mut() else {
+            return;
+        };
+        if !home {
+            for e in &mut inner.entries {
+                e.kept = None;
+            }
+            return;
+        }
+        let bytes = |e: &Entry| e.kept.as_ref().map_or(0, kept::Kept::bytes);
+        let mut held: usize = inner.entries.iter().map(bytes).sum();
+        for at in 0..inner.entries.len() {
+            let e = &inner.entries[at];
+            let Some(needs) = e
+                .kept
+                .as_ref()
+                .filter(|kept| kept.waits())
+                .map(kept::Kept::needs)
+            else {
+                continue;
+            };
+            let drawn = e.drawn;
+            while held + needs > kept::ALL {
+                let Some(older) = inner
+                    .entries
+                    .iter_mut()
+                    .filter(|e| e.drawn < drawn && bytes(e) > 0)
+                    .min_by_key(|e| e.drawn)
+                else {
+                    break;
+                };
+                held -= bytes(older);
+                older.kept = None;
+            }
+            if held + needs <= kept::ALL
+                && inner.entries[at]
+                    .kept
+                    .as_mut()
+                    .is_some_and(kept::Kept::make_room)
+            {
+                held += needs;
+            }
+        }
     }
 
     /// Marks `id` drawn: unprotected from the next frame, and the newest.
