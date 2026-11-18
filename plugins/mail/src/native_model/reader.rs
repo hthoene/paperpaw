@@ -81,6 +81,26 @@ pub fn fetch_tasks(
     Ok(tasks)
 }
 
+/// What opening the attachment `part` of the mail `uid` of `folder` does on
+/// the server: its bytes, still as the transfer encoding made them, to
+/// `store::part_file`.
+///
+/// # Errors
+/// [`Fail::NoMemory`].
+pub fn part_tasks(account: u8, folder: &str, uid: u32, part: &str) -> Result<Vec<Task>, Fail> {
+    let mut tasks = Vec::new();
+    push(
+        &mut tasks,
+        Task::Part {
+            folder: copy(folder)?,
+            uid,
+            part: copy(part)?,
+            out: store::part_file(account, folder, uid)?,
+        },
+    )?;
+    Ok(tasks)
+}
+
 /// Setting (`on`) or clearing a flag of the mail `uid` of `folder`.
 ///
 /// # Errors
@@ -150,8 +170,9 @@ pub struct Layout {
     pub area: paperpaw_sdk::Rect,
     /// The line of the status, above the buttons.
     pub note: paperpaw_sdk::Rect,
-    /// *Reply*, *Reply all* and *Star*, side by side.
-    pub buttons: [paperpaw_sdk::Rect; 3],
+    /// *Reply*, *Reply all* and *Star*, side by side (and *Open book* as a
+    /// fourth where the letter has one to save: the ones not used are empty).
+    pub buttons: [paperpaw_sdk::Rect; 4],
 }
 
 /// The reader on a `width` by `height` screen under a header of `header`
@@ -167,7 +188,31 @@ pub fn layout(
     row: u16,
     note: u16,
 ) -> Layout {
+    layout_of(width, height, header, gap, margin, row, note, 3)
+}
+
+/// As [`layout`] for `count` buttons (3, or 4 where a book can be opened from
+/// the letter: the fourth takes a row of its own above the others).
+#[must_use]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the sizes of the screen, as `layout` takes them, and the count"
+)]
+pub fn layout_of(
+    width: u16,
+    height: u16,
+    header: u16,
+    gap: u16,
+    margin: u16,
+    row: u16,
+    note: u16,
+    count: u16,
+) -> Layout {
     use paperpaw_sdk::Rect;
+    // *Open book* is a row of its own above the three buttons, as wide as them
+    // all (a fourth beside them would leave no room for their words).
+    let wide = count >= 4;
+    let lift = if wide { row.saturating_add(gap) } else { 0 };
     let top = header.saturating_add(gap);
     let bottom = height.saturating_sub(row.saturating_add(gap));
     let note_h = note.saturating_add(gap);
@@ -175,7 +220,7 @@ pub fn layout(
         margin / 2,
         top,
         width.saturating_sub(margin),
-        bottom.saturating_sub(top.saturating_add(note_h)),
+        bottom.saturating_sub(top.saturating_add(note_h).saturating_add(lift)),
     );
     let whole = width.saturating_sub(margin.saturating_mul(2));
     let each = whole.saturating_sub(gap.saturating_mul(2)) / 3;
@@ -189,8 +234,17 @@ pub fn layout(
     };
     Layout {
         area,
-        note: Rect::new(0, bottom.saturating_sub(note_h), width, note_h),
-        buttons: [button(0), button(1), button(2)],
+        note: Rect::new(0, bottom.saturating_sub(note_h).saturating_sub(lift), width, note_h),
+        buttons: [
+            button(0),
+            button(1),
+            button(2),
+            if wide {
+                Rect::new(margin, bottom.saturating_sub(lift), whole, row)
+            } else {
+                Rect::new(0, 0, 0, 0)
+            },
+        ],
     }
 }
 
@@ -241,8 +295,15 @@ impl Step {
 /// scrolled) on a left or right key.
 #[must_use]
 pub fn focus_after(focus: Option<usize>, right: bool) -> usize {
-    let from = focus.map_or(if right { -1 } else { 3 }, |f| {
+    focus_among(focus, right, 3)
+}
+
+/// As [`focus_after`] among `count` buttons (3, or 4).
+#[must_use]
+pub fn focus_among(focus: Option<usize>, right: bool, count: usize) -> usize {
+    let count = isize::try_from(count.clamp(1, 4)).unwrap_or(3);
+    let from = focus.map_or(if right { -1 } else { count }, |f| {
         isize::try_from(f).unwrap_or(0)
     });
-    usize::try_from((from + if right { 1 } else { -1 }).rem_euclid(3)).unwrap_or(0)
+    usize::try_from((from + if right { 1 } else { -1 }).rem_euclid(count)).unwrap_or(0)
 }

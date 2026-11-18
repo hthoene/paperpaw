@@ -4,9 +4,12 @@
 //! from `core.secrets` when a connection is made. The screens, the lists and the
 //! widgets follow (see `PORTING-7.md`); the interface-6 plugin is still in place
 //! beside this one.
-use crate::declarations::{OPEN_TOKEN, SETTING_TOKEN, SOCKET_TOKEN, TICK_TOKEN, WRITE_TOKEN};
+use crate::declarations::{
+    OPEN_TOKEN, SETTING_TOKEN, SOCKET_TOKEN, STARTED_TOKEN, TICK_TOKEN, WORK_TOKEN, WRITE_TOKEN,
+};
 use crate::native_model::{
     account::Account,
+    background::{self, Round},
     job::{Job, Run},
     link::Notice,
     mem::Error as MailError,
@@ -34,6 +37,8 @@ use paperpaw_sdk::{
         sockets::{SocketId, Sockets},
         storage::DataStorage,
         ui::{Instance, Open, Ui},
+        library::Library,
+        work::Work,
     },
 };
 use paperpaw_ui_kit::{Screens, read_event};
@@ -68,6 +73,12 @@ pub struct NativeMail {
     pub(crate) pending: Option<(u8, Instance)>,
     /// The home widgets made for screens.
     pub(crate) widgets: Widgets,
+    /// The work service, opened when the background check is declared.
+    pub(crate) work: Option<Work>,
+    /// The library, opened when an attachment is opened as a book.
+    pub(crate) library: Option<Library>,
+    /// The round of the background check that goes on, if one does.
+    pub(crate) background: Option<Round>,
 }
 
 impl Plugin for NativeMail {
@@ -91,11 +102,29 @@ impl Plugin for NativeMail {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::Socket, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::SettingChanged, kinds::Tick, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall)
+        let Some(event) = read_event!(incoming; kinds::Socket, kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::SettingChanged, kinds::Tick, kinds::WidgetMade, kinds::WidgetDropped, kinds::StageCall, kinds::WorkDue, kinds::Started)
         else {
             return Ok(());
         };
+        // The reader is served first: a check in the background is let go.
+        if matches!(
+            event,
+            Event::ActionRun { .. } | Event::ScreenOpened { .. } | Event::ScreenShown { .. }
+        ) {
+            self.background_yields(host);
+        }
         match event {
+            Event::WorkDue(due) if token == WORK_TOKEN && due.key() == background::KEY => {
+                self.background_due(host)
+            }
+            Event::Started { .. } if token == STARTED_TOKEN => {
+                // A refusal (the network turned off, a full table) costs the
+                // check until the setting is touched again.
+                self.declare_background(host).or_else(|error| match error {
+                    Error::NoMemory => Err(error),
+                    _ => Ok(()),
+                })
+            }
             Event::WidgetMade {
                 widget, instance, ..
             } => self.widgets.made(widget, instance),
@@ -308,7 +337,8 @@ impl NativeMail {
             self.widgets.refresh(host);
         }
         result?;
-        self.progressed(host)
+        self.progressed(host)?;
+        self.background_progressed(host)
     }
 
     /// What a tap on a home widget opens.
@@ -332,6 +362,12 @@ impl NativeMail {
         if key.starts_with("mail.widget.") {
             self.widgets.refresh(host);
             return Ok(());
+        }
+        if key == "mail.background" || key == "mail.background-every" {
+            return self.declare_background(host).or_else(|error| match error {
+                Error::NoMemory => Err(error),
+                _ => Ok(()),
+            });
         }
         let changes = provider::after_change(&SettingsValues(host), key)?;
         let mut scratch = [0; 256];

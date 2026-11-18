@@ -27,7 +27,7 @@ use super::fail::Fail;
 use super::header;
 use super::imap;
 use super::mem::{copy, push, push_char, push_str, string_with};
-use super::render::render;
+use super::render::{MAX_SAVES, Save, render_with_saves, safe_name};
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::{Storage, StorageError};
@@ -49,6 +49,9 @@ pub const MAX_TEXT: usize = 24 * 1024;
 const LETTER_HEAD: usize = 24 * 1024;
 /// The most of a message fetched from the server (the rest is cut).
 pub const MAX_FETCH: usize = 256 * 1024;
+/// The most an attachment is, as the server sends it (base64, a third more
+/// than the file): 2 MiB, a file of about 1.5 MiB.
+pub const MAX_PART: usize = 2 * 1024 * 1024;
 /// The most bytes of a folder's index read.
 const MAX_INDEX: usize = 64 * 1024;
 /// The most bytes of the list of folders read.
@@ -152,6 +155,29 @@ pub fn raw_file(account: u8, raw_name: &str, uid: u32) -> Result<String, Fail> {
 pub fn text_file(account: u8, raw_name: &str, uid: u32) -> Result<String, Fail> {
     Ok(text::format(format_args!(
         "{}/m{uid}.txt",
+        folder_dir(account, raw_name)?
+    ))?)
+}
+
+/// An attachment as the server sent it, still in its transfer encoding
+/// (removed once it is a file).
+///
+/// # Errors
+/// [`Fail::NoMemory`].
+pub fn part_file(account: u8, raw_name: &str, uid: u32) -> Result<String, Fail> {
+    Ok(text::format(format_args!(
+        "{}/m{uid}.part",
+        folder_dir(account, raw_name)?
+    ))?)
+}
+
+/// An attachment as the file it is, before the library takes it.
+///
+/// # Errors
+/// [`Fail::NoMemory`].
+pub fn book_file(account: u8, raw_name: &str, uid: u32) -> Result<String, Fail> {
+    Ok(text::format(format_args!(
+        "{}/m{uid}.book",
         folder_dir(account, raw_name)?
     ))?)
 }
@@ -712,7 +738,8 @@ fn written(list: &[header::Address]) -> Result<String, Fail> {
 /// [`Fail::Storage`], [`Fail::NoMemory`].
 pub fn make_letter(storage: &dyn Storage, raw: &str, out: &str) -> Result<Letter, Fail> {
     let scratch = text::format(format_args!("{out}.tmp"))?;
-    let info = render(storage, raw, &scratch, MAX_TEXT)?;
+    let (info, saves) = render_with_saves(storage, raw, &scratch, MAX_TEXT)?;
+    write_saves(storage, out, &saves)?;
     let mut letter = Letter {
         from: written(&info.from)?,
         to: written(&info.to)?,
@@ -733,6 +760,71 @@ pub fn make_letter(storage: &dyn Storage, raw: &str, out: &str) -> Result<Letter
     storage.remove(&scratch).ok();
     storage.remove(raw).ok();
     Ok(letter)
+}
+
+/// The file beside the letter `letter` (`m<uid>.txt`) that names the
+/// attachments it offers to save (`m<uid>.att`).
+///
+/// # Errors
+/// [`Fail::NoMemory`].
+pub fn saves_file(letter: &str) -> Result<String, Fail> {
+    let stem = letter.strip_suffix(".txt").unwrap_or(letter);
+    Ok(text::format(format_args!("{stem}.att"))?)
+}
+
+/// Keeps what the reader may save of a letter beside it (a line each: the
+/// part's number, a tab, the name), or removes an older file where there is
+/// none.
+///
+/// # Errors
+/// [`Fail::NoMemory`], [`Fail::Storage`].
+pub fn write_saves(storage: &dyn Storage, letter: &str, saves: &[Save]) -> Result<(), Fail> {
+    let file = saves_file(letter)?;
+    if saves.is_empty() {
+        storage.remove(&file).ok();
+        return Ok(());
+    }
+    let mut out = String::new();
+    for save in saves {
+        push_str(&mut out, &save.part)?;
+        push_char(&mut out, '\t')?;
+        push_str(&mut out, &safe_name(&save.name)?)?;
+        push_char(&mut out, '\n')?;
+    }
+    write_atomic(storage, &file, out.as_bytes())
+}
+
+/// What the reader may save of a letter, as [`write_saves`] kept it (none
+/// where there is no file, or it is not as it was written).
+///
+/// # Errors
+/// [`Fail::NoMemory`].
+pub fn read_saves(storage: &dyn Storage, letter: &str) -> Result<Vec<Save>, Fail> {
+    let file = saves_file(letter)?;
+    let Some(text) = read_kept(storage, &file, 4 * 1024)? else {
+        return Ok(Vec::new());
+    };
+    let mut saves = Vec::new();
+    for line in text.lines().take(MAX_SAVES) {
+        let Some((part, name)) = line.split_once('\t') else {
+            continue;
+        };
+        // `2`, `1.2`: numbers between dots, as IMAP numbers parts.
+        let numbered = part.len() <= 32
+            && part
+                .split('.')
+                .all(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+        if numbered && !name.is_empty() {
+            push(
+                &mut saves,
+                Save {
+                    part: copy(part)?,
+                    name: copy(name)?,
+                },
+            )?;
+        }
+    }
+    Ok(saves)
 }
 
 /// The text of a file of at most `cap` bytes (`None` where there is none or it

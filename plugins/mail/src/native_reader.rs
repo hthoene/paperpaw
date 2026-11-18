@@ -6,6 +6,7 @@ use crate::declarations::SCREEN_TOKEN;
 use crate::native_model::fail::Fail;
 use crate::native_model::mem::copy;
 use crate::native_model::reader::{self, Layout, Step};
+use crate::native_model::render::{Save, safe_name};
 use crate::native_model::store::{self, Letter};
 use crate::native_model::texts::{self, Say};
 use crate::native_plugin::NativeMail;
@@ -36,7 +37,7 @@ pub(crate) const READ_TOKEN: u32 = SCREEN_TOKEN + 2;
 /// The most lines a mail is wrapped to.
 const MAX_LINES: usize = 1024;
 /// The buttons, by their catalog keys.
-const BUTTONS: [&str; 3] = ["mail.reply", "mail.reply-all", "mail.star"];
+const BUTTONS: [&str; 4] = ["mail.reply", "mail.reply-all", "mail.star", "mail.open-book"];
 
 /// One open reader.
 #[derive(Debug)]
@@ -62,9 +63,14 @@ pub(crate) struct Reading {
     starred: bool,
     /// The fetch was started (once, when the screen first shows).
     started: bool,
+    /// The attachments the letter offers to open as books (the first is the
+    /// one *Open book* opens).
+    saves: Vec<Save>,
+    /// The attachment being fetched to be opened.
+    saving: Option<Save>,
     /// Where the last frame put the header's taps and the buttons.
     header: Page,
-    buttons: [Rect; 3],
+    buttons: [Rect; 4],
     area: Rect,
 }
 
@@ -84,10 +90,20 @@ impl Reading {
             status: String::new(),
             starred: false,
             started: false,
+            saves: Vec::new(),
+            saving: None,
             header: Page::default(),
-            buttons: [Rect::new(0, 0, 0, 0); 3],
+            buttons: [Rect::new(0, 0, 0, 0); 4],
             area: Rect::new(0, 0, 0, 0),
         }
+    }
+}
+
+impl Reading {
+    /// How many buttons the screen has: *Open book* only where the letter has
+    /// something to open.
+    fn button_count(&self) -> usize {
+        if self.saves.is_empty() { 3 } else { 4 }
     }
 }
 
@@ -230,10 +246,16 @@ impl NativeMail {
             Run::Done => {
                 self.check = None;
                 self.job.run = Run::Idle;
+                if self.readers.get(instance).is_some_and(|r| r.saving.is_some()) {
+                    return self.opened(host, instance);
+                }
                 self.fetched(host, instance)
             }
             Run::Failed(failure) => {
                 self.check = None;
+                if let Some(reading) = self.readers.get(instance) {
+                    reading.saving = None;
+                }
                 self.say_reader(host, instance, texts::failure(&failure))
             }
             Run::Untrusted { smtp, .. } => {
@@ -354,8 +376,84 @@ impl NativeMail {
         match button {
             0 => self.reply(host, instance, false),
             1 => self.reply(host, instance, true),
-            _ => self.toggle_star(host, instance),
+            2 => self.toggle_star(host, instance),
+            _ => self.open_book(host, instance),
         }
+    }
+
+    /// *Open book*: the attachment is fetched, decoded into a file, put into
+    /// the library and opened in the reader's own reading app.
+    fn open_book(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        if self.job.working() {
+            return Ok(());
+        }
+        let reading = self.readers.get(instance).ok_or(Error::State)?;
+        let Some(save) = reading.saves.first() else {
+            return Ok(());
+        };
+        let (account, folder, uid) = (reading.account, copy(&reading.folder)?, reading.uid);
+        let (part, name) = (copy(&save.part)?, copy(&save.name)?);
+        let tasks = reader::part_tasks(account, &folder, uid, &part).map_err(fail_error)?;
+        reading.saving = Some(Save { part, name });
+        self.begin(host, instance, account, tasks)
+    }
+
+    /// The attachment is on the card as the server sent it: it becomes the
+    /// file, the library takes it, and the book opens.
+    fn opened(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        let reading = self.readers.get(instance).ok_or(Error::State)?;
+        let Some(save) = reading.saving.take() else {
+            return Ok(());
+        };
+        let (account, folder, uid) = (reading.account, copy(&reading.folder)?, reading.uid);
+        let done = self.import_attachment(host, account, &folder, uid, &save);
+        match done {
+            Ok(()) => {
+                if let Some(reading) = self.readers.get(instance) {
+                    reading.status = String::new();
+                }
+                redraw(host)
+            }
+            Err(Error::NoMemory) => self.say_reader(host, instance, Say::Key("mail.fail.memory")),
+            Err(_) => self.say_reader(host, instance, Say::Key("mail.fail.save")),
+        }
+    }
+
+    fn import_attachment(
+        &mut self,
+        host: &Host<'_>,
+        account: u8,
+        folder: &str,
+        uid: u32,
+        save: &Save,
+    ) -> Result<(), Error> {
+        use crate::native_model::attachment;
+        use paperpaw_sdk::native::library::{Existing, Import, Library};
+        use paperpaw_sdk::native::ui::Param;
+        let storage = DataStorage::new(host);
+        let part = store::part_file(account, folder, uid).map_err(fail_error)?;
+        let file = store::book_file(account, folder, uid).map_err(fail_error)?;
+        let size = attachment::decode_file(&storage, &part, &file).map_err(fail_error);
+        // The bytes as the server sent them are no use now.
+        paperpaw_sdk::Storage::remove(&storage, &part).ok();
+        if size? == 0 {
+            return Err(Error::Invalid);
+        }
+        if self.library.is_none() {
+            self.library = Some(Library::open(host)?);
+        }
+        let library = self.library.as_ref().ok_or(Error::State)?;
+        let name = safe_name(&save.name).map_err(fail_error)?;
+        let (mut input, mut out) = (buffer(2_048)?, buffer(SERVICE_BUFFER)?);
+        let import = Import::new(&file, &name).existing(Existing::FreeName);
+        let path = copy(library.import(host, &import, &mut input, &mut out)?)?;
+        let params = [Param::new("path", &path)?];
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let handover = self.ui()?.handover(host, &params, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch).open(
+            paperpaw_sdk::native::ui::Open::slot("core.reader")?.handover(handover),
+        )
     }
 
     /// An input for the reader on top.
@@ -372,8 +470,11 @@ impl NativeMail {
         match *input {
             Input::Action { action, .. } => {
                 if action == "core.left" || action == "core.right" {
-                    reading.focus =
-                        Some(reader::focus_after(reading.focus, action == "core.right"));
+                    reading.focus = Some(reader::focus_among(
+                        reading.focus,
+                        action == "core.right",
+                        reading.button_count(),
+                    ));
                     redraw(host)?;
                     return Ok(Handled::Yes);
                 }
@@ -395,7 +496,10 @@ impl NativeMail {
                         CommandSender::new(host, &mut scratch).run_action(action)?;
                         return Ok(Handled::Yes);
                     }
-                    if let Some(i) = reading.buttons.iter().position(|b| b.contains(position)) {
+                    if let Some(i) = reading.buttons[..reading.button_count()]
+                        .iter()
+                        .position(|b| b.contains(position))
+                    {
                         self.press(host, instance, i)?;
                         return Ok(Handled::Yes);
                     }
@@ -448,7 +552,7 @@ impl NativeMail {
         let mut messages = Messages::new()?;
         let (width, height) = (display.display_width(), display.display_height());
         let small = paperpaw_ui_kit::geometry::line_px(&font, style.small)?;
-        let layout = reader::layout(
+        let layout = reader::layout_of(
             width,
             height,
             style.header,
@@ -456,6 +560,7 @@ impl NativeMail {
             style.margin,
             style.row,
             small,
+            u16::try_from(reading.button_count()).unwrap_or(3),
         );
         let mut ops = Vec::new();
         paint::push(
@@ -538,6 +643,10 @@ fn show_letter(host: &Host<'_>, reading: &mut Reading, letter: &Letter) -> Resul
     let mut words = HostWords::new(host)?;
     reading.shown = Some(reader::shown(&mut words, letter).map_err(fail_error)?);
     reading.title = copy(&letter.subject)?;
+    let letter_file =
+        store::text_file(reading.account, &reading.folder, reading.uid).map_err(fail_error)?;
+    reading.saves = store::read_saves(&DataStorage::new(host), &letter_file).map_err(fail_error)?;
+    reading.focus = None;
     reading.lines = Vec::new();
     reading.wrapped_at = 0;
     reading.top = 0;
@@ -657,7 +766,7 @@ fn draw_buttons(
     messages: &mut Messages,
     host: &Host<'_>,
 ) -> Result<(), Error> {
-    for (i, key) in BUTTONS.iter().enumerate() {
+    for (i, key) in BUTTONS.iter().enumerate().take(reading.button_count()) {
         let key = if i == 2 && reading.starred {
             "mail.unstar"
         } else {

@@ -17,7 +17,7 @@ use super::codec::{self, Base64, Charset, Decoder};
 use super::fail::Fail;
 use super::header::{self, ContentType, Headers};
 use super::html::HtmlText;
-use super::mem::{push, push_bytes, push_char, push_str, string_with, vec_with};
+use super::mem::{copy, push, push_bytes, push_char, push_str, string_with, vec_with};
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::Storage;
@@ -76,6 +76,77 @@ struct Frame {
     boundary: Vec<u8>,
     alternative: bool,
     plain_seen: bool,
+    /// How IMAP numbers the parts inside this multipart: `""` for the top one,
+    /// else the number of the multipart (`2`, so its parts are `2.1`, `2.2`).
+    path: String,
+    /// The parts of it begun so far.
+    count: u32,
+}
+
+/// An attachment the reader may save: where the server has it and what it is
+/// called. Only a base64 one of a kind of file the reader opens as a book.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Save {
+    /// The part's number as IMAP gives it (`2`, `1.2`).
+    pub part: String,
+    /// The file's name as the sender gave it (not yet safe as a name on the
+    /// card: [`safe_name`]).
+    pub name: String,
+}
+
+impl Save {
+    /// The save of the part numbered `part` called `name`.
+    ///
+    /// # Panics
+    /// Never; an allocation that is refused is an abort, as in the tests that
+    /// use it.
+    #[must_use]
+    pub fn of(part: &str, name: &str) -> Self {
+        Self {
+            part: part.into(),
+            name: name.into(),
+        }
+    }
+}
+
+/// The most attachments of a message that are offered to be saved.
+pub const MAX_SAVES: usize = 4;
+
+/// The kinds of file the reader opens as books, by their ending.
+const BOOKS: [&str; 8] = [
+    "epub", "pdf", "mobi", "azw3", "fb2", "txt", "docx", "cbz",
+];
+
+/// Whether `name` ends as a book does.
+#[must_use]
+pub fn is_book_name(name: &str) -> bool {
+    name.rsplit_once('.').is_some_and(|(stem, ending)| {
+        !stem.is_empty() && BOOKS.iter().any(|book| ending.eq_ignore_ascii_case(book))
+    })
+}
+
+/// `name` as a file name on the card: what a sender wrote is no path (no
+/// folder, no dots at the front, no control characters or characters FAT does
+/// not take), at most 80 bytes of it.
+///
+/// # Errors
+/// [`Fail::NoMemory`].
+pub fn safe_name(name: &str) -> Result<String, Fail> {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+    let mut out = string_with(base.len().min(96))?;
+    for c in base.chars() {
+        let bad = c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '|' | '?' | '*');
+        if out.len() + c.len_utf8() > 80 {
+            break;
+        }
+        push_char(&mut out, if bad { '_' } else { c })?;
+    }
+    let trimmed = out.trim_matches(|c: char| c == '.' || c == ' ');
+    if trimmed.is_empty() {
+        return Ok(copy("attachment")?);
+    }
+    Ok(copy(trimmed)?)
 }
 
 #[derive(Debug)]
@@ -115,6 +186,8 @@ pub struct Walker {
     /// Whether text of a part came already (a second is set apart).
     any: bool,
     info: Rendered,
+    /// The attachments the reader may save.
+    saves: Vec<Save>,
 }
 
 impl Walker {
@@ -131,6 +204,7 @@ impl Walker {
             written: 0,
             any: false,
             info: Rendered::default(),
+            saves: Vec::new(),
         }
     }
 
@@ -138,6 +212,13 @@ impl Walker {
     #[must_use]
     pub fn info(&self) -> &Rendered {
         &self.info
+    }
+
+    /// The attachments of the message that the reader may save, as far as
+    /// the walk came (at most [`MAX_SAVES`]).
+    #[must_use]
+    pub fn saves(&self) -> &[Save] {
+        &self.saves
     }
 
     /// Bytes of text made so far.
@@ -168,6 +249,9 @@ impl Walker {
             match kind {
                 Boundary::Part => {
                     self.frames.truncate(frame + 1);
+                    if let Some(parent) = self.frames.last_mut() {
+                        parent.count = parent.count.saturating_add(1);
+                    }
                     self.mode = Mode::Headers(Vec::new());
                 }
                 Boundary::End => {
@@ -244,6 +328,7 @@ impl Walker {
             self.mode = Mode::Skip;
             return Ok(());
         }
+        let number = self.number_of_part(top)?;
         let kind = ContentType::parse(headers.get("content-type"))?;
         if kind.is_multipart() {
             let boundary = kind.param("boundary").filter(|b| !b.is_empty());
@@ -258,6 +343,10 @@ impl Walker {
                             boundary: line,
                             alternative: kind.kind == "multipart/alternative",
                             plain_seen: false,
+                            // The top multipart's parts are `1`, `2`; a
+                            // nested one's are its own number and theirs.
+                            path: if top { String::new() } else { number },
+                            count: 0,
                         },
                     )?;
                     self.mode = Mode::Skip;
@@ -273,7 +362,10 @@ impl Walker {
         });
         let is_text = kind.kind == "text/plain" || kind.kind == "text/html";
         if !is_text || attached {
-            self.attachment(&kind, disposition)?;
+            let base64 = headers
+                .get("content-transfer-encoding")
+                .is_some_and(|e| e.trim().eq_ignore_ascii_case("base64"));
+            self.attachment(&kind, disposition, &number, base64)?;
             self.mode = Mode::Skip;
             return Ok(());
         }
@@ -336,7 +428,38 @@ impl Walker {
         Ok(())
     }
 
-    fn attachment(&mut self, kind: &ContentType, disposition: Option<&str>) -> Result<(), Fail> {
+    /// The number IMAP gives the part just begun: `1` for a message that is one
+    /// part, else its place in the multipart it is in (`2`, `1.2`).
+    fn number_of_part(&self, top: bool) -> Result<String, Fail> {
+        let Some(parent) = self.frames.last().filter(|_| !top) else {
+            return Ok(copy("1")?);
+        };
+        let mut number = string_with(parent.path.len() + 12)?;
+        if !parent.path.is_empty() {
+            push_str(&mut number, &parent.path)?;
+            push_char(&mut number, '.')?;
+        }
+        let mut digits = [0u8; 10];
+        let mut at = digits.len();
+        let mut rest = parent.count.max(1);
+        while rest > 0 {
+            at -= 1;
+            digits[at] = b'0' + u8::try_from(rest % 10).unwrap_or(0);
+            rest /= 10;
+        }
+        for digit in digits.get(at..).unwrap_or_default() {
+            push_char(&mut number, char::from(*digit))?;
+        }
+        Ok(number)
+    }
+
+    fn attachment(
+        &mut self,
+        kind: &ContentType,
+        disposition: Option<&str>,
+        number: &str,
+        base64: bool,
+    ) -> Result<(), Fail> {
         let from_disposition = match disposition {
             Some(d) => {
                 let params = d.split_once(';').map_or("", |(_, p)| p);
@@ -357,6 +480,13 @@ impl Walker {
         push_str(&mut label, " (")?;
         push_str(&mut label, &kind.kind)?;
         push_char(&mut label, ')')?;
+        if base64 && self.saves.len() < MAX_SAVES && is_book_name(name) {
+            let save = Save {
+                part: copy(number)?,
+                name: copy(name)?,
+            };
+            push(&mut self.saves, save)?;
+        }
         if self.info.attachments.len() < MAX_ATTACHMENTS {
             let label = header::capped(&label, header::MAX_LABEL)?;
             push(&mut self.info.attachments, label)?;
@@ -458,6 +588,19 @@ pub fn render(
     out: &str,
     limit: usize,
 ) -> Result<Rendered, Fail> {
+    render_with_saves(storage, source, out, limit).map(|(info, _)| info)
+}
+
+/// As [`render`], and the attachments of the message that the reader may save.
+///
+/// # Errors
+/// As [`render`].
+pub fn render_with_saves(
+    storage: &dyn Storage,
+    source: &str,
+    out: &str,
+    limit: usize,
+) -> Result<(Rendered, Vec<Save>), Fail> {
     let mut walker = Walker::new(limit);
     storage.write(out, b"")?;
     let mut offset = 0u64;
@@ -492,9 +635,10 @@ pub fn render(
     walker.finish()?;
     flush(storage, out, &mut walker)?;
     let written = walker.written();
+    let saves = core::mem::take(&mut walker.saves);
     let mut info = walker.info;
     info.text_len = written;
-    Ok(info)
+    Ok((info, saves))
 }
 
 fn flush(storage: &dyn Storage, out: &str, walker: &mut Walker) -> Result<(), Fail> {

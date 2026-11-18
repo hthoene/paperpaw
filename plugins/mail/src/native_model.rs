@@ -11,6 +11,8 @@
 //! The interface-6 modules stay until the port is complete (`PORTING-7.md`).
 
 pub mod account;
+pub mod attachment;
+pub mod background;
 pub mod browser;
 pub mod codec;
 pub mod compose;

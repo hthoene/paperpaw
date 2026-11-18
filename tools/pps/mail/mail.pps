@@ -1,0 +1,174 @@
+# Mail (#81) on the emulator against fake_mail.py (TLS, a pinned self-signed key); run it with
+#   tools/pps/mail/run-emulator.sh target/debug/paperpaw-emu out/mail
+include:../beta4/common.pps
+
+define:top {
+  repeat:40 {
+    left
+  }
+  wait:300
+}
+
+test:mail-01-on {
+  set:help.show=off
+  set:core.sleep-after=0
+  set:core.language=en
+  call:settings-row:Manage plugins
+  until:Plugins:8000
+  select:Mail:80
+  wait:1500
+  expect:Applies after a restart
+  restart
+  wait:4000
+  no-warn
+}
+
+test:mail-02-account {
+  set:mail.1.address=user@example.org
+  set:mail.1.user=user@example.org
+  set:mail.1.imap-server=127.0.0.1
+  set:mail.1.imap-port=$imap
+  set:mail.1.imap-security=mail.security.$security
+  set:mail.1.imap-pin=$pin
+  set:mail.1.smtp-server=127.0.0.1
+  set:mail.1.smtp-port=$smtp
+  set:mail.1.smtp-security=mail.security.$security
+  set:mail.1.smtp-pin=$pin
+  set:mail.1.password=secret-pass-123
+  settings:mail.1.
+}
+
+# The folders of the account, checked: "Check for mail" connects (TLS from the start, or STARTTLS), logs in,
+# lists the folders and reads the newest mails' headers of the inbox.
+# The background check (default off): with the setting on, the work comes due a minute later, connects on its
+# own (the socket belongs to the work run), checks the account and tells the widget; nothing shows on screen.
+test:mail-03-background {
+  set:home.page-1=mail.widget.unread
+  call:home
+  expect:0 unread mails
+  set:mail.background=on
+  set:mail.background-every=mail.every.15
+  # Due 60 s on (the clock is the emulator's); the connection itself goes in real time.
+  wait:62000
+  wait:6000
+  call:home
+  expect:3 unread mails
+  expect:Lunch on Friday?
+  shot:$out/mail-03-widget.png
+  set:mail.background=off
+  set:home.page-1=home.clock\, home.continue\, home.recent
+  no-warn
+}
+
+test:mail-03-check {
+  run:mail.open
+  until:Mail:8000
+  expect-focus:Check for mail
+  confirm
+  until:Up to date:20000
+  expect:Inbox, 3
+  expect:Sent
+  expect:Write a mail
+  shot:$out/mail-03-boxes.png
+}
+
+# The inbox: the newest mails first (20 of 120, never the whole mailbox), unseen ones marked, in pages.
+test:mail-04-inbox {
+  select:Inbox:10
+  until:Lunch on Friday?:8000
+  expect:Alice Example
+  expect:Weekly news
+  expect:The book you asked for
+  expect-not:Filler mail 100
+  shot:$out/mail-04-inbox.png
+  describe
+  repeat:3 {
+    page-forward
+    wait:500
+  }
+  describe
+  shot:$out/mail-04-inbox-paged.png
+}
+
+# A plain-text mail: fetched on the first show, kept on the card, marked read.
+test:mail-05-read-plain {
+  repeat:4 {
+    page-back
+    wait:300
+  }
+  select:Lunch on Friday?:10
+  until:Hi,:10000
+  expect:Alice Example
+  expect:Reply with a time that suits you
+  expect:Reply
+  expect:Star
+  shot:$out/mail-05-read.png
+  describe
+}
+
+# An HTML-only mail is shown as text: headings and list items on lines of their own, entities decoded, a
+# script and a style left out.
+test:mail-06-read-html {
+  back
+  until:Inbox:8000
+  select:Weekly news:10
+  until:This week:10000
+  expect:Bob News
+  expect:Three things & a link
+  expect:First thing
+  expect:Second thing
+  expect:Third café
+  expect-not:alert
+  expect-not:color
+  shot:$out/mail-06-html.png
+}
+
+# Reply with the keyboard: the reader's Reply opens the compose window with the recipient, "Re: " and the quote
+# filled in; Message asks for the text on the keyboard; Send goes through the SMTP server.
+test:mail-07-reply {
+  back
+  until:Inbox:8000
+  call:top
+  select:Lunch on Friday?:10
+  until:Hi,:10000
+  # No button has the focus until a left or right key: confirm is Reply.
+  confirm
+  until:Send:8000
+  expect:Alice Example
+  expect:Re: Lunch on Friday?
+  expect:Alice Example wrote:
+  shot:$out/mail-07-compose.png
+  select:Message:10
+  until:Hold Back:8000
+  shot:$out/mail-07-keyboard.png
+  type-enter:Friday at noon works for me.
+  until:Send:8000
+  select:Send:10
+  until:Sent:20000
+  shot:$out/mail-07-sent.png
+  describe
+}
+
+# An EPUB attached to a mail: Open book fetches that part only (base64, into the data folder), decodes it
+# into a file, puts it into the library and opens it in the reader.
+test:mail-08-attachment {
+  # Out of the compose window (sent), the reader and back to the inbox.
+  back
+  back
+  until:Inbox:8000
+  call:top
+  select:The book you asked for:10
+  until:Here is the book as an attachment:10000
+  expect:tiny-book.epub (application/epub+zip)
+  expect:Open book
+  shot:$out/mail-08-attachment.png
+  # No button has the focus until a left or right key: right, right, right, right is the fourth, Open book.
+  repeat:4 {
+    right
+  }
+  confirm
+  until:This book came by mail:30000
+  shot:$out/mail-08-book.png
+  expect:Arrival
+  expect-not:Open book
+}
