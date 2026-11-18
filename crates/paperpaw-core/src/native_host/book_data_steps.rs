@@ -296,13 +296,18 @@ const DOC_CACHE_ROOT: &str = ".paperpaw/cache";
 /// a book, conversions of a plugin); more than the card keeps (two conversions).
 const STAMPS_LISTED: usize = 16;
 
-/// The names of the folders in `dir`, at most [`STAMPS_LISTED`]; `None` where
-/// `dir` is not there.
-fn subfolders(storage: &dyn Storage, dir: &str) -> Result<Option<Vec<String>>, i32> {
+/// The names of the folders in `dir`, at most [`STAMPS_LISTED`], and whether
+/// there are more; `None` where `dir` is not there.
+fn subfolders(storage: &dyn Storage, dir: &str) -> Result<Option<(Vec<String>, bool)>, i32> {
     let mut names: Vec<String> = Vec::new();
     let mut failed = None;
+    let mut more = false;
     let listed = storage.list(dir, &mut |entry| {
-        if !entry.is_dir || failed.is_some() || names.len() >= STAMPS_LISTED {
+        if !entry.is_dir || failed.is_some() {
+            return;
+        }
+        if names.len() >= STAMPS_LISTED {
+            more = true;
             return;
         }
         match gate()
@@ -315,44 +320,67 @@ fn subfolders(storage: &dyn Storage, dir: &str) -> Result<Option<Vec<String>>, i
     });
     match (failed, listed) {
         (Some(error), _) => Err(error),
-        (None, Ok(())) => Ok(Some(names)),
+        (None, Ok(())) => Ok(Some((names, more))),
         (None, Err(StorageError::NotFound)) => Ok(None),
         (None, Err(error)) => Err(status(error)),
     }
+}
+
+/// What [`unstamp`] found.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Unstamped {
+    /// There is no cache.
+    Absent,
+    /// Every stamp is gone: no open takes the cache for a whole one.
+    Done,
+    /// A stamp stays (the card refuses it for good) or a level holds more
+    /// folders than are looked into: the cache is left **whole**, for the
+    /// clean-up of books no longer found; no page is removed under a stamp.
+    Kept,
 }
 
 /// Takes the stamps `.complete` away from every conversion of the cache at
 /// `folder` (`<format plugin>/<conversion>/.host/.complete`): a cache without
 /// its stamp is not used, so no cut, no error and no budget that ends a
 /// removal in the middle leaves pages that an open would take for a whole
-/// cache. `false`: there is no cache.
+/// cache.
 ///
 /// # Errors
 /// `ERR_NO_MEMORY`; the card's status for a transient error.
-fn unstamp(storage: &dyn Storage, folder: &str) -> Result<bool, i32> {
-    let Some(plugins) = subfolders(storage, folder)? else {
-        return Ok(false);
+fn unstamp(storage: &dyn Storage, folder: &str) -> Result<Unstamped, i32> {
+    let Some((plugins, mut more)) = subfolders(storage, folder)? else {
+        return Ok(Unstamped::Absent);
     };
+    let mut kept = false;
     for plugin in &plugins {
         let plugin_dir = joined(&[folder, plugin])?;
-        for conversion in subfolders(storage, &plugin_dir)?.iter().flatten() {
+        let Some((conversions, level_more)) = subfolders(storage, &plugin_dir)? else {
+            continue;
+        };
+        more |= level_more;
+        for conversion in &conversions {
             let conversion_dir = joined(&[&plugin_dir, conversion])?;
             for stamp in [".host/.complete", ".complete"] {
                 match storage.remove(&joined(&[&conversion_dir, stamp])?) {
                     Ok(()) | Err(StorageError::NotFound) => {}
-                    Err(error) if permanent(error) => {}
+                    Err(error) if permanent(error) => kept = true,
                     Err(error) => return Err(status(error)),
                 }
             }
         }
     }
-    Ok(true)
+    Ok(if kept || more {
+        Unstamped::Kept
+    } else {
+        Unstamped::Done
+    })
 }
 
 /// Removes what the host keeps to show the document at `path`
 /// (`.paperpaw/cache/<book key>/`, `docs/abi/document.md`): the folder's name
 /// holds the book key, so it is never renamed to a book's new key (the new
-/// key's is made at the next open). **Stamps first** ([`unstamp`]), then the
+/// key's is made at the next open). **Stamps first** ([`unstamp`]; a cache whose
+/// stamp stays, or too wide to unstamp, is left whole), then the
 /// tree in bounded `remove_tree_step` pieces of the shared `budget`; what an
 /// exhausted budget or a refusing card leaves is a cache nobody uses and is
 /// `Done` or `More` for the caller. A book that is open is busy for a move, so
@@ -368,8 +396,10 @@ pub(crate) fn remove_doc_cache(
     let mut digits = [0_u8; KEY_LEN];
     let key = key_into(path, &mut digits);
     let folder = joined(&[DOC_CACHE_ROOT, key])?;
-    if !unstamp(storage, &folder)? {
-        return Ok(Progress::Done);
+    match unstamp(storage, &folder)? {
+        Unstamped::Done => {}
+        // No cache, or one left whole.
+        Unstamped::Absent | Unstamped::Kept => return Ok(Progress::Done),
     }
     let mut place = 0;
     loop {
@@ -379,9 +409,10 @@ pub(crate) fn remove_doc_cache(
         *budget -= 1;
         match storage.remove_tree_step(&folder, false, place) {
             Ok(step) if step.done => return Ok(Progress::Done),
-            // Took nothing: the card refuses it; the clean-up of books no
-            // longer found is for what stays.
-            Ok(step) if step.removed == 0 => return Ok(Progress::Done),
+            // Took nothing and did not move on: the card refuses it; the
+            // clean-up of books no longer found is for what stays. A step that
+            // took nothing but moved on goes on.
+            Ok(step) if step.removed == 0 && step.next == place => return Ok(Progress::Done),
             Ok(step) => place = step.next,
             Err(StorageError::NotFound) => return Ok(Progress::Done),
             Err(error) if permanent(error) => return Ok(Progress::Done),

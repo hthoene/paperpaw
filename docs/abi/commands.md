@@ -92,6 +92,18 @@ and keys and text together are bounded by the byte budget the host gives the
 stage. Without that budget, 8 commands of about 4 KiB text each could retain
 about 32 KiB per callback; a profile sets it within its boundary memory budget.
 
+**Dropped after `OK`.** A command `submit` accepted can still be dropped when
+the host applies it (not enough memory then, a plugin stopping before its batch
+drains). There is no general "dropped" event. A command whose result a plugin
+waits for ends with its own event instead: `image_prepare` with
+`event.image_ready` for its cookie (`status` 5 not enough memory now, 1 a
+request that can never be done), installs, removals, checks and firmware with
+`event.install_done`, Wi-Fi requests with `event.wifi_done` (`device.md` 4,
+also for its bound on a sender that never starts). When every place for failed
+picture requests is taken, the oldest failure gives way and that is logged.
+Every other drop is logged only; the plugin sees the state as it is through its
+reads and the change events.
+
 ## Not covered
 
 No other command kinds, and no `Notify`. Slot 15 allows writing another

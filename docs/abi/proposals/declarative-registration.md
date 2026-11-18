@@ -8,7 +8,7 @@ Conventions: **Fact** marks something read from the repository, with `path:line`
 marks a decision this document recommends; the owner decides. **Estimate** is a number that was
 computed or guessed, not measured on a device. **Unverified** names what I could not check.
 Paths are relative to the repository root unless prefixed `ADR34:` (the file
-`docs/adr/0034-stable-plugin-boundary.md` on `origin/fw/adr-flat-boundary-228`, line numbers of
+`docs/adr/0034-stable-plugin-boundary.md`, line numbers of
 that file) or `notes:` (`origin/notes/port-classification-748`, `paperpaw/design/flat-boundary-228/
 port-classification-748/README.md`).
 

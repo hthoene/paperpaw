@@ -280,9 +280,19 @@ fn hash_of(storage: &dyn Storage, path: &str, len: u64) -> u64 {
     hash
 }
 
-/// Removes the tree at `folder`: `ERR_BUSY` where more than [`CLEAR_STEPS`]
-/// pieces are left.
+/// Removes the cache folder of one conversion at `folder`: `ERR_BUSY` where
+/// more than [`CLEAR_STEPS`] pieces are left. The stamp goes **first**: a
+/// removal that is cut or fails half way must never leave a folder that still
+/// says it is whole (an open trusts the stamp alone) with its pages gone.
 pub(crate) fn clear(storage: &dyn Storage, folder: &str) -> Result<(), i32> {
+    let mut stamp = made(folder.len() + 1 + STAMP.len())?;
+    stamp.push_str(folder);
+    stamp.push('/');
+    stamp.push_str(STAMP);
+    match storage.remove(&stamp) {
+        Ok(()) | Err(StorageError::NotFound) => {}
+        Err(error) => return Err(status(error)),
+    }
     let mut place = 0;
     for _ in 0..CLEAR_STEPS {
         match storage.remove_tree_step(folder, false, place) {

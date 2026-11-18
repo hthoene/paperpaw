@@ -228,7 +228,9 @@ Tags 1564-1592 and 1595 follow UIX's approved commands (1547-1558, 1561-1563) an
   after delivery: the callback is called **at most once** per request, and the entry is released
   after it was called, whatever it answered (only `ERR_BUSY` is retried; a failing callback does not
   get the event again). A sender that stopped or did not subscribe is not called and its entry is
-  released. The current radio state is op 8.
+  released. A sender that is not started is asked to start for its event at most three times,
+  one second apart; then its entry is released and the event is lost, so a plugin that never
+  starts does not hold one of the four entries. The current radio state is op 8.
 - [D] **Wi-Fi** (interface 6 `WifiCommand`, `NoNetwork`): `join` and `host` need a non-empty `ssid`;
   `host`'s password is 8-63 bytes, `join`'s 0-63; `join.flags` bit 0 remember the password (SEC's
   store, owned by the Wi-Fi plugin). A password is never logged nor shown in a record any other
@@ -509,6 +511,18 @@ Tags 1564-1592 and 1595 follow UIX's approved commands (1547-1558, 1561-1563) an
   image stays installed and waiting, and the device starts it at its next start as chosen.
 - [D] **Flags:** `install_firmware.flags` bits other than 0 and 1 are `ERR_INVALID` at submit and
   nothing is queued (Senior R1). No flag skips or shortens a confirmation: every grant still asks.
+- [D] **Foreign or PaperPaw, from the image.** The check finds out for itself whether an image is
+  another firmware's (`dev_check.flags` bit 4). Where that differs from `install_firmware.flags`
+  bit 1 the install ends with reason 4 before any confirmation: the write takes the checked
+  answer, never the flag alone.
+- [D] **Who holds what.** The core (`firmware_install`) holds all the state, in RAM and fallibly:
+  the job, one check result per plugin (its facts and one bit per built-in plugin the image
+  carries; at most 4 plugins, kept until the plugin's next check or its stop), the waiting image of
+  state 3 and the gates of this section. The shell gives one platform trait,
+  `paperpaw_platform::FirmwareHost`, which the core drives in bounded steps from its main loop,
+  never inside a callback: the running image's facts, a check, a write bound to the digest and the
+  key the user accepted, the read-back, the commit and the restart. There is no staged copy: the
+  image stays at the plugin's path. The trial and the good start (5.4) are the shell's alone.
 - [D] **Busy and pending:** a second firmware request while one runs waits its turn (5.2); one sent
   while an installed image, PaperPaw's or foreign, waits for its restart (`dev_firmware.state` 3)
   ends with reason 21 restart pending (`ERR_STATE`), a status of its own and not `ERR_BUSY`. The

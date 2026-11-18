@@ -260,7 +260,7 @@ plugin without a translated name gets its id.
 
 **X4 budget:**
 - [D] On the X4 a live blob **shares the "stream chunk storage" row** of ADR 0034's experimental M1 X4
-  resource profile (`origin/fw/adr-flat-boundary-228:docs/adr/0034-stable-plugin-boundary.md`, profile
+  resource profile (`docs/adr/0034-stable-plugin-boundary.md`, profile
   table, 512 charged bytes). That row then reads "one outstanding stream chunk **or** one live blob,
   device-wide". A blob is what a chunk is: a bounded positional read under an owner lease.
   - No other row has room to give, and the blob is no second budget beside the 4,096-byte total.

@@ -123,12 +123,48 @@ pub(super) fn section(row: &wire::ServiceDocSection, index: u32) -> Result<(), i
     require(row.flags & !1 == 0 && row.index >= index)
 }
 
+/// Whether the row is well formed in itself (a level, flags): else it is
+/// dropped from the page, not the page failed ([`drop_rows`]).
+pub(super) fn toc_row_ok(row: &wire::ServiceDocToc<'_>) -> bool {
+    row.level <= TOC_LEVEL_MAX && row.flags & !TOC_FLAGS == 0
+}
+
+/// Whether the row is well formed in itself (a kind, a range): else it is
+/// dropped from the page.
+pub(super) fn link_row_ok(row: &wire::ServiceDocLink<'_>) -> bool {
+    row.kind <= 2 && row.start <= row.end
+}
+
 pub(super) fn toc(row: &wire::ServiceDocToc<'_>, index: u32) -> Result<(), i32> {
-    require(row.level <= TOC_LEVEL_MAX && row.flags & !TOC_FLAGS == 0 && row.index >= index)
+    require(toc_row_ok(row) && row.index >= index)
 }
 
 pub(super) fn link(row: &wire::ServiceDocLink<'_>) -> Result<(), i32> {
-    require(row.kind <= 2 && row.start <= row.end)
+    require(link_row_ok(row))
+}
+
+/// Drops the rows of a paged answer `out[..length]` that `keep` refuses, in
+/// place, and returns the new length: a bad row is a failed read of that row
+/// alone (`document.md` 5, the rule of a picture), never a failed page. The
+/// `end` stays as it is, so the paging goes on as the format said. A record
+/// that does not decode is still `ERR_INVALID` (a broken stream).
+pub(super) fn drop_rows(
+    out: &mut [u8],
+    length: usize,
+    keep: impl Fn(&RawRecord<'_>) -> Result<bool, i32>,
+) -> Result<usize, i32> {
+    let mut read = 0;
+    let mut write = 0;
+    while read < length {
+        let (raw, used) = RawRecord::prefix(&out[read..length]).map_err(|_| ERR_INVALID)?;
+        let wanted = raw.tag() == wire::SERVICE_END_TAG || keep(&raw)?;
+        if wanted {
+            out.copy_within(read..read + used, write);
+            write += used;
+        }
+        read += used;
+    }
+    Ok(write)
 }
 
 pub(super) fn font(row: &wire::ServiceDocFont) -> Result<(), i32> {
