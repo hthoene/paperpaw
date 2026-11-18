@@ -48,6 +48,8 @@ pub mod reach;
 pub mod report;
 pub mod session;
 pub mod snapshot;
+/// Needs the linked plugins, which exist on the reviewed Linux x86-64 profile only.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub mod sweep;
 pub mod target;
 pub mod variant;

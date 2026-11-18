@@ -19,6 +19,7 @@ use crate::Problem;
 pub const FIRST_PARTY: &[&str] = &[
     "about",
     "aids",
+    "battery",
     "bluetooth",
     "dictionary",
     "file-manager",
@@ -35,6 +36,7 @@ pub const FIRST_PARTY: &[&str] = &[
     "menu",
     "menu-editor",
     "news",
+    "notes-overview",
     "notes-vault",
     "opds",
     "picture-home",
