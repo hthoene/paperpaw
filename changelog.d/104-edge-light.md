@@ -1,0 +1,3 @@
+### Added
+
+- Edge light: swipe up or down along the left or right edge of the screen to set the front light, like a slider: the light follows the finger in steps of 5 % and a small notice shows the level (a store plugin, #104). The left edge sets the brightness, the right edge the warmth; each can be swapped or left out, and the strip's width is a setting. Taps in the strip, sideways swipes and swipes anywhere else work as before. For devices with a touch screen and a front light (the X4 Pro). The widget *Front light* shows the level and a tap switches the light off and on again; the action *Front light: on or off* does the same from a button or a menu.

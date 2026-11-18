@@ -48,3 +48,4 @@ vocabulary
 anki
 picture-frame
 pomodoro
+edge-light
