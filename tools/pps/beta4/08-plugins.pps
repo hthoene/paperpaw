@@ -19,6 +19,13 @@ test:08a-manager-list {
 
 # On and off, one row: Select switches, the row says "Starts after a restart" / "Applies after a restart".
 test:08b-manager-switch {
+  if:$target==x4 {
+    if:exists:plugins/reading-goal {
+      wait:100
+    } else {
+      skip:Reading goal is not installed on this X4 (not in Manage plugins: store plugin)
+    }
+  }
   call:home
   call:settings-row:Manage plugins
   until:Plugins:8000

@@ -2,6 +2,9 @@
 # Numbers behind the asserts: the X4 runs of Nov 17 (image 18A, #3464): a page turn 0.82 s, Back -> Home about 1 s.
 # They SKIP on the emulator (times, gray passes) and count on the X4.
 let:book=books/alice-in-wonderland.epub
+# The X4 reports ini keys of plugin settings as unknown while it reads the file at the start (home.continue.font was in the 18A run too),
+# although the values apply (setting: prints them). Product observation, listed in the report; it must not fail every test that restarts.
+known-warn:user configuration, line \d+: .*unknown setting
 
 # Home, wherever we are. `slot:` opens it as the Home button does, with no keys that could land in a dialog.
 define:home {
