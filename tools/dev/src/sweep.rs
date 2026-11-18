@@ -47,7 +47,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
 
-use paperpaw_core::sdk::builtin::params;
+use paperpaw_core::sdk::builtin::{params, slots};
 use paperpaw_core::sdk::semantics::Described;
 use paperpaw_emulator::linked;
 use paperpaw_emulator::profiles::Profile;
@@ -86,19 +86,15 @@ const CANNOT_BE_SHOWN_ALONE: &[(&str, &str)] = &[
          opened without one its plugin refuses it: the request is not a parameter",
     ),
     (
-        "vocabulary.sleep-card",
-        "it is a mode of the sleep screen (`sleep.show`) that the sleep plugin binds to \
-         the slot `core.sleep` and the device shows while it sleeps, with the card the \
-         sleep chose: opened alone it has no card and every draw ends with ERR_STATE. \
-         Binding the slot in the emulator (a settings change the sleep plugin answers) did \
-         not make it show; the sleep screen's other modes are reached by the power button",
-    ),
-    (
         "bluetooth.search",
         "its plugin asks for a scan first and the emulator has no radio, which refuses \
          it (ERR_UNSUPPORTED): the screen closes with a notice, as on a device without one",
     ),
 ];
+
+/// Screens of other plugins that are a choice of `sleep.show`: the sweep
+/// shows them as the sleeping device does.
+const SLEEP_CHOICES: &[&str] = &["vocabulary.sleep-card"];
 
 /// The languages looked at unless `--language` names others.
 pub const LANGUAGES: [&str; 2] = ["en", "de"];
@@ -441,9 +437,16 @@ impl<'a> Sweep<'a> {
     /// show the screen before (rows pressed on the way, settings changed
     /// so) is left behind.
     fn fresh(&mut self, radio: bool) -> Result<(), String> {
+        self.fresh_with(radio, &[])
+    }
+
+    /// [`Self::fresh`] with `settings` set at the start besides.
+    fn fresh_with(&mut self, radio: bool, settings: &[(&str, &str)]) -> Result<(), String> {
+        let mut all = vec![("core.notice-seconds".to_string(), "1".to_string())];
+        all.extend(settings.iter().map(|(k, v)| (k.to_string(), v.to_string())));
         let start = Start {
             // Notices gone before a screen is looked at, as `visual` has it.
-            settings: vec![("core.notice-seconds".into(), "1".into())],
+            settings: all,
             wifi_online: radio,
             ..Start::default()
         };
@@ -473,6 +476,26 @@ impl<'a> Sweep<'a> {
                 return Ok(take(&mut self.driver.session, id, how, true, before));
             }
         }
+        // Another plugin's sleep screen: chosen in `sleep.show`, shown as the
+        // device shows it when it goes to sleep (the slot `core.sleep`).
+        let mut second: Option<Showed> = None;
+        if SLEEP_CHOICES.contains(&id) {
+            self.fresh_with(false, &[("sleep.show", id)])?;
+            let session = &mut self.driver.session;
+            let before = session.image();
+            forget(session);
+            session.device.call(|kernel, now| {
+                kernel.open_slot(now, slots::SLEEP, paperpaw_core::sdk::Params::new())
+            });
+            session.settle();
+            let how =
+                String::from("asleep: chosen in `sleep.show` and shown as the slot `core.sleep`");
+            let showed = take(session, id, how, false, before);
+            if showed.shown.opened() && showed.failed.is_empty() {
+                return Ok(showed);
+            }
+            second = Some(showed);
+        }
         let book = [(params::PATH, session::BOOK)];
         let fixtures = cases::params(&self.driver.session, id);
         let mut tries: Vec<(&str, Given<'_>, bool)> = Vec::new();
@@ -482,7 +505,6 @@ impl<'a> Sweep<'a> {
         tries.push(("without parameters", &[], false));
         tries.push(("with a book's path", &book, false));
         tries.push(("without parameters, the radio on", &[], true));
-        let mut second: Option<Showed> = None;
         for (how, given, radio) in tries {
             self.fresh(radio)?;
             let session = &mut self.driver.session;

@@ -238,6 +238,10 @@ impl State {
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
+            } if token == SLEEP_TOKEN => self.asleep.shown(token, instance),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
             } if token == DECKS_TOKEN || token == REVIEW_TOKEN || token == WORDS_TOKEN => {
                 self.shown(host, token, instance)
             }

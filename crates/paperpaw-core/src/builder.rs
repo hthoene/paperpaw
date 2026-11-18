@@ -1121,10 +1121,16 @@ impl Kernel {
             };
             if let Err(error) = set {
                 // A widget's font may come with a plugin registered later
-                // (#262): the value waits until the start has hosted all.
+                // (#262), and so may a choice another plugin adds to the
+                // setting (the sleep screen another plugin offers, #354):
+                // the value waits until the start has hosted all.
                 let waits = self.native_registering
                     && matches!(error, paperpaw_sdk::SettingError::InvalidValue)
-                    && crate::font_refresh::widget_fonts::is_setting(&id);
+                    && (crate::font_refresh::widget_fonts::is_setting(&id)
+                        || matches!(
+                            self.shared.settings.try_spec(&id),
+                            Ok(Some(spec)) if matches!(spec.kind, paperpaw_sdk::SettingKind::Choice(_))
+                        ));
                 if waits {
                     left.push((id, value, line));
                     continue;

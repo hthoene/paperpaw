@@ -362,6 +362,7 @@ impl<'a> CommandStage<'a> {
             WireCommand::SetPluginEnabled { plugin, enabled } => {
                 self.validate_switch(ui.env.plugins(), plugin, enabled != 0)
             }
+            WireCommand::BindSlot { slot, screen } => self.validate_bind(ui.env, slot, screen),
             _ => Err(ERR_UNSUPPORTED),
         }
     }
@@ -389,6 +390,37 @@ impl<'a> CommandStage<'a> {
             return Err(ERR_DENIED);
         }
         Ok(plugin.len())
+    }
+
+    /// `command.bind_slot` (`registry.md` 4.2): only a plugin admitted with
+    /// `uses.registry` (`ERR_DENIED` otherwise); the slot exists
+    /// (`ERR_NOT_FOUND`) and a screen named is one offered for it
+    /// (`ERR_INVALID`); an empty screen gives the slot back to the plugins'.
+    fn validate_bind(
+        &self,
+        env: &crate::Place<'_>,
+        slot: &str,
+        screen: &str,
+    ) -> Result<usize, i32> {
+        copy_id(slot)?;
+        if !self.registry {
+            return Err(ERR_DENIED);
+        }
+        if !Id::try_parse(slot).is_ok_and(|slot| env.has_slot(&slot)) {
+            return Err(ERR_NOT_FOUND);
+        }
+        if !screen.is_empty() {
+            copy_id(screen)?;
+            let mut offered = false;
+            env.each_slot_screen(slot, &mut |offer| {
+                offered |= offer.as_str() == screen;
+                !offered
+            });
+            if !offered {
+                return Err(ERR_INVALID);
+            }
+        }
+        Ok(slot.len() + screen.len())
     }
 
     /// At most `speech::MAX_TEXTS` texts per plugin: a queued `command.speak`
@@ -498,6 +530,10 @@ impl<'a> CommandStage<'a> {
             }
             WireCommand::SetPluginEnabled { plugin, enabled } => {
                 Ok(Ask::SetPluginEnabled(copy_id(plugin)?, enabled != 0))
+            }
+            WireCommand::BindSlot { slot, screen: "" } => Ok(Ask::BindSlot(copy_id(slot)?, None)),
+            WireCommand::BindSlot { slot, screen } => {
+                Ok(Ask::BindSlot(copy_id(slot)?, Some(copy_id(screen)?)))
             }
             _ => Err(ERR_UNSUPPORTED),
         }
