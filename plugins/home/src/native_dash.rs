@@ -89,7 +89,7 @@ pub fn frame(m: &Metrics, wide: bool, status_bar: bool, columns: u8, rows: i64) 
     }
 }
 
-/// The grid in `area`: [`Geometry::new`]'s arithmetic without an environment.
+/// The grid in `area`: [`Geometry::of`]'s arithmetic without an environment.
 #[must_use]
 pub fn geometry(area: Rect, columns: u8, rows: u8, gap: u16) -> Geometry {
     let columns = columns.clamp(2, grid::MAX_COLUMNS);
