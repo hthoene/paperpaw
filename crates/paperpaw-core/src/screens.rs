@@ -261,6 +261,11 @@ impl Kernel {
             return;
         }
         self.screens_changed = true;
+        // What Home kept of its covers' rows goes before the screen that
+        // opens takes its memory (#329).
+        if let Some(hosts) = self.shared.native_instances.hosts() {
+            hosts.images().tend_kept(false);
+        }
         self.stack.push(active);
         self.sync_stack();
         let top = self.stack.len() - 1;

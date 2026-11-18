@@ -328,6 +328,8 @@ impl crate::Kernel {
             return false;
         };
         let table = hosts.images();
+        // Home's covers keep their drawn rows while Home is shown (#329).
+        table.tend_kept(self.home_on_top());
         let pump = &instances.image_pump;
         let storage = self.shared.storage.clone();
         // The cache folder is swept before the first request is decoded.
