@@ -219,7 +219,8 @@ from.
 
 Each release has the emulator ready to run for Windows, macOS and Linux,
 on the [releases page](https://github.com/hthoene/paperpaw/releases). It
-comes with `paperpaw-dev`. To build it yourself, you need a recent stable
+comes with `paperpaw-dev`. The Linux programs need glibc 2.35 or newer
+(Debian 12, Ubuntu 22.04 and later). To build it yourself, you need a recent stable
 [Rust toolchain](https://rustup.rs). The required targets are installed
 automatically from `rust-toolchain.toml`.
 

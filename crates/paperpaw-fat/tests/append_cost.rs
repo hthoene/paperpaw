@@ -298,18 +298,13 @@ fn the_next_append_and_a_remove_after_the_cut(
     // A file whose entry holds a size has its whole chain freed, the clusters taken ahead
     // of its end too: nothing stays taken. (A run in two FAT blocks left up to 32 clusters
     // taken and linked from nowhere by a cut between their writes; a run is now in one.)
+    // So has a file that was new and not written back yet (#238): its entry holds its first
+    // cluster as soon as it is taken.
     let leaked = used_clusters(&after) - (used_before + 1);
-    if size > 0 {
-        assert!(
-            leaked <= lost_ok,
-            "removing the file after a cut at command {k} leaves {leaked} clusters taken"
-        );
-    } else {
-        assert!(
-            leaked <= whole.len().div_ceil(512) + 128,
-            "removing the file after a cut at command {k}: {leaked} clusters lost"
-        );
-    }
+    assert!(
+        leaked <= lost_ok,
+        "removing the file after a cut at command {k} leaves {leaked} clusters taken"
+    );
 }
 
 /// Cut off before any write command of a stream of appends, and after it: the FAT never
@@ -351,16 +346,13 @@ fn a_cut_in_a_stream_of_appends_leaves_a_sound_volume() {
     cut_at_every_command(FatType::Fat16, 24 << 20, 1);
 }
 
-/// FAT32 (128 entries to a block of the FAT). One cluster may stay taken after a cut and a
-/// remove (ticket #269): the base's one-cluster order (mark the new cluster taken in its FAT
-/// block, then link it from the block before) has that window at every cluster; a run takes
-/// it where it starts in a new block. (`set_append_reservation(false)` still uses the joined
-/// write, so it does not show the base.) At most one:
-/// the cut test's other checks (no link into a free cluster, none twice, a prefix is read)
-/// stay as strict as on FAT16.
+/// FAT32 (128 entries to a block of the FAT). No cluster stays taken after a cut and a
+/// remove (ticket #269): where a cluster is marked taken in one block of the FAT and linked
+/// from the block before, the card says so first, and the mount after the cut frees it
+/// (`tests/leaks.rs` looks at every block written). FAT16 has nowhere to say it.
 #[test]
 fn a_cut_in_a_stream_of_appends_leaves_a_sound_volume_on_fat32() {
-    cut_at_every_command(FatType::Fat32, 40 << 20, 1);
+    cut_at_every_command(FatType::Fat32, 40 << 20, 0);
 }
 
 /// The free space the storage reports (it follows the clusters the file system marks taken

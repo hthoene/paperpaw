@@ -73,7 +73,8 @@ fn a_count_kept_is_taken_by_the_next_mount_without_reading_the_fat() {
 
 /// The count is taken back on the card before the FAT is written: the
 /// first block a change of the FAT writes is the FS information sector,
-/// its count unknown and the storage's record gone.
+/// its count unknown and the storage's record of it gone (what stands
+/// there instead says which cluster is about to be taken, #238).
 #[test]
 fn the_count_is_taken_back_before_the_fat_is_written() {
     let image = kept();
@@ -98,7 +99,10 @@ fn the_count_is_taken_back_before_the_fat_is_written() {
     assert!(taken_back < first_of_fat, "{taken_back} {first_of_fat}");
     let block = writes[taken_back].1;
     assert_eq!(word(&block, 488), u32::MAX);
-    assert_eq!(block[4..24], [0u8; 20]);
+    assert_eq!(&block[4..8], b"PPCL");
+    let mut record = [0u8; free::NOTE];
+    record.copy_from_slice(&block[4..4 + free::NOTE]);
+    assert!(free::noted(&record, word(&block, 488), word(&block, 492)).is_none());
     // Once for all the changes until it is kept again.
     let again = writes
         .iter()
@@ -119,7 +123,8 @@ fn the_count_is_taken_back_before_the_fat_is_written() {
 }
 
 /// Cut off after any block written (#238): a mount of what is on the card
-/// then says the free space the FAT says, at once where the count kept
+/// then says the free space the FAT says (as the mount leaves it: what
+/// the cut left taken by no file is freed), at once where the count kept
 /// still holds, else after counting; never a count from before the cut.
 #[test]
 fn after_a_cut_at_any_block_the_free_space_is_the_fats() {
@@ -148,9 +153,9 @@ fn after_a_cut_at_any_block_the_free_space_is_the_fats() {
             let at = index as usize * BLOCK;
             image[at..at + BLOCK].copy_from_slice(&block);
         }
-        let exact = in_fat(&image);
         let card = Cut::new(image.clone());
         let s = card.storage();
+        let exact = in_fat(&card.image());
         match s.free_space() {
             Some(free) => {
                 assert_eq!(free, exact, "cut {cut} of {}", writes.len());

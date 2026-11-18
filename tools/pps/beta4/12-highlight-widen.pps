@@ -1,7 +1,7 @@
 # Beta 4 suite 12: highlighting with the buttons, variant B "Widen" (#235, Decision 221).
 # Hold Left starts; Left/Right word; page buttons line; hold Left/Right page ends; hold page buttons paragraph;
 # Select -> the bar (Look up, Highlight, Note, Copy, Extend), Highlight in focus; hold Select widens word -> sentence -> paragraph;
-# a selection goes over page turns (at most 5 pages: notice); Back cancels; its own legend at the bottom.
+# a selection goes over page turns (at most 5 pages: the legend strip says so; so it does at the book start); Back cancels; its own legend at the bottom.
 include:common.pps
 
 # A page with words on it (a fresh book opens on its cover).
@@ -141,5 +141,33 @@ test:12g-five-page-cap {
   expect:A selection can take in at most 5
   back
   wait:1000
+  expect-not:A selection can take in
+  expect-not:Select: actions
+  no-warn
+}
+
+# At the book's start the selection says so in the legend's strip, which Back takes away with the selection.
+test:12h-book-start-notice {
+  call:text-page
+  # The book remembers its page: first to the start, then 3 pages on (the cap is 5 pages).
+  repeat:60 {
+    page-back
+    wait:200
+  }
+  repeat:3 {
+    page-forward
+    wait:800
+  }
+  long:left
+  until:Select: actions:5000
+  repeat:30 {
+    long:page-back
+    wait:300
+  }
+  expect:This is the start of the book
+  back
+  wait:1000
+  expect-not:This is the start of the book
+  expect-not:Select: actions
   no-warn
 }

@@ -1,0 +1,43 @@
+# #72: the setup guide's template page. The guide opens from Settings > Set up PaperPaw; the page "Choose a setup" lists
+# the PaperPaw-made templates and "Keep the defaults". Not run on a device yet; the emulator runs it:
+#   python3 tools/x4-remote.py --emulator target/debug/paperpaw-emu --library <card folder> --script-file tools/pps/setup-templates.pps --out out/setup-templates
+include:beta4/common.pps
+
+define:to-template-page {
+  call:settings-row:Set up PaperPaw
+  # Next goes on, page by page, until the template page is there (the steps that apply come first).
+  repeat:12 {
+    if:not-shows:Choose a setup {
+      select:Next
+      wait:600
+    }
+  }
+  expect:Choose a setup
+  expect:Minimal
+  expect:Reading statistics
+  expect:Language learning
+  expect:Notes
+  expect:Keep the defaults
+}
+
+# A template without plugins sets its settings at once and says so; the guide goes on.
+test:72a-minimal-applies-at-once {
+  call:quiet-device
+  call:to-template-page
+  select:Minimal
+  until:Setup applied:5000
+  expect-not:Error
+  # Prints off (the setting the template turned off).
+  setting:home.footer.dots
+  no-warn
+}
+
+# Keeping the defaults changes nothing and leaves no notice.
+test:72b-keep-the-defaults {
+  call:to-template-page
+  select:Keep the defaults
+  wait:1500
+  expect-not:Setup applied
+  expect-not:Error
+  no-warn
+}

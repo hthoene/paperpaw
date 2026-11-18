@@ -99,7 +99,7 @@ test:02e-highlight-via-menu {
   right
   confirm
   until:Highlight:5000
-  right
+  # Highlight has the focus: Select makes it
   confirm
   wait:1500
   confirm
@@ -120,8 +120,9 @@ test:02f-highlight-by-action {
   right
   right
   confirm
-  until:Highlight:5000
-  expect:Copy
+  # 02e highlighted these words: the bar says Remove highlight now, so wait for Copy
+  until:Copy:5000
+  expect:Look up
   back
   wait:1000
   no-warn
