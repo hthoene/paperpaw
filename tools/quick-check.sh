@@ -25,13 +25,23 @@
 #                                                         [text, image, layout, document, epub-family, hyphen, zip, xml, core, shells/desktop, the reading plugins]
 #   app       the app's goldens: registry_golden, linked_catalogs, bands (CI's native-linked feature set)
 #                                                         [plugins/, app, core, sdk, ui-kit]
+#   snapshots the emulator's screen snapshots (screens_look_as_before, screens_say_what_they_show, the
+#             header, transfer and quick-panel layout tests) as CI builds them, and the app's own screens:
+#             kernel_screens and screens (golden pictures and layout faults)
+#                                                         [plugins/, app, ui-kit, layout, text, graphics, fonts, i18n, core, sdk, shells/desktop]
 #   frames    the changed plugins (at most 4; `store` stands in when a library under them changed) built for the X4's
 #             C3 as CI builds them and packed: a frame of 2,048 B or more is refused  [plugins/, ui-kit, sdk, core native, text, layout]
+#   frames-s3 the same plugins built for the X4 Pro / Classic (ESP32-S3, espup's `esp` toolchain,
+#             `tools/plugin-files7/build.sh x4-pro`) and packed for target 9: a frame over the limit
+#             that only the S3's code shows. Its own build directory under ~/.cache (QUICK_CHECK_S3_TARGET
+#             overrides it) keeps the second run warm; the first one is cold (about 3 min for `store`)
 # Every step runs whatever the one before did; the summary lists them with their
 # times, and the script exits 1 if any failed, 0 if all passed. Logs: the
-# directory it prints. NOT checked here: the S3 band and `allow indirect`
-# (a full Xtensa firmware build), the C3/S3 firmware size, the store fit, the
-# screens job, the other shells, the fuzzers.
+# directory it prints. NOT checked here: the S3 `allow indirect` band
+# (tools/check-s3-budget.sh: it needs a full Xtensa firmware build of the whole
+# kernel, far beyond a quick check; CI and the landing check keep it), the
+# C3/S3 firmware size, the store fit, the `paperpaw-dev visual`/`reach` screens
+# job, the other shells, the fuzzers.
 #
 # --all runs every step (for a measurement or after a base merge); --list says
 # what would run and why; --only/--skip take step names. Use the build directory
@@ -44,7 +54,7 @@ case ":$PATH:" in *":$HOME/.cargo/bin:"*) ;; *) PATH="$HOME/.cargo/bin:$PATH" ;;
 
 base=origin/abi7/integration
 all=0 list=0 only="" skip=""
-steps=" fmt clippy doc interface checks libs desktop memory app frames "
+steps=" fmt clippy doc interface checks libs desktop memory app snapshots frames frames-s3 "
 while (($#)); do
     case "$1" in
         --base) base="${2:?--base needs a revision}"; shift 2 ;;
@@ -110,7 +120,9 @@ if [[ $all = 1 ]]; then for s in $steps; do why[$s]="--all"; done; else
     touches '^(plugins/|crates/paperpaw-(i18n|ui-kit|app|core|sdk|native|config)/|shells/desktop/)' && why[desktop]="plugins, i18n, ui-kit, app, core, SDK or the emulator changed"
     touches '^(crates/paperpaw-(text|image|layout|document|epub-family|hyphen|zip|xml|core|native|json|digest)/|shells/desktop/|plugins/(reading|format-|picture|home|library|store))' && why[memory]="a crate on the reading path or the emulator changed"
     touches '^(plugins/|crates/paperpaw-(app|core|sdk|ui-kit|native)/)' && why[app]="plugins, app, core, SDK or ui-kit changed"
+    touches '^(plugins/|crates/paperpaw-(app|ui-kit|layout|text|graphics|fonts|i18n|core|sdk|native|config)/|shells/desktop/|tools/fonts)' && why[snapshots]="plugins, app, ui-kit, layout, text, fonts, i18n, core, SDK or the emulator changed"
     touches '^(plugins/|crates/paperpaw-(ui-kit|sdk|core|native|text|layout|i18n)/|tools/plugin-files7/)' && why[frames]="plugin code or what it builds with changed"
+    touches '^(plugins/|crates/paperpaw-(ui-kit|sdk|core|native|text|layout|i18n)/|tools/plugin-files7/)' && why[frames-s3]="plugin code or what it builds with changed (S3 frames differ from the C3's)"
 fi
 run_step() { # NAME: should it run?
     local s="$1"
@@ -185,22 +197,48 @@ app_step() {
     cargo test -j"$jobs_n" --no-fail-fast -p paperpaw-app --features native-linked,native-linked-reading,native-linked-store \
         --test registry_golden --test linked_catalogs --test bands
 }
-frames_step() {
-    local ids=("${plugin_ids[@]}") out
+# The goldens of the emulator (every screen and layout fault of its snapshots.rs: it is a test of
+# the same workspace build as `desktop`'s, so warm after it) and the app's own screens, in the
+# feature set `app` builds (nothing more to compile).
+snapshots_step() {
+    local rc=0
+    ci_test --test snapshots || rc=1
+    cargo test -j"$jobs_n" --no-fail-fast -p paperpaw-app --features native-linked,native-linked-reading,native-linked-store \
+        --test kernel_screens --test screens || rc=1
+    return $rc
+}
+# Packs the changed plugins (DEVICE: x4 | x4-pro) into the out directory: the packer refuses a frame of 2,048 B or more.
+frames_of() {
+    local device="$1" ids=("${plugin_ids[@]}") out
     ((${#ids[@]} == 0 || all)) && ids=(store)
     ((${#ids[@]} > 4)) && { echo "more than 4 changed plugins: the first 4 only"; ids=("${ids[@]:0:4}"); }
-    out="$(mktemp -d "$logs/plugins.XXXXXX")"
+    out="$(mktemp -d "$logs/plugins-$device.XXXXXX")"
     local id rc=0
     for id in "${ids[@]}"; do
-        echo "== $id"
-        tools/plugin-files7/build.sh x4 "$out" --only "$id" || rc=1
+        echo "== $id ($device)"
+        tools/plugin-files7/build.sh "$device" "$out" --only "$id" || rc=1
     done
     return $rc
+}
+frames_step() { frames_of x4; }
+# One persistent build directory for the Xtensa plugin builds, per worktree (two trees with other
+# sources must not share one: cargo would reuse the other's artifacts).
+frames_s3_step() {
+    local dir="${QUICK_CHECK_S3_TARGET:-$HOME/.cache/paperpaw-quick-check/s3-$(basename "$root")-$(printf %s "$root" | cksum | cut -d' ' -f1)}"
+    mkdir -p "$dir" && echo "S3 build directory: $dir"
+    # The Xtensa linker comes with espup's toolchain, which is not on PATH by itself
+    # (espup's export-esp.sh does that; the toolchain's own folder is found here).
+    if ! command -v xtensa-esp32s3-elf-gcc > /dev/null; then
+        local gcc
+        gcc="$(ls -d "$(rustc +esp --print sysroot 2> /dev/null)"/xtensa-esp-elf/*/xtensa-esp-elf/bin 2> /dev/null | tail -n 1)"
+        if [[ -n "$gcc" ]]; then PATH="$gcc:$PATH"; elif [[ -f "$HOME/export-esp.sh" ]]; then . "$HOME/export-esp.sh"; fi
+    fi
+    CARGO_TARGET_DIR="$dir" frames_of x4-pro
 }
 
 for s in $steps; do
     run_step "$s" || continue
-    step "$s" "${s}_step"
+    step "$s" "${s//-/_}_step"
 done
 
 echo
