@@ -33,7 +33,8 @@ const SWITCH: &str = "lock.touch";
 const TOGGLE: &str = "lock.touch-toggle";
 const HINT: &str = "lock.touch-hint";
 const STATUS: &str = "lock.touch-status";
-/// `filter.verdict.kind`: pass (no reply says it too), take, run.
+/// `filter.verdict.kind`: pass, take, run.
+pub const PASS: u32 = 0;
 pub const TAKE: u32 = 1;
 pub const RUN: u32 = 2;
 /// What a verdict of run names.
@@ -97,7 +98,7 @@ fn verdict(reply: &mut Reply<'_>, kind: u32, action: &str) -> Result<(), Error> 
 
 impl TouchLock {
     /// The input filter: takes every touch while locked. Anything else, and
-    /// every touch while unlocked, is passed (no reply).
+    /// every touch while unlocked, is passed.
     #[inline(never)]
     pub fn filter(
         &mut self,
@@ -107,7 +108,8 @@ impl TouchLock {
     ) -> Result<(), Error> {
         match self.answer(|| locked(host), payload)? {
             Some((kind, action)) => verdict(reply, kind, action),
-            None => Ok(()),
+            // The host wants the stage's one `filter.verdict`, also for a pass.
+            None => verdict(reply, PASS, ""),
         }
     }
 

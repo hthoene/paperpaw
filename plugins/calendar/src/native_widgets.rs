@@ -644,7 +644,9 @@ fn draw_month(
     };
     // Digits as large as the cells let them be.
     let cell = f32::from(inner.width / 7).min(f32::from(inner.height / 7));
-    let size = (cell * 0.55).clamp(small * 0.8, text);
+    // Not `clamp`: its panic message formats floats (a float formatter and a
+    // 2 KiB frame in the plugin file).
+    let size = (cell * 0.55).max(small * 0.8).min(text);
     native_month::paint_month(out, &cx.font, (size, line), palette, inner, &shown)
 }
 
