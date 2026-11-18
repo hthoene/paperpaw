@@ -96,7 +96,11 @@ pub(super) fn log(turn: Option<Turn>, refresh: Refresh, shown_ms: u64) {
             "turn-lab: variant {} turn {}{}: shown in {shown_ms} ms",
             turn.variant,
             turn.number,
-            if refresh == Refresh::Fast { "" } else { " clean" },
+            if refresh == Refresh::Fast {
+                ""
+            } else {
+                " clean"
+            },
         );
     }
 }
