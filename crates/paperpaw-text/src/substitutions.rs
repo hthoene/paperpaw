@@ -54,6 +54,8 @@ pub(crate) trait Run {
     /// Draws the key at `i` as `keys`; `false` (nothing changed) where
     /// there is no room for them.
     fn split(&mut self, i: usize, keys: &[u32]) -> bool;
+    /// Moves the key at `from` to `to` (before it), those between one on.
+    fn bring(&mut self, from: usize, to: usize);
 }
 
 /// A list of keys that grows to at most `limit`.
@@ -91,6 +93,12 @@ impl Run for Keys<'_> {
         self.keys.splice(i..=i, keys.iter().copied());
         true
     }
+    fn bring(&mut self, from: usize, to: usize) {
+        if to < from && from < self.keys.len() {
+            let key = self.keys.remove(from);
+            self.keys.insert(to, key);
+        }
+    }
 }
 
 /// A substitution table of version 1 or 2, in memory or read through
@@ -101,6 +109,8 @@ pub(crate) struct Substitutions<'a, B: Bytes + ?Sized = [u8]> {
     len: usize,
     /// How wide its parts are, as its version says.
     w: Widths,
+    /// How many key sets lookups skip it lists at its end.
+    skips: usize,
 }
 
 /// How many bytes the parts of a table take, by its version.
@@ -208,10 +218,23 @@ impl<'a, B: Bytes + ?Sized> Substitutions<'a, B> {
         };
         let len = usize::try_from(u32::from_le_bytes([head[4], head[5], head[6], head[7]])).ok()?;
         let mut last = [0u8];
-        (len >= HEAD + 4 && table.bytes(len - 1, &mut last)).then_some(Substitutions {
+        let mut count = [0u8; 4];
+        if len < HEAD + 4 || !table.bytes(len - 1, &mut last) || !table.bytes(HEAD, &mut count) {
+            return None;
+        }
+        // Lookups' skip sets, listed at the end (none in a table made
+        // before them, whose bytes here are 0).
+        let skips = usize::from(u16::from_le_bytes([count[2], count[3]]));
+        let skips = if skips * w.offset <= len - HEAD - 4 {
+            skips
+        } else {
+            0
+        };
+        Some(Substitutions {
             data: table,
             len,
             w,
+            skips,
         })
     }
 
@@ -315,11 +338,21 @@ impl<'a, B: Bytes + ?Sized> Substitutions<'a, B> {
             record[4], record[5], record[6], record[7],
         ]))
         .ok()?;
+        // The keys it skips (OpenType's lookup flags): a set the table
+        // lists at its end, from 1.
+        let skip = match usize::from(record[1]) {
+            0 => 0,
+            n if n <= self.skips => {
+                self.offset_at(self.len - self.w.offset * (self.skips + 1 - n))?
+            }
+            _ => 0,
+        };
         matches!(kind, SINGLE | LIGATURE | MULTIPLE | CONTEXT | CLASSES).then_some(Lookup {
             table: *self,
             entries,
             count,
             kind,
+            skip,
         })
     }
 
@@ -433,6 +466,8 @@ pub(crate) struct Lookup<'a, B: Bytes + ?Sized = [u8]> {
     entries: usize,
     count: usize,
     kind: u8,
+    /// Where the key set of the keys it passes over is (0: none).
+    skip: usize,
 }
 
 impl<B: Bytes + ?Sized> Clone for Lookup<'_, B> {
@@ -444,6 +479,22 @@ impl<B: Bytes + ?Sized> Clone for Lookup<'_, B> {
 impl<B: Bytes + ?Sized> Copy for Lookup<'_, B> {}
 
 impl<B: Bytes + ?Sized> Lookup<'_, B> {
+    /// Whether it passes over `key` (a mark it ignores): neither applies to
+    /// it nor looks at it.
+    fn skips(&self, key: u32) -> bool {
+        self.skip != 0 && self.table.set_has(self.skip, key)
+    }
+
+    /// The place of the first key after `i` it does not pass over.
+    fn next(&self, run: &impl Run, i: usize) -> Option<usize> {
+        (i + 1..run.len()).find(|&k| !self.skips(run.key(k)))
+    }
+
+    /// The place of the last key before `i` it does not pass over.
+    fn before(&self, run: &impl Run, i: usize) -> Option<usize> {
+        (0..i).rev().find(|&k| !self.skips(run.key(k)))
+    }
+
     /// The place of an entry whose key is `key`, by a binary search of the
     /// entries' keys (`key_at` says where entry `i`'s is): the first of
     /// those with that key. Entries out of order are not found, nothing
@@ -556,7 +607,7 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
     /// there: where to go on from. A contextual lookup applies others
     /// (`nested` false: those do not apply contextual ones in turn).
     fn apply_at(&self, run: &mut impl Run, i: usize, nested: bool) -> Option<usize> {
-        if !run.may(i) {
+        if !run.may(i) || self.skips(run.key(i)) {
             return None;
         }
         match self.kind {
@@ -566,14 +617,21 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
                 Some(i + 1)
             }
             LIGATURE => {
-                let mut keys = [0u32; MAX_KEYS];
-                let n = (run.len() - i).min(MAX_KEYS);
-                for (k, slot) in keys.iter_mut().enumerate().take(n) {
-                    *slot = run.key(i + k);
+                // The keys from `i` on it does not pass over, and where.
+                let (mut keys, mut at) = ([0u32; MAX_KEYS], [0usize; MAX_KEYS]);
+                let (mut n, mut place) = (0, Some(i));
+                while let Some(p) = place.filter(|_| n < MAX_KEYS) {
+                    (keys[n], at[n]) = (run.key(p), p);
+                    n += 1;
+                    place = self.next(run, p);
                 }
                 let (len, to) = self.ligature(&keys[..n])?;
-                if !(i..i + len).all(|k| run.may(k)) {
+                if !at[..len].iter().all(|&k| run.may(k)) {
                     return None;
+                }
+                // Those passed over go after the ligature.
+                for (k, &from) in at.iter().enumerate().take(len).skip(1) {
+                    run.bring(from, i + k);
                 }
                 run.join(i, len, to);
                 Some(i + 1)
@@ -623,44 +681,46 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
         if input == 0 || back > MAX_KEYS || input > MAX_KEYS || ahead > MAX_KEYS {
             return None;
         }
-        if back > i || i + input + ahead > run.len() {
-            return None;
-        }
         let set = |n: usize| t.offset_at(rule + 4 + n * t.w.offset);
+        let mut at = i;
         for k in 0..back {
-            if !t.set_has(set(k)?, run.key(i - 1 - k)) {
+            at = self.before(run, at)?;
+            if !t.set_has(set(k)?, run.key(at)) {
                 return None;
             }
         }
+        let mut last = i;
         for k in 1..input {
-            if !run.may(i + k) || !t.set_has(set(back + k - 1)?, run.key(i + k)) {
+            last = self.next(run, last)?;
+            if !run.may(last) || !t.set_has(set(back + k - 1)?, run.key(last)) {
                 return None;
             }
         }
+        let mut at = last;
         for k in 0..ahead {
-            if !t.set_has(set(back + input - 1 + k)?, run.key(i + input + k)) {
+            at = self.next(run, at)?;
+            if !t.set_has(set(back + input - 1 + k)?, run.key(at)) {
                 return None;
             }
         }
         let first = rule + 4 + (back + input - 1 + ahead) * t.w.offset;
-        Some(self.records(run, i, input, first, records))
+        Some(self.records(run, i, last + 1, first, records))
     }
 
     /// Applies the `count` records at `at` (each its place in the input
     /// and the offset of a lookup's record, see [`Substitutions::record_at`])
-    /// to the input of `input` keys at place `i`: where to go on from.
+    /// to the input from place `i` to `end`: where to go on from.
     fn records(
         &self,
         run: &mut impl Run,
         i: usize,
-        input: usize,
+        mut end: usize,
         at: usize,
         count: usize,
     ) -> usize {
         let t = self.table;
         // In their order; a ligature or a multiple changes how long the
         // input is.
-        let mut end = i + input;
         for r in 0..count {
             let Some((place, record)) = t.record_at(at + r * t.w.record) else {
                 break;
@@ -668,11 +728,15 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
             let Some(lookup) = t.lookup_at(record) else {
                 continue;
             };
-            if i + place >= end.min(run.len()) {
+            // The input's key `place`, those passed over not counted.
+            let Some(p) = (0..place).try_fold(i, |p, _| self.next(run, p)) else {
+                continue;
+            };
+            if p >= end.min(run.len()) {
                 continue;
             }
             let before = run.len();
-            if lookup.apply_at(run, i + place, false).is_some() {
+            if lookup.apply_at(run, p, false).is_some() {
                 end = (end + run.len()).saturating_sub(before).max(i + 1);
             }
         }
@@ -707,26 +771,62 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
         for r in 0..count {
             let rule = t.offset_at(rules + 2 + t.w.pad + r * o)?;
             let [back, input, ahead, records] = t.bytes::<4>(rule)?.map(usize::from);
-            if input == 0 || back > i || i + input + ahead > run.len() {
+            if input == 0 {
                 continue;
             }
             let class_at = |n: usize| t.u8_at(rule + 4 + n).map(u16::from);
-            let fits = (0..back)
-                .all(|k| class_at(k) == Some(t.class_of(back_def, run.key(i - 1 - k))))
-                && (1..input).all(|k| {
-                    run.may(i + k)
-                        && class_at(back + k - 1) == Some(t.class_of(input_def, run.key(i + k)))
-                })
-                && (0..ahead).all(|k| {
-                    class_at(back + input - 1 + k)
-                        == Some(t.class_of(ahead_def, run.key(i + input + k)))
-                });
-            if fits {
+            if let Some(end) = self.class_fits(
+                run,
+                i,
+                [back, input, ahead],
+                [back_def, input_def, ahead_def],
+                class_at,
+            ) {
                 let first = rule + 4 + back + input - 1 + ahead;
-                return Some(self.records(run, i, input, first, records));
+                return Some(self.records(run, i, end, first, records));
             }
         }
         None
+    }
+}
+
+impl<B: Bytes + ?Sized> Lookup<'_, B> {
+    /// Whether the keys around place `i` (those it passes over not looked
+    /// at) are of the classes a rule of `counts` (before, input, after)
+    /// says, by the class definitions `defs`: where its input ends.
+    fn class_fits(
+        &self,
+        run: &impl Run,
+        i: usize,
+        counts: [usize; 3],
+        defs: [usize; 3],
+        class_at: impl Fn(usize) -> Option<u16>,
+    ) -> Option<usize> {
+        let t = self.table;
+        let [back, input, ahead] = counts;
+        let mut at = i;
+        for k in 0..back {
+            at = self.before(run, at)?;
+            if class_at(k) != Some(t.class_of(defs[0], run.key(at))) {
+                return None;
+            }
+        }
+        let mut last = i;
+        for k in 1..input {
+            last = self.next(run, last)?;
+            if !run.may(last) || class_at(back + k - 1) != Some(t.class_of(defs[1], run.key(last)))
+            {
+                return None;
+            }
+        }
+        let mut at = last;
+        for k in 0..ahead {
+            at = self.next(run, at)?;
+            if class_at(back + input - 1 + k) != Some(t.class_of(defs[2], run.key(at))) {
+                return None;
+            }
+        }
+        Some(last + 1)
     }
 }
 

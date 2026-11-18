@@ -1,5 +1,7 @@
 //! Indic shaping: Bengali (Bangla, Assamese) and Devanagari (Hindi,
-//! Marathi, Nepali, Sanskrit) set as their fonts draw them (#157).
+//! Marathi, Nepali, Sanskrit) set as their fonts draw them (#157), and
+//! Khmer, Lao and Tibetan (#314, [`rare`]: their own syllables and order,
+//! the same substitutions).
 //!
 //! Text is cut into syllables ([`syllable_end`]): a consonant or vowel,
 //! the consonants joined to it by a virama (hasanta, halant), its vowel
@@ -27,7 +29,10 @@
 //! reordering alone.
 
 #[cfg(feature = "outline")]
+mod clusters;
+#[cfg(feature = "outline")]
 pub(crate) mod pack;
+mod rare;
 #[cfg(test)]
 mod tests;
 
@@ -81,7 +86,19 @@ const ZWJ: char = '\u{200D}';
 pub(crate) enum Script {
     Bengali,
     Devanagari,
+    Khmer,
+    Lao,
+    Tibetan,
 }
+
+/// The scripts, in [`Script`]'s order.
+const SCRIPTS: [Script; 5] = [
+    Script::Bengali,
+    Script::Devanagari,
+    Script::Khmer,
+    Script::Lao,
+    Script::Tibetan,
+];
 
 impl Script {
     /// The script of `ch`, if it is one shaped here.
@@ -89,6 +106,9 @@ impl Script {
         match ch {
             '\u{980}'..='\u{9FF}' => Some(Script::Bengali),
             '\u{900}'..='\u{97F}' => Some(Script::Devanagari),
+            '\u{1780}'..='\u{17FF}' => Some(Script::Khmer),
+            '\u{E80}'..='\u{EFF}' => Some(Script::Lao),
+            '\u{F00}'..='\u{FFF}' => Some(Script::Tibetan),
             _ => None,
         }
     }
@@ -98,13 +118,23 @@ impl Script {
         match self {
             Script::Bengali => "Beng",
             Script::Devanagari => "Deva",
+            Script::Khmer => "Khmr",
+            Script::Lao => "Laoo",
+            Script::Tibetan => "Tibt",
         }
+    }
+
+    /// Whether its syllables are found, ordered and given their forms as
+    /// Bengali's and Devanagari's are (else as [`rare`] says).
+    const fn is_brahmic(self) -> bool {
+        matches!(self, Script::Bengali | Script::Devanagari)
     }
 
     const fn ra(self) -> char {
         match self {
             Script::Bengali => '\u{9B0}',
             Script::Devanagari => '\u{930}',
+            _ => '\0',
         }
     }
 
@@ -112,6 +142,7 @@ impl Script {
         match self {
             Script::Bengali => 0x9CD,
             Script::Devanagari => 0x94D,
+            _ => 0,
         }
     }
 }
@@ -224,17 +255,20 @@ fn category(script: Script, ch: char) -> Cat {
             '\u{94D}' => Cat::Virama,
             _ => Cat::Other,
         },
+        _ => rare::category(script, ch),
     }
 }
 
 /// Whether `text` has letters of a script shaped here: a quick look at
-/// its bytes (U+0900 to U+09FF are `E0 A4` to `E0 A7` in UTF-8).
+/// its bytes (in UTF-8, U+0900 to U+09FF are `E0 A4` to `E0 A7`, Lao and
+/// Tibetan U+0E80 to U+0FFF `E0 BA` to `E0 BF`, Khmer `E1 9E` and `E1 9F`).
 pub fn has_indic(text: &str) -> bool {
     !text.is_ascii()
-        && text
-            .as_bytes()
-            .windows(2)
-            .any(|w| w[0] == 0xE0 && (0xA4..=0xA7).contains(&w[1]))
+        && text.as_bytes().windows(2).any(|w| match w[0] {
+            0xE0 => matches!(w[1], 0xA4..=0xA7 | 0xBA..=0xBF),
+            0xE1 => matches!(w[1], 0x9E..=0x9F),
+            _ => false,
+        })
 }
 
 /// Whether `text` has letters or signs of a script shaped here (not only
@@ -255,6 +289,9 @@ pub(crate) fn is_mark_key(key: char) -> bool {
     let Some(script) = Script::of(key) else {
         return false;
     };
+    if !script.is_brahmic() {
+        return rare::is_mark(script, key, category(script, key));
+    }
     match category(script, key) {
         Cat::Nukta | Cat::Virama | Cat::BelowMatra | Cat::AboveMatra => true,
         // Anusvara and visarga take room; candrabindu does not.
@@ -278,6 +315,9 @@ pub(crate) fn syllable_end(text: &str, start: usize) -> usize {
         return one;
     };
     let cat = |ch: char| category(script, ch);
+    if !script.is_brahmic() {
+        return rare_syllable_end(rest, start, script, cat(first));
+    }
     let mut end = one;
     let mut taken = 1;
     // Takes the next character where `want` says; its category.
@@ -334,6 +374,24 @@ pub(crate) fn syllable_end(text: &str, start: usize) -> usize {
     end
 }
 
+/// [`syllable_end`] in Khmer, Lao or Tibetan: `rest` the text from the
+/// syllable's first character (of category `first`) on.
+fn rare_syllable_end(rest: &str, start: usize, script: Script, first: Cat) -> usize {
+    let mut before = first;
+    let mut end = start;
+    for (n, (at, ch)) in rest.char_indices().enumerate() {
+        let cat = category(script, ch);
+        if n > 0
+            && (n >= MAX_CHARS || first == Cat::Other || !rare::takes(script, first, before, cat))
+        {
+            break;
+        }
+        before = cat;
+        end = start + at + ch.len_utf8();
+    }
+    end
+}
+
 /// Where the run of syllables shaped together that starts at byte
 /// `start` ends: the syllables of one script that follow each other (a
 /// word), whole, up to [`MAX_RUN`] characters; one character outside the
@@ -364,8 +422,9 @@ pub(crate) fn run_end(text: &str, start: usize) -> usize {
 
 /// The part of `text` around byte `at` that is drawn as one, as wide as
 /// it is drawn, not as its characters: the syllables of a Bengali or
-/// Devanagari word, which take forms by those around them. Outside these
-/// scripts, the character at `at`.
+/// Devanagari word, which take forms by those around them; a Khmer, Lao
+/// or Tibetan syllable (lines break between them, inside words). Outside
+/// these scripts, the character at `at`.
 pub fn shaped_at(text: &str, at: usize) -> Range<usize> {
     let at = at.min(text.len());
     let mut start = at;
@@ -377,8 +436,16 @@ pub fn shaped_at(text: &str, at: usize) -> Range<usize> {
         }
         start = i;
     }
+    let whole = text
+        .get(at..)
+        .and_then(|t| t.chars().next())
+        .and_then(Script::of)
+        .is_none_or(Script::is_brahmic);
     while start < text.len() {
-        let end = run_end(text, start);
+        let end = match whole {
+            true => run_end(text, start),
+            false => syllable_end(text, start),
+        };
         if end > at || end <= start {
             return start..end.max(start + 1).min(text.len());
         }
@@ -530,6 +597,11 @@ impl Run for Glyphs {
         self.len += n - 1;
         true
     }
+    fn bring(&mut self, from: usize, to: usize) {
+        if to < from {
+            self.move_glyph(from, to);
+        }
+    }
 }
 
 /// The features that apply before the reph and the vowel signs find
@@ -560,8 +632,8 @@ fn basic_mask(tag: &[u8; 4]) -> Option<u8> {
 pub(crate) struct Shaper<'a, B: Bytes + ?Sized> {
     table: Option<Substitutions<'a, B>>,
     /// The scripts' numbers in the table (index in
-    /// `paperpaw_lang::scripts()` and 1).
-    numbers: [u8; 2],
+    /// `paperpaw_lang::scripts()` and 1), in [`Script`]'s order.
+    numbers: [u8; 5],
 }
 
 /// The number a table gives `script`.
@@ -576,15 +648,12 @@ impl<'a, B: Bytes + ?Sized> Shaper<'a, B> {
     pub(crate) fn new(table: Option<Substitutions<'a, B>>) -> Self {
         Shaper {
             table,
-            numbers: [number(Script::Bengali), number(Script::Devanagari)],
+            numbers: SCRIPTS.map(number),
         }
     }
 
     fn number(&self, script: Script) -> u8 {
-        self.numbers[match script {
-            Script::Bengali => 0,
-            Script::Devanagari => 1,
-        }]
+        self.numbers[script as usize]
     }
 
     /// Applies the features of `script` that `pick` gives a mask for, in
@@ -653,8 +722,10 @@ impl<'a, B: Bytes + ?Sized> Shaper<'a, B> {
             at = end;
         }
         if let Some(script) = script {
+            let whole = matches!(script, Script::Lao | Script::Tibetan);
             self.features(script, out, |tag| match tag {
                 b"init" => Some(INIT),
+                _ if FIRST.contains(&tag) && whole => Some(ALL),
                 _ if FIRST.contains(&tag) || basic_mask(tag).is_some() => None,
                 _ => Some(ALL),
             });
@@ -671,6 +742,18 @@ impl<'a, B: Bytes + ?Sized> Shaper<'a, B> {
             }
             return;
         };
+        if !script.is_brahmic() {
+            for ch in syllable.chars() {
+                rare::push(script, ch, out);
+            }
+            // Lao's and Tibetan's forms look across syllables: over the run.
+            if script == Script::Khmer {
+                self.features(script, out, |tag| FIRST.contains(&tag).then_some(ALL));
+                rare::khmer_order(out);
+                self.features(script, out, basic_mask);
+            }
+            return;
+        }
         for ch in syllable.chars() {
             match (script, ch) {
                 // The split vowels as their parts.
@@ -745,13 +828,9 @@ impl<'a, B: Bytes + ?Sized> Shaper<'a, B> {
             (info.pos, info.mask) = match cat {
                 _ if reph && i < 2 => (POS_REPH, ALL | RPHF),
                 Cat::PreMatra => (POS_PRE_M, ALL),
-                Cat::SplitMatra | Cat::PostMatra => match script {
+                Cat::SplitMatra | Cat::PostMatra | Cat::AboveMatra => match script {
                     Script::Bengali => (POS_AFTER_POST, ALL),
-                    Script::Devanagari => (POS_AFTER_SUB, ALL),
-                },
-                Cat::AboveMatra => match script {
-                    Script::Bengali => (POS_AFTER_POST, ALL),
-                    Script::Devanagari => (POS_AFTER_SUB, ALL),
+                    _ => (POS_AFTER_SUB, ALL),
                 },
                 Cat::BelowMatra => (POS_AFTER_SUB, ALL),
                 Cat::Modifier => (POS_SMVD, ALL),
@@ -816,7 +895,7 @@ impl<'a, B: Bytes + ?Sized> Shaper<'a, B> {
                         }
                         t
                     }
-                    Script::Devanagari => {
+                    _ => {
                         let mut t = out.len - 1;
                         while t > base && out.info[t].pos == POS_SMVD {
                             t -= 1;

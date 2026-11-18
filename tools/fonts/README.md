@@ -11,6 +11,9 @@ the firmware holds none of them.
 | `NotoSerifDevanagari.ttf` | Noto Serif Devanagari, variable (`wdth`, `wght`) | SIL OFL 1.1, no Reserved Font Name (`NotoSerifDevanagari-OFL.txt`) | `ofl/notoserifdevanagari/NotoSerifDevanagari[wdth,wght].ttf` of github.com/google/fonts at 7af0d90b |
 | `NotoSerifEthiopic.ttf` | Noto Serif Ethiopic, variable (`wdth`, `wght`) | SIL OFL 1.1, no Reserved Font Name (`NotoSerifEthiopic-OFL.txt`) | `ofl/notoserifethiopic/NotoSerifEthiopic[wdth,wght].ttf` of github.com/google/fonts at 6c1dbe27 (SHA-256 `49d5daa6…`) |
 | `NotoSerifThai.ttf`, `NotoSansThai.ttf` | Noto Serif Thai and Noto Sans Thai, variable (`wdth`, `wght`) | SIL OFL 1.1, no Reserved Font Name (`NotoSerifThai-OFL.txt`, `NotoSansThai-OFL.txt`) | `ofl/notoserifthai/NotoSerifThai[wdth,wght].ttf` and `ofl/notosansthai/NotoSansThai[wdth,wght].ttf` of github.com/google/fonts at 6c1dbe27 (SHA-256 `34a7ad11…` and `5a1c559b…`) |
+| `NotoSerifKhmer.ttf`, `NotoSerifLao.ttf` | Noto Serif Khmer and Noto Serif Lao, variable (`wdth`, `wght`) | SIL OFL 1.1, no Reserved Font Name (`NotoSerifKhmer-OFL.txt`, `NotoSerifLao-OFL.txt`) | `ofl/notoserifkhmer/NotoSerifKhmer[wdth,wght].ttf` and `ofl/notoseriflao/NotoSerifLao[wdth,wght].ttf` of github.com/google/fonts at 6c1dbe27 (SHA-256 `50ad0320…` and `c35bb3fb…`) |
+| `NotoSerifTibetan.ttf` | Noto Serif Tibetan, variable (`wght`) | SIL OFL 1.1, no Reserved Font Name (`NotoSerifTibetan-OFL.txt`) | `ofl/notoseriftibetan/NotoSerifTibetan[wght].ttf` of github.com/google/fonts at 6c1dbe27 (SHA-256 `060ec022…`) |
+| `ICU-word-lists-LICENSE.txt` | the licences of ICU's Khmer and Lao word lists (`tools/word-table.py`) | Unicode License V3; the Lao list's BSD-style licence | `LICENSE` of github.com/unicode-org/icu (its Unicode License V3 and the Lao dictionary's part) |
 | `NotoSerifSC-subset.ttf`, `NotoSerifTC-subset.ttf`, `NotoSerifJP-subset.ttf` | Noto Serif SC, TC and JP, static at weight 400, cut to the characters of the packs (6,921, 5,559 and 3,345 code points: GB 2312, Big5 level 1, the Joyo kanji and JIS X 0208 level 1 with kana, CJK punctuation, full-width forms; layout tables dropped) | SIL OFL 1.1, no Reserved Font Name (`NotoSerifCJK-OFL.txt`, the text google/fonts ships) | `ofl/notoserifsc/NotoSerifSC[wght].ttf`, `ofl/notoseriftc/NotoSerifTC[wght].ttf`, `ofl/notoserifjp/NotoSerifJP[wght].ttf` of github.com/google/fonts at 6c1dbe27, made with fontTools (`varLib.instancer` wght=400, `subset` with the sets of `tools/fontgen/sets`: `hanzi-gb2312.txt`, `hanzi-big5.txt`, `kanji-japanese.txt`) |
 | `NanumMyeongjo-Regular.ttf` | Nanum Myeongjo Regular, static | SIL OFL 1.1, **with** Reserved Font Names (`NanumMyeongjo-OFL.txt`): packs made from it are not named after it (NOTICE) | `ofl/nanummyeongjo/NanumMyeongjo-Regular.ttf` of github.com/google/fonts at 6c1dbe27 (SHA-256 `7ed9e865…`) |
 
@@ -43,6 +46,19 @@ it); the forms a font gives a tone mark by contextual substitution (over
 a tall letter, left of sara am) are not applied. Thai has no spaces:
 `tools/thai-segment.py` puts a zero width space after each word of the
 language pack's texts, where the line breaker breaks.
+
+Khmer, Lao and Tibetan (`script-khmer`, `script-lao`, `script-tibetan`,
+#314): their blocks from Noto Serif Khmer, Lao and Tibetan, shaped as
+Bengali's (`crates/paperpaw-text/src/indic`): Khmer's coeng subscripts,
+ro and the vowel signs drawn left of their consonant, split vowels; Lao's
+vowels and tone marks above and below by the font's forms and anchors;
+Tibetan's stacks. Noto Serif Tibetan's substitutions are too many for a
+pack read from a card to hold: its packs keep the 600 clusters most
+frequent in the Tibetan Wikipedia shaped (`tools/tibetan-clusters.py`),
+a rarer one is drawn as the longest of those it starts with. Khmer and
+Lao have no spaces between words: their packs carry the 3,000 words of
+ICU's lists most frequent in their Wikipedias (`tools/word-table.py`),
+where lines break; Tibetan breaks after the tsheg ending each syllable.
 
 The packs keep where marks sit on letters (Arabic harakat, Hebrew
 points): `paperpaw-fontgen` reads the fonts' GPOS `mark` and `mkmk`

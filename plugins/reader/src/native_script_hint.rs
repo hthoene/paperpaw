@@ -16,7 +16,7 @@
 //! The decisions ([`lacking`], [`needed`], [`with_asked`], [`without`],
 //! [`effect`]) hold no host and are tested without one; [`ask`] and
 //! [`answered`] are the host's side. Nothing is held after a decision but
-//! the open book's [`Asked`] byte, the packs it asked for.
+//! the open book's [`Asked`] set, the packs it asked for.
 use crate::native_document::HostDocument;
 use crate::native_view::View;
 use alloc::string::String;
@@ -38,14 +38,18 @@ use paperpaw_sdk::{Storage, StorageError, read_file};
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 
 /// A script (ISO 15924), a letter every font of it has, and the pack that
-/// brings its letters (Beta 3's table, and Ethiopic: #159).
-pub const SCRIPTS: [(&str, char, &str); 6] = [
+/// brings its letters (Beta 3's table, Ethiopic: #159, Khmer, Lao and
+/// Tibetan: #314).
+pub const SCRIPTS: [(&str, char, &str); 9] = [
     ("Grek", 'α', "script-greek"),
     ("Cyrl", 'ж', "script-cyrillic"),
     ("Arab", 'ع', "script-arabic"),
     ("Hebr", 'א', "script-hebrew"),
     ("Kore", '한', KOREAN),
     ("Ethi", 'ሀ', "script-ethiopic"),
+    ("Khmr", 'ក', "script-khmer"),
+    ("Laoo", 'ກ', "script-lao"),
+    ("Tibt", 'ཀ', "script-tibetan"),
 ];
 
 /// The Korean pack (the syllables of everyday text) and the one that adds
@@ -122,6 +126,9 @@ pub fn script_of(c: char) -> Option<&'static str> {
         }
         0x1100..=0x11FF | 0x3130..=0x318F | 0xAC00..=0xD7A3 => "Kore",
         0x1200..=0x139F | 0x2D80..=0x2DDF | 0xAB00..=0xAB2F => "Ethi",
+        0x1780..=0x17FF | 0x19E0..=0x19FF => "Khmr",
+        0x0E80..=0x0EFF => "Laoo",
+        0x0F00..=0x0FFF => "Tibt",
         _ => return None,
     })
 }
@@ -484,7 +491,7 @@ pub fn bit(id: &str) -> Asked {
 /// The packs one open book asked for (a bit each, [`bit`]): an answer that
 /// could not be had is forgotten for the book that asked, as in Beta 3, not
 /// for other books on show that asked before.
-pub type Asked = u8;
+pub type Asked = u16;
 
 /// The set of `ids`.
 fn bits(ids: &[&str]) -> Asked {

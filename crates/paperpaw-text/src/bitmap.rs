@@ -128,7 +128,7 @@
 //!
 //! ```text
 //! head       8 bytes   version 1, 3 reserved, length u32
-//! count      4 bytes   feature count u16, 2 reserved
+//! count      4 bytes   feature count u16, skip set count u16
 //! features  16 bytes   tag [u8; 4] (an OpenType feature tag: half, blwf,
 //!   each               pres, liga, locl ...), script u8 (its index in
 //!                      paperpaw_lang::scripts(), from 1; 0: any), flags
@@ -137,7 +137,8 @@
 //!                      (its code in ASCII, zero-padded; all zero: any),
 //!                      offset u32 of its lookup list
 //! lookups    4 bytes   lookup count u16, 2 reserved, then per lookup
-//!                      8 bytes: kind u8, flags u8 (reserved), entry count
+//!                      8 bytes: kind u8, skip set u8 (0: none, else its
+//!                      number in the list at the end, from 1), entry count
 //!                      u16, offset u32 of its entries
 //! kind 1     8 bytes   single: key u32, drawn as key u32; sorted by key
 //!   each
@@ -174,8 +175,15 @@
 //!                      definition: count u16, 2 reserved, per key key u32
 //!                      and class u16, sorted by key (a key not listed is
 //!                      of class 0)
+//! skip sets  4 bytes   at the table's end: the offset u32 of each key set
+//!   each               a lookup passes over (marks it ignores, OpenType's
+//!                      lookup flags), the skip set count of them
 //! ```
 //!
+//! A lookup with a skip set neither applies to its keys nor counts them:
+//! a ligature joins the keys around them (which follow it), a rule's keys
+//! before, in and after its input are those it does not pass over. A
+//! table made before skip sets has none (its bytes there are 0).
 //! Offsets are from the table's start. Features apply in their order and
 //! each one's lookups in theirs, a lookup to the whole text before the
 //! next. A reader skips a lookup of a kind it does not know (new kinds,
@@ -183,9 +191,9 @@
 //! script or language, and the table of a version it does not know. Of
 //! the ligatures that start at a key, the first that matches is made.
 //! The lookups a rule applies are of kinds 1 to 3, each at its place once,
-//! in their order. Bengali and Devanagari packs carry such a table
-//! (`crate::indic`), which their shaper applies feature by feature,
-//! each where the script puts it.
+//! in their order. Bengali, Devanagari, Khmer, Lao and Tibetan packs carry
+//! such a table (`crate::indic`), which their shaper applies feature by
+//! feature, each where the script puts it.
 //!
 //! Version 2 is version 1 compact, for a table of less than 64 KiB: keys
 //! and offsets of 2 bytes (the head, the features and the lookups'
@@ -198,25 +206,28 @@
 //! Indic packs' tables are of version 2.
 //!
 //! Words (version 1), slot 6: the words of a script written without
-//! spaces between them (Thai), where the line breaker may break a line
-//! (`crate::linebreak`), as `tools/thai-dictionary.py` writes them:
+//! spaces between them (Thai, Lao, Khmer), where the line breaker may
+//! break a line (`crate::linebreak`), as `tools/thai-dictionary.py` and
+//! `tools/word-table.py` write them:
 //!
 //! ```text
-//! head       8 bytes   version 1, 3 reserved, length u32
+//! head       8 bytes   version 1, script u8 (0 Thai, 1 Lao, 2 Khmer), 2
+//!                      reserved, length u32
 //! counts     4 bytes   word count u16, block count u16 (a block per 16
 //!                      words)
 //! blocks     2 bytes   offset u16 of each block from the first's start
 //!   each
 //! words      -         sorted by their letters, each one byte: its code
-//!                      point less U+0E00; a word: one byte, the letters it
+//!                      point less its block's first (U+0E00, U+0E80,
+//!                      U+1780); a word: one byte, the letters it
 //!                      shares with the word before in its high four bits
 //!                      (0 for a block's first) and the count (1 to 15) of
 //!                      those that follow in its low four, then those
 //! ```
 //!
-//! A word has 1 to 15 letters. The first pack opened with the table holds
-//! it in memory from when Thai text is first broken into lines until the
-//! pack is trimmed or closed.
+//! A word has 1 to 15 letters. Per script, the first pack opened with the
+//! table holds it in memory from when text of the script is first broken
+//! into lines until the pack is trimmed or closed.
 
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
