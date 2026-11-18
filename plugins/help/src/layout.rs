@@ -110,6 +110,18 @@ pub fn dialog_top(zones: &[ZoneHint], panel: Rect, display_height: u16, margin: 
         .unwrap_or(room / 2)
 }
 
+/// The first zone whose text box the `panel` covers in part (2 px each way
+/// at least), if any: a box with no size is none.
+#[must_use]
+pub fn covered_by(zones: &[ZoneHint], panel: Rect) -> Option<usize> {
+    zones.iter().position(|z| {
+        z.label.width > 0
+            && panel
+                .intersection(&z.label)
+                .is_some_and(|o| o.width >= 2 && o.height >= 2)
+    })
+}
+
 /// The zones as hints from `(zone, text)` pairs, none laid out yet.
 ///
 /// # Errors

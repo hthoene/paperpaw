@@ -449,15 +449,32 @@ impl Overlay {
             messages.copy(host, "help.got-it")?,
             messages.copy(host, "help.no-more")?,
         ];
-        let mut texts: Vec<&str> = Vec::new();
-        for line in &self.lines {
-            texts.try_reserve(1).map_err(|_| Error::NoMemory)?;
-            texts.push(line);
-        }
         let labels = [buttons[0].as_str(), buttons[1].as_str()];
-        let mut dialog = Dialog::new(&font, &style, (width, height), &title, &texts, &labels)?;
-        let top = layout::dialog_top(&zones, dialog.panel(), height, style.margin);
-        dialog.place(top)?;
+        // A hint's box the dialog covers (the largest text leaves no room beside
+        // it) is not drawn: its text goes into the dialog, which says it.
+        let mut moved: Vec<usize> = Vec::new();
+        let dialog = loop {
+            let mut texts: Vec<&str> = Vec::new();
+            for line in &self.lines {
+                texts.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                texts.push(line);
+            }
+            for &at in &moved {
+                texts.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                texts.push(&zones[at].text);
+            }
+            let mut dialog = Dialog::new(&font, &style, (width, height), &title, &texts, &labels)?;
+            let top = layout::dialog_top(&zones, dialog.panel(), height, style.margin);
+            dialog.place(top)?;
+            match layout::covered_by(&zones, dialog.panel()) {
+                Some(at) => {
+                    moved.try_reserve(1).map_err(|_| Error::NoMemory)?;
+                    moved.push(at);
+                    zones[at].label = Rect::new(0, 0, 0, 0);
+                }
+                None => break dialog,
+            }
+        };
         font.release()?;
         self.laid = Some(Laid {
             zones,
@@ -481,6 +498,9 @@ impl Overlay {
                 Paint::Focus(hint.frame, 0, Some(line_w), style.ink),
             )?;
             let label = hint.label;
+            if label.width == 0 {
+                continue;
+            }
             paint::push(&mut ops, Paint::Fill(label, style.paper))?;
             paint::push(
                 &mut ops,
