@@ -773,6 +773,45 @@ fn updates_install_start_and_are_kept() {
     }
 }
 
+/// A signed update already on the card takes the normal UI/install path
+/// without a server offer. The current installer and boot model run here.
+#[test]
+fn a_signed_card_update_installs_and_is_kept_without_network() {
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        device
+            .card
+            .write("updates/qualification.bin", &files.new)
+            .unwrap();
+        device
+            .card
+            .write("books/sentinel.txt", b"synced book")
+            .unwrap();
+        device.action(paperpaw_plugin_update::OPEN);
+        device.press_any(&["Install", "Update without them"]);
+        let shown = device.shown();
+        assert!(shown.contains("Update installed"), "{name}: {shown}");
+        assert!(device.holds(0, &files.old), "{name}: old slot retained");
+        assert!(device.holds(1, &files.new), "{name}: target slot complete");
+        device.run_for(3_000);
+        assert!(device.restart);
+        device.restart();
+        assert_eq!(device.running(), 1);
+        device.run_for(TRIAL_MS + 1_000);
+        device.restart();
+        assert_eq!(device.running(), 1, "{name}: kept after restart");
+        assert!(!device.updates.as_ref().unwrap().on_trial());
+        assert!(device.untouched(), "{name}: unrelated flash retained");
+        let mut sentinel = [0; 11];
+        assert_eq!(
+            device.card.read_at("books/sentinel.txt", 0, &mut sentinel),
+            Ok(11)
+        );
+        assert_eq!(&sentinel, b"synced book");
+    }
+}
+
 /// An update whose signature does not hold is written, never chosen: the
 /// firmware running stays, also after a restart.
 #[test]
