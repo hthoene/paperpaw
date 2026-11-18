@@ -234,6 +234,21 @@ pub mod slots {
     /// The `sleep` plugin fills it by default with its own screen; another
     /// plugin can offer a screen for it or take it over, as for [`SLEEP`].
     pub const OFF: Id = Id::new_static("core.off");
+    /// Shown once as PaperPaw restarts (an update, plugins switched), before
+    /// the device restarts: opened with
+    /// [`params::OFF_REASON`](super::params::OFF_REASON) `restart`
+    /// ([`OFF_RESTART`](super::params::OFF_RESTART)). Bound to no screen by
+    /// default: the device shows its own *Restarting*. A screen that fails
+    /// to open or takes longer than the kernel's time limit is replaced by
+    /// that one; the device restarts in any case.
+    pub const RESTART: Id = Id::new_static("core.restart");
+    /// The start screen. Plugins do not run yet while the device starts:
+    /// the screen bound to this slot is drawn ahead, as the device switches
+    /// off or restarts, into a picture on the card that the device shows at
+    /// its next start. Bound to no screen by default: the device shows its
+    /// own. Drawn with no parameters, within the kernel's time limit, and
+    /// without the pictures the screen would load in the background.
+    pub const START: Id = Id::new_static("core.start");
 }
 
 /// Standard menus. Plugins add entries with
@@ -366,12 +381,15 @@ pub mod params {
     /// ([`events::BOOK_MOVED`](super::events::BOOK_MOVED)).
     pub const FROM: &str = "from";
     /// Why the device is switched off, for [`slots::OFF`](super::slots::OFF):
-    /// [`OFF_ASKED`] or [`OFF_TIMER`].
+    /// [`OFF_ASKED`] or [`OFF_TIMER`]; for
+    /// [`slots::RESTART`](super::slots::RESTART), [`OFF_RESTART`].
     pub const OFF_REASON: &str = "off-reason";
     /// The reader asked to switch off (the power menu).
     pub const OFF_ASKED: &str = "asked";
     /// The time of *Switch off after sleeping* passed.
     pub const OFF_TIMER: &str = "timer";
+    /// PaperPaw restarts (the restart screen).
+    pub const OFF_RESTART: &str = "restart";
 }
 
 /// Events emitted by the kernel.

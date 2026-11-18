@@ -547,6 +547,8 @@ setting power.group | power.normal-while-charging Bool default=Bool(true) Basic 
 setting sleep.group | core.logo Text default=Text("") Advanced scoped=false guarded=false secret=false kept=false title=core.setting.logo
 setting sleep.group | sleep.show Choice(Owned(["sleep.show.cat", "sleep.show.cover", "sleep.show.picture", "sleep.show.overlay", "sleep.show.widgets", "sleep.show.message", "sleep.show.page", "vocabulary.sleep-card"])) default=Text("sleep.show.cat") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.show
 setting sleep.group | sleep.off-show Choice(Fixed(["sleep.off-show.same", "sleep.off-show.message", "sleep.show.cat", "sleep.show.cover", "sleep.show.picture"])) default=Text("sleep.off-show.same") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.off-show
+setting sleep.group | sleep.start-show Choice(Fixed(["sleep.start-show.built-in"])) default=Text("sleep.start-show.built-in") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.start-show
+setting sleep.group | sleep.restart-show Choice(Fixed(["sleep.restart-show.built-in"])) default=Text("sleep.restart-show.built-in") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.restart-show
 setting sleep.group | sleep.folder Text default=Text("sleep") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.folder
 setting sleep.group | sleep.widgets List default=Text("home.date, home.continue, stats.widget.today, home.recent") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.widgets
 setting sleep.group | sleep.overlay-picture Text default=Text("") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.overlay-picture
@@ -1739,6 +1741,8 @@ native Spec reader | SettingSpec(SettingSpec { name: "status.battery-percent", k
 native Spec settings | SettingSpec(SettingSpec { name: "advanced", kind: 0, flags: 0, group: "core.group.system", title: "settings.advanced", help: "settings.advanced.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
 native Spec sleep | SettingSpec(SettingSpec { name: "show", kind: 2, flags: 0, group: "sleep.group", title: "sleep.setting.show", help: "sleep.setting.show.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 14, 0, 0, 0, 115, 108, … (416 bytes, fc0125ecb561b70c)
 native Spec sleep | SettingSpec(SettingSpec { name: "off-show", kind: 2, flags: 0, group: "sleep.group", title: "sleep.setting.off-show", help: "sleep.setting.off-show.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 19, 0, 0, 0… (421 bytes, 4c1e4885883cb380)
+native Spec sleep | SettingSpec(SettingSpec { name: "start-show", kind: 2, flags: 0, group: "sleep.group", title: "sleep.setting.start-show", help: "sleep.setting.start-show.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 25, 0, 0, 0, 115, 108, 101, 101, 112, 46, 115, 116, 97, 114, 116, 45, 115, 104, 111, 119, 46, 98, 117, 105, 108, 116, 45, 105, 110], min: 0, max: 0, choices: "sleep.start-show.built-in" })
+native Spec sleep | SettingSpec(SettingSpec { name: "restart-show", kind: 2, flags: 0, group: "sleep.group", title: "sleep.setting.restart-show", help: "sleep.setting.restart-show.help", default: [1, 0, 0, 0, 3, 0, 0, 0,… (401 bytes, fb0c0baa77df349c)
 native Spec sleep | SettingSpec(SettingSpec { name: "folder", kind: 3, flags: 0, group: "sleep.group", title: "sleep.setting.folder", help: "sleep.setting.folder.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 5, 0, 0, 0, 115, 108, 101, 101, 112], min: 0, max: 0, choices: "" })
 native Spec sleep | SettingSpec(SettingSpec { name: "widgets", kind: 5, flags: 0, group: "sleep.group", title: "sleep.setting.widgets", help: "sleep.setting.widgets.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 57, 0, 0, 0, 1… (499 bytes, 8983cfdf21bab764)
 native Spec sleep | SettingSpec(SettingSpec { name: "overlay-picture", kind: 3, flags: 0, group: "sleep.group", title: "sleep.setting.overlay-picture", help: "sleep.setting.overlay-picture.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
@@ -2652,6 +2656,8 @@ native MenuNeed reader | MenuNeed(MenuNeed { item: "reader.corner-bookmark", nee
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.group", need: 1, capability: 0 })
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.show", need: 1, capability: 0 })
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.off-show", need: 1, capability: 0 })
+native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.start-show", need: 1, capability: 0 })
+native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.restart-show", need: 1, capability: 0 })
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.folder", need: 1, capability: 0 })
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.widgets", need: 1, capability: 0 })
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.overlay-picture", need: 1, capability: 0 })

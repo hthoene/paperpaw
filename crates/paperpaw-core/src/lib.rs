@@ -89,6 +89,7 @@ mod refresh;
 mod registry;
 mod screen_names;
 mod shell_asks;
+pub mod start_picture;
 pub use screen_names::ScreenNames;
 mod room;
 mod screen;

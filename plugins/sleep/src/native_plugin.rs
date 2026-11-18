@@ -181,17 +181,14 @@ impl Plugin for NativeSleep {
             // binds the slot where the reader has not bound it, never unbinds.
             Event::Started { .. } if token == STARTED => self.bind_all_stored(host),
             Event::PluginsChanged { .. } if token == PLUGINS_CHANGED => self.bind_all_stored(host),
-            // A change of `sleep.show` or `sleep.off-show`, or a bulk reset or
-            // import (the empty key): bind an offered foreign mode, unbind
-            // only a sleep mode.
-            Event::SettingChanged { key, .. } if token == SETTING_CHANGED => match key {
-                "" => self
-                    .bind_mode(host, SLEEP)
-                    .and_then(|()| self.bind_mode(host, OFF)),
-                native_sleep::SHOW => self.bind_mode(host, SLEEP),
-                native_sleep::OFF_SHOW => self.bind_mode(host, OFF),
-                _ => Ok(()),
-            },
+            // A change of a setting that chooses a slot's screen
+            // (`sleep.show`, `sleep.off-show`, `sleep.start-show`,
+            // `sleep.restart-show`), or a bulk reset or import (the empty
+            // key): bind an offered foreign mode, unbind only a sleep mode.
+            Event::SettingChanged { key, .. } if token == SETTING_CHANGED => PLACES
+                .into_iter()
+                .filter(|place| key.is_empty() || place.setting == key)
+                .try_for_each(|place| self.bind_mode(host, place)),
             _ => Ok(()),
         }
     }
@@ -286,12 +283,27 @@ const OFF: Place = Place {
     setting: native_sleep::OFF_SHOW,
     slot: native_sleep::OFF_SLOT,
 };
+/// The start and the restart screen (#219): another plugin's screen, or the
+/// slot unbound (the device's own).
+const PLACES: [Place; 4] = [
+    SLEEP,
+    OFF,
+    Place {
+        setting: native_sleep::START_SHOW,
+        slot: native_sleep::START_SLOT,
+    },
+    Place {
+        setting: native_sleep::RESTART_SHOW,
+        slot: native_sleep::RESTART_SLOT,
+    },
+];
 
 impl NativeSleep {
-    /// The start or a change of the plugins, for both slots.
+    /// The start or a change of the plugins, for every slot.
     fn bind_all_stored(&mut self, host: &Host<'_>) -> Result<(), Error> {
-        self.bind_stored(host, SLEEP)?;
-        self.bind_stored(host, OFF)
+        PLACES
+            .into_iter()
+            .try_for_each(|place| self.bind_stored(host, place))
     }
 
     /// Binds the slot of `place` for its stored setting: to the screen

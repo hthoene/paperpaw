@@ -37,6 +37,7 @@ mod paced;
 mod remote_commands;
 #[cfg(feature = "asleep-light")]
 mod sleeping_board;
+mod start_screens;
 mod turn_lab;
 #[cfg(feature = "usb-drive")]
 mod usb_drive;
@@ -584,7 +585,7 @@ impl Firmware {
         info!("restarting");
         crate::safe_mode::clean_exit();
         self.settle_frame();
-        crate::startup::restarting(&mut self.panel, &self.kernel);
+        self.restart_screen();
         self.pause_trial();
         let _ = self.kernel.stop(now());
         // The stop route's depth is kept for the next start (test image).
@@ -925,6 +926,7 @@ impl Firmware {
         // hear the device wake (`core.resume`). A switch-off a plugin asked
         // for leaves it too: the start is a cold one, but plugins that
         // count sleeps hear `core.resume` (with the time asleep unknown).
+        self.prepare_start_picture();
         paperpaw_x4::slept::mark(self.kernel.storage());
         let _ = self.panel.sleep();
         #[cfg(feature = "x4-pro")]

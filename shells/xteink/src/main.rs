@@ -703,7 +703,7 @@ fn prepare() -> Ready {
             startup.update(progress)
         })
         .unwrap_or_default();
-        startup.starting_if_needed();
+        startup.starting_if_needed(storage.as_ref());
         staged
     };
     #[cfg(feature = "ppn5")]
