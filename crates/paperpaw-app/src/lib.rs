@@ -260,6 +260,7 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     #[cfg(feature = "native-linked-store")]
     ("pomodoro", &paperpaw_plugin_pomodoro::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
+    ("smart-home", &paperpaw_plugin_smart_home::NATIVE_ENTRY),
     ("puzzles", &paperpaw_plugin_puzzles::NATIVE_ENTRY),
     ("tasks", &paperpaw_plugin_tasks::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
@@ -288,6 +289,7 @@ pub const LINKED_STORE_PLUGINS: &[&str] = &[
     "puzzles",
     "reading-goal",
     "rules",
+    "smart-home",
     "stats",
     "tasks",
     "translate",

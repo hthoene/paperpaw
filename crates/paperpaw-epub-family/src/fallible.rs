@@ -13,6 +13,28 @@ use paperpaw_sdk::document::DocumentError;
 /// The answer when no room is found.
 pub(crate) const OOM: DocumentError = DocumentError::OutOfMemory;
 
+/// `value` in a box of its own, or `OutOfMemory` where the heap has no room
+/// for it (`Box::new` would stop the device instead).
+pub(crate) fn try_box<T>(value: T) -> Result<alloc::boxed::Box<T>, DocumentError> {
+    let layout = core::alloc::Layout::new::<T>();
+    if layout.size() == 0 {
+        // Nothing is allocated.
+        return Ok(alloc::boxed::Box::new(value));
+    }
+    // SAFETY: a layout of non-zero size, as `alloc` needs; null is handled.
+    let pointer = unsafe { alloc::alloc::alloc(layout) }.cast::<T>();
+    if pointer.is_null() {
+        return Err(OOM);
+    }
+    // SAFETY: fresh storage of `T`'s size and alignment from the global
+    // allocator, which `Box` frees with the same layout; written before the
+    // box is made.
+    unsafe {
+        pointer.write(value);
+        Ok(alloc::boxed::Box::from_raw(pointer))
+    }
+}
+
 /// Room for `more` bytes in `out`, or `OutOfMemory`.
 pub(crate) fn reserve_str(out: &mut String, more: usize) -> Result<(), DocumentError> {
     out.try_reserve(more).map_err(|_| OOM)

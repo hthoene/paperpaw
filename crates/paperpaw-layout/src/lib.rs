@@ -43,11 +43,14 @@ use levels::BlockLevels;
 pub use pieces::PieceStarts;
 
 mod breaking;
+mod decor;
 mod drop_cap;
 mod hanging;
+mod inserted;
 mod levels;
 mod measure;
 mod pieces;
+mod table;
 
 /// Largest extra space per word gap for justification, relative to the
 /// line height.
@@ -888,7 +891,11 @@ fn block_align(block: &Block, style: &Style, heading: u8, levels: &BlockLevels) 
 fn first_indent(block: &Block, style: &Style, align: Align) -> f32 {
     let em = block_em(block, style);
     let book = block.indent.filter(|_| style.book.has(BookStyles::INDENT));
-    if block.continues || block.kind != BlockKind::Paragraph {
+    let indented = matches!(
+        block.kind,
+        BlockKind::Paragraph | BlockKind::Extended(decor::QUOTE | decor::ASIDE)
+    );
+    if block.continues || !indented {
         0.0
     } else if let Some(hanging) = book.filter(|&i| i < 0) {
         // A hanging indent, whatever the alignment.
@@ -985,6 +992,10 @@ pub fn line_start(cx: &LayoutContext<'_>, at: Locator) -> Result<Locator, Docume
     if at.offset < block.start {
         return Ok(Locator::new(at.section, block.start));
     }
+    // A table's row is shown whole.
+    if block.kind == BlockKind::TableRow {
+        return Ok(Locator::new(at.section, block.start));
+    }
     if block.kind == BlockKind::Image || at.offset == block.start {
         return Ok(at);
     }
@@ -1014,15 +1025,31 @@ pub fn line_start(cx: &LayoutContext<'_>, at: Locator) -> Result<Locator, Docume
 /// (see [`LayoutContext`]).
 ///
 /// Headings are set in their own face, never indented, justified or
-/// hyphenated, and never left alone at the bottom of a page.
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
+/// hyphenated, and never left alone at the bottom of a page. A table's rows
+/// are set whole, in columns with rules around their cells; block quotes
+/// get a rule beside their lines and asides a box around them.
 pub fn layout_page(
     cx: &LayoutContext<'_>,
     start: Locator,
     height: f32,
+) -> Result<Page, DocumentError> {
+    let mut marks = Vec::new();
+    let mut page = lay_page(cx, start, height, &mut marks)?;
+    decor::rules(&mut page, &marks);
+    Ok(page)
+}
+
+/// [`layout_page`], noting in `marks` the lines that have rules beside
+/// them.
+#[expect(
+    clippy::too_many_lines,
+    reason = "longer than the limit from before it was set; split it when it is next changed"
+)]
+fn lay_page(
+    cx: &LayoutContext<'_>,
+    start: Locator,
+    height: f32,
+    marks: &mut Vec<decor::Mark>,
 ) -> Result<Page, DocumentError> {
     let LayoutContext {
         document,
@@ -1047,6 +1074,8 @@ pub fn layout_page(
     // page: the lines before it, where it starts, and whether anything
     // came before it. A paragraph that goes on whole takes it along.
     let mut heading_before: Option<(usize, Locator, bool)> = None;
+    // The block laid out last was a table's row set in columns.
+    let mut in_table = false;
 
     loop {
         let Some(block) = document.block_at(storage, at)? else {
@@ -1078,6 +1107,31 @@ pub fn layout_page(
         }
         // What follows a heading, if this block does.
         let after_heading = heading_before.take();
+        let after_row = core::mem::replace(&mut in_table, false);
+        if block.kind == BlockKind::TableRow && from == 0 {
+            match table::set_row(
+                cx,
+                &block,
+                &mut page,
+                (&mut y, height),
+                (at.section, after_row),
+            ) {
+                table::RowSet::Set => {
+                    in_table = true;
+                    at = Locator::new(at.section, block.end);
+                    continue;
+                }
+                table::RowSet::Next => match after_heading {
+                    // The heading just before goes along.
+                    Some((kept, start, true)) => {
+                        page.lines.truncate(kept);
+                        return ended(page, start);
+                    }
+                    _ => return ended(page, Locator::new(at.section, block.start)),
+                },
+                table::RowSet::Paragraph => {}
+            }
+        }
         if block.kind == BlockKind::Image
             && let Some(image) = &block.image
         {
@@ -1142,6 +1196,11 @@ pub fn layout_page(
             }
         }
         let levels = BlockLevels::in_context(&block, cx, at.section);
+        let sides = decor::sides(
+            &block,
+            measure::Measure::of(&block, style, width, 0.0).rest,
+            (width, em, levels.paragraph.is_rtl()),
+        );
         let align = block_align(&block, style, heading, &levels);
         let indent = if at_block_start {
             first_indent(&block, style, align)
@@ -1280,12 +1339,22 @@ pub fn layout_page(
                 bidi,
                 hyphen: line.hyphen,
             });
+            if let Some((kind, left, right)) = sides {
+                marks.push(decor::Mark {
+                    line: page.lines.len() - 1,
+                    kind,
+                    top: y,
+                    bottom: y + line_height,
+                    left,
+                    right,
+                });
+            }
             y += line_height;
         }
         // What a filter inserted after the block, below its last line and
         // never apart from it.
         if !block.inserted.is_empty() {
-            let (placed, below, whole) = inserted_lines(&block, cx, at.section, y, height);
+            let (placed, below, whole) = inserted::lines(&block, cx, at.section, y, height);
             if !whole {
                 // Not all of it fits: the page ends before the block's last
                 // line, which goes on the next page with it, where all of
@@ -1293,7 +1362,7 @@ pub fn layout_page(
                 // that line starts the page), what fits stays here and the
                 // rest goes: what is inserted has no place to go on from.
                 let last = page.lines.len().saturating_sub(1);
-                let (_, tall, _) = inserted_lines(&block, cx, at.section, 0.0, f32::INFINITY);
+                let (_, tall, _) = inserted::lines(&block, cx, at.section, 0.0, f32::INFINITY);
                 if page.lines.len() > lines_before
                     && last > 0
                     && line_height + tall <= height
@@ -1341,78 +1410,6 @@ fn block_line(block: &Block, style: &Style, reader: (f32, f32), em: f32) -> (f32
         }
         None => (ascent, line_height),
     }
-}
-
-/// The lines of the blocks inserted after `block` ([`Block::inserted`]),
-/// set from `y` down on a page `height` high, as many as fit; where they
-/// end, and whether all fit. They take the paragraph spacing before
-/// each, their own face, size and alignment, and no places.
-fn inserted_lines(
-    block: &Block,
-    cx: &LayoutContext<'_>,
-    section: u32,
-    mut y: f32,
-    height: f32,
-) -> (Vec<PageLine>, f32, bool) {
-    let (style, typesetter) = (cx.style, cx.typesetter);
-    let mut placed = Vec::new();
-    for inserted in &block.inserted {
-        if inserted.kind == BlockKind::Image || inserted.text.is_empty() {
-            continue;
-        }
-        let (heading, base) = block_face(inserted, style);
-        let em = block_em(inserted, style);
-        let (ascent, line_height) = block_line(inserted, style, typesetter.line(base), em);
-        let leading = block_leading(inserted, em);
-        let (ascent, line_height) = (ascent + leading, line_height + leading);
-        let levels = BlockLevels::of(inserted);
-        let align = block_align(inserted, style, heading, &levels);
-        y += style.paragraph_spacing;
-        let indent = first_indent(inserted, style, align);
-        for (line, (first_x, available)) in
-            block_lines(inserted, 0, base, cx, heading, indent, None, &levels).0
-        {
-            if y + line_height > height {
-                return (placed, y, false);
-            }
-            let free = (available - line.width).max(0.0);
-            let x = match align {
-                Align::Center => first_x + free / 2.0,
-                Align::End => first_x + free,
-                _ => first_x,
-            };
-            let x = placed_x(&levels, cx.width, x, line.width);
-            let mut text = String::from(&inserted.text[line.range.clone()]);
-            if line.hyphen {
-                text.push('-');
-            }
-            let runs = line_runs(
-                inserted,
-                base,
-                line.range.clone(),
-                usize::from(line.hyphen),
-                style.book,
-                &levels,
-            );
-            let bidi = line_bidi(&levels, &runs, line.range.start == 0);
-            placed.push(PageLine {
-                x,
-                baseline: y + ascent,
-                text,
-                word_spacing: 0.0,
-                runs,
-                section,
-                words: Vec::new(),
-                leading,
-                inserted: true,
-                annotations: Vec::new(),
-                bidi,
-                hyphen: false,
-            });
-            y += line_height;
-        }
-    }
-    (placed, y, true)
 }
 
 /// The room above each of `block`'s lines that a plugin asked for

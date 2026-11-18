@@ -31,6 +31,7 @@ mod look_extra;
 pub(crate) mod offline;
 mod paging;
 mod picker;
+pub mod picture_look;
 mod progress;
 mod readable;
 pub mod reorder;

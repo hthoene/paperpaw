@@ -1,6 +1,10 @@
 //! A table's row ([`TableRow`]): a block of kind
 //! [`BlockKind::TableRow`](crate::BlockKind::TableRow) whose text is its
-//! cells' texts one after the other, each cell ending where it says.
+//! cells' texts one after the other, each cell ending where it says. A
+//! cell's text may begin with ` · ` (a space, U+00B7 and a space), which
+//! sets it apart from the cell before where the row is read as a
+//! paragraph: the layout leaves it out of the cell, as it does the spaces
+//! and line breaks around a cell's text.
 
 use alloc::boxed::Box;
 
