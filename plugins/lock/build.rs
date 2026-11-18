@@ -42,6 +42,8 @@ fn main() -> Result<(), String> {
     emit!(source, all, "SCREENS", declarations::screens);
     emit!(source, all, "NAVIGATION", declarations::navigation);
     emit!(source, all, "EVENTS", declarations::events);
+    emit!(source, all, "TOUCH_UI", declarations::touch_ui);
+    emit!(source, all, "TOUCH_EVENTS", declarations::touch_events);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     // The settings as a table the kernel keeps in the program (a linked
     // build only), made of the very records declared above.

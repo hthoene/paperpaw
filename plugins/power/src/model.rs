@@ -193,10 +193,18 @@ impl Options {
     }
 }
 
+/// Whether the power button held unlocks touch at once, with no menu: touch is
+/// locked on a touch device. A menu would need a tap to choose from, and the
+/// buttons are the only input while touch is locked.
+#[must_use]
+pub fn unlocks_touch(caps: Caps, touch_locked: Option<bool>) -> bool {
+    caps.touch && touch_locked == Some(true)
+}
+
 /// What the power menu offers here: sleep and restart always, switching off
 /// where PaperPaw does so, and on a touch device (with the touch lock about,
-/// `touch_locked` being its setting) locking touch or, while it is locked,
-/// unlocking it: the buttons work meanwhile, so the menu is the way out.
+/// `touch_locked` being its setting) locking touch. While touch is locked the
+/// held button does not open the menu ([`unlocks_touch`]).
 #[must_use]
 pub fn menu_options(caps: Caps, touch_locked: Option<bool>) -> Options {
     let mut items = [None; 5];

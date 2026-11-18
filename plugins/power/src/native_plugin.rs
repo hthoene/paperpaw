@@ -114,6 +114,11 @@ impl NativePower {
     fn ask(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let caps = device_caps(host)?;
         let locked = touch_locked(host);
+        // Touch locked: the way out must need no touch, so no menu.
+        if model::unlocks_touch(caps, locked) {
+            let mut scratch = [0; 128];
+            return CommandSender::new(host, &mut scratch).run_action(TOUCH_TOGGLE);
+        }
         let options = model::menu_options(caps, locked);
         let mut title_buffer = [0; LABEL];
         let title = copy_message(host, "power.menu.title", &mut title_buffer)?;

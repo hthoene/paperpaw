@@ -10,7 +10,9 @@
 //!   *Normal while charging*.
 //! - A status item, *Power mode*: nothing in Normal, so the lines stay calm.
 //! - The power button held opens a small menu: sleep, switch off where
-//!   PaperPaw does so, restart, lock or unlock touch.
+//!   PaperPaw does so, restart, lock touch. While touch is locked the held
+//!   button unlocks it at once instead: no menu, since the buttons are the only
+//!   input then.
 //!
 //! The plugin is the interface-7 plugin [`native_plugin::NativePower`]; what
 //! it decides without a host is in `model`.
