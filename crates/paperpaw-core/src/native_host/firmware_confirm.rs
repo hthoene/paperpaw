@@ -268,7 +268,7 @@ impl Kernel {
     /// Closes the confirmation opened with `nonce`. The host closes its own
     /// screen: the guard rule that keeps others from closing a guarding
     /// screen does not apply to it.
-    fn firmware_close_screen(&mut self, nonce: u128) {
+    pub(crate) fn firmware_close_screen(&mut self, nonce: u128) {
         let nonce = nonce.to_string();
         let open = self
             .stack

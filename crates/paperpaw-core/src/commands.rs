@@ -856,6 +856,10 @@ impl Kernel {
     /// menus, key bindings and slots changed.
     fn apply_setting(&mut self, command: Ask) {
         match command {
+            // The developer link's row asks, on the device; it is never stored.
+            Ask::SetSetting(id, value) if id.as_str() == crate::developer_link::SETTING => {
+                self.developer_switch(&value);
+            }
             // A secret setting's value goes to the secrets.
             Ask::SetSetting(id, paperpaw_sdk::SettingValue::Text(text))
                 if self.shared.settings.defines_secret(id.as_str()) =>

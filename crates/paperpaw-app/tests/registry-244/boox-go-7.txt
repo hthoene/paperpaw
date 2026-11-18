@@ -144,6 +144,7 @@ setting core.group.controls | core.tap-slop Int { min: 1, max: 20 } default=Int(
 setting core.group.controls | core.swipe-distance Int { min: 2, max: 50 } default=Int(8) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.swipe-distance
 setting core.group.controls | reader.corner-bookmark Bool default=Bool(true) Advanced scoped=false guarded=false secret=false kept=false title=reader.setting.corner-bookmark
 setting core.group.controls | reader.hold-chapters Bool default=Bool(false) Advanced scoped=false guarded=false secret=false kept=false title=reader.setting.hold-chapters
+setting core.group.developer | core.usb-link Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=core.setting.usb-link
 setting core.group.developer | fonts-browser.catalog Text default=Text("https://paperpaw.org/api/v1/fonts.json") Basic scoped=false guarded=false secret=false kept=false title=fonts-browser.setting.catalog
 setting core.group.developer | store.catalog Text default=Text("https://paperpaw.org/api/v1/plugins.json") Basic scoped=false guarded=false secret=false kept=false title=store.setting.catalog
 setting core.group.display | core.flash-screens Bool default=Bool(true) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.flash-screens
