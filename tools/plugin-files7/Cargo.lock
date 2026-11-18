@@ -201,6 +201,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-file-sync"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-files"
 version = "1.0.8"
 dependencies = [
@@ -223,6 +231,7 @@ dependencies = [
  "paperpaw-plugin-dictionary",
  "paperpaw-plugin-end-of-book",
  "paperpaw-plugin-file-manager",
+ "paperpaw-plugin-file-sync",
  "paperpaw-plugin-files",
  "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-format-cbz",

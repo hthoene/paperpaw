@@ -31,6 +31,7 @@ mod cards;
 pub mod chips;
 pub mod covers;
 pub mod dashboard;
+pub mod dav;
 pub mod dialog;
 pub mod event;
 pub mod files;
