@@ -254,7 +254,7 @@ fn permitted(owner: &Id, exempt: bool, key: &str, spec: &SettingSpec) -> Result<
 
 /// What it takes to make setting `key` hold `given` (`None`: its default,
 /// not set), or `None` where it holds it already: as
-/// [`presets::commands`] decides, without allocating but for the command.
+/// [`presets::writes`] decides, without allocating but for the command.
 fn change(
     settings: &Settings,
     key: &str,
