@@ -408,12 +408,9 @@ impl Kernel {
     /// passed over.
     fn open_book_command(&mut self, params: Params) {
         let opened = crate::kit::readers::opened(&params);
-        let screen = self
-            .shared
-            .registry
-            .resolve_slot(slots::READER.as_str())
-            .cloned();
-        self.open_slot_command(slots::READER, screen, opened);
+        // The reading app chosen for the book, else the slot's own screen
+        // (`reading_apps`).
+        self.open_slot_command(slots::READER, None, opened);
     }
 
     /// Carries out a command, by its kind.
@@ -523,6 +520,12 @@ impl Kernel {
     /// ([`Ask::OpenInSlot`]), or shows it again where the slot is open
     /// with it and the same params (closing what is above it).
     pub(crate) fn open_slot_command(&mut self, slot: Id, screen: Option<Id>, params: Params) {
+        // A book opens in the reading app chosen for it (`reading_apps`).
+        let screen = if slot == slots::READER {
+            self.reading_app_for_open(screen, &params)
+        } else {
+            screen
+        };
         let in_slot = self
             .stack
             .iter()

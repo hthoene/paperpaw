@@ -670,11 +670,13 @@ impl Kernel {
         let Err(error) = self.shared.settings.set_from_text(&id, &value) else {
             return;
         };
-        // The reading app of a format with one reader now (another was
-        // removed): nothing to choose, nothing to tell.
+        // The reading app of a format: its setting is made once two apps
+        // read it (`reading_apps`), kept until then; with one reader now
+        // (another was removed) nothing to choose, nothing to tell.
         let reading_app = paperpaw_sdk::builtin::settings::READING_APP;
         let app = id.strip_prefix(reading_app.as_str());
         if matches!(error, SettingError::Unknown) && app.is_some_and(|key| key.starts_with('.')) {
+            self.keep_config_value(&id, &value, line);
             return;
         }
         if matches!(error, SettingError::Unknown) {

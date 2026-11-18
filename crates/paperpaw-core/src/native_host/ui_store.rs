@@ -1054,6 +1054,22 @@ impl UiStore {
         new_count == old_count && params_in(new, |key, value| value_of(old, key) == Some(value))
     }
 
+    /// Each param of hand-over `id` (made or claimed, whether or not it is
+    /// attached yet), seen in place: `visit` must not reenter the store. False
+    /// for no such hand-over or a store in use.
+    pub(crate) fn each_param(&self, id: u32, visit: &mut dyn FnMut(&str, &str)) -> bool {
+        let Ok(inner) = self.inner.try_borrow() else {
+            return false;
+        };
+        let Some(entry) = inner.entries.iter().find(|entry| entry.id == id) else {
+            return false;
+        };
+        params_in(&entry.params.0, |key, value| {
+            visit(key, value);
+            true
+        })
+    }
+
     /// What the opened event says about `instance`'s hand-over, if it has one.
     pub(crate) fn info(&self, instance: u32) -> Option<Info> {
         let inner = self.inner.try_borrow().ok()?;

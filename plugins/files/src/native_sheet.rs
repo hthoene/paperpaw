@@ -12,6 +12,12 @@ use paperpaw_ui_kit::{
 #[non_exhaustive]
 pub enum Action {
     Open,
+    /// Opens the book in a reading app chosen now (two or more read it).
+    OpenWith,
+    /// Chooses the reading app the book always opens in.
+    AlwaysWith,
+    /// Chooses the reading app of the books in the book's folder.
+    ForFolder,
     /// Marks the book finished.
     Finish,
     /// Clears the mark: the book counts as read in part again.
@@ -30,6 +36,9 @@ impl Action {
     pub const fn key(self) -> &'static str {
         match self {
             Self::Open => "files.option.open",
+            Self::OpenWith => "files.option.open-with",
+            Self::AlwaysWith => "files.option.always-with",
+            Self::ForFolder => "files.option.for-folder",
             Self::Finish => "files.option.finished",
             Self::Unfinish => "files.option.unfinished",
             Self::Info => "files.option.info",
@@ -47,6 +56,8 @@ pub struct Facts {
     pub can_archive: bool,
     /// The library's preflight takes the book for one it can delete.
     pub can_delete: bool,
+    /// Two or more reading apps read the book: which one opens it is a choice.
+    pub readers: bool,
 }
 
 /// The actions the book allows, in the order they are offered.
@@ -56,6 +67,11 @@ pub struct Facts {
 pub fn actions(facts: Facts) -> Result<Vec<Action>, Error> {
     let mut list = Vec::new();
     push(&mut list, Action::Open)?;
+    if facts.readers {
+        for action in [Action::OpenWith, Action::AlwaysWith, Action::ForFolder] {
+            push(&mut list, action)?;
+        }
+    }
     push(
         &mut list,
         if facts.finished {
@@ -152,6 +168,7 @@ mod tests {
             finished: false,
             can_archive: true,
             can_delete: true,
+            readers: false,
         };
         assert_eq!(
             actions(all).unwrap(),
@@ -167,10 +184,27 @@ mod tests {
             finished: true,
             can_archive: false,
             can_delete: false,
+            readers: false,
         };
         assert_eq!(
             actions(done).unwrap(),
             [Action::Open, Action::Unfinish, Action::Info]
+        );
+        // Two reading apps: which opens it is the reader's choice.
+        let readers = Facts {
+            readers: true,
+            ..done
+        };
+        assert_eq!(
+            actions(readers).unwrap(),
+            [
+                Action::Open,
+                Action::OpenWith,
+                Action::AlwaysWith,
+                Action::ForFolder,
+                Action::Unfinish,
+                Action::Info
+            ]
         );
     }
 
