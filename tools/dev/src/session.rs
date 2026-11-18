@@ -244,6 +244,11 @@ impl Session {
     /// network's) are passed over when they come, and until then a
     /// request's state is on the heap without being kept.
     pub fn drain_requests(&mut self) {
+        if self.fixtures {
+            // Answered from the fixtures in emulated time, not the network's.
+            self.settle_network();
+            return;
+        }
         let end = std::time::Instant::now() + std::time::Duration::from_secs(2);
         while self.device.network_settling() && std::time::Instant::now() < end {
             self.device
