@@ -541,3 +541,67 @@ fn the_grays_come_back_after_every_rest_where_a_move_dithered_the_pictures_again
         assert!(effects.refresh().is_none() && effects.wake_at().is_none());
     }
 }
+
+/// A page of text that counts its draws.
+struct CountedPage(Rc<Cell<u32>>);
+
+impl crate::testing::Fake for CountedPage {
+    fn draw(&mut self, canvas: &mut Canvas<'_>, _: &Place<'_>) {
+        self.0.set(self.0.get() + 1);
+        canvas.fill_rect(10, 10, 20, 4, Color::BLACK);
+    }
+
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
+        Handled::No
+    }
+}
+
+/// How often a book page with no pictures is drawn as it opens, where its
+/// plugin `runs` (an instance with no image of its own) or is the kernel's.
+fn page_draws(runs: bool) -> u32 {
+    let draws = Rc::new(Cell::new(0));
+    let counted = draws.clone();
+    let device = DEVICE.with_display(DEVICE.display.with_format(PixelFormat::Mono1));
+    let mut kernel = Kernel::builder(device)
+        .items(
+            Manifest::new(Id::new_static("text"), "Text", Version::new(1, 0, 0))
+                .uses(paperpaw_sdk::Uses::NOTHING),
+            move |r: &mut Staging| {
+                let counted = counted.clone();
+                r.add_fake(crate::testing::FakeSpec::new(
+                    Id::new_static("text.book"),
+                    "book",
+                    Box::new(move |_, _| Box::new(CountedPage(counted.clone()))),
+                ))?;
+                r.bind_slot(
+                    slots::READER,
+                    Id::new_static("text.book"),
+                    Priority::DEFAULT,
+                )
+            },
+        )
+        .build()
+        .unwrap();
+    if runs {
+        kernel
+            .shared
+            .native_instances
+            .test_insert(Id::new_static("text"), None, true)
+            .unwrap();
+    }
+    kernel.start(Instant(0));
+    render(&mut kernel);
+    draws.set(0);
+    let effects = kernel.open_slot(Instant(500), slots::READER, paperpaw_sdk::Params::new());
+    assert!(effects.refresh().is_some() && !effects.grays());
+    render(&mut kernel);
+    draws.get()
+}
+
+#[test]
+fn a_page_whose_plugin_holds_no_picture_is_drawn_once_not_counted_first() {
+    // #267: the count of pictures is one more draw of the whole screen.
+    assert_eq!(page_draws(true), 1);
+    // A screen that is no plugin's may draw pictures of its own: counted.
+    assert_eq!(page_draws(false), 2);
+}

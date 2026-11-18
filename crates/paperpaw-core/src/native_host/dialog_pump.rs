@@ -71,6 +71,18 @@ impl crate::Kernel {
             .is_some_and(super::ui_store::UiStore::any_delivery)
     }
 
+    /// Whether a question waits for its dialog (one a callback asked after
+    /// this call's pump ran, e.g. from [`Kernel::run_action`]): the pump is
+    /// due at once, not at the next unrelated wake (#267).
+    ///
+    /// [`Kernel::run_action`]: crate::Kernel::run_action
+    pub(crate) fn native_question_waiting(&self) -> bool {
+        self.shared
+            .native_instances
+            .ui_store()
+            .is_some_and(super::ui_store::UiStore::any_to_open)
+    }
+
     /// One pass of the dialog pump; `true` when it wants another at once
     /// (answers remain, or a batch waits).
     // Its own frame: the pump keeps the services' passes apart, so that no

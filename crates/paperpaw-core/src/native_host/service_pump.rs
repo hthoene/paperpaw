@@ -346,7 +346,10 @@ impl crate::Kernel {
         let instances = &self.shared.native_instances;
         // An event queued after this call's pump ran (the commands that ran
         // after it raised it) is told at once too.
-        if instances.service_more() || instances.setting_events.any_waiting() {
+        if instances.service_more()
+            || instances.setting_events.any_waiting()
+            || self.native_question_waiting()
+        {
             return Some(self.shared.now);
         }
         instances
