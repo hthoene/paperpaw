@@ -203,6 +203,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "edge-light"
+path = "src/bin/edge-light.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "tasks"
 path = "src/bin/tasks.rs"
 test = false
@@ -443,6 +449,7 @@ paperpaw-plugin-plugin-manager = { path = "../../plugins/plugin-manager", featur
 paperpaw-plugin-pomodoro = { path = "../../plugins/pomodoro", features = ["native-entry"] }
 paperpaw-plugin-smart-home = { path = "../../plugins/smart-home", features = ["native-entry"] }
 paperpaw-plugin-puzzles = { path = "../../plugins/puzzles", features = ["native-entry"] }
+paperpaw-plugin-edge-light = { path = "../../plugins/edge-light", features = ["native-entry"] }
 paperpaw-plugin-tasks = { path = "../../plugins/tasks", features = ["native-entry"] }
 paperpaw-plugin-calendar = { path = "../../plugins/calendar", features = ["native-entry"] }
 paperpaw-plugin-power = { path = "../../plugins/power", features = ["native-entry"] }

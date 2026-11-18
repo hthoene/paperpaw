@@ -329,7 +329,7 @@ fn register_moving(r: &mut Staging) -> Result<(), RegisterError> {
 /// The actions of the device: cleaning up, screenshots, the tools,
 /// sleep and night mode.
 fn register_device_actions(r: &mut Staging) -> Result<(), RegisterError> {
-    static DEVICE: [FixedAction; 5] = [
+    static DEVICE: [FixedAction; 6] = [
         FixedAction::new(actions::CLEAN_UP, "core.action.clean-up")
             .handler(|env, _, out| ask_clean_up(env, out)),
         FixedAction::new(actions::SCREENSHOT, "core.action.screenshot").handler(|env, _, out| {
@@ -348,6 +348,17 @@ fn register_device_actions(r: &mut Staging) -> Result<(), RegisterError> {
             }
             out.push(Ask::Sleep);
         }),
+        FixedAction::new(USB_DRIVE, "core.action.usb-drive").handler(|env, _, out| {
+            // The notice first: the frame shown says it before the card goes
+            // to the computer (`Command::UsbDrive`).
+            out.push(
+                crate::kit::ask::confirm(env.i18n().tr("core.usb-drive.title"), &USB_DRIVE_NOTICE)
+                    .text(env.i18n().tr("core.usb-drive.text"))
+                    .only_yes()
+                    .command(),
+            );
+            out.push(Ask::UsbDrive);
+        }),
         FixedAction::new(actions::TOGGLE_NIGHT_MODE, "core.action.toggle-night-mode").handler(
             |env, _, out| {
                 let night = env.settings().read(&settings::NIGHT_MODE);
@@ -355,8 +366,23 @@ fn register_device_actions(r: &mut Staging) -> Result<(), RegisterError> {
             },
         ),
     ];
-    r.add_actions(&DEVICE)
+    r.add_actions(&DEVICE)?;
+    // Only where the device can be a drive (the S3 boards).
+    static ENTRY: [MenuEntry; 1] = [MenuEntry::new(menus::TOOLS, USB_DRIVE).order(80)];
+    r.add_menu_entries(&ENTRY)?;
+    r.set_menu_need(
+        USB_DRIVE,
+        paperpaw_sdk::MenuNeed::Has(paperpaw_sdk::Capability::USB_DRIVE),
+    )
 }
+
+/// *USB drive* in the tools: the card shown to a computer
+/// ([`Command::UsbDrive`]).
+const USB_DRIVE: Id = Id::new_static("core.usb-drive");
+
+/// The notice shown while the computer has the card; nobody answers it.
+const USB_DRIVE_NOTICE: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Confirmed> =
+    paperpaw_sdk::event::Event::new("core.usb-drive-notice");
 
 /// The work that makes the library's catalog anew or catches it up
 /// ([`library::catalog`]).

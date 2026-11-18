@@ -110,6 +110,13 @@ before → now against `--baseline`, failed and skipped checks, WARN/ERROR lines
 `device.log` (every log line with its time) and, on a stop, `STOPPED`. Screenshots go where
 `shot:` says.
 
+## Card files and the soak
+
+`fill:PATH:SIZE:SEED` saves (or replaces) a file of SIZE bytes made from SEED and reads its MD5 back, `grow:PATH:ADD:SEED` adds ADD
+bytes at its end (the remote has no append: the file is rewritten; missing = created, above 1 MB it starts again),
+`check-file:PATH:SIZE:SEED` checks a file `fill` made. `tools/pps/soak/` (README there) uses them in the unattended soak runner for
+#230: `~/dt-jobs/soak/run.sh start NAME --port … --hours 72`.
+
 ## Link and flashing
 
 A lost link (RFC2217 hiccup, cable) is opened again (`--retries`, default 2): asking steps

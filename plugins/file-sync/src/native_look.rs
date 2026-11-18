@@ -9,15 +9,15 @@ use paperpaw_ui_kit::mem::push;
 
 use crate::native_link::{Entry, Link};
 use crate::native_names as names;
-use crate::native_state::{self as state, MOST};
+use crate::native_state::{self as state, MOST, Of};
 use crate::native_sync::{MAX_DEPTH, MOST_DIRS};
 
-/// The changes of the card's folder `root` since the last sync of `pair`.
+/// The changes of the card's folder `root` since the last sync of the pair `of`.
 /// A folder with more files than a sync takes counts as none.
 ///
 /// # Errors
 /// [`Error::NoMemory`].
-pub fn pending(link: &mut dyn Link, pair: usize, root: &str) -> Result<u32, Error> {
+pub fn pending(link: &mut dyn Link, of: Of, root: &str) -> Result<u32, Error> {
     let mut dirs: Vec<String> = Vec::new();
     push(&mut dirs, String::new())?;
     let (mut count, mut seen) = (0u32, 0usize);
@@ -41,7 +41,7 @@ pub fn pending(link: &mut dyn Link, pair: usize, root: &str) -> Result<u32, Erro
         if local.len() > MOST {
             continue;
         }
-        let kept = state::read(link.data(), pair, &rel)?;
+        let kept = state::read(link.data(), of, &rel)?;
         for entry in &local {
             if entry.folder {
                 let child = names::child(&rel, &entry.name)?;
@@ -50,14 +50,18 @@ pub fn pending(link: &mut dyn Link, pair: usize, root: &str) -> Result<u32, Erro
                 }
                 continue;
             }
-            let found = kept.binary_search_by(|k| k.name.cmp(&entry.name)).ok();
+            let found = kept
+                .binary_search_by(|k| names::order(&k.name, &entry.name))
+                .ok();
             let same = found
                 .and_then(|at| kept.get(at))
                 .is_some_and(|k| !entry.side.local_changed(k));
             count = count.saturating_add(u32::from(!same));
         }
         for k in &kept {
-            let there = local.iter().any(|e| !e.folder && e.name == k.name);
+            let there = local
+                .iter()
+                .any(|e| !e.folder && names::same(&e.name, &k.name));
             count = count.saturating_add(u32::from(!there));
         }
     }

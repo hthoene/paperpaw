@@ -1,0 +1,3 @@
+Hyphenation breaks long words at the end of a line, so the text looks more even, with fewer wide gaps. This plugin brings the patterns for French; words are broken in the book's language.
+
+Hyphenation is on at first. Switch it off or on in the settings, under Reading, with Hyphenate words. The patterns take almost no memory.

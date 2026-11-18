@@ -336,7 +336,8 @@ impl NativeFileSync {
         };
         for pair in pairs::ready(host)? {
             if pair.mode == crate::native_plan::Mode::TwoWay {
-                let found = crate::native_look::pending(&mut link, pair.n, &pair.folder)?;
+                let of = crate::native_state::Of::new(pair.n, &pair.folder, &pair.url)?;
+                let found = crate::native_look::pending(&mut link, of, &pair.folder)?;
                 count = count.saturating_add(found);
             }
         }
