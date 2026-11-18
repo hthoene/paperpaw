@@ -450,5 +450,6 @@ pub(super) fn register(r: &mut Staging) -> Result<(), RegisterError> {
     }
     r.add_settings(&READING)?;
     r.add_settings(&TYPE)?;
-    r.add_settings(&super::text_look::SETTINGS)
+    r.add_settings(&super::text_look::SETTINGS)?;
+    r.add_settings(&super::picture_look::SETTINGS)
 }

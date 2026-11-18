@@ -1194,3 +1194,61 @@ fn the_bands_of_a_frame_read_a_plugins_picture_once() {
         assert!(read <= most, "{read} bytes the second time");
     }
 }
+
+#[test]
+fn the_picture_look_changes_the_grays_before_they_are_dithered() {
+    use crate::kit::ui::picture_look::{
+        CONTRAST_LEVELS, DITHER_LEVELS, GAMMA_LEVELS, PictureLook, Steps,
+    };
+    let t = ImageTable::new();
+    let storage = MemoryStorage::new();
+    gray_file(&storage, "c/p.gray", 8, 40, 128);
+    let id = t.add(A, doc(1, 0), "c/p.gray", 8, 40, false).unwrap();
+    let drawn = |band: bool| {
+        let mut fb = Framebuffer::new(40, 40, PixelFormat::Mono1).unwrap();
+        fb.canvas().clear(paperpaw_platform::Color::WHITE);
+        for (top, bottom) in if band {
+            std::vec![(0_u16, 17_u16), (17, 40)]
+        } else {
+            std::vec![(0, 40)]
+        } {
+            let mut canvas = fb.canvas();
+            let mut part = canvas.clipped(Rect::new(0, top, 40, bottom - top));
+            t.draw(A, id, &mut part, &storage, 0, 0, 40, 40, FILL)
+                .unwrap();
+        }
+        let canvas = fb.canvas();
+        (0..40)
+            .flat_map(|y| (0..40).map(move |x| (x, y)))
+            .map(|(x, y)| gray(&canvas, x, y))
+            .collect::<std::vec::Vec<u8>>()
+    };
+    let white = |pixels: &[u8]| pixels.iter().filter(|&&g| g == 255).count();
+    let standard = drawn(false);
+    assert!(
+        (700..=900).contains(&white(&standard)),
+        "{}",
+        white(&standard)
+    );
+    let steps = |c: usize, g: usize, d: usize| {
+        Steps::of(CONTRAST_LEVELS[c], GAMMA_LEVELS[g], DITHER_LEVELS[d])
+    };
+    // The same steps as today: the same picture.
+    t.set_look(steps(1, 2, 0));
+    assert_eq!(drawn(false), standard);
+    t.set_look(steps(1, 4, 0));
+    assert!(white(&drawn(false)) < white(&standard) - 300);
+    t.set_look(steps(1, 0, 0));
+    assert!(white(&drawn(false)) > white(&standard) + 300);
+    // A dither of its own: other pixels, the same tone; the ordered one the
+    // same in bands.
+    for dither in [1, 2] {
+        t.set_look(steps(1, 2, dither));
+        let other = drawn(false);
+        assert_ne!(other, standard, "dither {dither}");
+        assert!((700..=900).contains(&white(&other)), "dither {dither}");
+    }
+    assert_eq!(drawn(false), drawn(true));
+    t.set_look(PictureLook::standard().steps());
+    assert_eq!(drawn(false), standard);
+}
