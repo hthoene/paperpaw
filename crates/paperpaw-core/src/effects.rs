@@ -104,7 +104,7 @@ impl Effects {
     }
 
     /// Whether the shell should show the card to a computer as a USB drive
-    /// once the frame is shown ([`paperpaw_sdk::Command::UsbDrive`]): it
+    /// once the frame is shown ([`crate::Ask::UsbDrive`]): it
     /// calls [`Kernel::suspend`] first, leaves the card to the computer
     /// alone, and calls [`Kernel::usb_drive_ended`] when the computer
     /// ejected it or the cable went (checking the card's file system

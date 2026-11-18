@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::{
     Kernel,
     abi7::commands_wire::{SecretText, commands_decode, commands_encode},
@@ -1060,7 +1060,7 @@ impl crate::testing::Fake for Lock {
 }
 
 /// A plugin whose screen `lock.screen` guards the device.
-fn lock_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn lock_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("lock.screen"),

@@ -5,7 +5,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::native_host::{
     native_instances::{NativeInstance, NativeLease},
     native_screen::Dispatch,
@@ -60,18 +60,18 @@ impl crate::testing::Fake for Dialog {
         if let (Some(store), Some(request), Some(key)) = (store, self.request, cx.key()) {
             let _ = store.answer(key.serial(), request, 0, 1);
         }
-        cx.command(paperpaw_sdk::Command::Back);
+        cx.command(crate::Ask::Back);
         Handled::Yes
     }
     fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
         if SPAWN.with(core::cell::Cell::take) {
-            cx.command(paperpaw_sdk::Command::Back);
+            cx.command(crate::Ask::Back);
         }
     }
 }
 
 /// A plugin that serves the keyboard and the confirm slot.
-fn serves() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn serves() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             KEYBOARD_SCREEN,
@@ -125,7 +125,7 @@ impl crate::testing::Fake for Lock {
 }
 
 /// A plugin `id` with a screen `<id>.lock` that guards the device.
-fn locks_items(kept: &'static str) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn locks_items(kept: &'static str) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::try_parse(&std::format!("{}.lock", kept)).unwrap(),
@@ -390,7 +390,7 @@ fn a_dialog_closed_without_an_answer_is_a_cancel_the_asker_hears_of() {
     w.kernel.native_dialog_pump();
     assert_eq!(w.kernel.active_screen(), Some(&KEYBOARD_SCREEN));
     // The user leaves the dialog.
-    w.kernel.apply(paperpaw_sdk::Command::Back);
+    w.kernel.apply(crate::Ask::Back);
     w.kernel.finish();
     w.kernel.native_dialog_pump();
     let answered = w.seen.borrow().clone();
@@ -581,7 +581,7 @@ fn a_question_whose_dialog_the_stack_closes_is_cancelled() {
     ask_with(&w, 2, 0, "", 1);
     w.kernel.native_dialog_pump();
     // The stack closes it with no answer (a guard, a shell).
-    w.kernel.apply(paperpaw_sdk::Command::Back);
+    w.kernel.apply(crate::Ask::Back);
     w.kernel.finish();
     w.kernel.native_dialog_pump();
     assert_eq!(answers(&w), [(2, 1, 0, 1)]);
@@ -761,7 +761,7 @@ fn a_cancelled_question_is_told_before_the_next_passes_events() {
     let _ = w.kernel.tick(Instant(5));
     // The close is queued (as one a plugin stages from an event of the
     // pass): the pass of this call runs before the dialog closes.
-    w.kernel.output.commands.push(paperpaw_sdk::Command::Back);
+    w.kernel.output.commands.push(crate::Ask::Back);
     let _ = w.kernel.tick(Instant(10));
     assert!(w.kernel.native_dialog_answers_waiting());
     heard.borrow_mut().clear();

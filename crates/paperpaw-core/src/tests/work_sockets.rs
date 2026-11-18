@@ -7,7 +7,7 @@
 extern crate std;
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::WorkSpec;
 use core::cell::Cell;
 use paperpaw_sdk::Params;
@@ -46,12 +46,12 @@ struct SocketWork {
     fail: Rc<Cell<bool>>,
 }
 
-fn connect(socket: &'static str) -> Command {
+fn connect(socket: &'static str) -> Ask {
     let events = Id::new_static("ws.heard");
-    Command::connect(Id::new_static(socket), "mail.example.org", 993, events)
+    Ask::connect(Id::new_static(socket), "mail.example.org", 993, events)
 }
 
-fn socket_work(kept: SocketWork) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn socket_work(kept: SocketWork) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         for id in ["ws.home", "ws.page"] {
             r.add_fake(crate::testing::FakeSpec::new(
@@ -146,17 +146,14 @@ fn calls(kernel: &mut Kernel) -> Vec<String> {
 /// Runs the work `work` at `at`.
 fn run(kernel: &mut Kernel, at: u64, work: Work) {
     kernel.shared.now = Instant(at - 1);
-    kernel.apply(Command::work(work));
+    kernel.apply(Ask::work(work));
     kernel.finish();
     kernel.tick(Instant(at));
 }
 
 /// Opens a screen over the home screen and closes it again.
 fn open_and_close_a_screen(kernel: &mut Kernel, at: u64) {
-    kernel.apply(Command::OpenScreen(
-        Id::new_static("ws.page"),
-        Params::new(),
-    ));
+    kernel.apply(Ask::OpenScreen(Id::new_static("ws.page"), Params::new()));
     kernel.finish();
     assert_eq!(kernel.stack.len(), 2);
     kernel.run_action(Instant(at), actions::BACK);
@@ -167,10 +164,7 @@ fn open_and_close_a_screen(kernel: &mut Kernel, at: u64) {
 fn a_jobs_socket_stays_while_screens_close_and_closes_when_it_is_done() {
     let mut kernel = kernel(false);
     // Opened while a screen was over the home screen.
-    kernel.apply(Command::OpenScreen(
-        Id::new_static("ws.page"),
-        Params::new(),
-    ));
+    kernel.apply(Ask::OpenScreen(Id::new_static("ws.page"), Params::new()));
     kernel.finish();
     run(&mut kernel, 100, Work::at(JOB, Instant(100)));
     assert_eq!(calls(&mut kernel), ["connect 1"]);
@@ -200,7 +194,7 @@ fn work_taken_back_closes_its_socket() {
     let mut kernel = kernel(false);
     run(&mut kernel, 100, Work::at(JOB, Instant(100)));
     assert_eq!(calls(&mut kernel), ["connect 1"]);
-    kernel.apply(Command::CancelWork(JOB, None));
+    kernel.apply(Ask::CancelWork(JOB, None));
     kernel.finish();
     assert_eq!(calls(&mut kernel), ["close 1"]);
 }
@@ -229,7 +223,7 @@ fn an_events_socket_closes_when_the_work_runs_again_and_none_is_left_over() {
         assert!(kernel.works.runs.count() <= 1, "run {n}");
     }
     // Taken back (it is not declared any more): its last socket closes.
-    kernel.apply(Command::CancelWork(FETCH, None));
+    kernel.apply(Ask::CancelWork(FETCH, None));
     kernel.finish();
     assert_eq!(calls(&mut kernel), ["close 10"]);
     assert_eq!(kernel.works.runs.count(), 0);
@@ -250,10 +244,7 @@ fn work_whose_plugin_goes_closes_its_socket() {
 #[test]
 fn a_socket_for_the_reader_is_the_screens_and_no_work_closes_it() {
     let mut kernel = kernel(false);
-    kernel.apply(Command::OpenScreen(
-        Id::new_static("ws.page"),
-        Params::new(),
-    ));
+    kernel.apply(Ask::OpenScreen(Id::new_static("ws.page"), Params::new()));
     kernel.finish();
     kernel.send_event(Instant(50), Id::new_static("ws.open"), Params::new());
     assert_eq!(calls(&mut kernel), ["connect 1"]);
@@ -272,10 +263,7 @@ fn a_socket_a_job_connects_once_woken_is_the_runs() {
     let mut kernel = kernel(false);
     run(&mut kernel, 100, Work::at(LATE, Instant(100)));
     assert!(calls(&mut kernel).is_empty());
-    kernel.apply(Command::OpenScreen(
-        Id::new_static("ws.page"),
-        Params::new(),
-    ));
+    kernel.apply(Ask::OpenScreen(Id::new_static("ws.page"), Params::new()));
     kernel.finish();
     // Woken by the event it waits for: its step connects.
     kernel.send_event(Instant(130), GO, Params::new());

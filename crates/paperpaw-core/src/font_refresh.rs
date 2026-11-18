@@ -12,8 +12,9 @@ use alloc::vec::Vec;
 use crate::plugins::FONT_SIZES;
 use core::mem;
 
+use crate::Ask;
 use paperpaw_sdk::builtin::settings as core_settings;
-use paperpaw_sdk::{Command, FontError, IdError};
+use paperpaw_sdk::{FontError, IdError};
 
 use super::*;
 
@@ -223,7 +224,7 @@ impl Kernel {
             let id = core_settings::FONT_SIZE.id().try_clone();
             match id {
                 Some(id) if self.output.commands.try_reserve(1).is_ok() => {
-                    self.output.commands.push(Command::SetSetting(id, value));
+                    self.output.commands.push(Ask::SetSetting(id, value));
                 }
                 _ => self.try_warn_runtime(&[
                     "not enough memory to fit the font size; it is fitted at the next refresh",
@@ -233,7 +234,7 @@ impl Kernel {
     }
 
     /// The values plugins offer among other plugins' choices
-    /// ([`paperpaw_sdk::Items::add_choice`]), after the setting's own.
+    /// (`Staging::add_choice`), after the setting's own.
     /// A value that cannot be added for lack of memory is kept, with those
     /// after it, for the next refresh. While native plugins register (until
     /// the start), one for a setting nobody declared yet waits too: a native

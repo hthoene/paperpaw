@@ -167,7 +167,7 @@ impl TestScreen for FakeInstance {
 /// What makes a test's screen with the params it is opened with.
 pub type FakeFactory = Box<dyn Fn(&Place<'_>, &Params) -> Box<dyn Fake>>;
 
-/// A test's screen to add ([`Items::add_fake`](crate::Items::add_fake)).
+/// A test's screen to add ([`Staging::add_fake`](crate::Staging::add_fake)).
 pub struct FakeSpec {
     pub(crate) id: Id,
     pub(crate) title: Cow<'static, str>,

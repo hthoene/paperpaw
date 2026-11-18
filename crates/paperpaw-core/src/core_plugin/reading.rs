@@ -2,7 +2,7 @@
 //! (justified, hyphenated, indented, kept in lines) and whether a book's
 //! settings are its own.
 
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::builtin::{group_sections, groups, settings};
 use paperpaw_sdk::{Id, RegisterError, SettingExtra, SettingSpec};
 
@@ -444,7 +444,7 @@ const fn reading_group(id: Id, title: &'static str, order: i32) -> paperpaw_sdk:
         .within(groups::READING)
 }
 
-pub(super) fn register(r: &mut Items) -> Result<(), RegisterError> {
+pub(super) fn register(r: &mut Staging) -> Result<(), RegisterError> {
     for group in &READING_GROUPS {
         r.add_setting_group(group)?;
     }

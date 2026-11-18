@@ -20,7 +20,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use paperpaw_core::kit::menus::MenuEntry;
-use paperpaw_core::{Effects, Items, Kernel};
+use paperpaw_core::{Effects, Kernel, Staging};
 use paperpaw_platform::{
     DeviceInfo, DirEntry, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat,
     Point, PointerEvent, PointerPhase, PointerTool, Rect, RefreshMode, Rotation, Storage,
@@ -76,7 +76,7 @@ impl Light {
         .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Staging) -> Result<(), RegisterError> {
         r.add_setting(
             SettingSpec::number(
                 LIGHT.static_str(),

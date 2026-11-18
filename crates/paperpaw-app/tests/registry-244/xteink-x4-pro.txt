@@ -2,6 +2,7 @@ plugin | core Running enabled=true BuiltIn
 plugin | fonts-default Running enabled=true BuiltIn
 plugin | pebble Running enabled=true BuiltIn
 plugin | about Running enabled=true BuiltIn
+plugin | anki Off enabled=false BuiltIn
 plugin | aids Running enabled=true BuiltIn
 plugin | bluetooth Running enabled=true BuiltIn
 plugin | dictionary Failed enabled=true BuiltIn

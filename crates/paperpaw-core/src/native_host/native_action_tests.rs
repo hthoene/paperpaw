@@ -1,9 +1,10 @@
 //! A native plugin's action reaches its plugin in the call that ran it, with
-//! the callback's command stage, whoever ran it: `Command::RunAction` (menu
+//! the callback's command stage, whoever ran it: `Ask::RunAction` (menu
 //! rows, rules, widgets) runs inside `run_commands`, after the pump.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::*;
+use crate::Ask;
 use crate::Place;
 use crate::native_host::{
     native_instances::NativeInstance, native_screen::Dispatch, registrations as wire,
@@ -12,7 +13,7 @@ use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::{Cell, RefCell};
 use paperpaw_native::host_glue::ERR_INVALID;
 use paperpaw_platform::Instant;
-use paperpaw_sdk::{Command, Id, Params};
+use paperpaw_sdk::{Id, Params};
 
 struct Again {
     queue: crate::native_host::shared::Shared<ActionQueue>,
@@ -140,7 +141,7 @@ fn an_action_run_by_a_command_reaches_its_plugin_in_the_same_run() {
     let mut w = world(Ok(0));
     declare(&mut w);
     // What a menu row, a rule or a widget asks for.
-    w.kernel.output.commands.push(Command::RunAction(
+    w.kernel.output.commands.push(Ask::RunAction(
         Id::try_parse("n.open").unwrap(),
         Params::new(),
     ));
@@ -214,7 +215,7 @@ fn an_action_that_runs_itself_does_not_hang_the_run() {
         lease: w.lease.try_clone().unwrap(),
         owner: w.owner,
     });
-    w.kernel.output.commands.push(Command::RunAction(
+    w.kernel.output.commands.push(Ask::RunAction(
         Id::try_parse("n.open").unwrap(),
         Params::new(),
     ));

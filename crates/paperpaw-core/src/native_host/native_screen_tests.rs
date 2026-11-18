@@ -1,7 +1,7 @@
 //! Native screen wrappers encode scoped input without fabricating subscriptions.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 use super::*;
-use crate::Items;
+use crate::Staging;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_platform::{Instant, PixelFormat};
@@ -92,7 +92,7 @@ fn shown_and_resize_use_declared_screen_token_and_full_pane_size() {
     let device = env.device_within(pane);
     let env = env.within(&device, pane);
     let (mut screen, dispatch) = screen();
-    let mut output = paperpaw_sdk::Output::default();
+    let mut output = crate::Output::default();
     let mut cx = Turn::new(&env, &mut output);
     screen.on_show(&mut cx);
     assert_eq!(screen.on_resize(&mut cx), Handled::Yes);
@@ -317,7 +317,7 @@ fn input_preserves_handled_and_reports_faults_without_claiming_success() {
         .build()
         .unwrap();
     let env = kernel.shared.place(Instant(123));
-    let mut output = paperpaw_sdk::Output::default();
+    let mut output = crate::Output::default();
     let mut cx = Turn::new(&env, &mut output);
     let (mut screen, dispatch) = screen();
     let input = Record::InputAction(wire::InputAction {
@@ -342,7 +342,7 @@ fn input_preserves_handled_and_reports_faults_without_claiming_success() {
     };
     assert_eq!(action.action, "core.next-page");
     drop(calls);
-    let mut output = paperpaw_sdk::Output::default();
+    let mut output = crate::Output::default();
     let mut cx = Turn::new(&env, &mut output);
     assert!(screen.mode().takes_raw_keys());
     assert_eq!(
@@ -413,7 +413,7 @@ fn interleaved_contacts_keep_their_ids_from_down_to_up() {
     let kernel = kernel_with_screen(key);
     let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = screen();
-    let mut output = paperpaw_sdk::Output::default();
+    let mut output = crate::Output::default();
     let mut cx = Turn::new(&env, &mut output).for_screen(key);
     screen.on_show(&mut cx);
     dispatch.calls.borrow_mut().clear();
@@ -451,7 +451,7 @@ fn cancel_keeps_the_contact_id_and_the_extremes_pass_through() {
     let kernel = kernel_with_screen(key);
     let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = screen();
-    let mut output = paperpaw_sdk::Output::default();
+    let mut output = crate::Output::default();
     let mut cx = Turn::new(&env, &mut output).for_screen(key);
     screen.on_show(&mut cx);
     dispatch.calls.borrow_mut().clear();
@@ -486,12 +486,12 @@ fn a_screen_below_the_top_gets_no_pointer_at_all() {
     let mut kernel = kernel_with_screen(key);
     let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = screen();
-    let mut output = paperpaw_sdk::Output::default();
+    let mut output = crate::Output::default();
     let mut cx = Turn::new(&env, &mut output).for_screen(key);
     screen.on_show(&mut cx);
     dispatch.calls.borrow_mut().clear();
     // Outside the stack (no key), and with another screen over it.
-    let mut aside = paperpaw_sdk::Output::default();
+    let mut aside = crate::Output::default();
     let mut outside = Turn::new(&env, &mut aside);
     assert_eq!(
         screen.on_pointer(&pointer(1, PointerPhase::Down, 1, 1), &mut outside),
@@ -504,7 +504,7 @@ fn a_screen_below_the_top_gets_no_pointer_at_all() {
         paperpaw_sdk::ScreenKey::new(4),
     ));
     let env = kernel.shared.place(Instant(6));
-    let mut covered = paperpaw_sdk::Output::default();
+    let mut covered = crate::Output::default();
     let mut cx = Turn::new(&env, &mut covered).for_screen(key);
     assert_eq!(
         screen.on_pointer(&pointer(1, PointerPhase::Down, 1, 1), &mut cx),
@@ -585,7 +585,7 @@ fn typed_text_comes_in_chunks_of_1024_bytes_cut_between_characters_done_on_the_l
         .build()
         .unwrap();
     let env = kernel.shared.place(Instant(5));
-    let mut output = paperpaw_sdk::Output::default();
+    let mut output = crate::Output::default();
     let mut cx = Turn::new(&env, &mut output);
     // Short: one event, as is.
     let (screen, dispatch) = fresh();
@@ -635,7 +635,7 @@ fn empty_typed_text_confirms_only_with_done_and_a_refused_event_stops_the_rest()
         .build()
         .unwrap();
     let env = kernel.shared.place(Instant(5));
-    let mut output = paperpaw_sdk::Output::default();
+    let mut output = crate::Output::default();
     let mut cx = Turn::new(&env, &mut output);
     let (screen, dispatch) = fresh();
     screen.typed("", false, &mut cx);
@@ -658,7 +658,7 @@ fn only_type_text_reaches_a_screen_on_top_and_never_before_it_is_shown() {
         .unwrap();
     let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = fresh();
-    let mut output = paperpaw_sdk::Output::default();
+    let mut output = crate::Output::default();
     let mut cx = Turn::new(&env, &mut output);
     let typed = events::TypeText::new("x".into()).done(true).to_params();
     // Not shown yet (no instance key): nothing, whatever the event.
@@ -679,7 +679,7 @@ fn typed_text_over_the_total_cap_is_dropped_whole_and_the_cap_itself_is_sent() {
         .build()
         .unwrap();
     let env = kernel.shared.place(Instant(5));
-    let mut output = paperpaw_sdk::Output::default();
+    let mut output = crate::Output::default();
     let mut cx = Turn::new(&env, &mut output);
     let (screen, dispatch) = fresh();
     screen.typed(&"a".repeat(TYPED_TOTAL_MAX + 1), true, &mut cx);
@@ -697,7 +697,7 @@ fn a_shown_top_screen_not_offered_on_the_keyboard_slot_gets_no_typed_text() {
     let kernel = kernel_with_screen(key);
     let env = kernel.shared.place(Instant(5));
     let (mut screen, dispatch) = fresh();
-    let mut output = paperpaw_sdk::Output::default();
+    let mut output = crate::Output::default();
     let mut cx = Turn::new(&env, &mut output).for_screen(key);
     screen.on_show(&mut cx);
     dispatch.calls.borrow_mut().clear();
@@ -750,7 +750,7 @@ impl crate::testing::Fake for Page {
 }
 
 /// A plugin whose home screen is a native one, drawn by `Recorder`.
-fn page_plugin(kept: Rc<Recorder>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn page_plugin(kept: Rc<Recorder>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let dispatch = Rc::clone(&kept);
         const ID: Id = Id::new_static("page.screen");

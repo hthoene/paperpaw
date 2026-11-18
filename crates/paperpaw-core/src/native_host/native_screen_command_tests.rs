@@ -6,7 +6,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 use super::super::*;
 use super::{BOUND, STAGED, STAGED_ANSWER, STAGED_HANDOVER, STAGED_ON_SHOWN, key};
-use crate::Items;
+use crate::Staging;
 use crate::native_host::commands::{WireCommand, commands_encode};
 use paperpaw_sdk::{Id, Params};
 use paperpaw_sdk::{Manifest, RegisterError};
@@ -22,7 +22,7 @@ impl crate::testing::Fake for NoticeScreen {
     }
 }
 
-fn notice_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn notice_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("nt.notice"),

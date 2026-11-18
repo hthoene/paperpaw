@@ -1,4 +1,4 @@
-//! Contribution registries and plugin registration.
+//! The registries of what plugins add, and their staging.
 
 use alloc::borrow::Cow;
 use alloc::string::ToString;
@@ -6,7 +6,6 @@ use alloc::vec::Vec;
 
 use crate::kit::action::ActionSpec;
 use crate::kit::action::Actions;
-use crate::kit::contribution::item::Contribution;
 use crate::kit::menus::MenuEntry;
 use crate::kit::status::StatusItemSpec;
 use crate::kit::status::StatusLineSpec;
@@ -19,10 +18,10 @@ pub(crate) const NATIVE_CAPACITY_UNAVAILABLE: &str = "native screen capacity una
 
 /// A candidate screen for a slot, proposed by a plugin.
 #[derive(Debug)]
-struct SlotCandidate {
-    slot: Id,
-    screen: Id,
-    priority: Priority,
+pub(crate) struct SlotCandidate {
+    pub(crate) slot: Id,
+    pub(crate) screen: Id,
+    pub(crate) priority: Priority,
 }
 
 /// The screens plugins added: each id with the translation key of its name,
@@ -744,18 +743,23 @@ impl Staged {
     }
 }
 
-/// Contributions of one plugin, collected during `register` and merged only
-/// if the whole registration succeeds; a failing plugin leaves no traces.
+/// What one plugin registers, staged in the lists of its kinds as it is
+/// added (see the registration methods in `builder/items/calls.rs`) and
+/// merged only if the whole registration succeeds; a failing plugin leaves
+/// no traces.
 #[derive(Default)]
-pub(crate) struct Staging {
-    actions: Vec<ActionSpec>,
+pub struct Staging {
+    /// The plugin registering (`None` for a native plugin's records, which
+    /// the kernel stages itself).
+    pub(crate) plugin: Option<Id>,
+    pub(crate) actions: Vec<ActionSpec>,
     /// Interface-7 plugins' actions, kept without a handler (#248).
-    native_actions: Vec<crate::kit::action::NativeAction>,
+    pub(crate) native_actions: Vec<crate::kit::action::NativeAction>,
     /// Tests' screens (none outside the feature `testing`).
-    layer_screens: Vec<crate::FakeSpec>,
-    native_screens: Vec<crate::native_host::native_screen_factory::NativeScreenSpec>,
-    slots: Vec<SlotSpec>,
-    candidates: Vec<SlotCandidate>,
+    pub(crate) layer_screens: Vec<crate::FakeSpec>,
+    pub(crate) native_screens: Vec<crate::native_host::native_screen_factory::NativeScreenSpec>,
+    pub(crate) slots: Vec<SlotSpec>,
+    pub(crate) candidates: Vec<SlotCandidate>,
     pub(crate) settings: Vec<Staged>,
     /// A native plugin's settings described from its own records, defined
     /// after the others (`native_host::described_settings`).
@@ -802,6 +806,14 @@ pub(crate) struct Staging {
     pub(crate) book_data: Vec<crate::kit::library::BookData>,
     pub(crate) services: Vec<(Id, paperpaw_sdk::services::Service)>,
     pub(crate) contributions: Vec<(Id, Cow<'static, str>)>,
+}
+
+impl core::fmt::Debug for Staging {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Staging")
+            .field("plugin", &self.plugin)
+            .finish_non_exhaustive()
+    }
 }
 
 fn push_native<T>(target: &mut Vec<T>, value: T) -> Result<(), i32> {
@@ -935,25 +947,15 @@ impl Staging {
     /// Stages the setting group `group` of a native plugin, without
     /// infallible growth.
     pub(crate) fn native_group(&mut self, group: paperpaw_sdk::SettingGroup) -> Result<(), i32> {
-        self.native(Contribution::SettingGroup(group))
+        push_native(&mut self.setting_groups, group)
     }
 
-    /// Stage already decoded native contributions without infallible growth.
-    /// The caller publishes only after every record has mapped successfully.
-    #[allow(
-        dead_code,
-        reason = "native built-in registry adapter follows this staging primitive"
-    )]
-    pub(crate) fn native(&mut self, contribution: Contribution) -> Result<(), i32> {
-        use paperpaw_native::host_glue::ERR_UNSUPPORTED;
-        match contribution {
-            Contribution::Action(action) => push_native(&mut self.actions, *action),
-            Contribution::Setting(setting) => {
-                push_native(&mut self.settings, Staged::Owned(setting))
-            }
-            Contribution::SettingGroup(group) => push_native(&mut self.setting_groups, group),
-            _ => Err(ERR_UNSUPPORTED),
-        }
+    /// Stages a setting of a native plugin, without infallible growth.
+    pub(crate) fn native_setting(
+        &mut self,
+        setting: alloc::boxed::Box<SettingSpec>,
+    ) -> Result<(), i32> {
+        push_native(&mut self.settings, Staged::Owned(setting))
     }
 
     /// Moves actions, screens, slots and bindings into `registry`.
@@ -1044,108 +1046,6 @@ impl Staging {
     }
 }
 
-/// Applies the contributions `plugin` made to `staging`, checking what its
-/// registrar could not: key maps, translations, hyphenation patterns.
-pub(crate) fn stage(
-    plugin: &Id,
-    items: crate::Items,
-    staging: &mut Staging,
-) -> Result<(), RegisterError> {
-    let crate::builder::Parts {
-        contributions,
-        kernel_screens,
-        layers,
-        hears,
-        works,
-        data_actions,
-    } = items.into_parts();
-    staging.data_actions.extend(data_actions);
-    staging.layer_screens.extend(layers);
-    staging
-        .subscriptions
-        .extend(hears.into_iter().map(|hear| (plugin.clone(), hear)));
-    staging.works.extend(works);
-    for list in kernel_screens {
-        staging.fixed_screens.extend(list.iter());
-    }
-    for contribution in contributions {
-        match contribution {
-            Contribution::Action(action) => staging.actions.push(*action),
-            Contribution::FixedActions(list) => staging.fixed_actions.push(list),
-            Contribution::Slot(slot) => staging.slots.push(slot),
-            Contribution::SlotBinding {
-                slot,
-                screen,
-                priority,
-                ..
-            } => staging.candidates.push(SlotCandidate {
-                slot,
-                screen,
-                priority,
-            }),
-            Contribution::Setting(setting) => staging.settings.push(Staged::Owned(setting)),
-            Contribution::FixedSettings(list) => {
-                staging.settings.push(Staged::Table(list, Picked::All))
-            }
-            Contribution::SettingGroup(group) => staging.setting_groups.push(group),
-            Contribution::SettingDefault { setting, value, .. } => {
-                staging.setting_defaults.push((setting, value));
-            }
-            Contribution::Choice { setting, value, .. } => {
-                staging.choices.push((setting, value));
-            }
-            Contribution::Keymap(source) => {
-                validate_keymap(&source)?;
-                staging.keymaps.push(source);
-            }
-            Contribution::KeymapPreset { id, source, .. } => {
-                validate_keymap(&source)?;
-                staging.keymap_presets.push((id, source));
-            }
-            Contribution::Stylesheet(css) => staging.stylesheets.push(css),
-            Contribution::BookData(data) => staging.book_data.push(data),
-            Contribution::Font(font) => staging.fonts.push(*font),
-            Contribution::FontFile { id, path, .. } => staging.font_files.push((id, path)),
-            Contribution::FontExtension {
-                id, path, extends, ..
-            } => {
-                staging.font_extensions.push((id, path, extends));
-            }
-            Contribution::FontFace(face) => staging.font_faces.push(*face),
-            Contribution::FontBinding {
-                role,
-                font,
-                priority,
-                ..
-            } => staging.font_roles.push((role, font, priority)),
-            Contribution::Format(format) => staging.formats.push(*format),
-            Contribution::MenuEntry(entry) => staging.menu_entries.push(entry),
-            Contribution::FixedMenuEntries(list) => staging.fixed_menu_entries.push(list),
-            Contribution::FixedIcons(list) => staging.fixed_icons.push(list),
-            Contribution::MenuSection(section) => staging.menu_sections.push(section),
-            Contribution::Icon { item, icon, .. } => staging.icons.push((item, icon)),
-            Contribution::MenuNeed { item, need, .. } => staging.menu_needs.push((item, need)),
-            Contribution::HideMenuEntry { menu, item, .. } => {
-                staging.hidden_entries.push((menu, item, plugin.clone()));
-            }
-            Contribution::ItemState { item, state, .. } => staging.item_states.push((item, state)),
-            Contribution::StatusItem(item) => staging.status_items.push(*item),
-            Contribution::StatusLine(line) => staging.status_lines.push(*line),
-            Contribution::Decorator(decorator) => staging.decorators.push(*decorator),
-            Contribution::Widget(widget) => staging.widgets.push(StagedWidgets::One(widget)),
-            Contribution::SetupStep(step) => staging.setup_steps.push(*step),
-            Contribution::Preset(preset) => staging.presets.push(*preset),
-            Contribution::FixedPresets(list) => staging.fixed_presets.push(list),
-            Contribution::Published { id, service, .. } => staging.services.push((id, service)),
-            Contribution::ToPoint { point, text, .. } => staging.contributions.push((point, text)),
-            Contribution::EventDeclared(event) => staging.events.push(*event),
-            Contribution::Translations(source) => staging.catalogs.push(catalog(source)?),
-            Contribution::TranslationFile(path) => staging.catalog_files.push(path),
-        }
-    }
-    Ok(())
-}
-
 /// A translation catalog, its errors attributed to the plugin.
 pub(crate) fn catalog(source: Cow<'static, str>) -> Result<Catalog, RegisterError> {
     Catalog::parse(source).map_err(|error| RegisterError::Parse {
@@ -1160,7 +1060,7 @@ pub(crate) fn catalog(source: Cow<'static, str>) -> Result<Catalog, RegisterErro
 }
 
 /// Checks a key map contribution so errors are attributed to the plugin.
-fn validate_keymap(source: &str) -> Result<(), RegisterError> {
+pub(crate) fn validate_keymap(source: &str) -> Result<(), RegisterError> {
     let mut scratch = crate::keymap::Keymap::default();
     let problems = scratch.load(source, crate::keymap::Origin::Plugin, true);
     match problems.into_iter().next() {

@@ -6,7 +6,7 @@
 
 use std::borrow::Cow;
 
-use paperpaw_core::Items;
+use paperpaw_core::Staging;
 use paperpaw_core::kit::menus::MenuEntry;
 use paperpaw_core::sdk::builtin::{groups, menus};
 use paperpaw_core::sdk::setting::Setting;
@@ -66,7 +66,7 @@ pub fn manifest() -> Manifest {
 }
 
 /// Registers a profile's light (`KernelBuilder::items` with [`manifest`]).
-pub fn emulated(light: Light) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+pub fn emulated(light: Light) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         // The light's range and steps come from the device's profile, so
         // its extra is made now.

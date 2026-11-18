@@ -23,6 +23,7 @@ mod native_activation;
 mod common;
 
 use common::{AddDriver as _, Harness};
+use paperpaw_core::Ask;
 use paperpaw_core::Kernel;
 use paperpaw_core::kit::ui::choice::Picked;
 use paperpaw_platform::{
@@ -32,7 +33,7 @@ use paperpaw_sdk::builtin::actions;
 use paperpaw_sdk::event::Event;
 use paperpaw_sdk::replies::Confirmed;
 use paperpaw_sdk::semantics::Role;
-use paperpaw_sdk::{Command, Id, MemoryStorage};
+use paperpaw_sdk::{Id, MemoryStorage};
 
 /// The emulator's `xteink-x4`: buttons only.
 const X4: DeviceInfo = DeviceInfo::new(
@@ -76,8 +77,8 @@ fn app(harness: &Harness, device: DeviceInfo) -> Kernel {
 
 /// Asks what `command` asks (an `ask::choice` or `ask::confirm`) as the
 /// kernel's code does, and draws the dialog.
-fn ask(kernel: &mut Kernel, at: u64, command: Command) {
-    let Command::OpenSlot(slot, params) = command else {
+fn ask(kernel: &mut Kernel, at: u64, command: Ask) {
+    let Ask::OpenSlot(slot, params) = command else {
         panic!("a slot");
     };
     let _ = kernel.open_slot(Instant(at), slot, params);
@@ -221,7 +222,7 @@ fn picked(harness: &Harness) -> Vec<String> {
         .collect()
 }
 
-fn choice(options: &[&str]) -> Command {
+fn choice(options: &[&str]) -> Ask {
     paperpaw_core::kit::ask::choice("Delete “a.epub”?", &CHOSEN)
         .about("books/a.epub")
         .options("core.confirm.", options)

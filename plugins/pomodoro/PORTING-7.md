@@ -53,6 +53,6 @@ Gaps against the draft, on purpose (no host call for them):
 - `tests/native_flow.rs`: the real plugin on the scripted host: a start declares the end and (with a widget)
   the minute tick, the tick tells the widget, the end gives its notice and the break stands ready, a stale
   end does nothing, auto-start, the goal's notice, the light's blink and return, a wake by the wall clock.
-- `tests/native_linked_entry.rs`; `tools/pps/pomodoro.pps` runs it on the emulator (switch on, the
+- `tests/native_linked_entry.rs`; `tools/pps/beta4/15-pomodoro.pps` runs it on the emulator (switch on, the
   screen's buttons, the widgets, Back).
 - The scripted host has no data folder: the file's write and read are covered at the unit level only.

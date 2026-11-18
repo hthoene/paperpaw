@@ -672,15 +672,16 @@ fn met_no_room() -> bool {
 
 #[test]
 fn a_guarded_setting_stays_another_plugin_s_to_keep_without_room_for_its_spec() {
-    use paperpaw_sdk::{Command, Id};
+    use crate::Ask;
+    use paperpaw_sdk::Id;
     let (_shown, kernel) = locked_kernel();
     let settings = &kernel.shared.settings;
     let reserved = crate::commands::Reserved::of(settings, &kernel.shared.registry);
-    let off = |id| Command::SetSetting(Id::new_static(id), SettingValue::Bool(false));
+    let off = |id| Ask::SetSetting(Id::new_static(id), SettingValue::Bool(false));
     let mut out = std::vec![
         off("probe.lock"),
         off("probe.open"),
-        Command::ResetSetting(Id::new_static("probe.lock")),
+        Ask::ResetSetting(Id::new_static("probe.lock")),
     ];
     no_room_for_a_spec();
     crate::commands::vet_reserved(&mut out, 0, "other", &reserved);
@@ -747,7 +748,8 @@ fn a_spec_left_out_for_lack_of_room_is_said_at_the_end_of_the_round() {
 
 #[test]
 fn no_mode_limits_a_guarded_setting_for_lack_of_room_for_its_spec() {
-    use paperpaw_sdk::{Command, Id, power::Wear, presets::Preset};
+    use crate::Ask;
+    use paperpaw_sdk::{Id, power::Wear, presets::Preset};
     let (_shown, mut kernel) = locked_kernel();
     let low = Id::new_static("probe.low");
     let limits = "power.level = saving\nprobe.most <= 3\nprobe.some <= 3";
@@ -760,7 +762,7 @@ fn no_mode_limits_a_guarded_setting_for_lack_of_room_for_its_spec() {
     );
     kernel.shared.settings.presets_mut().add(mode);
     no_room_for_a_spec();
-    kernel.apply(Command::Wear(Wear::new(low)));
+    kernel.apply(Ask::Wear(Wear::new(low)));
     // Whether one is guarded is told from what is kept of it.
     assert!(!met_no_room());
     let settings = &kernel.shared.settings;

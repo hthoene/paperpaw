@@ -14,7 +14,7 @@
 //!   PaperPaw reads at all.
 //! - **On the device** ([`device`]): installed into an emulated device of
 //!   each profile the way the store installs it
-//!   (`Command::InstallPlugin` from `plugins/.<id>.part`), so the kernel's
+//!   (`Ask::InstallPlugin` from `plugins/.<id>.part`), so the kernel's
 //!   own loader says what it refuses or leaves out; then what it set is
 //!   compared with what the app has: settings that exist and values they
 //!   take, presets of kinds some screen offers, key bindings to actions

@@ -31,13 +31,14 @@
 //! `set_setting` does, so an out-of-memory in the middle of a preset leaves
 //! the chunks before it applied (it is never reported as applied).
 use super::{CommandAuthority, CommandBatch, CommandStage, WireCommand};
+use crate::Ask;
 use crate::Kernel;
 use crate::kit::widgets::Widgets;
 use alloc::{borrow::Cow, boxed::Box, string::String, vec::Vec};
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED};
 use paperpaw_sdk::{
-    Command, Id, IdError, SettingKind, SettingSpec, SettingValue, Settings,
+    Id, IdError, SettingKind, SettingSpec, SettingValue, Settings,
     presets::{self, Preset},
 };
 
@@ -259,7 +260,7 @@ fn change(
     key: &str,
     spec: &SettingSpec,
     given: Option<Given<'_>>,
-) -> Result<Option<Command>, i32> {
+) -> Result<Option<Ask>, i32> {
     // A widget's own frame is kept where it is named, its default too: it is
     // the widget's own, over the frame of all.
     let frame = key.ends_with(".frame")
@@ -289,8 +290,8 @@ fn change(
         }
     };
     Ok(Some(match &kept {
-        Some(value) => Command::SetSetting(id, value.value()?),
-        None => Command::ResetSetting(id),
+        Some(value) => Ask::SetSetting(id, value.value()?),
+        None => Ask::ResetSetting(id),
     }))
 }
 
@@ -306,7 +307,7 @@ pub(crate) fn plan(
     widgets: &Widgets,
     preset: &Preset,
     from: usize,
-    out: &mut Vec<Command>,
+    out: &mut Vec<Ask>,
 ) -> Result<bool, i32> {
     out.try_reserve_exact(CHUNK).map_err(|_| ERR_NO_MEMORY)?;
     let (mut seen, mut more) = (0_usize, false);
@@ -435,7 +436,7 @@ impl Kernel {
             }
             let mut from = 0;
             loop {
-                let mut commands: Vec<Command> = Vec::new();
+                let mut commands: Vec<Ask> = Vec::new();
                 let planned = match self.shared.settings.presets().get(&name) {
                     Some(preset) => plan(
                         &self.shared.settings,

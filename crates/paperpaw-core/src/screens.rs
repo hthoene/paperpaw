@@ -32,7 +32,7 @@ pub(crate) struct ActiveScreen {
     /// screen, once it is on top again.
     pub(crate) timer: Option<Instant>,
     /// The key map layer put in front of its slot's while it is on top
-    /// ([`Command::SetKeyLayer`]).
+    /// ([`Ask::SetKeyLayer`]).
     pub(crate) key_layer: Option<Id>,
     /// Opened above a screen guarding the device by that screen (or one
     /// it opened): its keyboard. Others above it (a sleep screen) get no
@@ -91,7 +91,7 @@ impl ActiveScreen {
     }
 }
 
-/// How many tasks not shown are kept ([`Command::SwitchTask`]).
+/// How many tasks not shown are kept ([`Ask::SwitchTask`]).
 const TASKS_KEPT: usize = 8;
 const SCREEN_KEYS_EXHAUSTED: &str = "screen key space exhausted";
 
@@ -285,7 +285,7 @@ impl Kernel {
         }
     }
 
-    /// Opens screen `id` as [`Command::OpenScreen`] asks: where one of it
+    /// Opens screen `id` as [`Ask::OpenScreen`] asks: where one of it
     /// is open that may not be opened twice ([`paperpaw_sdk::Instances`]),
     /// goes back to that one instead, closing the screens above it, and
     /// gives it the params ([`Screen::on_reopen`]). *Back* then leaves it
@@ -538,7 +538,7 @@ impl Kernel {
         self.output.request_refresh(RefreshMode::Fast);
     }
 
-    /// Binds an input for the user (see [`Command::Bind`]).
+    /// Binds an input for the user (see [`Ask::Bind`]).
     pub(crate) fn bind(&mut self, layer: &str, input: &str, action: Option<Id>) {
         self.shared.registry_generation.bump();
         let valid_layer = layer == GLOBAL_KEYMAP_LAYER || Id::parse(layer).is_ok();
@@ -644,7 +644,7 @@ impl Kernel {
         self.lay_out_shown();
     }
 
-    /// Closes the open screen `key` (see [`Command::Close`]), leaving the
+    /// Closes the open screen `key` (see [`Ask::Close`]), leaving the
     /// screens above it; not the only one, nor a screen guarding the device
     /// for another. What it started (servers, sockets, speech) runs on
     /// until the screens above it close too.
@@ -825,7 +825,7 @@ impl Kernel {
         }
     }
 
-    /// Opens screen `id` in place of the one on top ([`Command::Replace`]).
+    /// Opens screen `id` in place of the one on top ([`Ask::Replace`]).
     pub(crate) fn replace(&mut self, id: Id, params: &Params) {
         if !self.require_screen_keys(1) {
             return;
@@ -845,7 +845,7 @@ impl Kernel {
     }
 
     /// Closes the screens above the topmost screen `id`, or the screen of
-    /// slot `id` ([`Command::BackTo`]).
+    /// slot `id` ([`Ask::BackTo`]).
     pub(crate) fn back_to(&mut self, id: &Id) {
         let Some(index) = self
             .stack
@@ -863,7 +863,7 @@ impl Kernel {
         }
     }
 
-    /// Shows task `id` (see [`Command::SwitchTask`]): the screens open
+    /// Shows task `id` (see [`Ask::SwitchTask`]): the screens open
     /// now kept as the task shown before, by ids and params, and task
     /// `id`'s opened again (the first time its slot, or its screen). Not
     /// past a screen that guards the device.
@@ -1141,7 +1141,7 @@ impl Kernel {
             active.timer = Some(active.timer.map_or(at, |t| t.min(at)));
         }
         // A key map layer it asks for is its own, laid at once: one asked
-        // for any other screen is not (`Command::SetKeyLayer` from
+        // for any other screen is not (`Ask::SetKeyLayer` from
         // elsewhere is refused).
         let reserved = crate::commands::Reserved::of(&self.shared.settings, &self.shared.registry);
         let owner = self.stack[index].id.namespace();
@@ -1153,7 +1153,7 @@ impl Kernel {
         }
         let mut at = given;
         while at < self.output.commands.len() {
-            let Command::SetKeyLayer(asked, layer) = &self.output.commands[at] else {
+            let Ask::SetKeyLayer(asked, layer) = &self.output.commands[at] else {
                 at += 1;
                 continue;
             };
@@ -1169,7 +1169,7 @@ impl Kernel {
         if self.stack[index].id == crate::native_host::firmware_confirm::SCREEN {
             let mut at = given;
             while at < self.output.commands.len() {
-                let Command::Emit(event, params) = &self.output.commands[at] else {
+                let Ask::Emit(event, params) = &self.output.commands[at] else {
                     at += 1;
                     continue;
                 };

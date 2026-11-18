@@ -12,9 +12,8 @@
 //! /// Which theme (a choice).
 //! pub const THEME: Setting<Text> = Setting::new("demo.theme");
 //!
-//! // In a handler, with an `env`:
-//! // let size: i64 = env.settings().read(&SIZE);
-//! // out.push(Command::set(&PICTURES, false));
+//! // In the kernel, with its settings:
+//! // let size: i64 = settings.read(&SIZE);
 //! ```
 //!
 //! Settings by text (`env.settings().bool("demo.pictures")`) stay for what

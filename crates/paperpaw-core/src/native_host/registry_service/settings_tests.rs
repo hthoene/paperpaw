@@ -4,7 +4,7 @@
 extern crate std;
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::abi7::{services_wire::service_schema, settings_wire::settings_decode};
 use crate::native_host::host_services::{Caller, HostServices};
 use crate::{Place, Turn};
@@ -59,7 +59,7 @@ static PRESETS: [Preset; 3] = [
 ];
 
 /// A plugin with settings of every shape, a group and presets.
-fn cfg() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn cfg() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_setting_group(SettingGroupSpec::new(id("cfg.top"), "cfg.group.top").order(1))?;
         let top = id("cfg.top");
@@ -133,7 +133,7 @@ fn cfg_manifest() -> Manifest {
 }
 
 /// Adds a choice to `cfg.mode`, and is the settings editor.
-fn ed() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn ed() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             id("ed.main"),
@@ -344,7 +344,7 @@ fn row<'a>(rows: &'a [String], key: &str) -> &'a str {
 }
 
 /// A plugin whose setting needs a front light the device does not have.
-fn lit() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn lit() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_setting_group(SettingGroupSpec::new(id("lit.top"), "lit.group").order(1))?;
         for key in ["lit.light", "lit.plain"] {
@@ -1019,7 +1019,7 @@ const MANY: usize = 70;
 
 /// A plugin of many settings, one of a title and a value longer than their
 /// fields and one whose id fits no `reg_setting.key` (128 bytes).
-fn many() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn many() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         let leaked = |text: String| -> &'static str { text.leak() };
         for n in 0..MANY - 1 {

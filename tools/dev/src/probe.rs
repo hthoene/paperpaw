@@ -16,7 +16,7 @@ use std::cell::{Cell, RefCell};
 
 use paperpaw_core::kit::ui::{self, UiStyle};
 use paperpaw_core::kit::widgets::{Drawn, WidgetSpec};
-use paperpaw_core::{Items, KernelBuilder};
+use paperpaw_core::{KernelBuilder, Staging};
 use paperpaw_platform::Rect;
 use paperpaw_sdk::{Canvas, Handled, Id, Manifest, RegisterError, Version};
 
@@ -70,7 +70,7 @@ pub fn area() -> Option<Rect> {
     AREA.get()
 }
 
-fn probe() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn probe() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_widget(WidgetSpec::drawn(
             WIDGET,

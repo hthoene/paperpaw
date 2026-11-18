@@ -19,6 +19,8 @@ use alloc::string::String;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
+#[cfg(feature = "bluetooth")]
+use crate::Ask;
 #[cfg_attr(
     not(feature = "bluetooth"),
     allow(unused_imports, reason = "the radio model uses them")
@@ -29,6 +31,8 @@ use paperpaw_hid::Decoder;
     allow(unused_imports, reason = "the radio model uses them")
 )]
 use paperpaw_platform::Instant;
+#[cfg(feature = "bluetooth")]
+use paperpaw_sdk::Id;
 #[cfg_attr(
     not(feature = "bluetooth"),
     allow(unused_imports, reason = "the radio model uses them")
@@ -40,8 +44,6 @@ use paperpaw_sdk::bluetooth::{
 };
 #[cfg(feature = "bluetooth")]
 use paperpaw_sdk::event::EventData;
-#[cfg(feature = "bluetooth")]
-use paperpaw_sdk::{Command, Id};
 
 /// How long the radio stays on after the last request, for the next one.
 #[cfg(feature = "bluetooth")]
@@ -542,13 +544,13 @@ pub(crate) struct Radio {
 
 /// The command that tells `events` of `event`.
 #[cfg(feature = "bluetooth")]
-fn tell(events: &Id, event: BtEvent) -> Command {
-    Command::Emit(events.clone(), event.into_params())
+fn tell(events: &Id, event: BtEvent) -> Ask {
+    Ask::Emit(events.clone(), event.into_params())
 }
 
 /// The command that tells `events` that a command failed.
 #[cfg(feature = "bluetooth")]
-fn fail(events: &Id, failure: BtFailure) -> Command {
+fn fail(events: &Id, failure: BtFailure) -> Ask {
     tell(events, BtEvent::Failed(failure))
 }
 
@@ -767,7 +769,7 @@ impl Radio {
 
     /// Time passed: scans and advertising ended, idle links let go or
     /// slowed, the radio off.
-    pub fn tick(&mut self, now: Instant, out: &mut Vec<Command>) {
+    pub fn tick(&mut self, now: Instant, out: &mut Vec<Ask>) {
         let (ended, kept): (Vec<_>, Vec<_>) = self.scans.drain(..).partition(|s| s.until <= now);
         self.scans = kept;
         for scan in ended {
@@ -782,7 +784,7 @@ impl Radio {
         self.settle(now);
     }
 
-    fn scan_ended(&mut self, asker: &Asker, now: Instant, out: &mut Vec<Command>) {
+    fn scan_ended(&mut self, asker: &Asker, now: Instant, out: &mut Vec<Ask>) {
         out.push(tell(&asker.events, BtEvent::ScanEnded));
         self.scanned.retain(|(p, _)| *p != asker.plugin);
         self.scanned.push((asker.plugin.clone(), now));
@@ -790,7 +792,7 @@ impl Radio {
 
     /// Users idle longer than they allow let go; a remote's link slowed
     /// once no key came for a while.
-    fn idle_links(&mut self, now: Instant, out: &mut Vec<Command>) {
+    fn idle_links(&mut self, now: Instant, out: &mut Vec<Ask>) {
         let mut at = 0;
         while at < self.links.len() {
             let link = &mut self.links[at];
@@ -1040,12 +1042,7 @@ impl Radio {
 
     /// Fewer screens are open than `screens`: what was asked while more
     /// were ends.
-    pub fn close_for_closed_screens(
-        &mut self,
-        screens: usize,
-        now: Instant,
-        out: &mut Vec<Command>,
-    ) {
+    pub fn close_for_closed_screens(&mut self, screens: usize, now: Instant, out: &mut Vec<Ask>) {
         let (ended, kept): (Vec<_>, Vec<_>) = self
             .scans
             .drain(..)
@@ -1084,7 +1081,7 @@ impl Radio {
     }
 
     /// The device goes to sleep: everything ends, the radio off.
-    pub fn suspend(&mut self, now: Instant, out: &mut Vec<Command>) {
+    pub fn suspend(&mut self, now: Instant, out: &mut Vec<Ask>) {
         // Never in sleep: the plugins ask again when it wakes.
         for known in &mut self.known {
             known.wanted = false;
@@ -1096,13 +1093,13 @@ impl Radio {
     /// The radio went off by itself (the shell's host failed): what used
     /// it ends, and after a rest it comes on again for the remotes still
     /// wanted.
-    fn went_off(&mut self, now: Instant, out: &mut Vec<Command>) {
+    fn went_off(&mut self, now: Instant, out: &mut Vec<Ask>) {
         self.end_all(now, out);
         self.rest_until = Some(now.add_millis(RADIO_REST_MS));
     }
 
     /// Everything ends: scans, advertising, links; the radio off.
-    fn end_all(&mut self, now: Instant, out: &mut Vec<Command>) {
+    fn end_all(&mut self, now: Instant, out: &mut Vec<Ask>) {
         for scan in core::mem::take(&mut self.scans) {
             out.push(tell(&scan.asker.events, BtEvent::ScanEnded));
         }

@@ -14,7 +14,7 @@ static SECRET: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new().se
 /// kept on reset, a text, a secret, a widget's setting) and `other` (in the
 /// same group a guarded switch and a number).
 fn kernel() -> crate::Kernel {
-    use crate::Items;
+    use crate::Staging;
     use paperpaw_sdk::{Manifest, Version};
     fn settings_manifest(id: &'static str) -> Manifest {
         Manifest::new(Id::new_static(id), "Probe", Version::new(1, 0, 0))
@@ -24,7 +24,7 @@ fn kernel() -> crate::Kernel {
     fn settings(
         id: &'static str,
         settings: fn() -> Vec<SettingSpec>,
-    ) -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
+    ) -> impl Fn(&mut Staging) -> Result<(), paperpaw_sdk::RegisterError> {
         move |r| {
             if id == "probe" {
                 r.add_setting_group(&LOOK)?;
@@ -68,7 +68,7 @@ fn kernel() -> crate::Kernel {
         ("other.guarded", SettingValue::Bool(true)),
         ("other.size", SettingValue::Int(6)),
     ] {
-        kernel.apply(Command::SetSetting(Id::parse(id).unwrap(), value));
+        kernel.apply(Ask::SetSetting(Id::parse(id).unwrap(), value));
     }
     kernel.finish();
     let warnings = kernel.take_warnings();

@@ -13,7 +13,7 @@
 //! frame leaves, in the frame's colours:
 //!
 //! ```ignore
-//! fn draw(&self, canvas: &mut Canvas<'_>, env: &Env<'_>, area: Rect) {
+//! fn draw(&self, canvas: &mut Canvas<'_>, env: &Place<'_>, area: Rect) {
 //!     let look = widgets::draw_frame(canvas, env, ID, area);
 //!     let size = widgets::size(env, ID).text(&UiStyle::new(env));
 //!     // ... text in look.ink, notes in look.faint, inside look.area
