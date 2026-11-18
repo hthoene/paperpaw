@@ -1,6 +1,7 @@
 //! Buttons alone on an emulated X4: the battery page is reached from the
 //! tools and closes; a plugin made to fail has a screen nothing leads to
-//! and one that keeps back and the focus to itself.
+//! (not decided, as the search ends at its bounds) and one that keeps
+//! back and the focus to itself.
 
 #![allow(
     clippy::unwrap_used,
@@ -111,8 +112,10 @@ fn screens_are_reached_and_closed_with_buttons() {
         },
         out.clone(),
     );
+    // The first search alone, within a dozen screens.
     let limits = Limits {
         views: 12,
+        steps: 0,
         ..Limits::default()
     };
     let mut report = Report::default();
@@ -126,16 +129,28 @@ fn screens_are_reached_and_closed_with_buttons() {
         "{text}"
     );
 
-    // Nothing leads to the hidden screen.
-    let unreachable = found(&report, "reach.unreachable", "trapped.hidden").expect(&text);
-    assert_eq!(unreachable.level, Level::Warning);
-    assert_eq!(unreachable.plugin.as_deref(), Some("trapped"));
-    assert!(out.join(unreachable.picture.as_ref().unwrap()).is_file());
+    // Nothing leads to the hidden screen: it is not found, and as the
+    // search ended at its bounds that is not decided, and said so (no
+    // error that none leads there).
+    assert!(
+        found(&report, "reach.unreachable", "trapped.hidden").is_none(),
+        "{text}"
+    );
+    let undecided = found(&report, "reach.undecided", "trapped.hidden").expect(&text);
+    assert_eq!(undecided.level, Level::Warning);
+    assert_eq!(undecided.plugin.as_deref(), Some("trapped"));
+    assert!(
+        undecided.message.contains("Not decided") && undecided.message.contains("the search ended"),
+        "{}",
+        undecided.message
+    );
+    assert!(out.join(undecided.picture.as_ref().unwrap()).is_file());
 
     // The stuck screen is reached from the tools, but keeps back and the
     // focus.
     assert!(
-        found(&report, "reach.unreachable", "trapped.stuck").is_none(),
+        found(&report, "reach.unreachable", "trapped.stuck").is_none()
+            && found(&report, "reach.undecided", "trapped.stuck").is_none(),
         "{text}"
     );
     assert!(
