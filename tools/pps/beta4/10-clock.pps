@@ -12,6 +12,7 @@ test:10a-clock-after-restart {
   assert:clock.known==1:the clock is set
   restart
   wait:5000
+  call:prime-keys
   clock
   assert:clock.known==1:#280: after a restart the clock is not "--:--"
   assert:clock.skew_s.max<=600:and within 10 minutes of the host's

@@ -1,6 +1,24 @@
 # Beta 4 suite 01: Home. Focus moves, the Continue card, the tile page, the widgets, edit mode.
 include:common.pps
 
+# The first key after a start: a restart resumes the book; Back goes Home; the first Right must move the focus on Home. On the X4 of
+# Nov 18 (image ddea4e46a) it opened the quick panel (screen menu.panel) instead; the next Right then worked. The panel is closed again.
+test:01-first-key-after-start {
+  call:home
+  restart
+  wait:14000
+  back
+  wait:3000
+  right
+  wait:1500
+  expect-not:Power mode
+  if:shows:Power mode {
+    back
+    wait:1200
+  }
+  no-warn
+}
+
 test:01a-home-focus {
   call:home
   expect:Continue reading

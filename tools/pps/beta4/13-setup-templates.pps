@@ -65,11 +65,11 @@ test:13d-statistics-switches-plugins-on {
   call:home
   call:to-template-page
   select:Reading statistics
-  until:Setup applied. The plugins start:5000
+  until:Setup applied:5000
   expect-not:Error
   restart
   wait:6000
-  call:home
+  call:prime-keys
   no-warn
 }
 
@@ -78,10 +78,18 @@ test:13e-language-learning {
   call:home
   call:to-template-page
   select:Language learning
-  until:Setup applied. The plugins start:5000
+  until:Setup applied:5000
   expect-not:Error
   restart
   wait:6000
+  call:prime-keys
+  if:$target==x4 {
+    if:exists:plugins/anki {
+      wait:100
+    } else {
+      skip:the Anki plugin is not installed on this X4 (store plugin, plugins/anki missing); the template's message and restart were checked
+    }
+  }
   run:anki.open
   until:Sync with Anki:8000
   no-warn

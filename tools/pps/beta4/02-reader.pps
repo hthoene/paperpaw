@@ -50,6 +50,9 @@ test:02c-night-switch {
   until:Night:8000
   select:Night
   wait:2500
+  # The panel toggles Night on every Select: three toggles above (select, confirm, select) leave it ON. Nothing in the suite wants the dark look.
+  set:core.night-mode=off
+  wait:1000
   back
   wait:1000
   no-warn
