@@ -55,7 +55,7 @@ while read -r crate feature; do
         grep -A3 'paperpaw-sdk feature "kernel"' "$log" | head -12
         continue
     fi
-    if ! cargo check -q -p "$crate" --lib "${args[@]}" > "$log" 2>&1; then
+    if ! CARGO_TERM_COLOR=never cargo check -q -p "$crate" --lib "${args[@]}" > "$log" 2>&1; then
         red=$((red + 1))
         echo "FAILED: $crate (${feature/#-/defaults})"
         grep -B2 -A12 -E "^error" "$log" | head -60
