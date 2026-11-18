@@ -1,0 +1,88 @@
+# Edge light (#104) on the emulator with the X4 Pro's profile (480 x 800, touch, a front light):
+#   tools/pps/edge-light/run-emulator.sh target/debug/paperpaw-emu target/debug/paperpaw-dev out/edge-light
+# The strips are 8 % of the width (38 px); the whole range of the light is 60 % of the height (480 px), so
+# 48 px are 10 %, in steps of 5 %.
+
+define:quiet {
+  set:help.show=off
+  set:core.sleep-after=0
+  set:core.language=en
+  # The hints of the first home screen guard the device (no filter runs under them): off, and home anew.
+  slot:core.settings
+  wait:800
+  slot:core.home
+  until:Edit:15000
+}
+
+test:el0-what-is-there {
+  call:quiet
+  settings:edge-light.
+  plugins
+  log:debug
+}
+
+test:el1-brightness-follows-the-finger-on-the-left {
+  call:quiet
+  set:core.frontlight=40
+  set:core.frontlight-warmth=30
+  wait:500
+  # Up the left edge: the swipe counts from where it became one (a finger moves 26 px first): 243 px up
+  # are 50 %, so 40 to 90.
+  swipe:10:700:10:430:600
+  wait:500
+  setting:core.frontlight
+  expect:Brightness 90 %
+  shot:$out/el1-left.png
+  no-warn
+}
+
+test:el2-warmth-on-the-right {
+  set:core.frontlight=40
+  set:core.frontlight-warmth=30
+  # Down the right edge: 90 px below where it became a swipe are -20 %, so 30 to 10 (the light is not touched).
+  swipe:470:300:470:420:600
+  wait:500
+  setting:core.frontlight-warmth
+  setting:core.frontlight
+  expect:Warmth 10 %
+  shot:$out/el2-right.png
+}
+
+test:el3-a-swipe-elsewhere-sets-nothing {
+  # The notice of the test before is gone by then.
+  wait:6000
+  set:core.frontlight=40
+  set:core.frontlight-warmth=30
+  swipe:240:700:240:200:600
+  wait:500
+  setting:core.frontlight
+  setting:core.frontlight-warmth
+  expect-not:Brightness
+  expect-not:Warmth
+}
+
+test:el4-a-sideways-swipe-from-the-strip-sets-nothing {
+  swipe:10:400:300:420:600
+  wait:500
+  setting:core.frontlight
+  expect-not:Brightness
+}
+
+test:el5-the-toggle-action-switches-the-light {
+  run:edge-light.toggle
+  wait:500
+  setting:core.frontlight
+  run:edge-light.toggle
+  wait:500
+  setting:core.frontlight
+}
+
+test:el6-off-for-the-left-edge {
+  set:edge-light.left=edge-light.fn.off
+  wait:300
+  set:core.frontlight=40
+  swipe:10:700:10:430:600
+  wait:500
+  setting:core.frontlight
+  expect-not:Brightness
+}

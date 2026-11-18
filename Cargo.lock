@@ -2087,6 +2087,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-edge-light"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-end-of-book"
 version = "1.0.5"
 dependencies = [
