@@ -149,6 +149,24 @@ fn no_more_is_read_beyond_the_limit_and_the_language_falls_back() {
 }
 
 #[test]
+fn a_copy_is_still_the_translation_beyond_the_limit() {
+    let source = many(2000, &"ب".repeat(20));
+    let mut t = Translator::new();
+    t.add(Catalog::parse(english(2000)).unwrap());
+    t.add(Catalog::open(File::new(Catalog::compile(&source).unwrap())).unwrap());
+    t.set_language("ar");
+    for n in 0..2000 {
+        let _ = t.tr(&format!("key.{n:04}"));
+    }
+    // Past the limit `tr` falls back to English (above); what the host
+    // copies out to a plugin (Settings' "Search" row) is the translation.
+    assert_eq!(t.tr("key.1999"), "english 1999");
+    let copy = t.get_copy("key.1999").unwrap();
+    assert!(copy.contains('ب'), "{copy}");
+    assert!(t.read_bytes() <= MAX_READ + 200, "{}", t.read_bytes());
+}
+
+#[test]
 fn a_pulled_card_gives_english_or_the_key() {
     let mut t = Translator::new();
     t.add(Catalog::parse(EN).unwrap());

@@ -15,6 +15,7 @@
 //!   messages and [`BLOCK_BYTES`] bytes a block (a longer message has one
 //!   of its own); messages of one hash are never split between blocks.
 
+use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 use alloc::string::String;
@@ -304,6 +305,25 @@ impl Card {
         }
         let message = self.read_message(hash, key);
         self.read.add(hash, key, message)?.message.as_deref()
+    }
+
+    /// [`Card::get`] that still answers once the most that is kept is read:
+    /// the message is then read again, owned, for the caller to copy out at
+    /// once (the host's `i18n` calls) instead of falling back to English.
+    pub(crate) fn get_copy(&self, key: &str) -> Option<Cow<'_, str>> {
+        let hash = hash(key);
+        if let Some(read) = self.read.find(hash, key) {
+            return read.message.as_deref().map(Cow::Borrowed);
+        }
+        let message = self.read_message(hash, key);
+        if self.read.bytes.get() >= MAX_READ {
+            return message.map(|m| Cow::Owned(m.into_string()));
+        }
+        self.read
+            .add(hash, key, message)?
+            .message
+            .as_deref()
+            .map(Cow::Borrowed)
     }
 
     /// The message for `key` (of hash `hash`) from the file.
