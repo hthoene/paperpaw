@@ -288,15 +288,20 @@ pub struct Driver<'a> {
 
 impl<'a> Driver<'a> {
     pub fn new(context: &'a Context, variant: &Variant) -> Result<Self, String> {
-        Ok(Driver {
+        Ok(Self::with(context, Session::new(context, variant)?))
+    }
+
+    /// Drives `session`, started as a check wants it.
+    pub fn with(context: &'a Context, session: Session) -> Self {
+        Driver {
             context,
-            variant: variant.clone(),
-            session: Session::new(context, variant)?,
+            variant: session.variant.clone(),
+            session,
             steps: 0,
             last: None,
             fresh: 0,
             asleep: HashSet::new(),
-        })
+        }
     }
 
     pub fn observe(&mut self) -> Seen {
@@ -1350,7 +1355,7 @@ fn focus(
 
 /// The setting that offers `screen` among its choices, if one does: a
 /// mode of another screen, shown in its place (the sleep screen's).
-fn chosen_by(session: &Session, screen: &str) -> Option<String> {
+pub fn chosen_by(session: &Session, screen: &str) -> Option<String> {
     use paperpaw_core::sdk::SettingKind;
     session
         .device

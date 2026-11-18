@@ -234,10 +234,47 @@ fn features_of(wired: Wired) -> [(&'static str, bool); MAX_FEATURES] {
     ]
 }
 
+/// A call of a linked plugin the kernel reported: a declaration it refused
+/// or a callback that failed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Report {
+    pub plugin: String,
+    /// The tag of the call's record.
+    pub tag: u32,
+    /// What it ended with (an `ERR_*` of the plugin interface).
+    pub status: i32,
+}
+
+/// Most reports kept for [`take_reports`]: the last ones.
+const REPORTS_KEPT: usize = 256;
+
+thread_local! {
+    /// The reports since [`take_reports`] last took them, the thread's (a
+    /// device runs on one).
+    static REPORTS: RefCell<Vec<Report>> = const { RefCell::new(Vec::new()) };
+}
+
+/// What the kernel reported of the linked plugins since the last call, oldest
+/// first: for checks that open screens and look at what failed meanwhile
+/// (`paperpaw-dev sweep`). They are said on stderr as well.
+pub fn take_reports() -> Vec<Report> {
+    REPORTS.with_borrow_mut(std::mem::take)
+}
+
 /// A linked plugin's diagnostics from the kernel (a refused declaration, a
-/// failed callback) go to stderr.
+/// failed callback) go to stderr, and are kept for [`take_reports`].
 fn linked_report(_: &DesktopServices, plugin: &str, tag: u32, status: i32) {
     eprintln!("native plugin {plugin}: call {tag} ended with {status}");
+    REPORTS.with_borrow_mut(|kept| {
+        if kept.len() == REPORTS_KEPT {
+            kept.remove(0);
+        }
+        kept.push(Report {
+            plugin: plugin.to_string(),
+            tag,
+            status,
+        });
+    });
 }
 
 /// What the device tells `core.work` (`WorkDevice`): the kernel's clock as the

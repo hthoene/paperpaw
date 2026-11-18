@@ -35,6 +35,11 @@ COMMANDS:
     explore     Every target of every screen used once, each from a fresh start
     perf        Time per frame, heap per screen, storage reads while drawing,
                 against the X4's budgets
+    sweep       Every screen of the app shown once on the X4 in English and German,
+                as the buttons lead to it: one that does not show, draws nothing or
+                fails a call, parts past the screen, text cut without an ellipsis,
+                a missing text, no way to it with the buttons. Every finding is an
+                error and names its screen (not part of `check`)
     package     A data plugin as the installer and the website take it, a .ppn
                 file's header, fingerprint, signature and sizes, compatibility;
                 a .so library (interface 7) is checked to be freestanding
@@ -326,6 +331,7 @@ pub fn run_command(command: &str, context: &Context, report: &mut Report) -> Res
         "perf" => crate::perf::run(context, report),
         "package" => crate::package::run(context, report),
         "snapshots" => crate::snapshot::run(context, report),
+        "sweep" => crate::sweep::run(context, report),
         other => Err(format!("unknown command `{other}` (see --help)")),
     }
 }
@@ -472,7 +478,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Option<(String, Conte
 }
 
 fn is_command(word: &str) -> bool {
-    word == "check" || COMMANDS.contains(&word)
+    word == "check" || word == "sweep" || COMMANDS.contains(&word)
 }
 
 #[cfg(test)]
@@ -528,6 +534,13 @@ mod tests {
                 .all(|f| f.extension().is_some_and(|e| e == "flow"))
         );
         assert!(context.flows.is_sorted());
+    }
+
+    #[test]
+    fn sweep_is_a_command_of_its_own() {
+        let (command, _) = parsed(&["sweep", "--network", "fixtures"]);
+        assert_eq!(command, "sweep");
+        assert!(!COMMANDS.contains(&"sweep"));
     }
 
     #[test]

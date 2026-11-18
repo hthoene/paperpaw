@@ -116,17 +116,7 @@ impl Case {
 
     fn hide(&self, session: &mut Session) -> Result<(), String> {
         match self {
-            // The home slot closes what is above the home screen, but not
-            // a screen that guards the device (the firmware confirmation):
-            // what opens next would open below it, unseen, until the stack
-            // is full. Home and Back close that too, or it is an error.
-            Case::Screen { .. } => {
-                cases::home(session);
-                if session.stack().len() > 1 {
-                    session.go_home()?;
-                }
-                Ok(())
-            }
+            Case::Screen { .. } => cases::close(session),
             Case::Widget { .. } => session.set(cases::PAGE, ""),
         }
     }

@@ -192,6 +192,19 @@ pub fn home(session: &mut Session) {
     session.settle();
 }
 
+/// Closes what is open above the home screen, a screen that guards the
+/// device too (the firmware confirmation), which the home slot
+/// ([`home`]) leaves: what opens next would open below it, unseen, until
+/// the stack is full. *Home* and *Back* close that ([`Session::go_home`]);
+/// an error where the home screen is not reached.
+pub fn close(session: &mut Session) -> Result<(), String> {
+    home(session);
+    if session.stack().len() > 1 {
+        session.go_home()?;
+    }
+    Ok(())
+}
+
 /// Places `widget` alone on the home screen's first page in `size` and
 /// shows what is drawn; the cell is measured with the probe, in the same
 /// place, first.
