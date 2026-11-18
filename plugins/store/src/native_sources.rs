@@ -455,18 +455,19 @@ pub enum Verdict {
     Official,
 }
 
-/// Whether `signature` is `key`'s over `message`.
-#[cfg(not(all(target_arch = "xtensa", not(feature = "linked"))))]
+/// Whether `signature` is `key`'s over `message`: the kernel's check where
+/// the store is part of the firmware.
+#[cfg(feature = "linked")]
 fn verified(key: &[u8; 32], message: &[u8], signature: &[u8; 64]) -> bool {
     paperpaw_sdk::native::signature::verify_message(key, message, signature)
 }
 
-/// A plugin file on the S3 takes no frame of 2,048 B or more, and an Ed25519
-/// check takes about 4 KiB of stack: there no signature is taken for good,
-/// so a community source's list is not read (the library of PaperPaw is).
-#[cfg(all(target_arch = "xtensa", not(feature = "linked")))]
-fn verified(_key: &[u8; 32], _message: &[u8], _signature: &[u8; 64]) -> bool {
-    false
+/// A plugin file takes no frame of 2,048 B or more, and the kernel's Ed25519
+/// check takes one of about 4 KiB: a store that is a file checks with its own,
+/// which says the same ([`crate::native_ed25519`]).
+#[cfg(not(feature = "linked"))]
+fn verified(key: &[u8; 32], message: &[u8], signature: &[u8; 64]) -> bool {
+    crate::native_ed25519::verify(key, message, signature)
 }
 
 /// Judges a community source's list with the SHA-256 `digest` by what its
