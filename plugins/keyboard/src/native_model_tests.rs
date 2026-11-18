@@ -15,6 +15,7 @@ use crate::keys::{Key, Layer};
 use crate::layouts::{Chosen, chosen_for};
 use crate::native_model::{
     Asked, Board, FIELD_ROW, FieldButton, Look, MAX_CHARS, MAX_CHARS_MULTILINE, Move, Own, Pressed,
+    status_strip,
 };
 use alloc::string::{String, ToString};
 use alloc::vec;
@@ -842,4 +843,34 @@ fn several_layouts_get_a_key_to_switch() {
     assert_eq!(width(&one), 20);
     // Not on the symbols.
     assert!(!has(&rows(Layer::Symbols, true)));
+}
+
+/// At the largest text size (24 points) the menus' header is taller than the
+/// status line; the keyboard that fills the screen under it left only the
+/// status line free, so the header of the screen below showed cut off (the X4
+/// at `core.ui-size` 24).
+#[test]
+fn the_strip_above_a_full_height_keyboard_is_a_whole_header() {
+    let mut big = look(X4);
+    big.text = 24.0 * 220.0 / 72.0;
+    big.small = big.text * 0.75;
+    big.text_line = (big.text * 1.25) as u16;
+    big.row = (f32::from(big.text_line) * 1.6) as u16;
+    let status_line = (big.small * 1.25) as u16 + big.gap / 2;
+    let header = big.text_line + big.text_line / 10 + big.gap;
+    assert!(header > status_line);
+    big.status = status_strip(header, status_line);
+    assert_eq!(big.status, header);
+    let board = Board::new(
+        big,
+        own(MEDIUM, false),
+        plain(),
+        layouts("keyboard.layout.auto", false),
+        0,
+        &[],
+    )
+    .unwrap();
+    assert!(board.region.y >= header, "region at {}", board.region.y);
+    assert!(board.region.y + board.region.height == X4.height);
+    assert_eq!(status_strip(40, 76), 76);
 }

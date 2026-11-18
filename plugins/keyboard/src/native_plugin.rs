@@ -8,6 +8,7 @@ use crate::native_ask::AskView;
 use crate::native_layouts;
 use crate::native_model::{
     Asked, Board, FIELD_ROW, FieldButton, Look, Move, Own, Pressed, known_shape, known_size,
+    status_strip,
 };
 use crate::native_paint::{self, Words};
 use alloc::{string::String, vec::Vec};
@@ -337,7 +338,10 @@ impl NativeKeyboard {
             ascent,
             descent,
             cap: cap_bottom.saturating_sub(cap_top) as f32,
-            status: geometry::line_px(&font, style.small)?.saturating_add(style.gap / 2),
+            status: status_strip(
+                style.header,
+                geometry::line_px(&font, style.small)?.saturating_add(style.gap / 2),
+            ),
         };
         let mut messages = Messages::new()?;
         let shape = setting_text(host, SHAPE_KEY)?;
