@@ -52,7 +52,7 @@ impl Firmware {
         }
         self.developer_watch();
         #[cfg(feature = "remote")]
-        if self.state.held.is_some_and(|(_, at)| at <= now()) {
+        if self.state.held.due(now().0) {
             self.release_held();
         }
     }

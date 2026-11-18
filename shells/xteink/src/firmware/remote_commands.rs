@@ -18,7 +18,7 @@ impl Firmware {
     /// Lets go of the button pressed over USB, if one is held, and says
     /// so.
     pub(super) fn release_held(&mut self) {
-        let Some((name, _)) = self.state.held.take() else {
+        let Some(name) = self.state.held.take() else {
             return;
         };
         let started = now();
@@ -198,7 +198,7 @@ impl Firmware {
                 esp_hal::system::software_reset();
             }
             Command::Press { button, ms } => {
-                if self.state.held.is_some() {
+                if self.state.held.is_down() {
                     return remote::busy();
                 }
                 let at = self.kernel_now();
@@ -213,7 +213,10 @@ impl Firmware {
                 );
                 info!("{button} pressed: {} ms", now().since(started));
                 self.apply(effects);
-                self.state.held = Some((button, Instant(now().0.saturating_add(ms))));
+                // From the press, not from here: the frame it showed may
+                // have taken as long as a long press does, and the tick
+                // that follows must find the click let go (#335).
+                self.state.held.press(button, at.0, ms);
             }
             // Only asking: answered by `remote`.
             _ => {}
