@@ -330,7 +330,7 @@ pub fn turn(input: &Input<'_>) -> Turn {
 pub const TRAIL: usize = 64;
 
 /// Whether a change of the setting `key` changes how a page is laid out (its
-/// size, spacing, margins, justification, fonts or hyphenation): the page on
+/// size, spacing, margins, justification, fonts, letters or hyphenation): the page on
 /// show is laid out again and the page before it is found anew.
 #[must_use]
 pub fn affects_layout(key: &str) -> bool {
@@ -348,6 +348,9 @@ pub fn affects_layout(key: &str) -> bool {
                 | "core.hyphenate"
                 | "core.hyphen-min-left"
                 | "core.hyphen-min-right"
+                | "core.letter-spacing"
+                | "core.kerning"
+                | "core.ligatures"
                 | "core.indent"
                 | "core.indent-size"
                 | "core.paragraph-spacing"
