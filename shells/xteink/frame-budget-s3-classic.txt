@@ -184,8 +184,6 @@ allow indirect _ZN85_$LT$paperpaw_core..meter..Metered$u20$as$u20$paperpaw_platf
 allow indirect _ZN87_$LT$paperpaw_core..recall..Recalled$u20$as$u20$paperpaw_platform..storage..Storage$GT$4sync 1 vtable or fn-pointer call at core/recall.rs:214: `Recalled` forwards each call to the storage it wraps (`&dyn Storage`)
 allow indirect _ZN76_$LT$paperpaw_text..stored..Paged$u20$as$u20$paperpaw_text..stored..Pack$GT$7advance 2 vtable or fn-pointer call at text/stored.rs:308: `paperpaw_text` font/strike trait objects (the font packs in use)
 allow indirect render 2 literal call not proven on every path
-allow indirect render_reusing 7 new with the card glyph cells (#203): a stored pack's glyph read in one call, `render`'s calls moved into it (`&dyn PackSource` reads and literal calls not proven on every path)
-allow indirect paperpaw_text::cache::Lru::shrink_to 4 new with the card glyph cells (#203): a glyph the cache lets go keeps its memory as spare (drop glue and literal calls not proven on every path)
 allow indirect _ZN90_$LT$paperpaw_sdk..fonts..storage..Stored$u20$as$u20$paperpaw_text..stored..PackSource$GT$7read_at 1 vtable or fn-pointer call at sdk/fonts/storage.rs:23: `paperpaw_sdk::fonts` font handles (the font packs in use)
 allow indirect glyph 6 literal call not proven on every path
 allow indirect render_reusing 7 literal call not proven on every path / large-script glyph cache (#203): the CI scan counts 5 calls through a register
