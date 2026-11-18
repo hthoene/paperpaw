@@ -184,9 +184,10 @@ pub struct Marking {
     lead: Option<(At, String)>,
     /// A page turn that is made, and where the selection goes on after it.
     pending: Option<Pending>,
-    /// The selection is at its page limit: the strip at the bottom says so
-    /// (instead of a notice, which would outlast Back) until the next key.
-    limit: bool,
+    /// What the strip at the bottom says instead of the legend (the selection
+    /// is at its page limit, or at the book's start or end) until the next key:
+    /// a notice would outlast Back.
+    limit: Option<&'static str>,
     /// Whether the key layer of the selection is put in front.
     layer: bool,
     /// Where the page changes by a move, to redraw only that.
@@ -261,7 +262,7 @@ impl Marking {
             enter: None,
             returns: Returns::new(),
             note: None,
-            limit: false,
+            limit: None,
         }
     }
 
@@ -272,7 +273,7 @@ impl Marking {
         self.selection = None;
         self.lead = None;
         self.pending = None;
-        self.limit = false;
+        self.limit = None;
         self.links = None;
     }
 
@@ -282,14 +283,17 @@ impl Marking {
     pub fn stay(&mut self, host: &Host<'_>) {
         self.enter = None;
         if let Some(pending) = self.pending.take() {
-            crate::native_bookmark::say(
-                host,
-                if pending.forward {
-                    "reader.select.book-end"
-                } else {
-                    "reader.select.book-start"
-                },
-            );
+            // In the legend's strip, not a notice: Back takes it away with the selection.
+            self.limit = Some(if pending.forward {
+                "reader.select.book-end"
+            } else {
+                "reader.select.book-start"
+            });
+            let mut scratch = [0; 64];
+            // A redraw that is refused leaves the line for the next draw.
+            CommandSender::new(host, &mut scratch)
+                .queue_redraw(RedrawMode::Partial)
+                .ok();
         }
     }
 
@@ -337,14 +341,14 @@ impl Marking {
         // The page turned since the last input: the selection goes on on it.
         self.settle(ctx);
         self.dirty = None;
-        let had_limit = core::mem::take(&mut self.limit);
+        let had_limit = self.limit.take().is_some();
         let mut outcome = match *input {
             Input::Action { action, .. } => self.on_action(host, ctx, action)?,
             Input::Gesture { position, kind, .. } => self.on_gesture(host, ctx, position, kind)?,
             _ => Outcome::Ignored,
         };
         // The page limit's line goes with the next key.
-        if had_limit && !self.limit && outcome == Outcome::Handled {
+        if had_limit && self.limit.is_none() && outcome == Outcome::Handled {
             outcome = Outcome::Redraw;
         }
         self.sync_layer(host);
@@ -397,7 +401,7 @@ impl Marking {
         if to.is_none() {
             self.lead = None;
             self.pending = None;
-            self.limit = false;
+            self.limit = None;
         }
         Outcome::Redraw
     }
@@ -441,7 +445,7 @@ impl Marking {
         (side, forward): (Option<Side>, bool),
     ) -> Outcome {
         if !live.pages.allows(forward) {
-            self.limit = true;
+            self.limit = Some("reader.select.page-limit");
             return Outcome::Redraw;
         }
         // The start of the text is kept before its page is left.
@@ -787,15 +791,11 @@ impl Marking {
                         Some("reader.select.legend.range2"),
                     )
                 };
-                let first = if self.limit {
-                    "reader.select.page-limit"
-                } else {
-                    first
-                };
+                let first = self.limit.unwrap_or(first);
                 let one = messages.copy(host, first)?;
                 let two = second.map(|key| messages.copy(host, key)).transpose()?;
                 let lines = [one.as_str(), two.as_deref().unwrap_or("")];
-                let shown = if two.is_some() && !self.limit {
+                let shown = if two.is_some() && self.limit.is_none() {
                     &lines[..]
                 } else {
                     &lines[..1]
