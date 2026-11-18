@@ -336,7 +336,7 @@ impl NativePuzzles {
     /// Lists the crossword files of the card's folder.
     fn list_files(&mut self, host: &Host<'_>) -> Result<(), Error> {
         let mut names = Self::folder(host).unwrap_or_default();
-        names.sort_by_key(|n| n.to_ascii_lowercase());
+        paperpaw_sdk::sort::sort_by_key(&mut names, |n| n.to_ascii_lowercase());
         let Some(view) = self.screens.top(SCREEN_TOKEN) else {
             return Ok(());
         };

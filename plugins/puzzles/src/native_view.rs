@@ -950,7 +950,7 @@ impl ScreenView {
             return Act::Ignored;
         }
         let mut sorted = list;
-        sorted.sort_by_key(|s| game.display(*s));
+        paperpaw_sdk::sort::sort_by_key(&mut sorted, |s| game.display(*s));
         let at = sorted.iter().position(|s| *s == game.cursor);
         let to = match (at, forward) {
             (Some(i), true) => sorted[(i + 1) % sorted.len()],
