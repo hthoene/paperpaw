@@ -936,7 +936,7 @@ fn held(look: &Look, high: u16, seam: u16) -> u32 {
     let inset = if look.touch {
         seam.max(look.line.max(1) * 3)
     } else {
-        seam
+        seam + border(look) as u16
     };
     let room = f32::from(high.saturating_sub(2 * inset));
     let need = (2.0 * look.ascent - look.cap).max(look.cap + 2.0 * look.descent) + 2.0;
