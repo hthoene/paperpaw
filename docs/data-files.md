@@ -103,6 +103,7 @@ differently; a plugin must keep that mapping.
 | `.paperpaw/plugins/store/code-told` | store | that the reader was told once what plugins with code are | |
 | `.paperpaw/plugin-code-fetched.txt` | SDK `native` | a code plugin per line: its id, a tab, the SHA-256 of its file's header fetched for a firmware update (into `plugins/.<id>.next`), which the updated firmware installs at its start | |
 | `.paperpaw/plugins/weather/weather.txt` | weather | the last forecast (place, coordinates, when, now and the days), first line `weather 1` | version 1 |
+| `.paperpaw/plugins/pomodoro/state.txt` | pomodoro | the timer: `phase\|running\|end\|left\|done\|day\|counts`, numbers only: the phase (0 focus, 1 short break, 2 long break), 1 while it runs, the Unix time it ends, the milliseconds left while paused, the focus rounds of the set done, the day of the first count (days since 1970, local time) and the counts of that day and the six before, newest first, separated by commas | |
 | `.paperpaw/plugins/widgets/todo.txt` | widgets | an item per line, done ones as `x <date> <text>` (as todo.txt has them); an open item that would read as done (beginning with `x `) kept with the date `1970-01-01` in front, where todo.txt has the day an item was made | version 1 |
 | `.paperpaw/plugins/widgets/quotes.txt` | widgets | the reader's own quotes, a line each: `text \| author` | version 1 |
 | `.paperpaw/plugins/widgets/quote.txt`, `picture.txt` | widgets | the day and the turns of the quote and the picture shown | version 1 |

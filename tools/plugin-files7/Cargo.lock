@@ -252,6 +252,7 @@ dependencies = [
  "paperpaw-plugin-opds",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-plugin-manager",
+ "paperpaw-plugin-pomodoro",
  "paperpaw-plugin-power",
  "paperpaw-plugin-profiles",
  "paperpaw-plugin-read-later-cloud",
@@ -490,6 +491,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-plugin-manager"
 version = "1.0.9"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-pomodoro"
+version = "1.0.0"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
