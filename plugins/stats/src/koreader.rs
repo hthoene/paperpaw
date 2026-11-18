@@ -225,10 +225,54 @@ pub(crate) fn write(
     result
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
+/// Makes the values and records of the rows. A refused allocation of a
+/// text or a record is noted and the value left empty; the call that took
+/// the rows then says `OutOfMemory` (see [`Rows::checked`]), so no half of
+/// a database is taken for a whole one.
+#[derive(Default)]
+struct Rows {
+    refused: Cell<bool>,
+}
+
+impl Rows {
+    fn text(&self, t: &str) -> Value {
+        match room::string(&[t]) {
+            Ok(text) => Value::Text(text),
+            Err(_) => {
+                self.refused.set(true);
+                Value::Text(String::new())
+            }
+        }
+    }
+
+    fn record(&self, values: &[Value]) -> Vec<u8> {
+        try_encode_record(values).unwrap_or_else(|_| {
+            self.refused.set(true);
+            Vec::new()
+        })
+    }
+
+    /// The root page of a table or an index written from these rows;
+    /// `OutOfMemory` if one of them was refused.
+    fn checked(&self, root: Result<u32, Error>) -> Result<u32, Error> {
+        match root {
+            Ok(_) if self.refused.get() => Err(Error::OutOfMemory),
+            other => other,
+        }
+    }
+}
+
+/// The root pages of the database's tables and indexes.
+struct Roots {
+    book: u32,
+    sequence: u32,
+    book_index: u32,
+    stat: u32,
+    unique: u32,
+    start: u32,
+    numbers: u32,
+}
+
 fn write_with(
     storage: &dyn Storage,
     path: &str,
@@ -238,50 +282,50 @@ fn write_with(
     temp: &str,
 ) -> Result<(), Error> {
     let mut writer = Writer::new(storage, path);
+    let rows = Rows::default();
+    let [book, sequence, book_index] = write_books(&mut writer, &rows, books)?;
+    let [stat, unique, start] = write_stays(&mut writer, &rows, storage, stats, keys, temp)?;
+    let numbers =
+        rows.checked(writer.table((1..=1000).map(|n| (n, rows.record(&[Value::Null])))))?;
+    let schema = schema(&Roots {
+        book,
+        sequence,
+        book_index,
+        stat,
+        unique,
+        start,
+        numbers,
+    })?;
+    writer.finish(&schema, SCHEMA_VERSION)
+}
+
+/// Writes the `book` table, `sqlite_sequence` and the books' unique index:
+/// their root pages, in this order.
+fn write_books(writer: &mut Writer<'_>, rows: &Rows, books: &[KoBook]) -> Result<[u32; 3], Error> {
     let int = Value::Int;
-    // A refused allocation of a text or a record is noted and the value left
-    // empty; the call that took the rows then says `OutOfMemory`, so no half
-    // of a database is taken for a whole one.
-    let refused = Cell::new(false);
-    let text = |t: &str| match room::string(&[t]) {
-        Ok(text) => Value::Text(text),
-        Err(_) => {
-            refused.set(true);
-            Value::Text(String::new())
-        }
-    };
-    let record = |values: &[Value]| {
-        try_encode_record(values).unwrap_or_else(|_| {
-            refused.set(true);
-            Vec::new()
-        })
-    };
-    let checked = |root: Result<u32, Error>| match root {
-        Ok(_) if refused.get() => Err(Error::OutOfMemory),
-        other => other,
-    };
     // Rows and index entries are made one at a time as they are written.
     let book_rows = books.iter().map(|b| {
-        let record = record(&[
+        let record = rows.record(&[
             // The id is the row id.
             Value::Null,
-            text(&b.title),
-            text(&b.authors),
+            rows.text(&b.title),
+            rows.text(&b.authors),
             int(b.notes),
             int(b.last_open),
             int(b.highlights),
             int(b.pages),
-            text(&b.series),
-            text(&b.language),
-            text(&b.md5),
+            rows.text(&b.series),
+            rows.text(&b.language),
+            rows.text(&b.md5),
             int(b.total_read_time),
             int(b.total_read_pages),
         ]);
         (b.id, record)
     });
-    let book_root = checked(writer.table(book_rows))?;
+    let book_root = rows.checked(writer.table(book_rows))?;
     let last_id = books.iter().map(|b| b.id).max().unwrap_or(0);
-    let sequence = checked(writer.table([(1, record(&[text("book"), int(last_id)]))]))?;
+    let sequence =
+        rows.checked(writer.table([(1, rows.record(&[rows.text("book"), int(last_id)]))]))?;
     // In SQLite's order: texts bytewise, then the row id.
     let mut order: Vec<usize> = Vec::new();
     room::reserve(&mut order, books.len()).map_err(Error::Storage)?;
@@ -299,12 +343,30 @@ fn write_with(
     });
     let book_index = order.iter().map(|&i| {
         let b = &books[i];
-        record(&[text(&b.title), text(&b.authors), text(&b.md5), int(b.id)])
+        rows.record(&[
+            rows.text(&b.title),
+            rows.text(&b.authors),
+            rows.text(&b.md5),
+            int(b.id),
+        ])
     });
-    let book_index_root = checked(writer.index(book_index))?;
+    let book_index_root = rows.checked(writer.index(book_index))?;
+    Ok([book_root, sequence, book_index_root])
+}
 
-    // The stays, row by row in time order; the keys of the unique index
-    // (book, page, start, row) go to a file to be sorted on the way.
+/// Writes the stays (`page_stat_data`), row by row in time order, then
+/// their unique index and the index by start time: their root pages, in
+/// this order. The keys of the unique index (book, page, start, row) go to
+/// the file `keys` to be sorted on the way.
+fn write_stays(
+    writer: &mut Writer<'_>,
+    rows: &Rows,
+    storage: &dyn Storage,
+    stats: &str,
+    keys: &str,
+    temp: &str,
+) -> Result<[u32; 3], Error> {
+    let int = Value::Int;
     storage.write(keys, &[])?;
     // Room for the flush limit and one more row of keys: it never grows.
     let mut keys_buffer = Vec::<u8>::new();
@@ -323,7 +385,7 @@ fn write_with(
         }
     };
     let mut records = extsort::Records::new(storage, stats, STAT)?;
-    let rows = records.by_ref().enumerate().map(|(i, r)| {
+    let stat_rows = records.by_ref().enumerate().map(|(i, r)| {
         let rowid = i as i64 + 1;
         let [book, page, start, duration, pages] = fields(&r);
         for v in [book, page, start, rowid] {
@@ -334,10 +396,10 @@ fn write_with(
         flush(false);
         (
             rowid,
-            record(&[int(book), int(page), int(start), int(duration), int(pages)]),
+            rows.record(&[int(book), int(page), int(start), int(duration), int(pages)]),
         )
     });
-    let stat_root = checked(writer.table(rows))?;
+    let stat_root = rows.checked(writer.table(stat_rows))?;
     flush(true);
     if let Some(e) = records.failed.take().or(failed.take()) {
         return Err(Error::Storage(e));
@@ -346,22 +408,26 @@ fn write_with(
     let mut sorted = extsort::Records::new(storage, keys, 16)?;
     let unique = sorted.by_ref().map(|r| {
         let n = |i: usize| i64::from(be(&r, i));
-        record(&[int(n(0)), int(n(4)), int(n(8)), int(n(12))])
+        rows.record(&[int(n(0)), int(n(4)), int(n(8)), int(n(12))])
     });
-    let unique_root = checked(writer.index(unique))?;
+    let unique_root = rows.checked(writer.index(unique))?;
     // By start time: the rows are in that order already.
     let mut again = extsort::Records::new(storage, stats, STAT)?;
     let by_start = again
         .by_ref()
         .enumerate()
-        .map(|(i, r)| record(&[int(fields(&r)[2]), int(i as i64 + 1)]));
-    let start_root = checked(writer.index(by_start))?;
+        .map(|(i, r)| rows.record(&[int(fields(&r)[2]), int(i as i64 + 1)]));
+    let start_root = rows.checked(writer.index(by_start))?;
     // An index cut short by a read error would not match its table.
     if let Some(e) = sorted.failed.take().or(again.failed.take()) {
         return Err(Error::Storage(e));
     }
-    let numbers_root = checked(writer.table((1..=1000).map(|n| (n, record(&[Value::Null])))))?;
+    Ok([stat_root, unique_root, start_root])
+}
 
+/// The database's schema table: every table, index and view with its root
+/// page and the SQL that made it.
+fn schema(roots: &Roots) -> Result<[SchemaEntry; 8], Error> {
     let entry = |kind: &str, name: &str, table: &str, root: u32, sql: &str| {
         let own = |text: &str| room::string(&[text]).map_err(Error::Storage);
         Ok::<_, Error>(SchemaEntry {
@@ -372,45 +438,44 @@ fn write_with(
             sql: own(sql)?,
         })
     };
-    let schema = [
-        entry("table", "book", "book", book_root, BOOK_SQL)?,
+    Ok([
+        entry("table", "book", "book", roots.book, BOOK_SQL)?,
         entry(
             "table",
             "sqlite_sequence",
             "sqlite_sequence",
-            sequence,
+            roots.sequence,
             "CREATE TABLE sqlite_sequence(name,seq)",
         )?,
         entry(
             "index",
             "book_title_authors_md5",
             "book",
-            book_index_root,
+            roots.book_index,
             "CREATE UNIQUE INDEX book_title_authors_md5 ON book(title, authors, md5)",
         )?,
         entry(
             "table",
             "page_stat_data",
             "page_stat_data",
-            stat_root,
+            roots.stat,
             PAGE_STAT_DATA_SQL,
         )?,
         entry(
             "index",
             "sqlite_autoindex_page_stat_data_1",
             "page_stat_data",
-            unique_root,
+            roots.unique,
             "",
         )?,
         entry(
             "index",
             "page_stat_data_start_time",
             "page_stat_data",
-            start_root,
+            roots.start,
             "CREATE INDEX page_stat_data_start_time ON page_stat_data(start_time)",
         )?,
-        entry("table", "numbers", "numbers", numbers_root, NUMBERS_SQL)?,
+        entry("table", "numbers", "numbers", roots.numbers, NUMBERS_SQL)?,
         entry("view", "page_stat", "page_stat", 0, PAGE_STAT_SQL)?,
-    ];
-    writer.finish(&schema, SCHEMA_VERSION)
+    ])
 }

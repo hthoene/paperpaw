@@ -6,8 +6,10 @@
 //! and taps. What only a device has (its panel, radio, flash, sleep) is
 //! refused.
 
-use paperpaw_core::sdk::{Id, Params, PluginKind};
+use paperpaw_core::Kernel;
+use paperpaw_core::sdk::{Id, Params, PluginKind, Storage, StorageError};
 use paperpaw_dev::report::json_string;
+use paperpaw_emulator::device::Device;
 use paperpaw_platform::PointerPhase;
 use paperpaw_x4::remote::{self, Command, Touch};
 
@@ -43,22 +45,32 @@ impl Emulator {
     ///   "size"}`.
     ///
     /// Secrets are never said (`•`), as on an X4.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than the limit from before it was set; split it when it is next changed"
-    )]
     pub fn command(&mut self, line: &str, now_ms: u64) -> Result<String, String> {
         let command = remote::parse(line).ok_or_else(|| format!("no command: {line}"))?;
         self.advance(now_ms);
-        // Presses and touches as the page's own (their time counted).
-        match command {
+        if let Some(answer) = self.input(&command, now_ms) {
+            return answer;
+        }
+        let device = self.device.as_mut().ok_or("the device has not started")?;
+        if act(device, &command)? {
+            return Ok(String::from(DONE));
+        }
+        if let Some(answer) = ask(device, &command) {
+            return answer;
+        }
+        files(device.kernel.storage(), &command)
+            .unwrap_or_else(|| Err(format!("not in the browser: {line}")))
+    }
+
+    /// A press or a touch, as the page's own (their time counted); `None`
+    /// for another command.
+    fn input(&mut self, command: &Command, now_ms: u64) -> Option<Answer> {
+        match *command {
             Command::Press { button, ms } => {
-                let name = button;
-                if !self.button(name, true, now_ms) {
-                    return Err(format!("no button `{name}`"));
+                if !self.button(button, true, now_ms) {
+                    return Some(Err(format!("no button `{button}`")));
                 }
-                self.button(name, false, now_ms + ms);
-                return Ok(String::from(DONE));
+                self.button(button, false, now_ms + ms);
             }
             Command::Touch { phase, x, y } => {
                 let phase = match phase {
@@ -67,223 +79,10 @@ impl Emulator {
                     Touch::Up => PointerPhase::Up,
                 };
                 self.pointer(phase, x, y, now_ms);
-                return Ok(String::from(DONE));
             }
-            _ => {}
+            _ => return None,
         }
-        let device = self.device.as_mut().ok_or("the device has not started")?;
-        let id = |text: &str| Id::parse(text).map_err(|_| format!("no id: {text}"));
-        let params = |pairs: Vec<(String, String)>| {
-            let mut params = Params::new();
-            for (key, value) in pairs {
-                params.set(key, value);
-            }
-            params
-        };
-        Ok(match command {
-            Command::Run(action) => {
-                let action = id(&action)?;
-                device.call(|kernel, now| kernel.run_action(now, action));
-                String::from(DONE)
-            }
-            Command::Slot {
-                id: slot,
-                params: pairs,
-            } => {
-                let (slot, params) = (id(&slot)?, params(pairs));
-                device.call(|kernel, now| kernel.open_slot(now, slot, params));
-                String::from(DONE)
-            }
-            Command::Show {
-                id: screen,
-                params: pairs,
-            } => {
-                let (screen, params) = (id(&screen)?, params(pairs));
-                device.call(|kernel, now| kernel.open_screen(now, screen, params));
-                String::from(DONE)
-            }
-            Command::Open(path) => {
-                device.call(|kernel, now| kernel.open_book(now, &path));
-                String::from(DONE)
-            }
-            Command::Emit {
-                event,
-                params: pairs,
-            } => {
-                let (event, params) = (id(&event)?, params(pairs));
-                device.call(|kernel, now| kernel.send_event(now, event, params));
-                String::from(DONE)
-            }
-            Command::Type { text, done } => {
-                if !device.type_text(&text, done) {
-                    return Err(String::from("no text field"));
-                }
-                String::from(DONE)
-            }
-            Command::Set { id: setting, value } => {
-                let mut refused = None;
-                device.call(
-                    |kernel, now| match kernel.set_setting(now, &setting, &value) {
-                        Ok(effects) => effects,
-                        Err(why) => {
-                            refused = Some(why.to_string());
-                            kernel.draw_again(now)
-                        }
-                    },
-                );
-                if let Some(why) = refused {
-                    return Err(why);
-                }
-                String::from(DONE)
-            }
-            Command::SetTime(unix_ms) => {
-                device.set_time(unix_ms);
-                String::from(DONE)
-            }
-            Command::Screen => format!(
-                "{{\"screen\":{}}}",
-                json_string(device.kernel.active_screen().map_or("", |s| s.as_str()))
-            ),
-            Command::Screens => {
-                let ids: Vec<String> = device
-                    .kernel
-                    .screens()
-                    .map(|s| json_string(s.as_str()))
-                    .collect();
-                format!("{{\"screens\":[{}]}}", ids.join(","))
-            }
-            Command::Describe => describe(&mut device.kernel),
-            Command::Setting(setting) => {
-                let text = said(device.kernel.settings(), &setting)
-                    .ok_or_else(|| format!("no setting `{setting}`"))?;
-                format!("{{\"value\":{}}}", json_string(&text))
-            }
-            Command::Settings(prefix) => {
-                let settings = device.kernel.settings();
-                let values: Vec<String> = settings
-                    .specs()
-                    .filter(|spec| spec.id.as_str().starts_with(prefix.as_str()))
-                    .filter_map(|spec| {
-                        let text = said(settings, spec.id.as_str())?;
-                        Some(format!(
-                            "{}:{}",
-                            json_string(spec.id.as_str()),
-                            json_string(&text)
-                        ))
-                    })
-                    .collect();
-                format!("{{\"values\":{{{}}}}}", values.join(","))
-            }
-            Command::Actions(prefix) => {
-                let ids: Vec<String> = device
-                    .kernel
-                    .actions()
-                    .iter()
-                    .filter(|a| a.id().as_str().starts_with(prefix.as_str()))
-                    .map(|a| json_string(a.id().as_str()))
-                    .collect();
-                format!("{{\"actions\":[{}]}}", ids.join(","))
-            }
-            Command::Plugins => {
-                let plugins: Vec<String> = device
-                    .kernel
-                    .plugins()
-                    .iter()
-                    .map(|p| {
-                        let kind = match p.kind {
-                            PluginKind::BuiltIn => "built-in",
-                            PluginKind::Data => "data",
-                            PluginKind::Code => "code",
-                            _ => "other",
-                        };
-                        format!(
-                            "{{\"id\":{},\"on\":{},\"version\":{},\"kind\":\"{kind}\"}}",
-                            json_string(p.manifest.id.as_str()),
-                            p.enabled,
-                            json_string(&p.manifest.version.to_string())
-                        )
-                    })
-                    .collect();
-                format!("{{\"plugins\":[{}]}}", plugins.join(","))
-            }
-            Command::Version => format!(
-                "{{\"version\":{},\"device\":{}}}",
-                json_string(&super::version()),
-                json_string(device.kernel.device().id)
-            ),
-            Command::Time => {
-                format!(
-                    "{{\"unix_ms\":{},\"ms\":{}}}",
-                    device
-                        .unix_millis()
-                        .map_or(String::from("null"), |ms| ms.to_string()),
-                    device.now().millis()
-                )
-            }
-            Command::Usage => {
-                let u = device.kernel.usage();
-                let (fast, partial, full) =
-                    (u.refreshes.fast, u.refreshes.partial, u.refreshes.full);
-                format!(
-                    "{{\"refreshes\":[{fast},{partial},{full}],\"pixels\":{},\"inputs\":{}}}",
-                    u.pixels, u.inputs
-                )
-            }
-            Command::List(path) => {
-                let mut entries = Vec::new();
-                device
-                    .kernel
-                    .storage()
-                    .list(&path, &mut |entry| {
-                        entries.push(format!(
-                            "{{\"name\":{},\"dir\":{},\"size\":{}}}",
-                            json_string(entry.name),
-                            entry.is_dir,
-                            entry.size
-                        ));
-                    })
-                    .map_err(|e| format!("{path}: {e:?}"))?;
-                format!("{{\"entries\":[{}]}}", entries.join(","))
-            }
-            Command::Stat(path) => {
-                let storage = device.kernel.storage();
-                let (kind, size) = if let Ok(size) = storage.size(&path) {
-                    ("f", size)
-                } else if storage.list(&path, &mut |_| {}).is_ok() {
-                    ("d", 0)
-                } else {
-                    ("-", 0)
-                };
-                format!("{{\"kind\":\"{kind}\",\"size\":{size}}}")
-            }
-            Command::Remove(path) => {
-                let storage = device.kernel.storage();
-                let removed = if storage.size(&path).is_ok() {
-                    storage.remove(&path)
-                } else {
-                    storage.remove_dir_all(&path)
-                };
-                removed.map_err(|e| format!("{path}: {e:?}"))?;
-                String::from(DONE)
-            }
-            Command::MakeDir(path) => {
-                device
-                    .kernel
-                    .storage()
-                    .create_dir(&path)
-                    .map_err(|e| format!("{path}: {e:?}"))?;
-                String::from(DONE)
-            }
-            Command::Move { from, to } => {
-                device
-                    .kernel
-                    .storage()
-                    .rename(&from, &to)
-                    .map_err(|e| format!("{from}: {e:?}"))?;
-                String::from(DONE)
-            }
-            _ => return Err(format!("not in the browser: {line}")),
-        })
+        Some(Ok(String::from(DONE)))
     }
 
     /// Whether the screen shown is `text` (its id) or shows it (in the
@@ -306,6 +105,221 @@ impl Emulator {
                 .iter()
                 .any(|p| p.label.contains(text))
     }
+}
+
+/// A command's answer, or why it was refused.
+type Answer = Result<String, String>;
+
+/// A command that changes something on the device (a kernel call, typed
+/// text, the clock): `true` once it is done, `false` for another command.
+fn act(device: &mut Device, command: &Command) -> Result<bool, String> {
+    let id = |text: &str| Id::parse(text).map_err(|_| format!("no id: {text}"));
+    let params = |pairs: &[(String, String)]| {
+        let mut params = Params::new();
+        for (key, value) in pairs {
+            params.set(key.clone(), value.clone());
+        }
+        params
+    };
+    match command {
+        Command::Run(action) => {
+            let action = id(action)?;
+            device.call(|kernel, now| kernel.run_action(now, action));
+        }
+        Command::Slot {
+            id: slot,
+            params: pairs,
+        } => {
+            let (slot, params) = (id(slot)?, params(pairs));
+            device.call(|kernel, now| kernel.open_slot(now, slot, params));
+        }
+        Command::Show {
+            id: screen,
+            params: pairs,
+        } => {
+            let (screen, params) = (id(screen)?, params(pairs));
+            device.call(|kernel, now| kernel.open_screen(now, screen, params));
+        }
+        Command::Open(path) => device.call(|kernel, now| kernel.open_book(now, path)),
+        Command::Emit {
+            event,
+            params: pairs,
+        } => {
+            let (event, params) = (id(event)?, params(pairs));
+            device.call(|kernel, now| kernel.send_event(now, event, params));
+        }
+        Command::Type { text, done } => {
+            if !device.type_text(text, *done) {
+                return Err(String::from("no text field"));
+            }
+        }
+        Command::Set { id: setting, value } => {
+            let mut refused = None;
+            device.call(
+                |kernel, now| match kernel.set_setting(now, setting, value) {
+                    Ok(effects) => effects,
+                    Err(why) => {
+                        refused = Some(why.to_string());
+                        kernel.draw_again(now)
+                    }
+                },
+            );
+            if let Some(why) = refused {
+                return Err(why);
+            }
+        }
+        Command::SetTime(unix_ms) => device.set_time(*unix_ms),
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+/// A command that reads what the device knows or shows, answered with it
+/// as JSON; `None` for another command.
+fn ask(device: &mut Device, command: &Command) -> Option<Answer> {
+    Some(Ok(match command {
+        Command::Screen => format!(
+            "{{\"screen\":{}}}",
+            json_string(device.kernel.active_screen().map_or("", |s| s.as_str()))
+        ),
+        Command::Screens => {
+            let ids: Vec<String> = device
+                .kernel
+                .screens()
+                .map(|s| json_string(s.as_str()))
+                .collect();
+            format!("{{\"screens\":[{}]}}", ids.join(","))
+        }
+        Command::Describe => describe(&mut device.kernel),
+        Command::Setting(setting) => match said(device.kernel.settings(), setting) {
+            Some(text) => format!("{{\"value\":{}}}", json_string(&text)),
+            None => return Some(Err(format!("no setting `{setting}`"))),
+        },
+        Command::Settings(prefix) => settings(&device.kernel, prefix),
+        Command::Actions(prefix) => {
+            let ids: Vec<String> = device
+                .kernel
+                .actions()
+                .iter()
+                .filter(|a| a.id().as_str().starts_with(prefix.as_str()))
+                .map(|a| json_string(a.id().as_str()))
+                .collect();
+            format!("{{\"actions\":[{}]}}", ids.join(","))
+        }
+        Command::Plugins => plugins(&device.kernel),
+        Command::Version => format!(
+            "{{\"version\":{},\"device\":{}}}",
+            json_string(&super::version()),
+            json_string(device.kernel.device().id)
+        ),
+        Command::Time => {
+            format!(
+                "{{\"unix_ms\":{},\"ms\":{}}}",
+                device
+                    .unix_millis()
+                    .map_or(String::from("null"), |ms| ms.to_string()),
+                device.now().millis()
+            )
+        }
+        Command::Usage => {
+            let u = device.kernel.usage();
+            let (fast, partial, full) = (u.refreshes.fast, u.refreshes.partial, u.refreshes.full);
+            format!(
+                "{{\"refreshes\":[{fast},{partial},{full}],\"pixels\":{},\"inputs\":{}}}",
+                u.pixels, u.inputs
+            )
+        }
+        _ => return None,
+    }))
+}
+
+/// The settings whose id begins with `prefix`, each with its value (as
+/// the remote's `settings`).
+fn settings(kernel: &Kernel, prefix: &str) -> String {
+    let settings = kernel.settings();
+    let values: Vec<String> = settings
+        .specs()
+        .filter(|spec| spec.id.as_str().starts_with(prefix))
+        .filter_map(|spec| {
+            let text = said(settings, spec.id.as_str())?;
+            Some(format!(
+                "{}:{}",
+                json_string(spec.id.as_str()),
+                json_string(&text)
+            ))
+        })
+        .collect();
+    format!("{{\"values\":{{{}}}}}", values.join(","))
+}
+
+/// The plugins, each with its version and kind and whether it is on (as
+/// the remote's `plugins`).
+fn plugins(kernel: &Kernel) -> String {
+    let plugins: Vec<String> = kernel
+        .plugins()
+        .iter()
+        .map(|p| {
+            let kind = match p.kind {
+                PluginKind::BuiltIn => "built-in",
+                PluginKind::Data => "data",
+                PluginKind::Code => "code",
+                _ => "other",
+            };
+            format!(
+                "{{\"id\":{},\"on\":{},\"version\":{},\"kind\":\"{kind}\"}}",
+                json_string(p.manifest.id.as_str()),
+                p.enabled,
+                json_string(&p.manifest.version.to_string())
+            )
+        })
+        .collect();
+    format!("{{\"plugins\":[{}]}}", plugins.join(","))
+}
+
+/// A command on the device's files; `None` for another command.
+fn files(storage: &dyn Storage, command: &Command) -> Option<Answer> {
+    let done = |result: Result<(), StorageError>, path: &str| {
+        result
+            .map(|()| String::from(DONE))
+            .map_err(|e| format!("{path}: {e:?}"))
+    };
+    Some(match command {
+        Command::List(path) => {
+            let mut entries = Vec::new();
+            storage
+                .list(path, &mut |entry| {
+                    entries.push(format!(
+                        "{{\"name\":{},\"dir\":{},\"size\":{}}}",
+                        json_string(entry.name),
+                        entry.is_dir,
+                        entry.size
+                    ));
+                })
+                .map(|()| format!("{{\"entries\":[{}]}}", entries.join(",")))
+                .map_err(|e| format!("{path}: {e:?}"))
+        }
+        Command::Stat(path) => {
+            let (kind, size) = if let Ok(size) = storage.size(path) {
+                ("f", size)
+            } else if storage.list(path, &mut |_| {}).is_ok() {
+                ("d", 0)
+            } else {
+                ("-", 0)
+            };
+            Ok(format!("{{\"kind\":\"{kind}\",\"size\":{size}}}"))
+        }
+        Command::Remove(path) => {
+            let removed = if storage.size(path).is_ok() {
+                storage.remove(path)
+            } else {
+                storage.remove_dir_all(path)
+            };
+            done(removed, path)
+        }
+        Command::MakeDir(path) => done(storage.create_dir(path), path),
+        Command::Move { from, to } => done(storage.rename(from, to), from),
+        _ => return None,
+    })
 }
 
 /// A setting's value as the remote says it: as configuration files write
