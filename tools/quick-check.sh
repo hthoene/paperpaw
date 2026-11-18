@@ -44,10 +44,12 @@
 # directory it prints.
 #
 # It has to fit PlainBoard's 10 minutes, so (#328):
-#  - two lanes run side by side, each with one cargo at a time (CARGO_BUILD_JOBS=8 each): the host lane
-#    (fmt, clippy, interface, checks, libs, desktop, memory, app, snapshots) and the build lane (doc, frames,
-#    frames-s3), whose cargo runs use build directories of their own, so nothing waits on cargo's
-#    directory lock;
+#  - four lanes run side by side, each with one cargo at a time (CARGO_BUILD_JOBS=8 each) and a build
+#    directory of its own, so nothing waits on cargo's directory lock: the host lane (fmt, clippy,
+#    interface, checks, libs, desktop, memory, app, snapshots, publish), the doc lane (doc, wasm32), and one
+#    lane each for the plugin frames, `frames` (C3) and `frames-s3` (Xtensa). On a cold directory
+#    `frames-s3` alone takes ~2 min (115 s for `store`, #3864): behind doc and wasm32 it was the step the
+#    budget cut, so the first run of a branch failed and the second, warm, passed;
 #  - rustc goes through sccache (tools/sccache-wrap.sh, as the other agents use it; RUSTC_WRAPPER of the
 #    environment wins) with incremental builds off: another worktree's build of the same crate, also of
 #    the workspace's own, is a hit, so a fresh worktree is not a cold build. Build directories are not
@@ -187,6 +189,7 @@ fi
 echo "quick-check: base $base ($(wc -l <<< "$files") changed files); logs in $logs"
 jobs_n="${QUICK_CHECK_JOBS:-8}"
 lane2_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane2"
+lane3_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane3"
 # One step: run in its own process group, cut after its time limit or when the total budget is used up.
 # Writes "$logs/NAME.res": the summary line of the step, FAIL or ok.
 step() { # NAME COMMAND...
@@ -296,7 +299,7 @@ frames_of() {
     done
     return $rc
 }
-frames_step() { CARGO_TARGET_DIR="$lane2_target" frames_of x4; }
+frames_step() { CARGO_TARGET_DIR="$lane3_target" frames_of x4; }
 # One persistent build directory for the Xtensa plugin builds, per worktree (two trees with other
 # sources must not share one: cargo would reuse the other's artifacts).
 frames_s3_step() {
@@ -312,13 +315,17 @@ frames_s3_step() {
     CARGO_TARGET_DIR="$dir" frames_of x4-pro
 }
 
-# The host lane and the build lane (doc, frames) run side by side: each has one cargo at a time and
-# its own build directories, so none waits on the other's lock.
+# The lanes run side by side: each has one cargo at a time and its own build directory, so none waits
+# on another's lock, and a slow step (a cold Xtensa build) is not queued behind the others.
 lane() { local s; for s in "$@"; do run_step "$s" && step "$s" "${s//-/_}_step"; done; return 0; }
-lane doc wasm32 frames frames-s3 &
-build_lane=$!
+lane frames-s3 &
+lane_s3=$!
+lane frames &
+lane_frames=$!
+lane doc wasm32 &
+lane_doc=$!
 lane fmt clippy interface checks libs desktop memory app snapshots publish
-wait "$build_lane"
+wait "$lane_s3" "$lane_frames" "$lane_doc"
 
 echo
 echo "quick-check summary ($((SECONDS - t_start))s of ${budget}s):"
