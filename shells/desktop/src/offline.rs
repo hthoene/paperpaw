@@ -244,11 +244,21 @@ const ANSWERS: &[Answer] = &[
     answer!("https://news.example.org/feed.xml", RSS, "news/feed.xml"),
 ];
 
-/// Screens that show what these answers give, with the parameters their
-/// plugins open them with: opened alone (as tools that draw every screen
-/// open them) they would have nothing to show.
+/// Screens that show what these answers give, or that another screen opens
+/// with its choice, with the parameters their plugins open them with:
+/// opened alone (as tools that draw every screen open them) they would
+/// have nothing to show, or their plugin would refuse the open.
 pub const SCREENS: &[(&str, &[(&str, &str)])] = &[
     ("store.plugin", &[("id", "reading-aids")]),
+    ("store.shots", &[("id", "reading-aids")]),
+    (
+        "store.source",
+        &[("title", "Clock"), ("text", "https://x.example/c")],
+    ),
+    ("settings.choose", &[("id", "core.language")]),
+    ("help.overlay", &[("id", "home.dashboard")]),
+    ("home.status-items", &[("id", "home.footer.items")]),
+    ("files.names", &[("kind", "authors")]),
     ("opds.browse", &[("id", "0")]),
     ("wikipedia.lookup", &[("word", "Wonderland")]),
 ];

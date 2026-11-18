@@ -2,9 +2,10 @@
 use super::registrations::{self as wire, Record};
 use crate::native_host::codec;
 use crate::native_host::ui_store::Info;
-use crate::{Place, Turn};
+use crate::{Ask, Place, Turn};
 #[cfg(test)]
 use alloc::rc::Rc;
+use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_graphics::Canvas;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY};
@@ -292,10 +293,12 @@ impl<D: Dispatch> NativeScreen<D> {
         self.status(result)
     }
 
-    fn opened(&self, again: bool, info: Info, cx: &mut Turn<'_, '_>) {
+    /// Tells the plugin its screen opened. Whether it took it: a screen
+    /// whose plugin refused is closed by the caller ([`Self::refused`]).
+    fn opened(&self, again: bool, info: Info, cx: &mut Turn<'_, '_>) -> bool {
         let env = cx.env();
         let Some(key) = self.key else {
-            return;
+            return true;
         };
         let slot = env
             .stack()
@@ -315,16 +318,30 @@ impl<D: Dispatch> NativeScreen<D> {
                 text_bytes: info.text_bytes,
             }),
             cx,
-        );
+        )
     }
 
-    fn event(&self, record: Record<'_>, cx: &mut Turn<'_, '_>) {
+    /// A screen whose plugin refused its open (`screen_opened` ended with an
+    /// error) has no plugin screen behind it any more and would stay as a blank
+    /// one: it is closed again and the user told, in words that name neither
+    /// the screen nor its params.
+    fn refused(cx: &mut Turn<'_, '_>) {
+        cx.close();
+        let words = cx.env().i18n().tr("core.screen.open-failed");
+        let mut text = String::new();
+        if text.try_reserve_exact(words.len()).is_ok() {
+            text.push_str(words);
+            cx.command(Ask::Notify(text));
+        }
+    }
+
+    fn event(&self, record: Record<'_>, cx: &mut Turn<'_, '_>) -> bool {
         let mut bytes = [0; 384];
         let result = codec::encode_batch(&[record], &mut bytes).and_then(|len| {
             self.dispatch
                 .screen_callback(self.key, self.token, &bytes[..len], cx, false)
         });
-        self.status(result);
+        self.status(result)
     }
 
     /// Sends `text` as `event.text_typed` records of at most 1,024 bytes,
@@ -579,7 +596,9 @@ impl<D: Dispatch> NativeScreen<D> {
                 params: self.params_count,
                 ..Info::NONE
             };
-            self.opened(false, info, cx);
+            if !self.opened(false, info, cx) {
+                return Self::refused(cx);
+            }
         }
         self.shown(cx);
     }
@@ -604,7 +623,9 @@ impl<D: Dispatch> NativeScreen<D> {
         let again = self.opened;
         self.key = cx.key();
         self.opened = self.key.is_some();
-        self.opened(again, info, cx);
+        if !self.opened(again, info, cx) {
+            return Self::refused(cx);
+        }
         // A test's screen hears the params it is opened again with.
         #[cfg(any(test, feature = "testing"))]
         if again {

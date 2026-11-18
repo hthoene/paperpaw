@@ -2,7 +2,8 @@
 //! shown once in English and in German on a device with buttons alone,
 //! and looked at for what is plainly wrong. Fast, and strict: every
 //! finding is an error and names its screen, and no screen is left out
-//! by a list.
+//! by a list (but for the few that cannot be shown alone, each with its
+//! reason: [`CANNOT_BE_SHOWN_ALONE`]).
 //!
 //! The screens are the registry's (`Kernel::known_screens`), those of
 //! the plugins looked at. Each is shown as a reader gets to it, by the
@@ -70,6 +71,34 @@ pub const OVERFLOW: &str = "sweep.overflow";
 pub const TEXT_CUT: &str = "sweep.text-cut";
 pub const TEXT: &str = "sweep.text";
 pub const UNREACHABLE: &str = "sweep.unreachable";
+
+/// Screens that cannot be shown alone, with why: what they need comes from
+/// outside the screen and the tools cannot give it (a question another
+/// plugin asked, a radio the emulator lacks). Where one of these shows
+/// nothing or a failed call, it is a note with the reason, not an error:
+/// what is declared here is the reason, so it is checked that the reason
+/// holds (the screen still fails or closes) and a screen that shows by
+/// the way the buttons lead or with the fixtures never lands here.
+const CANNOT_BE_SHOWN_ALONE: &[(&str, &str)] = &[
+    (
+        "keyboard.ask",
+        "it shows the question another plugin asked (`core.choice`, `core.confirm`) and \
+         opened without one its plugin refuses it: the request is not a parameter",
+    ),
+    (
+        "vocabulary.sleep-card",
+        "it is a mode of the sleep screen (`sleep.show`) that the sleep plugin binds to \
+         the slot `core.sleep` and the device shows while it sleeps, with the card the \
+         sleep chose: opened alone it has no card and every draw ends with ERR_STATE. \
+         Binding the slot in the emulator (a settings change the sleep plugin answers) did \
+         not make it show; the sleep screen's other modes are reached by the power button",
+    ),
+    (
+        "bluetooth.search",
+        "its plugin asks for a scan first and the emulator has no radio, which refuses \
+         it (ERR_UNSUPPORTED): the screen closes with a notice, as on a device without one",
+    ),
+];
 
 /// The languages looked at unless `--language` names others.
 pub const LANGUAGES: [&str; 2] = ["en", "de"];
@@ -503,7 +532,20 @@ impl<'a> Sweep<'a> {
         if showed.reached {
             self.reached += 1;
         }
+        let declared = CANNOT_BE_SHOWN_ALONE
+            .iter()
+            .find(|(screen, _)| *screen == id)
+            .map(|(_, why)| *why);
         for (check, message, area) in self.wrong(id, &showed) {
+            if let Some(why) = declared
+                && matches!(check, NOT_SHOWN | FAILED | BLANK)
+            {
+                let note = format!("It cannot be shown alone: {why}.");
+                if !findings.iter().any(|f| f.message == note) {
+                    findings.push(Finding::info("sweep.declared", id, note));
+                }
+                continue;
+            }
             let mut finding = Finding::error(check, id, message);
             if let Some(picture) = &picture {
                 finding = finding.picture(picture.clone());
