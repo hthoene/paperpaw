@@ -7,7 +7,7 @@ use super::*;
 
 /// What the kernel keeps for books, and cleaning up what is left of books
 /// no longer found: caches by themselves, the reader's data when asked.
-pub(super) fn register_clean_up(r: &mut Items) -> Result<(), RegisterError> {
+pub(super) fn register_clean_up(r: &mut Staging) -> Result<(), RegisterError> {
     // The notes of books are the kernel's, and the details (with the
     // day a book came and plugins' fields, which are not read again).
     r.add_book_data(paperpaw_sdk::data_path!("annotations"), "")?;
@@ -27,7 +27,7 @@ pub(super) fn register_clean_up(r: &mut Items) -> Result<(), RegisterError> {
         k.with_event(&CLEAN_UP_ANSWERED, p, |env, answer, out| {
             if answer.yes {
                 let text = clean_up(env, out, BookDataKind::UserData);
-                out.push(Command::Notify(text));
+                out.push(Ask::Notify(text));
             }
         });
     })?;
@@ -39,7 +39,7 @@ pub(super) fn register_clean_up(r: &mut Items) -> Result<(), RegisterError> {
             k.with_env(|env, out| {
                 // What it found is its note, no notice.
                 let text = clean_up(env, out, BookDataKind::Cache);
-                out.push(Command::Notify(text));
+                out.push(Ask::Notify(text));
             });
             paperpaw_sdk::work::Step::Done
         },
@@ -55,7 +55,7 @@ pub(super) fn register_clean_up(r: &mut Items) -> Result<(), RegisterError> {
 /// Cleans up the caches of books not found, then asks whether the
 /// reader's data of those books goes too, saying of how many: a book
 /// renamed on a computer, or on a card not inserted, is not found either.
-pub(super) fn ask_clean_up(env: &crate::Place<'_>, out: &mut paperpaw_sdk::Commands) {
+pub(super) fn ask_clean_up(env: &crate::Place<'_>, out: &mut crate::Asks) {
     let text = clean_up(env, out, BookDataKind::Cache);
     let user = BookDataKind::UserData;
     match library::unused_books(env.storage(), env.book_data(), library::folder(env), user) {
@@ -71,7 +71,7 @@ pub(super) fn ask_clean_up(env: &crate::Place<'_>, out: &mut paperpaw_sdk::Comma
                     .command(),
             );
         }
-        _ => out.push(Command::Notify(text)),
+        _ => out.push(Ask::Notify(text)),
     }
 }
 
@@ -79,11 +79,7 @@ pub(super) fn ask_clean_up(env: &crate::Place<'_>, out: &mut paperpaw_sdk::Comma
 /// any format, by any spelling; nothing where a folder could not be read.
 /// Notes the time and declares the next time it is done by itself; what
 /// it did, to say.
-fn clean_up(
-    env: &crate::Place<'_>,
-    out: &mut paperpaw_sdk::Commands,
-    kind: BookDataKind,
-) -> String {
+fn clean_up(env: &crate::Place<'_>, out: &mut crate::Asks, kind: BookDataKind) -> String {
     let library = library::folder(env);
     let text = match library::clean_up_unused(env.storage(), env.book_data(), library, kind) {
         Ok(removed) => env.i18n().format(

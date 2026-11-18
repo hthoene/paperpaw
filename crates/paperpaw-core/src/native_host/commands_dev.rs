@@ -15,6 +15,7 @@ use super::{CommandBatch, CommandStage, WireCommand, ui};
 
 #[path = "commands_dev_firmware.rs"]
 mod firmware;
+use crate::Ask;
 use crate::native_host::{admitted_features::AdmittedFeatures, radio_requests::*};
 use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::{cell::RefCell, fmt, time::Duration};
@@ -24,7 +25,7 @@ use paperpaw_native::host_glue::{
     ERR_BUSY, ERR_DENIED, ERR_FULL, ERR_INVALID, ERR_NO_MEMORY, ERR_NOT_FOUND, ERR_UNSUPPORTED,
 };
 use paperpaw_sdk::{
-    Command, Id, SettingValue, StackEntry, power::MODE_KIND, power::Wear, wifi::WifiCommand,
+    Id, SettingValue, StackEntry, power::MODE_KIND, power::Wear, wifi::WifiCommand,
 };
 
 /// The feature key of commands 1564-1571.
@@ -238,7 +239,7 @@ impl DevBatch {
 
 /// What [`CommandStage::into_dev_output`] returns.
 #[cfg(test)]
-pub(crate) type DevBatchOutput = (Vec<Command>, Option<ui::Redraw>, u8, DevBatch);
+pub(crate) type DevBatchOutput = (Vec<Ask>, Option<ui::Redraw>, u8, DevBatch);
 
 /// What the stage needs to judge DEV commands. Without it every DEV command
 /// is `ERR_UNSUPPORTED`, as before the host wired the family.
@@ -374,7 +375,7 @@ impl<'a> CommandStage<'a> {
     /// reservations pass to the returned batch, which gives back the ones it
     /// never applied when dropped.
     #[cfg(test)]
-    pub(crate) fn into_dev_output(mut self) -> (Vec<Command>, Option<ui::Redraw>, u8, DevBatch) {
+    pub(crate) fn into_dev_output(mut self) -> (Vec<Ask>, Option<ui::Redraw>, u8, DevBatch) {
         let batch = self.take_dev();
         let (commands, redraw, hop) = self.into_ui_output();
         (commands, redraw, hop, batch)
@@ -727,7 +728,7 @@ impl crate::Kernel {
     pub(crate) fn drain_native_dev(
         &mut self,
         owner: &Id,
-        commands: Vec<Command>,
+        commands: Vec<Ask>,
         redraw: Option<ui::Redraw>,
         batch: DevBatch,
         host: &DevHost<'_>,
@@ -767,26 +768,22 @@ impl crate::Kernel {
         fw: &mut Option<FwRelease>,
     ) {
         match op {
-            DevOp::WifiOn => self.apply(Command::Wifi(WifiCommand::On)),
-            DevOp::WifiScan => self.apply(Command::Wifi(WifiCommand::Scan)),
+            DevOp::WifiOn => self.apply(Ask::Wifi(WifiCommand::On)),
+            DevOp::WifiScan => self.apply(Ask::Wifi(WifiCommand::Scan)),
             DevOp::WifiOff => self.radio_stops(WifiCommand::Off),
             DevOp::WifiLeave => self.radio_stops(WifiCommand::Leave),
-            DevOp::NetworkNone => self.apply(Command::NoNetwork),
+            DevOp::NetworkNone => self.apply(Ask::NoNetwork),
             DevOp::GoOnline { for_ms } => self.apply_go_online(for_ms, host),
-            DevOp::Sleep => self.apply(Command::Sleep),
+            DevOp::Sleep => self.apply(Ask::Sleep),
             // A guard that came up since the submit holds them too.
             DevOp::PowerOff | DevOp::Restart if self.guarded_against(owner) => {
                 self.warn_runtime("native power-off or restart dropped: another plugin guards");
             }
-            DevOp::PowerOff => self.apply(Command::PowerOff),
-            DevOp::Restart => self.apply(Command::Restart),
+            DevOp::PowerOff => self.apply(Ask::PowerOff),
+            DevOp::Restart => self.apply(Ask::Restart),
             DevOp::Wear { mode, automatic } => {
                 let wear = Wear::new(mode);
-                self.apply(Command::Wear(if automatic {
-                    wear.automatic()
-                } else {
-                    wear
-                }));
+                self.apply(Ask::Wear(if automatic { wear.automatic() } else { wear }));
             }
             DevOp::Join(join) => self.apply_join(owner, join, host, token),
             DevOp::Firmware(op) => Self::apply_firmware(op, fw),
@@ -804,7 +801,7 @@ impl crate::Kernel {
         if let Ok(mut table) = self.radio_requests.try_borrow_mut() {
             table.radio_stopped();
         }
-        self.apply(Command::Wifi(command));
+        self.apply(Ask::Wifi(command));
     }
 
     /// `go_online` is honoured only within the window after a user input,
@@ -817,9 +814,7 @@ impl crate::Kernel {
         // The host judged this the user's choice; the kernel's own rule asks
         // for the reader's call, which a later event in the window is not.
         let reader = core::mem::replace(&mut self.shared.reader, true);
-        self.apply(Command::GoOnlineFor(Duration::from_millis(u64::from(
-            for_ms,
-        ))));
+        self.apply(Ask::GoOnlineFor(Duration::from_millis(u64::from(for_ms))));
         self.shared.reader = reader;
     }
 
@@ -870,7 +865,7 @@ impl crate::Kernel {
             table.activate(name, request, host.clock.now_ms());
         }
         let ssid = join.ssid;
-        self.apply(Command::Wifi(if join.host {
+        self.apply(Ask::Wifi(if join.host {
             WifiCommand::Host { ssid, password }
         } else {
             WifiCommand::Join { ssid, password }

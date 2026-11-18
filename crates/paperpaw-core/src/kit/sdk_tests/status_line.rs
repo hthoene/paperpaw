@@ -43,7 +43,7 @@ const LEVEL: &str = "t.battery";
 const ICON: &str = "t.speaking";
 const NOTHING: &str = "t.nothing";
 
-/// Items whose values come from the context: the chapter's title, the
+/// Staging whose values come from the context: the chapter's title, the
 /// page, a battery at a level, an icon, and one that shows nothing.
 fn harness() -> Harness {
     let mut h = Harness::new(Device::TOUCH);

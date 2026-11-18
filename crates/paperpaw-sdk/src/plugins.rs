@@ -1,9 +1,9 @@
 //! The plugins the kernel knows about: running, switched off or failed.
 //!
-//! Plugin managers read this list through [`Env::plugins`](crate::Env) and
-//! switch plugins with [`Command::SetPluginEnabled`](crate::Command). The
+//! Plugin managers read this list through `Place::plugins` and
+//! switch plugins with `Ask::SetPluginEnabled`. The
 //! change is saved to `paperpaw.ini` and applies after a restart
-//! ([`Command::Restart`](crate::Command)).
+//! (`Ask::Restart`).
 
 use alloc::boxed::Box;
 use alloc::format;
@@ -17,7 +17,7 @@ use crate::plugin::Manifest;
 
 pub mod requires;
 
-/// The most plugins one [`Command::RequestPlugins`](crate::Command::RequestPlugins)
+/// The most plugins one `Ask::RequestPlugins`
 /// asks for; those past it are left out.
 pub const MAX_REQUESTED_PLUGINS: usize = 32;
 
@@ -257,7 +257,7 @@ pub struct PluginInfo {
     /// Why it does not run, where its code is the reason.
     pub problem: Option<PluginProblem>,
     /// A newer version installed while its code runs
-    /// ([`Command::InstallPlugin`](crate::Command::InstallPlugin)): it
+    /// (`Ask::InstallPlugin`): it
     /// takes over at the next start.
     pub update: Option<crate::Version>,
 }
@@ -374,7 +374,7 @@ impl Plugins {
 
     /// The plugin that added `id` (an action, a screen, a setting …): what
     /// a plugin adds is in its namespace, the registrar refuses anything
-    /// else (see `Items`).
+    /// else (see `Staging`).
     pub fn owner(&self, id: &Id) -> Option<&PluginInfo> {
         self.get(id.namespace())
     }

@@ -2,7 +2,7 @@
 //! while it is open.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::{MemoryStorage, Params};
 
@@ -24,7 +24,7 @@ impl crate::testing::Fake for ReaderScreen {
     }
 
     fn on_show(&mut self, cx: &mut Turn<'_, '_>) {
-        cx.command(Command::SetScope(Some(String::from(BOOK_SETTINGS))));
+        cx.command(Ask::SetScope(Some(String::from(BOOK_SETTINGS))));
     }
 
     fn on_event(&mut self, event: &Id, _: &Params, cx: &mut Turn<'_, '_>) {
@@ -39,7 +39,7 @@ impl crate::testing::Fake for ReaderScreen {
 
     fn on_close(&mut self, cx: &mut Turn<'_, '_>) {
         self.log.borrow_mut().push(String::from("reader close"));
-        cx.command(Command::Emit(CLOSED, Params::new()));
+        cx.command(Ask::Emit(CLOSED, Params::new()));
     }
 
     fn on_timer(&mut self, _: &mut Turn<'_, '_>) {
@@ -76,7 +76,7 @@ impl crate::testing::Fake for Other {
 /// A reader that keeps a book's own settings while it is open and asks
 /// for a timer when a setting changes; a menu over the lower half of the
 /// screen and a full screen, each saying when its timer comes.
-fn book_plugin(kept0: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn book_plugin(kept0: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept0.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -202,7 +202,7 @@ fn values_tried_end_with_the_screen_that_tried_them() {
         Id::new_static("core.night-mode"),
         Some(SettingValue::Bool(true))
     )];
-    kernel.apply(Command::PreviewSettings(tried));
+    kernel.apply(Ask::PreviewSettings(tried));
     kernel.finish();
     assert!(kernel.settings().bool("core.night-mode"));
     kernel.resize(Instant(2), 80, 90);

@@ -57,7 +57,7 @@ use crate::abi7::context::HostStatus;
 #[path = "host_status.rs"]
 pub(crate) mod host_status;
 
-/// Items one op 14 asks for.
+/// Staging one op 14 asks for.
 const ITEMS_MAX: usize = 8;
 const ITEM_BYTES: usize = 128;
 const TEXT_BYTES: usize = 128;

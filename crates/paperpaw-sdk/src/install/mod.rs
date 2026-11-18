@@ -8,7 +8,7 @@
 //! its size and digest. Once all are there the job is complete: the owner
 //! looks at what came if it wants (a code plugin's author, see
 //! [`native::author`](crate::native::author)) and has the kernel install it
-//! (`Installer::install`, `Command::InstallPlugin`): in place of every
+//! (`Installer::install`, `Ask::InstallPlugin`): in place of every
 //! version of it before, which stays until the new one is all there, and
 //! with what was chosen from it still chosen. Nothing is unpacked and
 //! nothing is held whole in memory: each file goes from the network
@@ -16,7 +16,7 @@
 //!
 //! What is left to do is kept in the plugin's own folder, so a download
 //! goes on while none of its screens is open: the plugin hears the
-//! answers with `Items::on` and hands them to
+//! answers with `Staging::on` and hands them to
 //! `Installer::received`.
 
 #[cfg(any(test, feature = "kernel"))]

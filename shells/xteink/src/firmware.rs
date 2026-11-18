@@ -37,6 +37,7 @@ mod paced;
 mod remote_commands;
 #[cfg(feature = "asleep-light")]
 mod sleeping_board;
+mod turn_lab;
 mod waveform;
 
 /// How long the main loop rests when there is nothing to do.
@@ -177,6 +178,8 @@ pub struct State {
     /// The panel showed grays until the frame being drawn: its refresh drives
     /// every pixel ([`clean`]).
     after_gray: bool,
+    /// LAB ONLY (#40, feature `turn-lab`): the page-turn variant.
+    turn_lab: turn_lab::Lab,
 }
 
 /// The place of `refresh` in [`State::refresh_ms`].
@@ -1340,6 +1343,7 @@ impl Firmware {
             // Partial and fast, and modes to come.
             _ => Refresh::Fast,
         };
+        let turn = self.turn_lab(mode, &mut refresh);
         // After grays, home is drawn while the panel is cleaned to white
         // and then shown with a fast refresh (see `clean`).
         let mut cleaning = self.cleans_while_drawing(after_gray, refresh == Refresh::Half);
@@ -1408,10 +1412,12 @@ impl Firmware {
         let drawn = now();
         self.kernel.showing(drawn);
         self.set_waveform(refresh, mode);
+        self.turn_lab_waveform(turn, refresh);
         if let Err(e) = self.refresh(refresh) {
             failed = Some(e);
         }
         let shown = now();
+        turn_lab::log(turn, refresh, shown.since(drawn));
         self.kernel.panel_busy(shown.since(drawn));
         self.kernel.shown(shown);
         let ms = core::time::Duration::from_millis;

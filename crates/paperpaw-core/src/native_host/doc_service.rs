@@ -961,7 +961,7 @@ enum Check {
 
 /// The request record of ops 3-17; another tag is `ERR_INVALID`.
 #[derive(Clone, Copy)]
-enum Ask<'a> {
+enum DocAsk<'a> {
     Ref(wire::ServiceDocRef),
     TextAt(wire::ServiceDocTextAt),
     Page(wire::ServiceDocPage<'a>),
@@ -973,7 +973,7 @@ enum Ask<'a> {
     Question(wire::ServiceDocImageAsk),
 }
 
-impl<'a> Ask<'a> {
+impl<'a> DocAsk<'a> {
     fn of(input: &'a [u8]) -> Result<Self, i32> {
         let raw = wire::RawRecord::single(input)?;
         Ok(match raw.tag() {
@@ -1015,8 +1015,8 @@ fn require(ok: bool) -> Result<(), i32> {
 }
 
 /// A page of ops 5, 7, 14: `scope` is op 21's alone.
-fn page(record: &Ask<'_>) -> Result<(u32, u32), i32> {
-    let Ask::Page(page) = record else {
+fn page(record: &DocAsk<'_>) -> Result<(u32, u32), i32> {
+    let DocAsk::Page(page) = record else {
         return Err(ERR_INVALID);
     };
     require(page.scope.is_empty())?;
@@ -1051,22 +1051,22 @@ fn locating(id: u32) -> (u32, Check) {
 fn prepare<'a>(
     id: u32,
     document: &Document,
-    record: &Ask<'a>,
+    record: &DocAsk<'a>,
 ) -> Result<(FormatCall<'a>, Check), i32> {
     let mut call = FormatCall::new(document.format, 0, document.id);
     call.conversion = document.conversion;
     let check = match (id, record) {
-        (op::META, Ask::Ref(_)) => {
+        (op::META, DocAsk::Ref(_)) => {
             call.op = fmt::META;
             Check::Meta
         }
-        (op::COVER, Ask::Ref(_)) => {
+        (op::COVER, DocAsk::Ref(_)) => {
             call.op = fmt::COVER;
             call.cover_side = document.cover_side;
             call.image_side = document.image_side;
             Check::Image
         }
-        (op::META_TEXT, Ask::TextAt(r)) => {
+        (op::META_TEXT, DocAsk::TextAt(r)) => {
             // 0 title, 1 author, 2 subject, 3 description, 4 series; only
             // authors and subjects are lists.
             require(r.kind <= 4)?;
@@ -1091,8 +1091,8 @@ fn prepare<'a>(
             call.op = format_op;
             check
         }
-        (op::BLOCK, Ask::At(r)) => block_ask(r, document, &mut call)?,
-        (op::PAGE_LABEL | op::XPOINTER | op::PROGRESS, Ask::At(r)) => {
+        (op::BLOCK, DocAsk::At(r)) => block_ask(r, document, &mut call)?,
+        (op::PAGE_LABEL | op::XPOINTER | op::PROGRESS, DocAsk::At(r)) => {
             position(r)?;
             call.section = r.section;
             call.offset = r.offset;
@@ -1100,18 +1100,18 @@ fn prepare<'a>(
             call.op = format_op;
             check
         }
-        (op::TOC_TARGET, Ask::Index(r)) => {
+        (op::TOC_TARGET, DocAsk::Index(r)) => {
             call.op = fmt::TOC_TARGET;
             call.index = r.index;
             Check::At
         }
-        (op::LOCATE, Ask::Xpointer(r)) => {
+        (op::LOCATE, DocAsk::Xpointer(r)) => {
             require(!r.text.is_empty())?;
             call.op = fmt::LOCATE;
             call.text = r.text;
             Check::At
         }
-        (op::LINKS, Ask::Span(r)) => {
+        (op::LINKS, DocAsk::Span(r)) => {
             require(r.from <= r.to)?;
             args::page_state(r.cursor, r.generation)?;
             call.op = fmt::LINKS;
@@ -1125,13 +1125,13 @@ fn prepare<'a>(
                 generation: r.generation,
             }
         }
-        (op::LINK_TARGET, Ask::Href(r)) => {
+        (op::LINK_TARGET, DocAsk::Href(r)) => {
             require(!r.href.is_empty())?;
             call.op = fmt::LINK_TARGET;
             call.text = r.href;
             Check::At
         }
-        (op::IMAGE, Ask::Question(r)) => {
+        (op::IMAGE, DocAsk::Question(r)) => {
             if r.index == u32::MAX {
                 // The cover is index `u32::MAX` (`document.md` 5): its own
                 // size, larger when asked.
@@ -1153,7 +1153,7 @@ fn prepare<'a>(
 
 /// Ops 3-17: ask the format, check its answer, pass it on.
 fn read(host: &dyn DocHost, op: &ServiceOp, input: &[u8], out: &mut [u8]) -> Result<usize, i32> {
-    let record = Ask::of(input)?;
+    let record = DocAsk::of(input)?;
     let id = record.document();
     let document = host.table().ready(host.owner(), id)?;
     let (call, check) = prepare(op.id, &document, &record)?;

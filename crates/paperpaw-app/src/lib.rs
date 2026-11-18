@@ -155,6 +155,8 @@ pub const fn default_store() -> StorePlugins<'static> {
 pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("about", &paperpaw_plugin_about::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
+    ("anki", &paperpaw_plugin_anki::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
     ("aids", &paperpaw_plugin_aids::NATIVE_ENTRY),
     ("bluetooth", &paperpaw_plugin_bluetooth::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-reading")]
@@ -257,6 +259,8 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("translate", &paperpaw_plugin_translate::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("pomodoro", &paperpaw_plugin_pomodoro::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    ("puzzles", &paperpaw_plugin_puzzles::NATIVE_ENTRY),
     ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
 
@@ -266,6 +270,7 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
 /// holds: a build without `native-linked-store` does not have these ids at all.
 #[cfg(feature = "native-linked-store")]
 pub const LINKED_STORE_PLUGINS: &[&str] = &[
+    "anki",
     "battery",
     "calibre",
     "diagnostics",
@@ -276,6 +281,7 @@ pub const LINKED_STORE_PLUGINS: &[&str] = &[
     "notes-overview",
     "pomodoro",
     "profiles",
+    "puzzles",
     "reading-goal",
     "rules",
     "stats",

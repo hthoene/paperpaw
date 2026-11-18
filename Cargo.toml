@@ -90,12 +90,15 @@ members = [
     "plugins/wallabag",
     "plugins/about",
     "plugins/anki",
+    "plugins/picture-frame",
+    "plugins/file-sync",
     "plugins/setup",
     "plugins/update",
     "plugins/widgets",
     "plugins/news",
     "plugins/weather",
     "plugins/pomodoro",
+    "plugins/puzzles",
     "plugins/plugin-manager",
     "plugins/settings",
     "plugins/home",
@@ -198,11 +201,14 @@ paperpaw-plugin-koreader = { path = "plugins/koreader", version = "1.0.6" }
 paperpaw-plugin-wallabag = { path = "plugins/wallabag", version = "1.0.2" }
 paperpaw-plugin-about = { path = "plugins/about", version = "1.0.3" }
 paperpaw-plugin-anki = { path = "plugins/anki", version = "1.0.0" }
+paperpaw-plugin-picture-frame = { path = "plugins/picture-frame", version = "1.0.0" }
+paperpaw-plugin-file-sync = { path = "plugins/file-sync", version = "1.0.0" }
 paperpaw-plugin-setup = { path = "plugins/setup", version = "1.0.4" }
 paperpaw-plugin-update = { path = "plugins/update", version = "1.0.2" }
 paperpaw-plugin-news = { path = "plugins/news", version = "1.0.5" }
 paperpaw-plugin-weather = { path = "plugins/weather", version = "1.0.2" }
 paperpaw-plugin-pomodoro = { path = "plugins/pomodoro", version = "1.0.0" }
+paperpaw-plugin-puzzles = { path = "plugins/puzzles", version = "1.0.0" }
 paperpaw-plugin-widgets = { path = "plugins/widgets", version = "1.0.3" }
 paperpaw-plugin-keyboard = { path = "plugins/keyboard", version = "1.1.0" }
 paperpaw-plugin-plugin-manager = { path = "plugins/plugin-manager", version = "1.0.4" }

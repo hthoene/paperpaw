@@ -7,6 +7,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
+use crate::Ask;
 use crate::kit::action::ActionSpec;
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
@@ -14,13 +15,13 @@ use paperpaw_platform::{
 use paperpaw_sdk::bluetooth::{self, BtEvent, DeviceId, Security, Uuid};
 use paperpaw_sdk::replies::Confirmed;
 use paperpaw_sdk::{
-    Command, Event, EventData, Id, Manifest, MemoryStorage, Params, RegisterError, Uses, Version,
+    Event, EventData, Id, Manifest, MemoryStorage, Params, RegisterError, Uses, Version,
 };
 
 use super::questions;
 use crate::native_host::shared::Shared;
 use crate::native_host::ui_store::UiStore;
-use crate::{BtCall, BtReport, Found, Io, Items, Kernel, PairQuestion};
+use crate::{BtCall, BtReport, Found, Io, Kernel, PairQuestion, Staging};
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "test",
@@ -39,10 +40,10 @@ extern crate std;
 
 std::thread_local! {
     /// What the test queued for the plugin's action to run.
-    static QUEUE: RefCell<Vec<Command>> = const { RefCell::new(Vec::new()) };
+    static QUEUE: RefCell<Vec<Ask>> = const { RefCell::new(Vec::new()) };
 }
 
-fn pulse(r: &mut Items) -> Result<(), RegisterError> {
+fn pulse(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_action(ActionSpec::new(GO, "go").handler(|_, _, out| {
         QUEUE.with(|queue| out.extend(queue.borrow_mut().drain(..)));
     }))?;
@@ -87,8 +88,12 @@ impl Test {
         Instant(self.now)
     }
 
-    fn run(&mut self, commands: impl IntoIterator<Item = Command>) {
-        QUEUE.with(|queue| queue.borrow_mut().extend(commands));
+    fn run(&mut self, requests: impl IntoIterator<Item = paperpaw_sdk::bluetooth::BtRequest>) {
+        QUEUE.with(|queue| {
+            queue
+                .borrow_mut()
+                .extend(requests.into_iter().map(Ask::from))
+        });
         let at = self.at();
         self.kernel.run_action(at, GO);
     }

@@ -6,13 +6,14 @@
 //! reset of many names the values kept now (and the active scope's) that it
 //! covers, each one the submitter may write: what is kept on reset, secrets,
 //! grants and another plugin's guarded settings are left as they are. Each
-//! becomes one [`Command::ResetSetting`], in the batch's order; the room for
+//! becomes one [`Ask::ResetSetting`], in the batch's order; the room for
 //! them is reserved before anything is staged. The two resets that need the
 //! reader's consent (another plugin's settings, every setting) are refused:
 //! the host has no consent dialog yet.
 use super::{CommandBatch, CommandStage, WireCommand, ui};
+use crate::Ask;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED};
-use paperpaw_sdk::{Command, Id, Settings};
+use paperpaw_sdk::{Id, Settings};
 
 /// `flags` bit 0: `key` is a group.
 const GROUP: u32 = 1;
@@ -149,7 +150,7 @@ impl<'a> CommandStage<'a> {
     }
 
     /// How many settings the resets of `batch` reset, every reset checked:
-    /// the `Command`s they are staged as ([`Self::stage_reset`]).
+    /// the `Ask`s they are staged as ([`Self::stage_reset`]).
     #[inline(never)]
     pub(super) fn reset_count(&self, batch: &CommandBatch<'_>) -> Result<usize, i32> {
         let mut count = 0_usize;
@@ -173,7 +174,7 @@ impl<'a> CommandStage<'a> {
             if staged.len() == staged.capacity() {
                 return Err(ERR_NO_MEMORY);
             }
-            staged.push(Command::ResetSetting(ui::copy_id(id)?));
+            staged.push(Ask::ResetSetting(ui::copy_id(id)?));
             Ok(())
         })
     }

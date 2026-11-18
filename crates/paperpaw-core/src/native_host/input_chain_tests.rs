@@ -406,7 +406,7 @@ fn a_display_of_no_size_clamps_to_the_origin_and_does_not_panic() {
 /// lock and PIN screens of another plugin.
 mod kernel {
     use super::*;
-    use crate::Items;
+    use crate::Staging;
     use crate::kit::action::ActionSpec;
     use crate::native_host::{
         declaration_store::Allocations,
@@ -493,7 +493,7 @@ mod kernel {
         }
     }
 
-    fn screens(kept: &'static str) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    fn screens(kept: &'static str) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
         move |r| {
             if kept == "g" {
                 r.add_fake(crate::testing::FakeSpec::new(

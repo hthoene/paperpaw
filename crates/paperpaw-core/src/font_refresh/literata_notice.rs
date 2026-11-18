@@ -1,5 +1,6 @@
 //! The upgrade hint for a saved Literata choice on a card without its pack.
-use paperpaw_sdk::{Command, Id, Params, builtin::slots};
+use crate::Ask;
+use paperpaw_sdk::{Id, Params, builtin::slots};
 
 pub(crate) const SEEN: &str = "literata-pack-notice-seen";
 
@@ -13,7 +14,7 @@ impl crate::Kernel {
     pub(crate) fn literata_notice_answer(&mut self, params: &Params) {
         self.save_config("core", SEEN, "on");
         if params.get("store") == Some("yes") {
-            self.output.commands.push(Command::OpenScreen(
+            self.output.commands.push(Ask::OpenScreen(
                 Id::new_static("store.plugin"),
                 Params::new().with("id", "literata-styles"),
             ));

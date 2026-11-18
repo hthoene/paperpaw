@@ -3,7 +3,7 @@
 //! layers put in front, guards.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::{Gesture, GestureKind, Params};
 
 /// A kernel showing plugin `a`'s screen, with its key map `keymap`.
@@ -94,7 +94,7 @@ impl crate::testing::Fake for Taps {
     }
 }
 
-fn taps_plugin(kept0: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn taps_plugin(kept0: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept0.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -167,7 +167,7 @@ impl crate::testing::Fake for Layered {
             "lay.off" => cx.set_key_layer(None),
             "lay.other" => {
                 let below = cx.env().stack()[0].key;
-                cx.command(Command::SetKeyLayer(below, Some(book)));
+                cx.command(Ask::SetKeyLayer(below, Some(book)));
             }
             _ if *action == actions::CONFIRM => {}
             _ => return Handled::No,
@@ -176,7 +176,7 @@ impl crate::testing::Fake for Layered {
     }
 }
 
-fn layer_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn layer_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -218,12 +218,12 @@ fn layered(log: &Log) -> Kernel {
 fn inputs_raised_and_layers_put_in_front() {
     let log = log();
     let mut kernel = layered(&log);
-    kernel.apply(Command::Input(String::from("button.confirm")));
+    kernel.apply(Ask::Input(String::from("button.confirm")));
     kernel.finish();
     assert_eq!(*log.borrow(), ["lay:core.confirm"]);
     log.borrow_mut().clear();
     kernel.run_action(Instant(10), Id::new_static("lay.on"));
-    kernel.apply(Command::Input(String::from("button.confirm")));
+    kernel.apply(Ask::Input(String::from("button.confirm")));
     kernel.finish();
     assert_eq!(*log.borrow(), ["lay:lay.on", "lay:lay.hit"]);
     log.borrow_mut().clear();
@@ -232,7 +232,7 @@ fn inputs_raised_and_layers_put_in_front() {
     assert_eq!(*log.borrow(), ["lay:lay.off", "lay:core.confirm"]);
     // By command, also with the screen's own key: not laid.
     let key = paperpaw_sdk::ScreenKey::new(kernel.stack[0].serial);
-    kernel.apply(Command::SetKeyLayer(key, Some(Id::new_static("book.mine"))));
+    kernel.apply(Ask::SetKeyLayer(key, Some(Id::new_static("book.mine"))));
     kernel.finish();
     assert_eq!(kernel.stack[0].key_layer, None);
     // By a screen for the one below it: not laid.
@@ -243,7 +243,7 @@ fn inputs_raised_and_layers_put_in_front() {
     );
     kernel.run_action(Instant(40), Id::new_static("lay.other"));
     assert_eq!(kernel.stack[0].key_layer, None);
-    kernel.apply(Command::Input(String::from("no.such-input")));
+    kernel.apply(Ask::Input(String::from("no.such-input")));
     kernel.finish();
     let warnings = kernel.take_warnings();
     assert!(warnings.iter().any(|w| w.message.contains("no.such-input")));
@@ -271,7 +271,7 @@ impl crate::testing::Fake for Lock {
     }
 }
 
-fn lock_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn lock_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -308,7 +308,7 @@ fn an_input_raised_by_another_plugin_does_not_reach_a_guard() {
     // An input raised by another plugin does not reach the lock: what is
     // typed into it is the reader's alone.
     log.borrow_mut().clear();
-    kernel.apply(Command::Input(String::from("button.menu")));
+    kernel.apply(Ask::Input(String::from("button.menu")));
     kernel.finish();
     assert!(log.borrow().is_empty(), "{:?}", log.borrow());
     press(&mut kernel, 2000, "menu");
@@ -383,10 +383,7 @@ fn no_key_layer_is_laid_below_a_guard() {
     let mut kernel = lock_kernel(&log);
     kernel.open_screen(Instant(1010), Id::new_static("lock.screen"), Params::new());
     let below = paperpaw_sdk::ScreenKey::new(kernel.stack[0].serial);
-    kernel.apply(Command::SetKeyLayer(
-        below,
-        Some(Id::new_static("book.mine")),
-    ));
+    kernel.apply(Ask::SetKeyLayer(below, Some(Id::new_static("book.mine"))));
     kernel.finish();
     assert_eq!(kernel.stack[0].key_layer, None);
 }
@@ -403,7 +400,7 @@ impl crate::testing::Fake for WayScreen {
 }
 
 /// A screen bound to Home; it logs the actions it gets.
-fn way_plugin(kept0: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn way_plugin(kept0: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept0.clone();
         r.add_fake(crate::testing::FakeSpec::new(

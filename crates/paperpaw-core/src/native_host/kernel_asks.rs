@@ -12,12 +12,13 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use crate::Ask;
 use crate::kit::ui::choice::{LABELS, OPTION, OPTIONS};
 use crate::kit::ui::confirm::{FOCUS_YES, NO_LABEL, ONLY_YES, YES_LABEL};
 use paperpaw_sdk::builtin::{params, slots};
 use paperpaw_sdk::event::EventData as _;
 use paperpaw_sdk::replies::Confirmed;
-use paperpaw_sdk::{Command, Id, Params};
+use paperpaw_sdk::{Id, Params};
 
 use super::ui_requests::Question;
 use super::ui_store::{HOST_OWNER, Stamp, UiStore};
@@ -177,6 +178,6 @@ impl crate::Kernel {
                 .with(params::PATH, context.get(params::PATH).unwrap_or_default())
                 .with(OPTION, *option)
         };
-        self.output.commands.push(Command::Emit(reply, answer));
+        self.output.commands.push(Ask::Emit(reply, answer));
     }
 }

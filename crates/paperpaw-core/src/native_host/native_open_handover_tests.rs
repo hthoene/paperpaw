@@ -144,7 +144,7 @@ fn the_selected_text_arrives_as_host_text_not_as_a_param() {
     // It owns the hand-over now: nothing is left claimed, and closing the
     // instance frees it.
     assert_eq!(store.len(), 2);
-    kernel.apply(Command::Close(paperpaw_sdk::ScreenKey::new(instance)));
+    kernel.apply(Ask::Close(paperpaw_sdk::ScreenKey::new(instance)));
     kernel.drain_deferred_ui_closes();
     assert_eq!(store.len(), 1);
 }
@@ -594,14 +594,14 @@ fn opens_dropped_undrained_free_what_they_claimed() {
 fn a_native_screen_the_kernel_opens_with_params_gets_them_handed_over() {
     let (mut kernel, store) = wired();
     // The root is never closed: a base below, without params.
-    kernel.apply(Command::OpenScreen(
+    kernel.apply(Ask::OpenScreen(
         Id::new_static("factory.screen"),
         Params::new(),
     ));
     assert_eq!(store.len(), 0);
     // Opened by no native plugin (a shell's script, an interface-6 plugin,
     // the kernel): the host hands the params over itself.
-    kernel.apply(Command::OpenScreen(
+    kernel.apply(Ask::OpenScreen(
         Id::new_static("factory.screen"),
         Params::new()
             .with("id", "core.rotation")
@@ -624,7 +624,7 @@ fn a_native_screen_the_kernel_opens_with_params_gets_them_handed_over() {
     assert_eq!(read(&store, instance, handover), "A note.");
     assert_eq!(store.len(), 1);
     // Closing the screen frees it.
-    kernel.apply(Command::Close(paperpaw_sdk::ScreenKey::new(instance)));
+    kernel.apply(Ask::Close(paperpaw_sdk::ScreenKey::new(instance)));
     kernel.drain_deferred_ui_closes();
     assert_eq!(store.len(), 0);
     // A native open is as it was: one of none makes no hand-over of the host's.

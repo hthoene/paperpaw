@@ -1,7 +1,7 @@
 //! A native plugin's `slot.offer` reaches the registry the kernel opens slots
 //! by, so a plugin that asks `Place::has_slot` sees it; it goes with the plugin.
 use super::*;
-use crate::Items;
+use crate::Staging;
 
 const FOLDER: Option<&str> = None;
 
@@ -98,7 +98,7 @@ fn other_manifest() -> paperpaw_sdk::Manifest {
     .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
-fn other(priority: i16) -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
+fn other(priority: i16) -> impl Fn(&mut Staging) -> Result<(), paperpaw_sdk::RegisterError> {
     move |r| {
         struct Empty;
         impl crate::testing::Fake for Empty {

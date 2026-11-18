@@ -6,7 +6,7 @@
 
 use alloc::borrow::Cow;
 
-use paperpaw_core::Items;
+use paperpaw_core::Staging;
 use paperpaw_core::sdk::{Id, Manifest, RegisterError, Version};
 
 /// The theme.
@@ -42,7 +42,7 @@ impl Pebble {
     }
 
     /// Adds its texts and its defaults (`KernelBuilder::items_off`).
-    pub fn items(r: &mut Items) -> Result<(), RegisterError> {
+    pub fn items(r: &mut Staging) -> Result<(), RegisterError> {
         for text in TEXTS {
             r.add_translations(Cow::Borrowed(text))?;
         }

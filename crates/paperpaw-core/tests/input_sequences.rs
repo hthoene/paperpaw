@@ -342,7 +342,7 @@ fn a_dropped_press_repeated_after_the_frame_does_not_stick() {
     harness.run(
         &mut kernel,
         1000,
-        [paperpaw_core::sdk::Command::OpenScreen(
+        [paperpaw_core::Ask::OpenScreen(
             common::FULL,
             paperpaw_core::sdk::Params::new(),
         )],
@@ -372,7 +372,7 @@ fn a_dropped_press_repeated_before_the_frame_does_not_eat_the_next_release() {
     harness.run(
         &mut kernel,
         1000,
-        [paperpaw_core::sdk::Command::OpenScreen(
+        [paperpaw_core::Ask::OpenScreen(
             common::FULL,
             paperpaw_core::sdk::Params::new(),
         )],

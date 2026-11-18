@@ -48,7 +48,7 @@ pub use fingerprint::Fingerprint;
 pub mod what {}
 
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 
 use paperpaw_digest::fnv1a64;
 
@@ -70,8 +70,8 @@ pub(crate) fn split(folder: &str, key: &str) -> String {
 
 /// Where a plugin keeps what it keeps for the book at `book` in folder
 /// `folder` of `BookData` (registered with
-/// `Items::add_book_cache` or
-/// `Items::add_book_data`), named `prefix` and
+/// `Staging::add_book_cache` or
+/// `Staging::add_book_data`), named `prefix` and
 /// the book's `key`: in the part of the folder of the key's first two
 /// digits, `<folder>/<2 digits>/<prefix><key>`, so that no folder holds
 /// thousands of entries (a memory card looks through a folder one entry
@@ -86,12 +86,17 @@ pub fn kept_path(folder: &str, prefix: &str, book: &str) -> String {
     )
 }
 
-/// The command that tells everyone something of the book at `path`
-/// changed: `what`, bits of `what`
+/// The event and its params that tell everyone something of the book at
+/// `path` changed: `what`, bits of `what`
 /// ([`events::BOOK_CHANGED`](crate::builtin::events::BOOK_CHANGED)).
-pub fn changed_book(path: &str, what: u32) -> crate::Command {
-    crate::builtin::events::BOOK_CHANGED.emit(crate::builtin::events::BookChanged {
-        path: path.to_string(),
+pub fn changed_book(path: &str, what: u32) -> (crate::Id, crate::Params) {
+    use crate::event::EventData;
+    let changed = crate::builtin::events::BookChanged {
+        path: String::from(path),
         what,
-    })
+    };
+    (
+        crate::builtin::events::BOOK_CHANGED.id().clone(),
+        changed.into_params(),
+    )
 }

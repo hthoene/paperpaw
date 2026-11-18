@@ -2,7 +2,7 @@
 //! when, and when not (a screen without pictures, a refresh set exactly).
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::gray_later::GRAY_REST_MS;
 use core::cell::Cell;
 
@@ -50,7 +50,7 @@ impl crate::testing::Fake for OverScreen {
     }
 }
 
-fn cover_plugin(kept: CoverPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn cover_plugin(kept: CoverPlugin) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let in_grays = kept.in_grays;
         r.add_fake(crate::testing::FakeSpec::new(
@@ -385,7 +385,7 @@ impl crate::testing::Fake for LateScreen {
 }
 
 /// What registers [`LateScreen`] as the home screen, under "late".
-fn late_plugin(late: Rc<Cell<bool>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn late_plugin(late: Rc<Cell<bool>>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let late = late.clone();
         r.add_fake(crate::testing::FakeSpec::new(

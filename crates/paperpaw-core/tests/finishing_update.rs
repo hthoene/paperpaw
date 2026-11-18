@@ -11,9 +11,10 @@
 mod common;
 
 use common::{BASE, BUTTONS, Harness, pointer, press, render};
+use paperpaw_core::Ask;
 use paperpaw_core::Kernel;
+use paperpaw_core::sdk::Params;
 use paperpaw_core::sdk::builtin::{actions, screens};
-use paperpaw_core::sdk::{Command, Params};
 use paperpaw_platform::{Instant, PointerPhase, PointerTool};
 
 /// A kernel showing the screen for a trial from 1 to 31 seconds; when it
@@ -38,7 +39,7 @@ fn nothing_closes_it_or_shows_above_it() {
     kernel.run_action(Instant(2000), actions::BACK);
     kernel.run_action(Instant(2100), actions::HOME);
     kernel.open_screen(Instant(2200), BASE, Params::new());
-    harness.run(&mut kernel, 2300, [Command::Back, Command::Back]);
+    harness.run(&mut kernel, 2300, [Ask::Back, Ask::Back]);
     render(&mut kernel);
     assert_eq!(kernel.active_screen(), Some(&screens::FINISHING_UPDATE));
 }
@@ -60,7 +61,7 @@ fn it_takes_no_input() {
         );
     }
     // A plugin's action does not run either.
-    harness.run(&mut kernel, 6000, [Command::Back]);
+    harness.run(&mut kernel, 6000, [Ask::Back]);
     render(&mut kernel);
     assert_eq!(kernel.active_screen(), Some(&screens::FINISHING_UPDATE));
 }

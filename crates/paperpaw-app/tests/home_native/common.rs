@@ -28,11 +28,12 @@ pub use paperpaw_sdk::builtin::{actions, params, slots};
 pub use paperpaw_sdk::semantics::{Part, Role};
 pub use paperpaw_sdk::{DirEntry, Id, MemoryStorage, Params, Storage, StorageError};
 
-use paperpaw_core::Items;
+use paperpaw_core::Ask;
+use paperpaw_core::Staging;
 use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::kit::menus::MenuEntry;
 use paperpaw_sdk::replies::Typed;
-use paperpaw_sdk::{Canvas, Command, Handled, Manifest, Priority, RegisterError, Version};
+use paperpaw_sdk::{Canvas, Handled, Manifest, Priority, RegisterError, Version};
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
 pub const X4: DeviceInfo = DeviceInfo::new(
@@ -233,14 +234,14 @@ impl paperpaw_core::testing::Fake for Keyboard {
         let Some(text) = TYPED.with(|typed| typed.borrow_mut().pop_front()) else {
             return;
         };
-        cx.command(Command::Back);
+        cx.command(Ask::Back);
         let reply = self
             .params
             .get(params::REPLY)
             .and_then(|r| Id::parse(r).ok());
         if let Some(reply) = reply {
             let typed = Typed::new(text, self.params.clone());
-            cx.command(Command::Emit(
+            cx.command(Ask::Emit(
                 reply,
                 paperpaw_sdk::event::EventData::to_params(&typed),
             ));
@@ -256,7 +257,7 @@ thread_local! {
 
 /// What registers a screen that does something and closes in one callback
 /// (#267).
-fn test_closer(r: &mut Items) -> Result<(), RegisterError> {
+fn test_closer(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_action(
         ActionSpec::new(Id::new_static("test-closer.go"), "test-closer").handler(|_, _, _| {}),
     )?;

@@ -14,7 +14,7 @@
 //!    SHA-256: code put in its place after the question is refused); the
 //!    code is then named as installed, as a store names what it installs,
 //!    once the plugin is in place ([`marks`](super::marks)).
-//! 3. The kernel installs it in one step (`Command::InstallPlugin`):
+//! 3. The kernel installs it in one step (`Ask::InstallPlugin`):
 //!    the version before stays until the new one is all there, the
 //!    plugin's own data (in `.paperpaw/plugins/<id>`) is not touched, and
 //!    it is loaded at once (a plugin with code: after a restart, as an
