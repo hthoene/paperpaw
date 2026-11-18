@@ -252,11 +252,23 @@ impl Kernel {
     }
 
     /// Merges a plugin's contributions: all of them or none.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "longer than the limit from before it was set; split it when it is next changed"
-    )]
     pub(crate) fn merge(&mut self, plugin: &Id, mut staging: Staging) -> Result<(), RegisterError> {
+        self.check_new(&staging)?;
+        staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
+        // Bumps the generation after the last change, however this ends.
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
+        self.merge_texts(plugin, &mut staging);
+        self.merge_settings(plugin, &mut staging);
+        self.merge_menus(&mut staging);
+        self.merge_services(plugin, &mut staging);
+        Ok(())
+    }
+
+    /// Refuses settings, fonts and formats that are already there, and
+    /// settings whose default their own kind does not accept.
+    fn check_new(&self, staging: &Staging) -> Result<(), RegisterError> {
         for setting in staging.settings.iter().flat_map(registry::Staged::specs) {
             if self.shared.settings.get(setting.id.as_str()).is_some() {
                 return Err(RegisterError::Duplicate {
@@ -287,13 +299,13 @@ impl Kernel {
                 id: format.id.clone(),
             });
         }
-        staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
-        // After the last change, however this goes on.
-        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
-            &self.shared.registry_generation,
-        );
+        Ok(())
+    }
+
+    /// Settings, key maps, translations, fonts and formats.
+    fn merge_texts(&mut self, plugin: &Id, staging: &mut Staging) {
         for setting in staging.settings.drain(..) {
-            // Cannot fail: checked above.
+            // Cannot fail: `check_new` refused duplicates.
             let _ = setting.define_in(&mut self.shared.settings);
         }
         for source in staging.keymaps.drain(..) {
@@ -309,7 +321,7 @@ impl Kernel {
             self.add_translation_file(plugin, path);
         }
         for font in staging.fonts.drain(..) {
-            // Cannot fail: checked above.
+            // Cannot fail: `check_new` refused duplicates.
             let _ = self.shared.fonts.add(font);
         }
         for (id, path) in staging.font_files.drain(..) {
@@ -331,9 +343,14 @@ impl Kernel {
             self.shared.fonts.propose(role, font, priority);
         }
         for format in staging.formats.drain(..) {
-            // Cannot fail: checked above.
+            // Cannot fail: `check_new` refused duplicates.
             let _ = self.shared.formats.add(format);
         }
+    }
+
+    /// Setting groups, subscriptions and the defaults and choices plugins
+    /// set for settings.
+    fn merge_settings(&mut self, plugin: &Id, staging: &mut Staging) {
         for group in staging.setting_groups.drain(..) {
             if let Err(error) = self.shared.settings.add_group(group) {
                 self.warn_runtime(format!("{error}"));
@@ -352,6 +369,10 @@ impl Kernel {
                 .drain(..)
                 .map(|(id, value)| (plugin.clone(), id, value)),
         );
+    }
+
+    /// Menus, icons, status items, setup steps, presets and widgets.
+    fn merge_menus(&mut self, staging: &mut Staging) {
         for entry in staging.menu_entries.drain(..) {
             self.shared.menus.add(entry);
         }
@@ -395,6 +416,11 @@ impl Kernel {
             let crate::registry::StagedWidgets::One(widget) = widgets;
             self.shared.widgets.add_boxed(widget);
         }
+    }
+
+    /// Stylesheets, book data, services, events, contributions,
+    /// decorators, background work and data actions.
+    fn merge_services(&mut self, plugin: &Id, staging: &mut Staging) {
         self.stylesheet_owners
             .extend(staging.stylesheets.iter().map(|_| plugin.clone()));
         self.shared.stylesheets.append(&mut staging.stylesheets);
@@ -420,7 +446,6 @@ impl Kernel {
             self.data_actions.retain(|kept| kept.id != action.id);
             self.data_actions.push(action);
         }
-        Ok(())
     }
 
     /// Actions bound by any key map preset or key map for a switch, for
