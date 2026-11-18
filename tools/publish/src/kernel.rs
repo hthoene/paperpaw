@@ -47,6 +47,7 @@ pub const FIRST_PARTY: &[&str] = &[
     "settings",
     "setup",
     "sleep",
+    "stats",
     "store",
     "transfer",
     "update",
