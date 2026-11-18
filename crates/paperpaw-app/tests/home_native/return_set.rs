@@ -10,8 +10,9 @@
 )]
 
 use crate::common::*;
+use paperpaw_core::Ask;
 use paperpaw_core::{Place, Turn};
-use paperpaw_sdk::{Canvas, Command, Handled, SettingValue};
+use paperpaw_sdk::{Canvas, Handled, SettingValue};
 
 const PAGE: &str = "[home]\ncolumns = 4\npage-1 = tool:core.library 0/0 1x1, \
                     tool:core.settings 1/0 1x1\n";
@@ -27,11 +28,11 @@ impl paperpaw_core::testing::Fake for Closer {
         if action.as_str() != "test-closer.go" {
             return Handled::No;
         }
-        cx.command(Command::SetSetting(
+        cx.command(Ask::SetSetting(
             Id::new_static("home.footer.pencil"),
             SettingValue::Bool(false),
         ));
-        cx.command(Command::Back);
+        cx.command(Ask::Back);
         Handled::Yes
     }
 }

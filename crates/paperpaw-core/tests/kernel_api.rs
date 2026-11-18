@@ -18,7 +18,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use common::{BASE, DEVICE, Harness, LATER};
-use paperpaw_core::Items;
+use paperpaw_core::Staging;
 use paperpaw_core::sdk::builtin::{events, slots};
 use paperpaw_core::sdk::secrets::{FILE as SECRETS, SecretChange};
 use paperpaw_core::sdk::{
@@ -35,7 +35,7 @@ struct Listener {
     harness: Harness,
 }
 
-fn listener(kept: Listener) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn listener(kept: Listener) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         logs_into("listener", &kept.harness.log);
         let hears: [(Id, paperpaw_core::Hear); 6] = [
@@ -430,7 +430,7 @@ static CHECKED_SETTINGS: [paperpaw_core::sdk::SettingSpec; 2] = [
 
 /// A name typed for a setting, and a number whose check refuses large
 /// values.
-fn checked() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn checked() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| r.add_settings(&CHECKED_SETTINGS)
 }
 
@@ -533,7 +533,7 @@ impl paperpaw_core::testing::Fake for TwoButtons {
     }
 }
 
-fn focused(kept: Focused) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn focused(kept: Focused) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let screen = paperpaw_core::sdk::Id::new_static("focused.home");
         r.add_fake(paperpaw_core::testing::FakeSpec::new(
@@ -616,7 +616,7 @@ struct Spy {
     heard: Rc<std::cell::RefCell<Vec<String>>>,
 }
 
-fn spy(kept: Spy) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn spy(kept: Spy) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         logs_into("spy", &kept.heard);
         r.on(
@@ -721,7 +721,7 @@ impl Vault {
     }
 }
 
-fn vault_items(kept: Vault) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn vault_items(kept: Vault) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         if kept.name == "vault" {
             r.add_settings(&VAULT_SETTINGS)?;
@@ -729,7 +729,7 @@ fn vault_items(kept: Vault) -> impl Fn(&mut Items) -> Result<(), RegisterError> 
                 paperpaw_core::sdk::Id::new_static("vault.forget"),
                 |k, _| {
                     k.with_env(|_, out| {
-                        out.push(paperpaw_core::sdk::Command::ResetSetting(
+                        out.push(paperpaw_core::Ask::ResetSetting(
                             paperpaw_core::sdk::Id::new_static("vault.key"),
                         ));
                     });
@@ -747,7 +747,7 @@ fn vault_items(kept: Vault) -> impl Fn(&mut Items) -> Result<(), RegisterError> 
                         use paperpaw_core::sdk::builtin::params;
                         use paperpaw_core::sdk::event::EventData;
                         let key = paperpaw_core::sdk::Id::new_static("vault.key");
-                        out.push(paperpaw_core::sdk::Command::SetSetting(
+                        out.push(paperpaw_core::Ask::SetSetting(
                             key.clone(),
                             paperpaw_core::sdk::SettingValue::Text("spy-set".into()),
                         ));
@@ -755,17 +755,17 @@ fn vault_items(kept: Vault) -> impl Fn(&mut Items) -> Result<(), RegisterError> 
                             "spy-typed",
                             Params::new().with(params::ID, "vault.key"),
                         );
-                        out.push(paperpaw_core::sdk::Command::Emit(
+                        out.push(paperpaw_core::Ask::Emit(
                             events::SETTING_TYPED.id().clone(),
                             typed.to_params(),
                         ));
-                        out.push(paperpaw_core::sdk::Command::ResetSetting(key));
+                        out.push(paperpaw_core::Ask::ResetSetting(key));
                         // Asked of the keyboard, read from the clipboard, for
                         // the secret and for the guarded setting.
                         for id in ["vault.key", "vault.pin"] {
                             out.push(ask_keyboard(id));
-                            out.push(paperpaw_core::sdk::Command::SetClipboard("spy-clip".into()));
-                            out.push(paperpaw_core::sdk::Command::ReadClipboard(
+                            out.push(paperpaw_core::Ask::SetClipboard("spy-clip".into()));
+                            out.push(paperpaw_core::Ask::ReadClipboard(
                                 events::SETTING_TYPED.id().clone(),
                                 Params::new().with(params::ID, id),
                             ));
@@ -774,7 +774,7 @@ fn vault_items(kept: Vault) -> impl Fn(&mut Items) -> Result<(), RegisterError> 
                             "spy-typed",
                             Params::new().with(params::ID, "vault.pin"),
                         );
-                        out.push(paperpaw_core::sdk::Command::Emit(
+                        out.push(paperpaw_core::Ask::Emit(
                             events::SETTING_TYPED.id().clone(),
                             typed.to_params(),
                         ));
@@ -792,9 +792,9 @@ fn vault_items(kept: Vault) -> impl Fn(&mut Items) -> Result<(), RegisterError> 
 }
 
 /// Asks the keyboard for text for setting `id`, answered to the kernel.
-fn ask_keyboard(id: &str) -> paperpaw_core::sdk::Command {
+fn ask_keyboard(id: &str) -> paperpaw_core::Ask {
     use paperpaw_core::sdk::builtin::{params, slots};
-    paperpaw_core::sdk::Command::OpenSlot(
+    paperpaw_core::Ask::OpenSlot(
         slots::KEYBOARD,
         Params::new()
             .with(params::ID, id)
@@ -803,7 +803,7 @@ fn ask_keyboard(id: &str) -> paperpaw_core::sdk::Command {
 }
 
 /// A keyboard that answers at once what it is asked, with `keyed`.
-fn keys() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn keys() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         use paperpaw_core::sdk::builtin::slots;
         let screen = paperpaw_core::sdk::Id::new_static("keys.screen");
@@ -853,9 +853,9 @@ impl paperpaw_core::testing::Fake for Answering {
             .and_then(|r| paperpaw_core::sdk::Id::parse(r).ok());
         if let Some(reply) = reply {
             let typed = paperpaw_core::sdk::Typed::new("keyed", asked.clone());
-            cx.command(paperpaw_core::sdk::Command::Emit(reply, typed.to_params()));
+            cx.command(paperpaw_core::Ask::Emit(reply, typed.to_params()));
         }
-        cx.command(paperpaw_core::sdk::Command::Back);
+        cx.command(paperpaw_core::Ask::Back);
     }
 }
 

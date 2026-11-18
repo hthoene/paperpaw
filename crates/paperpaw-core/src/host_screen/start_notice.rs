@@ -7,9 +7,10 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use super::board::Board;
+use crate::Ask;
 use crate::native_host::low_memory::{LATER_WORD, PLUGINS_WORD, TEXT, TITLE};
 use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::{Canvas, Command, Gesture, Handled, Hint, Id, Params, Rect};
+use paperpaw_sdk::{Canvas, Gesture, Handled, Hint, Id, Params, Rect};
 
 /// What an answer does, after the screen closed.
 enum Answer {
@@ -84,12 +85,12 @@ impl StartNotice {
     fn answer(&self, button: usize, cx: &mut Turn<'_, '_>) {
         cx.close();
         match self.answer {
-            Answer::Literata { store } => cx.command(Command::Emit(
+            Answer::Literata { store } => cx.command(Ask::Emit(
                 crate::native_host::literata_notice::ANSWERED,
                 Params::new().with("store", if store && button == 0 { "yes" } else { "no" }),
             )),
             Answer::LowMemory if button == 0 => {
-                cx.command(Command::OpenScreen(PLUGINS, Params::new()));
+                cx.command(Ask::OpenScreen(PLUGINS, Params::new()));
             }
             Answer::LowMemory => {}
         }

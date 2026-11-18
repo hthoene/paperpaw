@@ -1,7 +1,7 @@
 //! Widgets: small boxes plugins contribute for screens that show them,
 //! such as the home screen's pages (a clock, the book being read, today's
 //! reading, a grid of tools). Any plugin adds widgets with
-//! `Items::add_widget`; screens let
+//! `Staging::add_widget`; screens let
 //! the user choose which to show and where.
 //!
 //! A screen that shows a widget makes it (`Widgets::make`) and keeps
@@ -34,7 +34,7 @@
 //! (`next_minute`).
 //!
 //! The places where widgets show are [`WidgetPlace`]s
-//! (`Items::add_widget_place`):
+//! (`Staging::add_widget_place`):
 //! the settings that list them, and whether they show in a grid or above
 //! each other. A plugin asks whether any place shows its widget
 //! ([`Widgets::shown`]), e.g. to fetch the weather only then; the slot
@@ -49,7 +49,7 @@
 //! ([`WidgetSpec::previews`]), e.g. a sample of text laid out as the
 //! reading settings say: settings pages show it above the group's
 //! settings, and while a value is being chosen it shows that one
-//! ([`Command::PreviewSettings`](paperpaw_sdk::Command::PreviewSettings)). It is
+//! ([`Ask::PreviewSettings`](crate::Ask::PreviewSettings)). It is
 //! not offered among the widgets for other screens.
 
 use alloc::borrow::Cow;
@@ -139,7 +139,7 @@ pub mod categories {
 }
 
 /// A kind of widgets of a plugin's own
-/// (`Items::add_widget_category`),
+/// (`Staging::add_widget_category`),
 /// beside [`categories`]: its id, the translation key of its name, and
 /// its icon. Screens offering widgets list such kinds after the
 /// kernel's.
@@ -173,13 +173,13 @@ impl fmt::Debug for Make {
 #[non_exhaustive]
 pub struct WidgetTarget {
     pub area: Rect,
-    pub command: paperpaw_sdk::Command,
+    pub command: crate::Ask,
     /// Tapped only: the buttons' focus does not stop there (what it does
     /// is reached otherwise, e.g. by an action bound to a button).
     pub touch: bool,
     /// What a long press on it runs, if anything (else a long press does
     /// what it does on the screen, e.g. editing the page).
-    pub hold: Option<paperpaw_sdk::Command>,
+    pub hold: Option<crate::Ask>,
 }
 
 /// A widget contribution: its id, its name and how it is made.

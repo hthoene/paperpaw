@@ -4,8 +4,8 @@
 use super::*;
 use crate::native_host::firmware_install::{Answer, KIND_FIRMWARE};
 use paperpaw_platform::firmware::{Signer, Text};
+use paperpaw_sdk::Instant;
 use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::{Command, Instant};
 
 fn ask(foreign: bool, restart: bool, older: bool, signer: Signer) -> Ask {
     Ask {
@@ -142,7 +142,7 @@ mod kernel_side {
     /// A home screen to lie under the confirmation (a screen cannot be
     /// closed where it is the only one).
     mod home {
-        use crate::{Items, Place, Turn};
+        use crate::{Place, Staging, Turn};
         use paperpaw_sdk::{
             Canvas, Handled, Id, Manifest, Priority, RegisterError, Version, builtin::slots,
         };
@@ -157,7 +157,7 @@ mod kernel_side {
             }
         }
 
-        pub(super) fn home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        pub(super) fn home() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
             |r| {
                 r.add_fake(crate::testing::FakeSpec::new(
                     HOME,
@@ -362,7 +362,7 @@ mod kernel_side {
 
     mod lock {
         use super::*;
-        use crate::{Items, Place, Turn};
+        use crate::{Place, Staging, Turn};
         use core::cell::Cell;
         use paperpaw_sdk::{
             Canvas, Handled, Manifest, Priority, RegisterError, Version, builtin::slots,
@@ -388,7 +388,7 @@ mod kernel_side {
             fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
                 if *action == paperpaw_sdk::builtin::actions::CONFIRM {
                     self.0.set(false);
-                    cx.command(Command::Back);
+                    cx.command(crate::ask::Ask::Back);
                     Handled::Yes
                 } else {
                     Handled::No
@@ -398,7 +398,7 @@ mod kernel_side {
 
         fn lock_plugin(
             kept: alloc::rc::Rc<Cell<bool>>,
-        ) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        ) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
             move |r| {
                 let locked = kept.clone();
                 r.add_fake(crate::testing::FakeSpec::new(

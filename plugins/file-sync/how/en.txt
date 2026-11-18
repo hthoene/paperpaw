@@ -1,0 +1,11 @@
+File sync keeps folders of the card in step with folders on your own server: a notes vault, a books folder, documents. It works with servers that speak WebDAV: self-hosted clouds, a NAS, and others. It is off at first: add it from the Plugin store.
+
+Set up a pair: open File sync (Tools), choose Pair 1 and enter the folder on the card (for example Notes), the address of the WebDAV folder, the user and the password. The password is kept among the passwords and keys, for this pair only. There are three pairs. Sync mode says whether changes go in both directions (the default) or only from the server to the card.
+
+Sync now (in File sync, or from Tools, or the widget) goes through the folders one by one and shows what it is doing, then what it did: files received, sent, deleted, kept twice and not synced. Syncing also happens when the charger is plugged in or when Wi-Fi is on anyway, if you choose so under Sync automatically (at most every six hours, or daily); waking the reader never turns Wi-Fi on.
+
+Nothing is lost. A file changed on one side only goes to the other. A file changed on both sides is kept twice: the card's copy is renamed, for example Note (conflict x4 2026-11-18).md, and the server's comes under the old name; the copy goes to the server too. A file deleted on one side and unchanged on the other is deleted on the other side as well; the card's copy goes to a trash (in the plugin's folder .paperpaw/plugins/file-sync/trash, the last 100), so it can be taken back. A file deleted on one side and changed on the other stays. If a folder would lose more than half of its files at once, the deletions are held back and those files are kept. Every file is written whole or not at all, and after a lost network or a power cut the next sync goes on where it stopped.
+
+Limits: up to 256 files in a folder, folders up to six levels deep, files up to 64 MB; a folder over that is left as it is. Hidden files and folders (starting with a dot) are not synced. Download only never changes the server. Two files are taken to be the same if both sides have the same size when they were never synced before; with another size, both are kept.
+
+Widgets for Home: Last sync, Pending changes (the files of the card not sent yet, as the last look found them) and Sync now.

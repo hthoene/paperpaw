@@ -4,7 +4,7 @@
 //! A screen says once how it runs (`mode`, a [`ScreenMode`]):
 //! full screen, buttons pressed and released, refreshes it chooses
 //! itself, the fastest refresh, a pace. The device says what it can do
-//! and what it did (`Env::panel`, a [`PanelInfo`]): how fast each
+//! and what it did (`Place::panel`, a [`PanelInfo`]): how fast each
 //! refresh is, and how the last frame went. A plugin paces itself by
 //! that, so faster panels make it faster without a new build.
 //!
@@ -96,7 +96,7 @@ impl ScreenMode {
     }
 
     /// Buttons come pressed and released (`on_key`), not as
-    /// actions once let go; `Env::keys_held` says which are down. The
+    /// actions once let go; `Place::keys_held` says which are down. The
     /// power button stays the device's, and holding *Back* for
     /// [`ESCAPE_HOLD`] leaves the screen.
     ///
@@ -106,7 +106,7 @@ impl ScreenMode {
 
     /// The screen chooses its refreshes: the kernel adds no full refresh
     /// every few pages and no refresh in grays for pictures. It asks for
-    /// one with `Cx::request_refresh` when
+    /// one with `Turn::request_refresh` when
     /// it wants the ghosts gone.
     pub const fn cleans_itself(self) -> Self {
         self.with(flags::CLEANS_ITSELF)
@@ -127,7 +127,7 @@ impl ScreenMode {
     /// The pace the screen would like: a frame every `interval`. The
     /// device keeps ready for it (it does not sleep lightly for longer)
     /// and shows each frame as soon as the panel can take it; the screen
-    /// asks for its timer as it does otherwise (`Cx::wake_at`).
+    /// asks for its timer as it does otherwise (`Turn::wake_at`).
     ///
     pub fn frame_every(self, interval: Duration) -> Self {
         self.number(slots::FRAME, millis(interval).max(1))
@@ -146,7 +146,7 @@ impl ScreenMode {
     /// (see [`Room`]). Nothing the reader has is lost: a book closed for
     /// the room opens again at its place. Make the buffer in
     /// `on_show`, after reading
-    /// `Env::room`, not when the screen is made.
+    /// `Place::room`, not when the screen is made.
     pub fn memory(self, bytes: u32) -> Self {
         self.number(slots::MEMORY, bytes)
     }
@@ -315,7 +315,7 @@ impl Squeeze {
 }
 
 /// The room the screen on top asked for ([`ScreenMode::memory`]) and
-/// what it got (`Env::room`): granted, granted in
+/// what it got (`Place::room`): granted, granted in
 /// part, or refused, with the memory free once the kernel made what room
 /// it could. Where the device cannot tell how much is free, the room
 /// counts as granted.
@@ -415,7 +415,7 @@ mod panel_flags {
 }
 
 /// What the panel can do, and how the last frame went
-/// (`Env::panel`). Times are measured as the device
+/// (`Place::panel`). Times are measured as the device
 /// runs (the fastest seen of each mode), so they grow better with faster
 /// drivers, and are known once a refresh of the mode was shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -655,7 +655,7 @@ impl KeyEvent {
     }
 }
 
-/// The buttons held down now (`Env::keys_held`).
+/// The buttons held down now (`Place::keys_held`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct KeysHeld<'a> {
     names: &'a [&'static str],

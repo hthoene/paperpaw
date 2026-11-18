@@ -30,7 +30,7 @@ pub enum MenuPlace {
 }
 
 /// What a menu shows of an entry now, where it changes (see
-/// `Items::set_item_state`).
+/// `Staging::set_item_state`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ItemState {
@@ -132,7 +132,7 @@ pub struct MenuEntry {
 impl MenuEntry {
     /// Made of what it needs; the rest as set with its methods. A `const`
     /// fn, so that a plugin's entries can be a `static` list
-    /// (`Items::add_menu_entries`).
+    /// (`Staging::add_menu_entries`).
     pub const fn new(menu: Id, item: Id) -> Self {
         Self {
             menu,
@@ -175,7 +175,7 @@ impl MenuEntry {
 }
 
 /// A heading in a menu: the entries after it, up to the next heading,
-/// belong to it (see `Items::add_menu_section`).
+/// belong to it (see `Staging::add_menu_section`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct MenuSection {
@@ -272,7 +272,7 @@ impl<'a> MenuView<'a> {
             .or_else(|| self.settings.spec(item).map(|spec| spec.title.as_ref()))
     }
 
-    /// The entries of `menu`, in display order. Items without a known
+    /// The entries of `menu`, in display order. Staging without a known
     /// title are skipped.
     pub fn items(&self, menu: &str) -> Vec<MenuItem<'a>> {
         self.menus

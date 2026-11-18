@@ -387,7 +387,6 @@ def shape(crate, target):
 # plugin gets or must give a value of a type it cannot write down (the type is
 # behind the `kernel` feature, or private). The list may only shrink (#244).
 UNNAMEABLE = {
-    "paperpaw_sdk::command::Command",  # Editor::open
     "paperpaw_sdk::env::Capabilities",  # MenuNeed::met
     "paperpaw_sdk::env::Capability",  # MenuNeed::Has
     "paperpaw_sdk::native::events::kinds::sealed::Sealed",  # seals `Kind`, on purpose

@@ -18,6 +18,7 @@ mod native_network;
 pub(crate) use native_network::USES_NETWORK;
 mod runs;
 
+use crate::Ask;
 use paperpaw_platform::Instant;
 use paperpaw_sdk::builtin::{events, params};
 use paperpaw_sdk::event::EventData;
@@ -26,7 +27,7 @@ use paperpaw_sdk::work::Needs;
 use paperpaw_sdk::work::{
     Importance, Moments, Progress, Reason, Refusal, Retry, Step, Why, Work, WorkRefused, WorkState,
 };
-use paperpaw_sdk::{Command, HttpReply, Id, Params, ServerNotice, SocketError, SocketNotice, Uses};
+use paperpaw_sdk::{HttpReply, Id, Params, ServerNotice, SocketError, SocketNotice, Uses};
 
 use crate::Kernel;
 
@@ -263,10 +264,10 @@ pub(crate) struct Queue {
     /// services is made again when it changes).
     policy_version: u32,
     /// The screen the reader chose *Go online* on while Offline: the
-    /// network for it until it closes ([`Command::GoOnline`]).
+    /// network for it until it closes ([`Ask::GoOnline`]).
     online_for: Option<Id>,
     /// Until when the reader chose *Go online* outside such a screen
-    /// ([`Command::GoOnlineFor`]).
+    /// ([`Ask::GoOnlineFor`]).
     pub(crate) online_until: Option<Instant>,
     /// Works or their states changed since `Place::work` was made.
     changed: bool,
@@ -350,7 +351,7 @@ impl Queue {
     }
 
     /// Declares `work`, in place of one with the same id and key.
-    fn declare(&mut self, work: Work, now: Instant, out: &mut Vec<Command>) {
+    fn declare(&mut self, work: Work, now: Instant, out: &mut Vec<Ask>) {
         self.changed = true;
         let owner = String::from(work.id.namespace());
         let same = |e: &Entry| e.work.id == work.id && e.work.key == work.key;
@@ -374,20 +375,20 @@ impl Queue {
             }
             let refused =
                 WorkRefused::new(work.id, Refusal::new(Reason::TooOften, Retry::WhenAllowed));
-            out.push(events::WORK_REFUSED.emit(refused));
+            out.push(crate::Ask::emit(&events::WORK_REFUSED, refused));
             return;
         }
         self.entries.push(Entry::new(work, owner, now));
     }
 
     /// Tells plugins refused for a full queue that there is room again.
-    fn allow_full(&mut self, out: &mut Vec<Command>) {
+    fn allow_full(&mut self, out: &mut Vec<Ask>) {
         let (entries, per_plugin) = (&self.entries, self.per_plugin);
         let before = self.full.len();
         self.full
             .retain(|owner| entries.iter().filter(|e| e.owner == *owner).count() >= per_plugin);
         if self.full.len() < before {
-            out.push(events::WORK_ALLOWED.emit(()));
+            out.push(crate::Ask::emit(&events::WORK_ALLOWED, ()));
         }
     }
 
@@ -568,39 +569,43 @@ impl Entry {
 }
 
 impl Kernel {
-    /// Declares or takes back work ([`Command::Work`],
-    /// [`Command::CancelWork`]), takes back requests
-    /// ([`Command::CancelHttp`]), wears a power mode ([`Command::Wear`]),
-    /// goes online for the screen in front ([`Command::GoOnline`]).
-    pub(crate) fn apply_work(&mut self, command: Command) {
+    /// Declares or takes back work ([`Ask::Work`],
+    /// [`Ask::CancelWork`]), takes back requests
+    /// ([`Ask::CancelHttp`]), wears a power mode ([`Ask::Wear`]),
+    /// goes online for the screen in front ([`Ask::GoOnline`]).
+    pub(crate) fn apply_work(&mut self, command: Ask) {
         match command {
-            Command::Work(work) => {
+            Ask::Work(work) => {
                 self.works
                     .declare(*work, self.shared.now, &mut self.output.commands)
             }
-            Command::CancelWork(id, key) => {
+            Ask::CancelWork(id, key) => {
                 self.works.cancel(&id, key.as_deref());
                 self.close_ended_runs();
             }
-            Command::CancelHttp(reply) => self.io.http.cancel(&reply, &mut self.output.commands),
-            Command::Wear(wear) => {
+            Ask::CancelHttp(reply) => self.io.http.cancel(&reply, &mut self.output.commands),
+            Ask::Wear(wear) => {
                 self.wear(wear);
                 self.sync_net_policy();
             }
-            Command::GoOnline => {
+            Ask::GoOnline => {
                 self.works.online_for = self.stack.last().map(|top| top.id.clone());
                 self.sync_net_policy();
                 // What waited may go on this connection.
-                self.output.commands.push(events::WORK_ALLOWED.emit(()));
+                self.output
+                    .commands
+                    .push(crate::Ask::emit(&events::WORK_ALLOWED, ()));
             }
             // The reader's choice alone: what background work sends is
             // not (it would lift Offline for itself).
-            Command::GoOnlineFor(how_long) if self.shared.reader => {
+            Ask::GoOnlineFor(how_long) if self.shared.reader => {
                 let how_long = how_long.min(paperpaw_sdk::power::MAX_ONLINE_FOR);
                 let millis = u64::try_from(how_long.as_millis()).unwrap_or(u64::MAX);
                 self.works.online_until = Some(self.shared.now.add_millis(millis));
                 self.sync_net_policy();
-                self.output.commands.push(events::WORK_ALLOWED.emit(()));
+                self.output
+                    .commands
+                    .push(crate::Ask::emit(&events::WORK_ALLOWED, ()));
             }
             _ => {}
         }
@@ -723,14 +728,18 @@ impl Kernel {
             let changed = events::SettingChanged::new(id);
             self.output
                 .commands
-                .push(events::SETTING_CHANGED.emit(changed));
+                .push(crate::Ask::emit(&events::SETTING_CHANGED, changed));
         }
         if self.shared.power != before {
-            self.output.commands.push(events::POWER_CHANGED.emit(()));
+            self.output
+                .commands
+                .push(crate::Ask::emit(&events::POWER_CHANGED, ()));
             self.native_hint(crate::native_host::registrations::EVENT_POWER_CHANGED_TAG);
         }
         if before.level == PowerLevel::Offline && level != PowerLevel::Offline {
-            self.output.commands.push(events::WORK_ALLOWED.emit(()));
+            self.output
+                .commands
+                .push(crate::Ask::emit(&events::WORK_ALLOWED, ()));
         }
     }
 
@@ -879,7 +888,7 @@ impl Kernel {
                 );
                 self.output
                     .commands
-                    .push(events::WORK_REFUSED.emit(refused));
+                    .push(crate::Ask::emit(&events::WORK_REFUSED, refused));
             } else {
                 index += 1;
             }
@@ -967,12 +976,12 @@ impl Kernel {
     /// ([`Uses::NETWORK`]): refused and answered as such. The command
     /// back where it may go on. A request's plugin is its reply's (a
     /// server's, a socket's): their ids are in the plugin's namespace.
-    pub(crate) fn declared_network(&mut self, command: Command) -> Option<Command> {
+    pub(crate) fn declared_network(&mut self, command: Ask) -> Option<Ask> {
         let owner = match &command {
-            Command::Http(request) => request.reply().namespace(),
-            Command::Serve { server, .. } => server.namespace(),
-            Command::Connect { socket, .. } => socket.namespace(),
-            Command::Broadcast(broadcast) => broadcast.id().namespace(),
+            Ask::Http(request) => request.reply().namespace(),
+            Ask::Serve { server, .. } => server.namespace(),
+            Ask::Connect { socket, .. } => socket.namespace(),
+            Ask::Broadcast(broadcast) => broadcast.id().namespace(),
             _ => return Some(command),
         };
         // The kernel's own, and what no plugin it knows asked for, go on.
@@ -1004,15 +1013,15 @@ impl Kernel {
         self.shared.meter.network(&owner, true);
         let reason = String::from(refusal.reason.as_str());
         let (event, params) = match command {
-            Command::Http(request) => {
+            Ask::Http(request) => {
                 let request = request.into_parts();
                 let reply = HttpReply::refused(refusal, request.params);
                 (request.reply, reply.into_params())
             }
-            Command::Serve { server, events, .. } => {
+            Ask::Serve { server, events, .. } => {
                 (events, ServerNotice::Failed { server, reason }.to_params())
             }
-            Command::Connect { socket, events, .. } => (
+            Ask::Connect { socket, events, .. } => (
                 events,
                 SocketNotice::Failed {
                     socket,
@@ -1021,7 +1030,7 @@ impl Kernel {
                 }
                 .to_params(),
             ),
-            Command::Broadcast(broadcast) => {
+            Ask::Broadcast(broadcast) => {
                 let socket = broadcast.id().clone();
                 let failed = SocketNotice::Failed {
                     socket,
@@ -1032,7 +1041,7 @@ impl Kernel {
             }
             _ => return None,
         };
-        self.output.commands.push(Command::Emit(event, params));
+        self.output.commands.push(Ask::Emit(event, params));
         if refusal.reason == Reason::NotDeclared {
             self.warn_runtime(alloc::format!(
                 "{owner}: uses the network without declaring it (`Manifest::uses`)"
@@ -1136,7 +1145,7 @@ impl Queue {
         now: Instant,
         step: Step,
         random: &paperpaw_sdk::random::Random,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
         notes: &mut Vec<(Id, paperpaw_sdk::work::Note)>,
     ) {
         let works = self;
@@ -1153,10 +1162,10 @@ impl Queue {
                 notes.push((owner, note));
             }
         }
-        let tell = |entry: &mut Entry, out: &mut Vec<Command>| {
+        let tell = |entry: &mut Entry, out: &mut Vec<Ask>| {
             entry.told = Some(now);
             let params = Params::new().with(params::ID, String::from(entry.work.id.as_str()));
-            out.push(Command::Emit(events::WORK_CHANGED.id().clone(), params));
+            out.push(Ask::Emit(events::WORK_CHANGED.id().clone(), params));
         };
         match step {
             Step::Continue => {}
@@ -1215,12 +1224,12 @@ pub(crate) fn quiet(
     now: Instant,
     from: usize,
     owner: &str,
-    out: &mut Vec<Command>,
+    out: &mut Vec<Ask>,
     works: &mut Queue,
 ) {
     let mut index = from;
     while index < out.len() {
-        if matches!(&out[index], Command::Work(work) if work.id.namespace() != owner) {
+        if matches!(&out[index], Ask::Work(work) if work.id.namespace() != owner) {
             out.remove(index);
             works.foreign.push(String::from(owner));
         } else {
@@ -1232,7 +1241,7 @@ pub(crate) fn quiet(
     }
     let mut index = from;
     while index < out.len() {
-        if let Command::Notify(text) = &out[index] {
+        if let Ask::Notify(text) = &out[index] {
             let note = paperpaw_sdk::work::Note::new(now, text.clone());
             works.notes.push((String::from(owner), note));
             out.remove(index);
@@ -1289,7 +1298,7 @@ impl crate::Shared {
 /// wants one (`event.network_wanted`/`idle` go to it alone): the Wi-Fi plugin,
 /// as in Beta 3. Where there is none by that id the events go nowhere; empty
 /// (or another id) is the user's choice, and a reset brings the default back.
-pub(crate) fn register_network(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
+pub(crate) fn register_network(r: &mut crate::Staging) -> Result<(), paperpaw_sdk::RegisterError> {
     use paperpaw_sdk::{Id, SettingGroupSpec, SettingSpec, builtin::groups};
     // Each plugin's network (its settings made by the kernel).
     static NETWORK: SettingGroupSpec = SettingGroupSpec::new(NETWORK_GROUP, "core.group.network")

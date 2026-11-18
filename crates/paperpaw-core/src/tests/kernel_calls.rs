@@ -2,7 +2,7 @@
 //! back, readings that make no sense.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_platform::{SystemStatus, WallClock};
 use paperpaw_sdk::semantics::Role;
 
@@ -32,7 +32,7 @@ impl crate::testing::Fake for Rows {
 }
 
 /// Rows of which one has the focus, moved by *Down*.
-fn rows_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn rows_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("rows.screen"),
@@ -84,7 +84,7 @@ fn the_focus_is_said_in_place_of_what_was_said_of_it() {
     press(&mut kernel, 100, "down");
     assert_eq!(said(&mut kernel), ["Row 1", "Row 2"]);
     // A plugin reads aloud: the focus waits.
-    kernel.apply(Command::speak(paperpaw_sdk::Speech::new(
+    kernel.apply(Ask::speak(paperpaw_sdk::Speech::new(
         "A page",
         Id::new_static("rows.read"),
     )));
@@ -170,11 +170,11 @@ fn wall_clock_readings_that_make_no_sense_do_not_panic() {
 }
 
 /// Switches the device off as soon as PaperPaw started.
-fn off_at_start() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn off_at_start() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.on(paperpaw_sdk::builtin::events::STARTED, |k, p| {
             k.with_event(&paperpaw_sdk::builtin::events::STARTED, p, |_, _, out| {
-                out.push(Command::PowerOff);
+                out.push(Ask::PowerOff);
             });
         })
     }
@@ -192,11 +192,11 @@ struct Drive {
     log: Log,
 }
 
-fn drive(kept: Drive) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn drive(kept: Drive) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         use paperpaw_sdk::builtin::events;
         r.on(events::STARTED, |k, p| {
-            k.with_event(&events::STARTED, p, |_, _, out| out.push(Command::UsbDrive));
+            k.with_event(&events::STARTED, p, |_, _, out| out.push(Ask::UsbDrive));
         })?;
         crate::tests::hear_into(&kept.log);
         r.subscribe(events::RESUME.id().clone(), |_, _| {
@@ -302,7 +302,7 @@ const PLAYED: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Played> =
     paperpaw_sdk::event::Event::new("ear.played");
 
 /// Hears whether its sound played.
-fn listener(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn listener(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         crate::tests::hear_into(&kept);
         r.on(PLAYED, |_, p| {
@@ -331,8 +331,8 @@ fn sounds_are_answered_not_played() {
     kernel.start(Instant(0));
     let sound = paperpaw_sdk::sound::Sound::new("plugins/ear/haus.ogg", &PLAYED)
         .with(paperpaw_sdk::Params::new().with("word", "Haus"));
-    kernel.apply(Command::play_sound(sound));
-    kernel.apply(Command::StopSound);
+    kernel.apply(Ask::play_sound(sound));
+    kernel.apply(Ask::StopSound);
     kernel.run_commands();
     assert_eq!(*log.borrow(), ["Haus played false"]);
 }

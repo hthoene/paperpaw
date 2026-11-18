@@ -281,7 +281,7 @@ impl Kernel {
                 if !again {
                     self.input.edge_pending = Some((touch.side, self.shared.now.add_millis(3000)));
                     let text = self.shared.translator.tr("core.edge-again").to_string();
-                    self.output.commands.push(Command::Notify(text));
+                    self.output.commands.push(Ask::Notify(text));
                     return;
                 }
             }
@@ -475,7 +475,7 @@ impl Kernel {
     }
 
     /// The key map layers shown, the most specific first: the screen on
-    /// top, the layer put in front for it ([`Command::SetKeyLayer`]), the
+    /// top, the layer put in front for it ([`Ask::SetKeyLayer`]), the
     /// screen's slot, the global layer; and how many there are.
     fn layers(&self) -> ([&str; 4], usize) {
         match self.input_index() {
@@ -639,7 +639,7 @@ impl Kernel {
     /// Drops what was asked since `from` that runs `action` again with
     /// the same `params`: it would run itself without end (a handler in
     /// place of the action's own runs the original with
-    /// [`Command::RunOriginal`]). With other params it runs (stepping
+    /// [`Ask::RunOriginal`]). With other params it runs (stepping
     /// through profiles).
     fn drop_self_runs(&mut self, action: &Id, params: &Params, from: usize) {
         let before = self.output.commands.len();
@@ -647,9 +647,7 @@ impl Kernel {
         self.output.commands.retain(|command| {
             let again = index >= from
                 && match command {
-                    Command::RunAction(a, p) | Command::RunOriginal(a, p) => {
-                        a == action && p == params
-                    }
+                    Ask::RunAction(a, p) | Ask::RunOriginal(a, p) => a == action && p == params,
                     _ => false,
                 };
             index += 1;
@@ -661,7 +659,7 @@ impl Kernel {
     }
 
     /// Lays key map layer `layer` in front of the slot's for open screen
-    /// `key` ([`Command::SetKeyLayer`]); not for a screen below one that
+    /// `key` ([`Ask::SetKeyLayer`]); not for a screen below one that
     /// guards the device.
     pub(crate) fn set_key_layer(&mut self, key: paperpaw_sdk::ScreenKey, layer: Option<Id>) {
         let Some(index) = self

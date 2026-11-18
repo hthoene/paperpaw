@@ -1,0 +1,79 @@
+# File sync (#134) on the emulator, against a fake WebDAV server (account demo / secret):
+#   tools/pps/file-sync/run-emulator.sh target/debug/paperpaw-emu target/debug/paperpaw-dev out/file-sync
+# The card has /Notes with two notes and a folder; the server has one note of its own.
+# $port is the fake server's (the script's runner sets it). The script drives the home and the pair screen,
+# syncs once and reads the answer in the summary; the files of both sides are listed in card-files.txt and
+# server-files.txt next to the shots (expect: one, two, three and projects/plan on both).
+let:server=http://127.0.0.1:$port/dav/notes/
+
+define:quiet {
+  set:help.show=off
+  set:core.sleep-after=0
+  set:core.language=en
+}
+
+test:fs1-home {
+  call:quiet
+  run:file-sync.open
+  until:Sync now:20000
+  expect:Pair 1
+  expect:not set up
+  shot:$out/fs1-home.png
+  no-warn
+}
+
+# Without a pair nothing is synced and the message says what to do.
+test:fs2-no-pair {
+  select:Sync now
+  until:Set up a pair first:10000
+  shot:$out/fs2-no-pair.png
+}
+
+test:fs3-set-up-the-pair {
+  set:file-sync.folder-1=Notes
+  set:file-sync.server-1=$server
+  set:file-sync.user-1=demo
+  select:Pair 1
+  until:Folder on the card:10000
+  expect:Notes
+  select:Password
+  type-enter:wrong
+  wait:1500
+  back
+  wait:800
+}
+
+# The wrong password is refused and said so; the right one syncs.
+test:fs4-denied-then-synced {
+  select:Sync now
+  until:did not accept:20000
+  shot:$out/fs4-denied.png
+  select:Pair 1
+  until:Folder on the card:10000
+  select:Password
+  type-enter:secret
+  wait:1500
+  back
+  wait:800
+  select:Sync now
+  until:Synced. Received 1, sent 3:40000
+  shot:$out/fs4-synced.png
+  stat:Notes/three.md
+  cat:Notes/three.md
+  no-warn
+}
+
+# A second sync has nothing to do.
+test:fs5-nothing-more {
+  select:Sync now
+  until:Received 0, sent 0:30000
+  shot:$out/fs5-quiet.png
+}
+
+# Nothing syncs by itself under the default setting (only when asked): no request without Sync now.
+test:fs6-no-sync-without-asking {
+  mark
+  back
+  wait:800
+  no-log:PROPFIND
+}

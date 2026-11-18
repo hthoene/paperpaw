@@ -1,20 +1,20 @@
 //! Slot-15 SetSetting: whole-batch validation, reserved-setting protection,
 //! and readback of the applied value in the next real callback.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
-use paperpaw_core::Items;
 use paperpaw_core::Place;
+use paperpaw_core::Staging;
 use paperpaw_core::native_host::commands::{
     COMMAND_MAX_BYTES, CommandAuthority, CommandScope, CommandStage, SecretText, WireCommand,
     commands_decode, commands_encode,
 };
 use paperpaw_core::native_host::environment::{EnvironmentScope, SettingValueRef, settings_decode};
+use paperpaw_core::{Ask, Asks};
 use paperpaw_native::host_glue::{
     ERR_DENIED, ERR_INVALID, ERR_NO_SPACE, ERR_STATE, ERR_UNSUPPORTED, ERR_UTF8, OK,
 };
 use paperpaw_platform::{DeviceInfo, DisplayInfo, InputCaps, MemoryClass, PixelFormat, Rotation};
 use paperpaw_sdk::{
-    Canvas, Command, Commands, Id, Manifest, Priority, RegisterError, SettingExtra, SettingSpec,
-    SettingValue, builtin,
+    Canvas, Id, Manifest, Priority, RegisterError, SettingExtra, SettingSpec, SettingValue, builtin,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -24,7 +24,7 @@ use std::{
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "commands-test",
-    "Commands fixture",
+    "Asks fixture",
     DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
     InputCaps::new(true, false, false, &[]),
     MemoryClass::Small,
@@ -227,7 +227,7 @@ fn refusals(scope: &CommandScope) {
     let flag = set("probe.flag", SettingValueRef::Bool(true));
     let long = "t".repeat(BYTES);
     let cases: [(Vec<u8>, i32); 15] = [
-        // Commands 56-59 decode but this host does not run them yet: the
+        // Asks 56-59 decode but this host does not run them yet: the
         // whole batch is refused, the flag before it included.
         (
             batch(&[flag, WireCommand::Redraw { mode: 3 }]),
@@ -325,7 +325,7 @@ fn unwinding(owner: &Id, env: &Place<'_>) {
     assert_eq!(stage.staged().len(), 1);
 }
 
-fn started(env: &Place<'_>, out: &mut Commands) {
+fn started(env: &Place<'_>, out: &mut Asks) {
     let owner = Id::new_static("probe");
     let mut stage = CommandStage::new(&owner, env.settings(), None, 3, BYTES);
     let scope = pin!(CommandScope::new());
@@ -348,8 +348,8 @@ fn started(env: &Place<'_>, out: &mut Commands) {
     assert_eq!(
         stage.staged(),
         [
-            Command::SetSetting(Id::new_static("probe.flag"), SettingValue::Bool(true)),
-            Command::SetSetting(
+            Ask::SetSetting(Id::new_static("probe.flag"), SettingValue::Bool(true)),
+            Ask::SetSetting(
                 Id::new_static("probe.text"),
                 SettingValue::Text("Grüße".into())
             ),
@@ -365,7 +365,7 @@ fn started(env: &Place<'_>, out: &mut Commands) {
     cross_plugin_settings(&owner, env, out);
 }
 
-fn cross_plugin_settings(owner: &Id, env: &Place<'_>, out: &mut Commands) {
+fn cross_plugin_settings(owner: &Id, env: &Place<'_>, out: &mut Asks) {
     let mut stage = CommandStage::new(owner, env.settings(), None, 2, BYTES);
     let scope = pin!(CommandScope::new());
     let guarded = batch(&[
@@ -410,7 +410,7 @@ fn note(line: String) {
     });
 }
 
-fn probe(kept: Rc<RefCell<Vec<String>>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn probe(kept: Rc<RefCell<Vec<String>>>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         PROBE_LOG.with(|log| *log.borrow_mut() = Some(kept.clone()));
         r.add_settings(&SETTINGS)?;
@@ -443,7 +443,7 @@ fn probe_manifest() -> Manifest {
     )
 }
 
-fn other() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn other() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| r.add_settings(&FOREIGN)
 }
 
@@ -510,7 +510,7 @@ impl GuardedWriter {
     }
 }
 
-fn guarded_writer(kept: GuardedWriter) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn guarded_writer(kept: GuardedWriter) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let owner = kept.manifest().id;
         if kept.editor {

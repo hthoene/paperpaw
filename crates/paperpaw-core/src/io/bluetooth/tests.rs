@@ -3,7 +3,7 @@ use alloc::vec;
 use core::time::Duration;
 
 use paperpaw_sdk::Event;
-use paperpaw_sdk::bluetooth::{self as bt, BtCommand, Handle};
+use paperpaw_sdk::bluetooth::{self as bt, BtCommand, BtRequest, Handle};
 
 const FOUND: Event<BtEvent> = Event::new("a.found");
 const PULSE: Event<BtEvent> = Event::new("pulse.found");
@@ -17,11 +17,8 @@ fn radio() -> Radio {
 }
 
 /// The command inside `command`, as the kernel hands it on.
-fn inner(command: Command) -> BtCommand {
-    match command {
-        Command::Bluetooth(request) => request.into_parts().0,
-        other => panic!("not a Bluetooth command: {other:?}"),
-    }
+fn inner(request: BtRequest) -> BtCommand {
+    request.into_parts().0
 }
 
 fn asked(now: u64) -> Asked {
@@ -42,14 +39,14 @@ fn readers(now: u64) -> Asked {
 fn run(
     radio: &mut Radio,
     plugin: &str,
-    command: Command,
+    command: BtRequest,
     asked: Asked,
-    out: &mut Vec<Command>,
+    out: &mut Vec<Ask>,
 ) -> Result<(), BtFailure> {
     radio.command(plugin, inner(command), asked, out)
 }
 
-fn found(radio: &mut Radio, address: &str, services: Vec<Uuid>, out: &mut Vec<Command>) {
+fn found(radio: &mut Radio, address: &str, services: Vec<Uuid>, out: &mut Vec<Ask>) {
     let found = Found {
         address: address.into(),
         name: Some(address.to_uppercase()),
@@ -61,10 +58,10 @@ fn found(radio: &mut Radio, address: &str, services: Vec<Uuid>, out: &mut Vec<Co
 }
 
 /// The events told on `events`.
-fn told(out: &[Command], events: &Event<BtEvent>) -> Vec<BtEvent> {
+fn told(out: &[Ask], events: &Event<BtEvent>) -> Vec<BtEvent> {
     out.iter()
         .filter_map(|c| match c {
-            Command::Emit(id, params) if id == events.id() => params.carried::<BtEvent>().cloned(),
+            Ask::Emit(id, params) if id == events.id() => params.carried::<BtEvent>().cloned(),
             _ => None,
         })
         .collect()

@@ -84,11 +84,14 @@ impl JobHost for EnvJobs<'_> {
 
     fn removed(&self, path: &str) -> Result<(), i32> {
         let path = own(path)?;
-        self.carry
-            .send(events::BOOK_REMOVED.emit(events::BookRemoved::new(path)))
+        self.carry.send(crate::Ask::emit(
+            &events::BOOK_REMOVED,
+            events::BookRemoved::new(path),
+        ))
     }
 
     fn changed(&self) -> Result<(), i32> {
-        self.carry.send(events::LIBRARY_CHANGED.emit(()))
+        self.carry
+            .send(crate::Ask::emit(&events::LIBRARY_CHANGED, ()))
     }
 }

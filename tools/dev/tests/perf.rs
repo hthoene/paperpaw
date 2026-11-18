@@ -13,7 +13,7 @@ use paperpaw_core::{Place, Turn};
 use std::sync::Mutex;
 
 use paperpaw_core::kit::widgets::{Drawn, WidgetSpec};
-use paperpaw_core::{Items, KernelBuilder};
+use paperpaw_core::{KernelBuilder, Staging};
 use paperpaw_dev::cli::Context;
 use paperpaw_dev::perf;
 use paperpaw_dev::report::{Level, Report};
@@ -72,7 +72,7 @@ impl Probe {
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
+    fn register(&self, r: &mut Staging) -> Result<(), RegisterError> {
         r.add_fake(paperpaw_core::testing::FakeSpec::new(
             Id::new_static("perf-probe.reads"),
             "perf-probe.reads",

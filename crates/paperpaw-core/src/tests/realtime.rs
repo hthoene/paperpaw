@@ -5,7 +5,7 @@
 use core::time::Duration;
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::Params;
 use paperpaw_sdk::realtime::ScreenMode;
 
@@ -15,7 +15,7 @@ struct Game {
     mode: ScreenMode,
 }
 
-fn game_items(kept: Game) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn game_items(kept: Game) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -468,7 +468,7 @@ fn room_is_made_only_where_needed_and_given_back() {
     assert_eq!(kernel.stack.len(), 2, "the screen between closed");
     assert!(kernel.works.is_held());
     // Closed: the screen between opens again, work goes on.
-    kernel.apply(Command::Back);
+    kernel.apply(Ask::Back);
     kernel.finish();
     render(&mut kernel);
     assert_eq!(kernel.active_screen().map(Id::as_str), Some("b.screen"));
@@ -480,7 +480,7 @@ fn room_is_made_only_where_needed_and_given_back() {
 
 /// A screen that holds the device awake for five minutes when *up* is
 /// pressed, and lets go when *down* is.
-fn holder_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn holder_items() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("holder.screen"),

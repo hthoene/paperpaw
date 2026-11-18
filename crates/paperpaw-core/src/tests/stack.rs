@@ -4,9 +4,10 @@
 //! own row of hints, a screen opened again.
 
 use super::*;
-use crate::Items;
+use crate::Asks;
+use crate::Staging;
 use paperpaw_sdk::builtin::events;
-use paperpaw_sdk::{CloseCause, Commands, Gesture, HintVisibility, Instances, Params};
+use paperpaw_sdk::{CloseCause, Gesture, HintVisibility, Instances, Params};
 
 const SCREEN: Id = Id::new_static("s.screen");
 const HOME: Id = Id::new_static("s.home");
@@ -96,7 +97,7 @@ impl crate::testing::Fake for Configured {
     }
 }
 
-fn stack_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn stack_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         for (id, home, instances) in [
             (SCREEN, false, Instances::PER_PARAMS),
@@ -125,8 +126,8 @@ fn stack_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
             )?;
         }
         r.add_action(ActionSpec::new(OPEN_T, "s.action").handler(
-            |_: &crate::Place<'_>, _, out: &mut Commands| {
-                out.push(Command::OpenScreen(SCREEN, named("t")));
+            |_: &crate::Place<'_>, _, out: &mut Asks| {
+                out.push(Ask::OpenScreen(SCREEN, named("t")));
             },
         ))?;
         r.bind_slot(slots::HOME, HOME, Priority::DEFAULT)?;
@@ -215,7 +216,7 @@ fn a_screen_closes_itself_below_others() {
     kernel.open_screen(Instant(2), SCREEN, named("b").with("overlay", "y"));
     let a = kernel.shared.stack[1].key;
     log.borrow_mut().clear();
-    kernel.apply(Command::Close(a));
+    kernel.apply(Ask::Close(a));
     kernel.finish();
     assert_eq!(names(&kernel), ["s.home", "s.screen (overlay)"]);
     assert_eq!(*log.borrow(), ["a close"]);
@@ -233,7 +234,7 @@ fn screens_are_replaced_and_gone_back_to() {
     let mut kernel = stack_kernel(&log);
     kernel.open_screen(Instant(1), SCREEN, named("step 1"));
     log.borrow_mut().clear();
-    kernel.apply(Command::Replace(SCREEN, named("step 2")));
+    kernel.apply(Ask::Replace(SCREEN, named("step 2")));
     kernel.finish();
     assert_eq!(names(&kernel), ["s.home", "s.screen"]);
     assert_eq!(
@@ -242,10 +243,10 @@ fn screens_are_replaced_and_gone_back_to() {
         "the home screen is not shown between"
     );
     kernel.open_screen(Instant(2), SCREEN, named("step 3"));
-    kernel.apply(Command::BackTo(slots::HOME));
+    kernel.apply(Ask::BackTo(slots::HOME));
     kernel.finish();
     assert_eq!(names(&kernel), ["s.home"]);
-    kernel.apply(Command::BackTo(Id::new_static("s.none")));
+    kernel.apply(Ask::BackTo(Id::new_static("s.none")));
     kernel.finish();
     assert_eq!(names(&kernel), ["s.home"]);
 }
@@ -256,14 +257,14 @@ fn screens_are_replaced_and_gone_back_to() {
 fn slots_take_a_screen_chosen() {
     let log = log();
     let mut kernel = stack_kernel(&log);
-    kernel.apply(Command::OpenInSlot(slots::LIBRARY, SCREEN, named("shelf")));
+    kernel.apply(Ask::OpenInSlot(slots::LIBRARY, SCREEN, named("shelf")));
     kernel.finish();
     let env = kernel.shared.place(Instant(0));
     assert_eq!(
         env.top().and_then(|top| top.slot.clone()),
         Some(slots::LIBRARY)
     );
-    kernel.apply(Command::BindSlot(slots::HOME, Some(SCREEN)));
+    kernel.apply(Ask::BindSlot(slots::HOME, Some(SCREEN)));
     kernel.finish();
     assert_eq!(
         kernel.shared.registry.resolve_slot(slots::HOME.as_str()),
@@ -271,7 +272,7 @@ fn slots_take_a_screen_chosen() {
     );
     let saved = paperpaw_sdk::read_file(kernel.storage(), "paperpaw.ini", 4096).unwrap();
     assert!(String::from_utf8_lossy(&saved).contains("core.home = s.screen"));
-    kernel.apply(Command::BindSlot(slots::HOME, None));
+    kernel.apply(Ask::BindSlot(slots::HOME, None));
     kernel.finish();
     assert_eq!(
         kernel.shared.registry.resolve_slot(slots::HOME.as_str()),
@@ -410,7 +411,7 @@ fn a_screen_opened_again_waits_for_the_ones_above() {
 }
 
 /// Uses the same slot and hint policy as a sleep plugin.
-fn hidden_sleep_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn hidden_sleep_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         const SLEEP: Id = Id::new_static("quiet.sleep");
         r.add_fake(crate::testing::FakeSpec::new(

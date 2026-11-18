@@ -564,7 +564,8 @@ fn a_screen_of_a_plugin_without_room_does_not_open_and_opens_once_it_is_made() {
 
 #[test]
 fn a_parked_screen_opened_by_another_plugins_batch_is_made_there_and_the_batch_goes_on_in_order() {
-    use paperpaw_sdk::{Command, Id, Params};
+    use crate::Ask;
+    use paperpaw_sdk::{Id, Params};
     let mut kernel = kernel(Mode::Parkable);
     let resources = HostResources::try_new().unwrap();
     let parked = admit_with(&mut kernel, resources.try_clone().unwrap());
@@ -575,8 +576,8 @@ fn a_parked_screen_opened_by_another_plugins_batch_is_made_there_and_the_batch_g
     assert_eq!(makes(), 2);
     MODE.with(|cell| cell.set(Mode::Parkable));
     let commands = std::vec![
-        Command::OpenScreen(Id::parse("linked.screen").unwrap(), Params::new()),
-        Command::OpenScreen(Id::parse("other.screen").unwrap(), Params::new()),
+        Ask::OpenScreen(Id::parse("linked.screen").unwrap(), Params::new()),
+        Ask::OpenScreen(Id::parse("other.screen").unwrap(), Params::new()),
     ];
     let staged = super::super::event_call::Staged::new(other, commands, None, std::vec![]);
     kernel.shared.native_instances.outbox.put(staged).unwrap();

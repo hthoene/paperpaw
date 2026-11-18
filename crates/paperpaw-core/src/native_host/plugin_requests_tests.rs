@@ -4,6 +4,7 @@
 //! open requests, and what the stage refuses.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
+use crate::Ask;
 use crate::native_host::{
     codec,
     commands::{CommandStage, WireCommand, commands_decode, commands_encode},
@@ -15,7 +16,7 @@ use crate::native_host::{
 use alloc::{rc::Rc, string::String, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_native::host_glue::{ERR_FULL, ERR_INVALID, OK};
-use paperpaw_sdk::{Command, Id, Instant};
+use paperpaw_sdk::{Id, Instant};
 
 /// What one plugin was told: `(tag, request, text)`, the text the `by` and
 /// ids of 77, the plugin and outcome of 78.
@@ -142,7 +143,7 @@ impl World {
         self.kernel
             .output
             .commands
-            .push(Command::request_plugins(Id::try_parse(by).unwrap(), ids));
+            .push(Ask::request_plugins(Id::try_parse(by).unwrap(), ids));
         self.kernel.run_commands();
         while self.kernel.native_setting_pump() {}
     }

@@ -2,7 +2,7 @@
 //! with the old SDK host, #244 D6b).
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::{Gesture, Params};
@@ -36,13 +36,13 @@ impl crate::testing::Fake for Page {
             .borrow_mut()
             .push(alloc::format!("page tapped at {x},{y}"));
         cx.request_redraw_area(Rect::new(0, 0, 4, 4));
-        cx.command(Command::Notify(String::from("tapped")));
+        cx.command(Ask::Notify(String::from("tapped")));
         Handled::Yes
     }
 }
 
 /// Hosts the page in its lower half.
-fn host_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn host_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -88,15 +88,15 @@ fn tasks_keep_their_own_way_back() {
         kernel.screens().map(|id| id.as_str().into()).collect()
     };
     assert_eq!(ids(&kernel), ["host.tabs", "host.page"]);
-    kernel.apply(Command::SwitchTask(slots::LIBRARY));
+    kernel.apply(Ask::SwitchTask(slots::LIBRARY));
     kernel.finish();
     assert_eq!(ids(&kernel), ["host.list"]);
     kernel.open_screen(Instant(2), PAGE, Params::new());
-    kernel.apply(Command::SwitchTask(slots::HOME));
+    kernel.apply(Ask::SwitchTask(slots::HOME));
     kernel.finish();
     assert_eq!(ids(&kernel), ["host.tabs", "host.page"]);
     assert_eq!(kernel.stack[1].params.get("n"), Some("1"));
-    kernel.apply(Command::SwitchTask(slots::LIBRARY));
+    kernel.apply(Ask::SwitchTask(slots::LIBRARY));
     kernel.finish();
     assert_eq!(ids(&kernel), ["host.list", "host.page"]);
 }
@@ -131,7 +131,7 @@ fn tasks_kept_follow_their_books() {
             .map(|s| s.params.get(path).map(String::from))
             .collect()
     };
-    kernel.apply(Command::SwitchTask(slots::LIBRARY));
+    kernel.apply(Ask::SwitchTask(slots::LIBRARY));
     kernel.finish();
     let moved = events::BookMoved::new("books/a.epub".into(), "books/b.epub".into());
     kernel.send_event(
@@ -139,7 +139,7 @@ fn tasks_kept_follow_their_books() {
         events::BOOK_MOVED.id().clone(),
         moved.to_params(),
     );
-    kernel.apply(Command::SwitchTask(slots::HOME));
+    kernel.apply(Ask::SwitchTask(slots::HOME));
     kernel.finish();
     assert_eq!(
         ids(&kernel),
@@ -154,7 +154,7 @@ fn tasks_kept_follow_their_books() {
             None
         ]
     );
-    kernel.apply(Command::SwitchTask(slots::LIBRARY));
+    kernel.apply(Ask::SwitchTask(slots::LIBRARY));
     kernel.finish();
     let removed = events::BookRemoved::new("books/b.epub".into());
     kernel.send_event(
@@ -162,14 +162,14 @@ fn tasks_kept_follow_their_books() {
         events::BOOK_REMOVED.id().clone(),
         removed.to_params(),
     );
-    kernel.apply(Command::SwitchTask(slots::HOME));
+    kernel.apply(Ask::SwitchTask(slots::HOME));
     kernel.finish();
     // The other book's screen stays; the deleted one's and what was over
     // it go.
     assert_eq!(ids(&kernel), ["host.tabs", "host.page"]);
     assert_eq!(shown(&kernel), [None, Some("books/kept.epub".into())]);
     // Its book deleted too: only the task's first screen is left.
-    kernel.apply(Command::SwitchTask(slots::LIBRARY));
+    kernel.apply(Ask::SwitchTask(slots::LIBRARY));
     kernel.finish();
     let removed = events::BookRemoved::new("books/kept.epub".into());
     kernel.send_event(
@@ -177,7 +177,7 @@ fn tasks_kept_follow_their_books() {
         events::BOOK_REMOVED.id().clone(),
         removed.to_params(),
     );
-    kernel.apply(Command::SwitchTask(slots::HOME));
+    kernel.apply(Ask::SwitchTask(slots::HOME));
     kernel.finish();
     assert_eq!(ids(&kernel), ["host.tabs"]);
 }

@@ -9,7 +9,7 @@ use super::{
     schema,
     tests::{call_in, key, query_flags},
 };
-use crate::Items;
+use crate::Staging;
 use crate::native_host::{
     native_declarations::NativeDeclarations,
     registrations::{self as wire, Record},
@@ -26,7 +26,7 @@ const GOVERNS: u32 = 1 << 10;
 const SLIDER: u32 = 1 << 11;
 
 /// The settings a native plugin's host makes from its spec records: no extra.
-fn nat() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn nat() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         let top = Id::new_static("nat.top");
         r.add_setting_group(SettingGroupSpec::new(top.clone(), "nat.group.top"))?;

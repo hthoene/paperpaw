@@ -755,6 +755,9 @@ impl NativeAnki {
 
     /// The end of a request of the sync.
     fn request_done(&mut self, host: &Host<'_>, done: &HttpDone) -> Result<(), Error> {
+        // The next request of the sync (the answers, then the cards) goes to
+        // the same address: it is read again here (an empty one is no request).
+        let url = Self::address(host)?;
         let done = Done {
             id: done.id(),
             token: done.token(),
@@ -767,7 +770,7 @@ impl NativeAnki {
             host,
             net: &mut self.net,
             data: Data(host),
-            url: String::new(),
+            url,
         };
         let step = self.sync.done(&mut link, &done)?;
         self.stepped(host, step)

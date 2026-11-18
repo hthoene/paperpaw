@@ -895,7 +895,7 @@ enum CodePlugins {
     OnTrial,
 }
 
-/// What this firmware loads, as plugins see it ([`paperpaw_sdk::Env`]),
+/// What this firmware loads, as plugins see it (`Place`),
 /// with the plugins of the web flasher not installed.
 fn native(
     not_installed: alloc::vec::Vec<paperpaw_sdk::native::NotInstalled>,
@@ -1015,7 +1015,7 @@ fn kernel(
         // The panel takes bands turned any way (`display`).
         .rotation(true)
         .sleep(true)
-        // A plugin may ask to switch the device off (`Command::PowerOff`);
+        // A plugin may ask to switch the device off (`Ask::PowerOff`);
         // `slept_for` stays unknown after a switch-off: the card keeps no
         // clock, so plugins hear no time asleep for such a start.
         .power_off(true)

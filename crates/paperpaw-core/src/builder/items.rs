@@ -1,28 +1,20 @@
-//! Contributions given to the builder as a closure (#244): what registers in
-//! the kernel without a plugin file is a manifest and a function over
-//! [`Items`] ([`KernelBuilder::items`]).
+//! What registers in the kernel without a plugin file (#244, #300): a
+//! manifest and a function that stages it ([`KernelBuilder::items`]), or the
+//! fonts the program is built with, staged from their static table.
 //!
-//! [`Items`] is the kernel's own type (until slice D4b it was the SDK's
-//! `Registrar`), with the calls such a function makes: handlers that get the
-//! live `Place`, catalogs (`add_translations`), screens that are still an old
-//! `Screen`.
-//!
-//! The builder's list of what registers is a list of [`Source`]s: the kernel
-//! registers each through a function over `Items` (`Kernel::add_items`).
+//! The function is given the plugin's [`Staging`]: the lists of the
+//! kernel's kinds, merged whole once it is done (`Kernel::add_items`).
 
 use super::KernelBuilder;
 use crate::Kernel;
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::string::String;
-use paperpaw_sdk::{BuiltInFont, BuiltInFonts, FontFace, Id, Manifest, Priority, RegisterError};
-
-use crate::kit::contribution::item::Contribution;
+use paperpaw_sdk::{BuiltInFont, BuiltInFonts, FontFace, Manifest, Priority, RegisterError};
 
 mod calls;
 
-pub use calls::Items;
-pub(crate) use calls::Parts;
+pub use crate::registry::Staging;
 
 /// One entry of the builder's list of what registers, in the order given.
 pub(super) enum Source {
@@ -34,7 +26,7 @@ pub(super) enum Source {
 }
 
 /// What a closure given to [`KernelBuilder::items`] is kept as.
-type Register = dyn Fn(&mut Items) -> Result<(), RegisterError>;
+type Register = dyn Fn(&mut Staging) -> Result<(), RegisterError>;
 
 /// The closure of [`KernelBuilder::items`] and what it registers under.
 pub(super) struct Given {
@@ -57,7 +49,7 @@ impl Source {
             Self::Fonts(fonts) => {
                 kernel.add_items(
                     fonts.manifest.clone(),
-                    &|items| register_built_in(fonts, &mut |c| items.add(c)),
+                    &|items| register_built_in(fonts, items),
                     disabled,
                 );
             }
@@ -77,7 +69,7 @@ impl KernelBuilder {
     pub fn items(
         mut self,
         manifest: Manifest,
-        register: impl Fn(&mut Items) -> Result<(), RegisterError> + 'static,
+        register: impl Fn(&mut Staging) -> Result<(), RegisterError> + 'static,
     ) -> Self {
         let register = Box::new(register);
         self.0
@@ -91,7 +83,7 @@ impl KernelBuilder {
     pub fn items_off(
         mut self,
         manifest: Manifest,
-        register: impl Fn(&mut Items) -> Result<(), RegisterError> + 'static,
+        register: impl Fn(&mut Staging) -> Result<(), RegisterError> + 'static,
     ) -> Self {
         self.0.off.push(String::from(manifest.id.as_str()));
         self.items(manifest, register)
@@ -101,40 +93,28 @@ impl KernelBuilder {
 /// What a program's built-in fonts add: their translations, each font kept
 /// in the program with its role bound to it, the other roles' bindings, and
 /// the faces read from files.
-fn register_built_in(
-    fonts: &BuiltInFonts,
-    add: &mut dyn FnMut(Contribution) -> Result<(), RegisterError>,
-) -> Result<(), RegisterError> {
-    let binding = |role: &Id, font: &Id| Contribution::FontBinding {
-        role: role.clone(),
-        font: font.clone(),
-        priority: Priority::DEFAULT,
-    };
+fn register_built_in(fonts: &BuiltInFonts, r: &mut Staging) -> Result<(), RegisterError> {
     for source in fonts.translations {
-        add(Contribution::Translations(Cow::Borrowed(*source)))?;
+        r.add_translations(Cow::Borrowed(*source))?;
     }
     for font in fonts.fonts {
         match font {
             BuiltInFont::Data { id, role, .. } => {
                 if let Some(spec) = fonts.font(id) {
-                    add(Contribution::Font(Box::new(spec?)))?;
+                    r.add_font(spec?)?;
                 }
-                add(binding(role, id))?;
+                r.bind_font(role.clone(), id.clone(), Priority::DEFAULT)?;
             }
-            BuiltInFont::Role { role, font } => add(binding(role, font))?,
+            BuiltInFont::Role { role, font } => {
+                r.bind_font(role.clone(), font.clone(), Priority::DEFAULT)?;
+            }
             BuiltInFont::File {
                 id,
                 path,
                 family,
                 bold,
                 italic,
-            } => add(Contribution::FontFace(Box::new(FontFace::new(
-                id.clone(),
-                *path,
-                *family,
-                *bold,
-                *italic,
-            ))))?,
+            } => r.add_font_face(FontFace::new(id.clone(), *path, *family, *bold, *italic))?,
         }
     }
     Ok(())

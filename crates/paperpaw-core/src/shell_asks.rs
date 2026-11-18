@@ -12,7 +12,7 @@ impl Kernel {
         self.shared.reader = true;
         self.shared.now = now;
         self.last_activity = now;
-        self.output.commands.push(Command::OpenSlot(slot, params));
+        self.output.commands.push(Ask::OpenSlot(slot, params));
         self.run_commands();
         self.finish()
     }
@@ -36,9 +36,7 @@ impl Kernel {
         self.shared.reader = true;
         self.shared.now = now;
         self.last_activity = now;
-        self.output
-            .commands
-            .push(Command::OpenScreen(screen, params));
+        self.output.commands.push(Ask::OpenScreen(screen, params));
         self.run_commands();
         self.finish()
     }

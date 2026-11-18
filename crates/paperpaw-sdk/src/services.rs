@@ -1,7 +1,7 @@
 //! What plugins offer each other: services, and points to contribute to.
 //!
 //! **Services.** A plugin provides a value under an id in its namespace
-//! (`Items::provide`), in a version;
+//! (`Staging::provide`), in a version;
 //! others find it with [`Services::get`] by that id, its type and the
 //! version they need. The type comes from the providing plugin's crate,
 //! usually a struct holding a trait object, so others depend on what it
@@ -37,7 +37,7 @@
 //! # let mut services = Services::new();
 //! # services.insert(WEATHER, Service::new(Weather(Box::new(Sunny)), Version::new(1, 0, 0)));
 //!
-//! // Any plugin, with an `Env`: `env.services().get::<…>(…)`.
+//! // Any plugin, with an `Place`: `env.services().get::<…>(…)`.
 //! let weather = services.get::<Weather>(WEATHER.as_str(), Version::new(1, 0, 0));
 //! assert_eq!(weather.map(|w| w.0.today()), Some("sunny"));
 //! ```
@@ -50,7 +50,7 @@
 //! **Points to contribute to.** A plugin names a point (an id in its
 //! namespace) and documents what a contribution there is, e.g. a line
 //! of text in a format of its own; any plugin adds to it with
-//! `Items::contribute`, and the
+//! `Staging::contribute`, and the
 //! plugin reads them all with [`Services::contributions`]. The kernel's
 //! own points (status items, widgets, text filters …) have registrar
 //! methods of their own; these are for points that plugins define.
@@ -172,7 +172,7 @@ impl fmt::Debug for Service {
 }
 
 /// A point plugins contribute to, as its plugin declares it
-/// (`Items::add_point`): for lists of
+/// (`Staging::add_point`): for lists of
 /// what can be extended, and for authors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -200,7 +200,7 @@ impl PointSpec {
 }
 
 /// An event a plugin emits, as it declares it
-/// (`Items::declare_event`): rules
+/// (`Staging::declare_event`): rules
 /// and macro editors offer any declared event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -243,7 +243,7 @@ impl Services {
     }
 
     /// Publishes `service` as `id` (kernel; plugins use
-    /// `Items::provide`).
+    /// `Staging::provide`).
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn insert(&mut self, id: Id, service: Service) {
@@ -251,7 +251,7 @@ impl Services {
     }
 
     /// Adds `plugin`'s `contribution` to `point` (kernel; plugins use
-    /// `Items::contribute`).
+    /// `Staging::contribute`).
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn contribute(&mut self, point: Id, plugin: Id, contribution: Cow<'static, str>) {
@@ -259,7 +259,7 @@ impl Services {
     }
 
     /// Declares point `point` (kernel; plugins use
-    /// `Items::add_point`).
+    /// `Staging::add_point`).
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn declare_point(&mut self, point: PointSpec) {
@@ -267,7 +267,7 @@ impl Services {
     }
 
     /// Declares event `event` (kernel; plugins use
-    /// `Items::declare_event`).
+    /// `Staging::declare_event`).
     #[cfg(any(test, feature = "kernel"))]
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn declare_event(&mut self, event: EventSpec) {

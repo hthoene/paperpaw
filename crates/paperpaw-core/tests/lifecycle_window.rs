@@ -20,8 +20,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use common::Harness;
-use paperpaw_core::Items;
 use paperpaw_core::Kernel;
+use paperpaw_core::Staging;
 use paperpaw_core::sdk::builtin::events;
 use paperpaw_core::sdk::{DirEntry, Manifest, MemoryStorage, RegisterError, Storage, StorageError};
 use paperpaw_platform::Instant;
@@ -106,7 +106,7 @@ struct Saver {
     results: Rc<RefCell<Vec<Result<(), StorageError>>>>,
 }
 
-fn saver(kept: Saver) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn saver(kept: Saver) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         RESULTS.with(|results| *results.borrow_mut() = Some(kept.results.clone()));
         r.subscribe(events::SUSPEND, |k, _| save(k, "suspend"))?;

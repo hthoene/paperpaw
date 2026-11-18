@@ -38,8 +38,7 @@ impl Kernel {
         // interface 6 view that showed (`library::request_catalog`).
         if host.take_catalog_wanted() {
             self.output
-                .commands
-                .push(events::CATALOG_WANTED.emit(events::CatalogWanted::new(false)));
+                .emit(&events::CATALOG_WANTED, events::CatalogWanted::new(false));
         }
         let mut change = None;
         host.take_changed(&mut |what, generation, path| {

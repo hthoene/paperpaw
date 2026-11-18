@@ -347,6 +347,18 @@ test = false
 bench = false
 
 [[bin]]
+name = "picture-frame"
+path = "src/bin/picture-frame.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "file-sync"
+path = "src/bin/file-sync.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "home"
 path = "src/bin/home.rs"
 test = false
@@ -433,6 +445,8 @@ paperpaw-plugin-sleep = { path = "../../plugins/sleep", features = ["native-entr
 paperpaw-plugin-translate = { path = "../../plugins/translate", features = ["native-entry"] }
 paperpaw-plugin-aids = { path = "../../plugins/aids", features = ["native-entry"] }
 paperpaw-plugin-anki = { path = "../../plugins/anki", features = ["native-entry"] }
+paperpaw-plugin-picture-frame = { path = "../../plugins/picture-frame", features = ["native-entry"] }
+paperpaw-plugin-file-sync = { path = "../../plugins/file-sync", features = ["native-entry"] }
 paperpaw-plugin-home = { path = "../../plugins/home", features = ["native-entry"] }
 paperpaw-plugin-mail = { path = "../../plugins/mail", features = ["native-entry"] }
 paperpaw-plugin-notes-vault = { path = "../../plugins/notes-vault", features = ["native-entry"] }

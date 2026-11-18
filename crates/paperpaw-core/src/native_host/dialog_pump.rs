@@ -15,10 +15,11 @@
 //! events; the request is freed when that callback returned, whatever its
 //! status (`ui.md` 3.2, cleanup).
 use super::registrations::{self as wire};
+use crate::Ask;
 use crate::native_host::codec;
 use paperpaw_native::host_glue::ERR_BUSY;
 use paperpaw_sdk::{
-    Command, Id, Params,
+    Id, Params,
     builtin::slots::{CHOICE, CHOOSE_FOLDER, CONFIRM, KEYBOARD, REMOTE_KEYBOARD},
 };
 
@@ -297,7 +298,7 @@ impl crate::Kernel {
         let _ = store.dialog_opening(start.request, first);
         self.from_guard = own;
         self.from_guard_own = own;
-        self.apply(Command::OpenSlot(slot.clone(), params));
+        self.apply(Ask::OpenSlot(slot.clone(), params));
         self.from_guard = false;
         self.from_guard_own = false;
         // Not named by any later open; freed where no screen took it.

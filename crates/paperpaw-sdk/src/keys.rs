@@ -1,5 +1,5 @@
 //! What the key map binds, as plugins see it, e.g. to show and change
-//! the bindings ([`Command::Bind`](crate::Command::Bind)).
+//! the bindings (`Ask::Bind`).
 //!
 //! Inputs are named as in `paperpaw.ini`: `button.<name>`, `long.<name>`
 //! (held), `double.<name>` (pressed twice), `tap.<zone>`,
@@ -53,7 +53,7 @@ pub const POLICIES: [&str; 3] = [
 /// buttons pressed, held and pressed twice, and on touch screens taps,
 /// long taps and double taps in each zone, two-finger taps, swipes,
 /// swipes in from the edges and pinches. Plugins' inputs are in
-/// `Env::inputs`.
+/// `Place::inputs`.
 pub fn inputs(caps: &InputCaps) -> Vec<String> {
     let mut all = Vec::new();
     for key in caps.keys {
@@ -75,7 +75,7 @@ pub fn inputs(caps: &InputCaps) -> Vec<String> {
     all
 }
 
-/// What the reader used last (`Env::last_input`).
+/// What the reader used last (`Place::last_input`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum InputMode {
@@ -100,8 +100,8 @@ impl InputMode {
 
 /// An input of one's own (`input.<id>` in key maps), e.g. a chord a
 /// plugin recognizes or a switch of a switch-access device: bound like
-/// any other, raised with [`Command::Input`](crate::Command::Input).
-/// `Env::inputs` lists them with the gestures
+/// any other, raised with `Ask::Input`.
+/// `Place::inputs` lists them with the gestures
 /// plugins recognize ([`InputKind::Gesture`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -115,14 +115,14 @@ pub struct InputSpec {
     pub kind: InputKind,
 }
 
-/// What an input of `Env::inputs` is.
+/// What an input of `Place::inputs` is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum InputKind {
-    /// `input.<id>` (`Items::add_input`).
+    /// `input.<id>` (`Staging::add_input`).
     #[default]
     Input,
-    /// `gesture.<id>` (`Items::add_gesture`).
+    /// `gesture.<id>` (`Staging::add_gesture`).
     Gesture,
 }
 
