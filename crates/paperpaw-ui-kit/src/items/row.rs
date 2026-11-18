@@ -103,14 +103,29 @@ fn draw_note(
     let lines = note_lines(font, style, rect.width, row)?;
     let line = crate::geometry::line_px(font, style.small)?;
     let mut y = band.y.saturating_add(band.height);
-    for text in &lines {
+    for text in lines {
         let area = Rect::new(note_at.x, y, note_at.width, line);
+        if !style.rtl {
+            // Wrapped to fit above: a second measure would find it fits.
+            text::push_run(
+                paint,
+                font,
+                text,
+                style.small,
+                f32::from(note_at.x) + f32::from(style.margin),
+                area,
+                color,
+                Some(rect),
+            )?;
+            y = y.saturating_add(line);
+            continue;
+        }
         text::label_in(
             paint,
             font,
             style.rtl,
             note_at,
-            text,
+            &text,
             style.small,
             f32::from(note_at.x) + f32::from(style.margin),
             area,

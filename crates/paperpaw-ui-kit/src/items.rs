@@ -1157,10 +1157,7 @@ fn note_line_count(
     } else {
         NOTE_LINES
     };
-    let plain = !row.note.starts_with(' ')
-        && !row.note.ends_with(' ')
-        && !row.note.contains("  ")
-        && !row.note.chars().any(|c| c.is_whitespace() && c != ' ');
+    let plain = plain_note(&row.note);
     if plain && most == 2 && !row.note.is_empty() {
         let room = note_room(style, width, row.zone.is_some());
         let whole = font.measure_text(style.small, &row.note)?;
@@ -1169,16 +1166,37 @@ fn note_line_count(
     Ok(note_lines(font, style, width, row)?.len())
 }
 
+/// Whether wrapping `note` would only join its words with single spaces.
+fn plain_note(note: &str) -> bool {
+    !note.starts_with(' ')
+        && !note.ends_with(' ')
+        && !note.contains("  ")
+        && !note.chars().any(|c| c.is_whitespace() && c != ' ')
+}
+
+#[inline(never)]
 fn note_lines(
     font: &Font<'_>,
     style: &Style,
     width: u16,
     row: &RowItem,
 ) -> Result<Vec<String>, Error> {
+    let room = note_room(style, width, row.zone.is_some());
+    // A note that fits a line is one measure, not the word-by-word wrap that
+    // is drawn again for every band of a frame.
+    if !row.note.is_empty()
+        && plain_note(&row.note)
+        && font.measure_text(style.small, &row.note)? <= room
+    {
+        let mut lines = Vec::new();
+        lines.try_reserve_exact(1).map_err(|_| Error::NoMemory)?;
+        lines.push(text::copy(&row.note)?);
+        return Ok(lines);
+    }
     text::wrap_with(
         |line| font.measure_text(style.small, line),
         &row.note,
-        note_room(style, width, row.zone.is_some()),
+        room,
         if row.whole {
             WHOLE_NOTE_LINES
         } else {

@@ -1,0 +1,1 @@
+The Plugin store's setup pages (Choose a setup, Add more) and every list with notes draw faster: a note that fits one line is measured once, not word by word, in every band of a frame. The dev tool's `perf` no longer reports the store list's request left under way when it closes as a leak.
