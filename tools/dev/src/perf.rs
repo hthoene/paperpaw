@@ -474,6 +474,29 @@ pub fn run(context: &Context, report: &mut Report) -> Result<(), String> {
     Ok(())
 }
 
+/// Opens and closes one screen, without parameters or else with a book's
+/// path; what showed instead where it did not open.
+fn measure_screen(
+    session: &mut Session,
+    id: &str,
+) -> Result<Result<(Case, Measured), String>, String> {
+    let mut shown = String::new();
+    for params in [
+        Vec::new(),
+        vec![(params::PATH.to_string(), session::BOOK.to_string())],
+    ] {
+        let case = Case::Screen {
+            id: id.to_string(),
+            params,
+        };
+        match measure(session, &case, CYCLES)? {
+            Ok(measured) => return Ok(Ok((case, measured))),
+            Err(other) => shown = other,
+        }
+    }
+    Ok(Err(shown))
+}
+
 /// Opens and closes every screen and widget of the target on one profile.
 #[expect(
     clippy::too_many_lines,
@@ -510,33 +533,37 @@ fn measure_variant(context: &Context, variant: &Variant) -> Result<Run, String> 
         skipped: Vec::new(),
     };
     let mut cases_done: Vec<Case> = Vec::new();
+    // A second device, its radio on, for a screen that closes while the
+    // radio is off (the Wi-Fi plugin's networks): made when one is needed.
+    let mut online: Option<Session> = None;
     for id in cases::screens(&session, &context.target) {
-        let mut tried = None;
-        let mut shown = String::new();
-        for params in [
-            Vec::new(),
-            vec![(params::PATH.to_string(), session::BOOK.to_string())],
-        ] {
-            let case = Case::Screen {
-                id: id.clone(),
-                params,
-            };
-            match measure(&mut session, &case, CYCLES)? {
-                Ok(measured) => {
-                    tried = Some((case, measured));
-                    break;
-                }
-                Err(other) => shown = other,
+        let mut tried = measure_screen(&mut session, &id)?;
+        if tried.is_err() {
+            if online.is_none() {
+                let start = Start {
+                    wifi_online: true,
+                    ..Start::default()
+                };
+                let mut radio = Session::start(context, variant, &start)?;
+                cases::home(&mut radio);
+                drop(radio.frames());
+                online = Some(radio);
+            }
+            if let Some(radio) = online.as_mut()
+                && let Ok(found) = measure_screen(radio, &id)?
+            {
+                tried = Ok(found);
             }
         }
         match tried {
-            Some((case, measured)) => {
+            Ok((case, measured)) => {
                 cases_done.push(case);
                 run.measured.push(measured);
             }
-            None => run.skipped.push((id, shown)),
+            Err(shown) => run.skipped.push((id, shown)),
         }
     }
+    drop(online);
     let widgets = cases::widgets(&session, &context.target);
     if !widgets.is_empty() {
         let grid = cases::grid(&session);

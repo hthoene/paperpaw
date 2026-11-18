@@ -53,6 +53,10 @@ pub struct Start {
     /// What the storage says it has free, in bytes (the computer's disk
     /// where `None`); for a library kept in a folder.
     pub free_space: Option<u64>,
+    /// Start with the radio on and joined (`--wifi online`), for what
+    /// needs a network to show (the Wi-Fi plugin's list of networks closes
+    /// while the radio is off, as it does on a device).
+    pub wifi_online: bool,
 }
 
 /// A device running the app in a variant.
@@ -156,6 +160,7 @@ impl Session {
         if context.fixtures {
             device.use_fixtures();
         }
+        device.set_wifi_online(start.wifi_online);
         device.start();
         device.tick_if_due();
         let mut session = Session {
