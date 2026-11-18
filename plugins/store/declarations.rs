@@ -30,6 +30,9 @@ pub const STARTED_TOKEN: u32 = 7;
 pub const PLUGINS_TOKEN: u32 = 8;
 /// *Discover fonts*, on the reading settings' page of the text.
 pub const DISCOVER_TOKEN: u32 = 9;
+/// The Wi-Fi came up (`event.wifi_changed`): the plugins a setup template
+/// waited to install go into the queue (#72).
+pub const WIFI_TOKEN: u32 = 10;
 /// The screens' tokens: the start, the page of a plugin, a view, the letters,
 /// the source, the pictures and the progress of a fetch.
 pub const LIST_SCREEN: u32 = 20;
@@ -157,7 +160,7 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
 }
 
 /// The events the plugin watches: the end of a request and its progress, the end
-/// of an install, a change of the plugins, a picture ready.
+/// of an install, a change of the plugins, a picture ready, the Wi-Fi coming up.
 pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
@@ -168,6 +171,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.subscribe_event(EventKind::ImageReady, IMAGE_TOKEN)?;
     d.subscribe_event(EventKind::Started, STARTED_TOKEN)?;
     d.subscribe_event(EventKind::PluginsRequested, PLUGINS_TOKEN)?;
+    d.subscribe_event(EventKind::WifiChanged, WIFI_TOKEN)?;
     d.submit()?;
     Ok(())
 }
