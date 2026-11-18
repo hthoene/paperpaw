@@ -283,6 +283,7 @@ pub fn paperpaw_document::Document::links(&self, &dyn paperpaw_platform::storage
 pub fn paperpaw_document::Document::locate_xpointer(&self, &dyn paperpaw_platform::storage::Storage, &str) -> core::option::Option<paperpaw_document::Locator>
 pub fn paperpaw_document::Document::metadata(&self) -> &paperpaw_document::Metadata
 pub fn paperpaw_document::Document::page_label(&self, &dyn paperpaw_platform::storage::Storage, paperpaw_document::Locator) -> core::option::Option<alloc::string::String>
+pub fn paperpaw_document::Document::pictures_deferred(&self) -> bool
 pub fn paperpaw_document::Document::prepare_image(&self, &dyn paperpaw_platform::storage::Storage, &paperpaw_document::ImageRef) -> core::option::Option<paperpaw_document::ImageRef>
 pub fn paperpaw_document::Document::prepare_image_larger(&self, &dyn paperpaw_platform::storage::Storage, &paperpaw_document::ImageRef, u32) -> core::option::Option<paperpaw_document::ImageRef>
 pub fn paperpaw_document::Document::progress(&self, paperpaw_document::Locator) -> f32
