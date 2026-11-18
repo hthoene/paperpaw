@@ -78,13 +78,6 @@ pub(super) struct Networks {
 }
 
 impl Networks {
-    pub(super) fn empty() -> Self {
-        Self {
-            marks: Vec::new(),
-            list: ItemList::new(Vec::new()),
-        }
-    }
-
     /// The name of the network of row `index`; `None` for the last row.
     pub(super) fn ssid(&self, index: usize) -> Option<&str> {
         self.marks.get(index)?;
