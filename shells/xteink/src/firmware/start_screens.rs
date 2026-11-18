@@ -18,9 +18,11 @@ impl Firmware {
     #[inline(never)]
     pub(super) fn restart_screen(&mut self) {
         static DRAWING: AtomicBool = AtomicBool::new(false);
-        if DRAWING.swap(true, Ordering::Relaxed) {
+        // The C3 has no atomic swap; one core, the main loop alone.
+        if DRAWING.load(Ordering::Relaxed) {
             return;
         }
+        DRAWING.store(true, Ordering::Relaxed);
         match self.kernel.restart_screen(now(), &now) {
             Some(effects) => {
                 info!("restart display: the plugins' screen");
