@@ -390,3 +390,56 @@ fn a_followup_of_most_of_the_screen_is_no_page_turned() {
     let (region, mode) = kernel.run_action(Instant(40), TURN).refresh().unwrap();
     assert_eq!((region, mode), (screen, RefreshMode::Full));
 }
+
+/// Home after Back and a book opened are no page turns (#355): round trips
+/// between them never count towards the periodic full refresh, so Back→Home
+/// does not flash at every third return; six page turns still do.
+#[test]
+fn opening_and_leaving_a_book_is_no_page_turned() {
+    let mut kernel = refreshing();
+    kernel
+        .set_setting(Instant(1), settings::FULL_REFRESH_INTERVAL.as_str(), "6")
+        .unwrap();
+    kernel
+        .set_setting(Instant(1), settings::FLASH_SCREENS.as_str(), "false")
+        .unwrap();
+    render(&mut kernel);
+    let screen = kernel.framebuffer.bounds();
+    kernel.frame.refresh.done(
+        RefreshMode::Clear,
+        screen,
+        screen,
+        crate::refresh::Intervals::default(),
+    );
+    let mut at = 10;
+    let mut modes = Vec::new();
+    for _ in 0..8 {
+        modes.push(kernel.open_slot(Instant(at), slots::READER, Params::new()));
+        render(&mut kernel);
+        kernel.close_top(paperpaw_sdk::CloseCause::Back);
+        modes.push(kernel.tick(Instant(at + 5)));
+        render(&mut kernel);
+        at += 10;
+    }
+    let modes: Vec<_> = modes.iter().map(|e| e.refresh().map(|r| r.1)).collect();
+    assert!(
+        modes.iter().all(|m| *m == Some(RefreshMode::Partial)),
+        "{modes:?}"
+    );
+    assert_eq!(kernel.frame.refresh.since_full(), 0);
+    // Page turns on the book count as before: the sixth is the full one.
+    kernel.open_slot(Instant(500), slots::READER, Params::new());
+    render(&mut kernel);
+    let turns: Vec<_> = (0..6)
+        .map(|i| {
+            let mode = kernel
+                .run_action(Instant(600 + i * 10), TURN)
+                .refresh()
+                .map(|r| r.1);
+            render(&mut kernel);
+            mode
+        })
+        .collect();
+    assert_eq!(turns[..5], [Some(RefreshMode::Partial); 5]);
+    assert_eq!(turns[5], Some(RefreshMode::Full));
+}

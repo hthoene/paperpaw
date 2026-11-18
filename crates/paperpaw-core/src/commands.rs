@@ -270,9 +270,21 @@ impl Kernel {
         // Pictures drawn after the text of their page are not a page turn,
         // however large. They are not counted, and they never become the
         // full refresh that is due. Leaving them refreshes in full.
-        let counted = if followup || rule.pass { 0 } else { weight };
+        // Neither is the first frame of another screen (Home after Back, a
+        // book opened) a page turn: it would flash Back→Home at every
+        // third return (#355). Home's grays pass cleans it after a rest.
+        let serial = self.stack.last().map(|s| s.serial);
+        let changed = mem::replace(&mut self.frame.refreshed_on, serial) != serial;
+        let counted = if followup || rule.pass || changed {
+            0
+        } else {
+            weight
+        };
         self.frame.refresh.weigh(Some(counted));
         let (mode, region) = self.frame.refresh.decide(requested, dirty, screen, every);
+        if changed {
+            self.frame.refresh.skip_next();
+        }
         self.frame.refresh.done(mode, region, screen, every);
         self.frame.refresh.weigh(None);
         effects.refresh = Some((region, mode));

@@ -35,6 +35,10 @@ pub(crate) struct FrameState {
     pub(crate) pictures_shown: bool,
     /// The opening of the screen (`ActiveScreen::serial`) that showed them.
     pub(crate) pictures_on: Option<u32>,
+    /// The opening of the screen on top at the last refresh decided: a
+    /// frame of another one (Home after Back, a book opened) is no page
+    /// turn and not counted for the periodic full refresh.
+    pub(crate) refreshed_on: Option<u32>,
     /// The whole screen is drawn again as it was ([`Kernel::draw_again`]),
     /// in black and white after grays: not in grays for its pictures.
     pub(crate) again: bool,
