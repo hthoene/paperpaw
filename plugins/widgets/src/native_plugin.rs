@@ -675,10 +675,10 @@ impl State {
         let base = paperpaw_ui_kit::widget::settings::base(&item.widget);
         let tap = behaviour(item.token).map(|b| b.tap);
         if tap == Some(Tap::TickItems) {
-            // The heading, "more" and an empty list open the list's own
-            // screen, which is not ported yet: a tap there does nothing.
+            // The heading, "more" and an empty list open the list's own screen.
             if target == crate::native_todo::OPEN_TARGET {
-                return Ok(Handled::No);
+                Self::open_todo_screen(host)?;
+                return Ok(Handled::Yes);
             }
             // A tick that fails says so, as before, and the widget is drawn
             // again either way (it shows what the card holds).
