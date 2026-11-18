@@ -250,6 +250,7 @@ dependencies = [
  "paperpaw-plugin-notes-overview",
  "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-opds",
+ "paperpaw-plugin-picture-frame",
  "paperpaw-plugin-picture-home",
  "paperpaw-plugin-plugin-manager",
  "paperpaw-plugin-pomodoro",
@@ -475,6 +476,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-opds"
 version = "1.0.5"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-picture-frame"
+version = "1.0.0"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

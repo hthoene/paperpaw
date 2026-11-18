@@ -24,6 +24,7 @@ menu-editor look
 # news news  (removed with interface 6; its store file comes with the interface-7 store build, #244)
 notes-overview notes
 notes-vault notes
+picture-frame look
 # picture-home look  (removed with interface 6; its store file comes with the interface-7 store build, #244)
 pomodoro home
 profiles reading
