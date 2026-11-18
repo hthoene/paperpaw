@@ -62,8 +62,8 @@ const CEILINGS: &[(&str, u32, &str)] = &[
     ),
     (
         "text_measure",
-        224,
-        "layout of the next page, widths and pairs kept for the book (221)",
+        230,
+        "layout of the next page, widths and pairs kept for the book (227, #27 quotes)",
     ),
     (
         "storage_read_at",
