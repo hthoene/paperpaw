@@ -23,7 +23,7 @@ use paperpaw_sdk::native::{
     work::Work,
 };
 use paperpaw_ui_kit::{
-    Footer, Item, ItemList, ItemStep, Messages, Screens,
+    Footer, Item, ItemList, ItemStep, Messages, RowsChange, Screens,
     mem::{SERVICE_BUFFER, buffer, wipe},
     text::{concat, copy},
 };
@@ -177,7 +177,7 @@ impl Plugin for NativeWifi {
                 if token == PHONE_TOKEN {
                     return self.phone_shown(host);
                 }
-                self.reread(host)
+                self.reread_as(host, true)
             }
             Event::ScreenClosed { instance, .. } => {
                 // The setup screen showed a password: the page is not served
@@ -693,13 +693,24 @@ impl NativeWifi {
     /// both at once (a refusal leaves the view without rows until the next
     /// event).
     fn reread(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.reread_as(host, false)
+    }
+
+    /// [`Self::reread`]; `whole` draws the screen whole (it was shown now:
+    /// what was drawn last may be another frame). Otherwise only the rows
+    /// that say something else are drawn (a scan that moves a signal), and
+    /// nothing where no row does. Rows are assumed to keep their height.
+    fn reread_as(&mut self, host: &Host<'_>, whole: bool) -> Result<(), Error> {
+        let mut change = RowsChange::None;
         if let Some(View::Page(old)) = self.screens.top(PAGE_TOKEN) {
-            let focus = old.list.focus();
-            *old = Page::empty();
+            let (focus, keys) = (old.list.focus(), old.list.row_keys());
+            old.rows = Vec::new();
+            old.list.free_rows();
             let fresh = self.read_page(host)?;
             if let Some(View::Page(view)) = self.screens.top(PAGE_TOKEN) {
-                *view = fresh;
+                view.rows = fresh.rows;
                 view.list.set_focus(focus);
+                change = view.list.swap_rows(fresh.list, keys.as_deref());
             }
         }
         if self.screens.top(NETWORKS_TOKEN).is_some() {
@@ -710,18 +721,28 @@ impl NativeWifi {
                 let mut scratch = [0; 64];
                 return CommandSender::new(host, &mut scratch).back();
             }
-            let mut focus = 0;
+            let (mut focus, mut keys) = (0, None);
             if let Some(View::Networks(old)) = self.screens.top(NETWORKS_TOKEN) {
                 focus = old.list.focus();
-                *old = Networks::empty();
+                keys = old.list.row_keys();
+                old.marks = Vec::new();
+                old.list.free_rows();
             }
             let fresh = self.read_networks_view(host, &info)?;
             if let Some(View::Networks(view)) = self.screens.top(NETWORKS_TOKEN) {
-                *view = fresh;
+                view.marks = fresh.marks;
                 view.list.set_focus(focus);
+                // Both screens open at once (the page under the list): the
+                // whole of what shows is drawn.
+                let rows = view.list.swap_rows(fresh.list, keys.as_deref());
+                change = if change == RowsChange::None {
+                    rows
+                } else {
+                    RowsChange::All
+                };
             }
         }
-        redraw(host)
+        if whole { RowsChange::All } else { change }.queue(host)
     }
 
     /// Keeps the password typed for the network `ssid` the device is in now.

@@ -17,11 +17,13 @@ use paperpaw_sdk::{
     },
 };
 
+mod changed;
 mod empty;
 mod grip;
 mod row;
 pub(crate) use row::draw_row;
 mod stepper;
+pub use changed::{RowKey, RowsChange};
 pub use empty::Progress;
 pub(crate) use empty::Spot;
 use empty::{draw_empty, draw_progress};
