@@ -42,6 +42,9 @@ FILES = [
     "tools/publish/src/repo.rs",
     "tools/dev/templates/README.md",
     "tools/dev/templates/.github/workflows/paperpaw-release.yml",
+    "templates/plugin-source/Cargo.toml",
+    "templates/plugin-source/README.md",
+    "templates/plugin-source/.github/workflows/plugin-source.yml",
     ".claude/skills/paperpaw-plugin-development/publishing.md",
 ]
 VERSION = re.compile(r"0\.(\d+)\.(\d+)-beta\.(\d+)")

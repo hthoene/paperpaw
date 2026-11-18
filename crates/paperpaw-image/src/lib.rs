@@ -451,6 +451,11 @@ pub struct Downscaler {
     channels: usize,
     out_width: u32,
     out_height: u32,
+    /// Never filled since #316 (the pixel each one goes to is stepped along
+    /// the row); the field stays because the struct's layout is part of the
+    /// plugin interface (draft 36).
+    #[allow(dead_code, reason = "kept for the layout the interface fingerprints")]
+    columns: alloc::vec::Vec<u16>,
     /// Pixels of a row each pixel of the smaller one covers.
     counts: alloc::vec::Vec<u16>,
     sums: alloc::vec::Vec<u32>,
@@ -503,6 +508,7 @@ impl Downscaler {
             channels,
             out_width,
             out_height,
+            columns: alloc::vec::Vec::new(),
             counts,
             sums: zeroed(len)?,
             rows: 0,

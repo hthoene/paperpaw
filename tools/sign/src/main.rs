@@ -26,6 +26,7 @@ mod pack;
 mod pack5;
 mod plugin;
 mod relocation;
+mod source;
 mod statics;
 
 const USAGE: &str = "\
@@ -136,6 +137,23 @@ USAGE:
     paperpaw-sign store-rules [file]
         Prints the store's rules this tool checks by; with a file (the
         site's), fails where they differ.
+    paperpaw-sign pack-source <plugins-dir> <out-dir> [--author <name>] [--date <yyyy-mm-dd>] [--key <secret-key-file>]
+        Makes a community plugin source, a plugin library of one's own that
+        readers add by its address (Plugin store, Sources), as files any web
+        server serves: plugins.json, plugins.json.sig, a page and the files
+        of each plugin. <plugins-dir> holds a folder for each plugin, named
+        as its id (plugin.ini, store/store.ini), and beside it the builds of
+        a plugin with code, <id>-<version>-<device>.ppn (x4, x4-pro,
+        x4-classic; the X4 Pro's serves the X4 Classic too), each signed
+        with the same key as the list; the key as for sign. Prints the
+        public key and the fingerprint readers compare.
+    paperpaw-sign sign-source <plugins.json> [--key <secret-key-file>]
+        Signs a source's list: writes <plugins.json>.sig, the public key
+        and the signature over \"PaperPaw plugin source\", a zero byte and
+        the list's SHA-256, as hexadecimal digits; the key as for sign.
+    paperpaw-sign check-source <plugins.json>
+        Shows the key that signed a source's list and whether the signature
+        in <plugins.json>.sig holds, as a reader checks it.
     paperpaw-sign frames <firmware.elf> [--limit <bytes>] [--budget <file>]
         Lists the stack frame of every function of a linked firmware, read
         from the code, largest first (those of --limit bytes or more, 1024 by
@@ -205,6 +223,10 @@ fn run(args: Vec<String>) -> Result<(), String> {
         ["check-plugin", file] => plugin::check(file),
         ["statics", archives @ ..] if !archives.is_empty() => plugin::statics(archives),
         ["check-publish", rest @ ..] => check_publish(rest),
+        ["pack-source", input, out, rest @ ..] => source::pack(input, out, rest),
+        ["sign-source", list] => source::sign(list, None),
+        ["sign-source", list, "--key", key] => source::sign(list, Some(key)),
+        ["check-source", list] => source::check(list),
         ["store-rules"] => {
             print!("{}", paperpaw_publish::rules::BUILT_IN);
             Ok(())

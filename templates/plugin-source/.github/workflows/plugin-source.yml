@@ -1,0 +1,212 @@
+# Makes this repository a community plugin source for PaperPaw: a plugin
+# library of your own that readers add on their device by its address
+# (Plugin store, Sources).
+#
+# On every push to main it builds the plugin for each device (the Xteink X4
+# and X3, the X4 Pro and X4 Classic, and the desktop emulator), packs it,
+# signs the code and the list with your key and publishes these files with
+# GitHub Pages:
+#
+#   plugins.json                 the list readers fetch
+#   plugins.json.sig             your key and its signature of the list
+#   plugins/<id>.json            the plugin's page
+#   plugins/<id>/<version>/...   its files and its code for each device
+#
+# Before the first run (README.md says how): make a key, keep it as the
+# repository secret PAPERPAW_SOURCE_KEY, and set Settings > Pages > Source to
+# "GitHub Actions".
+name: plugin-source
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-source
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+  # The PaperPaw release the plugin is built for: its tools build, pack and
+  # sign (paperpaw-dev, paperpaw-sign), Cargo.toml names its SDK and
+  # rust-toolchain.toml its compiler. Move all three together.
+  PAPERPAW: "0.6.0-beta.3"
+  # The compiler of the X4 Pro and X4 Classic (espup's `esp` toolchain), as
+  # that release's shells/xteink/versions.env names it.
+  ESP_RUST: "1.97.0.0"
+  ESP_GCC: "14.2.0_20241119"
+  ESPUP: "0.17.1"
+  ESPUP_SHA256: "dbe54e9907b687809dbe1b955731569ed6df2b525362710d676256c5c8cf9ccd"
+  # Who makes the plugins, as readers see it.
+  AUTHOR: ${{ github.repository_owner }}
+  # Where PaperPaw's releases are.
+  RELEASES: https://github.com/hthoene/paperpaw/releases/download
+
+jobs:
+  # Your code runs here (its build): no secret, a token that only reads.
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: The plugin
+        run: |
+          set -euo pipefail
+          ini() { sed -n "s/^$1 *= *//p" plugin/plugin.ini | tr -d '\r' | head -n 1; }
+          id=$(ini id)
+          version=$(ini version)
+          [ -n "$id" ] && [ -n "$version" ] || { echo "plugin/plugin.ini names no id or version" >&2; exit 1; }
+          package=$(sed -n 's/^name *= *"\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          [ "$package" = "$id" ] || { echo "Cargo.toml's package is $package, plugin/plugin.ini's id is $id: they are the same" >&2; exit 1; }
+          echo "ID=$id" >> "$GITHUB_ENV"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: PaperPaw's tools, of the release
+        run: |
+          set -euo pipefail
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/tools.zip" "$RELEASES/v$PAPERPAW/paperpaw-emu-$PAPERPAW-linux-x64.zip"
+          unzip -q "$RUNNER_TEMP/tools.zip" -d "$HOME/paperpaw-tools"
+          chmod +x "$HOME/paperpaw-tools"/paperpaw-*
+          echo "$HOME/paperpaw-tools" >> "$GITHUB_PATH"
+
+      - name: The compiler of the X4 and X3
+        run: |
+          set -euo pipefail
+          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+          rustup toolchain install "$toolchain" --profile minimal --target riscv32imc-unknown-none-elf
+
+      - name: Build for the X4 and X3
+        run: paperpaw-dev build --device x4
+
+      # The plugin as the desktop emulator loads it (Linux): the run's
+      # artifact `emulator` is a library folder to try it with,
+      # `paperpaw-emu --library <folder> --trust-code`.
+      - name: Build for the desktop emulator
+        run: paperpaw-dev build --device emulator
+
+      - name: The compiler of the X4 Pro and X4 Classic
+        env:
+          # espup asks GitHub for its releases.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.cargo/bin"
+          curl -sSfL --retry 3 -o "$HOME/.cargo/bin/espup" \
+            "https://github.com/esp-rs/espup/releases/download/v$ESPUP/espup-x86_64-unknown-linux-gnu"
+          echo "$ESPUP_SHA256  $HOME/.cargo/bin/espup" | sha256sum -c -
+          chmod +x "$HOME/.cargo/bin/espup"
+          espup install --targets esp32s3 --toolchain-version "$ESP_RUST" \
+            --crosstool-toolchain-version "$ESP_GCC" --export-file "$HOME/export-esp.sh"
+          # The release's core libraries for that chip, as PaperPaw's own
+          # plugins link with them.
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/xtensa-std.tar.gz" "$RELEASES/v$PAPERPAW/paperpaw-xtensa-std-$PAPERPAW.tar.gz"
+          sysroot="$(rustc +esp --print sysroot)"
+          rm -rf "$sysroot/lib/rustlib/xtensa-esp32s3-none-elf"
+          tar -xzf "$RUNNER_TEMP/xtensa-std.tar.gz" -C "$sysroot"
+
+      - name: Build for the X4 Pro and X4 Classic
+        run: |
+          set -euo pipefail
+          . "$HOME/export-esp.sh"
+          paperpaw-dev build --device x4-pro
+
+      # What the source is made of: the plugin's folder, named as its id, and
+      # beside it the code for each device. The X4 Classic runs the X4 Pro's.
+      - name: Gather the plugin and its builds
+        run: |
+          set -euo pipefail
+          mkdir source-in
+          cp -r plugin "source-in/$ID"
+          cp "dist/x4/$ID/code.ppn" "source-in/$ID-$VERSION-x4.ppn"
+          cp "dist/x4-pro/$ID/code.ppn" "source-in/$ID-$VERSION-x4-pro.ppn"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: source-in
+          path: source-in
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: emulator
+          path: dist/emulator
+          if-no-files-found: error
+
+  # Nothing of the repository runs here: PaperPaw's tools alone sign the
+  # builds and the list, so the key is seen by them only.
+  sign:
+    name: Sign
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: source-in
+          path: source-in
+
+      - name: PaperPaw's tools, of the release
+        run: |
+          set -euo pipefail
+          curl -sSfL --retry 3 -o "$RUNNER_TEMP/tools.zip" "$RELEASES/v$PAPERPAW/paperpaw-emu-$PAPERPAW-linux-x64.zip"
+          unzip -q "$RUNNER_TEMP/tools.zip" -d "$HOME/paperpaw-tools"
+          chmod +x "$HOME/paperpaw-tools"/paperpaw-*
+          echo "$HOME/paperpaw-tools" >> "$GITHUB_PATH"
+
+      # The key signs the code of each device and the list: a reader keeps
+      # it at the first list it reads and takes nothing another key signed.
+      - name: Sign the builds, pack and sign the list
+        env:
+          PAPERPAW_SIGNING_KEY: ${{ secrets.PAPERPAW_SOURCE_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$PAPERPAW_SIGNING_KEY" ] || { echo "the repository has no secret PAPERPAW_SOURCE_KEY: README.md says how to make the key" >&2; exit 1; }
+          for build in source-in/*.ppn; do
+            paperpaw-sign sign-plugin "$build"
+          done
+          paperpaw-sign pack-source source-in site --author "$AUTHOR" --date "$(date -u +%F)"
+
+      # As a reader checks it; and a page for people who open the address.
+      - name: Check the list and say where it is
+        run: |
+          set -euo pipefail
+          fingerprint="$(paperpaw-sign check-source site/plugins.json | sed -n 's/^fingerprint: *//p')"
+          address="https://$GITHUB_REPOSITORY_OWNER.github.io/${GITHUB_REPOSITORY#*/}/plugins.json"
+          cat > site/index.html <<EOF
+          <!doctype html>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>A plugin source for PaperPaw</title>
+          <h1>A plugin source for PaperPaw</h1>
+          <p>On the device: <i>Plugin store</i>, <i>Sources</i>, <i>Add a source</i>, and type</p>
+          <p><code>$address</code></p>
+          <p>The device then says how this source's key begins. It is <code>$fingerprint</code>.</p>
+          <p>PaperPaw does not check this source or its plugins.</p>
+          EOF
+          {
+            echo "The source's address: \`$address\`"
+            echo "Its key begins: \`$fingerprint\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: site
+
+  publish:
+    name: Publish
+    needs: [sign]
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - id: pages
+        uses: actions/deploy-pages@v4

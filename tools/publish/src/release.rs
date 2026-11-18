@@ -26,7 +26,7 @@ fn chip(device: &str) -> Option<Chip> {
 /// chip and plugin interface reads it: the header, the digest, the words to
 /// relocate. With its author's signature, checked, if it ends with one; or
 /// what is wrong.
-fn build(file: &[u8]) -> Result<(Header5, Option<Signature>), String> {
+pub(crate) fn build(file: &[u8]) -> Result<(Header5, Option<Signature>), String> {
     let word = |at: usize| {
         file.get(at..at + 2)
             .map(|b| u16::from_le_bytes([b[0], b[1]]))
