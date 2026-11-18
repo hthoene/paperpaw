@@ -89,6 +89,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "format-rtf"
+path = "src/bin/format-rtf.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "format-txt"
 path = "src/bin/format-txt.rs"
 test = false
@@ -432,6 +438,7 @@ paperpaw-plugin-format-fb2 = { path = "../../plugins/format-fb2", features = ["n
 paperpaw-plugin-format-markdown = { path = "../../plugins/format-markdown", features = ["native-entry"] }
 paperpaw-plugin-format-cbz = { path = "../../plugins/format-cbz", features = ["native-entry"] }
 paperpaw-plugin-format-mobi = { path = "../../plugins/format-mobi", features = ["native-entry"] }
+paperpaw-plugin-format-rtf = { path = "../../plugins/format-rtf", features = ["native-entry"] }
 paperpaw-plugin-format-txt = { path = "../../plugins/format-txt", features = ["native-entry"] }
 paperpaw-plugin-format-images = { path = "../../plugins/format-images", features = ["native-entry"] }
 paperpaw-plugin-format-xtc = { path = "../../plugins/format-xtc", features = ["native-entry"] }
