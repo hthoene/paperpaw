@@ -188,7 +188,7 @@ impl Open {
     /// while nothing else in the reader asks for ids in between; if that
     /// changes, the follow-up meets `NotFound` and the box stays empty until
     /// the next layout.
-    fn ask_missing(&mut self, host: &Host<'_>, docs: &Documents) {
+    pub(super) fn ask_missing(&mut self, host: &Host<'_>, docs: &Documents) {
         let id = self.id;
         let Some(page) = self.page.as_mut() else {
             return;

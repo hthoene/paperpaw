@@ -1019,6 +1019,7 @@ action reader.font-larger | title=reader.action.font-larger sealed=false runs-it
 action reader.font-smaller | title=reader.action.font-smaller sealed=false runs-itself=true native=Some(126)
 action reader.go-to-page | title=reader.go-to-page sealed=false runs-itself=true native=Some(102)
 action reader.go-to-percent | title=reader.go-to-percent sealed=false runs-itself=true native=Some(103)
+action reader.hold-select | title=reader.hold-select sealed=false runs-itself=true native=Some(134)
 action reader.links | title=reader.links sealed=false runs-itself=true native=Some(106)
 action reader.next-chapter | title=reader.next-chapter sealed=false runs-itself=true native=Some(120)
 action reader.next-status-line | title=reader.next-status-line sealed=false runs-itself=true native=Some(107)
@@ -1372,7 +1373,7 @@ key-layer | global
 key-layer | keyboard.screen
 key-layer | reader.selecting
 key core.home | swipe.up -> home.all-tools Plugin
-key core.reader | long.confirm -> reader.toggle-bookmark Plugin
+key core.reader | long.confirm -> reader.hold-select Plugin
 key core.reader | long.left -> reader.select-text Plugin
 key core.reader | tap.bottom -> reader.quick-settings Plugin
 key core.reader | edge.left -> core.prev-page Plugin
@@ -2424,6 +2425,7 @@ native Action reader | ActionSpec(ActionSpec { name: "sel-hold-left", title: "re
 native Action reader | ActionSpec(ActionSpec { name: "sel-hold-right", title: "reader.sel.hold-right", token: 131, flags: 0 })
 native Action reader | ActionSpec(ActionSpec { name: "sel-hold-up", title: "reader.sel.hold-up", token: 132, flags: 0 })
 native Action reader | ActionSpec(ActionSpec { name: "sel-hold-down", title: "reader.sel.hold-down", token: 133, flags: 0 })
+native Action reader | ActionSpec(ActionSpec { name: "hold-select", title: "reader.hold-select", token: 134, flags: 0 })
 native Action settings | ActionSpec(ActionSpec { name: "secrets.open", title: "settings.secrets", token: 4, flags: 0 })
 native Action setup | ActionSpec(ActionSpec { name: "open", title: "setup.open", token: 1, flags: 0 })
 native Action store | ActionSpec(ActionSpec { name: "open", title: "store.title", token: 1, flags: 0 })
@@ -2698,7 +2700,7 @@ native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "edge.lef
 native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "edge.right", action: "core.next-page", when_key: "", when_value: "" })
 native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "pinch.out", action: "reader.font-larger", when_key: "", when_value: "" })
 native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "pinch.in", action: "reader.font-smaller", when_key: "", when_value: "" })
-native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "long.confirm", action: "reader.toggle-bookmark", when_key: "", when_value: "" })
+native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "long.confirm", action: "reader.hold-select", when_key: "", when_value: "" })
 native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "long.left", action: "reader.select-text", when_key: "", when_value: "" })
 native KeyBind reader | KeyBind(KeyBind { layer: "reader.selecting", input: "long.confirm", action: "reader.sel-widen", when_key: "", when_value: "" })
 native KeyBind reader | KeyBind(KeyBind { layer: "reader.selecting", input: "long.left", action: "reader.sel-hold-left", when_key: "", when_value: "" })

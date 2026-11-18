@@ -166,6 +166,9 @@ impl Open {
             self.words = Vec::new();
             self.laid = Some(key);
         }
+        if self.zoom.is_some() && self.draw_zoom(host, docs, frame)? {
+            return Ok(());
+        }
         if frame.pictures_only() {
             return self.draw_pictures_only(host, frame, (setup, fonts, area));
         }
