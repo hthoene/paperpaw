@@ -11,6 +11,7 @@ extern crate alloc;
     reason = "the build script and the declaration tests also use the builders"
 )]
 mod declarations;
+mod native_background;
 mod native_entry;
 pub mod native_model;
 #[cfg(feature = "linked")]
