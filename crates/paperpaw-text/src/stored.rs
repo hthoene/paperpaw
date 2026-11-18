@@ -24,8 +24,10 @@ use crate::glyph::{self, Glyph, zeroed};
 use paperpaw_platform::MemoryClass;
 
 mod index;
+mod words;
 
 use index::{Advances, AdvancesBuilder, CharIndex, IndexBuilder, Refused};
+pub(crate) use words::with_words;
 
 const MAGIC: &[u8; 4] = b"PPFP";
 /// Packs made before PaperPaw had its name (the same format): still read.
@@ -459,7 +461,9 @@ impl StoredPack {
         source: Rc<dyn PackSource>,
         limits: PackLimits,
     ) -> Result<StoredPack, FontError> {
-        Paged::open(source, limits).map(|pack| StoredPack(Rc::new(pack)))
+        let pack = Paged::open(source, limits)?;
+        words::note(&pack.source.inner, pack.tables[words::WORDS]);
+        Ok(StoredPack(Rc::new(pack)))
     }
 
     /// Where table `slot` (0 to 7, see
@@ -929,6 +933,7 @@ impl Pack for Paged {
 
     fn trim(&self) {
         self.source.trim();
+        words::trim();
         let Ok(mut advances) = self.advances.try_borrow_mut() else {
             return;
         };
@@ -942,7 +947,7 @@ impl Pack for Paged {
     }
 
     fn failed_reads(&self) -> u32 {
-        self.failed.get()
+        self.failed.get().wrapping_add(words::failures())
     }
 }
 

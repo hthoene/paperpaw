@@ -1186,3 +1186,131 @@ fn pictures_as_a_book_stay_within_the_x4_budget() {
     );
     eprintln!("pictures as a book: peak {} KiB", heap.peak);
 }
+
+/// The most reading in Thai may peak at here (#313), the table of words
+/// (18.7 KiB) held: measured at 214.4 KiB, 195.7 without it, in this
+/// build (more than the X4's: diagnostics, the store's plugins).
+const THAI_PEAK_KIB: f64 = 218.0;
+
+/// The packs of Thai letters as the store's are made (`tools/script-pack.py`,
+/// the words put into the regular and the interface's pack by
+/// `tools/thai-dictionary.py` where `words`), the interface in Thai from
+/// its pack and a Thai EPUB whose sentences have no spaces between their
+/// words.
+fn thai_files(words: bool) -> Vec<(&'static str, Vec<u8>)> {
+    let fonts = root().join("tools/fonts");
+    let sizes = [20.0, 24.0, 28.0, 32.0, 36.0, 40.0, 48.0];
+    let pack = |name: &str, file: &str, weight: f32| {
+        let data = fs::read(fonts.join(file)).unwrap();
+        let font = paperpaw_text::OutlineFont::new(data, &[("wght", weight)]).unwrap();
+        let chars = ('\u{E01}'..='\u{E3A}').chain('\u{E3F}'..='\u{E5B}');
+        let built = paperpaw_text::build_pack(&font, &sizes, chars);
+        if !words || name == "thai-bold" {
+            return built;
+        }
+        let path = std::env::temp_dir().join(format!(
+            "paperpaw-memory-{name}-{}.ppfp",
+            std::process::id()
+        ));
+        fs::write(&path, built).unwrap();
+        let added = Command::new("python3")
+            .arg(root().join("tools/thai-dictionary.py"))
+            .arg("add")
+            .arg(&path)
+            .status()
+            .unwrap();
+        assert!(added.success(), "tools/thai-dictionary.py add");
+        let made = fs::read(&path).unwrap();
+        let _ = fs::remove_file(&path);
+        made
+    };
+    let ini = "[plugin]\nid = script-thai\nname = thai\nversion = 1.0.0\nformats = 3\n\n[extends]\n\
+               thai.ppfp = fonts-default.literata\nthai-bold.ppfp = literata-styles.bold\n\
+               thai-sans.ppfp = fonts-default.source-sans\n";
+    let thai = fs::read_to_string(root().join("tools/plugin-files/languages/th.ini")).unwrap();
+    let text = "หมู่บ้านของเราอยู่ใกล้แม่น้ำสายเล็กๆ ในฤดูฝนน้ำจะไหลแรงจนเต็มตลิ่ง \
+        ตอนเช้าก่อนไปโรงเรียนเด็กๆชอบไปเล่นริมน้ำ คุณยายเคยบอกว่าธรรมชาติสอนให้เรารู้จักความอดทนและการให้อภัย \
+        ในวันเทศกาลทุกคนจะใส่เสื้อผ้าใหม่และร้องเพลงด้วยกันอย่างมีความสุข";
+    let mut zip = paperpaw_zip::testing::ZipBuilder::new()
+        .stored("mimetype", "application/epub+zip")
+        .deflated(
+            "META-INF/container.xml",
+            "<?xml version=\"1.0\"?><container version=\"1.0\" \
+             xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\"><rootfiles>\
+             <rootfile full-path=\"content.opf\" media-type=\"application/oebps-package+xml\"/>\
+             </rootfiles></container>",
+        )
+        .deflated(
+            "content.opf",
+            "<?xml version=\"1.0\"?><package xmlns=\"http://www.idpf.org/2007/opf\" \
+             version=\"3.0\" unique-identifier=\"id\"><metadata \
+             xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:identifier id=\"id\">th</dc:identifier>\
+             <dc:title>เรื่องของแม่น้ำ</dc:title><dc:language>th</dc:language></metadata>\
+             <manifest><item id=\"c1\" href=\"c1.xhtml\" media-type=\"application/xhtml+xml\"/>\
+             <item id=\"c2\" href=\"c2.xhtml\" media-type=\"application/xhtml+xml\"/></manifest>\
+             <spine><itemref idref=\"c1\"/><itemref idref=\"c2\"/></spine></package>",
+        );
+    for n in 1..=2 {
+        let body = format!("<h1>บทที่ {n}</h1>{}", format!("<p>{text}</p>").repeat(40));
+        zip = zip.deflated(
+            &format!("c{n}.xhtml"),
+            format!("<html xml:lang=\"th\"><body>{body}</body></html>"),
+        );
+    }
+    vec![
+        ("plugins/script-thai/plugin.ini", ini.as_bytes().to_vec()),
+        ("plugins/script-thai/fonts/thai.ppfp", pack("thai", "NotoSerifThai.ttf", 400.0)),
+        ("plugins/script-thai/fonts/thai-bold.ppfp", pack("thai-bold", "NotoSerifThai.ttf", 700.0)),
+        ("plugins/script-thai/fonts/thai-sans.ppfp", pack("thai-sans", "NotoSansThai.ttf", 400.0)),
+        (
+            "plugins/language-th/plugin.ini",
+            b"[plugin]\nid = language-th\nname = Thai\nversion = 1.0.0\nformats = 4\nrequires = script-thai\n".to_vec(),
+        ),
+        ("plugins/language-th/i18n/th.ppcat", paperpaw_i18n::Catalog::compile(&thai).unwrap()),
+        ("books/maenam.epub", zip.build()),
+    ]
+}
+
+/// Reading a Thai book with the interface in Thai, its lines broken
+/// between words (#313), peaks at most [`THAI_PEAK_KIB`], with no
+/// allocation refused; the table of words is held while reading, and no
+/// more than it.
+#[test]
+fn reading_thai_with_its_words_peaks_within_its_ceiling() {
+    let run = |words: bool, extra: &[&str]| {
+        let mut args = vec!["--set", "core.language=th"];
+        args.extend_from_slice(extra);
+        let flow = reading_flow();
+        args.extend_from_slice(&["--script", &flow]);
+        heap(&emulator_with(
+            if words { "x4-thai" } else { "x4-thai-plain" },
+            "xteink-x4",
+            Some("books/maenam.epub"),
+            &thai_files(words),
+            &args,
+        ))
+    };
+    let (budgeted, free) = (run(true, &[]), run(true, &["--heap-budget", "none"]));
+    let plain = run(false, &["--heap-budget", "none"]);
+    eprintln!(
+        "x4 Thai: peak {} KiB, {} KiB without words",
+        free.peak, plain.peak
+    );
+    assert_eq!(budgeted.screen, "home.dashboard", "the flow went home");
+    assert!(
+        (budgeted.peak - free.peak).abs() < 0.05,
+        "Thai: peak {} KiB under the budget, {} KiB without",
+        budgeted.peak,
+        free.peak
+    );
+    assert!(
+        free.peak <= THAI_PEAK_KIB,
+        "Thai: peak {} KiB, over {THAI_PEAK_KIB} KiB",
+        free.peak
+    );
+    let held = free.peak - plain.peak;
+    assert!(
+        (10.0..=20.0).contains(&held),
+        "the words add {held} KiB to the peak (18.7 KiB held)"
+    );
+}

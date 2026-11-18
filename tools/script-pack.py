@@ -218,6 +218,12 @@ def build(base, sets):
         axis = ["--axis", f"wght={weight}"] if weight else []
         subprocess.run([str(FONTGEN), str(file), str(out / "fonts" / f"{name}.ppfp"),
                         "--chars", chars, "--hinting", "none", *axis, *sizes], check=True)
+    # Thai's words, for breaking lines between them (#313): in the packs of
+    # Literata's regular face and of the interface's font, one of which is
+    # open wherever Thai is set.
+    if "thai" in sets:
+        subprocess.run([sys.executable, str(ROOT / "tools/thai-dictionary.py"), "add",
+                        str(out / "fonts/thai.ppfp"), str(out / "fonts/thai-sans.ppfp")], check=True)
     extends = "\n".join(
         f"{name}.ppfp = {', '.join(extended) if isinstance(extended, list) else extended}"
         for name, _, _, extended in faces)
