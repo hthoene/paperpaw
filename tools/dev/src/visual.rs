@@ -291,7 +291,24 @@ impl Looker {
     /// What a screen shown is checked as: its picture with what it
     /// described itself (`own`).
     fn scene<'a>(&'a self, shown: &'a cases::Shown, own: Vec<Described>) -> Scene<'a> {
-        Scene::new(&shown.image, own, self.screen, self.ui)
+        // A screen that hides the row of hints (one that guards the device,
+        // as the firmware confirmation) has the whole display.
+        let hints = shown
+            .described
+            .iter()
+            .any(|d| u32::from(d.clip.y) >= self.screen.bottom());
+        let screen = if hints {
+            self.screen
+        } else {
+            let (width, height) = (shown.image.width, shown.image.height);
+            Rect::new(
+                0,
+                0,
+                u16::try_from(width).unwrap_or(u16::MAX),
+                u16::try_from(height).unwrap_or(u16::MAX),
+            )
+        };
+        Scene::new(&shown.image, own, screen, self.ui)
             .panel(self.panel)
             .labels_whole(self.labels_whole)
             .ellipses(&self.ellipses)

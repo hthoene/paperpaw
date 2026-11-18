@@ -56,18 +56,35 @@ pub fn draw_no_network(
     )?;
     let inner = width.saturating_sub(2 * style.margin);
     let room = f32::from(width.saturating_sub(4 * style.margin)).max(1.0);
-    let lines = text::wrap_with(|line| font.measure_text(style.small, line), &note, room, 6)?;
     let head = line_px(&font, style.title)?;
     let line = line_px(&font, style.small)?;
-    let group = style.row + 2 * style.gap + head + line * lines.len() as u16;
     let bottom = button.map_or(height, |button| button.y);
-    let top = style.header + bottom.saturating_sub(style.header + group) / 2;
+    // At the largest text a small screen holds less: the lines that fit
+    // above the button, and the icon only where it has room above them.
+    let space = bottom.saturating_sub(style.header);
+    let most = usize::from(space.saturating_sub(head + 2 * style.gap) / line.max(1)).clamp(1, 6);
+    let lines = text::wrap_with(
+        |line| font.measure_text(style.small, line),
+        &note,
+        room,
+        most,
+    )?;
+    let words = head + style.gap + line * lines.len() as u16;
+    let with_icon = style.row + style.gap + words <= space;
+    let group = if with_icon {
+        style.row + style.gap + words
+    } else {
+        words
+    };
+    let top = style.header + space.saturating_sub(group) / 2;
     let mut ops = Vec::new();
     let icon_font = paperpaw_ui_kit::icons::font(host)?;
-    if let (Some(icons), Some(glyph)) = (
-        icon_font.as_ref(),
-        paperpaw_ui_kit::icons::glyph(host, "wifi-off")?,
-    ) {
+    if with_icon
+        && let (Some(icons), Some(glyph)) = (
+            icon_font.as_ref(),
+            paperpaw_ui_kit::icons::glyph(host, "wifi-off")?,
+        )
+    {
         paperpaw_ui_kit::icons::draw_centred(
             &mut ops,
             icons,
@@ -82,7 +99,11 @@ pub fn draw_no_network(
         style: &style,
         inner: f32::from(inner),
         width,
-        y: top + style.row + style.gap,
+        y: if with_icon {
+            top + style.row + style.gap
+        } else {
+            top
+        },
     };
     run.put(&mut ops, &[title], style.title, head, style.ink)?;
     run.y += style.gap;

@@ -376,11 +376,7 @@ fn key(
     } else {
         boxed(out, r, radius, Some(thickness), ink)?;
     }
-    let size = if board.look.touch {
-        style.text
-    } else {
-        style.text * board.letters as f32 / 100.0
-    };
+    let size = style.text * board.letters as f32 / 100.0;
     let (cx, cy) = (
         i32::from(r.x) + i32::from(r.width) / 2,
         i32::from(r.y) + i32::from(r.height) / 2,
@@ -403,7 +399,18 @@ fn key(
                     .map_or("", |l| l.0.as_str()),
                 _ => &words.done,
             };
-            centred(out, font, label, size, r, ink)
+            // A word wider than its key (*123* at the largest text) is
+            // drawn as small as the key holds; letters keep one size.
+            let width = font.measure_text(size, label)?;
+            let room = f32::from(r.width) - 2.0 * thickness as f32;
+            let word = label.chars().nth(1).is_some();
+            let (size, width) = if word && width > room && room > 0.0 {
+                (size * room / width, room)
+            } else {
+                (size, width)
+            };
+            let x = f32::from(r.x) + (f32::from(r.width) - width) / 2.0;
+            text_at(out, font, label, size, x, r, ink)
         }
     }
 }

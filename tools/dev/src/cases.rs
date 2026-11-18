@@ -184,21 +184,20 @@ pub fn show_screen(
     })
 }
 
-/// Goes back to the home screen.
+/// Goes back to the home screen: the home slot, and *Home* and *Back*
+/// ([`Session::go_home`]) where a screen that guards the device (the
+/// firmware confirmation) stays open above it. What opens next would
+/// open below that one, unseen, until the stack is full.
 pub fn home(session: &mut Session) {
+    let _ = close(session);
+}
+
+/// As [`home`]; an error where the home screen is not reached.
+pub fn close(session: &mut Session) -> Result<(), String> {
     session
         .device
         .call(|kernel, now| kernel.open_slot(now, slots::HOME, Params::new()));
     session.settle();
-}
-
-/// Closes what is open above the home screen, a screen that guards the
-/// device too (the firmware confirmation), which the home slot
-/// ([`home`]) leaves: what opens next would open below it, unseen, until
-/// the stack is full. *Home* and *Back* close that ([`Session::go_home`]);
-/// an error where the home screen is not reached.
-pub fn close(session: &mut Session) -> Result<(), String> {
-    home(session);
     if session.stack().len() > 1 {
         session.go_home()?;
     }

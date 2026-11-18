@@ -93,6 +93,11 @@ pub struct Look {
     pub m_width: f32,
     /// A text line's height at the text size.
     pub text_line: u16,
+    /// How far a line of the text reaches above and below its baseline, and
+    /// how high its capitals are.
+    pub ascent: f32,
+    pub descent: f32,
+    pub cap: f32,
     /// The status line at the top of the screen stays in sight.
     pub status: u16,
 }
@@ -285,6 +290,7 @@ impl Board {
             .height
             .saturating_sub(field_height.saturating_add(gap * 2 + room + status));
         let keys_height = key_height.saturating_mul(count as u16).min(room_for_keys);
+        let scale = scale.min(held(&look, keys_height / count as u16, seam));
         if asked.multiline {
             let used = status + field_height + keys_height + gap * 2 + room;
             field_height += more_lines(&look, look.height.saturating_sub(used));
@@ -915,6 +921,24 @@ fn button_height(look: &Look, area: Rect) -> u16 {
         .max(1)
 }
 
+/// The largest letters, in hundredths of the text, of which a line stands
+/// whole in a key `high` high with `seam` around it, centred on its capitals
+/// (the largest text is higher than a small screen's keys).
+fn held(look: &Look, high: u16, seam: u16) -> u32 {
+    let inset = if look.touch {
+        seam.max(look.line.max(1) * 3)
+    } else {
+        seam
+    };
+    let room = f32::from(high.saturating_sub(2 * inset));
+    let need = (2.0 * look.ascent - look.cap).max(look.cap + 2.0 * look.descent) + 2.0;
+    if need > room {
+        (room * 100.0 / need) as u32
+    } else {
+        u32::MAX
+    }
+}
+
 /// The room under keys chosen with buttons, `high` high.
 fn edge_room(look: &Look, high: u16) -> u16 {
     let _ = high;
@@ -1010,6 +1034,9 @@ mod tests {
             line: 2,
             m_width: 0.9,
             text_line: 26,
+            ascent: 20.0,
+            descent: 6.0,
+            cap: 14.0,
             status: 24,
         }
     }

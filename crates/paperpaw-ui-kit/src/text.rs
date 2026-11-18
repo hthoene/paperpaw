@@ -159,7 +159,8 @@ pub fn copy(text: &str) -> Result<String, Error> {
     Ok(result)
 }
 
-/// `text` wrapped and centred in `area`, in the small size and muted colour.
+/// `text` wrapped and centred in `area`, in the small size and muted colour:
+/// the lines `area` holds, the last ending in "…" where there is more.
 ///
 /// # Errors
 /// [`Error::NoMemory`] or a refused font reply.
@@ -171,8 +172,10 @@ pub fn message(
     text: &str,
 ) -> Result<(), Error> {
     let room = f32::from(area.width.saturating_sub(style.margin.saturating_mul(4))).max(1.0);
-    let lines = wrap_with(|l| font.measure_text(style.small, l), text, room, 8)?;
     let line = crate::geometry::line_px(font, style.small)?;
+    // The lines the area holds (fewer at the largest text), one at least.
+    let most = usize::from(area.height / line.max(1)).clamp(1, 8);
+    let lines = wrap_with(|l| font.measure_text(style.small, l), text, room, most)?;
     let total = u32::from(line) * lines.len() as u32;
     let mut y = u32::from(area.y) + u32::from(area.height).saturating_sub(total) / 2;
     for text in &lines {

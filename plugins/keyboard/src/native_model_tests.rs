@@ -94,6 +94,9 @@ pub(crate) fn look(screen: Screen) -> Look {
         line: tenth(3) as u16,
         m_width: 0.9,
         text_line,
+        ascent: text,
+        descent: text * 0.25,
+        cap: text * 0.7,
         status: (small * 1.25) as u16 + gap / 2,
     }
 }

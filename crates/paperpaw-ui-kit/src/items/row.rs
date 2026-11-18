@@ -28,13 +28,14 @@ pub(super) fn draw_row_as(
     } else {
         row_backdrop(paint, style, rect, row, focused)?;
     }
+    // A row of body text is never chosen: told as one that does nothing.
     paint::describe(
         paint,
         style.describing,
         PartRole::Row,
         rect,
         focused,
-        row.disabled,
+        row.disabled || row.plain,
     )?;
     if let Some(on) = row.on {
         paint::describe_switch(paint, style.describing, rect, on, row.disabled)?;

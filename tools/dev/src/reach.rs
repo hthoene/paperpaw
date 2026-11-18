@@ -197,6 +197,12 @@ pub fn is_target(part: &Part) -> bool {
     ) && part.label.chars().any(char::is_alphanumeric)
 }
 
+/// Whether `part` is a target the focus can go to: one that does nothing
+/// now (a row of text, a switched-off row) is passed over.
+pub fn takes_focus(part: &Part) -> bool {
+    is_target(part) && !part.disabled
+}
+
 /// What a part is called, whatever value it shows: its role and its text
 /// up to the first comma (a row's text is the texts in it, its title
 /// first, joined with commas).
@@ -734,7 +740,7 @@ pub struct Walked {
 
 impl Walked {
     fn saw(&mut self, seen: &Seen) {
-        let targets: Vec<&Part> = seen.targets().collect();
+        let targets: Vec<&Part> = seen.targets().filter(|p| takes_focus(p)).collect();
         for target in &targets {
             self.targets.insert(name(target), target.area);
             for outer in &targets {
@@ -825,7 +831,7 @@ pub fn walk(
         }
         // Every mover pressed here: caught, if none moved the focus.
         if walked.trap.is_none()
-            && current.targets().count() > 1
+            && current.targets().filter(|p| takes_focus(p)).count() > 1
             && let Some(part) = current.focused().filter(|p| is_target(p))
             && moves[&here]
                 .values()
