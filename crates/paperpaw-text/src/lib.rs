@@ -82,7 +82,7 @@ pub use cache::GlyphCache;
 pub use curve::ToneCurve;
 pub use font::{Font, FontError, LineMetrics};
 pub use ink::TextInk;
-pub use stored::{PackLimits, PackSource, StoredPack};
+pub use stored::{LARGE_SCRIPT, PackLimits, PackSource, StoredPack};
 
 /// Whether this build renders scalable (OpenType/TrueType) fonts.
 pub const OUTLINES: bool = cfg!(feature = "outline");
@@ -351,6 +351,11 @@ pub fn build_pack_compact(
     build_pack_with(font, sizes, chars, Hinting::None, true)
 }
 
+/// How many characters a pack made by [`build_pack`] and the like needs to
+/// be stored in cells (see [`PackBuilder::cells`]).
+#[cfg(feature = "outline")]
+const CELLS_FROM: usize = 1024;
+
 #[cfg(feature = "outline")]
 fn build_pack_with(
     font: &OutlineFont,
@@ -364,6 +369,11 @@ fn build_pack_with(
         builder.compact();
     }
     let kerned: alloc::vec::Vec<char> = chars.clone().into_iter().collect();
+    // Thousands of characters (Hangul, ideographs) are read a glyph at a
+    // time from a card: in cells, one read for each.
+    if !compact && kerned.len() >= CELLS_FROM {
+        builder.cells();
+    }
     builder.kerning(&font.kerning_pairs(&kerned));
     // Every key of a strike, in order, so that a key's anchors are where
     // its glyph is.
