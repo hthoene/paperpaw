@@ -1,0 +1,23 @@
+# HIL run (tools/pps/hil, #37): after a flash the first start makes covers and indexes. Open the books the later points use once, go Home
+# and wait until the log is quiet (no frame for 20 s, up to six tries). Not a limit: a card that does not settle is told in verdict.md.
+include:../beta4/common.pps
+
+test:00-settle {
+  call:quiet-device
+  open:$book
+  wait:7000
+  back
+  wait:5000
+  if:exists:books/Byttet.epub {
+    open:books/Byttet.epub
+    wait:7000
+    back
+    wait:5000
+  }
+  call:home
+  retry:6 {
+    measure:quiet:n=1:settle=20000 {
+    }
+    assert:quiet.frames.last==0:Home is quiet (covers made)
+  }
+}

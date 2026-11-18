@@ -1,0 +1,5 @@
+# HIL run (tools/pps/hil, #37), limit: no more entries in crashes.txt than before the flash (run.sh gives --baseline: the count read before it).
+test:05-crashes {
+  crashes
+  assert:crashes.count<=baseline:no new crashes
+}
