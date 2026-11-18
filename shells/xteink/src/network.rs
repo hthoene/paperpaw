@@ -82,6 +82,9 @@ struct Asked {
 pub struct Network {
     radio: Radio,
     calls: Calls,
+    /// The radio's power saving stays off a little after data moved
+    /// (`paperpaw_x4::download_boost`).
+    power_hold: paperpaw_x4::download_boost::PowerHold,
     servers: Servers,
     sockets: Sockets,
     /// The sockets of interface 7 (`core.sockets`), shared with the loader
@@ -112,6 +115,7 @@ impl Network {
         Self {
             radio: Radio::new(parts),
             calls: Calls::default(),
+            power_hold: paperpaw_x4::download_boost::PowerHold::new(),
             servers: Servers::default(),
             sockets: Sockets::default(),
             #[cfg(feature = "ppn5")]
@@ -192,7 +196,13 @@ impl Network {
         // meanwhile).
         #[cfg(feature = "bluetooth")]
         let busy = busy && !self.bluetooth.is_on();
-        self.radio.save_power(!busy);
+        // Every step: a request that failed or was dropped lets go as one
+        // that ended does, after the hold.
+        let saving = self.power_hold.saving(busy, now.0);
+        self.radio.save_power(saving);
+        // A connection kept for the next request goes before the heap is
+        // looked at for a session that is wanted.
+        self.calls.settle_idle(self.radio.net(), now.0);
         #[cfg(feature = "ppn5")]
         let mut scanned = false;
         for event in self.radio.poll() {

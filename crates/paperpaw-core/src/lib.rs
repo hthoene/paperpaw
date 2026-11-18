@@ -82,6 +82,7 @@ mod network;
 mod notices;
 mod place;
 mod plugins;
+mod reading_apps;
 mod realtime;
 mod recall;
 mod refresh;
@@ -451,6 +452,9 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.now = now;
         self.last_activity = now;
+        // The reading-app settings of the hosted apps, before the values no
+        // plugin declared are let go: a format's choice in the file is one.
+        self.offer_reading_apps();
         // The shell hosted its native plugins before this call: what their
         // admission kept in reserve is given back.
         self.native_hosted();
@@ -460,6 +464,8 @@ impl Kernel {
         // any plugin runs, whether or not a native plugin was admitted since
         // the services were wired (`secrets_i6.rs`).
         self.open_sealed_secrets();
+        // The reading apps kept for books and folders: read once.
+        self.read_reading_apps();
         // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Ask::open_slot(slots::HOME));

@@ -385,6 +385,13 @@ impl Translator {
         self.ordered().find_map(|catalog| catalog.get(key))
     }
 
+    /// [`Translator::get`] for a caller that copies the message out at once
+    /// (the host's `i18n` calls): a message on the card is found even when
+    /// the most that is kept of them is read, instead of English.
+    pub fn get_copy(&self, key: &str) -> Option<Cow<'_, str>> {
+        self.ordered().find_map(|catalog| catalog.get_copy(key))
+    }
+
     /// The message for `key`, or `key` itself if no catalog has it.
     pub fn tr<'a>(&'a self, key: &'a str) -> &'a str {
         self.ordered()
@@ -402,10 +409,24 @@ impl Translator {
     #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
     pub fn get_plural(&self, key: &str, count: i64) -> Option<&str> {
         // Reserve six extra bytes for the dot and longest category suffix.
-        self.lookup_plural(key, count, &mut [0; PLURAL_SCRATCH])
+        self.lookup_plural(key, count, &mut [0; PLURAL_SCRATCH], Catalog::get)
     }
 
-    fn lookup_plural(&self, key: &str, count: i64, scratch: &mut [u8]) -> Option<&str> {
+    /// [`Translator::get_plural`] for a caller that copies the message out
+    /// at once (see [`Translator::get_copy`]).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn get_plural_copy(&self, key: &str, count: i64) -> Option<Cow<'_, str>> {
+        self.lookup_plural(key, count, &mut [0; PLURAL_SCRATCH], Catalog::get_copy)
+    }
+
+    fn lookup_plural<'a, M: 'a>(
+        &'a self,
+        key: &str,
+        count: i64,
+        scratch: &mut [u8],
+        get: impl Fn(&'a Catalog, &str) -> Option<M>,
+    ) -> Option<M> {
         let required = key.len().checked_add(PLURAL_SCRATCH - MAX_KEY_BYTES)?;
         let scratch = scratch.get_mut(..required)?;
         scratch[..key.len()].copy_from_slice(key.as_bytes());
@@ -415,7 +436,7 @@ impl Translator {
                 let end = key.len() + 1 + category.id().len();
                 scratch[key.len() + 1..end].copy_from_slice(category.id().as_bytes());
                 let candidate = core::str::from_utf8(&scratch[..end]).ok()?;
-                if let Some(message) = catalog.get(candidate) {
+                if let Some(message) = get(catalog, candidate) {
                     return Some(message);
                 }
             }
@@ -444,7 +465,7 @@ impl Translator {
         } else {
             &mut scratch
         };
-        match self.lookup_plural(key, count, buffer) {
+        match self.lookup_plural(key, count, buffer, Catalog::get) {
             Some(message) => {
                 format::interpolate_with_count(message, count, args, self.digits.as_ref())
             }

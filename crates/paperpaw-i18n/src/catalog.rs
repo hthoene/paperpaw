@@ -990,6 +990,19 @@ impl Catalog {
         }
     }
 
+    /// [`Catalog::get`] for a caller that copies the message out at once:
+    /// a message of a catalog on the card is still found after the most that
+    /// is kept was read ([`MAX_READ`](crate::MAX_READ)), read anew.
+    pub fn get_copy(&self, key: &str) -> Option<Cow<'_, str>> {
+        if let Some(Elsewhere::Card(card)) = self.card.as_deref() {
+            if self.outside_compiled(key) {
+                return None;
+            }
+            return card.get_copy(key);
+        }
+        self.get(key).map(Cow::Borrowed)
+    }
+
     /// The message for `key`, if this catalog has one and is loaded.
     pub fn get(&self, key: &str) -> Option<&str> {
         if let Some(card) = &self.card {

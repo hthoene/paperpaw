@@ -476,6 +476,8 @@ pub(crate) struct Registry {
     /// The stand-ins of native formats in the kernel's `Formats` (their files
     /// are books of the library).
     pub(crate) native_book_formats: crate::native_host::native_book_formats::NativeBookFormats,
+    /// The reading apps kept for books and folders (`reading_apps`).
+    pub(crate) reading_apps: crate::reading_apps::ReadingApps,
     pub(crate) screens: Screens,
     pub(crate) slots: VecMap<Id, SlotSpec>,
     candidates: Vec<SlotCandidate>,

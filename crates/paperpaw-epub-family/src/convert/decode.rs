@@ -155,16 +155,21 @@ pub(crate) fn decode_entry(
             color,
         );
     }
-    // A reader that finds no memory ends it here: the copy below asks for
-    // the same and would be refused again, after two writes to the card
-    // (its file made and removed) on every try (#250).
-    let streamed = {
-        let reader = archive.reader(storage, entry).map_err(error)?;
-        let mut source = EntrySource { storage, reader };
-        decode_source(storage, &mut source, cache, fit, color)
-    };
-    if streamed != Err(paperpaw_sdk::image::ImageError::OutOfMemory) {
-        return streamed.map_err(image_error);
+    // A picture that would hold a window beside the reader's goes through a
+    // file of its own, one at a time (#316: a 1600 x 1000 PNG in a deflated
+    // entry peaked at 260 KiB, 214 KiB so). Otherwise a reader that finds no
+    // memory ends it here: the copy below asks for the same and would be
+    // refused again, after two writes to the card (its file made and
+    // removed) on every try (#250).
+    if !through_file(storage, archive, entry) {
+        let streamed = {
+            let reader = archive.reader(storage, entry).map_err(error)?;
+            let mut source = EntrySource { storage, reader };
+            decode_source(storage, &mut source, cache, fit, color)
+        };
+        if streamed != Err(paperpaw_sdk::image::ImageError::OutOfMemory) {
+            return streamed.map_err(image_error);
+        }
     }
     let temp = alloc::format!("{dir}/image.tmp");
     storage.write(&temp, &[])?;
@@ -182,6 +187,45 @@ pub(crate) fn decode_entry(
     // behind (#250).
     let _ = storage.remove(&temp);
     result
+}
+
+/// The deflate history: a picture's data this long fits one window.
+const HISTORY: u64 = 32 * 1024;
+
+/// The bytes the rows of the PNG that starts with `head` make, filter bytes
+/// included; `None` where `head` does not reach its header.
+fn png_data(head: &[u8]) -> Option<u64> {
+    let at = |i: usize| -> Option<u64> {
+        let bytes: [u8; 4] = head.get(i..i + 4)?.try_into().ok()?;
+        Some(u64::from(u32::from_be_bytes(bytes)))
+    };
+    let (width, height) = (at(16)?, at(20)?);
+    let channels = match head.get(25)? {
+        0 | 3 => 1,
+        4 => 2,
+        2 => 3,
+        _ => 4,
+    };
+    let row = (width * channels * u64::from(*head.get(24)?)).div_ceil(8) + 1;
+    Some(height.saturating_mul(row))
+}
+
+/// Whether the deflated `entry` is to be copied to a file before it is
+/// decoded: a picture that holds a window of its own (a PNG of more than
+/// 32 KiB of rows) or a long JPEG would hold the reader's beside it, 46 KiB
+/// more. Its first bytes are inflated to tell, then the reader's window is
+/// given back.
+fn through_file(storage: &dyn Storage, archive: &ZipArchive, entry: &Entry) -> bool {
+    let mut through = false;
+    let _ = archive.stream(storage, entry, &mut |head| {
+        through = if head.starts_with(b"\x89PNG\r\n\x1a\n") {
+            png_data(head).is_none_or(|data| data > HISTORY)
+        } else {
+            head.starts_with(&[0xff, 0xd8]) && u64::from(entry.size) > HISTORY
+        };
+        false
+    });
+    through
 }
 
 /// Decodes the image file `file` into the cache file `cache`, in colour

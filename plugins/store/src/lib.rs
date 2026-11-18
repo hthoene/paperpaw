@@ -86,6 +86,8 @@ pub mod native_screens;
 #[doc(hidden)]
 pub mod native_sort;
 #[doc(hidden)]
+pub mod native_sources;
+#[doc(hidden)]
 pub mod native_template;
 #[doc(hidden)]
 pub mod native_wire;

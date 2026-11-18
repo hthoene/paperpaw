@@ -144,7 +144,7 @@ pub(crate) unsafe fn i18n_copy(slot: &FrameSlot, key: PpBytes, out: PpBuffer) ->
         Err(error) => return error,
     };
     slot.with(|frame| {
-        let Some(message) = frame.translator().get(key) else {
+        let Some(message) = frame.translator().get_copy(key) else {
             return ERR_NOT_FOUND;
         };
         buffers::copy_required(message.as_bytes(), out, buffers::TEXT_MAX)

@@ -1112,7 +1112,8 @@ impl<'a> FontHandle<'a> {
         if let Some(larger) = self.larger_for(size) {
             return larger.size_for(size, text);
         }
-        self.font.size_for(size, text, self.display)
+        let size = self.font.size_for(size, text, self.display);
+        self.reached(size, text)
     }
 
     /// Width of a single line of text in pixels, its pairs kerned (see
@@ -1483,6 +1484,7 @@ mod loading;
 mod memo;
 mod missing;
 use missing::Drawing;
+mod number;
 mod runs;
 mod split;
 mod storage;

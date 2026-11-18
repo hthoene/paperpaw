@@ -39,6 +39,12 @@ pub enum Trouble {
     Memory,
     /// The libraries have nothing made for this device.
     Unsupported,
+    /// A community source's list has no signature that holds.
+    Unsigned,
+    /// A community source's list is signed by another key than before.
+    KeyChanged,
+    /// A community source's list is longer than the store reads.
+    TooLarge,
 }
 
 /// What the loader holds: the index kept on the card and the pages fetched.
@@ -71,6 +77,11 @@ pub trait Loader {
     fn small_memory(&self) -> bool {
         true
     }
+    /// The address of the community source listed, `None` for PaperPaw's own
+    /// library (#214).
+    fn source(&self) -> Option<&str> {
+        None
+    }
 }
 
 /// The store's loader (`native_load::Loader`, slice 1) as the screens read it.
@@ -85,6 +96,8 @@ pub struct LoaderView<'a> {
     pub generation: u32,
     /// Whether the device has little memory.
     pub small_memory: bool,
+    /// The address of the community source listed.
+    pub source: Option<&'a str>,
 }
 
 impl Loader for LoaderView<'_> {
@@ -96,6 +109,9 @@ impl Loader for LoaderView<'_> {
             Load::Failed => Trouble::Failed,
             Load::Memory => Trouble::Memory,
             Load::Unsupported => Trouble::Unsupported,
+            Load::Unsigned => Trouble::Unsigned,
+            Load::KeyChanged => Trouble::KeyChanged,
+            Load::TooLarge => Trouble::TooLarge,
             _ => Trouble::None,
         }
     }
@@ -125,6 +141,10 @@ impl Loader for LoaderView<'_> {
 
     fn small_memory(&self) -> bool {
         self.small_memory
+    }
+
+    fn source(&self) -> Option<&str> {
+        self.source
     }
 }
 
@@ -218,6 +238,12 @@ pub trait Installs {
     /// pack of letters is a data plugin and works at once). Added with the
     /// fetch screen; where the installs cannot tell, it is `false`.
     fn restart_needed(&self, id: &str) -> bool {
+        let _ = id;
+        false
+    }
+    /// Whether the device has plugin `id` from another source than the one
+    /// listed: it is neither installed over nor updated from this one (#214).
+    fn foreign(&self, id: &str) -> bool {
         let _ = id;
         false
     }
@@ -336,6 +362,21 @@ pub enum Next {
         queued: bool,
         notify: &'static str,
     },
+    /// List another source, add or remove one (#214).
+    Source(SourceAct),
+}
+
+/// What the reader does with the sources.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SourceAct {
+    /// List PaperPaw's own library.
+    Official,
+    /// List the community source at this address, adding it where it is none
+    /// yet (the reader was told that nobody checks it).
+    List(String),
+    /// Take the community source at this address away.
+    Remove(String),
 }
 
 /// What a screen asks the reader. The texts are already in the reader's
@@ -347,6 +388,14 @@ pub enum Ask {
     Text { title: String, number: bool },
     /// One of `options` chosen, by its place.
     Choice { title: String, options: Vec<String> },
+    /// Yes or no to `text`, the two answers named `yes` and `no`: the answer
+    /// comes as [`Reply::Choice`], 1 for yes.
+    Confirm {
+        title: String,
+        text: String,
+        yes: String,
+        no: String,
+    },
 }
 
 /// The answer to an [`Ask`].
