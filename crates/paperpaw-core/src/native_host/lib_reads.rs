@@ -165,6 +165,15 @@ impl CatalogReads {
         is
     }
 
+    /// Another card is in, or a computer changed this one: nothing kept of
+    /// the books stands, though a catalog's generation may be the same.
+    pub(crate) fn card_changed(&self) {
+        self.old.forget();
+        self.names.set(None);
+        self.counted.set(None);
+        self.indexed.begin(None);
+    }
+
     /// The library folder setting ([`CatalogEnv::library_folder`]).
     pub(crate) fn library_folder(&self, visit: &mut dyn FnMut(&str)) {
         self.env.library_folder(visit);

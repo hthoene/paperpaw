@@ -29,6 +29,12 @@
 //! the next generation before the card is started again, so the old
 //! mount's blocks fail from then on, whatever still holds them (a file
 //! system writing back as it is dropped, a cache).
+//!
+//! The old mount is dropped as the new one takes its place, with all it
+//! holds (its file system, open files, folders, the disk's blocks and the
+//! free space it counted: [`crate::mount`] owns them), so a card may be
+//! swapped as often as it is: every mount takes the memory the first took
+//! (#151).
 
 use alloc::boxed::Box;
 use alloc::rc::Rc;
@@ -45,10 +51,6 @@ pub const LOST_AFTER: u32 = 3;
 /// How often a lost card is started again (ms): one that is not back yet,
 /// or not quite in, is tried again this much later.
 pub const RETRY_MS: u64 = 3000;
-/// How many times a card is mounted anew in one run. Each new mount keeps
-/// the old one's memory (about 13 KB, its file system stays allocated:
-/// #151); past this the storage fails until PaperPaw starts again.
-pub const REMOUNTS: u8 = 1;
 /// After this long (ms) without a use of the storage, the next one looks
 /// at the card first (see the module).
 pub const PROBE_MS: u64 = 2000;
@@ -411,9 +413,9 @@ pub enum Swapped {
     /// The card is lost and could not be started or mounted (not back
     /// yet): tried again later.
     Waiting,
-    /// The card is lost for this run: mounted anew as often as allowed
-    /// ([`REMOUNTS`]), or nothing PaperPaw reads on it. The storage fails
-    /// until PaperPaw starts again.
+    /// The card is lost for this run: nothing PaperPaw reads on it after
+    /// [`MOUNT_TRIES`] starts. The storage fails until PaperPaw starts
+    /// again.
     GivenUp,
 }
 
@@ -426,7 +428,6 @@ pub struct CardSwap<B, E> {
     slot: Rc<RefCell<Slot<B>>>,
     storage: Rc<RefCell<Box<dyn Storage>>>,
     mount: Mount<B, E>,
-    remounts_left: u8,
     mount_tries_left: u8,
     /// When a lost card is started again next (ms).
     next_try_ms: u64,
@@ -435,7 +436,7 @@ pub struct CardSwap<B, E> {
 impl<B, E> core::fmt::Debug for CardSwap<B, E> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("CardSwap")
-            .field("remounts_left", &self.remounts_left)
+            .field("mount_tries_left", &self.mount_tries_left)
             .finish_non_exhaustive()
     }
 }
@@ -460,7 +461,6 @@ impl<B: Restart + 'static, E> CardSwap<B, E> {
             slot,
             storage: storage.clone(),
             mount,
-            remounts_left: REMOUNTS,
             mount_tries_left: MOUNT_TRIES,
             next_try_ms: 0,
         };
@@ -498,7 +498,7 @@ impl<B: Restart + 'static, E> CardSwap<B, E> {
         if !self.lost() {
             return Swapped::No;
         }
-        if self.remounts_left == 0 || self.mount_tries_left == 0 {
+        if self.mount_tries_left == 0 {
             return self.give_up();
         }
         if now_ms < self.next_try_ms {
@@ -535,7 +535,6 @@ impl<B: Restart + 'static, E> CardSwap<B, E> {
         let old = core::mem::replace(&mut *current, storage);
         drop(current);
         drop(old);
-        self.remounts_left -= 1;
         self.mount_tries_left = MOUNT_TRIES;
         Swapped::Remounted
     }
