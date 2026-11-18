@@ -5,7 +5,7 @@
 //! `core.power-mode`): that plugin lists the presets of its kind
 //! ([`Presets::of_kind`], through `env.settings().presets()`), shows each
 //! as it would look (`Ask::PreviewSettings` with
-//! [`Preset::changes`]) and applies the one chosen ([`commands`]). Any
+//! [`Preset::changes`]) and applies the one chosen ([`writes`]). Any
 //! plugin adds presets, also for another plugin's kind: kept in the
 //! program (`Staging::add_presets`, costing next to no memory) or made
 //! at start (`Staging::add_preset`). A data plugin brings them in a

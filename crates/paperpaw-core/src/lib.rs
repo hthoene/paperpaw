@@ -455,15 +455,11 @@ impl Kernel {
         // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Ask::open_slot(slots::HOME));
-        self.output
-            .commands
-            .push(crate::Ask::emit(&events::STARTED, ()));
+        self.output.emit(&events::STARTED, ());
         self.count_free_again(now);
         // The device slept and restarted: it wakes as it would elsewhere.
         if mem::take(&mut self.after_sleep) {
-            self.output
-                .commands
-                .push(crate::Ask::emit(&events::RESUME, ()));
+            self.output.emit(&events::RESUME, ());
         }
         #[cfg(feature = "bluetooth")]
         if let Some(radio) = &mut self.io.bluetooth {
@@ -742,9 +738,7 @@ impl Kernel {
                 );
                 told.on = part.on;
                 self.io.focus_told = focus;
-                self.output
-                    .commands
-                    .push(crate::Ask::emit(&events::FOCUS_CHANGED, told));
+                self.output.emit(&events::FOCUS_CHANGED, told);
                 self.run_commands();
             } else {
                 self.io.focus_told = None;
@@ -805,9 +799,7 @@ impl Kernel {
         // every reading.
         let shown = |s: &SystemStatus| s.battery.map(|b| (b.percent, b.charging));
         if shown(&old) != shown(&status) || offset(&old) != offset(&status) || jumped {
-            self.output
-                .commands
-                .push(crate::Ask::emit(&events::STATUS_CHANGED, ()));
+            self.output.emit(&events::STATUS_CHANGED, ());
             self.native_hint(native_host::registrations::EVENT_STATUS_CHANGED_TAG);
         }
         // Without a shell external-power fact, charging is the only known source.
@@ -816,9 +808,7 @@ impl Kernel {
             self.native_hint(native_host::registrations::EVENT_CHARGE_CHANGED_TAG);
         }
         if status.battery.is_some() {
-            self.output
-                .commands
-                .push(crate::Ask::emit(&events::BATTERY_MEASURED, ()));
+            self.output.emit(&events::BATTERY_MEASURED, ());
         }
         self.finish()
     }
@@ -1237,9 +1227,7 @@ impl Kernel {
         self.shared.now = now;
         self.suspended_at = Some(now);
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
-        self.output
-            .commands
-            .push(crate::Ask::emit(&events::SUSPEND, ()));
+        self.output.emit(&events::SUSPEND, ());
         self.end_at_suspend();
         let effects = self.finish();
         // Standby: the plugins that may sleep and run idle are parked again
@@ -1259,9 +1247,7 @@ impl Kernel {
     pub fn stop(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.now = now;
-        self.output
-            .commands
-            .push(crate::Ask::emit(&events::STOPPING, ()));
+        self.output.emit(&events::STOPPING, ());
         let effects = self.finish();
         self.keep_timing();
         // What plugins saved, and what storage kept back, written.
@@ -1307,9 +1293,7 @@ impl Kernel {
         self.close_shut_out();
         self.count_free_again(now);
         self.native_work_woke();
-        self.output
-            .commands
-            .push(crate::Ask::emit(&events::RESUME, ()));
+        self.output.emit(&events::RESUME, ());
     }
 
     /// The card is PaperPaw's again after a computer had it as a USB drive
@@ -1322,12 +1306,8 @@ impl Kernel {
         // A computer may have changed the card, or another card is in.
         self.shared.hyphenation.card_changed();
         self.shared.hyphen_feed.card_changed();
-        self.output
-            .commands
-            .push(crate::Ask::emit(&events::USB_DRIVE_ENDED, ()));
-        self.output
-            .commands
-            .push(crate::Ask::emit(&events::LIBRARY_CHANGED, ()));
+        self.output.emit(&events::USB_DRIVE_ENDED, ());
+        self.output.emit(&events::LIBRARY_CHANGED, ());
         self.finish()
     }
 

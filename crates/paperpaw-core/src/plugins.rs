@@ -1091,9 +1091,7 @@ impl Kernel {
         // A plugin may have brought or taken the interface's font.
         self.renew_memory_notice();
         self.rebuild_keymap();
-        self.output
-            .commands
-            .push(crate::Ask::emit(&events::PLUGINS_CHANGED, ()));
+        self.output.emit(&events::PLUGINS_CHANGED, ());
         self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
         // What menus, bindings, slots, screens and the rest hold follows the set.
         self.native_registry_changed(crate::native_host::REGISTRY_ALL);

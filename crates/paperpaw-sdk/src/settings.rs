@@ -237,7 +237,7 @@ pub struct SettingExtra {
     /// forms, e.g. `core.unit.pt.other = {count} pt`.
     pub unit: Option<Cow<'static, str>>,
     /// Where the value is edited instead of on the settings page, e.g.
-    /// a folder chooser for a path ([`Editor::open`] opens it).
+    /// a folder chooser for a path (the kernel opens it for the setting).
     pub editor: Option<Editor>,
     /// How much one step changes a number (e.g. 10 for percentages).
     pub step: i64,

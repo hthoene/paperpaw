@@ -14,7 +14,8 @@ use paperpaw_sdk::Params;
 ///
 /// ```
 /// use paperpaw_core::kit::action::{ActionHint, ActionSpec};
-/// use paperpaw_sdk::{Ask, Id};
+/// use paperpaw_core::Ask;
+/// use paperpaw_sdk::Id;
 ///
 /// const OPEN: Id = Id::new_static("demo.open");
 /// let spec = ActionSpec::new(OPEN, "demo.open")
@@ -153,7 +154,8 @@ pub type FixedHandler = fn(&Place<'_>, &Params, &mut crate::Asks);
 ///
 /// ```
 /// use paperpaw_core::kit::action::FixedAction;
-/// use paperpaw_sdk::{Ask, Id};
+/// use paperpaw_core::Ask;
+/// use paperpaw_sdk::Id;
 ///
 /// static ACTIONS: [FixedAction; 1] = [FixedAction::new(Id::new_static("demo.open"), "demo.open")
 ///     .handler(|_, _, out| out.push(Ask::Back))];

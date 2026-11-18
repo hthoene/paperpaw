@@ -152,7 +152,13 @@ fn every_kind_is_staged_in_its_list() {
         .unwrap();
     r.contribute(Id::new_static("other.point"), Cow::Borrowed("text"))
         .unwrap();
-    r.add_translations(Cow::Borrowed("")).unwrap();
+    r.add_translations(Cow::Borrowed("[meta]\nlanguage = en\n"))
+        .unwrap();
+    // A catalog that does not parse is refused as it is added.
+    assert!(matches!(
+        r.add_translations(Cow::Borrowed("[nonsense")),
+        Err(RegisterError::Parse { .. })
+    ));
     r.provide(Id::new_static("demo.count"), Count(1), ONE)
         .unwrap();
     // Each in the list of its kind.

@@ -265,7 +265,7 @@ pub enum Ask {
     /// ([`Capabilities::sleep`](paperpaw_sdk::Capabilities)); the kernel is told when it wakes.
     Sleep,
     /// Puts text on the clipboard, on devices with one also the system's,
-    /// for other apps. Long text is cut at [`MAX_CLIPBOARD`] bytes.
+    /// for other apps. Long text is cut at [`MAX_CLIPBOARD`](paperpaw_sdk::MAX_CLIPBOARD) bytes.
     SetClipboard(String),
     /// Serves HTTP to the local network on `port` (shells that cannot say
     /// so with a failure). Everything about the server comes as the event

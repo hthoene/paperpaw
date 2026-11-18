@@ -182,6 +182,15 @@ pub struct Output {
 }
 
 impl Output {
+    /// Queues `event` with `data` ([`Ask::Emit`]).
+    pub fn emit<P: paperpaw_sdk::event::EventData>(
+        &mut self,
+        event: &paperpaw_sdk::event::Event<P>,
+        data: P,
+    ) {
+        self.commands.push(Ask::emit(event, data));
+    }
+
     /// Records a refresh request; the strongest request wins.
     pub fn request_refresh(&mut self, mode: RefreshMode) {
         self.refresh = Some(self.refresh.map_or(mode, |m| m.max(mode)));

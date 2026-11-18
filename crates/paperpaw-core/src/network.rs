@@ -69,13 +69,9 @@ impl Kernel {
                         wifi.scanning = false;
                     }
                     wifi.state = state;
-                    self.output
-                        .commands
-                        .push(crate::Ask::emit(&events::WIFI_CHANGED, ()));
+                    self.output.emit(&events::WIFI_CHANGED, ());
                     // Status lines show it (`wifi.status`).
-                    self.output
-                        .commands
-                        .push(crate::Ask::emit(&events::STATUS_CHANGED, ()));
+                    self.output.emit(&events::STATUS_CHANGED, ());
                     self.native_hint(crate::native_host::registrations::EVENT_WIFI_CHANGED_TAG);
                     self.native_hint(crate::native_host::registrations::EVENT_STATUS_CHANGED_TAG);
                 }
@@ -94,16 +90,12 @@ impl Kernel {
                 });
                 wifi.networks = networks;
                 wifi.scanning = false;
-                self.output
-                    .commands
-                    .push(crate::Ask::emit(&events::WIFI_SCANNED, ()));
+                self.output.emit(&events::WIFI_SCANNED, ());
                 self.native_hint(crate::native_host::registrations::EVENT_WIFI_SCANNED_TAG);
             }
             WifiEvent::Failed { ssid, reason } => {
-                self.output.commands.push(crate::Ask::emit(
-                    &events::WIFI_FAILED,
-                    events::WifiFailed::new(ssid, reason),
-                ));
+                self.output
+                    .emit(&events::WIFI_FAILED, events::WifiFailed::new(ssid, reason));
             }
         }
         self.finish()
@@ -147,9 +139,7 @@ impl Kernel {
         match (waiting, self.io.network_waiting) {
             (true, None) => {
                 self.io.network_waiting = Some(self.shared.now);
-                self.output
-                    .commands
-                    .push(crate::Ask::emit(&events::NETWORK_WANTED, ()));
+                self.output.emit(&events::NETWORK_WANTED, ());
                 wanted = true;
             }
             (false, Some(_)) => self.io.network_waiting = None,
@@ -162,9 +152,7 @@ impl Kernel {
             self.io.http.busy() || self.io.servers.busy() || self.io.sockets.any() || native_live;
         wifi.busy = busy;
         if self.io.network_busy && !busy {
-            self.output
-                .commands
-                .push(crate::Ask::emit(&events::NETWORK_IDLE, ()));
+            self.output.emit(&events::NETWORK_IDLE, ());
             idle = true;
         }
         self.io.network_busy = busy;
@@ -500,9 +488,7 @@ impl Kernel {
             && firmware.state != state
         {
             firmware.state = state;
-            self.output
-                .commands
-                .push(crate::Ask::emit(&events::FIRMWARE_CHANGED, ()));
+            self.output.emit(&events::FIRMWARE_CHANGED, ());
         }
         self.finish()
     }

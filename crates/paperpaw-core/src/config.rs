@@ -157,9 +157,7 @@ impl Kernel {
         }
         self.setting_changed(id);
         let changed = events::SettingChanged::new(id.clone()).old(old);
-        self.output
-            .commands
-            .push(crate::Ask::emit(&events::SETTING_CHANGED, changed));
+        self.output.emit(&events::SETTING_CHANGED, changed);
     }
 
     /// Writes a changed setting to the configuration file on the device,
@@ -198,9 +196,7 @@ impl Kernel {
                 self.setting_changed(&id);
                 let old = old.map(|value| value.to_config_text());
                 let changed = events::SettingChanged::new(id.clone()).old(old);
-                self.output
-                    .commands
-                    .push(crate::Ask::emit(&events::SETTING_CHANGED, changed));
+                self.output.emit(&events::SETTING_CHANGED, changed);
             }
         }
     }
@@ -404,9 +400,7 @@ impl Kernel {
         } else {
             self.stack.last().map(|top| top.serial)
         };
-        self.output
-            .commands
-            .push(crate::Ask::emit(&events::PREVIEW_CHANGED, ()));
+        self.output.emit(&events::PREVIEW_CHANGED, ());
         self.native_hint(crate::native_host::registrations::EVENT_PREVIEW_CHANGED_TAG);
     }
 

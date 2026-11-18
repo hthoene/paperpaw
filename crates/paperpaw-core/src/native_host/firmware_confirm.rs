@@ -313,10 +313,8 @@ impl Kernel {
             .try_borrow_mut()
             .is_ok_and(|mut driver| driver.stopping(true));
         if !told {
-            self.output.commands.push(crate::Ask::emit(
-                &paperpaw_sdk::builtin::events::STOPPING,
-                (),
-            ));
+            self.output
+                .emit(&paperpaw_sdk::builtin::events::STOPPING, ());
             return;
         }
         if let Ok(mut driver) = driver.try_borrow_mut() {
@@ -330,9 +328,7 @@ impl Kernel {
             .is_ok_and(|mut driver| driver.restart_now());
         if failed {
             // It keeps running: the plugins that heard it stop hear it is on.
-            self.output
-                .commands
-                .push(crate::Ask::emit(&paperpaw_sdk::builtin::events::RESUME, ()));
+            self.output.emit(&paperpaw_sdk::builtin::events::RESUME, ());
         }
     }
 }
