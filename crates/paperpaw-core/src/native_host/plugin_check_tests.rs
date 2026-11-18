@@ -48,6 +48,7 @@ pub(in crate::native_host) fn host() -> PluginHost {
             features: &FEATURES,
         },
         signers: NAMED.get_or_init(|| [("PaperPaw release", author())]),
+        host_code: None,
     }
 }
 
