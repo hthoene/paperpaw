@@ -408,12 +408,9 @@ impl Kernel {
     /// passed over.
     fn open_book_command(&mut self, params: Params) {
         let opened = crate::kit::readers::opened(&params);
-        let screen = self
-            .shared
-            .registry
-            .resolve_slot(slots::READER.as_str())
-            .cloned();
-        self.open_slot_command(slots::READER, screen, opened);
+        // The reading app chosen for the book, else the slot's own screen
+        // (`reading_apps`).
+        self.open_slot_command(slots::READER, None, opened);
     }
 
     /// Carries out a command, by its kind.
@@ -523,6 +520,12 @@ impl Kernel {
     /// ([`Ask::OpenInSlot`]), or shows it again where the slot is open
     /// with it and the same params (closing what is above it).
     pub(crate) fn open_slot_command(&mut self, slot: Id, screen: Option<Id>, params: Params) {
+        // A book opens in the reading app chosen for it (`reading_apps`).
+        let screen = if slot == slots::READER {
+            self.reading_app_for_open(screen, &params)
+        } else {
+            screen
+        };
         let in_slot = self
             .stack
             .iter()
@@ -856,6 +859,10 @@ impl Kernel {
     /// menus, key bindings and slots changed.
     fn apply_setting(&mut self, command: Ask) {
         match command {
+            // The developer link's row asks, on the device; it is never stored.
+            Ask::SetSetting(id, value) if id.as_str() == crate::developer_link::SETTING => {
+                self.developer_switch(&value);
+            }
             // A secret setting's value goes to the secrets.
             Ask::SetSetting(id, paperpaw_sdk::SettingValue::Text(text))
                 if self.shared.settings.defines_secret(id.as_str()) =>
@@ -1257,7 +1264,14 @@ pub(crate) fn vet_reserved(
                         }
                         // The sleep screen shows over the lock; the settings
                         // editor has these rights.
-                        Ask::BindSlot(slot, _) => *slot == slots::SLEEP || *slot == slots::SETTINGS,
+                        Ask::BindSlot(slot, _) => [
+                            slots::SLEEP,
+                            slots::OFF,
+                            slots::RESTART,
+                            slots::START,
+                            slots::SETTINGS,
+                        ]
+                        .contains(slot),
                         _ => false,
                     });
         index += 1;

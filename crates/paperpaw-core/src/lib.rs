@@ -56,6 +56,8 @@ mod config;
 mod core_plugin;
 mod core_texts;
 mod data_plugin;
+mod developer_link;
+mod developer_link_run;
 mod drawing;
 mod effects;
 mod font_refresh;
@@ -80,12 +82,14 @@ mod network;
 mod notices;
 mod place;
 mod plugins;
+mod reading_apps;
 mod realtime;
 mod recall;
 mod refresh;
 mod registry;
 mod screen_names;
 mod shell_asks;
+pub mod start_picture;
 pub use screen_names::ScreenNames;
 mod room;
 mod screen;
@@ -153,6 +157,7 @@ pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load
 use crate::config::{mono_coverage, plugin_switches, read_config};
 use crate::core_plugin::CORE;
 pub use crate::data_plugin::hyphenation::{ManifestRefusal, hyphenation_tables};
+pub use crate::developer_link::PREFIX as DEVELOPER_PREFIX;
 pub use crate::effects::{Effect, Effects};
 use crate::input::{Recognized, Recognizer, Thresholds};
 pub use crate::io::cable::PREFIX as CABLE_PREFIX;
@@ -244,6 +249,8 @@ pub struct Kernel {
     power_off: bool,
     /// The card as a USB drive was requested (see [`Ask::UsbDrive`]).
     usb_drive: bool,
+    /// The developer link over USB (`developer_link.rs`): RAM only, off at every start.
+    developer: developer_link::Link,
     /// When the device went to sleep ([`Kernel::suspend`]): how long it
     /// slept is told on waking.
     suspended_at: Option<Instant>,
@@ -327,6 +334,8 @@ pub struct Kernel {
     /// The `core.secrets` host the shell gave [`Kernel::wire_secrets`]: the
     /// kernel seals through it with or without a native plugin admitted.
     secrets_wired: Option<alloc::rc::Rc<dyn crate::native_host::secrets_service::SecretsHost>>,
+    /// A secret setting's value is still in `paperpaw.ini`: not sealed yet.
+    secrets_left: bool,
     /// The number a pairing question's answer must bring back.
     #[cfg(feature = "bluetooth")]
     pairing_nonce: Option<u64>,
@@ -446,6 +455,9 @@ impl Kernel {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.now = now;
         self.last_activity = now;
+        // The reading-app settings of the hosted apps, before the values no
+        // plugin declared are let go: a format's choice in the file is one.
+        self.offer_reading_apps();
         // The shell hosted its native plugins before this call: what their
         // admission kept in reserve is given back.
         self.native_hosted();
@@ -455,6 +467,8 @@ impl Kernel {
         // any plugin runs, whether or not a native plugin was admitted since
         // the services were wired (`secrets_i6.rs`).
         self.open_sealed_secrets();
+        // The reading apps kept for books and folders: read once.
+        self.read_reading_apps();
         // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Ask::open_slot(slots::HOME));
@@ -1180,6 +1194,7 @@ impl Kernel {
         self.shared.native_input.clear();
         self.shared.now = now;
         self.suspended_at = Some(now);
+        self.developer_suspend();
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
         self.output.emit(&events::SUSPEND, ());
         self.end_at_suspend();
@@ -1201,6 +1216,7 @@ impl Kernel {
     pub fn stop(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.now = now;
+        self.developer_suspend();
         self.output.emit(&events::STOPPING, ());
         let effects = self.finish();
         self.keep_timing();

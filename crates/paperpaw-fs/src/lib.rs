@@ -263,7 +263,8 @@ const TREE_DEPTH: usize = 256;
 
 fn error(e: io::Error) -> StorageError {
     match e.kind() {
-        io::ErrorKind::NotFound => StorageError::NotFound,
+        // Below a file (or listing one): nothing there, as on the card's FAT.
+        io::ErrorKind::NotFound | io::ErrorKind::NotADirectory => StorageError::NotFound,
         io::ErrorKind::StorageFull => StorageError::Full,
         io::ErrorKind::PermissionDenied | io::ErrorKind::ReadOnlyFilesystem => {
             StorageError::Unsupported
@@ -843,6 +844,12 @@ mod tests {
             .unwrap();
         assert_eq!(names, ["b.txt"]);
         assert_eq!(storage.size("../outside"), Err(StorageError::InvalidPath));
+        // A file is no folder: listing it, or going below it, finds nothing.
+        assert_eq!(
+            storage.list("a/b.txt", &mut |_| {}),
+            Err(StorageError::NotFound)
+        );
+        assert_eq!(storage.size("a/b.txt/c"), Err(StorageError::NotFound));
         storage.remove("a/b.txt").unwrap();
         assert_eq!(storage.size("a/b.txt"), Err(StorageError::NotFound));
         fs::remove_dir_all(root).unwrap();

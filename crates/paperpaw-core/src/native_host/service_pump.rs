@@ -283,6 +283,8 @@ impl crate::Kernel {
         let reading_more = self.native_reading_pump();
         // The native formats' files are books of the walk (`native_book_formats`).
         self.native_book_formats_sync();
+        // The reading-app settings follow the declared apps (`reading_apps`).
+        self.offer_reading_apps();
         // What the library says changed is queued for the subscribers
         // (`library_events`), before the pump that tells them.
         let library_more = self.native_library_pump();

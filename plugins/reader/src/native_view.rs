@@ -68,7 +68,7 @@ enum Body {
     /// Why there is no page (the key of the text).
     Message(&'static str),
     /// The book, open.
-    Open(Open),
+    Open(Box<Open>),
     /// The book opened for the first time, its document still prepared by the
     /// format (`preparing.rs`): kept open until it is ready or failed, or the
     /// screen closes.
@@ -136,6 +136,9 @@ struct Open {
     turned: bool,
     /// The pictures of the page on show: drawn a frame after its text (#252).
     pictures: pictures::Pass,
+    /// The picture of the page on show full screen, and how it is zoomed
+    /// (`zoom.rs`).
+    zoom: Option<zoom::Zoom>,
     /// A jump from another screen is not yet reported to the host.
     report_due: bool,
     /// The book's title as a report carries it.
@@ -370,7 +373,9 @@ impl View {
         )
         .map_err(fail)?;
         let marks = Self::load_marks(host, library, &found.path, conversion);
-        let mut open = Open {
+        // On the heap at once, apart from the screen: the many moves of an `Open` on
+        // the stack are what the S3's frame limit counts (`open`, `wake`; #92).
+        let mut open = paperpaw_ui_kit::mem::boxed(Open {
             id,
             sections,
             whole_pages,
@@ -391,6 +396,7 @@ impl View {
             saved_at: None,
             turned: false,
             pictures: pictures::Pass::Whole,
+            zoom: None,
             report_due: false,
             said: false,
             title,
@@ -410,7 +416,8 @@ impl View {
             ask_marks: false,
             packs_asked: 0,
             settings: Kept::default(),
-        };
+        })
+        .map_err(fail)?;
         open.ask_filters(host);
         open.begin(host, root == Root::Library);
         open.load_bookmarks(host, library);
@@ -862,6 +869,9 @@ impl View {
             }
         ) {
             return self.show_toc(host, ui);
+        }
+        if let Some(handled) = self.zoom(host, docs, input)? {
+            return Ok(handled);
         }
         if let Input::Action { action, .. } = input
             && let Some(handled) = self.r3_action(host, (docs, library, ui), action)?
@@ -1328,6 +1338,7 @@ use setup::{Kept, LayoutKey, Setup, flag, integer};
 
 mod r3;
 mod status;
+mod zoom;
 
 /// What a forward turn finds after the page on show.
 #[derive(Debug)]

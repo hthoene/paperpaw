@@ -147,6 +147,103 @@ fn a_secret_goes_to_the_secrets_and_not_to_the_settings() {
     );
 }
 
+/// A native plugin's secret setting (`factory.token`, #81): admitted, its
+/// value in the file moved to the secrets and out of the file, cleared by the
+/// settings editor, and never announced to another plugin.
+#[test]
+fn a_native_secret_setting_moves_out_of_the_file_and_is_never_announced() {
+    use paperpaw_sdk::{Manifest, Version, builtin::events};
+    let heard = crate::tests::log();
+    let listener = heard.clone();
+    reset(NORMAL);
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .storage(MemoryStorage::new().with(CONFIG_FILE, "[factory]\ntoken = abc\nflag = on\n"))
+        .items(
+            Manifest::new(Id::new_static("obs"), "Observing", Version::new(1, 0, 0))
+                .uses(paperpaw_sdk::Uses::NOTHING),
+            move |r: &mut crate::Staging| {
+                crate::tests::hear_into(&listener);
+                r.subscribe(events::SETTING_CHANGED.id().clone(), |_, params| {
+                    let key = params.get("id").unwrap_or("?");
+                    crate::tests::heard(format!("changed {key}"));
+                })
+            },
+        )
+        .build()
+        .unwrap();
+    ARMS.with(|arms| arms.set(3));
+    let result = install(&mut kernel, 0);
+    ARMS.with(|arms| arms.set(0));
+    result.unwrap();
+    assert!(kernel.shared.settings.defines_secret("factory.token"));
+    assert_eq!(kernel.shared.secrets.get("factory.token"), Some("abc"));
+    assert_ne!(
+        kernel.shared.settings.get("factory.token"),
+        Some(&SettingValue::Text("abc".into()))
+    );
+    let file = paperpaw_sdk::read_file(kernel.storage(), CONFIG_FILE, 4096).unwrap();
+    let file = String::from_utf8(file).unwrap();
+    assert!(!file.contains("abc"), "{file}");
+    assert!(file.contains("flag = on"), "{file}");
+    // The other plugin hears a plain setting change, not the secret's.
+    heard.borrow_mut().clear();
+    kernel
+        .set_setting(paperpaw_platform::Instant(1), "factory.flag", "off")
+        .unwrap();
+    kernel
+        .set_setting(paperpaw_platform::Instant(2), "factory.token", "new")
+        .unwrap();
+    assert_eq!(kernel.shared.secrets.get("factory.token"), Some("new"));
+    // Cleared by the editor: the secret goes.
+    kernel
+        .set_setting(paperpaw_platform::Instant(3), "factory.token", "")
+        .unwrap();
+    assert_eq!(kernel.shared.secrets.get("factory.token"), None);
+    let told = heard.borrow().clone();
+    assert_eq!(told, ["changed factory.flag"], "{told:?}");
+}
+
+/// The same of a plugin whose declarations lie in its image (a plugin of the
+/// card, as Mail is): its settings are described from there, and the secret
+/// one is a secret all the same, never a plain setting (#81).
+#[test]
+fn a_secret_setting_declared_from_the_plugin_s_image_is_a_secret() {
+    reset(NORMAL);
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .storage(MemoryStorage::new().with(CONFIG_FILE, "[factory]\ntoken = abc\nflag = off\n"))
+        .build()
+        .unwrap();
+    ARMS.with(|arms| arms.set(3));
+    let mut bytes = [0; 1024];
+    let len = super::native_screen_install::declaration_batch(&mut bytes);
+    IMAGE.with(|image| image.set(Vec::leak(bytes[..len].to_vec())));
+    let result = install(&mut kernel, 0);
+    IMAGE.with(|image| image.set(&[]));
+    ARMS.with(|arms| arms.set(0));
+    result.unwrap();
+    let settings = &kernel.shared.settings;
+    // The plain setting beside it is described from the image, not held.
+    assert_eq!(
+        settings.get("factory.flag"),
+        Some(&SettingValue::Bool(false))
+    );
+    assert!(
+        settings
+            .kept_specs()
+            .all(|spec| spec.id.as_str() != "factory.flag")
+    );
+    assert_eq!(settings.secret_of("factory.token"), Some(true));
+    assert!(settings.defines_secret("factory.token"));
+    assert_eq!(kernel.shared.secrets.get("factory.token"), Some("abc"));
+    assert_ne!(
+        kernel.shared.settings.get("factory.token"),
+        Some(&SettingValue::Text("abc".into()))
+    );
+    let file = paperpaw_sdk::read_file(kernel.storage(), CONFIG_FILE, 4096).unwrap();
+    let file = String::from_utf8(file).unwrap();
+    assert!(!file.contains("abc"), "{file}");
+}
+
 #[test]
 fn only_so_many_values_are_kept() {
     let mut config = String::from("[nobody]\n");

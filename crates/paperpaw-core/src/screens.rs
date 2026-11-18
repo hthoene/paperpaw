@@ -1179,7 +1179,7 @@ impl Kernel {
                 }
                 let params = params.clone();
                 self.output.commands.remove(at);
-                self.firmware_answer(&params);
+                self.confirm_answer(&params);
             }
         }
         // The commands of a guarding screen, or of one above it, open

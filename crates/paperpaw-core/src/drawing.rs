@@ -421,6 +421,7 @@ impl Kernel {
             .map(|k| k > full && through[k + 1..].contains(&ShowsThrough::FullScreen))
             .collect();
         let row = self.hint_row();
+        let dev_mark = self.developer.on.then(|| self.developer_mark_area().0);
         let mut canvas = self.framebuffer.canvas();
         let mut canvas = canvas.clipped(region);
         canvas.clear(Color::WHITE);
@@ -483,6 +484,9 @@ impl Kernel {
             let x = f32::from(mark.x)
                 + (f32::from(mark.width) - crate::kit::ui::icon_width(&env, sign, size)) / 2.0;
             crate::kit::ui::draw_icon(&mut canvas, &env, sign, size, x, mark, Color::WHITE);
+        }
+        if let Some(mark) = dev_mark {
+            Self::draw_developer_mark(&mut canvas, &env, mark, &region);
         }
         // A message over everything.
         if let Some((notice, _)) = &mut self.notice

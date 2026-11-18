@@ -175,6 +175,7 @@ Row "Search" (focused) at 0,75 480x61
 Row "New" at 0,136 480x61
 Row "Reading, 2" at 0,197 480x61
 Row "Look, 1" at 0,258 480x61
+Row "Sources, PaperPaw" at 0,319 480x61
 Text "Back" at 39,758 97x42
 Text "Select" at 154,758 115x42
 Text "1 / 3" at 411,14 35x29

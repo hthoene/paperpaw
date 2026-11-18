@@ -1187,8 +1187,40 @@ fn pictures_as_a_book_stay_within_the_x4_budget() {
     eprintln!("pictures as a book: peak {} KiB", heap.peak);
 }
 
+/// What a book page with a large PNG may peak at, in KiB: 40 KiB under the
+/// X4's 256 (#316). The 1600 x 1000 picture (RGB, 36 KiB as a file) is a
+/// deflated entry of its EPUB, as packers that deflate everything make
+/// them: its two inflate windows (the archive's and the PNG's, 32 KiB and a
+/// decompressor each) were held at once, 260.1 KiB without a budget, so the
+/// X4's refused the second and the picture came by a copy in a file after
+/// 230.1 KiB. It is copied first now, one window at a time: 214.1 KiB.
+const LARGE_PNG_PEAK_KIB: f64 = 216.0;
+
+/// A book page showing a 1600 x 1000 PNG on the X4: decoded to the page's
+/// size without a refused allocation (the same peak with and without the
+/// budget) and within [`LARGE_PNG_PEAK_KIB`].
+#[test]
+fn a_page_with_a_large_png_stays_within_the_x4_budget() {
+    let book =
+        fs::read(root().join("shells/desktop/tests/fixtures-pictures/large-picture.epub")).unwrap();
+    let heap = flow_stays_within_budget(
+        "x4-large-png",
+        "xteink-x4",
+        "books/large-picture.epub",
+        "wait:3000,run:core.home,wait:300",
+        &[("books/large-picture.epub", book)],
+        &[],
+    );
+    eprintln!("a large PNG on the page: peak {} KiB", heap.peak);
+    assert!(
+        heap.peak <= LARGE_PNG_PEAK_KIB,
+        "peak {} KiB, over {LARGE_PNG_PEAK_KIB} KiB",
+        heap.peak
+    );
+}
+
 /// The most reading in Thai may peak at here (#313), the table of words
-/// (18.7 KiB) held: measured at 214.4 KiB, 195.7 without it, in this
+/// (16.0 KiB) held: measured at 213.1 KiB, 197.1 without it, in this
 /// build (more than the X4's: diagnostics, the store's plugins).
 const THAI_PEAK_KIB: f64 = 218.0;
 

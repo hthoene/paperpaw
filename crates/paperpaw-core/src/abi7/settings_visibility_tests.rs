@@ -82,7 +82,7 @@ fn predicate_redacts_every_secret_and_hides_grants_except_from_host_editor() {
 }
 
 #[test]
-fn slot_five_uses_identity_for_short_grants_and_keeps_own_secret_behavior() {
+fn slot_five_uses_identity_for_short_grants_and_never_gives_a_secret() {
     static SECRET: SettingExtra = SettingExtra::new().secret();
     let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
         .build()
@@ -139,12 +139,10 @@ fn slot_five_uses_identity_for_short_grants_and_keeps_own_secret_behavior() {
             for (caller, key, expected) in [
                 (&own, "core.grant.style", SettingValueRef::Bool(true)),
                 (&other, "core.grant.style", SettingValueRef::Bool(false)),
-                (&own, "own.secret", SettingValueRef::Text("own-default")),
-                (
-                    &other,
-                    "other.secret",
-                    SettingValueRef::Text("other-default"),
-                ),
+                // A secret's value is with the secrets (`secrets.md` 4):
+                // absent here, also for its owner (#81).
+                (&own, "own.secret", SettingValueRef::Absent),
+                (&other, "other.secret", SettingValueRef::Absent),
                 (&other, "own.public", SettingValueRef::Bool(false)),
             ] {
                 let len = usize::try_from(read(&slot, caller, key, &mut out)).unwrap();
@@ -245,8 +243,8 @@ fn placed_setting_identity_cannot_alias_grants_or_foreign_secrets() {
                 assert_eq!(out, [71; 128], "{key}");
             }
             for (key, expected) in [
-                ("own@1.secret", SettingValueRef::Text("placed-value")),
-                ("own.secret@2", SettingValueRef::Text("own-value")),
+                ("own@1.secret", SettingValueRef::Absent),
+                ("own.secret@2", SettingValueRef::Absent),
                 ("own.public@2", SettingValueRef::Bool(true)),
                 ("own@2.public", SettingValueRef::Bool(false)),
                 ("core@1.grant.style", SettingValueRef::Bool(true)),

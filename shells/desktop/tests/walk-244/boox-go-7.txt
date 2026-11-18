@@ -91,6 +91,7 @@ Row "Search" (focused) at 0,112 1264x83
 Row "New" at 0,195 1264x83
 Row "Reading, 2" at 0,278 1264x83
 Row "Look, 1" at 0,361 1264x83
+Row "Sources, PaperPaw" at 0,444 1264x83
 Text "1 / 2" at 1133,26 44x36
 Heading "Settings" at 0,0 1264x88
 Row "Search" (focused) at 0,112 1264x83

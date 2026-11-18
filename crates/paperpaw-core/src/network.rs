@@ -68,7 +68,12 @@ impl Kernel {
                     if !state.is_on() {
                         wifi.scanning = false;
                     }
+                    let radio = state.is_on();
                     wifi.state = state;
+                    // The radio's noise seals what the start could not.
+                    if radio {
+                        self.move_left_secrets();
+                    }
                     self.output.emit(&events::WIFI_CHANGED, ());
                     // Status lines show it (`wifi.status`).
                     self.output.emit(&events::STATUS_CHANGED, ());

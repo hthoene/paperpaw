@@ -759,6 +759,11 @@ impl BuilderParts {
             kernel.apply_user_config(&source);
             kernel.keys.shell = source;
         }
+        // The developer link is off at every start, whatever a file says.
+        let _ = kernel.shared.settings.set(
+            crate::developer_link::SETTING,
+            paperpaw_sdk::SettingValue::Bool(false),
+        );
         // The power mode worn before, over the reader's settings.
         kernel.restore_power();
         // How long work took at the last start, for the busy mark.
@@ -985,6 +990,7 @@ impl BuilderParts {
             sleep: false,
             power_off: false,
             usb_drive: false,
+            developer: crate::developer_link::Link::default(),
             suspended_at: None,
             free_count: crate::free_count::FreeCount::default(),
             hint: hints::HintRow::new(self.button_row),
@@ -1027,6 +1033,7 @@ impl BuilderParts {
             secrets_unreadable: false,
             secrets_opened: false,
             secrets_wired: None,
+            secrets_left: false,
             #[cfg(feature = "bluetooth")]
             pairing_nonce: None,
             plugin_defaults: Vec::new(),

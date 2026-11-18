@@ -15,17 +15,26 @@ has them); one for another fingerprint (the plugin interface changed) is
 a new build of that version and stays. `folders`, after catalogue.py: a
 folder of a version published before must be the same bytes, else it
 fails (versions.py keeps a plugin that changed from its old version).
+
+With `GH_TOKEN` (or `GITHUB_TOKEN`) set, the files are downloaded through the
+asset's API address with it, so a private repository's releases work too.
 """
 
 import hashlib
 import json
+import os
 import pathlib
 import sys
+import urllib.parse
 import urllib.request
 
 # Where the header says what a file runs on (paperpaw-native's Header):
 # its chip, its fingerprint, its compiler.
 RUNS_ON = [(6, 8), (8, 16), (44, 48)]
+
+# An asset's public address to its API address (`details` fills it): with the job's token
+# the bytes come from the API, which a private repository's assets need (#217).
+API_URLS = {}
 
 
 def fail(message):
@@ -68,6 +77,8 @@ def details(text):
     for release in releases(text):
         for asset in release.get("assets", []):
             if usable(asset):
+                if asset.get("url"):
+                    API_URLS.setdefault(asset["browser_download_url"], asset["url"])
                 found.setdefault(
                     asset["name"],
                     {
@@ -152,8 +163,37 @@ def folders(folder, published, fetch):
     ]
 
 
+def token():
+    """The job's token (`GH_TOKEN`, as `gh` reads it, or `GITHUB_TOKEN`), or ""."""
+    return os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+
+
+def request(url, secret=""):
+    """The request for the asset at `url`: with a token, GitHub's API address of
+    the asset where `details` knew it (the bytes, not the asset's JSON), else the
+    public address as before."""
+    api = API_URLS.get(url)
+    if not secret or not api:
+        return urllib.request.Request(url)
+    return urllib.request.Request(
+        api, headers={"Authorization": f"Bearer {secret}", "Accept": "application/octet-stream"}
+    )
+
+
+class KeepTokenHome(urllib.request.HTTPRedirectHandler):
+    """The API answers with a redirect to the file's own host, which refuses a
+    request that carries the token as well as its signed address."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and urllib.parse.urlparse(newurl).netloc != urllib.parse.urlparse(req.full_url).netloc:
+            new.remove_header("Authorization")
+        return new
+
+
 def download(url):
-    with urllib.request.urlopen(url, timeout=60) as reply:
+    opener = urllib.request.build_opener(KeepTokenHome)
+    with opener.open(request(url, token()), timeout=60) as reply:
         return reply.read()
 
 

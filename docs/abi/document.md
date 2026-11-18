@@ -69,16 +69,22 @@ owner decision 125). Records: `abi/services/core.document@1.def`.
   of its own screens, `ERR_INVALID` otherwise) shows books of `formats` (format ids, one per line,
   at most 8; empty: every format). `flags` reserved, 0. At most 4 readers per plugin (a fifth is
   `ERR_INVALID` for the batch) and 16 device-wide (`ERR_FULL` for the batch that would pass it;
-  #867). Op 21 lists them; which one opens a book is the opener's choice (the files plugin
-  remembers it in its Data, as interface 6 `readers::remember`).
+  #867). Op 21 lists them. An open of slot `core.reader` (below) that names
+  no screen opens a book in the app the user chose for it (#260): for the book, else for the
+  nearest folder it is in, else for its format (host setting `core.reading-app.<format id>`),
+  else the default one (`core.reading-app`), else the screen bound to the slot; a choice of an
+  app that is gone or does not read the book's format is passed over. A hand-over param `keep`
+  (`book` or `folder`) makes the host keep the app of the open's screen for the book or its
+  folder (an open without a screen forgets the choice). With fewer than two apps nothing is
+  chosen.
 - [D] **Opening a book** (interface 6 `readers::open`, `open_page`, `Command::OpenBook`) is
   `command.open` (`ui.md` section 1) with a hand-over of the params `path` (the book's root-1 path)
   and, optionally, `page` (decimal): mode 1 with target slot `core.reader` opens it with the
   screen the user bound there (the default reading app); mode 3 with a `doc_reader.screen` as
   target and slot `core.reader` opens it with that reader. The reader opens the document with
-  op 1 (`open`), which starts the host's reading session (`core-events.md`). The interface-6
-  kernel resolver (a reader per book, folder or format, `cannot_open` passing on to the next) is
-  not carried: a reader that cannot open a book shows why itself. A plugin opens one of its own
+  op 1 (`open`), which starts the host's reading session (`core-events.md`). Interface 6's
+  `cannot_open` passing a book on to the next reader is not carried: a reader that cannot open a
+  book shows why itself. A plugin opens one of its own
   files in a reader the same way, with the params `root` (`0` its data folder, `2` its install
   folder) and `path` instead of a book's path: About's licence texts. The reader opens it with
   `doc_open.root` 5 (section 2.1).

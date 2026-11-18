@@ -223,6 +223,8 @@ fn with_row<R>(
     // Not for this device (a front light it lacks): as the settings screen of
     // interface 6 left it out, so does this row say it is not shown.
     let shown = shown && env.menus().available(id) && native_need_met(sources, id);
+    // A reading app to choose where only one reads the books (#260).
+    let shown = shown && !crate::reading_apps::nothing_to_choose(spec);
     let mut flags = 0;
     for (on, bit) in [
         (spec.guarded, GUARDED),

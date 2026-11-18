@@ -678,6 +678,9 @@ fn prepare() -> Ready {
         interrupt: board.radio.1,
         wifi: board.radio.0,
     });
+    // A firmware check that finds no room asks the main loop for it (#273).
+    let update_room = alloc::rc::Rc::new(paperpaw_x4::update_room::Gate::new());
+    network.set_update_room(update_room.clone());
     input::start(input::Sampler::new(
         PeriodicTimer::new(board.timers.timer0),
         board.keys,
@@ -700,7 +703,7 @@ fn prepare() -> Ready {
             startup.update(progress)
         })
         .unwrap_or_default();
-        startup.starting_if_needed();
+        startup.starting_if_needed(storage.as_ref());
         staged
     };
     #[cfg(feature = "ppn5")]
@@ -746,7 +749,7 @@ fn prepare() -> Ready {
     Ready {
         firmware: ota.as_ref().map(ota::Ota::firmware),
         firmware_host: match ota.as_ref() {
-            Some(ota) => Box::new(ota.host()),
+            Some(ota) => Box::new(ota.host(update_room)),
             None => Box::new(paperpaw_x4::host_jobs::NoFirmware::new(native::FAMILY)),
         },
         panel,
@@ -1025,6 +1028,9 @@ fn kernel(
         // TLS sockets (and HTTPS with them): one session at a time on the
         // X4's 256 KiB, two on the X4 Pro and Classic (`tls_slots`).
         .tls_sessions(tls_slots::SESSIONS);
+    // Every Xteink device has the USB serial unit the developer link
+    // (*Customise > Developer*, #12) talks over.
+    let builder = builder.capability(paperpaw_sdk::Capability::USB_LINK);
     // The S3 devices show the card to a computer (`usb_drive`, #32); the
     // ESP32-C3 devices have no OTG core and do not say they can.
     #[cfg(feature = "usb-drive")]

@@ -1,12 +1,13 @@
 //! What Mail declares to the host, field by field, against what the
 //! interface-6 plugin registered (kept in `testdata/pins/`): the groups, the
-//! 42 settings (title, help, group, level, kept on reset, secret, kind and
+//! 42 settings of interface 6 (title, help, group, level, kept on reset, secret, kind and
 //! range, default, options, step), the actions, the Tools entry, the icons and
 //! the screens.
 //!
 //! The differences, all intended: the group is `mail.group` (interface 6:
-//! `mail`) as every ported plugin names its group, and the home widgets'
-//! settings come with the widgets.
+//! `mail`) as every ported plugin names its group, the home widgets'
+//! settings come with the widgets, and the two settings of the background
+//! check (owner decision 52) are new: they are checked on their own.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 #[path = "../declarations.rs"]
 #[allow(dead_code, reason = "only the builders are compared")]
@@ -91,11 +92,43 @@ fn declared() -> Vec<Row> {
 fn every_setting_is_declared_as_interface_6_registered_it() {
     let mut pin = pin::Pin::new("every_setting_is_declared_as_interface_6_registered_it");
     let new = declared();
-    assert_eq!(new.len(), 42, "three accounts of 13 and three for all");
-    for row in &new {
+    assert_eq!(
+        new.len(),
+        44,
+        "three accounts of 13, three for all and the two of the background check"
+    );
+    for row in new
+        .iter()
+        .filter(|row| !BACKGROUND.contains(&row.name.as_str()))
+    {
         pin.check(&row.name, row);
     }
     pin.finish();
+}
+
+/// The two settings interface 6 did not have.
+const BACKGROUND: [&str; 2] = ["background", "background-every"];
+
+#[test]
+fn the_background_check_is_off_until_turned_on_and_asks_how_often() {
+    let rows = declared();
+    let on = rows.iter().find(|r| r.name == "background").unwrap();
+    assert_eq!((on.kind.as_str(), on.default.as_str()), ("bool", "false"));
+    assert_eq!(on.title, "mail.background");
+    assert!(!on.secret && !on.advanced, "{on:?}");
+    let every = rows.iter().find(|r| r.name == "background-every").unwrap();
+    assert_eq!(every.kind, "choice");
+    assert_eq!(every.default, "mail.every.30");
+    assert_eq!(
+        every.options,
+        ["mail.every.15", "mail.every.30", "mail.every.60"]
+    );
+    // Both in the group of Mail itself, with the settings for all accounts.
+    assert_eq!(on.group, every.group);
+    assert_eq!(
+        on.group,
+        rows.iter().find(|r| r.name == "fetch").unwrap().group
+    );
 }
 
 #[test]
@@ -196,8 +229,8 @@ fn every_record_is_valid_for_the_host_and_admitted() {
         let mut d = paperpaw_sdk::native::declare::Declarations::new(&mut check);
         declarations::screens(&mut d).unwrap();
     }
-    // 4 groups, 42 settings, 1 extra, 2 actions, 1 entry, 2 icons, 4 screens.
-    assert_eq!(count, 4 + 42 + 1 + 2 + 1 + 2 + 4);
+    // 4 groups, 44 settings, 1 extra, 2 actions, 1 entry, 2 icons, 4 screens.
+    assert_eq!(count, 4 + 44 + 1 + 2 + 1 + 2 + 4);
     // The menu entry and the icons are admitted now.
     assert!(waiting.is_empty(), "{waiting:?}");
 }

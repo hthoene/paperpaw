@@ -40,6 +40,8 @@ use paperpaw_platform::{ButtonState, InputEvent, Point, PointerEvent, PointerPha
 
 use crate::device::Device;
 
+/// How much emulated time passes per round while a plugin's socket is open (and as much real time).
+const SOCKET_SLICE_MS: u64 = 20;
 /// Time between script steps, long enough to never look like a long press.
 const STEP_MS: u64 = 100;
 /// Comfortably above the default long-press threshold.
@@ -280,10 +282,22 @@ fn hold(device: &mut Device, millis: u64) {
     let end = device.now().add_millis(millis);
     loop {
         let now = device.now();
-        let next = device.next_wake().filter(|&at| at < end).unwrap_or(end);
+        let mut next = device.next_wake().filter(|&at| at < end).unwrap_or(end);
+        // A socket of a plugin lives in real time (its threads read and write
+        // while time passes here): while one is open, time goes in small
+        // slices with as much real time, so a server on this computer is heard
+        // and the plugin's callbacks follow (a script that waits for mail).
+        let real = device.native_sockets_open();
+        if real && next.since(now) > SOCKET_SLICE_MS {
+            next = now.add_millis(SOCKET_SLICE_MS).min(end);
+        }
         // At least 1 ms per round, so "as soon as possible" requests cannot
         // stall simulated time.
-        device.advance(next.since(now).max(1));
+        let step = next.since(now).max(1);
+        device.advance(step);
+        if real {
+            std::thread::sleep(std::time::Duration::from_millis(step));
+        }
         device.tick_if_due();
         if next >= end {
             return;

@@ -2,7 +2,7 @@
 //! #314), for the line breaker (`crate::linebreak`), which is given no
 //! font: per script the first pack opened with one is noted (its table's
 //! head read for the script), and the table is read into memory
-//! (some 19 KB for the store's, at most [`MAX_WORDS`]) the first time Thai
+//! (some 16 KB for the store's, at most [`MAX_WORDS`]) the first time Thai
 //! text is broken into lines, then held until a pack is trimmed or the
 //! noted one is closed. A table that cannot be read (memory short, a card
 //! pulled) counts as a failed read of every pack, so that a layout that

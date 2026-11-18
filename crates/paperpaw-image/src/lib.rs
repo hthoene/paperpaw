@@ -451,7 +451,10 @@ pub struct Downscaler {
     channels: usize,
     out_width: u32,
     out_height: u32,
-    /// The pixel of the smaller row each pixel goes to.
+    /// Never filled since #316 (the pixel each one goes to is stepped along
+    /// the row); the field stays because the struct's layout is part of the
+    /// plugin interface (draft 36).
+    #[allow(dead_code, reason = "kept for the layout the interface fingerprints")]
     columns: alloc::vec::Vec<u16>,
     /// Pixels of a row each pixel of the smaller one covers.
     counts: alloc::vec::Vec<u16>,
@@ -489,15 +492,10 @@ impl Downscaler {
         if across > u64::from(u16::MAX) || across * down * most > u64::from(u32::MAX) {
             return Err(ImageError::TooLarge);
         }
-        let mut columns = alloc::vec::Vec::new();
         let mut counts: alloc::vec::Vec<u16> = zeroed(out_width as usize)?;
         if out_width != width {
-            columns
-                .try_reserve_exact(width as usize)
-                .map_err(|_| ImageError::OutOfMemory)?;
             for x in 0..u64::from(width) {
                 let to = (x * u64::from(out_width) / u64::from(width)) as usize;
-                columns.push(to as u16);
                 counts[to] = counts[to].saturating_add(1);
             }
         } else {
@@ -510,7 +508,7 @@ impl Downscaler {
             channels,
             out_width,
             out_height,
-            columns,
+            columns: alloc::vec::Vec::new(),
             counts,
             sums: zeroed(len)?,
             rows: 0,
@@ -602,30 +600,44 @@ impl Downscaler {
     #[inline]
     fn add(&mut self, pixels: &[u8], times: u32) {
         let ch = self.channels;
+        let same = self.out_width == self.width;
+        // The pixel of the smaller row each pixel goes to,
+        // `x * out_width / width`, stepped along the row (no table of a
+        // row's length on the heap: 3.2 KiB for a 1,600 pixel row, #316).
+        let (out, width) = (self.out_width as usize, self.width as usize);
+        let (mut to, mut rem) = (0usize, 0usize);
+        let mut next = move |x: usize| {
+            if same {
+                return x;
+            }
+            let at = to;
+            rem += out;
+            if rem >= width {
+                rem -= width;
+                to += 1;
+            }
+            at
+        };
         if ch == 2 {
             // The gray weighted by how opaque it is: a transparent pixel
             // lends the mean no gray of its own.
             for (x, pixel) in pixels.as_chunks::<2>().0.iter().enumerate() {
-                let to = if self.columns.is_empty() {
-                    x
-                } else {
-                    usize::from(self.columns[x])
-                };
+                let to = next(x);
                 let (g, a) = (u32::from(pixel[0]), u32::from(pixel[1]));
                 self.sums[to * 2] += g * a * times;
                 self.sums[to * 2 + 1] += a * times;
             }
-        } else if self.columns.is_empty() {
+        } else if same {
             for (sum, &v) in self.sums.iter_mut().zip(pixels) {
                 *sum += u32::from(v) * times;
             }
         } else if ch == 1 {
-            for (&to, &v) in self.columns.iter().zip(pixels) {
-                self.sums[usize::from(to)] += u32::from(v) * times;
+            for (x, &v) in pixels.iter().enumerate() {
+                self.sums[next(x)] += u32::from(v) * times;
             }
         } else {
-            for (&to, pixel) in self.columns.iter().zip(pixels.chunks_exact(ch)) {
-                let at = usize::from(to) * ch;
+            for (x, pixel) in pixels.chunks_exact(ch).enumerate() {
+                let at = next(x) * ch;
                 for (sum, &v) in self.sums[at..at + ch].iter_mut().zip(pixel) {
                     *sum += u32::from(v) * times;
                 }

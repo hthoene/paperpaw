@@ -27,7 +27,12 @@
 # callee); an instance with more calls than the line's ceiling needs its own line.
 # `allow indirect <fn> N`: the function may have up to N + 2 calls through a register (#309: the same source
 # builds to a count one or two apart across layouts); fewer is fine, and a line for a function that has none
-# any more (or an `allow call` line whose call is gone) is a warning, not an error: remove it when you pass by.
+# any more (or an `allow call` line whose call is gone) is a warning, not an error, and stays: it is the spare of its
+# crate (#315). LLVM's inlining moves a site from a function to its caller or back whenever any code of the image
+# changes, so a site no line names that the scan finds in a crate is taken from the spare of that crate's lines (an
+# `allow indirect` line's count less what its functions have now; an unused `allow call` line of the same callee), and
+# said in a warning. A site the crate's spare does not cover fails as before. Remove a line only when the code behind
+# it is gone from the source, never because a scan calls it stale.
 # Frame sizes keep no margin: a frame of 2,048 bytes or more fails. A line whose path matches more than
 # one function reached is an error. A line changes only when the code behind it does.
 # Roots: besides the host table, the impls behind the trait objects the host's paths call through

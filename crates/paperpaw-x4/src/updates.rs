@@ -105,6 +105,7 @@ const STEP: u32 = ota::BLOCK;
 pub const TRIAL_MS: u64 = 30_000;
 
 mod firmware_host;
+pub use firmware_host::NO_MEMORY as NO_MEMORY_REASON;
 pub mod packed;
 
 /// A partition of the flash: the flash in addresses of its own.

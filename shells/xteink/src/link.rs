@@ -83,6 +83,18 @@ impl Link {
         self.tls.as_deref()
     }
 
+    /// It runs TLS over its socket.
+    pub fn secure(&self) -> bool {
+        self.tls.is_some()
+    }
+
+    /// The other side closed the connection, or it is gone: a connection
+    /// kept for a later request is of no use.
+    pub fn closed(&self, net: &mut Net) -> bool {
+        let socket = net.socket(self.socket);
+        !socket.is_active() || tcp_ended(socket)
+    }
+
     /// Whether any byte came over the connection.
     pub fn received(&self) -> bool {
         self.received

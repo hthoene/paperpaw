@@ -29,6 +29,8 @@ mod native_asks;
 pub mod native_device;
 #[doc(hidden)]
 pub mod native_download;
+#[doc(hidden)]
+pub mod native_ed25519;
 mod native_entry;
 mod native_folders;
 #[doc(hidden)]
@@ -85,6 +87,8 @@ pub mod native_screen_view;
 pub mod native_screens;
 #[doc(hidden)]
 pub mod native_sort;
+#[doc(hidden)]
+pub mod native_sources;
 #[doc(hidden)]
 pub mod native_template;
 #[doc(hidden)]

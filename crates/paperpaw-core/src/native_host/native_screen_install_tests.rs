@@ -110,7 +110,7 @@ fn stage_fixture() -> [wire::Record<'static>; 3] {
 
 /// The batch `screen_make` submits, by the mode: the screen alone, with the
 /// unsupported records, or with the group, setting, extra and action.
-fn declaration_batch(bytes: &mut [u8]) -> usize {
+pub(super) fn declaration_batch(bytes: &mut [u8]) -> usize {
     let arms = ARMS.with(Cell::get);
     let records = [
         wire::Record::ScreenSpec(wire::ScreenSpec {
@@ -119,8 +119,8 @@ fn declaration_batch(bytes: &mut [u8]) -> usize {
             token: 91,
             flags: FLAGS.with(Cell::get),
         }),
-        // A secret setting passes the declaration checks, and the host does
-        // not map it yet (`native_values::setting`): the whole batch is refused.
+        // A preset passes the declaration checks, and the host does not map
+        // it (`native_install::map_record`): the whole batch is refused.
         wire::Record::SettingGroup(wire::SettingGroup {
             name: "g",
             title: "factory.group",
@@ -128,17 +128,11 @@ fn declaration_batch(bytes: &mut [u8]) -> usize {
             parent: "",
             page: "",
         }),
-        wire::Record::SettingSpec(wire::SettingSpec {
-            name: "secret",
-            kind: 0,
-            flags: 1 << 3,
-            group: "factory.g",
-            title: "factory.secret",
+        wire::Record::PresetSpec(wire::PresetSpec {
+            name: "preset",
+            kind: "factory.kind",
+            title: "factory.preset",
             help: "",
-            default: &[1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1],
-            min: 0,
-            max: 0,
-            choices: "",
         }),
     ];
     let count = if UNSUPPORTED.with(Cell::get) { 3 } else { 1 };
@@ -204,11 +198,29 @@ fn declaration_batch(bytes: &mut [u8]) -> usize {
         }
         0 => wire::records_encode(&records[..count], bytes),
         // The group, the setting and its extra, the action and the screen;
-        // the secret setting last when the batch must be refused.
+        // the preset last when the batch must be refused.
         1 => wire::records_encode(&all[..5], bytes),
+        // The screen, the group, `factory.flag` and a secret setting.
+        3 => wire::records_encode(&[records[0], records[1], flag, secret_token()], bytes),
         _ => wire::records_encode(&[all[1], all[2], all[3], all[4], all[0], all[5]], bytes),
     }
     .unwrap()
+}
+
+/// A secret setting, `factory.token` (#81).
+fn secret_token() -> wire::Record<'static> {
+    wire::Record::SettingSpec(wire::SettingSpec {
+        name: "token",
+        kind: 3,
+        flags: 1 << 3,
+        group: "factory.g",
+        title: "factory.token",
+        help: "",
+        default: &[1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0],
+        min: 0,
+        max: 0,
+        choices: "",
+    })
 }
 
 /// Submits the callback registrations of the mode `REGS`; the refusing status
@@ -288,7 +300,7 @@ unsafe extern "C" fn screen_make(
     // SAFETY: the linked factory receives a live host table and context, and
     // its encoded declaration remains readable for the synchronous call.
     if !EMPTY.with(Cell::get) {
-        let status = unsafe { ((*host).registrations_submit)(ctx, borrowed(&bytes[..len])) };
+        let status = unsafe { ((*host).registrations_submit)(ctx, from_image(&bytes[..len])) };
         if status != OK {
             return status;
         }
@@ -421,7 +433,7 @@ fn host_named(owner: &str, flags: u32) -> Hosted<Heap, ()> {
             (),
             screen_make,
             owner,
-            (ptr::null(), 0),
+            image_of(),
             |_, _, _, _| {},
             POOL.with(|pool| {
                 let mut pool = pool.borrow_mut();

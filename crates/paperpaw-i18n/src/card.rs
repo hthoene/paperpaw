@@ -15,6 +15,7 @@
 //!   messages and [`BLOCK_BYTES`] bytes a block (a longer message has one
 //!   of its own); messages of one hash are never split between blocks.
 
+use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 use alloc::string::String;
@@ -52,6 +53,8 @@ const MAX_META: u32 = 4 * 1024;
 const MAX_BLOCKS: u32 = 2048;
 /// A message's place before its key: hash, key length, message length.
 const ENTRY: usize = 7;
+/// What a lookup reads of a block at a time when it is not read whole.
+const WINDOW: usize = 256;
 /// What the messages read may take before no more are read until the
 /// kernel forgets them ([`Translator::forget_read`](crate::Translator::forget_read)).
 pub const MAX_READ: usize = 16 * 1024;
@@ -304,6 +307,71 @@ impl Card {
         }
         let message = self.read_message(hash, key);
         self.read.add(hash, key, message)?.message.as_deref()
+    }
+
+    /// [`Card::get`] that still answers once the most that is kept is read:
+    /// the message is then read again, owned, for the caller to copy out at
+    /// once (the host's `i18n` calls) instead of falling back to English.
+    pub(crate) fn get_copy(&self, key: &str) -> Option<Cow<'_, str>> {
+        let hash = hash(key);
+        if let Some(read) = self.read.find(hash, key) {
+            return read.message.as_deref().map(Cow::Borrowed);
+        }
+        if self.read.bytes.get() >= MAX_READ {
+            return self
+                .read_message_by_window(hash, key)
+                .map(|m| Cow::Owned(m.into_string()));
+        }
+        let message = self.read_message(hash, key);
+        self.read
+            .add(hash, key, message)?
+            .message
+            .as_deref()
+            .map(Cow::Borrowed)
+    }
+
+    /// [`Card::read_message`] for when the most that is kept is read: the
+    /// block is walked through a small window, not read whole, as its 2 KiB
+    /// would come on top of the most the messages take (a rare path, that
+    /// reads more than once).
+    fn read_message_by_window(&self, hash: u32, key: &str) -> Option<Box<str>> {
+        let blocks = self.blocks.get(..self.blocks.len().checked_sub(1)?)?;
+        let i = blocks
+            .partition_point(|(first, _)| *first <= hash)
+            .checked_sub(1)?;
+        let (_, start) = blocks[i];
+        let (_, end) = *self.blocks.get(i + 1)?;
+        let mut window = [0u8; WINDOW];
+        let (mut base, mut have) = (start, 0usize);
+        let mut at = start;
+        while at < end {
+            if at < base || (at - base) as usize + ENTRY > have {
+                let n = WINDOW.min((end - at) as usize);
+                if n < ENTRY || !self.file.read_exact_at(at, &mut window[..n]) {
+                    return None;
+                }
+                (base, have) = (at, n);
+            }
+            let off = (at - base) as usize;
+            let head = &window[off..off + ENTRY];
+            let found = u32::from_le_bytes([head[0], head[1], head[2], head[3]]);
+            let key_len = usize::from(head[4]);
+            let message_len = usize::from(u16::from_le_bytes([head[5], head[6]]));
+            if found > hash {
+                break;
+            }
+            if found == hash && key_len == key.len() {
+                let mut entry = vec![0u8; key_len + message_len];
+                if !self.file.read_exact_at(at + ENTRY as u32, &mut entry) {
+                    return None;
+                }
+                if entry[..key_len] == *key.as_bytes() {
+                    return core::str::from_utf8(&entry[key_len..]).ok().map(Box::from);
+                }
+            }
+            at = at.checked_add(u32::try_from(ENTRY + key_len + message_len).ok()?)?;
+        }
+        None
     }
 
     /// The message for `key` (of hash `hash`) from the file.

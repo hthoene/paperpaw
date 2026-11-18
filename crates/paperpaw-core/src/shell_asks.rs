@@ -52,4 +52,26 @@ impl Kernel {
         self.run_commands(); // As a key press: a dialog's queued close first (#266).
         self.finish()
     }
+
+    /// Draws the off screen (the slot [`slots::OFF`]) for a device the shell
+    /// is about to switch off by itself: `reason` is
+    /// [`paperpaw_sdk::builtin::params::OFF_TIMER`] for the time of *Switch off after sleeping*.
+    /// The frame is refreshed fully; the shell shows it, then cuts the power.
+    /// `None` where no screen is bound to the slot (nothing is drawn). The
+    /// power menu draws its own (it asks the slot to open, then to switch
+    /// off), and a battery too low to draw never asks.
+    pub fn switch_off_screen(&mut self, now: Instant, reason: &str) -> Option<Effects> {
+        if !self.shared.slots.contains(&slots::OFF) {
+            return None;
+        }
+        let _running = self.shared.meter.enter(meter::CORE);
+        self.shared.now = now;
+        self.output.commands.push(Ask::OpenSlot(
+            slots::OFF,
+            Params::new().with(paperpaw_sdk::builtin::params::OFF_REASON, reason),
+        ));
+        self.output.commands.push(Ask::Redraw(RefreshMode::Full));
+        self.run_commands();
+        Some(self.finish())
+    }
 }

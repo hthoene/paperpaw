@@ -25,6 +25,11 @@ pub const SOCKET_TOKEN: u32 = 2;
 pub const SETTING_TOKEN: u32 = 3;
 /// The token of the minute tick (the widgets show what the card holds).
 pub const TICK_TOKEN: u32 = 4;
+/// The token of the work due (the background check).
+pub const WORK_TOKEN: u32 = 5;
+/// The token of the start of the plugin (the background check is declared
+/// again: work lives for one start).
+pub const STARTED_TOKEN: u32 = 6;
 /// The first token of the screens.
 pub const SCREEN_TOKEN: u32 = 20;
 /// The first token of the widgets, in the order of [`WIDGETS`].
@@ -49,6 +54,9 @@ pub const PROVIDERS: [&str; 11] = [
     "mail.provider.mailbox",
     "mail.provider.fastmail",
 ];
+/// The options of the setting *How often* of the background check (the
+/// minutes are in `native_model::background::EVERY`).
+pub const EVERY: [&str; 3] = ["mail.every.15", "mail.every.30", "mail.every.60"];
 /// The options of the two security settings.
 pub const SECURITIES: [&str; 2] = ["mail.security.implicit", "mail.security.starttls"];
 
@@ -241,6 +249,22 @@ pub fn settings(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), Declar
     let mut signature = SpecDecl::new("signature", Kind::Text(""), GROUP, "mail.signature");
     signature.help = "mail.signature.help";
     d.spec(signature)?;
+    // Owner decision 52: the background work may open TLS, as a setting the
+    // reader decides (off until turned on).
+    let mut background = SpecDecl::new("background", Kind::Bool(false), GROUP, "mail.background");
+    background.help = "mail.background.help";
+    d.spec(background)?;
+    let mut every = SpecDecl::new(
+        "background-every",
+        Kind::Choice {
+            default: EVERY[1],
+            choices: &EVERY,
+        },
+        GROUP,
+        "mail.background-every",
+    );
+    every.help = "mail.background-every.help";
+    d.spec(every)?;
     d.submit()
 }
 
@@ -279,6 +303,8 @@ pub fn events(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
     declarations.subscribe_event(EventKind::Socket, SOCKET_TOKEN)?;
     declarations.subscribe_event(EventKind::SettingChanged, SETTING_TOKEN)?;
     declarations.subscribe_event(EventKind::Tick, TICK_TOKEN)?;
+    declarations.subscribe_event(EventKind::WorkDue, WORK_TOKEN)?;
+    declarations.subscribe_event(EventKind::Started, STARTED_TOKEN)?;
     declarations.submit()
 }
 

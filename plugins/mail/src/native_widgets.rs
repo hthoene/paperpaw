@@ -18,7 +18,6 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::native::callbacks::{DrawFrame, DrawPurpose, FrameRect, Input};
 use paperpaw_sdk::native::commands::CommandSender;
-use paperpaw_sdk::native::formatting::Arg;
 use paperpaw_sdk::native::reply::Reply;
 use paperpaw_sdk::native::snapshot::capture_snapshot;
 use paperpaw_sdk::native::storage::DataStorage;
@@ -213,14 +212,9 @@ fn one(line: Line) -> Result<Vec<Line>, Error> {
 
 /// The count of unread mails, as its words say.
 fn unread_words(cx: &mut Cx<'_>, unseen: i64) -> Result<String, Error> {
-    cx.plural(
-        "mail.widget.unread.count",
-        unseen,
-        &[Arg::Int {
-            name: "count",
-            value: unseen,
-        }],
-    )
+    // `plural` names the count `{count}` itself: a second argument of that
+    // name is a refusal (invalid), and the widget showed nothing.
+    cx.plural("mail.widget.unread.count", unseen, &[])
 }
 
 /// *Mailbox*: one account's folder, how many are unread of how many.
@@ -245,14 +239,7 @@ fn mailbox(
     let mut lines = Vec::new();
     if let Some(c) = counts.filter(|_| cx.settings.shows("total").unwrap_or(false)) {
         let total = i64::from(c.messages);
-        let first = cx.plural(
-            "mail.widget.total",
-            total,
-            &[Arg::Int {
-                name: "count",
-                value: total,
-            }],
-        )?;
+        let first = cx.plural("mail.widget.total", total, &[])?;
         lines = one(Line {
             first,
             ..Line::default()
