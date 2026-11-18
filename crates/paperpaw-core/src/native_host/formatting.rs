@@ -66,7 +66,7 @@ unsafe fn copy_from(source: &Source<'_>, key: PpBytes, out: PpBuffer) -> i32 {
         Err(error) => return error,
     };
     source.with(|translator| {
-        translator.get(key).map_or(ERR_NOT_FOUND, |message| {
+        translator.get_copy(key).map_or(ERR_NOT_FOUND, |message| {
             buffers::copy_required(message.as_bytes(), out, buffers::TEXT_MAX)
         })
     })
@@ -264,14 +264,14 @@ fn format_message(
     out: &mut [MaybeUninit<u8>],
 ) -> i32 {
     let message = match args.count {
-        Some(count) => translator.get_plural(key, count),
-        None => translator.get(key),
+        Some(count) => translator.get_plural_copy(key, count),
+        None => translator.get_copy(key),
     };
     let Some(message) = message else {
         return ERR_NOT_FOUND;
     };
     render(out, |sink| {
-        interpolate(message, args, &translator.digits(), sink)
+        interpolate(&message, args, &translator.digits(), sink)
     })
 }
 
