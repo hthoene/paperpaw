@@ -1,6 +1,6 @@
 //! `command.answer_plugin` (1545, `docs/abi/registry.md` section 5): checked
 //! whole at submit, applied after the callback with the other commands (the
-//! staged-presets way: a list kept apart from the kernel's `Command`s).
+//! staged-presets way: a list kept apart from the kernel's `Ask`s).
 //!
 //! Only a plugin that declared `uses.install` answers: any other gets
 //! `ERR_DENIED` for the whole batch, wherever the command sits in it. At

@@ -46,5 +46,7 @@ format-markdown
 format-epub
 vocabulary
 anki
+picture-frame
 pomodoro
 tasks
+file-sync

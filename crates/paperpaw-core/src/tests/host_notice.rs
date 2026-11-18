@@ -3,11 +3,11 @@
 //! a plugin's screen bound there still wins.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::Params;
 
 /// Fills the notice slot as the interface-6 menu did.
-fn own_notice() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn own_notice() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("on.notice"),
@@ -37,7 +37,7 @@ fn without_a_plugins_notice_the_host_shows_it() {
         kernel.shared.registry.resolve_slot(slots::NOTICE.as_str()),
         Some(&crate::host_screen::NOTICE)
     );
-    kernel.apply(Command::Notify(String::from("Saved")));
+    kernel.apply(Ask::Notify(String::from("Saved")));
     let effects = kernel.finish();
     assert!(kernel.notice.is_some(), "a notice shows");
     let (region, _) = effects.refresh().unwrap();
@@ -73,10 +73,10 @@ fn a_notice_shows_as_long_as_set_and_a_new_one_replaces_it() {
         .set_setting(Instant(0), settings::NOTICE_SECONDS.as_str(), "2")
         .unwrap();
     render(&mut kernel);
-    kernel.apply(Command::Notify(String::from("First")));
+    kernel.apply(Ask::Notify(String::from("First")));
     assert_eq!(kernel.finish().wake_at(), Some(Instant(2000)));
     kernel.tick(Instant(1000));
-    kernel.apply(Command::Notify(String::from("Second")));
+    kernel.apply(Ask::Notify(String::from("Second")));
     assert_eq!(
         kernel.finish().wake_at(),
         Some(Instant(3000)),

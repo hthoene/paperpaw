@@ -11,11 +11,12 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use super::board::Board;
+use crate::Ask;
 use crate::native_host::firmware_confirm::{self as words, ANSWERED};
 use crate::native_host::firmware_install::Answer;
 use paperpaw_platform::Instant;
 use paperpaw_sdk::builtin::actions;
-use paperpaw_sdk::{Canvas, Command, Gesture, Handled, Hint, Id, Params, Rect};
+use paperpaw_sdk::{Canvas, Gesture, Handled, Hint, Id, Params, Rect};
 
 /// Input within this long of being shown is dropped (`device.md` 5.0).
 const GUARD_MS: u64 = 500;
@@ -93,7 +94,7 @@ impl Confirm {
             Answer::YesAndData => "yes-data",
             Answer::Dismissed => "dismissed",
         };
-        cx.command(Command::Emit(
+        cx.command(Ask::Emit(
             ANSWERED,
             Params::new()
                 .with(words::NONCE, self.nonce.clone())

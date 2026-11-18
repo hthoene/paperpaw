@@ -27,13 +27,12 @@
 //! Underneath, what an event carries travels as [`Params`] (named
 //! strings), so it can cross to plugins in other languages and be
 //! declared as work ([`work`](crate::work)); events of other plugins, known only
-//! at run time, are heard by id (`Items::subscribe`).
+//! at run time, are heard by id (`Staging::subscribe`).
 
 use alloc::string::{String, ToString};
 use core::fmt;
 use core::marker::PhantomData;
 
-use crate::command::Command;
 use crate::id::Id;
 use crate::params::Params;
 
@@ -317,11 +316,6 @@ impl<P: EventData> Event<P> {
         self.id.as_str()
     }
 
-    /// The command that emits the event with `data`.
-    pub fn emit(&self, data: P) -> Command {
-        Command::Emit(self.id.clone(), data.into_params())
-    }
-
     /// What it carries, if `event` is this event (for screens'
     /// `on_event`).
     pub fn read(&self, event: &Id, params: &Params) -> Option<P> {
@@ -411,9 +405,7 @@ mod tests {
             note: None,
             done: true,
         };
-        let Command::Emit(id, params) = MOVED.emit(moved.clone()) else {
-            panic!("an emit");
-        };
+        let (id, params) = (MOVED.id().clone(), moved.clone().into_params());
         assert_eq!(id, MOVED);
         assert_eq!(params.get("from"), Some("a b.epub"));
         assert_eq!(params.get("note"), None, "absent, not empty");

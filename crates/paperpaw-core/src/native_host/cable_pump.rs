@@ -91,7 +91,7 @@ impl Kernel {
                     if link.held_until().is_none() {
                         self.output
                             .commands
-                            .push(crate::Command::OpenSlot(slots::CABLE, Params::new()));
+                            .push(crate::Ask::OpenSlot(slots::CABLE, Params::new()));
                         self.run_commands();
                         if self.io.servers.cable_server().is_some() {
                             return Some(Line::Request {

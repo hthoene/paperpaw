@@ -166,13 +166,13 @@ fn changes_raised_before_a_pass_are_one_event_and_two_books_name_none() {
 
 /// How many `core.catalog-wanted` the kernel has to run.
 fn catalog_wanted(w: &World) -> usize {
-    use paperpaw_sdk::Command;
+    use crate::Ask;
     use paperpaw_sdk::builtin::events::CATALOG_WANTED;
     w.kernel
         .output
         .commands
         .iter()
-        .filter(|c| matches!(c, Command::Emit(e, _) if *e == CATALOG_WANTED))
+        .filter(|c| matches!(c, Ask::Emit(e, _) if *e == CATALOG_WANTED))
         .count()
 }
 

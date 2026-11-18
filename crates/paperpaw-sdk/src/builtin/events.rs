@@ -177,7 +177,7 @@ crate::event_data! {
 
 crate::event_data! {
     /// Plugins asked for by id ([`PLUGINS_REQUESTED`], sent with
-    /// [`Command::RequestPlugins`](crate::Command::RequestPlugins)).
+    /// `Ask::RequestPlugins`).
     pub struct PluginsRequested {
         /// The plugin that asks, as it names itself.
         pub by: Id,
@@ -582,7 +582,7 @@ pub const BOOK_FINISHED: Event<Reading> = Event::new("core.book-finished");
 /// data by a book's path move it along (progress, notes, statistics).
 pub const BOOK_MOVED: Event<BookMoved> = Event::new("core.book-moved");
 /// A book file was deleted ([`BookRemoved`]): what plugins keep for it
-/// goes (`Items::add_book_data`
+/// goes (`Staging::add_book_data`
 /// folders by the kernel; other data by the plugin). Whoever deletes a
 /// book emits it.
 pub const BOOK_REMOVED: Event<BookRemoved> = Event::new("core.book-removed");
@@ -627,7 +627,7 @@ pub const CATALOG_WANTED: Event<CatalogWanted> = Event::new("core.catalog-wanted
 /// library there is now, then says [`CATALOG_CHANGED`].
 pub const SORTED_WANTED: Event<SortedWanted> = Event::new("core.sorted-wanted");
 /// The values shown without being kept changed, or ended (see
-/// [`Command::PreviewSettings`](crate::Command::PreviewSettings)).
+/// `Ask::PreviewSettings`).
 pub const PREVIEW_CHANGED: Event<()> = Event::new("core.preview-changed");
 /// The bookmarks or highlights of a book changed
 /// ([`annotations`](crate::annotations), [`AnnotationsChanged`]).
@@ -697,12 +697,12 @@ pub const READ_TODAY: Event<ReadToday> = Event::new("core.read-today");
 /// `widgets::changed`.
 pub const WIDGET_CHANGED: Event<WidgetChanged> = Event::new("core.widget-changed");
 /// A data plugin was loaded or removed while running
-/// ([`Command::LoadPlugin`](crate::Command::LoadPlugin),
-/// [`Command::RemovePlugin`](crate::Command::RemovePlugin)): lists of
+/// (`Ask::LoadPlugin`,
+/// `Ask::RemovePlugin`): lists of
 /// plugins, fonts and presets read them anew.
 pub const PLUGINS_CHANGED: Event<()> = Event::new("core.plugins-changed");
 /// A plugin asked for plugins by id that are not on the device
-/// ([`Command::RequestPlugins`](crate::Command::RequestPlugins)): for the
+/// (`Ask::RequestPlugins`): for the
 /// plugin that installs plugins (the store), which asks the reader
 /// before it downloads any, and answers each request with
 /// [`PLUGINS_ANSWERED`] once it is done: installed, declined or failed.
@@ -715,7 +715,7 @@ pub const PLUGINS_REQUESTED: Event<PluginsRequested> = Event::new("core.plugins-
 pub const PLUGINS_ANSWERED: Event<PluginsAnswered> = Event::new("core.plugins-answered");
 /// Another screen is shown on top ([`ScreenShown`]): one opened, or
 /// the one below a screen closed. The whole stack is in
-/// `Env::stack`. For plugins that subscribe:
+/// `Place::stack`. For plugins that subscribe:
 /// screens learn that they show from `on_show`.
 pub const SCREEN_SHOWN: Event<ScreenShown> = Event::new("core.screen-shown");
 /// A menu was redefined or reset ([`MenuChanged`]).
@@ -729,7 +729,7 @@ pub const SUSPEND: Event<()> = Event::new("core.suspend");
 /// more; a power-up with no sleep before it sends [`STARTED`] alone.
 pub const RESUME: Event<()> = Event::new("core.resume");
 /// The card is PaperPaw's again after a computer had it as a USB drive
-/// ([`Command::UsbDrive`](crate::Command::UsbDrive)): files may have come,
+/// (`Ask::UsbDrive`): files may have come,
 /// gone or changed; what a plugin keeps of the card it reads anew. The
 /// kernel walks the library anew too.
 pub const USB_DRIVE_ENDED: Event<()> = Event::new("core.usb-drive-ended");
@@ -739,15 +739,15 @@ pub const USB_DRIVE_ENDED: Event<()> = Event::new("core.usb-drive-ended");
 pub const STOPPING: Event<()> = Event::new("core.stopping");
 /// The battery or the time zone changed; status lines redraw.
 pub const STATUS_CHANGED: Event<()> = Event::new("core.status-changed");
-/// The battery was measured again (`Env::status`),
+/// The battery was measured again (`Place::status`),
 /// about once a minute where the device measures it: for plugins that
 /// record its use. Nothing need be drawn anew.
 pub const BATTERY_MEASURED: Event<()> = Event::new("core.battery-measured");
-/// The Wi-Fi state changed (`Env::wifi`, see
+/// The Wi-Fi state changed (`Place::wifi`, see
 /// [`wifi`](crate::wifi)).
 pub const WIFI_CHANGED: Event<()> = Event::new("core.wifi-changed");
 /// Bluetooth changed: the radio, a bonded device, a link
-/// (`Env::bluetooth`).
+/// (`Place::bluetooth`).
 pub const BLUETOOTH_CHANGED: Event<()> = Event::new("core.bluetooth-changed");
 /// Networks were found ([`Wifi::networks`](crate::wifi::Wifi)).
 pub const WIFI_SCANNED: Event<()> = Event::new("core.wifi-scanned");

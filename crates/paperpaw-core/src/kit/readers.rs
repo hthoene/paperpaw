@@ -1,7 +1,7 @@
 //! Opening books, and the reading-app choices kept for books and folders.
 //!
 //! - Whatever opens a book (the library, the file manager, the browser, a
-//!   catalog) opens it with [`open`] ([`Command::OpenBook`]): the kernel
+//!   catalog) opens it with [`open`] ([`Ask::OpenBook`]): the kernel
 //!   opens the screen bound to [`slots::READER`](paperpaw_sdk::builtin::slots::READER) with what [`opened`]
 //!   passes on. A reading app that cannot open a book after all says so
 //!   with `cannot_open`.
@@ -14,8 +14,9 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::Ask;
 use paperpaw_sdk::builtin::params;
-use paperpaw_sdk::{Command, Id, Params, Storage, StorageError};
+use paperpaw_sdk::{Id, Params, Storage, StorageError};
 
 /// Where the choices for books are kept, a file a book (registered as
 /// book data by the kernel).
@@ -149,8 +150,8 @@ pub fn folder_moved(storage: &dyn Storage, from: &str, to: &str) -> Result<(), S
 
 /// Opens the book at `path` in the reader's slot: nothing is read before
 /// it runs.
-pub fn open(path: impl Into<String>) -> Command {
-    Command::OpenBook(Params::new().with(params::PATH, path.into()))
+pub fn open(path: impl Into<String>) -> Ask {
+    Ask::OpenBook(Params::new().with(params::PATH, path.into()))
 }
 
 /// The readers that could not open the book opened with `params`.
@@ -162,7 +163,7 @@ pub(crate) fn past(params: &Params) -> impl Iterator<Item = &str> {
         .filter(|p| !p.is_empty())
 }
 
-/// What opening a book (`params` of [`Command::OpenBook`]) passes on to
+/// What opening a book (`params` of [`Ask::OpenBook`]) passes on to
 /// the reader's screen: the book's path, the readers passed over and the
 /// page.
 pub fn opened(params: &Params) -> Params {
@@ -179,12 +180,13 @@ pub fn opened(params: &Params) -> Params {
 
 /// Asks which reader `choice` gets, kept once chosen (a book is opened
 /// with it); *Standard* forgets the choice.
-pub fn ask(choice: Choice<'_>) -> Command {
+pub fn ask(choice: Choice<'_>) -> Ask {
     let (path, folder) = match choice {
         Choice::Book(path) => (path, false),
         Choice::Folder(path) => (path, true),
     };
-    paperpaw_sdk::builtin::events::READING_APP_WANTED.emit(
+    crate::Ask::emit(
+        &paperpaw_sdk::builtin::events::READING_APP_WANTED,
         paperpaw_sdk::builtin::events::ReadingAppWanted::new(path.to_string(), folder),
     )
 }
@@ -194,8 +196,9 @@ pub fn ask(choice: Choice<'_>) -> Command {
 /// open it plugins add ([`menus::OPEN_WITH`](paperpaw_sdk::builtin::menus::OPEN_WITH)),
 /// and *Always open it with…*, which asks as [`ask`] does and keeps the
 /// choice.
-pub fn ask_once(path: &str) -> Command {
-    paperpaw_sdk::builtin::events::READING_APP_WANTED.emit(
+pub fn ask_once(path: &str) -> Ask {
+    crate::Ask::emit(
+        &paperpaw_sdk::builtin::events::READING_APP_WANTED,
         paperpaw_sdk::builtin::events::ReadingAppWanted::new(path.to_string(), false).once(true),
     )
 }

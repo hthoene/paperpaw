@@ -18,11 +18,12 @@ use common::AddDriver;
 use std::borrow::Cow;
 
 use common::{DEVICE, Harness};
-use paperpaw_core::Items;
+use paperpaw_core::Ask;
 use paperpaw_core::Kernel;
+use paperpaw_core::Staging;
 use paperpaw_core::sdk::builtin::CONFIG_FILE;
 use paperpaw_core::sdk::{
-    Command, Manifest, MemoryStorage, RegisterError, Setting, SettingSpec, SettingValue, Text,
+    Manifest, MemoryStorage, RegisterError, Setting, SettingSpec, SettingValue, Text,
 };
 use paperpaw_platform::Instant;
 use proptest::prelude::*;
@@ -39,7 +40,7 @@ const MIN: i64 = -1_000_000_000_000;
 const MAX: i64 = 1_000_000_000_000;
 
 /// A plugin with a setting of each kind, two of them per book.
-fn settings() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn settings() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_setting(SettingSpec::switch(
             FLAG.static_str(),
@@ -208,7 +209,7 @@ proptest! {
         let path = "books/a/settings.ini";
         let harness = Harness::new();
         let mut first = kernel(&harness, MemoryStorage::new());
-        harness.run(&mut first, 10, [Command::SetScope(Some(String::from(path)))]);
+        harness.run(&mut first, 10, [Ask::SetScope(Some(String::from(path)))]);
         first.set_setting(Instant(20), "core.scope-only", "on").unwrap();
         first.set_setting(Instant(30), PAGE.static_str(), &page.to_string()).unwrap();
         first.set_setting(Instant(40), FACE.static_str(), &face).unwrap();
@@ -216,7 +217,7 @@ proptest! {
 
         let mut second = kernel(&harness, saved(&first, path));
         prop_assert_eq!(value(&second, PAGE.static_str()), Some(SettingValue::Int(10)));
-        harness.run(&mut second, 10, [Command::SetScope(Some(String::from(path)))]);
+        harness.run(&mut second, 10, [Ask::SetScope(Some(String::from(path)))]);
         prop_assert_eq!(value(&second, PAGE.static_str()), Some(SettingValue::Int(page)));
         prop_assert_eq!(
             value(&second, FACE.static_str()),
@@ -235,7 +236,7 @@ fn settings_reset_are_gone_from_the_file() {
     first
         .set_setting(Instant(20), NAME.static_str(), "kept")
         .unwrap();
-    harness.run(&mut first, 30, [Command::ResetSetting(COUNT.id().clone())]);
+    harness.run(&mut first, 30, [Ask::ResetSetting(COUNT.id().clone())]);
     let second = kernel(&harness, saved(&first, CONFIG_FILE));
     assert_eq!(
         value(&second, COUNT.static_str()),
@@ -273,7 +274,7 @@ fn values_a_setting_does_not_take_are_refused_and_not_saved() {
     harness.run(
         &mut kernel,
         20,
-        [Command::SetSetting(
+        [Ask::SetSetting(
             COUNT.id().clone(),
             SettingValue::Text(Cow::Borrowed("x")),
         )],
@@ -300,11 +301,7 @@ fn a_broken_book_settings_file_leaves_the_global_values() {
         let harness = Harness::new();
         let storage = MemoryStorage::new().with(path, file.to_vec());
         let mut kernel = kernel(&harness, storage);
-        harness.run(
-            &mut kernel,
-            10,
-            [Command::SetScope(Some(String::from(path)))],
-        );
+        harness.run(&mut kernel, 10, [Ask::SetScope(Some(String::from(path)))]);
         let shown = String::from_utf8_lossy(file);
         assert_eq!(
             value(&kernel, PAGE.static_str()),
@@ -335,21 +332,17 @@ fn a_book_scope_ends_with_the_screen_that_set_it() {
     harness.run(
         &mut kernel,
         10,
-        [Command::OpenScreen(
+        [Ask::OpenScreen(
             common::FULL,
             paperpaw_core::sdk::Params::new(),
         )],
     );
-    harness.run(
-        &mut kernel,
-        20,
-        [Command::SetScope(Some(String::from(path)))],
-    );
+    harness.run(&mut kernel, 20, [Ask::SetScope(Some(String::from(path)))]);
     assert_eq!(
         value(&kernel, PAGE.static_str()),
         Some(SettingValue::Int(33))
     );
-    harness.run(&mut kernel, 30, [Command::Back]);
+    harness.run(&mut kernel, 30, [Ask::Back]);
     assert_eq!(kernel.active_screen(), Some(&common::BASE));
     assert_eq!(
         value(&kernel, PAGE.static_str()),

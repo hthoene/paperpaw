@@ -1,6 +1,6 @@
 //! How the registries answer: hyphenation by language with its fallbacks,
 //! services by type, and formats by extension. (What may register, the rules of the
-//! kernel's `Items`, is tested in `paperpaw-core/tests/items_rules.rs`.)
+//! kernel's `Staging`, is tested in `paperpaw-core/tests/items_rules.rs`.)
 
 #![allow(
     clippy::unwrap_used,

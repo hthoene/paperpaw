@@ -12,17 +12,17 @@ const SOCKET: Id = Id::new_static("test.imap");
 const HOST: &str = "mail.example.org";
 
 /// The value of `key` in the last event told.
-fn last(out: &[Command], key: &str) -> Option<String> {
+fn last(out: &[Ask], key: &str) -> Option<String> {
     match out.last()? {
-        Command::Emit(_, params) => params.get(key).map(String::from),
+        Ask::Emit(_, params) => params.get(key).map(String::from),
         _ => None,
     }
 }
 
-fn kinds(out: &[Command]) -> Vec<String> {
+fn kinds(out: &[Ask]) -> Vec<String> {
     out.iter()
         .filter_map(|c| match c {
-            Command::Emit(_, params) => params.get(p::KIND).map(String::from),
+            Ask::Emit(_, params) => params.get(p::KIND).map(String::from),
             _ => None,
         })
         .collect()
@@ -47,10 +47,10 @@ fn certificate() -> CertificateHash {
 }
 
 /// A plain socket to `HOST`, connected, as socket 1.
-fn plain(storage: &MemoryStorage) -> (Sockets, Vec<Command>) {
+fn plain(storage: &MemoryStorage) -> (Sockets, Vec<Ask>) {
     let mut sockets = Sockets::new(1);
     let mut out = Vec::new();
-    let connect = Command::connect(SOCKET, HOST, 587, EVENTS);
+    let connect = Ask::connect(SOCKET, HOST, 587, EVENTS);
     sockets.command(connect, true, Owner::Screens(1), storage, &mut out);
     sockets.calls.clear();
     sockets.event(SocketEvent::Connected { socket: 1 }, storage, &mut out);
@@ -62,7 +62,7 @@ fn a_socket_secure_from_the_start_says_so_once_it_is() {
     let storage = MemoryStorage::new();
     let mut sockets = Sockets::new(1);
     let mut out = Vec::new();
-    let connect = Command::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
+    let connect = Ask::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
     sockets.command(connect, true, Owner::Screens(1), &storage, &mut out);
     let tls = TlsSetup {
         server_name: String::from(HOST),
@@ -90,9 +90,9 @@ fn a_socket_secure_from_the_start_says_so_once_it_is() {
     sockets.event(secured(true), &storage, &mut out);
     assert_eq!(out.len(), 1);
     // Secure, it sends and reads.
-    let login = Command::socket_send(SOCKET, b"a1 LOGIN".to_vec());
+    let login = Ask::socket_send(SOCKET, b"a1 LOGIN".to_vec());
     sockets.command(login, true, Owner::Screens(1), &storage, &mut out);
-    let read = Command::socket_read(SOCKET, SocketRead::Text { max: 64 });
+    let read = Ask::socket_read(SOCKET, SocketRead::Text { max: 64 });
     sockets.command(read, true, Owner::Screens(1), &storage, &mut out);
     assert!(matches!(
         sockets.take()[..],
@@ -106,12 +106,12 @@ fn a_socket_secure_from_the_start_says_so_once_it_is() {
 #[test]
 fn nothing_goes_out_or_is_read_before_a_tls_connection_is_secure() {
     let storage = MemoryStorage::new();
-    let login = || Command::socket_send(SOCKET, b"a1 LOGIN user secret".to_vec());
-    let read = || Command::socket_read(SOCKET, SocketRead::Bytes { max: 64 });
+    let login = || Ask::socket_send(SOCKET, b"a1 LOGIN user secret".to_vec());
+    let read = || Ask::socket_read(SOCKET, SocketRead::Bytes { max: 64 });
     for early in [login(), read()] {
         let mut sockets = Sockets::new(1);
         let mut out = Vec::new();
-        let connect = Command::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
+        let connect = Ask::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
         sockets.command(connect, true, Owner::Screens(1), &storage, &mut out);
         sockets.calls.clear();
         sockets.command(early, true, Owner::Screens(1), &storage, &mut out);
@@ -122,7 +122,7 @@ fn nothing_goes_out_or_is_read_before_a_tls_connection_is_secure() {
     // Nor after a switch was asked for, until it is secure.
     for early in [login(), read()] {
         let (mut sockets, mut out) = plain(&storage);
-        let switch = Command::start_tls(SOCKET, Tls::new());
+        let switch = Ask::start_tls(SOCKET, Tls::new());
         sockets.command(switch, true, Owner::Screens(1), &storage, &mut out);
         assert!(matches!(
             sockets.take()[..],
@@ -140,12 +140,12 @@ fn a_certificate_whose_dates_could_not_be_checked_says_so() {
     let storage = MemoryStorage::new();
     let mut sockets = Sockets::new(1);
     let mut out = Vec::new();
-    let connect = Command::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
+    let connect = Ask::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
     sockets.command(connect, true, Owner::Screens(1), &storage, &mut out);
     // A shell that does not know the time yet.
     sockets.event(secured(false), &storage, &mut out);
     assert_eq!(last(&out, p::TIME_CHECKED).as_deref(), Some("false"));
-    let Some(Command::Emit(_, params)) = out.last() else {
+    let Some(Ask::Emit(_, params)) = out.last() else {
         panic!("no event");
     };
     assert_eq!(
@@ -163,7 +163,7 @@ fn a_certificate_whose_dates_could_not_be_checked_says_so() {
 fn bytes_are_read_as_they_came() {
     let storage = MemoryStorage::new();
     let (mut sockets, mut out) = plain(&storage);
-    let read = Command::socket_read(SOCKET, SocketRead::Bytes { max: 1 << 20 });
+    let read = Ask::socket_read(SOCKET, SocketRead::Bytes { max: 1 << 20 });
     sockets.command(read, true, Owner::Screens(1), &storage, &mut out);
     // As large as a text read may be.
     assert_eq!(
@@ -180,7 +180,7 @@ fn bytes_are_read_as_they_came() {
         data: header.clone(),
     };
     sockets.event(data, &storage, &mut out);
-    let Some(Command::Emit(_, params)) = out.last() else {
+    let Some(Ask::Emit(_, params)) = out.last() else {
         panic!("no event");
     };
     assert_eq!(
@@ -201,7 +201,7 @@ fn the_name_checked_and_pins_go_to_the_shell() {
         .server_name("mail.lan")
         .timeout_ms(5_000)
         .idle_ms(0);
-    let connect = Command::connect_tls(SOCKET, "192.168.1.9", 993, EVENTS, tls);
+    let connect = Ask::connect_tls(SOCKET, "192.168.1.9", 993, EVENTS, tls);
     sockets.command(connect, true, Owner::Screens(1), &storage, &mut out);
     let Some(SocketCall::Connect { tls: Some(tls), .. }) = sockets.take().pop() else {
         panic!("no connect");
@@ -216,17 +216,17 @@ fn tls_fails_at_once_where_the_shell_does_none_or_it_is_set_up_wrong() {
     let storage = MemoryStorage::new();
     let mut out = Vec::new();
     let mut none = Sockets::new(0);
-    let connect = Command::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
+    let connect = Ask::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
     none.command(connect, true, Owner::Screens(1), &storage, &mut out);
     assert_eq!(last(&out, p::ERROR).as_deref(), Some("unsupported"));
     assert!(none.calls.is_empty() && !none.any());
     let mut sockets = Sockets::new(1);
     let wrong = Tls::pinned(Vec::new());
-    let connect = Command::connect_tls(SOCKET, HOST, 993, EVENTS, wrong);
+    let connect = Ask::connect_tls(SOCKET, HOST, 993, EVENTS, wrong);
     sockets.command(connect, true, Owner::Screens(1), &storage, &mut out);
     assert_eq!(last(&out, p::ERROR).as_deref(), Some("options"));
     assert!(sockets.calls.is_empty() && !sockets.any());
-    let connect = Command::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
+    let connect = Ask::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
     sockets.command(connect, false, Owner::Screens(1), &storage, &mut out);
     assert_eq!(last(&out, p::ERROR).as_deref(), Some("no-network"));
     assert_eq!(kinds(&out), [p::FAILED, p::FAILED, p::FAILED]);
@@ -236,7 +236,7 @@ fn tls_fails_at_once_where_the_shell_does_none_or_it_is_set_up_wrong() {
 fn a_plain_socket_switches_to_tls_once_everything_come_is_read() {
     let storage = MemoryStorage::new();
     let (mut sockets, mut out) = plain(&storage);
-    let read = Command::socket_read(SOCKET, SocketRead::Text { max: 512 });
+    let read = Ask::socket_read(SOCKET, SocketRead::Text { max: 512 });
     sockets.command(read, true, Owner::Screens(1), &storage, &mut out);
     sockets.calls.clear();
     let go_ahead = b"220 2.0.0 Ready to start TLS\r\n".to_vec();
@@ -246,7 +246,7 @@ fn a_plain_socket_switches_to_tls_once_everything_come_is_read() {
     };
     sockets.event(data, &storage, &mut out);
     sockets.command(
-        Command::start_tls(SOCKET, Tls::new()),
+        Ask::start_tls(SOCKET, Tls::new()),
         true,
         Owner::Screens(1),
         &storage,
@@ -261,7 +261,7 @@ fn a_plain_socket_switches_to_tls_once_everything_come_is_read() {
     assert_eq!(kinds(&out), [p::CONNECTED, p::RECEIVED, p::SECURED]);
     // Secure once: a second switch fails and closes.
     sockets.command(
-        Command::start_tls(SOCKET, Tls::new()),
+        Ask::start_tls(SOCKET, Tls::new()),
         true,
         Owner::Screens(1),
         &storage,
@@ -277,11 +277,11 @@ fn a_switch_while_reading_or_with_bytes_unread_fails_and_closes() {
     let storage = MemoryStorage::new();
     // While a read is under way: what it brings would pass as secure.
     let (mut sockets, mut out) = plain(&storage);
-    let read = Command::socket_read(SOCKET, SocketRead::Text { max: 512 });
+    let read = Ask::socket_read(SOCKET, SocketRead::Text { max: 512 });
     sockets.command(read, true, Owner::Screens(1), &storage, &mut out);
     sockets.calls.clear();
     sockets.command(
-        Command::start_tls(SOCKET, Tls::new()),
+        Ask::start_tls(SOCKET, Tls::new()),
         true,
         Owner::Screens(1),
         &storage,
@@ -292,7 +292,7 @@ fn a_switch_while_reading_or_with_bytes_unread_fails_and_closes() {
     assert!(!sockets.any());
     // With the start of a character come and not told.
     let (mut sockets, mut out) = plain(&storage);
-    let read = Command::socket_read(SOCKET, SocketRead::Text { max: 2 });
+    let read = Ask::socket_read(SOCKET, SocketRead::Text { max: 2 });
     sockets.command(read, true, Owner::Screens(1), &storage, &mut out);
     let data = SocketEvent::Data {
         socket: 1,
@@ -301,7 +301,7 @@ fn a_switch_while_reading_or_with_bytes_unread_fails_and_closes() {
     sockets.event(data, &storage, &mut out);
     sockets.calls.clear();
     sockets.command(
-        Command::start_tls(SOCKET, Tls::new()),
+        Ask::start_tls(SOCKET, Tls::new()),
         true,
         Owner::Screens(1),
         &storage,
@@ -311,10 +311,10 @@ fn a_switch_while_reading_or_with_bytes_unread_fails_and_closes() {
     assert!(!sockets.any());
     // Before it connected.
     let mut sockets = Sockets::new(1);
-    let connect = Command::connect(SOCKET, HOST, 587, EVENTS);
+    let connect = Ask::connect(SOCKET, HOST, 587, EVENTS);
     sockets.command(connect, true, Owner::Screens(1), &storage, &mut out);
     sockets.command(
-        Command::start_tls(SOCKET, Tls::new()),
+        Ask::start_tls(SOCKET, Tls::new()),
         true,
         Owner::Screens(1),
         &storage,
@@ -329,12 +329,12 @@ fn a_switch_where_the_shell_does_no_tls_fails_and_closes() {
     let storage = MemoryStorage::new();
     let mut sockets = Sockets::new(0);
     let mut out = Vec::new();
-    let connect = Command::connect(SOCKET, HOST, 587, EVENTS);
+    let connect = Ask::connect(SOCKET, HOST, 587, EVENTS);
     sockets.command(connect, true, Owner::Screens(1), &storage, &mut out);
     sockets.calls.clear();
     sockets.event(SocketEvent::Connected { socket: 1 }, &storage, &mut out);
     sockets.command(
-        Command::start_tls(SOCKET, Tls::new()),
+        Ask::start_tls(SOCKET, Tls::new()),
         true,
         Owner::Screens(1),
         &storage,
@@ -350,7 +350,7 @@ fn an_untrusted_certificate_is_told_and_the_socket_is_gone() {
     let storage = MemoryStorage::new();
     let mut sockets = Sockets::new(1);
     let mut out = Vec::new();
-    let connect = Command::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
+    let connect = Ask::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
     sockets.command(connect, true, Owner::Screens(1), &storage, &mut out);
     let untrusted = SocketEvent::Untrusted {
         socket: 1,
@@ -361,7 +361,7 @@ fn an_untrusted_certificate_is_told_and_the_socket_is_gone() {
     sockets.event(untrusted, &storage, &mut out);
     assert_eq!(kinds(&out), [p::UNTRUSTED]);
     assert_eq!(last(&out, p::WHY).as_deref(), Some("unknown-issuer"));
-    let Some(Command::Emit(_, params)) = out.last() else {
+    let Some(Ask::Emit(_, params)) = out.last() else {
         panic!("no event");
     };
     let notice = SocketNotice::from_params(params).unwrap();
@@ -382,7 +382,7 @@ fn why_the_shell_failed_reaches_the_plugin() {
     let storage = MemoryStorage::new();
     let mut sockets = Sockets::new(1);
     let mut out = Vec::new();
-    let connect = Command::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
+    let connect = Ask::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
     sockets.command(connect, true, Owner::Screens(1), &storage, &mut out);
     let busy = SocketEvent::Failed {
         socket: 1,
@@ -393,7 +393,7 @@ fn why_the_shell_failed_reaches_the_plugin() {
     assert_eq!(last(&out, p::ERROR).as_deref(), Some("busy"));
     assert!(!sockets.any());
     // Calls that waited too long for a network.
-    let connect = Command::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
+    let connect = Ask::connect_tls(SOCKET, HOST, 993, EVENTS, Tls::new());
     sockets.command(connect, true, Owner::Screens(1), &storage, &mut out);
     sockets.fail_waiting("no network", &storage, &mut out);
     assert_eq!(last(&out, p::ERROR).as_deref(), Some("no-network"));
@@ -407,27 +407,27 @@ fn a_secure_socket_of_background_work_ends_when_idle() {
     let mut sockets = Sockets::new(1);
     let never = || Tls::new().idle_ms(0);
     // The reader's may stay open for good.
-    let connect = Command::connect_tls(SOCKET, HOST, 993, EVENTS, never());
+    let connect = Ask::connect_tls(SOCKET, HOST, 993, EVENTS, never());
     sockets.command(connect, true, Owner::Screens(1), &storage, &mut out);
     assert!(sockets.any() && out.is_empty());
     // A run's, which no screen closes, is refused...
-    let connect = Command::connect_tls(SOCKET, HOST, 993, EVENTS, never());
+    let connect = Ask::connect_tls(SOCKET, HOST, 993, EVENTS, never());
     sockets.command(connect, true, Owner::Run(1), &storage, &mut out);
     assert_eq!(last(&out, p::ERROR).as_deref(), Some("options"));
     assert!(!sockets.any());
     // ... one waiting half an hour for new mail (IMAP IDLE) is not.
     let idle = Tls::new().idle_ms(paperpaw_sdk::MAX_TLS_IDLE_MS);
-    let connect = Command::connect_tls(SOCKET, HOST, 993, EVENTS, idle);
+    let connect = Ask::connect_tls(SOCKET, HOST, 993, EVENTS, idle);
     sockets.command(connect, true, Owner::Run(1), &storage, &mut out);
     assert!(sockets.any());
     assert_eq!(paperpaw_sdk::MAX_TLS_IDLE_MS, 30 * 60 * 1000);
     // Switched to TLS that never ends (STARTTLS): refused, and closed.
     let mut sockets = Sockets::new(1);
-    let connect = Command::connect(SOCKET, HOST, 587, EVENTS);
+    let connect = Ask::connect(SOCKET, HOST, 587, EVENTS);
     sockets.command(connect, true, Owner::Run(1), &storage, &mut out);
     sockets.event(SocketEvent::Connected { socket: 1 }, &storage, &mut out);
     sockets.calls.clear();
-    let switch = Command::start_tls(SOCKET, never());
+    let switch = Ask::start_tls(SOCKET, never());
     sockets.command(switch, true, Owner::Run(1), &storage, &mut out);
     assert_eq!(last(&out, p::ERROR).as_deref(), Some("options"));
     assert_eq!(sockets.take(), [SocketCall::Close { socket: 1 }]);

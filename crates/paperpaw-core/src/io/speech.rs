@@ -6,8 +6,9 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use crate::Ask;
 use crate::native_host::speech as native;
-use paperpaw_sdk::{Command, Id, Params};
+use paperpaw_sdk::{Id, Params};
 
 /// What a shell does for speech.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,7 +71,7 @@ impl Speech {
         speech: paperpaw_sdk::Speech,
         available: bool,
         screens: usize,
-        out: &mut Vec<Command>,
+        out: &mut Vec<Ask>,
     ) {
         if !available {
             // Native plugins hear status 3 (no speech on this device) at once.
@@ -158,7 +159,7 @@ impl Speech {
     }
 
     /// Text `id` was spoken (`spoken`), or could not be: its plugin hears.
-    pub fn done(&mut self, id: u32, spoken: bool, out: &mut Vec<Command>) {
+    pub fn done(&mut self, id: u32, spoken: bool, out: &mut Vec<Ask>) {
         if let Some(at) = self.speaking.iter().position(|s| s.id == id) {
             let speaking = self.speaking.remove(at);
             if native::is_reply(&speaking.reply) {
@@ -209,10 +210,10 @@ enum Ended {
     NoSpeech = 3,
 }
 
-/// The reply to an interface-6 [`Command::Speak`]: spoken or not, with the
+/// The reply to an interface-6 [`Ask::Speak`]: spoken or not, with the
 /// parameters the plugin gave (a replaced text is not reported there).
-fn reply(reply: Id, params: Params, spoken: bool, out: &mut Vec<Command>) {
+fn reply(reply: Id, params: Params, spoken: bool, out: &mut Vec<Ask>) {
     use paperpaw_sdk::event::EventData;
     let spoken = paperpaw_sdk::replies::Spoken::new(spoken, params);
-    out.push(Command::Emit(reply, spoken.into_params()));
+    out.push(Ask::Emit(reply, spoken.into_params()));
 }

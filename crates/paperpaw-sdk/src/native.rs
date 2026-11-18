@@ -27,7 +27,7 @@
 //! A code plugin is a folder like a data plugin's (`plugin.ini`,
 //! translations, settings) with its code as [`Native::file`]; the kernel
 //! loads the code of those switched on at the start, and switching one
-//! takes a restart. Where PaperPaw loads code plugins, `Env::native`
+//! takes a restart. Where PaperPaw loads code plugins, `Place::native`
 //! says with what (the store takes the build that fits), and whether this
 //! start went without them ([`SafeMode`]).
 //!
@@ -873,7 +873,7 @@ impl fmt::Display for Fingerprint {
 }
 
 /// How this PaperPaw loads code plugins
-/// (`Env::native`): the shell tells the kernel.
+/// (`Place::native`): the shell tells the kernel.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Native {

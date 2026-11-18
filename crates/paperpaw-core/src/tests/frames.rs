@@ -2,7 +2,7 @@
 //! overlays at the edge of the screen.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::Params;
 
 const BASE: Id = Id::new_static("frames.base");
@@ -51,7 +51,7 @@ impl crate::testing::Fake for Base {
 
 /// A full screen on the home slot, and an overlay on the menu slot from
 /// row `top` (its parameter) down, reaching past the screen with `past`.
-fn frames_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn frames_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
         r.add_fake(crate::testing::FakeSpec::new(

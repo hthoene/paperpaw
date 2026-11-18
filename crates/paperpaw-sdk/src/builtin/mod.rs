@@ -47,10 +47,10 @@ pub mod actions {
     /// Opens the settings slot.
     pub const SETTINGS: Id = Id::new_static("core.settings");
     /// Saves what the screen shows as a picture, in `Screenshots` beside
-    /// the library ([`Command::Screenshot`](crate::Command::Screenshot)).
+    /// the library (`Ask::Screenshot`).
     pub const SCREENSHOT: Id = Id::new_static("core.screenshot");
     /// Removes what plugins kept for books no longer on the storage
-    /// (`Items::add_book_data`),
+    /// (`Staging::add_book_data`),
     /// e.g. deleted from a computer.
     pub const CLEAN_UP: Id = Id::new_static("core.clean-up");
     /// Opens the tools menu ([`menus::TOOLS`](super::menus::TOOLS)).
@@ -106,7 +106,7 @@ pub mod slots {
     /// Looks a word up online (an overlay), with the same parameters as
     /// [`LOOKUP`]: an encyclopedia, an online dictionary, a translator.
     /// Dictionaries offer it beside their own entries when a screen is
-    /// bound here (`Env::has_slot`) and there is
+    /// bound here (`Place::has_slot`) and there is
     /// a network.
     pub const LOOKUP_ONLINE: Id = Id::new_static("core.lookup-online");
     /// Shows a menu as a panel of controls for quick changes (an overlay):
@@ -140,7 +140,7 @@ pub mod slots {
     /// [`ID`](super::params::ID) different for every request (opening a
     /// slot with the parameters it is open with only brings it forward).
     /// The reader opens links out of a book this way, if a browser is
-    /// bound here (`Env::has_slot`).
+    /// bound here (`Place::has_slot`).
     pub const BROWSER: Id = Id::new_static("core.browser");
     /// The Bluetooth page: the plugin whose screen is bound here is the
     /// Bluetooth manager, which sees every bond and decides when remotes
@@ -208,7 +208,7 @@ pub mod slots {
     /// [`events::SKIM`](super::events::SKIM) and hears where the book is
     /// then with [`events::SKIMMED`](super::events::SKIMMED).
     pub const SKIM: Id = Id::new_static("core.skim");
-    /// Shows a short message ([`Command::Notify`](crate::Command::Notify))
+    /// Shows a short message (`Ask::Notify`)
     /// over whatever is open, for a few seconds: parameter
     /// [`TEXT`](super::params::TEXT). It gets no input and is closed by
     /// the kernel; bind another screen here for messages that look
@@ -229,7 +229,7 @@ pub mod slots {
 }
 
 /// Standard menus. Plugins add entries with
-/// `Items::add_menu_entry`; users can
+/// `Staging::add_menu_entry`; users can
 /// redefine any menu in `[menus]`.
 ///
 /// A menu named like a setting with choices (e.g. `core.reading-font`)
@@ -895,7 +895,7 @@ pub mod settings {
 
 /// Key map presets: named sets of bindings users switch between, e.g. for
 /// devices with only two buttons. Plugins add more with
-/// `Items::add_keymap_preset`.
+/// `Staging::add_keymap_preset`.
 pub mod keymap_presets {
     use crate::Id;
 
@@ -983,7 +983,7 @@ pub mod groups {
 /// the device 51 to 199, customising PaperPaw from 201. A group whose
 /// order is 0, the default, names none: it is listed at the end of the
 /// section for customising, by name. A group shows the icon its plugin
-/// gives it (`Items::add_icon` with its id), else a plugin's.
+/// gives it (`Staging::add_icon` with its id), else a plugin's.
 pub mod settings_page {
     use crate::Id;
 
@@ -1100,9 +1100,7 @@ mod tests {
             35,
         )
         .marks(alloc::string::String::from("0,120,480"));
-        let crate::Command::Emit(event, params) = SKIMMED.emit(skimmed.clone()) else {
-            panic!("an event");
-        };
+        let (event, params) = (SKIMMED.id().clone(), skimmed.clone().into_params());
         assert_eq!(SKIMMED.read(&event, &params), Some(skimmed));
     }
 

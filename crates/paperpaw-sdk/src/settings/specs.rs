@@ -11,7 +11,7 @@ use super::{Extra, SettingError, SettingExtra, SettingSpec, SettingValue};
 /// The settings' specs in registration order, found by id through an
 /// index sorted by it: each id kept once. Specs kept in the program
 /// (a `static` list of `SettingSpec`s, e.g. in flash) are held as the lists a plugin
-/// gave (`Items::add_settings`),
+/// gave (`Staging::add_settings`),
 /// a reference to each list rather than to each spec; the others as they
 /// are. Of the specs a plugin describes on demand
 /// ([`Described`](super::Described)) only the places are kept here: they

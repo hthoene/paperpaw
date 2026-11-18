@@ -4,7 +4,7 @@
 //! layout, never as a pop-up over the page: "Offline mode. Go online for
 //! this?" with *Go online* and *Not now*.
 //!
-//! *Go online* sends `Command::GoOnline`: the
+//! *Go online* sends `Ask::GoOnline`: the
 //! network for that screen until it closes; the screen then does again
 //! what needed the network. *Not now* leaves the screen as it is without
 //! the network (it says so as it would without one). Either way it is
@@ -12,7 +12,7 @@
 //!
 //! Outside a screen of the network (a widget's *Update now*, a plugin's
 //! own offer for what its background work would bring) the reader's
-//! choice is `Command::GoOnlineFor`: the network for a while, whatever
+//! choice is `Ask::GoOnlineFor`: the network for a while, whatever
 //! shows.
 //!
 //! ```ignore

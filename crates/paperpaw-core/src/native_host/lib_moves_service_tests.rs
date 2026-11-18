@@ -73,7 +73,7 @@ fn device() -> (Kernel, Rc<MemoryStorage>) {
     (kernel, card)
 }
 
-fn pump_all(moves: &LibraryMoves, kernel: &Kernel) -> (Vec<Command>, usize) {
+fn pump_all(moves: &LibraryMoves, kernel: &Kernel) -> (Vec<Ask>, usize) {
     let mut sent = Vec::new();
     let env = kernel.shared.place(Instant(0));
     let mut pumps = 0;

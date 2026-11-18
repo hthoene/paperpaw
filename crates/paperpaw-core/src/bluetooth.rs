@@ -64,7 +64,7 @@ impl Kernel {
                     let event = BtEvent::Failed(failure);
                     self.output
                         .commands
-                        .push(Command::Emit(events, event.into_params()));
+                        .push(Ask::Emit(events, event.into_params()));
                 }
                 None => self.warn_runtime(format!(
                     "{plugin}: Bluetooth {}: {}",
@@ -176,7 +176,7 @@ impl Kernel {
             self.shared.bluetooth = Some(state);
             self.output
                 .commands
-                .push(events::BLUETOOTH_CHANGED.emit(()));
+                .push(crate::Ask::emit(&events::BLUETOOTH_CHANGED, ()));
         }
         let kept: Vec<(String, String)> = self
             .shared
@@ -219,7 +219,7 @@ impl Kernel {
         if let Some(serial) = open {
             self.output
                 .commands
-                .push(Command::Close(paperpaw_sdk::ScreenKey::new(serial)));
+                .push(Ask::Close(paperpaw_sdk::ScreenKey::new(serial)));
         }
         if lost {
             let i18n = &self.shared.translator;
@@ -229,7 +229,7 @@ impl Kernel {
                 String::from(name)
             };
             let text = i18n.format("core.bluetooth.pair-lost", &[("name", Arg::Str(&name))]);
-            self.output.commands.push(Command::Notify(text));
+            self.output.commands.push(Ask::Notify(text));
         }
     }
 

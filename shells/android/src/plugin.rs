@@ -4,14 +4,13 @@
 use std::borrow::Cow;
 
 use android_activity::AndroidApp;
-use paperpaw_core::Items;
+use paperpaw_core::Ask;
+use paperpaw_core::Staging;
 use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::kit::menus::MenuEntry;
 use paperpaw_sdk::builtin::{events, groups, menus, params};
 use paperpaw_sdk::document::Document;
-use paperpaw_sdk::{
-    Command, FormatSpec, Id, Manifest, MenuNeed, RegisterError, SettingSpec, Version,
-};
+use paperpaw_sdk::{FormatSpec, Id, Manifest, MenuNeed, RegisterError, SettingSpec, Version};
 
 use crate::lights::Lights;
 use paperpaw_sdk::setting::Setting;
@@ -86,7 +85,7 @@ impl AndroidPlugin {
 
     /// Its actions, settings, format and texts (`KernelBuilder::items` with
     /// [`AndroidPlugin::manifest`]).
-    pub fn register(&self, r: &mut Items) -> Result<(), RegisterError> {
+    pub fn register(&self, r: &mut Staging) -> Result<(), RegisterError> {
         PLATFORM.with(|platform| {
             platform.borrow_mut().app = Some(self.app.clone());
         });
@@ -131,7 +130,7 @@ static SLIDER: paperpaw_sdk::SettingExtra = paperpaw_sdk::SettingExtra::new().sl
 impl AndroidPlugin {
     /// The voice for reading aloud: chosen in the system's speech settings,
     /// which the action opens from the reader's *More* menu.
-    fn register_voice(&self, r: &mut Items) -> Result<(), RegisterError> {
+    fn register_voice(&self, r: &mut Staging) -> Result<(), RegisterError> {
         let voice = ActionSpec::new(VOICE, "android.voice").describe("android.voice.help");
         r.add_action(voice.handler(|env, _, out| {
             let Some(app) = platform_app() else {
@@ -139,7 +138,7 @@ impl AndroidPlugin {
             };
             if !crate::speech::open_settings(&app) {
                 let text = env.i18n().tr("android.voice.unavailable").to_string();
-                out.push(Command::Notify(text));
+                out.push(Ask::Notify(text));
             }
         }))?;
         r.add_menu_entry(MenuEntry::new(menus::READER_MORE, VOICE))?;
@@ -151,7 +150,7 @@ impl AndroidPlugin {
     /// change goes to the device.
     fn register_frontlight(
         &self,
-        r: &mut Items,
+        r: &mut Staging,
         frontlight: Frontlight,
     ) -> Result<(), RegisterError> {
         let lights = frontlight.lights;
@@ -249,7 +248,7 @@ impl AndroidPlugin {
                     let level = i64::from(level);
                     let known = env.settings().get(id.as_str()).is_some();
                     if known && env.settings().read(&id) != level {
-                        out.push(Command::set(&id, level));
+                        out.push(Ask::set(&id, level));
                     }
                 }
             });

@@ -87,7 +87,7 @@ pub fn frame(m: &Metrics, strip: Option<bool>, columns: u8, rows: i64) -> Frame 
     }
 }
 
-/// The grid in `area`: [`Geometry::of`]'s arithmetic without an environment.
+/// The grid in `area`, columns and rows of cells `gap` apart.
 #[must_use]
 pub fn geometry(area: Rect, columns: u8, rows: u8, gap: u16) -> Geometry {
     let columns = columns.clamp(2, grid::MAX_COLUMNS);

@@ -14,7 +14,7 @@ impl crate::testing::Fake for Blank {
 }
 
 /// A home screen and another, under "lm".
-fn plain(r: &mut crate::Items) -> Result<(), RegisterError> {
+fn plain(r: &mut crate::Staging) -> Result<(), RegisterError> {
     for id in ["lm.home", "lm.other"] {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static(id),
@@ -26,7 +26,7 @@ fn plain(r: &mut crate::Items) -> Result<(), RegisterError> {
 }
 
 /// Stands for the plugin manager, which has the list.
-fn manager(r: &mut crate::Items) -> Result<(), RegisterError> {
+fn manager(r: &mut crate::Staging) -> Result<(), RegisterError> {
     r.add_fake(crate::testing::FakeSpec::new(
         Id::new_static("plugin-manager.list"),
         "list",

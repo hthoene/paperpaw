@@ -9,8 +9,7 @@ use super::*;
 
 mod display;
 mod items;
-pub use items::Items;
-pub(crate) use items::Parts;
+pub use items::Staging;
 
 /// Configures and creates a [`Kernel`].
 ///
@@ -458,7 +457,7 @@ impl KernelBuilder {
     /// the plugin folder PaperPaw does not load, e.g. `plugins/.hello.part`:
     /// a plugin the web flasher wrote with the firmware) before plugins
     /// are found, so it loads at this start: in place of every version of
-    /// it, as [`Command::InstallPlugin`](paperpaw_sdk::Command::InstallPlugin)
+    /// it, as [`Ask::InstallPlugin`](crate::Ask::InstallPlugin)
     /// installs one while PaperPaw runs. One that is not what it says is
     /// refused, with a warning, and its folder removed.
     pub fn install_plugin(mut self, id: Id, folder: impl Into<String>) -> Self {
@@ -1126,7 +1125,7 @@ impl Kernel {
         let count = plugins.len() + 1;
         self.shared.plugins.reserve(count);
         self.shared.translator.reserve(count);
-        let core = |items: &mut Items| core_plugin::items(&name, items);
+        let core = |items: &mut Staging| core_plugin::items(&name, items);
         self.add_items(core_plugin::manifest(), &core, &disabled);
         for source in plugins {
             source.add_to(self, &disabled);

@@ -32,15 +32,13 @@ pub const MAX_TLS_TIMEOUT_MS: u32 = 60_000;
 /// client waiting for new mail (IMAP IDLE, which asks again within 29).
 pub const MAX_TLS_IDLE_MS: u32 = 1_800_000;
 
-/// How a socket's TLS is set up ([`Command::connect_tls`],
-/// [`Command::start_tls`]). Made with [`Tls::new`] (the authorities
+/// How a socket's TLS is set up (`Ask::connect_tls`,
+/// `Ask::start_tls`). Made with [`Tls::new`] (the authorities
 /// PaperPaw ships) or [`Tls::pinned`] and the methods that set the rest.
 ///
 /// A TLS connection holds much memory while it is open (about 40 KiB on
 /// the X4) and keeps the radio awake: connect, do the work, close.
 ///
-/// [`Command::connect_tls`]: crate::Command::connect_tls
-/// [`Command::start_tls`]: crate::Command::start_tls
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Tls {

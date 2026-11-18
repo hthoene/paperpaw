@@ -2,7 +2,7 @@
 //! long presses, fingers resting together, the edges.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 
 /// A button going down or up at `at`.
 fn button(kernel: &mut Kernel, at: u64, name: &'static str, state: ButtonState) {
@@ -230,7 +230,7 @@ impl crate::testing::Fake for GestureScreen {
 }
 
 /// A home screen that notes the gestures and actions it gets.
-fn gesture_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn gesture_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
         r.add_fake(crate::testing::FakeSpec::new(

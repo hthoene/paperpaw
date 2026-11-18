@@ -4,9 +4,10 @@
 
 use core::time::Duration;
 
+use crate::Ask;
 use paperpaw_platform::{ButtonState, Instant, Rect, RefreshMode, buttons};
 use paperpaw_sdk::realtime::{ESCAPE_HOLD, FrameReport, KeyEvent, ScreenMode};
-use paperpaw_sdk::{Command, Handled, ScreenKey};
+use paperpaw_sdk::{Handled, ScreenKey};
 
 use crate::Kernel;
 
@@ -167,7 +168,7 @@ impl Kernel {
         }
         if let Some(top) = self.stack.last() {
             let key = ScreenKey::new(top.serial);
-            self.output.commands.push(Command::Close(key));
+            self.output.commands.push(Ask::Close(key));
         }
     }
 

@@ -2,7 +2,7 @@
 //! when, run by the kernel at the moment that costs least (ADR 0025).
 //!
 //! A plugin does not reach the network on its own account in the
-//! background. It declares the work ([`Command::Work`]), and when it is
+//! background. It declares the work (`Ask::Work`), and when it is
 //! time the kernel emits the work's event with its parameters, as a
 //! timer would; the plugin does the work then. The kernel runs together
 //! everything that needs the network, so a reading session costs one
@@ -11,7 +11,7 @@
 //! ```
 //! use core::time::Duration;
 //! use paperpaw_sdk::work::{Moments, Work};
-//! use paperpaw_sdk::{Command, Id};
+//! use paperpaw_sdk::Id;
 //!
 //! const PUSH: Id = Id::new_static("kosync.push");
 //! // The position: at the next natural moment, at the latest in 30 min.
@@ -19,14 +19,13 @@
 //!     .expected()
 //!     .within(Duration::from_secs(30 * 60))
 //!     .at_moments(Moments::BOOK_CLOSED | Moments::SLEEP | Moments::ONLINE);
-//! let command = Command::work(push);
-//! # let _ = command;
+//! # let _ = push;
 //! ```
 //!
 //! - **The id** is an event of the plugin, and a **key** tells apart
 //!   several works of one event ([`Work::key`], e.g. a timer for each
 //!   rule). Declaring the same id and key again replaces the work;
-//!   [`Command::CancelWork`] takes it back.
+//!   `Ask::CancelWork` takes it back.
 //! - **What it needs**: nothing, the network ([`Work::network`]), the
 //!   device charging ([`Work::charging`]).
 //! - **How much the reader counts on it**: [`expected`](Work::expected)
@@ -62,13 +61,13 @@
 //!
 //! **Jobs** are work in steps: long work (an install, a catalog synced or
 //! walked, a book's pages counted) registers a step function for its id
-//! (the kernel's `WorkSpec`, `Items::add_work`). When it runs, the kernel calls
+//! (the kernel's `WorkSpec`, `Staging::add_work`). When it runs, the kernel calls
 //! the step instead of emitting the event, again while it answers
 //! [`Step::Continue`], each time after the frame is drawn and only when no
 //! input waits, so the device answers at once and sleeps between steps.
 //! A step should take a few milliseconds.
 //!
-//! `Items::add_work`: crate::Items::add_work
+//! `Staging::add_work`: crate::Staging::add_work
 //!
 //! **Nothing is refused silently, nothing nags.** Work held back by the
 //! power mode stays queued and runs when allowed; work that can never run
@@ -77,12 +76,9 @@
 //! [`Refusal`] saying why and when to try again. A request that does not
 //! go out is answered with one too ([`HttpReply::refused`]). None of this
 //! is ever shown over reading: background work cannot raise notices, its
-//! [`Command::Notify`] becomes the plugin's note, shown on its own page,
+//! `Ask::Notify` becomes the plugin's note, shown on its own page,
 //! the Power page and the battery view.
 //!
-//! [`Command::Work`]: crate::Command::Work
-//! [`Command::CancelWork`]: crate::Command::CancelWork
-//! [`Command::Notify`]: crate::Command::Notify
 //! [`events::WORK_REFUSED`]: crate::builtin::events::WORK_REFUSED
 //! [`HttpReply::refused`]: crate::HttpReply::refused
 
@@ -272,7 +268,7 @@ impl Work {
     /// the next moment the radio is on anyway, on waking or charging, at
     /// the latest `within` from now (longer while saving), held in
     /// Offline. For the reader's own doing, act at once instead
-    /// (`Env::reader`).
+    /// (`Place::reader`).
     pub fn when_cheap(id: impl Into<Id>, within: Duration) -> Self {
         Self::network(id)
             .within(within)
@@ -381,11 +377,9 @@ pub enum Reason {
     Sleeping,
     /// The plugin asked again before it was told it might.
     TooOften,
-    /// The plugin took it back ([`Command::CancelWork`],
-    /// [`Command::CancelHttp`]).
+    /// The plugin took it back (`Ask::CancelWork`,
+    /// `Ask::CancelHttp`).
     ///
-    /// [`Command::CancelWork`]: crate::Command::CancelWork
-    /// [`Command::CancelHttp`]: crate::Command::CancelHttp
     Cancelled,
 }
 
@@ -675,7 +669,7 @@ impl Note {
 }
 
 /// Where every declared work stands, and the plugins' notes, kept by the
-/// kernel (`Env::work`).
+/// kernel (`Place::work`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WorkStates {
     works: Vec<(Id, String, WorkState)>,

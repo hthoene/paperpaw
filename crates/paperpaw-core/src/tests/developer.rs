@@ -2,13 +2,13 @@
 //! a plugin that opens it hears at once that it is not there.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::developer::{self, DevError, DevEvent};
 
 const LINK: Id = Id::new_static("tools.link");
 const EVENTS: Id = Id::new_static("tools.link-events");
 
-fn tools(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn tools(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         crate::tests::hear_into(&kept);
         r.on(
@@ -36,7 +36,10 @@ fn the_developer_link_is_not_there_yet() {
         .build()
         .unwrap();
     kernel.start(Instant(0));
-    kernel.output.commands.push(developer::open(LINK, EVENTS));
+    kernel
+        .output
+        .commands
+        .push(developer::open(LINK, EVENTS).into());
     kernel.run_commands();
     let failed = DevEvent::Failed {
         link: LINK,

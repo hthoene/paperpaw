@@ -4,7 +4,7 @@
 //! read until the messages read are forgotten.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_platform::buttons;
 use paperpaw_sdk::{Hint, Params};
 
@@ -28,7 +28,7 @@ impl crate::testing::Fake for Wordy {
     }
 }
 
-fn wordy_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn wordy_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             WORDY,

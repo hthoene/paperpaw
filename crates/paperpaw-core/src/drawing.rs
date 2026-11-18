@@ -346,7 +346,7 @@ impl Kernel {
                 .shared
                 .translator
                 .format(key, &[("path", paperpaw_sdk::Arg::Str(&path))]);
-            self.output.commands.push(Command::Notify(text));
+            self.output.commands.push(Ask::Notify(text));
         }
         // Read once for all the bands; not kept past the frame.
         self.shared.recall.clear();
@@ -644,7 +644,7 @@ impl Kernel {
     pub fn draw_again(&mut self, now: Instant) -> Effects {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.now = now;
-        self.apply(Command::Redraw(RefreshMode::Full));
+        self.apply(Ask::Redraw(RefreshMode::Full));
         self.frame.again = true;
         self.finish()
     }
@@ -658,7 +658,7 @@ impl Kernel {
         let changed = events::DisplayChanged::new(panel.width, panel.height, class, landscape);
         self.output
             .commands
-            .push(events::DISPLAY_CHANGED.emit(changed));
+            .push(crate::Ask::emit(&events::DISPLAY_CHANGED, changed));
     }
 
     /// The screen has another size, e.g. turned (see
@@ -675,7 +675,7 @@ impl Kernel {
             let row = self.hint.height;
             self.apply_hint_height();
             if self.hint.height == row {
-                self.apply(Command::Redraw(RefreshMode::Full));
+                self.apply(Ask::Redraw(RefreshMode::Full));
             }
         } else if width > 0 && height > 0 {
             // Bands take as much memory as before: fewer rows where the

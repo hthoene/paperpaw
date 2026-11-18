@@ -4,7 +4,7 @@
 //! ([`Kernel::native_config`]), asks [`Kernel::native_decide`] for **each**
 //! plugin before it hosts it, hosts only one that says [`NativeDecision::Host`],
 //! and lists every native plugin it has ([`Kernel::list_native`]) so the
-//! plugin manager shows it, a switch is saved (`Command::SetPluginEnabled`,
+//! plugin manager shows it, a switch is saved (`Ask::SetPluginEnabled`,
 //! for the next start, as in Beta 3) and a removal drops it from the list.
 //!
 //! - **Decision.** A plugin switched off in any configuration (the file on the

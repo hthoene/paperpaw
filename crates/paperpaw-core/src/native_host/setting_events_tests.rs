@@ -4,7 +4,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::super::event_pending::Visibility;
-use crate::Items;
+use crate::Staging;
 use crate::native_host::{
     codec,
     commands::CommandStage,
@@ -115,7 +115,7 @@ fn declares_manifest(id: &'static str) -> Manifest {
     Manifest::new(Id::new_static(id), "Declares", Version::new(1, 0, 0))
 }
 
-fn declares(names: [&'static str; 3]) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn declares(names: [&'static str; 3]) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |registrar| {
         static SECRET: SettingExtra = SettingExtra::new().secret();
         let [plain, token, widget] = names;

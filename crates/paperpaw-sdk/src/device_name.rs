@@ -1,7 +1,7 @@
 //! The device's name, as others see it: the computer Calibre runs on, the
 //! progress server, the router's list of devices, a phone joining the
 //! reader's own network. The reader sets it (*Device name*, [`SETTING`]);
-//! plugins take it from `Env::device_name` and never make one of their
+//! plugins take it from `Place::device_name` and never make one of their
 //! own. Changed, it counts from the next time something connects.
 //!
 
