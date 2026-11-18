@@ -54,3 +54,4 @@ calendar
 file-sync
 edge-light
 smart-home
+format-rtf

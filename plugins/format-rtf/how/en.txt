@@ -1,0 +1,5 @@
+RTF documents (.rtf) open from the library like any book, with nothing to set up. The title, author and language come from the document, and the contents list is made from its headings.
+
+The document is converted the first time you open it, which takes a few seconds for a long one; after that it opens at once. Paragraphs, headings, bold, italic and underline, lists, simple tables (a row a line, the cells set apart by "|") and JPEG and PNG pictures are shown.
+
+Left out: headers and footers, footnotes, links, text boxes and pictures of other kinds (metafiles and bitmaps). Text in other alphabets needs a font that has them (see Fonts).

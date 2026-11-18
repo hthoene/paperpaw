@@ -2285,6 +2285,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-format-rtf"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-sdk",
+ "proptest",
+]
+
+[[package]]
 name = "paperpaw-plugin-format-txt"
 version = "1.0.4"
 dependencies = [

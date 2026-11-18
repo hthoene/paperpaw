@@ -23,6 +23,7 @@ paperpaw-stardict = { path = "../crates/paperpaw-stardict" }
 paperpaw-text = { path = "../crates/paperpaw-text", features = ["outline"] }
 paperpaw-zip = { path = "../crates/paperpaw-zip" }
 paperpaw-epub-family = { path = "../crates/paperpaw-epub-family" }
+paperpaw-plugin-format-rtf = { path = "../plugins/format-rtf" }
 paperpaw-plugin-format-txt = { path = "../plugins/format-txt" }
 paperpaw-plugin-format-xtc = { path = "../plugins/format-xtc" }
 paperpaw-plugin-koreader = { path = "../plugins/koreader" }
@@ -145,6 +146,13 @@ bench = false
 [[bin]]
 name = "sqlite"
 path = "fuzz_targets/sqlite.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rtf"
+path = "fuzz_targets/rtf.rs"
 test = false
 doc = false
 bench = false
