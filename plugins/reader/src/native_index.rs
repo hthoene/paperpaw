@@ -392,8 +392,25 @@ impl Counter {
                 high = mid;
             }
         }
-        let page = low.checked_sub(1)?;
-        Some((page, self.entry(storage, page)? == at))
+        // A page starts at its first block, after the markup, so the start
+        // `(section, 0)` of a chapter that begins a file is before its first
+        // page: it is on that page (and starts it), not on the last page of
+        // the section before, or on none before the first page of the book.
+        // Pages never go over two sections.
+        let Some(page) = low.checked_sub(1) else {
+            return self
+                .entry(storage, 0)
+                .filter(|first| first.section == at.section)
+                .map(|_| (0, true));
+        };
+        let start = self.entry(storage, page)?;
+        if start.section < at.section
+            && let Some(next) = page.checked_add(1)
+            && self.entry(storage, next).is_some_and(|first| first.section == at.section)
+        {
+            return Some((next, true));
+        }
+        Some((page, start == at))
     }
 
     /// The pages counted so far and whether they are all.
@@ -573,6 +590,45 @@ mod tests {
         fn remove(&self, path: &str) -> Result<(), paperpaw_sdk::StorageError> {
             self.0.remove(path)
         }
+    }
+
+    /// Books of 3 sections of 3 pages; a page starts at its first block, 3
+    /// characters into its section (the markup), as the layout makes them.
+    fn sections(at: Locator) -> Result<Laid, Error> {
+        let start = Locator::new(at.section, at.offset.max(3));
+        let end = if start.offset >= 23 {
+            Locator::new(at.section + 1, 0)
+        } else {
+            Locator::new(at.section, start.offset + 10)
+        };
+        Ok(Laid {
+            start,
+            end,
+            past_end: at.section >= 3,
+            unreliable: false,
+        })
+    }
+
+    /// A chapter that begins a file starts at `(section, 0)`, before the
+    /// first page of its section: it is on that page, which it starts, not on
+    /// the last page of the section before (the chapter's pages left were one
+    /// too many), and the first chapter is on the first page (found in a fork
+    /// by Alexandre Cormier, alexcormier/paperpaw@958537c).
+    #[test]
+    fn a_chapter_that_begins_a_file_is_on_its_first_page() {
+        let storage = MemoryStorage::new();
+        let mut counter = Counter::open(&storage, String::from("pages-s.bin")).unwrap();
+        while counter.step(&storage, 4, &mut sections) == Step::More {}
+        assert_eq!(counter.pages(), Some(9));
+        assert_eq!(counter.locate(&storage, (0, 0)), Some((0, true)));
+        assert_eq!(counter.locate(&storage, (1, 0)), Some((3, true)));
+        assert_eq!(counter.locate(&storage, (2, 0)), Some((6, true)));
+        assert_eq!(counter.locate(&storage, (1, 3)), Some((3, true)));
+        assert_eq!(counter.locate(&storage, (1, 5)), Some((3, false)));
+        assert_eq!(counter.locate(&storage, (1, 13)), Some((4, true)));
+        assert_eq!(counter.page_at(&storage, (2, 0)), Some((7, 9)));
+        // Past the last page of the book: still on the last page.
+        assert_eq!(counter.locate(&storage, (3, 0)), Some((8, false)));
     }
 
     /// A page is found with a few reads, not one for each step of the search,
