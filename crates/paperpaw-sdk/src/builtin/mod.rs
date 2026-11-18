@@ -226,6 +226,14 @@ pub mod slots {
     /// message. It closes itself when the device wakes
     /// ([`events::RESUME`](super::events::RESUME)).
     pub const SLEEP: Id = Id::new_static("core.sleep");
+    /// Shown once as the device is switched off, by the reader (the power
+    /// menu) or by the timer *Switch off after sleeping*, then the power
+    /// goes: a picture, a message. It is opened with
+    /// [`params::OFF_REASON`](super::params::OFF_REASON) (`asked` or
+    /// `timer`). A battery too low to draw it cuts the power without it.
+    /// The `sleep` plugin fills it by default with its own screen; another
+    /// plugin can offer a screen for it or take it over, as for [`SLEEP`].
+    pub const OFF: Id = Id::new_static("core.off");
 }
 
 /// Standard menus. Plugins add entries with
@@ -357,6 +365,13 @@ pub mod params {
     /// Where something was before, e.g. a moved book
     /// ([`events::BOOK_MOVED`](super::events::BOOK_MOVED)).
     pub const FROM: &str = "from";
+    /// Why the device is switched off, for [`slots::OFF`](super::slots::OFF):
+    /// [`OFF_ASKED`] or [`OFF_TIMER`].
+    pub const OFF_REASON: &str = "off-reason";
+    /// The reader asked to switch off (the power menu).
+    pub const OFF_ASKED: &str = "asked";
+    /// The time of *Switch off after sleeping* passed.
+    pub const OFF_TIMER: &str = "timer";
 }
 
 /// Events emitted by the kernel.

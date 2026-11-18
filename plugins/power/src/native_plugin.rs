@@ -30,8 +30,12 @@ const STATUS: &str = "power.status";
 /// absent: the menu then has no entry for it).
 const TOUCH_LOCK: &str = "lock.touch";
 const TOUCH_TOGGLE: &str = "lock.touch-toggle";
-/// The sleep screen's slot, and the parameter that makes it say *off*.
+/// The sleep screen's slot, the off screen's, and the parameter that says why
+/// the device is switched off (`asked`: by the reader).
 const SLEEP_SLOT: &str = "core.sleep";
+const OFF_SLOT: &str = "core.off";
+const OFF_REASON: &str = "off-reason";
+const OFF_ASKED: &str = "asked";
 const SETTINGS_SLOT: &str = "core.settings";
 const GROUP: &str = "power.group";
 /// `core.ui` and `core.device` calls use buffers of the schema's capacity (4,096
@@ -237,8 +241,8 @@ fn run(host: &Host<'_>, ui: &Ui, step: Step) -> Result<(), Error> {
     }
 }
 
-/// The sleep screen first, then the power command in the same batch: the host
-/// draws the frame and acts when the panel is idle, so e-ink keeps a screen
+/// The sleep screen (the off screen, `core.off`, for `off`) first, then the power
+/// command in the same batch: the host draws the frame and acts when the panel is idle, so e-ink keeps a screen
 /// that shows what the device really is. Without the sleep screen (its plugin
 /// is off) the command acts alone.
 #[inline(never)]
@@ -251,12 +255,17 @@ fn show_then(
 ) -> Result<(), Error> {
     let shown = (|| {
         if off {
-            // `off`: the sleep screen's parameter (plugin `sleep`).
+            // The off screen, told why (`core.off`; plugin `sleep` by default).
             let mut input = buffer(UI_BUFFER)?;
             let mut out = buffer(UI_BUFFER)?;
-            let handover = ui.handover(host, &[Param::new("off", "1")?], &mut input, &mut out)?;
+            let handover = ui.handover(
+                host,
+                &[Param::new(OFF_REASON, OFF_ASKED)?],
+                &mut input,
+                &mut out,
+            )?;
             CommandSender::new(host, scratch)
-                .show_then(Open::slot(SLEEP_SLOT)?.handover(handover), action)
+                .show_then(Open::slot(OFF_SLOT)?.handover(handover), action)
         } else {
             CommandSender::new(host, scratch).show_then(Open::slot(SLEEP_SLOT)?, action)
         }

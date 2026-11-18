@@ -304,6 +304,20 @@ pub enum Ended {
     SwitchOff(Why),
 }
 
+/// What the reason `why` of a switch-off from the sleep draws first: the off
+/// screen (the slot `core.off`) with this reason (`off-reason`), or nothing.
+/// Only the time of *Switch off after sleeping* does: the sleep screen is
+/// shown already for the choice *Now*, and a low or critical battery, a radio
+/// that would not go off, a held button or a restless sleep cut the power
+/// without a frame (a refresh that is not paid for).
+#[must_use]
+pub const fn off_screen(why: Why) -> Option<&'static str> {
+    match why {
+        Why::Time => Some("timer"),
+        Why::Chosen | Why::Battery | Why::Radio | Why::Held | Why::Restless => None,
+    }
+}
+
 /// What the main loop does with the kernel's requests to sleep and to
 /// switch off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -433,6 +447,41 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
+
+    /// The reason of the switch-off a sleeping reader ends in, for the
+    /// look at `percent` after `after_ms` (on battery, the choice 15 minutes).
+    fn why_off(percent: u8, looks: &[u64]) -> Why {
+        let mut asleep = Asleep::new(Off::of(M15), 0);
+        for &now_ms in looks {
+            let look = Look {
+                now_ms,
+                usb: false,
+                percent: Some(percent),
+            };
+            if let Next::SwitchOff(why) = asleep.next(look) {
+                return why;
+            }
+        }
+        panic!("never switched off");
+    }
+
+    #[test]
+    fn the_off_screen_is_drawn_for_the_timer_and_not_for_a_critical_battery() {
+        let minute = 60_000;
+        // The time of the choice passed on a healthy battery: drawn, told
+        // `timer`.
+        let timer = why_off(80, &[0, 10 * minute, 15 * minute]);
+        assert_eq!(timer, Why::Time);
+        assert_eq!(off_screen(timer), Some("timer"));
+        // A critical battery (seen twice, a minute apart) cuts the power
+        // without a frame.
+        let critical = why_off(2, &[10 * minute, 11 * minute]);
+        assert_eq!(critical, Why::Battery);
+        assert_eq!(off_screen(critical), None);
+        for why in [Why::Chosen, Why::Radio, Why::Held, Why::Restless] {
+            assert_eq!(off_screen(why), None, "{why:?}");
+        }
+    }
 
     #[test]
     fn a_switch_off_request_beats_a_sleep_request() {

@@ -3261,6 +3261,7 @@ mod low_memory_notice;
 mod net_demand;
 mod net_policy_wiring;
 mod network_work;
+mod off_screen;
 mod open_with;
 mod pictures_in_grays;
 mod plugins_loaded;
