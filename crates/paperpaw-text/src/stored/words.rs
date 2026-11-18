@@ -1,6 +1,7 @@
-//! The table of Thai words a pack carries (slot 6, #313), for the line
-//! breaker (`crate::linebreak`), which is given no font: the first pack
-//! opened with one is noted (no read), and the table is read into memory
+//! The table of Thai, Lao or Khmer words a pack carries (slot 6, #313,
+//! #314), for the line breaker (`crate::linebreak`), which is given no
+//! font: per script the first pack opened with one is noted (its table's
+//! head read for the script), and the table is read into memory
 //! (some 19 KB for the store's, at most [`MAX_WORDS`]) the first time Thai
 //! text is broken into lines, then held until a pack is trimmed or the
 //! noted one is closed. A table that cannot be read (memory short, a card
@@ -17,6 +18,7 @@ use core::cell::RefCell;
 use super::{PackSource, u32_le};
 use crate::glyph::zeroed;
 use crate::linebreak::Words;
+use crate::linebreak::thai::Script;
 
 /// The slot of the table of words.
 pub(crate) const WORDS: usize = 6;
@@ -41,7 +43,8 @@ struct Noted {
 }
 
 struct Held {
-    noted: Option<Noted>,
+    /// Per script, in [`Script::ALL`]'s order.
+    noted: [Option<Noted>; 3],
     /// Tables that could not be read now, wrapping.
     failures: u32,
 }
@@ -49,7 +52,7 @@ struct Held {
 type Slot = RefCell<Held>;
 
 const NONE: Held = Held {
-    noted: None,
+    noted: [None, None, None],
     failures: 0,
 };
 
@@ -85,18 +88,20 @@ fn with_held<R>(f: impl FnOnce(&mut Held) -> R) -> Option<R> {
 }
 
 /// Notes the pack read from `source` if it has a table of words (at `at`,
-/// 0: none), unless an open one is noted.
+/// 0: none), unless an open one of its script is noted.
 pub(super) fn note(source: &Rc<dyn PackSource>, at: u32) {
-    if at == 0 {
+    let mut head = [0u8; 2];
+    if at == 0 || !source.read_at(u64::from(at), &mut head) {
+        return;
+    }
+    let slot = usize::from(head[1]);
+    if slot >= Script::ALL.len() {
         return;
     }
     with_held(|held| {
-        if held
-            .noted
-            .as_ref()
-            .is_none_or(|n| n.source.strong_count() == 0)
-        {
-            held.noted = Some(Noted {
+        let noted = &mut held.noted[slot];
+        if noted.as_ref().is_none_or(|n| n.source.strong_count() == 0) {
+            *noted = Some(Noted {
                 source: Rc::downgrade(source),
                 at: u64::from(at),
                 kept: Kept::Unread,
@@ -108,7 +113,7 @@ pub(super) fn note(source: &Rc<dyn PackSource>, at: u32) {
 /// Lets go of the words held (they are read again when needed).
 pub(super) fn trim() {
     with_held(|held| {
-        if let Some(noted) = &mut held.noted {
+        for noted in held.noted.iter_mut().flatten() {
             noted.kept = Kept::Unread;
         }
     });
@@ -119,14 +124,15 @@ pub(super) fn failures() -> u32 {
     with_held(|held| held.failures).unwrap_or(0)
 }
 
-/// `f` of the words of the noted pack, read if they are not yet; `None`
-/// where there are none.
-pub(crate) fn with_words<R>(f: impl FnOnce(Words<'_>) -> R) -> Option<R> {
+/// `f` of the words of `script` of the noted pack, read if they are not
+/// yet; `None` where there are none.
+pub(crate) fn with_words<R>(script: Script, f: impl FnOnce(Words<'_>) -> R) -> Option<R> {
+    let slot = Script::ALL.iter().position(|&s| s == script)?;
     with_held(|held| {
-        let noted = held.noted.as_mut()?;
+        let noted = held.noted[slot].as_mut()?;
         let Some(source) = noted.source.upgrade() else {
             // Closed: let go.
-            held.noted = None;
+            held.noted[slot] = None;
             return None;
         };
         if let Kept::Unread = noted.kept {

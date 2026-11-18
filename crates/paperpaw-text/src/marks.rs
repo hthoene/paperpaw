@@ -1,6 +1,7 @@
 //! Mark anchors read from OpenType fonts: the GPOS `mark` (mark to base)
-//! and `mkmk` (mark to mark) lookups of Arabic and Hebrew, and of Bengali
-//! and Devanagari with their `abvm` and `blwm`, as packs keep them (see
+//! and `mkmk` (mark to mark) lookups of Arabic and Hebrew, and of Bengali,
+//! Devanagari, Khmer, Lao and Tibetan with their `abvm` and `blwm`, as
+//! packs keep them (see
 //! [`crate::anchors`]); for an Indic font also of its glyphs without code
 //! point (`crate::indic::GLYPHS`). Other scripts get none: their marks
 //! stay where their glyphs put them. Thai's tone marks and vowels above or
@@ -515,14 +516,21 @@ fn number(first: u8, class: u16) -> Option<u8> {
 }
 
 /// The Indic scripts' tags: the second version first.
-const INDIC: [[&[u8; 4]; 2]; 2] = [[b"bng2", b"beng"], [b"dev2", b"deva"]];
+const INDIC: [[&[u8; 4]; 2]; 5] = [
+    [b"bng2", b"beng"],
+    [b"dev2", b"deva"],
+    [b"khmr", b"khmr"],
+    [b"lao ", b"lao "],
+    [b"tibt", b"tibt"],
+];
 
 /// The scripts marks are read for.
 enum Of {
     Thai,
     Arabic,
     Hebrew,
-    /// Bengali, Devanagari and the keys of glyphs without code point.
+    /// Bengali, Devanagari, Khmer, Lao, Tibetan and the keys of glyphs
+    /// without code point.
     Indic,
 }
 
@@ -535,7 +543,10 @@ fn script_of(ch: char) -> Option<Of> {
         | '\u{fb50}'..='\u{fdff}'
         | '\u{fe70}'..='\u{feff}' => Some(Of::Arabic),
         '\u{590}'..='\u{5ff}' | '\u{fb1d}'..='\u{fb4f}' => Some(Of::Hebrew),
-        '\u{900}'..='\u{9ff}' => Some(Of::Indic),
+        '\u{900}'..='\u{9ff}'
+        | '\u{e80}'..='\u{eff}'
+        | '\u{f00}'..='\u{fff}'
+        | '\u{1780}'..='\u{17ff}' => Some(Of::Indic),
         '\u{e01}'..='\u{e5b}' => Some(Of::Thai),
         _ if crate::indic::glyph_of_key(ch).is_some() => Some(Of::Indic),
         _ => None,

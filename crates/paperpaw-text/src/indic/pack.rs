@@ -1,7 +1,7 @@
-//! The substitutions of a font's Bengali and Devanagari as a pack keeps
-//! them (slot 4, see `bitmap.rs`): what the shaper ([`super::Shaper`])
-//! applies, read from the font's GSUB for the scripts' second version
-//! (`bng2`, `dev2`; else the first), feature by feature in the order the
+//! The substitutions of a font's Bengali, Devanagari, Khmer, Lao and
+//! Tibetan as a pack keeps them (slot 4, see `bitmap.rs`): what the shaper
+//! ([`super::Shaper`]) applies, read from the font's GSUB for the scripts'
+//! second version (`bng2`, `dev2`; else the first), feature by feature in the order the
 //! shaper applies them; the presentation features as one (`pres`), their
 //! lookups in the font's order, as OpenType applies them together.
 //!
@@ -76,6 +76,9 @@ struct Writer<'a> {
     /// A key or an offset that has no 2 bytes was written: the table is
     /// to be written in version 1.
     too_wide: bool,
+    /// Where the key sets lookups skip are, in the order the table lists
+    /// them.
+    skips: Vec<usize>,
 }
 
 fn put_u32(out: &mut Vec<u8>, v: usize) {
@@ -365,13 +368,78 @@ impl Writer<'_> {
     fn finish(&mut self, index: u16, made: Option<(u8, usize, usize)>) -> Option<[u8; 8]> {
         let record = made.and_then(|(kind, count, entries)| {
             let count = u16::try_from(count).ok()?;
-            let mut r = [kind, 0, 0, 0, 0, 0, 0, 0];
+            let mut r = [kind, self.skip(index), 0, 0, 0, 0, 0, 0];
             r[2..4].copy_from_slice(&count.to_le_bytes());
             r[4..8].copy_from_slice(&u32::try_from(entries).ok()?.to_le_bytes());
             Some(r)
         });
         self.records.insert(index, record);
         record
+    }
+
+    /// The number (from 1) of the key set GSUB lookup `index` passes over
+    /// in the table's list of them, as its lookup flags say (bases,
+    /// ligatures, marks, the marks not in its filtering set or not of its
+    /// attachment class); 0 for none.
+    fn skip(&mut self, index: u16) -> u8 {
+        let Some(lookup) = self
+            .font
+            .gsub()
+            .and_then(|g| g.lookup_list())
+            .ok()
+            .and_then(|l| l.lookups().get(usize::from(index)).ok())
+        else {
+            return 0;
+        };
+        let flag = lookup.lookup_flag().to_bits();
+        if flag & 0xFF1E == 0 {
+            return 0;
+        }
+        let gdef = self.font.gdef().ok();
+        let attach = gdef
+            .as_ref()
+            .and_then(|g| g.mark_attach_class_def())
+            .and_then(Result::ok);
+        let filter = lookup
+            .mark_filtering_set()
+            .filter(|_| flag & 0x10 != 0)
+            .and_then(|n| {
+                let sets = gdef.as_ref()?.mark_glyph_sets_def()?.ok()?;
+                sets.coverages().get(usize::from(n)).ok()
+            });
+        let skipped = |g: u16| {
+            let g16 = GlyphId16::new(g);
+            match self.marks.as_ref().map_or(0, |c| c.get(g16)) {
+                1 => flag & 2 != 0,
+                2 => flag & 4 != 0,
+                3 => {
+                    flag & 8 != 0
+                        || filter.as_ref().is_some_and(|f| f.get(g16).is_none())
+                        || (flag >> 8 != 0
+                            && attach.as_ref().map_or(0, |a| a.get(g16)) != flag >> 8)
+                }
+                _ => false,
+            }
+        };
+        let glyphs: Vec<u16> = self
+            .reachable
+            .iter()
+            .copied()
+            .filter(|&g| skipped(g))
+            .collect();
+        let keys = self.keys(glyphs);
+        if keys.is_empty() {
+            return 0;
+        }
+        let at = self.set(keys);
+        let n = match self.skips.iter().position(|&s| s == at) {
+            Some(n) => n,
+            None => {
+                self.skips.push(at);
+                self.skips.len() - 1
+            }
+        };
+        u8::try_from(n + 1).unwrap_or(0)
     }
 
     /// Where the class definition `classes` is written (its keys' classes,
@@ -940,6 +1008,15 @@ fn chain_applied(t: &ChainedSequenceContext<'_>) -> Vec<u16> {
     out
 }
 
+/// The scripts' OpenType tags: their second version's, else the first's.
+const TAGS: [(Script, [&[u8; 4]; 2]); 5] = [
+    (Script::Bengali, [b"bng2", b"beng"]),
+    (Script::Devanagari, [b"dev2", b"deva"]),
+    (Script::Khmer, [b"khmr", b"khmr"]),
+    (Script::Lao, [b"lao ", b"lao "]),
+    (Script::Tibetan, [b"tibt", b"tibt"]),
+];
+
 /// The substitutions of the Indic scripts among `chars` in `font`, if it
 /// has any for them.
 pub(crate) fn make(font: FontRef<'_>, chars: &[char]) -> Option<Made> {
@@ -959,10 +1036,7 @@ pub(crate) fn make(font: FontRef<'_>, chars: &[char]) -> Option<Made> {
         .and_then(Result::ok);
     // Per script it has letters of: its features, with their lookups.
     let mut wanted: Vec<(u8, [u8; 4], Vec<u16>)> = Vec::new();
-    for (script, tags) in [
-        (Script::Bengali, [b"bng2", b"beng"]),
-        (Script::Devanagari, [b"dev2", b"deva"]),
-    ] {
+    for (script, tags) in TAGS {
         if !chars.iter().any(|&c| Script::of(c) == Some(script)) {
             continue;
         }
@@ -1017,12 +1091,20 @@ pub(crate) fn make(font: FontRef<'_>, chars: &[char]) -> Option<Made> {
         reachable: reachable.clone(),
         compact,
         too_wide: false,
+        skips: Vec::new(),
     };
     let mut skip = BTreeSet::new();
     for _ in 0..16 {
         let (made, sizes) = write(writer(false), &wanted, &skip);
         let made = made?;
         let over = made.table.len().saturating_sub(MAX_HELD);
+        // Too large for a script whose clusters are kept shaped: those.
+        if over > 0
+            && skip.is_empty()
+            && let Some(kept) = kept_shaped(&wanted, &made.table)
+        {
+            return Some(kept);
+        }
         if over == 0 {
             return Some(write(writer(true), &wanted, &skip).0.unwrap_or(made));
         }
@@ -1047,6 +1129,19 @@ pub(crate) fn make(font: FontRef<'_>, chars: &[char]) -> Option<Made> {
         }
     }
     None
+}
+
+/// The table of the clusters kept shaped (`super::clusters`) by `full`,
+/// the whole table of `wanted`, if they are of one script that keeps them.
+fn kept_shaped(wanted: &[(u8, [u8; 4], Vec<u16>)], full: &[u8]) -> Option<Made> {
+    let &(number, ..) = wanted.first()?;
+    if wanted.iter().any(|w| w.0 != number) {
+        return None;
+    }
+    let script = super::SCRIPTS
+        .into_iter()
+        .find(|&s| super::number(s) == number)?;
+    super::clusters::compact(full, script, number, super::clusters::list(script)?)
 }
 
 /// A lookup as written: its feature's tag, its GSUB index, its bytes and its
@@ -1089,6 +1184,14 @@ fn write(
         w.out[record + 5] = 1;
         set_u32(&mut w.out, record + 12, at);
     }
+    // The key sets lookups skip, listed at the end (at most 255).
+    w.skips.truncate(255);
+    for i in 0..w.skips.len() {
+        let at = w.skips[i];
+        w.put_offset(None, at);
+    }
+    let skips = u16::try_from(w.skips.len()).unwrap_or(0);
+    w.out[10..12].copy_from_slice(&skips.to_le_bytes());
     w.out[0] = if w.compact { 2 } else { 1 };
     let len = w.out.len();
     set_u32(&mut w.out, 4, len);

@@ -1,6 +1,10 @@
 //! Where a line may break inside Thai text, which has no spaces between
 //! its words (#313): between two words of the table of words a Thai pack
-//! carries (slot 6, see `bitmap.rs` and `tools/thai-dictionary.py`).
+//! carries (slot 6, see `bitmap.rs` and `tools/thai-dictionary.py`). Lao
+//! and Khmer, also written without spaces, break the same way between the
+//! words of their packs' tables (#314, `tools/word-table.py`), Lao's
+//! letters and signs where Thai's are, Khmer's clusters a consonant with
+//! those joined below it by coeng (U+17D2), its vowels and signs.
 //!
 //! A run of Thai letters is read from a word's start: of the words that
 //! start there, the longest one after which the run ends or another word
@@ -25,60 +29,136 @@ const WINDOW: usize = 2 * LONGEST + 2;
 const HEAD: usize = 12;
 const VERSION: u8 = 1;
 
-/// Whether `c` is a Thai letter, vowel or sign that words are made of
-/// (not a digit or U+0E3F BAHT, U+0E4F FONGMAN, U+0E5A, U+0E5B).
-pub(crate) const fn is_thai(c: char) -> bool {
-    matches!(c, '\u{E01}'..='\u{E3A}' | '\u{E40}'..='\u{E4E}')
+/// The scripts written without spaces whose words a pack may carry, as a
+/// table's head numbers them (0 Thai, 1 Lao, 2 Khmer).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Script {
+    Thai,
+    Lao,
+    Khmer,
 }
 
-/// A letter as the table keeps it: its code point less U+0E00.
+impl Script {
+    /// The scripts, in the order a table's head numbers them.
+    pub(crate) const ALL: [Script; 3] = [Script::Thai, Script::Lao, Script::Khmer];
+
+    /// The first code point of its block: a letter in a table is its code
+    /// point less it.
+    const fn base(self) -> u32 {
+        match self {
+            Script::Thai => 0xE00,
+            Script::Lao => 0xE80,
+            Script::Khmer => 0x1780,
+        }
+    }
+
+    /// `c` as a table keeps it, if it is of the script's block.
+    fn letter(self, c: char) -> Option<u8> {
+        let l = u32::from(c).checked_sub(self.base())?;
+        u8::try_from(l).ok().filter(|&l| l < 0x80)
+    }
+
+    /// Whether the letter is one words are made of (not a digit or
+    /// punctuation; for Thai not U+0E3F BAHT, U+0E4F FONGMAN, U+0E5A,
+    /// U+0E5B).
+    const fn in_word(self, l: u8) -> bool {
+        match self {
+            Script::Thai => matches!(l, 0x01..=0x3A | 0x40..=0x4E),
+            Script::Lao => matches!(l, 0x01..=0x3D | 0x40..=0x4E | 0x5C..=0x5F),
+            Script::Khmer => matches!(l, 0x00..=0x53 | 0x57 | 0x5D),
+        }
+    }
+
+    /// Whether the letter stays with the one before it: vowels above, below
+    /// and after, tone marks and signs (Thai's U+0E45, MAIYAMOK and
+    /// PAIYANNOI, Lao's KO LA and ellipsis, Khmer's coeng and repetition
+    /// sign).
+    const fn follows(self, l: u8) -> bool {
+        match self {
+            Script::Thai => matches!(l, 0x2F..=0x3A | 0x45..=0x4E),
+            Script::Lao => matches!(l, 0x2F..=0x3D | 0x46..=0x4E),
+            Script::Khmer => matches!(l, 0x34..=0x53 | 0x57 | 0x5D),
+        }
+    }
+
+    /// Whether the letter is a vowel written before the one it follows.
+    const fn leads(self, l: u8) -> bool {
+        match self {
+            Script::Thai | Script::Lao => matches!(l, 0x40..=0x44),
+            Script::Khmer => false,
+        }
+    }
+
+    /// Whether the letter after this one stays with it: after Thai's MAI
+    /// HAN-AKAT and Lao's MAI KAN their final letter, after coeng the
+    /// consonant drawn below.
+    const fn holds_next(self, l: u8) -> bool {
+        match self {
+            Script::Thai | Script::Lao => l == 0x31,
+            Script::Khmer => l == 0x52,
+        }
+    }
+
+    /// Whether the letter silences the one before it, which so ends the
+    /// syllable before (Thai's THANTHAKHAT, Lao's cancellation mark).
+    const fn silences(self, l: u8) -> bool {
+        match self {
+            Script::Thai | Script::Lao => l == 0x4C,
+            Script::Khmer => false,
+        }
+    }
+
+    /// Whether the sign stays with the word before it: Thai's MAIYAMOK
+    /// and PAIYANNOI, Lao's KO LA and ellipsis, Khmer's repetition sign.
+    const fn repeats(self, l: u8) -> bool {
+        match self {
+            Script::Thai | Script::Lao => matches!(l, 0x2F | 0x46),
+            Script::Khmer => l == 0x57,
+        }
+    }
+}
+
+/// The script of `c` if it is a letter, vowel or sign words of a script
+/// written without spaces are made of.
+pub(crate) fn script_of(c: char) -> Option<Script> {
+    Script::ALL
+        .into_iter()
+        .find(|s| s.letter(c).is_some_and(|l| s.in_word(l)))
+}
+
+/// A Thai letter as the table keeps it: its code point less U+0E00.
 #[cfg(test)]
 fn letter(c: char) -> u8 {
     (u32::from(c) - 0xE00) as u8
 }
 
-/// Whether the letter stays with the one before it: vowels above, below
-/// and after, tone marks, U+0E45, MAIYAMOK and PAIYANNOI.
-const fn follows(l: u8) -> bool {
-    matches!(l, 0x2F..=0x3A | 0x45..=0x4E)
-}
-
-/// Whether the letter is a vowel written before the one it follows.
-const fn leads(l: u8) -> bool {
-    matches!(l, 0x40..=0x44)
-}
-
-/// The number of characters from `first` (a Thai letter, [`is_thai`]) to
-/// the next place a line may break in its run (`rest` the text after it),
-/// as the words of the open Thai pack say: `None` without them.
-pub(crate) fn word_len(first: char, rest: &str) -> Option<u8> {
+/// The number of characters from `first` (a letter of `script`,
+/// [`script_of`]) to the next place a line may break in its run (`rest`
+/// the text after it), as the words of the open pack of the script say:
+/// `None` without them.
+pub(crate) fn word_len(script: Script, first: char, rest: &str) -> Option<u8> {
     let mut run = [0u8; WINDOW];
-    run[0] = (u32::from(first) & 0x7F) as u8;
+    run[0] = script.letter(first)?;
     let mut n = 1;
-    // Thai is U+0E00 to U+0E7F: E0 B8 80 to E0 B9 BF.
-    for &c in rest.as_bytes().as_chunks::<3>().0.iter().take(WINDOW - 1) {
-        let [0xE0, high @ (0xB8 | 0xB9), low] = c else {
+    for c in rest.chars().take(WINDOW - 1) {
+        let Some(l) = script.letter(c).filter(|&l| script.in_word(l)) else {
             break;
         };
-        let l = (high - 0xB8) * 64 + (low & 0x3F);
-        if !matches!(l, 0x01..=0x3A | 0x40..=0x4E) {
-            break;
-        }
         run[n] = l;
         n += 1;
     }
     let ends = n < WINDOW;
-    crate::stored::with_words(|words| next_place(&words, &run[..n], ends))
+    crate::stored::with_words(script, |words| next_place(script, &words, &run[..n], ends))
 }
 
-/// The letters of `run` before its first place to break (see the module),
-/// at least one; `ends`: the run ends after them (else it goes on past
-/// what was read).
-pub(crate) fn next_place(words: &Words<'_>, run: &[u8], ends: bool) -> u8 {
-    let found = ends_at(words, run, ends, 0);
+/// The letters of `run` (of `script`) before its first place to break (see
+/// the module), at least one; `ends`: the run ends after them (else it
+/// goes on past what was read).
+pub(crate) fn next_place(script: Script, words: &Words<'_>, run: &[u8], ends: bool) -> u8 {
+    let found = ends_at(script, words, run, ends, 0);
     // The longest word another follows, else the longest.
     for k in (1..32).rev() {
-        if found >> k & 1 != 0 && (k == run.len() || ends_at(words, run, ends, k) != 0) {
+        if found >> k & 1 != 0 && (k == run.len() || ends_at(script, words, run, ends, k) != 0) {
             return k as u8;
         }
     }
@@ -87,7 +167,7 @@ pub(crate) fn next_place(words: &Words<'_>, run: &[u8], ends: bool) -> u8 {
     }
     // No word: one cluster.
     let mut at = 1;
-    while at < run.len() && !place(run, at, ends) {
+    while at < run.len() && !place(script, run, at, ends) {
         at += 1;
     }
     at as u8
@@ -95,15 +175,15 @@ pub(crate) fn next_place(words: &Words<'_>, run: &[u8], ends: bool) -> u8 {
 
 /// The places after the words of `run` that start at `at`: bit `k` for
 /// `at + k`.
-fn ends_at(words: &Words<'_>, run: &[u8], ends: bool, at: usize) -> u32 {
+fn ends_at(script: Script, words: &Words<'_>, run: &[u8], ends: bool, at: usize) -> u32 {
     let mut set = 0;
     for len in 1..=LONGEST.min(run.len().saturating_sub(at)) {
         let (word, prefix) = words.probe(&run[at..at + len]);
         let mut end = at + len;
-        while end < run.len() && end - at < 31 && matches!(run[end], 0x2F | 0x46) {
+        while end < run.len() && end - at < 31 && script.repeats(run[end]) {
             end += 1;
         }
-        if word && place(run, end, ends) {
+        if word && place(script, run, end, ends) {
             set |= 1 << (end - at);
         }
         if !prefix {
@@ -114,13 +194,16 @@ fn ends_at(words: &Words<'_>, run: &[u8], ends: bool, at: usize) -> u32 {
 }
 
 /// Whether a line may break before `run[at]`; at its end if `ends`. Not
-/// after MAI HAN-AKAT, whose final letter follows, nor before a letter
-/// THANTHAKHAT silences, which ends the syllable before.
+/// after MAI HAN-AKAT, whose final letter follows (or coeng), nor before a
+/// letter THANTHAKHAT silences, which ends the syllable before.
 #[inline(never)]
-fn place(run: &[u8], at: usize, ends: bool) -> bool {
+fn place(script: Script, run: &[u8], at: usize, ends: bool) -> bool {
     match (run.get(at.wrapping_sub(1)), run.get(at)) {
         (Some(&before), Some(&l)) => {
-            !follows(l) && !leads(before) && before != 0x31 && run.get(at + 1) != Some(&0x4C)
+            !script.follows(l)
+                && !script.leads(before)
+                && !script.holds_next(before)
+                && !run.get(at + 1).is_some_and(|&n| script.silences(n))
         }
         (Some(_), None) => at == run.len() && ends,
         _ => false,
@@ -227,9 +310,14 @@ pub(crate) mod tests {
 
     /// The table `tools/thai-dictionary.py` makes of `words`.
     pub(crate) fn table(words: &[&str]) -> Vec<u8> {
+        table_of(Script::Thai, words)
+    }
+
+    /// The table of `words` of `script` (`tools/word-table.py`'s).
+    pub(crate) fn table_of(script: Script, words: &[&str]) -> Vec<u8> {
         let mut keys: Vec<Vec<u8>> = words
             .iter()
-            .map(|w| w.chars().map(letter).collect())
+            .map(|w| w.chars().filter_map(|c| script.letter(c)).collect())
             .collect();
         keys.sort();
         keys.dedup();
@@ -250,7 +338,8 @@ pub(crate) mod tests {
             body.push((shared << 4 | (key.len() - shared)) as u8);
             body.extend_from_slice(&key[shared..]);
         }
-        let mut out = alloc::vec![VERSION, 0, 0, 0, 0, 0, 0, 0];
+        let number = Script::ALL.iter().position(|&s| s == script).unwrap() as u8;
+        let mut out = alloc::vec![VERSION, number, 0, 0, 0, 0, 0, 0];
         out.extend_from_slice(&(keys.len() as u16).to_le_bytes());
         out.extend_from_slice(&(blocks.len() as u16).to_le_bytes());
         for b in blocks {
@@ -270,18 +359,34 @@ pub(crate) mod tests {
             .collect()
     }
 
+    /// The words of the store's Lao or Khmer table (`tools/word-table.py`).
+    pub(crate) fn words_of(script: Script) -> Vec<&'static str> {
+        let list = match script {
+            Script::Lao => include_str!("../../../../tools/lao-words.txt"),
+            _ => include_str!("../../../../tools/khmer-words.txt"),
+        };
+        list.lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect()
+    }
+
     /// `text` split where [`next_place`] puts its places.
     fn split(words: &Words<'_>, text: &str) -> Vec<std::string::String> {
+        split_of(Script::Thai, words, text)
+    }
+
+    /// [`split`] of `text` of `script`.
+    fn split_of(script: Script, words: &Words<'_>, text: &str) -> Vec<std::string::String> {
         let letters: Vec<char> = text.chars().collect();
         let (mut out, mut at) = (Vec::new(), 0);
         while at < letters.len() {
             let run: Vec<u8> = letters[at..]
                 .iter()
                 .take(WINDOW)
-                .map(|&c| letter(c))
+                .filter_map(|&c| script.letter(c))
                 .collect();
             let ends = letters.len() - at <= WINDOW;
-            let len = usize::from(next_place(words, &run, ends));
+            let len = usize::from(next_place(script, words, &run, ends));
             out.push(letters[at..at + len].iter().collect());
             at += len;
         }
@@ -360,10 +465,49 @@ pub(crate) mod tests {
         {
             for part in split(&words, text) {
                 let first = part.chars().next().unwrap();
-                assert!(!follows(letter(first)), "{text}: {part}");
+                assert!(!Script::Thai.follows(letter(first)), "{text}: {part}");
                 let last = part.chars().last().unwrap();
-                assert!(!leads(letter(last)), "{text}: {part}");
+                assert!(!Script::Thai.leads(letter(last)), "{text}: {part}");
             }
         }
+    }
+
+    /// Lao and Khmer break between the words of their tables (#314): Lao's
+    /// clusters as Thai's, Khmer's a consonant with those joined below it
+    /// by coeng, its vowels and signs; letters no word explains, between
+    /// clusters only.
+    #[test]
+    fn lao_and_khmer_samples_break_between_their_words() {
+        let lao = table_of(Script::Lao, &words_of(Script::Lao));
+        let words = Words::new(&lao).unwrap();
+        // "I love the country of Laos", "people speak the Lao language".
+        assert_eq!(
+            split_of(Script::Lao, &words, "ຂ້ອຍຮັກປະເທດລາວ"),
+            ["ຂ້ອຍ", "ຮັກ", "ປະເທດ", "ລາວ"]
+        );
+        assert_eq!(
+            split_of(Script::Lao, &words, "ຄົນເວົ້າພາສາລາວ"),
+            ["ຄົນ", "ເວົ້າ", "ພາສາ", "ລາວ"]
+        );
+        let khmer = table_of(Script::Khmer, &words_of(Script::Khmer));
+        let words = Words::new(&khmer).unwrap();
+        // "I want to go to school", "Cambodia has many people".
+        assert_eq!(
+            split_of(Script::Khmer, &words, "ខ្ញុំចង់ទៅសាលារៀន"),
+            ["ខ្ញុំ", "ចង់", "ទៅ", "សាលារៀន"]
+        );
+        assert_eq!(
+            split_of(Script::Khmer, &words, "ប្រទេសកម្ពុជាមានប្រជាជនច្រើន"),
+            ["ប្រទេស", "កម្ពុជា", "មាន", "ប្រជាជន", "ច្រើន"]
+        );
+        // No word: clusters, never before a sign nor after coeng.
+        let none = table_of(Script::Khmer, &["កម្ពុជា"]);
+        let words = Words::new(&none).unwrap();
+        assert_eq!(split_of(Script::Khmer, &words, "ស្រីខ្មែរ"), ["ស្រី", "ខ្មែ", "រ"]);
+        assert_eq!(script_of('ກ'), Some(Script::Lao));
+        assert_eq!(script_of('ក'), Some(Script::Khmer));
+        assert_eq!(script_of('ก'), Some(Script::Thai));
+        assert_eq!(script_of('\u{17D4}'), None);
+        assert_eq!(script_of('\u{ED0}'), None);
     }
 }

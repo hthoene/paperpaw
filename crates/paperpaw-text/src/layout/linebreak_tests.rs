@@ -527,6 +527,13 @@ fn the_state_at_a_line_start_is_that_of_one_pass() {
 /// A pack of one letter with the table of Thai words of the store's
 /// `script-thai` (slot 6), opened: the line breaker reads its words.
 fn thai_pack() -> crate::StoredPack {
+    let table = crate::linebreak::thai::tests::table(&crate::linebreak::thai::tests::dictionary());
+    words_pack('ก', &table)
+}
+
+/// A pack of letter `letter` with the table of words `table` (slot 6),
+/// opened.
+fn words_pack(letter: char, table: &[u8]) -> crate::StoredPack {
     struct Bytes(Vec<u8>);
     impl crate::PackSource for Bytes {
         fn read_at(&self, at: u64, buf: &mut [u8]) -> bool {
@@ -540,12 +547,22 @@ fn thai_pack() -> crate::StoredPack {
             }
         }
     }
-    let table = crate::linebreak::thai::tests::table(&crate::linebreak::thai::tests::dictionary());
     let mut builder = crate::PackBuilder::new();
     let metrics = crate::LineMetrics::fallback(10.0);
-    builder.add_strike(10.0, metrics, vec![('ก', crate::glyph::Glyph::empty(10.0))]);
+    builder.add_strike(
+        10.0,
+        metrics,
+        vec![(letter, crate::glyph::Glyph::empty(10.0))],
+    );
     builder.table(6, 1, &table[8..]);
-    crate::StoredPack::open(alloc::rc::Rc::new(Bytes(builder.build()))).unwrap()
+    // The script in the table's head, as tools/word-table.py writes it (the
+    // builder writes a head of its own).
+    let mut bytes = builder.build();
+    let strikes = usize::from(u16::from_le_bytes([bytes[8], bytes[9]]));
+    let slot = 12 + 32 * strikes + 4 * 6;
+    let at = u32::from_le_bytes(bytes[slot..slot + 4].try_into().unwrap()) as usize;
+    bytes[at + 1] = table[1];
+    crate::StoredPack::open(alloc::rc::Rc::new(Bytes(bytes))).unwrap()
 }
 
 /// Two Thai sentences without spaces between their words, and where
@@ -658,6 +675,70 @@ fn thai_lines_never_break_inside_a_cluster() {
             inside(width),
             None,
             "{width}: a line starts or ends inside a cluster"
+        );
+    }
+}
+
+/// Lao and Khmer break between the words of their packs' tables (#314),
+/// each script by its own while Thai's is open too, and only at spaces
+/// without them; Tibetan after its syllables' tsheg (U+0F0B), which a
+/// line ends with.
+#[test]
+fn lao_khmer_and_tibetan_break_between_their_words() {
+    use crate::linebreak::thai::{Script, tests};
+    let lao = "ຂ້ອຍຮັກປະເທດລາວ ຄົນເວົ້າພາສາລາວ";
+    let khmer = "ប្រទេសកម្ពុជាមានប្រជាជនច្រើន ខ្ញុំចង់ទៅសាលារៀន";
+    let lao_words = ["ຂ້ອຍ", "ຮັກ", "ປະເທດ", "ລາວ", "ຄົນ", "ເວົ້າ", "ພາສາ"];
+    let khmer_words = [
+        "ប្រទេស",
+        "កម្ពុជា",
+        "មាន",
+        "ប្រជាជន",
+        "ច្រើន",
+        "ខ្ញុំ",
+        "ចង់",
+        "ទៅ",
+        "សាលារៀន",
+    ];
+    let starts = |text: &str, words: &[&str]| -> Vec<usize> {
+        words
+            .iter()
+            .flat_map(|w| text.match_indices(w).map(|(at, _)| at))
+            .collect()
+    };
+    let breaks_between = |text: &str, words: &[&str]| {
+        let lines = lines_of(text, 100.0, 0);
+        lines.len() > 2
+            && lines
+                .iter()
+                .all(|l| starts(text, words).contains(&l.range.start))
+    };
+    assert!(!breaks_between(lao, &lao_words) && !breaks_between(khmer, &khmer_words));
+    let _thai = thai_pack();
+    let _lao = words_pack(
+        'ກ',
+        &tests::table_of(Script::Lao, &tests::words_of(Script::Lao)),
+    );
+    let _khmer = words_pack(
+        'ក',
+        &tests::table_of(Script::Khmer, &tests::words_of(Script::Khmer)),
+    );
+    for (text, words) in [(lao, &lao_words[..]), (khmer, &khmer_words[..])] {
+        assert!(
+            breaks_between(text, words),
+            "{:?}",
+            texts(text, &lines_of(text, 100.0, 0))
+        );
+    }
+    // "Tibet's language", syllables with their tsheg.
+    let tibetan = "བོད་ཀྱི་སྐད་ཡིག་ནི་བོད་མིའི་སྐད་ཡིན།";
+    let lines = lines_of(tibetan, 100.0, 0);
+    assert!(lines.len() > 2, "{:?}", texts(tibetan, &lines));
+    for line in &lines[..lines.len() - 1] {
+        assert!(
+            tibetan[line.range.clone()].ends_with('\u{F0B}'),
+            "{:?}",
+            texts(tibetan, &lines)
         );
     }
 }

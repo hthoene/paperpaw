@@ -1025,3 +1025,56 @@ fn before_a_block_the_line_start_is_where_a_page_from_there_starts() {
         assert_eq!(line_start(&cx, start).unwrap(), start, "it stays");
     }
 }
+
+/// Khmer, Lao and Tibetan are measured by syllables as drawn (#314), as
+/// Bengali is, their pairs not kerned: a consonant subscript after coeng
+/// takes no room, a pair of a letter and a mark is kerned by the room the
+/// mark alone would take. Lines are as full as they are drawn, no fuller.
+#[test]
+fn khmer_lines_are_as_wide_as_drawn() {
+    struct Subscripts;
+    impl Typesetter for Subscripts {
+        fn advance(&self, _: Face, _: char) -> f32 {
+            1.0
+        }
+        fn kern(&self, _: Face, _: char, right: char) -> f32 {
+            if paperpaw_text::is_mark(right) {
+                -1.0
+            } else {
+                0.0
+            }
+        }
+        fn advance_text(&self, _: Face, text: &str, _: &Around) -> f32 {
+            let mut before = ' ';
+            let mut width = 0.0;
+            for c in text.chars() {
+                if !paperpaw_text::is_mark(c) && before != '\u{17D2}' {
+                    width += 1.0;
+                }
+                before = c;
+            }
+            width
+        }
+        fn line(&self, _: Face) -> (f32, f32) {
+            (8.0, 10.0)
+        }
+    }
+    let doc = Text::new("ស្រី ".repeat(20).leak());
+    let storage = paperpaw_document::NoStorage;
+    let cx = LayoutContext {
+        document: &doc,
+        storage: &storage,
+        width: 10.0,
+        style: &STYLE,
+        typesetter: &Subscripts,
+        hyphenate: None,
+        pieces: None,
+    };
+    let page = layout_page(&cx, Locator::new(0, 0), 100.0).unwrap();
+    let face = Face::new(TextStyle::REGULAR, 0, 0);
+    for line in &page.lines[..page.lines.len() - 1] {
+        let drawn = Subscripts.advance_text(face, line.text.trim_end(), &Around::NONE);
+        // One more word and a space would not fit; nothing overflows.
+        assert!(drawn > 8.0 && drawn <= 10.0, "{:?}: {drawn}", texts(&page));
+    }
+}

@@ -39,6 +39,9 @@ Version 1.1:
   (https://github.com/notofonts/ethiopic), without Reserved Font Name
 - Noto Serif Thai and Noto Sans Thai, Copyright 2022 The Noto Project Authors
   (https://github.com/notofonts/thai), without Reserved Font Name
+- Noto Serif Khmer, Noto Serif Lao and Noto Serif Tibetan, Copyright 2022
+  The Noto Project Authors (https://github.com/notofonts/khmer, /lao,
+  /tibetan), without Reserved Font Name
 - Noto Serif SC, Noto Serif TC and Noto Serif JP, Copyright 2017-2024
   Adobe (http://www.adobe.com/), from github.com/google/fonts without
   Reserved Font Name, cut to the characters of the Chinese and Japanese
@@ -58,9 +61,18 @@ Version 1.1:
 Each of those plugins carries the licence's text with its packs
 (tools/fonts/NotoNaskhArabic-OFL.txt, NotoSerifHebrew-OFL.txt,
 NotoSerifBengali-OFL.txt, NotoSerifDevanagari-OFL.txt,
-NotoSerifEthiopic-OFL.txt, NotoSerifThai-OFL.txt, NotoSansThai-OFL.txt, the text
+NotoSerifEthiopic-OFL.txt, NotoSerifThai-OFL.txt, NotoSansThai-OFL.txt,
+NotoSerifKhmer-OFL.txt, NotoSerifLao-OFL.txt, NotoSerifTibetan-OFL.txt, the text
 given for Literata; NanumMyeongjo-OFL.txt, the same licence under its
 own copyright and Reserved Font Names).
+
+The words of the Khmer and Lao letters plugins (tools/khmer-words.txt,
+tools/lao-words.txt, which their packs carry for breaking lines) are taken
+from ICU's word lists (khmerdict.txt, laodict.txt), Copyright (C) 2016 and
+later Unicode, Inc. and others, licensed under the Unicode License V3; the
+Lao list also Copyright (C) 2013 Brian Eugene Wilson, Robert Martin
+Campbell, under its BSD-style licence. Those plugins carry both texts
+(tools/fonts/ICU-word-lists-LICENSE.txt).
 
 Hyphenation patterns (plugins/hyphenation*/patterns: the data packs
 of the store, English and twelve other languages; none is built in)

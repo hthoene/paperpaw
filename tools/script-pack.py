@@ -6,8 +6,10 @@ interface's font, Source Sans 3; Arabic from
 Noto Naskh Arabic, Hebrew from Noto Serif Hebrew, Bengali and Devanagari
 from Noto Serif Bengali and Devanagari (shaped: with their conjuncts and
 the substitutions that draw them) and Ethiopic (Amharic, Tigrinya and the
-other languages written in it) from Noto Serif Ethiopic, and Thai from Noto Serif Thai (Noto Sans Thai for the
-interface's font; tools/fonts), one pack for each built-in face they extend,
+other languages written in it) from Noto Serif Ethiopic, Thai from Noto Serif Thai (Noto Sans Thai for the
+interface's font; tools/fonts), and Khmer, Lao and Tibetan from Noto Serif
+Khmer, Lao and Tibetan (shaped as Bengali, Khmer's and Lao's packs with
+their words), one pack for each built-in face they extend,
 the interface's font too.
 Chinese (the 6,763 ideographs of GB 2312, or the 5,401 frequently used ones
 of Big5 for Traditional) and Japanese (kana and 2,998 kanji: the Joyo and JIS X
@@ -163,6 +165,17 @@ SETS = {
                 OTHER_FONTS / "NotoSerifBengali-OFL.txt", "Noto Serif Bengali", None),
     "devanagari": ("Devanagari", shared("devanagari", OTHER_FONTS / "NotoSerifDevanagari.ttf"),
                    OTHER_FONTS / "NotoSerifDevanagari-OFL.txt", "Noto Serif Devanagari", None),
+    # Khmer, Lao, Tibetan (#314): shaped as Bengali (Tibetan's clusters kept
+    # shaped, paperpaw_text's indic module); Khmer's and Lao's packs carry
+    # their words (tools/word-table.py, from ICU's lists).
+    "khmer": ("Khmer", shared("khmer", OTHER_FONTS / "NotoSerifKhmer.ttf"),
+              [OTHER_FONTS / "NotoSerifKhmer-OFL.txt", OTHER_FONTS / "ICU-word-lists-LICENSE.txt"],
+              "Noto Serif Khmer", ["U+1780-17FF"]),
+    "lao": ("Lao", shared("lao", OTHER_FONTS / "NotoSerifLao.ttf"),
+            [OTHER_FONTS / "NotoSerifLao-OFL.txt", OTHER_FONTS / "ICU-word-lists-LICENSE.txt"],
+            "Noto Serif Lao", ["U+0E80-0EFF"]),
+    "tibetan": ("Tibetan", shared("tibetan", OTHER_FONTS / "NotoSerifTibetan.ttf"),
+                OTHER_FONTS / "NotoSerifTibetan-OFL.txt", "Noto Serif Tibetan", ["U+0F00-0FFF"]),
     "korean-extra": ("Korean", KOREAN_EXTRA, OTHER_FONTS / "NanumMyeongjo-OFL.txt",
                      "a Korean book face", [f"@{ROOT / 'tools/fontgen/sets/hangul-rest.txt'}"]),
 }
@@ -224,6 +237,10 @@ def build(base, sets):
     if "thai" in sets:
         subprocess.run([sys.executable, str(ROOT / "tools/thai-dictionary.py"), "add",
                         str(out / "fonts/thai.ppfp"), str(out / "fonts/thai-sans.ppfp")], check=True)
+    # Khmer's and Lao's (#314): in both of their packs.
+    for script in [s for s in sets if s in ("khmer", "lao")]:
+        subprocess.run([sys.executable, str(ROOT / "tools/word-table.py"), "add", script,
+                        *(str(out / "fonts" / f"{name}.ppfp") for name, *_ in faces)], check=True)
     extends = "\n".join(
         f"{name}.ppfp = {', '.join(extended) if isinstance(extended, list) else extended}"
         for name, _, _, extended in faces)

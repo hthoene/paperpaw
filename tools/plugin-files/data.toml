@@ -163,6 +163,55 @@ description = "Hindi, Marathi, Nepali and Sanskrit books in Noto Serif Devanagar
 de.name = "Devanagari-Schrift"
 de.description = "Bücher auf Hindi, Marathi, Nepali und Sanskrit in Noto Serif Devanagari, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
 
+# script-khmer, script-lao, script-tibetan (#314): the blocks U+1780 to
+# U+17FF, U+0E80 to U+0EFF and U+0F00 to U+0FFF from Noto Serif Khmer, Lao
+# and Tibetan, shaped (paperpaw_text's indic module: Khmer's coeng
+# subscripts and vowels drawn left, Lao's marks, Tibetan's stacks), a pack
+# for each weight shared by the faces it stands for (formats 5). Khmer and
+# Lao are written without spaces: their packs carry the 3,000 words most
+# frequent in their Wikipedias (tools/word-table.py, from ICU's lists).
+[script-khmer]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifKhmer.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "tools/word-table.py", "tools/khmer-words.txt"]
+name = "Khmer letters"
+description = "Khmer books in Noto Serif Khmer, with subscript consonants and vowel signs in their places and lines broken between the words."
+de.name = "Khmer-Schrift"
+de.description = "Bücher auf Khmer in Noto Serif Khmer, mit Unterschriftkonsonanten und Vokalzeichen an ihrem Platz und Zeilenumbrüchen zwischen den Wörtern."
+
+[script-lao]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifLao.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "tools/word-table.py", "tools/lao-words.txt"]
+name = "Lao letters"
+description = "Lao books in Noto Serif Lao, with vowels and tone marks stacked in place and lines broken between the words."
+de.name = "Laotische Schrift"
+de.description = "Bücher auf Laotisch in Noto Serif Lao, mit Vokal- und Tonzeichen an der richtigen Stelle und Zeilenumbrüchen zwischen den Wörtern."
+
+[script-tibetan]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifTibetan.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "crates/paperpaw-text/src/indic/tibetan_clusters.txt"]
+name = "Tibetan letters"
+description = "Tibetan and Dzongkha books in Noto Serif Tibetan, with stacked consonants and lines broken after each syllable's tsheg."
+de.name = "Tibetische Schrift"
+de.description = "Bücher auf Tibetisch und Dzongkha in Noto Serif Tibetan, mit gestapelten Konsonanten und Zeilenumbrüchen nach dem Tsheg jeder Silbe."
+
 # script-ethiopic (#159): the Ethiopic syllabary with its punctuation (the
 # wordspace ፡, the full stop ።) and numerals, and the Supplement, Extended and
 # Extended-A blocks, 495 characters from Noto Serif Ethiopic: seven sizes, a

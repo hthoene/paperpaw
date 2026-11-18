@@ -39,7 +39,8 @@ pub(crate) enum Opportunity {
     Mandatory,
 }
 
-/// [`LineBreaker::thai_left`] in a run of Thai no words are known for.
+/// [`LineBreaker::thai_left`] in a run of Thai (Lao, Khmer) no words are
+/// known for.
 const NO_WORDS: u8 = u8::MAX;
 
 /// U+25CC DOTTED CIRCLE, a member of the Aksara group of LB28a.
@@ -93,9 +94,10 @@ pub(crate) struct LineBreaker {
     last_dash: bool,
     /// A space came since it.
     spaces: bool,
-    /// The last character was Thai (`thai::is_thai`).
-    thai: bool,
-    /// In a run of Thai: how many characters after the last one its word
+    /// The script without spaces the last character was of
+    /// (`thai::script_of`): Thai, Lao or Khmer.
+    thai: Option<super::thai::Script>,
+    /// In a run of it: how many characters after the last one its word
     /// goes on ([`NO_WORDS`]: no words known, a run unbroken as before).
     thai_left: u8,
 }
@@ -132,7 +134,7 @@ impl LineBreaker {
             last_flagged: false,
             last_dash: false,
             spaces: false,
-            thai: false,
+            thai: None,
             thai_left: 0,
         }
     }
@@ -224,11 +226,12 @@ impl LineBreaker {
         } else {
             Opportunity::No
         };
-        let decided = match super::thai::is_thai(c) {
-            true => self.thai_word(&before, c, rest, decided),
-            false => decided,
+        let script = super::thai::script_of(c);
+        let decided = match script {
+            Some(script) => self.thai_word(&before, script, c, rest, decided),
+            None => decided,
         };
-        self.thai = super::thai::is_thai(c);
+        self.thai = script;
         if c == ' ' {
             self.spaces = true;
         } else {
@@ -240,28 +243,31 @@ impl LineBreaker {
         decided
     }
 
-    /// Thai `c` after `before`: between two words a line may break
-    /// (`thai`); inside one, as UAX #14 says (not between letters and their
-    /// marks). Notes where the word that starts goes on to.
+    /// `c` of `script` (Thai, Lao, Khmer) after `before`: between two words
+    /// a line may break (`thai`); inside one, as UAX #14 says (not between
+    /// letters and their marks). Notes where the word that starts goes on
+    /// to.
     fn thai_word(
         &mut self,
         before: &Self,
+        script: super::thai::Script,
         c: char,
         rest: &str,
         decided: Opportunity,
     ) -> Opportunity {
-        if before.thai && before.thai_left > 0 {
+        let same = before.thai == Some(script);
+        if same && before.thai_left > 0 {
             if before.thai_left != NO_WORDS {
                 self.thai_left = before.thai_left - 1;
             }
             return decided;
         }
-        let Some(len) = super::thai::word_len(c, rest) else {
+        let Some(len) = super::thai::word_len(script, c, rest) else {
             self.thai_left = NO_WORDS;
             return decided;
         };
         self.thai_left = len - 1;
-        match before.thai && before.started && decided == Opportunity::No {
+        match same && before.started && decided == Opportunity::No {
             true => Opportunity::Allowed,
             false => decided,
         }
