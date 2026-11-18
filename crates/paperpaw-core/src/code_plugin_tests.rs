@@ -281,6 +281,59 @@ fn a_folder_refused_for_its_id_gives_its_row_to_the_linked_plugin() {
     assert_eq!(info(&kernel, "hello").kind, PluginKind::BuiltIn);
 }
 
+/// A card folder of data alone with a linked plugin's id still loads, its
+/// data merged with the linked plugin's, and the one row of the id is the
+/// linked plugin's (#274).
+#[test]
+fn a_data_folder_with_a_linked_id_loads_and_gives_its_row_to_the_linked_plugin() {
+    let storage = MemoryStorage::new()
+        .with("plugins/theme/plugin.ini", "[plugin]\nname = Theme\n")
+        .with(
+            "plugins/theme/i18n/en.ini",
+            "[meta]\nlanguage = en\nname = English\nplural = one-other\n\n[messages]\ntheme.greeting = Hi\n",
+        );
+    let mut kernel = Kernel::builder(DEVICE)
+        .storage(storage)
+        .code_plugins(Native::new("code.ppn"), Box::new(loader()))
+        .built_in_ids(|id| id == "theme")
+        .build()
+        .unwrap();
+    assert_eq!(info(&kernel, "theme").kind, PluginKind::Data);
+    let manifest = Manifest::new(Id::new_static("theme"), "Linked", Version::new(2, 0, 0));
+    let manifest = paperpaw_sdk::ManifestRef::try_new(manifest, None).unwrap();
+    let linked = paperpaw_sdk::PluginInfo::new(
+        manifest,
+        PluginState::Running,
+        true,
+        paperpaw_sdk::RequiredFor::default(),
+        PluginKind::BuiltIn,
+        None,
+        None,
+    );
+    assert_eq!(kernel.list_native(linked), Ok(()));
+    let theme = info(&kernel, "theme");
+    assert_eq!(
+        (theme.kind, theme.state, theme.manifest.name.as_str()),
+        (PluginKind::BuiltIn, PluginState::Running, "Linked")
+    );
+    assert_eq!(
+        kernel
+            .plugins()
+            .iter()
+            .filter(|row| row.manifest.id.as_str() == "theme")
+            .count(),
+        1
+    );
+    assert_eq!(kernel.shared.translator.get("theme.greeting"), Some("Hi"));
+    assert!(
+        kernel
+            .shared
+            .data_folders
+            .iter()
+            .any(|(id, folder)| id.as_str() == "theme" && folder == "plugins/theme")
+    );
+}
+
 #[test]
 fn code_that_does_not_fit_is_listed_with_why() {
     let loader = Loader {
