@@ -6,12 +6,17 @@
 //! noted one is closed. A table that cannot be read (memory short, a card
 //! pulled) counts as a failed read of every pack, so that a layout that
 //! keeps pages keeps none made without it; it is tried again after a trim.
+//!
+//! The table is held in a static, which only the kernel may have (a native
+//! plugin has no writable data, ADR 0024): built without the `kernel`
+//! feature, no table is noted or read, and Thai breaks as without one.
 
-#[cfg(not(target_os = "none"))]
+#[cfg(all(not(target_os = "none"), any(test, feature = "kernel")))]
 extern crate std;
 
 use alloc::rc::{Rc, Weak};
 use alloc::vec::Vec;
+#[cfg(any(test, feature = "kernel"))]
 use core::cell::RefCell;
 
 use super::{PackSource, u32_le};
@@ -46,42 +51,50 @@ struct Held {
     failures: u32,
 }
 
+#[cfg(any(test, feature = "kernel"))]
 type Slot = RefCell<Held>;
 
+#[cfg(any(test, feature = "kernel"))]
 const NONE: Held = Held {
     noted: None,
     failures: 0,
 };
 
-#[cfg(not(target_os = "none"))]
+#[cfg(all(not(target_os = "none"), any(test, feature = "kernel")))]
 std::thread_local! {
     /// Per thread, as fonts are.
     static HELD: Slot = const { RefCell::new(NONE) };
 }
 
 /// [`HELD`] on a device without an operating system.
-#[cfg(target_os = "none")]
+#[cfg(all(target_os = "none", any(test, feature = "kernel")))]
 struct OneThread(Slot);
 
 // SAFETY: a device without an operating system sets and measures text on
 // one thread only (its fonts are `Rc`s, which never leave it), never in an
 // interrupt; nothing else reaches this.
-#[cfg(target_os = "none")]
+#[cfg(all(target_os = "none", any(test, feature = "kernel")))]
 unsafe impl Sync for OneThread {}
 
-#[cfg(target_os = "none")]
+#[cfg(all(target_os = "none", any(test, feature = "kernel")))]
 static HELD: OneThread = OneThread(RefCell::new(NONE));
 
-#[cfg(not(target_os = "none"))]
+#[cfg(all(not(target_os = "none"), any(test, feature = "kernel")))]
 fn with_held<R>(f: impl FnOnce(&mut Held) -> R) -> Option<R> {
     HELD.try_with(|held| held.try_borrow_mut().ok().map(|mut held| f(&mut held)))
         .ok()
         .flatten()
 }
 
-#[cfg(target_os = "none")]
+#[cfg(all(target_os = "none", any(test, feature = "kernel")))]
 fn with_held<R>(f: impl FnOnce(&mut Held) -> R) -> Option<R> {
     HELD.0.try_borrow_mut().ok().map(|mut held| f(&mut held))
+}
+
+/// Without the `kernel` feature: nothing held.
+#[cfg(not(any(test, feature = "kernel")))]
+fn with_held<R>(_: impl FnOnce(&mut Held) -> R) -> Option<R> {
+    None
 }
 
 /// Notes the pack read from `source` if it has a table of words (at `at`,

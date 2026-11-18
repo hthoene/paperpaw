@@ -37,6 +37,11 @@ default = []
 # plugin built with it for such a device would never load there. Asked
 # for there, the build stops and says so.
 outline = ["dep:skrifa", "dep:read-fonts", "dep:font-types"]
+# What only the kernel and the shells build, never a plugin (ADR 0020):
+# the table of Thai words held while text is broken into lines, a static
+# a native plugin may not have (ADR 0024). Adds no item: without it, Thai
+# breaks only at spaces and U+200B.
+kernel = []
 
 [dev-dependencies]
 paperpaw-hyphen.workspace = true
