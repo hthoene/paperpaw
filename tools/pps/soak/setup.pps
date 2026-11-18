@@ -1,0 +1,23 @@
+# Soak setup, run once at the start of a run (soak.py does it): the device stays reachable and quiet.
+# Owner rule: Sleep after 0, Switch off after Never. The old values are printed (note them) and NOT restored:
+# the X4 is a test device. Run:  tools/pps/soak/run.sh start ...
+include:../beta4/common.pps
+
+section:soak setup
+echo:old core.sleep-after:
+setting:core.sleep-after
+echo:old x4.power-off-after:
+try {
+  setting:x4.power-off-after
+}
+echo:old core.language / help.show:
+setting:core.language
+setting:help.show
+call:quiet-device
+if:$target==x4 {
+  version
+  boot
+  clock
+}
+heap
+crashes

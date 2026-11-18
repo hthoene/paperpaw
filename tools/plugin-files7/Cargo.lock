@@ -185,6 +185,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-edge-light"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-end-of-book"
 version = "1.0.5"
 dependencies = [
@@ -229,6 +237,7 @@ dependencies = [
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",
+ "paperpaw-plugin-edge-light",
  "paperpaw-plugin-end-of-book",
  "paperpaw-plugin-file-manager",
  "paperpaw-plugin-file-sync",
@@ -265,6 +274,7 @@ dependencies = [
  "paperpaw-plugin-pomodoro",
  "paperpaw-plugin-power",
  "paperpaw-plugin-profiles",
+ "paperpaw-plugin-puzzles",
  "paperpaw-plugin-read-later-cloud",
  "paperpaw-plugin-reading-goal",
  "paperpaw-plugin-readwise",
@@ -272,6 +282,7 @@ dependencies = [
  "paperpaw-plugin-settings",
  "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
+ "paperpaw-plugin-smart-home",
  "paperpaw-plugin-stats",
  "paperpaw-plugin-store",
  "paperpaw-plugin-transfer",
@@ -538,6 +549,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-plugin-puzzles"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-read-later-cloud"
 version = "1.0.5"
 dependencies = [
@@ -588,6 +607,14 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-sleep"
 version = "1.0.6"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-smart-home"
+version = "1.0.0"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

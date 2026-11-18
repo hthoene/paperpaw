@@ -1,0 +1,167 @@
+# One soak cycle: the reading, Back -> Home, library, keyboard, settings, card, Wi-Fi and sleep workloads of one round,
+# then the checkpoint (the same anchor book, Home, then heap / crashes / clock). soak.py runs it again and again:
+#   python3 tools/x4-remote.py --port ... --script-file tools/pps/soak/cycle.pps --out CYCLEDIR --var cycle=7 --var books='books/a.epub|books/b.epub' ...
+# Variables (soak.py sets them; the defaults make it run by hand):
+#   cycle    the round's number            books    the books of this round, `a|b|c` (CJK, pictures, plain: the runner rotates)
+#   anchor   the same book at every checkpoint
+#   turns    page turns per book           turn_wait ms after a turn (X4: the panel needs about 1 s)
+#   wifi     0: none; 1: one Wi-Fi up/down in this round on "Hannes"; 2: on "FRITZ!Box 5690 LE" (passwords from the environment)
+#   sleep    1: the power button sleeps the device and wakes it again (the guessed part: see the README)
+#   card     1: card files saved, replaced, grown, moved (under soak/ on the card, never a book)
+include:../beta4/common.pps
+let:cycle=1
+let:books=books/alice-in-wonderland.epub
+let:anchor=books/alice-in-wonderland.epub
+let:turns=30
+let:turn_wait=1200
+let:wifi=0
+let:sleep=0
+let:card=1
+
+define:to-home {
+  back
+  until:Continue reading:10000
+}
+
+test:reading {
+  call:home
+  for:b in list:$books {
+    open:$b
+    wait:5000
+    expect-not:Error
+    repeat:$turns {
+      page-forward
+      wait:$turn_wait
+    }
+    repeat:3 {
+      page-back
+      wait:$turn_wait
+    }
+    # Back -> Home, every book
+    call:to-home
+  }
+  no-warn
+}
+
+test:library {
+  call:home
+  run:core.library
+  until:Show:15000
+  expect:Library
+  repeat:3 {
+    page-forward
+    wait:$turn_wait
+  }
+  repeat:3 {
+    page-back
+    wait:$turn_wait
+  }
+  expect-not:Error
+  call:home
+  no-warn
+}
+
+test:keyboard {
+  call:home
+  slot:core.settings
+  until:Settings:15000
+  confirm
+  until:Hold Back:8000
+  type:soak $cycle
+  wait:500
+  long:back
+  until:Settings:8000
+  back
+  wait:1500
+  call:home
+  no-warn
+}
+
+# Settings changes: set, set back (the soak ends where it began)
+test:settings {
+  call:home
+  set:core.edge-ends=12
+  set:reader.corner-bookmark=off
+  set:core.full-refresh-interval=10
+  wait:1000
+  slot:core.settings
+  until:Settings:15000
+  back
+  wait:1500
+  set:core.edge-ends=10
+  set:reader.corner-bookmark=on
+  set:core.full-refresh-interval=6
+  call:home
+  no-warn
+}
+
+# The card: a save, a replace, a growing file, a move, a delete: known bytes, read back by MD5 each time
+test:card {
+  if:$card==0 {
+    skip:card workload off
+  }
+  try {
+    mkdir:soak
+  }
+  fill:soak/save-$cycle.bin:20000:save$cycle
+  fill:soak/replace.bin:30000:old$cycle
+  fill:soak/replace.bin:30000:new$cycle
+  check-file:soak/replace.bin:30000:new$cycle
+  grow:soak/grow.bin:4000:g$cycle
+  mv:soak/save-$cycle.bin>soak/moved-$cycle.bin
+  check-file:soak/moved-$cycle.bin:20000:save$cycle
+  rm:soak/moved-$cycle.bin
+  stat:soak/replace.bin
+  no-warn
+}
+
+# Wi-Fi up and down (bounded by soak.py: every N rounds, never more than a maximum in all)
+test:wifi {
+  if:$wifi==0 {
+    skip:no Wi-Fi in this round
+  }
+  if:$target==emu {
+    skip:no radio on the emulator
+  }
+  if:$wifi==1 {
+    wifi-connect:Hannes:${env:WIFI_PASSWORD_HANNES}
+  }
+  if:$wifi==2 {
+    wifi-connect:FRITZ!Box 5690 LE:${env:WIFI_PASSWORD_FRITZ}
+  }
+  wifi:status
+  wait:3000
+  wifi:off
+  wait:1000
+  call:home
+  no-warn
+}
+
+# Sleep and wake by the power button (X4 only; every Nth round)
+test:sleep {
+  if:$sleep==0 {
+    skip:no sleep in this round
+  }
+  if:$target==emu {
+    skip:no sleep on the emulator
+  }
+  power
+  wait:20000
+  power
+  wait:3000
+  call:home
+  no-warn
+}
+
+# The checkpoint: the same anchor book, then Home, then the numbers. Peak is never reset.
+test:checkpoint {
+  call:home
+  open:$anchor
+  wait:5000
+  call:to-home
+  heap
+  crashes
+  if:$target==x4 {
+    clock
+  }
+}

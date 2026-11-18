@@ -186,6 +186,9 @@ pub(crate) struct ImageTable {
     /// The most heap one draw may take ([`SCRATCH_X4`] until the shell says
     /// the device has more: [`ImageTable::set_scratch_max`]).
     scratch_max: core::cell::Cell<usize>,
+    /// How pictures are drawn (contrast, gamma, dither: #82), made once
+    /// when a setting changes ([`ImageTable::set_look`]).
+    look: RefCell<crate::kit::ui::picture_look::PictureLook>,
 }
 
 /// The X4's draw scratch (`document.md` 5): one transient block of 32 KiB.
@@ -250,6 +253,17 @@ impl ImageTable {
                 ready: Vec::new(),
             }),
             scratch_max: core::cell::Cell::new(SCRATCH_X4),
+            look: RefCell::new(crate::kit::ui::picture_look::PictureLook::standard()),
+        }
+    }
+
+    /// The look of the picture settings, rebuilt only where a step differs
+    /// from the one in use.
+    pub(crate) fn set_look(&self, steps: crate::kit::ui::picture_look::Steps) {
+        if let Ok(mut look) = self.look.try_borrow_mut()
+            && look.steps() != steps
+        {
+            *look = crate::kit::ui::picture_look::PictureLook::new(steps);
         }
     }
 
@@ -760,8 +774,10 @@ impl ImageTable {
             GRAYS => crate::kit::ui::Tones::Grays,
             _ => crate::kit::ui::Tones::Panel,
         };
+        let look = self.look.try_borrow().map_err(|_| ERR_BUSY)?;
         let picture = crate::kit::ui::Picture::new(&path, kind, w, h, self.scratch_max.get())
-            .with_tones(tones);
+            .with_tones(tones)
+            .with_look(&look);
         let mut child = canvas.clipped(visible).offset(place.left, place.top);
         let area = Rect::new(0, 0, place.width, place.height);
         let mut drawn = Ok(());
@@ -919,6 +935,12 @@ pub(super) fn draw_slot(
         environment
             .with_frame(|frame| {
                 let storage = frame.storage().ok_or(ERR_STATE)?;
+                let settings = frame.settings();
+                table.set_look(crate::kit::ui::picture_look::Steps::of(
+                    settings.text(crate::kit::ui::picture_look::CONTRAST),
+                    settings.text(crate::kit::ui::picture_look::GAMMA),
+                    settings.text(crate::kit::ui::picture_look::DITHER),
+                ));
                 table.draw(owner, image, canvas, storage, x, y, width, height, flags)
             })
             .and_then(core::convert::identity)

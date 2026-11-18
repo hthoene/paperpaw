@@ -8,7 +8,8 @@ use crate::{BookStyles, Style, block_em};
 /// Where a block's lines start and how wide they are: the first line
 /// (indented where the block starts, by half a line at most, perhaps
 /// hanging out into the book's margin) and the others, within the book's
-/// margins, each kept to a quarter of the width; and the lines a drop
+/// margins, each kept to a quarter of the width (and set in for the rules
+/// of a quote or an aside); and the lines a drop
 /// capital spans, set in by the room it takes.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Measure {
@@ -30,6 +31,8 @@ impl Measure {
             }
             false => (0.0, 0.0),
         };
+        // Room for a quote's rule or an aside's box.
+        let (start, end) = crate::decor::inset(block, (start, end), block_em(block, style), width);
         let rest = (start, (width - start - end).max(1.0));
         // Indented by half a line at most, so a narrow page keeps room.
         let first_x = (start + indent).min(start + rest.1 / 2.0).max(0.0);

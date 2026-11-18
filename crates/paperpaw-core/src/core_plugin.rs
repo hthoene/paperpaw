@@ -1492,6 +1492,8 @@ fn register_colors(r: &mut Staging) -> Result<(), RegisterError> {
 }
 
 mod marks;
+/// Contrast, gamma and dither of pictures.
+pub(crate) mod picture_look;
 /// Smooth text and its contrast, beside the font's weight.
 pub(crate) mod text_look;
 

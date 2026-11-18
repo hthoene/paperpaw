@@ -1,0 +1,9 @@
+Smart home shows values and switches from your own Home Assistant: temperatures, humidity, energy, doors and windows, lights, switches and scenes. It talks to your server over its REST API on your home network; nothing goes through any other service.
+
+Open Smart home from the tools menu, then Connection: type the address of your Home Assistant (for example http://homeassistant.local:8123) and a long-lived access token (make one at the bottom of your Home Assistant profile page). The token is kept among the passwords and keys, never in a settings file. Plain http is only used for addresses on your home network; for a server elsewhere turn on "Servers outside the home network" in the settings and use https with a valid certificate.
+
+Choose entities opens a list of what your server has: search by name or id and select an entity to show it (select it again to take it away). You can give it a room, which groups it on the dashboard and in the room widgets. Up to 24 entities are kept. On the dashboard select a light, switch or scene to switch it: the row shows the answer of the server. A sensor you select is read again.
+
+Widgets (hold the home screen, then add a widget): Smart home value shows one reading large, group lists the entities of a room, switch is a button for one light or switch, and room is a card with a room's readings and switches. Each widget's settings say which entity or room it shows.
+
+The home is read when you open the dashboard, when you ask (the Refresh row or a tap on a value or group widget), when the reader wakes where Wi-Fi is up already, and on the schedule you set while the charger is plugged in. It never turns the radio on by itself and never keeps it on.
