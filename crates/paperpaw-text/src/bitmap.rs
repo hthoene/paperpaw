@@ -187,6 +187,16 @@
 //! (`crate::indic`), which their shaper applies feature by feature,
 //! each where the script puts it.
 //!
+//! Version 2 is version 1 compact, for a table of less than 64 KiB: keys
+//! and offsets of 2 bytes (the head, the features and the lookups'
+//! records as in version 1), no reserved bytes after a count (of a key
+//! set, a class definition, the rules by classes, a ligature's length, a
+//! multiple's keys) and a rule's record of 3 bytes (its place in the
+//! input u8, the offset u16). A key below 0xD800 is that character's;
+//! from 0xD800 a glyph's without code point (`GLYPHS` and the key less
+//! 0xD800), from 0xE800 a mark's (`MARKS` and the key less 0xE800). The
+//! Indic packs' tables are of version 2.
+//!
 //! Words (version 1), slot 6: the words of a script written without
 //! spaces between them (Thai), where the line breaker may break a line
 //! (`crate::linebreak`), as `tools/thai-dictionary.py` writes them:

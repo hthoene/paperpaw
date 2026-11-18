@@ -71,6 +71,11 @@ struct Writer<'a> {
     /// The glyphs text can come to: those of the pack's characters and
     /// what the lookups draw; others are left out of the table.
     reachable: BTreeSet<u16>,
+    /// Keys and offsets of 2 bytes (version 2), not 4.
+    compact: bool,
+    /// A key or an offset that has no 2 bytes was written: the table is
+    /// to be written in version 1.
+    too_wide: bool,
 }
 
 fn put_u32(out: &mut Vec<u8>, v: usize) {
@@ -94,6 +99,66 @@ fn coverage(c: &CoverageTable<'_>) -> Vec<u16> {
 }
 
 impl Writer<'_> {
+    /// Writes key `k`.
+    fn put_key(&mut self, k: u32) {
+        if !self.compact {
+            return put_u32(&mut self.out, k as usize);
+        }
+        let compact = crate::substitutions::compact_key(k);
+        self.too_wide |= compact.is_none();
+        self.out
+            .extend_from_slice(&compact.unwrap_or(0).to_le_bytes());
+    }
+
+    /// The bytes an offset takes.
+    fn offset_width(&self) -> usize {
+        if self.compact { 2 } else { 4 }
+    }
+
+    /// Writes offset `at` at `place` (`None`: at the end).
+    fn put_offset(&mut self, place: Option<usize>, at: usize) {
+        let bytes = match self.compact {
+            true => {
+                let at = u16::try_from(at);
+                self.too_wide |= at.is_err();
+                at.unwrap_or(0).to_le_bytes().to_vec()
+            }
+            false => u32::try_from(at).unwrap_or(0).to_le_bytes().to_vec(),
+        };
+        match place.and_then(|p| self.out.get_mut(p..p + bytes.len())) {
+            Some(slot) => slot.copy_from_slice(&bytes),
+            None => self.out.extend_from_slice(&bytes),
+        }
+    }
+
+    /// Writes a count of 2 bytes and, in version 1, 2 reserved.
+    fn put_count(&mut self, n: usize) {
+        self.out
+            .extend_from_slice(&u16::try_from(n).unwrap_or(0).to_le_bytes());
+        if !self.compact {
+            self.out.extend_from_slice(&[0, 0]);
+        }
+    }
+
+    /// Writes a count of 1 byte (a ligature's length, a multiple's keys)
+    /// and, in version 1, 3 reserved.
+    fn put_small(&mut self, n: usize) {
+        self.out.push(n as u8);
+        if !self.compact {
+            self.out.extend_from_slice(&[0, 0, 0]);
+        }
+    }
+
+    /// Writes a rule's record: the place in its input, the offset of the
+    /// lookup's record.
+    fn put_record(&mut self, place: u8, lookup: usize) {
+        if !self.compact {
+            return put_u32(&mut self.out, record(place, lookup) as usize);
+        }
+        self.out.push(place);
+        self.put_offset(None, lookup);
+    }
+
     /// The key of glyph `g`.
     fn key(&self, g: u16) -> Option<u32> {
         if let Some(&k) = self.cmap.get(&g) {
@@ -131,11 +196,9 @@ impl Writer<'_> {
             return at;
         }
         let at = self.out.len();
-        self.out
-            .extend_from_slice(&u16::try_from(keys.len()).unwrap_or(0).to_le_bytes());
-        self.out.extend_from_slice(&[0, 0]);
+        self.put_count(keys.len());
         for &k in &keys {
-            put_u32(&mut self.out, k as usize);
+            self.put_key(k);
         }
         self.sets.insert(keys, at);
         at
@@ -218,8 +281,8 @@ impl Writer<'_> {
         }
         let entries = self.out.len();
         for (f, t) in &map {
-            put_u32(&mut self.out, *f as usize);
-            put_u32(&mut self.out, *t as usize);
+            self.put_key(*f);
+            self.put_key(*t);
         }
         Some((1u8, map.len(), entries))
     }
@@ -245,15 +308,15 @@ impl Writer<'_> {
                 }
             }
         }
-        let entries = self.out.len();
-        self.out.resize(entries + map.len() * 4, 0);
+        let (entries, o) = (self.out.len(), self.offset_width());
+        self.out.resize(entries + map.len() * o, 0);
         for (i, (f, to)) in map.iter().enumerate() {
             let at = self.out.len();
-            set_u32(&mut self.out, entries + i * 4, at);
-            put_u32(&mut self.out, *f as usize);
-            self.out.extend_from_slice(&[to.len() as u8, 0, 0, 0]);
+            self.put_offset(Some(entries + i * o), at);
+            self.put_key(*f);
+            self.put_small(to.len());
             for k in to {
-                put_u32(&mut self.out, *k as usize);
+                self.put_key(*k);
             }
         }
         Some((3, map.len(), entries))
@@ -284,14 +347,14 @@ impl Writer<'_> {
         }
         // By first key, stably: the font's order among them.
         all.sort_by_key(|(keys, _)| keys[0]);
-        let entries = self.out.len();
-        self.out.resize(entries + all.len() * 4, 0);
+        let (entries, o) = (self.out.len(), self.offset_width());
+        self.out.resize(entries + all.len() * o, 0);
         for (i, (keys, to)) in all.iter().enumerate() {
             let at = self.out.len();
-            set_u32(&mut self.out, entries + i * 4, at);
-            self.out.extend_from_slice(&[keys.len() as u8, 0, 0, 0]);
+            self.put_offset(Some(entries + i * o), at);
+            self.put_small(keys.len());
             for k in keys.iter().chain([to]) {
-                put_u32(&mut self.out, *k as usize);
+                self.put_key(*k);
             }
         }
         Some((2, all.len(), entries))
@@ -328,11 +391,9 @@ impl Writer<'_> {
             return at;
         }
         let at = self.out.len();
-        self.out
-            .extend_from_slice(&u16::try_from(entries.len()).unwrap_or(0).to_le_bytes());
-        self.out.extend_from_slice(&[0, 0]);
+        self.put_count(entries.len());
         for &(k, c) in &entries {
-            put_u32(&mut self.out, k as usize);
+            self.put_key(k);
             self.out.extend_from_slice(&c.to_le_bytes());
         }
         self.classes.insert(entries, at);
@@ -363,9 +424,9 @@ impl Writer<'_> {
                     .chain(&ahead)
                     .map(|&c| u8::try_from(c).ok())
                     .collect();
-                let records: Vec<u32> = records
+                let records: Vec<(u8, usize)> = records
                     .iter()
-                    .filter_map(|&(place, index)| Some(record(place, self.alone(index)?)))
+                    .filter_map(|&(place, index)| Some((place, self.alone(index)?)))
                     .collect();
                 let Some(classes) = classes else { continue };
                 if back.len() > MAX_KEYS || input.len() >= MAX_KEYS || ahead.len() > MAX_KEYS {
@@ -379,8 +440,8 @@ impl Writer<'_> {
                     records.len().min(255) as u8,
                 ]);
                 self.out.extend_from_slice(&classes);
-                for &r in records.iter().take(255) {
-                    put_u32(&mut self.out, r as usize);
+                for &(place, lookup) in records.iter().take(255) {
+                    self.put_record(place, lookup);
                 }
                 written.push(at);
             }
@@ -389,11 +450,9 @@ impl Writer<'_> {
                 continue;
             }
             let at = self.out.len();
-            self.out
-                .extend_from_slice(&u16::try_from(written.len()).unwrap_or(0).to_le_bytes());
-            self.out.extend_from_slice(&[0, 0]);
+            self.put_count(written.len());
             for w in written {
-                put_u32(&mut self.out, w);
+                self.put_offset(None, w);
             }
             offsets.push(at);
         }
@@ -403,7 +462,7 @@ impl Writer<'_> {
             .chain([starts])
             .chain(offsets.iter().copied())
         {
-            put_u32(&mut self.out, at);
+            self.put_offset(None, at);
         }
         Some((5, offsets.len(), head))
     }
@@ -706,10 +765,10 @@ impl Writer<'_> {
                 lookups.len() as u8,
             ]);
             for &s in &sets {
-                put_u32(&mut self.out, s);
+                self.put_offset(None, s);
             }
             for &(place, lookup) in &lookups {
-                put_u32(&mut self.out, record(place, lookup) as usize);
+                self.put_record(place, lookup);
             }
             for g in first {
                 if let Some(k) = self.key(g) {
@@ -719,9 +778,9 @@ impl Writer<'_> {
         }
         entries.sort_by_key(|e| e.0);
         let at = self.out.len();
-        for (k, rule) in &entries {
-            put_u32(&mut self.out, *k as usize);
-            put_u32(&mut self.out, *rule);
+        for &(k, rule) in &entries {
+            self.put_key(k);
+            self.put_offset(None, rule);
         }
         Some((4, entries.len(), at))
     }
@@ -943,24 +1002,29 @@ pub(crate) fn make(font: FontRef<'_>, chars: &[char]) -> Option<Made> {
     // presentation lookups left out until it fits (forms chosen by
     // context, such as the length of Devanagari's i), never the forms of
     // the basic features.
+    // The lookups chosen as tables of 4-byte keys and offsets keep them,
+    // written with 2-byte ones (version 2, half the memory) where they fit.
+    let writer = |compact| Writer {
+        font: font.clone(),
+        cmap: cmap.clone(),
+        marks: marks.clone(),
+        out: alloc::vec![0; 12],
+        records: BTreeMap::new(),
+        alone: BTreeMap::new(),
+        sets: BTreeMap::new(),
+        classes: BTreeMap::new(),
+        drawn: BTreeSet::new(),
+        reachable: reachable.clone(),
+        compact,
+        too_wide: false,
+    };
     let mut skip = BTreeSet::new();
     for _ in 0..16 {
-        let w = Writer {
-            font: font.clone(),
-            cmap: cmap.clone(),
-            marks: marks.clone(),
-            out: alloc::vec![0; 12],
-            records: BTreeMap::new(),
-            alone: BTreeMap::new(),
-            sets: BTreeMap::new(),
-            classes: BTreeMap::new(),
-            drawn: BTreeSet::new(),
-            reachable: reachable.clone(),
-        };
-        let (made, sizes) = write(w, &wanted, &skip);
+        let (made, sizes) = write(writer(false), &wanted, &skip);
+        let made = made?;
         let over = made.table.len().saturating_sub(MAX_HELD);
         if over == 0 {
-            return Some(made);
+            return Some(write(writer(true), &wanted, &skip).0.unwrap_or(made));
         }
         // Rules by classes first (hundreds of them choose among a vowel
         // sign's lengths), then the largest.
@@ -990,13 +1054,14 @@ pub(crate) fn make(font: FontRef<'_>, chars: &[char]) -> Option<Made> {
 type Written = ([u8; 4], u16, usize, u8);
 
 /// Writes the table of `wanted` (script, feature, lookups), the lookups
-/// in `skip` left out; with the bytes each feature's lookup took and its
+/// in `skip` left out (`None` where a compact one has a key or an offset
+/// without 2 bytes); with the bytes each feature's lookup took and its
 /// kind.
 fn write(
     mut w: Writer<'_>,
     wanted: &[(u8, [u8; 4], Vec<u16>)],
     skip: &BTreeSet<u16>,
-) -> (Made, Vec<Written>) {
+) -> (Option<Made>, Vec<Written>) {
     let mut sizes = Vec::new();
     let head = w.out.len();
     w.out.resize(head + wanted.len() * 16, 0);
@@ -1024,7 +1089,7 @@ fn write(
         w.out[record + 5] = 1;
         set_u32(&mut w.out, record + 12, at);
     }
-    w.out[0] = 1;
+    w.out[0] = if w.compact { 2 } else { 1 };
     let len = w.out.len();
     set_u32(&mut w.out, 4, len);
     w.out[8..10].copy_from_slice(&u16::try_from(wanted.len()).unwrap_or(0).to_le_bytes());
@@ -1033,5 +1098,6 @@ fn write(
         .iter()
         .filter_map(|&g| w.key(g).and_then(char::from_u32))
         .collect();
-    (Made { table: w.out, keys }, sizes)
+    let fits = !w.too_wide && (!w.compact || len <= usize::from(u16::MAX));
+    (fits.then_some(Made { table: w.out, keys }), sizes)
 }

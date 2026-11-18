@@ -386,7 +386,7 @@ fn build_pack_with(
     if let Some(made) = &indic {
         builder.table(
             BitmapFont::SUBSTITUTIONS,
-            1,
+            made.table.first().copied().unwrap_or(1),
             made.table.get(8..).unwrap_or_default(),
         );
     }
