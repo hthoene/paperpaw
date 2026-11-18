@@ -54,4 +54,4 @@ calendar
 file-sync
 edge-light
 smart-home
-format-rtf
+format-rtf status=complete   # new on interface 7 (#30): no interface-6 port, so no PORTING-7.md
