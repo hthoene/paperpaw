@@ -203,9 +203,79 @@ fn a_cover_waits_while_a_reader_is_open_and_opens_nothing() {
             hosts: &w.hosts,
         };
         let opens = w.open_flags.borrow().len();
-        let made = cover::make(w, &opener, "books/a.docx", 0);
+        // Another book than the one read (that one's own cover is made: below).
+        let made = cover::make(w, &opener, "books/b.docx", 0);
         assert!(matches!(made, Ok(cover::Made::Queued)));
         assert_eq!(w.open_flags.borrow().len(), opens, "nothing was opened");
+        assert!(w.state.table.lease(OPENER, reading).is_ok());
+    });
+}
+
+#[test]
+fn a_cover_made_for_the_list_is_not_one_for_the_screen() {
+    use crate::native_host::{
+        doc_host::CoverAt,
+        doc_service::cover::{self, Made},
+    };
+    world(|w| {
+        install_docx(w);
+        // Home showed the book: its list-sized cover is in the cache.
+        w.state.note_cover_made(w.state.memo_key("books/a.docx", 0));
+        w.state.cover_job_input(10_000);
+        let screen = DocHost::screen_long_side(&*w.state);
+        assert_eq!(w.state.cover_at("books/a.docx", screen), CoverAt::Unmade);
+        let opener = Caller {
+            owner: OPENER,
+            plugin: "sleep",
+            features: AdmittedFeatures::NONE,
+            hosts: &w.hosts,
+        };
+        let opens = w.open_flags.borrow().len();
+        // The screen's size is not decoded in the asking call (#346).
+        let made = cover::make(w, &opener, "books/a.docx", screen);
+        assert!(matches!(made, Ok(Made::Queued)), "{:?}", made.err());
+        assert_eq!(w.open_flags.borrow().len(), opens, "nothing was opened");
+        assert_eq!(w.state.cover_at("books/a.docx", 0), CoverAt::Made);
+    });
+}
+
+#[test]
+fn after_a_start_straight_into_the_reader_the_sleep_screen_gets_the_books_cover() {
+    use crate::native_host::{
+        doc_host::CoverAt,
+        doc_service::cover::{self, Made},
+    };
+    use paperpaw_native::host_glue::ERR_NOT_FOUND;
+    world(|w| {
+        // The start: no cover made since; the reader opens the book read last.
+        install_docx(w);
+        *w.reply.borrow_mut() = Ok(state(READY));
+        let reading = w.open(1, "books/a.docx").unwrap();
+        // The power key: the user's quiet time runs; the sleep screen opens.
+        w.state.cover_job_input(10_000);
+        assert!(!w.state.cover_quiet());
+        let sleep = Caller {
+            owner: OPENER,
+            plugin: "sleep",
+            features: AdmittedFeatures::NONE,
+            hosts: &w.hosts,
+        };
+        let opens = w.open_flags.borrow().len();
+        // The screen's size first: not made, nothing opened beside the reader.
+        let screen = DocHost::screen_long_side(&*w.state);
+        let made = cover::make(w, &sleep, "books/a.docx", screen);
+        assert!(matches!(made, Ok(Made::Queued)), "{:?}", made.err());
+        assert_eq!(w.open_flags.borrow().len(), opens, "nothing was opened");
+        // Then the list's: the format is asked for it in this call (op 17;
+        // this one answers it has none), not "not now".
+        w.script.borrow_mut().push_back(state(READY));
+        *w.reply.borrow_mut() = Err(ERR_NOT_FOUND);
+        let made = cover::make(w, &sleep, "books/a.docx", 0);
+        assert!(matches!(made, Err(ERR_NOT_FOUND)), "{:?}", made.err());
+        let ops = ops(w);
+        assert_eq!(ops.get(ops.len() - 2..), Some(&[17, 4][..]), "{ops:?}");
+        // Noted: the next ask finds it in the cache; the reader's book stays.
+        assert_eq!(w.state.cover_at("books/a.docx", 0), CoverAt::Made);
         assert!(w.state.table.lease(OPENER, reading).is_ok());
     });
 }
@@ -215,7 +285,7 @@ fn a_cover_made_before_is_asked_inline_within_the_quiet_time() {
     use crate::native_host::doc_service::cover;
     world(|w| {
         install_docx(w);
-        w.state.note_cover_made(path_key("books/a.docx"));
+        w.state.note_cover_made(w.state.memo_key("books/a.docx", 0));
         w.state.cover_job_input(10_000);
         assert!(!w.state.cover_quiet(), "the user's quiet time runs");
         let opener = Caller {
@@ -320,7 +390,7 @@ fn a_word_documents_cover_not_found_is_made_and_not_asked_for_again() {
                 key: path_key("books/a.docx")
             }
         );
-        assert_eq!(w.state.cover_at("books/a.docx"), CoverAt::Made);
+        assert_eq!(w.state.cover_at("books/a.docx", 0), CoverAt::Made);
         // The list's next ask: no cover, nothing queued again.
         w.script.borrow_mut().push_back(state(READY));
         let made = cover::make(w, &opener, "books/a.docx", 0);

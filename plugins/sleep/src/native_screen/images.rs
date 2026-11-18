@@ -548,9 +548,10 @@ fn last_cover(host: &Host<'_>, side: u32) -> Result<Found, Error> {
 
 fn cover_of_last(host: &Host<'_>, library: &Library, side: u32) -> Result<Found, Error> {
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    // The opened rank rising: the book opened last first (descending puts
+    // the books never opened first, #346).
     let query = Query::new()
         .sort(Sort::RecentlyOpened)
-        .descending(true)
         .exclude_archive(false);
     let (key, generation) = {
         let page = match library.query(host, &query, &mut input, &mut out) {

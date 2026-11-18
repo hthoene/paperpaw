@@ -683,6 +683,15 @@ impl DocumentTable {
             .any(|d| !d.cover_job && !d.background && d.closed_by_host == 0)
     }
 
+    /// Whether document `id` is open for reading or showing: live, neither
+    /// the cover job nor a background one.
+    pub(crate) fn read_now(&self, id: u32) -> bool {
+        self.documents.try_borrow().is_ok_and(|rows| {
+            rows.iter()
+                .any(|d| d.id == id && !d.cover_job && !d.background && d.closed_by_host == 0)
+        })
+    }
+
     /// Whether a book is open for reading or showing, besides the document
     /// `besides` (0: none): a table that is held counts as one.
     pub(crate) fn reading_besides(&self, besides: u32) -> bool {

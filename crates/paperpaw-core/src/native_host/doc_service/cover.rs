@@ -70,20 +70,31 @@ pub(crate) fn make(
     // The book the cover job is converting: nothing to open again. A cover
     // the job has not made is not made here either: no picture is decoded in
     // the asking list's frame (`doc_cover_make`).
-    let inline = match services.0.cover_at(path) {
+    let made = match services.0.cover_at(path, side) {
         CoverAt::Job | CoverAt::Wait => return Ok(Made::Queued),
         CoverAt::Made => true,
         CoverAt::Unmade => false,
     };
+    // The book open for reading, at the list's side: its cover is made in
+    // this call, gates or not (#346: after a start straight into the reader
+    // no screen has had it, and the sleep screen asks once, as the device
+    // goes to sleep). The format finds it in its cache, or decodes it where
+    // the heap has the room.
+    let long = services.0.screen_long_side();
+    let read = !made
+        && super::cover_side(side, long) == super::cover_side(0, long)
+        && services.0.cover_book_read(path)
+        && room(caller);
     // Not now (the start, a book open for reading, the user's last input
     // not a second ago): nothing is opened in the list's frame, where the
     // zip and XML of the book would come beside the list's buffers. The host
     // raises the change when covers may be made, and the book is asked for
     // again.
-    if !inline && services.0.cover_must_wait() {
+    if !made && !read && services.0.cover_must_wait() {
         services.0.cover_job_held_back();
         return Ok(Made::Queued);
     }
+    let inline = made || read;
     let mut scratch = bytes(COVER_REPLY)?;
     let mut result = Err(ERR_STATE);
     services.0.serve(frame, caller, &mut |bound| {
@@ -104,7 +115,26 @@ pub(crate) fn make(
         };
         result = covered(&host, (path, inline), side, &mut scratch, &adopt);
     });
+    if read && matches!(result, Ok(Made::Image(_)) | Err(ERR_NOT_FOUND)) {
+        services.0.cover_noted(path, side);
+    }
     result
+}
+
+/// The largest block the heap must give for a cover made inside the asking
+/// call: a list-sized cover's decode (#248's bisect: +34.7 KiB in the list's
+/// frame) with room to spare.
+const INLINE_ROOM: u32 = 48 * 1024;
+
+/// Whether the heap has [`INLINE_ROOM`] in one block; a host that cannot
+/// tell lets the call go ahead.
+fn room(caller: &Caller<'_>) -> bool {
+    caller
+        .hosts
+        .device()
+        .and_then(|device| device.0.memory().ok())
+        .and_then(|memory| memory.largest)
+        .is_none_or(|largest| largest >= INLINE_ROOM)
 }
 
 /// Opens, asks for the cover, closes: the document is closed whatever

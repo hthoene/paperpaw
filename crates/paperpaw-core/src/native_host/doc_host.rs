@@ -768,8 +768,14 @@ impl super::doc_service::DocHost for DocState {
     ) -> super::doc_service::JobStep {
         self.cover_job_next(hosts, route, keep)
     }
-    fn cover_at(&self, path: &str) -> super::doc_host::CoverAt {
-        self.cover_at(path)
+    fn cover_at(&self, path: &str, side: u32) -> super::doc_host::CoverAt {
+        self.cover_at(path, side)
+    }
+    fn cover_book_read(&self, path: &str) -> bool {
+        self.book_read(path)
+    }
+    fn cover_noted(&self, path: &str, side: u32) {
+        let _ = self.note_cover_made(self.memo_key(path, side));
     }
     fn cover_job_active(&self) -> bool {
         // A marker with no job: the pump's look removes it.
