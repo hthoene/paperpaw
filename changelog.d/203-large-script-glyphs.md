@@ -1,0 +1,3 @@
+### Changed
+
+- **Large scripts (Korean, Chinese, Japanese) read their letters from the card with fewer reads and less memory churn** (#203). A letters pack of thousands of characters can now store each glyph in a cell of one size (`paperpaw-fontgen` does it for packs of 1,024 characters or more): the card gives a glyph's shape and bitmap in one read, not two (a Chinese page turn in the emulator: 136 reads, from 319). While such a pack is open, the glyph cache is 24 KiB on the X4 (it stays 12 KiB for Latin and the alphabets, which cost no memory more), and a glyph the cache lets go hands its memory to the next one read, so that a full cache allocates nothing. Packs made before read as they did, in two reads. No change for Latin books.

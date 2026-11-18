@@ -5,6 +5,9 @@ fonts lack. Cyrillic, Greek and Vietnamese come from Literata's faces and, for t
 interface's font, Source Sans 3; Arabic from
 Noto Naskh Arabic and Hebrew from Noto Serif Hebrew (tools/fonts), one
 pack for each built-in face they extend, the interface's font too.
+Chinese (the 6,763 ideographs of GB 2312, or the 5,401 frequently used ones
+of Big5 for Traditional) and Japanese (kana and 2,998 kanji: the Joyo and JIS X
+0208 level 1) come from Noto Serif SC, TC and JP in four sizes, as Korean's.
 Korean (the 2,350 Hangul syllables of KS X 1001, CJK punctuation,
 compatibility jamo, full-width forms) comes from Nanum Myeongjo, one
 pack for Literata's regular face and one for the interface's font (a
@@ -73,6 +76,22 @@ KOREAN = [
     ("korean", OTHER_FONTS / "NanumMyeongjo-Regular.ttf", None, "fonts-default.literata"),
     ("korean-sans", OTHER_FONTS / "NanumMyeongjo-Regular.ttf", None, "fonts-default.source-sans"),
 ]
+# Chinese and Japanese: Noto Serif (SIL OFL 1.1; tools/fonts holds the characters the packs
+# need, subset from the font, static at weight 400), one pack for Literata's regular face and
+# one for the interface's font, as Korean's. Sizes 20 to 32 px (what the firmware's fonts
+# have; 36 to 48 px of `literata-large` are drawn at 32): at six thousand characters each
+# size is megabytes.
+CJK_SIZES = "20,24,28,32"
+
+
+CJK = {"chinese-simplified", "chinese-traditional", "japanese"}
+
+
+def han(name, file):
+    return [(name, file, None, "fonts-default.literata"),
+            (f"{name}-sans", file, None, "fonts-default.source-sans")]
+
+
 # The other 8,822 syllables, a pack of its own that only adds letters to
 # the Korean pack (about 30 MiB on the card): offered for books that use them.
 KOREAN_EXTRA = [("korean-extra", OTHER_FONTS / "NanumMyeongjo-Regular.ttf", None,
@@ -96,6 +115,18 @@ SETS = {
     "korean": ("Korean", KOREAN, OTHER_FONTS / "NanumMyeongjo-OFL.txt", "a Korean book face",
                [f"@{ROOT / 'tools/fontgen/sets/hangul-ks.txt'}",
                 "cjk-punctuation", "hangul-jamo", "fullwidth"]),
+    "chinese-simplified": ("Chinese (Simplified)", han("chinese-simplified", OTHER_FONTS / "NotoSerifSC-subset.ttf"),
+                           OTHER_FONTS / "NotoSerifCJK-OFL.txt", "Noto Serif SC",
+                           [f"@{ROOT / 'tools/fontgen/sets/hanzi-gb2312.txt'}",
+                            "cjk-punctuation", "fullwidth"]),
+    "chinese-traditional": ("Chinese (Traditional)", han("chinese-traditional", OTHER_FONTS / "NotoSerifTC-subset.ttf"),
+                            OTHER_FONTS / "NotoSerifCJK-OFL.txt", "Noto Serif TC",
+                            [f"@{ROOT / 'tools/fontgen/sets/hanzi-big5.txt'}",
+                             "cjk-punctuation", "fullwidth"]),
+    "japanese": ("Japanese", han("japanese", OTHER_FONTS / "NotoSerifJP-subset.ttf"),
+                 OTHER_FONTS / "NotoSerifCJK-OFL.txt", "Noto Serif JP",
+                 [f"@{ROOT / 'tools/fontgen/sets/kanji-japanese.txt'}",
+                  "kana", "cjk-punctuation", "fullwidth"]),
     "korean-extra": ("Korean", KOREAN_EXTRA, OTHER_FONTS / "NanumMyeongjo-OFL.txt",
                      "a Korean book face", [f"@{ROOT / 'tools/fontgen/sets/hangul-rest.txt'}"]),
 }
@@ -146,10 +177,11 @@ def build(base, sets):
     out = base / id
     shutil.rmtree(out, ignore_errors=True)
     (out / "fonts").mkdir(parents=True)
+    sizes = ["--sizes", CJK_SIZES] if sets[0] in CJK else []
     for name, file, weight, _ in faces:
         axis = ["--axis", f"wght={weight}"] if weight else []
         subprocess.run([str(FONTGEN), str(file), str(out / "fonts" / f"{name}.ppfp"),
-                        "--chars", chars, "--hinting", "none", *axis], check=True)
+                        "--chars", chars, "--hinting", "none", *axis, *sizes], check=True)
     extends = "\n".join(f"{name}.ppfp = {extended}" for name, _, _, extended in faces)
     listed = data.plugins().get(id)
     if listed:

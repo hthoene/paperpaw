@@ -189,6 +189,9 @@ pub struct Fonts {
     /// [`STATUS_FONT`](crate::builtin::settings::STATUS_FONT).
     status: Option<String>,
     cache: RefCell<GlyphCache>,
+    /// The glyph cache's size as the shell made it, which it is while no
+    /// pack of thousands of characters is open ([`Fonts::fit_cache`]).
+    base_cache: usize,
     /// Only described or not, and the letters drawn missing.
     drawing: Drawing,
     /// What a font pack read from the storage may take of memory: the
@@ -232,6 +235,7 @@ impl Fonts {
             family: None,
             status: None,
             cache: RefCell::new(GlyphCache::new(cache_bytes)),
+            base_cache: cache_bytes,
             drawing: Drawing::default(),
             ui_ink: paperpaw_text::TextInk::DEFAULT,
             pack_limits: PackLimits::SMALL,
@@ -1459,6 +1463,8 @@ mod split;
 mod storage;
 mod wanted;
 
+#[cfg(test)]
+mod cache_size_tests;
 #[cfg(test)]
 mod kept_tests;
 #[cfg(test)]

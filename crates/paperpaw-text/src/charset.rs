@@ -66,6 +66,15 @@ const HANGUL: &[RangeInclusive<char>] = &['\u{ac00}'..='\u{d7a3}'];
 )]
 const CJK_PUNCTUATION: &[RangeInclusive<char>] = &['\u{3000}'..='\u{303f}'];
 
+/// Japanese kana: hiragana and katakana, with the prolonged sound mark and
+/// the iteration marks (the kanji are lists of their own, for smaller packs:
+/// `tools/fontgen/sets/kanji-japanese.txt`).
+#[allow(
+    clippy::single_range_in_vec_init,
+    reason = "a set of ranges, of one here"
+)]
+const KANA: &[RangeInclusive<char>] = &['\u{3041}'..='\u{30ff}'];
+
 /// Hangul's compatibility letters (jamo written alone, e.g. ㅋㅋ).
 #[allow(
     clippy::single_range_in_vec_init,
@@ -82,7 +91,7 @@ const HANGUL_JAMO: &[RangeInclusive<char>] = &['\u{3131}'..='\u{318e}'];
 const FULLWIDTH: &[RangeInclusive<char>] = &['\u{ff01}'..='\u{ff5e}'];
 
 /// The sets by name, in the order [`names`] gives them.
-const SETS: [(&str, &[RangeInclusive<char>]); 11] = [
+const SETS: [(&str, &[RangeInclusive<char>]); 12] = [
     ("latin", LATIN),
     ("ligatures", LIGATURES),
     ("cyrillic", CYRILLIC),
@@ -92,6 +101,7 @@ const SETS: [(&str, &[RangeInclusive<char>]); 11] = [
     ("hebrew", HEBREW),
     ("hangul", HANGUL),
     ("hangul-jamo", HANGUL_JAMO),
+    ("kana", KANA),
     ("cjk-punctuation", CJK_PUNCTUATION),
     ("fullwidth", FULLWIDTH),
 ];
@@ -150,7 +160,7 @@ pub fn named(name: &str) -> Option<&'static [RangeInclusive<char>]> {
 
 /// The names of the character sets: `latin`, `ligatures`, `cyrillic`,
 /// `greek`, `vietnamese`, `arabic`, `hebrew`, `hangul`, `hangul-jamo`,
-/// `cjk-punctuation`, `fullwidth`.
+/// `kana`, `cjk-punctuation`, `fullwidth`.
 pub fn names() -> impl Iterator<Item = &'static str> {
     SETS.iter().map(|(name, _)| *name)
 }
@@ -179,7 +189,7 @@ mod tests {
     #[test]
     fn the_names_are_the_documented_ones() {
         let documented = "`latin`, `ligatures`, `cyrillic`, `greek`, `vietnamese`, `arabic`, `hebrew`, \
-                          `hangul`, `hangul-jamo`, `cjk-punctuation`, `fullwidth`";
+                          `hangul`, `hangul-jamo`, `kana`, `cjk-punctuation`, `fullwidth`";
         let listed: alloc::vec::Vec<_> = names().map(|n| alloc::format!("`{n}`")).collect();
         assert_eq!(listed.join(", "), documented);
         assert!(names().all(|n| named(n).is_some()));
