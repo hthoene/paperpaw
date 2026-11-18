@@ -75,3 +75,65 @@ fn buttons_reach_the_how_it_works_of_a_linked_plugin() {
         "{how}"
     );
 }
+
+/// A hold only opens *How it works*: the plugin stays as it was, no switch is
+/// staged by the press or by the release (#360).
+#[test]
+fn a_hold_does_not_switch_the_plugin() {
+    let files = MemoryStorage::new()
+        .with(".paperpaw/plugins/setup/done", "")
+        .with(
+            "paperpaw.ini",
+            "[core]\nhyphenate = off\n[help]\nshow = false\n[reader]\nopen-last = false\n",
+        );
+    paperpaw_emulator::budget::override_limit(None);
+    let mut device = Device::in_memory(
+        profiles::find("xteink-x4").unwrap(),
+        None,
+        Rc::new(files),
+        true,
+        None,
+    )
+    .unwrap();
+    device.start();
+    run_script(&mut device, "wait:3000,open:plugin-manager.list,wait:300").unwrap();
+    let mut at = 0;
+    while !device
+        .kernel
+        .describe()
+        .iter()
+        .any(|part| part.focused && part.label.starts_with("About"))
+    {
+        at += 1;
+        assert!(at < 200, "the focus never reached About");
+        run_script(&mut device, "right").unwrap();
+    }
+    let row = |device: &mut Device| {
+        device
+            .kernel
+            .describe()
+            .into_iter()
+            .find(|part| part.label.starts_with("About"))
+            .map(|part| part.label.to_string())
+            .unwrap()
+    };
+    let before = row(&mut device);
+    assert!(!before.contains("restart"), "{before}");
+    run_script(&mut device, "long:confirm,wait:1500").unwrap();
+    let screen = device.kernel.active_screen().map(ToString::to_string);
+    assert_eq!(screen.as_deref(), Some("reader.screen"));
+    run_script(&mut device, "back,wait:800").unwrap();
+    assert_eq!(
+        device
+            .kernel
+            .active_screen()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("plugin-manager.list")
+    );
+    assert_eq!(row(&mut device), before);
+    // A short press still switches it (staged until a restart).
+    run_script(&mut device, "confirm,wait:800").unwrap();
+    let after = row(&mut device);
+    assert_ne!(after, before, "a short press must switch the row");
+}
