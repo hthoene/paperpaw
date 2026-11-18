@@ -34,8 +34,8 @@
 
 #![cfg_attr(docsrs, feature(doc_cfg))]
 // Without the `kernel` feature (as plugins build it) what only the
-// kernel's methods use is left over; with it, as the kernel and CI build,
-// unused code is found as everywhere.
+// kernel's methods use is left over (and most of the old plugin API, #244 slice D0, has no
+// user); with it, as the kernel and CI build, unused code is found as everywhere.
 #![cfg_attr(
     not(any(test, feature = "kernel")),
     allow(
@@ -45,9 +45,6 @@
     )
 )]
 #![no_std]
-// Without `kernel` the old plugin API is the crate's own (#244, slice D0): most of it has
-// no user then.
-#![cfg_attr(not(any(test, feature = "kernel")), allow(dead_code, unused_imports))]
 
 extern crate alloc;
 

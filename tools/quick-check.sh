@@ -37,7 +37,23 @@
 #             overrides it) keeps the second run warm; the first one is cold (about 3 min for `store`)
 # Every step runs whatever the one before did; the summary lists them with their
 # times, and the script exits 1 if any failed, 0 if all passed. Logs: the
-# directory it prints. NOT checked here: the S3 `allow indirect` band
+# directory it prints.
+#
+# It has to fit PlainBoard's 10 minutes, so (#328):
+#  - two lanes run side by side, each with one cargo at a time (CARGO_BUILD_JOBS=8 each): the host lane
+#    (fmt, clippy, interface, checks, libs, desktop, memory, app, snapshots) and the build lane (doc, frames,
+#    frames-s3), whose cargo runs use build directories of their own, so nothing waits on cargo's
+#    directory lock;
+#  - rustc goes through sccache (tools/sccache-wrap.sh, as the other agents use it; RUSTC_WRAPPER of the
+#    environment wins) with incremental builds off: another worktree's build of the same crate, also of
+#    the workspace's own, is a hit, so a fresh worktree is not a cold build. Build directories are not
+#    shared between worktrees: cargo trusts file times, and two trees with other sources would reuse
+#    each other's artifacts;
+#  - a library change (ui-kit, SDK, core ...) builds the frames of `store` alone, the largest plugin
+#    and the one at the limit; changed plugins are built themselves (at most 4);
+#  - every step has a time limit (QUICK_CHECK_STEP_LIMIT, 420 s) and the whole run a budget
+#    (QUICK_CHECK_BUDGET, 540 s). A step that is cut, or not started for the budget, FAILS the run with
+#    a message (exit 1): it checked nothing, and the build directories are warm for the next run. NOT checked here: the S3 `allow indirect` band
 # (tools/check-s3-budget.sh: it needs a full Xtensa firmware build of the whole
 # kernel, far beyond a quick check; CI and the landing check keep it), the
 # C3/S3 firmware size, the store fit, the `paperpaw-dev visual`/`reach` screens
@@ -51,6 +67,13 @@ set -uo pipefail
 root="$(git rev-parse --show-toplevel 2> /dev/null)" || { echo "quick-check: not inside a git worktree" >&2; exit 2; }
 cd "$root" || exit 2
 case ":$PATH:" in *":$HOME/.cargo/bin:"*) ;; *) PATH="$HOME/.cargo/bin:$PATH" ;; esac
+
+# Builds: sccache in front of rustc and no incremental builds (they do not mix with it).
+export CARGO_INCREMENTAL=0
+[[ -n "${RUSTC_WRAPPER:-}" || ! -x "$root/tools/sccache-wrap.sh" ]] || export RUSTC_WRAPPER="$root/tools/sccache-wrap.sh"
+t_start=$SECONDS
+budget="${QUICK_CHECK_BUDGET:-540}"
+step_limit="${QUICK_CHECK_STEP_LIMIT:-420}"
 
 base=origin/abi7/integration
 all=0 list=0 only="" skip=""
@@ -138,20 +161,44 @@ fi
 logs="$(mktemp -d "${TMPDIR:-/tmp}/quick-check.XXXXXX")"
 echo "quick-check: base $base ($(wc -l <<< "$files") changed files); logs in $logs"
 jobs_n="${QUICK_CHECK_JOBS:-8}"
-results=() failed=0
+lane2_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane2"
+# One step: run in its own process group, cut after its time limit or when the total budget is used up.
+# Writes "$logs/NAME.res": the summary line of the step, FAIL or ok.
 step() { # NAME COMMAND...
     local name="$1"; shift
-    local t0=$SECONDS rc
+    local t0=$SECONDS rc=0 cut=0 limit="$step_limit" left=$((budget - (SECONDS - t_start)))
     echo "--- $name: ${why[$name]}"
-    "$@" > "$logs/$name.log" 2>&1
+    if ((left < 10)); then
+        echo "FAIL  $name: NOT RUN, the budget of ${budget}s is used up (QUICK_CHECK_BUDGET); nothing was checked here" > "$logs/$name.res"
+        echo "SKIPPED $name: the budget of ${budget}s is used up"
+        return
+    fi
+    ((left < limit)) && limit=$left
+    set -m
+    "$@" > "$logs/$name.log" 2>&1 &
+    local pid=$!
+    set +m
+    while kill -0 "$pid" 2> /dev/null; do
+        if ((SECONDS - t0 >= limit)); then
+            cut=1
+            kill -TERM -- "-$pid" 2> /dev/null
+            sleep 3
+            kill -KILL -- "-$pid" 2> /dev/null
+            break
+        fi
+        sleep 1
+    done
+    wait "$pid" 2> /dev/null
     rc=$?
     local dt=$((SECONDS - t0))
-    if ((rc)); then
-        failed=1
-        results+=("FAIL  $name (${dt}s): $logs/$name.log")
+    if ((cut)); then
+        echo "FAIL  $name: CUT after ${dt}s (limit ${limit}s, step limit ${step_limit}s, budget ${budget}s): nothing was checked here; the build directories are warm now, run again: $logs/$name.log" > "$logs/$name.res"
+        echo "CUT $name after ${dt}s: $(tail -n 3 "$logs/$name.log" | tr '\n' ' ')"
+    elif ((rc)); then
+        echo "FAIL  $name (${dt}s): $logs/$name.log" > "$logs/$name.res"
         echo "FAILED $name:"; tail -n 40 "$logs/$name.log"
     else
-        results+=("ok    $name (${dt}s)")
+        echo "ok    $name (${dt}s)" > "$logs/$name.res"
     fi
 }
 pk() { local a=(); for n in "$@"; do a+=(-p "$n"); done; printf '%s\n' "${a[@]}"; }
@@ -169,7 +216,7 @@ clippy_step() {
 # CI's `cargo doc --workspace --no-deps`, not the changed packages alone: with the workspace's
 # features unified (the kernel turns the SDK's `kernel` feature on; text's `outline` is on)
 # links resolve that a single package's docs cannot. Warm, only what changed is documented.
-doc_step() { RUSTDOCFLAGS="-D warnings" cargo doc -j"$jobs_n" --workspace --no-deps; }
+doc_step() { CARGO_TARGET_DIR="$lane2_target" RUSTDOCFLAGS="-D warnings" cargo doc -j"$jobs_n" --workspace --no-deps; }
 interface_step() { cargo test -j"$jobs_n" -p paperpaw-sdk --test interface; }
 checks_step() { cargo test -j"$jobs_n" --no-fail-fast -p paperpaw-checks; }
 libs_step() {
@@ -220,7 +267,7 @@ frames_of() {
     done
     return $rc
 }
-frames_step() { frames_of x4; }
+frames_step() { CARGO_TARGET_DIR="$lane2_target" frames_of x4; }
 # One persistent build directory for the Xtensa plugin builds, per worktree (two trees with other
 # sources must not share one: cargo would reuse the other's artifacts).
 frames_s3_step() {
@@ -236,13 +283,21 @@ frames_s3_step() {
     CARGO_TARGET_DIR="$dir" frames_of x4-pro
 }
 
-for s in $steps; do
-    run_step "$s" || continue
-    step "$s" "${s//-/_}_step"
-done
+# The host lane and the build lane (doc, frames) run side by side: each has one cargo at a time and
+# its own build directories, so none waits on the other's lock.
+lane() { local s; for s in "$@"; do run_step "$s" && step "$s" "${s//-/_}_step"; done; return 0; }
+lane doc frames frames-s3 &
+build_lane=$!
+lane fmt clippy interface checks libs desktop memory app snapshots
+wait "$build_lane"
 
 echo
-echo "quick-check summary:"
-printf '  %s\n' "${results[@]}"
+echo "quick-check summary ($((SECONDS - t_start))s of ${budget}s):"
+failed=0
+for s in $steps; do
+    [[ -f "$logs/$s.res" ]] || continue
+    echo "  $(cat "$logs/$s.res")"
+    [[ "$(cut -c1-2 "$logs/$s.res")" == ok ]] || failed=1
+done
 ((failed)) && { echo "quick-check: FAILED"; exit 1; }
 echo "quick-check: passed"
