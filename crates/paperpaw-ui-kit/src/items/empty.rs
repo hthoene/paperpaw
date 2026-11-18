@@ -21,11 +21,30 @@ pub(super) fn draw_empty(
     icon: Option<IconGlyph>,
 ) -> Result<(), Error> {
     let room = f32::from(area.width.saturating_sub(4 * style.margin)).max(1.0);
-    let lines = text::wrap_with(|line| font.measure_text(style.small, line), text, room, 6)?;
     let head = crate::geometry::line_px(font, style.title)?;
     let line = crate::geometry::line_px(font, style.small)?;
+    // What the room under the rows holds (little at the largest text on a
+    // small screen): the title, then the lines of the text that fit, then
+    // the icon.
+    if area.height < head {
+        return Ok(());
+    }
+    let under = area.height - head;
+    let most = usize::from(under.saturating_sub(style.gap) / line.max(1)).min(6);
+    let lines = text::wrap_with(
+        |line| font.measure_text(style.small, line),
+        text,
+        room,
+        most,
+    )?;
+    let words = if lines.is_empty() {
+        0
+    } else {
+        style.gap + line * lines.len() as u16
+    };
     // The icon over the title, twice as large as it, with a gap under it.
     let size = style.title * 2.0;
+    let icon = icon.filter(|_| (size as u16).saturating_add(style.gap) <= under - words);
     let above = icon.map_or(0, |_| (size as u16).saturating_add(style.gap));
     let total = crate::geometry::clamp_u16(
         i64::from(above)

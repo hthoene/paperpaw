@@ -319,6 +319,8 @@ impl NativeKeyboard {
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
         let style = Style::read(host, &display, &font)?;
+        let (ascent, descent, line) = geometry::line_metrics(&font, style.text)?;
+        let (cap_top, cap_bottom) = geometry::cap_bounds(&font, style.text)?;
         let look = Look {
             width: display.display_width(),
             height: display.display_height(),
@@ -331,7 +333,10 @@ impl NativeKeyboard {
             gap: style.gap,
             line: style.line,
             m_width: font.measure_text(100.0, "M")? / 100.0,
-            text_line: geometry::line_px(&font, style.text)?,
+            text_line: geometry::px(line)?,
+            ascent,
+            descent,
+            cap: cap_bottom.saturating_sub(cap_top) as f32,
             status: geometry::line_px(&font, style.small)?.saturating_add(style.gap / 2),
         };
         let mut messages = Messages::new()?;

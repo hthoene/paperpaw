@@ -419,6 +419,11 @@ impl PanelView {
             end.saturating_sub(area.x).saturating_sub(style.gap),
             area.height,
         );
+        // A control that takes the whole row (an opened choice) leaves no
+        // room: it draws the title itself.
+        if clip.width == 0 {
+            return Ok(());
+        }
         text::label(
             body,
             font,
@@ -516,20 +521,15 @@ impl PanelView {
                     )?;
                 }
                 let x = f32::from(style.margin);
-                text::label(
-                    body,
-                    font,
-                    &part.row.title,
-                    style.text,
-                    x,
-                    rect,
-                    ink,
-                    Some(rect),
-                )?;
                 let value_size = self.value_size(style);
                 let wide = font.measure_text(value_size, &shown)?;
                 let right =
                     f32::from(rect.x) + f32::from(rect.width) - f32::from(style.margin) - wide;
+                // The title ends before the value (shortened at the largest
+                // text, where a small screen holds less).
+                let room = (right - x - f32::from(style.gap)).max(1.0);
+                let title = text::fit(font, style.text, &part.row.title, room)?;
+                text::label(body, font, &title, style.text, x, rect, ink, Some(rect))?;
                 text::label(
                     body,
                     font,

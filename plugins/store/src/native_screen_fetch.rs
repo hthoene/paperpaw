@@ -585,13 +585,18 @@ impl Layout {
     pub fn of(m: &Metrics) -> Self {
         let wide = m.width.saturating_sub(m.margin.saturating_mul(2));
         let top = m.header.saturating_add(m.gap);
-        let message = Rect::new(
-            m.margin,
-            top,
-            wide,
-            m.message_needs.max(m.row.saturating_mul(2)),
-        );
         let hint_height = m.hint_needs.max(m.row.saturating_mul(3) / 2);
+        // At the largest text a small screen holds less: the message is as
+        // high as its lines alone, and the hint has what is left under it.
+        let roomy = m.message_needs.max(m.row.saturating_mul(2));
+        let tight =
+            top.saturating_add(roomy).saturating_add(m.gap) > m.height.saturating_sub(hint_height);
+        let message_height = if tight { m.message_needs } else { roomy };
+        let message = Rect::new(m.margin, top, wide, message_height);
+        let hint_height = hint_height.min(
+            m.height
+                .saturating_sub(top.saturating_add(message_height).saturating_add(m.gap)),
+        );
         let hint = Rect::new(
             0,
             m.height.saturating_sub(hint_height),
@@ -652,6 +657,13 @@ fn needs(font: &Font<'_>, style: &Style, width: u16, text: &str) -> Result<u16, 
     Ok(u16::try_from(lines.len())
         .unwrap_or(u16::MAX)
         .saturating_mul(line))
+}
+
+/// `area` from `y` down, where it starts above that.
+fn under(area: Rect, y: u16) -> Rect {
+    let bottom = area.y.saturating_add(area.height);
+    let y = y.max(area.y).min(bottom);
+    Rect::new(area.x, y, area.width, bottom - y)
 }
 
 /// The bar: an outline, and the share done inside it.
@@ -824,6 +836,7 @@ impl View {
         paint::push(&mut body, Paint::Fill(below, style.paper))?;
         text::message(&mut body, &font, &style, layout.message, message)?;
         let mut hits = Vec::new();
+        let mut used = 0;
         if self.core.bar() {
             bar(&mut body, &style, layout.bar, self.core.permille)?;
             let line = Rect::new(
@@ -838,6 +851,7 @@ impl View {
             );
             let progress = self.core.progress_text(&mut say)?;
             text::message(&mut body, &font, &style, line, &progress)?;
+            used = line.y.saturating_add(line.height);
         }
         let mut top = layout.rows_top;
         for index in 0..rows(self.core.phase).len() {
@@ -847,11 +861,16 @@ impl View {
             list::row(&mut body, &font, &style, rect, label, "", focused)?;
             push(&mut hits, rect)?;
             top = top.saturating_add(style.row);
+            used = top;
         }
-        // The hint keeps all its lines, from the bottom up, under a light line.
-        let rule = Rect::new(0, layout.hint.y, width, style.line.max(1));
-        paint::push(&mut body, Paint::Fill(rule, style.separator_ink))?;
-        text::message(&mut body, &font, &style, layout.hint, hint)?;
+        // The hint keeps its lines, from the bottom up, under a light line:
+        // those that fit under the bar's line and the rows.
+        let hint_area = under(layout.hint, used);
+        if hint_area.height >= geometry::line_px(&font, style.small)? {
+            let rule = Rect::new(0, hint_area.y, width, style.line.max(1));
+            paint::push(&mut body, Paint::Fill(rule, style.separator_ink))?;
+            text::message(&mut body, &font, &style, hint_area, hint)?;
+        }
         paint::replay(frame, &font, page.paint.iter().chain(body.iter()))?;
         font.release()?;
         // Only the tap region survives the draw.
