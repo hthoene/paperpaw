@@ -5,6 +5,7 @@
 # kept in step, by design: a plugin that became a data plugin (data.toml)
 # leaves this list and stays in `store-plugins` until its code is removed.
 aids reading
+anki learning
 battery system
 browser news
 calibre library

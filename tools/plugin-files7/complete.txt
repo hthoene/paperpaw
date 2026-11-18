@@ -45,3 +45,4 @@ format-cbz
 format-markdown
 format-epub
 vocabulary
+anki
