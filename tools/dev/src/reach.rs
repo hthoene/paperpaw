@@ -11,11 +11,19 @@
 //!   was left to press (see below). With the emulator's fixtures
 //!   (`--network fixtures`), one not found that asked for data they do
 //!   not give is this error too: it waits for data, it is no dead end.
-//! - `reach.undecided` (a warning): it was not found, and the search
-//!   ended at its bounds: whether a way leads to it is not known. The
-//!   finding says where the search ended. In an app of the size of
-//!   PaperPaw's the search always ends so: what it does not find is not
-//!   decided, never proven unreachable.
+//! - `reach.undecided`: it was not found, and the search ended at its
+//!   bounds: whether a way leads to it is not known. The finding says
+//!   where the search ended. In an app of the size of PaperPaw's the
+//!   search always ends so: what it does not find is not decided, never
+//!   proven unreachable. Where the whole app is looked at (PaperPaw's
+//!   own development) it is an error: the screen is given its declared
+//!   way in ([`ways`]) or, where the checks' device cannot come by it,
+//!   its reason ([`EXEMPT`]). For a plugin of others, a warning.
+//! - `reach.way-lost` (an error): a screen with a declared way in
+//!   ([`ways`]: the steps a reader goes there with, and what they need
+//!   that the search does not come by, a text typed, a book with a
+//!   footnote) is not where the steps end. Where it is, it is reached
+//!   (`reach.declared`, a note) and not searched for.
 //! - A screen that is not looked for is none of these, but a note: one a
 //!   setting offers among its choices (a mode of the sleep screen, shown
 //!   in that one's place) is reached through that setting
@@ -103,69 +111,16 @@ use crate::session::Session;
 use crate::variant::Variant;
 
 mod driver;
+mod exempt;
 pub mod places;
+pub mod ways;
 
 pub use driver::Driver;
+pub use exempt::{EXEMPT, exempt};
 
 /// How often a screen is searched in the same place (over the same
 /// screen), with other parts each time, before those not searched yet.
 pub const SAME_PLACE: usize = 1;
-
-/// Screens the search does not look for, with why: the device shows
-/// them when something happens to it, not where a reader goes with the
-/// buttons, or the checks' device cannot come by them. Each is a note
-/// with its reason; one the buttons lead to after all is a warning (take
-/// it off the list).
-pub const EXEMPT: &[(&str, &str)] = &[
-    (
-        "core.notice-box",
-        "the kernel's notice: it shows it over whatever is open when something is said \
-         (`command.notify`, its own messages) and takes it away after `core.notice-seconds`",
-    ),
-    (
-        "core.low-memory",
-        "the kernel shows it once over the home screen where the shell finds the memory \
-         short with store plugins loaded: nothing pressed opens it",
-    ),
-    (
-        "core.finishing-update",
-        "the shell opens it while a firmware just installed runs on trial, until the restart: \
-         nothing pressed opens it, and it takes no input",
-    ),
-    (
-        "core.placeholder",
-        "it is bound to the standard slots at the lowest priority and shown only where no \
-         plugin gives a slot its screen: in the app every slot has one",
-    ),
-    (
-        "transfer.cable",
-        "the screen of the slot `core.cable`: the kernel opens it when a computer at the \
-         cable asks for the library, not a press",
-    ),
-    (
-        "store.offer",
-        "a page of the first-run setup (a setup step of the store); the checks start with \
-         the setup done",
-    ),
-    (
-        "store.templates",
-        "a page of the first-run setup (a setup step of the store); the checks start with \
-         the setup done",
-    ),
-    (
-        "bluetooth.search",
-        "its plugin asks for a scan first and the emulator has no radio, which refuses it: \
-         the screen closes with a notice, as on a device without one",
-    ),
-];
-
-/// Why `screen` is not looked for, if it is declared so ([`EXEMPT`]).
-pub fn exempt(screen: &str) -> Option<&'static str> {
-    EXEMPT
-        .iter()
-        .find(|(exempt, _)| *exempt == screen)
-        .map(|(_, why)| *why)
-}
 
 /// How far the search goes, and the walk through a screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -865,6 +820,19 @@ pub fn run(context: &Context, report: &mut Report) -> Result<(), String> {
              are not checked.",
         ));
     }
+    // For who writes a declared way in: its steps tried, nothing checked.
+    if let Ok(asked) = std::env::var("PAPERPAW_REACH_TRY") {
+        if let Some(variant) = buttons_only.first() {
+            let screen = asked.split('=').next().unwrap_or_default();
+            let start = ways::WAYS
+                .iter()
+                .find(|way| way.screen == screen)
+                .map(ways::Way::start)
+                .unwrap_or_default();
+            ways::try_out(&mut Driver::anew(context, variant, start)?, &asked);
+        }
+        return Ok(());
+    }
     for variant in alike(&buttons_only, report) {
         check(context, variant, &Limits::default(), report)?;
     }
@@ -1010,6 +978,7 @@ pub fn check(
             !passing.contains(*screen)
                 && exempt(screen).is_none()
                 && chosen_by(&driver.session, screen).is_none()
+                && ways::declared(screen, variant.profile).is_none()
         })
         .cloned()
         .collect();
@@ -1047,6 +1016,8 @@ pub fn check(
     // What the search changed (settings, files) is left behind.
     let asleep = driver.asleep.clone();
     let mut driver = Driver::new(context, variant)?;
+    // The declared ways' devices: their steps, their sessions, their number.
+    let (mut checking, mut sessions, mut by_way) = (0, 0, 0);
     let place = |finding: Finding, screen: &str| {
         finding
             .plugin(plugin_of(context, screen))
@@ -1067,6 +1038,16 @@ pub fn check(
                 ),
             );
             report.add(place(note, screen));
+            continue;
+        }
+        if let Some(way) = ways::declared(screen, variant.profile) {
+            let mut own = Driver::anew(context, variant, way.start())?;
+            for finding in ways::replay(&mut own, way, &home, limits) {
+                report.add(place(finding, screen));
+            }
+            checking += own.steps;
+            sessions += own.fresh;
+            by_way += 1;
             continue;
         }
         let (way, state) = match found.ways.get(screen) {
@@ -1130,15 +1111,31 @@ pub fn check(
                         ),
                     )
                 } else {
-                    Finding::warning(
+                    // In PaperPaw's own app every screen is decided: one
+                    // the search does not find has a declared way in or
+                    // its reason. A plugin of others cannot declare.
+                    let own = context.target.plugins.is_empty();
+                    let undecided = if own {
+                        Finding::error
+                    } else {
+                        Finding::warning
+                    };
+                    undecided(
                         "reach.undecided",
                         screen.clone(),
                         format!(
                             "Not decided whether the buttons lead to it: it was not found, and \
                              {} ({how}). If a way leads to it, it needs what the search \
-                             does not come by (a text typed, data, a radio); if none does, give \
-                             it one, such as a menu entry or a row of another screen.",
-                            found.open.as_deref().unwrap_or("the search ended early")
+                             does not come by (a text typed, data, a radio){}; if none does, \
+                             give it one, such as a menu entry or a row of another screen.",
+                            found.open.as_deref().unwrap_or("the search ended early"),
+                            if own {
+                                ": declare the way (WAYS in tools/dev/src/reach/ways.rs), or why \
+                                 the checks' device cannot come by it (EXEMPT in \
+                                 tools/dev/src/reach/exempt.rs)"
+                            } else {
+                                ""
+                            }
                         ),
                     )
                 };
@@ -1164,20 +1161,13 @@ pub fn check(
                 screen.clone(),
                 format!(
                     "It is declared as not looked for ({why}), but the buttons lead to it, with \
-                     {}: take it off the list (EXEMPT in tools/dev/src/reach.rs).",
+                     {}: take it off the list (EXEMPT in tools/dev/src/reach/exempt.rs).",
                     way.join(", ")
                 ),
             );
             report.add(place(listed, screen));
         }
-        if let Some(finding) = closes(&mut driver, &way, &state, screen, &home) {
-            report.add(place(finding, screen));
-        }
-        let movers = movers(variant);
-        let Some(walked) = walk(&mut driver, &way, &state, &movers, limits) else {
-            continue;
-        };
-        for finding in focus(context, variant, screen, &walked, &movers, &driver) {
+        for finding in on_screen(&mut driver, &way, &state, screen, &home, limits) {
             report.add(place(finding, screen));
         }
     }
@@ -1186,8 +1176,8 @@ pub fn check(
             "reach.searched",
             "reach",
             format!(
-                "{} screens checked; the search looked at {} screens{}{} in {:.1} s ({} steps \
-                 searching, {} checking, {} fresh sessions).",
+                "{} screens checked, {by_way} by their declared ways; the search looked at {} \
+                 screens{}{} in {:.1} s ({} steps searching, {} checking, {} fresh sessions).",
                 screens.len(),
                 found.views,
                 if found.places > 0 {
@@ -1205,13 +1195,31 @@ pub fn check(
                 },
                 (paperpaw_emulator::host::micros() - started) as f32 / 1e6,
                 searched,
-                driver.steps,
-                driver.fresh
+                driver.steps + checking,
+                driver.fresh + sessions
             ),
         )
         .variant(variant.name()),
     );
     Ok(())
+}
+
+/// Closing and the focus on `screen`, where `way` leads (seen as `state`).
+fn on_screen(
+    driver: &mut Driver<'_>,
+    way: &[String],
+    state: &str,
+    screen: &str,
+    home: &str,
+    limits: &Limits,
+) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    findings.extend(closes(driver, way, state, screen, home));
+    let movers = movers(&driver.variant);
+    if let Some(walked) = walk(driver, way, state, &movers, limits) {
+        findings.extend(focus(screen, &walked, &movers, driver));
+    }
+    findings
 }
 
 /// Presses of back that may be needed to close a screen (one that goes
@@ -1270,14 +1278,8 @@ fn closes(
 
 /// What moving the focus through `screen` found: no focus shown, parts
 /// it never reaches (if every place it goes was found), a trap.
-fn focus(
-    context: &Context,
-    variant: &Variant,
-    screen: &str,
-    walked: &Walked,
-    movers: &[String],
-    driver: &Driver<'_>,
-) -> Vec<Finding> {
+fn focus(screen: &str, walked: &Walked, movers: &[String], driver: &Driver<'_>) -> Vec<Finding> {
+    let (context, variant) = (driver.context, &driver.variant);
     let mut findings = Vec::new();
     // One part alone is what confirm acts on, focus shown or not.
     if walked.targets.len() < 2 {
