@@ -155,3 +155,22 @@ fn opened_for_no_setting_or_an_unknown_one_it_changes_nothing() {
         }
     }
 }
+
+#[test]
+fn a_widget_of_a_plugin_that_is_not_installed_names_the_plugin_not_its_key() {
+    for device in DEVICES {
+        let mut app = editor(
+            device,
+            Shared::memory("[sleep]\nwidgets = home.clock, gone.widget.today\n", &[]),
+        );
+        assert_eq!(
+            rows(&mut app),
+            ["Clock", "Not installed: gone", "Add a widget"]
+        );
+        // The widget stays in the setting; it can be removed.
+        assert_eq!(list(&app), "home.clock, gone.widget.today");
+        choose(&mut app, "Not installed: gone");
+        choose(&mut app, "Remove");
+        assert_eq!(list(&app), "home.clock");
+    }
+}
