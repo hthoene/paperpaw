@@ -45,16 +45,13 @@ jobs:
   # end of this group: it passes only when all three parts below passed (not
   # skipped, not cancelled). The parts run side by side, which takes the
   # lint and the feature builds of the tests off the path of the workspace tests.
+  # No CARGO_PROFILE_DEV_DEBUG here or in the test jobs: crates/paperpaw-epub-family/tests/allocation.rs
+  # finds the refused allocation by symbol names in a backtrace, which needs the dev
+  # profile's `limited` debug info (`line-tables-only` failed it, #3747).
   lint:
     name: Format, lint, docs
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    env:
-      # Less debug information than the dev profile's `limited`: shorter compiles and
-      # links of hundreds of test programs, a smaller cache; panics still name
-      # file and line. Every job with `shared-key: check` has the same value: the
-      # cache key hashes the CARGO_* variables.
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
@@ -94,8 +91,6 @@ jobs:
     name: Tests
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    env:
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only # as the lint job's
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
@@ -122,8 +117,6 @@ jobs:
     name: Tests (unit and doc tests)
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    env:
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only # as the lint job's
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
@@ -174,12 +167,6 @@ jobs:
     name: Tests (the app)
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    env:
-      # Less debug information than the dev profile's `limited`: shorter compiles and
-      # links of hundreds of test programs, a smaller cache; panics still name
-      # file and line. Every job with `shared-key: check` has the same value: the
-      # cache key hashes the CARGO_* variables.
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
@@ -199,12 +186,6 @@ jobs:
     name: Tests (feature builds)
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    env:
-      # Less debug information than the dev profile's `limited`: shorter compiles and
-      # links of hundreds of test programs, a smaller cache; panics still name
-      # file and line. Every job with `shared-key: check` has the same value: the
-      # cache key hashes the CARGO_* variables.
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
@@ -226,12 +207,6 @@ jobs:
     name: Tests (feature builds, the rest)
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    env:
-      # Less debug information than the dev profile's `limited`: shorter compiles and
-      # links of hundreds of test programs, a smaller cache; panics still name
-      # file and line. Every job with `shared-key: check` has the same value: the
-      # cache key hashes the CARGO_* variables.
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
@@ -258,12 +233,6 @@ jobs:
     name: Tests (feature builds, the app)
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
-    env:
-      # Less debug information than the dev profile's `limited`: shorter compiles and
-      # links of hundreds of test programs, a smaller cache; panics still name
-      # file and line. Every job with `shared-key: check` has the same value: the
-      # cache key hashes the CARGO_* variables.
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (branch head)
