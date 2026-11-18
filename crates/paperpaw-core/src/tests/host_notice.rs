@@ -3,11 +3,11 @@
 //! a plugin's screen bound there still wins.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::Params;
 
 /// Fills the notice slot as the interface-6 menu did.
-fn own_notice() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn own_notice() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("on.notice"),

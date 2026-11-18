@@ -70,8 +70,8 @@ pub(crate) fn split(folder: &str, key: &str) -> String {
 
 /// Where a plugin keeps what it keeps for the book at `book` in folder
 /// `folder` of `BookData` (registered with
-/// `Items::add_book_cache` or
-/// `Items::add_book_data`), named `prefix` and
+/// `Staging::add_book_cache` or
+/// `Staging::add_book_data`), named `prefix` and
 /// the book's `key`: in the part of the folder of the key's first two
 /// digits, `<folder>/<2 digits>/<prefix><key>`, so that no folder holds
 /// thousands of entries (a memory card looks through a folder one entry

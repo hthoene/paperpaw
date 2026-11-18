@@ -131,8 +131,8 @@ fn the_german_texts_cover_every_english_plugin_key() {
 
 mod kernel_side {
     use super::*;
-    use crate::Items;
     use crate::Kernel;
+    use crate::Staging;
     use paperpaw_sdk::{
         Canvas, Handled, Id, Manifest, Priority, RegisterError, Version, builtin::slots,
     };
@@ -152,7 +152,7 @@ mod kernel_side {
             Handled::No
         }
     }
-    fn home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    fn home() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
         |r| {
             const HOME: Id = Id::new_static("h.home");
             r.add_fake(crate::testing::FakeSpec::new(

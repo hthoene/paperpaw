@@ -4,7 +4,7 @@ use crate::id::Id;
 
 /// How many of a screen may be open at once (`instances`).
 /// Opening one that is open already goes back to it: the screens above it
-/// close, as with [`Command::BackTo`], and it hears the params it was
+/// close, as with `Ask::BackTo`, and it hears the params it was
 /// opened with (`on_reopen`). *Back* then leaves it in one
 /// press, as if it had been opened once. Constants of one type, so more
 /// can come without a new plugin interface.
@@ -31,7 +31,7 @@ impl Default for Instances {
 
 /// When a screen shows the row of hints for the buttons below it, on
 /// devices that have such a row (see
-/// `Items::set_screen_hints`).
+/// `Staging::set_screen_hints`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum HintVisibility {
@@ -40,7 +40,7 @@ pub enum HintVisibility {
     #[default]
     Shown,
     /// For a few seconds after one of the buttons in the row was pressed
-    /// (or [`Command::ShowHints`](crate::Command::ShowHints)), over its
+    /// (or `Ask::ShowHints`), over its
     /// bottom edge: the screen has all of the screen, e.g. the reader.
     OnPress,
     /// Never.
@@ -79,7 +79,7 @@ impl Hint {
 
 /// Tells one opened screen from every other, also from another opening
 /// of the same screen: as long as it is open, through being made anew
-/// (see [`StackEntry::key`], `Cx::close`).
+/// (see [`StackEntry::key`], `Turn::close`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScreenKey(u32);
 
@@ -115,7 +115,7 @@ pub enum ShowsThrough {
     FullScreen,
 }
 
-/// An open screen, as `Env::stack` lists them.
+/// An open screen, as `Place::stack` lists them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct StackEntry {
@@ -162,12 +162,12 @@ impl StackEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CloseCause {
-    /// *Back* ([`Command::Back`], the back button or gesture).
+    /// *Back* (`Ask::Back`, the back button or gesture).
     Back,
     /// A tap outside an overlay (see `outside`).
     TapOutside,
     /// Its slot, or a screen below it, shown again: the screens above it
-    /// go ([`Command::OpenSlot`], [`Command::BackTo`]).
+    /// go (`Ask::OpenSlot`, `Ask::BackTo`).
     Slot,
 }
 

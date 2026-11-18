@@ -12,7 +12,7 @@ use paperpaw_sdk::{Params, builtin::groups};
 /// A kernel with two plugins: `probe` (a number, a text, a secret, two
 /// screens) and `other` (a guarded switch, a number, a screen).
 fn kernel() -> crate::Kernel {
-    use crate::Items;
+    use crate::Staging;
     use paperpaw_sdk::{Manifest, Version};
     struct Empty;
     impl crate::testing::Fake for Empty {
@@ -29,7 +29,7 @@ fn kernel() -> crate::Kernel {
     fn screens(
         names: &'static [&'static str],
         settings: fn() -> Vec<SettingSpec>,
-    ) -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
+    ) -> impl Fn(&mut Staging) -> Result<(), paperpaw_sdk::RegisterError> {
         move |r| {
             for id in names {
                 r.add_fake(crate::testing::FakeSpec::new(

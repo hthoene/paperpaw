@@ -9,8 +9,8 @@ mod look_more;
 mod reading;
 mod widget_settings;
 
-use crate::Items;
 use crate::Place;
+use crate::Staging;
 use crate::kit::action::ActionHint;
 use crate::kit::action::FixedAction;
 use crate::kit::library;
@@ -50,7 +50,7 @@ pub(crate) fn manifest() -> Manifest {
 
 /// The kernel's own contributions; `device_name` is the default of the
 /// device's name.
-pub(crate) fn items(device_name: &str, r: &mut Items) -> Result<(), RegisterError> {
+pub(crate) fn items(device_name: &str, r: &mut Staging) -> Result<(), RegisterError> {
     register_screen_actions(r)?;
     register_moving(r)?;
     register_device_actions(r)?;
@@ -148,7 +148,7 @@ const ALWAYS: &str = "core.reading-app.always";
 /// file manager's) lists the readers of the book, the other ways to open it
 /// plugins add (`menus::OPEN_WITH`) and *Always open it with…*: the one
 /// chosen opens it this time.
-fn register_reading_apps(r: &mut Items) -> Result<(), RegisterError> {
+fn register_reading_apps(r: &mut Staging) -> Result<(), RegisterError> {
     use crate::kit::readers::{self, Choice};
     #[cfg(not(feature = "native-reading"))]
     register_open_with(r)?;
@@ -222,7 +222,7 @@ fn register_reading_apps(r: &mut Items) -> Result<(), RegisterError> {
 /// reader (`native-reading`): the one-time choice there is the file
 /// manager's, and this one's resolver is interface 6's.
 #[cfg(not(feature = "native-reading"))]
-fn register_open_with(r: &mut Items) -> Result<(), RegisterError> {
+fn register_open_with(r: &mut Staging) -> Result<(), RegisterError> {
     use crate::kit::readers;
     // What it does is asked once the book is known (`BOOK_CHOSEN` below).
     static OPEN_WITH: [FixedAction; 1] =
@@ -250,7 +250,7 @@ fn register_open_with(r: &mut Items) -> Result<(), RegisterError> {
 
 /// The actions screens give a meaning of their own (with their hints in
 /// the row), and how a screen takes gestures.
-fn register_screen_actions(r: &mut Items) -> Result<(), RegisterError> {
+fn register_screen_actions(r: &mut Staging) -> Result<(), RegisterError> {
     static SCREEN_ACTIONS: [FixedAction; 10] = [
         FixedAction::new(actions::NEXT_PAGE, "core.action.next-page")
             .hint(ActionHint::Icon("chevron-down")),
@@ -277,7 +277,7 @@ fn register_screen_actions(r: &mut Items) -> Result<(), RegisterError> {
 
 /// The actions screens are moved and left with, and what opens the
 /// kernel's slots and menus.
-fn register_moving(r: &mut Items) -> Result<(), RegisterError> {
+fn register_moving(r: &mut Staging) -> Result<(), RegisterError> {
     static MOVING: [FixedAction; 11] = [
         FixedAction::new(actions::REFRESH_SCREEN, "core.action.refresh-screen").handler(
             |_, _, out| {
@@ -328,7 +328,7 @@ fn register_moving(r: &mut Items) -> Result<(), RegisterError> {
 
 /// The actions of the device: cleaning up, screenshots, the tools,
 /// sleep and night mode.
-fn register_device_actions(r: &mut Items) -> Result<(), RegisterError> {
+fn register_device_actions(r: &mut Staging) -> Result<(), RegisterError> {
     static DEVICE: [FixedAction; 5] = [
         FixedAction::new(actions::CLEAN_UP, "core.action.clean-up")
             .handler(|env, _, out| ask_clean_up(env, out)),
@@ -541,7 +541,7 @@ impl Catalog {
 
 /// The library service and what plugins keep for books, which follow
 /// the books.
-fn register_library(r: &mut Items) -> Result<(), RegisterError> {
+fn register_library(r: &mut Staging) -> Result<(), RegisterError> {
     // The catalog, made anew or caught up as a job: a few books a step,
     // after the frame and while no input waits; views hear
     // CATALOG_CHANGED.
@@ -675,7 +675,7 @@ pub(crate) struct State {
     recorded: core::cell::RefCell<Option<(String, u8)>>,
 }
 
-fn register_reading(r: &mut Items) -> Result<(), RegisterError> {
+fn register_reading(r: &mut Staging) -> Result<(), RegisterError> {
     // The library service follows the reading, whichever plugins
     // show it: how far a book is read, in its details and, when it is
     // opened, closed or finished, beside the catalog (folded into it at a
@@ -774,7 +774,7 @@ fn declare_clean_up(env: &crate::Place<'_>, out: &mut Asks) {
 
 /// The kernel's slots, with a placeholder under each, and its own
 /// screens.
-fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
+fn register_screens(r: &mut Staging) -> Result<(), RegisterError> {
     for (id, title) in [
         (slots::HOME, "core.slot.home"),
         (slots::READER, "core.slot.reader"),
@@ -803,7 +803,7 @@ fn register_screens(r: &mut Items) -> Result<(), RegisterError> {
 
 /// The main menu, the tools, the quick panel and the settings' sections
 /// and groups.
-fn register_menus(r: &mut Items) -> Result<(), RegisterError> {
+fn register_menus(r: &mut Staging) -> Result<(), RegisterError> {
     // Every reader's submenu "More" (`menus::READER_MORE`): a submenu is
     // an action named like its menu, which the menu shows as a submenu
     // and which opens the menu when bound to a key. The same for what
@@ -1056,7 +1056,7 @@ static LIBRARY: [SettingSpec; 1] = [SettingSpec::text(
 .kept_on_reset()
 .description("core.setting.library-folder.help")];
 
-fn register_general_settings(r: &mut Items) -> Result<(), RegisterError> {
+fn register_general_settings(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_settings(&GENERAL)?;
     r.add_settings(&LIBRARY)?;
     r.set_menu_need(settings::MONO_TEXT, paperpaw_sdk::MenuNeed::BlackAndWhite)?;
@@ -1220,7 +1220,7 @@ static LOOK: [SettingSpec; 14] = [
     .description("core.setting.ui-text-curve.help"),
 ];
 
-fn register_look_settings(r: &mut Items) -> Result<(), RegisterError> {
+fn register_look_settings(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_settings(&LOOK)?;
     r.add_settings(&look_more::LOOK_MORE)?;
     r.add_settings(&widget_settings::ALL_WIDGETS)
@@ -1390,7 +1390,7 @@ static DEVICE: [SettingSpec; 17] = [
     .description("core.setting.frontlight-warmth.help"),
 ];
 
-fn register_device_settings(r: &mut Items) -> Result<(), RegisterError> {
+fn register_device_settings(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_settings(&DEVICE)?;
     r.set_menu_need(settings::SLEEP_AFTER, paperpaw_sdk::MenuNeed::Sleep)?;
     r.set_menu_need(settings::ROTATION, paperpaw_sdk::MenuNeed::Rotation)?;
@@ -1452,7 +1452,7 @@ static COLOR_SETTINGS: [SettingSpec; 4] = [
     .description("core.setting.color-own.help"),
 ];
 
-fn register_colors(r: &mut Items) -> Result<(), RegisterError> {
+fn register_colors(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_settings(&COLOR_SETTINGS)?;
     for id in [
         settings::TEXT_COLOR,
@@ -1541,7 +1541,7 @@ fn items_line<'e>(
 
 /// The time of day and the battery, for status lines; the line of a
 /// place's items.
-fn register_time_and_battery(r: &mut Items) -> Result<(), RegisterError> {
+fn register_time_and_battery(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_settings(&TIME)?;
     r.add_status_line(
         crate::kit::status::StatusLineSpec::new(
@@ -1619,7 +1619,7 @@ fn register_time_and_battery(r: &mut Items) -> Result<(), RegisterError> {
 }
 
 /// The key maps and the first-run setup, and the kernel's words.
-fn register_keymaps_and_setup(r: &mut Items) -> Result<(), RegisterError> {
+fn register_keymaps_and_setup(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_keymap(Cow::Borrowed(include_str!("../keymaps/default.ini")))?;
     r.add_keymap_preset(
         keymap_presets::TWO_BUTTONS,
@@ -1710,7 +1710,7 @@ static SPACE: [SettingSpec; 1] = [SettingSpec::choice(
 
 /// The widgets for room between the others: a gap of a set height, and
 /// the room left (see `paperpaw_sdk::widgets`).
-fn register_spaces(r: &mut Items) -> Result<(), RegisterError> {
+fn register_spaces(r: &mut Staging) -> Result<(), RegisterError> {
     // As `widgets::settings_group` makes it, kept in the program (#248, B).
     static SPACE_GROUP: SettingGroupSpec =
         SettingGroupSpec::new(Id::new_static(widgets::SPACE), "core.widget.space");

@@ -7,7 +7,7 @@
 extern crate std;
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::WorkSpec;
 use core::cell::Cell;
 use paperpaw_sdk::Params;
@@ -51,7 +51,7 @@ fn connect(socket: &'static str) -> Ask {
     Ask::connect(Id::new_static(socket), "mail.example.org", 993, events)
 }
 
-fn socket_work(kept: SocketWork) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn socket_work(kept: SocketWork) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         for id in ["ws.home", "ws.page"] {
             r.add_fake(crate::testing::FakeSpec::new(

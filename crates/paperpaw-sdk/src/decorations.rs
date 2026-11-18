@@ -12,10 +12,10 @@
 //!   [`groups::MARKS`]: the plugin gives
 //!   the default, themes and users the rest. `Decoration::of_role` reads
 //!   it.
-//! - A *decorator* ([`DecoratorSpec`], `Items::add_decorator`) gets the
+//! - A *decorator* ([`DecoratorSpec`], `Staging::add_decorator`) gets the
 //!   words of a page ([`PageText`]) and gives back ranges with their roles
 //!   ([`Decorated`]). Readers ask the decorators ([`Decorators`], in
-//!   `Env::decorators`) once a page is laid out, keep the answer with the
+//!   `Place::decorators`) once a page is laid out, keep the answer with the
 //!   page, and ask again when a decorator's [`signature`](Decorators::signature)
 //!   changes. Where marks meet on a word, their decorations are
 //!   [`combined`](Decoration::combined), the earlier decorator winning an

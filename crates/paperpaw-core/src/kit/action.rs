@@ -100,7 +100,7 @@ impl ActionSpec {
     }
 
     /// No handler of another plugin is put in its place
-    /// (`Items::override_action`):
+    /// (`Staging::override_action`):
     /// for actions that keep the device safe, such as locking it.
     pub fn sealed(mut self) -> Self {
         self.extra().sealed = true;
@@ -146,7 +146,7 @@ impl fmt::Debug for ActionSpec {
 pub type FixedHandler = fn(&Place<'_>, &Params, &mut crate::Asks);
 
 /// An action kept in the program: as an [`ActionSpec`], in a `static`
-/// list (`Items::add_actions`), so
+/// list (`Staging::add_actions`), so
 /// it takes next to no memory where an [`ActionSpec`] takes some 90
 /// bytes. Its handler is a function ([`FixedHandler`]); an action whose
 /// handler needs state of its own is an [`ActionSpec`].

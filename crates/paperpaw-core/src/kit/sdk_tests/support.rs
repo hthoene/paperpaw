@@ -1,4 +1,4 @@
-//! What the tests of the UI building blocks share: an `Env` made without
+//! What the tests of the UI building blocks share: an `Place` made without
 //! a kernel (the UI settings as the kernel defines them, the UI and icon
 //! fonts of fonts-default), a framebuffer to draw into and a way to find
 //! what was drawn outside a rectangle, and pointer samples.
@@ -278,7 +278,7 @@ pub fn middle(rect: Rect) -> Point {
     )
 }
 
-/// A fresh output for a `Cx`.
+/// A fresh output for a `Turn`.
 pub fn output() -> Output {
     Output::default()
 }

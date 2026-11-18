@@ -1,10 +1,10 @@
 //! Bluetooth Low Energy (see [ADR 0027](../../../docs/adr/0027-bluetooth.md)):
-//! `Env::bluetooth` is `Some` where the kernel
+//! `Place::bluetooth` is `Some` where the kernel
 //! may use a radio ([`Capabilities::bluetooth`](crate::Capabilities)).
 //!
 //! A plugin that declares [`Uses::BLUETOOTH`](crate::Uses::BLUETOOTH)
 //! asks with the functions of this module, which write
-//! [`Command::Bluetooth`], and hears everything as its own events, each a
+//! `Ask::Bluetooth`, and hears everything as its own events, each a
 //! [`BtEvent`]: a scan's on the event it names ([`scan`]), a link's on the
 //! link's ([`connect`]), being seen on its own ([`advertise`]), a GATT
 //! service's on the service's ([`ServiceSpec`]). Every command is
@@ -24,7 +24,7 @@
 //!   kernel's own question: a plugin only asks.
 //! - **Being seen**: [`advertise`] for a while, and a GATT server of
 //!   services declared at registration
-//!   (`Items::add_gatt_service`):
+//!   (`Staging::add_gatt_service`):
 //!   centrals' reads and writes come as events, answered with `respond`
 //!   or `refuse`, and `notify_centrals` sends to those subscribed.
 //! - **Keys of a remote or a keyboard**: a bonded device that types is the
@@ -1177,7 +1177,7 @@ impl CharacteristicSpec {
 }
 
 /// A service of the device's own GATT server, declared at registration
-/// (`Items::add_gatt_service`):
+/// (`Staging::add_gatt_service`):
 /// centrals' reads, writes and subscriptions of its characteristics come
 /// as `events`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1282,7 +1282,7 @@ impl Bluetooth {
     }
 }
 
-/// Bluetooth as the plugin running sees it (`Env::bluetooth`):
+/// Bluetooth as the plugin running sees it (`Place::bluetooth`):
 /// the radio, and the bonded devices given to it (all of them, for the
 /// Bluetooth manager).
 #[derive(Clone, Copy)]

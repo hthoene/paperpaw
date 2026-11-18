@@ -16,7 +16,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use paperpaw_core::Ask;
-use paperpaw_core::Items;
+use paperpaw_core::Staging;
 use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::sdk::bluetooth::BtRequest;
 use paperpaw_core::sdk::bluetooth::{
@@ -115,7 +115,7 @@ impl Pulse {
     }
 }
 
-fn pulse(kept: Pulse) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn pulse(kept: Pulse) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let go = Id::parse(&format!("{}.go", kept.id)).unwrap();
         // A kernel made again (as after a restart) is the one driven.

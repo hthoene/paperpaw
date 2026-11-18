@@ -3,7 +3,7 @@
 #![allow(clippy::unwrap_used, reason = "tests fail on unexpected errors")]
 
 use crate::Ask;
-use crate::Items;
+use crate::Staging;
 use crate::kit::action::ActionSpec;
 use alloc::{format, rc::Rc, string::String, vec::Vec};
 use paperpaw_i18n::{Catalog, CatalogFile, MAX_READ};
@@ -30,7 +30,7 @@ impl CatalogFile for File {
 const FILL: Id = Id::new_static("cache.fill");
 const CHECK: Id = Id::new_static("cache.check");
 
-fn reader() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn reader() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_action(ActionSpec::new(FILL, "Fill").handler(|env, _, _| {
             for n in 0..1000 {

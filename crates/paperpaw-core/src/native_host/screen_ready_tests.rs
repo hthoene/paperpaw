@@ -2,7 +2,7 @@
 //! instance, only to subscribers, never for one closed before it was drawn.
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
-use crate::Items;
+use crate::Staging;
 use crate::native_host::{
     codec,
     commands::CommandStage,
@@ -86,7 +86,7 @@ impl crate::testing::Fake for Cover {
     }
 }
 
-fn screens() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn screens() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         for name in ["s.one", "s.two"] {
             r.add_fake(crate::testing::FakeSpec::new(

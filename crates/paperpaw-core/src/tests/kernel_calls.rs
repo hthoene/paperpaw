@@ -2,7 +2,7 @@
 //! back, readings that make no sense.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_platform::{SystemStatus, WallClock};
 use paperpaw_sdk::semantics::Role;
 
@@ -32,7 +32,7 @@ impl crate::testing::Fake for Rows {
 }
 
 /// Rows of which one has the focus, moved by *Down*.
-fn rows_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn rows_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("rows.screen"),
@@ -170,7 +170,7 @@ fn wall_clock_readings_that_make_no_sense_do_not_panic() {
 }
 
 /// Switches the device off as soon as PaperPaw started.
-fn off_at_start() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn off_at_start() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.on(paperpaw_sdk::builtin::events::STARTED, |k, p| {
             k.with_event(&paperpaw_sdk::builtin::events::STARTED, p, |_, _, out| {
@@ -192,7 +192,7 @@ struct Drive {
     log: Log,
 }
 
-fn drive(kept: Drive) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn drive(kept: Drive) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         use paperpaw_sdk::builtin::events;
         r.on(events::STARTED, |k, p| {
@@ -302,7 +302,7 @@ const PLAYED: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Played> =
     paperpaw_sdk::event::Event::new("ear.played");
 
 /// Hears whether its sound played.
-fn listener(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn listener(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         crate::tests::hear_into(&kept);
         r.on(PLAYED, |_, p| {

@@ -286,7 +286,7 @@ fn more_than_sixteen_screens_fail_closed() {
 /// A kernel with the screens of plugin `lock` (`lock.screen` guards the
 /// device) and of plugin `probe`.
 fn guarded_kernel() -> crate::Kernel {
-    use crate::Items;
+    use crate::Staging;
     use paperpaw_sdk::{Manifest, Version};
     struct Plain;
     impl crate::testing::Fake for Plain {
@@ -312,7 +312,7 @@ fn guarded_kernel() -> crate::Kernel {
 
     fn screens(
         names: &'static [&'static str],
-    ) -> impl Fn(&mut Items) -> Result<(), paperpaw_sdk::RegisterError> {
+    ) -> impl Fn(&mut Staging) -> Result<(), paperpaw_sdk::RegisterError> {
         move |r| {
             for id in names {
                 let guard = id.ends_with(".screen");

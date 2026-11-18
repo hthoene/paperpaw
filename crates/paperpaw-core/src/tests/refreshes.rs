@@ -2,7 +2,7 @@
 //! the periodic full refresh.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::Params;
 
 const PAGE: Id = Id::new_static("r.page");
@@ -56,7 +56,7 @@ impl crate::testing::Fake for Page {
     }
 }
 
-fn refreshing_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn refreshing_items() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             PAGE,
@@ -230,7 +230,7 @@ impl crate::testing::Fake for OverlayHomeScreen {
 }
 
 /// A valid home screen that draws only an overlay, as a plugin may do.
-fn overlay_home() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn overlay_home() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         const HOME: Id = Id::new_static("initial.home");
         r.add_fake(crate::testing::FakeSpec::new(

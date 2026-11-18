@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use paperpaw_core::Ask;
-use paperpaw_core::Items;
+use paperpaw_core::Staging;
 use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::sdk::builtin::events;
 use paperpaw_core::sdk::firmware::{
@@ -52,7 +52,7 @@ struct Asker {
     states: Rc<RefCell<Vec<FirmwareState>>>,
 }
 
-fn asker(kept: Asker) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn asker(kept: Asker) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         ASKER.with(|asker| {
             *asker.borrow_mut() = Some((kept.queue.clone(), kept.states.clone()));

@@ -5,7 +5,7 @@
 #![allow(clippy::unwrap_used, reason = "fixture errors fail tests")]
 extern crate std;
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::native_host::{
     native_instances::{NativeInstance, NativeLease},
     native_screen::Dispatch,
@@ -71,7 +71,7 @@ impl crate::testing::Fake for Dialog {
 }
 
 /// A plugin that serves the keyboard and the confirm slot.
-fn serves() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn serves() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             KEYBOARD_SCREEN,
@@ -125,7 +125,7 @@ impl crate::testing::Fake for Lock {
 }
 
 /// A plugin `id` with a screen `<id>.lock` that guards the device.
-fn locks_items(kept: &'static str) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn locks_items(kept: &'static str) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::try_parse(&std::format!("{}.lock", kept)).unwrap(),

@@ -2,7 +2,7 @@
 //! what it opens itself.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use core::cell::Cell;
 use paperpaw_sdk::Params;
 
@@ -43,7 +43,7 @@ impl crate::testing::Fake for Plain {
 }
 
 /// A lock, locked until *Select*; *Menu* opens its own keyboard.
-fn guard_plugin(kept: Rc<Cell<bool>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn guard_plugin(kept: Rc<Cell<bool>>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let locked = kept.clone();
         r.add_fake(crate::testing::FakeSpec::new(

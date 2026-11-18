@@ -29,7 +29,7 @@ pub use paperpaw_sdk::semantics::{Part, Role};
 pub use paperpaw_sdk::{DirEntry, Id, MemoryStorage, Params, Storage, StorageError};
 
 use paperpaw_core::Ask;
-use paperpaw_core::Items;
+use paperpaw_core::Staging;
 use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::kit::menus::MenuEntry;
 use paperpaw_sdk::replies::Typed;
@@ -257,7 +257,7 @@ thread_local! {
 
 /// What registers a screen that does something and closes in one callback
 /// (#267).
-fn test_closer(r: &mut Items) -> Result<(), RegisterError> {
+fn test_closer(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_action(
         ActionSpec::new(Id::new_static("test-closer.go"), "test-closer").handler(|_, _, _| {}),
     )?;

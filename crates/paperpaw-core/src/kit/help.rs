@@ -80,7 +80,7 @@ impl HelpHint {
 }
 
 /// Adds `hints` for `screen` through `contribute` (the kernel's
-/// `Items::contribute`).
+/// `Staging::contribute`).
 pub fn add(
     contribute: &mut dyn FnMut(Id, String) -> Result<(), RegisterError>,
     screen: &str,

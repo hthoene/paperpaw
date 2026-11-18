@@ -2,7 +2,7 @@
 //! while it is open.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::{MemoryStorage, Params};
 
@@ -76,7 +76,7 @@ impl crate::testing::Fake for Other {
 /// A reader that keeps a book's own settings while it is open and asks
 /// for a timer when a setting changes; a menu over the lower half of the
 /// screen and a full screen, each saying when its timer comes.
-fn book_plugin(kept0: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn book_plugin(kept0: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept0.clone();
         r.add_fake(crate::testing::FakeSpec::new(

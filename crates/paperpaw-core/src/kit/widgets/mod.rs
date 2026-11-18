@@ -1,7 +1,7 @@
 //! Widgets: small boxes plugins contribute for screens that show them,
 //! such as the home screen's pages (a clock, the book being read, today's
 //! reading, a grid of tools). Any plugin adds widgets with
-//! `Items::add_widget`; screens let
+//! `Staging::add_widget`; screens let
 //! the user choose which to show and where.
 //!
 //! A screen that shows a widget makes it (`Widgets::make`) and keeps
@@ -34,7 +34,7 @@
 //! (`next_minute`).
 //!
 //! The places where widgets show are [`WidgetPlace`]s
-//! (`Items::add_widget_place`):
+//! (`Staging::add_widget_place`):
 //! the settings that list them, and whether they show in a grid or above
 //! each other. A plugin asks whether any place shows its widget
 //! ([`Widgets::shown`]), e.g. to fetch the weather only then; the slot
@@ -139,7 +139,7 @@ pub mod categories {
 }
 
 /// A kind of widgets of a plugin's own
-/// (`Items::add_widget_category`),
+/// (`Staging::add_widget_category`),
 /// beside [`categories`]: its id, the translation key of its name, and
 /// its icon. Screens offering widgets list such kinds after the
 /// kernel's.

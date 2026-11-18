@@ -798,7 +798,7 @@ mod tests {
     use paperpaw_platform::Instant;
 
     fn screens_kernel() -> crate::Kernel {
-        use crate::Items;
+        use crate::Staging;
         use paperpaw_sdk::{Manifest, RegisterError, Version};
         struct Empty;
         impl crate::testing::Fake for Empty {
@@ -807,7 +807,7 @@ mod tests {
                 paperpaw_sdk::Handled::No
             }
         }
-        fn screens() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+        fn screens() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
             |r| {
                 for id in ["probe.base", "probe.old", "probe.new"] {
                     r.add_fake(crate::testing::FakeSpec::new(

@@ -125,7 +125,7 @@ fn fixed_stack_and_deferred_cleanup_have_a_bounded_resident_size() {
 
 #[test]
 fn cleanup_sweep_recovers_more_than_sixteen_closures_and_preserves_live_instances() {
-    use crate::Items;
+    use crate::Staging;
     use alloc::boxed::Box;
     use paperpaw_sdk::{Manifest, Params, RegisterError, Version};
     struct Live;
@@ -135,7 +135,7 @@ fn cleanup_sweep_recovers_more_than_sixteen_closures_and_preserves_live_instance
         }
         fn draw(&mut self, _: &mut paperpaw_graphics::Canvas<'_>, _: &crate::Place<'_>) {}
     }
-    fn live() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    fn live() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
         |registrar| {
             registrar.add_fake(crate::testing::FakeSpec::new(
                 Id::new_static("live.screen"),

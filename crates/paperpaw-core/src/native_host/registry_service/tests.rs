@@ -4,7 +4,7 @@
 extern crate std;
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::abi7::services_wire::service_schema;
 use crate::kit::action::ActionSpec;
 use crate::native_host::host_services::{Caller, HostServices};
@@ -35,7 +35,7 @@ fn id(text: &str) -> Id {
     Id::parse(text).unwrap()
 }
 
-fn demo(kept: Demo) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn demo(kept: Demo) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             id("demo.main"),
@@ -68,7 +68,7 @@ fn demo_manifest() -> Manifest {
 }
 
 /// A second, bare plugin.
-fn bare() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn bare() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |_| Ok(())
 }
 
@@ -604,7 +604,7 @@ fn the_generation_is_the_kernels_counter_and_a_change_of_the_same_size_bumps_it(
 
 /// A plugin whose id does not fit `reg_plugin.id` (64 bytes): no check of the
 /// manifest bounds it.
-fn long_id() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn long_id() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |_| Ok(())
 }
 

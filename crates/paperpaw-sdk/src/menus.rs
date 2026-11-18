@@ -1,5 +1,5 @@
 /// What a menu entry needs to be offered (see
-/// `Items::set_menu_need`), so
+/// `Staging::set_menu_need`), so
 /// menus stay short on every device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -32,10 +32,10 @@ pub enum MenuNeed {
     /// hidden elsewhere.
     Colors,
     /// A device where PaperPaw manages Wi-Fi itself
-    /// (`Env::wifi`), hidden elsewhere.
+    /// (`Place::wifi`), hidden elsewhere.
     Wifi,
     /// A device whose firmware PaperPaw is, updated by PaperPaw
-    /// (`Env::firmware`), hidden elsewhere.
+    /// (`Place::firmware`), hidden elsewhere.
     Firmware,
     /// A device whose panel shows black and white alone
     /// ([`Capabilities::black_and_white`](crate::Capabilities)), hidden
@@ -43,7 +43,7 @@ pub enum MenuNeed {
     BlackAndWhite,
     /// A front light PaperPaw sets ([`Capabilities::frontlight`](crate::Capabilities)).
     Frontlight,
-    /// A Bluetooth radio the kernel uses (`Env::bluetooth`),
+    /// A Bluetooth radio the kernel uses (`Place::bluetooth`),
     /// hidden elsewhere.
     Bluetooth,
     /// A device that can do a [`Capability`](crate::Capability) (new

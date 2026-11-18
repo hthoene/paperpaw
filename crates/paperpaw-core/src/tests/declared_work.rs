@@ -4,7 +4,7 @@
 extern crate std;
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 
 use crate::WorkSpec;
 use crate::tests::{hear_into, heard};
@@ -42,7 +42,7 @@ impl crate::testing::Fake for Blank {
     }
 }
 
-fn work_plugin(kept: WorkPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn work_plugin(kept: WorkPlugin) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("wk.home"),
@@ -301,7 +301,7 @@ fn offline_holds_network_work_back() {
 }
 
 /// Says something when its events come, or its action runs.
-fn sayer_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn sayer_items() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         // Notices need a screen to show them.
         r.add_fake(crate::testing::FakeSpec::new(

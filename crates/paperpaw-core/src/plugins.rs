@@ -56,7 +56,7 @@ impl Shared {
 /// What adds a plugin's contributions: the kernel's own function, a plugin
 /// of data's, a closure given to the builder, or an old `Plugin`'s
 /// `register` in an adapter ([`Kernel::register_plugin`]).
-pub(crate) type Adds<'a> = &'a dyn Fn(&mut Items) -> Result<(), RegisterError>;
+pub(crate) type Adds<'a> = &'a dyn Fn(&mut Staging) -> Result<(), RegisterError>;
 
 impl Kernel {
     /// Registers what `adds` adds under `manifest`, or only lists it if the
@@ -107,11 +107,8 @@ impl Kernel {
             self.warn(source(), None, message);
             return self.list_plugin(manifest, PluginState::Failed, true);
         }
-        let mut staging = Staging::default();
-        let mut items = Items::new(id.clone());
-        let result = adds(&mut items)
-            .and_then(|()| registry::stage(&id, items, &mut staging))
-            .and_then(|()| self.merge(&id, staging));
+        let mut staging = Staging::new(id.clone());
+        let result = adds(&mut staging).and_then(|()| self.merge(&id, staging));
         match result {
             Ok(()) => self.list_plugin(manifest, PluginState::Running, true),
             Err(error) => {
@@ -140,19 +137,15 @@ impl Kernel {
         let Some(manifest) = self.copy_manifest(manifest) else {
             return;
         };
-        let mut items = Items::new(id.clone());
-        if adds(&mut items).is_ok() {
-            for contribution in items.into_contributions() {
-                match contribution {
-                    Contribution::Translations(source) => {
-                        if let Ok(catalog) = registry::catalog(source) {
-                            self.shared.translator.add(catalog);
-                        }
-                    }
-                    Contribution::TranslationFile(path) => self.add_translation_file(&id, path),
-                    _ => {}
-                }
-            }
+        // Its translations staged before anything it added failed (a key map
+        // that does not parse) are listed as well.
+        let mut staging = Staging::new(id.clone());
+        let _failed = adds(&mut staging).is_err();
+        for catalog in staging.catalogs.drain(..) {
+            self.shared.translator.add(catalog);
+        }
+        for path in staging.catalog_files.drain(..) {
+            self.add_translation_file(&id, path);
         }
         self.list_plugin(manifest, PluginState::Off, false);
     }
@@ -551,7 +544,7 @@ impl Kernel {
     /// into the program (its `i18n/<language>.ini`): the texts the plugin
     /// reads through `core.i18n`. Only text with the program's lifetime
     /// (`&'static str`, `include_str!`): a catalog on the storage is
-    /// `Items::add_translation_file`. One that does not parse is reported
+    /// `Staging::add_translation_file`. One that does not parse is reported
     /// and left out.
     pub fn add_catalog(&mut self, source: &'static str) {
         match registry::catalog(alloc::borrow::Cow::Borrowed(source)) {
@@ -585,7 +578,7 @@ impl Kernel {
         self.shared.translator.reserve(plugins);
     }
 
-    /// Opens the compiled catalog `path` (`Items::add_translation_file`)
+    /// Opens the compiled catalog `path` (`Staging::add_translation_file`)
     /// and adds it; one that cannot be opened is reported.
     pub(crate) fn add_translation_file(&mut self, plugin: &Id, path: String) {
         let file =
@@ -1038,10 +1031,7 @@ impl Kernel {
         let version = plugin.manifest().version;
         // Registered aside first (its translations, key map, settings): one
         // that would fail leaves the version before in place.
-        let mut registrar = Items::new(id.clone());
-        let staged = plugin
-            .register(&mut registrar)
-            .and_then(|()| registry::stage(id, registrar, &mut Staging::default()));
+        let staged = plugin.register(&mut Staging::new(id.clone()));
         drop(plugin);
         if let Err(error) = staged {
             return refuse(self, format!("{folder}: not installed: {error}"));

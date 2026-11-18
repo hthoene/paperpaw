@@ -4,7 +4,7 @@
 //! walk, and a walk that fails told to the views.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::kit::library::{self, catalog};
 use alloc::rc::Rc;
 use core::cell::Cell;
@@ -20,7 +20,7 @@ struct LibraryPlugin {
     log: Log,
 }
 
-fn library_plugin(kept: LibraryPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn library_plugin(kept: LibraryPlugin) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         r.add_format(FormatSpec::new(
             Id::new_static("lib.txt"),

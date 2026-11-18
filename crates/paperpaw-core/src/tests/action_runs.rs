@@ -2,7 +2,7 @@
 //! setting had.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::Params;
 use paperpaw_sdk::builtin::events;
 
@@ -13,12 +13,12 @@ const WRAPPED: Id = Id::new_static("obs.wrapped");
 const LOCK: Id = Id::new_static("g.lock");
 
 /// Actions of its own and a handler of settings changed.
-fn observing(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn observing(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| observing_items(&kept, r)
 }
 
 /// What [`observing`] adds (a function of its own for its length).
-fn observing_items(kept: &Log, r: &mut Items) -> Result<(), RegisterError> {
+fn observing_items(kept: &Log, r: &mut Staging) -> Result<(), RegisterError> {
     crate::tests::hear_into(kept);
     r.add_action(ActionSpec::new(APPLY, "obs.apply").handler(|_, params, _| {
         let profile = params.get("profile").unwrap_or("none");
@@ -120,7 +120,7 @@ impl crate::testing::Fake for Lock {
 }
 
 /// A lock that takes no action itself.
-fn guarding() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn guarding() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             LOCK,
@@ -282,7 +282,7 @@ mod above_the_guard {
         }
     }
 
-    fn gate_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    fn gate_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
         |r| {
             r.add_fake(crate::testing::FakeSpec::new(
                 Id::new_static("gate.lock"),
@@ -298,7 +298,7 @@ mod above_the_guard {
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn up() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    fn up() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
         |r| {
             for id in ["up.top", "up.evil"] {
                 r.add_fake(crate::testing::FakeSpec::new(
@@ -361,7 +361,7 @@ mod secrets_of_others {
     use paperpaw_sdk::secrets::SecretChange;
 
     /// The settings editor: the screen of the settings slot.
-    fn editor() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    fn editor() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
         |r| {
             r.add_fake(crate::testing::FakeSpec::new(
                 Id::new_static("editor.screen"),
@@ -387,7 +387,7 @@ mod secrets_of_others {
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn snoop() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    fn snoop() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
         |r| {
             r.add_action(
                 ActionSpec::new(Id::new_static("snoop.rename"), "x").handler(|_, _, out| {
@@ -458,7 +458,7 @@ mod secrets_of_others {
 mod guarded_settings {
     use super::*;
 
-    fn safe() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    fn safe() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
         |r| {
             r.add_setting(
                 SettingSpec::new(
@@ -487,7 +487,7 @@ mod guarded_settings {
             .uses(paperpaw_sdk::Uses::NOTHING)
     }
 
-    fn other() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    fn other() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
         |r| {
             r.set_setting_default(Id::new_static("safe.on"), Cow::Borrowed("false"))?;
             r.add_action(ActionSpec::new(Id::new_static("other.off"), "off").handler(

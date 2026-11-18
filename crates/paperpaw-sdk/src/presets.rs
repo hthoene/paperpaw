@@ -4,11 +4,11 @@
 //! A preset has a kind, which the plugin that offers them names (e.g.
 //! `core.power-mode`): that plugin lists the presets of its kind
 //! ([`Presets::of_kind`], through `env.settings().presets()`), shows each
-//! as it would look ([`Command::PreviewSettings`] with
+//! as it would look (`Ask::PreviewSettings` with
 //! [`Preset::changes`]) and applies the one chosen ([`commands`]). Any
 //! plugin adds presets, also for another plugin's kind: kept in the
-//! program (`Items::add_presets`, costing next to no memory) or made
-//! at start (`Items::add_preset`). A data plugin brings them in a
+//! program (`Staging::add_presets`, costing next to no memory) or made
+//! at start (`Staging::add_preset`). A data plugin brings them in a
 //! `presets.ini`, so that anyone can make one and share it:
 //!
 //! ```ini
@@ -26,8 +26,8 @@
 //! its kind that it leaves out go back to their defaults when it is
 //! applied ([`Preset::changes`]).
 //!
-//! `Items::add_presets`: crate::Items::add_presets
-//! `Items::add_preset`: crate::Items::add_preset
+//! `Staging::add_presets`: crate::Staging::add_presets
+//! `Staging::add_preset`: crate::Staging::add_preset
 
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
@@ -72,7 +72,7 @@ impl Preset {
     }
 
     /// A preset kept in the program, for a `static` list
-    /// (`Items::add_presets`).
+    /// (`Staging::add_presets`).
     pub const fn fixed(
         id: &'static str,
         kind: &'static str,

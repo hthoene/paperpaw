@@ -8,8 +8,7 @@
 use super::*;
 
 mod items;
-pub use items::Items;
-pub(crate) use items::Parts;
+pub use items::Staging;
 
 /// Configures and creates a [`Kernel`].
 ///
@@ -1111,7 +1110,7 @@ impl Kernel {
         let count = plugins.len() + 1;
         self.shared.plugins.reserve(count);
         self.shared.translator.reserve(count);
-        let core = |items: &mut Items| core_plugin::items(&name, items);
+        let core = |items: &mut Staging| core_plugin::items(&name, items);
         self.add_items(core_plugin::manifest(), &core, &disabled);
         for source in plugins {
             source.add_to(self, &disabled);

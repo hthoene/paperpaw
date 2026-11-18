@@ -1,5 +1,5 @@
 //! Sound played (reserved: no shell plays any yet). A plugin asks with
-//! [`Command::PlaySound`] and hears
+//! `Ask::PlaySound` and hears
 //! [`Played`](crate::replies::Played) as the sound's reply. Where the device has no sound
 //! ([`Capability::AUDIO`](crate::Capability::AUDIO) missing, which is
 //! everywhere today) the reply comes at once, not played: a plugin built
@@ -11,7 +11,7 @@ use crate::event::EventData;
 use crate::id::Id;
 use crate::params::Params;
 
-/// Parameters of the reply to [`Command::PlaySound`].
+/// Parameters of the reply to `Ask::PlaySound`.
 pub mod params {
     /// Present (`1`) when the sound could not be played, e.g. on a device
     /// without sound.
@@ -19,7 +19,7 @@ pub mod params {
 }
 
 /// A sound to play: a file on the card (see
-/// [`Command::PlaySound`]).
+/// `Ask::PlaySound`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Sound {

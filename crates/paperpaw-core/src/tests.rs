@@ -12,7 +12,7 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 
 use crate::Ask;
-use crate::Items;
+use crate::Staging;
 use crate::kit::action::ActionSpec;
 use paperpaw_platform::{
     ButtonState, Color, DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, PixelFormat,
@@ -103,7 +103,7 @@ impl TestPlugin {
     }
 }
 
-fn test_plugin(kept: TestPlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn test_plugin(kept: TestPlugin) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
         let name = kept.id;
@@ -292,7 +292,7 @@ impl crate::testing::Fake for OpenerScreen {
 }
 
 /// Opens the placeholder screen on *confirm*: a screen change to time.
-pub(crate) fn opener() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+pub(crate) fn opener() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("opener.screen"),
@@ -640,7 +640,7 @@ impl crate::testing::Fake for EdgeHolder {
 pub(crate) fn edge_holder_plugin(
     kept0: Log,
     kept1: bool,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let (log, holds) = (kept0.clone(), kept1);
         r.add_fake(crate::testing::FakeSpec::new(
@@ -770,7 +770,7 @@ fn reports_unknown_references_in_config() {
 }
 
 /// A plugin contributing two tiny bitmap fonts.
-pub(crate) fn font_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+pub(crate) fn font_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         for name in ["type.serif", "type.sans"] {
             let mut pack = paperpaw_text::PackBuilder::new();
@@ -857,7 +857,7 @@ impl crate::testing::Fake for LifecycleScreen {
 
 pub(crate) fn lifecycle_plugin(
     kept: LifecyclePlugin,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -996,7 +996,7 @@ impl crate::testing::Fake for HalfOverlay {
 
 pub(crate) fn overlay_plugin(
     kept: OverlayPlugin,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -1098,7 +1098,7 @@ pub(crate) struct NoticePlugin {
 
 pub(crate) fn notice_plugin(
     kept: NoticePlugin,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.log.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -1407,7 +1407,7 @@ impl crate::testing::Fake for GrayScreen {
 
 /// A home screen best in grays (a picture), and the half overlay as its
 /// menu.
-pub(crate) fn gray_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+pub(crate) fn gray_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("gray.page"),
@@ -2030,7 +2030,7 @@ fn the_sole_plugin_asking_questions_cannot_be_switched_off() {
     let mut kernel = Kernel::builder(DEVICE)
         .items(
             Manifest::new(Id::new_static("ask"), "Ask", Version::new(1, 0, 0)),
-            |r: &mut Items| {
+            |r: &mut Staging| {
                 r.add_fake(crate::testing::FakeSpec::new(
                     Id::new_static("ask.sheet"),
                     "sheet",
@@ -2812,7 +2812,7 @@ impl ServicePlugin {
     }
 }
 
-fn service_plugin(kept: ServicePlugin) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn service_plugin(kept: ServicePlugin) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         if kept.id == "provider" {
             r.provide(
@@ -2893,7 +2893,7 @@ impl crate::testing::Fake for SizedScreen {
 /// were made for; the home one names its confirm button.
 pub(crate) fn sized_plugin(
     kept: Rc<RefCell<Vec<(&'static str, u16)>>>,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         for (name, slot) in [("home", slots::HOME), ("reader", slots::READER)] {
             let made = kept.clone();
@@ -3007,7 +3007,7 @@ impl crate::testing::Fake for PictureScreen {
 /// A home screen that shows a picture over all of it while asked to.
 pub(crate) fn picture_plugin(
     kept: Rc<RefCell<bool>>,
-) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let shown = kept.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -3086,7 +3086,7 @@ fn leaving_a_screen_with_a_large_picture_refreshes_as_asked() {
 
 /// Writes down the network's events, and asks for Wi-Fi on when the
 /// network is wanted (as the `wifi` plugin does).
-pub(crate) fn net_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+pub(crate) fn net_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         use paperpaw_sdk::builtin::events;
         hear_into(&kept);

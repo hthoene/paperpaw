@@ -3,7 +3,7 @@
 //! layers put in front, guards.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::{Gesture, GestureKind, Params};
 
 /// A kernel showing plugin `a`'s screen, with its key map `keymap`.
@@ -94,7 +94,7 @@ impl crate::testing::Fake for Taps {
     }
 }
 
-fn taps_plugin(kept0: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn taps_plugin(kept0: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept0.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -176,7 +176,7 @@ impl crate::testing::Fake for Layered {
     }
 }
 
-fn layer_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn layer_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -271,7 +271,7 @@ impl crate::testing::Fake for Lock {
     }
 }
 
-fn lock_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn lock_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
         r.add_fake(crate::testing::FakeSpec::new(
@@ -400,7 +400,7 @@ impl crate::testing::Fake for WayScreen {
 }
 
 /// A screen bound to Home; it logs the actions it gets.
-fn way_plugin(kept0: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn way_plugin(kept0: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept0.clone();
         r.add_fake(crate::testing::FakeSpec::new(

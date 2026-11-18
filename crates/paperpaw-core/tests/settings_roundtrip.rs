@@ -19,8 +19,8 @@ use std::borrow::Cow;
 
 use common::{DEVICE, Harness};
 use paperpaw_core::Ask;
-use paperpaw_core::Items;
 use paperpaw_core::Kernel;
+use paperpaw_core::Staging;
 use paperpaw_core::sdk::builtin::CONFIG_FILE;
 use paperpaw_core::sdk::{
     Manifest, MemoryStorage, RegisterError, Setting, SettingSpec, SettingValue, Text,
@@ -40,7 +40,7 @@ const MIN: i64 = -1_000_000_000_000;
 const MAX: i64 = 1_000_000_000_000;
 
 /// A plugin with a setting of each kind, two of them per book.
-fn settings() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn settings() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_setting(SettingSpec::switch(
             FLAG.static_str(),

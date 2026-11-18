@@ -5,7 +5,7 @@
     clippy::expect_used,
     reason = "fixture failures fail acceptance"
 )]
-use crate::Items;
+use crate::Staging;
 use crate::{
     Kernel,
     native_host::{DispatchDepth, HostResources, shell},
@@ -142,7 +142,7 @@ fn report(_: &Heap, _: &str, s: crate::native_host::TeardownStep, e: crate::nati
     eprintln!("native teardown {s:?}: {e:?}");
 }
 // Test-only catalog/settings installation, never a Battery behavior adapter.
-fn catalogs() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn catalogs() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         // The test shell supplies an actual stack entry for command authority.
         // Pixels still come only from native callbacks on the shared host table.

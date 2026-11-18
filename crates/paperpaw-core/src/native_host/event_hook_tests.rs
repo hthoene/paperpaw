@@ -2,15 +2,15 @@
 use super::event_pending::{EventBudget, Pending, Ready, Visibility};
 use super::event_producers::EventSink;
 use super::registrations as wire;
-use crate::Items;
 use crate::Kernel;
+use crate::Staging;
 use crate::abi7::settings_wire::{SettingValueRef, settings_decode};
 use alloc::{rc::Rc, string::String};
 use core::cell::RefCell;
 use paperpaw_platform::{Battery, Instant, SystemStatus};
 use paperpaw_sdk::{Id, Manifest, RegisterError, SettingKind, SettingSpec, SettingValue, Version};
 
-fn fixture_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn fixture_items() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |registrar| {
         for (id, scoped) in [("evt.global", false), ("evt.scoped", true)] {
             let mut spec = SettingSpec::new(

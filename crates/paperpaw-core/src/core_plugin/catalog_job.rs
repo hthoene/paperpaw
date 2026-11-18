@@ -249,7 +249,7 @@ pub(super) fn make_library_folder(env: &Place<'_>) {
 /// The sorted books, for a view leaving an archive out
 /// ([`library::sorted`]): made where they are not of the library there
 /// is now. And the walk wanted again after a wake.
-pub(super) fn register_sorted(r: &mut crate::Items) -> Result<(), paperpaw_sdk::RegisterError> {
+pub(super) fn register_sorted(r: &mut crate::Staging) -> Result<(), paperpaw_sdk::RegisterError> {
     use paperpaw_sdk::builtin::events;
     // Woken from a light sleep (no start): walked again as after a start,
     // for books copied while it slept (the card in a computer). By the

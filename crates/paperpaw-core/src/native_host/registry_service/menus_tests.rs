@@ -9,7 +9,7 @@ use super::{
     schema,
     tests::{call_in, page, query_flags, read},
 };
-use crate::Items;
+use crate::Staging;
 use crate::kit::action::ActionSpec;
 use crate::kit::menus::ItemState;
 use crate::kit::menus::MenuEntry;
@@ -43,7 +43,7 @@ impl crate::testing::Fake for Quiet {
 }
 
 /// Everything the ops read from the environment.
-fn demo() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn demo() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             id("demo.main"),
@@ -95,7 +95,7 @@ fn demo_manifest() -> Manifest {
         .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
-fn register_menus(r: &mut Items) -> Result<(), RegisterError> {
+fn register_menus(r: &mut Staging) -> Result<(), RegisterError> {
     let menu = id("demo.menu");
     for (item, order) in [
         ("demo.open", 10),
@@ -128,7 +128,7 @@ fn register_menus(r: &mut Items) -> Result<(), RegisterError> {
     Ok(())
 }
 
-fn register_ui(r: &mut Items) -> Result<(), RegisterError> {
+fn register_ui(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_widget(
         WidgetSpec::drawn(
             id("demo.clock"),
@@ -173,7 +173,7 @@ fn register_ui(r: &mut Items) -> Result<(), RegisterError> {
 
 /// The actions of the plugin the native rows belong to: its `action.spec`
 /// rows are merged into the registries when it installs.
-fn nat() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn nat() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         for name in ["first", "go", "last", "speaks", "future"] {
             r.add_action(ActionSpec::new(id(&format!("nat.{name}")), "nat.action"))?;
@@ -600,7 +600,7 @@ fn op_12_unknown_or_empty_scope_is_an_empty_page() {
 
 #[test]
 fn op_12_pages_by_cursor_and_a_stale_generation_is_a_state_error() {
-    fn many() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    fn many() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
         |r| {
             for at in 0..40 {
                 let item = id(&format!("many.item{at:02}"));
@@ -1094,7 +1094,7 @@ fn op_19_shown_follows_the_settings_a_place_lists() {
 fn op_21_lists_the_kernels_items_between_the_declared_items_and_lines() {
     let kernel = kernel();
     // The kernel's own (todo 598): Beta 3's priorities, the battery with room
-    // for its symbol and percentage. Items: never the drawn bit (a line's).
+    // for its symbol and percentage. Staging: never the drawn bit (a line's).
     let kernels = [
         "status core.status.clock core kind=0 flags=0 priority=160 size=0 tap= Time",
         "status core.status.date core kind=0 flags=0 priority=128 size=0 tap= Date",

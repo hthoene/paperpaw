@@ -12,7 +12,7 @@
 use std::cell::Cell;
 
 use paperpaw_core::Ask;
-use paperpaw_core::{Items, Kernel, KernelBuilder, WarningSource};
+use paperpaw_core::{Kernel, KernelBuilder, Staging, WarningSource};
 use paperpaw_sdk::event::Event;
 use paperpaw_sdk::{Id, Manifest, Params, RegisterError, SDK_VERSION, Version};
 use paperpaw_sdk::{PluginState, SettingKind};
@@ -47,7 +47,7 @@ fn add(builder: KernelBuilder) -> KernelBuilder {
     }
 }
 
-fn installing() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn installing() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.on(INSTALL, |k, p| {
             k.with_event(&INSTALL, p, |_, params, out| {

@@ -1,7 +1,7 @@
 extern crate std;
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::abi7::{
     context::{Error, FrameSlot},
     core_frame::CallbackStamp,
@@ -108,7 +108,7 @@ fn env_only_frames_refuse_core_services() {
     );
 }
 
-fn named() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn named() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |_| Ok(())
 }
 

@@ -54,7 +54,7 @@ fn asker_manifest(id: &'static str) -> Manifest {
         .uses(paperpaw_sdk::Uses::NETWORK)
 }
 
-fn asker(kept: Asker) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn asker(kept: Asker) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         crate::tests::hear_into(&kept.log);
         use paperpaw_sdk::builtin::events;

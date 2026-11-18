@@ -8,7 +8,7 @@
 extern crate std;
 use super::*;
 use crate::Ask;
-use crate::Items;
+use crate::Staging;
 use crate::native_host::{
     declaration_store::{Allocations, ImageOwner, PendingDeclarations},
     doc_host::DocState,
@@ -203,7 +203,7 @@ impl crate::testing::Fake for Blank {
 
 /// A plugin with home's screen (offered for slot `core.home`) and a page of
 /// its own (offered for none), as the store's.
-fn shelf() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn shelf() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         for id in [HOME_SCREEN, PAGE] {
             r.add_fake(crate::testing::FakeSpec::new(

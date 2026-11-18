@@ -1,6 +1,6 @@
 //! The public settings bridge uses a real dispatch Place and the existing codec.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
-use paperpaw_core::Items;
+use paperpaw_core::Staging;
 use paperpaw_core::native_host::environment::{EnvironmentScope, SettingValueRef, settings_decode};
 use paperpaw_native::host_glue::{ERR_STATE, ERR_UTF8};
 use paperpaw_sdk::{Manifest, RegisterError, SettingSpec, builtin};
@@ -29,7 +29,7 @@ std::thread_local! {
     static COUNT: std::cell::RefCell<Option<Rc<Cell<u32>>>> = const { std::cell::RefCell::new(None) };
 }
 
-fn probe(kept: Rc<Cell<u32>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn probe(kept: Rc<Cell<u32>>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         r.add_settings(&SETTINGS)?;
         COUNT.with(|count| *count.borrow_mut() = Some(kept.clone()));

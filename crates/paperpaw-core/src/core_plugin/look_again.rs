@@ -4,7 +4,7 @@
 //! library from ever finishing.
 
 use crate::Ask;
-use crate::Items;
+use crate::Staging;
 use crate::kit::action::FixedAction;
 use paperpaw_sdk::event::Event;
 use paperpaw_sdk::{Id, RegisterError};
@@ -17,7 +17,7 @@ pub(crate) const LOOK_AGAIN: Id = Id::new_static("core.library.look-again");
 /// What the action's handler (a plain function) passes on to the catalog.
 const LOOK_AGAIN_WANTED: Event<()> = Event::new("core.library-look-again-wanted");
 
-pub(super) fn register(r: &mut Items) -> Result<(), RegisterError> {
+pub(super) fn register(r: &mut Staging) -> Result<(), RegisterError> {
     static ACTION: [FixedAction; 1] = [FixedAction::new(LOOK_AGAIN, "core.library.look-again")
         .handler(|_, _, out| out.push(crate::Ask::emit(&LOOK_AGAIN_WANTED, ())))];
     static ICON: [(Id, &str); 1] = [(LOOK_AGAIN, "refresh")];

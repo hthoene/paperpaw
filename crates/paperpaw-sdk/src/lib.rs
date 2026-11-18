@@ -17,8 +17,8 @@
 //! - **Ids** ([`Id`]): every contribution has a namespaced id such as
 //!   `diagnostics.screen`. The namespace is the plugin id; `core` is
 //!   reserved for the kernel.
-//! - **Plugins** (`Plugin`): a [`Manifest`] plus a `register` function that
-//!   adds contributions through a `Items`.
+//! - **Plugins**: a [`Manifest`] plus what the plugin declares (interface 7
+//!   records, `native`), which the kernel stages and registers whole.
 //! - **Contributions**: actions (`ActionSpec`),
 //!   slots ([`SlotSpec`]), settings ([`SettingSpec`]), fonts ([`FontSpec`]),
 //!   file formats ([`FormatSpec`]), event subscriptions,
@@ -26,10 +26,9 @@
 //! - **Slots**: named UI roles such as [`builtin::slots::HOME`]. Any plugin
 //!   may bind a screen to any slot; the user's configuration has the final
 //!   word.
-//! - **Commands** ([`Command`]): plugins never mutate kernel state directly.
-//!   They read through `Env` (its parts are methods: `env.settings()`,
-//!   `env.device()` and so on) and queue changes as commands in
-//!   [`Commands`], which the kernel applies after the plugin returns.
+//! - **Commands**: plugins never mutate kernel state directly. They read
+//!   through host calls and stage command records, which the kernel
+//!   applies after the plugin returns.
 //!   Plugins loaded from files are native code too, without a sandbox
 //!   (ADR 0024).
 
@@ -94,11 +93,6 @@ pub mod collections;
 #[cfg(not(any(test, feature = "kernel")))]
 mod collections;
 mod command;
-#[cfg(test)]
-#[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
-pub mod contribution;
-#[cfg(not(test))]
-mod contribution;
 pub mod data;
 // facade: decorations (#244, D0)
 #[cfg(test)]
@@ -398,7 +392,7 @@ pub use command::{HttpParts, ResponseParts};
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use command::{http_params, server_params, socket_params, speech_params};
 /// What a plugin added, for the kernel to apply: opaque to plugins, which
-/// add through `Items`'s methods.
+/// add through `Staging`'s methods.
 #[cfg(any(test, feature = "kernel"))]
 #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
 pub use env::{Capabilities, Capability, Metrics};

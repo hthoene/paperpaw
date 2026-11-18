@@ -194,7 +194,7 @@ impl Kernel {
             let area = |r: Rect| u32::from(r.width) * u32::from(r.height);
             let weight = mem::take(&mut self.frame.pending_weight);
             self.frame.unrendered = Some(self.frame.unrendered.map_or(dirty, |u| u.union(&dirty)));
-            // Items far apart make a large region without being much.
+            // Staging far apart make a large region without being much.
             let weight = weight.min(area(dirty));
             let every = self.refresh_intervals(&mode);
             let screen = self.framebuffer.bounds();

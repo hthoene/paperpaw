@@ -19,7 +19,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::{Id, RegisterError};
 
 use super::{own_id, parse_error, parsed_id};
@@ -214,7 +214,7 @@ fn ids_of(value: &str, line: u32) -> Result<Vec<Id>, RegisterError> {
 /// plugin, `add = <item>` (also `<item> after <other>`) and
 /// `hide = <item>`; any other section a menu of one's own, `title` and
 /// `entries`, an action of that name that shows it.
-pub(super) fn menus(r: &mut Items, plugin: &Id, source: &str) -> Result<(), RegisterError> {
+pub(super) fn menus(r: &mut Staging, plugin: &Id, source: &str) -> Result<(), RegisterError> {
     let mut order: i16 = 0;
     for entry in paperpaw_config::parse(source) {
         let entry = entry.map_err(parse_error)?;

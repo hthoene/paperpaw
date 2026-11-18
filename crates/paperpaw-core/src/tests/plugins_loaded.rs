@@ -359,7 +359,7 @@ pub(super) struct Store {
     pub(super) installs: bool,
 }
 
-pub(super) fn store(kept: Store) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+pub(super) fn store(kept: Store) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         use paperpaw_sdk::builtin::events;
         crate::tests::hear_into(&kept.log);

@@ -1,6 +1,6 @@
 //! The core plugin's translation catalogs.
 
-use crate::Items;
+use crate::Staging;
 #[cfg(any(test, feature = "testing"))]
 use alloc::borrow::Cow;
 use paperpaw_sdk::RegisterError;
@@ -16,7 +16,7 @@ use paperpaw_sdk::RegisterError;
 /// `paperpaw_app::CORE_MESSAGES`), not the sources too (about 30 KB of flash
 /// less, #306).
 #[cfg(any(test, feature = "testing"))]
-pub(crate) fn add(r: &mut Items) -> Result<(), RegisterError> {
+pub(crate) fn add(r: &mut Staging) -> Result<(), RegisterError> {
     for source in [
         include_str!("../i18n/en.ini"),
         include_str!("../i18n/de.ini"),
@@ -36,7 +36,7 @@ pub(crate) fn add(r: &mut Items) -> Result<(), RegisterError> {
     clippy::unnecessary_wraps,
     reason = "the same signature as the one that adds the sources"
 )]
-pub(crate) fn add(_: &mut Items) -> Result<(), RegisterError> {
+pub(crate) fn add(_: &mut Staging) -> Result<(), RegisterError> {
     Ok(())
 }
 

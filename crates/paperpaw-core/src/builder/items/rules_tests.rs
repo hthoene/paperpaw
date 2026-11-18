@@ -1,20 +1,13 @@
-//! The rules of what registers ([`Items`]): ids only in the plugin's
+//! The rules of what registers ([`Staging`]): ids only in the plugin's
 //! namespace and once per kind (also for settings and presets kept in the
-//! program), every kind of contribution says what it is, and typed event
-//! handlers. Until #244's slice D4b these were tests of the SDK's
-//! `Registrar` (`paperpaw-sdk/tests/registry.rs`); the bodies are unchanged.
+//! program), every kind staged in its list, and typed event handlers. Until
+//! #300 these were integration tests over the old contribution list.
 
-#![allow(
-    clippy::unwrap_used,
-    clippy::expect_used,
-    reason = "tests panic on purpose when something is wrong"
-)]
+use alloc::borrow::Cow;
+use alloc::format;
 
-use std::borrow::Cow;
-
-use paperpaw_core::Items;
-use paperpaw_core::kit::action::ActionSpec;
-use paperpaw_core::kit::contribution::item::Contribution;
+use super::Staging;
+use crate::kit::action::ActionSpec;
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::presets::Preset;
 use paperpaw_sdk::{
@@ -39,8 +32,8 @@ paperpaw_sdk::service_type!(Count, "demo.count/1");
 /// The version the test services are in.
 const ONE: paperpaw_sdk::Version = paperpaw_sdk::Version::new(1, 0, 0);
 
-fn registrar() -> Items {
-    Items::new(Id::new_static("demo"))
+fn registrar() -> Staging {
+    Staging::new(Id::new_static("demo"))
 }
 
 #[test]
@@ -88,8 +81,7 @@ fn settings_kept_in_the_program_are_checked_like_others() {
         Err(RegisterError::Namespace { .. })
     ));
     // Refused lists are not added, not even in part.
-    let kinds: Vec<&str> = r.contributions().iter().map(Contribution::kind).collect();
-    assert_eq!(kinds, ["setting", "setting"]);
+    assert_eq!(r.settings.len(), 2);
 }
 
 #[test]
@@ -131,11 +123,11 @@ fn presets_kept_in_the_program_are_checked_like_others() {
         Err(RegisterError::Duplicate { .. })
     ));
     // A preset may be of another plugin's kind.
-    assert_eq!(r.contributions().len(), 3);
+    assert_eq!(r.fixed_presets.len() + r.presets.len(), 3);
 }
 
 #[test]
-fn every_kind_of_contribution_says_what_it_is() {
+fn every_kind_is_staged_in_its_list() {
     let mut r = registrar();
     r.add_slot(SlotSpec::new(Id::new_static("demo.slot"), ""))
         .unwrap();
@@ -163,41 +155,28 @@ fn every_kind_of_contribution_says_what_it_is() {
     r.add_translations(Cow::Borrowed("")).unwrap();
     r.provide(Id::new_static("demo.count"), Count(1), ONE)
         .unwrap();
-    let kinds: Vec<&str> = r.contributions().iter().map(Contribution::kind).collect();
-    assert_eq!(
-        kinds,
-        [
-            "slot",
-            "slot-binding",
-            "keymap",
-            "keymap-preset",
-            "stylesheet",
-            "book data",
-            "font-binding",
-            "setting-default",
-            "to-point",
-            "translations",
-            "service"
-        ]
-    );
-    let ids: Vec<Option<&str>> = r
-        .contributions()
-        .iter()
-        .map(|c| c.id().map(Id::as_str))
-        .collect();
-    // Bindings and the like name what others added: no id of their own.
-    assert_eq!(ids[0], Some("demo.slot"));
-    assert_eq!(ids[1], None);
-    assert_eq!(ids[3], Some("demo.keys"));
-    assert_eq!(ids[10], Some("demo.count"));
-    assert!(format!("{:?}", r.contributions()[0]).contains("demo.slot"));
+    // Each in the list of its kind.
+    let staged = [
+        r.slots.len(),
+        r.candidates.len(),
+        r.keymaps.len(),
+        r.keymap_presets.len(),
+        r.stylesheets.len(),
+        r.book_data.len(),
+        r.font_roles.len(),
+        r.setting_defaults.len(),
+        r.contributions.len(),
+        r.catalogs.len(),
+        r.services.len(),
+    ];
+    assert_eq!(staged, [1; 11]);
+    assert!(format!("{r:?}").contains("demo"));
     // A service of another namespace is refused.
     assert!(matches!(
         r.provide(Id::new_static("other.count"), Count(1), ONE),
         Err(RegisterError::Namespace { .. })
     ));
-    assert_eq!(r.plugin(), &Id::new_static("demo"));
-    assert_eq!(r.into_contributions().len(), 11);
+    assert_eq!(r.plugin(), Some(&Id::new_static("demo")));
 }
 
 #[test]
@@ -209,7 +188,7 @@ fn typed_handlers_hear_only_what_they_can_read() {
     }
     // What a handler reads of an event (`hear::data`): what it carries as
     // its type, nothing where that is missing or unreadable.
-    let read = |params: Params| paperpaw_core::hear::data::<Count>(&params).map(|c| c.n);
+    let read = |params: Params| crate::hear::data::<Count>(&params).map(|c| c.n);
     assert_eq!(read(Params::new().with("n", "5")), Some(5));
     assert_eq!(read(Params::new().with("n", "five")), None);
     assert_eq!(read(Params::new()), None);

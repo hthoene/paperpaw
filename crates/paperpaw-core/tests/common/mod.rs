@@ -12,8 +12,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use paperpaw_core::Ask;
-use paperpaw_core::Items;
 use paperpaw_core::Kernel;
+use paperpaw_core::Staging;
 use paperpaw_core::kit::action::ActionSpec;
 use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::{
@@ -185,7 +185,7 @@ impl Driver {
     }
 }
 
-fn driver_items(kept: Driver) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn driver_items(kept: Driver) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         for (id, name) in [(BASE, "base"), (FULL, "full"), (OVERLAY, "overlay")] {
             let log = kept.log.clone();

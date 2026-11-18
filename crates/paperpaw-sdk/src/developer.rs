@@ -10,8 +10,8 @@
 //! screen it asked for, closed, failed. It writes with `write`, asks
 //! for the screen with `screen` and closes with `close`. Presses,
 //! actions, files and the memory are the plugin's as for any other
-//! (`Command::Input`, `Command::RunAction`, `Env::storage`,
-//! `Env::memory`), so the tools need no commands of their own for them.
+//! (`Ask::Input`, `Ask::RunAction`, `Place::storage`,
+//! `Place::memory`), so the tools need no commands of their own for them.
 //!
 //! The kernel keeps it safe, not the plugin: the link opens only while
 //! the reader allowed it under *Developer*, confirmed on the device; the

@@ -2,7 +2,7 @@
 //! (`core.clean-up`).
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::kit::library::key;
 use paperpaw_sdk::MemoryStorage;
 
@@ -40,7 +40,7 @@ fn cleaning_up_keeps_what_belongs_to_files_still_there() {
 
 /// Hears the answers to the question whether the notes of books not
 /// found go: the question asked.
-fn heard(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn heard(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         const ANSWERED: paperpaw_sdk::event::Event<paperpaw_sdk::replies::Confirmed> =
             paperpaw_sdk::event::Event::new("core.clean-up-answered");

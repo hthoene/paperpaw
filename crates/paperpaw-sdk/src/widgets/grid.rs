@@ -19,17 +19,17 @@
 //! struct Board { grid: GridView } // made with `GridView::asking(env, CHOSEN)`
 //!
 //! impl Board {
-//!     fn layout(&mut self, env: &Env<'_>) {
+//!     fn layout(&mut self, env: &Place<'_>) {
 //!         let geometry = Geometry::new(env, area, 4, 0);
 //!         let items = grid::parse(env.settings().read(&LAYOUT));
 //!         self.grid.layout(env, geometry, &items, &[]);
 //!     }
 //!
-//!     fn respond(&mut self, response: GridResponse, cx: &mut Cx<'_, '_>) -> Handled {
+//!     fn respond(&mut self, response: GridResponse, cx: &mut Turn<'_, '_>) -> Handled {
 //!         match &response {
 //!             GridResponse::Changed(items) => {
 //!                 let value = LAYOUT.value(grid::write(items).into());
-//!                 cx.command(Command::SetSetting(LAYOUT.id().clone(), value));
+//!                 cx.command(Ask::SetSetting(LAYOUT.id().clone(), value));
 //!             }
 //!             GridResponse::Editing(_) => { let env = *cx.env(); self.layout(&env) }
 //!             _ => {}
@@ -38,13 +38,13 @@
 //!     }
 //! }
 //!
-//! impl Layer for Board {
-//!     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Env<'_>) { self.grid.draw(canvas, env) }
-//!     fn on_action(&mut self, action: &Id, cx: &mut Cx<'_, '_>) -> Handled {
+//! impl Dispatch for Board {
+//!     fn draw(&mut self, canvas: &mut Canvas<'_>, env: &Place<'_>) { self.grid.draw(canvas, env) }
+//!     fn on_action(&mut self, action: &Id, cx: &mut Turn<'_, '_>) -> Handled {
 //!         let response = self.grid.on_action(action, cx);
 //!         self.respond(response, cx)
 //!     }
-//!     fn on_timer(&mut self, cx: &mut Cx<'_, '_>) {
+//!     fn on_timer(&mut self, cx: &mut Turn<'_, '_>) {
 //!         let env = *cx.env();
 //!         if self.grid.update_widgets(&env, cx) {
 //!             cx.request_refresh(RefreshMode::Fast);

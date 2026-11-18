@@ -5888,8 +5888,6 @@ pub fn paperpaw_sdk::Distrust::parse(&str) -> core::option::Option<Self>
 #[non_exhaustive] pub enum paperpaw_sdk::Editor
 pub paperpaw_sdk::Editor::Screen(paperpaw_sdk::Id)
 pub paperpaw_sdk::Editor::Slot(paperpaw_sdk::Id)
-impl paperpaw_sdk::Editor
-pub fn paperpaw_sdk::Editor::open(&self, &paperpaw_sdk::Id) -> paperpaw_sdk::command::Command
 #[non_exhaustive] pub enum paperpaw_sdk::GestureKind
 pub paperpaw_sdk::GestureKind::DoubleTap
 pub paperpaw_sdk::GestureKind::LongPress

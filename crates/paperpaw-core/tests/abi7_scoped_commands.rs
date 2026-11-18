@@ -1,8 +1,8 @@
 //! Slot-15 SetSetting: whole-batch validation, reserved-setting protection,
 //! and readback of the applied value in the next real callback.
 #![allow(clippy::unwrap_used, reason = "fixture failures must fail the test")]
-use paperpaw_core::Items;
 use paperpaw_core::Place;
+use paperpaw_core::Staging;
 use paperpaw_core::native_host::commands::{
     COMMAND_MAX_BYTES, CommandAuthority, CommandScope, CommandStage, SecretText, WireCommand,
     commands_decode, commands_encode,
@@ -410,7 +410,7 @@ fn note(line: String) {
     });
 }
 
-fn probe(kept: Rc<RefCell<Vec<String>>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn probe(kept: Rc<RefCell<Vec<String>>>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         PROBE_LOG.with(|log| *log.borrow_mut() = Some(kept.clone()));
         r.add_settings(&SETTINGS)?;
@@ -443,7 +443,7 @@ fn probe_manifest() -> Manifest {
     )
 }
 
-fn other() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn other() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| r.add_settings(&FOREIGN)
 }
 
@@ -510,7 +510,7 @@ impl GuardedWriter {
     }
 }
 
-fn guarded_writer(kept: GuardedWriter) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn guarded_writer(kept: GuardedWriter) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let owner = kept.manifest().id;
         if kept.editor {

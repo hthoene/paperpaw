@@ -1,7 +1,7 @@
 //! Native screen wrappers encode scoped input without fabricating subscriptions.
 #![allow(clippy::unwrap_used, reason = "fixture errors must fail the test")]
 use super::*;
-use crate::Items;
+use crate::Staging;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 use paperpaw_platform::{Instant, PixelFormat};
@@ -750,7 +750,7 @@ impl crate::testing::Fake for Page {
 }
 
 /// A plugin whose home screen is a native one, drawn by `Recorder`.
-fn page_plugin(kept: Rc<Recorder>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn page_plugin(kept: Rc<Recorder>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let dispatch = Rc::clone(&kept);
         const ID: Id = Id::new_static("page.screen");

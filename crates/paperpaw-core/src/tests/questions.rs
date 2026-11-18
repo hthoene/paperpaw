@@ -13,7 +13,7 @@ use paperpaw_sdk::{Canvas, Handled, Id, Manifest, Priority, RegisterError, Versi
 use crate::native_host::shared::Shared;
 use crate::native_host::ui_service::UiServices;
 use crate::native_host::ui_store::{Limits, UiStore};
-use crate::{Items, Kernel};
+use crate::{Kernel, Staging};
 
 /// The stand-in dialog's screen.
 pub(crate) const DIALOG: Id = Id::new_static("q.dialog");
@@ -34,7 +34,7 @@ pub(crate) fn serves_manifest() -> Manifest {
 }
 
 /// The stand-in dialog on both slots.
-pub(crate) fn serves() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+pub(crate) fn serves() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_fake(crate::testing::FakeSpec::new(
             DIALOG,

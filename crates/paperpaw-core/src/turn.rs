@@ -11,7 +11,7 @@ use crate::place::Place;
 const NO_PARAMS: &Params = &Params::new();
 
 /// A kernel handler's turn: where it runs ([`Place`]) and what it asks of
-/// the kernel when it is done (#300, D209; the SDK's old `Cx`).
+/// the kernel when it is done (#300, D209; the SDK's old `Turn`).
 #[derive(Debug)]
 pub struct Turn<'a, 'e> {
     env: &'a Place<'e>,

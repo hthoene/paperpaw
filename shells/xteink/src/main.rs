@@ -893,7 +893,7 @@ enum CodePlugins {
     OnTrial,
 }
 
-/// What this firmware loads, as plugins see it ([`paperpaw_sdk::Env`]),
+/// What this firmware loads, as plugins see it (`Place`),
 /// with the plugins of the web flasher not installed.
 fn native(
     not_installed: alloc::vec::Vec<paperpaw_sdk::native::NotInstalled>,

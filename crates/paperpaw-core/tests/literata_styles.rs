@@ -35,8 +35,8 @@ use std::rc::Rc;
 
 use common::{DEVICE, Harness};
 use paperpaw_core::Ask;
-use paperpaw_core::Items;
 use paperpaw_core::Kernel;
+use paperpaw_core::Staging;
 use paperpaw_core::sdk::builtin::fonts;
 use paperpaw_core::sdk::{
     Font, FontFace, FontSpec, Id, Manifest, MemoryStorage, Priority, RegisterError, SettingKind,
@@ -69,7 +69,7 @@ fn pack(sizes: &[f32], advance: f32) -> Vec<u8> {
 /// What the lean firmware has (`plugins/fonts-default`, `LEAN_FONT_PACKS`):
 /// the UI font up to 32 px, for the menus and for book text, and the
 /// name of Literata's regular face in the plugin's folder on the card.
-fn lean() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn lean() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         let font = Font::from_data(pack(&[20.0, 32.0], 6.0), &[]).unwrap();
         let sans = Id::new_static(SANS);
@@ -628,7 +628,7 @@ fn configured_wifi_offers_two_buttons_and_opens_the_literata_store_page() {
     // What the store opens the Literata page as: the plugin it is opened for.
     let store = {
         let target = target.clone();
-        move |r: &mut Items| -> Result<(), RegisterError> {
+        move |r: &mut Staging| -> Result<(), RegisterError> {
             let target = target.clone();
             r.add_fake(paperpaw_core::testing::FakeSpec::new(
                 Id::new_static("store.plugin"),

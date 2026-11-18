@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::Asks;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::{CloseCause, Gesture, HintVisibility, Instances, Params};
 
@@ -97,7 +97,7 @@ impl crate::testing::Fake for Configured {
     }
 }
 
-fn stack_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn stack_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         for (id, home, instances) in [
             (SCREEN, false, Instances::PER_PARAMS),
@@ -411,7 +411,7 @@ fn a_screen_opened_again_waits_for_the_ones_above() {
 }
 
 /// Uses the same slot and hint policy as a sleep plugin.
-fn hidden_sleep_plugin() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn hidden_sleep_plugin() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         const SLEEP: Id = Id::new_static("quiet.sleep");
         r.add_fake(crate::testing::FakeSpec::new(

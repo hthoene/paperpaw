@@ -5,7 +5,7 @@
 //! takes its books out at the next walk.
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use crate::kit::library::catalog;
 use crate::native_host::native_book_formats::tests::{Plugin as FormatPlugin, declare};
 use crate::native_host::native_declarations::NativeDeclarations;
@@ -17,7 +17,7 @@ use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::{FormatSpec, MemoryStorage};
 
 /// An interface 6 format of TXT, beside them.
-fn txt_items() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn txt_items() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     |r| {
         r.add_format(FormatSpec::new(
             Id::new_static("txt.txt"),

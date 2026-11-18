@@ -124,9 +124,7 @@ use core::fmt;
 use core::mem;
 
 pub use crate::ask::{Ask, Asks};
-use crate::kit::{
-    action::Actions, contribution::item::Contribution, menus::Menus, status::StatusItems,
-};
+use crate::kit::{action::Actions, menus::Menus, status::StatusItems};
 pub use crate::turn::Output;
 use paperpaw_graphics::{Framebuffer, GraphicsError};
 use paperpaw_i18n::Translator;
@@ -147,7 +145,7 @@ use paperpaw_sdk::{
     RequiredFor, Settings, ShowsThrough,
 };
 
-pub use crate::builder::{Items, KernelBuilder, KernelError};
+pub use crate::builder::{KernelBuilder, KernelError, Staging};
 pub use crate::card::CardTrouble;
 pub use crate::code_plugin::{CodeFile, CodeLoader, NativeAdmission, code_to_load};
 use crate::config::{mono_coverage, plugin_switches, read_config};
@@ -163,7 +161,7 @@ pub use crate::io::{
 };
 use crate::keymap::{InputKey, Keymap, Origin, Zone};
 use crate::refresh::RefreshPolicy;
-use crate::registry::{Registry, Staging};
+use crate::registry::Registry;
 use crate::screens::{ActiveScreen, uncovered};
 #[doc(hidden)]
 pub use crate::work::network_specs_of;
@@ -1487,7 +1485,7 @@ struct Shared {
     recall: alloc::rc::Rc<recall::Recall>,
     keymap: Keymap,
     /// The look of the parts of screens a plugin set, and its priority
-    /// (see [`Items::set_ui_look`](paperpaw_sdk::Items::set_ui_look)).
+    /// (see `Staging::set_ui_look`).
     look: (crate::kit::ui::look::Look, Option<paperpaw_sdk::Priority>),
     /// What each plugin takes.
     meter: alloc::rc::Rc<meter::Meter>,

@@ -78,7 +78,7 @@ fn a_book_key_is_sixteen_hex_digits() {
 
 /// A kernel with the screens of the plugin `probe`, its `probe.main` on top.
 fn kernel() -> crate::Kernel {
-    use crate::Items;
+    use crate::Staging;
     use paperpaw_sdk::{Manifest, Version};
     struct Empty;
     impl crate::testing::Fake for Empty {
@@ -87,7 +87,7 @@ fn kernel() -> crate::Kernel {
             paperpaw_sdk::Handled::No
         }
     }
-    fn probe() -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+    fn probe() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
         |r| {
             for id in ["probe.home", "probe.main"] {
                 r.add_fake(crate::testing::FakeSpec::new(

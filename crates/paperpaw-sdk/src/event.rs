@@ -27,7 +27,7 @@
 //! Underneath, what an event carries travels as [`Params`] (named
 //! strings), so it can cross to plugins in other languages and be
 //! declared as work ([`work`](crate::work)); events of other plugins, known only
-//! at run time, are heard by id (`Items::subscribe`).
+//! at run time, are heard by id (`Staging::subscribe`).
 
 use alloc::string::{String, ToString};
 use core::fmt;

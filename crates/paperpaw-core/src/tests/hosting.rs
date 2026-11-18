@@ -2,7 +2,7 @@
 //! with the old SDK host, #244 D6b).
 
 use super::*;
-use crate::Items;
+use crate::Staging;
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::event::EventData;
 use paperpaw_sdk::{Gesture, Params};
@@ -42,7 +42,7 @@ impl crate::testing::Fake for Page {
 }
 
 /// Hosts the page in its lower half.
-fn host_plugin(kept: Log) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn host_plugin(kept: Log) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         let log = kept.clone();
         r.add_fake(crate::testing::FakeSpec::new(

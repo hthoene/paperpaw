@@ -272,7 +272,7 @@ impl HttpRequest {
 }
 
 /// The answer to a request a plugin's server received (see
-/// [`Command::Serve`]).
+/// `Ask::Serve`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ServerResponse {
@@ -366,7 +366,7 @@ impl ServerResponse {
     }
 }
 
-/// UDP datagrams to the local network (see [`Command::Broadcast`]).
+/// UDP datagrams to the local network (see `Ask::Broadcast`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Broadcast {
@@ -420,7 +420,7 @@ impl Broadcast {
     }
 }
 
-/// Parameters of a server's events (see [`Command::Serve`]).
+/// Parameters of a server's events (see `Ask::Serve`).
 pub mod server_params {
     /// What happened: [`STARTED`], [`REQUEST`], [`FAILED`] or [`STOPPED`].
     pub const KIND: &str = "kind";
@@ -440,7 +440,7 @@ pub mod server_params {
     pub const BODY_FILE: &str = "body-file";
 }
 
-/// What a socket is to read next (see [`Command::SocketRead`]).
+/// What a socket is to read next (see `Ask::SocketRead`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SocketRead {
@@ -457,8 +457,8 @@ pub enum SocketRead {
     File { path: String, len: u64 },
 }
 
-/// Parameters of a socket's events (see [`Command::Connect`]) and of a
-/// broadcast's (see [`Command::Broadcast`]).
+/// Parameters of a socket's events (see `Ask::Connect`) and of a
+/// broadcast's (see `Ask::Broadcast`).
 pub mod socket_params {
     /// What happened: [`CONNECTED`], [`RECEIVED`], [`BYTES`], [`SAVED`], [`CLOSED`],
     /// [`FAILED`], [`SECURED`] or [`UNTRUSTED`]; for broadcasts [`ANSWER`]
@@ -536,7 +536,7 @@ pub mod http_params {
     pub const TOTAL: &str = "total";
 }
 
-/// Text to speak aloud (see [`Command::Speak`]).
+/// Text to speak aloud (see `Ask::Speak`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Speech {
@@ -639,7 +639,7 @@ impl Speech {
     }
 }
 
-/// Parameters of the reply to [`Command::Speak`].
+/// Parameters of the reply to `Ask::Speak`.
 pub mod speech_params {
     /// Present (`1`) when the text could not be spoken, e.g. without a
     /// voice for it.

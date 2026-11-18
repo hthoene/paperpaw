@@ -19,7 +19,7 @@ mod snapshot;
 pub mod snapshot_wire;
 
 use context::{Frame, FrameSlot};
-use paperpaw_core::Items;
+use paperpaw_core::Staging;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_SPACE, ERR_STATE, OK, PpBuffer};
 use paperpaw_platform::{
     Battery, DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
@@ -254,7 +254,7 @@ std::thread_local! {
     static SEEN: RefCell<Option<Rc<RefCell<Vec<Snapshot>>>>> = const { RefCell::new(None) };
 }
 
-fn probe(kept: Rc<RefCell<Vec<Snapshot>>>) -> impl Fn(&mut Items) -> Result<(), RegisterError> {
+fn probe(kept: Rc<RefCell<Vec<Snapshot>>>) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
     move |r| {
         SEEN.with(|seen| *seen.borrow_mut() = Some(kept.clone()));
         r.subscribe(paperpaw_sdk::builtin::events::STARTED, |k, _| {

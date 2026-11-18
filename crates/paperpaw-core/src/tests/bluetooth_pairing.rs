@@ -21,7 +21,7 @@ use paperpaw_sdk::{
 use super::questions;
 use crate::native_host::shared::Shared;
 use crate::native_host::ui_store::UiStore;
-use crate::{BtCall, BtReport, Found, Io, Items, Kernel, PairQuestion};
+use crate::{BtCall, BtReport, Found, Io, Kernel, PairQuestion, Staging};
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "test",
@@ -43,7 +43,7 @@ std::thread_local! {
     static QUEUE: RefCell<Vec<Ask>> = const { RefCell::new(Vec::new()) };
 }
 
-fn pulse(r: &mut Items) -> Result<(), RegisterError> {
+fn pulse(r: &mut Staging) -> Result<(), RegisterError> {
     r.add_action(ActionSpec::new(GO, "go").handler(|_, _, out| {
         QUEUE.with(|queue| out.extend(queue.borrow_mut().drain(..)));
     }))?;
