@@ -39,6 +39,9 @@ pub(crate) enum Opportunity {
     Mandatory,
 }
 
+/// [`LineBreaker::thai_left`] in a run of Thai no words are known for.
+const NO_WORDS: u8 = u8::MAX;
+
 /// U+25CC DOTTED CIRCLE, a member of the Aksara group of LB28a.
 const DOTTED_CIRCLE: char = '\u{25CC}';
 
@@ -90,6 +93,11 @@ pub(crate) struct LineBreaker {
     last_dash: bool,
     /// A space came since it.
     spaces: bool,
+    /// The last character was Thai (`thai::is_thai`).
+    thai: bool,
+    /// In a run of Thai: how many characters after the last one its word
+    /// goes on ([`NO_WORDS`]: no words known, a run unbroken as before).
+    thai_left: u8,
 }
 
 impl LineBreaker {
@@ -124,6 +132,8 @@ impl LineBreaker {
             last_flagged: false,
             last_dash: false,
             spaces: false,
+            thai: false,
+            thai_left: 0,
         }
     }
 
@@ -214,6 +224,11 @@ impl LineBreaker {
         } else {
             Opportunity::No
         };
+        let decided = match super::thai::is_thai(c) {
+            true => self.thai_word(&before, c, rest, decided),
+            false => decided,
+        };
+        self.thai = super::thai::is_thai(c);
         if c == ' ' {
             self.spaces = true;
         } else {
@@ -223,6 +238,33 @@ impl LineBreaker {
         }
         self.started = true;
         decided
+    }
+
+    /// Thai `c` after `before`: between two words a line may break
+    /// (`thai`); inside one, as UAX #14 says (not between letters and their
+    /// marks). Notes where the word that starts goes on to.
+    fn thai_word(
+        &mut self,
+        before: &Self,
+        c: char,
+        rest: &str,
+        decided: Opportunity,
+    ) -> Opportunity {
+        if before.thai && before.thai_left > 0 {
+            if before.thai_left != NO_WORDS {
+                self.thai_left = before.thai_left - 1;
+            }
+            return decided;
+        }
+        let Some(len) = super::thai::word_len(c, rest) else {
+            self.thai_left = NO_WORDS;
+            return decided;
+        };
+        self.thai_left = len - 1;
+        match before.thai && before.started && decided == Opportunity::No {
+            true => Opportunity::Allowed,
+            false => decided,
+        }
     }
 
     /// UAX #14 for the position before `now`, and the state after it.

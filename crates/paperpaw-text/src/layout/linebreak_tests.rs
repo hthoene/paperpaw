@@ -523,3 +523,141 @@ fn the_state_at_a_line_start_is_that_of_one_pass() {
         }
     }
 }
+
+/// A pack of one letter with the table of Thai words of the store's
+/// `script-thai` (slot 6), opened: the line breaker reads its words.
+fn thai_pack() -> crate::StoredPack {
+    struct Bytes(Vec<u8>);
+    impl crate::PackSource for Bytes {
+        fn read_at(&self, at: u64, buf: &mut [u8]) -> bool {
+            let at = at as usize;
+            match self.0.get(at..at + buf.len()) {
+                Some(bytes) => {
+                    buf.copy_from_slice(bytes);
+                    true
+                }
+                None => false,
+            }
+        }
+    }
+    let table = crate::linebreak::thai::tests::table(&crate::linebreak::thai::tests::dictionary());
+    let mut builder = crate::PackBuilder::new();
+    let metrics = crate::LineMetrics::fallback(10.0);
+    builder.add_strike(10.0, metrics, vec![('ก', crate::glyph::Glyph::empty(10.0))]);
+    builder.table(6, 1, &table[8..]);
+    crate::StoredPack::open(alloc::rc::Rc::new(Bytes(builder.build()))).unwrap()
+}
+
+/// Two Thai sentences without spaces between their words, and where
+/// their words start.
+const THAI: &str = "ฉันชอบกินอาหารไทยมาก เด็กๆเล่นในสวนสาธารณะ";
+const THAI_WORDS: [&str; 11] = [
+    "ฉัน",
+    "ชอบ",
+    "กิน",
+    "อาหาร",
+    "ไทย",
+    "มาก",
+    "เด็กๆ",
+    "เล่น",
+    "ใน",
+    "สวน",
+    "สาธารณะ",
+];
+
+fn word_starts() -> Vec<usize> {
+    let mut starts = Vec::new();
+    let mut from = 0;
+    for word in THAI_WORDS {
+        let at = from + THAI[from..].find(word).unwrap();
+        starts.push(at);
+        from = at + word.len();
+    }
+    starts
+}
+
+/// With a Thai pack open, lines of Thai break between its words (#313),
+/// greedily and balanced; without one, only at the space (a line is cut
+/// where a run does not fit).
+#[test]
+fn thai_breaks_between_the_words_of_the_open_pack() {
+    let starts = word_starts();
+    let balanced = |text: &str| {
+        wrap_lines_balanced_in(
+            text,
+            &|_| 100.0,
+            &|_, _| 10.0,
+            &|_, _, _| 0.0,
+            None,
+            &|_, _| 0.0,
+            0,
+        )
+    };
+    let plain = lines_of(THAI, 100.0, 0);
+    assert!(
+        plain.iter().any(|l| !starts.contains(&l.range.start)),
+        "without words: {:?}",
+        texts(THAI, &plain)
+    );
+    let pack = thai_pack();
+    for lines in [lines_of(THAI, 100.0, 0), balanced(THAI)] {
+        assert!(lines.len() >= 3, "{:?}", texts(THAI, &lines));
+        for line in &lines {
+            assert!(
+                starts.contains(&line.range.start),
+                "{:?}",
+                texts(THAI, &lines)
+            );
+            assert!(line.width <= 100.0, "{:?}", texts(THAI, &lines));
+        }
+    }
+    // Laid out from a line's start, the lines after it are the same.
+    let all = lines_of(THAI, 100.0, 0);
+    let rest = lines_of(&THAI[all[1].range.start..], 100.0, 0);
+    assert_eq!(
+        texts(THAI, &all[1..]),
+        texts(&THAI[all[1].range.start..], &rest)
+    );
+    drop(pack);
+    assert_eq!(
+        lines_of(THAI, 100.0, 0),
+        plain,
+        "the words go with the pack"
+    );
+}
+
+/// Thai the words do not explain breaks between clusters only: never
+/// before a vowel or tone mark, nor after a vowel written before its
+/// letter (in lines as wide as the longest word, 15 letters; one wider
+/// than its line is cut where it overflows); and no letter is lost.
+/// Without the words, a run is cut where it overflows, inside clusters.
+#[test]
+fn thai_lines_never_break_inside_a_cluster() {
+    let text = "กรุงเทพมหานครอมรรัตนโกสินทร์มหินทรายุธยามหาดิลกภพนพรัตนราชธานีบุรีรมย์ \
+                เปลี่ยนแปลงไม่ได้ก็ไม่เป็นไรน้ำใจเก่งที่สุดศัพท์ภาษาไทยกำลังใจ";
+    let follows = "\u{E2F}\u{E30}\u{E31}\u{E32}\u{E33}\u{E34}\u{E35}\u{E36}\u{E37}\u{E38}\
+                   \u{E39}\u{E3A}\u{E45}\u{E46}\u{E47}\u{E48}\u{E49}\u{E4A}\u{E4B}\u{E4C}\u{E4D}\u{E4E}";
+    let leads = "\u{E40}\u{E41}\u{E42}\u{E43}\u{E44}";
+    let inside = |width: f32| -> Option<String> {
+        let lines = lines_of(text, width, 0);
+        assert_eq!(
+            texts(text, &lines).concat().replace(' ', ""),
+            text.replace(' ', ""),
+            "{width}"
+        );
+        texts(text, &lines).into_iter().find_map(|line| {
+            let (first, last) = (line.chars().next()?, line.chars().last()?);
+            (follows.contains(first) || leads.contains(last)).then(|| line.into())
+        })
+    };
+    let widths = [150.0, 160.0, 170.0, 190.0, 230.0, 300.0];
+    assert!(widths.iter().any(|&w| inside(w).is_some()), "without words");
+    let _pack = thai_pack();
+    for width in widths {
+        assert_eq!(
+            inside(width),
+            None,
+            "{width}: a line starts or ends inside a cluster"
+        );
+    }
+}

@@ -90,11 +90,11 @@ formats = 3
 devices = ["x4", "x4-pro", "x4-classic"]
 off_by_default = true
 build = "tools/script-pack.py"
-inputs = ["tools/fonts/NotoSerifThai.ttf", "tools/fonts/NotoSansThai.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs"]
+inputs = ["tools/fonts/NotoSerifThai.ttf", "tools/fonts/NotoSansThai.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "tools/thai-dictionary.py", "tools/thai-dictionary.txt"]
 name = "Thai letters"
-description = "Thai books in Noto Serif Thai, with their vowels and tone marks stacked in place."
+description = "Thai books in Noto Serif Thai, with their vowels and tone marks stacked in place and lines broken between words."
 de.name = "Thailändische Schrift"
-de.description = "Bücher auf Thailändisch in Noto Serif Thai, mit Vokal- und Tonzeichen an der richtigen Stelle."
+de.description = "Bücher auf Thailändisch in Noto Serif Thai, mit Vokal- und Tonzeichen an der richtigen Stelle und Zeilenumbrüchen zwischen den Wörtern."
 
 [script-greek]
 version = "1.0.3"

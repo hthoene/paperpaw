@@ -67,7 +67,8 @@
 //! 4  substitutions        keys drawn as other keys, as several, several
 //!                         as one (below)
 //! 5  vertical metrics     for vertical lines
-//! 6  reserved             0
+//! 6  words                Thai words, where lines break between
+//!                         them (below)
 //! 7  next directory       eight more offsets, slots 8 to 15, the same way
 //! ```
 //!
@@ -185,6 +186,27 @@
 //! in their order. Bengali and Devanagari packs carry such a table
 //! (`crate::indic`), which their shaper applies feature by feature,
 //! each where the script puts it.
+//!
+//! Words (version 1), slot 6: the words of a script written without
+//! spaces between them (Thai), where the line breaker may break a line
+//! (`crate::linebreak`), as `tools/thai-dictionary.py` writes them:
+//!
+//! ```text
+//! head       8 bytes   version 1, 3 reserved, length u32
+//! counts     4 bytes   word count u16, block count u16 (a block per 16
+//!                      words)
+//! blocks     2 bytes   offset u16 of each block from the first's start
+//!   each
+//! words      -         sorted by their letters, each one byte: its code
+//!                      point less U+0E00; a word: one byte, the letters it
+//!                      shares with the word before in its high four bits
+//!                      (0 for a block's first) and the count (1 to 15) of
+//!                      those that follow in its low four, then those
+//! ```
+//!
+//! A word has 1 to 15 letters. The first pack opened with the table holds
+//! it in memory from when Thai text is first broken into lines until the
+//! pack is trimmed or closed.
 
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
