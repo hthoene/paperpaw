@@ -792,9 +792,15 @@ impl NativeStore {
     /// The plugins of a setup template that waited for a connection go into
     /// the queue (quietly) and it starts: at the start where the device is
     /// online (`need_online`), and where the library was reached. Those that
-    /// came another way are left out; the list is gone either way.
+    /// came another way are left out; the list is gone either way. It is also
+    /// called where Wi-Fi reports a connection (`need_online` is false: the
+    /// event says so, no radio is read or switched on).
     #[inline(never)]
-    fn release_template(&mut self, host: &Host<'_>, need_online: bool) -> Result<(), Error> {
+    pub(crate) fn release_template(
+        &mut self,
+        host: &Host<'_>,
+        need_online: bool,
+    ) -> Result<(), Error> {
         use crate::native_template::{pending, release, waiting};
         let storage = DataStorage::new(host);
         if !waiting(&storage) || (need_online && !crate::native_installs::is_online(host)?) {
