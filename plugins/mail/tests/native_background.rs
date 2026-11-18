@@ -196,7 +196,7 @@ fn endpoint(security: Security, port: u16, password: &str) -> Endpoint {
 fn message(n: u32) -> (u32, String, String) {
     (
         n,
-        if n % 3 == 0 {
+        if n.is_multiple_of(3) {
             "\\Seen".into()
         } else {
             String::new()
@@ -206,9 +206,6 @@ fn message(n: u32) -> (u32, String, String) {
         ),
     )
 }
-
-
-
 
 /// Drives the job on the fake until it is not working; the most the job's own
 /// calls held at once (above what was live when each began).
@@ -279,14 +276,20 @@ fn the_choices_are_fifteen_thirty_and_sixty_minutes_and_the_declared_ones() {
     // What is none of them is the default and never under the minute the host
     // allows for `every_ms`.
     for odd in ["", "mail.every.5", "mail.every.0"] {
-        assert_eq!(background::every_ms(odd), background::DEFAULT_MINUTES * 60_000);
+        assert_eq!(
+            background::every_ms(odd),
+            background::DEFAULT_MINUTES * 60_000
+        );
         assert!(background::every_ms(odd) >= 60_000);
     }
     // The setting declares the same three (the default is the middle one).
     let declared: Vec<&str> = declarations::EVERY.to_vec();
     let known: Vec<&str> = background::EVERY.iter().map(|(key, _)| *key).collect();
     assert_eq!(declared, known);
-    assert_eq!(background::minutes(declarations::EVERY[1]), background::DEFAULT_MINUTES);
+    assert_eq!(
+        background::minutes(declarations::EVERY[1]),
+        background::DEFAULT_MINUTES
+    );
 }
 
 #[test]

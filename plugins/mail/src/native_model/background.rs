@@ -53,7 +53,9 @@ impl Round {
     /// [`Error::NoMemory`].
     pub fn new(accounts: &[u8]) -> Result<Self, Error> {
         let mut queue = Vec::new();
-        queue.try_reserve_exact(accounts.len()).map_err(|_| Error::NoMemory)?;
+        queue
+            .try_reserve_exact(accounts.len())
+            .map_err(|_| Error::NoMemory)?;
         for account in accounts {
             push(&mut queue, *account)?;
         }

@@ -234,7 +234,12 @@ pub fn layout_of(
     };
     Layout {
         area,
-        note: Rect::new(0, bottom.saturating_sub(note_h).saturating_sub(lift), width, note_h),
+        note: Rect::new(
+            0,
+            bottom.saturating_sub(note_h).saturating_sub(lift),
+            width,
+            note_h,
+        ),
         buttons: [
             button(0),
             button(1),

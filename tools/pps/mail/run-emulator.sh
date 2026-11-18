@@ -15,6 +15,8 @@ mkdir -p "$OUT"
 CARD=$(mktemp -d); LOG=$OUT/fake-mail.log
 trap 'kill $PID 2>/dev/null; rm -rf "$CARD"' EXIT
 mkdir -p "$CARD/books"
+# The password is a secret setting: a value in paperpaw.ini moves into the secrets at load (docs/abi/secrets.md 4).
+printf '[mail]\n1.password = secret-pass-123\n' > "$CARD/paperpaw.ini"
 python3 -I "$HERE/fake_mail.py" --out "$OUT/server" $STARTTLS > "$LOG" 2>&1 &
 PID=$!
 for _ in $(seq 100); do grep -q '^READY' "$LOG" && break; sleep 0.1; done

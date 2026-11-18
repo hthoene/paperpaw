@@ -514,7 +514,9 @@ fn an_attachment_is_read_into_its_file_whole_in_pieces_of_every_size() {
         assert_eq!(&got[..n], &bytes[..], "chunk {chunk}");
         // The server was asked for that part only, never the message.
         assert!(
-            fake.sent.iter().any(|l| l.contains("UID FETCH 20 BODY.PEEK[2]")),
+            fake.sent
+                .iter()
+                .any(|l| l.contains("UID FETCH 20 BODY.PEEK[2]")),
             "{:?}",
             fake.sent
         );

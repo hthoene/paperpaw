@@ -97,7 +97,10 @@ fn every_setting_is_declared_as_interface_6_registered_it() {
         44,
         "three accounts of 13, three for all and the two of the background check"
     );
-    for row in new.iter().filter(|row| !BACKGROUND.contains(&row.name.as_str())) {
+    for row in new
+        .iter()
+        .filter(|row| !BACKGROUND.contains(&row.name.as_str()))
+    {
         pin.check(&row.name, row);
     }
     pin.finish();
@@ -116,10 +119,16 @@ fn the_background_check_is_off_until_turned_on_and_asks_how_often() {
     let every = rows.iter().find(|r| r.name == "background-every").unwrap();
     assert_eq!(every.kind, "choice");
     assert_eq!(every.default, "mail.every.30");
-    assert_eq!(every.options, ["mail.every.15", "mail.every.30", "mail.every.60"]);
+    assert_eq!(
+        every.options,
+        ["mail.every.15", "mail.every.30", "mail.every.60"]
+    );
     // Both in the group of Mail itself, with the settings for all accounts.
     assert_eq!(on.group, every.group);
-    assert_eq!(on.group, rows.iter().find(|r| r.name == "fetch").unwrap().group);
+    assert_eq!(
+        on.group,
+        rows.iter().find(|r| r.name == "fetch").unwrap().group
+    );
 }
 
 #[test]

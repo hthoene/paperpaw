@@ -47,9 +47,18 @@ fn a_book_attached_to_a_mixed_message_is_offered_as_part_two() {
         "{}{}{}--b--\r\n",
         head("multipart/mixed; boundary=b"),
         text_part("b"),
-        file_part("b", "application/epub+zip", "tiny-book.epub", "base64", &base64_lines(b"PK\x03\x04 a book"))
+        file_part(
+            "b",
+            "application/epub+zip",
+            "tiny-book.epub",
+            "base64",
+            &base64_lines(b"PK\x03\x04 a book")
+        )
     );
-    assert_eq!(saves_of(&message), [("2".to_string(), "tiny-book.epub".to_string())]);
+    assert_eq!(
+        saves_of(&message),
+        [("2".to_string(), "tiny-book.epub".to_string())]
+    );
 }
 
 #[test]
@@ -60,7 +69,13 @@ fn parts_are_numbered_as_imap_numbers_them_also_inside_other_parts() {
          --m\r\nContent-Type: multipart/related; boundary=r\r\n\r\n--r\r\nContent-Type: text/html\r\n\r\n<p>x</p>\r\n{}--r--\r\n{}--m--\r\n",
         head("multipart/mixed; boundary=m"),
         file_part("r", "application/pdf", "inner.pdf", "base64", "UEsDBA=="),
-        file_part("m", "application/epub+zip", "outer.epub", "base64", "UEsDBA==")
+        file_part(
+            "m",
+            "application/epub+zip",
+            "outer.epub",
+            "base64",
+            "UEsDBA=="
+        )
     );
     assert_eq!(
         saves_of(&message),
@@ -79,10 +94,22 @@ fn only_base64_books_are_offered_and_at_most_four() {
         text_part("b"),
         // Not a book, not base64: named in the attachments but not offered.
         file_part("b", "image/png", "pic.png", "base64", "UEsDBA=="),
-        file_part("b", "application/epub+zip", "qp.epub", "quoted-printable", "PK=03=04"),
+        file_part(
+            "b",
+            "application/epub+zip",
+            "qp.epub",
+            "quoted-printable",
+            "PK=03=04"
+        ),
     );
     for n in 0..6 {
-        message.push_str(&file_part("b", "application/pdf", &format!("b{n}.PDF"), "base64", "UEsDBA=="));
+        message.push_str(&file_part(
+            "b",
+            "application/pdf",
+            &format!("b{n}.PDF"),
+            "base64",
+            "UEsDBA==",
+        ));
     }
     message.push_str("--b--\r\n");
     let saves = saves_of(&message);
@@ -94,7 +121,9 @@ fn only_base64_books_are_offered_and_at_most_four() {
 
 #[test]
 fn what_makes_a_book_and_a_name_the_card_takes() {
-    for yes in ["a.epub", "A.EPUB", "x.y.pdf", "b.mobi", "c.fb2", "d.txt", "e.docx", "f.cbz", "g.azw3"] {
+    for yes in [
+        "a.epub", "A.EPUB", "x.y.pdf", "b.mobi", "c.fb2", "d.txt", "e.docx", "f.cbz", "g.azw3",
+    ] {
         assert!(is_book_name(yes), "{yes}");
     }
     for no in ["", "epub", ".epub", "a.exe", "a.epub.exe", "a.png", "a."] {
@@ -120,23 +149,33 @@ fn the_saves_are_kept_beside_the_letter_and_read_back() {
         "{}{}{}--b--\r\n",
         head("multipart/mixed; boundary=b"),
         text_part("b"),
-        file_part("b", "application/epub+zip", "../Tiny Book.epub", "base64", "UEsDBA==")
+        file_part(
+            "b",
+            "application/epub+zip",
+            "../Tiny Book.epub",
+            "base64",
+            "UEsDBA=="
+        )
     );
     storage.write("m1.eml", message.as_bytes()).unwrap();
     let letter = store::make_letter(&storage, "m1.eml", "m1.txt").unwrap();
     assert_eq!(letter.attachments.len(), 1);
     let saves = store::read_saves(&storage, "m1.txt").unwrap();
-    assert_eq!(
-        saves,
-        [Save::of("2", "Tiny Book.epub")]
-    );
+    assert_eq!(saves, [Save::of("2", "Tiny Book.epub")]);
     // A letter made again without one takes the old file away.
-    storage.write("m1.eml", format!("{}hello\r\n", head("text/plain")).as_bytes()).unwrap();
+    storage
+        .write(
+            "m1.eml",
+            format!("{}hello\r\n", head("text/plain")).as_bytes(),
+        )
+        .unwrap();
     store::make_letter(&storage, "m1.eml", "m1.txt").unwrap();
     assert!(store::read_saves(&storage, "m1.txt").unwrap().is_empty());
     assert!(storage.size("m1.att").is_err());
     // A file that is not as it was written reads as none.
-    storage.write("m2.att", b"x\ty\n..\tz\nno tab\n1.2\t\n").unwrap();
+    storage
+        .write("m2.att", b"x\ty\n..\tz\nno tab\n1.2\t\n")
+        .unwrap();
     assert!(store::read_saves(&storage, "m2.txt").unwrap().is_empty());
 }
 
@@ -145,7 +184,9 @@ fn a_part_is_decoded_from_one_file_into_another_in_pieces() {
     let storage = MemoryStorage::new();
     // 10,000 bytes (not a multiple of the piece, nor of three).
     let bytes: Vec<u8> = (0..10_000u32).map(|n| (n * 7 % 251) as u8).collect();
-    storage.write("part", base64_lines(&bytes).as_bytes()).unwrap();
+    storage
+        .write("part", base64_lines(&bytes).as_bytes())
+        .unwrap();
     let size = decode_file(&storage, "part", "book").unwrap();
     assert_eq!(size, bytes.len() as u64);
     let mut got = vec![0u8; 11_000];
@@ -153,7 +194,9 @@ fn a_part_is_decoded_from_one_file_into_another_in_pieces() {
     assert_eq!(&got[..n], &bytes[..]);
     // The padding and the line breaks of one or two bytes at the end.
     for len in [0usize, 1, 2, 3, 4] {
-        storage.write("part", base64_lines(&bytes[..len]).as_bytes()).unwrap();
+        storage
+            .write("part", base64_lines(&bytes[..len]).as_bytes())
+            .unwrap();
         assert_eq!(decode_file(&storage, "part", "book").unwrap(), len as u64);
     }
 }

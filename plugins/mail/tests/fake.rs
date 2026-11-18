@@ -371,7 +371,9 @@ impl Fake {
             }
             text.push_str(&format!("{tag} OK done\r\n"));
             self.say(&text);
-        } else if upper.starts_with("UID FETCH") && rest.contains("PEEK[") && !rest.contains("PEEK[]")
+        } else if upper.starts_with("UID FETCH")
+            && rest.contains("PEEK[")
+            && !rest.contains("PEEK[]")
         {
             let uid: u32 = rest.split(' ').nth(2).unwrap().parse().unwrap();
             let part = rest

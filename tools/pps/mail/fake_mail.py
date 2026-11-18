@@ -21,7 +21,7 @@ Every mail sent through SMTP is kept as sent/<n>.eml in --out (default: a tempor
 `FLAG <uid> <command>`.
 
 Only what the plugin speaks: CAPABILITY, STARTTLS, AUTHENTICATE PLAIN (with SASL-IR), LOGIN, LIST,
-SELECT, STATUS, FETCH, UID FETCH BODY.PEEK[]<0.n>, UID STORE, NOOP, LOGOUT; EHLO, STARTTLS, AUTH PLAIN
+SELECT, STATUS, FETCH, UID FETCH BODY.PEEK[]<0.n> and BODY.PEEK[part], UID STORE, NOOP, LOGOUT; EHLO, STARTTLS, AUTH PLAIN
 and LOGIN, MAIL, RCPT, DATA, RSET, QUIT.
 """
 import argparse
@@ -246,6 +246,13 @@ class Server:
                     raw = next((m[2] for m in self.mailbox if m[0] == uid), None)
                 if raw is None:
                     f.write(f"{tag} OK nothing\r\n".encode())
+                elif "BODY.PEEK[" in rest and "BODY.PEEK[]" not in rest:
+                    # One MIME part of a multipart mail, as sent (still transfer-encoded).
+                    number = int(rest.split("BODY.PEEK[")[1].split("]")[0])
+                    parts = email.message_from_bytes(raw).get_payload()
+                    body = (parts[number - 1].get_payload() if isinstance(parts, list) else "").encode()
+                    f.write(f"* 1 FETCH (UID {uid} BODY[{number}] {{{len(body)}}}\r\n".encode()
+                            + body + f")\r\n{tag} OK done\r\n".encode())
                 else:
                     body = raw[:limit]
                     f.write(f"* 1 FETCH (UID {uid} BODY[]<0> {{{len(body)}}}\r\n".encode()

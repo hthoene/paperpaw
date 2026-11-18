@@ -114,9 +114,7 @@ impl Save {
 pub const MAX_SAVES: usize = 4;
 
 /// The kinds of file the reader opens as books, by their ending.
-const BOOKS: [&str; 8] = [
-    "epub", "pdf", "mobi", "azw3", "fb2", "txt", "docx", "cbz",
-];
+const BOOKS: [&str; 8] = ["epub", "pdf", "mobi", "azw3", "fb2", "txt", "docx", "cbz"];
 
 /// Whether `name` ends as a book does.
 #[must_use]

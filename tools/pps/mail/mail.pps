@@ -34,7 +34,6 @@ test:mail-02-account {
   set:mail.1.smtp-port=$smtp
   set:mail.1.smtp-security=mail.security.$security
   set:mail.1.smtp-pin=$pin
-  set:mail.1.password=secret-pass-123
   settings:mail.1.
 }
 
@@ -167,8 +166,9 @@ test:mail-08-attachment {
     right
   }
   confirm
-  until:This book came by mail:30000
+  # The attachment is fetched and decoded, the library takes it (the card's top folder here) and the reader opens it.
+  wait:6000
+  stat:tiny-book.epub
   shot:$out/mail-08-book.png
-  expect:Arrival
   expect-not:Open book
 }

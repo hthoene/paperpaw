@@ -30,6 +30,7 @@ use paperpaw_sdk::{
         callbacks::{DrawFrame, DrawPurpose, Input},
         commands::CommandSender,
         events::{Event, Incoming, kinds},
+        library::Library,
         registrations,
         reply::Reply,
         secrets::Secrets,
@@ -37,7 +38,6 @@ use paperpaw_sdk::{
         sockets::{SocketId, Sockets},
         storage::DataStorage,
         ui::{Instance, Open, Ui},
-        library::Library,
         work::Work,
     },
 };

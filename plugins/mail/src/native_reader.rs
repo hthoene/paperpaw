@@ -37,7 +37,12 @@ pub(crate) const READ_TOKEN: u32 = SCREEN_TOKEN + 2;
 /// The most lines a mail is wrapped to.
 const MAX_LINES: usize = 1024;
 /// The buttons, by their catalog keys.
-const BUTTONS: [&str; 4] = ["mail.reply", "mail.reply-all", "mail.star", "mail.open-book"];
+const BUTTONS: [&str; 4] = [
+    "mail.reply",
+    "mail.reply-all",
+    "mail.star",
+    "mail.open-book",
+];
 
 /// One open reader.
 #[derive(Debug)]
@@ -246,7 +251,11 @@ impl NativeMail {
             Run::Done => {
                 self.check = None;
                 self.job.run = Run::Idle;
-                if self.readers.get(instance).is_some_and(|r| r.saving.is_some()) {
+                if self
+                    .readers
+                    .get(instance)
+                    .is_some_and(|r| r.saving.is_some())
+                {
                     return self.opened(host, instance);
                 }
                 self.fetched(host, instance)
@@ -451,9 +460,8 @@ impl NativeMail {
         let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
         let handover = self.ui()?.handover(host, &params, &mut input, &mut out)?;
         let mut scratch = [0; 256];
-        CommandSender::new(host, &mut scratch).open(
-            paperpaw_sdk::native::ui::Open::slot("core.reader")?.handover(handover),
-        )
+        CommandSender::new(host, &mut scratch)
+            .open(paperpaw_sdk::native::ui::Open::slot("core.reader")?.handover(handover))
     }
 
     /// An input for the reader on top.
