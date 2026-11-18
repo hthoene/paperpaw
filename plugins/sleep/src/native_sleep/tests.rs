@@ -470,3 +470,23 @@ fn the_next_picture_of_version_1_is_read() {
         7
     );
 }
+
+#[test]
+fn the_off_screen_shows_what_the_sleep_screen_does_unless_it_has_a_mode() {
+    assert!(!has_own_mode(""));
+    assert!(!has_own_mode(SAME));
+    assert!(has_own_mode(CAT));
+    assert!(has_own_mode(OFF_MESSAGE));
+    // The off screen's own choices are not another plugin's.
+    assert!(!is_foreign(SAME) && !is_foreign(OFF_MESSAGE));
+    assert!(is_foreign("calendar.sleep"));
+    // A plugin's screen chosen for the off screen binds `core.off`, and the
+    // default unbinds it only from a plugin's choice of `sleep.off-show`.
+    let offered = ["sleep.screen", "calendar.off"];
+    assert_eq!(binding("calendar.off", &offered), Some("calendar.off"));
+    assert_eq!(binding(SAME, &offered), None);
+    assert_eq!(
+        plan(SAME, &offered, Some("calendar.off"), &["calendar.off"]),
+        Bind::Default
+    );
+}

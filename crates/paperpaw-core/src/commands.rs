@@ -1264,7 +1264,9 @@ pub(crate) fn vet_reserved(
                         }
                         // The sleep screen shows over the lock; the settings
                         // editor has these rights.
-                        Ask::BindSlot(slot, _) => *slot == slots::SLEEP || *slot == slots::SETTINGS,
+                        Ask::BindSlot(slot, _) => {
+                            *slot == slots::SLEEP || *slot == slots::OFF || *slot == slots::SETTINGS
+                        }
                         _ => false,
                     });
         index += 1;

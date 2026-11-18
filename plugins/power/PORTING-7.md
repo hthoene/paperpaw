@@ -29,7 +29,7 @@ The interface-6 plugin and its Kernel tests are gone.
   plugin's setting `lock.touch` and action `lock.touch-toggle`, only on a touch
   device when they exist). While touch is locked the held button runs
   `lock.touch-toggle` at once, with no menu (a menu needs a tap, #234). Sleeping and switching off put the sleep screen
-  (slot `core.sleep`, parameter `off=1` for switching off) and the power command
+  (slot `core.sleep`; for switching off the slot `core.off`, parameter `off-reason=asked`) and the power command
   in one batch (`CommandSender::show_then`), so the host draws the frame before
   power is cut. Without a sleep screen the command acts alone.
 - Declares `uses.power`; services `core.device`, `core.ui`.

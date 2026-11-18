@@ -34,6 +34,16 @@ const SHOW: [&str; 7] = [
     "sleep.show.message",
     "sleep.show.page",
 ];
+/// The choices of the off screen: what the sleep screen shows, or one of its
+/// modes that show a fixed picture (a page or the widgets would look like a
+/// device that is on).
+const OFF_SHOW: [&str; 5] = [
+    "sleep.off-show.same",
+    "sleep.off-show.message",
+    "sleep.show.cat",
+    "sleep.show.cover",
+    "sleep.show.picture",
+];
 const POSITIONS: [&str; 7] = [
     "sleep.position.center",
     "sleep.position.top",
@@ -50,9 +60,10 @@ const WHEN: [&str; 3] = [
 ];
 
 /// The settings that need a device that sleeps (the group too).
-const NEEDS: [&str; 10] = [
+const NEEDS: [&str; 11] = [
     "sleep.group",
     "sleep.show",
+    "sleep.off-show",
     "sleep.folder",
     "sleep.widgets",
     "sleep.overlay-picture",
@@ -62,6 +73,21 @@ const NEEDS: [&str; 10] = [
     "sleep.overlay-see-through",
     "sleep.overlay-when",
 ];
+
+/// What the off screen shows (the slot `core.off`).
+fn off_show_spec() -> SpecDecl<'static> {
+    let mut spec = SpecDecl::new(
+        "off-show",
+        Kind::Choice {
+            default: OFF_SHOW[0],
+            choices: &OFF_SHOW,
+        },
+        GROUP,
+        "sleep.setting.off-show",
+    );
+    spec.help = "sleep.setting.off-show.help";
+    spec
+}
 
 /// What the sleep screen shows, the folder of its pictures, its widgets and
 /// its picture over the page.
@@ -82,6 +108,7 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     );
     show.help = "sleep.setting.show.help";
     d.spec(show)?;
+    d.spec(off_show_spec())?;
     let mut folder = SpecDecl::new("folder", Kind::Text("sleep"), GROUP, "sleep.setting.folder");
     folder.help = "sleep.setting.folder.help";
     d.spec(folder)?;
@@ -224,6 +251,7 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
         d.menu_need(item, MenuNeed::Sleep)?;
     }
     d.slot_offer(SlotOfferDecl::new("core.sleep", "sleep.screen"))?;
+    d.slot_offer(SlotOfferDecl::new("core.off", "sleep.screen"))?;
     d.slot_offer(SlotOfferDecl::new(
         "core.edit-widgets",
         "sleep.edit-widgets",
