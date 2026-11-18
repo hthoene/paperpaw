@@ -53,6 +53,8 @@ const MOST_ROWS: usize = 256;
 const MOST_DESCRIPTION: usize = 160;
 /// The places already seen, one `slot screen` a line, kept in the data folder.
 const KNOWN: &str = "screens.txt";
+/// The text *How it works* opens in the reader, in the data folder.
+const HOW_FILE: &str = "how.txt";
 /// The parameter of *Screens* naming the place whose candidates are listed.
 const SLOT: &str = "slot";
 /// The user bound the place (`reg_slot.flags` bit 0).
@@ -204,11 +206,25 @@ impl Plugin for NativePluginManager {
         let Some(view) = self.screens.top(token) else {
             return Ok(Handled::No);
         };
-        let list = match view {
-            View::List(view) => &mut view.list,
-            View::Places(view) => &mut view.list,
+        let (list, plugins) = match view {
+            View::List(view) => (&mut view.list, true),
+            View::Places(view) => (&mut view.list, false),
         };
-        let step = list.input(host, &input)?;
+        // Select held, or the menu button, is a hold with buttons alone (as on
+        // a touch screen): without this the host takes them for its menu.
+        let hold = plugins
+            && matches!(
+                input,
+                Input::Action {
+                    action: "core.long-confirm" | "core.menu",
+                    ..
+                }
+            );
+        let step = if hold {
+            ItemStep::Held(list.focus())
+        } else {
+            list.input(host, &input)?
+        };
         match step {
             ItemStep::Chosen(index) => self.chosen(host, token, index)?,
             ItemStep::Held(index) => self.held(host, token, index)?,
@@ -500,15 +516,47 @@ impl NativePluginManager {
         }
     }
 
-    /// Holding a row: how the plugin works.
-    fn held(&mut self, host: &Host<'_>, token: u32, _index: usize) -> Result<(), Error> {
-        if !matches!(self.screens.top(token), Some(View::List(_))) {
+    /// Holding a row (a long touch, or Select held, or the menu button): how
+    /// the plugin works, its name and its `<id>.plugin.how` in the reader. A
+    /// plugin without such a text says so.
+    fn held(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        let Some(View::List(view)) = self.screens.top(token) else {
             return Ok(());
+        };
+        let Some(Target::Plugin(at)) = view.targets.get(index) else {
+            return Ok(());
+        };
+        let Some(row) = view.plugins.get(*at) else {
+            return Ok(());
+        };
+        let key = concat(&[&row.id, ".plugin.how"])?;
+        let name = copy(&row.name)?;
+        let mut messages = Messages::new()?;
+        let how = match messages.copy(host, &key) {
+            Ok(how) if !how.trim().is_empty() => how,
+            Ok(_) | Err(Error::NotFound) => return self.say(host, "plugin-manager.how-none"),
+            Err(error) => return Err(error),
+        };
+        let text = concat(&[&name, "\n\n", &how, "\n"])?;
+        if files::replace(host, Root::Data, HOW_FILE, text.as_bytes()).is_err() {
+            return self.say(host, "plugin-manager.how-failed");
         }
-        // BLOCKED (#228): the registry gives no "how it works" text of a
-        // plugin (`plugin-how-text-read` in `tests/acceptance_pending.rs`).
-        // Said on screen, never faked.
-        let text = Messages::new()?.copy(host, "plugin-manager.how-unavailable")?;
+        // Root 0: a file of the plugin's data folder.
+        let params = [Param::new("root", "0")?, Param::new("path", HOW_FILE)?];
+        let mut input = [0; REQUEST_BYTES];
+        let mut out = buffer(SERVICE_BUFFER)?;
+        let handover = self
+            .ui
+            .as_ref()
+            .ok_or(Error::State)?
+            .handover(host, &params, &mut input, &mut out)?;
+        let mut scratch = [0; REQUEST_BYTES];
+        CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
+    }
+
+    /// A notice, said in words of the catalog.
+    fn say(&self, host: &Host<'_>, key: &str) -> Result<(), Error> {
+        let text = Messages::new()?.copy(host, key)?;
         let mut scratch = [0; 256];
         CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
     }
