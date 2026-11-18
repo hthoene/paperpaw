@@ -2842,7 +2842,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-vocabulary"
-version = "1.1.10"
+version = "1.1.11"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
