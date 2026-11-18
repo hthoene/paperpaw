@@ -59,7 +59,9 @@ Indic shaper applies a word at a time; the marks' anchors come from
 `abvm` and `blwm`. These scripts have no italics: a letters pack holds
 one file for each weight, each extending all the faces it stands for
 (Literata's regular and italic and the interface's font; the bold ones),
-opened once. A table is kept within 32 KiB, what a pack read from the card
-keeps in memory: Devanagari's (28 KiB) leaves out the five contextual
-lookups that choose among the lengths of the vowel sign i by the
-consonants after it (ि is then drawn in its usual length).
+opened once. A table is kept within 32 KiB of 4-byte keys and offsets, what
+a pack read from the card keeps in memory: Devanagari's leaves out the five
+contextual lookups that choose among the lengths of the vowel sign i by
+the consonants after it (ि is then drawn in its usual length). The table
+is then written with 2-byte keys and offsets (version 2), which halves it
+in memory: Bengali 8.4 KiB, Devanagari 15.9 KiB.

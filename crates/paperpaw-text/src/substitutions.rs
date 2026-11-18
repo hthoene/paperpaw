@@ -11,8 +11,10 @@ use alloc::vec::Vec;
 
 use crate::anchors::Bytes;
 
-/// The table's version this reader knows.
+/// The table's versions this reader knows: keys and offsets of 4 bytes,
+/// and of 2 (compact, the Indic packs'; see `bitmap.rs`).
 const VERSION: u8 = 1;
+const COMPACT: u8 = 2;
 /// The table's head: version, 3 reserved, length.
 const HEAD: usize = 8;
 /// A feature's record.
@@ -91,12 +93,87 @@ impl Run for Keys<'_> {
     }
 }
 
-/// A substitution table of version 1, in memory or read through
+/// A substitution table of version 1 or 2, in memory or read through
 /// [`Bytes`] (a pack on a card).
 pub(crate) struct Substitutions<'a, B: Bytes + ?Sized = [u8]> {
     data: &'a B,
     /// Its length, as its head says.
     len: usize,
+    /// How wide its parts are, as its version says.
+    w: Widths,
+}
+
+/// How many bytes the parts of a table take, by its version.
+#[derive(Clone, Copy)]
+struct Widths {
+    key: usize,
+    offset: usize,
+    /// Reserved after a count of 2 bytes (of a key set, a class definition,
+    /// rules by classes).
+    pad: usize,
+    /// Before a ligature's keys: its length and what is reserved.
+    ligature: usize,
+    /// After a multiple's key, before its keys: its count and what is
+    /// reserved.
+    multiple: usize,
+    /// A rule's record: its place in the input and the offset of a
+    /// lookup's record.
+    record: usize,
+}
+
+impl Widths {
+    const WIDE: Widths = Widths {
+        key: 4,
+        offset: 4,
+        pad: 2,
+        ligature: 4,
+        multiple: 4,
+        record: 4,
+    };
+    const COMPACT: Widths = Widths {
+        key: 2,
+        offset: 2,
+        pad: 0,
+        ligature: 1,
+        multiple: 1,
+        record: 3,
+    };
+}
+
+/// The first compact key of a glyph without code point
+/// ([`GLYPHS`](crate::indic::GLYPHS) and its number); from
+/// [`COMPACT_MARKS`], of a mark's ([`MARKS`](crate::indic::MARKS)). Below
+/// it, a character's: keys of characters from U+D800 on and of glyphs
+/// numbered from 4,096 (marks 6,144) on have no compact key.
+const COMPACT_GLYPHS: u16 = 0xD800;
+const COMPACT_MARKS: u16 = 0xE800;
+
+/// The key a compact table's `key` stands for.
+fn wide_key(key: u16) -> u32 {
+    match key {
+        0..COMPACT_GLYPHS => u32::from(key),
+        COMPACT_GLYPHS..COMPACT_MARKS => crate::indic::GLYPHS + u32::from(key - COMPACT_GLYPHS),
+        _ => crate::indic::MARKS + u32::from(key - COMPACT_MARKS),
+    }
+}
+
+/// The compact key of `key`, if it has one (see [`wide_key`]).
+#[cfg(feature = "outline")]
+pub(crate) fn compact_key(key: u32) -> Option<u16> {
+    let (glyphs, marks) = (crate::indic::GLYPHS, crate::indic::MARKS);
+    let in_range = |base: u32, first: u16, end: u16| {
+        let n = key.checked_sub(base)?;
+        u16::try_from(n)
+            .ok()
+            .filter(|n| *n < end - first)
+            .map(|n| first + n)
+    };
+    match key {
+        k if k < u32::from(COMPACT_GLYPHS) => u16::try_from(k).ok(),
+        k if k >= marks => in_range(marks, COMPACT_MARKS, u16::MAX),
+        k if k >= glyphs => in_range(glyphs, COMPACT_GLYPHS, COMPACT_MARKS),
+        _ => None,
+    }
 }
 
 impl<B: Bytes + ?Sized> Clone for Substitutions<'_, B> {
@@ -121,13 +198,21 @@ impl<'a, B: Bytes + ?Sized> Substitutions<'a, B> {
     /// reader knows and has the bytes its head says.
     pub(crate) fn read(table: &'a B) -> Option<Self> {
         let mut head = [0u8; HEAD];
-        if !table.bytes(0, &mut head) || head[0] != VERSION {
+        if !table.bytes(0, &mut head) {
             return None;
         }
+        let w = match head[0] {
+            VERSION => Widths::WIDE,
+            COMPACT => Widths::COMPACT,
+            _ => return None,
+        };
         let len = usize::try_from(u32::from_le_bytes([head[4], head[5], head[6], head[7]])).ok()?;
         let mut last = [0u8];
-        (len >= HEAD + 4 && table.bytes(len - 1, &mut last))
-            .then_some(Substitutions { data: table, len })
+        (len >= HEAD + 4 && table.bytes(len - 1, &mut last)).then_some(Substitutions {
+            data: table,
+            len,
+            w,
+        })
     }
 
     fn bytes<const N: usize>(&self, at: usize) -> Option<[u8; N]> {
@@ -152,6 +237,38 @@ impl<'a, B: Bytes + ?Sized> Substitutions<'a, B> {
 
     fn usize_at(&self, at: usize) -> Option<usize> {
         self.u32_at(at).and_then(|v| usize::try_from(v).ok())
+    }
+
+    /// The key at `at`.
+    fn key_at(&self, at: usize) -> Option<u32> {
+        match self.w.key {
+            2 => self.u16_at(at).map(wide_key),
+            _ => self.u32_at(at),
+        }
+    }
+
+    /// A rule's record at `at`: its place in the input and where the
+    /// lookup's record is (version 1: a u32, the place in its top byte;
+    /// 2: the place u8, the offset u16).
+    fn record_at(&self, at: usize) -> Option<(usize, usize)> {
+        match self.w.record {
+            3 => Some((
+                usize::from(self.u8_at(at)?),
+                usize::from(self.u16_at(at + 1)?),
+            )),
+            _ => {
+                let record = self.u32_at(at)?;
+                Some(((record >> 24) as usize, (record & 0x00FF_FFFF) as usize))
+            }
+        }
+    }
+
+    /// The offset at `at` (of a part of the table).
+    fn offset_at(&self, at: usize) -> Option<usize> {
+        match self.w.offset {
+            2 => self.u16_at(at).map(usize::from),
+            _ => self.usize_at(at),
+        }
     }
 
     /// The features, in the order they apply.
@@ -212,11 +329,11 @@ impl<'a, B: Bytes + ?Sized> Substitutions<'a, B> {
         let Some(count) = self.u16_at(at) else {
             return false;
         };
-        let keys = at + 4;
+        let keys = at + 2 + self.w.pad;
         let (mut low, mut high) = (0, usize::from(count));
         while low < high {
             let mid = low + (high - low) / 2;
-            let Some(found) = self.u32_at(keys + mid * 4) else {
+            let Some(found) = self.key_at(keys + mid * self.w.key) else {
                 return false;
             };
             match found.cmp(&key) {
@@ -238,14 +355,16 @@ impl<'a, B: Bytes + ?Sized> Substitutions<'a, B> {
         let (mut low, mut high) = (0, usize::from(count));
         while low < high {
             let mid = low + (high - low) / 2;
-            let entry = at + 4 + mid * 6;
-            let Some(found) = self.u32_at(entry) else {
+            let entry = at + 2 + self.w.pad + mid * (self.w.key + 2);
+            let Some(found) = self.key_at(entry) else {
                 return 0;
             };
             match found.cmp(&key) {
                 core::cmp::Ordering::Less => low = mid + 1,
                 core::cmp::Ordering::Greater => high = mid,
-                core::cmp::Ordering::Equal => return self.u16_at(entry + 4).unwrap_or(0),
+                core::cmp::Ordering::Equal => {
+                    return self.u16_at(entry + self.w.key).unwrap_or(0);
+                }
             }
         }
         0
@@ -331,7 +450,7 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
     /// worse.
     fn search(&self, key: u32, key_at: impl Fn(usize) -> Option<usize>) -> Option<usize> {
         let (mut low, mut high) = (0, self.count);
-        let found = |i: usize| key_at(i).and_then(|at| self.table.u32_at(at));
+        let found = |i: usize| key_at(i).and_then(|at| self.table.key_at(at));
         while low < high {
             let mid = low + (high - low) / 2;
             match found(mid)?.cmp(&key) {
@@ -351,19 +470,21 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
 
     /// Where entry `i` of a ligature or multiple lookup is.
     fn entry(&self, i: usize) -> Option<usize> {
+        let w = self.table.w;
         self.table
-            .usize_at(self.entries.checked_add(i.checked_mul(4)?)?)
+            .offset_at(self.entries.checked_add(i.checked_mul(w.offset)?)?)
     }
 
     /// Where the first key of a ligature lookup's entry `i` is.
     fn first_key_at(&self, i: usize) -> Option<usize> {
-        self.entry(i)?.checked_add(4)
+        self.entry(i)?.checked_add(self.table.w.ligature)
     }
 
-    /// Where the record of a contextual lookup's entry `i` is (8 bytes:
-    /// key, the offset of its rule).
+    /// Where the record of a contextual lookup's entry `i` is (key, the
+    /// offset of its rule).
     fn context_record(&self, i: usize) -> Option<usize> {
-        self.entries.checked_add(i.checked_mul(8)?)
+        let w = self.table.w;
+        self.entries.checked_add(i.checked_mul(w.key + w.offset)?)
     }
 
     /// The key `key` is drawn as, by a single lookup.
@@ -371,9 +492,10 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
         if self.kind != SINGLE {
             return None;
         }
-        let record = |i: usize| self.entries.checked_add(i.checked_mul(8)?);
+        let w = self.table.w.key;
+        let record = |i: usize| self.entries.checked_add(i.checked_mul(2 * w)?);
         let i = self.search(key, record)?;
-        self.table.u32_at(record(i)?.checked_add(4)?)
+        self.table.key_at(record(i)?.checked_add(w)?)
     }
 
     /// The keys `key` is drawn as, by a multiple lookup, into `out`: how
@@ -382,14 +504,15 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
         if self.kind != MULTIPLE {
             return None;
         }
+        let w = self.table.w;
         let at = self.entry(self.search(key, |i| self.entry(i))?)?;
-        let count = usize::from(self.table.u8_at(at.checked_add(4)?)?);
+        let count = usize::from(self.table.u8_at(at.checked_add(w.key)?)?);
         if !(1..=MAX_KEYS).contains(&count) {
             return None;
         }
-        let keys = at.checked_add(8)?;
+        let keys = at.checked_add(w.key + w.multiple)?;
         for (k, slot) in out.iter_mut().enumerate().take(count) {
-            *slot = self.table.u32_at(keys + k * 4)?;
+            *slot = self.table.key_at(keys + k * w.key)?;
         }
         Some(count)
     }
@@ -404,13 +527,14 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
         }
         let first = *keys.first()?;
         let starts =
-            |i: usize| self.first_key_at(i).and_then(|at| self.table.u32_at(at)) == Some(first);
+            |i: usize| self.first_key_at(i).and_then(|at| self.table.key_at(at)) == Some(first);
         let mut i = self.search(first, |i| self.first_key_at(i))?;
         while i < self.count && starts(i) {
             let at = self.entry(i)?;
             let len = usize::from(self.table.u8_at(at)?);
             if (2..=MAX_KEYS).contains(&len) && len <= keys.len() {
-                let key = |k: usize| self.table.u32_at(at.checked_add(4 + k * 4)?);
+                let w = self.table.w;
+                let key = |k: usize| self.table.key_at(at.checked_add(w.ligature + k * w.key)?);
                 if (1..len).all(|k| key(k) == Some(keys[k])) {
                     return Some((len, key(len)?));
                 }
@@ -473,10 +597,12 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
         let mut e = self.search(key, |e| self.context_record(e))?;
         while e < self.count {
             let record = self.context_record(e)?;
-            if self.table.u32_at(record)? != key {
+            if self.table.key_at(record)? != key {
                 return None;
             }
-            let rule = self.table.usize_at(record.checked_add(4)?)?;
+            let rule = self
+                .table
+                .offset_at(record.checked_add(self.table.w.key)?)?;
             if let Some(next) = self.rule(run, i, rule) {
                 return Some(next);
             }
@@ -489,8 +615,8 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
     /// where to go on from, if it matched. A rule: backtrack, input and
     /// lookahead counts and its records' count (u8 each), the offsets of
     /// the key sets of the backtrack (nearest first), of the input after
-    /// its first key and of the lookahead, then its records: the place in
-    /// the input u8, 3 reserved, the offset of a lookup's record u32.
+    /// its first key and of the lookahead, then its records (see
+    /// [`Substitutions::record_at`]).
     fn rule(&self, run: &mut impl Run, i: usize, rule: usize) -> Option<usize> {
         let t = self.table;
         let [back, input, ahead, records] = t.bytes::<4>(rule)?.map(usize::from);
@@ -500,7 +626,7 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
         if back > i || i + input + ahead > run.len() {
             return None;
         }
-        let set = |n: usize| t.usize_at(rule + 4 + n * 4);
+        let set = |n: usize| t.offset_at(rule + 4 + n * t.w.offset);
         for k in 0..back {
             if !t.set_has(set(k)?, run.key(i - 1 - k)) {
                 return None;
@@ -516,13 +642,13 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
                 return None;
             }
         }
-        let first = rule + 4 + (back + input - 1 + ahead) * 4;
+        let first = rule + 4 + (back + input - 1 + ahead) * t.w.offset;
         Some(self.records(run, i, input, first, records))
     }
 
-    /// Applies the `count` records at `at` (each a u32: its place in the
-    /// input in the top byte, the offset of a lookup's record below) to
-    /// the input of `input` keys at place `i`: where to go on from.
+    /// Applies the `count` records at `at` (each its place in the input
+    /// and the offset of a lookup's record, see [`Substitutions::record_at`])
+    /// to the input of `input` keys at place `i`: where to go on from.
     fn records(
         &self,
         run: &mut impl Run,
@@ -536,11 +662,10 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
         // input is.
         let mut end = i + input;
         for r in 0..count {
-            let Some(record) = t.u32_at(at + r * 4) else {
+            let Some((place, record)) = t.record_at(at + r * t.w.record) else {
                 break;
             };
-            let place = (record >> 24) as usize;
-            let Some(lookup) = t.lookup_at((record & 0x00FF_FFFF) as usize) else {
+            let Some(lookup) = t.lookup_at(record) else {
                 continue;
             };
             if i + place >= end.min(run.len()) {
@@ -556,18 +681,19 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
 
     /// A lookup of rules by classes at place `i`. Its entries: the
     /// offsets of its class definitions before, of the input and after
-    /// (u32 each, 0: none), of the key set of the keys it starts at, then
+    /// (0: none), of the key set of the keys it starts at, then
     /// per class of its first key the offset of its rules (0: none; as
-    /// many as the lookup's count). Rules: count u16, 2 reserved, the
-    /// offset of each u32; a rule: backtrack, input and lookahead counts
+    /// many as the lookup's count). Rules: count u16 (in version 1 and 2
+    /// reserved), the offset of each; a rule: backtrack, input and lookahead counts
     /// and its records' count (u8 each), the classes (u8 each) before
     /// (nearest first), of the input after its first key and after, then
     /// its records (see [`Lookup::records`]).
     fn classes(&self, run: &mut impl Run, i: usize) -> Option<usize> {
         let t = self.table;
         let h = self.entries;
+        let o = t.w.offset;
         let [back_def, input_def, ahead_def, starts] =
-            [0, 4, 8, 12].map(|o| t.usize_at(h + o).unwrap_or(0));
+            [0, o, 2 * o, 3 * o].map(|at| t.offset_at(h + at).unwrap_or(0));
         let key = run.key(i);
         if !t.set_has(starts, key) {
             return None;
@@ -576,10 +702,10 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
         if class >= self.count {
             return None;
         }
-        let rules = t.usize_at(h + 16 + class * 4).filter(|&r| r != 0)?;
+        let rules = t.offset_at(h + 4 * o + class * o).filter(|&r| r != 0)?;
         let count = usize::from(t.u16_at(rules)?);
         for r in 0..count {
-            let rule = t.usize_at(rules + 4 + r * 4)?;
+            let rule = t.offset_at(rules + 2 + t.w.pad + r * o)?;
             let [back, input, ahead, records] = t.bytes::<4>(rule)?.map(usize::from);
             if input == 0 || back > i || i + input + ahead > run.len() {
                 continue;

@@ -429,6 +429,118 @@ fn starting_in_a_large_language_from_the_card_peaks_little_above_english() {
     );
 }
 
+/// The most reading in Hindi may peak at here (#157): with Devanagari's
+/// substitutions in their compact form (15.9 KiB, not 28.4), measured at
+/// 217.8 KiB, 230.3 KiB before. This build has more than the X4's
+/// (diagnostics, the store's plugins): in the X4's (the heap reference
+/// set, #248) the same case peaks at 193.6 KiB, 206.1 before, 63.9 KB
+/// below its 256 KiB.
+const INDIC_PEAK_KIB: f64 = 222.0;
+
+/// The packs of Bengali and Devanagari letters (#157) as the store's are
+/// made (`tools/script-pack.py`): a regular and a bold pack of each, at the
+/// sizes `paperpaw-fontgen` renders; the interface in Hindi from its pack;
+/// a Hindi EPUB and a Bangla book.
+fn indic_files() -> Vec<(&'static str, Vec<u8>)> {
+    let fonts = root().join("tools/fonts");
+    let sizes = [20.0, 24.0, 28.0, 32.0, 36.0, 40.0, 48.0];
+    let pack = |file: &str, set: &str, weight: f32| {
+        let data = fs::read(fonts.join(file)).unwrap();
+        let font = paperpaw_text::OutlineFont::new(data, &[("wght", weight)]).unwrap();
+        let chars = paperpaw_text::charset::chars(paperpaw_text::charset::named(set).unwrap());
+        paperpaw_text::build_pack(&font, &sizes, chars)
+    };
+    let ini = |id: &str, file: &str| {
+        format!(
+            "[plugin]\nid = script-{id}\nname = {id}\nversion = 1.0.0\nformats = 5\n\n[extends]\n\
+             {file}.ppfp = fonts-default.literata, literata-styles.italic, fonts-default.source-sans\n\
+             {file}-bold.ppfp = literata-styles.bold, literata-bold-italic.bold-italic\n"
+        )
+        .into_bytes()
+    };
+    let hindi = fs::read_to_string(root().join("tools/plugin-files/languages/hi.ini")).unwrap();
+    let text = "हमारे गाँव के पास एक छोटी-सी नदी बहती है। बरसात में वह किनारों तक भर जाती है, \
+        और सुबह स्कूल जाने से पहले बच्चे उसके किनारे खेलते हैं। दादाजी कहते थे कि प्रकृति से ही \
+        हम धैर्य और क्षमा सीखते हैं; त्योहार के दिन सब नए कपड़े पहनते हैं और गीत गाते हैं।";
+    let mut zip = paperpaw_zip::testing::ZipBuilder::new()
+        .stored("mimetype", "application/epub+zip")
+        .deflated(
+            "META-INF/container.xml",
+            "<?xml version=\"1.0\"?><container version=\"1.0\" \
+             xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\"><rootfiles>\
+             <rootfile full-path=\"content.opf\" media-type=\"application/oebps-package+xml\"/>\
+             </rootfiles></container>",
+        )
+        .deflated(
+            "content.opf",
+            "<?xml version=\"1.0\"?><package xmlns=\"http://www.idpf.org/2007/opf\" \
+             version=\"3.0\" unique-identifier=\"id\"><metadata \
+             xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:identifier id=\"id\">hi</dc:identifier>\
+             <dc:title>नदी की कहानी</dc:title><dc:language>hi</dc:language></metadata>\
+             <manifest><item id=\"c1\" href=\"c1.xhtml\" media-type=\"application/xhtml+xml\"/>\
+             <item id=\"c2\" href=\"c2.xhtml\" media-type=\"application/xhtml+xml\"/></manifest>\
+             <spine><itemref idref=\"c1\"/><itemref idref=\"c2\"/></spine></package>",
+        );
+    for n in 1..=2 {
+        let body = format!("<h1>अध्याय {n}</h1>{}", format!("<p>{text}</p>").repeat(40));
+        zip = zip.deflated(
+            &format!("c{n}.xhtml"),
+            format!("<html xml:lang=\"hi\"><body>{body}</body></html>"),
+        );
+    }
+    let bangla = "নদীর গল্প\n\nআমাদের গ্রামের পাশ দিয়ে একটি ছোট্ট নদী বয়ে গেছে। ".repeat(20);
+    vec![
+        ("plugins/script-bengali/plugin.ini", ini("bengali", "bengali")),
+        ("plugins/script-bengali/fonts/bengali.ppfp", pack("NotoSerifBengali.ttf", "bengali", 400.0)),
+        ("plugins/script-bengali/fonts/bengali-bold.ppfp", pack("NotoSerifBengali.ttf", "bengali", 700.0)),
+        ("plugins/script-devanagari/plugin.ini", ini("devanagari", "devanagari")),
+        ("plugins/script-devanagari/fonts/devanagari.ppfp", pack("NotoSerifDevanagari.ttf", "devanagari", 400.0)),
+        ("plugins/script-devanagari/fonts/devanagari-bold.ppfp", pack("NotoSerifDevanagari.ttf", "devanagari", 700.0)),
+        (
+            "plugins/language-hi/plugin.ini",
+            b"[plugin]\nid = language-hi\nname = Hindi\nversion = 1.0.0\nformats = 4\nrequires = script-devanagari\n".to_vec(),
+        ),
+        ("plugins/language-hi/i18n/hi.ppcat", paperpaw_i18n::Catalog::compile(&hindi).unwrap()),
+        ("books/nadi.epub", zip.build()),
+        ("books/nadi-bangla.txt", bangla.into_bytes()),
+    ]
+}
+
+/// Reading a Hindi book with the interface in Hindi and a Bangla book in
+/// the library (both scripts' packs open), the X4's worst case of #157,
+/// peaks at most [`INDIC_PEAK_KIB`], with no allocation refused.
+#[test]
+fn reading_hindi_with_bangla_in_the_library_peaks_within_its_ceiling() {
+    let files = indic_files();
+    let run = |extra: &[&str]| {
+        let mut args = vec!["--set", "core.language=hi"];
+        args.extend_from_slice(extra);
+        let flow = reading_flow();
+        args.extend_from_slice(&["--script", &flow]);
+        heap(&emulator_with(
+            "x4-indic",
+            "xteink-x4",
+            Some("books/nadi.epub"),
+            &files,
+            &args,
+        ))
+    };
+    let (budgeted, free) = (run(&[]), run(&["--heap-budget", "none"]));
+    eprintln!("x4 Hindi: peak {} KiB", free.peak);
+    assert_eq!(budgeted.screen, "home.dashboard", "the flow went home");
+    assert!(
+        (budgeted.peak - free.peak).abs() < 0.05,
+        "Hindi: peak {} KiB under the budget, {} KiB without",
+        budgeted.peak,
+        free.peak
+    );
+    assert!(
+        free.peak <= INDIC_PEAK_KIB,
+        "Hindi: peak {} KiB, over {INDIC_PEAK_KIB} KiB",
+        free.peak
+    );
+}
+
 #[test]
 fn reading_an_epub_stays_within_the_x4_budget() {
     let heap = stays_within_budget("x4-epub", "xteink-x4", "books/alice-in-wonderland.epub");
