@@ -142,7 +142,7 @@ pub struct State {
     kernel_time: u64,
     /// A button pressed over USB, and when to let it go.
     #[cfg(feature = "remote")]
-    held: Option<(&'static str, Instant)>,
+    held: paperpaw_x4::remote::Hold,
     /// When a line of the cable transfer came last: while they come, the
     /// main loop reads on without resting, so the transfer is quick.
     cable_at: Option<u64>,

@@ -145,6 +145,42 @@ use crate::buttons;
 
 /// How long `press` holds a button, in milliseconds.
 pub const PRESS_MS: u64 = 60;
+
+/// The button a `press` or a `hold` keeps down, and when it is let go.
+///
+/// The time counts from the press itself, not from the end of what the
+/// press brought: where a frame waited to be drawn, the press shows it,
+/// and the panel takes half a second over that, as long as a long press
+/// takes (`core.long-press-ms`). Counted from the frame's end the release
+/// came after the kernel's next tick, which took the 60 ms click for a
+/// long press (the first Right on Home opened the quick panel).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Hold(Option<(&'static str, u64)>);
+
+impl Hold {
+    /// `button` went down at `pressed` and stays down for `ms`.
+    pub fn press(&mut self, button: &'static str, pressed: u64, ms: u64) {
+        self.0 = Some((button, pressed.saturating_add(ms)));
+    }
+
+    /// Whether a button is down.
+    pub fn is_down(&self) -> bool {
+        self.0.is_some()
+    }
+
+    /// Whether the button down is to be let go at `now`: asked before the
+    /// kernel is given a later time, so that it never sees the button
+    /// held longer than asked.
+    pub fn due(&self, now: u64) -> bool {
+        self.0.is_some_and(|(_, until)| until <= now)
+    }
+
+    /// The button down, let go.
+    pub fn take(&mut self) -> Option<&'static str> {
+        self.0.take().map(|(button, _)| button)
+    }
+}
+
 /// The memory `peek` may read: the ROM (elsewhere a read may fault).
 pub const ROM: Range<u32> = 0x4000_0000..0x4006_0000;
 /// The most words `peek` reads at once.
@@ -606,6 +642,28 @@ pub fn part_state(focused: bool, on: Option<bool>, disabled: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The X4's log of the first Right on Home after a start (#335): the
+    /// press came at 19,295 ms and showed a frame that waited (the covers),
+    /// done at 19,877; a long press is 500 ms. The click is let go before
+    /// the kernel's tick that follows the frame, a hold stays down.
+    #[test]
+    fn a_press_is_let_go_by_its_own_time_whatever_its_frame_took() {
+        let (pressed, frame_done, long_press) = (19_295, 19_877, 500);
+        let mut hold = Hold::default();
+        assert!(!hold.is_down() && !hold.due(frame_done));
+        hold.press("right", pressed, PRESS_MS);
+        assert!(hold.is_down());
+        assert!(!hold.due(pressed + PRESS_MS - 1));
+        assert!(hold.due(pressed + PRESS_MS));
+        assert!(hold.due(frame_done) && frame_done >= pressed + long_press);
+        assert_eq!(hold.take(), Some("right"));
+        assert_eq!(hold.take(), None);
+        // Held on purpose: down until its time, a long press meanwhile.
+        hold.press("right", pressed, 1500);
+        assert!(!hold.due(frame_done));
+        assert!(hold.due(pressed + 1500));
+    }
 
     #[test]
     fn presses_and_holds() {
