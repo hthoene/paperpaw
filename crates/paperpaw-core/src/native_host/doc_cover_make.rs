@@ -25,7 +25,9 @@
 //! failed otherwise notes nothing and counts the book as failed
 //! (`library.md`: `ERR_NOT_FOUND` until the next start).
 //!
-//! **The memo:** a key per book, [`COVERS_MADE`] of them, the most recently
+//! **The memo:** a key per book and cover side ([`DocState::memo_key`]:
+//! a cover made for the list is not one for the screen, #346),
+//! [`COVERS_MADE`] of them, the most recently
 //! asked first (a hit moves to the front; the least recently asked is written
 //! over): 256 bytes and a mask, no allocation, RAM only (a card change, move
 //! or delete only means an inline decode again, never a wrong picture: the
@@ -113,7 +115,38 @@ fn to_front(mask: u32, at: usize) -> u32 {
     u32::try_from(above | ((mask & below) << 1) | 1).unwrap_or(u32::MAX)
 }
 
+/// The memo's key of the cover at `side` (made as `open` makes it) of the
+/// book of path key `book`: the side's bytes go on into the path's FNV-1a;
+/// 0 for a book not held, never 0 else.
+fn side_key(book: u64, side: u32) -> u64 {
+    if book == 0 {
+        return 0;
+    }
+    let mut key = book;
+    for byte in side.to_le_bytes() {
+        key = (key ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3);
+    }
+    key.max(1)
+}
+
 impl DocState {
+    /// The memo's key of the cover of the book at `path` asked for at `side`
+    /// (as `doc_open`'s: 0 for the default).
+    pub(super) fn memo_key(&self, path: &str, side: u32) -> u64 {
+        let side = crate::native_host::doc_service::cover_side(side, self.long_side);
+        side_key(path_key(path), side)
+    }
+
+    /// Whether the book at `path` is open for reading or showing: a document
+    /// of its own that is neither a job nor a background one.
+    pub(super) fn book_read(&self, path: &str) -> bool {
+        self.books.try_borrow().is_ok_and(|books| {
+            books
+                .iter()
+                .any(|b| b.path == path && self.table.read_now(b.document))
+        })
+    }
+
     /// Whether the cover job or the cover to make is the book at `path`.
     /// (A details job's book is not the cover's: a cover that needs the slot
     /// takes it, `doc_service::cover`.)
@@ -129,13 +162,13 @@ impl DocState {
             .is_ok_and(|books| books.iter().any(|b| b.path == path && b.document == row.id))
     }
 
-    /// Where the cover of the book at `path` stands; a book found made moves
-    /// to the memo's front and is marked as on screen.
-    pub(super) fn cover_at(&self, path: &str) -> CoverAt {
+    /// Where the cover of the book at `path` at `side` stands; a cover found
+    /// made moves to the memo's front and is marked as on screen.
+    pub(super) fn cover_at(&self, path: &str, side: u32) -> CoverAt {
         if self.host_row_path_is(path) {
             return CoverAt::Job;
         }
-        let key = path_key(path);
+        let key = self.memo_key(path, side);
         let mut made = self.covers_made.get();
         if let Some(at) = made.iter().position(|&k| k == key && k != 0) {
             made[..=at].rotate_right(1);
@@ -194,7 +227,8 @@ impl DocState {
         let call = (fmt::COVER, &core::cell::Cell::new(false));
         match self.call_in_scope(hosts, route, document, found, call, &mut out) {
             Ok(_) | Err(ERR_NOT_FOUND) => Cover::Noted {
-                crowded: self.note_cover_made(self.book_key(document.id)),
+                crowded: self
+                    .note_cover_made(side_key(self.book_key(document.id), document.cover_side)),
             },
             Err(status) => failed(status),
         }

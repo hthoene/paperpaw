@@ -29,6 +29,7 @@ use paperpaw_native::host_glue::{
 };
 
 mod args;
+pub(crate) use args::cover_side;
 mod call;
 mod check;
 pub(crate) mod cover;
@@ -197,11 +198,20 @@ pub(crate) trait DocHost {
     fn details_job(&self) -> Option<&dyn details::DetailsJob> {
         None
     }
-    /// Where the cover of the book at `path` stands (`doc_cover_make`): a
-    /// host without the cover job answers every cover inline.
-    fn cover_at(&self, _path: &str) -> super::doc_host::CoverAt {
+    /// Where the cover of the book at `path` at `side` (as `doc_open`'s: 0
+    /// for the default) stands (`doc_cover_make`): a host without the cover
+    /// job answers every cover inline.
+    fn cover_at(&self, _path: &str, _side: u32) -> super::doc_host::CoverAt {
         super::doc_host::CoverAt::Made
     }
+    /// Whether the book at `path` is open for reading (#346: its cover at the
+    /// default side is made inside the asking call, the sleep screen's).
+    fn cover_book_read(&self, _path: &str) -> bool {
+        false
+    }
+    /// The cover of the book at `path` at `side` was answered inside the
+    /// asking call: later calls find it made.
+    fn cover_noted(&self, _path: &str, _side: u32) {}
     /// Whether only the cover job prepares: the pump's "more" then does not
     /// hold the device awake.
     fn only_cover_job_preparing(&self) -> bool {
@@ -603,8 +613,8 @@ impl DocHost for OwnedHost<'_> {
     fn release_rooms(&self) -> bool {
         self.host.release_rooms()
     }
-    fn cover_at(&self, path: &str) -> super::doc_host::CoverAt {
-        self.host.cover_at(path)
+    fn cover_at(&self, path: &str, side: u32) -> super::doc_host::CoverAt {
+        self.host.cover_at(path, side)
     }
     fn cover_jobs_allowed(&self) -> bool {
         self.host.cover_jobs_allowed()
@@ -838,10 +848,7 @@ fn open(host: &dyn DocHost, input: &[u8], out: &mut [u8]) -> Result<usize, i32> 
         0 => args::default_image_side(long_side),
         side => side,
     };
-    let cover_side = match request.cover_side {
-        0 => args::default_cover_side(long_side).min(long_side),
-        side => side,
-    };
+    let cover_side = cover_side(request.cover_side, long_side);
     request.image_side = image_side;
     request.cover_side = cover_side;
     let conversion = host.conversion_key(&request, format, options)?;

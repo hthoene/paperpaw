@@ -3,7 +3,7 @@
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 use super::*;
 use paperpaw_core::native_host::registrations::{
-    EventLibraryChanged, Record, ServiceDocImage, ServiceEnd, ServiceLibEntry,
+    EventLibraryChanged, Record, ServiceDocImage, ServiceEnd, ServiceLibEntry, records_decode,
 };
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_NO_MEMORY, ERR_NOT_FOUND};
 use paperpaw_scripted_host::{ScriptedHost, event_batch, row};
@@ -45,8 +45,9 @@ paperpaw_sdk::native_plugin!(
 fn library(host: &ScriptedHost, covers: Vec<Result<(), i32>>) -> Rc<RefCell<Vec<usize>>> {
     let asked = Rc::new(RefCell::new(Vec::new()));
     let (log, mut covers) = (asked.clone(), covers.into_iter());
-    host.service("core.library", 1, 0, move |op, _| match op {
-        // The query: one book, opened.
+    host.service("core.library", 1, 0, move |op, input| match op {
+        // The query: one book, opened; as the host sorts them, the books
+        // never opened come first where the opened rank falls (bit 0).
         2 => Ok([
             row(&Record::ServiceLibEntry(ServiceLibEntry {
                 key: 1,
@@ -55,7 +56,7 @@ fn library(host: &ScriptedHost, covers: Vec<Result<(), i32>>) -> Rc<RefCell<Vec<
                 series: "",
                 number: "",
                 progress: 1,
-                flags: 2,
+                flags: if descending(input) { 0 } else { 2 },
                 added: 0,
                 badges: "",
             }))?,
@@ -85,6 +86,16 @@ fn library(host: &ScriptedHost, covers: Vec<Result<(), i32>>) -> Rc<RefCell<Vec<
         _ => Ok(Vec::new()),
     });
     asked
+}
+
+/// Whether the query asks for its order falling (`lib_query.flags` bit 0).
+fn descending(input: &[u8]) -> bool {
+    let batch = records_decode(input).unwrap();
+    let query = batch.iter().find_map(|record| match record {
+        Record::ServiceLibQuery(query) => Some(query.flags),
+        _ => None,
+    });
+    query.unwrap() & 1 != 0
 }
 
 fn said(plugin: &paperpaw_scripted_host::Plugin<'_>) -> u8 {

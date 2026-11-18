@@ -147,6 +147,15 @@ pub(super) fn default_cover_side(long_side: u32) -> u32 {
     300.max(u32::try_from(three_eighths).unwrap_or(u32::MAX))
 }
 
+/// The side of a cover asked for at `asked` (0: the default, at most the
+/// screen's long side), as `open` makes it before the conversion key.
+pub(crate) fn cover_side(asked: u32, long_side: u32) -> u32 {
+    match asked {
+        0 => default_cover_side(long_side).min(long_side),
+        side => side,
+    }
+}
+
 /// A page request: a non-zero cursor needs a generation, as REG pages.
 pub(super) fn page_state(cursor: u32, generation: u32) -> Result<(), i32> {
     if cursor != 0 && generation == 0 {
