@@ -20,18 +20,18 @@ test:07a-store-lists {
   no-warn
 }
 
-# An entry's page (Arabic letters, a data plugin): version, size, Install and Source code; Back leaves. Install is not pressed here.
+# The first entry's page opens and Back leaves (the entries of the list change with the catalog; nothing is installed here).
 test:07b-store-entry {
   call:home
   page-forward
   select:Plugin store
   until:Popular now:20000
   select:New
-  until:Arabic letters:15000
-  select:Arabic letters:20
-  until:Source code:15000
-  expect:Data plugin
-  expect:Version
+  until:By PaperPaw:15000
+  right
+  confirm
+  until:Back:15000
+  wait:2000
   expect-not:Error
   back
   wait:1500

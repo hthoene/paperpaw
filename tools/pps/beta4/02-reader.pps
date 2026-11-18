@@ -83,6 +83,7 @@ test:02d-bookmark {
 }
 
 # Highlight with the buttons only: More > Select text, two words with Right, Select, the bar's Highlight.
+# Menu path (More > Select text); variant B (hold Left) is suite 12.
 test:02e-highlight-via-menu {
   call:home
   open:$book

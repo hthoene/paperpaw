@@ -1,0 +1,145 @@
+# Beta 4 suite 12: highlighting with the buttons, variant B "Widen" (#235, Decision 221).
+# Hold Left starts; Left/Right word; page buttons line; hold Left/Right page ends; hold page buttons paragraph;
+# Select -> the bar (Look up, Highlight, Note, Copy, Extend), Highlight in focus; hold Select widens word -> sentence -> paragraph;
+# a selection goes over page turns (at most 5 pages: notice); Back cancels; its own legend at the bottom.
+include:common.pps
+
+# A page with words on it (a fresh book opens on its cover).
+define:text-page {
+  call:home
+  open:$book
+  wait:4000
+  repeat:3 {
+    page-forward
+    wait:800
+  }
+}
+
+test:12a-start-and-cancel {
+  call:text-page
+  long:left
+  until:Select: actions:5000
+  expect:Select: actions · hold Select: widen · Back: cancel
+  back
+  wait:1000
+  expect-not:Select: actions
+  # back is cancel only: still in the book
+  expect-not:Edit
+  no-warn
+}
+
+# Left and Right move by word, the page buttons by line; the legend stays.
+test:12b-move-by-word-and-line {
+  call:text-page
+  long:left
+  until:Select: actions:5000
+  right
+  right
+  right
+  left
+  page-forward
+  page-back
+  wait:500
+  expect:Select: actions
+  back
+  wait:800
+  no-warn
+}
+
+# Select opens the bar, Highlight in focus: Select again highlights; the highlight is listed under Notes.
+test:12c-highlight-word {
+  call:text-page
+  long:left
+  until:Select: actions:5000
+  right
+  right
+  confirm
+  until:Highlight:5000
+  expect:Look up
+  expect:Note
+  expect:Copy
+  expect:Extend
+  confirm
+  wait:1500
+  expect-not:Look up
+  confirm
+  until:Notes:8000
+  select:Notes
+  until:Bookmarks and highlights:8000
+  expect:Highlight ·
+  back
+  wait:1000
+  no-warn
+}
+
+# Holding Select widens: word -> sentence -> paragraph; the legend then says Select: done, Left/Right: end, hold: start, Back: cancel.
+test:12d-widen {
+  call:text-page
+  long:left
+  until:Select: actions:5000
+  long:confirm
+  wait:800
+  expect:Select: done
+  expect:Left/Right: end
+  long:confirm
+  wait:800
+  expect:Select: done
+  right
+  wait:500
+  expect:Select: done
+  confirm
+  until:Highlight:5000
+  back
+  wait:1000
+  expect-not:Select: done
+  no-warn
+}
+
+# The widened legend names Back: cancel in full (it must not be cut off by "…").
+test:12e-range-legend-full {
+  call:text-page
+  long:left
+  until:Select: actions:5000
+  long:confirm
+  wait:800
+  expect:Back: cancel
+  back
+  wait:800
+}
+
+# Hold Right: the last word of the page; Right once more goes on over the page turn and the selection is kept.
+test:12f-page-edge-crossing {
+  call:text-page
+  long:left
+  until:Select: actions:5000
+  long:right
+  wait:800
+  right
+  wait:1500
+  expect:Select: actions
+  expect-not:Error
+  confirm
+  until:Highlight:5000
+  back
+  wait:1000
+  no-warn
+}
+
+# At most 5 pages: holding a page button goes on by paragraph; past 5 pages the notice shows.
+test:12g-five-page-cap {
+  call:text-page
+  long:left
+  until:Select: actions:5000
+  long:right
+  wait:500
+  right
+  wait:800
+  repeat:40 {
+    long:page-forward
+    wait:300
+  }
+  expect:A selection can take in at most 5
+  back
+  wait:1000
+  no-warn
+}
