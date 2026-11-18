@@ -182,6 +182,9 @@ fn a_request_left_under_way_is_not_a_leak_of_the_stores_list() {
         out,
     );
     context.quick = true;
+    // Answered from the fixtures: the computer's network answers in its own
+    // time, which made this test depend on the machine it ran on.
+    context.fixtures = true;
     let mut report = Report::default();
     perf::run(&context, &mut report).unwrap();
     let leaks: Vec<_> = report
