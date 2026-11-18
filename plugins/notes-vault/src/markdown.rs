@@ -398,10 +398,6 @@ impl State<'_> {
 
 /// Turns one line into HTML; `cut` if it goes on in the next (a line
 /// longer than [`MAX_LINE`]).
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
 fn line(
     raw: &str,
     state: &mut State<'_>,
@@ -410,40 +406,11 @@ fn line(
 ) -> Result<(), DocumentError> {
     let br = core::mem::replace(&mut state.br, !cut && raw.ends_with("  "));
     if core::mem::replace(&mut state.cut, cut) {
-        // The rest of a line cut short: more of the block it began, as
-        // written (its white space was not trimmed at the cut).
-        if state.code {
-            fallible::escape(raw, out)?;
-            if !cut {
-                out.try_push('\n')?;
-            }
-            return Ok(());
-        }
-        if !state.paragraph && !state.item {
-            out.try_push_str("<p>")?;
-            state.paragraph = true;
-        }
-        inline(raw, &state.pictures, state.vault.as_ref(), out)?;
-        return Ok(());
+        return rest_of_cut_line(raw, state, out, cut);
     }
     let line = if cut { raw } else { raw.trim_end() };
     let trimmed = line.trim_start();
-    if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-        if state.code {
-            out.try_push_str("</pre>\n")?;
-            state.code = false;
-        } else {
-            state.close_blocks(out)?;
-            out.try_push_str("<pre>")?;
-            state.code = true;
-        }
-        return Ok(());
-    }
-    if state.code {
-        fallible::escape(line, out)?;
-        if !cut {
-            out.try_push('\n')?;
-        }
+    if fence_or_code(line, state, out, cut)? {
         return Ok(());
     }
     if trimmed.is_empty() {
@@ -457,75 +424,15 @@ fn line(
     };
     // A line cut short goes on: what ends it is not the line's end.
     let text = if cut { text } else { without_block_id(text) };
-    let opened = quoted && !state.quote;
-    let title = if opened { callout(text)? } else { None };
-    if quoted != state.quote {
-        state.close_blocks(out)?;
-        if quoted {
-            state.callout = title.is_some();
-            out.try_push_str(if state.callout {
-                "<blockquote class=\"callout\" style=\"text-align:left\">\n"
-            } else {
-                "<blockquote>\n"
-            })?;
-            state.quote = true;
-        }
-    }
-    // A callout (`> [!note] Title`) is a quote that begins with its title.
-    if let Some(title) = title {
-        out.try_push_str(FLUSH_P)?;
-        out.try_push_str("<b>")?;
-        inline(&title, &state.pictures, state.vault.as_ref(), out)?;
-        out.try_push_str("</b></p>\n")?;
+    if quote(quoted, text, state, out)? || heading(text, state, out)? {
         return Ok(());
     }
-    let heading = text.chars().take_while(|&c| c == '#').count();
-    if (1..=6).contains(&heading) && text[heading..].starts_with(' ') {
-        state.close_blocks(out)?;
-        let title = text[heading..].trim().trim_end_matches('#').trim();
-        let id = wiki::slug(title)?;
-        if id.is_empty() {
-            out.try_push_str(&fallible::try_format!("<h{heading}>")?)?;
-        } else {
-            out.try_push_str(&fallible::try_format!("<h{heading} id=\"{id}\">")?)?;
-        }
-        inline(title, &state.pictures, state.vault.as_ref(), out)?;
-        out.try_push_str(&fallible::try_format!("</h{heading}>\n")?)?;
-        return Ok(());
-    }
-    // Three or more of one of `-`, `*`, `_`, white space between them aside.
-    let mut marks = text.chars().filter(|c| !c.is_whitespace());
-    let first = marks.next();
-    if first.is_some_and(|f| matches!(f, '-' | '*' | '_'))
-        && text
-            .chars()
-            .filter(|c| !c.is_whitespace())
-            .map(char::len_utf8)
-            .sum::<usize>()
-            >= 3
-        && marks.all(|c| Some(c) == first)
-    {
+    if is_rule(text) {
         state.close_blocks(out)?;
         out.try_push_str("<hr/>\n")?;
         return Ok(());
     }
-    let bullet = ["- ", "* ", "+ "].iter().find_map(|b| text.strip_prefix(b));
-    let number = text
-        .split_once(". ")
-        .filter(|(n, _)| !n.is_empty() && n.len() <= 9 && n.chars().all(|c| c.is_ascii_digit()))
-        .map(|(_, rest)| rest);
-    if let Some((kind, rest)) = bullet.map(|r| ("ul", r)).or(number.map(|r| ("ol", r))) {
-        state.close_paragraph(out)?;
-        if state.list != Some(kind) {
-            if let Some(list) = state.list.take() {
-                out.try_push_str(&fallible::try_format!("</{list}>\n")?)?;
-            }
-            out.try_push_str(&fallible::try_format!("<{kind}>\n")?)?;
-            state.list = Some(kind);
-        }
-        out.try_push_str("<li>")?;
-        inline(rest.trim(), &state.pictures, state.vault.as_ref(), out)?;
-        state.item = true;
+    if list_item(text, state, out)? {
         return Ok(());
     }
     if state.item {
@@ -549,6 +456,152 @@ fn line(
         state.paragraph = true;
     }
     inline(text, &state.pictures, state.vault.as_ref(), out)
+}
+
+/// The rest of a line cut short: more of the block it began, as written
+/// (its white space was not trimmed at the cut).
+fn rest_of_cut_line(
+    raw: &str,
+    state: &mut State<'_>,
+    out: &mut String,
+    cut: bool,
+) -> Result<(), DocumentError> {
+    if state.code {
+        return code_text(raw, out, cut);
+    }
+    if !state.paragraph && !state.item {
+        out.try_push_str("<p>")?;
+        state.paragraph = true;
+    }
+    inline(raw, &state.pictures, state.vault.as_ref(), out)
+}
+
+/// A line of a code block, as written; `cut` if it goes on in the next.
+fn code_text(line: &str, out: &mut String, cut: bool) -> Result<(), DocumentError> {
+    fallible::escape(line, out)?;
+    if !cut {
+        out.try_push('\n')?;
+    }
+    Ok(())
+}
+
+/// A fence (three backticks or tildes) opens or closes a code block, and a
+/// line inside one is code: `true` if `line` was a fence or code.
+fn fence_or_code(
+    line: &str,
+    state: &mut State<'_>,
+    out: &mut String,
+    cut: bool,
+) -> Result<bool, DocumentError> {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+        if state.code {
+            out.try_push_str("</pre>\n")?;
+            state.code = false;
+        } else {
+            state.close_blocks(out)?;
+            out.try_push_str("<pre>")?;
+            state.code = true;
+        }
+        return Ok(true);
+    }
+    if state.code {
+        code_text(line, out, cut)?;
+    }
+    Ok(state.code)
+}
+
+/// Opens or closes the block quote, as the line is `quoted` or not, and
+/// writes the title of a callout (`> [!note] Title`), a quote that begins
+/// with its title: `true` if `text` was that title.
+fn quote(
+    quoted: bool,
+    text: &str,
+    state: &mut State<'_>,
+    out: &mut String,
+) -> Result<bool, DocumentError> {
+    let opened = quoted && !state.quote;
+    let title = if opened { callout(text)? } else { None };
+    if quoted != state.quote {
+        state.close_blocks(out)?;
+        if quoted {
+            state.callout = title.is_some();
+            out.try_push_str(if state.callout {
+                "<blockquote class=\"callout\" style=\"text-align:left\">\n"
+            } else {
+                "<blockquote>\n"
+            })?;
+            state.quote = true;
+        }
+    }
+    let Some(title) = title else {
+        return Ok(false);
+    };
+    out.try_push_str(FLUSH_P)?;
+    out.try_push_str("<b>")?;
+    inline(&title, &state.pictures, state.vault.as_ref(), out)?;
+    out.try_push_str("</b></p>\n")?;
+    Ok(true)
+}
+
+/// Writes a heading (`#` to `######`, then a space) with its anchor:
+/// `true` if `text` was one.
+fn heading(text: &str, state: &mut State<'_>, out: &mut String) -> Result<bool, DocumentError> {
+    let level = text.chars().take_while(|&c| c == '#').count();
+    if !(1..=6).contains(&level) || !text[level..].starts_with(' ') {
+        return Ok(false);
+    }
+    state.close_blocks(out)?;
+    let title = text[level..].trim().trim_end_matches('#').trim();
+    let id = wiki::slug(title)?;
+    if id.is_empty() {
+        out.try_push_str(&fallible::try_format!("<h{level}>")?)?;
+    } else {
+        out.try_push_str(&fallible::try_format!("<h{level} id=\"{id}\">")?)?;
+    }
+    inline(title, &state.pictures, state.vault.as_ref(), out)?;
+    out.try_push_str(&fallible::try_format!("</h{level}>\n")?)?;
+    Ok(true)
+}
+
+/// A horizontal rule: three or more of one of `-`, `*`, `_`, white space
+/// between them aside.
+fn is_rule(text: &str) -> bool {
+    let mut marks = text.chars().filter(|c| !c.is_whitespace());
+    let first = marks.next();
+    first.is_some_and(|f| matches!(f, '-' | '*' | '_'))
+        && text
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .map(char::len_utf8)
+            .sum::<usize>()
+            >= 3
+        && marks.all(|c| Some(c) == first)
+}
+
+/// Opens an item of a list (`- `, `* `, `+ ` or `1. `), and the list
+/// before it if another kind or none is open: `true` if `text` began one.
+fn list_item(text: &str, state: &mut State<'_>, out: &mut String) -> Result<bool, DocumentError> {
+    let bullet = ["- ", "* ", "+ "].iter().find_map(|b| text.strip_prefix(b));
+    let number = text
+        .split_once(". ")
+        .filter(|(n, _)| !n.is_empty() && n.len() <= 9 && n.chars().all(|c| c.is_ascii_digit()))
+        .map(|(_, rest)| rest);
+    let Some((kind, rest)) = bullet.map(|r| ("ul", r)).or(number.map(|r| ("ol", r))) else {
+        return Ok(false);
+    };
+    state.close_paragraph(out)?;
+    if state.list != Some(kind) {
+        if let Some(list) = state.list.take() {
+            out.try_push_str(&fallible::try_format!("</{list}>\n")?)?;
+        }
+        out.try_push_str(&fallible::try_format!("<{kind}>\n")?)?;
+        state.list = Some(kind);
+    }
+    out.try_push_str("<li>")?;
+    inline(rest.trim(), &state.pictures, state.vault.as_ref(), out)?;
+    state.item = true;
+    Ok(true)
 }
 
 /// A paragraph of a callout: no indent of the first line.

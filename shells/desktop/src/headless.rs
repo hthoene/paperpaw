@@ -86,48 +86,74 @@ pub fn touch_phase(device: &mut Device, down: bool, up: bool, x: i32, y: i32) {
     device.input(finger(phase, Point::new(x, y)));
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "longer than the limit from before it was set; split it when it is next changed"
-)]
 fn run_step(device: &mut Device, step: &str) -> Result<(), String> {
     let parts: Vec<&str> = step.split(':').collect();
-    let touch_step = matches!(
+    let touches = matches!(
         parts.first(),
         Some(&("tap" | "tap-on" | "long-tap" | "swipe" | "down" | "move" | "up"))
     );
-    if touch_step && !device.profile.device.input.touch {
+    if touches && !device.profile.device.input.touch {
         return Err(format!(
             "`{}` has no touch screen",
             device.profile.device.id
         ));
     }
-    let number = |s: &str| {
-        s.parse::<i32>()
-            .map_err(|_| format!("`{s}` is not a number"))
-    };
+    if touch_step(device, &parts)? || kernel_step(device, &parts)? || own_step(device, &parts)? {
+        return Ok(());
+    }
     match parts.as_slice() {
-        ["wait", ms] => {
-            let ms: u64 = ms.parse().map_err(|_| format!("`{ms}` is not a number"))?;
-            hold(device, ms);
+        [name] => press(device, button(device, name)?, 60),
+        _ => return Err("unknown step".into()),
+    }
+    Ok(())
+}
+
+fn number(s: &str) -> Result<i32, String> {
+    s.parse::<i32>()
+        .map_err(|_| format!("`{s}` is not a number"))
+}
+
+/// A step on the touch screen; `false` if `parts` is another step.
+fn touch_step(device: &mut Device, parts: &[&str]) -> Result<bool, String> {
+    match parts {
+        ["tap", x, y] => touch(device, Point::new(number(x)?, number(y)?), None, 60),
+        ["tap-on", label @ ..] if !label.is_empty() => {
+            let label = label.join(":");
+            let parts = device.kernel.describe();
+            let part = paperpaw_core::sdk::semantics::find(&parts, &label)
+                .ok_or_else(|| format!("nothing on the screen says `{label}`"))?;
+            let a = part.area;
+            let center = Point::new(
+                i32::from(a.x) + i32::from(a.width) / 2,
+                i32::from(a.y) + i32::from(a.height) / 2,
+            );
+            touch(device, center, None, 60);
         }
-        ["shot", path @ ..] if !path.is_empty() => {
-            // Paths may hold `:` (`C:/…`).
-            let path = path.join(":");
-            screenshot(device, Path::new(&path))?;
+        ["long-tap", x, y] => touch(device, Point::new(number(x)?, number(y)?), None, LONG_MS),
+        ["swipe", x1, y1, x2, y2] => touch(
+            device,
+            Point::new(number(x1)?, number(y1)?),
+            Some(Point::new(number(x2)?, number(y2)?)),
+            150,
+        ),
+        [phase @ ("down" | "move" | "up"), x, y] => {
+            let phase = match *phase {
+                "down" => PointerPhase::Down,
+                "move" => PointerPhase::Move,
+                _ => PointerPhase::Up,
+            };
+            device.input(finger(phase, Point::new(number(x)?, number(y)?)));
         }
-        ["serve", seconds] => {
-            let seconds: u64 = seconds
-                .parse()
-                .map_err(|_| format!("`{seconds}` is not a number"))?;
-            let end = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
-            while std::time::Instant::now() < end {
-                device.poll_servers();
-                // The native plugins' servers (`core.net`) are the same loop's.
-                device.poll_http(None);
-                std::thread::sleep(std::time::Duration::from_millis(20));
-            }
-        }
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+/// A step that asks something of the kernel or the pretend hardware (an
+/// action, a screen, an event, typed text, the card, the radio); `false`
+/// if `parts` is another step.
+fn kernel_step(device: &mut Device, parts: &[&str]) -> Result<bool, String> {
+    match parts {
         ["long", name] => press(device, button(device, name)?, LONG_MS),
         ["run", action] => {
             let action = paperpaw_core::sdk::Id::parse(action).map_err(|e| e.to_string())?;
@@ -153,11 +179,51 @@ fn run_step(device: &mut Device, step: &str) -> Result<(), String> {
                 return Err(format!("no Bluetooth remote types `{key}` now"));
             }
         }
-        ["reset-peak"] => crate::budget::reset_peak(),
         ["make-room"] => {
             let parked = device.kernel.make_room();
             println!("make-room: parked {parked} idle plugins");
         }
+        ["emit", event] => {
+            let event = paperpaw_core::sdk::Id::parse(event).map_err(|e| e.to_string())?;
+            let params = paperpaw_core::sdk::Params::new();
+            device.call(|kernel, now| kernel.send_event(now, event, params));
+        }
+        [kind @ ("type" | "type-enter"), text @ ..] => {
+            if !device.type_text(&text.join(":"), *kind == "type-enter") {
+                return Err(String::from("no text field shows"));
+            }
+        }
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
+/// A step of the run itself (time, screenshots, measurements, what the
+/// screen shows); `false` if `parts` is another step.
+fn own_step(device: &mut Device, parts: &[&str]) -> Result<bool, String> {
+    match parts {
+        ["wait", ms] => {
+            let ms: u64 = ms.parse().map_err(|_| format!("`{ms}` is not a number"))?;
+            hold(device, ms);
+        }
+        ["shot", path @ ..] if !path.is_empty() => {
+            // Paths may hold `:` (`C:/…`).
+            let path = path.join(":");
+            screenshot(device, Path::new(&path))?;
+        }
+        ["serve", seconds] => {
+            let seconds: u64 = seconds
+                .parse()
+                .map_err(|_| format!("`{seconds}` is not a number"))?;
+            let end = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
+            while std::time::Instant::now() < end {
+                device.poll_servers();
+                // The native plugins' servers (`core.net`) are the same loop's.
+                device.poll_http(None);
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        }
+        ["reset-peak"] => crate::budget::reset_peak(),
         ["step", name] => {
             let stats = crate::budget::stats();
             let kib = |bytes: usize| bytes as f64 / 1024.0;
@@ -167,29 +233,6 @@ fn run_step(device: &mut Device, step: &str) -> Result<(), String> {
                 kib(stats.live)
             );
             crate::budget::reset_peak();
-        }
-        ["emit", event] => {
-            let event = paperpaw_core::sdk::Id::parse(event).map_err(|e| e.to_string())?;
-            let params = paperpaw_core::sdk::Params::new();
-            device.call(|kernel, now| kernel.send_event(now, event, params));
-        }
-        ["type" | "type-enter", text @ ..] => {
-            if !device.type_text(&text.join(":"), parts[0] == "type-enter") {
-                return Err(String::from("no text field shows"));
-            }
-        }
-        ["tap", x, y] => touch(device, Point::new(number(x)?, number(y)?), None, 60),
-        ["tap-on", label @ ..] if !label.is_empty() => {
-            let label = label.join(":");
-            let parts = device.kernel.describe();
-            let part = paperpaw_core::sdk::semantics::find(&parts, &label)
-                .ok_or_else(|| format!("nothing on the screen says `{label}`"))?;
-            let a = part.area;
-            let center = Point::new(
-                i32::from(a.x) + i32::from(a.width) / 2,
-                i32::from(a.y) + i32::from(a.height) / 2,
-            );
-            touch(device, center, None, 60);
         }
         ["describe"] => {
             for part in device.kernel.describe() {
@@ -209,25 +252,9 @@ fn run_step(device: &mut Device, step: &str) -> Result<(), String> {
                 );
             }
         }
-        ["long-tap", x, y] => touch(device, Point::new(number(x)?, number(y)?), None, LONG_MS),
-        ["swipe", x1, y1, x2, y2] => touch(
-            device,
-            Point::new(number(x1)?, number(y1)?),
-            Some(Point::new(number(x2)?, number(y2)?)),
-            150,
-        ),
-        [phase @ ("down" | "move" | "up"), x, y] => {
-            let phase = match *phase {
-                "down" => PointerPhase::Down,
-                "move" => PointerPhase::Move,
-                _ => PointerPhase::Up,
-            };
-            device.input(finger(phase, Point::new(number(x)?, number(y)?)));
-        }
-        [name] => press(device, button(device, name)?, 60),
-        _ => return Err("unknown step".into()),
+        _ => return Ok(false),
     }
-    Ok(())
+    Ok(true)
 }
 
 fn button(device: &Device, name: &str) -> Result<&'static str, String> {
