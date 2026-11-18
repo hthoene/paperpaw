@@ -3,6 +3,8 @@
 
 use super::Firmware;
 use crate::now;
+use crate::usb_power::Sense;
+use log::info;
 
 /// Lines of the cable transfer read in one turn of the main loop at most.
 const CABLE_LINES: usize = 32;
@@ -32,6 +34,9 @@ impl Firmware {
                     let effects = self.kernel.cable_line(at, &line);
                     self.apply(effects);
                 }
+                Ok(line) if line.starts_with(paperpaw_core::DEVELOPER_PREFIX.as_bytes()) => {
+                    self.developer_line(&line);
+                }
                 #[cfg(feature = "remote")]
                 line => {
                     // Only a command wakes a doze, not a line too long.
@@ -45,9 +50,52 @@ impl Firmware {
                 _ => {}
             }
         }
+        self.developer_watch();
         #[cfg(feature = "remote")]
         if self.state.held.is_some_and(|(_, at)| at <= now()) {
             self.release_held();
+        }
+    }
+
+    /// A line of the developer link (#12): the kernel's rules decide what is
+    /// done and what is said (`Kernel::developer_line`); this only carries
+    /// the line in and the answers out, in every build.
+    #[inline(never)]
+    fn developer_line(&mut self, line: &[u8]) {
+        let line = alloc::string::String::from_utf8_lossy(line);
+        let on = self.kernel.developer_on();
+        if on {
+            self.state.cable_at = Some(now().0);
+            self.wake_dozing();
+            // One line a command, never what a file holds.
+            if !line.starts_with("DEV/1 ") || line.split(' ').nth(2) != Some("data") {
+                info!("{}", line.trim_end());
+            }
+        }
+        let at = self.kernel_now();
+        let heap = (esp_alloc::HEAP.used(), esp_alloc::HEAP.free());
+        let effects = self.kernel.developer_line(at, &line, heap, &mut |answer| {
+            crate::power::feed();
+            esp_println::println!("{answer}");
+        });
+        self.apply(effects);
+    }
+
+    /// While the developer link is on: it ends when the cable is pulled or
+    /// it is quiet too long, and the computer is told why it ended.
+    #[inline(never)]
+    fn developer_watch(&mut self) {
+        if self.kernel.developer_on() {
+            let at = self.kernel_now();
+            let effects = if self.usb_power.cable() {
+                self.kernel.developer_poll(at)
+            } else {
+                self.kernel.developer_close(at, "unplugged")
+            };
+            self.apply(effects);
+        }
+        if let Some(why) = self.kernel.take_developer_notice() {
+            esp_println::println!("DEV/1 0 closed {why}");
         }
     }
 
