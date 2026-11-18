@@ -28,21 +28,22 @@
 //! - `sweep.text`: a text is missing: a translation key is shown as it
 //!   is, or German shows the English text of a key it lacks.
 //! - `sweep.unreachable`: no way leads to it with the buttons alone.
-//!   Only where every way there is was searched: where the search ended
-//!   at its bounds (the whole app is larger than they are), the note on
-//!   how a screen was shown (`sweep.shown`) says that no way to it was
-//!   found, which is no proof that there is none.
+//!   Only where every place there is was searched: where the search
+//!   ended at its bound, the note on how a screen was shown
+//!   (`sweep.shown`) says that no way to it was found, which is no proof
+//!   that there is none (`reach` says so as `reach.undecided`).
 //!
 //! No screen is non-visual by its name, and none is left out: all are
 //! shown and looked at. What is declared about a screen only says where
-//! the buttons need not lead: to one shown while the device sleeps, and
-//! to one a setting chooses in another's place (the sleep screen's
-//! modes, a choice of `sleep.show`).
+//! the buttons need not lead: to one shown while the device sleeps, to
+//! one a setting chooses in another's place (the sleep screen's modes, a
+//! choice of `sleep.show`), and to one the device shows when something
+//! happens to it (`reach::EXEMPT`, each with its reason).
 //!
 //! Beside `visual`, `reach` and `lint`, which look closer at the plugins
 //! being made (every size, look and language, the focus, the catalogs),
-//! and `perf`, which measures: this one says in a minute whether every
-//! screen of the app still comes up whole.
+//! and `perf`, which measures: this one says in a few minutes whether
+//! every screen of the app still comes up whole.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::PathBuf;
@@ -139,12 +140,20 @@ pub fn run(context: &Context, report: &mut Report) -> Result<(), String> {
         );
         let mut driver = Driver::new(context, &english)?;
         let screens = cases::screens(&driver.session, &context.target);
-        let wanted: HashSet<String> = screens.iter().cloned().collect();
+        // Looked for until found: all but those the buttons need not
+        // lead to (see `reach`).
+        let wanted: HashSet<String> = screens
+            .iter()
+            .filter(|id| {
+                reach::exempt(id).is_none() && reach::chosen_by(&driver.session, id).is_none()
+            })
+            .cloned()
+            .collect();
         let started = paperpaw_emulator::host::micros();
         let found = reach::search(&mut driver, &wanted, &Limits::default());
         eprintln!(
             "paperpaw-dev: sweep: {} of {} screens found in {:.0} s ({} searched{})",
-            found.ways.keys().filter(|id| wanted.contains(*id)).count(),
+            found.ways.keys().filter(|id| screens.contains(*id)).count(),
             screens.len(),
             (paperpaw_emulator::host::micros() - started) as f32 / 1e6,
             found.views,
@@ -540,9 +549,12 @@ impl<'a> Sweep<'a> {
             String::new()
         } else {
             format!(
-                " The search for the ways the buttons lead ended at its bounds ({} screens \
-                 and their parts searched) without one to it: whether one leads there is \
-                 not known.",
+                " The search for the ways the buttons lead found none to it, and {} ({} \
+                 screens and their parts searched): whether one leads there is not known.",
+                self.found
+                    .open
+                    .as_deref()
+                    .unwrap_or("it ended once the others were found"),
                 self.found.views
             )
         };
@@ -655,7 +667,10 @@ impl<'a> Sweep<'a> {
     /// not lead to it: the sleeping device shows it, or a setting chooses
     /// it in another screen's place.
     fn unreachable(&self, id: &str) -> Option<String> {
-        if self.asleep.contains(id) || reach::chosen_by(&self.driver.session, id).is_some() {
+        if self.asleep.contains(id)
+            || reach::exempt(id).is_some()
+            || reach::chosen_by(&self.driver.session, id).is_some()
+        {
             return None;
         }
         Some(format!(

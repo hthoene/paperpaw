@@ -6,12 +6,24 @@
 //! the same buttons and screen size), and checks, for every screen the
 //! plugins looked at add:
 //!
-//! - `reach.unreachable`: it could not be reached from the home screen
-//!   with the buttons alone. With the emulator's fixtures
-//!   (`--network fixtures`), one that asked for data they do not give is
-//!   an error: it waits for data, it is no dead end. A screen a setting offers among its choices
-//!   (a mode of the sleep screen, shown in that one's place) is reached
-//!   through that setting instead: a note (`reach.chosen`) says which.
+//! - `reach.unreachable` (an error): no way leads to it from the home
+//!   screen with the buttons alone, and the search was complete: nothing
+//!   was left to press (see below). With the emulator's fixtures
+//!   (`--network fixtures`), one not found that asked for data they do
+//!   not give is this error too: it waits for data, it is no dead end.
+//! - `reach.undecided` (a warning): it was not found, and the search
+//!   ended at its bounds: whether a way leads to it is not known. The
+//!   finding says where the search ended. In an app of the size of
+//!   PaperPaw's the search always ends so: what it does not find is not
+//!   decided, never proven unreachable.
+//! - A screen that is not looked for is none of these, but a note: one a
+//!   setting offers among its choices (a mode of the sleep screen, shown
+//!   in that one's place) is reached through that setting
+//!   (`reach.chosen`); one that goes by itself, a notice
+//!   (`reach.not-reached`); one the device shows when something happens
+//!   to it, or that the checks' device cannot come by, declared with its
+//!   reason in [`EXEMPT`] (`reach.exempt`; a warning where the buttons
+//!   lead to it after all).
 //! - `reach.no-close`: back (the button, or what stands for it on a
 //!   device without one), pressed up to five times (a folder at a time),
 //!   neither closes it, nor brings the home screen, nor asks whether to
@@ -57,25 +69,31 @@
 //! was searched in the same place (over the same screen) already, with
 //! other parts (another group of settings), waits until the screens in
 //! new places are (the menu over the reader, the tools under the main
-//! menu). The search ends when every screen it looks for is found, when
-//! [`Limits::idle`] views in a row brought no screen not seen before, or
-//! at [`Limits::views`]. To go on from a view the device is brought
-//! there the cheapest way: back from what a press opened, the opposite
-//! of a press that moved the focus, one press on from the part before,
-//! else home and the way pressed again (in a fresh session if what was
+//! menu). This first search finds what is near the home screen fast. It
+//! ends when every screen it looks for is found, when [`Limits::idle`]
+//! views in a row brought no screen not seen before, or at
+//! [`Limits::views`]. To go on from a view the device is brought there
+//! the cheapest way: back from what a press opened, the opposite of a
+//! press that moved the focus, one press on from the part before, else
+//! home and the way pressed again (in a fresh session if what was
 //! pressed changed the way, e.g. a setting).
 //!
-//! It looks for the screens that open without parameters and stay
-//! (notices that go by themselves are left out). One not found is a
-//! warning, as the search is bounded and some ways need data the sample
-//! library has not; its picture shows it opened directly. One that
-//! needs parameters and was not found is noted (`reach.not-reached`).
-//! Closing and the focus are checked on the screens reached.
+//! Where screens are left, a second search goes on
+//! ([`places::search`]): a walk through the places of the app (a screen
+//! with its parts, the screen it lies over and the part with the
+//! focus), which keeps where each press led, searches each place once
+//! and goes deep (into a book, its menu, the contents), for
+//! [`Limits::steps`] presses.
+//!
+//! Every screen of the plugins looked at is looked for, but those named
+//! above. One not found is not decided where the search ended at its
+//! bounds; its picture shows it opened directly. Closing and the focus
+//! are checked on the screens reached.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use paperpaw_core::sdk::semantics::{self, Part, Role};
-use paperpaw_platform::{ButtonState, InputEvent, Rect, buttons};
+use paperpaw_platform::{Rect, buttons};
 
 use crate::cases;
 use crate::cli::Context;
@@ -84,9 +102,70 @@ use crate::report::{Finding, Report};
 use crate::session::Session;
 use crate::variant::Variant;
 
+mod driver;
+pub mod places;
+
+pub use driver::Driver;
+
 /// How often a screen is searched in the same place (over the same
 /// screen), with other parts each time, before those not searched yet.
 pub const SAME_PLACE: usize = 1;
+
+/// Screens the search does not look for, with why: the device shows
+/// them when something happens to it, not where a reader goes with the
+/// buttons, or the checks' device cannot come by them. Each is a note
+/// with its reason; one the buttons lead to after all is a warning (take
+/// it off the list).
+pub const EXEMPT: &[(&str, &str)] = &[
+    (
+        "core.notice-box",
+        "the kernel's notice: it shows it over whatever is open when something is said \
+         (`command.notify`, its own messages) and takes it away after `core.notice-seconds`",
+    ),
+    (
+        "core.low-memory",
+        "the kernel shows it once over the home screen where the shell finds the memory \
+         short with store plugins loaded: nothing pressed opens it",
+    ),
+    (
+        "core.finishing-update",
+        "the shell opens it while a firmware just installed runs on trial, until the restart: \
+         nothing pressed opens it, and it takes no input",
+    ),
+    (
+        "core.placeholder",
+        "it is bound to the standard slots at the lowest priority and shown only where no \
+         plugin gives a slot its screen: in the app every slot has one",
+    ),
+    (
+        "transfer.cable",
+        "the screen of the slot `core.cable`: the kernel opens it when a computer at the \
+         cable asks for the library, not a press",
+    ),
+    (
+        "store.offer",
+        "a page of the first-run setup (a setup step of the store); the checks start with \
+         the setup done",
+    ),
+    (
+        "store.templates",
+        "a page of the first-run setup (a setup step of the store); the checks start with \
+         the setup done",
+    ),
+    (
+        "bluetooth.search",
+        "its plugin asks for a scan first and the emulator has no radio, which refuses it: \
+         the screen closes with a notice, as on a device without one",
+    ),
+];
+
+/// Why `screen` is not looked for, if it is declared so ([`EXEMPT`]).
+pub fn exempt(screen: &str) -> Option<&'static str> {
+    EXEMPT
+        .iter()
+        .find(|(exempt, _)| *exempt == screen)
+        .map(|(_, why)| *why)
+}
 
 /// How far the search goes, and the walk through a screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +182,9 @@ pub struct Limits {
     pub focus: usize,
     /// Presses while the focus is moved through a screen.
     pub walk: usize,
+    /// Presses of the second search, the walk through the places, where
+    /// the first left screens to find; 0: none.
+    pub steps: usize,
 }
 
 impl Default for Limits {
@@ -113,6 +195,7 @@ impl Default for Limits {
             presses: 30,
             focus: 30,
             walk: 400,
+            steps: 10_000,
         }
     }
 }
@@ -120,12 +203,6 @@ impl Default for Limits {
 /// How long a screen opened alone is watched: one that is gone by then
 /// went by itself (a notice).
 const PASSING_MS: u64 = 10_000;
-/// Time between presses, as in the emulator's scripts.
-const STEP_MS: u64 = 100;
-/// How long a short press is held.
-const PRESS_MS: u64 = 60;
-/// How long a long press is held.
-const LONG_MS: u64 = 1200;
 
 /// What is seen on the device after a step.
 #[derive(Debug, Clone)]
@@ -174,6 +251,28 @@ impl Seen {
             self.focused().map(|p| (p.area.x, p.area.y)),
             self.view()
         )
+    }
+
+    /// The place the device is at, as the search tells places apart: the
+    /// screen shown with its targets and hints, the screen it lies over,
+    /// and the part with the focus. Numbers count as the same (a clock on
+    /// the home screen does not make it another place every minute).
+    pub fn place(&self) -> String {
+        let below = self
+            .stack
+            .len()
+            .checked_sub(2)
+            .map_or("", |below| self.stack[below].as_str());
+        let place = format!(
+            "{below}>{}#{}#{:?}",
+            self.view(),
+            self.focused().map(name).unwrap_or_default(),
+            self.focused().map(|p| (p.area.x, p.area.y))
+        );
+        place
+            .chars()
+            .map(|c| if c.is_ascii_digit() { '0' } else { c })
+            .collect()
     }
 
     /// The screen shown with its targets (wherever in the app it is).
@@ -274,224 +373,6 @@ pub fn back_key(variant: &Variant) -> Option<String> {
     }
 }
 
-/// A session driven by steps: presses (`confirm`, `long:confirm`) and
-/// screens opened directly (`open:<screen>`), able to go back to where a
-/// way of steps leads.
-#[derive(Debug)]
-pub struct Driver<'a> {
-    context: &'a Context,
-    pub variant: Variant,
-    pub session: Session,
-    /// Steps taken.
-    pub steps: usize,
-    /// The last step taken.
-    last: Option<String>,
-    /// Fresh sessions started.
-    pub fresh: usize,
-    /// The screens shown while the device slept (power woke it).
-    pub asleep: HashSet<String>,
-}
-
-impl<'a> Driver<'a> {
-    pub fn new(context: &'a Context, variant: &Variant) -> Result<Self, String> {
-        Ok(Self::with(context, Session::new(context, variant)?))
-    }
-
-    /// Drives `session`, started as a check wants it.
-    pub fn with(context: &'a Context, session: Session) -> Self {
-        Driver {
-            context,
-            variant: session.variant.clone(),
-            session,
-            steps: 0,
-            last: None,
-            fresh: 0,
-            asleep: HashSet::new(),
-        }
-    }
-
-    pub fn observe(&mut self) -> Seen {
-        let kernel = &mut self.session.device.kernel;
-        let content = kernel.device().display.height;
-        let hints = kernel
-            .described()
-            .into_iter()
-            .filter(|d| d.clip.y >= content && !d.label.trim().is_empty())
-            .map(|d| d.label)
-            .collect();
-        let described = kernel.described_active();
-        Seen {
-            stack: self.session.stack(),
-            parts: semantics::parts(described),
-            hints,
-        }
-    }
-
-    /// Takes `step`; a device that went to sleep is woken.
-    pub fn step(&mut self, step: &str) {
-        self.steps += 1;
-        self.last = Some(step.to_string());
-        let device = &mut self.session.device;
-        if let Some(screen) = step.strip_prefix("open:") {
-            if let Ok(id) = paperpaw_core::sdk::Id::parse(screen) {
-                device.open_screen(id, paperpaw_core::sdk::Params::new());
-            }
-        } else if let Some(ms) = step.strip_prefix("wait:") {
-            wait(device, ms.parse().unwrap_or(0));
-        } else {
-            let (name, hold) = match step.strip_prefix("long:") {
-                Some(name) => (name, LONG_MS),
-                None => (step, PRESS_MS),
-            };
-            if let Some(&name) = device.profile.buttons.iter().find(|b| **b == name) {
-                press(device, name, hold);
-            }
-        }
-        wait(device, STEP_MS);
-        self.session.settle_network();
-        if self.session.device.asleep() {
-            if let Some(screen) = self.session.screen() {
-                self.asleep.insert(screen);
-            }
-            press(&mut self.session.device, buttons::POWER, PRESS_MS);
-            wait(&mut self.session.device, STEP_MS);
-        }
-    }
-
-    /// Back to the home screen, as it was at the start where it can be.
-    pub fn home(&mut self) {
-        cases::home(&mut self.session);
-        self.last = None;
-    }
-
-    /// Goes where `way` leads from the home screen and says what is seen,
-    /// if that is `state` (any, if `None`); with a fresh session if the
-    /// way led elsewhere (what the steps before changed, e.g. settings).
-    pub fn go(&mut self, way: &[String], state: Option<&str>) -> Option<Seen> {
-        for fresh in [false, true] {
-            if fresh {
-                self.fresh += 1;
-                match Session::new(self.context, &self.variant) {
-                    Ok(session) => self.session = session,
-                    Err(_) => return None,
-                }
-                self.last = None;
-            } else {
-                self.home();
-            }
-            for step in way {
-                self.step(step);
-            }
-            let seen = self.observe();
-            if state.is_none_or(|s| seen.state() == s) {
-                return Some(seen);
-            }
-        }
-        None
-    }
-}
-
-impl Driver<'_> {
-    /// The press that moves the focus back where `step` moved it from:
-    /// left after right, page back after page forward (also after their
-    /// long presses, which move as the short ones where nothing else is
-    /// bound to them).
-    fn opposite(&self, step: &str) -> Option<String> {
-        let button = step.strip_prefix("long:").unwrap_or(step);
-        let opposite = [
-            (buttons::RIGHT, buttons::LEFT),
-            (buttons::DOWN, buttons::UP),
-            (buttons::PAGE_FORWARD, buttons::PAGE_BACK),
-        ]
-        .iter()
-        .find_map(|&(a, b)| match button {
-            _ if button == a => Some(b),
-            _ if button == b => Some(a),
-            _ => None,
-        })?;
-        self.variant
-            .profile
-            .buttons
-            .contains(&opposite)
-            .then(|| opposite.to_string())
-    }
-
-    /// Gets from `current` to `state`, where `way` leads, the cheapest
-    /// way: there already; back from a screen opened there; the opposite
-    /// of a press that moved the focus; one step on from `before`, where
-    /// the way leads without its last step; else the way again.
-    pub fn arrive(
-        &mut self,
-        current: &Seen,
-        way: &[String],
-        state: &str,
-        before: Option<&str>,
-        back: Option<&str>,
-    ) -> Option<Seen> {
-        if current.state() == state {
-            return Some(current.clone());
-        }
-        let mut current = current.clone();
-        let depth = |state: &str| {
-            state
-                .split('|')
-                .next()
-                .unwrap_or_default()
-                .split('>')
-                .count()
-        };
-        if let Some(back) = back
-            && current.stack.len() > depth(state)
-        {
-            self.step(back);
-            current = self.observe();
-            if current.state() == state {
-                return Some(current);
-            }
-        }
-        if current.stack.join(">") == state.split('|').next().unwrap_or_default()
-            && let Some(opposite) = self.last.as_deref().and_then(|l| self.opposite(l))
-        {
-            self.step(&opposite);
-            current = self.observe();
-            if current.state() == state {
-                return Some(current);
-            }
-        }
-        if let (Some(before), Some(last)) = (before, way.last())
-            && current.state() == before
-        {
-            self.step(last);
-            current = self.observe();
-            if current.state() == state {
-                return Some(current);
-            }
-        }
-        self.go(way, Some(state))
-    }
-}
-
-fn press(device: &mut paperpaw_emulator::device::Device, name: &'static str, hold: u64) {
-    let event = |state| InputEvent::Button { name, state };
-    device.input(event(ButtonState::Pressed));
-    wait(device, hold);
-    device.input(event(ButtonState::Released));
-}
-
-/// Lets `millis` of emulated time pass, waking the kernel when it asked.
-fn wait(device: &mut paperpaw_emulator::device::Device, millis: u64) {
-    let end = device.now().add_millis(millis);
-    loop {
-        let now = device.now();
-        let next = device.next_wake().filter(|&at| at < end).unwrap_or(end);
-        device.advance(next.since(now).max(1));
-        device.tick_if_due();
-        if next >= end {
-            return;
-        }
-    }
-}
-
 /// What the search found.
 #[derive(Debug, Default)]
 pub struct Found {
@@ -500,8 +381,18 @@ pub struct Found {
     pub ways: HashMap<String, (Vec<String>, String)>,
     /// Screens (with their parts) searched.
     pub views: usize,
-    /// Whether every one there was within the bounds was searched.
+    /// Places the second search saw: a screen with its parts and where
+    /// the focus is.
+    pub places: usize,
+    /// Presses of the second search.
+    pub steps: usize,
+    /// Whether nothing was left to press: every screen with its parts
+    /// the first search saw was searched, or every place the second saw.
+    /// Then a screen without a way has none.
     pub complete: bool,
+    /// Where the search ended, where it is not complete: why a screen it
+    /// did not find is not decided.
+    pub open: Option<String>,
     /// Screens that describe no parts but show a focus moving: the way
     /// to each, the button that moved it, and the picture then.
     pub undescribed: HashMap<String, (Vec<String>, String, Image)>,
@@ -534,15 +425,43 @@ pub fn actions(variant: &Variant) -> Vec<String> {
 }
 
 /// Searches the ways from the home screen until `wanted` screens are
-/// all found (or the bounds are reached), breadth first: on each screen
-/// newly seen every button is pressed once, then the focus is walked
-/// forward through it and on each part the focus reaches what acts is
-/// pressed (see [`actions`]).
+/// all found, nothing is left to press, or the bounds are reached: first
+/// what is near ([`near`]), then, for the screens left, the walk through
+/// the places of the app ([`places::search`], [`Limits::steps`] presses).
+pub fn search(driver: &mut Driver<'_>, wanted: &HashSet<String>, limits: &Limits) -> Found {
+    let mut found = near(driver, wanted, limits);
+    let left: HashSet<String> = wanted
+        .iter()
+        .filter(|screen| !found.ways.contains_key(*screen))
+        .cloned()
+        .collect();
+    if left.is_empty() || found.complete || limits.steps == 0 {
+        return found;
+    }
+    let further = places::search(driver, &left, limits);
+    for (screen, way) in further.ways {
+        found.ways.entry(screen).or_insert(way);
+    }
+    for (screen, shown) in further.undescribed {
+        found.undescribed.entry(screen).or_insert(shown);
+    }
+    found.views = found.views.max(further.views);
+    found.places = further.places;
+    found.steps = further.steps;
+    found.complete = further.complete;
+    found.open = further.open;
+    found
+}
+
+/// The first search, for what is near the home screen, breadth first: on
+/// each screen newly seen every button is pressed once, then the focus
+/// is walked forward through it and on each part the focus reaches what
+/// acts is pressed (see [`actions`]).
 #[expect(
     clippy::too_many_lines,
     reason = "longer than the limit from before it was set; split it when it is next changed"
 )]
-pub fn search(driver: &mut Driver<'_>, wanted: &HashSet<String>, limits: &Limits) -> Found {
+pub fn near(driver: &mut Driver<'_>, wanted: &HashSet<String>, limits: &Limits) -> Found {
     let variant = driver.variant.clone();
     let (keys, forward, actions) = (keys(&variant), forward(&variant), actions(&variant));
     let back = back_key(&variant);
@@ -560,7 +479,15 @@ pub fn search(driver: &mut Driver<'_>, wanted: &HashSet<String>, limits: &Limits
             .ways
             .entry(seen.top().to_string())
             .or_insert_with(|| (way.clone(), seen.state()));
-        if way.len() < limits.presses && views.insert(seen.view()) {
+        if way.len() >= limits.presses {
+            // Further than the longest way searched.
+            if !views.contains(&seen.view()) {
+                found.open = Some(format!(
+                    "the search goes no further than {} presses from the home screen",
+                    limits.presses
+                ));
+            }
+        } else if views.insert(seen.view()) {
             queue.push_back((way, seen.clone()));
         }
     };
@@ -595,8 +522,17 @@ pub fn search(driver: &mut Driver<'_>, wanted: &HashSet<String>, limits: &Limits
             found.complete = queue.is_empty();
             break;
         }
-        if found.views >= limits.views.max(wanted.len() * 3 / 2) || idle >= limits.idle {
+        let views = limits.views.max(wanted.len() * 3 / 2);
+        if found.views >= views || idle >= limits.idle {
             found.complete = false;
+            found.open = Some(if found.views >= views {
+                format!("the search ended at its bound of {views} screens with their parts")
+            } else {
+                format!(
+                    "the search ended after {} screens in a row that led to none not seen before",
+                    limits.idle
+                )
+            });
             break;
         }
         found.views += 1;
@@ -691,6 +627,7 @@ pub fn search(driver: &mut Driver<'_>, wanted: &HashSet<String>, limits: &Limits
             idle + 1
         };
     }
+    found.complete &= found.open.is_none();
     found
 }
 
@@ -1051,26 +988,32 @@ pub fn check(
     let mut driver = Driver::new(context, variant)?;
     let screens = cases::screens(&driver.session, &context.target);
     let home = driver.session.stack().first().cloned().unwrap_or_default();
-    // Those that open alone are searched until found; those that need
-    // parameters only come along; those that go by themselves (notices)
-    // are not looked for.
-    let mut alone: HashSet<String> = HashSet::new();
+    // Those that go by themselves (notices) are not looked for: opened
+    // alone, they show and are gone again.
     let mut passing: HashSet<String> = HashSet::new();
     for screen in &screens {
-        // Alone, with nothing to show, it is waiting for its parameters.
         if driver
             .go(&[format!("open:{screen}")], None)
             .is_some_and(|s| s.top() == screen && !s.parts.is_empty())
         {
             driver.step(&format!("wait:{PASSING_MS}"));
-            if driver.observe().top() == screen {
-                alone.insert(screen.clone());
-            } else {
+            if driver.observe().top() != screen {
                 passing.insert(screen.clone());
             }
         }
     }
-    let found = search(&mut driver, &alone, limits);
+    // Every other screen is looked for, but those the buttons need not
+    // lead to.
+    let wanted: HashSet<String> = screens
+        .iter()
+        .filter(|screen| {
+            !passing.contains(*screen)
+                && exempt(screen).is_none()
+                && chosen_by(&driver.session, screen).is_none()
+        })
+        .cloned()
+        .collect();
+    let found = search(&mut driver, &wanted, limits);
     let searched = driver.steps;
     let mut undescribed: Vec<_> = found
         .undescribed
@@ -1137,12 +1080,12 @@ pub fn check(
                 report.add(place(note, screen));
                 continue;
             }
-            None if !alone.contains(screen) => {
+            None if exempt(screen).is_some() => {
+                let why = exempt(screen).unwrap_or_default();
                 let note = Finding::info(
-                    "reach.not-reached",
+                    "reach.exempt",
                     screen.clone(),
-                    "It was not reached with the buttons alone: it needs parameters, and no \
-                     screen found in the sample library opened it.",
+                    format!("Not looked for: {why}."),
                 );
                 report.add(place(note, screen));
                 continue;
@@ -1155,8 +1098,16 @@ pub fn check(
                 let Some(_) = driver.go(&open, None) else {
                     continue;
                 };
-                let wanted = paperpaw_emulator::offline::unanswered();
-                let mut unreachable = if context.fixtures && !wanted.is_empty() {
+                let asked = paperpaw_emulator::offline::unanswered();
+                let how = if found.places > 0 {
+                    format!(
+                        "{} screens with their parts searched, then {} places with {} presses",
+                        found.views, found.places, found.steps
+                    )
+                } else {
+                    format!("{} screens with their parts searched", found.views)
+                };
+                let mut unreachable = if context.fixtures && !asked.is_empty() {
                     Finding::error(
                         "reach.unreachable",
                         screen.clone(),
@@ -1165,18 +1116,29 @@ pub fn check(
                              alone, and it asked for data the emulator's fixtures do not give \
                              ({}): give it an answer in shells/desktop/src/offline.rs, or a way \
                              in without.",
-                            wanted.join(", ")
+                            asked.join(", ")
+                        ),
+                    )
+                } else if found.complete {
+                    Finding::error(
+                        "reach.unreachable",
+                        screen.clone(),
+                        format!(
+                            "No way leads to it from the home screen with the buttons alone: \
+                             nothing was left to press ({how}). Give it a way in, such as \
+                             a menu entry or a row of another screen."
                         ),
                     )
                 } else {
                     Finding::warning(
-                        "reach.unreachable",
+                        "reach.undecided",
                         screen.clone(),
                         format!(
-                            "It could not be reached from the home screen with the buttons \
-                             alone ({} screens searched, up to {} presses): give it a way in, \
-                             such as a menu entry or a row of another screen.",
-                            found.views, limits.presses
+                            "Not decided whether the buttons lead to it: it was not found, and \
+                             {} ({how}). If a way leads to it, it needs what the search \
+                             does not come by (a text typed, data, a radio); if none does, give \
+                             it one, such as a menu entry or a row of another screen.",
+                            found.open.as_deref().unwrap_or("the search ended early")
                         ),
                     )
                 };
@@ -1196,6 +1158,18 @@ pub fn check(
                 continue;
             }
         };
+        if let Some(why) = exempt(screen) {
+            let listed = Finding::warning(
+                "reach.exempt",
+                screen.clone(),
+                format!(
+                    "It is declared as not looked for ({why}), but the buttons lead to it, with \
+                     {}: take it off the list (EXEMPT in tools/dev/src/reach.rs).",
+                    way.join(", ")
+                ),
+            );
+            report.add(place(listed, screen));
+        }
         if let Some(finding) = closes(&mut driver, &way, &state, screen, &home) {
             report.add(place(finding, screen));
         }
@@ -1212,10 +1186,18 @@ pub fn check(
             "reach.searched",
             "reach",
             format!(
-                "{} screens checked; the search looked at {} screens{} in {:.1} s ({} steps \
+                "{} screens checked; the search looked at {} screens{}{} in {:.1} s ({} steps \
                  searching, {} checking, {} fresh sessions).",
                 screens.len(),
                 found.views,
+                if found.places > 0 {
+                    format!(
+                        ", then at {} places with {} presses",
+                        found.places, found.steps
+                    )
+                } else {
+                    String::new()
+                },
                 if found.complete {
                     ", all there were"
                 } else {
@@ -1430,5 +1412,13 @@ mod tests {
         assert_eq!(walked.skipped(), ["Button \"Done\""]);
         assert_eq!(seen(1).state(), "a.list|Row \"Light\"|Back");
         assert_eq!(seen(1).view(), seen(2).view());
+        // The same screen and parts, the focus elsewhere: another place;
+        // numbers count as the same.
+        assert_ne!(seen(1).place(), seen(2).place());
+        let mut clock = seen(1);
+        clock.parts[4].label = "10:42".into();
+        let mut later = seen(1);
+        later.parts[4].label = "10:43".into();
+        assert_eq!(clock.place(), later.place());
     }
 }
