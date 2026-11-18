@@ -316,6 +316,66 @@ fn arabic_card_files() -> [(&'static str, Vec<u8>); 2] {
     ]
 }
 
+/// The German language pack of the X4 firmware (#251): every `de.ini` of the
+/// repository merged and compiled, as `plugins/language-de`.
+fn german_pack_files() -> [(&'static str, Vec<u8>); 2] {
+    fn walk(dir: &std::path::Path, found: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for path in entries.flatten().map(|e| e.path()) {
+            if path.is_dir() {
+                walk(&path, found);
+            } else if path.file_name().is_some_and(|n| n == "de.ini") {
+                found.push(std::fs::read_to_string(&path).unwrap());
+            }
+        }
+    }
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut texts = Vec::new();
+    for group in ["crates", "plugins", "shells"] {
+        for member in std::fs::read_dir(root.join(group)).unwrap().flatten() {
+            walk(&member.path().join("i18n"), &mut texts);
+        }
+    }
+    let merged = paperpaw_i18n::Catalog::merge_sources(texts.iter().map(String::as_str));
+    let compiled = paperpaw_i18n::Catalog::compile(&merged).unwrap();
+    [
+        (
+            "plugins/language-de/plugin.ini",
+            b"[plugin]\nid = language-de\nname = German\nversion = 1.0.0\nformats = 4\n".to_vec(),
+        ),
+        ("plugins/language-de/i18n/de.ppcat", compiled),
+    ]
+}
+
+/// German from its pack on the card (#251; the emulator also has German
+/// built in, which the pack's messages precede) starts within
+/// [`CARD_LANGUAGE_EXTRA_KIB`] of English's peak, as any card language.
+#[test]
+fn starting_in_german_from_its_language_pack_peaks_little_above_english() {
+    let files = german_pack_files();
+    let peak = |language: &str| {
+        let language = format!("core.language={language}");
+        heap(&emulator_with(
+            "x4-german-pack",
+            "xteink-x4",
+            None,
+            &files,
+            &["--set", &language, "--script", "wait:300"],
+        ))
+        .peak
+    };
+    let (english, german) = (peak("en"), peak("de"));
+    eprintln!(
+        "start (emulator): peak {english} KiB in English, {german} KiB in German from its pack"
+    );
+    assert!(
+        german <= english + CARD_LANGUAGE_EXTRA_KIB,
+        "start: peak {german} KiB in German from its pack, {english} KiB in English"
+    );
+}
+
 /// The start with the card language and the book read last an EPUB (the
 /// largest first screen): the peak stays within the X4's budget (#243).
 #[test]

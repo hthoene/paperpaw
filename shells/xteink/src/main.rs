@@ -1097,6 +1097,8 @@ fn kernel(
     )
     .built_messages(device::MESSAGES)
     .items(device::manifest(), device::register);
+    #[cfg(not(feature = "built-german"))]
+    let builder = builder.language_seed(&device::GERMAN);
     // Its warnings are logged as the main loop starts: taken here, the
     // kernel would be one more copy on the stack.
     builder.build().expect("kernel")

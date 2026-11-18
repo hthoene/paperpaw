@@ -53,6 +53,21 @@ update page shows it as a failed download. Check this on the server before
 the Beta 4 tag is published, with one request that names Beta 3 and one that
 names Beta 4.
 
+## The German language pack (#251)
+
+The X4 firmware has no German built in: it carries German as a compressed language pack and writes it to the
+card as the data plugin `language-de` where German is the language (at a start, or when it is chosen). The
+store entry `[language-de]` in `tools/plugin-files/data.toml` (version, name, `formats`) is the same pack for
+the store and must be **published with the release**: `tools/plugin-files/data.py` builds it like the other
+packs (`tools/language-pack.py build de`: every `i18n/**/de.ini` merged). Keep these in step:
+
+- a new plugin's `de.ini` goes into the `inputs` of `[language-de]` (a test checks the list), and a changed
+  German text needs a newer `version` there (`versions.py`);
+- the pack the firmware carries has the `plugin.ini` of that entry (its `version` too), so the store counts it as
+  installed; a newer published `language-de` simply replaces it;
+- the carried copy is for updates from Beta 3 and for first-start choice without Wi-Fi: it can go once Beta 3 is
+  no longer updated from (build with `built-german` to compare, `shells/xteink/Cargo.toml`).
+
 ## The firmware's size budget
 
 CI holds each device's install image to `shells/xteink/size-budget.txt` (`tools/size-report.py`, #258).

@@ -24,6 +24,11 @@ This tool helps to make it and checks it:
         i18n/<lang>.ppcat (made by paperpaw-sign), to copy into the device's
         plugins folder.
 
+German has no source catalog of its own: the firmware had it built in, as
+the `i18n/de.ini` of the kernel and of every plugin, and they stay its
+source. Its pack is made of all of them merged (`german_sources`), in
+one catalog.
+
 Messages English has and the translation lacks stay English (the kernel
 falls back to it).
 """
@@ -89,6 +94,30 @@ def english():
         for key, text in parse(file)[1].items():
             found.setdefault(key, (text, de.get(key, "")))
     return found
+
+
+def german_sources():
+    """The German catalogs of the kernel, the app, the shells and every
+    plugin: every `i18n/**/de.ini`, in a fixed order."""
+    files = []
+    for pattern in ("crates/*/i18n/**/de.ini", "plugins/*/i18n/**/de.ini", "shells/*/i18n/de.ini"):
+        files += sorted(ROOT.glob(pattern))
+    return files
+
+
+def merged_german(files):
+    """The messages of `files` as one catalog's text, with the `[meta]` of
+    the first; a key two files have is an error."""
+    meta, _ = parse(files[0])
+    lines = ["[meta]"] + [f"{k} = {quote(v)}" for k, v in meta.items()] + ["", "[messages]"]
+    seen = {}
+    for file in files:
+        for key, text in parse(file)[1].items():
+            if key in seen:
+                raise ValueError(f"{key}: in {seen[key]} and {file}")
+            seen[key] = file
+            lines.append(f"{key} = {quote(text)}")
+    return "\n".join(lines) + "\n"
 
 
 def split(out, n):
@@ -193,8 +222,13 @@ def build(lang, base):
     for path, text in data.catalogs(id, listed):
         (out / path).write_text(text, encoding="utf-8", newline="\n")
     (out / "plugin.ini").write_text(head, encoding="utf-8", newline="\n")
+    if lang == "de":
+        source = out / "de.merged.ini"
+        source.write_text(merged_german(german_sources()), encoding="utf-8", newline="\n")
     subprocess.run(["cargo", "run", "-q", "--release", "-p", "paperpaw-sign", "--", "catalog",
                     str(source), str(out / "i18n" / f"{lang}.ppcat")], cwd=ROOT, check=True)
+    if lang == "de":
+        source.unlink()
     print(f"{out}")
 
 

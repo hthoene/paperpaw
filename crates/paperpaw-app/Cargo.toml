@@ -13,7 +13,12 @@ categories = ["no-std"]
 links = "paperpaw-app"
 
 [features]
-default = ["store-plugins", "diagnostics"]
+default = ["store-plugins", "diagnostics", "german"]
+# German's texts built into the program (tables of the kernel's, the app's and
+# the linked plugins' catalogs). The X4's firmware builds without: German is a
+# language pack it carries compressed and writes to the card (#251,
+# `paperpaw_core::LanguageSeed`); the other shells keep it built in.
+german = []
 # Closes the X4's nested-call gate in the kernel again (the X3's firmware builds so):
 # the tests that expect the refusals run with it (CI).
 x4-gate-closed = ["paperpaw-core/x4-gate-closed"]
