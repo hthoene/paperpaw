@@ -1220,7 +1220,7 @@ fn a_page_with_a_large_png_stays_within_the_x4_budget() {
 }
 
 /// The most reading in Thai may peak at here (#313), the table of words
-/// (18.7 KiB) held: measured at 214.4 KiB, 195.7 without it, in this
+/// (16.0 KiB) held: measured at 213.1 KiB, 197.1 without it, in this
 /// build (more than the X4's: diagnostics, the store's plugins).
 const THAI_PEAK_KIB: f64 = 218.0;
 
