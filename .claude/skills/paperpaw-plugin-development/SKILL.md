@@ -32,10 +32,11 @@ Read, in this order, and skim what is relevant to the task:
    rules for screens, memory, testing, data plugins.
 2. `CONTRIBUTING.md`: the architecture rules reviews check, and the
    checks CI runs.
-3. `samples/hello-plugin`: a complete small plugin with a test; the best
-   template. `samples/hello-native` builds it as a plugin file for the
-   X4s, in a workspace of its own as a plugin's repository is, with a CI
-   job. `samples/plugins` holds data plugins.
+3. `paperpaw-dev new --github <id> --code`: a complete small plugin with
+   code for plugin interface 7 (a screen, an action, a setting, an event),
+   the best template; `paperpaw-dev build --device emulator` and
+   `paperpaw-emu --library dist/emulator --trust-code` run it.
+   `samples/plugins` holds data plugins.
 4. The SDK's API: `cargo doc -p paperpaw-sdk --open`, and
    `crates/paperpaw-sdk/api.txt` (every public item, kept current).
 5. `CHANGELOG.md`, its top section: what changed lately (renamed or
@@ -268,7 +269,10 @@ Only if the user has one and wants it used. Its README is
 - Build and flash from `shells/xteink` (its own workspace); a test
   build has the remote control below, released firmware does not.
 - A plugin with code is tried as a file, without building it into the
-  firmware: build it as `samples/hello-native` does (`cargo x4`, or
+  firmware. Out of date for plugin interface 7 (#244): the sample named
+  here is gone and `paperpaw-dev new --code` does not yet make a plugin
+  with code. For the interface before 7 it was built as
+  `samples/hello-native` did (`cargo x4`, or
   `cargo +esp x4pro` for the X4 Pro and the X4 Classic, with the
   release's core libraries installed into the `esp` toolchain, see
   `tools/xtensa-std`) against the SDK of the firmware on the device, pack it with `paperpaw-sign pack`, put
@@ -345,7 +349,7 @@ report the numbers; never claim a speed-up from reading code alone.
 ## 9. Publishing
 
 When the user wants the plugin in the store (on paperpaw.org and in
-every device's *More plugins*), follow
+every device's *Plugin store*), follow
 [`publishing.md`](publishing.md) in this folder, step by step, with the
 site's guide for authors (<https://paperpaw.org/authors>) as the
 reference for the site's names: what to upload (the folder with

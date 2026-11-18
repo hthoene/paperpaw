@@ -1,14 +1,15 @@
 screen settings.list
+Text "1 / 3"
 Heading "Settings"
 Row "Search" (focused)
 Heading "Books"
 Row "Reading"
 Row "Library"
-Row "Reading statistics"
-Row "Progress sync"
 Heading "Device"
+Row "Sleep screen"
 Row "Controls"
 Row "Keyboard"
-Row "Buttons and gestures"
 Row "Wi-Fi"
+Row "Bluetooth"
 Row "Power"
+Row "Date and time"

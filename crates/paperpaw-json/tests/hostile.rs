@@ -11,7 +11,7 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use paperpaw_json::stream::{Event, MAX_DEPTH, MAX_STRING, Parser, read_file};
+use paperpaw_json::stream::{Event, MAX_DEPTH, MAX_STRING, Parser, read_file, try_read_file};
 use paperpaw_json::{Value, number, object, raw_member, string, string_array, text, unquote};
 use paperpaw_platform::{DirEntry, Storage, StorageError};
 use proptest::prelude::*;
@@ -552,6 +552,22 @@ fn read_file_reads_a_file_larger_than_its_chunks() {
     );
 }
 
+#[test]
+fn the_fallible_file_reader_reports_the_same() {
+    let doc = r#"{"a": [1, "zwei", {"b": null}], "c": "\u00fc"}"#;
+    let storage = OneFile(doc.as_bytes().to_vec());
+    let (mut infallible, mut fallible) = (Vec::new(), Vec::new());
+    read_file(&storage, "f.json", &mut |event| {
+        infallible.push(format!("{event:?}"))
+    });
+    try_read_file(&storage, "f.json", &mut |event| {
+        fallible.push(format!("{event:?}"))
+    })
+    .unwrap();
+    assert_eq!(fallible, infallible);
+    assert_eq!(fallible.len(), 10);
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(std::env::var("PROPTEST_CASES").ok().and_then(|n| n.parse().ok()).unwrap_or(160)))]
 
@@ -655,4 +671,37 @@ proptest! {
         let whole = events_of(&data, usize::MAX);
         prop_assert_eq!(events_of(&data, chunk), whole);
     }
+}
+
+/// Keys after a long value: every path segment is as long as its key, so
+/// nested keys never keep the (up to `MAX_STRING`) text buffer.
+#[test]
+fn path_keys_keep_only_their_own_length() {
+    let long = "x".repeat(MAX_STRING - 8);
+    let mut json = String::new();
+    for depth in 0..MAX_DEPTH / 2 {
+        json.push_str(&format!("{{\"v\":\"{long}\",\"k{depth}\":"));
+    }
+    json.push('1');
+    for _ in 0..MAX_DEPTH / 2 {
+        json.push('}');
+    }
+    let mut parser = Parser::default();
+    let mut deepest = 0;
+    let mut check = |event: Event<'_>| {
+        let path = match event {
+            Event::Open(path) | Event::Close(path) | Event::Value(path, _) => path,
+        };
+        deepest = deepest.max(path.len());
+        for segment in path {
+            assert!(
+                segment.capacity() <= 8,
+                "segment {segment:?} keeps {} bytes",
+                segment.capacity()
+            );
+        }
+    };
+    parser.try_feed(json.as_bytes(), &mut check).unwrap();
+    parser.try_finish(&mut check).unwrap();
+    assert_eq!(deepest, MAX_DEPTH / 2);
 }

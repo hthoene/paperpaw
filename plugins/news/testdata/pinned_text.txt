@@ -1,0 +1,195 @@
+date "2026-10-24T14:32:44-04:00" Some((2026, 10, 24))
+date "2026-10-24" Some((2026, 10, 24))
+date "2026-02-30" None
+date "2026-13-01" None
+date "26-10-24" None
+date "Sat, 24 Oct 2026 14:32:44 GMT" Some((2026, 10, 24))
+date "24 Oct 2026" Some((2026, 10, 24))
+date "24 oct 98" Some((1998, 10, 24))
+date "1 JAN 05 00:00" Some((2005, 1, 1))
+date "Mon, 5 Feb 70" Some((1970, 2, 5))
+date "31 Apr 2026" None
+date "29 Feb 2024" Some((2024, 2, 29))
+date "29 Feb 2025" None
+date "not a date" None
+date "" None
+date "ü ü ü ü" None
+date "  2026-10-24  " Some((2026, 10, 24))
+cut "" 0 ""
+cut "" 1 ""
+cut "" 2 ""
+cut "" 3 ""
+cut "" 4 ""
+cut "" 5 ""
+cut "" 6 ""
+cut "" 7 ""
+cut "" 8 ""
+cut "" 9 ""
+cut "" 10 ""
+cut "" 11 ""
+cut "" 12 ""
+cut "" 13 ""
+cut "short" 0 ""
+cut "short" 1 "s"
+cut "short" 2 "sh"
+cut "short" 3 "sho"
+cut "short" 4 "shor"
+cut "short" 5 "short"
+cut "short" 6 "short"
+cut "short" 7 "short"
+cut "short" 8 "short"
+cut "short" 9 "short"
+cut "short" 10 "short"
+cut "short" 11 "short"
+cut "short" 12 "short"
+cut "short" 13 "short"
+cut "ünï cödé" 0 ""
+cut "ünï cödé" 1 ""
+cut "ünï cödé" 2 "ü"
+cut "ünï cödé" 3 "ün"
+cut "ünï cödé" 4 "ün"
+cut "ünï cödé" 5 "ünï"
+cut "ünï cödé" 6 "ünï "
+cut "ünï cödé" 7 "ünï c"
+cut "ünï cödé" 8 "ünï c"
+cut "ünï cödé" 9 "ünï cö"
+cut "ünï cödé" 10 "ünï cöd"
+cut "ünï cödé" 11 "ünï cöd"
+cut "ünï cödé" 12 "ünï cödé"
+cut "ünï cödé" 13 "ünï cödé"
+cut "0123456789" 0 ""
+cut "0123456789" 1 "0"
+cut "0123456789" 2 "01"
+cut "0123456789" 3 "012"
+cut "0123456789" 4 "0123"
+cut "0123456789" 5 "01234"
+cut "0123456789" 6 "012345"
+cut "0123456789" 7 "0123456"
+cut "0123456789" 8 "01234567"
+cut "0123456789" 9 "012345678"
+cut "0123456789" 10 "0123456789"
+cut "0123456789" 11 "0123456789"
+cut "0123456789" 12 "0123456789"
+cut "0123456789" 13 "0123456789"
+cut "a😀b😀c" 0 ""
+cut "a😀b😀c" 1 "a"
+cut "a😀b😀c" 2 "a"
+cut "a😀b😀c" 3 "a"
+cut "a😀b😀c" 4 "a"
+cut "a😀b😀c" 5 "a😀"
+cut "a😀b😀c" 6 "a😀b"
+cut "a😀b😀c" 7 "a😀b"
+cut "a😀b😀c" 8 "a😀b"
+cut "a😀b😀c" 9 "a😀b"
+cut "a😀b😀c" 10 "a😀b😀"
+cut "a😀b😀c" 11 "a😀b😀c"
+cut "a😀b😀c" 12 "a😀b😀c"
+cut "a😀b😀c" 13 "a😀b😀c"
+line "" ""
+line "  a   b\n\tc  " "a b c"
+line "one" "one"
+line " \u{a0} x \u{2003} y " "x y"
+escape "" ""
+escape "a & b < c > \"d\"" "a &amp; b &lt; c &gt; &quot;d&quot;"
+escape "&amp;" "&amp;amp;"
+escape "ünï <b>" "ünï &lt;b&gt;"
+block "p" true
+block "div" true
+block "br" true
+block "li" true
+block "h1" true
+block "h6" true
+block "h7" false
+block "blockquote" true
+block "tr" true
+block "section" true
+block "article" true
+block "ul" true
+block "ol" true
+block "pre" true
+block "figure" true
+block "figcaption" true
+block "hr" true
+block "table" true
+block "dd" true
+block "dt" true
+block "span" false
+block "a" false
+block "P" false
+block "" false
+paras "" 0 Some([])
+paras "" 10 Some([])
+paras "" 100 Some([])
+paras "" 10000 Some([])
+paras "<p>One</p><p>Two &amp; <b>three</b></p>" 0 Some([])
+paras "<p>One</p><p>Two &amp; <b>three</b></p>" 10 Some(["One", "Two & three"])
+paras "<p>One</p><p>Two &amp; <b>three</b></p>" 100 Some(["One", "Two & three"])
+paras "<p>One</p><p>Two &amp; <b>three</b></p>" 10000 Some(["One", "Two & three"])
+paras "text <br> more <BR/> end" 0 Some([])
+paras "text <br> more <BR/> end" 10 Some(["text", "more"])
+paras "text <br> more <BR/> end" 100 Some(["text", "more", "end"])
+paras "text <br> more <BR/> end" 10000 Some(["text", "more", "end"])
+paras "<script>x</script>a<style>y</style>b<SCRIPT/>c" 0 Some([])
+paras "<script>x</script>a<style>y</style>b<SCRIPT/>c" 10 Some(["abc"])
+paras "<script>x</script>a<style>y</style>b<SCRIPT/>c" 100 Some(["abc"])
+paras "<script>x</script>a<style>y</style>b<SCRIPT/>c" 10000 Some(["abc"])
+paras "<ul><li>a</li><li>b</li></ul>" 0 Some([])
+paras "<ul><li>a</li><li>b</li></ul>" 10 Some(["a", "b"])
+paras "<ul><li>a</li><li>b</li></ul>" 100 Some(["a", "b"])
+paras "<ul><li>a</li><li>b</li></ul>" 10000 Some(["a", "b"])
+paras "&lt;p&gt;not markup&lt;/p&gt;" 0 Some([])
+paras "&lt;p&gt;not markup&lt;/p&gt;" 10 Some(["<p>not markup</p>"])
+paras "&lt;p&gt;not markup&lt;/p&gt;" 100 Some(["<p>not markup</p>"])
+paras "&lt;p&gt;not markup&lt;/p&gt;" 10000 Some(["<p>not markup</p>"])
+paras "<![CDATA[raw <b>]]>" 0 Some([])
+paras "<![CDATA[raw <b>]]>" 10 Some(["raw <b>"])
+paras "<![CDATA[raw <b>]]>" 100 Some(["raw <b>"])
+paras "<![CDATA[raw <b>]]>" 10000 Some(["raw <b>"])
+mark "" 1c9dc5
+mark "https://a.example/rss" a62f8a
+mark "https://www.tagesschau.de/xml/rss2" 43480f
+mark "http://user:pw@feeds.example.org:8080/a?b=c#d" 85bdda
+mark "feeds.example/ü" da6ce8
+mark "x" 0c5087
+unmark "Tagesschau (3fa9c2)" "Tagesschau"
+unmark "Tagesschau (3FA9C2)" "Tagesschau"
+unmark "Tagesschau (3fa9c)" "Tagesschau (3fa9c)"
+unmark "Tagesschau (3fa9cz)" "Tagesschau (3fa9cz)"
+unmark "(3fa9c2)" "(3fa9c2)"
+unmark " (3fa9c2)" ""
+unmark "A (b) (3fa9c2)" "A (b)"
+unmark "" ""
+unmark "plain" "plain"
+short "Site - all the news" "Site"
+short "Site | news" "Site"
+short "Si - news" "Si - news"
+short "S – long" "S – long"
+short "Site — news" "Site"
+short "Name: the tagline" "Name"
+short "  Plain title  " "Plain title"
+short "" ""
+short " - x" "- x"
+short "Ab: cd" "Ab: cd"
+feeds 0 [] ""
+feeds 1 [("https://a.example/rss", "A", "A"), ("https://b.example/", "", "b.example")] "https://a.example/rss\tA\nhttps://b.example/\t\n"
+feeds 2 [("https://a.example", "Name with spaces", "Name with spaces")] "https://a.example\tName with spaces\n"
+feeds 3 [("https://a.example/rss", "A\tB", "A\tB"), ("https://b.example/", "C", "C")] "https://a.example/rss\tA B\nhttps://b.example/\tC\n"
+feeds 4 [("https://a.example", "A", "A")] "https://a.example\tA\n"
+headlines 0 0 ""
+headlines 0 1 "One\t/b/mine.html\nTwo with tab\t/b/mine.html"
+headlines 0 2 "Headline 0\t/b/mine.html\nHeadline 1\t/b/mine.html\nHeadline 2\t/b/mine.html\nHeadline 3\t/b/mine.html\nHeadline 4\t/b/mine.html"
+headlines 1 0 ""
+headlines 1 1 "One\t/b/mine.html\nTwo with tab\t/b/mine.html"
+headlines 1 2 "Headline 0\t/b/mine.html\nHeadline 1\t/b/mine.html\nHeadline 2\t/b/mine.html\nHeadline 3\t/b/mine.html\nHeadline 4\t/b/mine.html"
+headlines 2 0 "Old\t/b/other.html\nOldest\t/b/third.html"
+headlines 2 1 "One\t/b/mine.html\nTwo with tab\t/b/mine.html\nOld\t/b/other.html\nOldest\t/b/third.html"
+headlines 2 2 "Headline 0\t/b/mine.html\nHeadline 1\t/b/mine.html\nHeadline 2\t/b/mine.html\nHeadline 3\t/b/mine.html\nHeadline 4\t/b/mine.html\nOld\t/b/other.html\nOldest\t/b/third.html"
+headlines 3 0 "Bad �\t/b/other.html\n\nNo tab line"
+headlines 3 1 "One\t/b/mine.html\nTwo with tab\t/b/mine.html\nBad �\t/b/other.html\n\nNo tab line"
+headlines 3 2 "Headline 0\t/b/mine.html\nHeadline 1\t/b/mine.html\nHeadline 2\t/b/mine.html\nHeadline 3\t/b/mine.html\nHeadline 4\t/b/mine.html\nBad �\t/b/other.html\n\nNo tab line"
+headlines 4 0 "Title 0\t/b/0.html\nTitle 1\t/b/1.html\nTitle 2\t/b/2.html\nTitle 3\t/b/3.html\nTitle 4\t/b/4.html\nTitle 5\t/b/5.html\nTitle 6\t/b/6.html\nTitle 7\t/b/7.html\nTitle 8\t/b/8.html\nTitle 9\t/b/9.html\nTitle 10\t/b/10.html\nTitle 11\t/b/11.html\nTitle 12\t/b/12.html\nTitle 13\t/b/13.html\nTitle 14\t/b/14.html\nTitle 15\t/b/15.html\nTitle 16\t/b/16.html\nTitle 17\t/b/17.html\nTitle 18\t/b/18.html\nTitle 19\t/b/19.html\nTitle 20\t/b/20.html\nTitle 21\t/b/21.html\nTitle 22\t/b/22.html\nTitle 23\t/b/23.html\nTitle 24\t/b/24.html\nTitle 25\t/b/25.html\nTitle 26\t/b/26.html\nTitle 27\t/b/27.html\nTitle 28\t/b/28.html\nTitle 29\t/b/29.html\nTitle 30\t/b/30.html\nTitle 31\t/b/31.html\nTitle 32\t/b/32.html\nTitle 33\t/b/33.html\nTitle 34\t/b/34.html\nTitle 35\t/b/35.html\nTitle 36\t/b/36.html\nTitle 37\t/b/37.html\nTitle 38\t/b/38.html\nTitle 39\t/b/39.html"
+headlines 4 1 "One\t/b/mine.html\nTwo with tab\t/b/mine.html\nTitle 0\t/b/0.html\nTitle 1\t/b/1.html\nTitle 2\t/b/2.html\nTitle 3\t/b/3.html\nTitle 4\t/b/4.html\nTitle 5\t/b/5.html\nTitle 6\t/b/6.html\nTitle 7\t/b/7.html\nTitle 8\t/b/8.html\nTitle 9\t/b/9.html\nTitle 10\t/b/10.html\nTitle 11\t/b/11.html\nTitle 12\t/b/12.html\nTitle 13\t/b/13.html\nTitle 14\t/b/14.html\nTitle 15\t/b/15.html\nTitle 16\t/b/16.html\nTitle 17\t/b/17.html\nTitle 18\t/b/18.html\nTitle 19\t/b/19.html\nTitle 20\t/b/20.html\nTitle 21\t/b/21.html\nTitle 22\t/b/22.html\nTitle 23\t/b/23.html\nTitle 24\t/b/24.html\nTitle 25\t/b/25.html\nTitle 26\t/b/26.html\nTitle 27\t/b/27.html\nTitle 28\t/b/28.html\nTitle 29\t/b/29.html\nTitle 30\t/b/30.html\nTitle 31\t/b/31.html\nTitle 32\t/b/32.html\nTitle 33\t/b/33.html\nTitle 34\t/b/34.html\nTitle 35\t/b/35.html\nTitle 36\t/b/36.html\nTitle 37\t/b/37.html"
+headlines 4 2 "Headline 0\t/b/mine.html\nHeadline 1\t/b/mine.html\nHeadline 2\t/b/mine.html\nHeadline 3\t/b/mine.html\nHeadline 4\t/b/mine.html\nTitle 0\t/b/0.html\nTitle 1\t/b/1.html\nTitle 2\t/b/2.html\nTitle 3\t/b/3.html\nTitle 4\t/b/4.html\nTitle 5\t/b/5.html\nTitle 6\t/b/6.html\nTitle 7\t/b/7.html\nTitle 8\t/b/8.html\nTitle 9\t/b/9.html\nTitle 10\t/b/10.html\nTitle 11\t/b/11.html\nTitle 12\t/b/12.html\nTitle 13\t/b/13.html\nTitle 14\t/b/14.html\nTitle 15\t/b/15.html\nTitle 16\t/b/16.html\nTitle 17\t/b/17.html\nTitle 18\t/b/18.html\nTitle 19\t/b/19.html\nTitle 20\t/b/20.html\nTitle 21\t/b/21.html\nTitle 22\t/b/22.html\nTitle 23\t/b/23.html\nTitle 24\t/b/24.html\nTitle 25\t/b/25.html\nTitle 26\t/b/26.html\nTitle 27\t/b/27.html\nTitle 28\t/b/28.html\nTitle 29\t/b/29.html\nTitle 30\t/b/30.html\nTitle 31\t/b/31.html\nTitle 32\t/b/32.html\nTitle 33\t/b/33.html\nTitle 34\t/b/34.html"
+headlines 5 0 ""
+headlines 5 1 "One\t/b/mine.html\nTwo with tab\t/b/mine.html"
+headlines 5 2 "Headline 0\t/b/mine.html\nHeadline 1\t/b/mine.html\nHeadline 2\t/b/mine.html\nHeadline 3\t/b/mine.html\nHeadline 4\t/b/mine.html"

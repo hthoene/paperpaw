@@ -108,6 +108,7 @@ fn buttons_and_touch_are_taken() {
 /// action as the menu's entry). Each time after a minute in which the
 /// device had nothing to do: a short press stays short.
 #[test]
+#[ignore = "re-enable at native activation (#228, todo 380): the interface-6 Settings is removed (#1011) and the web emulator has no native one yet"]
 fn the_settings_open_from_the_menu_and_the_quick_panel() {
     let _one = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let now = std::cell::Cell::new(5_000);
@@ -172,7 +173,10 @@ fn the_settings_open_from_the_menu_and_the_quick_panel() {
     boox.pointer(PointerPhase::Up, x, top + i32::from(height) / 2, later(16));
     boox.advance(later(2_000));
     shows(&boox, "menu.");
-    tap(&mut boox, at(734, 517));
+    // Settings is the last tile. The quick panel has one row less than with
+    // the interface-6 Power plugin (its Power mode row; the native one has no
+    // entry until the central wiring lists it, #228), so the tile is higher.
+    tap(&mut boox, at(734, 453));
     shows(&boox, "settings.");
 }
 

@@ -1,0 +1,23 @@
+[package]
+name = "paperpaw-sample-abi7-x4-min"
+description = "The smallest interface-7 plugin for the Xteink X4: the file the format-5 packer is tried on"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# A workspace of its own, as a plugin's own repository is.
+[workspace]
+
+[[bin]]
+name = "abi7_x4_min"
+path = "src/main.rs"
+test = false
+bench = false
+
+# As the firmware is built: small code, one unit, no unwinding.
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"

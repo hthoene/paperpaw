@@ -13,15 +13,19 @@ use paperpaw_platform::Storage;
 pub const FILE: &str = ".paperpaw/slept";
 
 /// Marks that the device goes to sleep: written (and kept) before its
-/// power goes. Not being able to is no failure of the sleep: the wake
-/// then is a start like another.
+/// power goes, together with everything else still kept back. Not being
+/// able to write the mark is no failure of the sleep: the wake then is a
+/// start like another.
 pub fn mark(storage: &dyn Storage) {
     // The folder is there once PaperPaw has run; a card without it has
     // had nothing written to it yet.
     let _ = storage.create_dir(".paperpaw");
-    if storage.write(FILE, b"").is_ok() {
-        let _ = storage.sync();
-    }
+    let _ = storage.write(FILE, b"");
+    // Always: the last thing before the power goes writes back what plugins
+    // saved while the sleep was prepared (answers to what they sent when
+    // they heard `core.suspend`), also where the mark itself cannot be
+    // written (a card without room, a read-only one).
+    let _ = storage.sync();
 }
 
 /// Whether the last run went to sleep (it left the mark): the mark is
@@ -33,7 +37,53 @@ pub fn take(storage: &dyn Storage) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use paperpaw_core::sdk::MemoryStorage;
+    use core::cell::Cell;
+    use paperpaw_core::sdk::{DirEntry, MemoryStorage, Storage, StorageError};
+
+    /// A storage that cannot write and counts the syncs it is asked for.
+    #[derive(Default)]
+    struct Full {
+        files: MemoryStorage,
+        syncs: Cell<u32>,
+    }
+
+    impl Storage for Full {
+        fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+            self.files.read_at(path, offset, buf)
+        }
+        fn size(&self, path: &str) -> Result<u64, StorageError> {
+            self.files.size(path)
+        }
+        fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Full)
+        }
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Full)
+        }
+        fn sync(&self) -> Result<(), StorageError> {
+            self.syncs.set(self.syncs.get() + 1);
+            Ok(())
+        }
+        fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.files.list(dir, visit)
+        }
+        fn remove(&self, path: &str) -> Result<(), StorageError> {
+            self.files.remove(path)
+        }
+        fn create_dir(&self, _: &str) -> Result<(), StorageError> {
+            Err(StorageError::Full)
+        }
+    }
+
+    /// The last thing before the power goes writes back what plugins saved
+    /// in the sleep's last moments, also where the mark cannot be written.
+    #[test]
+    fn the_mark_writes_everything_back_even_where_it_cannot_be_written() {
+        let storage = Full::default();
+        mark(&storage);
+        assert_eq!(storage.syncs.get(), 1);
+        assert!(!take(&storage), "no mark where it could not be written");
+    }
 
     #[test]
     fn a_start_after_a_sleep_finds_the_mark_once() {

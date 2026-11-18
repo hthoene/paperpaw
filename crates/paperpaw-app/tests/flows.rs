@@ -12,16 +12,23 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+#[path = "support/card.rs"]
+mod card;
+mod native_activation;
+
+use card::{ALICE, Card, GREGOR};
+
 use std::rc::Rc;
 
+use paperpaw_core::kit::library;
 use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
-    DeviceInfo, DirEntry, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat,
-    Point, PointerEvent, PointerPhase, PointerTool, Rotation, Storage, StorageError,
+    DeviceInfo, DisplayInfo, InputCaps, InputEvent, Instant, MemoryClass, PixelFormat, Point,
+    PointerEvent, PointerPhase, PointerTool, Rotation,
 };
 use paperpaw_sdk::builtin::{CONFIG_FILE, actions, settings as core_settings};
 use paperpaw_sdk::semantics::Role;
-use paperpaw_sdk::{Id, MemoryStorage, Params, library};
+use paperpaw_sdk::{Id, Params};
 
 /// An X4 as the emulator's profile has it: buttons, no touch.
 const BUTTONS: DeviceInfo = DeviceInfo::new(
@@ -43,69 +50,6 @@ const TOUCH: DeviceInfo = BUTTONS
     .with_name("Test touch")
     .with_input(InputCaps::new(false, true, false, &[]));
 
-const ALICE: &str = "books/alice-in-wonderland.txt";
-const GREGOR: &str = "books/die-verwandlung.txt";
-const SETUP_DONE: &str = ".paperpaw/plugins/setup/done";
-
-/// The card, kept over restarts of the kernel.
-#[derive(Clone)]
-struct Card(Rc<MemoryStorage>);
-
-impl Card {
-    /// A card with two books; past the first-run setup if `set_up`.
-    fn new(set_up: bool) -> Self {
-        let mut storage = MemoryStorage::new()
-            .with(
-                ALICE,
-                include_str!("../../../samples/library/books/alice-in-wonderland.txt"),
-            )
-            .with(
-                GREGOR,
-                include_str!("../../../samples/library/books/die-verwandlung.txt"),
-            );
-        if set_up {
-            storage = storage.with(SETUP_DONE, "");
-        }
-        Self(Rc::new(storage))
-    }
-
-    fn text(&self, path: &str) -> Option<String> {
-        self.0
-            .get(path)
-            .map(|data| String::from_utf8(data).expect("UTF-8"))
-    }
-}
-
-impl Storage for Card {
-    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
-        self.0.read_at(path, offset, buf)
-    }
-    fn size(&self, path: &str) -> Result<u64, StorageError> {
-        self.0.size(path)
-    }
-    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        self.0.write(path, data)
-    }
-    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        self.0.append(path, data)
-    }
-    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
-        self.0.list(dir, visit)
-    }
-    fn remove(&self, path: &str) -> Result<(), StorageError> {
-        self.0.remove(path)
-    }
-    fn exists(&self, path: &str) -> bool {
-        self.0.exists(path)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
-        self.0.rename(from, to)
-    }
-    fn create_dir(&self, path: &str) -> Result<(), StorageError> {
-        self.0.create_dir(path)
-    }
-}
-
 fn fonts() -> paperpaw_app::Fonts {
     #[cfg(any(feature = "packs", not(feature = "outline")))]
     return paperpaw_app::Fonts::Packs;
@@ -121,11 +65,25 @@ struct App {
 impl App {
     /// The standard app started on `device` with `card` in it.
     fn start(device: DeviceInfo, card: &Card) -> Self {
-        let builder = Kernel::builder(device)
-            .storage(card.clone())
-            // Without the tips on gestures over everything on touch screens.
-            .user_config("[core]\nlanguage = en\n[help]\nshow = false\n");
-        let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+        Self::start_with(device, card, false)
+    }
+
+    /// [`Self::start`], with the native help's first-time hints where `hints`
+    /// says so. Without them (the flows), as in the headless tests (#2411):
+    /// a hint takes the next button over the first screen. `help.show` is a
+    /// setting of the native help only.
+    fn start_with(device: DeviceInfo, card: &Card, hints: bool) -> Self {
+        let builder = Kernel::builder(device).storage(card.clone()).user_config(
+            if cfg!(feature = "native-linked") && !hints {
+                "[core]\nlanguage = en\n[help]\nshow = false\n"
+            } else {
+                "[core]\nlanguage = en\n"
+            },
+        );
+        let mut kernel = native_activation::build_on(
+            paperpaw_app::install(builder, fonts()),
+            Rc::new(card.clone()),
+        );
         let effects = kernel.start(Instant(0));
         let mut app = Self { kernel, now: 0 };
         app.settle(effects);
@@ -244,31 +202,29 @@ impl App {
     }
 }
 
-/// The first start: the setup guide, gone through with *Next* alone, then
-/// the home screen; a book chosen in the library with the buttons, read,
-/// and home again: the book is the one to continue, now and after a
-/// restart, and the guide does not come again.
+/// A book opened in the reader, read, and home again: the book is the one to
+/// continue, now and after a restart. (The library that lists the books is the
+/// native `files` plugin's and the first-run guide the native setup plugin's;
+/// the app registers neither until the host activates native plugins: the
+/// pending cases of `plugins/files` and `plugins/setup`.)
 #[test]
-fn first_run_to_reading_and_home_keeps_the_book_opened() {
-    let card = Card::new(false);
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
+fn reading_and_home_keep_the_book_opened() {
+    let card = Card::new(true);
     let mut app = App::start(BUTTONS, &card);
-    assert_eq!(app.screen(), "setup.guide");
-    for _ in 0..30 {
-        if app.screen() != "setup.guide" {
-            break;
-        }
-        app.run(actions::NEXT_PAGE);
-    }
-    assert_eq!(app.screen(), "home.dashboard", "past the guide's last page");
-    assert!(card.0.exists(SETUP_DONE), "the guide noted it was done");
+    assert_eq!(app.screen(), "home.dashboard");
     assert!(app.shows("Start reading"));
 
-    // The library: the book chosen with the buttons.
-    app.run(actions::LIBRARY);
-    let library = app.screen();
-    app.focus_on("Alice", 20);
-    app.run(actions::CONFIRM);
-    assert_eq!(app.screen(), "reader.screen", "from {library}");
+    // The book opened in the reader, as the library would.
+    let open = Params::new().with(paperpaw_sdk::builtin::params::PATH, ALICE);
+    let effects =
+        app.kernel
+            .open_slot(Instant(app.now), paperpaw_sdk::builtin::slots::READER, open);
+    app.settle(effects);
+    assert_eq!(app.screen(), "reader.screen");
     for _ in 0..3 {
         app.run(actions::NEXT_PAGE);
     }
@@ -302,6 +258,10 @@ fn first_run_to_reading_and_home_keeps_the_book_opened() {
 /// changed with the buttons are written to `paperpaw.ini`; a kernel
 /// started anew on the same card reads them back.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native Settings, home and reader (`native-linked-reading`): the interface-6 ones are removed (#244)"
+)]
 fn settings_changed_in_the_ui_are_saved_and_read_back_after_a_restart() {
     let card = Card::new(true);
 
@@ -356,10 +316,44 @@ fn settings_changed_in_the_ui_are_saved_and_read_back_after_a_restart() {
     assert!(settings.is_set(size));
 }
 
+/// With the help's first-time hints on, as on a new device: the start shows
+/// home, a hint the first button closes takes nothing with it, and home and
+/// the reader still open without a warning.
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
+#[test]
+fn the_first_start_with_the_help_hints_on_reaches_home_and_a_book() {
+    let card = Card::new(true);
+    let mut app = App::start_with(BUTTONS, &card, true);
+    let _ = app.parts();
+    // The first button may close a hint instead of acting.
+    app.run(actions::BACK);
+    app.run(actions::HOME);
+    assert_eq!(app.screen(), "home.dashboard");
+    app.now += 100;
+    let open = Params::new().with(paperpaw_sdk::builtin::params::PATH, ALICE);
+    let effects =
+        app.kernel
+            .open_slot(Instant(app.now), paperpaw_sdk::builtin::slots::READER, open);
+    app.settle(effects);
+    let _ = app.parts();
+    app.run(actions::BACK);
+    app.run(actions::HOME);
+    assert_eq!(app.screen(), "home.dashboard");
+    let warnings = app.warnings();
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
 /// A bookmark keeps the words its page begins with as the book has them:
 /// a word broken at the end of a line is whole in it, not
 /// "restric- tions" with the hyphen and the line break of the page.
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
 fn bookmarks_keep_words_broken_across_lines_whole() {
     let card = Card::new(true);
     let mut app = App::start(BUTTONS, &card);
@@ -389,6 +383,161 @@ fn bookmarks_keep_words_broken_across_lines_whole() {
     assert!(broken.is_empty(), "words broken in bookmarks: {broken:#?}");
 }
 
+/// The reader keeps its reading settings between page turns (#250) but not
+/// past a change: a size set while the book is open is the one of the next
+/// page, as when set before the book opened.
+#[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
+fn a_setting_changed_while_a_book_is_open_is_used_by_the_next_page() {
+    // The first words of the second page, bookmarked, with the font size
+    // four larger (where `Some`) before the book opens (`true`) or after it
+    // opened and a page was turned and turned back.
+    fn second_page(larger: Option<bool>) -> String {
+        let card = Card::new(true);
+        let mut app = App::start(BUTTONS, &card);
+        let set = |app: &mut App| {
+            let now = Instant(app.now);
+            let to = (app.kernel.settings().int("core.font-size") + 4).to_string();
+            let effects = app.kernel.set_setting(now, "core.font-size", &to).unwrap();
+            app.settle(effects);
+        };
+        if larger == Some(true) {
+            set(&mut app);
+        }
+        app.now += 100;
+        let open = Params::new().with(paperpaw_sdk::builtin::params::PATH, ALICE);
+        let effects =
+            app.kernel
+                .open_slot(Instant(app.now), paperpaw_sdk::builtin::slots::READER, open);
+        app.settle(effects);
+        app.kernel.render(&mut |_, _| {});
+        app.run(actions::NEXT_PAGE);
+        app.run(actions::PREV_PAGE);
+        app.kernel.render(&mut |_, _| {});
+        if larger == Some(false) {
+            set(&mut app);
+            app.kernel.render(&mut |_, _| {});
+        }
+        app.run(actions::NEXT_PAGE);
+        app.kernel.render(&mut |_, _| {});
+        app.run(Id::new_static("reader.toggle-bookmark"));
+        let marks = paperpaw_sdk::annotations::load(&card, ALICE);
+        assert_eq!(marks.len(), 1);
+        marks[0].text.clone()
+    }
+    let plain = second_page(None);
+    let before = second_page(Some(true));
+    let after = second_page(Some(false));
+    assert_ne!(
+        plain, before,
+        "the size changes where the second page begins"
+    );
+    assert_eq!(after, before, "a size set after the book opened is used");
+}
+
+/// The reader asked to open a book while it shows one (a book opened from
+/// another screen while the reader is still on the stack): the same book
+/// stays open where it was; another book opens, and the first one again
+/// after it. Bookmarks land in the book on show,
+/// nothing says the book could not be opened, nothing warns.
+#[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
+fn a_book_opened_while_the_reader_shows_one() {
+    fn open(app: &mut App, path: &str) {
+        app.now += 100;
+        let params = Params::new().with(paperpaw_sdk::builtin::params::PATH, path);
+        let effects = app.kernel.open_slot(
+            Instant(app.now),
+            paperpaw_sdk::builtin::slots::READER,
+            params,
+        );
+        app.settle(effects);
+        app.kernel.render(&mut |_, _| {});
+    }
+    fn mark(app: &mut App) {
+        app.kernel.render(&mut |_, _| {});
+        app.run(Id::new_static("reader.toggle-bookmark"));
+    }
+    let marks = |card: &Card, book: &str| paperpaw_sdk::annotations::load(card, book).len();
+    let card = Card::new(true);
+    let mut app = App::start(BUTTONS, &card);
+    let cannot = "could not be opened";
+
+    // The same book again: it stays open.
+    open(&mut app, ALICE);
+    app.run(actions::NEXT_PAGE);
+    open(&mut app, ALICE);
+    assert_eq!(app.screen(), "reader.screen");
+    assert!(!app.shows(cannot));
+    mark(&mut app);
+    assert_eq!(marks(&card, ALICE), 1);
+
+    // Another book, and the first one again.
+    open(&mut app, GREGOR);
+    assert_eq!(app.screen(), "reader.screen");
+    assert!(!app.shows(cannot));
+    mark(&mut app);
+    assert_eq!(marks(&card, GREGOR), 1);
+    open(&mut app, ALICE);
+    assert_eq!(app.screen(), "reader.screen");
+    assert!(!app.shows(cannot));
+    app.run(actions::NEXT_PAGE);
+    mark(&mut app);
+    assert_eq!(marks(&card, ALICE), 2);
+    assert_eq!(marks(&card, GREGOR), 1);
+    let warnings = app.warnings();
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+/// The page's bookmark toggled on and off again: added, then removed, each in
+/// its own committed transaction of the library (with the native reader, ops
+/// 15, 17, 18 and 20 on the host); the other page's bookmark stays.
+#[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native reader: the interface-6 reader is removed (#244); runs with `native-linked-reading` (the test-native step)"
+)]
+fn a_bookmark_toggled_twice_is_gone_and_the_others_stay() {
+    let card = Card::new(true);
+    let mut app = App::start(BUTTONS, &card);
+    app.now += 100;
+    let open = Params::new().with(paperpaw_sdk::builtin::params::PATH, ALICE);
+    let effects =
+        app.kernel
+            .open_slot(Instant(app.now), paperpaw_sdk::builtin::slots::READER, open);
+    app.settle(effects);
+    let bookmark = Id::new_static("reader.toggle-bookmark");
+    let marks = |card: &Card| paperpaw_sdk::annotations::load(card, ALICE).len();
+    app.kernel.render(&mut |_, _| {});
+    app.run(bookmark.clone());
+    app.run(actions::NEXT_PAGE);
+    app.kernel.render(&mut |_, _| {});
+    app.run(bookmark.clone());
+    assert_eq!(marks(&card), 2, "one on each page");
+    app.kernel.render(&mut |_, _| {});
+    app.run(bookmark);
+    assert_eq!(
+        marks(&card),
+        1,
+        "this page's is gone, the first page's stays"
+    );
+    let warnings = app.warnings();
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+/// A row's label without the state a switch row tells at its end.
+fn unswitched(row: &str) -> &str {
+    row.strip_suffix(", On")
+        .or_else(|| row.strip_suffix(", Off"))
+        .unwrap_or(row)
+}
+
 /// Opens each row of the menu that `open` shows, one after the other,
 /// with the buttons (`buttons`) or by touch, and goes home after each:
 /// every entry leads somewhere, and nothing it opens panics or warns.
@@ -402,7 +551,16 @@ fn walk_menu(device: DeviceInfo, open: Id, buttons: bool) -> Vec<(String, String
     for (index, row) in rows.iter().enumerate() {
         app.run(actions::HOME);
         app.run(open.clone());
-        assert_eq!(app.rows(), rows, "{open} shows the same rows again");
+        // The walk pressed the Night mode row, a switch, so it has switched
+        // (as in interface 6); its row now tells the other state.
+        assert_eq!(
+            app.rows()
+                .iter()
+                .map(|row| unswitched(row))
+                .collect::<Vec<_>>(),
+            rows.iter().map(|row| unswitched(row)).collect::<Vec<_>>(),
+            "{open} shows the same rows again"
+        );
         if buttons {
             for _ in 0..index {
                 app.run(actions::DOWN);
@@ -417,7 +575,12 @@ fn walk_menu(device: DeviceInfo, open: Id, buttons: bool) -> Vec<(String, String
         reached.push((row.clone(), app.screen()));
         let warnings = app.warnings();
         assert!(warnings.is_empty(), "{row}: {warnings:?}");
-        // And left again.
+        // And left again, after a pass of the services, as a key's press
+        // gives them before its release runs the action: what the first draw
+        // left for the plugin is heard while its screen is still there.
+        app.now += 50;
+        let effects = app.kernel.tick(Instant(app.now));
+        app.settle(effects);
         app.run(actions::BACK);
         let _ = app.parts();
     }
@@ -427,6 +590,10 @@ fn walk_menu(device: DeviceInfo, open: Id, buttons: bool) -> Vec<(String, String
 }
 
 #[test]
+#[cfg_attr(
+    not(all(feature = "native-linked", feature = "native-linked-reading")),
+    ignore = "the menu and the Settings are native plugins: linked with `native-linked` and `native-linked-reading` only (#244)"
+)]
 fn every_entry_of_the_main_menu_and_the_tools_opens_with_the_buttons() {
     let menu = walk_menu(BUTTONS, actions::MENU, true);
     let library = menu.iter().find(|(row, _)| row == "Library").unwrap();
@@ -440,6 +607,10 @@ fn every_entry_of_the_main_menu_and_the_tools_opens_with_the_buttons() {
 }
 
 #[test]
+#[cfg_attr(
+    not(all(feature = "native-linked", feature = "native-linked-reading")),
+    ignore = "the menu and the Settings are native plugins: linked with `native-linked` and `native-linked-reading` only (#244)"
+)]
 fn every_entry_of_the_main_menu_and_the_tools_opens_by_touch() {
     let menu = walk_menu(TOUCH, actions::MENU, false);
     let settings = menu.iter().find(|(row, _)| row == "Settings").unwrap();
@@ -461,6 +632,11 @@ fn open_every_screen(device: DeviceInfo) {
     assert!(screens.len() > 20, "{screens:?}");
     let mut elsewhere = Vec::new();
     for screen in screens {
+        // The folder editor is the slot `core.choose-folder`, filled by the native
+        // `files` plugin, which the app does not register (see `NATIVE_PLUGINS`).
+        if screen.as_str() == "core.folder-editor" {
+            continue;
+        }
         app.run(actions::HOME);
         app.open(screen.clone());
         if app.screen() != screen.as_str() {
@@ -488,12 +664,109 @@ fn open_every_screen(device: DeviceInfo) {
     assert_eq!(app.screen(), "home.dashboard");
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn every_screen_opens_and_closes_with_the_buttons() {
     open_every_screen(BUTTONS);
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn every_screen_opens_and_closes_by_touch() {
     open_every_screen(TOUCH);
+}
+
+/// A small EPUB that names its author, a series and a tag.
+fn epub_of_a_series() -> Vec<u8> {
+    const CONTAINER: &str = r#"<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+<rootfiles><rootfile full-path="content.opf"/></rootfiles></container>"#;
+    const OPF: &str = "<?xml version=\"1.0\"?><package xmlns=\"http://www.idpf.org/2007/opf\" \
+        version=\"2.0\"><metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\
+        <dc:title>The First Tale</dc:title><dc:creator>Ada Teller</dc:creator>\
+        <dc:subject>Tales</dc:subject>\
+        <meta name=\"calibre:series\" content=\"Tales of the Shelf\"/>\
+        <meta name=\"calibre:series_index\" content=\"1\"/></metadata><manifest>\
+        <item id=\"c1\" href=\"ch1.xhtml\" media-type=\"application/xhtml+xml\"/>\
+        </manifest><spine><itemref idref=\"c1\"/></spine></package>";
+    paperpaw_zip::testing::ZipBuilder::new()
+        .stored("mimetype", "application/epub+zip")
+        .stored("META-INF/container.xml", CONTAINER)
+        .stored("content.opf", OPF)
+        .stored("ch1.xhtml", "<html><body><p>Once.</p></body></html>")
+        .build()
+}
+
+/// The library's lists by author, by series and by tag show the names of the
+/// sample library's books and of a book in a series (#257): the host lists
+/// them (`core.library`'s `facets`). Before, the three lists opened empty and
+/// dead.
+#[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native library and the formats that read a book's details (`native-linked-reading`)"
+)]
+fn the_lists_by_author_series_and_tag_show_the_librarys_names() {
+    use paperpaw_platform::Storage;
+    let card = Card::new(true);
+    for (path, book) in [
+        (
+            "books/alice-in-wonderland.epub",
+            &include_bytes!("../../../samples/library/books/alice-in-wonderland.epub")[..],
+        ),
+        (
+            "books/die-verwandlung.epub",
+            &include_bytes!("../../../samples/library/books/die-verwandlung.epub")[..],
+        ),
+        ("books/first-tale.epub", &epub_of_a_series()[..]),
+    ] {
+        card.write(path, book).unwrap();
+    }
+    let mut app = App::start(BUTTONS, &card);
+    // The library is walked and its books' details are read in the background.
+    let catalog = || {
+        card.text(".paperpaw/library/catalog.txt")
+            .unwrap_or_default()
+    };
+    let read = |catalog: &str| {
+        ["Carroll", "Kafka", "Tales of the Shelf"]
+            .iter()
+            .all(|name| catalog.contains(name))
+    };
+    for _ in 0..600 {
+        if read(&catalog()) {
+            break;
+        }
+        app.now += 500;
+        let effects = app.kernel.tick(Instant(app.now));
+        app.settle(effects);
+        // Drawn as a shell does: what the home screen shows starts the walk
+        // (before, the drawing of the pictures rule's count did).
+        app.kernel.render(&mut |_, _| {});
+    }
+    assert!(read(&catalog()), "{}", catalog());
+    for (action, names) in [
+        (
+            "files.by-author",
+            &["Ada Teller", "Franz Kafka", "Lewis Carroll"][..],
+        ),
+        ("files.by-series", &["Tales of the Shelf"][..]),
+        ("files.by-tag", &["Fantasy fiction", "Tales"][..]),
+    ] {
+        app.run(Id::new_static(action));
+        assert_eq!(app.screen(), "files.names", "{action}");
+        let rows = app.rows();
+        for name in names {
+            assert!(
+                rows.iter().any(|row| row.starts_with(&format!("{name}, "))),
+                "{action}: {name} in {rows:?}"
+            );
+        }
+    }
 }

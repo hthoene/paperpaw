@@ -31,6 +31,23 @@ Version 1.1:
   (https://github.com/notofonts/arabic), without Reserved Font Name
 - Noto Serif Hebrew, Copyright 2022 The Noto Project Authors
   (https://github.com/notofonts/hebrew), without Reserved Font Name
+- Noto Serif Bengali, Copyright 2022 The Noto Project Authors
+  (https://github.com/notofonts/bengali), without Reserved Font Name
+- Noto Serif Devanagari, Copyright 2022 The Noto Project Authors
+  (https://github.com/notofonts/devanagari), without Reserved Font Name
+- Noto Serif Ethiopic, Copyright 2022 The Noto Project Authors
+  (https://github.com/notofonts/ethiopic), without Reserved Font Name
+- Noto Serif Thai and Noto Sans Thai, Copyright 2022 The Noto Project Authors
+  (https://github.com/notofonts/thai), without Reserved Font Name
+- Noto Serif Khmer, Noto Serif Lao and Noto Serif Tibetan, Copyright 2022
+  The Noto Project Authors (https://github.com/notofonts/khmer, /lao,
+  /tibetan), without Reserved Font Name
+- Noto Serif SC, Noto Serif TC and Noto Serif JP, Copyright 2017-2024
+  Adobe (http://www.adobe.com/), from github.com/google/fonts without
+  Reserved Font Name, cut to the characters of the Chinese and Japanese
+  letters plugins (tools/fonts/NotoSerif*-subset.ttf: a Modified Version,
+  not distributed itself; the plugins carry bitmap packs made from it and
+  the licence's text, NotoSerifCJK-OFL.txt)
 - Nanum Myeongjo, Copyright 2010 NHN Corporation (http://www.nhncorp.com),
   with Reserved Font Names 'Nanum', 'Naver Nanum', 'NanumMyeongjo',
   'Naver NanumMyeongjo' and the others of its family the licence names,
@@ -42,13 +59,24 @@ Version 1.1:
   License, Version 1.1, as the font it is derived from.
 
 Each of those plugins carries the licence's text with its packs
-(tools/fonts/NotoNaskhArabic-OFL.txt, NotoSerifHebrew-OFL.txt, the text
+(tools/fonts/NotoNaskhArabic-OFL.txt, NotoSerifHebrew-OFL.txt,
+NotoSerifBengali-OFL.txt, NotoSerifDevanagari-OFL.txt,
+NotoSerifEthiopic-OFL.txt, NotoSerifThai-OFL.txt, NotoSansThai-OFL.txt,
+NotoSerifKhmer-OFL.txt, NotoSerifLao-OFL.txt, NotoSerifTibetan-OFL.txt, the text
 given for Literata; NanumMyeongjo-OFL.txt, the same licence under its
 own copyright and Reserved Font Names).
 
-Hyphenation patterns (plugins/hyphenation/patterns, built in, and
-plugins/hyphenation-de/patterns, a plugin of the store) come from the
-hyph-utf8 project (https://github.com/hyphenation/tex-hyphen):
+The words of the Khmer and Lao letters plugins (tools/khmer-words.txt,
+tools/lao-words.txt, which their packs carry for breaking lines) are taken
+from ICU's word lists (khmerdict.txt, laodict.txt), Copyright (C) 2016 and
+later Unicode, Inc. and others, licensed under the Unicode License V3; the
+Lao list also Copyright (C) 2013 Brian Eugene Wilson, Robert Martin
+Campbell, under its BSD-style licence. Those plugins carry both texts
+(tools/fonts/ICU-word-lists-LICENSE.txt).
+
+Hyphenation patterns (plugins/hyphenation*/patterns: the data packs
+of the store, English and twelve other languages; none is built in)
+come from the hyph-utf8 project (https://github.com/hyphenation/tex-hyphen):
 
 - German, reformed spelling, Copyright (c) 2013-2024 Stephan Hennig,
   Werner Lemberg, Günter Milde, Sander van Geloven, Georg Pfeiffer,
@@ -105,8 +133,13 @@ MIT License (MIT)
 
 adler2 2.0.1 (0BSD OR MIT OR Apache-2.0, used under MIT)
     Copyright (C) Jonas Schievink <jonasschievink@gmail.com>
+aead 0.5.2 (MIT OR Apache-2.0, used under MIT)
+    Copyright (c) 2019 The RustCrypto Project Developers
+    Copyright (c) 2019 MobileCoin, LLC
 aes 0.8.4 (MIT OR Apache-2.0, used under MIT)
     Copyright (c) 2018 Artyom Pavlov
+aes-gcm 0.10.3 (Apache-2.0 OR MIT, used under MIT)
+    Copyright (c) 2019 The RustCrypto Project Developers
 ahash 0.8.12 (MIT OR Apache-2.0, used under MIT)
     Copyright (c) 2018 Tom Kaitchuck
 aligned 0.4.3 (MIT OR Apache-2.0, used under MIT)
@@ -206,6 +239,8 @@ core-graphics-types 0.1.3 (MIT OR Apache-2.0, used under MIT)
     Copyright (c) 2012-2013 Mozilla Foundation
 core_maths 0.1.1 (MIT)
     Copyright (c) 2024 Robert Bastian
+cpufeatures 0.2.17 (MIT OR Apache-2.0, used under MIT)
+    Copyright (c) 2020-2025 The RustCrypto Project Developers
 crc32fast 1.5.2 (MIT OR Apache-2.0, used under MIT)
     Copyright (c) 2018 Sam Rijs, Alex Crichton and contributors
 critical-section 1.2.0 (MIT OR Apache-2.0, used under MIT)
@@ -218,6 +253,9 @@ crypto-common 0.2.2 (MIT OR Apache-2.0, used under MIT)
     Copyright (c) 2021-2026 RustCrypto Developers
 ctor 0.10.1 (Apache-2.0 OR MIT, used under MIT)
     Copyright Matt Mastracci (https://github.com/mmastrac/rust-ctor)
+ctr 0.9.2 (MIT OR Apache-2.0, used under MIT)
+    Copyright (c) 2018-2022 RustCrypto Developers
+    Copyright (c) 2018 Artyom Pavlov
 cursor-icon 1.2.0 (MIT OR Apache-2.0 OR Zlib, used under MIT)
     Copyright 2023 Kirill Chibisov
     Copyright (c) 2023 Kirill Chibisov
@@ -297,6 +335,8 @@ embassy-hal-internal 0.4.0 (MIT OR Apache-2.0, used under MIT)
     Copyright the embassy-hal-internal contributors (https://github.com/embassy-rs/embassy)
 embassy-net-driver 0.2.0 (MIT OR Apache-2.0, used under MIT)
     Copyright the embassy-net-driver contributors (https://github.com/embassy-rs/embassy)
+embassy-net-driver-channel 0.4.0 (MIT OR Apache-2.0, used under MIT)
+    Copyright the embassy-net-driver-channel contributors (https://github.com/embassy-rs/embassy)
 embassy-sync 0.6.2 (MIT OR Apache-2.0, used under MIT)
     Copyright the embassy-sync contributors (https://github.com/embassy-rs/embassy)
 embassy-sync 0.7.2 (MIT OR Apache-2.0, used under MIT)
@@ -307,6 +347,8 @@ embassy-time 0.5.1 (MIT OR Apache-2.0, used under MIT)
     Copyright the embassy-time contributors (https://github.com/embassy-rs/embassy)
 embassy-time-driver 0.2.2 (MIT OR Apache-2.0, used under MIT)
     Copyright the embassy-time-driver contributors (https://github.com/embassy-rs/embassy)
+embassy-usb 0.6.0 (MIT OR Apache-2.0, used under MIT)
+    Copyright the embassy-usb contributors (https://github.com/embassy-rs/embassy)
 embassy-usb-driver 0.2.2 (MIT OR Apache-2.0, used under MIT)
     Copyright the embassy-usb-driver contributors (https://github.com/embassy-rs/embassy)
 embassy-usb-synopsys-otg 0.4.0 (MIT OR Apache-2.0, used under MIT)
@@ -468,6 +510,8 @@ getrandom 0.3.4 (MIT OR Apache-2.0, used under MIT)
 getrandom 0.4.3 (MIT OR Apache-2.0, used under MIT)
     Copyright (c) 2018-2026 The rust-random Project Developers
     Copyright (c) 2014 The Rust Project Developers
+ghash 0.5.1 (Apache-2.0 OR MIT, used under MIT)
+    Copyright (c) 2019 RustCrypto Developers
 group 0.13.0 (MIT/Apache-2.0, used under MIT)
     Copyright Sean Bowe, Jack Grigg (https://github.com/zkcrypto/group)
 hash32 0.3.1 (MIT OR Apache-2.0, used under MIT)
@@ -618,6 +662,8 @@ object 0.37.3 (Apache-2.0 OR MIT, used under MIT)
     Copyright (c) 2015 The Gimli Developers
 once_cell 1.21.4 (MIT OR Apache-2.0, used under MIT)
     Copyright Aleksey Kladov (https://github.com/matklad/once_cell)
+opaque-debug 0.3.1 (MIT OR Apache-2.0, used under MIT)
+    Copyright (c) 2018-2024 The RustCrypto Project Developers
 p256 0.13.2 (Apache-2.0 OR MIT, used under MIT)
     Copyright (c) 2020-2023 RustCrypto Developers
 paste 1.0.15 (MIT OR Apache-2.0, used under MIT)
@@ -634,6 +680,8 @@ png 0.18.1 (MIT OR Apache-2.0, used under MIT)
     Copyright (c) 2015 nwin
 polling 3.11.0 (Apache-2.0 OR MIT, used under MIT)
     Copyright Stjepan Glavina, John Nunley (https://github.com/smol-rs/polling)
+polyval 0.6.2 (Apache-2.0 OR MIT, used under MIT)
+    Copyright (c) 2019-2023 RustCrypto Developers
 portable-atomic 1.15.0 (Apache-2.0 OR MIT, used under MIT)
     Copyright the portable-atomic contributors (https://github.com/taiki-e/portable-atomic)
 portable_atomic_enum 0.3.1 (MIT)
@@ -794,6 +842,8 @@ unicode-ident 1.0.27 ((MIT OR Apache-2.0) AND Unicode-3.0, used under MIT)
     Copyright © 1991-2023 Unicode, Inc.
 unicode-segmentation 1.13.3 (MIT OR Apache-2.0, used under MIT)
     Copyright (c) 2015 The Rust Project Developers
+universal-hash 0.5.1 (MIT OR Apache-2.0, used under MIT)
+    Copyright (c) 2019-2020 RustCrypto Developers
 unsafe-libyaml 0.2.11 (MIT)
     Copyright David Tolnay (https://github.com/dtolnay/unsafe-libyaml)
 uuid 1.29.0 (Apache-2.0 OR MIT, used under MIT)

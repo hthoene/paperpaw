@@ -12,6 +12,7 @@ pub struct paperpaw_xml::Attrs<'a>(_)
 impl<'a> paperpaw_xml::Attrs<'a>
 pub fn paperpaw_xml::Attrs<'a>::get(&self, &str) -> core::option::Option<alloc::borrow::Cow<'a, str>>
 pub fn paperpaw_xml::Attrs<'a>::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&'a str, &'a str)>
+pub fn paperpaw_xml::Attrs<'a>::try_get(&self, &str) -> core::result::Result<core::option::Option<alloc::borrow::Cow<'a, str>>, alloc::collections::TryReserveError>
 pub struct paperpaw_xml::Tokenizer
 impl paperpaw_xml::Tokenizer
 pub fn paperpaw_xml::Tokenizer::feed(&mut self, &[u8], &mut dyn core::ops::function::FnMut(paperpaw_xml::Token<'_>))
@@ -23,3 +24,4 @@ pub fn paperpaw_xml::Tokenizer::try_feed(&mut self, &[u8], &mut dyn core::ops::f
 pub fn paperpaw_xml::decode(&str) -> alloc::borrow::Cow<'_, str>
 pub fn paperpaw_xml::escape(&str, &mut alloc::string::String)
 pub fn paperpaw_xml::local_name(&str) -> &str
+pub fn paperpaw_xml::try_decode(&str) -> core::result::Result<alloc::borrow::Cow<'_, str>, alloc::collections::TryReserveError>

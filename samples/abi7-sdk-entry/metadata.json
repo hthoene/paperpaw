@@ -1,0 +1,1 @@
+{"target":"esp32c3-riscv32imc-ilp32-soft-le","floor":1,"used":[{"kind":"host","name":"heap.alloc"},{"kind":"host","name":"heap.dealloc"},{"kind":"host","name":"clock.micros"},{"kind":"callback","name":"drop"},{"kind":"callback","name":"dispatch_event"},{"kind":"callback","name":"draw"}],"services":[],"features":[]}

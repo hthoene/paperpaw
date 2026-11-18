@@ -1,0 +1,2 @@
+core.reader|long.page-forward|reader.next-chapter|reader.hold-chapters
+core.reader|long.page-back|reader.prev-chapter|reader.hold-chapters

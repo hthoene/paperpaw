@@ -13,7 +13,7 @@ use crate::dir_entry::{LFN_ENTRY_LAST_FLAG, LFN_PART_LEN};
 use crate::dir_entry::{SFN_PADDING, SFN_SIZE};
 use crate::error::{Error, IoError};
 use crate::file::File;
-use crate::fs::{DiskSlice, FileSystem, FsIoAdapter, OemCpConverter, ReadWriteSeek};
+use crate::fs::{DiskSlice, FileSystem, FsIoAdapter, OemCpConverter, ReadWriteSeek, Referrer};
 use crate::io::{self, IoBase, Read, Seek, SeekFrom, Write};
 use crate::time::TimeProvider;
 
@@ -381,6 +381,42 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         }
     }
 
+    // Modified for PaperPaw: added.
+    /// As [`create_file`](Self::create_file), for a file `name` of this directory that is about
+    /// to be written: a new file takes its first cluster here, and its entry is written once,
+    /// with that cluster in it. Said on the disk first (see `fs::claim`): cut off before the
+    /// entry is written (power lost), the cluster is freed by the next mount. `create_file`
+    /// writes the entry, and writes it again when the first write takes a cluster.
+    ///
+    /// # Errors
+    ///
+    /// As `create_file`.
+    pub fn create_file_with_cluster(&self, name: &str) -> Result<File<'a, IO, TP, OCC>, Error<IO::Error>> {
+        trace!("Dir::create_file_with_cluster {}", name);
+        match self.check_for_existence(name, Some(false))? {
+            DirEntryOrShortName::ShortName(short_name) => {
+                // This directory grows first where the entry needs it: a change with a word of
+                // its own.
+                let referrer = self.make_room(name)?.map_or(Referrer::Unknown, Referrer::NewEntry);
+                let (cluster, _) = self.fs.alloc_clusters(None, 1, referrer)?;
+                let sfn_entry = self.create_sfn_entry(short_name, FileAttributes::from_bits_truncate(0), Some(cluster));
+                match self.write_entry(name, sfn_entry) {
+                    Ok(entry) => {
+                        self.written_where_said(&entry, referrer)?;
+                        Ok(entry.to_file())
+                    }
+                    Err(err) => {
+                        if let Err(err) = self.fs.free_cluster_chain(cluster) {
+                            error!("the new file's cluster stays taken {:?}", err);
+                        }
+                        Err(err)
+                    }
+                }
+            }
+            DirEntryOrShortName::DirEntry(e) => Ok(e.to_file()),
+        }
+    }
+
     /// Creates new directory or opens existing.
     ///
     /// `path` is a '/' separated path relative to self directory.
@@ -406,11 +442,26 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         match r {
             // directory does not exist - create it
             DirEntryOrShortName::ShortName(short_name) => {
+                // Modified for PaperPaw: the new directory's cluster is said on the disk before
+                // it is taken (see `fs::claim`): cut off before its entry is written, it is
+                // freed by the next mount. This directory grows first where the entry needs it,
+                // a change with a word of its own; the cluster is given back where the entry
+                // cannot be written.
+                let referrer = self.make_room(name)?.map_or(Referrer::Unknown, Referrer::NewEntry);
                 // alloc cluster for directory data
-                let cluster = self.fs.alloc_cluster(None, true)?;
+                let cluster = self.fs.alloc_cluster(None, true, referrer)?;
                 // create entry in parent directory
                 let sfn_entry = self.create_sfn_entry(short_name, FileAttributes::DIRECTORY, Some(cluster));
-                let entry = self.write_entry(name, sfn_entry)?;
+                let entry = match self.write_entry(name, sfn_entry) {
+                    Ok(entry) => entry,
+                    Err(err) => {
+                        if let Err(err) = self.fs.free_cluster_chain(cluster) {
+                            error!("the new directory's cluster stays taken {:?}", err);
+                        }
+                        return Err(err);
+                    }
+                };
+                self.written_where_said(&entry, referrer)?;
                 let dir = entry.to_dir();
                 // create special entries "." and ".."
                 let dot_sfn = ShortNameGenerator::generate_dot();
@@ -488,19 +539,53 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
             return Err(Error::DirectoryIsNotEmpty);
         }
         // Modified for PaperPaw: the entries are removed before the data is
-        // freed. Cut off between (power lost), the clusters stay taken by
+        // freed. Cut off between (power lost), the clusters are taken by
         // no file, instead of a file pointing at free clusters that may be
-        // given to another.
-        self.remove_entries(e)?;
-        if let Some(n) = e.first_cluster() {
+        // given to another; the next mount frees them (see `fs::claim`).
+        self.remove_and_free(e)
+    }
+
+    // Modified for PaperPaw: added.
+    /// The entries of `e` removed, then its data freed: said on the disk first, so that a cut
+    /// between leaves no cluster taken by no file (see `fs::claim`).
+    fn remove_and_free(&self, e: &DirEntry<'a, IO, TP, OCC>) -> Result<(), Error<IO::Error>> {
+        let first = e.first_cluster();
+        // An entry whose first cluster is none of the volume's (damaged) is removed all the
+        // same; freeing its data fails then, as it did.
+        let claimed = first.filter(|&n| self.fs.is_cluster(n));
+        if let Some(n) = claimed {
+            self.fs.claim_freeing(n, Referrer::Entry(e.entry_pos))?;
+        }
+        if let Err(err) = self.remove_entries(e) {
+            // The entry may still be there: nothing says its data is no file's.
+            if claimed.is_some() && self.fs.drop_claim().is_err() {
+                error!("a claim stays on the disk");
+            }
+            return Err(err);
+        }
+        if let Some(n) = first {
             // Its clusters may hold another directory once freed.
             if e.is_dir() {
                 self.fs.drop_dir_note(n);
             }
             // free data
-            self.fs.free_cluster_chain(n)?;
+            self.fs.free_claimed(n, claimed.is_some())?;
         }
         Ok(())
+    }
+
+    // Modified for PaperPaw: added.
+
+    /// [`remove_found`](Self::remove_found) for a directory the caller knows to be empty (it
+    /// removed every entry in it itself): not read through again, which for a directory that had
+    /// thousands of entries is all of its clusters. Entries still in it are lost with it, their
+    /// data's clusters left taken.
+    ///
+    /// # Errors
+    ///
+    /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
+    pub fn remove_found_emptied(&self, e: &DirEntry<'a, IO, TP, OCC>) -> Result<(), Error<IO::Error>> {
+        self.remove_and_free(e)
     }
 
     // Modified for PaperPaw: `remove_entries`, `unlink`, `replace` and `free_short_name` added.
@@ -516,6 +601,11 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
             data.set_deleted();
             stream.seek(SeekFrom::Current(-i64::from(DIR_ENTRY_SIZE)))?;
             data.serialize(&mut stream)?;
+            // Modified for PaperPaw: not to be taken for a place no entry was written to (see
+            // `fs::claim`).
+            if let Some(end) = stream.abs_pos() {
+                self.fs.unlike_claim(end - u64::from(DIR_ENTRY_SIZE))?;
+            }
         }
         Ok(())
     }
@@ -533,7 +623,27 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
     pub fn unlink(&self, name: &str) -> Result<(), Error<IO::Error>> {
         trace!("Dir::unlink {}", name);
         let e = self.find_entry(name, None, None)?;
+        self.fs.drop_free_claim_of(e.first_cluster())?;
         self.remove_entries(&e)
+    }
+
+    // Modified for PaperPaw: added.
+
+    /// Removes the entries of `e`, found by `iter` (or `iter_from`) and nothing changed in the
+    /// directory since, leaving its data: for an entry that cannot be named (one of a damaged
+    /// directory), whose data may be another's. A directory's entries are left as they are.
+    /// Make sure there is no reference to it (no File instance) or filesystem corruption can
+    /// happen.
+    ///
+    /// # Errors
+    ///
+    /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
+    pub fn unlink_found(&self, e: &DirEntry<'a, IO, TP, OCC>) -> Result<(), Error<IO::Error>> {
+        if let Some(n) = e.first_cluster().filter(|_| e.is_dir()) {
+            self.fs.drop_dir_note(n);
+        }
+        self.fs.drop_free_claim_of(e.first_cluster())?;
+        self.remove_entries(e)
     }
 
     /// Puts file `src_name` in the place of file `dst_name`, both in this directory, removing the
@@ -605,13 +715,24 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
             }
             self.write_entry(dst_name, data)?;
         }
-        // As `remove`: the entries first, then the data.
+        // As `remove`: the entries first, then the data, said on the disk before.
+        self.fs.drop_free_claim_of(src.first_cluster())?;
+        let old_data = old.as_ref().and_then(DirEntry::first_cluster);
+        let claimed = old_data.filter(|&n| self.fs.is_cluster(n));
         if let Some(old) = &old {
-            self.remove_entries(old)?;
+            if let Some(n) = claimed {
+                self.fs.claim_freeing(n, Referrer::Entry(old.entry_pos))?;
+            }
+            if let Err(err) = self.remove_entries(old) {
+                if claimed.is_some() && self.fs.drop_claim().is_err() {
+                    error!("a claim stays on the disk");
+                }
+                return Err(err);
+            }
         }
         self.remove_entries(&src)?;
-        if let Some(n) = old.and_then(|old| old.first_cluster()) {
-            self.fs.free_cluster_chain(n)?;
+        if let Some(n) = old_data {
+            self.fs.free_claimed(n, claimed.is_some())?;
         }
         Ok(())
     }
@@ -716,18 +837,79 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         // data, never at neither; the caller settles which one stays (see `unlink`).
         let sfn_entry = e.data.renamed(short_name);
         dst_dir.write_entry(dst_name, sfn_entry)?;
+        self.fs.drop_free_claim_of(e.first_cluster())?;
         self.remove_entries(e)?;
         if e.is_dir() {
-            let parent_cluster = if dst_dir.stream.is_root_dir() {
-                None
-            } else {
-                dst_dir.stream.first_cluster()
-            };
-            e.to_dir()
-                .find_entry("..", Some(true), None)?
-                .set_first_cluster(parent_cluster)?;
+            e.to_dir().point_up(dst_dir)?;
         }
         Ok(())
+    }
+
+    // Modified for PaperPaw: added.
+
+    /// Points the `..` entry of this directory at `parent`, the directory it is in, where it
+    /// points elsewhere: the last step of moving a directory (`rename_found`), which a move cut
+    /// off (power lost) may not have made.
+    ///
+    /// # Errors
+    ///
+    /// * `Error::NotFound` will be returned if this directory has no `..` entry (the root).
+    /// * `Error::Io` will be returned if the underlying storage object returned an I/O error.
+    pub fn point_up(&self, parent: &Dir<IO, TP, OCC>) -> Result<(), Error<IO::Error>> {
+        let parent_cluster = if parent.stream.is_root_dir() {
+            None
+        } else {
+            parent.stream.first_cluster()
+        };
+        let dotdot = self.find_entry("..", Some(true), None)?;
+        if dotdot.first_cluster() != parent_cluster {
+            dotdot.set_first_cluster(parent_cluster)?;
+        }
+        Ok(())
+    }
+
+    // Modified for PaperPaw: added.
+    /// After `entry` was written with the cluster a claim was made for (`referrer`: where
+    /// `make_room` said the entry would be): were it written elsewhere, the claim would take
+    /// the cluster for one that never got its entry, so it is taken away.
+    fn written_where_said(&self, entry: &DirEntry<'a, IO, TP, OCC>, referrer: Referrer) -> Result<(), Error<IO::Error>> {
+        let as_said = referrer == Referrer::NewEntry(entry.entry_pos);
+        debug_assert!(as_said || referrer == Referrer::Unknown, "an entry written elsewhere than said");
+        if as_said {
+            Ok(())
+        } else {
+            self.fs.drop_claim()
+        }
+    }
+
+    // Modified for PaperPaw: added.
+    /// Grows this directory now where an entry named `name` would not fit in its clusters: the
+    /// entry is then written without taking a cluster. Where on the disk its short name entry
+    /// will be written (by `write_entry`, nothing changed in the directory between). Nothing is
+    /// done for the root directory of FAT12 and FAT16, which does not grow.
+    fn make_room(&self, name: &str) -> Result<Option<u64>, Error<IO::Error>> {
+        if matches!(self.stream, DirRawStream::Root(_)) {
+            return Ok(None);
+        }
+        validate_long_name(name)?;
+        let lfn_utf16 = Self::encode_lfn_utf16(name);
+        let entries = LfnEntriesGenerator::new(lfn_utf16.as_ucs2_units(), 0).len() as u64 + 1;
+        let mut stream = self.find_free_entries(entries as u32)?;
+        let size = u64::from(DIR_ENTRY_SIZE);
+        let end = stream.seek(SeekFrom::Current(0))? + entries * size;
+        // An entry of zeros ends a directory: one written where its clusters end takes the next.
+        loop {
+            let reached = stream.seek(SeekFrom::Start(end))?;
+            if reached >= end {
+                break;
+            }
+            stream.write_all(&[0_u8; DIR_ENTRY_SIZE as usize])?;
+        }
+        // Read, the place of the last entry is the one the stream stands after.
+        stream.seek(SeekFrom::Start(end - size))?;
+        let mut slot = [0_u8; DIR_ENTRY_SIZE as usize];
+        stream.read_exact(&mut slot)?;
+        Ok(stream.abs_pos().map(|after| after - size))
     }
 
     fn find_free_entries(&self, num_entries: u32) -> Result<DirRawStream<'a, IO, TP, OCC>, Error<IO::Error>> {
@@ -824,6 +1006,11 @@ impl<'a, IO: ReadWriteSeek, TP: TimeProvider, OCC: OemCpConverter> Dir<'a, IO, T
         trace!("Dir::write_entry {}", name);
         // check if name doesn't contain unsupported characters
         validate_long_name(name)?;
+        // Modified for PaperPaw: an entry that holds no cluster may be, byte for byte, the one a
+        // claim of a new file's first cluster names (see `fs::claim`): that claim goes first.
+        if raw_entry.first_cluster(self.fs.fat_type()).is_none() {
+            self.fs.drop_entry_claim()?;
+        }
         // Modified for PaperPaw: counted, and a note about the directory holds no longer (see
         // `note`).
         self.fs.note_entry_written(self.stream.first_cluster());

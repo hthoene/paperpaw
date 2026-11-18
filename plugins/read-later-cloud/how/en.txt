@@ -1,4 +1,4 @@
-Read-later articles (cloud) fetches the articles you saved in Readwise Reader as books into the folder Reader of your library. They hold the text of the article, without pictures. It is off at first: add it with More plugins, or switch it on under Plugins if it is listed there.
+Read-later articles (cloud) fetches the articles you saved in Readwise Reader as books into the folder Reader of your library. They hold the text of the article, without pictures. It is off at first: add it from the Plugin store, or switch it on under Plugins if it is listed there.
 
 Open Read-later articles (cloud) from Tools. Enter your access token (readwise.io/access_token; it is the same as for Readwise, but kept apart here). Then choose Fetch articles, with Wi-Fi on. In the settings you choose whether the articles come from Later or from your Inbox. A fetch brings at most ten new articles; fetch again for more.
 

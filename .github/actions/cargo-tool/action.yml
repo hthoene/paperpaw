@@ -1,0 +1,68 @@
+name: Cargo tool
+description: >
+  A cargo tool at an exact version, without depending on GitHub's release
+  downloads being up: installed from the published release by
+  taiki-e/install-action (checksum-checked) whenever that works; else, from
+  the binary an earlier run built from crates.io (cached by tool and
+  version); else built from crates.io with `cargo install --locked`, which is
+  then cached. Whatever way it came, it must report the version asked for.
+inputs:
+  tool:
+    description: The crate and binary name, e.g. cargo-deny.
+    required: true
+  version:
+    description: The exact version, e.g. 0.20.2.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: A tool an earlier run built from crates.io
+      id: built
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ runner.temp }}/cargo-tool-built/${{ inputs.tool }}
+        key: cargo-tool-built-${{ runner.os }}-${{ inputs.tool }}-${{ inputs.version }}
+    - name: The release download (checksum-checked), tried first
+      id: release
+      continue-on-error: true
+      uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+      with:
+        tool: ${{ inputs.tool }}@${{ inputs.version }}
+    - name: The earlier crates.io build, the release download having failed
+      if: steps.release.outcome != 'success' && steps.built.outputs.cache-hit == 'true'
+      shell: bash
+      env:
+        TOOL: ${{ inputs.tool }}
+      run: |
+        echo "::warning::$TOOL: the release download failed; using the build from crates.io an earlier run kept"
+        install -D -m 755 "$RUNNER_TEMP/cargo-tool-built/$TOOL" "$HOME/.cargo/bin/$TOOL"
+    - name: Built from crates.io, the release download having failed
+      id: build
+      if: steps.release.outcome != 'success' && steps.built.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        TOOL: ${{ inputs.tool }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        echo "::warning::$TOOL $VERSION: the release download failed; building it from crates.io"
+        cargo install "$TOOL" --locked --version "$VERSION"
+        install -D -m 755 "$HOME/.cargo/bin/$TOOL" "$RUNNER_TEMP/cargo-tool-built/$TOOL"
+    - name: Keep the build for the next run
+      if: steps.build.outcome == 'success'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ runner.temp }}/cargo-tool-built/${{ inputs.tool }}
+        key: cargo-tool-built-${{ runner.os }}-${{ inputs.tool }}-${{ inputs.version }}
+    - name: The tool is the version asked for
+      shell: bash
+      env:
+        TOOL: ${{ inputs.tool }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        # Every tool here is a cargo subcommand: `cargo deny --version` prints "cargo-deny 0.20.2".
+        reported="$(cargo "${TOOL#cargo-}" --version)"
+        echo "$reported"
+        if [[ "$reported" != "$TOOL $VERSION" ]]; then
+          echo "::error::$TOOL reports '$reported', not '$TOOL $VERSION'"
+          exit 1
+        fi

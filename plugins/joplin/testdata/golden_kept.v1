@@ -1,0 +1,10 @@
+kept	file sent.txt	"Notes/b.md\t2\tt2\nNotes/a.md\t1\tt3\n"
+kept	file sending.txt	"Notes/a.md\t1\tt3\n"
+kept	file waiting.txt	"Notes/a.md\nNotes/c.md\n"
+kept	file notebook.txt	"Books\tabc\n"
+kept	copy	false
+kept	sent a	Some(("1", "t3"))
+kept	sent x	None
+kept	sending b	None
+kept	waiting	["Notes/a.md", "Notes/c.md"]
+kept	notebook	Some(("Books", "abc"))

@@ -127,7 +127,7 @@ pub fn parts(described: Vec<Described>) -> Vec<Part> {
         }
     }
     // In reading order: by line, then from the left.
-    texts.sort_by_cached_key(|(i, area, _)| (*i, area.y, area.x));
+    paperpaw_sort::sort_by_cached_key(&mut texts, |(i, area, _)| (*i, area.y, area.x));
     for (i, _, text) in texts {
         let part = &mut parts[i];
         if !part.label.is_empty() {

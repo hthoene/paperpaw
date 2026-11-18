@@ -9,6 +9,42 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "aead"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d122413f284cf2d62fb1b7db97e02edb8cda96d769b16e443a4f6195e35662b0"
+dependencies = [
+ "crypto-common 0.1.7",
+ "generic-array",
+]
+
+[[package]]
+name = "aes"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
+dependencies = [
+ "cfg-if",
+ "cipher",
+ "cpufeatures 0.2.17",
+]
+
+[[package]]
+name = "aes-gcm"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "831010a0f742e1209b3bcea8fab6a8e149051ba6099432c8cb2cc117dec3ead1"
+dependencies = [
+ "aead",
+ "aes",
+ "cipher",
+ "ctr",
+ "ghash",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -275,7 +311,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.3.1",
  "rand_core",
 ]
 
@@ -288,6 +324,16 @@ dependencies = [
  "iana-time-zone",
  "num-traits",
  "windows-link",
+]
+
+[[package]]
+name = "cipher"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
+dependencies = [
+ "crypto-common 0.1.7",
+ "inout",
 ]
 
 [[package]]
@@ -366,6 +412,15 @@ dependencies = [
 
 [[package]]
 name = "cpufeatures"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cpufeatures"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
@@ -390,6 +445,16 @@ checksum = "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
 
 [[package]]
 name = "crypto-common"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
+dependencies = [
+ "generic-array",
+ "typenum",
+]
+
+[[package]]
+name = "crypto-common"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
@@ -404,6 +469,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83cf0d42651b16c6dfe68685716d18480d18a9c39c62d76e8cf3eb6ed5d8bcbf"
 dependencies = [
  "dtor",
+]
+
+[[package]]
+name = "ctr"
+version = "0.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0369ee1ad671834580515889b80f2ea915f23b8be8d0daa4bbaf2ac5c7590835"
+dependencies = [
+ "cipher",
 ]
 
 [[package]]
@@ -485,7 +559,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
 dependencies = [
  "block-buffer",
- "crypto-common",
+ "crypto-common 0.2.2",
 ]
 
 [[package]]
@@ -741,6 +815,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "generic-array"
+version = "0.14.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
+dependencies = [
+ "typenum",
+ "version_check",
+]
+
+[[package]]
 name = "gethostname"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -785,6 +869,16 @@ dependencies = [
  "r-efi 6.0.0",
  "rand_core",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "ghash"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f0d8a4362ccb29cb0b265253fb0a2728f592895ee6854fd9bc13f2ffda266ff1"
+dependencies = [
+ "opaque-debug",
+ "polyval",
 ]
 
 [[package]]
@@ -881,6 +975,21 @@ dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
 ]
+
+[[package]]
+name = "inout"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
+dependencies = [
+ "generic-array",
+]
+
+[[package]]
+name = "itoa"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jni"
@@ -1489,6 +1598,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "opaque-debug"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
+
+[[package]]
 name = "orbclient"
 version = "0.3.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1500,7 +1615,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-android"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "android-activity",
  "android_logger",
@@ -1510,6 +1625,7 @@ dependencies = [
  "ndk",
  "paperpaw-app",
  "paperpaw-core",
+ "paperpaw-default-packs",
  "paperpaw-digest",
  "paperpaw-fs",
  "paperpaw-graphics",
@@ -1523,16 +1639,19 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-app"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-epub-family",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-about",
  "paperpaw-plugin-aids",
+ "paperpaw-plugin-anki",
  "paperpaw-plugin-battery",
  "paperpaw-plugin-bluetooth",
- "paperpaw-plugin-browser",
+ "paperpaw-plugin-calendar",
  "paperpaw-plugin-calibre",
  "paperpaw-plugin-diagnostics",
  "paperpaw-plugin-dictionary",
@@ -1541,32 +1660,21 @@ dependencies = [
  "paperpaw-plugin-files",
  "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-plugin-format-cbz",
  "paperpaw-plugin-format-docx",
  "paperpaw-plugin-format-epub",
+ "paperpaw-plugin-format-fb2",
+ "paperpaw-plugin-format-html",
  "paperpaw-plugin-format-images",
+ "paperpaw-plugin-format-markdown",
  "paperpaw-plugin-format-mobi",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
  "paperpaw-plugin-help",
  "paperpaw-plugin-home",
- "paperpaw-plugin-hyphenation",
- "paperpaw-plugin-hyphenation-da",
- "paperpaw-plugin-hyphenation-de",
- "paperpaw-plugin-hyphenation-es",
- "paperpaw-plugin-hyphenation-fr",
- "paperpaw-plugin-hyphenation-it",
- "paperpaw-plugin-hyphenation-nb",
- "paperpaw-plugin-hyphenation-nl",
- "paperpaw-plugin-hyphenation-pl",
- "paperpaw-plugin-hyphenation-pt",
- "paperpaw-plugin-hyphenation-ru",
- "paperpaw-plugin-hyphenation-sv",
- "paperpaw-plugin-hyphenation-uk",
- "paperpaw-plugin-joplin",
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-keys",
  "paperpaw-plugin-koreader",
- "paperpaw-plugin-kosync",
  "paperpaw-plugin-lock",
  "paperpaw-plugin-mail",
  "paperpaw-plugin-menu",
@@ -1575,66 +1683,96 @@ dependencies = [
  "paperpaw-plugin-notes-overview",
  "paperpaw-plugin-notes-vault",
  "paperpaw-plugin-opds",
+ "paperpaw-plugin-picture-home",
  "paperpaw-plugin-plugin-manager",
+ "paperpaw-plugin-pomodoro",
  "paperpaw-plugin-power",
  "paperpaw-plugin-profiles",
- "paperpaw-plugin-read-later-cloud",
+ "paperpaw-plugin-puzzles",
  "paperpaw-plugin-reader",
  "paperpaw-plugin-reading-goal",
- "paperpaw-plugin-readwise",
  "paperpaw-plugin-rules",
  "paperpaw-plugin-settings",
  "paperpaw-plugin-setup",
  "paperpaw-plugin-sleep",
+ "paperpaw-plugin-smart-home",
  "paperpaw-plugin-stats",
  "paperpaw-plugin-store",
+ "paperpaw-plugin-tasks",
  "paperpaw-plugin-transfer",
  "paperpaw-plugin-translate",
  "paperpaw-plugin-update",
  "paperpaw-plugin-vocabulary",
- "paperpaw-plugin-wallabag",
  "paperpaw-plugin-weather",
  "paperpaw-plugin-widgets",
  "paperpaw-plugin-wifi",
- "paperpaw-plugin-wikipedia",
  "paperpaw-sdk",
+ "paperpaw-text",
+ "paperpaw-zip",
+ "proptest",
 ]
 
 [[package]]
+name = "paperpaw-caldav"
+version = "0.6.0-beta.3"
+
+[[package]]
 name = "paperpaw-checks"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-config"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
- "paperpaw-table",
+ "paperpaw-sort",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-core"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
- "libloading 0.9.0",
  "paperpaw-config",
+ "paperpaw-core",
+ "paperpaw-digest",
+ "paperpaw-document",
+ "paperpaw-fat",
  "paperpaw-graphics",
  "paperpaw-hid",
+ "paperpaw-hyphen",
  "paperpaw-i18n",
+ "paperpaw-image",
+ "paperpaw-lang",
  "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-plugin-battery",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-plugin-widgets",
  "paperpaw-sdk",
- "paperpaw-table",
+ "paperpaw-sort",
+ "paperpaw-stack-budget",
  "paperpaw-text",
+ "png",
  "proptest",
 ]
 
 [[package]]
+name = "paperpaw-default-packs"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-hyphen",
+ "paperpaw-hyphenation-packs",
+ "paperpaw-platform",
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-dev"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-config",
  "paperpaw-core",
@@ -1643,17 +1781,17 @@ dependencies = [
  "paperpaw-fs",
  "paperpaw-graphics",
  "paperpaw-i18n",
+ "paperpaw-json",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-publish",
- "paperpaw-sample-hello",
  "paperpaw-sdk",
  "png",
 ]
 
 [[package]]
 name = "paperpaw-digest"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
  "proptest",
@@ -1662,7 +1800,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-document"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-lang",
  "paperpaw-platform",
@@ -1671,32 +1809,53 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-emulator"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
+ "aes-gcm",
  "chrono",
  "getrandom 0.4.3",
+ "libc",
  "libloading 0.9.0",
  "paperpaw-app",
  "paperpaw-core",
+ "paperpaw-default-packs",
+ "paperpaw-digest",
+ "paperpaw-fat",
  "paperpaw-fs",
  "paperpaw-graphics",
+ "paperpaw-http",
+ "paperpaw-hyphenation-packs",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-sample-frame-test",
- "paperpaw-sample-hello",
- "paperpaw-sample-interlinear",
+ "paperpaw-sdk",
  "paperpaw-serve",
- "paperpaw-table",
+ "paperpaw-text",
+ "paperpaw-x4",
  "paperpaw-zip",
  "png",
+ "rcgen",
+ "rustls",
+ "serde_json",
  "softbuffer",
  "winit",
+ "zeroize",
+]
+
+[[package]]
+name = "paperpaw-epub-family"
+version = "1.0.5"
+dependencies = [
+ "miniz_oxide 0.9.1",
+ "paperpaw-layout",
+ "paperpaw-sdk",
+ "paperpaw-zip",
+ "proptest",
 ]
 
 [[package]]
 name = "paperpaw-fat"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "fatfs",
  "paperpaw-platform",
@@ -1705,60 +1864,68 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-fontgen"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-text",
 ]
 
 [[package]]
 name = "paperpaw-fs"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "libc",
  "paperpaw-platform",
+ "paperpaw-sort",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-graphics"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-hid"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-http"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-hyphen"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
+ "proptest",
+]
+
+[[package]]
+name = "paperpaw-hyphenation-packs"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-hyphen",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-i18n"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
- "paperpaw-table",
+ "paperpaw-sort",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-image"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide 0.9.1",
  "paperpaw-platform",
@@ -1767,23 +1934,22 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-json"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-lang"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-layout"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-document",
  "paperpaw-layout",
@@ -1793,184 +1959,233 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-library-bench"
-version = "0.0.0"
-dependencies = [
- "paperpaw-core",
- "paperpaw-fat",
- "paperpaw-platform",
- "paperpaw-plugin-format-epub",
- "paperpaw-sdk",
- "paperpaw-zip",
-]
-
-[[package]]
 name = "paperpaw-native"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "ed25519-compact",
  "paperpaw-digest",
+ "paperpaw-native",
+ "serde_json",
 ]
 
 [[package]]
 name = "paperpaw-platform"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-about"
-version = "1.0.2"
+version = "1.0.4"
 dependencies = [
- "miniz_oxide 0.9.1",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-aids"
-version = "1.1.0"
+version = "1.1.5"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-sdk",
  "proptest",
 ]
 
 [[package]]
-name = "paperpaw-plugin-battery"
-version = "1.0.4"
+name = "paperpaw-plugin-anki"
+version = "1.0.0"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-battery"
+version = "1.0.10"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-graphics",
+ "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "png",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-bluetooth"
-version = "1.0.2"
-dependencies = [
- "paperpaw-core",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-browser"
 version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-browser"
+version = "1.0.9"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-epub-family",
+ "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
+name = "paperpaw-plugin-calendar"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-caldav",
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-plugin-calibre"
-version = "1.0.5"
+version = "1.0.12"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-diagnostics"
-version = "1.0.5"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
+ "paperpaw-native",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-dictionary"
-version = "1.0.2"
+version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-stardict",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
-name = "paperpaw-plugin-end-of-book"
+name = "paperpaw-plugin-edge-light"
 version = "1.0.0"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-files",
- "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-end-of-book"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-file-manager"
-version = "1.0.3"
+version = "1.0.6"
 dependencies = [
- "paperpaw-app",
  "paperpaw-core",
- "paperpaw-fs",
  "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-files",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-txt",
+ "paperpaw-native",
  "paperpaw-sdk",
- "proptest",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-file-sync"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-files"
-version = "1.0.4"
+version = "1.0.8"
 dependencies = [
- "paperpaw-app",
  "paperpaw-core",
- "paperpaw-fs",
  "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-txt",
+ "paperpaw-native",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
- "proptest",
+ "paperpaw-ui-kit",
+ "png",
 ]
 
 [[package]]
 name = "paperpaw-plugin-fonts-browser"
-version = "1.0.3"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-text",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-fonts-default"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-graphics",
  "paperpaw-i18n",
@@ -1980,10 +2195,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-plugin-format-docx"
-version = "1.0.0"
+name = "paperpaw-plugin-format-cbz"
+version = "1.0.5"
 dependencies = [
+ "paperpaw-core",
+ "paperpaw-epub-family",
  "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-docx"
+version = "1.0.3"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-sdk",
  "paperpaw-zip",
  "proptest",
@@ -1991,504 +2219,552 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-epub"
-version = "1.0.3"
+version = "1.0.5"
 dependencies = [
- "miniz_oxide 0.9.1",
+ "paperpaw-core",
+ "paperpaw-epub-family",
  "paperpaw-i18n",
- "paperpaw-layout",
+ "paperpaw-native",
  "paperpaw-sdk",
  "paperpaw-zip",
- "proptest",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-fb2"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-epub-family",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-html"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-epub-family",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-format-images"
-version = "1.0.0"
+version = "1.0.4"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-sdk",
  "proptest",
 ]
 
 [[package]]
+name = "paperpaw-plugin-format-markdown"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-epub-family",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-plugin-format-mobi"
+version = "1.0.3"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-sdk",
+ "proptest",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-rtf"
 version = "1.0.0"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-sdk",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-format-txt"
-version = "1.0.1"
+version = "1.0.4"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-i18n",
  "paperpaw-layout",
+ "paperpaw-native",
  "paperpaw-sdk",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-format-xtc"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
+ "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-sdk",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-help"
-version = "1.0.2"
+version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-home"
-version = "1.0.3"
+version = "1.0.15"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation"
-version = "1.1.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-i18n",
- "paperpaw-sdk",
- "proptest",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-da"
-version = "1.0.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-de"
-version = "1.0.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-es"
-version = "1.0.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-fr"
-version = "1.0.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-it"
-version = "1.0.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-nb"
-version = "1.0.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-nl"
-version = "1.0.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-pl"
-version = "1.0.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-pt"
-version = "1.0.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-ru"
-version = "1.0.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-sv"
-version = "1.0.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-hyphenation-uk"
-version = "1.0.1"
-dependencies = [
- "paperpaw-hyphen",
- "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-joplin"
-version = "1.0.3"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "paperpaw-xml",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-keyboard"
-version = "1.1.1"
+version = "1.1.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
+ "paperpaw-native",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-keys"
-version = "1.0.4"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-keyboard",
+ "paperpaw-native",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-koreader"
-version = "1.0.4"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
- "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-format-epub",
  "paperpaw-sdk",
- "paperpaw-zip",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-kosync"
-version = "1.0.3"
+version = "1.0.11"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-format-txt",
- "paperpaw-plugin-power",
+ "paperpaw-plugin-keyboard",
+ "paperpaw-plugin-menu",
+ "paperpaw-plugin-reader",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
- "proptest",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-lock"
-version = "1.0.3"
+version = "1.0.5"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-keyboard",
- "paperpaw-plugin-menu",
- "paperpaw-plugin-sleep",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-mail"
-version = "1.0.0"
+version = "1.0.5"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-home",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-menu"
-version = "1.0.4"
+version = "1.0.10"
 dependencies = [
  "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-settings",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-menu-editor"
-version = "1.0.3"
+version = "1.0.10"
 dependencies = [
- "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
+ "paperpaw-native",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-news"
-version = "1.0.6"
+version = "1.0.11"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-home",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-notes-overview"
-version = "1.0.0"
-dependencies = [
- "paperpaw-core",
- "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-files",
- "paperpaw-plugin-fonts-default",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-notes-vault"
-version = "1.0.0"
-dependencies = [
- "paperpaw-core",
- "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-files",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-epub",
- "paperpaw-plugin-home",
- "paperpaw-plugin-reader",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-opds"
-version = "1.0.3"
-dependencies = [
- "paperpaw-core",
- "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-epub",
- "paperpaw-sdk",
- "proptest",
-]
-
-[[package]]
-name = "paperpaw-plugin-plugin-manager"
 version = "1.0.4"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-notes-vault"
+version = "1.0.4"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-epub-family",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-plugin-files",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-plugin-home",
+ "paperpaw-plugin-reader",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-opds"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+ "proptest",
+]
+
+[[package]]
+name = "paperpaw-plugin-picture-frame"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-picture-home"
+version = "1.0.3"
+dependencies = [
+ "paperpaw-app",
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-plugin-home",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-plugin-manager"
+version = "1.0.9"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-pomodoro"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-power"
-version = "1.1.0"
+version = "1.1.4"
 dependencies = [
  "paperpaw-core",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-lock",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-profiles"
-version = "1.0.5"
+version = "1.0.12"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-keyboard",
+ "paperpaw-native",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
-name = "paperpaw-plugin-read-later-cloud"
+name = "paperpaw-plugin-puzzles"
 version = "1.0.0"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-read-later-cloud"
+version = "1.0.5"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.0.6"
+version = "1.1.0"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-epub-family",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-plugin-aids",
  "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-format-epub",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-notes-vault",
  "paperpaw-sdk",
  "paperpaw-text",
+ "paperpaw-ui-kit",
  "paperpaw-zip",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-reading-goal"
-version = "1.0.5"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-home",
  "paperpaw-plugin-sleep",
  "paperpaw-plugin-stats",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-readwise"
-version = "1.0.3"
+version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
+ "paperpaw-native",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
- "proptest",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-rules"
-version = "1.0.4"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-settings"
-version = "1.0.4"
+version = "1.0.11"
 dependencies = [
- "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
+ "paperpaw-native",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
- "proptest",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-setup"
-version = "1.0.2"
+version = "1.0.4"
 dependencies = [
- "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
- "proptest",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-sleep"
-version = "1.0.2"
+version = "1.0.7"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-smart-home"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-stats"
-version = "1.0.5"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-home",
+ "paperpaw-native",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-sqlite",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-store"
-version = "1.0.4"
+version = "1.0.15"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
@@ -2496,18 +2772,32 @@ dependencies = [
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-browser",
  "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-keyboard",
- "paperpaw-plugin-menu",
  "paperpaw-publish",
  "paperpaw-sdk",
  "paperpaw-text",
+ "paperpaw-ui-kit",
+ "proptest",
+]
+
+[[package]]
+name = "paperpaw-plugin-tasks"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-caldav",
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-transfer"
-version = "1.0.3"
+version = "1.0.6"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
@@ -2516,118 +2806,133 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-plugin-keyboard",
  "paperpaw-qr",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-translate"
-version = "1.0.3"
+version = "1.0.6"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
+ "paperpaw-native",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-update"
-version = "1.0.3"
+version = "1.0.9"
 dependencies = [
  "paperpaw-core",
- "paperpaw-digest",
  "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
+ "paperpaw-native",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "paperpaw-update",
 ]
 
 [[package]]
 name = "paperpaw-plugin-vocabulary"
-version = "1.1.1"
+version = "1.1.10"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
  "paperpaw-plugin-home",
  "paperpaw-plugin-sleep",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-sqlite",
+ "paperpaw-ui-kit",
  "paperpaw-zip",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-wallabag"
-version = "1.0.3"
+version = "1.0.8"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-weather"
-version = "1.0.3"
+version = "1.0.8"
 dependencies = [
- "paperpaw-app",
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
- "proptest",
+ "paperpaw-ui-kit",
 ]
 
 [[package]]
 name = "paperpaw-plugin-widgets"
-version = "1.0.5"
+version = "1.0.10"
 dependencies = [
  "paperpaw-core",
- "paperpaw-graphics",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-home",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-wifi"
-version = "1.0.2"
+version = "1.0.6"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-keyboard",
+ "paperpaw-qr",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
+ "proptest",
 ]
 
 [[package]]
 name = "paperpaw-plugin-wikipedia"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
+ "paperpaw-native",
  "paperpaw-platform",
- "paperpaw-plugin-dictionary",
- "paperpaw-plugin-fonts-default",
+ "paperpaw-scripted-host",
  "paperpaw-sdk",
+ "paperpaw-ui-kit",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-publish"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-digest",
  "paperpaw-fs",
@@ -2638,44 +2943,24 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-qr"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "proptest",
 ]
 
 [[package]]
-name = "paperpaw-sample-frame-test"
-version = "0.6.0-beta.1"
-dependencies = [
- "paperpaw-app",
- "paperpaw-core",
- "paperpaw-platform",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-sample-hello"
-version = "0.6.0-beta.1"
+name = "paperpaw-scripted-host"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
- "paperpaw-platform",
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-sample-interlinear"
-version = "0.6.0-beta.1"
-dependencies = [
- "paperpaw-app",
- "paperpaw-core",
- "paperpaw-platform",
+ "paperpaw-native",
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-sdk"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "fatfs",
  "paperpaw-config",
@@ -2693,7 +2978,7 @@ dependencies = [
  "paperpaw-platform",
  "paperpaw-qr",
  "paperpaw-sdk",
- "paperpaw-table",
+ "paperpaw-sort",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-xml",
@@ -2703,7 +2988,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-serve"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
  "paperpaw-digest",
@@ -2715,21 +3000,27 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-sign"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "ed25519-compact",
  "paperpaw-digest",
  "paperpaw-i18n",
  "paperpaw-native",
  "paperpaw-publish",
- "paperpaw-table",
  "paperpaw-update",
  "paperpaw-x4",
 ]
 
 [[package]]
+name = "paperpaw-sort"
+version = "0.6.0-beta.3"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "paperpaw-sqlite"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
  "proptest",
@@ -2737,8 +3028,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-stack-budget"
+version = "0.0.0"
+dependencies = [
+ "paperpaw-fat",
+ "paperpaw-plugin-format-images",
+ "paperpaw-sdk",
+ "paperpaw-x4",
+]
+
+[[package]]
 name = "paperpaw-stardict"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide 0.9.1",
  "paperpaw-fs",
@@ -2748,55 +3049,63 @@ dependencies = [
 ]
 
 [[package]]
-name = "paperpaw-table"
-version = "0.6.0-beta.1"
-
-[[package]]
 name = "paperpaw-text"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "font-types",
  "paperpaw-graphics",
  "paperpaw-hyphen",
  "paperpaw-lang",
  "paperpaw-platform",
- "paperpaw-table",
+ "paperpaw-sort",
  "proptest",
  "read-fonts",
  "skrifa",
 ]
 
 [[package]]
+name = "paperpaw-ui-kit"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-update"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "ed25519-compact",
 ]
 
 [[package]]
 name = "paperpaw-web"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-core",
+ "paperpaw-default-packs",
  "paperpaw-dev",
  "paperpaw-emulator",
  "paperpaw-platform",
- "paperpaw-sample-hello",
  "paperpaw-x4",
 ]
 
 [[package]]
 name = "paperpaw-x4"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
+ "aes-gcm",
  "embedded-hal",
+ "miniz_oxide 0.9.1",
  "paperpaw-app",
+ "paperpaw-config",
  "paperpaw-core",
+ "paperpaw-default-packs",
  "paperpaw-digest",
  "paperpaw-graphics",
+ "paperpaw-hyphen",
+ "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-plugin-fonts-default",
- "paperpaw-plugin-update",
  "paperpaw-sdk",
  "paperpaw-update",
  "smoltcp",
@@ -2804,18 +3113,18 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-xml"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
- "paperpaw-table",
  "proptest",
 ]
 
 [[package]]
 name = "paperpaw-zip"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide 0.9.1",
  "paperpaw-platform",
+ "paperpaw-sort",
  "paperpaw-zip",
  "proptest",
 ]
@@ -2899,6 +3208,18 @@ dependencies = [
  "pin-project-lite",
  "rustix 1.1.5",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "polyval"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d1fe60d06143b2430aa532c94cfe9e29783047f06c0d7fd359a9a51b729fa25"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "opaque-debug",
+ "universal-hash",
 ]
 
 [[package]]
@@ -3237,13 +3558,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_json"
+version = "1.0.154"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
+dependencies = [
+ "itoa",
+ "memchr",
+ "serde",
+ "serde_core",
+ "zmij",
+]
+
+[[package]]
 name = "sha2"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47d7069beb7d6ac7b9acd1039986e73443f24234f41074da099d6f994ac9ad19"
 dependencies = [
  "cfg-if",
- "cpufeatures",
+ "cpufeatures 0.3.1",
  "digest",
 ]
 
@@ -3607,6 +3941,16 @@ name = "unicode-segmentation"
 version = "1.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
+
+[[package]]
+name = "universal-hash"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc1de2c688dc15305988b563c3854064043356019f97a4b46276fe734c4f07ea"
+dependencies = [
+ "crypto-common 0.1.7",
+ "subtle",
+]
 
 [[package]]
 name = "untrusted"
@@ -4296,3 +4640,9 @@ name = "zlib-rs"
 version = "0.6.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
+
+[[package]]
+name = "zmij"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"

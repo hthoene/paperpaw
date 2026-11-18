@@ -135,9 +135,18 @@ pub struct Sockets {
     generation: u32,
     /// Something came or went in the last step.
     moved: bool,
+    /// An answer to a broadcast says its sender's port too (interface 7).
+    with_ports: bool,
 }
 
 impl Sockets {
+    #[cfg(feature = "ppn5")]
+    /// Answers to a broadcast say their sender's address and port, as
+    /// interface 7 has them (interface 6 has the address alone).
+    pub fn answers_with_ports(&mut self) {
+        self.with_ports = true;
+    }
+
     /// Whether a socket or broadcast is open.
     pub fn any(&self) -> bool {
         !self.sockets.is_empty() || !self.broadcasts.is_empty()
@@ -335,29 +344,36 @@ impl Sockets {
         kernel: &mut Kernel,
         now: Instant,
     ) -> Vec<Effects> {
+        self.lost_events(net)
+            .into_iter()
+            .map(|event| kernel.socket_event(now, event))
+            .collect()
+    }
+
+    /// [`Sockets::lost`], as the events (for the interface-7 transport,
+    /// which reports them itself).
+    pub fn lost_events(&mut self, net: Option<&mut Net>) -> Vec<SocketEvent> {
         let mut net = net.filter(|net| net.generation() == self.generation);
-        let mut effects = Vec::new();
+        let mut events = Vec::new();
         for socket in core::mem::take(&mut self.sockets) {
             if let Some(net) = net.as_deref_mut() {
                 socket.release(net);
             }
-            let event = failed(
+            events.push(failed(
                 socket.number,
                 SocketError::NoNetwork,
                 "the network went away",
-            );
-            effects.push(kernel.socket_event(now, event));
+            ));
         }
         for broadcast in core::mem::take(&mut self.broadcasts) {
             if let Some(net) = net.as_deref_mut() {
                 net.release_udp(broadcast.udp);
             }
-            let event = SocketEvent::Done {
+            events.push(SocketEvent::Done {
                 broadcast: broadcast.number,
-            };
-            effects.push(kernel.socket_event(now, event));
+            });
         }
-        effects
+        events
     }
 
     /// One step for every socket and broadcast.
@@ -374,6 +390,21 @@ impl Sockets {
         if net.generation() != self.generation {
             return self.lost(None, kernel, now);
         }
+        self.poll_events(net, now, clock_ready)
+            .into_iter()
+            .map(|event| kernel.socket_event(now, event))
+            .collect()
+    }
+
+    /// [`Sockets::poll`], as the events (for the interface-7 transport,
+    /// which reports them itself). A network that is another one now is
+    /// [`Sockets::lost_events`]'s.
+    pub fn poll_events(
+        &mut self,
+        net: &mut Net,
+        now: Instant,
+        clock_ready: bool,
+    ) -> Vec<SocketEvent> {
         let mut events = Vec::new();
         self.sockets.retain_mut(|socket| {
             let keep = socket.step(net, now, clock_ready, &mut events);
@@ -382,12 +413,17 @@ impl Sockets {
             }
             keep
         });
+        let with_ports = self.with_ports;
         self.broadcasts.retain(|broadcast| {
             let udp = net.udp(broadcast.udp);
             while let Ok((data, meta)) = udp.recv() {
                 events.push(SocketEvent::Answer {
                     broadcast: broadcast.number,
-                    from: format!("{}", meta.endpoint.addr),
+                    from: if with_ports {
+                        format!("{}", meta.endpoint)
+                    } else {
+                        format!("{}", meta.endpoint.addr)
+                    },
                     data: data.to_vec(),
                 });
             }
@@ -402,9 +438,32 @@ impl Sockets {
         });
         self.moved = !events.is_empty();
         events
-            .into_iter()
-            .map(|event| kernel.socket_event(now, event))
-            .collect()
+    }
+
+    #[cfg(feature = "ppn5")]
+    /// Whether the network these sockets were opened on is another one now
+    /// (they are all lost then).
+    pub fn stale(&self, net: &Net) -> bool {
+        self.any() && net.generation() != self.generation
+    }
+
+    #[cfg(feature = "ppn5")]
+    /// Bytes socket `socket` has queued to send and not yet handed to the
+    /// connection (0 for one that is unknown).
+    pub fn queued(&self, socket: u32) -> usize {
+        self.sockets
+            .iter()
+            .find(|s| s.number == socket)
+            .map_or(0, |s| s.sends.iter().map(Vec::len).sum::<usize>() - s.sent)
+    }
+
+    #[cfg(feature = "ppn5")]
+    /// Lets connecting `socket` take until `until` (milliseconds on the
+    /// clock of `now`).
+    pub fn connect_until(&mut self, socket: u32, until: u64) {
+        if let Some(s) = self.sockets.iter_mut().find(|s| s.number == socket) {
+            s.until = until;
+        }
     }
 }
 

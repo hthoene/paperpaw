@@ -14,14 +14,15 @@ pub(crate) const FONT_SIZES: (i64, i64) = (6, 40);
 
 /// Sections of `paperpaw.ini` that are no plugin's settings: no plugin
 /// may take their name as its id (its settings would be read as these).
-pub(crate) const RESERVED_IDS: [&str; 5] = ["plugins", "fonts", "menus", KNOWN, "slots"];
+pub(crate) const RESERVED_IDS: [&str; 6] =
+    ["plugins", "fonts", "menus", KNOWN, "slots", "firmware"];
 
 /// After a menu's id in `[menus]`: the entries plugins contributed when
 /// the user redefined it.
 /// The config section with what plugins contributed to menus the user
 /// redefined, and the user left out (see [`Menus::set_known`]).
 ///
-/// [`Menus::set_known`]: paperpaw_sdk::Menus::set_known
+/// [`Menus::set_known`]: crate::kit::menus::Menus::set_known
 pub(crate) const KNOWN: &str = "menus-known";
 
 /// The key maps the kernel's is built from.
@@ -36,24 +37,54 @@ pub(crate) struct KeySources {
     /// Plugins' key maps that apply while a switch (the id) is on.
     pub(crate) when: Vec<(Id, Cow<'static, str>)>,
     /// The user's bindings: `paperpaw.ini` as read at start and changed
-    /// since ([`Command::Bind`]), then the shell's overrides (see
+    /// since ([`Ask::Bind`]), then the shell's overrides (see
     /// [`KernelBuilder::user_config`]), which win.
     pub(crate) user: String,
     pub(crate) shell: String,
 }
 
+impl Shared {
+    /// A plugin's entry for the kernel to change; counts as a change of the
+    /// registry's lists (`core.registry` generation), whether or not the
+    /// caller then changes anything.
+    pub(crate) fn plugin_mut(&mut self, id: &str) -> Option<&mut PluginInfo> {
+        self.registry_generation.bump();
+        self.plugins.get_mut(id)
+    }
+}
+
+/// What adds a plugin's contributions: the kernel's own function, a plugin
+/// of data's, a closure given to the builder, or an old `Plugin`'s
+/// `register` in an adapter ([`Kernel::register_plugin`]).
+pub(crate) type Adds<'a> = &'a dyn Fn(&mut Staging) -> Result<(), RegisterError>;
+
 impl Kernel {
-    /// Registers `plugin`, or only lists it if the user switched it off.
-    pub(crate) fn add_plugin(&mut self, plugin: &dyn Plugin, disabled: &[String]) {
-        let manifest = plugin.manifest();
+    /// Registers what `adds` adds under `manifest`, or only lists it if the
+    /// user switched it off.
+    pub(crate) fn add_items(&mut self, manifest: Manifest, adds: Adds<'_>, disabled: &[String]) {
         if manifest.id != CORE && disabled.iter().any(|id| id == manifest.id.as_str()) {
-            self.register_off(plugin, manifest);
+            self.list_off(manifest, adds);
         } else {
-            self.register_plugin(plugin, manifest);
+            self.register_items(manifest, adds);
         }
     }
 
-    pub(crate) fn register_plugin(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
+    /// A plugin of data registered, or only listed if the user switched it off.
+    pub(crate) fn add_data(&mut self, plugin: &data_plugin::DataPlugin, disabled: &[String]) {
+        self.add_items(plugin.manifest(), &|items| plugin.register(items), disabled);
+    }
+
+    /// A plugin of data registered under `manifest`.
+    pub(crate) fn register_data(&mut self, plugin: &data_plugin::DataPlugin, manifest: Manifest) {
+        self.register_items(manifest, &|items| plugin.register(items));
+    }
+
+    /// A plugin of data listed as off under `manifest` ([`Kernel::list_off`]).
+    pub(crate) fn list_data_off(&mut self, plugin: &data_plugin::DataPlugin, manifest: Manifest) {
+        self.list_off(manifest, &|items| plugin.register(items));
+    }
+
+    pub(crate) fn register_items(&mut self, manifest: Manifest, adds: Adds<'_>) {
         let id = manifest.id.clone();
         let source = || WarningSource::Plugin(id.clone());
         if id.as_str() != id.namespace() {
@@ -66,26 +97,27 @@ impl Kernel {
                 "a plugin with this id is already loaded".into(),
             );
         }
+        // Its row's copy first: a plugin the list has no row for is not
+        // loaded at all, so nothing of it runs unlisted (#248, todo 568).
+        let Some(manifest) = self.copy_manifest(manifest) else {
+            return;
+        };
         if RESERVED_IDS.contains(&id.as_str()) {
             let message = format!("`{id}` names a section of {CONFIG_FILE}; not loaded");
             self.warn(source(), None, message);
-            return self.add_plugin_info(manifest, PluginState::Failed, true);
+            return self.list_plugin(manifest, PluginState::Failed, true);
         }
-        let mut staging = Staging::default();
-        let mut registrar = Registrar::new(id.clone());
-        let result = plugin
-            .register(&mut registrar)
-            .and_then(|()| registry::stage(&id, registrar.into_contributions(), &mut staging))
-            .and_then(|()| self.merge(&id, staging));
+        let mut staging = Staging::new(id.clone());
+        let result = adds(&mut staging).and_then(|()| self.merge(&id, staging));
         match result {
-            Ok(()) => self.add_plugin_info(manifest, PluginState::Running, true),
+            Ok(()) => self.list_plugin(manifest, PluginState::Running, true),
             Err(error) => {
                 let line = match error {
                     RegisterError::Parse { line, .. } => Some(line),
                     _ => None,
                 };
                 self.warn(source(), line, format!("not loaded: {error}"));
-                self.add_plugin_info(manifest, PluginState::Failed, true);
+                self.list_plugin(manifest, PluginState::Failed, true);
             }
         }
     }
@@ -93,37 +125,80 @@ impl Kernel {
     /// Lists a plugin the user switched off. Only its translations are
     /// loaded, so plugin managers can show its name and description in the
     /// user's language.
-    pub(crate) fn register_off(&mut self, plugin: &dyn Plugin, manifest: Manifest) {
+    pub(crate) fn list_off(&mut self, manifest: Manifest, adds: Adds<'_>) {
         let id = manifest.id.clone();
         if id.as_str() != id.namespace() || self.shared.plugins.get(id.as_str()).is_some() {
             return;
         }
         if RESERVED_IDS.contains(&id.as_str()) {
-            return self.register_plugin(plugin, manifest);
+            return self.register_items(manifest, adds);
         }
-        let mut registrar = Registrar::new(id.clone());
-        if plugin.register(&mut registrar).is_ok() {
-            for contribution in registrar.into_contributions() {
-                match contribution {
-                    Contribution::Translations(source) => {
-                        if let Ok(catalog) = registry::catalog(source) {
-                            self.shared.translator.add(catalog);
-                        }
-                    }
-                    Contribution::TranslationFile(path) => self.add_translation_file(&id, path),
-                    _ => {}
-                }
-            }
+        // As for one switched on: no row, nothing of it (#248, todo 568).
+        let Some(manifest) = self.copy_manifest(manifest) else {
+            return;
+        };
+        // Its translations staged before anything it added failed (a key map
+        // that does not parse) are listed as well.
+        let mut staging = Staging::new(id.clone());
+        let _failed = adds(&mut staging).is_err();
+        for catalog in staging.catalogs.drain(..) {
+            self.shared.translator.add(catalog);
         }
-        self.add_plugin_info(manifest, PluginState::Off, false);
+        for path in staging.catalog_files.drain(..) {
+            self.add_translation_file(&id, path);
+        }
+        self.list_plugin(manifest, PluginState::Off, false);
     }
 
+    /// Lists a plugin switched off with nothing of its folder loaded, not
+    /// even its translations: one refused for its id (#1424 R1).
+    pub(crate) fn list_bare(&mut self, manifest: Manifest) {
+        let id = &manifest.id;
+        if id.as_str() != id.namespace() || self.shared.plugins.get(id.as_str()).is_some() {
+            return;
+        }
+        if let Some(manifest) = self.copy_manifest(manifest) {
+            self.list_plugin(manifest, PluginState::Off, false);
+        }
+    }
+
+    /// The copy of `manifest` the plugin list holds, made before anything
+    /// of the plugin is registered: where the heap has no room for it, the
+    /// plugin is refused with a warning, not loaded unlisted, which would let
+    /// a second copy load or an update install afresh (#248, todo 568).
+    fn copy_manifest(&mut self, manifest: Manifest) -> Option<paperpaw_sdk::ManifestRef> {
+        match paperpaw_sdk::ManifestRef::try_new(manifest, None) {
+            Ok(manifest) => Some(manifest),
+            Err(manifest) => {
+                // The heap is full here: the id is moved, not copied, and the
+                // warning is made only where there is room for it.
+                let source = WarningSource::Plugin(manifest.id);
+                self.try_warn(source, &["not loaded: no memory"]);
+                None
+            }
+        }
+    }
+
+    /// Lists a plugin whose manifest was copied first ([`Self::copy_manifest`]).
+    #[cfg(test)]
     pub(crate) fn add_plugin_info(
         &mut self,
         manifest: Manifest,
         state: PluginState,
         enabled: bool,
     ) {
+        if let Some(manifest) = self.copy_manifest(manifest) {
+            self.list_plugin(manifest, state, enabled);
+        }
+    }
+
+    fn list_plugin(
+        &mut self,
+        manifest: paperpaw_sdk::ManifestRef,
+        state: PluginState,
+        enabled: bool,
+    ) {
+        self.shared.registry_generation.bump();
         self.shared.plugins.push(PluginInfo::new(
             manifest,
             state,
@@ -137,7 +212,7 @@ impl Kernel {
 
     /// Marks plugins that alone fill a standard slot or provide all fonts:
     /// switching one of them off would leave the user without e.g.
-    /// settings, a menu or text, and no way back.
+    /// settings, a menu, text or any yes or no question, and no way back.
     pub(crate) fn find_required_plugins(&mut self) {
         for slot in [
             slots::HOME,
@@ -145,6 +220,8 @@ impl Kernel {
             slots::LIBRARY,
             slots::MENU,
             slots::SETTINGS,
+            slots::CHOICE,
+            slots::CONFIRM,
         ] {
             let sole = {
                 let mut providers = self
@@ -180,7 +257,7 @@ impl Kernel {
         reason = "longer than the limit from before it was set; split it when it is next changed"
     )]
     pub(crate) fn merge(&mut self, plugin: &Id, mut staging: Staging) -> Result<(), RegisterError> {
-        for setting in staging.settings.iter().map(registry::Staged::spec) {
+        for setting in staging.settings.iter().flat_map(registry::Staged::specs) {
             if self.shared.settings.get(setting.id.as_str()).is_some() {
                 return Err(RegisterError::Duplicate {
                     id: setting.id.clone(),
@@ -210,35 +287,21 @@ impl Kernel {
                 id: format.id.clone(),
             });
         }
-        if let Some(spec) = staging
-            .hyphenation
-            .iter()
-            .find(|h| self.shared.hyphenation.contains(h.id.as_str()))
-        {
-            return Err(RegisterError::Duplicate {
-                id: spec.id.clone(),
-            });
-        }
         staging.merge_into(&mut self.shared.registry, &mut self.shared.actions)?;
-        // A sealed action that came after handlers in its place: they go.
-        for action in self.shared.actions.drop_sealed_overrides() {
-            self.warn_runtime(format!("`{action}` is sealed; not overridden"));
-        }
+        // After the last change, however this goes on.
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
         for setting in staging.settings.drain(..) {
             // Cannot fail: checked above.
-            let _ = match setting {
-                registry::Staged::Owned(spec) => self.shared.settings.define(*spec),
-                registry::Staged::Fixed(list, at) => self.shared.settings.define_fixed(list, at),
-            };
+            let _ = setting.define_in(&mut self.shared.settings);
         }
         for source in staging.keymaps.drain(..) {
             // Validated by the registrar.
-            self.shared.keymap.load(&source, Origin::Plugin, true);
+            self.shared.keymap.load_kept(&source, Origin::Plugin, true);
             self.keys.plugins.push((plugin.clone(), source));
         }
         self.keys.presets.append(&mut staging.keymap_presets);
-        // Loaded once the settings are known (`rebuild_keymap`).
-        self.keys.when.append(&mut staging.keymaps_when);
         for catalog in staging.catalogs.drain(..) {
             self.shared.translator.add(catalog);
         }
@@ -267,12 +330,6 @@ impl Kernel {
         for (role, font, priority) in staging.font_roles.drain(..) {
             self.shared.fonts.propose(role, font, priority);
         }
-        // The highest priority, of equal ones the later.
-        for (painters, priority) in staging.ui_looks.drain(..) {
-            if self.shared.look.1.is_none_or(|p| priority >= p) {
-                self.shared.look = (paperpaw_sdk::ui::look::Look::of(painters), Some(priority));
-            }
-        }
         for format in staging.formats.drain(..) {
             // Cannot fail: checked above.
             let _ = self.shared.formats.add(format);
@@ -282,29 +339,7 @@ impl Kernel {
                 self.warn_runtime(format!("{error}"));
             }
         }
-        for spec in staging.hyphenation.drain(..) {
-            // Cannot fail: checked above and by the registrar.
-            let _ = self.shared.hyphenation.add(spec);
-        }
         self.subscriptions.append(&mut staging.subscriptions);
-        for (action, priority, handler) in staging.overrides.drain(..) {
-            // Not in place of a sealed action (one known by now; one that
-            // comes later is never overridden either).
-            if self
-                .shared
-                .actions
-                .get(action.as_str())
-                .is_some_and(paperpaw_sdk::Action::is_sealed)
-            {
-                self.warn_runtime(format!("{plugin}: `{action}` is sealed; not overridden"));
-                continue;
-            }
-            self.shared
-                .actions
-                .add_override(action, priority, plugin.clone(), handler);
-        }
-        self.action_observers.append(&mut staging.action_observers);
-        self.event_observers.append(&mut staging.event_observers);
         self.plugin_defaults.extend(
             staging
                 .setting_defaults
@@ -341,26 +376,11 @@ impl Kernel {
         for (item, state) in staging.item_states.drain(..) {
             self.shared.menus.set_state(item, state);
         }
-        for (item, key) in staging.item_descriptions.drain(..) {
-            self.shared.menus.set_description(item, key);
-        }
-        for (screen, hints) in staging.screen_hints.drain(..) {
-            self.shared.registry.hints.insert(screen, hints);
-        }
         for item in staging.status_items.drain(..) {
             self.shared.status_items.add(item);
         }
         for line in staging.status_lines.drain(..) {
             self.shared.status_items.add_line(line);
-        }
-        for place in staging.status_places.drain(..) {
-            self.shared.status_items.add_place(place);
-        }
-        for place in staging.widget_places.drain(..) {
-            self.shared.widgets.add_place(place);
-        }
-        for category in staging.widget_categories.drain(..) {
-            self.shared.widgets.add_category(category);
         }
         for step in staging.setup_steps.drain(..) {
             self.shared.setup.add(step);
@@ -372,24 +392,15 @@ impl Kernel {
             self.shared.settings.presets_mut().add(preset);
         }
         for widgets in staging.widgets.drain(..) {
-            match widgets {
-                crate::registry::StagedWidgets::One(widget) => {
-                    self.shared.widgets.add_boxed(widget)
-                }
-                crate::registry::StagedWidgets::List(list) => self.shared.widgets.add_fixed(list),
-            }
+            let crate::registry::StagedWidgets::One(widget) = widgets;
+            self.shared.widgets.add_boxed(widget);
         }
         self.stylesheet_owners
             .extend(staging.stylesheets.iter().map(|_| plugin.clone()));
         self.shared.stylesheets.append(&mut staging.stylesheets);
         self.shared.book_data.append(&mut staging.book_data);
-        self.shared.book_fields.append(&mut staging.book_fields);
-        self.shared.book_badges.append(&mut staging.book_badges);
         for (id, service) in staging.services.drain(..) {
             self.shared.services.insert(id, service);
-        }
-        for point in staging.points.drain(..) {
-            self.shared.services.declare_point(point);
         }
         for event in staging.events.drain(..) {
             self.shared.services.declare_event(event);
@@ -399,65 +410,15 @@ impl Kernel {
                 .services
                 .contribute(point, plugin.clone(), contribution);
         }
-        for filter in staging.text_filters.drain(..) {
-            self.shared.text_filters.add(filter);
-        }
         for decorator in staging.decorators.drain(..) {
             self.shared.decorators.add(decorator);
         }
-        for layer in staging.page_layers.drain(..) {
-            self.shared.page_layers.add(layer);
-        }
-        for frame in staging.page_frames.drain(..) {
-            self.shared.page_layers.add_frame(frame);
-        }
-        for provider in staging.lookup_providers.drain(..) {
-            self.shared.lookup.add(provider);
-        }
-        for voice in staging.voices.drain(..) {
-            self.shared.voices.add(voice);
-        }
-        for reader in staging.readers.drain(..) {
-            self.shared.readers.add(reader);
-        }
-        for filter in staging.input_filters.drain(..) {
-            self.shared.input_filters.add(filter);
-        }
-        for service in staging.gatt_services.drain(..) {
-            if let Some(radio) = &mut self.io.bluetooth {
-                radio.add_service(&service);
-            }
-        }
-        for filter in staging.refresh_filters.drain(..) {
-            self.shared.refresh_filters.add(filter);
-        }
-        for chrome in staging.chromes.drain(..) {
-            self.add_chrome(chrome);
-        }
-        let caps = self.shared.caps;
-        let inputs = staging.inputs.drain(..);
-        let made = inputs.filter(|input| input.need.is_none_or(|need| need.met(caps)));
-        self.shared.inputs.extend(made);
-        // Recognizers are made once, their makers dropped; listed among
-        // the inputs, to bind.
-        for spec in staging.gestures.drain(..) {
-            let recognizer = (spec.factory)();
-            let mut listed = paperpaw_sdk::keys::InputSpec::new(spec.id.clone(), spec.title);
-            listed.kind = paperpaw_sdk::keys::InputKind::Gesture;
-            if caps.touch {
-                self.shared.inputs.push(listed);
-            }
-            let id = spec.id;
-            let fingers = Vec::new();
-            let made = gestures::PluginRecognizer {
-                id,
-                recognizer,
-                fingers,
-            };
-            self.input.recognizers.push(made);
-        }
         for spec in staging.works.drain(..) {
             self.works.add_spec(spec);
+        }
+        for action in staging.data_actions.drain(..) {
+            self.data_actions.retain(|kept| kept.id != action.id);
+            self.data_actions.push(action);
         }
         Ok(())
     }
@@ -467,7 +428,7 @@ impl Kernel {
     pub(crate) fn preset_actions(&self) -> Vec<Id> {
         let mut all = Keymap::default();
         for (_, source) in self.keys.presets.iter().chain(&self.keys.when) {
-            all.load(source, Origin::Preset, true);
+            all.load_kept(source, Origin::Preset, true);
         }
         all.actions().cloned().collect()
     }
@@ -489,29 +450,36 @@ impl Kernel {
             .iter()
             .find(|(id, _)| id.as_str() == preset)
         {
-            keymap.load(source, Origin::Preset, true);
+            keymap.load_kept(source, Origin::Preset, true);
         }
         for (_, source) in &self.keys.plugins {
-            keymap.load(source, Origin::Plugin, true);
+            keymap.load_kept(source, Origin::Plugin, true);
         }
-        keymap.load(&self.keys.device, Origin::Device, true);
+        keymap.load_kept(&self.keys.device, Origin::Device, true);
+        // Native plugins' `key.bind` rows: against the preset, plugin and
+        // device sources (a binding of the device's outranks them, as before),
+        // before the user's. The main-menu rule reads that baseline.
+        self.native_keys_into(&mut keymap);
         for source in [&self.keys.user, &self.keys.shell] {
             keymap.load(source, Origin::User, false);
         }
         // After the plugins' other bindings, which they then override.
         for (setting, source) in &self.keys.when {
             if self.shared.settings.bool(setting.as_str()) {
-                keymap.load(source, Origin::Plugin, true);
+                keymap.load_kept(source, Origin::Plugin, true);
             }
         }
         keymap.shrink_to_fit();
         self.shared.keymap = keymap;
     }
 
-    /// Redefines or resets a menu (see [`Command::SetMenu`]) and saves it,
+    /// Redefines or resets a menu (see [`Ask::SetMenu`]) and saves it,
     /// with the entries plugins contribute to it now that the user left
     /// out: those added later show in the user's list too (`[menus-known]`).
     pub(crate) fn set_menu(&mut self, menu: Id, entries: Option<Vec<Id>>) {
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
         let join = |ids: &[Id]| ids.iter().map(Id::as_str).collect::<Vec<_>>().join(", ");
         let value = entries.as_deref().map(join);
         let listed = entries.as_deref().unwrap_or_default();
@@ -541,9 +509,11 @@ impl Kernel {
                 paperpaw_config::remove(&source, KNOWN, menu.as_str())
             }
         });
-        self.output
-            .commands
-            .push(events::MENU_CHANGED.emit(events::MenuChanged::new(menu.clone())));
+        self.output.commands.push(crate::Ask::emit(
+            &events::MENU_CHANGED,
+            events::MenuChanged::new(menu.clone()),
+        ));
+        self.native_registry_changed(crate::native_host::REGISTRY_MENUS);
     }
 
     /// Adds a font file of `plugin`, described by its header.
@@ -570,7 +540,45 @@ impl Kernel {
         }
     }
 
-    /// Opens the compiled catalog `path` (`Registrar::add_translation_file`)
+    /// Adds the translation catalog `source` of a linked native plugin, built
+    /// into the program (its `i18n/<language>.ini`): the texts the plugin
+    /// reads through `core.i18n`. Only text with the program's lifetime
+    /// (`&'static str`, `include_str!`): a catalog on the storage is
+    /// `Staging::add_translation_file`. One that does not parse is reported
+    /// and left out.
+    pub fn add_catalog(&mut self, source: &'static str) {
+        match registry::catalog(alloc::borrow::Cow::Borrowed(source)) {
+            Ok(catalog) => self.shared.translator.add(catalog),
+            Err(error) => self.warn_runtime(format!("a built-in catalog: {error}")),
+        }
+    }
+
+    /// Adds the catalogs of the linked native plugins built into the program
+    /// without their keys, a table a language
+    /// ([`BuiltMessages`](paperpaw_i18n::BuiltMessages)): each is one
+    /// catalog that answers for all their sources, which are not added.
+    pub fn add_built_messages(&mut self, tables: &'static [paperpaw_i18n::BuiltMessages]) {
+        for table in tables {
+            self.shared.translator.built_messages(table);
+        }
+    }
+
+    /// `true` the first time it is asked, `false` after: the linked plugins'
+    /// catalogs are added once, whoever asks first (`add_native_catalogs`),
+    /// so a shell that adds them after `register_native_plugins` has
+    /// done it does not add them twice.
+    pub fn claim_native_catalogs(&mut self) -> bool {
+        !core::mem::replace(&mut self.native_catalogs_added, true)
+    }
+
+    /// Room for the catalogs `plugins` more plugins bring, in the languages chosen, asked for once
+    /// before [`Kernel::add_catalog`] (as the start does for the plugins it
+    /// registers): the list does not grow by doubling.
+    pub fn reserve_catalogs(&mut self, plugins: usize) {
+        self.shared.translator.reserve(plugins);
+    }
+
+    /// Opens the compiled catalog `path` (`Staging::add_translation_file`)
     /// and adds it; one that cannot be opened is reported.
     pub(crate) fn add_translation_file(&mut self, plugin: &Id, path: String) {
         let file =
@@ -606,89 +614,13 @@ impl Kernel {
         }
     }
 
-    /// Chooses the reading font family from `core.reading-font` and loads
-    /// its files.
-    pub(crate) fn apply_reading_font(&mut self) {
-        let chosen = self
-            .shared
-            .settings
-            .text(core_settings::READING_FONT.as_str())
-            .to_string();
-        let family = (chosen != core_settings::DEFAULT_FONT
-            && self.shared.fonts.families().contains(&chosen.as_str()))
-        .then_some(chosen.as_str());
-        self.shared.fonts.set_family(family);
-        for path in self.shared.fonts.load(&self.shared.storage) {
-            self.warn_runtime(format!("{path}: font could not be loaded"));
-        }
-        self.fit_font_size();
-    }
-
-    /// The sizes of book text offered as far as the reading font has them:
-    /// a font pack's largest (built into the firmware, kept small) bounds
-    /// them, a scalable font has every size. A size chosen past it gives
-    /// way to the largest.
-    pub(crate) fn fit_font_size(&mut self) {
-        let (min, max) = FONT_SIZES;
-        let dpi = f32::from(self.shared.device.display.dpi.max(1));
-        let largest = self
-            .shared
-            .fonts
-            .role(paperpaw_sdk::builtin::fonts::READING.as_str())
-            .and_then(|font| font.largest_size());
-        // No `round` without std.
-        let most = largest.map_or(max, |px| ((px * 72.0 / dpi + 0.5) as i64).clamp(min, max));
-        let id = core_settings::FONT_SIZE;
-        self.shared.settings.set_range(id.as_str(), min, most);
-        self.font_size_changed();
-    }
-
-    /// A font size past the largest the reading font has (set before, or
-    /// a book's own) gives way to the largest; at the largest of a font
-    /// pack, the help says where larger ones are found.
-    pub(crate) fn font_size_changed(&mut self) {
-        let id = core_settings::FONT_SIZE.static_str();
-        let settings = &mut self.shared.settings;
-        let most = match settings.spec(id).map(|spec| &spec.kind) {
-            Some(paperpaw_sdk::SettingKind::Int { max, .. }) => *max,
-            _ => return,
-        };
-        let size = settings.int(id);
-        let largest = most < FONT_SIZES.1 && size >= most;
-        let key = if largest {
-            "core.setting.font-size.largest"
-        } else {
-            "core.setting.font-size.help"
-        };
-        settings.set_description(id, key);
-        if size > most {
-            let value = paperpaw_sdk::SettingValue::Int(most);
-            let id = core_settings::FONT_SIZE.id().clone();
-            self.output.commands.push(Command::SetSetting(id, value));
-        }
-    }
-
-    /// Chooses what the status lines are in from `core.status-font` and
-    /// loads its files.
-    pub(crate) fn apply_status_font(&mut self) {
-        let chosen = self
-            .shared
-            .settings
-            .text(core_settings::STATUS_FONT.as_str())
-            .to_string();
-        self.shared.fonts.set_status(&chosen);
-        for path in self.shared.fonts.load(&self.shared.storage) {
-            self.warn_runtime(format!("{path}: font could not be loaded"));
-        }
-    }
-
     /// Makes how the interface's letters are inked of `core.ui-text-curve`
     /// and the interface's language, for the UI font's handles (plugins
     /// do not parse it): also whether its lines run right to left, so that
     /// a label of both directions starts at the right (`Wi-Fi` in Arabic).
     pub(crate) fn apply_ui_text_curve(&mut self) {
         use paperpaw_sdk::text::TextInk;
-        let ink = paperpaw_sdk::ui::text_ink(
+        let ink = crate::kit::ui::text_ink(
             self.shared
                 .settings
                 .text(core_settings::UI_TEXT_CURVE.as_str()),
@@ -702,7 +634,7 @@ impl Kernel {
         self.shared.fonts.set_ui_ink(ink.with_flags(flags));
     }
 
-    /// Plugin `by` asks for `plugins` ([`Command::RequestPlugins`](paperpaw_sdk::Command::RequestPlugins)):
+    /// Plugin `by` asks for `plugins` ([`Ask::RequestPlugins`](crate::Ask::RequestPlugins)):
     /// those not on the device, each once and at most
     /// [`MAX_REQUESTED_PLUGINS`](paperpaw_sdk::MAX_REQUESTED_PLUGINS),
     /// go to the store as
@@ -712,6 +644,10 @@ impl Kernel {
     /// ([`PLUGINS_ANSWERED`](paperpaw_sdk::builtin::events::PLUGINS_ANSWERED)).
     pub(crate) fn request_plugins(&mut self, by: Id, plugins: Vec<Id>) {
         use paperpaw_sdk::builtin::events::{self, PluginsAnswered};
+        // A native plugin asks native installers (`native_host::plugin_requests`).
+        if self.is_native_plugin(by.as_str()) {
+            return self.native_request_plugins(&by, plugins);
+        }
         let mut wanted: Vec<Id> = Vec::new();
         for id in plugins {
             if wanted.len() == paperpaw_sdk::MAX_REQUESTED_PLUGINS {
@@ -755,7 +691,7 @@ impl Kernel {
     }
 
     /// Loads the data plugin in `folder` while running (see
-    /// [`Command::LoadPlugin`](paperpaw_sdk::Command::LoadPlugin)).
+    /// [`Ask::LoadPlugin`](crate::Ask::LoadPlugin)).
     pub(crate) fn load_plugin(&mut self, folder: &str) {
         if self.register_folder(folder) {
             self.plugins_changed();
@@ -765,7 +701,7 @@ impl Kernel {
     /// Registers the data plugin in `folder` (switched off where the
     /// configuration says so) and applies its defaults; `false`, with a
     /// warning, if it could not be.
-    fn register_folder(&mut self, folder: &str) -> bool {
+    pub(crate) fn register_folder(&mut self, folder: &str) -> bool {
         let storage = self.shared.storage.clone();
         let plugin = match crate::data_plugin::load_folder(&storage, folder) {
             Ok(plugin) => plugin,
@@ -792,10 +728,11 @@ impl Kernel {
             self.add_code_plugin_later(&plugin, off);
         } else if off {
             plugin.keep_listing_only();
-            self.register_off(&plugin, manifest);
+            self.list_data_off(&plugin, manifest);
         } else {
-            self.register_plugin(&plugin, manifest);
-            if let Some(info) = self.shared.plugins.get_mut(id.as_str()) {
+            self.register_data(&plugin, manifest);
+            self.add_hyphenation_tables(&plugin);
+            if let Some(info) = self.shared.plugin_mut(id.as_str()) {
                 info.kind = paperpaw_sdk::PluginKind::Data;
             }
         }
@@ -806,8 +743,65 @@ impl Kernel {
         true
     }
 
+    /// Adds the hyphenation tables of data plugin `plugin`, where it is
+    /// running (registered and not switched off), and tells which languages
+    /// one plugin's table keeps from another's (D4).
+    pub(crate) fn add_hyphenation_tables(&mut self, plugin: &crate::data_plugin::DataPlugin) {
+        let tables = plugin.take_hyphenation();
+        let id = plugin.manifest().id;
+        let running = self
+            .shared
+            .plugins
+            .get(id.as_str())
+            .is_some_and(|info| info.state == PluginState::Running);
+        if tables.is_empty() || !running {
+            return;
+        }
+        let added = self.shared.hyphenation.add_tables(
+            id.as_str(),
+            plugin.folder(),
+            tables.iter().map(|t| (t.tag.as_str(), t.path.as_str())),
+        );
+        if added.is_err() {
+            self.shared.hyphenation.remove_tables(id.as_str());
+            let problem = "hyphenation tables left out, no memory for them".into();
+            return self.warn(WarningSource::Plugin(id), None, problem);
+        }
+        self.feed_hyphenation(Some(&id));
+        let told: Vec<String> = self
+            .shared
+            .hyphenation
+            .collisions(id.as_str())
+            .map(|(lost, kept)| {
+                format!(
+                    "{}: hyphenation left out, {} has the language",
+                    lost.name(),
+                    kept.plugin()
+                )
+            })
+            .collect();
+        for problem in told {
+            self.warn_runtime(problem);
+        }
+    }
+
+    /// Forgets the declaration cap `plugin` was refused at: it is tried again
+    /// or gone.
+    pub(crate) fn forget_refusal(&self, plugin: &Id) {
+        if let Some(declared) = self.shared.registry.native_declarations.as_ref() {
+            declared.clear_refusal(plugin.as_str());
+        }
+    }
+
+    /// As [`Self::forget_refusal`], giving `plugin` back for the caller's
+    /// own use.
+    pub(crate) fn begin_try(&self, plugin: &Id) -> Id {
+        self.forget_refusal(plugin);
+        plugin.clone()
+    }
+
     /// Removes a data plugin while running (see
-    /// [`Command::RemovePlugin`](paperpaw_sdk::Command::RemovePlugin)).
+    /// [`Ask::RemovePlugin`](crate::Ask::RemovePlugin)).
     pub(crate) fn remove_plugin(&mut self, id: &Id) {
         let Some(folder) = self.data_folder(id) else {
             return self.warn_runtime(format!("`{id}` is no data plugin; not removed"));
@@ -833,12 +827,22 @@ impl Kernel {
     /// it in the list of plugins. What was chosen from it stays chosen
     /// until [`plugins_changed`](Self::plugins_changed) finds it no longer
     /// offered.
-    fn unload_plugin(&mut self, id: &Id) {
+    pub(crate) fn unload_plugin(&mut self, id: &Id) -> bool {
+        // A removed plugin leaves no refusal behind to take a place of the
+        // few the host keeps.
+        self.forget_refusal(id);
+        let native_key = self.shared.native_instances.find(id.as_str());
+        let _bump = crate::native_host::registry_generation::BumpOnExit::new(
+            &self.shared.registry_generation,
+        );
+        let replacement = native_key.and_then(|key| self.begin_native_unload(key, id));
         // Its background work's sockets close.
         self.works.runs.end_plugin(id.as_str());
         self.close_ended_runs();
         self.shared.data_folders.retain(|(p, _)| p != id);
-        self.shared.fonts.remove_plugin(id.as_str());
+        self.remove_plugin_fonts(id);
+        self.shared.hyphenation.remove_tables(id.as_str());
+        self.feed_hyphenation(Some(id));
         // Its key maps and stylesheets; the key map is built anew once the
         // plugins changed (`plugins_changed`).
         self.keys.plugins.retain(|(p, _)| p != id);
@@ -856,10 +860,11 @@ impl Kernel {
             .remove_plugin(id.as_str());
         // A code plugin's code runs until the restart: it stays listed as
         // stopping then.
-        match self.shared.plugins.get_mut(id.as_str()) {
+        match self.shared.plugin_mut(id.as_str()) {
             Some(info)
                 if info.kind == paperpaw_sdk::PluginKind::Code
-                    && info.state == PluginState::Running =>
+                    && info.state == PluginState::Running
+                    && native_key.is_none() =>
             {
                 info.enabled = false;
             }
@@ -867,6 +872,18 @@ impl Kernel {
                 self.shared.plugins.remove(id.as_str());
             }
         }
+        if let Some(folder) = replacement {
+            self.register_folder(&folder);
+            self.plugins_changed();
+        }
+        self.shared.native_instances.find(id.as_str()).is_none()
+    }
+
+    /// All font removal and replacement paths invalidate named handles here.
+    pub(crate) fn remove_plugin_fonts(&mut self, id: &Id) -> usize {
+        let removed = self.shared.fonts.remove_plugin(id.as_str());
+        self.shared.font_removals.removed(id, removed);
+        removed
     }
 
     /// A font chosen that is no longer offered gives way to the default.
@@ -886,10 +903,14 @@ impl Kernel {
     }
 
     /// Installs the data plugin `id` downloaded into `folder` (see
-    /// [`Command::InstallPlugin`](paperpaw_sdk::Command::InstallPlugin)):
+    /// [`Ask::InstallPlugin`](crate::Ask::InstallPlugin)):
     /// the folder takes the place of every version of it on the storage,
     /// loaded or not, and is loaded at once.
     pub(crate) fn install_plugin(&mut self, id: &Id, folder: &str) {
+        if self.shared.native_instances.replacement_pending(id) {
+            self.warn_runtime("plugin replacement is already pending cleanup");
+            return;
+        }
         let dirs = self.shared.plugin_dirs.clone();
         // Loaded without a folder: built in, not to be replaced.
         let built_in =
@@ -901,14 +922,15 @@ impl Kernel {
         // them stays where the new one offers it too; what its installer
         // keeps for it (its code named, where it came from) is kept now.
         placed.clear(self.shared.storage.as_ref());
-        paperpaw_sdk::install::marks::settle(
+        crate::kit::install::marks::settle(
             self.shared.storage.as_ref(),
             id.as_str(),
             &placed.target,
         );
         // A code plugin's code runs until the restart: the new version
         // takes over then.
-        if let Some(info) = self.shared.plugins.get_mut(id.as_str())
+        if self.shared.native_instances.find(id.as_str()).is_none()
+            && let Some(info) = self.shared.plugin_mut(id.as_str())
             && info.kind == paperpaw_sdk::PluginKind::Code
             && info.state == PluginState::Running
         {
@@ -918,8 +940,21 @@ impl Kernel {
             self.shared.data_folders.push((id.clone(), placed.target));
             return self.plugins_changed();
         }
-        if self.shared.plugins.get(id.as_str()).is_some() {
-            self.unload_plugin(id);
+        if (self.shared.plugins.get(id.as_str()).is_some()
+            || self.shared.native_instances.find(id.as_str()).is_some())
+            && !self.unload_plugin(id)
+        {
+            if let Some(key) = self.shared.native_instances.find(id.as_str())
+                && self
+                    .shared
+                    .native_instances
+                    .defer_replacement(key, placed.target)
+                    .is_err()
+            {
+                self.warn_runtime("plugin replacement could not be queued after cleanup");
+            }
+            self.plugins_changed();
+            return;
         }
         // Changed even where the new one does not load: the old ones are
         // gone.
@@ -942,7 +977,7 @@ impl Kernel {
             if let Some(placed) = self.place_plugin(&id, &folder, dirs, ours) {
                 placed.clear(self.shared.storage.as_ref());
                 let storage = self.shared.storage.as_ref();
-                paperpaw_sdk::install::marks::settle(storage, id.as_str(), &placed.target);
+                crate::kit::install::marks::settle(storage, id.as_str(), &placed.target);
             }
         }
     }
@@ -996,10 +1031,7 @@ impl Kernel {
         let version = plugin.manifest().version;
         // Registered aside first (its translations, key map, settings): one
         // that would fail leaves the version before in place.
-        let mut registrar = Registrar::new(id.clone());
-        let staged = plugin.register(&mut registrar).and_then(|()| {
-            registry::stage(id, registrar.into_contributions(), &mut Staging::default())
-        });
+        let staged = plugin.register(&mut Staging::new(id.clone()));
         drop(plugin);
         if let Err(error) = staged {
             return refuse(self, format!("{folder}: not installed: {error}"));
@@ -1049,31 +1081,39 @@ impl Kernel {
     /// After a plugin was loaded or removed while running: the choices of
     /// fonts and key map presets (a font chosen that is no longer offered
     /// giving way), menu labels, fonts and keys anew.
-    fn plugins_changed(&mut self) {
+    pub(crate) fn plugins_changed(&mut self) {
         self.offer_choices();
         self.keep_offered_choices();
         self.apply_reading_font();
         self.apply_status_font();
+        self.apply_widget_fonts();
         self.apply_ui_text_curve();
+        // A plugin may have brought or taken the interface's font.
+        self.renew_memory_notice();
         self.rebuild_keymap();
-        self.output.commands.push(events::PLUGINS_CHANGED.emit(()));
+        self.output.emit(&events::PLUGINS_CHANGED, ());
+        self.native_hint(crate::native_host::registrations::EVENT_PLUGINS_CHANGED_TAG);
+        // What menus, bindings, slots, screens and the rest hold follows the set.
+        self.native_registry_changed(crate::native_host::REGISTRY_ALL);
+        self.native_data_plugins_sync();
     }
 
     /// Releases memory reserved while plugins registered: on small devices
     /// every kilobyte counts, and registries are not modified afterwards.
     pub(crate) fn shrink_to_fit(&mut self) {
+        // The lists the kernel itself holds give their room back through the
+        // helper that keeps the old one where there is no room for the new:
+        // no abort at the fullest moment of a start (#306).
+        use crate::native_host::shrink::shrink;
         self.shared.registry.shrink_to_fit();
-        self.keys.plugins.shrink_to_fit();
-        self.stylesheet_owners.shrink_to_fit();
-        self.keys.presets.shrink_to_fit();
-        self.keys.when.shrink_to_fit();
+        shrink(&mut self.keys.plugins);
+        shrink(&mut self.stylesheet_owners);
+        shrink(&mut self.keys.presets);
         self.keys.user.shrink_to_fit();
         self.keys.shell.shrink_to_fit();
         self.subscriptions.shrink_to_fit();
-        self.action_observers.shrink_to_fit();
-        self.event_observers.shrink_to_fit();
         self.shared.plugins.shrink_to_fit();
-        self.warnings.shrink_to_fit();
+        shrink(&mut self.warnings);
         let shared = &mut self.shared;
         shared.settings.shrink_to_fit();
         shared.menus.shrink_to_fit();
@@ -1085,15 +1125,7 @@ impl Kernel {
         shared.widgets.shrink_to_fit();
         shared.setup.shrink_to_fit();
         shared.services.shrink_to_fit();
-        shared.text_filters.shrink_to_fit();
         shared.decorators.shrink_to_fit();
-        shared.page_layers.shrink_to_fit();
-        shared.lookup.shrink_to_fit();
-        shared.voices.shrink_to_fit();
-        shared.readers.shrink_to_fit();
-        shared.input_filters.shrink_to_fit();
-        shared.inputs.shrink_to_fit();
-        shared.refresh_filters.shrink_to_fit();
         shared.stylesheets.shrink_to_fit();
         shared.translator.shrink_to_fit();
     }

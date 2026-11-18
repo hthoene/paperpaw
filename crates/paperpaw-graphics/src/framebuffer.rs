@@ -5,6 +5,7 @@ use paperpaw_platform::{Color, FrameView, PixelFormat, Point, Rect};
 use crate::GraphicsError;
 use crate::canvas::Canvas;
 use crate::diffuse::Atkinson;
+use crate::probe::Probe;
 
 /// From what coverage (of 255) a pixel at an edge takes the colour drawn
 /// in black and white, at first: three eighths (see
@@ -48,21 +49,32 @@ pub struct Framebuffer {
     /// Holds no pixels: what is drawn is only described (see
     /// [`Framebuffer::blind`]).
     blind: bool,
+    /// Keeps where ink lands instead of pixels (see [`Framebuffer::probe`]).
+    probe: Option<Probe>,
     /// Pictures diffused across the end of the band: each one's key, the
     /// screen row where the next band takes it up, and its error there
     /// (see [`Canvas::keep_diffusion`](crate::Canvas::keep_diffusion)).
     diffusions: Vec<(u64, u16, Atkinson)>,
 }
 
-/// Pictures a band leaves diffused for the next one, at most; more start
-/// from their first row again.
-const DIFFUSIONS: usize = 8;
+/// Bytes of error rows the bands of a frame leave diffused for the next
+/// band, all pictures together (a 480-pixel row of two is 1.9 KiB); more
+/// start from their first row again. The most a host may keep for a
+/// plugin's pictures (`docs/abi/document.md` 5), so it holds for all.
+const DIFFUSION_BYTES: usize = 4 * 1024;
 
 impl Framebuffer {
     /// Allocates a white framebuffer. Fails instead of aborting when memory
     /// is short, which matters on devices with a few hundred KB of RAM.
     pub fn new(width: u16, height: u16, format: PixelFormat) -> Result<Self, GraphicsError> {
         Self::banded(width, height, height, format)
+    }
+
+    /// The memory the pixels were held in, to make another frame in
+    /// ([`banded_in`](Self::banded_in)).
+    #[must_use]
+    pub fn into_data(self) -> Vec<u8> {
+        self.data
     }
 
     /// A framebuffer for a `width`×`height` screen that holds `rows` rows
@@ -72,6 +84,21 @@ impl Framebuffer {
         height: u16,
         rows: u16,
         format: PixelFormat,
+    ) -> Result<Self, GraphicsError> {
+        Self::banded_in(width, height, rows, format, Vec::new())
+    }
+
+    /// [`banded`](Self::banded) made in the room `data` came from
+    /// ([`into_data`](Self::into_data)): where it is as large as the frame
+    /// needs nothing is allocated, where it is not it is freed first and
+    /// the frame made anew. A frame that is drawn in grays, and again as it
+    /// was, thus keeps its one block of memory.
+    pub fn banded_in(
+        width: u16,
+        height: u16,
+        rows: u16,
+        format: PixelFormat,
+        mut data: Vec<u8>,
     ) -> Result<Self, GraphicsError> {
         // A device's own format (`Other`) is the shell's to draw: it gets
         // a frame in a format drawn here and converts it.
@@ -83,9 +110,14 @@ impl Framebuffer {
         let rows = rows.clamp(1, height.max(1));
         let stride = format.stride(width);
         let bytes = stride * rows as usize;
-        let mut data = Vec::new();
-        data.try_reserve_exact(bytes)
-            .map_err(|_| GraphicsError::OutOfMemory { bytes })?;
+        data.clear();
+        if data.capacity() < bytes {
+            // The old room goes first: beside it the new would split the
+            // largest free block.
+            data = Vec::new();
+            data.try_reserve_exact(bytes)
+                .map_err(|_| GraphicsError::OutOfMemory { bytes })?;
+        }
         data.resize(bytes, 0xff);
         Ok(Self {
             width,
@@ -104,6 +136,7 @@ impl Framebuffer {
             all_pictured: 0,
             counting: true,
             blind: false,
+            probe: None,
             diffusions: Vec::new(),
         })
     }
@@ -131,6 +164,7 @@ impl Framebuffer {
             all_pictured: 0,
             counting: true,
             blind: true,
+            probe: None,
             diffusions: Vec::new(),
         }
     }
@@ -142,6 +176,18 @@ impl Framebuffer {
     /// Whether it holds no pixels ([`Framebuffer::blind`]).
     pub fn is_blind(&self) -> bool {
         self.blind
+    }
+
+    pub(crate) fn probe_state(&self) -> Option<&Probe> {
+        self.probe.as_ref()
+    }
+
+    pub(crate) fn probe_state_mut(&mut self) -> Option<&mut Probe> {
+        self.probe.as_mut()
+    }
+
+    pub(crate) fn set_probe(&mut self, probe: Option<Probe>) {
+        self.probe = probe;
     }
 
     pub fn height(&self) -> u16 {
@@ -229,7 +275,13 @@ impl Framebuffer {
             return;
         }
         self.diffusions.retain(|(k, _, _)| *k != key);
-        if self.diffusions.len() < DIFFUSIONS && self.diffusions.try_reserve(1).is_ok() {
+        let kept: usize = self
+            .diffusions
+            .iter()
+            .map(|(_, _, a)| a.width() * 2 * core::mem::size_of::<i16>())
+            .sum();
+        let new = atkinson.width() * 2 * core::mem::size_of::<i16>();
+        if kept + new <= DIFFUSION_BYTES && self.diffusions.try_reserve(1).is_ok() {
             self.diffusions.push((key, row, atkinson));
         }
     }
@@ -848,6 +900,64 @@ fn saturate(rgb: [u8; 3], percent: u16) -> [u8; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_frame_made_in_the_room_of_another_allocates_nothing() {
+        let band = Framebuffer::banded(480, 100, 20, PixelFormat::Mono1).unwrap();
+        let room = band.into_data();
+        let at = room.as_ptr();
+        // The same bytes in grays: half the rows of twice the stride.
+        let gray = Framebuffer::banded_in(480, 100, 10, PixelFormat::Gray2, room).unwrap();
+        let room = gray.into_data();
+        assert_eq!(room.as_ptr(), at);
+        let again = Framebuffer::banded_in(480, 100, 20, PixelFormat::Mono1, room).unwrap();
+        assert_eq!(again.rows(), 20);
+        let room = again.into_data();
+        assert_eq!(room.as_ptr(), at);
+    }
+
+    #[test]
+    fn diffusion_kept_for_the_next_band_is_capped_in_bytes() {
+        let mut fb = Framebuffer::banded(800, 100, 10, PixelFormat::Mono1).unwrap();
+        // An 800-pixel picture keeps 3.2 KiB: one fits, a second does not.
+        fb.keep_diffusion(1, 10, Atkinson::new(800).unwrap());
+        fb.keep_diffusion(2, 10, Atkinson::new(800).unwrap());
+        assert!(fb.take_diffusion(2, 10).is_none());
+        assert!(fb.take_diffusion(1, 10).is_some());
+        // The same picture again replaces itself rather than counting twice.
+        fb.keep_diffusion(1, 10, Atkinson::new(800).unwrap());
+        fb.keep_diffusion(1, 10, Atkinson::new(800).unwrap());
+        assert!(fb.take_diffusion(1, 10).is_some());
+        // Narrow ones: two of the X4's width fit (3.8 KiB), a third does not.
+        for key in 0..3 {
+            fb.keep_diffusion(key, 10, Atkinson::new(480).unwrap());
+        }
+        assert!(fb.take_diffusion(2, 10).is_none());
+        assert!(fb.take_diffusion(1, 10).is_some());
+        assert!(fb.take_diffusion(0, 10).is_some());
+    }
+
+    #[test]
+    fn diffusion_kept_goes_with_the_frame_or_a_band_that_begins_elsewhere() {
+        let mut fb = Framebuffer::banded(480, 100, 10, PixelFormat::Mono1).unwrap();
+        // Kept only where the band ends, for the band that begins there.
+        fb.keep_diffusion(1, 5, Atkinson::new(480).unwrap());
+        assert!(fb.diffusions.is_empty(), "not at the band's end");
+        fb.keep_diffusion(1, 10, Atkinson::new(480).unwrap());
+        fb.set_top(10);
+        assert_eq!(fb.diffusions.len(), 1, "the next band");
+        // The frame's end frees it, and its memory.
+        fb.end_frame();
+        assert_eq!(fb.diffusions.capacity(), 0);
+        // A band that begins elsewhere (drawn again, out of order) drops it.
+        fb.set_top(0);
+        fb.keep_diffusion(1, 10, Atkinson::new(480).unwrap());
+        fb.set_top(0);
+        assert!(fb.diffusions.is_empty(), "the same band again");
+        fb.keep_diffusion(1, 10, Atkinson::new(480).unwrap());
+        fb.set_top(20);
+        assert!(fb.take_diffusion(1, 10).is_none(), "a band further down");
+    }
 
     #[test]
     fn fills_whole_bytes_and_the_pixels_at_either_end() {

@@ -413,6 +413,37 @@ fn rows_off_the_margin() {
 }
 
 #[test]
+fn a_fields_outline_is_not_an_icon_in_the_margin() {
+    // A search field: its outline at the focus, half the margin in, the
+    // icon and the words from the margin on. A second row's icon
+    // reaches into the margin.
+    let mut image = paper();
+    let field = Rect::new(13, 102, 454, 56);
+    fill(&mut image, Rect::new(field.x, field.y, field.width, 2), INK);
+    fill(&mut image, Rect::new(field.x, 156, field.width, 2), INK);
+    fill(
+        &mut image,
+        Rect::new(field.x, field.y, 2, field.height),
+        INK,
+    );
+    fill(&mut image, Rect::new(465, field.y, 2, field.height), INK);
+    fill(&mut image, Rect::new(26, 120, 20, 20), INK);
+    word(&mut image, 60, 120, 5, 20);
+    fill(&mut image, Rect::new(16, 180, 20, 20), INK);
+    word(&mut image, 60, 180, 5, 20);
+    let parts = vec![
+        d(Role::Row, "", Rect::new(0, 100, 480, 60)),
+        d(Role::Text, "Search", Rect::new(60, 100, 394, 60)),
+        d(Role::Row, "", Rect::new(0, 160, 480, 60)),
+        d(Role::Text, "Label", Rect::new(60, 160, 394, 60)),
+    ];
+    let scene = scene(&image, parts);
+    let issues = margins(&scene);
+    assert_eq!(checks(&issues), [MARGIN], "{issues:?}");
+    assert!(issues[0].message.starts_with("\"Label\""), "{issues:?}");
+}
+
+#[test]
 fn text_in_the_margin() {
     let mut image = paper();
     word(&mut image, 6, 20, 5, 20);

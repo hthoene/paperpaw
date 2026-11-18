@@ -8,4 +8,5 @@ enum paperpaw_json::Value { Str(0: alloc::string::String), Num(0: f64), Other }
 enum paperpaw_json::stream::Container { Object, Array }
 enum paperpaw_json::stream::Event<'a> { Open(0: &'a [alloc::string::String]), Close(0: &'a [alloc::string::String]), Value(0: &'a [alloc::string::String], 1: &'a str) }
 enum paperpaw_json::stream::State { Between, Text { key: bool, escape: bool, unicode: core::option::Option<(u8, u32)> }, Plain }
+struct paperpaw_json::stream::OutOfMemory
 struct paperpaw_json::stream::Parser { path: paperpaw_json::stream::Path, containers: alloc::vec::Vec<paperpaw_json::stream::Container>, key: core::option::Option<alloc::string::String>, state: paperpaw_json::stream::State, bytes: alloc::vec::Vec<u8>, surrogate: core::option::Option<u32>, skipped: usize }

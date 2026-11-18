@@ -1,0 +1,3 @@
+### Changed
+
+- **SDK: the old plugin API's kit no caller reaches is gone (#300, Decision 209, step S6b-2a).** A second sweep removes what the kernel's own code no longer reaches of the old in-process kit, also where it took no `Env` (widgets such as the date and time pickers, sliders, text fields, chips, sections and reorder rows, the library-service indirection and the old library views), with the tests that only tested it (about 22,000 lines). No plugin could stand in for the kernel's library any more, so the namespace exception for it is gone. What plugins see of the SDK (`api.txt`) and the interface-7 fingerprint are unchanged; what the kernel draws and does is unchanged.

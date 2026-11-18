@@ -22,24 +22,32 @@
 extern crate alloc;
 
 use alloc::borrow::Cow;
-use alloc::boxed::Box;
-use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::vec;
+use alloc::string::String;
 use alloc::vec::Vec;
 
-use paperpaw_sdk::digest::fnv1a64;
 use paperpaw_sdk::document::{
     Align, Block, BlockKind, Document, DocumentError, ImageRef, Locator, Metadata, OffsetMap,
     TocEntry,
 };
 use paperpaw_sdk::image::{GrayFile, GrayWriter, ImageError, ImageSink};
-use paperpaw_sdk::{
-    Env, FormatSpec, Id, Manifest, Plugin, RegisterError, Registrar, Storage, StorageError,
-};
+use paperpaw_sdk::{Storage, StorageError};
 
-pub const PLUGIN: Id = Id::new_static("format-xtc");
-pub const FORMAT: Id = Id::new_static("format-xtc.xtc");
+/// The book: root 3, whose path is `""`.
+const BOOK: &str = "";
+
+pub mod provider;
+
+#[path = "../declarations.rs"]
+#[allow(
+    dead_code,
+    reason = "the build script and the declaration test also use the builders"
+)]
+mod declarations;
+mod native_entry;
+/// The interface-7 plugin.
+pub mod native_plugin;
+#[cfg(feature = "linked")]
+pub use native_entry::NATIVE_ENTRY;
 
 const XTC: &[u8; 4] = b"XTC\0";
 const XTCH: &[u8; 4] = b"XTCH";
@@ -82,25 +90,70 @@ fn u64_at(data: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(bytes)
 }
 
-/// A zero-terminated UTF-8 string of a fixed-size field.
-fn text(field: &[u8]) -> String {
-    let end = field.iter().position(|&b| b == 0).unwrap_or(field.len());
-    String::from_utf8_lossy(&field[..end]).trim().to_string()
+/// A copy of `text`; an error instead of an abort when memory is short.
+fn copy(text: &str) -> Result<String, DocumentError> {
+    let mut out = String::new();
+    out.try_reserve_exact(text.len())
+        .map_err(|_| DocumentError::OutOfMemory)?;
+    out.push_str(text);
+    Ok(out)
 }
 
-/// Bytes at each end of a file that tell it from another of its size.
-const ENDS: u64 = 4096;
+/// The parts joined; an error instead of an abort when memory is short.
+fn joined(parts: &[&str]) -> Result<String, DocumentError> {
+    let mut out = String::new();
+    out.try_reserve_exact(parts.iter().map(|p| p.len()).sum())
+        .map_err(|_| DocumentError::OutOfMemory)?;
+    for part in parts {
+        out.push_str(part);
+    }
+    Ok(out)
+}
 
-/// What tells the file at `path` (`size` bytes) from another of its name:
-/// its size and a hash of its first and last 4 KiB (storages tell no time
-/// a file was changed).
-fn fingerprint(storage: &dyn Storage, path: &str, size: u64) -> Result<String, DocumentError> {
-    let ends = size.min(ENDS);
-    let mut bytes = zeroed(2 * ends as usize)?;
-    let (head, tail) = bytes.split_at_mut(ends as usize);
-    read_exact(storage, path, 0, head)?;
-    read_exact(storage, path, size - ends, tail)?;
-    Ok(format!("{size} {:016x}", fnv1a64(&bytes)))
+/// `value` in decimal, on the stack.
+fn number(value: u32, out: &mut [u8; 10]) -> &str {
+    let mut at = out.len();
+    let mut rest = value;
+    loop {
+        at -= 1;
+        out[at] = b'0' + (rest % 10) as u8;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    core::str::from_utf8(&out[at..]).unwrap_or_default()
+}
+
+/// A zero-terminated UTF-8 string of a fixed-size field, trimmed: bytes
+/// that are no UTF-8 become U+FFFD.
+fn text(field: &[u8]) -> Result<String, DocumentError> {
+    let end = field.iter().position(|&b| b == 0).unwrap_or(field.len());
+    let mut out = String::new();
+    out.try_reserve_exact(end)
+        .map_err(|_| DocumentError::OutOfMemory)?;
+    for chunk in field[..end].utf8_chunks() {
+        out.push_str(chunk.valid());
+        if !chunk.invalid().is_empty() {
+            // U+FFFD is three bytes where the invalid run may be one.
+            out.try_reserve(3).map_err(|_| DocumentError::OutOfMemory)?;
+            out.push('\u{fffd}');
+        }
+    }
+    let trimmed = out.trim();
+    if trimmed.len() == out.len() {
+        return Ok(out);
+    }
+    copy(trimmed)
+}
+
+/// A page's result with damage as `None`; memory and card failures pass.
+fn undamaged<T>(result: Result<T, DocumentError>) -> Result<Option<T>, DocumentError> {
+    match result {
+        Ok(value) => Ok(Some(value)),
+        Err(DocumentError::Malformed(_)) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 /// `len` zero bytes; an error instead of an abort when memory is short.
@@ -169,7 +222,6 @@ impl<'a> Window<'a> {
 /// An open XTC or XTCH book.
 #[derive(Debug)]
 pub struct XtcDocument {
-    path: String,
     /// The size of the file, which the offsets in it must lie within.
     size: u64,
     pages: u32,
@@ -181,13 +233,15 @@ pub struct XtcDocument {
     /// file when they are wanted, so a long table takes little memory.
     chapters: Vec<(u16, u16)>,
     cover: u32,
-    cache: String,
 }
 
 impl XtcDocument {
-    pub fn open(storage: &dyn Storage, path: &str) -> Result<Self, DocumentError> {
+    /// Opens the book on root 3 (path `""`), its pages decoded into the
+    /// document cache (root 6, whose stamp is the host's). A book without a
+    /// title in its metadata has none here: the library names it by its file.
+    pub fn open_native(storage: &dyn Storage) -> Result<Self, DocumentError> {
         let mut head = [0u8; HEADER];
-        read_exact(storage, path, 0, &mut head)?;
+        read_exact(storage, BOOK, 0, &mut head)?;
         if &head[..4] != XTC && &head[..4] != XTCH {
             return Err(malformed("not an XTC book"));
         }
@@ -199,7 +253,7 @@ impl XtcDocument {
         if pages == 0 {
             return Err(malformed("no pages"));
         }
-        let size = storage.size(path)?;
+        let size = storage.size(BOOK)?;
         if index
             .checked_add(u64::from(pages) * INDEX_ENTRY)
             .is_none_or(|end| end > size)
@@ -217,13 +271,16 @@ impl XtcDocument {
                 .filter(|&end| end <= size)
                 .ok_or(malformed("metadata past the end"))?;
             let mut m = [0u8; METADATA as usize];
-            read_exact(storage, path, metadata_at, &mut m)?;
-            metadata.title = Some(text(&m[..128])).filter(|t| !t.is_empty());
-            metadata.authors = Some(text(&m[128..192]))
-                .filter(|a| !a.is_empty())
-                .into_iter()
-                .collect();
-            metadata.language = Some(text(&m[224..240])).filter(|l| !l.is_empty());
+            read_exact(storage, BOOK, metadata_at, &mut m)?;
+            metadata.title = Some(text(&m[..128])?).filter(|t| !t.is_empty());
+            if let Some(author) = Some(text(&m[128..192])?).filter(|a| !a.is_empty()) {
+                metadata
+                    .authors
+                    .try_reserve_exact(1)
+                    .map_err(|_| DocumentError::OutOfMemory)?;
+                metadata.authors.push(author);
+            }
+            metadata.language = Some(text(&m[224..240])?).filter(|l| !l.is_empty());
             let page = u32::from(u16_at(&m, 244));
             if page < pages {
                 cover = page;
@@ -239,7 +296,7 @@ impl XtcDocument {
                 .try_reserve_exact(count as usize)
                 .map_err(|_| DocumentError::OutOfMemory)?;
             // Through a window: the first pages of many records in a read.
-            let mut window = Window::new(storage, path)?;
+            let mut window = Window::new(storage, BOOK)?;
             for record in 0..count as u16 {
                 let at = chapters_at + u64::from(record) * CHAPTER + 80;
                 let start = u16::from_le_bytes([window.byte(at)?, window.byte(at + 1)?]);
@@ -248,23 +305,7 @@ impl XtcDocument {
                 }
             }
         }
-        if metadata.title.is_none() {
-            let name = path.rsplit('/').next().unwrap_or(path);
-            metadata.title = Some(name.rsplit_once('.').map_or(name, |(s, _)| s).to_string());
-        }
-        let cache = paperpaw_sdk::library::kept_path(&Env::plugin_dir(PLUGIN.as_str()), "", path);
-        // Pages decoded from another file of the same name go.
-        let stamp = format!("{} {pages}\n", fingerprint(storage, path, size)?);
-        let stamp_path = format!("{cache}/source");
-        if paperpaw_sdk::read_file(storage, &stamp_path, 64).ok()
-            != Some(stamp.clone().into_bytes())
-        {
-            let _ = storage.remove_dir_all(&cache);
-            let _ = storage.create_dir(&cache);
-            storage.write(&stamp_path, stamp.as_bytes())?;
-        }
         Ok(Self {
-            path: path.to_string(),
             size,
             pages,
             index,
@@ -272,18 +313,44 @@ impl XtcDocument {
             chapters_at,
             chapters,
             cover,
-            cache,
         })
+    }
+
+    /// Chapter `index`, with the reason when it cannot be read.
+    pub(crate) fn chapter(
+        &self,
+        storage: &dyn Storage,
+        index: u32,
+    ) -> Result<TocEntry, DocumentError> {
+        let &(record, page) = self
+            .chapters
+            .get(index as usize)
+            .ok_or(malformed("no such chapter"))?;
+        let mut title = [0u8; 80];
+        let at = self.chapters_at + u64::from(record) * CHAPTER;
+        read_exact(storage, BOOK, at, &mut title)?;
+        Ok(TocEntry {
+            title: text(&title)?,
+            level: 0,
+            at: Locator::new(u32::from(page), 0),
+        })
+    }
+
+    /// The file of the page's cache (root 6) with `extension`.
+    fn cached(page: u32, extension: &str) -> Result<String, DocumentError> {
+        let mut digits = [0u8; 10];
+        let page = number(page, &mut digits);
+        joined(&["p", page, ".", extension])
     }
 
     /// Page `page` as a gray picture in the cache, decoded if needed. A
     /// page that cannot be decoded is marked, so it is not decoded again
     /// each time it is shown (until the book changes, and its cache with
     /// it).
-    fn page(&self, storage: &dyn Storage, page: u32) -> Result<ImageRef, DocumentError> {
-        let cache = format!("{}/p{page}.gray", self.cache);
+    pub(crate) fn page(&self, storage: &dyn Storage, page: u32) -> Result<ImageRef, DocumentError> {
+        let cache = Self::cached(page, "gray")?;
         if GrayFile::open(storage, &cache).is_none() {
-            let broken = format!("{}/p{page}.broken", self.cache);
+            let broken = Self::cached(page, "broken")?;
             if storage.exists(&broken) {
                 return Err(malformed("page cannot be decoded"));
             }
@@ -311,10 +378,10 @@ impl XtcDocument {
             .checked_add(u64::from(page) * INDEX_ENTRY)
             .ok_or(malformed("page index past the end"))?;
         let mut entry = [0u8; INDEX_ENTRY as usize];
-        read_exact(storage, &self.path, at, &mut entry)?;
+        read_exact(storage, BOOK, at, &mut entry)?;
         let offset = u64_at(&entry, 0);
         let mut writer = GrayWriter::new(storage, cache);
-        decode_page(storage, &self.path, self.size, offset, &mut writer)?;
+        decode_page(storage, self.size, offset, &mut writer)?;
         writer.finish().map_err(image_error)
     }
 }
@@ -323,15 +390,14 @@ fn image_error(e: ImageError) -> DocumentError {
     match e {
         ImageError::Io => DocumentError::Storage(StorageError::Io),
         ImageError::OutOfMemory => DocumentError::OutOfMemory,
-        e => DocumentError::Malformed(Cow::Owned(format!("{e}"))),
+        _ => malformed("page cannot be decoded"),
     }
 }
 
-/// Decodes the page picture at `offset` of `path` (`file_size` bytes long)
+/// Decodes the page picture at `offset` of the book (`file_size` bytes long)
 /// into `sink`.
 fn decode_page(
     storage: &dyn Storage,
-    path: &str,
     file_size: u64,
     offset: u64,
     sink: &mut dyn ImageSink,
@@ -341,7 +407,7 @@ fn decode_page(
         .filter(|&data| data <= file_size)
         .ok_or(malformed("page past the end"))?;
     let mut head = [0u8; PAGE_HEADER as usize];
-    read_exact(storage, path, offset, &mut head)?;
+    read_exact(storage, BOOK, offset, &mut head)?;
     let (width, height) = (u32::from(u16_at(&head, 4)), u32::from(u16_at(&head, 6)));
     let size = u64::from(u32_at(&head, 10));
     if width == 0 || height == 0 {
@@ -368,7 +434,7 @@ fn decode_page(
     {
         return Err(malformed("page data past the end"));
     }
-    let mut window = Window::new(storage, path)?;
+    let mut window = Window::new(storage, BOOK)?;
     let mut row = zeroed(width as usize)?;
     sink.start(width, height).map_err(image_error)?;
     if magic == XTG {
@@ -438,10 +504,18 @@ impl Document for XtcDocument {
         if at.section >= self.pages || at.offset >= 1 {
             return Ok(None);
         }
-        let image = self.page(storage, at.section).ok();
+        // A damaged page is named by its number; a failure of memory or of the
+        // card is the caller's.
+        let image = undamaged(self.page(storage, at.section))?;
         let (kind, text) = match &image {
             Some(_) => (BlockKind::Image, String::new()),
-            None => (BlockKind::Paragraph, format!("{}", at.section + 1)),
+            None => {
+                let mut digits = [0u8; 10];
+                (
+                    BlockKind::Paragraph,
+                    copy(number(at.section + 1, &mut digits))?,
+                )
+            }
         };
         Ok(Some(
             Block::new(kind, 0, 1, text)
@@ -456,66 +530,72 @@ impl Document for XtcDocument {
     }
 
     fn toc_entry(&self, storage: &dyn Storage, index: u32) -> Option<TocEntry> {
-        let &(record, page) = self.chapters.get(index as usize)?;
-        let mut title = [0u8; 80];
-        let at = self.chapters_at + u64::from(record) * CHAPTER;
-        read_exact(storage, &self.path, at, &mut title).ok()?;
-        Some(TocEntry {
-            title: text(&title),
-            level: 0,
-            at: Locator::new(u32::from(page), 0),
-        })
+        self.chapter(storage, index).ok()
     }
 
     fn cover(&self, storage: &dyn Storage) -> Result<Option<ImageRef>, DocumentError> {
-        Ok(self.page(storage, self.cover).ok())
-    }
-}
-
-/// The XTC format plugin.
-#[derive(Debug, Default)]
-pub struct XtcFormat;
-
-/// How it works, by language (see `Manifest::how`).
-static HOW: [(&str, &str); 2] = [
-    ("en", include_str!("../how/en.txt")),
-    ("de", include_str!("../how/de.txt")),
-];
-
-impl Plugin for XtcFormat {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(PLUGIN, "XTC", paperpaw_sdk::package_version!())
-            .description("Opens XTC and XTCH books, the Xteink readers' pre-rendered pages.")
-            .how(&HOW)
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        // What is decoded of each book, moved and removed with it.
-        r.add_book_cache(Env::plugin_dir(PLUGIN.as_str()), "")?;
-        r.add_format(
-            FormatSpec::new(
-                FORMAT,
-                "format-xtc.title",
-                vec![Cow::Borrowed("xtc"), Cow::Borrowed("xtch")],
-                Box::new(|storage, path, _| {
-                    XtcDocument::open(storage, path).map(|d| Box::new(d) as Box<dyn Document>)
-                }),
-            )
-            .sniff(|head| head.starts_with(XTC) || head.starts_with(XTCH)),
-        )?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/en.ini")))?;
-        r.add_translations(Cow::Borrowed(include_str!("../i18n/de.ini")))?;
-        Ok(())
+        undamaged(self.page(storage, self.cover))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::format;
+    use alloc::vec;
     use core::cell::Cell;
     use paperpaw_i18n::{Catalog, check};
     use paperpaw_sdk::{DirEntry, MemoryStorage, StorageError};
+
+    /// Root 3 (the book, path `""`) and root 6 (any other path), as the
+    /// provider has them.
+    struct Roots(MemoryStorage);
+
+    impl Roots {
+        fn new(book: Vec<u8>) -> Self {
+            Self(MemoryStorage::new().with("book", book))
+        }
+
+        fn map(path: &str) -> String {
+            if path.is_empty() {
+                String::from("book")
+            } else {
+                format!("cache/{path}")
+            }
+        }
+    }
+
+    impl Storage for Roots {
+        fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+            self.0.read_at(&Self::map(path), offset, buf)
+        }
+
+        fn size(&self, path: &str) -> Result<u64, StorageError> {
+            self.0.size(&Self::map(path))
+        }
+
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            if path.is_empty() {
+                return Err(StorageError::Unsupported);
+            }
+            self.0.write(&Self::map(path), data)
+        }
+
+        fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            if path.is_empty() {
+                return Err(StorageError::Unsupported);
+            }
+            self.0.append(&Self::map(path), data)
+        }
+
+        fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+
+        fn remove(&self, path: &str) -> Result<(), StorageError> {
+            self.0.remove(&Self::map(path))
+        }
+    }
 
     #[test]
     fn translations_are_complete() {
@@ -579,16 +659,16 @@ mod tests {
         out
     }
 
-    /// A storage that counts the reads of its books (files ending in
-    /// `.xtc`) and the bytes they return.
+    /// A storage that counts the reads of its book (root 3) and the bytes
+    /// they return.
     struct Counting {
-        inner: MemoryStorage,
+        inner: Roots,
         reads: Cell<usize>,
         bytes: Cell<usize>,
     }
 
     impl Counting {
-        fn new(inner: MemoryStorage) -> Self {
+        fn new(inner: Roots) -> Self {
             Self {
                 inner,
                 reads: Cell::new(0),
@@ -605,7 +685,7 @@ mod tests {
     impl Storage for Counting {
         fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
             let n = self.inner.read_at(path, offset, buf)?;
-            if path.ends_with(".xtc") {
+            if path.is_empty() {
                 self.reads.set(self.reads.get() + 1);
                 self.bytes.set(self.bytes.get() + n);
             }
@@ -630,14 +710,6 @@ mod tests {
 
         fn remove(&self, path: &str) -> Result<(), StorageError> {
             self.inner.remove(path)
-        }
-
-        fn create_dir(&self, path: &str) -> Result<(), StorageError> {
-            self.inner.create_dir(path)
-        }
-
-        fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
-            self.inner.remove_dir_all(path)
         }
     }
 
@@ -664,8 +736,8 @@ mod tests {
         let mut planes = plane1.to_vec();
         planes.extend_from_slice(&plane2);
         let xth = page(XTH, 2, 9, &planes);
-        let storage = MemoryStorage::new().with("b/t.xtc", book(&[xtg, xth]));
-        let doc = XtcDocument::open(&storage, "b/t.xtc").unwrap();
+        let storage = Roots::new(book(&[xtg, xth]));
+        let doc = XtcDocument::open_native(&storage).unwrap();
         assert_eq!(doc.metadata().title.as_deref(), Some("Title"));
         assert_eq!(doc.metadata().authors, ["Ann"]);
         assert_eq!(doc.sections(), 2);
@@ -710,8 +782,8 @@ mod tests {
             [255, 85, 170, 0][usize::from(bit(0) << 1 | bit(1))]
         };
         let xth = page(XTH, width as u16, height as u16, &planes);
-        let storage = Counting::new(MemoryStorage::new().with("b/t.xtc", book(&[xth])));
-        let doc = XtcDocument::open(&storage, "b/t.xtc").unwrap();
+        let storage = Counting::new(Roots::new(book(&[xth])));
+        let doc = XtcDocument::open_native(&storage).unwrap();
         storage.take();
         let block = doc.block_at(&storage, Locator::new(0, 0)).unwrap().unwrap();
         let (_, bytes) = storage.take();
@@ -727,8 +799,8 @@ mod tests {
     #[test]
     fn broken_pages_are_not_decoded_again() {
         let broken = page(b"XTZ\0", 8, 1, &[0]);
-        let storage = Counting::new(MemoryStorage::new().with("b/t.xtc", book(&[broken])));
-        let doc = XtcDocument::open(&storage, "b/t.xtc").unwrap();
+        let storage = Counting::new(Roots::new(book(&[broken])));
+        let doc = XtcDocument::open_native(&storage).unwrap();
         for view in 0..3 {
             storage.take();
             let block = doc.block_at(&storage, Locator::new(0, 0)).unwrap().unwrap();
@@ -736,37 +808,13 @@ mod tests {
             let (reads, _) = storage.take();
             assert_eq!(reads > 0, view == 0, "view {view}: {reads} reads");
         }
-        // Until the book changes.
-        let mut data = storage.inner.get("b/t.xtc").unwrap();
-        data.push(0);
-        storage.inner.write("b/t.xtc", &data).unwrap();
-        let doc = XtcDocument::open(&storage, "b/t.xtc").unwrap();
-        storage.take();
-        doc.block_at(&storage, Locator::new(0, 0)).unwrap().unwrap();
-        assert!(storage.take().0 > 0);
-    }
-
-    #[test]
-    fn a_replaced_book_of_the_same_size_is_decoded_anew() {
-        let storage = MemoryStorage::new().with("b/t.xtc", book(&[page(XTG, 8, 1, &[0x00])]));
-        let pixel = |storage: &MemoryStorage| {
-            let doc = XtcDocument::open(storage, "b/t.xtc").unwrap();
-            let block = doc.block_at(storage, Locator::new(0, 0)).unwrap().unwrap();
-            rows(storage, &block.image.unwrap())[0][0]
-        };
-        assert_eq!(pixel(&storage), 0);
-        // Black, then white: the same size.
-        storage
-            .write("b/t.xtc", &book(&[page(XTG, 8, 1, &[0xff])]))
-            .unwrap();
-        assert_eq!(pixel(&storage), 255);
     }
 
     #[test]
     fn chapters_are_read_in_few_reads() {
         let pages: Vec<Vec<u8>> = (0..MAX_CHAPTERS).map(|_| page(XTG, 8, 1, &[0])).collect();
-        let storage = Counting::new(MemoryStorage::new().with("b/t.xtc", book(&pages)));
-        let doc = XtcDocument::open(&storage, "b/t.xtc").unwrap();
+        let storage = Counting::new(Roots::new(book(&pages)));
+        let doc = XtcDocument::open_native(&storage).unwrap();
         let (reads, _) = storage.take();
         assert!(reads < 100, "{reads} reads");
         assert_eq!(doc.toc_len(&storage), 1000);
@@ -786,13 +834,13 @@ mod tests {
             // 4 Gi pixels: hours of decoding and gigabytes on the card.
             page(XTH, u16::MAX, u16::MAX, &[0; 8]),
         ];
-        let storage = MemoryStorage::new().with("b/t.xtc", book(&pages));
-        let doc = XtcDocument::open(&storage, "b/t.xtc").unwrap();
+        let storage = Roots::new(book(&pages));
+        let doc = XtcDocument::open_native(&storage).unwrap();
         for p in 0..3 {
             let block = doc.block_at(&storage, Locator::new(p, 0)).unwrap().unwrap();
             assert!(block.image.is_none(), "page {p}");
             assert_eq!(block.text, format!("{}", p + 1));
-            assert!(storage.get(&format!("{}/p{p}.gray", doc.cache)).is_none());
+            assert!(storage.0.get(&format!("cache/p{p}.gray")).is_none());
         }
     }
 
@@ -812,8 +860,8 @@ mod tests {
             ("metadata", patched(16, u64::MAX - 8)),
             ("page", patched(index, u64::MAX - 8)),
         ] {
-            let storage = MemoryStorage::new().with("b/t.xtc", data);
-            let Ok(doc) = XtcDocument::open(&storage, "b/t.xtc") else {
+            let storage = Roots::new(data);
+            let Ok(doc) = XtcDocument::open_native(&storage) else {
                 assert_ne!(
                     what, "page",
                     "one broken page stopped the book from opening"
@@ -874,8 +922,8 @@ mod tests {
             if rng.below(8) == 0 {
                 data.truncate(rng.below(data.len()));
             }
-            let storage = MemoryStorage::new().with("b/t.xtc", data.clone());
-            let Ok(doc) = XtcDocument::open(&storage, "b/t.xtc") else {
+            let storage = Roots::new(data.clone());
+            let Ok(doc) = XtcDocument::open_native(&storage) else {
                 continue;
             };
             for p in 0..doc.sections() {

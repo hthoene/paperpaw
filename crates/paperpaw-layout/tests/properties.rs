@@ -353,12 +353,18 @@ fn check_pages(cx: &LayoutContext<'_>, book: &Book, pages: &[Page], height: f32,
             assert!(line.x >= 0.0);
 
             // No taller than the box: lines go down; a line that does
-            // not fit is alone on its page (with its capital, if any).
+            // not fit is alone on its page (with its capital, if any, on
+            // the same baseline, so below the page with it).
             let face = line.runs[0].face;
             let (ascent, line_height) = widths.line(face);
             if capital {
                 assert_eq!(line.words.len(), 1, "a capital is one letter: {line:?}");
-                assert!(line.baseline <= height + 1e-3);
+                assert!(
+                    line.baseline <= height + 1e-3 || texts == 1,
+                    "capital {:?} stands at {}, page is {height} high",
+                    line.text,
+                    line.baseline
+                );
             } else {
                 assert!(line.baseline > last_baseline);
                 last_baseline = line.baseline;
@@ -619,6 +625,26 @@ fn a_line_lower_than_the_page_is_alone_beside_its_capital() {
     let cx = context(&book, 50.027_22, &PLAIN, false, &EVEN);
     let pages = paginate(&cx, 15.0, &book);
     assert_eq!(shown(&pages), [["a", "aaaaaaaaaaaaaaaaaaa  a"]]);
+    check_pages(&cx, &book, &pages, 15.0, EVEN);
+}
+
+/// The shrunk case of `lines_fit_and_every_character_is_shown_once`
+/// (#228): on a page lower than the baseline of a paragraph's first line,
+/// that line is alone, and its capital stands on its baseline, below the
+/// page with it, not apart from the line it starts.
+#[test]
+fn a_baseline_lower_than_the_page_keeps_its_capital_beside_it() {
+    let mut book = one_paragraph("aaaaaaaaaaaaaaaaaaaa", Align::Auto);
+    book.sections[0][0].size = Some(194);
+    book.sections[0][0].drop_cap = 5;
+    let cx = context(&book, 45.0, &PLAIN, false, &EVEN);
+    let pages = paginate(&cx, 15.0, &book);
+    assert_eq!(shown(&pages), [["a", "aaaaaaaaaaaaaaaaaaa"]]);
+    let [capital, line] = &pages[0].lines[..] else {
+        panic!("two lines: {pages:?}");
+    };
+    assert_eq!(capital.baseline, line.baseline);
+    assert!(line.baseline > 15.0);
     check_pages(&cx, &book, &pages, 15.0, EVEN);
 }
 

@@ -10,7 +10,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use paperpaw_sdk::files::MAX_LINE;
+use crate::lines::MAX_LINE;
 use paperpaw_sdk::{MemoryStorage, Storage};
 use proptest::prelude::*;
 
@@ -31,6 +31,7 @@ fn word(word: &str, language: &str) -> Word {
 /// The words in the file, oldest first, as the list reads them.
 fn all(storage: &dyn Storage) -> Vec<Word> {
     range(storage, 0, usize::MAX)
+        .unwrap()
         .into_iter()
         .map(|(_, w)| w)
         .collect()
@@ -90,11 +91,11 @@ proptest! {
     /// line breaks as spaces, the sentence at most 300 characters).
     #[test]
     fn a_line_round_trips(w in any_word()) {
-        let line = w.line();
+        let line = w.line().unwrap();
         prop_assert!(line.ends_with('\n'));
         prop_assert_eq!(line.matches('\n').count(), 1);
         prop_assert_eq!(line.matches('\t').count(), 6);
-        let back = Word::parse(line.trim_end_matches('\n')).unwrap();
+        let back = Word::parse(line.trim_end_matches('\n')).unwrap().unwrap();
         prop_assert_eq!(back.word, kept(&w.word));
         prop_assert_eq!(back.language, kept(&w.language));
         prop_assert_eq!((back.section, back.offset), (w.section, w.offset));
@@ -133,8 +134,8 @@ proptest! {
             prop_assert_eq!(&r.word, &e.word);
             prop_assert_eq!((r.section, r.offset), (e.section, e.offset));
         }
-        prop_assert_eq!(count(&storage), expected.len());
-        prop_assert_eq!(summary(&storage).count, expected.len());
+        prop_assert_eq!(count(&storage).unwrap(), expected.len());
+        prop_assert_eq!(summary(&storage).unwrap().count, expected.len());
     }
 
     /// Whatever bytes the file holds, reading it neither panics nor
@@ -144,13 +145,13 @@ proptest! {
         // Ending with a line break, as PaperPaw writes it (see
         // `a_word_added_to_a_file_without_a_last_line_break_is_its_own`).
         data.push(b'\n');
-        let storage = MemoryStorage::new().with(&file(), data.clone());
+        let storage = MemoryStorage::new().with(file(), data.clone());
         let lines = data.split(|&b| b == b'\n').filter(|l| !l.is_empty()).count();
         let words = all(&storage);
         prop_assert!(words.len() <= lines);
-        prop_assert!(count(&storage) <= lines);
-        let _ = summary(&storage);
-        prop_assert!(export(&storage, "out.tsv"));
+        prop_assert!(count(&storage).unwrap() <= lines);
+        let _ = summary(&storage).unwrap();
+        export(&storage, "out.tsv").unwrap();
         add(&storage, &word("new", "en")).unwrap();
         prop_assert_eq!(all(&storage).last().map(|w| w.word.clone()), Some("new".to_string()));
     }
@@ -171,8 +172,8 @@ fn the_same_word_in_another_language_is_another_word() {
     let storage = MemoryStorage::new();
     add(&storage, &word("Gift", "en")).unwrap();
     add(&storage, &word("Gift", "de")).unwrap();
-    assert_eq!(count(&storage), 2);
-    assert_eq!(summary(&storage).languages, 2);
+    assert_eq!(count(&storage).unwrap(), 2);
+    assert_eq!(summary(&storage).unwrap().languages, 2);
 }
 
 #[test]
@@ -180,11 +181,11 @@ fn duplicates_in_the_file_all_go_when_the_word_is_added_again() {
     let storage = MemoryStorage::new();
     let twice = format!(
         "{}{}{}",
-        word("echo", "en").line(),
-        word("Echo", "en").line(),
-        word("other", "en").line()
+        word("echo", "en").line().unwrap(),
+        word("Echo", "en").line().unwrap(),
+        word("other", "en").line().unwrap()
     );
-    storage.write(&file(), twice.as_bytes()).unwrap();
+    storage.write(file(), twice.as_bytes()).unwrap();
     add(&storage, &word("ECHO", "en")).unwrap();
     let words: Vec<String> = all(&storage).into_iter().map(|w| w.word).collect();
     assert_eq!(words, ["other", "ECHO"]);
@@ -214,13 +215,13 @@ fn hostile_lines_are_skipped() {
     data.extend_from_slice(long.as_bytes());
     // The last line without a line break.
     data.extend_from_slice(b"last\ten\t5\t6\tp\tt\tend");
-    storage.write(&file(), &data).unwrap();
+    storage.write(file(), &data).unwrap();
     let words = all(&storage);
     let names: Vec<&str> = words.iter().map(|w| w.word.as_str()).collect();
     assert_eq!(names, ["caf\u{fffd}", "long", "last"]);
     assert!(words[1].sentence.len() < MAX_LINE);
     assert_eq!(words[2].sentence, "end");
-    assert_eq!(summary(&storage).count, 3);
+    assert_eq!(summary(&storage).unwrap().count, 3);
 }
 
 #[test]
@@ -231,7 +232,7 @@ fn a_line_cut_inside_a_character_is_read() {
     let fields = "w\ten\t1\t2\tp\tt\t";
     let pad = MAX_LINE - fields.len() - 1;
     let line = format!("{fields}{}€€\n", "a".repeat(pad));
-    storage.write(&file(), line.as_bytes()).unwrap();
+    storage.write(file(), line.as_bytes()).unwrap();
     let words = all(&storage);
     assert_eq!(words.len(), 1);
     assert!(words[0].sentence.ends_with('\u{fffd}'));
@@ -241,8 +242,8 @@ fn a_line_cut_inside_a_character_is_read() {
 fn the_writer_still_writes_version_1() {
     // What version 1 wrote, written again by this version, is the same.
     let v1 = include_str!("../../testdata/words.txt.v1");
-    let storage = MemoryStorage::new().with(&file(), v1);
-    let again: String = all(&storage).iter().map(Word::line).collect();
+    let storage = MemoryStorage::new().with(file(), v1);
+    let again: String = all(&storage).iter().map(|w| w.line().unwrap()).collect();
     assert_eq!(again, v1.replace("\r\n", "\n"));
 }
 
@@ -254,12 +255,12 @@ fn deleting_a_word_after_an_unreadable_line_deletes_that_word() {
     let storage = MemoryStorage::new();
     let data = format!(
         "not a word\n{}{}",
-        word("first", "en").line(),
-        word("second", "en").line()
+        word("first", "en").line().unwrap(),
+        word("second", "en").line().unwrap()
     );
-    storage.write(&file(), data.as_bytes()).unwrap();
+    storage.write(file(), data.as_bytes()).unwrap();
     // The list shows each word with its number, and deletes by it.
-    let listed = range(&storage, 0, 10);
+    let listed = range(&storage, 0, 10).unwrap();
     let (_, first) = listed.iter().find(|(_, w)| w.word == "first").unwrap();
     assert_eq!(first.word, "first");
     remove(&storage, first).unwrap();
@@ -273,9 +274,9 @@ fn deleting_a_word_after_an_unreadable_line_deletes_that_word() {
 #[test]
 fn a_word_added_to_a_file_without_a_last_line_break_is_its_own() {
     let storage = MemoryStorage::new();
-    let last = word("last", "en").line();
+    let last = word("last", "en").line().unwrap();
     storage
-        .write(&file(), last.trim_end_matches('\n').as_bytes())
+        .write(file(), last.trim_end_matches('\n').as_bytes())
         .unwrap();
     add(&storage, &word("new", "en")).unwrap();
     let words: Vec<String> = all(&storage).into_iter().map(|w| w.word).collect();

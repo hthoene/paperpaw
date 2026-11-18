@@ -2,4 +2,5 @@
 # tools/interface.py writes them: fields, variants and trait items in
 # the source's order, private fields and the private types they reach
 # too, every feature on but the kernel's (ADR 0026).
+enum paperpaw_qr::QrError { TooLong, NoMemory }
 struct paperpaw_qr::QrCode { size: usize, modules: alloc::vec::Vec<bool> }

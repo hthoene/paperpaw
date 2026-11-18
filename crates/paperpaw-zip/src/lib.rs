@@ -112,9 +112,61 @@ pub struct ZipArchive {
 /// letters count as lowercase, so names that differ only in case share a
 /// hash and can be found by either.
 fn hash(name: &[u8]) -> u32 {
-    name.iter().fold(0x811c_9dc5, |hash, &b| {
+    hash_on(0x811c_9dc5, name)
+}
+
+fn hash_on(hash: u32, bytes: &[u8]) -> u32 {
+    bytes.iter().fold(hash, |hash, &b| {
         (hash ^ u32::from(b.to_ascii_lowercase())).wrapping_mul(0x0100_0193)
     })
+}
+
+/// The hash of `name` as [`lossy`] makes it a `String`, without making it.
+fn hash_lossy(name: &[u8]) -> u32 {
+    name.utf8_chunks().fold(0x811c_9dc5, |hash, chunk| {
+        let hash = hash_on(hash, chunk.valid().as_bytes());
+        if chunk.invalid().is_empty() {
+            hash
+        } else {
+            hash_on(
+                hash,
+                char::REPLACEMENT_CHARACTER
+                    .encode_utf8(&mut [0; 4])
+                    .as_bytes(),
+            )
+        }
+    })
+}
+
+/// `bytes` as text, invalid UTF-8 replaced (as `String::from_utf8_lossy`),
+/// allocated fallibly.
+fn lossy(bytes: Vec<u8>) -> Result<String, ZipError> {
+    let bytes = match String::from_utf8(bytes) {
+        Ok(text) => return Ok(text),
+        Err(e) => e.into_bytes(),
+    };
+    let replacement = char::REPLACEMENT_CHARACTER.len_utf8();
+    let len = bytes
+        .utf8_chunks()
+        .map(|c| {
+            c.valid().len()
+                + if c.invalid().is_empty() {
+                    0
+                } else {
+                    replacement
+                }
+        })
+        .sum();
+    let mut text = String::new();
+    text.try_reserve_exact(len)
+        .map_err(|_| ZipError::OutOfMemory)?;
+    for chunk in bytes.utf8_chunks() {
+        text.push_str(chunk.valid());
+        if !chunk.invalid().is_empty() {
+            text.push(char::REPLACEMENT_CHARACTER);
+        }
+    }
+    Ok(text)
 }
 
 /// The CRC-32 of ZIP entries, over `data` continuing `crc`. A byte at a
@@ -179,6 +231,25 @@ fn read_exact(
     Ok(buf)
 }
 
+/// Fills `into` from `offset` and tells how much was there: less than
+/// `into` holds where the file ends before.
+fn read_into(
+    storage: &dyn Storage,
+    path: &str,
+    offset: u64,
+    into: &mut [u8],
+) -> Result<usize, ZipError> {
+    let mut filled = 0;
+    while let Some(rest) = into.get_mut(filled..).filter(|rest| !rest.is_empty()) {
+        let n = storage.read_at(path, offset + filled as u64, rest)?;
+        if n == 0 {
+            break;
+        }
+        filled += n;
+    }
+    Ok(filled)
+}
+
 /// A zero-filled buffer, or [`ZipError::OutOfMemory`].
 fn zeroed(len: usize) -> Result<Vec<u8>, ZipError> {
     let mut buffer = Vec::new();
@@ -189,6 +260,65 @@ fn zeroed(len: usize) -> Result<Vec<u8>, ZipError> {
     Ok(buffer)
 }
 
+/// Bytes of the central directory read at once while it is indexed: a read
+/// is a call to the host and a look at the card (about 2 ms on the X4,
+/// #250), and a record with its name is some 60 bytes.
+const DIRECTORY: usize = 2048;
+/// A record and a name of up to 82 bytes: what a lookup reads at once.
+const NAMED: usize = 128;
+
+/// A piece of the archive read at once, to take records from; freed with
+/// the indexing.
+struct Piece {
+    bytes: Vec<u8>,
+    /// Where `bytes` begins in the file, and how many of them are read.
+    at: u64,
+    read: usize,
+}
+
+impl Piece {
+    /// Room for `most` bytes (a record's at least).
+    fn new(most: usize) -> Result<Self, ZipError> {
+        Ok(Piece {
+            bytes: zeroed(most.max(RECORD))?,
+            at: 0,
+            read: 0,
+        })
+    }
+
+    /// The `len` bytes at `at` of the file `size` long, read with what
+    /// follows them where they are not at hand; `None` where `len` is more
+    /// than the piece holds.
+    fn get(
+        &mut self,
+        (storage, path, size): (&dyn Storage, &str, u64),
+        at: u64,
+        len: usize,
+    ) -> Result<Option<&[u8]>, ZipError> {
+        if len > self.bytes.len() {
+            return Ok(None);
+        }
+        let held = at >= self.at && at + len as u64 <= self.at + self.read as u64;
+        if !held {
+            let want = size.saturating_sub(at).min(self.bytes.len() as u64) as usize;
+            (self.at, self.read) = (at, 0);
+            while self.read < want {
+                let into = self.bytes.get_mut(self.read..want).unwrap_or_default();
+                let n = storage.read_at(path, at + self.read as u64, into)?;
+                if n == 0 {
+                    break;
+                }
+                self.read += n;
+            }
+            if self.read < len {
+                return Err(ZipError::Invalid("unexpected end of file"));
+            }
+        }
+        let from = (at - self.at) as usize;
+        Ok(self.bytes.get(from..from + len))
+    }
+}
+
 /// Finds the end-of-central-directory record and returns it, searching
 /// backwards from the end of the file in small steps: it usually is the
 /// last 22 bytes, but an archive comment may follow it.
@@ -197,7 +327,11 @@ fn zeroed(len: usize) -> Result<Vec<u8>, ZipError> {
 /// there is none (data after the archive, a damaged comment) is the last
 /// one taken whose central directory lies before it, so that a signature
 /// inside a comment is not mistaken for the record.
-fn find_end_record(storage: &dyn Storage, path: &str, size: u64) -> Result<Vec<u8>, ZipError> {
+fn find_end_record(
+    storage: &dyn Storage,
+    path: &str,
+    size: u64,
+) -> Result<[u8; EOCD_SIZE as usize], ZipError> {
     const STEP: u64 = 1024;
     if size < EOCD_SIZE {
         return Err(ZipError::Invalid("too small"));
@@ -212,23 +346,26 @@ fn find_end_record(storage: &dyn Storage, path: &str, size: u64) -> Result<Vec<u
         let len = ((end + EOCD_SIZE - 1).min(size) - start) as usize;
         let window = read_exact(storage, path, start, len)?;
         for i in (0..(end - start) as usize).rev() {
-            let Some(record) = window.get(i..i + EOCD_SIZE as usize) else {
+            let Some(record) = window
+                .get(i..i + EOCD_SIZE as usize)
+                .and_then(|r| <[u8; EOCD_SIZE as usize]>::try_from(r).ok())
+            else {
                 continue;
             };
             if record[..4] != [0x50, 0x4b, 0x05, 0x06] {
                 continue;
             }
             let at = start + i as u64;
-            let comment_end = at + EOCD_SIZE + u64::from(u16_at(record, 20).unwrap_or(0));
+            let comment_end = at + EOCD_SIZE + u64::from(u16_at(&record, 20).unwrap_or(0));
             if comment_end == size {
-                return Ok(record.to_vec());
+                return Ok(record);
             }
-            let cd_offset = u32_at(record, 16).unwrap_or(0);
-            let cd_end = u64::from(cd_offset) + u64::from(u32_at(record, 12).unwrap_or(0));
+            let cd_offset = u32_at(&record, 16).unwrap_or(0);
+            let cd_end = u64::from(cd_offset) + u64::from(u32_at(&record, 12).unwrap_or(0));
             // ZIP64 keeps the central directory's place elsewhere.
             let before = cd_offset == u32::MAX || cd_end <= at;
             if before && fallback.is_none() {
-                fallback = Some(record.to_vec());
+                fallback = Some(record);
             }
         }
         end = start;
@@ -237,9 +374,18 @@ fn find_end_record(storage: &dyn Storage, path: &str, size: u64) -> Result<Vec<u
 }
 
 impl ZipArchive {
-    /// Reads the central directory of the archive at `path`, entry by
-    /// entry, so even large directories need little memory.
+    /// Reads the central directory of the archive at `path`, a piece of
+    /// it at a time, so even large directories need little memory.
     pub fn open(storage: &dyn Storage, path: &str) -> Result<ZipArchive, ZipError> {
+        Self::open_in_pieces(storage, path, DIRECTORY)
+    }
+
+    /// [`ZipArchive::open`], the directory read `piece` bytes at a time.
+    fn open_in_pieces(
+        storage: &dyn Storage,
+        path: &str,
+        piece: usize,
+    ) -> Result<ZipArchive, ZipError> {
         let size = storage.size(path)?;
         let record = find_end_record(storage, path, size)?;
         let truncated = ZipError::Invalid("truncated");
@@ -260,26 +406,44 @@ impl ZipArchive {
             .map_err(|_| ZipError::OutOfMemory)?;
         let mut at = u64::from(cd_offset);
         let bad = ZipError::Invalid("bad central directory entry");
+        let file = (storage, path, size);
+        let mut piece = Piece::new(piece.min(cd_size as usize))?;
         for _ in 0..count {
             if at + RECORD as u64 > cd_end || at > u64::from(u32::MAX) {
                 return Err(bad);
             }
-            let head = read_exact(storage, path, at, RECORD)?;
-            let field = |offset| u16_at(&head, offset).map(u64::from).ok_or(bad.clone());
-            if u32_at(&head, 0) != Some(0x0201_4b50) {
+            let head = piece.get(file, at, RECORD)?.ok_or(bad.clone())?;
+            let field = |offset| u16_at(head, offset).map(u64::from).ok_or(bad.clone());
+            if u32_at(head, 0) != Some(0x0201_4b50) {
                 return Err(bad);
             }
-            let name_len = field(28)?;
-            let name = read_exact(storage, path, at + RECORD as u64, name_len as usize)?;
+            let (name_len, rest) = (field(28)?, field(30)? + field(32)?);
+            let named = RECORD + name_len as usize;
             // Hashed as the entry is named (see `ZipArchive::record`).
-            index.push((hash(String::from_utf8_lossy(&name).as_bytes()), at as u32));
-            at += RECORD as u64 + name_len + field(30)? + field(32)?;
+            let hashed = match piece.get(file, at, named)? {
+                Some(record) => hash_lossy(record.get(RECORD..).unwrap_or_default()),
+                // A name longer than the piece: read on its own.
+                None => hash_lossy(&read_exact(
+                    storage,
+                    path,
+                    at + RECORD as u64,
+                    name_len as usize,
+                )?),
+            };
+            index.push((hashed, at as u32));
+            at += RECORD as u64 + name_len + rest;
         }
-        index.sort_unstable();
-        Ok(ZipArchive {
-            path: String::from(path),
-            index,
-        })
+        drop(piece);
+        // The shared sorter's unstable sort, in place: its stable one would add
+        // a 4-byte position per entry on top of this index (2,000 entries:
+        // 8 KB more). The (hash, offset) pairs are unique, so the order is the same.
+        paperpaw_sort::sort_unstable(&mut index);
+        let mut owned = String::new();
+        owned
+            .try_reserve_exact(path.len())
+            .map_err(|_| ZipError::OutOfMemory)?;
+        owned.push_str(path);
+        Ok(ZipArchive { path: owned, index })
     }
 
     /// Number of entries.
@@ -335,24 +499,41 @@ impl ZipArchive {
     }
 
     /// The central directory record at `offset`: its fixed part and the
-    /// entry's name (invalid UTF-8 replaced).
-    fn record(&self, storage: &dyn Storage, offset: u32) -> Result<(Vec<u8>, String), ZipError> {
-        let head = read_exact(storage, &self.path, u64::from(offset), RECORD)?;
+    /// entry's name (invalid UTF-8 replaced), in one read where the name
+    /// is of usual length.
+    fn record(
+        &self,
+        storage: &dyn Storage,
+        offset: u32,
+    ) -> Result<([u8; RECORD], String), ZipError> {
+        // Read on the stack: the name is kept by callers (a comic's page
+        // list holds thousands), so it takes exactly its own length.
+        let mut read = [0u8; NAMED];
+        let got = read_into(storage, &self.path, u64::from(offset), &mut read)?;
+        let read = read.get(..got).unwrap_or_default();
+        let head: [u8; RECORD] = read
+            .get(..RECORD)
+            .and_then(|head| head.try_into().ok())
+            .ok_or(ZipError::Invalid("unexpected end of file"))?;
         if u32_at(&head, 0) != Some(0x0201_4b50) {
             return Err(ZipError::Invalid("bad central directory entry"));
         }
         let name_len = usize::from(u16_at(&head, 28).unwrap_or(0));
-        let name = read_exact(
-            storage,
-            &self.path,
-            u64::from(offset) + RECORD as u64,
-            name_len,
-        )?;
-        let name = match String::from_utf8(name) {
-            Ok(name) => name,
-            Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned(),
+        let name = match read.get(RECORD..RECORD + name_len) {
+            Some(name) => {
+                let mut exact = Vec::new();
+                exact
+                    .try_reserve_exact(name_len)
+                    .map_err(|_| ZipError::OutOfMemory)?;
+                exact.extend_from_slice(name);
+                exact
+            }
+            None => {
+                let after = u64::from(offset) + RECORD as u64;
+                read_exact(storage, &self.path, after, name_len)?
+            }
         };
-        Ok((head, name))
+        Ok((head, lossy(name)?))
     }
 
     /// Where a stored (uncompressed) entry's bytes are in the archive file,
@@ -421,10 +602,17 @@ impl ZipArchive {
     ) -> Result<EntryReader<'_>, ZipError> {
         let offset = self.data_offset(storage, entry)?;
         let remaining = u64::from(entry.compressed_size);
-        let input = zeroed(CHUNK.min(remaining as usize).max(1))?;
+        // Largest first: the window is the one large piece (the 32 KiB
+        // history for a long entry), and after the small ones took a part of
+        // the largest free block it found no room where there was enough
+        // (#250). An entry that fits the deflate history is inflated whole
+        // into a window of exactly its size (#248: an 8.1 KiB package
+        // document no longer takes 16 KiB); a longer one wraps through the
+        // full history (a power of two).
         let inflate = match entry.method {
             Method::Stored => None,
             Method::Deflate => {
+                let window = zeroed((entry.size as usize).clamp(1, WINDOW))?;
                 let mut decoder: Vec<DecompressorOxide> = Vec::new();
                 decoder
                     .try_reserve_exact(1)
@@ -432,14 +620,10 @@ impl ZipArchive {
                 // Made in place: built as a value first, its 10 KB would
                 // be on the stack, deep in the opening of a book.
                 decoder.resize_with(1, DecompressorOxide::default);
-                // A power of two (required for a wrapping window) that holds
-                // the whole entry, or the full deflate history.
-                let window_len = (entry.size.min(WINDOW as u32) as usize)
-                    .next_power_of_two()
-                    .max(64);
-                Some((decoder, zeroed(window_len)?))
+                Some((decoder, window))
             }
         };
+        let input = zeroed(CHUNK.min(remaining as usize).max(1))?;
         Ok(EntryReader {
             path: &self.path,
             offset,
@@ -559,11 +743,15 @@ impl EntryReader<'_> {
             let Some((decoder, window)) = &mut self.inflate else {
                 break;
             };
-            let flags = if self.remaining > 0 {
+            let whole = window.len() < WINDOW || self.size == WINDOW as u64;
+            let mut flags = if self.remaining > 0 {
                 inflate_flags::TINFL_FLAG_HAS_MORE_INPUT
             } else {
                 0
             };
+            if whole {
+                flags |= inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+            }
             let (status, consumed, written) = decompress(
                 &mut decoder[0],
                 &self.input[self.start..self.end],
@@ -581,9 +769,18 @@ impl EntryReader<'_> {
                 self.made_crc,
                 &window[self.position..self.position + written],
             );
-            self.position = (self.position + written) & (window.len() - 1);
+            self.position = if whole {
+                self.position + written
+            } else {
+                (self.position + written) & (window.len() - 1)
+            };
             match status {
                 TINFLStatus::Done => self.done = true,
+                // A whole window that is full and asked for more: the
+                // content is longer than the entry's size.
+                TINFLStatus::HasMoreOutput if whole && self.position == window.len() => {
+                    return Err(ZipError::Invalid("entry longer than its size"));
+                }
                 TINFLStatus::HasMoreOutput => {}
                 TINFLStatus::NeedsMoreInput if self.remaining > 0 || self.start < self.end => {}
                 TINFLStatus::NeedsMoreInput => {
@@ -753,6 +950,23 @@ mod tests {
     use alloc::string::ToString;
     use paperpaw_platform::DirEntry;
 
+    #[test]
+    fn names_made_text_match_the_lossy_conversion_and_its_hash() {
+        let names: [&[u8]; 6] = [
+            b"",
+            b"plain.txt",
+            "Gr\u{f6}\u{df}e.txt".as_bytes(),
+            b"bad\xff\xfe.txt",
+            b"\xe2\x82",
+            b"a\xc3(b\xf0\x9f\x98",
+        ];
+        for name in names {
+            let expected = String::from_utf8_lossy(name);
+            assert_eq!(lossy(name.to_vec()).unwrap(), expected, "{name:?}");
+            assert_eq!(hash_lossy(name), hash(expected.as_bytes()), "{name:?}");
+        }
+    }
+
     /// A single-file storage for tests.
     struct OneFile(Vec<u8>);
 
@@ -866,6 +1080,77 @@ mod tests {
 
     fn text(len: u32) -> Vec<u8> {
         (0..len).map(|i| b'a' + (i % 26) as u8).collect()
+    }
+
+    /// Bytes that do not compress (a fixed xorshift): long literal runs.
+    fn noise(len: u32) -> Vec<u8> {
+        let mut x: u32 = 0x9e37_79b9;
+        (0..len)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 17;
+                x ^= x << 5;
+                x as u8
+            })
+            .collect()
+    }
+
+    #[test]
+    fn entries_of_every_size_inflate_whole_or_through_the_history() {
+        // Small entries go into a window of their exact size, longer ones
+        // wrap through the 32 KiB history (#248): both read back whole,
+        // read at once and streamed, around every edge.
+        let mut sizes: Vec<u32> = (0..300).collect();
+        sizes.extend([511, 512, 513, 4095, 4096, 4097, 8191, 8192, 8193]);
+        sizes.extend([32_767, 32_768, 32_769, 65_536, 70_001]);
+        for len in sizes {
+            for data in [text(len), noise(len)] {
+                let zip = ZipBuilder::new().deflated("d", data.clone()).build();
+                let storage = OneFile(zip);
+                let archive = ZipArchive::open(&storage, "x.zip").unwrap();
+                let entry = archive.entry(&storage, "d").unwrap().unwrap();
+                assert_eq!(
+                    archive.read(&storage, &entry, 1 << 20).unwrap(),
+                    data,
+                    "{len}"
+                );
+                let mut streamed = Vec::new();
+                archive
+                    .stream(&storage, &entry, &mut |chunk| {
+                        streamed.extend_from_slice(chunk);
+                        true
+                    })
+                    .unwrap();
+                assert_eq!(streamed, data, "{len}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_empty_last_block_after_a_full_window_is_read() {
+        // zlib's flushes end a stream with an empty block once all content
+        // is out: the whole window is full by then and must still take it.
+        let stored_abc = [0x00, 0x03, 0x00, 0xfc, 0xff, b'a', b'b', b'c'];
+        for last in [&[0x01, 0x00, 0x00, 0xff, 0xff][..], &[0x03, 0x00][..]] {
+            let mut payload = stored_abc.to_vec();
+            payload.extend_from_slice(last);
+            // A stored entry of the payload, then made a deflated one of "abc".
+            let mut zip = ZipBuilder::new().stored("d", payload.clone()).build();
+            let central = records(&zip)[0];
+            let crc = crc32(0, b"abc").to_le_bytes();
+            for (method, crc_at, size_at) in
+                [(8, 14, 22), (central + 10, central + 16, central + 24)]
+            {
+                zip[method..method + 2].copy_from_slice(&8u16.to_le_bytes());
+                zip[crc_at..crc_at + 4].copy_from_slice(&crc);
+                zip[size_at..size_at + 4].copy_from_slice(&3u32.to_le_bytes());
+            }
+            let storage = OneFile(zip);
+            let archive = ZipArchive::open(&storage, "x.zip").unwrap();
+            let entry = archive.entry(&storage, "d").unwrap().unwrap();
+            assert_eq!(entry.method, Method::Deflate);
+            assert_eq!(archive.read(&storage, &entry, 100).unwrap(), b"abc");
+        }
     }
 
     #[test]
@@ -1026,6 +1311,126 @@ mod tests {
             }
         }
         assert_eq!(crc32(0, &data), !bitwise);
+    }
+
+    /// [`OneFile`], its reads counted.
+    struct Counted(OneFile, core::cell::Cell<usize>);
+
+    impl Storage for Counted {
+        fn read_at(&self, p: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+            self.1.set(self.1.get() + 1);
+            self.0.read_at(p, offset, buf)
+        }
+        fn size(&self, p: &str) -> Result<u64, StorageError> {
+            self.0.size(p)
+        }
+        fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+        fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            Ok(())
+        }
+        fn remove(&self, _: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+    }
+
+    /// An archive of 180 entries as a book has them, one of a name longer
+    /// than a piece of the directory, and its names.
+    fn a_books_archive() -> (Vec<u8>, Vec<String>) {
+        let mut names: Vec<String> = (0..179)
+            .map(|i| alloc::format!("OEBPS/Text/chapter-{i:03}.xhtml"))
+            .collect();
+        names.insert(90, "long/".to_owned() + &"n".repeat(3000));
+        let mut builder = ZipBuilder::new();
+        for name in &names {
+            builder = builder.stored(name, name.as_bytes().to_vec());
+        }
+        (builder.build(), names)
+    }
+
+    /// Indexing a book's archive took two reads an entry, each a call to
+    /// the host: 358 of the 746 reads of a first opening on the X4 (#250).
+    #[test]
+    fn the_directory_is_indexed_a_piece_at_a_time_not_an_entry() {
+        let (zip, names) = a_books_archive();
+        let storage = Counted(OneFile(zip), core::cell::Cell::new(0));
+        let archive = ZipArchive::open(&storage, "x.zip").unwrap();
+        // The end record, 11 KB of directory by 2 KiB, the long name.
+        let reads = storage.1.get();
+        assert!(reads <= 12, "{reads} reads to index 180 entries");
+        // The same index whatever the piece, down to a record alone.
+        for piece in [RECORD, 64, NAMED, 512, 100_000] {
+            let other = ZipArchive::open_in_pieces(&storage, "x.zip", piece).unwrap();
+            assert_eq!(other.index, archive.index, "pieces of {piece}");
+        }
+        for name in &names {
+            let entry = archive.entry(&storage, name).unwrap().unwrap();
+            assert_eq!(&entry.name, name);
+            assert_eq!(
+                archive.read(&storage, &entry, 4096).unwrap(),
+                name.as_bytes()
+            );
+        }
+    }
+
+    #[test]
+    fn an_entry_is_looked_up_in_one_read_and_a_long_name_in_two() {
+        let (zip, names) = a_books_archive();
+        let storage = Counted(OneFile(zip), core::cell::Cell::new(0));
+        let archive = ZipArchive::open(&storage, "x.zip").unwrap();
+        // (The last entries, with less than `NAMED` bytes after them, take
+        // one more read, which finds the file's end.)
+        for (name, reads) in [(&names[0], 1), (&names[150], 1), (&names[90], 2)] {
+            storage.1.set(0);
+            let entry = archive.entry(&storage, name).unwrap().unwrap();
+            assert_eq!(&entry.name, name);
+            assert_eq!(storage.1.get(), reads, "{}", &name[..20]);
+            storage.1.set(0);
+            assert_eq!(archive.entry_by_record(&storage, entry.record), Ok(entry));
+            assert_eq!(storage.1.get(), reads);
+        }
+    }
+
+    /// Names are kept by callers: a comic's page list holds thousands and
+    /// budgets by their length, so none may keep the read buffer's room.
+    #[test]
+    fn an_entrys_name_takes_no_more_room_than_its_length() {
+        let (zip, names) = a_books_archive();
+        let storage = OneFile(zip);
+        let archive = ZipArchive::open(&storage, "x.zip").unwrap();
+        let entry = archive.entry(&storage, &names[0]).unwrap().unwrap();
+        assert_eq!(entry.name.capacity(), entry.name.len());
+        let mut listed = 0;
+        for entry in archive.entries(&storage) {
+            let name = entry.unwrap().name;
+            assert_eq!(name.capacity(), name.len(), "{}", &name[..20]);
+            listed += 1;
+        }
+        assert_eq!(listed, names.len());
+    }
+
+    #[test]
+    fn a_directory_cut_off_is_told_not_read_past_the_file() {
+        let (zip, _) = a_books_archive();
+        // The end record put after a directory that ends early: its last
+        // entries are not there.
+        let end = zip.len() - EOCD_SIZE as usize;
+        let mut cut = zip[..end - 2000].to_vec();
+        let mut record = zip[end..].to_vec();
+        let shorter = u32_at(&record, 12).unwrap() - 2000;
+        record[12..16].copy_from_slice(&shorter.to_le_bytes());
+        cut.extend_from_slice(&record);
+        for piece in [RECORD, DIRECTORY] {
+            let storage = Counted(OneFile(cut.clone()), core::cell::Cell::new(0));
+            assert!(matches!(
+                ZipArchive::open_in_pieces(&storage, "x.zip", piece),
+                Err(ZipError::Invalid(_))
+            ));
+        }
     }
 
     #[test]

@@ -24,8 +24,10 @@ The zip holds, under `paperpaw-handbook-<version>/`:
   how a plugin solves things, to search where one is wanted.
 
 Never in it: tests (also those in `src/`), pictures, fonts and the sample
-books, what a build or a run leaves, and the kernel and the shells, which
-a plugin never uses. A field or file is only added; FORMAT counts up
+books, design proposals still in draft (`docs/abi/proposals/`), the
+generated table of icon names (`icon_table.rs`) and the SDK's private
+copies of the generated wire codecs, what a build or a run
+leaves, and the kernel and the shells, which a plugin never uses. A field or file is only added; FORMAT counts up
 where one changes.
 """
 
@@ -49,6 +51,26 @@ ASSETS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".ttf", ".otf", ".ttc", ".pp
           ".epub", ".fb2", ".pdf", ".bin", ".ppn"}
 # Folders of such files, by their path.
 ASSET_FOLDERS = ("samples/library/books/",)
+# Design proposals still in draft: working papers for the team, replaced by
+# the ADR and the docs they become, not what a plugin author reads.
+DRAFT_FOLDERS = ("docs/abi/proposals/",)
+# Kernel-side code of the SDK's crates that no plugin calls (behind the
+# `kernel` feature): how the firmware reads and relocates the interface-7 file
+# of the X4. Working code for the loaders, not what a plugin author reads.
+KERNEL_ONLY = ("crates/paperpaw-native/src/header5.rs", "crates/paperpaw-native/src/stream5.rs")
+
+# Generated tables of data with nothing to read in them: the names of all
+# of Tabler's icons in one string (172 KB, 53 KB zipped; `tools/icons/subset.py`
+# makes it). The names are public and `icons.rs` says how they are used.
+# And the SDK's private byte-for-byte copies of the generated wire codecs
+# (`tools/abi-gen.py` writes them, `abi-gen --check` keeps them equal to
+# `abi/generated/`): no plugin can name an item in them (none is in
+# `api.txt`), and `docs/abi/*.md` describe the wire they frame (about 20 KB
+# zipped).
+GENERATED_FOLDERS = ("crates/paperpaw-sdk/src/icon_table.rs",
+                     "crates/paperpaw-sdk/src/native/wire/",
+                     "crates/paperpaw-sdk/src/native/declare/records_wire.rs",
+                     "crates/paperpaw-sdk/src/native/declare/settings_value.rs")
 # What of a plugin's folder the handbook holds.
 PLUGIN_PARTS = ("Cargo.toml", "plugin.ini", "src", "i18n", "how")
 
@@ -78,7 +100,8 @@ def files(folder: Path):
         if (path.is_file() and not any(p.startswith(".") for p in parts)
                 and not SKIP.intersection(parts) and not test
                 and path.suffix.lower() not in ASSETS
-                and not name.startswith(ASSET_FOLDERS)):
+                and not name.startswith(ASSET_FOLDERS + DRAFT_FOLDERS + GENERATED_FOLDERS)
+                and name not in KERNEL_ONLY):
             yield path
 
 
@@ -161,7 +184,8 @@ What each part is for:
   from; registry.json and checks.json are what the app offers data
   plugins and what paperpaw-dev checks.
 
-Tests, pictures, fonts and the sample books are not in it.
+Tests, pictures, fonts, the sample books and design proposals still in
+draft are not in it.
 """
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr(f"{top}/README.md", readme)

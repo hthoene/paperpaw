@@ -13,24 +13,42 @@ keywords = ["e-reader", "e-ink", "epaper", "ssd1677", "xteink"]
 
 [dependencies]
 embedded-hal = "1.0"
+# The `core.device` host the firmware wires (`device_host`): the kernel's trait.
+paperpaw-core.workspace = true
+# The status codes of a host (`ERR_NOT_FOUND`).
+paperpaw-native.workspace = true
 paperpaw-platform.workspace = true
+# The `[firmware]` section of paperpaw.ini, read as the kernel reads the file
+# (`dual_boot`).
+paperpaw-config.workspace = true
 # Updates' files, their signatures and the firmware as plugins see it
 # (`updates`): the kernel's part, as the firmware has it.
 paperpaw-sdk = { workspace = true, features = ["kernel"] }
+# Packed update files, inflated as they are written (`updates::packed`); the
+# firmware has it linked already (ZIP, PNG).
+miniz_oxide = { version = "=0.9.1", default-features = false, features = ["with-alloc"] }
 
 [dev-dependencies]
+# The secrets sealer's rules with a real AES-256-GCM (`key_sealer`); the
+# firmware's cipher is mbedTLS.
+aes-gcm = { version = "0.10", default-features = false, features = ["aes"] }
 # The tests of `generation` on smoltcp's own socket set, as the firmware uses it.
 smoltcp = { version = "0.12", default-features = false, features = ["medium-ethernet", "proto-ipv4", "socket-udp", "alloc"] }
-# The whole update path (`tests/update_path.rs`): the update plugin on the
-# kernel, update files signed and checked, images as espflash makes them.
-paperpaw-plugin-update.workspace = true
+# The whole update path (`tests/update_path.rs`): update files signed and
+# checked, images as espflash makes them, the kernel running on them.
 paperpaw-plugin-fonts-default.workspace = true
+# English hyphenation on the card at the first start (`tests/update_path.rs`).
+paperpaw-default-packs.workspace = true
+paperpaw-hyphen = { workspace = true, features = ["kernel"] }
 paperpaw-update.workspace = true
 paperpaw-digest.workspace = true
-paperpaw-core.workspace = true
 paperpaw-app.workspace = true
 # The waveform lab's screen, tried on the host (`tests/waveform_lab.rs`).
 paperpaw-graphics.workspace = true
+
+[features]
+# LAB ONLY (#168): the SSD1677's power-down in four variants, chosen at run time.
+fade-lab = []
 
 [lints]
 workspace = true

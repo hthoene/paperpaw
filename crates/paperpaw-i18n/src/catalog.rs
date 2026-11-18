@@ -10,6 +10,7 @@ use paperpaw_config::ParseError;
 
 use crate::built::{Built, BuiltCatalogs};
 use crate::card::{self, Card, CatalogFile};
+use crate::messages::BuiltMessages;
 use crate::plural::PluralRule;
 
 /// The messages of one language.
@@ -70,6 +71,8 @@ pub struct Catalog {
 enum Elsewhere {
     Card(Card),
     Built(Built),
+    /// The messages of a language built in without their keys.
+    Messages(&'static BuiltMessages),
 }
 
 impl Clone for Elsewhere {
@@ -77,6 +80,7 @@ impl Clone for Elsewhere {
         match self {
             Elsewhere::Card(card) => Elsewhere::Card(card.clone()),
             Elsewhere::Built(built) => Elsewhere::Built(built.clone()),
+            Elsewhere::Messages(messages) => Elsewhere::Messages(messages),
         }
     }
 }
@@ -91,21 +95,21 @@ impl Elsewhere {
     fn load(&mut self) -> Result<(), CatalogError> {
         match self {
             Elsewhere::Card(card) => card.load(),
-            Elsewhere::Built(_) => Ok(()),
+            Elsewhere::Built(_) | Elsewhere::Messages(_) => Ok(()),
         }
     }
 
     fn is_loaded(&self) -> bool {
         match self {
             Elsewhere::Card(card) => card.is_loaded(),
-            Elsewhere::Built(_) => true,
+            Elsewhere::Built(_) | Elsewhere::Messages(_) => true,
         }
     }
 
     fn read_bytes(&self) -> usize {
         match self {
             Elsewhere::Card(card) => card.read_bytes(),
-            Elsewhere::Built(_) => 0,
+            Elsewhere::Built(_) | Elsewhere::Messages(_) => 0,
         }
     }
 
@@ -119,6 +123,7 @@ impl Elsewhere {
         match self {
             Elsewhere::Card(card) => card.get(key),
             Elsewhere::Built(built) => built.get(key),
+            Elsewhere::Messages(messages) => messages.get(key),
         }
     }
 
@@ -126,6 +131,7 @@ impl Elsewhere {
         match self {
             Elsewhere::Card(card) => card.len(),
             Elsewhere::Built(built) => built.len(),
+            Elsewhere::Messages(messages) => messages.len(),
         }
     }
 
@@ -133,6 +139,7 @@ impl Elsewhere {
         match self {
             Elsewhere::Card(card) => card.index_on_heap(),
             Elsewhere::Built(built) => built.index_on_heap(),
+            Elsewhere::Messages(_) => 0,
         }
     }
 }
@@ -675,7 +682,9 @@ impl Catalog {
             .iter()
             .map(|&at| (key_of(source, &escaped, &others, at), at))
             .collect();
-        keyed.sort_unstable_by(|a, b| a.0.cmp(b.0).then_with(|| line(a.1).cmp(&line(b.1))));
+        paperpaw_sort::sort_by(&mut keyed, |a, b| {
+            a.0.cmp(b.0).then_with(|| line(a.1).cmp(&line(b.1)))
+        });
         index.clear();
         let mut sorted = keyed.iter().peekable();
         while let Some(&(key, at)) = sorted.next() {
@@ -740,14 +749,70 @@ impl Catalog {
 
     /// The catalog `source` (as [`Catalog::parse`] reads it) compiled, to
     /// be read from a card as needed ([`Catalog::open`]).
+    ///
+    /// The meta text of the compiled catalog ends with the first and the
+    /// last of its keys (`first-key`, `last-key`, where both are plain):
+    /// a catalog mostly holds one plugin's keys, and a key outside them is
+    /// then known not to be in it without a read of the card (see
+    /// [`Catalog::get`]).
     pub fn compile(source: &str) -> Result<Vec<u8>, CatalogError> {
         let catalog = Catalog::parse(String::from(source))?;
-        let meta = meta_text(source);
+        let mut meta = meta_text(source);
         let messages: Vec<(&str, &str)> = catalog
             .keys()
             .filter_map(|key| Some((key, catalog.get(key)?)))
             .collect();
+        let first = messages.iter().map(|(key, _)| *key).min();
+        let last = messages.iter().map(|(key, _)| *key).max();
+        if let (Some(first), Some(last)) = (first, last)
+            && first.bytes().chain(last.bytes()).all(is_key_byte)
+        {
+            for (name, key) in [(FIRST_KEY, first), (LAST_KEY, last)] {
+                meta.push_str(&name[1..]);
+                meta.push_str(key);
+                meta.push('\n');
+            }
+        }
         card::compile(&meta, &messages)
+    }
+
+    /// The sources of several catalogs of one language as one source: the
+    /// `[meta]` of the first, then the `[messages]` of all, in order. A
+    /// language pack is made of the catalogs of the kernel and every
+    /// plugin this way (`paperpaw-sign catalog-merge`).
+    pub fn merge_sources<'a>(sources: impl IntoIterator<Item = &'a str>) -> String {
+        let mut out = String::new();
+        let mut messages = String::new();
+        for (n, source) in sources.into_iter().enumerate() {
+            if n == 0 {
+                out = meta_text(source);
+                out.push_str("\n[messages]\n");
+            }
+            let mut inside = false;
+            for line in source.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with('[') {
+                    inside = trimmed == "[messages]";
+                } else if inside {
+                    messages.push_str(line);
+                    messages.push('\n');
+                }
+            }
+        }
+        out.push_str(&messages);
+        out
+    }
+
+    /// Whether `key` is before the first or after the last key of a
+    /// compiled catalog that says them at the end of its meta text (as
+    /// [`Catalog::compile`] writes them; one compiled before says none).
+    fn outside_compiled(&self, key: &str) -> bool {
+        let said = || {
+            let (_, rest) = self.source.rsplit_once(FIRST_KEY)?;
+            let (first, rest) = rest.split_once(LAST_KEY)?;
+            Some((first, rest.strip_suffix('\n')?))
+        };
+        said().is_some_and(|(first, last)| key < first || key > last)
     }
 
     /// Whether its messages are read from a card as needed.
@@ -755,28 +820,62 @@ impl Catalog {
         matches!(self.card.as_deref(), Some(Elsewhere::Card(_)))
     }
 
-    /// The English catalogs built in, indexed together: one catalog for
-    /// all of them, whose sources fill it as they are added
+    /// The catalogs of a language built in, indexed together: one catalog
+    /// for all of them, whose sources fill it as they are added
     /// ([`Translator::built_catalogs`](crate::Translator::built_catalogs)).
-    pub(crate) fn built(table: &'static BuiltCatalogs) -> Option<Catalog> {
-        let meta = "[meta]\nlanguage = en\nname = English\nplural = one-other\n";
+    pub(crate) fn built(
+        table: &'static BuiltCatalogs,
+        language: &str,
+        name: &str,
+    ) -> Option<Catalog> {
+        let meta =
+            alloc::format!("[meta]\nlanguage = {language}\nname = {name}\nplural = one-other\n");
         let mut catalog = Catalog::parse(meta).ok()?;
         catalog.card = Some(Box::new(Elsewhere::Built(Built::new(table))));
         Some(catalog)
     }
 
-    /// Whether it is the English catalogs built in, indexed together.
+    /// The messages of a language built in without their keys: one catalog
+    /// that answers for all their sources
+    /// ([`Translator::built_messages`](crate::Translator::built_messages)).
+    pub(crate) fn messages(table: &'static BuiltMessages) -> Option<Catalog> {
+        let meta = alloc::format!(
+            "[meta]\nlanguage = {}\nname = {}\nplural = one-other\n",
+            table.language,
+            table.name
+        );
+        let mut catalog = Catalog::parse(meta).ok()?;
+        catalog.card = Some(Box::new(Elsewhere::Messages(table)));
+        Some(catalog)
+    }
+
+    /// Whether it is the catalogs of a language built in, indexed together
+    /// or without their keys.
     pub(crate) fn is_built(&self) -> bool {
-        matches!(self.card.as_deref(), Some(Elsewhere::Built(_)))
+        matches!(
+            self.card.as_deref(),
+            Some(Elsewhere::Built(_) | Elsewhere::Messages(_))
+        )
+    }
+
+    /// Whether it is the messages of a language built in without their
+    /// keys.
+    pub(crate) fn is_messages(&self) -> bool {
+        matches!(self.card.as_deref(), Some(Elsewhere::Messages(_)))
     }
 
     /// Takes `source` into the built catalogs' slot for it, where this is
     /// that catalog and holds it.
-    pub(crate) fn take_built(&mut self, source: &'static str) -> bool {
+    pub(crate) fn take_built(&mut self, print: u64, source: &'static str) -> bool {
         match self.card.as_deref_mut() {
-            Some(Elsewhere::Built(built)) => built.take(source),
+            Some(Elsewhere::Built(built)) => built.take(print, source),
             _ => false,
         }
+    }
+
+    /// Whether `[meta]` says a direction, script, digits or calendar.
+    pub(crate) fn says_more_than_language(&self) -> bool {
+        self.direction != 0 || self.script != 0 || self.digits != 0 || self.calendar != 0
     }
 
     /// Its source, where it is kept in the program.
@@ -891,10 +990,28 @@ impl Catalog {
         }
     }
 
-    paperpaw_table::shared! {
+    /// [`Catalog::get`] for a caller that copies the message out at once:
+    /// a message of a catalog on the card is still found after the most that
+    /// is kept was read ([`MAX_READ`](crate::MAX_READ)), read anew.
+    pub fn get_copy(&self, key: &str) -> Option<Cow<'_, str>> {
+        if let Some(Elsewhere::Card(card)) = self.card.as_deref() {
+            if self.outside_compiled(key) {
+                return None;
+            }
+            return card.get_copy(key);
+        }
+        self.get(key).map(Cow::Borrowed)
+    }
+
     /// The message for `key`, if this catalog has one and is loaded.
     pub fn get(&self, key: &str) -> Option<&str> {
         if let Some(card) = &self.card {
+            // Not read from the card to learn that it is not there: the
+            // kernel's own texts and those of other plugins are asked of
+            // every catalog on the card first, at every change of screen.
+            if matches!(**card, Elsewhere::Card(_)) && self.outside_compiled(key) {
+                return None;
+            }
             return card.get(key);
         }
         let len = self.index.len(self.wide);
@@ -925,7 +1042,6 @@ impl Catalog {
         } else {
             plain_value(&self.source, at)
         }
-    } @ data::I18N_CATALOG_GET as for<'s> fn(&'s Self, &str) -> Option<&'s str>
     }
 
     /// All message keys, sorted; none of a catalog on the card (that
@@ -992,6 +1108,11 @@ impl Catalog {
 /// The key of index entry `at` (see the field `index` of `Catalog`).
 /// The `[meta]` section of `source` as written, from its header to the
 /// next section's.
+/// What begins the lines of a compiled catalog's meta text that say its
+/// first and its last key (see [`Catalog::compile`]), after a line's end.
+const FIRST_KEY: &str = "\nfirst-key = ";
+const LAST_KEY: &str = "\nlast-key = ";
+
 fn meta_text(source: &str) -> String {
     let mut meta = String::new();
     let mut inside = false;

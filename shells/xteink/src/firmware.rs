@@ -24,20 +24,27 @@ use paperpaw_x4::sent::Sent;
 use crate::board::Panel;
 use crate::network::{Network, NetworkIo};
 use crate::ota::Ota;
+use crate::usb_power::Sense;
 use crate::{clock, device, input, now, power, stack};
 
+mod cable;
+mod card_swap;
+mod clean;
+mod dozing;
+mod low_memory;
 mod paced;
-#[cfg(feature = "esp32c3")]
+#[cfg(feature = "remote")]
+mod remote_commands;
+#[cfg(feature = "asleep-light")]
 mod sleeping_board;
+mod start_screens;
+mod turn_lab;
+#[cfg(feature = "usb-drive")]
+mod usb_drive;
 mod waveform;
 
 /// How long the main loop rests when there is nothing to do.
 const POLL_MS: u64 = 10;
-/// Lines of the cable transfer read in one turn of the main loop at most.
-const CABLE_LINES: usize = 32;
-/// After a line of the cable transfer, the main loop reads on without
-/// resting for this long.
-const CABLE_QUIET_MS: u64 = 300;
 /// How often the battery is read.
 const STATUS_MS: u64 = 60_000;
 /// On battery, the longest the processor sleeps between readings of the
@@ -86,16 +93,44 @@ pub struct Firmware {
     /// The X4 Pro's front light.
     #[cfg(feature = "x4-pro")]
     pub light: Option<crate::light::Light>,
+    /// The card taken out and put back while running (#145).
+    pub card_swap: Option<alloc::boxed::Box<dyn crate::volume::Swap>>,
+    /// The device behind `core.device`, told of what the kernel keeps.
+    #[cfg(feature = "ppn5")]
+    pub device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    /// `core.secrets` past the loader (Beta 3's veiled values sealed once
+    /// the random numbers are strong).
+    #[cfg(feature = "ppn5")]
+    pub secrets: crate::secrets::Secrets,
+    /// The loader's table of handles, for the linked plugins' hosting
+    /// (`native-on`): one table for the device.
+    #[cfg(feature = "native-on")]
+    pub device_table: Option<crate::native::DeviceTable>,
     pub state: State,
 }
 
 /// Where the main loop is.
 #[derive(Debug, Default)]
 pub struct State {
+    /// What the card's watch said last, where it was not `No` (logged as
+    /// it changes).
+    card_said: Option<paperpaw_fat::Swapped>,
+    /// Power was held 8 s and the main loop took the request (G12): the
+    /// switch-off is decided, and what the key does from now on (let go,
+    /// pressed again) does not change it. Set only in `step`; it ends in the
+    /// power-off or a reset, so nothing clears it.
+    escape: bool,
+    /// The one-time low-memory notice (`low_memory`).
+    low_memory: paperpaw_x4::low_memory::Notice,
     /// The kernel asked to sleep.
     sleep: bool,
     /// The kernel asked to switch the device off (`Effect::PowerOff`).
     power_off: bool,
+    /// The kernel asked to show the card to a computer (`Effect::UsbDrive`).
+    #[cfg(feature = "usb-drive")]
+    usb_drive: bool,
+    /// Staying awake on USB, the developer's choice (`dozing`).
+    stay: paperpaw_x4::stay_awake::StayAwake,
     /// When the kernel wants to be woken.
     wake_at: Option<Instant>,
     /// When the battery was read last.
@@ -146,6 +181,11 @@ pub struct State {
     /// The panel's memories may differ after startup or a paced frame:
     /// the next one drives every pixel.
     frame_stale: bool,
+    /// The panel showed grays until the frame being drawn: its refresh drives
+    /// every pixel ([`clean`]).
+    after_gray: bool,
+    /// LAB ONLY (#40, feature `turn-lab`): the page-turn variant.
+    turn_lab: turn_lab::Lab,
 }
 
 /// The place of `refresh` in [`State::refresh_ms`].
@@ -159,7 +199,7 @@ fn kind(refresh: Refresh) -> usize {
 
 impl Firmware {
     /// Starts the kernel, then runs the main loop.
-    pub fn run(mut self) -> ! {
+    pub fn run(&mut self) -> ! {
         crate::startup::finish(&mut self.panel);
         // Startup released its bands before loading the kernel. Drive the
         // first frame whole instead of comparing its old panel memories.
@@ -168,6 +208,37 @@ impl Firmware {
         for warning in self.kernel.take_warnings() {
             warn!("{warning}");
         }
+        // The linked plugins of interface 7, hosted only where the stack's band
+        // is armed (`abi/heap-word.md` section 6); else none runs and the log
+        // says so. Here, on the kernel in its place: a local in `kernel()` or
+        // `start()` would copy it (+4 KB on the frame).
+        #[cfg(feature = "native-on")]
+        if let Some(table) = &self.device_table {
+            if paperpaw_x4::stack_band::host_native_at_start(crate::stack::band_armed()) {
+                crate::native::register_linked(&mut self.kernel, table);
+                // Plugin jobs (a store's install, update and removal, a
+                // plugin check), which the loader's own lists and the families
+                // wired by now decide (`paperpaw_x4::host_jobs`). Not where no
+                // code loads (an update on trial, safe mode): refused then.
+                let wired = crate::device_host::wired_families(false);
+                // With what this firmware's loader reads (`native::reads`).
+                if let Some(loader) = crate::native::reads()
+                    && !paperpaw_x4::host_jobs::offer_plugin_jobs(
+                        &mut self.kernel,
+                        loader,
+                        crate::native::FAMILY,
+                        wired,
+                    )
+                {
+                    warn!("native: plugin jobs are not taken: the kernel has no firmware host");
+                }
+            } else {
+                warn!("native: the stack's band is not armed: no plugin of interface 7 is hosted");
+            }
+        }
+        // Interface 6's passwords through the same sealer, before the start.
+        #[cfg(feature = "ppn5")]
+        self.secrets.started(&mut self.kernel);
         let effects = self.kernel.start(now());
         self.apply(effects);
         self.finishing_update();
@@ -178,6 +249,21 @@ impl Firmware {
         }
     }
 
+    /// A start is due once the update on trial is kept: code plugins to load,
+    /// or the linked plugins of interface 7 that a trial does not host
+    /// (`paperpaw_x4::host_jobs::restart_once_kept`).
+    fn restart_once_kept(&self) -> bool {
+        #[cfg(feature = "native-on")]
+        let (hosted, linked) = (self.device_table.is_some(), true);
+        #[cfg(not(feature = "native-on"))]
+        let (hosted, linked) = (true, false);
+        paperpaw_x4::host_jobs::restart_once_kept(
+            crate::native::code_to_load(self.kernel.storage()),
+            hosted,
+            linked,
+        )
+    }
+
     /// An update on trial with code plugins to load once it is kept: it
     /// starts again then, and says so meanwhile, on a screen that takes no
     /// input (nothing begun is cut off).
@@ -186,7 +272,7 @@ impl Firmware {
         let Some(left) = self.ota.as_ref().and_then(|ota| ota.trial_left(start.0)) else {
             return;
         };
-        if !paperpaw_core::code_to_load(self.kernel.storage(), &crate::native::this_firmware()) {
+        if !self.restart_once_kept() {
             return;
         }
         let params = paperpaw_sdk::Params::new()
@@ -218,34 +304,77 @@ impl Firmware {
     /// so what it calls aside from the kernel (the USB lines, updates,
     /// sleeping) keeps frames of its own (`#[inline(never)]`).
     fn step(&mut self) {
-        if let Some(ota) = &mut self.ota
-            && ota.check_trial(now().0)
-        {
+        // Power held 8 s (G12): out, whatever else is going on. The timer's
+        // readings reset the processor if this is not reached in time.
+        if input::escape_requested() {
+            input::escape_take();
+            // Latched here, in the main loop: letting go of the key from now
+            // on does not turn this into the normal suspend decision.
+            self.state.escape = true;
+            info!("Power held: switching off");
+            return self.sleep(false);
+        }
+        // Beta 3's veiled values, sealed the first time a radio is on.
+        #[cfg(feature = "ppn5")]
+        self.secrets.poll();
+        // Kept only where the mark was written: a flash that fails to write
+        // leaves the update on trial (it may still go back), and the hold
+        // on code plugins with it (`Kernel::trial_kept`).
+        let end = self.ota.as_mut().map(|ota| ota.check_trial(now().0));
+        if end == Some(paperpaw_x4::updates::TrialEnd::Kept) {
             // An update on trial starts without code plugins: those
             // installed before (an update that keeps the fingerprint
             // fetches none) and those fetched for it wait for a start once
             // it is kept, which installs and loads them (ADR 0024).
-            let native = crate::native::this_firmware();
             Ota::trial_over(self.kernel.storage());
-            self.state.restart_for_code =
-                paperpaw_core::code_to_load(self.kernel.storage(), &native);
+            self.kernel.trial_kept();
+            self.state.restart_for_code = self.restart_once_kept();
         }
         // At a calm moment: at once, unless a book is open, then once it
         // is left. A sleep on battery before is a start too.
+        // A firmware job installed an image and asked for its start
+        // (`FirmwareHost::restart`): the way every restart goes, at the next
+        // turn of this loop, not inside the kernel's call.
+        if crate::ota::restart_asked() {
+            info!("OTA: an installed update asked to start: restarting");
+            self.restart();
+        }
         if self.state.restart_for_code && !self.reading() {
             info!("native: the update is kept; restarting to load the code plugins");
             self.restart();
         }
+        self.watch_stay_awake();
         let installing = self.installing();
         match paperpaw_x4::sleeping::wanted(self.state.sleep, self.state.power_off, installing) {
             Some(paperpaw_x4::sleeping::Wanted::SwitchOff) => return self.sleep(false),
+            // A doze only where the kernel itself holds the sleep: not at a
+            // nearly empty battery that does not charge, which sleeps for
+            // real, the timer's or the reader's.
+            Some(paperpaw_x4::sleeping::Wanted::Sleep)
+                if self.state.stay.is_on() && self.kernel.awake_on_usb() =>
+            {
+                return self.doze();
+            }
             Some(paperpaw_x4::sleeping::Wanted::Sleep) => return self.sleep(true),
             None => {}
+        }
+        // The card goes to the computer: nothing else runs until it is back.
+        #[cfg(feature = "usb-drive")]
+        if self.state.usb_drive {
+            return self.usb_drive();
+        }
+        if self.state.stay.is_dozing() {
+            return self.dozing_step();
         }
         power::feed();
         power::mark(power::at::LOOP);
         stack::check();
+        // The test image's high-water log: a comparison of the clock, a sample
+        // only every 30 s.
+        #[cfg(feature = "test-image")]
+        crate::high_water::step(now().0);
         self.io();
+        self.watch_card();
         for effects in self.network.step(&mut self.kernel, now()) {
             self.apply(effects);
         }
@@ -257,7 +386,7 @@ impl Firmware {
         let battery = !self.network.radio_on()
             && !installing
             && !light
-            && ((self.usb_power.is_low() && self.kernel.settings().read(&device::LIGHT_SLEEP))
+            && ((!self.usb_power.cable() && self.kernel.settings().read(&device::LIGHT_SLEEP))
                 || self.trying_sleep());
         power::allow(battery);
         self.status();
@@ -310,6 +439,15 @@ impl Firmware {
     fn panel_idle(&mut self) {
         if self.state.panel_idle_at.is_some_and(|at| now().0 >= at) {
             self.state.panel_idle_at = None;
+            #[cfg(feature = "fade-lab")]
+            if self.panel.powered() {
+                // LAB ONLY (#168): the variant from the card, a digit.
+                let mut digit = *b"0";
+                let _ = self.kernel.storage().read_at("fade-lab.txt", 0, &mut digit);
+                let variant = digit[0].saturating_sub(b'0').min(4);
+                info!("fade-lab: variant {variant}");
+                self.panel.set_fade_variant(variant);
+            }
             if self.panel.powered()
                 && let Err(e) = self.panel.power_down()
             {
@@ -328,6 +466,11 @@ impl Firmware {
         let after = paperpaw_x4::light_timer::delay_ms(settings.read(&device::LIGHT_OFF_AFTER));
         let lit = level > 0 && self.light.is_some();
         let dark = self.state.light_timer.dark(now().0, after, lit);
+        #[cfg(feature = "ppn5")]
+        self.device.set_value(
+            "frontlight-percent",
+            Some(if lit && !dark { level } else { 0 }),
+        );
         if let Some(light) = self.light.as_mut() {
             if dark {
                 light.off();
@@ -440,10 +583,14 @@ impl Firmware {
 
     fn restart(&mut self) -> ! {
         info!("restarting");
+        crate::safe_mode::clean_exit();
         self.settle_frame();
-        crate::startup::restarting(&mut self.panel, &self.kernel);
+        self.restart_screen();
         self.pause_trial();
         let _ = self.kernel.stop(now());
+        // The stop route's depth is kept for the next start (test image).
+        #[cfg(feature = "test-image")]
+        crate::high_water::before_sleep();
         self.network.leave();
         esp_hal::system::software_reset();
     }
@@ -469,19 +616,38 @@ impl Firmware {
             .state
             .status_read
             .is_none_or(|read| at.since(read) >= STATUS_MS);
-        let on_usb = self.usb_power.is_high();
-        let plugged = on_usb != self.state.status_on_usb;
-        if !clock::take_changed() && !due && !plugged {
+        // What the cable does (#209): charging is what the bolt, the kernel's
+        // low-battery rules and the install check take for it, and only a
+        // change of it makes a status at once. The pin and the frames by
+        // themselves go to the diagnostics page with the regular readings: a
+        // frames reading that flickers must not send a status (and a line
+        // to the battery log) every second.
+        let on_usb = self.usb_power.charging();
+        if !paperpaw_x4::usb_link::status_due(
+            clock::take_changed(),
+            due,
+            self.state.status_on_usb,
+            on_usb,
+        ) {
             return;
         }
+        let readings = self.usb_power.readings();
         power::mark(power::at::STATUS);
         self.state.status_read = Some(at);
         self.state.status_on_usb = on_usb;
         let millivolts = input::millivolts();
-        let status = SystemStatus::new(
+        let mut status = SystemStatus::new(
             clock::wall(at),
             Some(Battery::new(input::percent(), on_usb, Some(millivolts))),
         );
+        if let Some(high) = readings.pin_high {
+            status = status.with_value("usb-pin-high", i64::from(high));
+        }
+        if let Some(frames) = readings.frames {
+            status = status.with_value("usb-frames", i64::from(frames));
+        }
+        #[cfg(feature = "ppn5")]
+        crate::device_host::tell_usb(&self.device, readings.pin_high, readings.frames);
         let effects = self.kernel.set_status(at, status);
         self.apply(effects);
     }
@@ -513,6 +679,18 @@ impl Firmware {
                 }
                 input::Change::Touch(touch, at) => (self.pointer(touch), at),
             };
+            // A doze ends at the first press; the power button's only wakes.
+            if self.wake_dozing()
+                && matches!(
+                    event,
+                    InputEvent::Button {
+                        name: paperpaw_platform::buttons::POWER,
+                        ..
+                    }
+                )
+            {
+                continue;
+            }
             // The press that brings the front light back only does that.
             if !self.light_passes(&event) {
                 continue;
@@ -613,6 +791,7 @@ impl Firmware {
             // Started again: whatever the light sleeps did to the USB link,
             // the computer finds the X4 again.
             power::mark(power::at::TRIED);
+            crate::safe_mode::clean_exit();
             esp_hal::system::software_reset();
         }
         // A press under way: read again soon, awake (the readings stop in
@@ -622,6 +801,10 @@ impl Firmware {
             return;
         }
         let idle = self.idle_ms();
+        // A doze waits for a press or a command only: what the kernel and
+        // the panel would wake for (a stale time, long past) would make
+        // this return at once, every loop.
+        let dozing = self.state.stay.is_dozing();
         let mut until = now().0
             + if battery {
                 idle
@@ -631,28 +814,29 @@ impl Firmware {
             } else {
                 POLL_MS
             };
-        if let Some(at) = self.state.wake_at {
+        if let Some(at) = self.state.wake_at
+            && !dozing
+        {
             until = until.min(at.0);
         }
         if let Some(worked) = self.state.unsynced {
             let due = worked + SYNC_MS;
             if now().0 >= due {
-                self.state.unsynced = None;
-                if self.kernel.storage().sync().is_err() {
-                    warn!("card: not all written back");
-                }
+                self.write_back();
             } else {
                 until = until.min(due);
             }
         }
-        if let Some(read) = self.state.status_read {
-            until = until.min(read.0 + STATUS_MS);
-        }
-        if let Some(at) = self.state.panel_idle_at {
-            until = until.min(at);
-        }
-        if let Some(due) = self.frame_due() {
-            until = until.min(due);
+        if !dozing {
+            if let Some(read) = self.state.status_read {
+                until = until.min(read.0 + STATUS_MS);
+            }
+            if let Some(at) = self.state.panel_idle_at {
+                until = until.min(at);
+            }
+            if let Some(due) = self.frame_due() {
+                until = until.min(due);
+            }
         }
         if !power::nap_until(until) {
             self.delay
@@ -679,21 +863,35 @@ impl Firmware {
     #[inline(never)]
     fn sleep(&mut self, lightly: bool) {
         self.settle_frame();
+        // The lows of the run are kept before the sleep (test image).
+        #[cfg(feature = "test-image")]
+        crate::high_water::before_sleep();
         // A press over USB that put it to sleep is let go first.
         #[cfg(feature = "remote")]
         self.release_held();
-        self.pause_trial();
-        let effects = self.kernel.suspend(now());
-        self.apply(effects);
+        // A doze that ends in a sleep (the cable pulled) suspended already.
+        if !self.state.stay.suspended_already() {
+            self.pause_trial();
+            let effects = self.kernel.suspend(now());
+            self.apply(effects);
+        }
         // Bluetooth down now: the main loop does not come by once the
         // pending work is finished and the processor sleeps.
         #[cfg(feature = "bluetooth")]
         self.network
             .bluetooth(paperpaw_core::BtCall::Radio { on: false });
         let pressed = !self.finish_work();
+        // What the work finished wrote is on the card before a light sleep
+        // of hours (`slept::mark` writes back once more at the power-off).
+        self.write_back();
         // A plugin may have asked to switch off while it heard core.suspend
         // or in the work finished: that is honoured now, not after a wake.
-        let next = paperpaw_x4::sleeping::after_suspend(lightly, self.state.power_off, pressed);
+        // Power held 8 s (G12) is out, whatever else was pressed meanwhile.
+        let next = if self.state.escape {
+            paperpaw_x4::sleeping::After::SwitchOff
+        } else {
+            paperpaw_x4::sleeping::after_suspend(lightly, self.state.power_off, pressed)
+        };
         if next == paperpaw_x4::sleeping::After::Awake {
             // A press meanwhile: awake after all.
             info!("sleep: a press, awake");
@@ -707,7 +905,7 @@ impl Firmware {
         }
         // A real sleep first (the processor lightly asleep, the power button
         // waking it at once), switched off only after a while (#51).
-        #[cfg(feature = "esp32c3")]
+        #[cfg(feature = "asleep-light")]
         if next == paperpaw_x4::sleeping::After::Light && self.sleep_lightly() {
             return;
         }
@@ -722,10 +920,13 @@ impl Firmware {
     )]
     #[inline(never)]
     fn power_off(&mut self) -> ! {
+        // Its own choice, maybe before the first frame: not a failed start.
+        crate::safe_mode::clean_exit();
         // The next start ends this sleep: the mark says so, for plugins to
         // hear the device wake (`core.resume`). A switch-off a plugin asked
         // for leaves it too: the start is a cold one, but plugins that
         // count sleeps hear `core.resume` (with the time asleep unknown).
+        self.prepare_start_picture();
         paperpaw_x4::slept::mark(self.kernel.storage());
         let _ = self.panel.sleep();
         #[cfg(feature = "x4-pro")]
@@ -733,15 +934,18 @@ impl Firmware {
             light.off();
         }
         info!(
-            "sleeping: hardware shutdown (USB {})",
-            self.usb_power.is_high()
+            "sleeping: hardware shutdown (USB {}, charging {})",
+            self.usb_power.cable(),
+            self.usb_power.charging()
         );
         // The power goes, the radio's with it: the network left first, and
         // before the wait below, which has no end while the button is held
         // (a case or a sleeve pressing it): the radio would listen all that
         // time.
         self.network.leave();
-        // Released first: held, the button would wake it at once.
+        // Released first: held, the button would wake it at once. A hold
+        // meanwhile (a sleeve pressing it) is not the escape.
+        input::escape_off();
         self.wait_for_power_release();
         let mut power = input::stop().expect("the power button");
         // The X4 Classic keeps its power on and holds its lines, as its
@@ -767,7 +971,7 @@ impl Firmware {
     /// every [`paperpaw_x4::sleeping::CHECK_MS`] it wakes for a moment to
     /// look at the battery. The order of it is
     /// [`paperpaw_x4::sleeping::run`], tested on a computer.
-    #[cfg(feature = "esp32c3")]
+    #[cfg(feature = "asleep-light")]
     #[inline(never)]
     fn sleep_lightly(&mut self) -> bool {
         use paperpaw_x4::sleeping::{Ended, Off};
@@ -775,11 +979,19 @@ impl Firmware {
         if !self.kernel.settings().read(&device::LIGHT_SLEEP) {
             return false;
         }
+        // The front light goes off for the sleep (its PWM stops in a light
+        // sleep, the LEDs must not be left half lit); `wake_lightly` and the
+        // next frame bring it back as the settings say.
+        #[cfg(feature = "x4-pro")]
+        if let Some(light) = self.light.as_mut() {
+            light.off();
+        }
         let choice = self.kernel.settings().read(&device::POWER_OFF_AFTER);
         let off = Off::of(choice);
         info!(
-            "sleeping: light sleep, off {off:?}, USB {}",
-            self.usb_power.is_high()
+            "sleeping: light sleep, off {off:?}, USB {}, charging {}",
+            self.usb_power.cable(),
+            self.usb_power.charging()
         );
         let started = now().0;
         let ended = paperpaw_x4::sleeping::run(off, &mut sleeping_board::Light { firmware: self });
@@ -787,6 +999,7 @@ impl Firmware {
             "sleeping: {ended:?} after {} s",
             now().0.saturating_sub(started) / 1000
         );
+        self.draw_off_screen(ended);
         if ended == Ended::Woken {
             self.wake_lightly();
         }
@@ -795,16 +1008,30 @@ impl Firmware {
 
     /// Awake again after a light sleep: plugins hear it (`core.resume`),
     /// the screen is drawn as it was before the sleep screen.
-    #[cfg(feature = "esp32c3")]
+    #[cfg(feature = "asleep-light")]
     fn wake_lightly(&mut self) {
         self.state.sleep = false;
         self.state.power_off = false;
         // The clock and the battery shown anew soon.
         self.state.status_read = None;
+        // The press that woke it is input: the front light, off for the
+        // sleep, comes back as set and its timer starts anew.
+        #[cfg(feature = "x4-pro")]
+        {
+            self.state.light_timer = paperpaw_x4::light_timer::LightTimer::new(now().0);
+        }
         if let Some(ota) = &mut self.ota {
             ota.resume_trial(now().0);
         }
-        let effects = self.kernel.resume(now());
+        // A card swapped while asleep is mounted anew first: waking is
+        // then told as after a USB drive (which resumes too). One that kept
+        // its power is as the sleep left it: the kernel walks no library
+        // again for this wake (#305).
+        let effects = match self.card_asleep() {
+            card_swap::Asleep::Swapped => self.kernel.usb_drive_ended(now()),
+            card_swap::Asleep::Kept => self.kernel.resume_storage_kept(now()),
+            card_swap::Asleep::Gone => self.kernel.resume(now()),
+        };
         self.apply(effects);
     }
 
@@ -854,6 +1081,10 @@ impl Firmware {
             // the one-shot sleep request before taking either path.
             self.state.sleep |= effects.sleep();
             self.state.power_off |= effects.power_off();
+            #[cfg(feature = "usb-drive")]
+            {
+                self.state.usb_drive |= effects.usb_drive();
+            }
             // Anything but a paced frame waits for the one on its way.
             let paced = effects.refresh().is_some_and(|(_, mode)| self.paced(mode))
                 && !effects.restart()
@@ -906,6 +1137,7 @@ impl Firmware {
             } else if self.state.gray_shown && effects.refresh().is_some() {
                 // After grays, the whole screen, not only what changed.
                 self.state.gray_shown = false;
+                self.state.after_gray = true;
                 effects = self.kernel.draw_again(now());
                 continue;
             } else if let Some((area, mode)) = effects.refresh() {
@@ -923,50 +1155,14 @@ impl Firmware {
             while let Some(line) = self.kernel.next_cable_line() {
                 esp_println::println!("{line}");
             }
+            if let Some(next) = self.low_memory_notice(
+                effects.grays() || effects.sleep() || effects.power_off() || effects.restart(),
+            ) {
+                effects = next;
+                continue;
+            }
             return;
         }
-    }
-
-    /// What came over USB: the cable transfer's lines for the kernel (all
-    /// that is there, a few at most), the test remote control's commands
-    /// (`remote` builds, one at a time).
-    #[inline(never)]
-    fn usb(&mut self) {
-        for _ in 0..CABLE_LINES {
-            let Some(line) = self.usb.next_line() else {
-                break;
-            };
-            match line {
-                Ok(line) if line.starts_with(paperpaw_core::CABLE_PREFIX.as_bytes()) => {
-                    self.state.cable_at = Some(now().0);
-                    let line = alloc::string::String::from_utf8_lossy(&line);
-                    let at = self.kernel_now();
-                    let effects = self.kernel.cable_line(at, &line);
-                    self.apply(effects);
-                }
-                #[cfg(feature = "remote")]
-                line => {
-                    self.remote(line);
-                    break;
-                }
-                #[cfg(not(feature = "remote"))]
-                _ => {}
-            }
-        }
-        #[cfg(feature = "remote")]
-        if self.state.held.is_some_and(|(_, at)| at <= now()) {
-            self.release_held();
-        }
-    }
-
-    /// Whether the cable transfer's lines are coming (one came a moment
-    /// ago, or one is half there).
-    fn cable_moving(&self) -> bool {
-        self.usb.in_line()
-            || self
-                .state
-                .cable_at
-                .is_some_and(|at| now().0 < at + CABLE_QUIET_MS)
     }
 
     /// Refreshes the panel: on battery the processor sleeps lightly for
@@ -1043,13 +1239,18 @@ impl Firmware {
         // As after every refresh, both memories hold what is shown.
         let panel = &mut self.panel;
         let kept = !send_again
-            || sent.replay(&mut |top, rows| {
-                if let Err(e) = panel.write_rows(top, rows, Planes::BOTH) {
-                    warn!("display: {e:?}");
-                }
-            });
+            || sent.replay_or_stale(
+                &mut |top, rows| {
+                    if let Err(e) = panel.write_rows(top, rows, Planes::BOTH) {
+                        warn!("display: {e:?}");
+                    }
+                },
+                &mut self.state.frame_stale,
+            );
         if !kept {
-            warn!("busy mark not kept");
+            // The kernel went on meanwhile, so it cannot draw the mark's frame
+            // again: the next frame is shown whole instead of leaving the mark.
+            warn!("busy mark not kept: the next frame is shown whole");
         }
         info!(
             "mark {},{} {}x{}: work took {} ms, waited {} ms more",
@@ -1076,18 +1277,40 @@ impl Firmware {
     }
 
     fn show_gray(&mut self, area: Rect, clean: bool) {
+        /// Whether a press waits for the main loop (or is being counted).
+        fn key_waits() -> bool {
+            input::waiting() || input::settling()
+        }
+
         power::mark(power::at::SHOWING);
         let started = now();
         let panel = &mut self.panel;
         let mut failed = None;
-        let drawn = self.kernel.render_gray(&mut |top, rows| {
-            if let Err(e) = panel.write_gray_rows(top, rows) {
-                failed = Some(e);
-            }
-        });
+        // A key that comes while the grays are drawn ends the pass: its
+        // 1.3 s of drawing and 1.1 s of refresh are not waited for.
+        let drawn = self.kernel.render_gray_until(
+            &mut |top, rows| {
+                if let Err(e) = panel.write_gray_rows(top, rows) {
+                    failed = Some(e);
+                }
+            },
+            Some(key_waits),
+        );
         if !drawn {
             warn!("no memory for grays");
             return self.show(area, RefreshMode::Full);
+        }
+        if self.kernel.gray_stopped() {
+            // The panel still shows the screen before; its memories hold a
+            // part of the grays: the next frame is the whole screen drawn
+            // again, with every pixel driven (as after grays).
+            info!(
+                "gray pass stopped by a key after {} ms",
+                now().since(started)
+            );
+            self.state.gray_shown = true;
+            self.state.frame_stale = true;
+            return;
         }
         let written = now();
         self.kernel.showing(written);
@@ -1128,7 +1351,8 @@ impl Firmware {
     fn show(&mut self, area: Rect, mode: RefreshMode) {
         power::mark(power::at::SHOWING);
         let stale = core::mem::take(&mut self.state.frame_stale);
-        let refresh = match mode {
+        let after_gray = core::mem::take(&mut self.state.after_gray);
+        let mut refresh = match mode {
             _ if stale => Refresh::Half,
             // Every pixel driven with a warm panel's waveform (1.6 s), as
             // the stock firmware cleans the panel every few pages.
@@ -1136,6 +1360,16 @@ impl Firmware {
             // Partial and fast, and modes to come.
             _ => Refresh::Fast,
         };
+        let turn = self.turn_lab(mode, &mut refresh);
+        // After grays, home is drawn while the panel is cleaned to white
+        // and then shown with a fast refresh (see `clean`).
+        let mut cleaning = self.cleans_while_drawing(after_gray, refresh == Refresh::Half);
+        if cleaning && !self.start_clean() {
+            cleaning = false;
+        }
+        if cleaning {
+            refresh = Refresh::Fast;
+        }
         let planes = if refresh == Refresh::Fast {
             Planes::NEW
         } else {
@@ -1157,7 +1391,8 @@ impl Firmware {
         let mut writing = 0;
         self.kernel.render(&mut |top, rows| {
             let before = now();
-            if let Err(e) = panel.write_rows(top, rows, planes) {
+            // The panel is busy with the clean: the bands are kept to be sent after.
+            if !cleaning && let Err(e) = panel.write_rows(top, rows, planes) {
                 failed = Some(e);
             }
             writing += now().since(before);
@@ -1167,13 +1402,39 @@ impl Firmware {
                 sent.keep(top, &rows);
             }
         });
+        if cleaning {
+            // The clean is over; the panel then shows white, which both memories
+            // hold, and the frame goes into the new one.
+            let network = &mut self.network;
+            if let Err(e) = self.panel.wait_with(|| network.keep_served()) {
+                failed = Some(e);
+            }
+            let before = now();
+            if self.write_white(Planes::BOTH).is_err() {
+                // Not white in both: the next frame drives every pixel.
+                self.state.frame_stale = true;
+            }
+            let panel = &mut self.panel;
+            let mut again = |top: u16, rows: paperpaw_platform::FrameView<'_>| {
+                if let Err(e) = panel.write_rows(top, rows, Planes::NEW) {
+                    failed = Some(e);
+                }
+            };
+            if !sent.replay(&mut again) {
+                // Not kept: drawn once more (the panel is free now).
+                self.kernel.rerender(&mut again);
+            }
+            info!("frame sent after the clean in {} ms", now().since(before));
+        }
         let drawn = now();
         self.kernel.showing(drawn);
         self.set_waveform(refresh, mode);
+        self.turn_lab_waveform(turn, refresh);
         if let Err(e) = self.refresh(refresh) {
             failed = Some(e);
         }
         let shown = now();
+        turn_lab::log(turn, refresh, shown.since(drawn));
         self.kernel.panel_busy(shown.since(drawn));
         self.kernel.shown(shown);
         let ms = core::time::Duration::from_millis;
@@ -1236,218 +1497,4 @@ impl Firmware {
 /// The heap's free bytes, for keeping what was sent.
 fn heap_free() -> usize {
     esp_alloc::HEAP.free()
-}
-
-/// What came over USB.
-#[cfg(feature = "remote")]
-impl Firmware {
-    #[inline(never)]
-    fn remote(&mut self, line: Result<alloc::vec::Vec<u8>, crate::usb_lines::TooLong>) {
-        self.settle_frame();
-        if let Some(command) = self.remote.command(line)
-            && let Some(command) = self.remote.answer(&mut self.kernel, &mut self.usb, command)
-        {
-            self.remote_command(command);
-        }
-    }
-
-    /// Lets go of the button pressed over USB, if one is held, and says
-    /// so.
-    fn release_held(&mut self) {
-        let Some((name, _)) = self.state.held.take() else {
-            return;
-        };
-        let started = now();
-        let at = self.kernel_now();
-        let state = ButtonState::Released;
-        let effects = self.kernel.handle(at, InputEvent::Button { name, state });
-        info!("{name}: {} ms", now().since(started));
-        self.apply(effects);
-        crate::remote::ok();
-    }
-
-    /// Opens a slot (`slot`) or a screen by its id, with parameters, over
-    /// USB.
-    fn open_remote(
-        &mut self,
-        id: &str,
-        params: alloc::vec::Vec<(alloc::string::String, alloc::string::String)>,
-        slot: bool,
-    ) {
-        let Ok(id) = paperpaw_sdk::Id::parse(id) else {
-            return crate::remote::error(id);
-        };
-        let mut with = paperpaw_sdk::Params::new();
-        for (key, value) in params {
-            with.set(key, value);
-        }
-        let at = self.kernel_now();
-        let effects = if slot {
-            self.kernel.open_slot(at, id, with)
-        } else {
-            self.kernel.open_screen(at, id, with)
-        };
-        self.apply(effects);
-        crate::remote::ok();
-    }
-
-    /// Carries out a command over USB that changes the X4's state.
-    fn remote_command(&mut self, command: paperpaw_x4::remote::Command) {
-        use crate::remote;
-        use paperpaw_x4::remote::Command;
-        match command {
-            Command::Network(ask) => self.network.ask_remote(ask),
-            Command::IdleSleep(seconds) => {
-                // At most ten minutes: the link is gone meanwhile.
-                self.state.sleep_on_usb_until = Some(Instant(now().0 + seconds.min(600) * 1000));
-                remote::ok();
-            }
-            Command::Run(action) => {
-                let Ok(id) = paperpaw_sdk::Id::parse(&action) else {
-                    return remote::error(&action);
-                };
-                let at = self.kernel_now();
-                let started = now();
-                let effects = self.kernel.run_action(at, id);
-                info!("{action}: {} ms", now().since(started));
-                self.apply(effects);
-                remote::ok();
-            }
-            Command::Set { id, value } => {
-                let at = self.kernel_now();
-                match self.kernel.set_setting(at, &id, &value) {
-                    Ok(effects) => {
-                        info!("{id} = {value}");
-                        self.apply(effects);
-                        remote::ok();
-                    }
-                    Err(why) => remote::error(why),
-                }
-            }
-            Command::Open(path) => {
-                // With the reading app chosen for it.
-                let at = self.kernel_now();
-                let effects = self.kernel.open_book(at, &path);
-                self.apply(effects);
-                remote::ok();
-            }
-            Command::Gray(picture) => {
-                let shown = crate::gray_test::show(
-                    &mut self.panel,
-                    self.kernel.storage(),
-                    picture.as_deref(),
-                );
-                if let Err(e) = shown {
-                    warn!("display: {e:?}");
-                }
-                self.state.gray_shown = true;
-                remote::ok();
-            }
-            Command::GrayTone(tone) => {
-                self.panel.set_gray_tone(tone);
-                remote::ok();
-            }
-            Command::Refresh { full } => {
-                let refresh = if full { Refresh::Full } else { Refresh::Fast };
-                remote::refreshed(self.panel.refresh(refresh, false));
-                self.state.panel_idle_at = Some(now().0 + self.panel_idle_ms());
-            }
-            Command::Slot { id, params } => self.open_remote(&id, params, true),
-            Command::Show { id, params } => self.open_remote(&id, params, false),
-            Command::Emit { event, params } => {
-                let Ok(id) = paperpaw_sdk::Id::parse(&event) else {
-                    return remote::error(&event);
-                };
-                let mut with = paperpaw_sdk::Params::new();
-                for (key, value) in params {
-                    with.set(key, value);
-                }
-                let at = self.kernel_now();
-                let effects = self.kernel.send_event(at, id, with);
-                self.apply(effects);
-                remote::ok();
-            }
-            Command::Type { text, done } => {
-                let at = self.kernel_now();
-                match self.kernel.type_text(at, &text, done) {
-                    Some(effects) => {
-                        self.apply(effects);
-                        remote::ok();
-                    }
-                    None => remote::error("no text field"),
-                }
-            }
-            Command::Drag {
-                from,
-                to,
-                steps,
-                ms,
-            } => {
-                input::drag(from, to, steps, ms);
-                remote::ok();
-            }
-            Command::Clicks {
-                button,
-                count,
-                every,
-                held,
-                jitter,
-            } => {
-                input::clicks(button, count, every, held, jitter);
-                remote::ok();
-            }
-            Command::Touch { phase, x, y } => {
-                use paperpaw_x4::remote::Touch;
-                let phase = match phase {
-                    Touch::Down => PointerPhase::Down,
-                    Touch::Move => PointerPhase::Move,
-                    Touch::Up => PointerPhase::Up,
-                };
-                let event = InputEvent::Pointer(PointerEvent::new(
-                    0,
-                    phase,
-                    Point::new(x, y),
-                    PointerTool::Finger,
-                    1000,
-                ));
-                let at = self.kernel_now();
-                let effects = self.kernel.handle(at, event);
-                self.apply(effects);
-                remote::ok();
-            }
-            Command::SetTime(unix_ms) => {
-                crate::clock::set(now(), unix_ms);
-                remote::ok();
-            }
-            Command::Restart => {
-                // What plugins keep, saved and on the card first.
-                self.pause_trial();
-                let at = self.kernel_now();
-                let _ = self.kernel.stop(at);
-                self.network.leave();
-                remote::ok();
-                esp_hal::system::software_reset();
-            }
-            Command::Press { button, ms } => {
-                if self.state.held.is_some() {
-                    return remote::busy();
-                }
-                let at = self.kernel_now();
-                let state = ButtonState::Pressed;
-                let started = now();
-                let effects = self.kernel.handle(
-                    at,
-                    InputEvent::Button {
-                        name: button,
-                        state,
-                    },
-                );
-                info!("{button} pressed: {} ms", now().since(started));
-                self.apply(effects);
-                self.state.held = Some((button, Instant(now().0.saturating_add(ms))));
-            }
-            // Only asking: answered by `remote`.
-            _ => {}
-        }
-    }
 }

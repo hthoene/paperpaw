@@ -284,6 +284,10 @@ fn answers_come_from_files_in_the_device_s_folder() {
 /// Version 2's requests, as x4-remote has them: slots, settings,
 /// events, the screens and actions there are, waiting for what shows.
 #[test]
+#[cfg_attr(
+    all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"),
+    ignore = "the native settings plugin is not registered on the desktop yet (it needs core.secrets and event 75/76, #916); this test opens its page: enable it with that wiring"
+)]
 fn the_device_is_asked_and_waited_for_over_lines() {
     let _one = crate::one_device_at_a_time();
     let folder = crate::private::dir("paperpaw-stdio2").unwrap();
@@ -444,4 +448,51 @@ fn a_device_starts_online_where_asked() {
         "{described}"
     );
     let _ = std::fs::remove_dir_all(&folder);
+}
+
+/// What Battery's log on the device's card says at the end of a session
+/// that `through` ran in `folder`: its lines' kinds, in order.
+fn battery_log_kinds(folder: &std::path::Path) -> Vec<String> {
+    let log = std::fs::read_to_string(folder.join(".paperpaw/plugins/battery/log.csv"))
+        .unwrap_or_default();
+    log.lines()
+        .filter_map(|line| line.split(',').next())
+        .map(String::from)
+        .collect()
+}
+
+/// Gate V2 on the emulator: closing it (`quit`, the window's close) gives
+/// plugins their moment to save (`core.suspend`) first, and what they wrote
+/// is on the card when it returns; a device that is asleep already has
+/// saved at its sleep and is not told again.
+#[test]
+#[ignore = "re-enable at Battery activation (#228): the gate reads Battery's log, which the app does not carry until the native plugin runs"]
+fn quitting_gives_plugins_their_moment_to_save_first() {
+    let _one = crate::one_device_at_a_time();
+    for (name, asleep) in [
+        ("paperpaw-stdio-quit", false),
+        ("paperpaw-stdio-asleep", true),
+    ] {
+        let folder = crate::private::dir(name).unwrap();
+        let library = string(&folder.display().to_string());
+        let mut lines = vec![format!(
+            r#"{{"op": "start", "profile": "xteink-x4", "library": {library}}}"#
+        )];
+        if asleep {
+            for pressed in ["true", "false"] {
+                lines.push(format!(
+                    r#"{{"op": "button", "name": "power", "pressed": {pressed}}}"#
+                ));
+            }
+        }
+        through(&lines);
+        let kinds = battery_log_kinds(&folder);
+        assert_eq!(
+            kinds.iter().filter(|kind| *kind == "end").count(),
+            1,
+            "one end of the time awake, written before quit returned (asleep: {asleep}): {kinds:?}"
+        );
+        assert_eq!(kinds.last().map(String::as_str), Some("end"), "{kinds:?}");
+        let _ = std::fs::remove_dir_all(&folder);
+    }
 }

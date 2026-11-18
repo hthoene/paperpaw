@@ -199,6 +199,22 @@ impl<'a, BUS: SpiBus, CS: OutputPin, D: DelayNs> Card<'a, BUS, CS, D> {
             high_capacity: false,
             blocks: 0,
         };
+        card.start()?;
+        Ok(card)
+    }
+
+    /// Starts the card again, as after it was put in (the same card or
+    /// another, its size read anew): the bus at most 400 kHz, as for
+    /// [`Card::new`].
+    pub fn restart(&mut self) -> Result<(), Error> {
+        self.high_capacity = false;
+        self.blocks = 0;
+        self.start()
+    }
+
+    /// What starting the card takes, as the SD specification says for SPI.
+    fn start(&mut self) -> Result<(), Error> {
+        let card = self;
         card.cs.set_high().map_err(|_| Error::Pin)?;
         // Into SPI mode, idle.
         let mut idle = false;
@@ -258,7 +274,7 @@ impl<'a, BUS: SpiBus, CS: OutputPin, D: DelayNs> Card<'a, BUS, CS, D> {
             s.data(&mut csd)
         })?;
         card.blocks = blocks(&csd).ok_or(Error::Unsupported)?;
-        Ok(card)
+        Ok(())
     }
 
     /// Blocks on the card.
@@ -663,6 +679,25 @@ mod tests {
         assert_eq!(started(true), [0, 8, 55, 41, 58, 9]);
         // An old card's blocks are addressed by bytes, set to 512.
         assert_eq!(started(false), [0, 8, 55, 41, 58, 16, 9]);
+    }
+
+    #[test]
+    fn started_again_another_card_in_its_place() {
+        let (fake, selected) = FakeCard::new(true);
+        let bus = RefCell::new(fake);
+        let mut card = Card::new(&bus, Select(selected.clone()), NoDelay).unwrap();
+        // Taken out, another put in: a card of the old kind, other blocks.
+        let (mut other, _) = FakeCard::new(false);
+        other.selected = selected;
+        other.blocks[3] = [0xAB; BLOCK];
+        let _ = bus.replace(other);
+        card.restart().unwrap();
+        assert!(!card.high_capacity);
+        assert_eq!(card.blocks(), 1024);
+        assert_eq!(bus.borrow().commands, [0, 8, 55, 41, 58, 16, 9]);
+        let mut one = [[0u8; BLOCK]];
+        card.read(3, &mut one).unwrap();
+        assert_eq!(one[0], [0xAB; BLOCK]);
     }
 
     #[test]

@@ -24,6 +24,8 @@ pub fn paperpaw_update::Check::fmt(&self, &mut core::fmt::Formatter<'_>) -> core
 pub struct paperpaw_update::PluginCrate<'a>
 pub paperpaw_update::PluginCrate::name: &'a str
 pub paperpaw_update::PluginCrate::version: &'a str
+impl paperpaw_update::PluginCrate<'_>
+pub fn paperpaw_update::PluginCrate<'_>::plugin_id(&self) -> core::option::Option<&str>
 pub struct paperpaw_update::Plugins
 impl paperpaw_update::Plugins
 pub fn paperpaw_update::Plugins::is_empty(&self) -> bool
@@ -46,7 +48,9 @@ pub fn paperpaw_update::Trailer::to_bytes(&self) -> [u8; 128]
 pub const paperpaw_update::APP_HEAD_LEN: usize
 pub const paperpaw_update::CHIP_ESP32_C3: u16
 pub const paperpaw_update::CHIP_ESP32_S3: u16
+pub const paperpaw_update::CRATE_PREFIX: &str
 pub const paperpaw_update::FORMAT: u32
+pub const paperpaw_update::ID_MAX: usize
 pub const paperpaw_update::MAGIC: [u8; 8]
 pub const paperpaw_update::PLUGINS_AT: usize
 pub const paperpaw_update::PLUGINS_FORMAT: u16

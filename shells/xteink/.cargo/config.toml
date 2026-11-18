@@ -15,9 +15,9 @@ target = "riscv32imc-unknown-none-elf"
 rustc-wrapper = ""
 
 [alias]
-x4pro = "build --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote,waveform-lab -Zbuild-std=core,alloc"
-x4pro-run = "run --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote,waveform-lab -Zbuild-std=core,alloc"
-x4pro-clippy = "clippy --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote,waveform-lab -Zbuild-std=core,alloc"
+x4pro = "build --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote -Zbuild-std=core,alloc"
+x4pro-run = "run --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote -Zbuild-std=core,alloc"
+x4pro-clippy = "clippy --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote -Zbuild-std=core,alloc"
 # Compatibility aliases: Bluetooth is included in x4-pro now.
 x4pro-bt = "build --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote,bluetooth -Zbuild-std=core,alloc"
 x4pro-bt-run = "run --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-pro,remote,bluetooth -Zbuild-std=core,alloc"
@@ -40,7 +40,10 @@ runner = "espflash flash --monitor --chip esp32s3 --erase-parts otadata"
 
 [target.riscv32imc-unknown-none-elf]
 runner = "espflash flash --monitor --chip esp32c3 --erase-parts otadata"
-# Frame pointers for backtraces; the linker script is in build.rs.
+# Frame pointers for backtraces; the linker script is in build.rs. Jump tables
+# stay on in every build, `ppn5` too: its frame scan (`paperpaw-sign frames`)
+# bounds a table by the compare on its index and sizes the functions that jump
+# through one (todo 68 of #228); about 9 to 10 KB of flash less than without.
 rustflags = ["-C", "force-frame-pointers"]
 
 [env]

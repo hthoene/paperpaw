@@ -3,7 +3,7 @@
 (plugins.txt), from the files build.sh made for every reader of a release:
 
     python3 tools/plugin-files/catalogue.py <dist> <release> <base-url> [--date YYYY-MM-DD]
-        [--only <id>] [--tag <tag>] [--data <dir>]
+        [--only <id>] [--tag <tag>] [--data <dir>] [--releases <releases.json>]
 
 <release> is the PaperPaw release whose firmware the files are built for
 (their SDK is its), <tag> the tag they are published at (`v<release>`
@@ -23,6 +23,13 @@ where not given; a plugin's update between releases has its own,
   and its SHA-256;
 - SHA256SUMS of the ZIPs and the plugin files.
 
+Each file is named by the address of the release that holds it: <base-url>
+(the store release this run adds to, `store_release.py`) for a file not
+published before, and with `--releases` (GitHub's list of the repository's
+releases, as `published.py` reads it) the address a file of that name has
+there for one that was: a version's files are published once and keep
+the release they were first published in.
+
 With `--data <dir>` the data plugins of data.toml come too, their folders
 in <dir> as data.py built them (`<dir>/<id>`): each its folder's ZIP,
 <id>-<version>.zip, every file of the folder in it, and an entry of kind
@@ -32,7 +39,7 @@ names and summaries from data.toml.
 Name and summary come from each plugin's translations
 (`<id>.plugin.name`, `<id>.plugin.description`, English and German), the
 author's key from the files' signatures (all must have the same), the
-fingerprint (`abi`) from each file's header, How it works from the
+`abi` from each file's header (the fingerprint of a format-4 file, `7.<needs_minor>` of a format-5 file), How it works from the
 plugin's `how/<lang>.txt` (the files its manifest names). Nothing is
 invented: a plugin without a file, a name, a How it works in English or
 a signature fails.
@@ -50,6 +57,7 @@ import tomllib
 import zipfile
 
 import data
+import published
 
 HERE = pathlib.Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
@@ -92,17 +100,52 @@ def message(plugin, language, key):
     return None
 
 
+FORMAT_4 = 4  # interface 6: a fingerprint in the header (8..16)
+FORMAT_5 = 5  # interface 7 (abi/ppn5.md): no fingerprint
+# The chip each device's file is for (`target`, bytes 6..8 of a format-5 header).
+CHIP = {"x4": 5, "x4-pro": 9, "x4-classic": 9}
+
+
 def ppn(path):
-    """The fingerprint (16 hex digits) and the author's key (64 hex digits)
-    of a signed plugin file."""
+    """What a signed plugin file says: `(abi, key, format, target)`.
+
+    `abi` is what the plugin library's entry says (`abi = ...`):
+    - format 4 (interface 6): the firmware's fingerprint, 16 hex digits, from
+      bytes 8..16;
+    - format 5 (interface 7): `"7.<needs_minor>"`, decimal, from `abi_major`
+      (bytes 8..10) and `needs_minor` (10..12); no fingerprint exists. The
+      device's store checks the target, then the major, then `needs_minor`
+      against the host's minor; there is no draft check (Kernel's ruling on
+      #228, todo 169).
+    `key` is the author's (64 hex digits). A header of any other format fails.
+    """
     data = path.read_bytes()
     if data[:4] != b"PPNP":
         fail(f"{path}: not a plugin file")
-    fingerprint = struct.unpack_from("<Q", data, 8)[0]
+    if len(data) < 12:
+        fail(f"{path}: not a plugin file")
+    format, target = struct.unpack_from("<HH", data, 4)
+    if format == FORMAT_5:
+        header_len = 96
+        if len(data) < header_len:
+            fail(f"{path}: shorter than its header (format 5 has {header_len} bytes)")
+        major, minor = struct.unpack_from("<HH", data, 8)
+        if major != 7:
+            fail(f"{path}: interface {major}, not 7")
+        abi = f"{major}.{minor}"
+    elif format == FORMAT_4:
+        header_len = 80
+        # Bytes 8..16 are the fingerprint: a file of 12 to 15 bytes has its
+        # format but not that.
+        if len(data) < header_len:
+            fail(f"{path}: shorter than its header (format 4 has {header_len} bytes)")
+        abi = f"{struct.unpack_from('<Q', data, 8)[0]:016x}"
+    else:
+        fail(f"{path}: plugin file format {format} (4 and 5 are known)")
     trailer = data[-SIGNATURE_LEN:]
-    if len(data) < 80 + SIGNATURE_LEN or trailer[:4] != b"PPNS":
+    if len(data) < header_len + SIGNATURE_LEN or trailer[:4] != b"PPNS":
         fail(f"{path}: not signed")
-    return f"{fingerprint:016x}", trailer[12:44].hex()
+    return abi, trailer[12:44].hex(), format, target
 
 
 def sha256(path):
@@ -160,11 +203,33 @@ def folder_zip(path, plugin_ini, files=()):
             z.writestr(info, text)
 
 
-def data_entries(source, dist, release, base, date, only=None):
+def locator(base, published_assets=None, checksum=None):
+    """The address of a file by its name: where it was published before,
+    else under `base` (the release this run adds it to). Given the file's
+    SHA-256, one published before must be the same bytes (`checksum` says the
+    published ones'), else the entry would name an address whose file has
+    another checksum."""
+    found = published_assets or {}
+
+    def url_of(name, digest=None):
+        if name not in found:
+            return f"{base}/{name}"
+        if digest is not None and checksum is not None and checksum(name) != digest:
+            fail(
+                f"{name} is published in {found[name][0]} with other bytes than this build's: "
+                "a version is published once, so raise the plugin's version"
+            )
+        return found[name][1]
+
+    return url_of
+
+
+def data_entries(source, dist, release, base, date, only=None, url_of=None):
     """The data plugins of data.toml from their folders in `source`: their
     ZIPs into `dist` and their entries into `dist/catalogue`; the ZIPs'
     (sha256, name) for SHA256SUMS."""
     sums = []
+    url_of = url_of or locator(base)
     sdk = ".".join(release.split("-")[0].split("+")[0].split(".")[:2])
     for plugin, fields in data.plugins().items():
         if only not in (None, plugin):
@@ -213,7 +278,7 @@ def data_entries(source, dist, release, base, date, only=None):
             f"version = {toml(version)}",
             f"sdk = {toml(sdk)}",
             f"date = {toml(date)}",
-            f"url = {toml(base + '/' + zipped.name)}",
+            f"url = {toml(url_of(zipped.name, digest))}",
             f"sha256 = {toml(digest)}",
         ]
         (dist / "catalogue" / f"{plugin}.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -231,8 +296,16 @@ def main():
     parser.add_argument("--tag")
     # The data plugins' folders (data.py), for their entries too.
     parser.add_argument("--data", type=pathlib.Path)
+    # GitHub's list of the releases: files published before keep their address.
+    parser.add_argument("--releases", type=pathlib.Path)
     args = parser.parse_args()
     dist, release, base = args.dist, args.release, args.base_url.rstrip("/")
+    listing = args.releases.read_text(encoding="utf-8") if args.releases else None
+    url_of = locator(
+        base,
+        published.assets(listing) if listing else None,
+        published.checksums(listing) if listing else None,
+    )
     tag = args.tag or f"v{release}"
     sdk = ".".join(release.split("-")[0].split("+")[0].split(".")[:2])
     (dist / "catalogue").mkdir(parents=True, exist_ok=True)
@@ -254,16 +327,24 @@ def main():
         if "how/en.txt" not in dict(how):
             fail(f"{plugin}: no How it works in English (plugins/{plugin}/how/en.txt)")
         builds = []
+        formats = set()
         for device in DEVICES:
             path = dist / f"{plugin}-{version}-{device}.ppn"
             if path.exists():
-                abi, key = ppn(path)
+                abi, key, file_format, target = ppn(path)
+                if file_format == FORMAT_5 and target != CHIP[device]:
+                    fail(f"{path}: a format-5 file for chip {target}, not {CHIP[device]} (the {device})")
+                formats.add(file_format)
                 keys.add(key)
                 digest = sha256(path)
                 sums.append((digest, path.name))
-                builds.append((device, abi, f"{base}/{path.name}", digest))
+                builds.append((device, abi, url_of(path.name, digest), digest))
         if not builds:
             fail(f"{plugin}: no file built for any reader")
+        if len(formats) != 1:
+            fail(f"{plugin}: files of formats {sorted(formats)} (one entry has one format)")
+        # Where the files are built from: interface 7's are not tools/plugin-files'.
+        source_path = "tools/plugin-files7" if formats == {FORMAT_5} else "tools/plugin-files"
         plugin_ini = (
             "[plugin]\n"
             f"id = {plugin}\n"
@@ -273,7 +354,8 @@ def main():
         )
         folder = dist / f"{plugin}-{version}.zip"
         folder_zip(folder, plugin_ini, [*how, *card_files(plugin)])
-        sums.append((sha256(folder), folder.name))
+        folder_digest = sha256(folder)
+        sums.append((folder_digest, folder.name))
         lines = [
             f"# PaperPaw's own plugin, built for PaperPaw {release} (tools/plugin-files).",
             "# Newer versions are added above older ones.",
@@ -301,13 +383,13 @@ def main():
             f"version = {toml(version)}",
             f"sdk = {toml(sdk)}",
             f"date = {toml(args.date)}",
-            f"url = {toml(base + '/' + folder.name)}",
-            f"sha256 = {toml(sha256(folder))}",
+            f"url = {toml(url_of(folder.name, folder_digest))}",
+            f"sha256 = {toml(folder_digest)}",
             "",
             "[versions.source]",
             f"repository = {toml(REPOSITORY)}",
             f"revision = {toml(tag)}",
-            'path = "tools/plugin-files"',
+            f"path = {toml(source_path)}",
             f"bin = {toml(plugin)}",
         ]
         for device, abi, url, digest in builds:
@@ -326,7 +408,7 @@ def main():
     for entry in (dist / "catalogue").glob("*.toml"):
         entry.write_text(entry.read_text(encoding="utf-8").replace("AUTHOR_KEY", toml(key or "")), encoding="utf-8")
     if args.data is not None:
-        sums += data_entries(args.data, dist, release, base, args.date, args.only)
+        sums += data_entries(args.data, dist, release, base, args.date, args.only, url_of)
     (dist / "SHA256SUMS").write_text("".join(f"{d}  {n}\n" for d, n in sorted(sums, key=lambda s: s[1])), encoding="utf-8")
     print(f"{len(chosen)} plugins, signed by {key}")
 

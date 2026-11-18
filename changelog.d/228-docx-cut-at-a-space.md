@@ -1,0 +1,3 @@
+### Fixed
+
+- **A long paragraph of a Word document is cut at a space, not in a word** (#228). The cut at a space after 3,000 bytes never came, because the limit for text without spaces (4,000) was below it: every paragraph over 4,000 bytes was cut at exactly that byte, in the middle of a word, and the reader showed a break there. The cut now falls at the next space after 3,000 bytes (text with no space is still cut at 4,000). Books converted after this update have their positions inside such a paragraph shifted by a few characters (the cut moves): a saved position there may sit a few characters off. Books already converted keep their cache until it is made again.

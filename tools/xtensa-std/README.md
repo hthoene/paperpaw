@@ -13,8 +13,8 @@ So each release builds them once, on Linux, and publishes them
 (`paperpaw-xtensa-std-<version>.tar.gz`, signed like the emulators). Installed
 into the `esp` toolchain, they are where rustc finds a target's
 libraries, as rustup puts the X4's: plugins build without `-Zbuild-std`
-(the alias `cargo +esp x4pro` of `samples/hello-native`). The X4 Pro is
-then where the X4 is: a file built on Linux or macOS with the sample's
+(the alias `cargo +esp x4pro` of `tools/plugin-files7`). The X4 Pro is
+then where the X4 is: a file built on Linux or macOS with its
 `build.sh` matches the rebuild. On Windows, two more things must hold,
 as for the X4, and `build.sh` does not do them. First, every folder with
 Rust files is remapped on its own. Else the paths below the top keep
@@ -35,14 +35,13 @@ A release's archive fits only the `esp` toolchain of that release
 install it without this repository:
 
 ```sh
-paperpaw-sign check-asset paperpaw-xtensa-std-0.6.0-beta.1.tar.gz paperpaw-xtensa-std-0.6.0-beta.1.tar.gz.sig
+paperpaw-sign check-asset paperpaw-xtensa-std-0.6.0-beta.3.tar.gz paperpaw-xtensa-std-0.6.0-beta.3.tar.gz.sig
 sysroot="$(rustc +esp --print sysroot)"
 rm -rf "$sysroot/lib/rustlib/xtensa-esp32s3-none-elf"
-tar -xzf paperpaw-xtensa-std-0.6.0-beta.1.tar.gz -C "$sysroot"
+tar -xzf paperpaw-xtensa-std-0.6.0-beta.3.tar.gz -C "$sysroot"
 ```
 
 The signer is PaperPaw's release key, fingerprint 55A9 F626 DB17 EB90,
 whole `55a9f626db17eb9058707323d29f52470bfcd09638898e17bd01784ef9df0c51`. The archive holds `core`, `alloc` and `compiler_builtins`,
-all a plugin links with: CI builds the sample and PaperPaw's own store
-plugins against them alone. CI also checks that plugin files are the
-same in any folder (`tools/plugin-files/anywhere.sh`).
+all a plugin links with: CI builds PaperPaw's own store plugins against
+them alone.

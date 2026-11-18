@@ -227,7 +227,7 @@ impl Looker {
                 .map(|text| crate::lint::pseudo::pseudo(&text))
                 .collect()
         } else {
-            crate::lint::catalogs::languages(session.device.kernel.translator())
+            crate::lint::languages(&session.device.kernel)
                 .into_iter()
                 .filter(|l| l.code == variant.language)
                 .flat_map(|l| l.messages.into_values())
@@ -236,7 +236,12 @@ impl Looker {
         };
         // The keyboard, as the slot opens it.
         session.device.call(|kernel, now| {
-            kernel.open_slot(now, core_slots::KEYBOARD, paperpaw_core::sdk::Params::new())
+            // A native keyboard opens for a question (as `ui.ask` makes).
+            kernel
+                .stage_text_question(now, "", false)
+                .unwrap_or_else(|_| {
+                    kernel.open_slot(now, core_slots::KEYBOARD, paperpaw_core::sdk::Params::new())
+                })
         });
         session.settle();
         let keyboard = session

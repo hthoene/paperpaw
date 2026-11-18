@@ -1,4 +1,4 @@
-Der Browser öffnet Webseiten im Leser, der ihren Text wie ein Buch zeigt, und holt Bücher und Schriften. Er braucht eine Netzwerkverbindung. Er ist anfangs aus: Füge ihn mit Mehr Plugins hinzu, oder schalte ihn unter Plugins ein, wenn er dort steht.
+Der Browser öffnet Webseiten im Leser, der ihren Text wie ein Buch zeigt, und holt Bücher und Schriften. Er braucht eine Netzwerkverbindung. Er ist anfangs aus: Füge ihn aus dem Plugin-Store hinzu, oder schalte ihn unter Plugins ein, wenn er dort steht.
 
 Öffne Browser im Menü Werkzeuge. Der Startbildschirm bietet Suchen oder Adresse eingeben, deine Lesezeichen und die zuletzt gelesenen Seiten. Einen Eintrag lange drücken (mit Tasten: Wählen halten) lässt dich ihn öffnen, löschen oder zu den Lesezeichen legen. Links in einer Seite führen zu weiteren Seiten, und Zurück geht zur Seite davor.
 

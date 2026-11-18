@@ -1,2 +1,0 @@
-# Public items that take `&mut Vec<Command>` (docs/sdk-design.md,
-# rule 9). Empty since every handler gets `Commands`; it stays so.

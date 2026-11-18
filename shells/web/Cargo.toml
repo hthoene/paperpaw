@@ -17,8 +17,9 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 paperpaw-emulator = { path = "../desktop", default-features = false }
 paperpaw-dev = { path = "../../tools/dev" }
-paperpaw-core = { workspace = true, features = ["color", "outline"] }
+paperpaw-core = { workspace = true, features = ["color", "outline", "bluetooth"] }
 paperpaw-platform.workspace = true
+paperpaw-default-packs.workspace = true
 # The remote control's commands, parsed as on an X4.
 paperpaw-x4.workspace = true
 
@@ -26,5 +27,3 @@ paperpaw-x4.workspace = true
 workspace = true
 
 [dev-dependencies]
-# A plugin with code to add (`set_plugins`) and check.
-paperpaw-sample-hello = { path = "../../samples/hello-plugin" }

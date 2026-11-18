@@ -1,0 +1,3 @@
+### Fixed
+
+- **Native screens are not real-time screens** (#257, #2671). A native screen takes every key only so that its plugin gets them; the kernel took that for a real-time screen. While one was on top, background work without a fixed time (news, wallabag and readwise syncs) was held, holding *Back* for 2 s or a finger in the top left corner left the screen, and the "hold Back to leave" notice showed. One rule now decides it: raw keys and not native. Holding *Back* for 2 s or a finger in the corner therefore no longer leaves a native screen; a plain *Back* (the plugin closes its screen) and holding Power for 8 s stay the ways out.

@@ -1,0 +1,26 @@
+{
+  "key": "core.lookup",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "page_rows": 1,
+  "ops": [
+    {
+      "id": 1,
+      "name": "lookup",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.lookup_ask"
+      ],
+      "reply": [
+        "service.lookup_entry"
+      ],
+      "max_input": 4096,
+      "max_reply": 4096,
+      "bound": "card"
+    }
+  ]
+}

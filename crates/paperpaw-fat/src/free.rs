@@ -1,12 +1,45 @@
-//! A card's free space, known without reading all of its FAT at once.
+//! A card's free space, counted without reading all of its FAT at once.
 //!
 //! rust-fatfs counts the free clusters by reading the whole FAT when the
 //! volume was not unmounted cleanly (which a reader that is switched off
-//! never does): megabytes over a card's bus in one call. Here the count
-//! the card keeps in its FS information sector (FAT32) serves at once, as
-//! an estimate; the FAT is then counted exactly, [`STEP`] bytes of it at
-//! each ask; and what the storage writes and removes from then on is
-//! taken off or added, cluster by cluster.
+//! never does): megabytes over a card's bus in one call. Here the FAT is
+//! counted [`STEP`] bytes at each ask, and the clusters the file system
+//! marks taken and free from then on (`FileSystem::cluster_changes` of
+//! the patched rust-fatfs, counted as each mark is written: also by a
+//! write that fails part of the way, and by a folder that grows) are taken
+//! off or added. Until
+//! the count is done the free space is not known: the count the card keeps
+//! in its FS information sector (FAT32) is not used, as after a power cut
+//! it may say more than is free (#238), and a reserve kept by it would not
+//! be one.
+//!
+//! Counted once, the count is kept on the card (FAT32), so that the next
+//! start does not count again (megabytes of FAT, seconds of card time on a
+//! large card): `FatStorage::keep_free` writes it to the FS information
+//! sector when everything is written back, with a record of its own in the
+//! sector's reserved bytes ([`note`]), and the next mount takes it
+//! (`FatStorage::trust_kept`) where all of this holds:
+//!
+//! - The record is there and whole, and says the count and the hint the
+//!   sector holds, for a card of this many clusters: this storage counted
+//!   them, and no other writer of the sector has written another count or
+//!   hint since. Computers that change the card write theirs when they
+//!   let go of it (Windows and macOS count the FAT themselves; Linux moves
+//!   the hint with each cluster it takes, and the count where it has
+//!   counted): a count that still agrees with the record is the count.
+//! - The card is not marked dirty (taken out of a computer while it was
+//!   written: its sector was not brought up to date).
+//! - The FAT was not written since. Before its first write of the FAT
+//!   after a count was kept, the patched rust-fatfs takes the count back on
+//!   the card (unknown, the record gone: `FileSystem::before_fat_write`),
+//!   and the disk takes changes in the order they were made. Cut off at
+//!   any point, the card so holds a kept count with the FAT it was counted
+//!   from, or no count: never the count of #238.
+//!
+//! What this cannot see: a device that takes clusters and writes neither
+//! count nor hint. A Linux computer that only removes files, and never
+//! asks for the free space, leaves the count as it was: too low until the
+//! FAT is next counted, never too high.
 
 /// Bytes of the FAT read at most each time the free space is asked for.
 pub(crate) const STEP: usize = 128 * 1024;
@@ -29,8 +62,6 @@ struct Geometry {
     clusters: u32,
     /// Bytes of a cluster.
     cluster: u64,
-    /// The FS information sector's first byte (FAT32).
-    info: Option<u64>,
 }
 
 impl Geometry {
@@ -63,28 +94,12 @@ impl Geometry {
             4085..65525 => 16,
             _ => 32,
         };
-        let info = (bits == 32).then(|| u64::from(u16_at(48)) * u64::from(sector));
         Some(Geometry {
             fat: u64::from(reserved) * u64::from(sector),
             bits,
             clusters,
             cluster: u64::from(sector) * u64::from(per_cluster),
-            info,
         })
-    }
-
-    /// The free clusters the FS information sector says, if it says.
-    fn said(&self, read: &Read) -> Option<u32> {
-        let mut sector = [0u8; 512];
-        if !read(self.info?, &mut sector) {
-            return None;
-        }
-        let u32_at = |at: usize| {
-            u32::from_le_bytes([sector[at], sector[at + 1], sector[at + 2], sector[at + 3]])
-        };
-        let signed = u32_at(0) == 0x4161_5252 && u32_at(484) == 0x6141_7272;
-        let free = u32_at(488);
-        (signed && free <= self.clusters).then_some(free)
     }
 
     /// The bytes of the FAT entries `first..first + count`.
@@ -141,21 +156,82 @@ impl Geometry {
     }
 }
 
+/// Bytes of the record kept beside the count (see [`note`]).
+pub(crate) const NOTE: usize = 20;
+
+/// The record this storage writes into the FS information sector's
+/// reserved bytes when it keeps a count there: `PPFC`, the count of free
+/// clusters, the hint and the card's clusters as 4 bytes each, and a hash
+/// of those 16 bytes (`fnv`'s lower half).
+pub(crate) fn note(free: u32, next: u32, clusters: u32) -> [u8; NOTE] {
+    let mut note = [0u8; NOTE];
+    note[..4].copy_from_slice(b"PPFC");
+    note[4..8].copy_from_slice(&free.to_le_bytes());
+    note[8..12].copy_from_slice(&next.to_le_bytes());
+    note[12..16].copy_from_slice(&clusters.to_le_bytes());
+    let hash = crate::fnv(note[..16].iter().copied()) as u32;
+    note[16..].copy_from_slice(&hash.to_le_bytes());
+    note
+}
+
+/// The clusters of the card `record` was written for, where it is this
+/// storage's record ([`note`]) of the count `free` and the hint `next`
+/// that the sector holds. Not of one free cluster: a Linux computer that
+/// takes the only free one, and it is the one after the hint, leaves the
+/// hint as it was.
+pub(crate) fn noted(record: &[u8; NOTE], free: u32, next: u32) -> Option<u32> {
+    let word = |at: usize| {
+        u32::from_le_bytes([record[at], record[at + 1], record[at + 2], record[at + 3]])
+    };
+    let clusters = word(12);
+    (*record == note(free, next, clusters) && free != 1).then_some(clusters)
+}
+
 /// The free space, as far as it is known; see the [module
 /// documentation](self).
 #[derive(Debug, Default)]
 pub(crate) struct Free {
     geometry: Option<Geometry>,
-    /// Free clusters: exact once counted, the card's own word before.
+    /// Free clusters, once counted (and followed since); `None` before.
     known: Option<u64>,
     /// The count going on: the next entry, and the free ones before it.
     counting: Option<(u32, u64)>,
-    /// The count is done: `known` is exact (and kept so).
-    exact: bool,
+    /// Clusters taken while the count goes on, taken off when it is done.
+    /// Whether one was in the part counted already is not known: so taken
+    /// ones are taken off even where the count sees them taken too, and
+    /// freed ones are not added. The count can then only be low, never
+    /// more than is free.
+    taken_meanwhile: u64,
+    /// The file system's `cluster_changes` followed last: taken, freed.
+    seen: (u64, u64),
+    /// The FAT changed while the count goes on: what it ends with may be
+    /// low (see `taken_meanwhile`).
+    changed_meanwhile: bool,
+    /// `known` is every free cluster, none less: counted with no change
+    /// meanwhile, or kept so on the card, and followed since.
+    sure: bool,
 }
 
 impl Free {
-    /// Counts on (one step), and the free bytes as far as known.
+    /// Nothing known yet, the file system's `cluster_changes` being
+    /// `seen` now.
+    pub(crate) fn new(seen: (u64, u64)) -> Free {
+        Free {
+            seen,
+            ..Free::default()
+        }
+    }
+
+    /// Follows the file system's `cluster_changes`, now `changes`: what
+    /// it marked taken and free since they were followed last.
+    pub(crate) fn follow(&mut self, changes: (u64, u64)) {
+        let taken = changes.0.wrapping_sub(self.seen.0);
+        let freed = changes.1.wrapping_sub(self.seen.1);
+        self.seen = changes;
+        self.changed(taken, freed);
+    }
+
+    /// Counts on (one step), and the free bytes once counted.
     pub(crate) fn ask(&mut self, read: &Read) -> Option<u64> {
         let geometry = self.geometry(read)?;
         let Some((mut next, mut free)) = self.counting else {
@@ -183,9 +259,10 @@ impl Free {
             read_so_far += len;
         }
         if next >= last {
-            self.known = Some(free);
+            self.known = Some(free.saturating_sub(self.taken_meanwhile));
             self.counting = None;
-            self.exact = true;
+            self.taken_meanwhile = 0;
+            self.sure = !core::mem::take(&mut self.changed_meanwhile);
         } else {
             self.counting = Some((next, free));
         }
@@ -198,13 +275,11 @@ impl Free {
         Some(u64::from(geometry.clusters) * geometry.cluster)
     }
 
-    /// The volume's geometry, read from its boot sector at the first ask
-    /// (and the card's own count with it).
+    /// The volume's geometry, read from its boot sector at the first ask.
     fn geometry(&mut self, read: &Read) -> Option<Geometry> {
         if self.geometry.is_none() {
             let mut boot = [0u8; 512];
             let geometry = read(0, &mut boot).then(|| Geometry::of(&boot)).flatten()?;
-            self.known = geometry.said(read).map(u64::from);
             self.counting = Some((2, 0));
             self.geometry = Some(geometry);
         }
@@ -215,29 +290,107 @@ impl Free {
         Some(self.known? * self.geometry?.cluster)
     }
 
-    /// The clusters `bytes` take.
-    pub(crate) fn clusters(&self, bytes: u64) -> u64 {
-        self.geometry.map_or(0, |g| bytes.div_ceil(g.cluster))
-    }
-
     /// `taken` clusters were taken and `freed` freed by a change of the
-    /// storage. A count going on starts anew (the part counted may have
-    /// changed); the count known follows.
-    pub(crate) fn changed(&mut self, taken: u64, freed: u64) {
-        if self.geometry.is_none() {
+    /// storage: the count known follows, and a count going on takes the
+    /// taken ones off when it is done (see `taken_meanwhile`).
+    fn changed(&mut self, taken: u64, freed: u64) {
+        let Some(geometry) = self.geometry else {
             return;
-        }
+        };
+        // Never more than the card holds: the sizes of a damaged entry
+        // may tell more freed.
         if let Some(known) = self.known.as_mut() {
-            *known = (*known + freed).saturating_sub(taken);
+            let followed = known.saturating_add(freed).checked_sub(taken);
+            // Not what the changes add up to: no longer every free one.
+            self.sure &= followed.is_some_and(|free| free <= u64::from(geometry.clusters));
+            *known = followed.unwrap_or(0).min(u64::from(geometry.clusters));
         }
         if self.counting.is_some() {
-            self.counting = Some((2, 0));
+            self.taken_meanwhile = self.taken_meanwhile.saturating_add(taken);
+            self.changed_meanwhile |= taken > 0 || freed > 0;
         }
+    }
+
+    /// Takes `free` free clusters as counted, on a FAT32 card of
+    /// `clusters` clusters (as the card kept them, see the [module
+    /// documentation](self)): nothing is counted then. `false` where the
+    /// card is not that one, or cannot be read.
+    pub(crate) fn trust(&mut self, read: &Read, free: u32, clusters: u32) -> bool {
+        let Some(geometry) = self.geometry(read) else {
+            return false;
+        };
+        if geometry.bits != 32 || geometry.clusters != clusters || free > clusters {
+            return false;
+        }
+        self.known = Some(u64::from(free));
+        self.counting = None;
+        self.sure = true;
+        true
+    }
+
+    /// The free clusters and the card's clusters, where every free one is
+    /// known (see `sure`) on a FAT32 card.
+    pub(crate) fn sure(&self) -> Option<(u32, u32)> {
+        let geometry = self.geometry.filter(|g| g.bits == 32)?;
+        let known = self
+            .known
+            .filter(|_| self.sure && self.counting.is_none())?;
+        Some((u32::try_from(known).ok()?, geometry.clusters))
     }
 
     /// Whether the free clusters were counted (and followed since).
     #[cfg(test)]
     pub(crate) fn exact(&self) -> bool {
-        self.exact
+        self.known.is_some()
+    }
+}
+
+impl<IO: fatfs::ReadWriteSeek + 'static> crate::FatStorage<IO> {
+    /// At the mount: takes the free space the card keeps, where this
+    /// storage kept it and nothing says the FAT changed since (see the
+    /// [module documentation](self)). Two blocks read (the boot sector and
+    /// the FS information sector, both read by the mount already).
+    pub(crate) fn trust_kept(&self) {
+        let Some(read) = &self.read else {
+            return;
+        };
+        let mut record = [0u8; NOTE];
+        let Ok(Some((free, next))) = self.fs.kept_free_count(&mut record) else {
+            return;
+        };
+        let Some(clusters) = noted(&record, free, next).filter(|_| !self.fs.marked_dirty()) else {
+            return;
+        };
+        let trusted = self.free.borrow_mut().trust(read.as_ref(), free, clusters);
+        self.kept.set(trusted);
+    }
+
+    /// After everything was written back ([`Storage::sync`]): keeps the
+    /// free space on the card where every free cluster is known and the
+    /// card does not hold it yet. One block written (two where the card
+    /// was marked dirty), none while the FAT is not written between.
+    ///
+    /// [`Storage::sync`]: paperpaw_platform::Storage::sync
+    pub(crate) fn keep_free(&self) -> Result<(), paperpaw_platform::StorageError> {
+        if self.read.is_none() || (self.kept.get() && self.fs.free_count_kept()) {
+            return Ok(());
+        }
+        self.kept.set(false);
+        let sure = {
+            let mut free = self.free.borrow_mut();
+            free.follow(self.fs.cluster_changes());
+            free.sure()
+        };
+        let Some((free, clusters)) = sure else {
+            return Ok(());
+        };
+        let record = note(free, self.fs.next_free_hint(), clusters);
+        let kept = self
+            .fs
+            .keep_free_count(free, &record)
+            .map_err(crate::error)?;
+        self.write_back()?;
+        self.kept.set(kept);
+        Ok(())
     }
 }

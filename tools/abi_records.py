@@ -1,0 +1,784 @@
+"""Validate and emit the initial bounded registration and tick record codecs."""
+from abi_declarations import (check_tags, declaration_source, validate_wire_records,
+                              wire_records, _camel, _const, _lifetime, _reader_extra,
+                              _record_extra, _record_source)
+
+
+def _require(ok, message):
+    if not ok:
+        raise ValueError(message)
+
+
+# This describes supported facade shapes, never their wire tags.
+SHAPES = {
+    'registration.event': [('event_tag', 'u32'), ('token', 'u32')],
+    'registration.draw': [('token', 'u32')],
+    'event.tick': [('now_ms', 'u64')],
+}
+
+
+def validate_records(schema):
+    """Older schemas have no codec; recognized records have exact initial shapes."""
+    records = schema.get('records', [])
+    _require(type(records) is list, 'records must be a list')
+    recognized = [item for item in records
+                  if type(item) is dict and item.get('name') in SHAPES]
+    if not recognized and 'record_codec' not in schema:
+        return
+    descriptor = schema.get('record_codec')
+    _require(type(descriptor) is dict and set(descriptor) == {'since', 'max_records'},
+             'record codec descriptor keys')
+    _require(type(descriptor['since']) is int and
+             1 <= descriptor['since'] <= schema.get('minor', 0),
+             'record codec since outside schema minor')
+    _require(type(descriptor['max_records']) is int and
+             1 <= descriptor['max_records'] <= 8, 'record codec count cap')
+    _require(len(recognized) == len(SHAPES) and
+             {item['name'] for item in recognized} == set(SHAPES),
+             'initial records must include every supported shape')
+    _require(len({record['id'] for record in recognized}) == len(recognized),
+             'duplicate record codec tag')
+    for record in recognized:
+        _require(type(record.get('id')) is int and 0 <= record['id'] <= 65535,
+                 'record tag must be an unsigned declaration ID')
+        _require(type(record.get('since')) is int and
+                 descriptor['since'] <= record['since'] <= schema.get('minor', 0),
+                 'record since outside codec/schema minor')
+        fields = record.get('fields')
+        expected = [dict(name=name, type=kind, since=record['since'], optional=False,
+                         ordinal=None, default=None, max_bytes=0)
+                    for name, kind in SHAPES[record['name']]]
+        _require(fields == expected and all(type(field['since']) is int and
+                 type(field['max_bytes']) is int for field in fields),
+                 'unsupported initial record fields')
+    check_tags(records)
+    declared = validate_wire_records(schema, descriptor)
+    statuses = schema.get('statuses', [])
+    needed = [('ERR_UNSUPPORTED', -1), ('ERR_INVALID', -2), ('ERR_NO_SPACE', -3)]
+    if declared:
+        needed.append(('ERR_UTF8', -5))
+    for name, value in needed:
+        matches = [item for item in statuses if item.get('name') == name]
+        _require(len(matches) == 1 and type(matches[0].get('value')) is int and
+                 matches[0]['value'] == value and
+                 type(matches[0].get('since')) is int and
+                 1 <= matches[0]['since'] <= descriptor['since'],
+                 'record codec status contract')
+    entries = [item for item in schema.get('host_entries', [])
+               if item.get('name') == 'registrations.submit']
+    _require(len(entries) == 1 and type(entries[0].get('max_bytes')) is int and
+             entries[0]['max_bytes'] == 4096, 'registration codec byte cap')
+
+
+def compatible_records(old, new, minimum_since):
+    """The emitted codec resource descriptor is an immutable wire contract."""
+    validate_records(old)
+    validate_records(new)
+    before, after = old.get('record_codec'), new.get('record_codec')
+    if before is None:
+        if after is not None:
+            _require(after['since'] >= minimum_since, 'backdated record codec')
+        return
+    _require(after == before, 'changed or removed record codec contract')
+
+
+def rust_records(schema):
+    """Emit a standalone no_std module, keeping existing raw modules unchanged."""
+    validate_records(schema)
+    records = {item['name']: item for item in schema.get('records', [])}
+    if not set(SHAPES) <= records.keys():
+        return ''
+    statuses = {item['name']: item['value'] for item in schema['statuses']}
+    replacements = {
+        '@COUNT@': schema['record_codec']['max_records'],
+        '@EVENT@': records['registration.event']['id'],
+        '@DRAW@': records['registration.draw']['id'],
+        '@TICK@': records['event.tick']['id'],
+        '@MAX@': next(item['max_bytes'] for item in schema['host_entries']
+                     if item['name'] == 'registrations.submit'),
+        '@INVALID@': statuses['ERR_INVALID'],
+        '@UNSUPPORTED@': statuses['ERR_UNSUPPORTED'],
+        '@NO_SPACE@': statuses['ERR_NO_SPACE'],
+    }
+    source = '''// Generated by tools/abi-gen.py; do not edit.
+/// Maximum encoded registration batch or tick event length.
+pub const REGISTRATION_MAX_BYTES: usize = @MAX@;
+/// Maximum registrations in one batch.
+pub const REGISTRATION_MAX_RECORDS: usize = @COUNT@;
+/// Wire tag of the tick event.
+pub const EVENT_TICK_TAG: u32 = @TICK@;
+const REGISTRATION_EVENT_TAG: u32 = @EVENT@;
+const REGISTRATION_DRAW_TAG: u32 = @DRAW@;
+
+/// A declarative callback registration. Callback state stays with its producer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Registration {
+    /// Dispatch an event to the given callback token.
+    Event {
+        /// Event record tag to receive.
+        event_tag: u32,
+        /// Producer-owned callback identity.
+        token: u32,
+    },
+    /// Invoke the given draw callback token.
+    Draw {
+        /// Producer-owned callback identity.
+        token: u32,
+    },
+}
+
+/// A fully validated, allocation-free registration batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RegistrationBatch {
+    records: [Option<Registration>; REGISTRATION_MAX_RECORDS],
+    len: usize,
+}
+
+impl RegistrationBatch {
+    /// Number of validated registrations.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether this batch has no registrations.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Iterate over registrations by value in wire order.
+    pub fn iter(&self) -> impl Iterator<Item = Registration> + '_ {
+        self.records[..self.len].iter().flatten().copied()
+    }
+}
+
+@READER@
+/// Decode an entire batch before exposing any registration.
+///
+/// Framing must be canonical u32 LEB128. Unknown tags return ERR_UNSUPPORTED;
+/// malformed records return ERR_INVALID; byte/count limits return ERR_NO_SPACE.
+/// Unknown trailing fields and extended presence bitmaps are accepted.
+pub fn registrations_decode(bytes: &[u8]) -> Result<RegistrationBatch, i32> {
+    if bytes.len() > REGISTRATION_MAX_BYTES {
+        return Err(@NO_SPACE@);
+    }
+    let mut reader = Reader { remaining: bytes };
+    let len = reader.varint()? as usize;
+    if len > REGISTRATION_MAX_RECORDS {
+        return Err(@NO_SPACE@);
+    }
+    let mut batch = RegistrationBatch {
+        records: [None; REGISTRATION_MAX_RECORDS],
+        len,
+    };
+    for slot in &mut batch.records[..len] {
+        let (tag, mut body) = reader.record()?;
+        if tag != REGISTRATION_EVENT_TAG && tag != REGISTRATION_DRAW_TAG {
+            return Err(@UNSUPPORTED@);
+        }
+        body.bitmap()?;
+        *slot = Some(match tag {
+            REGISTRATION_EVENT_TAG => Registration::Event {
+                event_tag: u32::from_le_bytes(body.scalar()?),
+                token: u32::from_le_bytes(body.scalar()?),
+            },
+            _ => Registration::Draw {
+                token: u32::from_le_bytes(body.scalar()?),
+            },
+        });
+    }
+    reader.finish()?;
+    Ok(batch)
+}
+
+@WRITERS@
+/// Encode a canonical batch without allocating.
+///
+/// Every bound and the complete output capacity are checked before any write.
+/// Failure returns ERR_NO_SPACE and leaves the entire output unchanged.
+pub fn registrations_encode(records: &[Registration], out: &mut [u8]) -> Result<usize, i32> {
+    if records.len() > REGISTRATION_MAX_RECORDS {
+        return Err(@NO_SPACE@);
+    }
+    let required = varint_len(records.len() as u32)
+        + records
+            .iter()
+            .map(|record| match record {
+                Registration::Event { .. } => record_len(REGISTRATION_EVENT_TAG, 8),
+                Registration::Draw { .. } => record_len(REGISTRATION_DRAW_TAG, 4),
+            })
+            .sum::<usize>();
+    if required > REGISTRATION_MAX_BYTES || out.len() < required {
+        return Err(@NO_SPACE@);
+    }
+    let mut offset = 0;
+    write_varint(records.len() as u32, out, &mut offset);
+    for record in records {
+        match *record {
+            Registration::Event { event_tag, token } => {
+                write_header(REGISTRATION_EVENT_TAG, 8, out, &mut offset);
+                write_bytes(&event_tag.to_le_bytes(), out, &mut offset);
+                write_bytes(&token.to_le_bytes(), out, &mut offset);
+            }
+            Registration::Draw { token } => {
+                write_header(REGISTRATION_DRAW_TAG, 4, out, &mut offset);
+                write_bytes(&token.to_le_bytes(), out, &mut offset);
+            }
+        }
+    }
+    Ok(offset)
+}
+
+/// Encode one tick event as a one-record batch, leaving output unchanged on error.
+pub fn tick_encode(now_ms: u64, out: &mut [u8]) -> Result<usize, i32> {
+    let required = 1 + record_len(EVENT_TICK_TAG, 8);
+    if out.len() < required {
+        return Err(@NO_SPACE@);
+    }
+    let mut offset = 0;
+    write_varint(1, out, &mut offset);
+    write_header(EVENT_TICK_TAG, 8, out, &mut offset);
+    write_bytes(&now_ms.to_le_bytes(), out, &mut offset);
+    Ok(offset)
+}
+
+/// Decode one tick event with bounded framing and little-endian milliseconds.
+///
+/// Exactly one known event is required. Extended bitmaps and trailing fields
+/// within its record are accepted; bytes outside the batch are malformed.
+pub fn tick_decode(bytes: &[u8]) -> Result<u64, i32> {
+    if bytes.len() > REGISTRATION_MAX_BYTES {
+        return Err(@NO_SPACE@);
+    }
+    let mut reader = Reader { remaining: bytes };
+    if reader.varint()? != 1 {
+        return Err(@INVALID@);
+    }
+    let (tag, mut body) = reader.record()?;
+    if tag != EVENT_TICK_TAG {
+        return Err(@UNSUPPORTED@);
+    }
+    body.bitmap()?;
+    let now_ms = u64::from_le_bytes(body.scalar()?);
+    reader.finish()?;
+    Ok(now_ms)
+}
+'''
+    source = source.replace("@READER@\n", reader_source(quick=True))
+    # The records codec's varint size is the host's too (lookup broker, #1387).
+    source = source.replace("@WRITERS@\n", writer_source().replace(
+        'fn varint_len(', 'pub(crate) fn varint_len(', 1))
+    for marker, value in replacements.items():
+        source = source.replace(marker, str(value))
+    declared = wire_records(schema)
+    if declared:
+        # Appended, never interleaved: schemas without declarations keep the
+        # exact bytes already pinned by older locks.
+        source += declaration_source(declared, statuses)
+    return source
+
+
+def reader_source(quick=False):
+    """Shared canonical framing reader, parameterised by status markers. `quick` reads a
+    varint of one byte (most tags, every short length) without the loop: the codecs that
+    walk tables take it, a plugin's own stage codec keeps the plain reader."""
+    if not quick:
+        return READER_TEMPLATE
+    head = "    fn varint(&mut self) -> Result<u32, i32> {\n"
+    assert READER_TEMPLATE.count(head) == 1
+    return READER_TEMPLATE.replace(head, head + QUICK_VARINT)
+
+
+QUICK_VARINT = '''        // One byte, as most tags and every short length are.
+        if let Some((&byte, rest)) = self.remaining.split_first() {
+            if byte < 0x80 {
+                self.remaining = rest;
+                return Ok(u32::from(byte));
+            }
+        }
+'''
+
+
+def writer_source():
+    """Shared canonical framing writers, after the caller preflights capacity."""
+    return WRITER_TEMPLATE
+
+
+READER_TEMPLATE = '''struct Reader<'a> {
+    remaining: &'a [u8],
+}
+
+impl<'a> Reader<'a> {
+    fn take(&mut self, len: usize) -> Result<&'a [u8], i32> {
+        if len > self.remaining.len() {
+            return Err(@INVALID@);
+        }
+        let (value, rest) = self.remaining.split_at(len);
+        self.remaining = rest;
+        Ok(value)
+    }
+
+    fn varint(&mut self) -> Result<u32, i32> {
+        let mut value = 0_u32;
+        for index in 0..5 {
+            let byte = self.take(1)?[0];
+            if index == 4 && byte > 0x0f {
+                return Err(@INVALID@);
+            }
+            value |= u32::from(byte & 0x7f) << (index * 7);
+            if byte & 0x80 == 0 {
+                if index > 0 && byte == 0 {
+                    return Err(@INVALID@);
+                }
+                return Ok(value);
+            }
+        }
+        Err(@INVALID@)
+    }
+
+    fn scalar<const N: usize>(&mut self) -> Result<[u8; N], i32> {
+        let mut value = [0; N];
+        value.copy_from_slice(self.take(N)?);
+        Ok(value)
+    }
+
+    fn record(&mut self) -> Result<(u32, Reader<'a>), i32> {
+        let tag = self.varint()?;
+        let len = self.varint()? as usize;
+        let body = Reader {
+            remaining: self.take(len)?,
+        };
+        Ok((tag, body))
+    }
+
+    fn bitmap(&mut self) -> Result<(), i32> {
+        let len = self.varint()? as usize;
+        // Unknown optional bits and fields are skipped using the record length.
+        self.take(len)?;
+        Ok(())
+    }
+
+    fn finish(self) -> Result<(), i32> {
+        if self.remaining.is_empty() {
+            Ok(())
+        } else {
+            Err(@INVALID@)
+        }
+    }
+}
+
+'''
+
+WRITER_TEMPLATE = '''fn varint_len(mut value: u32) -> usize {
+    let mut len = 1;
+    while value >= 0x80 {
+        len += 1;
+        value >>= 7;
+    }
+    len
+}
+
+fn record_len(tag: u32, fields: u32) -> usize {
+    let body_len = fields + 1; // The initial bitmap is empty.
+    varint_len(tag) + varint_len(body_len) + body_len as usize
+}
+
+fn write_varint(mut value: u32, out: &mut [u8], offset: &mut usize) {
+    loop {
+        let byte = (value & 0x7f) as u8;
+        value >>= 7;
+        out[*offset] = byte | if value == 0 { 0 } else { 0x80 };
+        *offset += 1;
+        if value == 0 {
+            return;
+        }
+    }
+}
+
+fn write_bytes(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+    out[*offset..*offset + bytes.len()].copy_from_slice(bytes);
+    *offset += bytes.len();
+}
+
+fn write_header(tag: u32, fields: u32, out: &mut [u8], offset: &mut usize) {
+    write_varint(tag, out, offset);
+    write_varint(fields + 1, out, offset);
+    write_varint(0, out, offset);
+}
+
+'''
+
+
+def local_records(records, revision):
+    """Use the kernel record field/name validators with a stage-local tag table."""
+    from abi_declarations import _fields, validate_record_shapes
+    declared = [dict(name=r['name'], id=r['id'], since=r['since'], fields=_fields(r))
+                for r in records]
+    validate_record_shapes(declared, 0, revision)
+    _require(all(_camel(r['name']) not in {'RecordStream', 'Record', 'Reader', 'WireField',
+                                           'WireValue', 'WireKind'}
+                 for r in declared), 'record name collides with stage codec helper')
+    return declared
+
+
+STAGE_SHARED = '''impl<'a> Reader<'a> {
+    fn blob(&mut self, cap: usize) -> Result<&'a [u8], i32> {
+        let len = self.varint()? as usize;
+        if len > cap { return Err(-2); }
+        self.take(len)
+    }
+    fn string(&mut self, cap: usize) -> Result<&'a str, i32> {
+        wire_text(self.blob(cap)?, -2)
+    }
+    fn bitmap_bits(&mut self) -> Result<u8, i32> {
+        let len = self.varint()? as usize;
+        // At most eight optional fields: the first bitmap byte is all that is known.
+        Ok(self.take(len)?.first().copied().unwrap_or(0))
+    }
+}
+fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -> bool {
+    let mut count = 0;
+    for item in value.split(separator) {
+        count += 1;
+        if item.is_empty() || item.len() > item_max || count > max_items { return false; }
+    }
+    true
+}
+/// Where `part` lies in `whole`, in bytes.
+///
+/// # Safety
+///
+/// `part` is a reference into `whole`.
+const unsafe fn wire_offset<W, P>(whole: &W, part: &P) -> usize {
+    // SAFETY: both point into the one value `whole` (the caller's word).
+    unsafe { core::ptr::from_ref(part).cast::<u8>().offset_from(core::ptr::from_ref(whole).cast::<u8>()) as usize }
+}
+'''
+
+
+def shared_codec_source(stages):
+    """What the codecs of one file of stage schemas share when they walk tables
+    (`local_codec_source` with `tables`): the framing reader and writers, and the
+    interpreter of `abi_tables`. Returns the source and the defaults its tables name."""
+    from abi_tables import TEXT_SOURCE, defaults_of, interpreter_source, kinds_of
+    declared = [r for stage in stages
+                for r in local_records(stage['records'], stage['revision'])]
+    defaults = defaults_of(declared)
+    source = (reader_source(quick=True) + writer_source() + STAGE_SHARED + TEXT_SOURCE
+              + interpreter_source(defaults, -2, -2, kinds_of(declared), typed=False))
+    return source.replace('@INVALID@', '-2'), defaults
+
+
+def local_codec_source(stage, tables=None):
+    """Emit a stage-local codec through the kernel's borrowed record emitters. With
+    `tables` (the defaults of `shared_codec_source`, whose source the file holds once,
+    above its stage modules) the records are tables the shared interpreter walks."""
+    declared = local_records(stage['records'], stage['revision'])
+    if tables is not None:
+        return _table_codec_source(stage, declared, tables)
+    borrowed = any(_lifetime(r) for r in declared)
+    life = "<'a>" if borrowed else ''
+    record_type = 'Record' + life
+    variants = '\n'.join(f'    /// A `{r["name"]}` record.\n    {_camel(r["name"])}({_camel(r["name"])}{_lifetime(r)}),' for r in declared)
+    source = reader_source() + writer_source()
+    # Existing field and optional-field emission is shared with the kernel codec.
+    source += ''.join(_record_source(r, 'decode_body', record_type, extensible=True) for r in declared)
+    source += f'\n/// A record with a tag local to this stage.\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\n#[non_exhaustive]\npub enum Record{life} {{\n{variants}\n}}\n'
+    reader_extra = _reader_extra(declared)
+    source += '''impl<'a> Reader<'a> {
+    fn blob(&mut self, cap: usize) -> Result<&'a [u8], i32> {
+        let len = self.varint()? as usize;
+        if len > cap { return Err(-2); }
+        self.take(len)
+    }
+    fn string(&mut self, cap: usize) -> Result<&'a str, i32> {
+        core::str::from_utf8(self.blob(cap)?).map_err(|_| -2)
+    }
+''' + reader_extra + '}\n'
+    source += '''fn blob_len(len: usize, cap: usize) -> Result<usize, i32> {
+    if len > cap { return Err(-2); }
+    Ok(varint_len(len as u32) + len)
+}
+fn write_blob(bytes: &[u8], out: &mut [u8], offset: &mut usize) {
+    write_varint(bytes.len() as u32, out, offset);
+    write_bytes(bytes, out, offset);
+}
+fn valid_list(value: &str, separator: char, max_items: usize, item_max: usize) -> bool {
+    let mut count = 0;
+    for item in value.split(separator) {
+        count += 1;
+        if item.is_empty() || item.len() > item_max || count > max_items { return false; }
+    }
+    true
+}
+'''
+    arms = lambda pattern: ''.join(pattern.replace('@T@', _camel(r['name'])).replace('@C@', _const(r['name'])) for r in declared)
+    source += (f"impl<'a> {record_type} {{\n" if borrowed else 'impl Record {\n') + '''    /// Local wire tag.
+    pub fn tag(&self) -> u32 { match self {
+''' + arms('Record::@T@(_) => @C@_TAG,\n') + '} }\n'
+    source += 'fn body_len(&self) -> Result<usize, i32> { match self {\n' + arms('Record::@T@(r) => r.body_len(),\n') + '} }\n'
+    source += 'fn write(&self, out: &mut [u8], offset: &mut usize) { match self {\n' + arms('Record::@T@(r) => r.write(out, offset),\n') + '} }\n'
+    source += _record_extra(declared)
+    source += _validate_source(declared)
+    source += "fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<" + record_type + ', i32> {\nlet record = match tag {\n' + arms('@C@_TAG => @T@::decode_body(body)?,\n') + '_ => return Err(-2),\n};\n// Unknown appended fields are bounded by the record framing.\nrecord.validate()?;\nOk(record)\n}\n'
+    return _codec_tail(source, stage, declared, borrowed, record_type, bitmap=(
+        'record.write_bitmap(out, &mut offset);'
+        if any(f['optional'] for r in declared for f in r['fields'])
+        else 'write_varint(0, out, &mut offset);'))
+
+
+
+
+
+def _codec_tail(source, stage, declared, borrowed, record_type, bitmap):
+    """The batch stream, encoders, writers and one-record helpers of a stage codec;
+    `bitmap` writes a record's presence bitmap where its `write` does not."""
+    source += STREAM_TEMPLATE.replace('@RECORD@', record_type).replace('@ITEM@', 'Record<' + "'a>" if borrowed else 'Record')
+    source += ENCODE_TEMPLATE.replace('@RECORD@', "Record<'_>" if borrowed else 'Record').replace('@BITMAP@', bitmap)
+    # Row by row, no slice of records: the count prefix is one byte while
+    # both sides hold at most 127 rows (schemas allow 64).
+    input_rows = stage.get('input_rows', 1)
+    _require(stage['reply_rows'] <= 127 and input_rows <= 127,
+             f'{stage["key"]}: a batch writer needs at most 127 rows a side')
+    for side, title, cap, rows, tags in (
+            ('reply', 'Reply', 'MAX_REPLY', 'REPLY_ROWS', 'REPLY_TAGS'),
+            ('input', 'Input', 'MAX_INPUT', 'INPUT_ROWS' if 'input_rows' in stage else '1',
+             'INPUT_TAGS')):
+        source += (BATCH_WRITER_TEMPLATE.replace('@SIDE@', side).replace('@TITLE@', title)
+                   .replace('@CAP@', cap).replace('@ROWS@', rows).replace('@TAGS@', tags)
+                   .replace('@RECORD@', "Record<'_>" if borrowed else 'Record')
+                   .replace('@BITMAP@', bitmap)
+                   .replace('@EMPTY@', '' if side == 'reply'
+                            else '        if self.rows == 0 { return Err(-2); }\n'))
+    for r in declared:
+        title, borrows = _camel(r['name']), _lifetime(r)
+        source += f"impl<'a> {title}<'a> {{\n" if borrows else f'impl {title} {{\n'
+        source += f'/// Local tag of this record.\npub const TAG: u32 = {_const(r["name"])}_TAG;\n'
+        side = 'input' if r['name'] in stage['input'] else 'reply'
+        source += '/// Encode this record as a one-record batch.\npub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {\n' + f'{side}_encode(&[Record::{title}(*self)], out)\n}}\n'
+        source += f"/// Decode a batch holding exactly this record.\npub fn decode(bytes: {'&\'a [u8]' if borrows else '&[u8]'}) -> Result<Self, i32> {{\n" + f'let mut records = {side}_decode(bytes)?;\nif records.len() != 1 {{ return Err(-2); }}\nmatch records.next() {{\nSome(Ok(Record::{title}(r))) => Ok(r),\n_ => Err(-2),\n}}\n}}\n}}\n'
+    source = source.replace('@INVALID@', '-2').replace('@NO_SPACE@', '-2').replace('@UTF8@', '-2')
+    return source
+
+
+def _table_codec_source(stage, declared, defaults):
+    """`local_codec_source` over tables: no decode, length or write step per record."""
+    borrowed = any(_lifetime(r) for r in declared)
+    life = "<'a>" if borrowed else ''
+    record_type = 'Record' + life
+    variants = '\n'.join(f'    /// A `{r["name"]}` record.\n    {_camel(r["name"])}({_camel(r["name"])}{_lifetime(r)}),' for r in declared)
+    source = 'use super::*;\n'
+    source += ''.join(_record_source(r, 'decode_body', record_type, extensible=True, tables=defaults)
+                      for r in declared)
+    source += f'\n/// A record with a tag local to this stage.\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\n#[non_exhaustive]\npub enum Record{life} {{\n{variants}\n}}\n'
+    arms = lambda pattern: ''.join(pattern.replace('@T@', _camel(r['name'])).replace('@C@', _const(r['name'])) for r in declared)
+    # The tag, the table and the place of a record's struct are read from `ROWS` at the
+    # place of its variant, not given by a `match`: the compiler makes a lookup table of a
+    # `match` that only picks constants, and on the X4 those tables are kept in RAM (the
+    # linker script of the hardware crate puts them there); a `static` stays in flash.
+    blank = {'str': '""', 'bytes': '&[]'}
+    rows = ''
+    for r in declared:
+        title = _camel(r['name'])
+        args = ', '.join('None' if f['maybe'] else blank.get(f['kind'], '0') for f in r['fields'])
+        rows += (f'({_const(r["name"])}_TAG, &{_const(r["name"])}_FIELDS, {{\n'
+                 f'let record = Record::{title}({title}::new({args}));\n'
+                 '// SAFETY: `inner` is the struct inside `record`.\n'
+                 f'match &record {{ Record::{title}(inner) => unsafe {{ wire_offset(&record, inner) }}, _ => 0 }}\n'
+                 '}),\n')
+    source += ('/// The tag and the table of each record and where its struct lies in a [`Record`]\n'
+               '/// (read off a record of that variant), in the order of the variants.\n'
+               '#[allow(unreachable_patterns, reason = "a schema of one record has one variant")]\n'
+               f'static ROWS: [(u32, &[WireField], usize); {len(declared)}] = [\n' + rows + '];\n')
+    source += (f"impl<'a> {record_type} {{\n" if borrowed else 'impl Record {\n') + '''    /// Local wire tag.
+    pub fn tag(&self) -> u32 { self.row().0 }
+    /// Its tag, its table and where its struct lies in it.
+    fn row(&self) -> (u32, &'static [WireField], usize) {
+        let place: usize = match self {
+''' + ''.join(f'Record::{_camel(r["name"])}(_) => {index},\n' for index, r in enumerate(declared)) + '''        };
+        ROWS.get(place).copied().unwrap_or((0, &[], 0))
+    }
+    /// Its struct.
+    fn at(&self) -> *const u8 {
+        // SAFETY: `ROWS` holds, at the place of each variant, where that variant's struct
+        // lies in a `Record`: inside `self`.
+        unsafe { core::ptr::from_ref(self).cast::<u8>().add(self.row().2) }
+    }
+fn body_len(&self) -> Result<usize, i32> {
+    // SAFETY: `ROWS` holds each record's own table at the place of its variant.
+    unsafe { fields_len(self.row().1, self.at()) }
+}
+/// Its presence bitmap and its fields.
+fn write(&self, out: &mut [u8], offset: &mut usize) {
+    // SAFETY: `ROWS` holds each record's own table at the place of its variant.
+    unsafe { fields_write(self.row().1, self.at(), out, offset) }
+}
+'''
+    source += _validate_source(declared)
+    source += ("fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<" + record_type
+               + ', i32> {\n// SAFETY: each arm decodes with the table of the record it makes, which borrows\n// from the body alone.\nlet record = unsafe { match tag {\n'
+               + arms('@C@_TAG => Record::@T@(fields_decode_as(&@C@_FIELDS, body.remaining)?),\n')
+               + '_ => return Err(-2),\n} };\n// Unknown appended fields are bounded by the record framing.\nrecord.validate()?;\nOk(record)\n}\n')
+    return _codec_tail(source, stage, declared, borrowed, record_type, bitmap='')
+
+
+def _validate_source(declared):
+    """`Record::validate` (the list fields) and the end of the `impl Record` block."""
+    source = 'fn validate(&self) -> Result<(), i32> {\n match self {\n'
+    for r in declared:
+        lists = [f for f in r['fields'] if f['items']]
+        if lists:
+            source += f'Record::{_camel(r["name"])}(r) => {{\n'
+            for f in lists:
+                items = f['items']
+                guard = f'!r.{f["name"]}.is_empty() && ' if f['optional'] else ''
+                source += f'if {guard}!valid_list(r.{f["name"]}, {items["separator"]!r}, {items["max_items"]}, {items["item_max_bytes"]}) {{ return Err(-2); }}\n'
+            source += '}\n'
+    # A codec whose every record has a list field matches them all: no catch-all arm.
+    rest = '_ => {}\n' if any(not any(f['items'] for f in r['fields']) for r in declared) else ''
+    return source + rest + '}\nOk(())\n}\n}\n'
+
+
+STREAM_TEMPLATE = '''/// A validated stage batch, borrowed without keeping a decoded array.
+#[derive(Clone, Debug)]
+pub struct RecordStream<'a> {
+    bytes: &'a [u8],
+    remaining: usize,
+}
+impl RecordStream<'_> {
+    /// Records still to iterate.
+    pub fn len(&self) -> usize { self.remaining }
+    /// Whether iteration is complete.
+    pub fn is_empty(&self) -> bool { self.remaining == 0 }
+}
+impl<'a> Iterator for RecordStream<'a> {
+    type Item = Result<@ITEM@, i32>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 { return None; }
+        let mut reader = Reader { remaining: self.bytes };
+        let decoded = (|| {
+            let (tag, mut body) = reader.record()?;
+            decode_body(tag, &mut body)
+        })();
+        self.bytes = reader.remaining;
+        self.remaining -= 1;
+        Some(decoded)
+    }
+}
+/// Tooling-only, side-agnostic batch validation. Runtime callers use a direction.
+pub(crate) fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+    decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
+}
+/// Decode exactly one stage input using only input tags and its byte cap.
+pub fn input_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+    let records = decode_with(bytes, MAX_INPUT, 1, INPUT_TAGS)?;
+    if records.len() != 1 { return Err(-2); }
+    Ok(records)
+}
+/// Decode a subscriber's reply using only reply tags, rows and byte cap.
+pub fn reply_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+    decode_with(bytes, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+}
+fn decode_with<'a>(bytes: &'a [u8], cap: usize, rows: usize, tags: &[u32]) -> Result<RecordStream<'a>, i32> {
+    if bytes.len() > cap { return Err(-2); }
+    let mut reader = Reader { remaining: bytes };
+    let count = reader.varint()? as usize;
+    if count > rows { return Err(-2); }
+    let records = reader.remaining;
+    for _ in 0..count {
+        let (tag, mut body) = reader.record()?;
+        if !tags.is_empty() && !tags.contains(&tag) { return Err(-2); }
+        decode_body(tag, &mut body)?;
+    }
+    reader.finish()?;
+    Ok(RecordStream { bytes: records, remaining: count })
+}
+'''
+BATCH_WRITER_TEMPLATE = '''/// Writes one @SIDE@ batch record by record, straight into `out`: the
+/// bytes [`@SIDE@_encode`] would write for the same records, without a
+/// slice of them. Each [`push`](Self::push) checks the record before it
+/// writes; a refused one leaves the rows before it as they were.
+#[derive(Debug)]
+pub struct @TITLE@Writer<'w> {
+    out: &'w mut [u8],
+    offset: usize,
+    rows: usize,
+}
+impl<'w> @TITLE@Writer<'w> {
+    /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+    pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+        let first = out.first_mut().ok_or(-3)?;
+        *first = 0;
+        Ok(Self { out, offset: 1, rows: 0 })
+    }
+    /// Records written so far.
+    pub fn len(&self) -> usize { self.rows }
+    /// Whether no record is written yet.
+    pub fn is_empty(&self) -> bool { self.rows == 0 }
+    /// Append `record`: -2 for a tag of the other side, a field out of its
+    /// bounds or one row too many; -3 when it does not fit the byte cap or
+    /// `out`. Nothing is written then.
+    pub fn push(&mut self, record: &@RECORD@) -> Result<(), i32> {
+        if self.rows >= @ROWS@ { return Err(-2); }
+        if !@TAGS@.is_empty() && !@TAGS@.contains(&record.tag()) { return Err(-2); }
+        record.validate()?;
+        let body = record.body_len()?;
+        let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+        let end = self.offset.checked_add(need).ok_or(-3)?;
+        if end > @CAP@ || end > self.out.len() { return Err(-3); }
+        let out = &mut *self.out;
+        let mut offset = self.offset;
+        write_varint(record.tag(), out, &mut offset);
+        write_varint(body as u32, out, &mut offset);
+        @BITMAP@
+        record.write(out, &mut offset);
+        self.offset = offset;
+        self.rows += 1;
+        Ok(())
+    }
+    /// The batch's length in `out`, its count written; -2 for an input
+    /// batch of no record.
+    pub fn finish(self) -> Result<usize, i32> {
+@EMPTY@        let count = u8::try_from(self.rows).map_err(|_| -2)?;
+        let first = self.out.first_mut().ok_or(-3)?;
+        *first = count;
+        Ok(self.offset)
+    }
+}
+'''
+ENCODE_TEMPLATE = '''/// Tooling-only, side-agnostic encoding. Runtime callers use a direction.
+pub(crate) fn records_encode(records: &[@RECORD@], out: &mut [u8]) -> Result<usize, i32> {
+    encode_with(records, out, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
+}
+/// Encode exactly one input using its tag and byte bounds.
+pub fn input_encode(records: &[@RECORD@], out: &mut [u8]) -> Result<usize, i32> {
+    if records.len() != 1 { return Err(-2); }
+    encode_with(records, out, MAX_INPUT, 1, INPUT_TAGS)
+}
+/// Encode a subscriber reply using its tag, row and byte bounds.
+pub fn reply_encode(records: &[@RECORD@], out: &mut [u8]) -> Result<usize, i32> {
+    encode_with(records, out, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+}
+fn encode_with(records: &[@RECORD@], out: &mut [u8], cap: usize, rows: usize, tags: &[u32]) -> Result<usize, i32> {
+    if records.len() > rows { return Err(-2); }
+    let mut required = varint_len(records.len() as u32);
+    for record in records {
+        if !tags.is_empty() && !tags.contains(&record.tag()) { return Err(-2); }
+        record.validate()?;
+        let body = record.body_len()?;
+        required += varint_len(record.tag()) + varint_len(body as u32) + body;
+    }
+    if required > cap { return Err(-3); }
+    if out.len() < required { return Err(-3); }
+    let mut offset = 0;
+    write_varint(records.len() as u32, out, &mut offset);
+    for record in records {
+        let body = record.body_len()?;
+        write_varint(record.tag(), out, &mut offset);
+        write_varint(body as u32, out, &mut offset);
+        @BITMAP@
+        record.write(out, &mut offset);
+    }
+    Ok(offset)
+}
+'''

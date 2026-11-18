@@ -8,12 +8,14 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use paperpaw_core::{CodeFile, CodeLoader, Kernel};
+mod native_activation;
+
+use paperpaw_core::{CodeLoader, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
 use paperpaw_sdk::native::{Native, NotInstalled, NotInstalledReason, SafeMode, SafeModeReason};
-use paperpaw_sdk::{Id, MemoryStorage, Plugin, PluginProblem, Storage};
+use paperpaw_sdk::{Id, MemoryStorage};
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "test-x4",
@@ -31,15 +33,7 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 /// Loads nothing: no plugin here has code.
 struct NoCode;
 
-impl CodeLoader for NoCode {
-    fn load(
-        &mut self,
-        _: &dyn Storage,
-        _: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
-        Err(PluginProblem::Unsupported)
-    }
-}
+impl CodeLoader for NoCode {}
 
 fn fonts() -> paperpaw_app::Fonts {
     #[cfg(any(feature = "packs", not(feature = "outline")))]
@@ -69,15 +63,13 @@ fn shown_in(
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(DEVICE)
         .storage(storage)
-        .user_config(format!(
-            "[help]\nshow = false\n[core]\nlanguage = {language}\n"
-        ))
+        .user_config(format!("[core]\nlanguage = {language}\n"))
         .code_plugins(native, Box::new(NoCode));
     let builder = match safe_mode {
         Some(safe_mode) => builder.safe_mode(safe_mode),
         None => builder,
     };
-    let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let _ = kernel.start(Instant(0));
     kernel.render(&mut |_, _| {});
     kernel
@@ -89,6 +81,7 @@ fn shown_in(
 }
 
 #[test]
+#[ignore = "BLOCKED (#228): the notices are the interface-7 plugin manager's; see plugins/plugin-manager/tests/acceptance_pending.rs (safe-mode-and-not-installed-notices-at-start)"]
 fn a_plugin_by_another_author_is_named() {
     let shown = shown(&[("clock", NotInstalledReason::OtherAuthor)], false);
     assert!(
@@ -98,6 +91,7 @@ fn a_plugin_by_another_author_is_named() {
 }
 
 #[test]
+#[ignore = "BLOCKED (#228): the notices are the interface-7 plugin manager's; see plugins/plugin-manager/tests/acceptance_pending.rs (safe-mode-and-not-installed-notices-at-start)"]
 fn several_share_a_notice() {
     let shown = shown(
         &[
@@ -111,6 +105,7 @@ fn several_share_a_notice() {
 }
 
 #[test]
+#[ignore = "BLOCKED (#228): the notices are the interface-7 plugin manager's; see plugins/plugin-manager/tests/acceptance_pending.rs (safe-mode-and-not-installed-notices-at-start)"]
 fn safe_mode_says_its_own() {
     let shown = shown(&[("clock", NotInstalledReason::Damaged)], true);
     assert!(shown.contains("The key was held at the start"), "{shown}");
@@ -124,6 +119,7 @@ fn nothing_is_said_when_all_were_installed() {
 }
 
 #[test]
+#[ignore = "BLOCKED (#228): the notices are the interface-7 plugin manager's; see plugins/plugin-manager/tests/acceptance_pending.rs (safe-mode-and-not-installed-notices-at-start)"]
 fn the_notices_fit_whole() {
     // A notice has three lines: a long name still leaves the reason.
     for language in ["en", "de"] {

@@ -27,7 +27,9 @@ pub fn paperpaw_config::Value<'a>::as_bool(&self) -> core::option::Option<bool>
 pub fn paperpaw_config::Value<'a>::as_i64(&self) -> core::option::Option<i64>
 pub fn paperpaw_config::Value<'a>::as_str(&self) -> alloc::borrow::Cow<'a, str>
 pub fn paperpaw_config::Value<'a>::as_u32(&self) -> core::option::Option<u32>
+pub fn paperpaw_config::Value<'a>::is_escaped(&self) -> bool
 pub fn paperpaw_config::Value<'a>::raw(&self) -> &'a str
+pub fn paperpaw_config::Value<'a>::try_as_str(&self) -> core::result::Result<alloc::borrow::Cow<'a, str>, alloc::collections::TryReserveError>
 pub fn paperpaw_config::parse(&str) -> paperpaw_config::Parser<'_>
 pub fn paperpaw_config::quote(&str) -> alloc::borrow::Cow<'_, str>
 pub fn paperpaw_config::remove(&str, &str, &str) -> alloc::string::String

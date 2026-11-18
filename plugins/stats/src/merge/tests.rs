@@ -3,13 +3,13 @@ use crate::store::PageStat;
 use crate::testing::Faulty;
 use paperpaw_sdk::MemoryStorage;
 
-const DIR: &str = ".paperpaw/plugins/stats";
+pub(super) const DIR: &str = ".paperpaw/plugins/stats";
 
-fn md5(n: u8) -> String {
+pub(super) fn md5(n: u8) -> String {
     format!("{n:032x}")
 }
 
-fn book(id: u16, md5: &str) -> Book {
+pub(super) fn book(id: u16, md5: &str) -> Book {
     Book {
         id,
         title: format!("Ours {id}"),
@@ -24,7 +24,7 @@ fn book(id: u16, md5: &str) -> Book {
     }
 }
 
-fn stay(book: u16, page: u32, start: u32, duration: u16) -> PageStat {
+pub(super) fn stay(book: u16, page: u32, start: u32, duration: u16) -> PageStat {
     PageStat {
         book,
         page,
@@ -34,14 +34,14 @@ fn stay(book: u16, page: u32, start: u32, duration: u16) -> PageStat {
     }
 }
 
-fn log(storage: &dyn Storage) -> Vec<(u16, u32, u32, u16)> {
+pub(super) fn log(storage: &dyn Storage) -> Vec<(u16, u32, u32, u16)> {
     let mut out = Vec::new();
     store::scan(storage, |s| out.push((s.book, s.page, s.start, s.duration))).unwrap();
     out
 }
 
 /// A KOReader file from another device: its own ids and names.
-fn other_device(
+pub(super) fn other_device(
     storage: &dyn Storage,
     path: &str,
     books: &[(i64, &str, &str)],
@@ -73,7 +73,7 @@ fn other_device(
 }
 
 /// Two books here and three stays.
-fn this_device(storage: &dyn Storage) {
+pub(super) fn this_device(storage: &dyn Storage) {
     store::save_books(storage, &[book(1, &md5(0xa)), book(2, &md5(0xb))]).unwrap();
     store::append(storage, stay(1, 5, 1000, 30)).unwrap();
     store::append(storage, stay(1, 6, 1040, 20)).unwrap();
@@ -81,12 +81,12 @@ fn this_device(storage: &dyn Storage) {
 }
 
 /// The files of the statistics here, to see they did not change.
-fn files(storage: &MemoryStorage) -> [Option<Vec<u8>>; 2] {
+pub(super) fn files(storage: &MemoryStorage) -> [Option<Vec<u8>>; 2] {
     ["books.ini", "pages.bin"].map(|name| storage.get(&format!("{DIR}/{name}")))
 }
 
 /// What is in the statistics' folder.
-fn folder(storage: &dyn Storage) -> Vec<String> {
+pub(super) fn folder(storage: &dyn Storage) -> Vec<String> {
     let mut names = Vec::new();
     storage
         .list(DIR, &mut |entry| names.push(entry.name.to_string()))
@@ -406,6 +406,167 @@ fn working_files_go_after_an_error() {
         assert!(after == before || merged, "room {room}");
     }
     assert!(failed > 10, "{failed}");
+}
+
+/// Power lost at any rename of a merge, in particular between the books' and
+/// the log's: the log and the books are the old pair or the merged pair, once
+/// the next start has finished what was begun. Never new stays beside the old
+/// books (stays of books the list lacks).
+#[test]
+fn a_cut_between_the_renames_leaves_a_pair_and_the_next_start_finishes_it() {
+    let make = || {
+        let storage = Faulty::new(MemoryStorage::new());
+        this_device(&storage);
+        other_device(
+            &storage,
+            "income.db",
+            &[(7, "Neu", &md5(0xc))],
+            &[(7, 1, 50, 10), (7, 2, 60, 10)],
+        );
+        storage
+    };
+    let old = files(&make().inner);
+    let merged = {
+        let storage = make();
+        merge(&storage, Some("income.db"), None, None, DIR).unwrap();
+        files(&storage.inner)
+    };
+    assert!(
+        old[0] != merged[0] && old[1] != merged[1],
+        "the merge changes both"
+    );
+    let mut between = 0;
+    for cut in 0..16 {
+        let storage = make();
+        storage.cut_after_renames(cut);
+        // Cut: the merge says so (or not, if the cut came after its last rename).
+        merge(&storage, Some("income.db"), None, None, DIR).ok();
+        // The books are new and the log is not: the cut that matters.
+        let raw = files(&storage.inner);
+        if raw[0] == merged[0] && raw[1] == old[1] {
+            between += 1;
+        }
+        // Power is back: the next start.
+        storage.cut_after_renames(u32::MAX);
+        store::recover(&storage);
+        let now = files(&storage.inner);
+        assert!(
+            now == old || now == merged,
+            "cut after {cut} renames: neither the old pair nor the merged one"
+        );
+        assert_eq!(
+            folder(&storage),
+            ["books.ini", "pages.bin"],
+            "cut after {cut}"
+        );
+    }
+    assert!(between > 0, "no cut fell between the renames");
+}
+
+/// A rename that fails and takes the file it replaces away (FAT removes it
+/// first), at each rename of a merge: the log gone with the new books in place
+/// is the case that matters. Nothing staged goes; the next start finishes the
+/// pair, so the merged pair is there, never the new log beside the old books.
+#[test]
+fn a_failed_rename_that_took_the_old_file_is_finished_at_the_next_start() {
+    let make = || {
+        let storage = Faulty::new(MemoryStorage::new());
+        this_device(&storage);
+        other_device(
+            &storage,
+            "income.db",
+            &[(7, "Neu", &md5(0xc))],
+            &[(7, 1, 50, 10), (7, 2, 60, 10)],
+        );
+        storage
+    };
+    let old = files(&make().inner);
+    let merged = {
+        let storage = make();
+        merge(&storage, Some("income.db"), None, None, DIR).unwrap();
+        files(&storage.inner)
+    };
+    let mut log_gone = 0;
+    for cut in 0..16 {
+        let storage = make();
+        storage.drop_target_on_rename();
+        storage.cut_after_renames(cut);
+        merge(&storage, Some("income.db"), None, None, DIR).ok();
+        if !storage.inner.exists(&format!("{DIR}/pages.bin")) {
+            log_gone += 1;
+        }
+        storage.heal_renames();
+        store::recover(&storage);
+        let now = files(&storage.inner);
+        assert!(now == old || now == merged, "failed rename {cut}");
+        assert_eq!(
+            folder(&storage),
+            ["books.ini", "pages.bin"],
+            "failed rename {cut}"
+        );
+        if !storage.inner.exists(&format!("{DIR}/pages.bin")) {
+            panic!("log lost after rename {cut}");
+        }
+    }
+    assert!(log_gone > 0, "the old log was never taken away");
+}
+
+/// While the pair cannot be finished (the rename keeps failing at the next
+/// start too) nothing staged is deleted, and books are not changed over it.
+#[test]
+fn an_unfinished_pair_keeps_its_files_until_it_can_be_finished() {
+    let storage = Faulty::new(MemoryStorage::new());
+    this_device(&storage);
+    other_device(
+        &storage,
+        "income.db",
+        &[(7, "Neu", &md5(0xc))],
+        &[(7, 1, 50, 10)],
+    );
+    storage.drop_target_on_rename();
+    storage.cut_after_renames(1);
+    assert!(merge(&storage, Some("income.db"), None, None, DIR).is_err());
+    let staged = folder(&storage);
+    assert!(staged.contains(&"merge.commit".to_string()), "{staged:?}");
+    assert!(staged.contains(&"pages.new".to_string()), "{staged:?}");
+    // The next start's renames fail too: still nothing is deleted.
+    store::recover(&storage);
+    assert_eq!(folder(&storage), staged);
+    assert!(store::update_books(&storage, |_| true).is_err());
+    assert_eq!(folder(&storage), staged);
+    storage.heal_renames();
+    store::recover(&storage);
+    assert_eq!(folder(&storage), ["books.ini", "pages.bin"]);
+}
+
+/// A cut after the marker but before any rename (both new files whole): the
+/// next start puts both in place. Before the marker the old pair stays.
+#[test]
+fn a_cut_before_the_first_rename_is_finished_and_before_the_marker_undone() {
+    let storage = MemoryStorage::new();
+    this_device(&storage);
+    other_device(
+        &storage,
+        "income.db",
+        &[(7, "Neu", &md5(0xc))],
+        &[(7, 1, 50, 10)],
+    );
+    let old = files(&storage);
+    let marker = format!("{DIR}/merge.commit");
+    let (log_new, books_new) = (format!("{DIR}/pages.new"), format!("{DIR}/books.new"));
+    // Staged, no marker: the unfinished files go.
+    storage.write(&log_new, b"half a log").unwrap();
+    storage.write(&books_new, b"[book.1]\n").unwrap();
+    store::recover(&storage);
+    assert_eq!(files(&storage), old);
+    assert_eq!(folder(&storage), ["books.ini", "pages.bin"]);
+    // Staged whole, with the marker: both are put in place.
+    storage.write(&log_new, b"").unwrap();
+    storage.write(&books_new, b"").unwrap();
+    storage.write(&marker, b"1").unwrap();
+    store::recover(&storage);
+    assert_eq!(files(&storage), [Some(Vec::new()), Some(Vec::new())]);
+    assert_eq!(folder(&storage), ["books.ini", "pages.bin"]);
 }
 
 /// The file there replaced by an older backup: what the last upload

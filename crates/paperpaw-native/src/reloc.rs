@@ -1,8 +1,11 @@
-//! Moving an image to where it runs: the words that hold an address get
-//! the distance moved added, the firmware's table's word its address, and
-//! the instructions that reach across the hot code's edge are written
-//! anew for where both sides run.
+//! What a patch writes ([`PatchKind`]), and the relocator of the format
+//! before 5: the words that hold an address get the distance moved added,
+//! the firmware's table's word its address, and the instructions that
+//! reach across the hot code's edge are written anew for where both sides
+//! run. Nothing loads such a file any more: the relocator is built for
+//! tests only, where the format-5 one (`stream5`) is held to it.
 
+#[cfg(test)]
 use crate::header::{CODE_OFFSET, Header, Problem};
 
 /// What a patch writes (format 3): part of the distance from an
@@ -48,7 +51,8 @@ impl PatchKind {
     }
 
     /// The bits of the instruction a patch keeps.
-    const fn kept(self) -> u32 {
+    #[cfg(any(test, feature = "kernel"))]
+    pub(crate) const fn kept(self) -> u32 {
         match self {
             PatchKind::Hi20 => 0x0000_0FFF,
             PatchKind::Lo12I => 0x000F_FFFF,
@@ -59,7 +63,8 @@ impl PatchKind {
     /// The bits a patch writes for the distance `distance`, as `auipc`
     /// and its partner split it: the upper part rounded, so the lower one
     /// is signed.
-    const fn bits(self, distance: u32) -> u32 {
+    #[cfg(any(test, feature = "kernel"))]
+    pub(crate) const fn bits(self, distance: u32) -> u32 {
         let hi = distance.wrapping_add(0x800) & 0xFFFF_F000;
         let lo = distance.wrapping_sub(hi);
         match self {
@@ -70,6 +75,7 @@ impl PatchKind {
     }
 }
 
+#[cfg(test)]
 /// Checks the words that follow a file's image: first the words to
 /// relocate (increasing, each a whole word of the image, none the
 /// table's word or in the hot code), then the patches (in order, each at
@@ -113,11 +119,13 @@ pub fn check_relocations(header: &Header, words: &[u32]) -> Result<(), Problem> 
     Ok(())
 }
 
+#[cfg(test)]
 /// How many of `patches` (in order) are upper parts: they come first.
 fn high_parts(patches: &[[u32; 2]]) -> usize {
     patches.partition_point(|p| p[0] < PatchKind::Lo12I.record(0))
 }
 
+#[cfg(test)]
 /// What the `auipc` patched at `site` reaches, by the upper parts `hi20`.
 fn target(hi20: &[[u32; 2]], site: u32) -> Option<u32> {
     let record = PatchKind::Hi20.record(site);
@@ -126,6 +134,7 @@ fn target(hi20: &[[u32; 2]], site: u32) -> Option<u32> {
         .map(|i| hi20[i][1])
 }
 
+#[cfg(test)]
 /// Relocates an image, a piece at a time, for the data address it is
 /// placed at, and for where its hot code runs.
 #[derive(Debug)]
@@ -145,6 +154,7 @@ pub struct Relocator<'a> {
     api: u32,
 }
 
+#[cfg(test)]
 impl<'a> Relocator<'a> {
     /// For the image of `header` placed at data address `base`, the
     /// `words` that follow its image in the file (checked here: those to
@@ -329,7 +339,7 @@ impl<'a> Relocator<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use alloc::vec::Vec;
 
     use super::*;
@@ -465,7 +475,7 @@ mod tests {
     }
 
     /// The image as linked and its words after it.
-    fn hot_image() -> (Header, Vec<u8>, Vec<u32>) {
+    pub(crate) fn hot_image() -> (Header, Vec<u8>, Vec<u32>) {
         let mut image = alloc::vec![0u8; LEN as usize];
         image[HOT_WORD..HOT_WORD + 4].copy_from_slice(&(CODE + HOT_AT).to_le_bytes());
         image[CONSTANT as usize..CONSTANT as usize + 4].copy_from_slice(b"PPaw");

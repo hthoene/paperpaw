@@ -1,0 +1,3 @@
+### Fixed
+
+- **The emulator installs plugins from the store again** (#228, #257). The emulated X4, X4 Pro and X4 Classic take plugin installs, checks and removals as the device does: the kernel gets a firmware host with no firmware to install (plugin jobs share its queue) and the plugin host of the device's chip, and linked plugins are offered `uses.install`. A plugin file is checked against the device's loader and the services the emulator wires; an installed code plugin is the device's from its next start (the emulator runs no device file). `Kernel::set_plugin_host` tells the kernel after the build, for a shell that knows what it offers only once its services are wired.

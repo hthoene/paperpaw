@@ -1,0 +1,679 @@
+//! Scoped font lookup and scalar text slots. Persistent handles own keys only.
+use super::{
+    canvas::CanvasScope,
+    environment::EnvironmentScope,
+    fonts_data::DataFont,
+    resources::{FontKey, FontRole, OwnerResources},
+};
+use crate::abi7::{context::Frame, graphics};
+use crate::font_refresh::widget_fonts;
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+use paperpaw_native::host_glue::ERR_UNSUPPORTED;
+use paperpaw_native::host_glue::{
+    ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_NOT_FOUND, ERR_STATE, OK, PpBuffer, PpBytes,
+    buffers,
+};
+use paperpaw_platform::Color;
+use paperpaw_sdk::{FontHandle, Fonts, RoleMemo, builtin::fonts as roles};
+
+fn role(key: &str) -> Option<FontRole> {
+    Some(match key {
+        "role:ui" => FontRole::Ui,
+        "role:reading" => FontRole::Reading,
+        "role:reading-bold" => FontRole::ReadingBold,
+        "role:reading-italic" => FontRole::ReadingItalic,
+        "role:reading-bold-italic" => FontRole::ReadingBoldItalic,
+        "role:status" => FontRole::Status,
+        "role:icons" => FontRole::Icons,
+        _ => return None,
+    })
+}
+
+/// The fonts and, where the host keeps one, what it found of their roles.
+type Roles<'a> = (&'a Fonts, Option<&'a RoleMemo>);
+
+fn resolve_role(roles: Roles<'_>, role: FontRole) -> Option<FontHandle<'_>> {
+    let (fonts, memo) = roles;
+    let role_of = |name: &str| match memo {
+        Some(memo) => fonts.role_in(memo, name),
+        None => fonts.role(name),
+    };
+    let bound_of = |name: &str| match memo {
+        Some(memo) => fonts.bound_in(memo, name),
+        None => fonts.bound(name),
+    };
+    match role {
+        FontRole::Ui => role_of(roles::UI.as_str()),
+        FontRole::Reading => role_of(roles::READING.as_str()),
+        FontRole::ReadingBold => bound_of(roles::READING_BOLD.as_str())
+            .or_else(|| resolve_role(roles, FontRole::Reading)),
+        FontRole::ReadingItalic => bound_of(roles::READING_ITALIC.as_str())
+            .or_else(|| resolve_role(roles, FontRole::Reading)),
+        FontRole::ReadingBoldItalic => bound_of(roles::READING_BOLD_ITALIC.as_str())
+            .or_else(|| resolve_role(roles, FontRole::ReadingBold)),
+        FontRole::Status => role_of(roles::STATUS.as_str()),
+        FontRole::Icons => bound_of(roles::ICONS.as_str()),
+    }
+}
+
+/// The font of `key` for text at `size` (`None`: at no size, as for what
+/// characters it has).
+fn resolve<'a>(
+    frame: &'a dyn Frame,
+    key: &'a FontKey,
+    size: Option<f32>,
+) -> Result<FontHandle<'a>, i32> {
+    if let FontKey::Data(font) = key {
+        return font.handle();
+    }
+    let (fonts, memo) = frame.fonts_memo().ok_or(ERR_STATE)?;
+    match key {
+        FontKey::Role(role) => resolve_role((fonts, memo), *role).ok_or(ERR_NOT_FOUND),
+        FontKey::Named { id, acquired } => {
+            if !frame.font_valid(id.namespace(), *acquired) {
+                return Err(ERR_STATE);
+            }
+            fonts.get(id.as_str()).ok_or(ERR_STATE)
+        }
+        FontKey::Widget { id, acquired } => frame
+            .font_valid(id.namespace(), *acquired)
+            .then(|| fonts.get(id.as_str()))
+            .flatten()
+            .filter(|font| size.is_none_or(|size| widget_fonts::has_size(font, size)))
+            .or_else(|| resolve_role((fonts, memo), FontRole::Ui))
+            .ok_or(ERR_NOT_FOUND),
+        FontKey::Data(_) => Err(ERR_STATE),
+    }
+}
+
+fn with_font<R>(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    handle: u32,
+    call: impl FnOnce(&FontHandle<'_>) -> Result<R, i32>,
+) -> Result<R, i32> {
+    with_bold(scope, owner, handle, None, |font, _| call(font))
+}
+
+/// The widest faux bold (as slot 41's `extra`).
+const FAUX_MAX: u32 = 16;
+
+/// Faux bold (`screens-input.md` 4): the pixels a bold reading role is drawn
+/// wider at `size` where the reading family has no bold face and the role is
+/// its regular face: one for every 24 px, rounded, at least one. 0 for every
+/// other key and for a family that has its bold face.
+fn faux_bold(frame: &dyn Frame, key: &FontKey, size: f32) -> u16 {
+    let FontKey::Role(role @ (FontRole::ReadingBold | FontRole::ReadingBoldItalic)) = key else {
+        return 0;
+    };
+    let Some(fonts) = frame.fonts() else {
+        return 0;
+    };
+    if fonts.bound(roles::READING_BOLD.as_str()).is_some()
+        || (matches!(role, FontRole::ReadingBoldItalic)
+            && fonts.bound(roles::READING_BOLD_ITALIC.as_str()).is_some())
+    {
+        return 0;
+    }
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a checked positive size; the cast saturates"
+    )]
+    let pixels = (size + 12.0) as u32 / 24;
+    u16::try_from(pixels.clamp(1, FAUX_MAX)).unwrap_or(1)
+}
+
+/// [`with_font`] for a drawing call at `size`: `call` is also given the
+/// call's [`faux_bold`] (0 where no size is given).
+fn with_bold<R>(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    handle: u32,
+    size: Option<f32>,
+    call: impl FnOnce(&FontHandle<'_>, u16) -> Result<R, i32>,
+) -> Result<R, i32> {
+    scope.with_frame(|frame| {
+        owner.with_font(handle, |key| {
+            if let FontKey::Data(font) = key {
+                // Once the file is changed or removed the handle is stale.
+                font.check(owner, frame.callback_epoch().ok())?;
+            }
+            let faux = size.map_or(0, |size| faux_bold(frame, key, size));
+            call(&resolve(frame, key, size)?, faux)
+        })
+    })?
+}
+
+/// Validate scalar output ranges without borrowing or initializing their storage.
+fn outputs<T, const N: usize>(pointers: [*mut T; N]) -> Result<(), i32> {
+    let bytes = core::mem::size_of::<T>();
+    for (index, pointer) in pointers.iter().enumerate() {
+        let start = *pointer as usize;
+        let end = start.checked_add(bytes).ok_or(ERR_INVALID)?;
+        if pointer.is_null() || !start.is_multiple_of(core::mem::align_of::<T>()) {
+            return Err(ERR_INVALID);
+        }
+        if pointers[..index].iter().any(|earlier| {
+            let earlier = *earlier as usize;
+            earlier < end && start < earlier.saturating_add(bytes)
+        }) {
+            return Err(ERR_INVALID);
+        }
+    }
+    Ok(())
+}
+
+fn size_check(size: f32) -> Result<(), i32> {
+    if size.is_finite() && size > 0.0 {
+        Ok(())
+    } else {
+        Err(ERR_INVALID)
+    }
+}
+
+fn status(result: Result<(), i32>) -> i32 {
+    result.map_or_else(|error| error, |()| OK)
+}
+
+/// The key of a font file in the plugin's own data folder: `data:<path>`.
+const DATA_KEY: &str = "data:";
+
+/// The key of the font a widget is set in: `widget:<widget id>`.
+const WIDGET_KEY: &str = "widget:";
+
+/// The font the reader chose for `widget` (`screens-input.md` 4), as it is
+/// now: a family whose regular face is open, else the role it stands for.
+fn widget_key(frame: &dyn Frame, widget: &str) -> Result<FontKey, i32> {
+    let fonts = frame.fonts().ok_or(ERR_STATE)?;
+    let role = match widget_fonts::chosen(frame.settings(), widget) {
+        widget_fonts::Chosen::Menus => FontRole::Ui,
+        widget_fonts::Chosen::Book => FontRole::Reading,
+        widget_fonts::Chosen::Family(family) => {
+            let open = fonts
+                .family_regular(family)
+                .filter(|id| fonts.get(id.as_str()).is_some());
+            match open {
+                Some(id) => {
+                    let acquired = frame.font_generation().ok_or(ERR_STATE)?;
+                    let id = id.try_clone().ok_or(ERR_NO_MEMORY)?;
+                    return Ok(FontKey::Widget { id, acquired });
+                }
+                None => FontRole::Ui,
+            }
+        }
+    };
+    if resolve_role((fonts, None), role).is_none() {
+        return Err(ERR_NOT_FOUND);
+    }
+    Ok(FontKey::Role(role))
+}
+
+/// A role key, or a registered font id.
+fn named_or_role(frame: &dyn Frame, key: &str) -> Result<FontKey, i32> {
+    let fonts = frame.fonts().ok_or(ERR_STATE)?;
+    if key.starts_with("role:") {
+        let role = role(key).ok_or(ERR_NOT_FOUND)?;
+        if !matches!(role, FontRole::Icons) && resolve_role((fonts, None), role).is_none() {
+            return Err(ERR_NOT_FOUND);
+        }
+        return Ok(FontKey::Role(role));
+    }
+    let acquired = frame.font_generation().ok_or(ERR_STATE)?;
+    let font = fonts.get(key).ok_or(ERR_NOT_FOUND)?;
+    let id = font.id().try_clone().ok_or(ERR_NO_MEMORY)?;
+    Ok(FontKey::Named { id, acquired })
+}
+
+/// Acquire slot 7: a role, a registered font, a font file of the plugin's
+/// (`data:`) or the font chosen for a widget (`widget:`). Of the key only a
+/// font's id is copied, using checked allocation.
+///
+/// # Safety
+/// Input must be readable and stable; output must be writable, exclusive and
+/// disjoint from input and host state. Output may be uninitialized.
+pub(crate) unsafe fn acquire(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    key: PpBytes,
+    out: *mut u32,
+) -> i32 {
+    status((|| {
+        outputs([out])?;
+        // SAFETY: caller guarantees readable input for this synchronous call.
+        let key = unsafe { buffers::text_in(key, 128) }?;
+        let key = if let Some(path) = key.strip_prefix(DATA_KEY) {
+            FontKey::Data(DataFont::open(scope, owner, path)?)
+        } else if let Some(widget) = key.strip_prefix(WIDGET_KEY) {
+            scope.with_frame(|frame| widget_key(frame, widget))??
+        } else {
+            scope.with_frame(|frame| named_or_role(frame, key))??
+        };
+        let handle = owner.insert_font(key)?;
+        // SAFETY: validated scalar output; no fallible step follows publication.
+        unsafe { out.write(handle) };
+        Ok(())
+    })())
+}
+
+/// Slot 8 is valid even outside an environment callback.
+pub(crate) fn release(owner: &OwnerResources, handle: u32) -> i32 {
+    status(owner.release(handle))
+}
+
+/// Slot 13: measure one line, writing its advance only on success.
+///
+/// # Safety
+/// Text is readable and stable; output is exclusively writable and disjoint
+/// from text and host state for the call. It may be uninitialized.
+pub(crate) unsafe fn measure(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    handle: u32,
+    size: f32,
+    text: PpBytes,
+    out: *mut f32,
+) -> i32 {
+    status((|| {
+        outputs([out])?;
+        size_check(size)?;
+        // SAFETY: the caller provides live readable input.
+        let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
+        let width = with_bold(scope, owner, handle, Some(size), |font, _| {
+            graphics::text_measure(font, size, text).map_err(|_| ERR_INVALID)
+        })?;
+        // SAFETY: output was validated and no reference to it was formed.
+        unsafe { out.write(width) };
+        Ok(())
+    })())
+}
+
+/// The longest icon name in bytes.
+const ICON_NAME_MAX: usize = 64;
+
+/// Whether `name` is one `[a-z0-9-]` segment of 1 to 64 bytes.
+fn icon_name_ok(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= ICON_NAME_MAX
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// The UTF-8 of the character of icon `name` in the bound icon font, into
+/// `bytes`; the length. `ERR_INVALID` for a bad name, `ERR_NOT_FOUND` for a
+/// name the host lacks or no icon font bound (or one without the character).
+fn icon_utf8(frame: &dyn Frame, name: &str, bytes: &mut [u8; 4]) -> Result<usize, i32> {
+    if !icon_name_ok(name) {
+        return Err(ERR_INVALID);
+    }
+    let fonts = frame.fonts().ok_or(ERR_STATE)?;
+    let font = resolve_role((fonts, None), FontRole::Icons).ok_or(ERR_NOT_FOUND)?;
+    let ch = paperpaw_sdk::icons::char(name).ok_or(ERR_NOT_FOUND)?;
+    if !font.has_char(ch) {
+        return Err(ERR_NOT_FOUND);
+    }
+    Ok(ch.encode_utf8(bytes).len())
+}
+
+/// Slot 40: `icon.glyph`, the character of a named icon in the bound icon
+/// font (`screens-input.md`): its UTF-8 (at most 4 bytes) into `out`, and
+/// its length; a smaller `out` is `ERR_NO_SPACE`.
+///
+/// # Safety
+/// `name` is live and readable, `out` writable for its capacity, disjoint
+/// from each other and from host state.
+pub(crate) unsafe fn icon_glyph(scope: &EnvironmentScope, name: PpBytes, out: PpBuffer) -> i32 {
+    (|| {
+        // SAFETY: the caller provides live readable input.
+        let name = unsafe { buffers::text_in(name, ICON_NAME_MAX) }?;
+        // SAFETY: the caller provides live writable output.
+        let out = unsafe { buffers::buffer_out(out, ICON_NAME_MAX) }?;
+        let mut bytes = [0_u8; 4];
+        let len = scope.with_frame(|frame| icon_utf8(frame, name, &mut bytes))??;
+        if out.len() < len {
+            return Err(ERR_NO_SPACE);
+        }
+        for (slot, byte) in out.iter_mut().zip(&bytes[..len]) {
+            slot.write(*byte);
+        }
+        // The length is a positive result, not a status.
+        i32::try_from(len).map_err(|_| ERR_INVALID)
+    })()
+    .unwrap_or_else(|error| error)
+}
+
+/// Slot 29: publish all three metrics together, including positive descent.
+///
+/// # Safety
+/// Outputs must be live, writable, exclusive and disjoint from host state.
+/// Their numeric ranges must not overlap; they may be uninitialized.
+#[allow(clippy::too_many_arguments, reason = "matches the ABI metrics scalars")]
+pub(crate) unsafe fn metrics(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    handle: u32,
+    size: f32,
+    ascent: *mut f32,
+    descent: *mut f32,
+    height: *mut f32,
+) -> i32 {
+    status((|| {
+        outputs([ascent, descent, height])?;
+        size_check(size)?;
+        let values = with_bold(scope, owner, handle, Some(size), |font, _| {
+            let metrics = font.line_metrics(size);
+            let values = [metrics.ascent, metrics.descent, metrics.line_height];
+            if values
+                .iter()
+                .all(|value| value.is_finite() && *value >= 0.0)
+            {
+                Ok(values)
+            } else {
+                Err(ERR_INVALID)
+            }
+        })?;
+        // SAFETY: every output was validated before resolving the font.
+        unsafe {
+            ascent.write(values[0]);
+            descent.write(values[1]);
+            height.write(values[2]);
+        }
+        Ok(())
+    })())
+}
+
+/// For tests and emulators: slot 30 answers as on the X4, whose host table
+/// leaves it unwired (`shell::table`), on this thread from now on. Not part
+/// of any interface, and not on the firmware.
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+pub fn answer_text_ink_as_the_x4(unwired: bool) {
+    ink_unwired::set(unwired);
+}
+
+#[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+mod ink_unwired {
+    extern crate std;
+    use core::cell::Cell;
+
+    std::thread_local! {
+        static UNWIRED: Cell<bool> = const { Cell::new(false) };
+    }
+
+    pub(super) fn get() -> bool {
+        UNWIRED.try_with(Cell::get).unwrap_or(false)
+    }
+
+    pub(super) fn set(unwired: bool) {
+        let _ = UNWIRED.try_with(|cell| cell.set(unwired));
+    }
+}
+
+#[cfg(any(
+    feature = "x4-ink",
+    not(any(target_arch = "riscv32", target_arch = "xtensa"))
+))]
+fn ink_of(font: &FontHandle<'_>, size: f32, text: &str, threshold: u8) -> Result<[i32; 4], i32> {
+    let bounds = font.ink_drawn(size, text, threshold).ok_or(ERR_NOT_FOUND)?;
+    Ok([bounds.top, bounds.bottom, bounds.left, bounds.right])
+}
+
+/// Slot 30: validate and resolve before probing the exact shaped raster path.
+///
+/// # Safety
+/// Text must be readable and unchanged. All outputs must be writable, exclusive
+/// and disjoint from text and host state. They may be uninitialized.
+#[allow(clippy::too_many_arguments, reason = "matches the ABI ink scalars")]
+#[cfg(any(
+    feature = "x4-ink",
+    not(any(target_arch = "riscv32", target_arch = "xtensa"))
+))]
+pub(crate) unsafe fn ink(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    handle: u32,
+    size: f32,
+    text: PpBytes,
+    top: *mut i32,
+    bottom: *mut i32,
+    left: *mut i32,
+    right: *mut i32,
+) -> i32 {
+    status((|| {
+        #[cfg(not(any(target_arch = "riscv32", target_arch = "xtensa")))]
+        if ink_unwired::get() {
+            return Err(ERR_UNSUPPORTED);
+        }
+        outputs([top, bottom, left, right])?;
+        size_check(size)?;
+        // SAFETY: the caller provides live readable input.
+        let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
+        let values = scope.with_frame(|frame| {
+            owner.with_font(handle, |key| {
+                let font = resolve(frame, key, Some(size))?;
+                let mut ink = ink_of(&font, size, text, frame.ink_threshold()?)?;
+                // Faux bold widens every glyph to the right.
+                ink[3] = ink[3].saturating_add(i32::from(faux_bold(frame, key, size)));
+                Ok(ink)
+            })
+        })??;
+        // SAFETY: all outputs were checked before any write.
+        unsafe {
+            top.write(values[0]);
+            bottom.write(values[1]);
+            left.write(values[2]);
+            right.write(values[3]);
+        }
+        Ok(())
+    })())
+}
+
+/// Slot 14: draw through the original canvas's current clip and semantic sink.
+///
+/// # Safety
+/// Text must be readable and unchanged. Output must be writable, exclusive and
+/// disjoint from text and host state for the call; it may be uninitialized.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "matches the ABI text draw scalars"
+)]
+pub(crate) unsafe fn draw(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    canvas: &CanvasScope,
+    handle: u32,
+    size: f32,
+    x: f32,
+    baseline: i32,
+    color: u32,
+    text: PpBytes,
+    out: *mut f32,
+) -> i32 {
+    status((|| {
+        outputs([out])?;
+        size_check(size)?;
+        if color >> 24 != 0 {
+            return Err(ERR_INVALID);
+        }
+        let [_, red, green, blue] = color.to_be_bytes();
+        let color = Color::rgb(red, green, blue);
+        // SAFETY: the caller provides live readable input.
+        let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
+        // An icon is a picture, not a word: it is not told as text.
+        let icon = owner
+            .with_font(handle, |key| {
+                Ok(matches!(key, FontKey::Role(FontRole::Icons)))
+            })
+            .unwrap_or(false);
+        let width = with_bold(scope, owner, handle, Some(size), |font, faux| {
+            canvas.with_canvas(|canvas| {
+                let line = i64::from(baseline);
+                let width = if faux == 0 {
+                    graphics::text_draw(canvas, font, size, x, line, text, color)
+                } else {
+                    let tone = font.text_ink().tone();
+                    graphics::text_draw_toned(canvas, font, size, x, line, text, color, faux, tone)
+                }
+                .map_err(|_| ERR_INVALID)?;
+                // Told as text where somebody asks, as a legacy label is
+                // (`screens-input.md` 6.1); nothing is done otherwise.
+                if canvas.is_describing() && !icon {
+                    let line = font.line_metrics(size);
+                    #[allow(
+                        clippy::cast_precision_loss,
+                        reason = "a baseline on a screen is far below 2^24"
+                    )]
+                    let top = baseline as f32 - line.ascent;
+                    let height = line.ascent + line.descent;
+                    super::canvas_describe::told_text(canvas, text, x, top, width, height);
+                }
+                Ok(width)
+            })?
+        })?;
+        // SAFETY: output was validated before drawing.
+        unsafe { out.write(width) };
+        Ok(())
+    })())
+}
+
+/// The curve of slot 41's `tone` bytes: none for the handle's own, or exactly 16.
+const TONE_BYTES: usize = 16;
+/// Slot 41's `flags`: bit 0 `sharp`.
+const INKED_SHARP: u32 = 1;
+/// The widest `extra` (more is clamped to it, not refused).
+const EXTRA_MAX: u32 = 16;
+
+/// Slot 41: `text.draw_inked`. Draws as slot 14 does, with glyphs widened by
+/// `extra` (above 16 clamped to 16) and the coverage drawn in `tone` (none: the
+/// handle's own; else 16 opacities), `flags` bit 0 `sharp` drawing the chosen
+/// curve without grays at the canvas's `mono_coverage`. The order of refusals
+/// is no canvas (`ERR_STATE`), then a stale handle (`ERR_STATE`), then the
+/// arguments (`ERR_INVALID`, `ERR_UTF8`); all of them come before the first
+/// pixel, so a refused call draws nothing. Nothing is allocated: the curve is
+/// read from the call's own 16 bytes.
+///
+/// # Safety
+/// Text and tone must be readable and unchanged. Output must be writable,
+/// exclusive and disjoint from them and from host state for the call.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "matches the ABI text draw scalars"
+)]
+pub(crate) unsafe fn draw_inked(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    canvas: &CanvasScope,
+    handle: u32,
+    size: f32,
+    x: f32,
+    baseline: i32,
+    color: u32,
+    text: PpBytes,
+    extra: u32,
+    tone: PpBytes,
+    flags: u32,
+    out: *mut f32,
+) -> i32 {
+    status((|| {
+        canvas.present()?;
+        with_font(scope, owner, handle, |_| Ok(()))?;
+        outputs([out])?;
+        size_check(size)?;
+        if color >> 24 != 0 || flags & !INKED_SHARP != 0 {
+            return Err(ERR_INVALID);
+        }
+        let [_, red, green, blue] = color.to_be_bytes();
+        let color = Color::rgb(red, green, blue);
+        // SAFETY: the caller provides live readable input.
+        let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
+        // SAFETY: as above.
+        let tone = unsafe { buffers::bytes_in(tone, TONE_BYTES) }?;
+        if !tone.is_empty() && tone.len() != TONE_BYTES {
+            return Err(ERR_INVALID);
+        }
+        let given = <[u8; TONE_BYTES]>::try_from(tone)
+            .ok()
+            .map(paperpaw_sdk::text::ToneCurve::from_alphas);
+        // Widening is clamped; it never refuses.
+        let extra = u16::try_from(extra.min(EXTRA_MAX)).unwrap_or(0);
+        let width = with_bold(scope, owner, handle, Some(size), |font, faux| {
+            canvas.with_canvas(|canvas| {
+                let extra = extra.saturating_add(faux);
+                let curve = given.unwrap_or_else(|| font.text_ink().tone());
+                let curve = if flags & INKED_SHARP != 0 {
+                    curve.sharp(canvas.mono_coverage())
+                } else {
+                    curve
+                };
+                graphics::text_draw_toned(
+                    canvas,
+                    font,
+                    size,
+                    x,
+                    i64::from(baseline),
+                    text,
+                    color,
+                    extra,
+                    curve,
+                )
+                .map_err(|_| ERR_INVALID)
+            })?
+        })?;
+        // SAFETY: output was validated before drawing.
+        unsafe { out.write(width) };
+        Ok(())
+    })())
+}
+
+#[cfg(test)]
+#[path = "fonts_tests.rs"]
+mod tests;
+
+#[cfg(test)]
+#[path = "fonts_inked_tests.rs"]
+mod inked_tests;
+
+#[cfg(test)]
+#[path = "fonts_faux_tests.rs"]
+mod faux_tests;
+
+#[cfg(test)]
+#[path = "fonts_widget_tests.rs"]
+mod widget_tests;
+
+/// The longest text slot 39 reads (`screens-input.md` section 4).
+const COVERS_MAX: usize = 1024;
+
+/// The byte length of the longest start of `text` whose characters `font`
+/// draws, its fallbacks included (`FontHandle::has_char`).
+fn covered(font: &FontHandle<'_>, text: &str) -> usize {
+    text.char_indices()
+        .find(|(_, ch)| !font.has_char(*ch))
+        .map_or(text.len(), |(at, _)| at)
+}
+
+/// Slot 39: how much of `text` the font draws. The result is the length
+/// itself (at most 1,024); `ERR_INVALID` above that, `ERR_UTF8` when it is no
+/// text, `ERR_STATE` for a stale handle, 0 where no font is bound to the role
+/// (the icon font). Case is not folded and nothing is written or allocated.
+///
+/// # Safety
+/// `text` is readable and stable for the call.
+pub(crate) unsafe fn covers(
+    scope: &EnvironmentScope,
+    owner: &OwnerResources,
+    handle: u32,
+    text: PpBytes,
+) -> i32 {
+    // SAFETY: the caller provides live readable input.
+    let text = match unsafe { buffers::text_in(text, COVERS_MAX) } {
+        Ok(text) => text,
+        Err(error) => return error,
+    };
+    match with_font(scope, owner, handle, |font| Ok(covered(font, text))) {
+        // At most 1,024 by the bound above.
+        Ok(length) => i32::try_from(length).unwrap_or(ERR_INVALID),
+        Err(ERR_NOT_FOUND) => 0,
+        Err(error) => error,
+    }
+}

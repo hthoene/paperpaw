@@ -18,6 +18,22 @@
 //! gone raise it. Either way the files are written anew:
 //!
 //! PAPERPAW_BLESS=1 cargo test -p paperpaw-sdk --test interface
+//!
+//! `interface.txt` keeps the fingerprint too ([`fingerprint_line`]): a
+//! plugin is loaded where its fingerprint is the firmware's, and the
+//! fingerprint holds the interface and the sizes of what crosses, not the
+//! order of a trait's items or an enum's variants. So a raise is checked
+//! against the interface the kept fingerprint was made at as well, not
+//! only against the number `interface.txt` says, and layouts that changed
+//! while the shapes did not are a raise too ([`bless_refused`]).
+//!
+//! Until the owner freezes it, an interface is a draft (`native::DRAFT`,
+//! `draft` in `interface.txt`): what plugins rely on may then change
+//! without a new interface and without a new draft (one interface 7
+//! until 1.0, owner decision 2026-11-10): the pull request that changes
+//! it carries the files the bless writes. Freezing deletes `native::DRAFT`
+//! and the line (this test then takes 0, frozen), and from then on only a
+//! raise changes what plugins rely on.
 
 #![allow(
     clippy::unwrap_used,
@@ -28,7 +44,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use paperpaw_sdk::native::{INTERFACE, TOOLCHAIN};
+use paperpaw_sdk::native::{DRAFT, FINGERPRINT, Fingerprint, INTERFACE, TOOLCHAIN};
+
+#[path = "interface/bless.rs"]
+mod bless;
 
 fn here(path: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
@@ -87,13 +106,147 @@ fn now() -> Option<String> {
          # without native::INTERFACE raised. Written by `PAPERPAW_BLESS=1\n\
          # cargo test -p paperpaw-sdk --test interface`.\n\
          interface = {INTERFACE}\n\
+         {}\
          linker = {:016x}\n\
          x4 = rustc {x4}\n\
          x4-pro = esp {esp}\n\
          android = rustc {android}\n\
          third-party = {third}\n",
+        draft_line(DRAFT),
         fnv(&linker)
     ))
+}
+
+/// The line `interface.txt` keeps of draft `draft`: none once frozen (0),
+/// as before there were drafts.
+fn draft_line(draft: u16) -> String {
+    if draft == 0 {
+        String::new()
+    } else {
+        format!("draft = {draft}\n")
+    }
+}
+
+/// The fingerprint plugins of this build fit, as `interface.txt` keeps it:
+/// what it was made on, then its value. Made on another, its value
+/// differs (the sizes of what crosses), its interface does not.
+fn fingerprint_line() -> String {
+    format!("fingerprint = {} {FINGERPRINT}\n", made_on())
+}
+
+/// What this build's fingerprint is made on: the architecture, and
+/// `+outline` where the feature adds the outline fonts' layouts (a
+/// workspace build turns it on for the SDK, `-p paperpaw-sdk` does not).
+fn made_on() -> String {
+    let outline = if cfg!(feature = "outline") {
+        "+outline"
+    } else {
+        ""
+    };
+    format!("{}{outline}", std::env::consts::ARCH)
+}
+
+/// The fingerprint `kept` (`interface.txt`) keeps, with the architecture
+/// it was made on; `None` where it keeps none.
+fn kept_fingerprint(kept: &str) -> Option<(String, Fingerprint)> {
+    let line = value(kept, "fingerprint");
+    let (arch, hex) = line.split_once(' ')?;
+    let fingerprint = Fingerprint(u64::from_str_radix(hex.trim(), 16).ok()?);
+    Some((arch.to_string(), fingerprint))
+}
+
+/// `kept` without its fingerprint: what [`now`] writes.
+fn without_fingerprint(kept: &str) -> String {
+    kept.lines()
+        .filter(|line| !line.starts_with("fingerprint ="))
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
+/// Whether the layouts of what crosses changed at the interface kept: the
+/// fingerprint `now`, made on `arch`, is another than the one `kept`
+/// keeps of the same architecture, at the same interface. (Made on
+/// another architecture the two cannot be told apart.)
+fn layouts_changed(kept: &str, now: Fingerprint, arch: &str) -> bool {
+    kept_fingerprint(kept).is_some_and(|(made_on, fingerprint)| {
+        made_on == arch && fingerprint != now && fingerprint.interface() == now.interface()
+    })
+}
+
+/// Why writing the files anew is refused, where it is: what plugins built
+/// before rely on changed (`breaking`, or the layouts of what crosses:
+/// [`layouts_changed`]), and the fingerprint `now` (made on `arch`) keeps
+/// the interface of `kept`, as the number it says or as the fingerprint
+/// it keeps. Plugins built before would then be loaded and call what is
+/// not there: the bless of the interface-6 round at interface 5 (#363)
+/// changed the order of the `Screen` trait's items and kept the
+/// fingerprint, the number in `interface.txt` lowered by hand.
+///
+/// At the interface kept, such a change is a bless only while it is a
+/// draft (`kept` says a `draft` other than 0) and `draft` is the next
+/// draft, or 0 (frozen: `DRAFT` deleted): both change the fingerprint, so builds of the
+/// draft kept are refused. A frozen interface never goes back to a draft.
+fn bless_refused(
+    kept: &str,
+    breaking: bool,
+    now: Fingerprint,
+    draft: u16,
+    arch: &str,
+) -> Option<String> {
+    let kept_interface: u16 = value(kept, "interface").parse().unwrap_or(0);
+    let kept_draft: u16 = value(kept, "draft").parse().unwrap_or(0);
+    let interface = now.interface();
+    if interface == kept_interface && draft != kept_draft {
+        let next = kept_draft != 0 && (draft == 0 || draft > kept_draft);
+        return (!next).then(|| {
+            format!(
+                "native::DRAFT is {draft}, interface.txt keeps draft {kept_draft} of interface \
+                 {interface}: a draft only moves on (or to 0, frozen), and a frozen interface \
+                 changes only with a raise"
+            )
+        });
+    }
+    if !breaking && !layouts_changed(kept, now, arch) {
+        return None;
+    }
+    if interface == kept_interface && kept_draft != 0 {
+        // One interface 7 until 1.0 (owner, 2026-11-10): nobody runs a
+        // plugin built against it outside this tree, so any change is
+        // blessed at the draft kept; the PR carries the files it writes.
+        return None;
+    }
+    if interface <= kept_interface {
+        return Some(format!(
+            "what plugins see changed: raise native::INTERFACE (now {interface}) first"
+        ));
+    }
+    let (_, fingerprint) = kept_fingerprint(kept)?;
+    (interface <= fingerprint.interface()).then(|| {
+        format!(
+            "what plugins see changed, and the fingerprint plugins are told by stays at \
+             interface {interface}: the fingerprint kept ({fingerprint}) was made at interface {}, \
+             whatever interface.txt says. Plugins built before would be loaded: raise \
+             native::INTERFACE above it",
+            fingerprint.interface()
+        )
+    })
+}
+
+/// What is wrong with the fingerprint `kept` keeps, where something is:
+/// made at another interface than `now` (made on `arch`), or on the same
+/// architecture another value (the layouts of what crosses changed
+/// without a raise).
+fn fingerprint_drift(kept: &str, now: Fingerprint, arch: &str) -> Option<String> {
+    let (made_on, fingerprint) = kept_fingerprint(kept)?;
+    let wrong =
+        fingerprint.interface() != now.interface() || (made_on == arch && fingerprint != now);
+    wrong.then(|| {
+        format!(
+            "the fingerprint is {now} on {arch}, interface.txt keeps {fingerprint} made on \
+             {made_on}: the layouts of what crosses changed. Raise native::INTERFACE and write \
+             the files anew (PAPERPAW_BLESS=1 cargo test -p paperpaw-sdk --test interface)"
+        )
+    })
 }
 
 /// The crates of others the crossing crates depend on, as `name version`:
@@ -252,23 +405,6 @@ const API_SHAPE: &str = "struct paperpaw_native::interface::Api";
 const API_FIELD: &str = "pub paperpaw_native::Api::";
 const API_LAST: &str = ", build_len: u32";
 
-/// Whether `path` is a constant that `tools/shared-table.py` derives from
-/// `shared.list` and the signatures (`paperpaw_table::index`): the
-/// revisions, the hash of the tables and the number of entries of a
-/// family. They change where entries are appended or a family is bumped,
-/// which the pinned list and signatures (`shared.list`, `table.sig`:
-/// lines only appended) guard.
-fn table_index_derived(crate_: &str, path: &str) -> bool {
-    let Some(name) = path.strip_prefix("const paperpaw_table::index::") else {
-        return false;
-    };
-    crate_ == "paperpaw-table"
-        && matches!(
-            name.rsplit("::").next(),
-            Some("REVISIONS" | "OLDEST" | "HASH" | "COUNT")
-        )
-}
-
 /// Whether `after` is `before`, the table's shape, with fields appended
 /// after the last of interface 5.
 fn api_appended(path: &str, before: &str, after: &str) -> bool {
@@ -293,85 +429,6 @@ const GROWING: [&str; 3] = [
     "trait paperpaw_text::cache::Cache",
     "trait paperpaw_sdk::screen::Screen",
 ];
-
-/// The calls of `Screen`'s items newer than revision 1, as code writes
-/// them: every item appended to `Screen` goes into this list. A screen
-/// built before an item has no such item to call, so each call goes
-/// through `paperpaw_sdk::call_since`, which checks the screen's
-/// revision first.
-const NEWER_SCREEN_ITEMS: [&str; 2] = [".on_resize(", ".pane()"];
-
-/// The Rust files under `dir` (of the repository), tests left out: files
-/// of a `tests` folder, `tests.rs` and `*_tests.rs`.
-fn sources(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if path.is_dir() {
-            if name != "tests" {
-                sources(&path, out);
-            }
-        } else if name.ends_with(".rs") && name != "tests.rs" && !name.ends_with("_tests.rs") {
-            out.push(path);
-        }
-    }
-}
-
-/// The lines of `text` that call a newer item of `Screen` without
-/// `call_since` on them or on the line before, up to its tests (the first
-/// `#[cfg(test)]`); comments left out.
-fn direct_calls(text: &str) -> Vec<(usize, &str)> {
-    let mut found = Vec::new();
-    let mut before = "";
-    for (index, line) in text.lines().enumerate() {
-        let code = line.trim_start();
-        if code.starts_with("#[cfg(test)]") {
-            break;
-        }
-        let calls = NEWER_SCREEN_ITEMS.iter().any(|item| code.contains(item));
-        if calls
-            && !code.starts_with("//")
-            && !line.contains("call_since")
-            && !before.contains("call_since")
-        {
-            found.push((index + 1, line));
-        }
-        before = line;
-    }
-    found
-}
-
-#[test]
-fn newer_screen_items_are_called_only_through_call_since() {
-    let mut files = Vec::new();
-    sources(&here("src"), &mut files);
-    sources(&here("../paperpaw-core/src"), &mut files);
-    let mut direct = Vec::new();
-    for file in &files {
-        let text = std::fs::read_to_string(file).unwrap();
-        for (line, code) in direct_calls(&text) {
-            direct.push(format!("{}:{line}: {}", file.display(), code.trim()));
-        }
-    }
-    assert!(
-        direct.is_empty(),
-        "items of Screen newer than revision 1 called without `call_since`:\n{}",
-        direct.join("\n")
-    );
-}
-
-#[test]
-fn a_direct_call_of_a_newer_screen_item_is_found() {
-    let text = "fn a(s: &mut dyn Screen) {\n    s.pane();\n    call_since(s, 2, Handled::No, |s| s.on_resize(cx));\n    let p = call_since(s, 2, Pane::FULL,\n        |s| s.pane());\n    // s.pane() in a comment\n}\n#[cfg(test)]\nmod tests { fn t() { s.pane(); } }\n";
-    let found: Vec<usize> = direct_calls(text)
-        .into_iter()
-        .map(|(line, _)| line)
-        .collect();
-    assert_eq!(found, [2]);
-}
 
 /// Whether `after` is `before`, the shape of a trait of [`GROWING`], with
 /// items appended.
@@ -400,9 +457,6 @@ fn api_field_appended(line: &str, kept: &BTreeMap<String, &str>) -> bool {
 
 /// The lists that the plugin interface pins beside the crates, as
 /// `interface/<name>` keeps them: they only grow at their end.
-/// - `shared.list`: the shared function tables (`paperpaw-table`), whose
-///   order is where plugins find each function;
-/// - `table.sig`: the signature of each of those functions;
 /// - `lang.list`: the scripts and regions whose index a `Lang` keeps;
 /// - `i18n.list`: the plural rules, digits and calendars whose index a
 ///   catalog keeps (in these two, each kind of name grows at its own end:
@@ -414,13 +468,6 @@ fn api_field_appended(line: &str, kept: &BTreeMap<String, &str>) -> bool {
 ///   is an interface change. A list of lines, not of entries in order: see
 ///   [`pin_set_changes`].
 fn pins() -> Option<Vec<(&'static str, String)>> {
-    let lines = |text: String| -> String {
-        text.lines()
-            .map(|l| l.split('#').next().unwrap_or_default().trim())
-            .filter(|l| !l.is_empty())
-            .map(|l| format!("{l}\n"))
-            .collect()
-    };
     let lang: String = paperpaw_lang::scripts()
         .map(|s| format!("script {s}\n"))
         .chain(paperpaw_lang::regions().map(|r| format!("region {r}\n")))
@@ -431,8 +478,6 @@ fn pins() -> Option<Vec<(&'static str, String)>> {
         .chain(paperpaw_i18n::calendars().map(|c| format!("calendar {c}\n")))
         .collect();
     Some(vec![
-        ("shared.list", lines(read("../paperpaw-table/shared.list")?)),
-        ("table.sig", lines(read("../paperpaw-table/table.sig")?)),
         ("lang.list", lang),
         ("i18n.list", i18n),
         ("crate-pins.list", crate_pins()?),
@@ -530,6 +575,12 @@ fn pin_changes(name: &str, kept: &str, now: &str) -> Changes {
 fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
     let mut out = Changes::default();
     let (kept_types, now_types) = (types(kept.1), types(now.1));
+    let screen_grew = kept_types
+        .get(SCREEN_TRAIT)
+        .zip(now_types.get(SCREEN_TRAIT))
+        .is_some_and(|(before, after)| {
+            before != after && trait_appended(SCREEN_TRAIT, before, after)
+        });
     for (path, line) in &kept_types {
         match now_types.get(path) {
             None => out.breaking.push(format!("{crate_}: gone: {line}")),
@@ -539,7 +590,7 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
                     && !layout_cache_revision(crate_, path, line, now)
                     && !api_appended(path, line, now)
                     && !trait_appended(path, line, now)
-                    && !table_index_derived(crate_, path) =>
+                    && !(screen_grew && screen_revision_grew(path, line, now)) =>
             {
                 out.breaking
                     .push(format!("{crate_}: changed: {line}\n  now: {now}"));
@@ -552,6 +603,18 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
         if !kept_types.contains_key(path) {
             out.new.push(format!("{crate_}: {line}"));
         }
+    }
+    // Items appended to `Screen` come with the next revision: a screen
+    // built before says the lower one, and is not asked them. Without it
+    // the kernel would call items a screen built before has not.
+    let revision_grew = kept_types
+        .get(SCREEN_REVISION_PATH)
+        .zip(now_types.get(SCREEN_REVISION_PATH))
+        .is_some_and(|(before, after)| screen_revision_grew(SCREEN_REVISION_PATH, before, after));
+    if screen_grew && !revision_grew {
+        out.breaking.push(format!(
+            "{crate_}: Screen grew without SCREEN_REVISION one higher (ADR 0026)"
+        ));
     }
     let kept_api: BTreeSet<&str> = kept.0.lines().collect();
     let now_api: BTreeSet<&str> = now.0.lines().collect();
@@ -568,6 +631,29 @@ fn changes(crate_: &str, kept: (&str, &str), now: (&str, &str)) -> Changes {
         }
     }
     out
+}
+
+/// The shape of `Screen` and the path of its revision.
+const SCREEN_TRAIT: &str = "trait paperpaw_sdk::screen::Screen";
+const SCREEN_REVISION_PATH: &str = "const paperpaw_sdk::screen::SCREEN_REVISION";
+
+/// Whether `after` is `before`, the line of `SCREEN_REVISION`, one higher:
+/// what items appended to `Screen` come with (ADR 0026), so it is new,
+/// not changed, where the trait grew in the same comparison (and
+/// changed otherwise). A screen built before says its lower revision,
+/// and the kernel calls none of the newer items on it.
+fn screen_revision_grew(path: &str, before: &str, after: &str) -> bool {
+    let value = |line: &str| -> Option<u16> {
+        line.strip_prefix(SCREEN_REVISION_PATH)?
+            .strip_prefix(": u16 = ")?
+            .strip_suffix("u16")?
+            .parse()
+            .ok()
+    };
+    path == SCREEN_REVISION_PATH
+        && value(before)
+            .zip(value(after))
+            .is_some_and(|(b, a)| b.checked_add(1) == Some(a))
 }
 
 /// The SDK release in an HTTP header is metadata, not a crossing layout.
@@ -621,27 +707,6 @@ fn layout_cache_revision(crate_: &str, path: &str, before: &str, after: &str) ->
         value.parse().ok()
     };
     matches!((revision(before), revision(after)), (Some(old), Some(new)) if new > old)
-}
-
-#[test]
-fn only_what_the_table_list_derives_may_change_in_the_table_index() {
-    for name in ["REVISIONS", "OLDEST", "HASH", "text::COUNT", "ui::COUNT"] {
-        let path = format!("const paperpaw_table::index::{name}");
-        assert!(table_index_derived("paperpaw-table", &path), "{name}");
-        assert!(
-            !table_index_derived("paperpaw-sdk", &path),
-            "{name}, other crate"
-        );
-    }
-    // An index is the plugin interface: it never changes its number.
-    assert!(!table_index_derived(
-        "paperpaw-table",
-        "const paperpaw_table::index::text::TEXT_MEASURE"
-    ));
-    assert!(!table_index_derived(
-        "paperpaw-table",
-        "const paperpaw_table::FAMILIES"
-    ));
 }
 
 #[test]
@@ -799,6 +864,30 @@ fn layout_cache_revisions_only_increase_as_u32_metadata() {
 }
 
 #[test]
+fn screen_revision_grows_by_one_only_with_the_screen_trait() {
+    let trait_before = "trait paperpaw_sdk::screen::Screen { function revision(&Self) -> u16, function pane(&Self) -> Pane }";
+    let trait_after = "trait paperpaw_sdk::screen::Screen { function revision(&Self) -> u16, function pane(&Self) -> Pane, function times_under_overlays(&Self) -> bool }";
+    let revision = |n: u16| format!("const paperpaw_sdk::screen::SCREEN_REVISION: u16 = {n}u16");
+    let shape = |screen: &str, n: u16| format!("{screen}\n{}", revision(n));
+    let compare =
+        |before: String, after: String| changes("paperpaw-sdk", ("", &before), ("", &after));
+    // Appended with the next revision: new.
+    let grew = compare(shape(trait_before, 2), shape(trait_after, 3));
+    assert!(grew.breaking.is_empty(), "{:?}", grew.breaking);
+    assert_eq!(grew.new.len(), 2, "{:?}", grew.new);
+    // The revision alone, two steps, down, or the trait grown without it:
+    // changed.
+    for (before, after) in [
+        (shape(trait_before, 2), shape(trait_before, 3)),
+        (shape(trait_before, 2), shape(trait_after, 4)),
+        (shape(trait_after, 3), shape(trait_after, 2)),
+        (shape(trait_before, 2), shape(trait_after, 2)),
+    ] {
+        assert!(!compare(before, after).breaking.is_empty());
+    }
+}
+
+#[test]
 fn layout_cache_revision_accepts_the_generated_shape_literal() {
     let shape = include_str!("../../paperpaw-layout/shape.txt");
     let before = shape
@@ -927,13 +1016,16 @@ fn what_plugins_see_changes_only_with_the_interface() {
             .iter()
             .all(|key| value(&now, key) == value(&kept, key));
     let breaking = !all.breaking.is_empty() || !rest_same;
+    let arch = &made_on();
     if bless {
-        assert!(
-            !breaking || INTERFACE > kept_interface,
-            "what plugins see changed: raise native::INTERFACE (now {INTERFACE}) first:\n{}",
-            all.breaking.join("\n")
-        );
-        std::fs::write(here("interface.txt"), &now).unwrap();
+        if let Some(refused) = bless_refused(&kept, breaking, FINGERPRINT, DRAFT, arch) {
+            panic!("{refused}:\n{}", all.breaking.join("\n"));
+        }
+        std::fs::write(
+            here("interface.txt"),
+            format!("{now}{}", fingerprint_line()),
+        )
+        .unwrap();
         for (path, text) in files {
             std::fs::write(here(&path), text).unwrap();
         }
@@ -946,11 +1038,14 @@ fn what_plugins_see_changes_only_with_the_interface() {
     );
     assert!(
         !breaking,
-        "what plugins built before rely on changed, so they would not run: raise \
-         native::INTERFACE to {} and write the files anew (PAPERPAW_BLESS=1 cargo test -p \
-         paperpaw-sdk --test interface). The linker script, the compilers and the crates of \
-         others {}. Changed:\n{}",
-        INTERFACE + 1,
+        "what plugins built before rely on changed, so they would not run: {} and write the \
+         files anew (PAPERPAW_BLESS=1 cargo test -p paperpaw-sdk --test interface). The linker \
+         script, the compilers and the crates of others {}. Changed:\n{}",
+        if DRAFT != 0 {
+            format!("take the next draft (native::DRAFT {})", DRAFT + 1)
+        } else {
+            format!("raise native::INTERFACE to {}", INTERFACE + 1)
+        },
         if rest_same {
             "are as they were"
         } else {
@@ -965,7 +1060,15 @@ fn what_plugins_see_changes_only_with_the_interface() {
          New:\n{}",
         all.new.join("\n")
     );
-    assert_eq!(now, kept);
+    if let Some(drift) = fingerprint_drift(&kept, FINGERPRINT, arch) {
+        panic!("{drift}");
+    }
+    assert!(
+        kept_fingerprint(&kept).is_some(),
+        "interface.txt keeps no fingerprint: write the files anew (PAPERPAW_BLESS=1 cargo test \
+         -p paperpaw-sdk --test interface)"
+    );
+    assert_eq!(now, without_fingerprint(&kept));
 }
 
 /// Every crate of PaperPaw that a crate of `interface/crates.txt` depends
@@ -1021,11 +1124,7 @@ fn the_toolchains_named_are_the_releases() {
         "native::TOOLCHAIN names esp {esp}"
     );
     assert!(!TOOLCHAIN.is_empty());
-    for project in [
-        "../..",
-        "../../samples/hello-native",
-        "../../tools/plugin-files",
-    ] {
+    for project in ["../..", "../../tools/plugin-files7"] {
         let pinned = value(
             &read(&format!("{project}/rust-toolchain.toml")).unwrap(),
             "channel",
@@ -1041,27 +1140,13 @@ fn the_toolchains_named_are_the_releases() {
         "tools/interface.py and ci.yml name the same nightly"
     );
     let public_api = value(&script, "PUBLIC_API");
+    // The `cargo-tool` action step names the tool and its version.
     assert!(
-        ci.contains(&format!("cargo-public-api@{public_api}")),
+        ci.contains(&format!(
+            "tool: cargo-public-api\n          version: {public_api}\n"
+        )),
         "tools/interface.py and ci.yml name the same cargo-public-api"
     );
-}
-
-/// Every plugin project of the repository links with the format's own
-/// linker script.
-#[test]
-fn plugin_projects_link_with_the_formats_script() {
-    let Some(script) = read("../paperpaw-native/paperpaw-plugin.x") else {
-        return;
-    };
-    for project in ["../../samples/hello-native", "../../tools/plugin-files"] {
-        let copy = read(&format!("{project}/paperpaw-plugin.x"));
-        assert_eq!(
-            copy.as_deref(),
-            Some(script.as_str()),
-            "{project}/paperpaw-plugin.x"
-        );
-    }
 }
 
 /// What the gate takes as new and what as changed.

@@ -1,0 +1,314 @@
+{
+  "key": "core.ui",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "page_rows": 8,
+  "ops": [
+    {
+      "id": 1,
+      "name": "stack",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.reg_query"
+      ],
+      "reply": [
+        "service.ui_screen",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 2,
+      "name": "question",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.ui_request"
+      ],
+      "reply": [
+        "service.ui_question"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 3,
+      "name": "hints",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.reg_query"
+      ],
+      "reply": [
+        "service.ui_hint",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 4,
+      "name": "widget_make",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.ui_widget_ref"
+      ],
+      "reply": [
+        "service.ui_instance"
+      ],
+      "max_input": 512,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 5,
+      "name": "widget_drop",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.ui_instance"
+      ],
+      "reply": [],
+      "max_input": 256,
+      "max_reply": 64,
+      "bound": "none"
+    },
+    {
+      "id": 6,
+      "name": "widget_input",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.ui_widget_input"
+      ],
+      "reply": [],
+      "max_input": 256,
+      "max_reply": 64,
+      "bound": "none"
+    },
+    {
+      "id": 7,
+      "name": "widget_targets",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.ui_widget_area"
+      ],
+      "reply": [
+        "service.ui_target",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none",
+      "paged": false,
+      "reply_rows": 32
+    },
+    {
+      "id": 8,
+      "name": "ask",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.ui_ask"
+      ],
+      "reply": [
+        "service.ui_request"
+      ],
+      "max_input": 4096,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 9,
+      "name": "text_write",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.ui_text"
+      ],
+      "reply": [],
+      "max_input": 4096,
+      "max_reply": 64,
+      "bound": "card"
+    },
+    {
+      "id": 10,
+      "name": "text_read",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.ui_text_at"
+      ],
+      "reply": [
+        "service.ui_text"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 11,
+      "name": "answer",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.ui_answer"
+      ],
+      "reply": [],
+      "max_input": 256,
+      "max_reply": 64,
+      "bound": "none"
+    },
+    {
+      "id": 12,
+      "name": "widget_measure",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.ui_widget_area"
+      ],
+      "reply": [
+        "service.ui_size"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 13,
+      "name": "widget_place",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.ui_widget_area"
+      ],
+      "reply": [],
+      "max_input": 256,
+      "max_reply": 64,
+      "bound": "none"
+    },
+    {
+      "id": 14,
+      "name": "status_values",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.ui_status_ask"
+      ],
+      "reply": [
+        "service.ui_status_value",
+        "service.end"
+      ],
+      "max_input": 4096,
+      "max_reply": 4096,
+      "bound": "none",
+      "paged": false,
+      "reply_rows": 8
+    },
+    {
+      "id": 15,
+      "name": "status_line",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.ui_status_ask"
+      ],
+      "reply": [
+        "service.ui_instance"
+      ],
+      "max_input": 4096,
+      "max_reply": 4096,
+      "bound": "none"
+    },
+    {
+      "id": 16,
+      "name": "handover",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.ui_param"
+      ],
+      "reply": [
+        "service.ui_handle"
+      ],
+      "max_input": 2048,
+      "max_reply": 4096,
+      "bound": "none",
+      "input_rows": 32
+    },
+    {
+      "id": 17,
+      "name": "params",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.ui_handle"
+      ],
+      "reply": [
+        "service.ui_param",
+        "service.end"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "none",
+      "paged": false,
+      "reply_rows": 32
+    },
+    {
+      "id": 18,
+      "name": "clipboard_write",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.ui_text"
+      ],
+      "reply": [],
+      "max_input": 4096,
+      "max_reply": 64,
+      "bound": "card"
+    },
+    {
+      "id": 19,
+      "name": "clipboard_read",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.ui_text_at"
+      ],
+      "reply": [
+        "service.ui_text"
+      ],
+      "max_input": 256,
+      "max_reply": 4096,
+      "bound": "card"
+    }
+  ]
+}

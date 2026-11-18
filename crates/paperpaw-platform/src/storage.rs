@@ -30,11 +30,24 @@ pub enum StorageError {
     /// The file is there but does not hold what was asked for, e.g. text
     /// that is not UTF-8.
     InvalidData,
+    /// The device had no memory for the operation just now: nothing was
+    /// read or changed, and it may be tried again (unlike
+    /// [`StorageError::TooLarge`], which is the file's own size and
+    /// never works). Not the card: [`StorageError::CARD_GONE`] is another.
+    OutOfMemory,
     /// A cause this build has no variant for, by its code (0: not said).
     /// Codes are listed here as they are given and never reused; a build
     /// that doesn't know one treats it as the most general failure of its
     /// kind.
     Other(u16),
+}
+
+impl StorageError {
+    /// The memory card was taken out, and PaperPaw cannot read it again
+    /// in this run (it was put back more often than a run allows, or
+    /// holds nothing PaperPaw reads): nothing is read or written until
+    /// PaperPaw starts again. Code 1 of [`StorageError::Other`].
+    pub const CARD_GONE: Self = Self::Other(1);
 }
 
 // By hand: a derived one would bring the formatter's tuple printing into
@@ -49,6 +62,7 @@ impl fmt::Debug for StorageError {
             StorageError::Io => "Io",
             StorageError::TooLarge => "TooLarge",
             StorageError::InvalidData => "InvalidData",
+            StorageError::OutOfMemory => "OutOfMemory",
             StorageError::Other(code) => return write!(f, "Other({code})"),
         })
     }
@@ -64,6 +78,7 @@ impl fmt::Display for StorageError {
             StorageError::Io => "input/output error",
             StorageError::TooLarge => "file too large",
             StorageError::InvalidData => "invalid data",
+            StorageError::OutOfMemory => "out of memory",
             StorageError::Other(code) => return write!(f, "storage error {code}"),
         })
     }
@@ -192,10 +207,45 @@ pub trait Storage {
         false
     }
 
+    /// Whether paths `a` and `b` name the same entry, however each is
+    /// spelt. Where one entry answers to several spellings (another case of
+    /// its name on FAT, and a short alias such as `PAPERP~1` on storages
+    /// that resolve one, as Windows does; PaperPaw's FAT driver resolves
+    /// none), a check by spelling alone would let a path past it.
+    /// `Some(false)` where either names nothing or they
+    /// name different entries; `None` where the storage cannot tell (the
+    /// default, or a read failed): a caller then treats them as possibly the
+    /// same. Storages that wrap another say what it says.
+    fn same_entry(&self, _a: &str, _b: &str) -> Option<bool> {
+        None
+    }
+
+    /// The storage's own identity of the entry `path` names: a number that
+    /// stays the same when the entry is renamed or moved within the storage
+    /// and differs for another entry (FAT: its first cluster; a folder on a
+    /// computer: its file id, no link followed), so a move cut off by a
+    /// power loss can be told done or not done by the entry, never by its
+    /// names. It is kept by renames and moves only: a file written anew
+    /// (`write`, which may replace it) may come back with another. `Ok(None)`
+    /// where the entry has none that is stable (an empty file on FAT holds
+    /// no cluster; a file on a computer with several hard links shares its
+    /// id) or the storage cannot tell (the
+    /// default); `Err(NotFound)` where `path` names nothing; another error
+    /// where it could not be read. Storages that wrap another say what it
+    /// says.
+    ///
+    /// # Errors
+    /// `NotFound` where `path` names nothing, else the storage's error.
+    fn entry_identity(&self, _path: &str) -> Result<Option<u64>, StorageError> {
+        Ok(None)
+    }
+
     /// Bytes free for new files, where the storage can tell without
-    /// reading much at once; `None` where it cannot (yet). A memory card
-    /// may say its own count first and count exactly a part at each ask.
-    /// Storages that wrap another say what it says.
+    /// reading much at once; `None` where it cannot (yet). Never more than
+    /// is free: a count that may be out of date (a memory card's own, after
+    /// a power cut) is not one. A memory card may count a part at each ask
+    /// and say `None` until it is done. Storages that wrap another say what
+    /// it says.
     fn free_space(&self) -> Option<u64> {
         None
     }
@@ -234,6 +284,100 @@ pub trait Storage {
         visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
     ) -> Result<Option<u64>, StorageError> {
         list_counted(self, dir, from, visit)
+    }
+
+    /// [`Storage::list_from`] that reads **no entry past the one `visit`
+    /// refuses**, also from place 0 (which `list_from` may read the folder
+    /// whole from, to note it for later lookups), and that starts at the
+    /// folder's start when the place no longer holds, instead of counting
+    /// entries to find it. For the bounded removal of a tree
+    /// ([`crate::tree::remove_tree_step`]), whose reads are counted against a
+    /// cap. The default is `list_from`.
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.list_from(dir, from, visit)
+    }
+
+    /// Removes the one entry [`Storage::list_bounded`] shows first from place
+    /// `place` of folder `dir`: a file, or a folder that is empty. For the
+    /// bounded removal of a tree by [`crate::tree::remove_tree_step`], which
+    /// has to take away entries it cannot name by a path (a name made by a
+    /// computer that this storage's paths refuse) without collecting names.
+    /// `NotFound` where nothing is at the place; `InvalidPath` for a folder
+    /// that is not empty (the walk goes into those itself).
+    ///
+    /// The default goes by path, which is all a storage can do whose names
+    /// are all valid paths; others override it.
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        remove_listed_by_path(self, dir, place)
+    }
+
+    /// One bounded piece of removing the tree at `root` (the file service's
+    /// `remove_tree`, `docs/abi/files.md` 2.5): see
+    /// [`crate::tree::remove_tree_step`], which is the default, for storages
+    /// whose names are all paths. A storage that can walk a tree by position
+    /// (the memory card's) overrides it, so that names no path holds and
+    /// folders of any depth are no obstacle; it fails a folder nested deeper
+    /// than it goes with [`StorageError::InvalidData`].
+    ///
+    /// # Errors
+    /// The storage's own.
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<crate::tree::TreeStep, StorageError> {
+        crate::tree::remove_tree_step(self, root, keep_root, place)
+    }
+}
+
+/// [`Storage::remove_listed`] by the entry's path, where the name is a valid
+/// segment that fits (else `Unsupported`).
+pub fn remove_listed_by_path<S: Storage + ?Sized>(
+    storage: &S,
+    dir: &str,
+    place: u64,
+) -> Result<(), StorageError> {
+    const NAME: usize = 255;
+    const PATH: usize = 640;
+    let mut path = [0u8; PATH];
+    let mut found = None;
+    storage.list_bounded(dir, place, &mut |entry| {
+        let start = if dir.is_empty() { 0 } else { dir.len() + 1 };
+        let end = start + entry.name.len();
+        if entry.name.len() <= NAME
+            && end <= PATH
+            && is_valid_path(entry.name)
+            && !entry.name.contains('/')
+        {
+            path[..dir.len()].copy_from_slice(dir.as_bytes());
+            if start > 0 {
+                path[dir.len()] = b'/';
+            }
+            path[start..end].copy_from_slice(entry.name.as_bytes());
+            found = Some((end, entry.is_dir));
+        } else {
+            found = Some((0, entry.is_dir));
+        }
+        false
+    })?;
+    let (end, is_dir) = found.ok_or(StorageError::NotFound)?;
+    if end == 0 {
+        return Err(StorageError::Unsupported);
+    }
+    let path = core::str::from_utf8(&path[..end]).map_err(|_| StorageError::InvalidPath)?;
+    if !is_dir {
+        return storage.remove(path);
+    }
+    // Only a folder with nothing in it.
+    match storage.list_bounded(path, 0, &mut |_| false)? {
+        Some(_) => Err(StorageError::InvalidPath),
+        None => storage.remove_dir_all(path),
     }
 }
 
@@ -346,6 +490,16 @@ impl<B: Storage, M: Storage> Storage for Mounted<B, M> {
         storage.append(path, data)
     }
 
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        let (storage, path) = self.route(path);
+        storage.write_at(path, offset, data)
+    }
+
+    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
+        let (storage, path) = self.route(path);
+        storage.truncate(path, len)
+    }
+
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
         if dir.is_empty() {
             // The root lists the mount point next to the base's entries;
@@ -370,6 +524,49 @@ impl<B: Storage, M: Storage> Storage for Mounted<B, M> {
         }
         let (storage, dir) = self.route(dir);
         storage.list_from(dir, from, visit)
+    }
+
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<crate::tree::TreeStep, StorageError> {
+        // The root is the base's own tree, by the base's own walk: the mount
+        // point and what is mounted at it are another storage's and stay (as
+        // with `remove_dir_all("")`), never walked into by the generic walk.
+        if root.is_empty() {
+            return self.base.remove_tree_step(root, keep_root, place);
+        }
+        if root == self.at && !keep_root {
+            // Never the mount point itself.
+            return Err(StorageError::Unsupported);
+        }
+        let (storage, root) = self.route(root);
+        storage.remove_tree_step(root, keep_root, place)
+    }
+
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        // The root's places count the mount point too.
+        if dir.is_empty() {
+            return list_counted(self, dir, from, visit);
+        }
+        let (storage, dir) = self.route(dir);
+        storage.list_bounded(dir, from, visit)
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        // The root's places count the mount point too.
+        if dir.is_empty() {
+            return remove_listed_by_path(self, dir, place);
+        }
+        let (storage, dir) = self.route(dir);
+        storage.remove_listed(dir, place)
     }
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {
@@ -423,6 +620,24 @@ impl<B: Storage, M: Storage> Storage for Mounted<B, M> {
         self.base.ignores_case() || self.mounted.ignores_case()
     }
 
+    /// The storage's both are in; one inside the mount and one outside are
+    /// never the same entry.
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        match (self.inside(a), self.inside(b)) {
+            (Some(a), Some(b)) => self.mounted.same_entry(a, b),
+            (None, None) => self.base.same_entry(a, b),
+            _ => Some(false),
+        }
+    }
+
+    /// The identity in the storage the path is in. Two storages may answer
+    /// the same number for different entries, but no move crosses the
+    /// mount (`rename` refuses it), so a move compares within one.
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        let (storage, path) = self.route(path);
+        storage.entry_identity(path)
+    }
+
     /// The base's, where data and plugins are.
     fn free_space(&self) -> Option<u64> {
         self.base.free_space()
@@ -441,16 +656,41 @@ impl<B: Storage, M: Storage> Storage for Mounted<B, M> {
 /// ([`is_reserved_name`]). Every storage refuses other paths, so a path
 /// means the same entry on each.
 pub fn is_valid_path(path: &str) -> bool {
-    !path.is_empty()
-        && !path.contains(['\\', ':'])
-        && !path.chars().any(char::is_control)
-        && path.split('/').all(|segment| {
-            !segment.is_empty()
-                && segment != "."
-                && segment != ".."
-                && !segment.ends_with(['.', ' '])
-                && !is_reserved_name(segment)
-        })
+    // One pass over the bytes: every storage call checks its path, and the
+    // layers it goes through check it again (#250).
+    let bytes = path.as_bytes();
+    let mut start = 0;
+    for (at, &byte) in bytes.iter().enumerate() {
+        match byte {
+            // `/` is one byte: both sides are whole characters.
+            b'/' => {
+                if !path.get(start..at).is_some_and(is_valid_segment) {
+                    return false;
+                }
+                start = at + 1;
+            }
+            // The controls U+0000 to U+001F and U+007F, backslash, colon.
+            0..=0x1f | 0x7f | b'\\' | b':' => return false,
+            // The controls U+0080 to U+009F: `C2 80` to `C2 9F`.
+            0xc2 if matches!(bytes.get(at + 1), Some(0x80..=0x9f)) => return false,
+            _ => {}
+        }
+    }
+    path.get(start..).is_some_and(is_valid_segment)
+}
+
+/// Whether `segment` (what is between a path's slashes) may be a name: not
+/// empty, no dot or space at its end (so not `.` or `..`), no device's name.
+fn is_valid_segment(segment: &str) -> bool {
+    match segment.as_bytes() {
+        [] | [.., b'.' | b' '] => false,
+        // Only these letters begin a device's name ([`is_reserved_name`]).
+        [
+            b'a' | b'A' | b'c' | b'C' | b'l' | b'L' | b'n' | b'N' | b'p' | b'P',
+            ..,
+        ] => !is_reserved_name(segment),
+        _ => true,
+    }
 }
 
 /// Whether Windows takes file `name` for a device, whatever follows its
@@ -543,6 +783,90 @@ mod tests {
         fn remove(&self, _: &str) -> Result<(), StorageError> {
             Ok(())
         }
+
+        /// Its one file, spelt in any case, is itself.
+        fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+            Some(a.eq_ignore_ascii_case(self.0) && b.eq_ignore_ascii_case(self.0))
+        }
+    }
+
+    /// A storage that takes in-place writes and cuts, and says it did.
+    struct InPlace(core::cell::Cell<u32>);
+
+    impl Storage for InPlace {
+        fn read_at(&self, _: &str, _: u64, _: &mut [u8]) -> Result<usize, StorageError> {
+            Ok(0)
+        }
+
+        fn size(&self, _: &str) -> Result<u64, StorageError> {
+            Ok(0)
+        }
+
+        fn write(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+
+        fn append(&self, _: &str, _: &[u8]) -> Result<(), StorageError> {
+            Err(StorageError::Unsupported)
+        }
+
+        fn write_at(&self, _: &str, _: u64, _: &[u8]) -> Result<(), StorageError> {
+            self.0.set(self.0.get() + 1);
+            Ok(())
+        }
+
+        fn truncate(&self, _: &str, _: u64) -> Result<(), StorageError> {
+            self.0.set(self.0.get() + 10);
+            Ok(())
+        }
+
+        fn list(&self, _: &str, _: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            Ok(())
+        }
+
+        fn remove(&self, _: &str) -> Result<(), StorageError> {
+            Ok(())
+        }
+    }
+
+    /// A save in place (the position file, #305) must reach the card on both
+    /// sides of the mount: a wrapper that says `Unsupported` sends every turn
+    /// to the whole-file write (12 commands instead of 1 block, #308).
+    #[test]
+    fn mounted_storage_forwards_writes_in_place() {
+        let storage = Mounted::new(
+            InPlace(Default::default()),
+            "books",
+            InPlace(Default::default()),
+        );
+        assert_eq!(storage.write_at("positions/a", 512, b"x"), Ok(()));
+        assert_eq!(storage.write_at("books/a", 0, b"x"), Ok(()));
+        assert_eq!(storage.truncate("books/a", 1), Ok(()));
+        assert_eq!((storage.base.0.get(), storage.mounted.0.get()), (1, 11));
+    }
+
+    /// Paths on both sides of the mount are never one entry; paths on one
+    /// side are what that storage says. The default cannot tell.
+    #[test]
+    fn mounted_storage_asks_the_side_both_paths_are_on() {
+        let storage = Mounted::new(One("paperpaw.ini", 1), "books", One("alice.epub", 2));
+        assert_eq!(
+            storage.same_entry("paperpaw.ini", "PAPERPAW.INI"),
+            Some(true)
+        );
+        assert_eq!(
+            storage.same_entry("books/alice.epub", "books/ALICE.epub"),
+            Some(true)
+        );
+        assert_eq!(
+            storage.same_entry("books/alice.epub", "alice.epub"),
+            Some(false)
+        );
+        assert_eq!(
+            storage.same_entry("paperpaw.ini", "books/paperpaw.ini"),
+            Some(false)
+        );
+        assert_eq!(NoStorage.same_entry("a", "a"), None);
     }
 
     #[test]
@@ -619,6 +943,94 @@ mod tests {
             ".x",
         ] {
             assert!(is_valid_path(ok), "{ok}");
+        }
+    }
+
+    /// [`is_valid_path`] as it was before it read the bytes in one pass.
+    fn valid_rule_by_rule(path: &str) -> bool {
+        !path.is_empty()
+            && !path.contains(['\\', ':'])
+            && !path.chars().any(char::is_control)
+            && path.split('/').all(|segment| {
+                !segment.is_empty()
+                    && segment != "."
+                    && segment != ".."
+                    && !segment.ends_with(['.', ' '])
+                    && !is_reserved_name(segment)
+            })
+    }
+
+    #[test]
+    fn a_path_read_in_one_pass_is_valid_as_rule_by_rule() {
+        extern crate std;
+        use std::{format, string::String};
+        // Every text of up to five of these: separators, dots and spaces,
+        // what no path may hold, the first and last controls of one and of
+        // two bytes and their neighbours (U+00A0 begins as U+009F does), a
+        // superscript digit.
+        let letters = [
+            'a', 'c', 'o', 'n', '1', '.', ' ', '/', '\\', ':', '\u{1}', '\u{1f}', '\u{7f}',
+            '\u{80}', '\u{85}', '\u{9f}', '\u{a0}', '\u{b9}', '\u{e9}',
+        ];
+        let mut checked = 0u32;
+        let mut text = String::new();
+        for length in 0..=5u32 {
+            for mut n in 0..letters.len().pow(length) {
+                text.clear();
+                for _ in 0..length {
+                    text.push(letters[n % letters.len()]);
+                    n /= letters.len();
+                }
+                assert_eq!(is_valid_path(&text), valid_rule_by_rule(&text), "{text:?}");
+                checked += 1;
+            }
+        }
+        // 1 + 19 + 19^2 ... + 19^5 texts.
+        assert_eq!(checked, 2_613_660);
+        // Names of devices and their neighbours, up to three in a path.
+        let names = [
+            "con",
+            "CON",
+            "Prn",
+            "aux",
+            "nul",
+            "NUL.txt",
+            "com1",
+            "COM\u{b9}",
+            "com",
+            "com10",
+            "lpt9",
+            "LPT",
+            "lpt9.tar.gz",
+            "con ",
+            "con .a",
+            "aux.",
+            "co",
+            "cone",
+            "a",
+            "l",
+            "p\u{e9}",
+            "n\u{85}",
+            "..",
+            ".",
+            "x.",
+            " ",
+            "",
+        ];
+        for a in names {
+            assert_eq!(is_valid_path(a), valid_rule_by_rule(a), "{a:?}");
+            for b in names {
+                let two = format!("{a}/{b}");
+                assert_eq!(is_valid_path(&two), valid_rule_by_rule(&two), "{two:?}");
+                for c in names {
+                    let three = format!("{two}/{c}");
+                    assert_eq!(
+                        is_valid_path(&three),
+                        valid_rule_by_rule(&three),
+                        "{three:?}"
+                    );
+                }
+            }
         }
     }
 }

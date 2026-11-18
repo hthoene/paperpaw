@@ -2,7 +2,10 @@
 
 use log::info;
 
+use paperpaw_x4::sleeping::Ended;
+
 use super::Firmware;
+use crate::usb_power::Sense;
 use crate::{input, now, power};
 
 /// The board as [`paperpaw_x4::sleeping::run`] sees it: the firmware for
@@ -19,7 +22,9 @@ impl paperpaw_x4::sleeping::Board for Light<'_> {
     fn look(&mut self) -> paperpaw_x4::sleeping::Look {
         paperpaw_x4::sleeping::Look {
             now_ms: now().0,
-            usb: self.firmware.usb_power.is_high(),
+            // Charging, not a computer talking: a reader on a cable with a full
+            // cell is switched off after its time, as one on a battery.
+            usb: self.firmware.usb_power.charging(),
             percent: input::percent_now(),
         }
     }
@@ -59,6 +64,10 @@ impl paperpaw_x4::sleeping::Board for Light<'_> {
 
     fn watchdog_for_sleep(&mut self) {
         power::watchdogs_for_sleep(paperpaw_x4::sleeping::SLEEP_WATCHDOG_MS);
+        info!(
+            "sleeping: RTC watchdog paused in sleep: {}",
+            power::watchdog_pauses_in_sleep()
+        );
     }
 
     fn watchdog_awake(&mut self) {
@@ -85,5 +94,32 @@ impl paperpaw_x4::sleeping::Board for Light<'_> {
 
     fn say(&mut self, what: &str) {
         info!("sleeping: {what}");
+    }
+}
+
+impl Firmware {
+    /// The off screen (the slot `core.off`) of a reader about to be switched
+    /// off by the time of its choice (`ended`; a low battery cuts the power
+    /// without): drawn whole once, the pictures it asks for waited for, what
+    /// the plugins wrote put on the card. The readings go on (the refresh
+    /// watches the buttons). Nothing is drawn where no screen is bound to the
+    /// slot.
+    #[inline(never)]
+    pub(super) fn draw_off_screen(&mut self, ended: Ended) {
+        let Ended::SwitchOff(why) = ended else {
+            return;
+        };
+        let Some(reason) = paperpaw_x4::sleeping::off_screen(why) else {
+            return;
+        };
+        let Some(effects) = self.kernel.switch_off_screen(now(), reason) else {
+            return;
+        };
+        info!("sleeping: the off screen ({reason})");
+        input::resume();
+        self.apply(effects);
+        self.finish_work();
+        self.settle_frame();
+        self.write_back();
     }
 }

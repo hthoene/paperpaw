@@ -1,15 +1,16 @@
-//! The whole update path, as close to the device as a computer gets: the
-//! update plugin on the real kernel asks an update server (here, in the
-//! test) for a newer firmware, downloads it onto the card and installs
-//! it, by buttons as on the X4; the firmware's own install
-//! (`paperpaw_x4::updates`, which the firmware runs) checks the signature
-//! and writes the other app partition of a flash with a partition table
-//! PaperPaw ships; the device restarts into what the bootloader chooses
-//! (`OtaData::booted`), takes the image's own version, project, chip and
-//! plugins as the firmware running, runs its trial and keeps it. Then the
-//! next update, from there. And what must not install: a damaged
-//! signature, a download cut short, an update too large for its
-//! partition, and one that fails its trial and is undone.
+//! The whole update path of the firmware, as close to the device as a computer
+//! gets: an update taken from an update server (here, in the test) is
+//! downloaded onto the card and installed as the update plugin does it; the
+//! firmware's own install (`paperpaw_x4::updates`, which the firmware runs)
+//! checks the signature and writes the other app partition of a flash with a
+//! partition table PaperPaw ships; the device restarts into what the
+//! bootloader chooses (`OtaData::booted`), takes the image's own version,
+//! project, chip and plugins as the firmware running, runs its trial and keeps
+//! it. Then the next update, from there. And what must not install: a damaged
+//! signature, a download cut short, an update too large for its partition, and
+//! one that fails its trial and is undone. (The plugin's own page is native and
+//! is tested in `plugins/update`; what is driven here is the firmware's side,
+//! with the steps of the page done by the test.)
 //!
 //! With real files where CI has them (see `ci.yml`, job `firmware`): the
 //! previous release's update for the device (`PAPERPAW_UPDATE_OLD`,
@@ -29,21 +30,20 @@
 
 mod common;
 
-use std::cell::RefCell;
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
 use std::rc::Rc;
 
 use common::{FLASH, table};
-use paperpaw_core::{Effects, HttpCall, HttpResponse, Io, Kernel};
+use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::Rotation;
-use paperpaw_sdk::builtin::{actions, params, slots};
 use paperpaw_sdk::firmware::{
-    CHIP_ESP32_C3, CHIP_ESP32_S3, Firmware, FirmwareCommand, FirmwareState, ForeignCheck,
+    CHIP_ESP32_C3, CHIP_ESP32_S3, Firmware, FirmwareState, ForeignCheck, InstallFailure,
     PLUGINS_AT, PluginCrate, Plugins, compare_versions,
 };
 use paperpaw_sdk::{
-    Canvas, Cx, DeviceInfo, DirEntry, DisplayInfo, Env, Handled, Id, InputCaps, Instant, Manifest,
-    MemoryClass, MemoryStorage, PixelFormat, Plugin, Priority, RegisterError, Registrar, Screen,
-    ScreenSpec, Storage, StorageError, Version,
+    DeviceInfo, DirEntry, DisplayInfo, InputCaps, Instant, MemoryClass, MemoryStorage, PixelFormat,
+    Storage, StorageError,
 };
 use paperpaw_update::{APP_HEAD_LEN, AppInfo};
 use paperpaw_x4::ota::{Flash, FlashError, OtaData, SLOTS, Start};
@@ -57,9 +57,39 @@ const STATS: &str = "paperpaw-plugin-stats";
 const HYPHENATION_DE: &str = "paperpaw-plugin-hyphenation-de";
 /// The OTA data partition's length: an entry in each of two sectors.
 const DATA_LEN: u32 = 0x2000;
-/// Where the update plugin asks, and the files it downloads.
-const SERVER: &str = "https://paperpaw.org/api/v1/updates";
-const PAGE: &str = "update.page";
+
+/// The system's allocator, failing the next block of a page or more on this
+/// thread when armed (the install's buffer, `updates::begin`): the out of
+/// memory the X4 meets, as an error to answer and not a crash.
+struct Fallible;
+
+thread_local! {
+    static FAIL_NEXT_PAGE: Cell<bool> = const { Cell::new(false) };
+}
+
+// SAFETY: forwards to the system allocator, which it fails only by
+// returning null, as the trait allows.
+unsafe impl GlobalAlloc for Fallible {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let fail = layout.size() >= 4096
+            && FAIL_NEXT_PAGE
+                .try_with(|armed| armed.replace(false))
+                .unwrap_or(false);
+        if fail {
+            return core::ptr::null_mut();
+        }
+        // SAFETY: as the system allocator, with the same layout.
+        unsafe { System.alloc(layout) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: allocated by the system allocator with this layout.
+        unsafe { System.dealloc(ptr, layout) }
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: Fallible = Fallible;
 
 /// A device PaperPaw runs on, as its firmware is built for it
 /// (`shells/xteink/src/ota.rs`).
@@ -248,11 +278,6 @@ fn version_of(file: &[u8]) -> String {
     AppInfo::read(&file[..APP_HEAD_LEN]).unwrap().version
 }
 
-/// A version as the reader is told it (`0.5.0 Beta 9`).
-fn told(version: &str) -> String {
-    version.replace("-beta.", " Beta ")
-}
-
 /// What the run goes through for a device: the update flashed first,
 /// the one installed over it, and the keys the firmware has built in.
 struct Files {
@@ -414,39 +439,8 @@ impl Storage for Card {
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {
         self.0.create_dir(path)
     }
-}
-
-/// What notices say, as a notice screen would show it.
-struct Notices(Rc<RefCell<Vec<String>>>);
-
-struct Notice;
-
-impl Screen for Notice {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
-
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
-        Handled::No
-    }
-}
-
-impl Plugin for Notices {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("notices"), "Notices", Version::new(0, 1, 0))
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let said = self.0.clone();
-        let id = Id::new_static("notices.notice");
-        r.add_screen(ScreenSpec::new(
-            id.clone(),
-            "",
-            Box::new(move |_, p| {
-                said.borrow_mut()
-                    .push(p.get(params::TEXT).unwrap_or_default().to_string());
-                Box::new(Notice)
-            }),
-        ))?;
-        r.bind_slot(slots::NOTICE, id, Priority::DEFAULT)
+    fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
+        self.0.remove_dir_all(path)
     }
 }
 
@@ -461,68 +455,51 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 
 // The server.
 
-/// The update server: the newest of its updates for the firmware that
-/// asks, as paperpaw.org answers (`plugins/update/src/online.rs`).
+/// The update server: the newest of its updates for the firmware that asks, as
+/// paperpaw.org names it.
 #[derive(Default)]
 struct Server {
     updates: Vec<Vec<u8>>,
     /// Its downloads end this many bytes early (the connection lost and
     /// not noticed).
     short: usize,
-    asked: usize,
 }
 
 impl Server {
-    fn answer(&mut self, call: &HttpCall) -> (u16, Vec<u8>) {
-        self.asked += 1;
-        if call.url == SERVER {
-            assert_eq!(call.method, "POST");
-            let body = String::from_utf8(call.body.clone().unwrap()).unwrap();
-            let field = |name: &str| {
-                let key = format!("\"{name}\"");
-                let after = &body[body.find(&key).unwrap() + key.len()..];
-                let value = after.trim_start().strip_prefix(':').unwrap().trim_start();
-                value[1..].split('"').next().unwrap().to_string()
-            };
-            let (project, running) = (field("project"), field("version"));
-            let newest = self
-                .updates
-                .iter()
-                .filter(|file| {
-                    let info = AppInfo::read(&file[..APP_HEAD_LEN]).unwrap();
-                    info.project == project && compare_versions(&info.version, &running).is_gt()
-                })
-                .max_by(|a, b| compare_versions(&version_of(a), &version_of(b)));
-            let Some(file) = newest else {
-                return (200, br#"{"version": ""}"#.to_vec());
-            };
-            let plugins = Plugins::read(&file[PLUGINS_AT..]).unwrap();
-            let plugins: Vec<String> = plugins
-                .iter()
-                .map(|c| format!("\"{} {}\"", c.name, c.version))
-                .collect();
-            let version = version_of(file);
-            let answer = format!(
-                r#"{{"version": "{version}", "url": "/api/v1/updates/{version}.bin", "size": {}, "plugins": [{}]}}"#,
-                file.len(),
-                plugins.join(", ")
-            );
-            return (200, answer.into_bytes());
-        }
-        let wanted = call.url.strip_prefix(&format!("{SERVER}/")).unwrap();
-        let file = self
-            .updates
+    /// The newest update for `project` newer than `running`.
+    fn newest(&self, project: &str, running: &str) -> Option<&Vec<u8>> {
+        self.updates
             .iter()
-            .find(|file| format!("{}.bin", version_of(file)) == wanted)
-            .unwrap();
-        (200, file[..file.len() - self.short].to_vec())
+            .filter(|file| {
+                let info = AppInfo::read(&file[..APP_HEAD_LEN]).unwrap();
+                info.project == project && compare_versions(&info.version, running).is_gt()
+            })
+            .max_by(|a, b| compare_versions(&version_of(a), &version_of(b)))
     }
+
+    /// What a download of `file` brings.
+    fn download(&self, file: &[u8]) -> Vec<u8> {
+        file[..file.len() - self.short].to_vec()
+    }
+}
+
+/// What came of an update taken from the server and installed.
+#[derive(Debug, PartialEq, Eq)]
+enum Taken {
+    /// The server names none newer.
+    UpToDate,
+    /// The download was not whole: nothing is installed.
+    NotDownloaded,
+    /// Written whole and checked; the device restarts into it.
+    Installed,
+    /// The install ended, or was refused, for this reason.
+    Failed(InstallFailure),
 }
 
 // The device.
 
 /// A device: its flash with a table PaperPaw ships, its card, and the
-/// firmware running, the update plugin among its plugins.
+/// firmware running.
 struct Device {
     board: Board,
     keys: Vec<[u8; 32]>,
@@ -531,13 +508,17 @@ struct Device {
     kernel: Option<Kernel>,
     card: Card,
     server: Server,
-    said: Rc<RefCell<Vec<String>>>,
     /// Since the start (ms).
     now: u64,
     /// What the flash has outside the app partitions and the OTA data.
     rest: Vec<u8>,
-    /// The device was told to restart.
-    restart: bool,
+    /// The install's buffer finds no memory (the next page-sized block is
+    /// refused when `begin` runs).
+    fail_buffer: bool,
+    /// The firmware started seeds English hyphenation first (the new
+    /// firmware's start, `shells/xteink/src/native/seed.rs`; Beta 3 and
+    /// before had English built in and did not).
+    seeds: bool,
 }
 
 impl Device {
@@ -568,10 +549,10 @@ impl Device {
             kernel: None,
             card: Card::default(),
             server: Server::default(),
-            said: Rc::default(),
             now: 0,
             rest: Vec::new(),
-            restart: false,
+            fail_buffer: false,
+            seeds: false,
         };
         device.rest = device.rest_of(&flash);
         device.boot(Chip(flash));
@@ -613,14 +594,14 @@ impl Device {
                 continue;
             }
             self.now = 0;
-            self.restart = false;
+            if self.seeds {
+                paperpaw_default_packs::seed_hyphenation(&self.card);
+            }
             let mut kernel = Kernel::builder(DEVICE)
                 .storage(self.card.clone())
                 .network(true)
                 .firmware(updates.firmware())
-                .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-                .plugin(paperpaw_plugin_update::Update)
-                .plugin(Notices(Rc::clone(&self.said)))
+                .built_in_fonts(&paperpaw_plugin_fonts_default::DEFAULT_FONT_PACKS)
                 .build()
                 .unwrap();
             let effects = kernel.start(Instant(0));
@@ -658,55 +639,9 @@ impl Device {
     }
 
     /// The main loop, as the firmware's (`shells/xteink/src/firmware.rs`)
-    /// runs it: wakes the kernel when it asked, carries out what it asked
-    /// of the network and the firmware, writes an install a part at a
-    /// time and passes on each state, marks a trial over as good.
+    /// runs it: wakes the kernel when it asked, marks a trial over as good.
     fn settle(&mut self, mut effects: Effects) {
         for _ in 0..10_000 {
-            let mut busy = false;
-            for io in self.kernel().take_io() {
-                busy = true;
-                match io {
-                    Io::Http(call) => {
-                        let (status, body) = self.server.answer(&call);
-                        let now = self.later(100);
-                        effects = self.kernel().http_response(
-                            now,
-                            HttpResponse {
-                                id: call.id,
-                                status,
-                                body,
-                                ..HttpResponse::default()
-                            },
-                        );
-                    }
-                    Io::Firmware(FirmwareCommand::Install {
-                        path, key, older, ..
-                    }) => {
-                        let card = self.card.clone();
-                        let updates = self.updates.as_mut().unwrap();
-                        let state = match updates.begin(&card, &path, key.as_ref(), older) {
-                            Ok(begun) => FirmwareState::Installing {
-                                done: 0,
-                                total: u64::from(begun.len),
-                            },
-                            Err(why) => FirmwareState::Failed(why),
-                        };
-                        let now = self.later(10);
-                        effects = self.kernel().firmware_state(now, state);
-                    }
-                    Io::Firmware(FirmwareCommand::Restart) => self.restart = true,
-                    _ => {}
-                }
-            }
-            if self.updates.as_ref().is_some_and(Updates::installing) {
-                busy = true;
-                let card = self.card.clone();
-                if let Some(state) = self.updates.as_mut().unwrap().step(&card) {
-                    let now = self.later(10);
-                    effects = self.kernel().firmware_state(now, state);
-                }
-            }
             if self
                 .updates
                 .as_mut()
@@ -714,12 +649,6 @@ impl Device {
                 .check_trial(self.now)
                 .unwrap()
             {
-                busy = true;
-            }
-            if busy || self.restart {
-                if self.restart {
-                    return;
-                }
                 continue;
             }
             match effects.wake_at() {
@@ -737,57 +666,11 @@ impl Device {
     /// Runs `ms` more, the kernel woken as it asks.
     fn run_for(&mut self, ms: u64) {
         let end = self.now + ms;
-        while self.now < end && !self.restart {
+        while self.now < end {
             let now = self.later(1_000.min(end - self.now));
             let effects = self.kernel().tick(now);
             self.settle(effects);
         }
-    }
-
-    fn action(&mut self, action: Id) {
-        let now = self.later(100);
-        let effects = self.kernel().run_action(now, action);
-        self.settle(effects);
-    }
-
-    fn parts(&mut self) -> Vec<paperpaw_sdk::semantics::Part> {
-        let kernel = self.kernel();
-        kernel.render(&mut |_, _| {});
-        kernel.describe()
-    }
-
-    fn shown(&mut self) -> String {
-        let labels: Vec<String> = self.parts().into_iter().map(|p| p.label).collect();
-        labels.join(" | ")
-    }
-
-    /// Presses the button that says `label` as on the X4: down to it, then
-    /// confirm.
-    fn press(&mut self, label: &str) {
-        self.press_any(&[label]);
-    }
-
-    /// Presses the first button there of `labels`.
-    fn press_any(&mut self, labels: &[&str]) {
-        for _ in 0..10 {
-            let focused = self
-                .parts()
-                .into_iter()
-                .find(|p| p.focused)
-                .map(|p| p.label);
-            if focused.is_some_and(|f| labels.contains(&f.as_str())) {
-                self.action(actions::CONFIRM);
-                return;
-            }
-            self.action(actions::DOWN);
-        }
-        panic!("no button {labels:?}: {}", self.shown());
-    }
-
-    fn has_button(&mut self, labels: &[&str]) -> bool {
-        self.parts()
-            .iter()
-            .any(|p| labels.contains(&p.label.as_str()))
     }
 
     fn version(&self) -> String {
@@ -810,23 +693,46 @@ impl Device {
         self.rest_of(&self.updates.as_ref().unwrap().flash().0) == self.rest
     }
 
-    /// Searches for an update on the update page, downloads and installs
-    /// it: what the page says after the install. Plugins built in now that
-    /// the update has not (moved to the store) the reader lets go, as the
-    /// page asks.
-    fn update_online(&mut self) -> String {
-        self.action(paperpaw_plugin_update::OPEN);
-        assert_eq!(self.kernel().active_screen().map(Id::as_str), Some(PAGE));
-        self.press("Search online");
-        let shown = self.shown();
-        assert!(shown.contains("is available"), "{shown}");
-        self.press_any(&["Download", "Download without them"]);
-        let install = ["Install", "Update without them"];
-        if !self.has_button(&install) {
-            return self.shown();
+    /// Takes the newest update the server names, as the update plugin does:
+    /// downloaded into `updates` (a download that is not whole is let go), then
+    /// installed by the firmware, which checks it and writes it.
+    fn update_online(&mut self) -> Taken {
+        let firmware = self.updates.as_ref().unwrap().firmware();
+        let Some(file) = self
+            .server
+            .newest(&firmware.project, &firmware.version)
+            .cloned()
+        else {
+            return Taken::UpToDate;
+        };
+        let received = self.server.download(&file);
+        if received.len() != file.len() {
+            return Taken::NotDownloaded;
         }
-        self.press_any(&install);
-        self.shown()
+        let path = format!("updates/{}-{}.bin", firmware.project, version_of(&file));
+        self.card.write(&path, &received).unwrap();
+        self.install_card_file(&path)
+    }
+
+    /// Installs the update file at `path` of the card, as the firmware does
+    /// for one the update page downloaded or the owner put there.
+    fn install_card_file(&mut self, path: &str) -> Taken {
+        let card = self.card.clone();
+        let updates = self.updates.as_mut().unwrap();
+        FAIL_NEXT_PAGE.with(|armed| armed.set(self.fail_buffer));
+        let begun = updates.begin(&card, path, None, false);
+        FAIL_NEXT_PAGE.with(|armed| armed.set(false));
+        if let Err(why) = begun {
+            return Taken::Failed(why);
+        }
+        for _ in 0..1_000_000 {
+            match updates.step(&card) {
+                Some(FirmwareState::Installed) => return Taken::Installed,
+                Some(FirmwareState::Failed(why)) => return Taken::Failed(why),
+                _ => {}
+            }
+        }
+        panic!("the install never ended");
     }
 }
 
@@ -846,26 +752,17 @@ fn updates_install_start_and_are_kept() {
         for (update, slot) in [(&files.new, 1), (&next, 0)] {
             let before = device.version();
             let running = device.running();
-            let shown = device.update_online();
-            assert!(shown.contains("Update installed"), "{name}: {shown}");
+            assert_eq!(device.update_online(), Taken::Installed, "{name}");
             assert!(
                 device.holds(running, previous),
                 "{name}: the one running stays"
             );
             assert!(device.holds(slot, update), "{name}: written whole");
-            device.run_for(3_000);
-            assert!(device.restart, "{name}: it restarts by itself");
             device.restart();
-            // The new firmware on trial, said to the reader.
+            // The new firmware on trial.
             assert_eq!(device.running(), slot, "{name}");
             assert_eq!(device.version(), version_of(update), "{name}");
             assert!(device.updates.as_ref().unwrap().on_trial(), "{name}");
-            let said = format!("Updated to PaperPaw {}", told(&version_of(update)));
-            assert!(
-                device.said.borrow().contains(&said),
-                "{name}: {:?}",
-                device.said
-            );
             assert_ne!(before, device.version());
             // Its trial run, then kept: a restart stays in it.
             device.run_for(TRIAL_MS + 1_000);
@@ -878,10 +775,48 @@ fn updates_install_start_and_are_kept() {
             previous = update;
         }
         // Up to date now.
-        device.action(paperpaw_plugin_update::OPEN);
-        device.press("Search online");
-        let shown = device.shown();
-        assert!(shown.contains("PaperPaw is up to date"), "{name}: {shown}");
+        assert_eq!(device.update_online(), Taken::UpToDate, "{name}");
+    }
+}
+
+/// A signed update already on the card (put there by the owner, no server
+/// offer) installs through the firmware's own path, starts on trial and is
+/// kept; the old slot and the books on the card stay. The update page of the
+/// firmware only names such a file and starts this (`shells/xteink/src/ota.rs`).
+#[test]
+fn a_signed_card_update_installs_and_is_kept_without_network() {
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        device
+            .card
+            .write("updates/qualification.bin", &files.new)
+            .unwrap();
+        device
+            .card
+            .write("books/sentinel.txt", b"synced book")
+            .unwrap();
+        assert_eq!(
+            device.install_card_file("updates/qualification.bin"),
+            Taken::Installed,
+            "{name}"
+        );
+        assert!(device.holds(0, &files.old), "{name}: old slot retained");
+        assert!(device.holds(1, &files.new), "{name}: target slot complete");
+        device.restart();
+        assert_eq!(device.running(), 1, "{name}");
+        assert!(device.updates.as_ref().unwrap().on_trial(), "{name}");
+        device.run_for(TRIAL_MS + 1_000);
+        device.restart();
+        assert_eq!(device.running(), 1, "{name}: kept after restart");
+        assert!(!device.updates.as_ref().unwrap().on_trial(), "{name}");
+        assert!(device.untouched(), "{name}: unrelated flash retained");
+        let mut sentinel = [0; 11];
+        assert_eq!(
+            device.card.read_at("books/sentinel.txt", 0, &mut sentinel),
+            Ok(11)
+        );
+        assert_eq!(&sentinel, b"synced book");
     }
 }
 
@@ -896,10 +831,11 @@ fn a_damaged_update_is_never_started() {
         damaged[middle] ^= 0x10;
         let mut device = Device::flashed(&files, &files.old);
         device.server.updates = vec![damaged];
-        let shown = device.update_online();
-        assert!(shown.contains("Update not installed"), "{name}: {shown}");
-        assert!(shown.contains("changed or damaged"), "{name}: {shown}");
-        device.action(actions::CONFIRM);
+        assert_eq!(
+            device.update_online(),
+            Taken::Failed(InstallFailure::Damaged),
+            "{name}"
+        );
         device.restart();
         assert_eq!(device.running(), 0, "{name}");
         assert_eq!(device.version(), version_of(&files.old), "{name}");
@@ -917,8 +853,7 @@ fn a_download_cut_short_is_not_installed() {
         let flash = device.updates.as_ref().unwrap().flash().0.clone();
         device.server.updates = vec![files.new.clone()];
         device.server.short = 4096 + 17;
-        let shown = device.update_online();
-        assert!(!shown.contains("Update installed"), "{name}: {shown}");
+        assert_eq!(device.update_online(), Taken::NotDownloaded, "{name}");
         assert!(
             device.updates.as_ref().unwrap().flash().0 == flash,
             "{name}: nothing written"
@@ -942,12 +877,84 @@ fn an_update_without_room_is_refused() {
         assert!(image.len() > room);
         let flash = device.updates.as_ref().unwrap().flash().0.clone();
         device.server.updates = vec![signed(&image, &SEED)];
-        let shown = device.update_online();
-        assert!(shown.contains("too large"), "{name}: {shown}");
+        assert_eq!(
+            device.update_online(),
+            Taken::Failed(InstallFailure::TooLarge),
+            "{name}"
+        );
         assert!(
             device.updates.as_ref().unwrap().flash().0 == flash,
             "{name}: nothing written"
         );
+    }
+}
+
+/// Decision 179: PaperPaw on CrossPoint's layout (the X4 flashed over CrossPoint
+/// keeps its table: slots of 6,553,600 bytes, smaller than PaperPaw's own).
+/// An update that does not fit its slot is refused before anything is
+/// written, however far it was downloaded, and the firmware says the slot's
+/// size as its room (what the update page compares an offer with); one that
+/// fits installs.
+#[test]
+fn on_crosspoints_small_layout_an_update_past_its_slot_is_refused_and_writes_nothing() {
+    const SLOT: usize = 0x64_0000;
+    let board = Board {
+        name: "x4-on-crosspoint",
+        table: common::CROSSPOINT,
+        ..BOARDS[0]
+    };
+    let files = Files::made(board);
+    let mut device = Device::flashed(&files, &files.old);
+    assert_eq!(device.slots.apps[1].1 as usize, SLOT);
+    assert_eq!(
+        device.updates.as_ref().unwrap().firmware().room,
+        SLOT as u64,
+        "the room the page sees is the slot"
+    );
+    let new = image_of(&files.new);
+    // One byte of image past the slot: no room. Exactly the slot: room.
+    let too_large = restamp(&with_segment(new, SLOT - new.len() + 4096), "99.0.0");
+    assert!(too_large.len() > SLOT);
+    let flash = device.updates.as_ref().unwrap().flash().0.clone();
+    device.server.updates = vec![signed(&too_large, &SEED)];
+    assert_eq!(
+        device.update_online(),
+        Taken::Failed(InstallFailure::TooLarge)
+    );
+    assert!(!device.updates.as_ref().unwrap().installing());
+    assert!(
+        device.updates.as_ref().unwrap().flash().0 == flash,
+        "nothing written, not even the OTA data"
+    );
+    // The same device takes an update that fits its slot.
+    device.server.updates = vec![files.new.clone()];
+    assert_eq!(device.update_online(), Taken::Installed);
+}
+
+/// An install whose buffer finds no memory is refused cleanly: nothing is
+/// written, the OTA data is as it was, the firmware running stays, and the
+/// same update installs once there is room.
+#[test]
+fn an_install_without_memory_for_its_buffer_is_refused_and_writes_nothing() {
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        let flash = device.updates.as_ref().unwrap().flash().0.clone();
+        device.server.updates = vec![files.new.clone()];
+        device.fail_buffer = true;
+        let taken = device.update_online();
+        assert!(
+            matches!(taken, Taken::Failed(InstallFailure::Other(_))),
+            "{name}: refused: {taken:?}"
+        );
+        assert!(!device.updates.as_ref().unwrap().installing(), "{name}");
+        assert!(
+            device.updates.as_ref().unwrap().flash().0 == flash,
+            "{name}: nothing written, not even the OTA data"
+        );
+        // Room again: the same update goes through.
+        device.fail_buffer = false;
+        assert_eq!(device.update_online(), Taken::Installed, "{name}");
     }
 }
 
@@ -960,32 +967,20 @@ fn an_update_that_fails_its_trial_is_undone() {
         let name = files.board.name;
         let mut device = Device::flashed(&files, &files.old);
         device.server.updates = vec![files.new.clone()];
-        let shown = device.update_online();
-        assert!(shown.contains("Update installed"), "{name}: {shown}");
-        device.run_for(3_000);
+        assert_eq!(device.update_online(), Taken::Installed, "{name}");
         device.restart();
         assert_eq!(device.version(), version_of(&files.new), "{name}");
         device.run_for(TRIAL_MS / 2);
         device.crash();
-        // Back in the one before, which says so.
+        // Back in the one before, which knows it.
         assert_eq!(device.running(), 0, "{name}");
         assert_eq!(device.version(), version_of(&files.old), "{name}");
         assert!(device.updates.as_ref().unwrap().firmware().undone, "{name}");
-        let said = format!(
-            "The update did not start: PaperPaw {} is back.",
-            told(&version_of(&files.old))
-        );
-        assert!(
-            device.said.borrow().contains(&said),
-            "{name}: {:?}",
-            device.said
-        );
         assert!(device.holds(0, &files.old), "{name}");
         // Kept after the next restart; the update installs again.
         device.restart();
         assert_eq!(device.running(), 0, "{name}");
-        let shown = device.update_online();
-        assert!(shown.contains("Update installed"), "{name}: {shown}");
+        assert_eq!(device.update_online(), Taken::Installed, "{name}");
         assert!(device.holds(1, &files.new), "{name}");
         assert!(device.untouched(), "{name}");
     }
@@ -999,9 +994,7 @@ fn sleep_during_a_trial_keeps_its_time() {
         let name = files.board.name;
         let mut device = Device::flashed(&files, &files.old);
         device.server.updates = vec![files.new.clone()];
-        let shown = device.update_online();
-        assert!(shown.contains("Update installed"), "{name}: {shown}");
-        device.run_for(3_000);
+        assert_eq!(device.update_online(), Taken::Installed, "{name}");
         device.restart();
         assert_eq!(device.running(), 1, "{name}");
         assert!(device.updates.as_ref().unwrap().on_trial(), "{name}");
@@ -1023,6 +1016,41 @@ fn sleep_during_a_trial_keeps_its_time() {
         assert_eq!(device.running(), 1, "{name}: kept");
         assert!(!device.updates.as_ref().unwrap().on_trial(), "{name}");
         assert!(device.untouched(), "{name}");
+    }
+}
+
+/// On trial the other slot holds the firmware to go back to: the kernel's write
+/// (`FirmwareHost::begin_write`) is refused, and writes nothing, until the
+/// trial is over (#273).
+#[test]
+fn the_kernels_write_is_refused_while_a_trial_runs() {
+    use paperpaw_platform::firmware::{FirmwareHost, Reason};
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        device.server.updates = vec![files.new.clone()];
+        assert_eq!(device.update_online(), Taken::Installed, "{name}");
+        device.restart();
+        assert!(device.updates.as_ref().unwrap().on_trial(), "{name}");
+        let refused = FirmwareHost::begin_write(
+            device.updates.as_mut().unwrap(),
+            "update.bin",
+            [0; 32],
+            None,
+            false,
+        );
+        assert_eq!(refused, Err(Reason::OTHER), "{name}");
+        assert!(device.untouched(), "{name}");
+        // Kept: the write may begin again.
+        device.run_for(TRIAL_MS + 1_000);
+        let again = FirmwareHost::begin_write(
+            device.updates.as_mut().unwrap(),
+            "update.bin",
+            [0; 32],
+            None,
+            false,
+        );
+        assert_eq!(again, Ok(()), "{name}");
     }
 }
 
@@ -1090,6 +1118,88 @@ fn the_images_made_here_are_whole() {
         assert_eq!(
             Plugins::read(&again[PLUGINS_AT..]).unwrap().text(),
             "paperpaw-plugin-stats 1.0.0\n"
+        );
+    }
+}
+
+// English hyphenation after the update of a firmware that had it built in.
+
+const ENGLISH_INI: &str = "plugins/hyphenation/plugin.ini";
+const ENGLISH_TABLE: &str = "plugins/hyphenation/hyphenation/en.pphp";
+
+/// Whether the kernel running runs the English pack as a plugin.
+fn english_runs(device: &mut Device) -> bool {
+    device
+        .kernel()
+        .plugins()
+        .get("hyphenation")
+        .is_some_and(|plugin| plugin.state == paperpaw_sdk::PluginState::Running)
+}
+
+/// Updates `device` online to the new firmware and starts it, which
+/// seeds (a firmware that has the seeding is the one the update brings).
+fn update_to_new_firmware(device: &mut Device, files: &Files) {
+    device.server.updates = vec![files.new.clone()];
+    assert_eq!(device.update_online(), Taken::Installed);
+    device.seeds = true;
+    device.restart();
+}
+
+/// A card as Beta 3 left it has no English pack (it was built in): the
+/// update's first start puts it there, the kernel runs it, and every later
+/// start leaves it be.
+#[test]
+fn an_update_from_beta_3_leaves_english_hyphenation_on_the_card() {
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        assert!(!device.card.exists(ENGLISH_INI), "{name}: the card before");
+        update_to_new_firmware(&mut device, &files);
+        assert!(
+            device.card.exists(ENGLISH_INI),
+            "{name}: the pack was put there"
+        );
+        let mut table = vec![0u8; device.card.size(ENGLISH_TABLE).unwrap() as usize];
+        device.card.read_at(ENGLISH_TABLE, 0, &mut table).unwrap();
+        paperpaw_hyphen::check_table(&table).expect("a whole table");
+        assert!(english_runs(&mut device), "{name}: the kernel runs it");
+        // Its trial run, kept, restarted: still there, and the same.
+        device.run_for(TRIAL_MS + 1_000);
+        device.restart();
+        assert!(english_runs(&mut device), "{name}: after the next start");
+        let mut again = vec![0u8; table.len()];
+        device.card.read_at(ENGLISH_TABLE, 0, &mut again).unwrap();
+        assert_eq!(again, table, "{name}");
+        // A reader who removes it keeps it removed through restarts.
+        device.card.remove_dir_all("plugins/hyphenation").unwrap();
+        device.restart();
+        assert!(!device.card.exists(ENGLISH_INI), "{name}: not put back");
+        assert!(!english_runs(&mut device), "{name}");
+    }
+}
+
+/// A card that has the pack (the flasher's, or a newer one) keeps it as it
+/// is through the update.
+#[test]
+fn an_update_keeps_an_english_pack_that_is_on_the_card() {
+    for files in Files::all() {
+        let name = files.board.name;
+        let mut device = Device::flashed(&files, &files.old);
+        let ini = "[plugin]\nid = hyphenation\nversion = 9.0.0\nformats = 5\n\n[hyphenation]\nen = hyphenation/en.pphp\n";
+        device.card.write(ENGLISH_INI, ini.as_bytes()).unwrap();
+        device.card.write(ENGLISH_TABLE, b"not a table").unwrap();
+        update_to_new_firmware(&mut device, &files);
+        let mut read = vec![0u8; ini.len() + 8];
+        let n = device.card.read_at(ENGLISH_INI, 0, &mut read).unwrap();
+        assert_eq!(
+            &read[..n],
+            ini.as_bytes(),
+            "{name}: the manifest is as it was"
+        );
+        assert_eq!(
+            device.card.size(ENGLISH_TABLE).unwrap(),
+            11,
+            "{name}: so is the table"
         );
     }
 }

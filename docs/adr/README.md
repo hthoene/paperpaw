@@ -30,7 +30,7 @@ is a new record that links back.
 | [0021](0021-decorations.md) | Decorations of text | Accepted |
 | [0022](0022-plugins-in-updates.md) | Plugins in updates | Accepted |
 | [0023](0023-plugin-store.md) | The plugin store | Accepted |
-| [0024](0024-native-code-plugins.md) | Native code plugins as files | Accepted, partly implemented; supersedes part of [0004](0004-everything-is-a-plugin.md) |
+| [0024](0024-native-code-plugins.md) | Native code plugins as files | Accepted, partly implemented; supersedes part of [0004](0004-everything-is-a-plugin.md); Android loads no code plugins (amendment 2026-11) |
 | [0025](0025-power-saving.md) | Power saving: efficient by default, declared work, power modes | Accepted, partly implemented |
 | [0026](0026-plugin-interface-version.md) | Code plugins bound to a plugin interface version, built without build scripts | Accepted |
 | [0027](0027-bluetooth.md) | Bluetooth Low Energy | Accepted |

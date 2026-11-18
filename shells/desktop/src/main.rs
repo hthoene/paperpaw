@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use paperpaw_emulator::device::Device;
-use paperpaw_emulator::{budget, cable, device, headless, profiles, trace};
+use paperpaw_emulator::{budget, cable, device, headless, profiles, repl, trace};
 
 const USAGE: &str = "\
 PaperPaw emulator
@@ -25,8 +25,13 @@ OPTIONS:
                           Check a plugin with paperpaw-dev (beside this program),
                           its findings as JSON on standard output
     --trust-code          Load code plugins built for this computer from the
-                          library (plugins/<id>/code-host.dll, .so or .dylib),
-                          those there installed first; without it, none
+                          library (plugins/<id>/code-host.so, interface 7;
+                          Linux x86-64), those there installed first;
+                          without it, none
+    --abi7-dev-loader     Developer switch (also PAPERPAW_ABI7_DEV_LOADER=1):
+                          load interface-7 code plugins of the library
+                          (plugins/<id>/code-host.so) without applying what
+                          they declare; Linux x86-64 only, off by default
     --stdio               Be driven by another program over standard input and
                           output, a JSON object a line (see the `stdio` module)
     --registry <file>     Write what the app offers data plugins (settings,
@@ -37,6 +42,8 @@ OPTIONS:
     --headless            Run without a window
     --script <steps>      Input steps, e.g. \"page-forward,long:confirm,tap:100:200\"
     --screenshot <file>   Save a PNG of the panel after the script (headless)
+    --repl                Headless: the X4 remote's commands from standard input,
+                          answered as the X4 does (`tools/x4-remote.py --emulator`)
     --library <dir>       Folder emulating the device storage
                           (default: samples/library)
     --screenshot-dir <d>  Where F12 saves screenshots (default: out)
@@ -90,10 +97,15 @@ struct Options {
     heap_report: bool,
     /// The cable transfer on standard input and output.
     cable: bool,
+    /// The X4 remote's commands on standard input and output.
+    repl: bool,
     /// Install the code plugins built for this computer on the card.
     trust_code: bool,
     /// Requests answered from the emulator's fixtures (`--network`).
     fixtures: bool,
+    /// Load interface-7 plugins of the card (developer switch, inactive by
+    /// default).
+    abi7_dev_loader: bool,
 }
 
 fn main() -> ExitCode {
@@ -106,6 +118,20 @@ fn main() -> ExitCode {
     }
 }
 
+/// Line by line until standard input ends, time passing as it does.
+fn cable_loop(device: &mut Device) {
+    let lines = cable::lines();
+    loop {
+        match lines.recv_timeout(std::time::Duration::from_millis(50)) {
+            Ok(line) => device.cable_line(&line),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+        device.tick_if_due();
+        cable::send(&device.take_cable_lines());
+    }
+}
+
 fn run() -> Result<(), String> {
     let Some(options) = parse_args(std::env::args().skip(1))? else {
         return Ok(());
@@ -114,10 +140,25 @@ fn run() -> Result<(), String> {
     let profile = profiles::find(profile_id)
         .ok_or_else(|| format!("unknown profile `{profile_id}` (see --list-profiles)"))?;
 
+    // Checked before the library is touched: a run that ends on a wrong
+    // argument leaves the library as it was.
+    if !options.headless
+        && (options.script.is_some() || options.screenshot.is_some() || options.repl)
+    {
+        return Err("--script, --screenshot and --repl require --headless".into());
+    }
     let library = options
         .library
         .clone()
         .unwrap_or_else(|| PathBuf::from("samples/library"));
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    if options.abi7_dev_loader {
+        paperpaw_emulator::native_runtime::set_enabled(true);
+    }
+    #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
+    if options.abi7_dev_loader {
+        return Err("--abi7-dev-loader needs Linux on x86-64".into());
+    }
     if options.trust_code {
         device::set_code_plugins(true);
         let installed = paperpaw_emulator::native::trust(&library)
@@ -138,7 +179,15 @@ fn run() -> Result<(), String> {
     if let Some(limit) = options.heap_budget {
         budget::override_limit(limit);
     }
-    let mut device = Device::new(profile, user_config(&options)?, storage, options.headless)
+    let config = user_config(&options)?;
+    // Last, once the arguments are known to be good.
+    // English hyphenation is a data plugin: in a library that has none (and
+    // never had), put it there, as the web flasher does on a card.
+    let seeded = paperpaw_default_packs::seed_hyphenation(&storage);
+    if !matches!(seeded, paperpaw_default_packs::Seeded::Kept) {
+        eprintln!("library: English hyphenation: {seeded:?}");
+    }
+    let mut device = Device::new(profile, config, storage, options.headless)
         .map_err(|e| format!("{}: {e}", profile.device.id))?;
     if options.fixtures {
         device.use_fixtures();
@@ -152,19 +201,12 @@ fn run() -> Result<(), String> {
         if let Some(script) = &options.script {
             headless::run_script(&mut device, script)?;
         }
+        if options.repl {
+            repl::serve(&mut device);
+            return Ok(());
+        }
         if options.cable {
-            // Line by line until standard input ends, time passing as it
-            // does.
-            let lines = cable::lines();
-            loop {
-                match lines.recv_timeout(std::time::Duration::from_millis(50)) {
-                    Ok(line) => device.cable_line(&line),
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                }
-                device.tick_if_due();
-                cable::send(&device.take_cable_lines());
-            }
+            cable_loop(&mut device);
             // Standard output is the cable's: nothing more on it.
             return Ok(());
         }
@@ -188,9 +230,6 @@ fn run() -> Result<(), String> {
         return Ok(());
     }
 
-    if options.script.is_some() || options.screenshot.is_some() {
-        return Err("--script and --screenshot require --headless".into());
-    }
     let recorder = match &options.record {
         Some(path) => Some(record::Recorder::create(path, profile.device.id)?),
         None => None,
@@ -310,6 +349,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Option<Options>,
             }
             "--headless" => options.headless = true,
             "--cable" => options.cable = true,
+            "--repl" => options.repl = true,
             "--script" => options.script = Some(value("--script")?),
             "--screenshot" => options.screenshot = Some(PathBuf::from(value("--screenshot")?)),
             "--library" => options.library = Some(PathBuf::from(value("--library")?)),
@@ -319,6 +359,7 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Option<Options>,
             }
             "--heap-report" => options.heap_report = true,
             "--trust-code" => options.trust_code = true,
+            "--abi7-dev-loader" => options.abi7_dev_loader = true,
             "--network" => {
                 options.fixtures = match value("--network")?.as_str() {
                     "real" => false,

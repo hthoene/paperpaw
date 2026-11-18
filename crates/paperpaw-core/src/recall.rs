@@ -10,7 +10,7 @@
 
 use alloc::boxed::Box;
 use alloc::rc::Rc;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
@@ -89,8 +89,15 @@ impl Recall {
     fn remember_size(&self, path: &str, size: Result<u64, StorageError>) {
         let mut entries = self.entries.borrow_mut();
         if entries.len() < MAX_ENTRIES && self.position(&entries, path).is_none() {
+            // Remembering is a convenience: where the heap has no room for
+            // it, the path is simply asked again.
+            let mut copy = String::new();
+            if copy.try_reserve_exact(path.len()).is_err() || entries.try_reserve(1).is_err() {
+                return;
+            }
+            copy.push_str(path);
             entries.push(Entry {
-                path: path.to_string(),
+                path: copy,
                 size,
                 data: None,
             });
@@ -126,10 +133,13 @@ impl Recalled {
         data.resize(size as usize, 0);
         let mut at = 0;
         while at < data.len() {
+            let room = data.len() - at;
             match self.inner.read_at(path, at as u64, &mut data[at..]) {
                 Ok(0) => break,
-                Ok(n) => at += n,
-                Err(_) => return None,
+                Ok(n) if n <= room => at += n,
+                // A backend that claims more than it was given: nothing it
+                // read is trusted, and the file is not kept.
+                Ok(_) | Err(_) => return None,
             }
         }
         data.truncate(at);
@@ -217,6 +227,21 @@ impl Storage for Recalled {
         self.inner.list_from(dir, from, visit)
     }
 
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.inner.list_bounded(dir, from, visit)
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        // An entry by its place: no path to forget, so whatever was read.
+        self.recall.clear();
+        self.inner.remove_listed(dir, place)
+    }
+
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         self.recall.forget(path);
         self.inner.remove(path)
@@ -233,6 +258,17 @@ impl Storage for Recalled {
         self.inner.create_dir(path)
     }
 
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        // Any path below the root may be gone.
+        self.recall.clear();
+        self.inner.remove_tree_step(root, keep_root, place)
+    }
+
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
         // Also whatever was read: tools/library-bench ends a kernel call
         // so, removing a folder that is not there.
@@ -242,6 +278,14 @@ impl Storage for Recalled {
 
     fn ignores_case(&self) -> bool {
         self.recall.ignores_case
+    }
+
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.inner.same_entry(a, b)
+    }
+
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.inner.entry_identity(path)
     }
 
     fn free_space(&self) -> Option<u64> {
@@ -269,12 +313,14 @@ mod tests {
         reads: Rc<Cell<usize>>,
         sizes: Rc<Cell<usize>>,
         ignores_case: bool,
+        /// Bytes a broken backend claims to have read beyond what it did.
+        overclaim: usize,
     }
 
     impl Storage for Counted {
         fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
             self.reads.set(self.reads.get() + 1);
-            self.inner.read_at(path, offset, buf)
+            Ok(self.inner.read_at(path, offset, buf)? + self.overclaim)
         }
         fn size(&self, path: &str) -> Result<u64, StorageError> {
             self.sizes.set(self.sizes.get() + 1);
@@ -305,6 +351,14 @@ mod tests {
         budget: usize,
         ignores_case: bool,
     ) -> (Recalled, Rc<Cell<usize>>, Rc<Cell<usize>>) {
+        storage_claiming(budget, ignores_case, 0)
+    }
+
+    fn storage_claiming(
+        budget: usize,
+        ignores_case: bool,
+        overclaim: usize,
+    ) -> (Recalled, Rc<Cell<usize>>, Rc<Cell<usize>>) {
         let reads = Rc::new(Cell::new(0));
         let sizes = Rc::new(Cell::new(0));
         let inner = MemoryStorage::new()
@@ -316,6 +370,7 @@ mod tests {
                 reads: reads.clone(),
                 sizes: sizes.clone(),
                 ignores_case,
+                overclaim,
             }),
             recall: Rc::new(Recall::new(budget, ignores_case)),
         };
@@ -384,5 +439,22 @@ mod tests {
         read(&s, "a.txt");
         read(&s, "a.txt");
         assert_eq!(reads.get(), 2, "too large for the budget: read each time");
+    }
+
+    /// A backend that answers a read with more bytes than the buffer holds
+    /// is not believed: nothing is kept, and every read goes to it.
+    #[test]
+    fn a_read_count_past_the_buffer_keeps_nothing() {
+        let (s, reads, _) = storage_claiming(1024, true, 1);
+        let mut buf = [0u8; 8];
+        for round in 1..=2 {
+            // Passed through unchanged: the caller sees the backend's claim.
+            assert_eq!(s.read_at("a.txt", 1, &mut buf), Ok(5));
+            // One read to try to keep it, one passed through.
+            assert_eq!(reads.get(), 2 * round);
+        }
+        let entries = s.recall.entries.borrow();
+        let at = s.recall.position(&entries, "a.txt");
+        assert!(at.is_none_or(|at| entries[at].data.is_none()));
     }
 }

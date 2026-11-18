@@ -363,7 +363,7 @@ fn shared_gate() -> &'static Arc<Gate> {
 /// What a socket's TLS depends on besides the server: the clock, and in
 /// tests the authorities.
 #[derive(Debug, Clone)]
-pub(crate) struct Env {
+pub(crate) struct TlsContext {
     clock: Clock,
     gate: Arc<Gate>,
     stall: Duration,
@@ -371,7 +371,7 @@ pub(crate) struct Env {
     pub(crate) roots: Option<Arc<rustls::client::WebPkiServerVerifier>>,
 }
 
-impl Env {
+impl TlsContext {
     /// The computer's clock and the authorities PaperPaw ships.
     pub(crate) fn system() -> Self {
         Self {

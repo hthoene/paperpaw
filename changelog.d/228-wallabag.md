@@ -1,0 +1,3 @@
+### Changed
+
+- **Wallabag is an interface-7 plugin** (#228). The set-up screen (server, user name, password, API client's ID and secret), the three settings and the fetch are native: the token, the archiving of articles read to the end, the list of unread articles and the books go through the network and library services, and the books are put into the library with `Library::import` and taken away with `Library::delete` (a book with the reader's marks stays). The password, the client's secret and the token are zeroed wherever they are copied. The interface-6 plugin is gone; Wallabag is back in the app with the host's activation of native plugins.

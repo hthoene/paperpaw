@@ -7,18 +7,21 @@ use alloc::vec::Vec;
 use fatfs::{FormatVolumeOptions, FsOptions, StdIoWrapper};
 use std::io::Cursor;
 
-type Disk = StdIoWrapper<Cursor<Vec<u8>>>;
+mod sparse;
+use sparse::SparseDisk;
+
+type Disk = StdIoWrapper<SparseDisk>;
 
 /// A fresh FAT disk of 4 MB, formatted.
 fn storage() -> FatStorage<Disk> {
-    let mut disk = StdIoWrapper::from(Cursor::new(vec![0u8; 4 << 20]));
+    let mut disk = StdIoWrapper::from(SparseDisk::empty(4 << 20));
     fatfs::format_volume(&mut disk, FormatVolumeOptions::new()).unwrap();
     disk.seek(SeekFrom::Start(0)).unwrap();
     let fs = FileSystem::new(disk, FsOptions::new()).unwrap();
     FatStorage::new(Box::leak(Box::new(fs)))
 }
 
-fn names(storage: &FatStorage<Disk>, dir: &str) -> Vec<(String, bool, u64)> {
+fn names<IO: ReadWriteSeek>(storage: &FatStorage<IO>, dir: &str) -> Vec<(String, bool, u64)> {
     let mut out = Vec::new();
     storage
         .list(dir, &mut |e| {
@@ -33,8 +36,9 @@ fn names(storage: &FatStorage<Disk>, dir: &str) -> Vec<(String, bool, u64)> {
 /// with every block written to it in order.
 #[derive(Clone)]
 struct Cut {
-    data: alloc::rc::Rc<RefCell<Vec<u8>>>,
+    data: alloc::rc::Rc<RefCell<SparseDisk>>,
     writes: alloc::rc::Rc<RefCell<Vec<Written>>>,
+    recording: alloc::rc::Rc<core::cell::Cell<bool>>,
     /// Blocks read so far.
     reads: alloc::rc::Rc<core::cell::Cell<usize>>,
 }
@@ -44,11 +48,22 @@ type Written = (u32, [u8; BLOCK]);
 
 impl Cut {
     fn new(data: Vec<u8>) -> Self {
+        Self::from_sparse(SparseDisk::from_bytes(&data))
+    }
+
+    fn from_sparse(data: SparseDisk) -> Self {
         Self {
             data: alloc::rc::Rc::new(RefCell::new(data)),
             writes: alloc::rc::Rc::default(),
+            recording: alloc::rc::Rc::default(),
             reads: alloc::rc::Rc::default(),
         }
+    }
+
+    /// Keep only the writes a power-loss or block-order test will replay.
+    fn record_writes(&self) {
+        self.writes.borrow_mut().clear();
+        self.recording.set(true);
     }
 
     /// A card of 4 MB, formatted with `options`.
@@ -58,14 +73,14 @@ impl Cut {
 
     /// A card of `size` bytes, formatted with `options`.
     fn formatted_of(size: usize, options: FormatVolumeOptions) -> Self {
-        let mut formatted = StdIoWrapper::from(Cursor::new(vec![0u8; size]));
+        let mut formatted = StdIoWrapper::from(SparseDisk::empty(size));
         fatfs::format_volume(&mut formatted, options).unwrap();
-        Self::new(formatted.into_inner().into_inner())
+        Self::from_sparse(formatted.into_inner())
     }
 
     /// What it holds now.
     fn image(&self) -> Vec<u8> {
-        self.data.borrow().clone()
+        self.data.borrow().image()
     }
 
     /// The storage on it as on the X4: the disk shared, its changed
@@ -80,15 +95,26 @@ impl Cut {
 impl Blocks for Cut {
     fn read_block(&mut self, index: u32, block: &mut [u8; BLOCK]) -> Result<(), DiskError> {
         let at = index as usize * BLOCK;
-        block.copy_from_slice(&self.data.borrow()[at..at + BLOCK]);
+        let mut data = self.data.borrow_mut();
+        std::io::Seek::seek(&mut *data, std::io::SeekFrom::Start(at as u64))
+            .map_err(|_| DiskError)?;
+        std::io::Read::read_exact(&mut *data, block).map_err(|_| DiskError)?;
         self.reads.set(self.reads.get() + 1);
         Ok(())
     }
 
     fn write_block(&mut self, index: u32, block: &[u8; BLOCK]) -> Result<(), DiskError> {
         let at = index as usize * BLOCK;
-        self.data.borrow_mut()[at..at + BLOCK].copy_from_slice(block);
-        self.writes.borrow_mut().push((index, *block));
+        let mut data = self.data.borrow_mut();
+        if at + BLOCK > data.len() {
+            return Err(DiskError);
+        }
+        std::io::Seek::seek(&mut *data, std::io::SeekFrom::Start(at as u64))
+            .map_err(|_| DiskError)?;
+        std::io::Write::write_all(&mut *data, block).map_err(|_| DiskError)?;
+        if self.recording.get() {
+            self.writes.borrow_mut().push((index, *block));
+        }
         Ok(())
     }
 
@@ -99,7 +125,11 @@ impl Blocks for Cut {
 
 /// The storage on the card `bytes`.
 fn mounted(bytes: Vec<u8>) -> FatStorage<Disk> {
-    let fs = FileSystem::new(StdIoWrapper::from(Cursor::new(bytes)), FsOptions::new()).unwrap();
+    let fs = FileSystem::new(
+        StdIoWrapper::from(SparseDisk::from_bytes(&bytes)),
+        FsOptions::new(),
+    )
+    .unwrap();
     FatStorage::new(Box::leak(Box::new(fs)))
 }
 
@@ -132,142 +162,6 @@ fn fat32() -> Cut {
         .fat_type(fatfs::FatType::Fat32)
         .bytes_per_cluster(512);
     Cut::formatted_of(40 << 20, options)
-}
-
-/// The card's own word serves at once, the FAT is counted a part at a
-/// time, and what is written and removed is followed.
-#[test]
-fn free_space_is_counted_a_part_at_a_time() {
-    let card = fat32();
-    let s = card.storage();
-    let said = s.free_space().unwrap();
-    assert_eq!(said, counted(&s));
-    assert!(count_out(&card, &s) > 1);
-    assert_eq!(s.free_space(), Some(counted(&s)));
-    // Written, appended, made, replaced, moved and removed: followed
-    // cluster by cluster, without counting again.
-    s.write("books/a.bin", &vec![7u8; 64 * 1024]).unwrap();
-    assert_eq!(s.free_space(), Some(counted(&s)));
-    s.append("books/a.bin", &[1u8; 700]).unwrap();
-    s.sync().unwrap();
-    assert_eq!(s.free_space(), Some(counted(&s)));
-    s.write("books/a.bin", b"short").unwrap();
-    assert_eq!(s.free_space(), Some(counted(&s)));
-    s.write("b.bin", &vec![1u8; 3000]).unwrap();
-    s.rename("b.bin", "books/a.bin").unwrap();
-    assert_eq!(s.free_space(), Some(counted(&s)));
-    s.create_dir("x/y/z").unwrap();
-    s.write("x/y/z/c.bin", &vec![2u8; 5000]).unwrap();
-    assert_eq!(s.free_space(), Some(counted(&s)));
-    s.remove_dir_all("x").unwrap();
-    s.remove("books/a.bin").unwrap();
-    assert_eq!(s.free_space(), Some(counted(&s)));
-    // Asked on: nothing more to count.
-    let before = card.reads.get();
-    s.free_space();
-    assert_eq!(card.reads.get(), before);
-}
-
-/// A card that was not unmounted (the X4 never unmounts): rust-fatfs
-/// would read all of its FAT; here the count the card keeps, out of
-/// date, serves first, and counting a part at a time puts it right.
-#[test]
-fn a_card_not_unmounted_is_counted_a_part_at_a_time() {
-    let card = fat32();
-    let first = card.storage();
-    first.free_space();
-    first.write("big.bin", &vec![7u8; 200 * 1024]).unwrap();
-    first.sync().unwrap();
-    // Mounted again from what is on the card.
-    let card = Cut::new(card.image());
-    let s = card.storage();
-    let said = s.free_space().unwrap();
-    count_out(&card, &s);
-    let exact = s.free_space().unwrap();
-    assert_eq!(exact, counted(&s));
-    assert!(
-        said > exact,
-        "the count kept predates the file: {said} {exact}"
-    );
-}
-
-/// The FAT is counted a sector at a time, into a buffer of that size:
-/// nothing large is taken from the heap, which on the X4 is small and in
-/// pieces while the radio is up.
-#[test]
-fn free_space_is_counted_without_a_large_buffer() {
-    for card in [
-        fat32(),
-        Cut::formatted_of(
-            8 << 20,
-            FormatVolumeOptions::new().fat_type(fatfs::FatType::Fat16),
-        ),
-        Cut::formatted_of(
-            8 << 20,
-            FormatVolumeOptions::new().fat_type(fatfs::FatType::Fat12),
-        ),
-    ] {
-        let image = card.image();
-        let largest = alloc::rc::Rc::new(core::cell::Cell::new(0));
-        let seen = largest.clone();
-        let read = move |at: u64, buf: &mut [u8]| {
-            seen.set(seen.get().max(buf.len()));
-            let at = at as usize;
-            buf.copy_from_slice(&image[at..at + buf.len()]);
-            true
-        };
-        let mut free = free::Free::default();
-        for _ in 0..100 {
-            free.ask(&read);
-            if free.exact() {
-                break;
-            }
-        }
-        assert!(free.exact());
-        assert!(largest.get() <= BLOCK, "{} bytes at once", largest.get());
-        let s = card.storage();
-        assert_eq!(free.ask(&read), Some(counted(&s)));
-    }
-}
-
-/// FAT12 and FAT16 keep no count: theirs is counted.
-#[test]
-fn small_cards_are_counted() {
-    for fat in [fatfs::FatType::Fat12, fatfs::FatType::Fat16] {
-        let card = Cut::formatted_of(8 << 20, FormatVolumeOptions::new().fat_type(fat));
-        let s = card.storage();
-        count_out(&card, &s);
-        assert_eq!(s.free_space(), Some(counted(&s)));
-        s.write("a.bin", &vec![1u8; 9000]).unwrap();
-        assert_eq!(s.free_space(), Some(counted(&s)));
-    }
-}
-
-/// The bytes for files in all, as rust-fatfs counts them, told from the
-/// boot sector without reading the FAT; also on a card of its own.
-#[test]
-fn total_space_is_told_from_the_boot_sector() {
-    for fat in [
-        fatfs::FatType::Fat12,
-        fatfs::FatType::Fat16,
-        fatfs::FatType::Fat32,
-    ] {
-        let card = match fat {
-            fatfs::FatType::Fat32 => fat32(),
-            _ => Cut::formatted_of(8 << 20, FormatVolumeOptions::new().fat_type(fat)),
-        };
-        let s = card.storage();
-        let before = card.reads.get();
-        let total = s.total_space().unwrap();
-        assert!(card.reads.get() - before <= 2, "{fat:?}");
-        let stats = s.fs.stats().unwrap();
-        assert_eq!(
-            total,
-            u64::from(stats.total_clusters()) * u64::from(stats.cluster_size())
-        );
-        assert!(s.free_space().unwrap() <= total);
-        assert_eq!(mounted(card.image()).total_space(), Some(total));
-    }
 }
 
 #[test]
@@ -362,12 +256,12 @@ fn cuts(
     }
     s.sync().unwrap();
     let mut image = card.image();
-    card.writes.borrow_mut().clear();
+    card.record_writes();
     op(&s);
     let mut cuts = vec![contents(&mounted(image.clone()), "")];
-    for (index, block) in card.writes.borrow().iter() {
-        let at = *index as usize * BLOCK;
-        image[at..at + BLOCK].copy_from_slice(block);
+    for (index, block) in core::mem::take(&mut *card.writes.borrow_mut()) {
+        let at = index as usize * BLOCK;
+        image[at..at + BLOCK].copy_from_slice(&block);
         cuts.push(contents(&mounted(image.clone()), ""));
     }
     cuts
@@ -447,12 +341,12 @@ fn cut_images(image: Vec<u8>, op: impl FnOnce(&FatStorage<SharedDisk<Cut>>)) -> 
     let card = Cut::new(image);
     let s = card.storage();
     let mut image = card.image();
-    card.writes.borrow_mut().clear();
+    card.record_writes();
     op(&s);
     let mut cuts = vec![image.clone()];
-    for (index, block) in card.writes.borrow().iter() {
-        let at = *index as usize * BLOCK;
-        image[at..at + BLOCK].copy_from_slice(block);
+    for (index, block) in core::mem::take(&mut *card.writes.borrow_mut()) {
+        let at = index as usize * BLOCK;
+        image[at..at + BLOCK].copy_from_slice(&block);
         cuts.push(image.clone());
     }
     cuts
@@ -498,7 +392,7 @@ fn assert_beside(s: &dyn Storage, crowded: bool, cut: usize) {
 }
 
 /// The files on `s` that share a cluster with another.
-fn cross_linked(s: &FatStorage<Disk>) -> Vec<String> {
+fn cross_linked<IO: ReadWriteSeek>(s: &FatStorage<IO>) -> Vec<String> {
     let mut clusters = Vec::new();
     let mut dirs = vec![(String::new(), s.root())];
     while let Some((path, dir)) = dirs.pop() {
@@ -700,6 +594,7 @@ fn blocks_reach_the_card_in_the_order_changed() {
     // whole, read between.
     let blocks = 2 * disk::SLOTS;
     let card = Cut::new(vec![0; blocks * BLOCK]);
+    card.record_writes();
     let mut disk = BlockDisk::new(card.clone()).unwrap();
     let mut model = vec![0u8; blocks * BLOCK];
     // The disk after each change.
@@ -1436,9 +1331,18 @@ fn short_names_alone_are_names() {
 }
 
 mod after_cuts;
+mod cuts_v1;
+mod damaged;
+mod entry_identity;
 mod failing_writes;
+mod free_follow;
+mod free_kept;
+mod free_space;
+mod in_place;
 mod listed;
 mod noted;
+mod same_entry;
+mod tree_cuts;
 
 /// The time a file was changed is the same listed and asked for, and
 /// read from FAT's date and time as seconds since 1970.
@@ -1460,4 +1364,14 @@ fn files_tell_when_they_were_changed() {
     };
     assert_eq!(at(1980, 1, 1, 0, 0, 0), 315_532_800);
     assert_eq!(at(2026, 10, 24, 12, 30, 5), 1_792_845_005);
+}
+
+#[test]
+fn unrecorded_fixture_writes_do_not_accumulate() {
+    let mut card = Cut::new(vec![0; BLOCK]);
+    card.write_block(0, &[1; BLOCK]).unwrap();
+    assert!(card.writes.borrow().is_empty());
+    card.record_writes();
+    card.write_block(0, &[2; BLOCK]).unwrap();
+    assert_eq!(&*card.writes.borrow(), &[(0, [2; BLOCK])]);
 }

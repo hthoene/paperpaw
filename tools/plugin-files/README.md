@@ -5,9 +5,8 @@ itself: statistics, widgets, Calibre, KOReader sync and the others in
 `plugins.txt`. The X4 and the X4 Pro leave them out of their released
 firmware: `crates/paperpaw-app` builds them only with the feature
 `store-plugins`, and the diagnostics only with `diagnostics`. Readers
-install those they want from the store. A workspace of its own, as a plugin's
-repository is, set up as `samples/hello-native`: one binary for each
-plugin, `paperpaw_sdk::plugin!` around it.
+install those they want from the store. Their files are built by
+`../plugin-files7`.
 
 The release pipeline (`.github/workflows/release.yml`) builds them for
 every release and device, as the release's firmware is built, signs
@@ -17,12 +16,15 @@ folders and their entries for the plugin library:
 | | What |
 |---|---|
 | `plugins.txt` | the plugins, with their group in the plugin library |
-| `build.sh <device> <out> [--key <file>] [--fingerprint <hex>]` | builds, packs and checks the files for one reader: `<id>-<version>-<device>.ppn`, `<version>` the plugin's own. `<device>` is `x4` or `x4-pro`. With `--only <id>`, one plugin alone (see below). |
-| `anywhere.sh <x4\|x4-pro> [<work-dir>]` | checks that a plugin's file is the same wherever it is built, as the plugin library's rebuild needs: the sample, with the SDK from a registry as an author's repository has it, built in two folders and compared (CI runs it) |
+| `../plugin-files7/build.sh <device> <out> [--key <file>] [--only <id>]` | builds, packs and checks the files of interface 7 (format 5, no fingerprint) for one reader: `<id>-<version>-<device>.ppn`, `<version>` the plugin's own. The interface-6 build that was here is gone (#244). |
+| `local-store.py <out> --x4 <dir> --x4-pro <dir>` | a local release of the files (throw-away key, no publishing): the catalogue ZIP, a mirror the site imports from, and a card tree with each plugin's `code.ppn` (`docs/releases.md`, "Store code plugins for the X4 family") |
 | `sign.sh <dir> <paperpaw-sign> --key <file>` | signs the files apart from building them, so the key is on the disk only while it signs |
-| `catalogue.py <dist> <release> <base-url>` | makes each plugin's folder as a ZIP with its `plugin.ini` and its How it works, `how/<lang>.txt`, which the store shows. It also makes the entry `catalogue/<id>.toml` for the plugin library, and `SHA256SUMS`. It takes `--date YYYY-MM-DD` too, `--only <id>` for one plugin alone and `--tag <tag>` for the tag the files are at (`v<release>` where not given). `test_catalogue.py` tests it: `python3 -m unittest discover -s tools/plugin-files`. |
-| `versions.py [<since>]` | checks that each plugin that changed since the last release, or its own, has a newer version (CI runs it; see below) |
+| `catalogue.py <dist> <release> <base-url> [--releases <releases.json>]` | makes each plugin's folder as a ZIP with its `plugin.ini` and its How it works, `how/<lang>.txt`, which the store shows. It also makes the entry `catalogue/<id>.toml` for the plugin library, and `SHA256SUMS`. It names each file by <base-url> (the store release this run adds to), or, with `--releases`, by the release that holds it already. It takes `--date YYYY-MM-DD` too, `--only <id>` for one plugin alone and `--tag <tag>` for the tag the files are at (`v<release>` where not given). `test_catalogue.py` tests it: `python3 -m unittest discover -s tools/plugin-files`. |
+| `versions.py [<since>] [--release] [--bytes]` | checks that each plugin that changed since the last release, or its own, has a newer version (CI runs it; see below). `--bytes` (the release's check) builds the store files of the last release's tag and of this tree and fails for a plugin whose file has other bytes under the same version: the SDK and the crates a plugin depends on are no part of `plugins/<id>/`, so the commit check cannot see them |
 | `published.py files\|folders <dir> <releases.json>` | in a release, takes a plugin's file as published where its version and firmware were (`files`), and checks that a published version's folder is the same (`folders`) |
+| `store_release.py choose\|plan\|upload\|versions` | the store release `plugins-<year>`, where every plugin file is published (not in the firmware release): chooses it (the next number at 800 assets), plans the upload of what was not published before, uploads without replacing and checks the listing (`--dry-run` prints the commands), and checks a source's plugin versions against those published. `test_store_release.py`, `test_release_flow.py` |
+| `store_consistency.py select\|check\|files\|entries` | holds a batch of code plugins (ids, `changed` or `all`) to the source, to what is published and to the released firmware's interface (ABI `7.<minor>`): a changed plugin needs a newer version, a plugin or file the firmware would refuse is refused. `store-plugin.yml` runs it; `docs/releases.md` shows the local run. `test_store_consistency.py` |
+| `release_assets.py names\|check\|catalogue` | the 73 files of a firmware release and the check that no plugin file is among them and that every address in a catalogue has an asset (planned or published) |
 | `data.toml`, `data.py <dir> [--only <id>]` | PaperPaw's own data plugins (no code), such as the Literata packs the X4's firmware leaves out: their versions, groups, devices and texts, and the builder and inputs of each. `data.py` runs the builders into `<dir>`; `catalogue.py --data <dir>` makes their folders' ZIPs and entries (kind `data`, the folder alone) beside the others. `versions.py` asks a newer version of one whose builder or inputs changed since the last release or its own; `data.py --newer <id> <tag>` checks its version against a release. |
 
 A plugin added to `plugins.txt` gets a binary here (`src/bin/<id>.rs`),
@@ -56,6 +58,22 @@ says so in its message, as a trailer:
 (or `all`). A new version goes into the plugin's `Cargo.toml`, the
 requirement in the workspace's `Cargo.toml`, and the `Cargo.lock` files
 that list it (`cargo update -w --offline` brings them up to date).
+
+`versions.py` looks at commits that touch `plugins/<id>/` and the
+plugin's binary; a change in the SDK or in a crate the plugin depends on
+(`paperpaw-sdk`, the built-in `files` and `keyboard`) changes the built file
+without touching them, and so does a bump that ripples (a plugin reads
+another's version). Before a release, `versions.py --release --bytes` (or
+`tools/ci-local.sh --only release-versions`) builds the store files for the X4
+from the last release's tag (made once and kept in
+`~/.cache/paperpaw/store-baseline`, or `$PAPERPAW_STORE_BASELINE`) and from
+this tree, and compares them byte by byte: each plugin whose file differs under
+the same version is listed with its next patch version. Raise it, run the check
+again (the bump of one can change another's bytes), and go on until it is green.
+Files for another firmware than the tag's (fingerprint, plugin interface or
+compiler differ) have nothing to compare; for those the version rules above
+hold (a raised interface: every plugin has a newer version). The check costs
+two builds of the store's plugins, so CI does not run it on every push.
 
 ## One plugin between releases
 

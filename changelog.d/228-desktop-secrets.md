@@ -1,0 +1,3 @@
+### Added
+
+- **The desktop emulator keeps the secrets of native plugins sealed** (#228, with `--features native-linked`). Values are sealed with AES-256-GCM under a random key of the user's own in `~/.config/paperpaw-emulator/device.key` (made atomically, 0600, never beside the card's files, refused when its folder or file is open to others or owned by another user, wiped from memory when dropped). Without a key, or when the card cannot be opened, `core.secrets` is not wired; a run on simulated time keeps its secrets in memory and leaves the card's file alone. Declared work (`core.work`) runs on the device's clock and radio.

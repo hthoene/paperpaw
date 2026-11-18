@@ -728,16 +728,16 @@ fn progressive_without_frame_or_tables_fails_cleanly() {
 }
 
 #[test]
-fn huge_progressive_frames_are_refused_for_memory() {
+fn huge_progressive_frames_are_too_large_for_good() {
     // 65535 × 65535: even the DC alone of its blocks takes more than the
-    // decoder ever keeps.
+    // decoder ever keeps, so it is too large, not short of memory now.
     let data = with_frame(&small().progressive(), |f| {
         f[1..5].copy_from_slice(&[0xff, 0xff, 0xff, 0xff]);
     });
     assert_eq!(dimensions(&data), Some((65535, 65535)));
     for color in [false, true] {
         let (result, sink) = jpeg_result(&data, Fit::screen(480, 800), color);
-        assert_eq!(result, Err(ImageError::OutOfMemory));
+        assert_eq!(result, Err(ImageError::TooLarge));
         assert!(!sink.started);
     }
 }

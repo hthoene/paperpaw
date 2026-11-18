@@ -4,7 +4,7 @@
 # too, every feature on but the kernel's (ADR 0026).
 enum paperpaw_image::Decoded { Gray(0: paperpaw_image::gray::GrayFile), Color(0: paperpaw_image::color::ColorFile), Alpha(0: paperpaw_image::alpha::AlphaFile) }
 enum paperpaw_image::Format { Jpeg, Png, Gif, Other(0: u16) }
-enum paperpaw_image::ImageError { Invalid(0: &'static str), Unsupported(0: &'static str), Io, Storage(0: paperpaw_platform::storage::StorageError), OutOfMemory, Stopped, Other(0: u16) }
+enum paperpaw_image::ImageError { Invalid(0: &'static str), Unsupported(0: &'static str), Io, Storage(0: paperpaw_platform::storage::StorageError), OutOfMemory, TooLarge, Stopped, Other(0: u16) }
 struct paperpaw_image::Downscaler { width: u32, height: u32, channels: usize, out_width: u32, out_height: u32, columns: alloc::vec::Vec<u16>, counts: alloc::vec::Vec<u16>, sums: alloc::vec::Vec<u32>, rows: u32, seen: u32, out: alloc::vec::Vec<u8> }
 struct paperpaw_image::Fit { short: u32, long: u32 }
 struct paperpaw_image::ImageFile { path: alloc::string::String, width: u32, height: u32, color: bool, alpha: bool }

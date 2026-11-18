@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/">
+<id>root</id><title>Komga</title><updated>2024-03-03T00:00:00Z</updated>
+<link rel="self" href="/opds/v1.2/catalog" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+<link rel="search" href="/opds/v1.2/search{?searchTerms}" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+<link rel="search" href="/opds/v1.2/search" type="application/opensearchdescription+xml"/>
+<entry><id>keepReading</id><title>Keep Reading</title><content type="text">Continue reading</content>
+<link rel="subsection" href="/opds/v1.2/keep-reading" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/></entry>
+<entry><id>book1</id><title>L&#39;Étranger &amp; autres</title>
+<author><name>Camus, Albert</name></author>
+<content type="html">&lt;p&gt;html content is not plain&lt;/p&gt;</content>
+<summary type="text">Plain &#x263A; summary
+ over   lines</summary>
+<link rel="http://opds-spec.org/acquisition" href="/opds/v1.2/books/1/file/L%27%C3%89tranger.epub" type="application/epub+zip" title="Download"/>
+<link rel="http://opds-spec.org/image" href="/opds/v1.2/books/1/thumbnail" type="image/jpeg"/>
+</entry>
+</feed>

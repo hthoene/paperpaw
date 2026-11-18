@@ -11,7 +11,7 @@
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 use alloc::vec::Vec;
-use core::cell::RefCell;
+use core::cell::{Cell, RefCell};
 
 use paperpaw_platform::{DirEntry, Rect, RefreshMode, Storage, StorageError};
 use paperpaw_sdk::Id;
@@ -20,14 +20,25 @@ use paperpaw_sdk::usage::PluginUsage;
 /// What the kernel's own work counts as.
 pub(crate) const CORE: &str = "core";
 
+/// Places made for the plugins running at once when the meter is built, so
+/// entering one allocates nothing: the kernel's own work, a screen, and the
+/// calls inside it (at most [`crate::abi7::calls::MAX_LIVE`] more) fit many
+/// times over.
+const RUNNING_ROOM: usize = 16;
+
 pub(crate) struct Meter {
     clock: Option<fn() -> u64>,
+    generation: Cell<u32>,
     /// By plugin, `core` first; plugins read it through
-    /// `Env::plugin_usage`, the one copy kept.
+    /// `Place::plugin_usage`, the one copy kept.
     pub(crate) table: RefCell<Vec<PluginUsage>>,
     /// The plugins whose code runs, the innermost last, with when it began
-    /// (or went on after an inner one), in microseconds.
+    /// (or went on after an inner one), in microseconds. Made with
+    /// [`RUNNING_ROOM`] places.
     running: RefCell<Vec<(usize, u64)>>,
+    /// `Storage::sync` calls by plugin, in the order of `table` (kept
+    /// apart: `PluginUsage` is a published type).
+    syncs: RefCell<Vec<u32>>,
 }
 
 impl core::fmt::Debug for Meter {
@@ -45,15 +56,56 @@ impl Drop for Running {
     }
 }
 
+/// A plugin's code running, until dropped, on a meter held by reference.
+pub(crate) struct Scoped<'a>(&'a Meter);
+
+impl Drop for Scoped<'_> {
+    fn drop(&mut self) {
+        self.0.leave();
+    }
+}
+
 impl Meter {
     pub(crate) fn new(clock: Option<fn() -> u64>) -> Rc<Self> {
         let meter = Rc::new(Self {
             clock,
+            generation: Cell::new(0),
             table: RefCell::new(Vec::new()),
-            running: RefCell::new(Vec::new()),
+            running: RefCell::new(Vec::with_capacity(RUNNING_ROOM)),
+            syncs: RefCell::new(Vec::new()),
         });
         meter.index(CORE);
+        meter.generation.set(0);
         meter
+    }
+
+    /// Read rows directly while one host visitor runs; no borrow crosses plugin code.
+    pub(crate) fn visit_rows(
+        &self,
+        from: u32,
+        visitor: &mut dyn FnMut(&crate::abi7::context::PluginRow<'_>) -> core::ops::ControlFlow<()>,
+    ) -> Result<crate::abi7::context::RowsEnd, i32> {
+        use paperpaw_native::host_glue::ERR_STATE;
+        let table = self.table.try_borrow().map_err(|_| ERR_STATE)?;
+        let syncs = self.syncs.try_borrow().map_err(|_| ERR_STATE)?;
+        let total = u32::try_from(table.len()).map_err(|_| ERR_STATE)?;
+        let mut next = from.min(total);
+        for row in table
+            .iter()
+            .skip(usize::try_from(next).unwrap_or(usize::MAX))
+        {
+            let synced = syncs.get(next as usize).copied().unwrap_or(0);
+            let row = crate::abi7::context::PluginRow::new(row, synced);
+            if visitor(&row).is_break() {
+                break;
+            }
+            next += 1;
+        }
+        Ok(crate::abi7::context::RowsEnd {
+            total,
+            generation: self.generation.get(),
+            next,
+        })
     }
 
     fn now(&self) -> u64 {
@@ -65,12 +117,10 @@ impl Meter {
         self.clock.map(|clock| clock())
     }
 
-    /// The clock as plugins get it ([`Env::clock`](paperpaw_sdk::Env::clock)).
-    pub(crate) fn clock(&self) -> paperpaw_sdk::time::Clock {
-        self.clock.map_or(
-            paperpaw_sdk::time::Clock::NONE,
-            paperpaw_sdk::time::Clock::new,
-        )
+    /// The clock as plugins get it ([`Place::clock`](crate::Place::clock)).
+    pub(crate) fn clock(&self) -> crate::kit::time::Clock {
+        self.clock
+            .map_or(crate::kit::time::Clock::NONE, crate::kit::time::Clock::new)
     }
 
     /// The row of `plugin`, added the first time.
@@ -81,12 +131,49 @@ impl Meter {
         }
         let id = Id::parse(plugin).unwrap_or(Id::new_static(CORE));
         table.push(PluginUsage::new(id));
+        self.generation.set(self.generation.get().wrapping_add(1));
         table.len() - 1
+    }
+
+    /// A `Storage::sync` by the code running now.
+    fn synced(&self) {
+        let index = self.running.borrow().last().map_or(0, |&(i, _)| i);
+        let mut syncs = self.syncs.borrow_mut();
+        if syncs.len() <= index {
+            syncs.resize(index + 1, 0);
+        }
+        syncs[index] = syncs[index].saturating_add(1);
+    }
+
+    /// The `Storage::sync` calls `plugin`'s code made.
+    #[allow(
+        dead_code,
+        reason = "read by the storage adapter tests until Battery shows it"
+    )]
+    pub(crate) fn syncs_of(&self, plugin: &str) -> u32 {
+        // Read only: a plugin not in the table gets no row.
+        let table = self.table.borrow();
+        let Some(index) = table.iter().position(|p| p.plugin.as_str() == plugin) else {
+            return 0;
+        };
+        self.syncs.borrow().get(index).copied().unwrap_or(0)
     }
 
     /// `plugin`'s code runs until the result is dropped; the code it was
     /// called from pauses meanwhile.
     pub(crate) fn enter(self: &Rc<Self>, plugin: &str) -> Running {
+        self.begin(plugin);
+        Running(self.clone())
+    }
+
+    /// Like [`Self::enter`], for a frame that holds the meter by reference
+    /// (the callee of a nested native call): the code ends with the result.
+    pub(crate) fn enter_scoped(&self, plugin: &str) -> Scoped<'_> {
+        self.begin(plugin);
+        Scoped(self)
+    }
+
+    fn begin(&self, plugin: &str) {
         let index = self.index(plugin);
         let now = self.now();
         let mut running = self.running.borrow_mut();
@@ -94,8 +181,26 @@ impl Meter {
             self.add_busy(outer, now.saturating_sub(since));
         }
         running.push((index, now));
-        self.table.borrow_mut()[index].calls += 1;
-        Running(self.clone())
+        let mut table = self.table.borrow_mut();
+        table[index].calls = table[index].calls.saturating_add(1);
+    }
+
+    /// The calls `plugin`'s code made so far; no row is added.
+    #[cfg(test)]
+    pub(crate) fn calls_of(&self, plugin: &str) -> u32 {
+        self.table
+            .borrow()
+            .iter()
+            .find(|p| p.plugin.as_str() == plugin)
+            .map_or(0, |p| p.calls)
+    }
+
+    /// As [`Self::enter`], unless `plugin`'s code runs now already: a top-level
+    /// callback entered it, and a nested call of the same plugin is still it.
+    /// For the dispatch paths a screen's own callbacks share with nested calls.
+    pub(crate) fn enter_unless_running(self: &Rc<Self>, plugin: &str) -> Option<Running> {
+        use paperpaw_sdk::secrets::Running as _;
+        (!self.runs(plugin)).then(|| self.enter(plugin))
     }
 
     fn leave(&self) {
@@ -217,6 +322,7 @@ impl Storage for Metered {
     }
 
     fn sync(&self) -> Result<(), StorageError> {
+        self.meter.synced();
         self.inner.sync()
     }
 
@@ -231,6 +337,19 @@ impl Storage for Metered {
         visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
     ) -> Result<Option<u64>, StorageError> {
         self.inner.list_from(dir, from, visit)
+    }
+
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.inner.list_bounded(dir, from, visit)
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.inner.remove_listed(dir, place)
     }
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {
@@ -249,12 +368,29 @@ impl Storage for Metered {
         self.inner.create_dir(path)
     }
 
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        self.inner.remove_tree_step(root, keep_root, place)
+    }
+
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
         self.inner.remove_dir_all(path)
     }
 
     fn ignores_case(&self) -> bool {
         self.inner.ignores_case()
+    }
+
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.inner.same_entry(a, b)
+    }
+
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.inner.entry_identity(path)
     }
 
     fn free_space(&self) -> Option<u64> {
@@ -271,7 +407,7 @@ impl Storage for Metered {
 }
 
 /// The plugin whose code runs now is the innermost entered: whose
-/// secrets [`Env::secrets`](paperpaw_sdk::Env) hands out.
+/// secrets [`Place::secrets`](crate::Place) hands out.
 impl paperpaw_sdk::secrets::Running for Meter {
     fn runs(&self, plugin: &str) -> bool {
         let Some(&(index, _)) = self.running.borrow().last() else {
@@ -293,6 +429,23 @@ mod tests {
 
     fn clock() -> u64 {
         NOW.load(Ordering::Relaxed)
+    }
+
+    #[test]
+    fn entering_unless_running_looks_only_at_the_innermost_and_allocates_nothing() {
+        let meter = Meter::new(Some(clock));
+        let room = meter.running.borrow().capacity();
+        assert!(room >= RUNNING_ROOM);
+        let outer = meter.enter("reader");
+        let inner = meter.enter("stats");
+        // `reader` is lower on the stack, not running now: it is entered.
+        let again = meter.enter_unless_running("reader");
+        assert!(again.is_some());
+        assert!(meter.enter_unless_running("reader").is_none());
+        drop(again);
+        assert!(meter.enter_unless_running("stats").is_none());
+        drop((inner, outer));
+        assert_eq!(meter.running.borrow().capacity(), room);
     }
 
     #[test]
@@ -343,3 +496,7 @@ mod tests {
         assert_eq!((row("core").read, row("core").written), (u32::MAX, 3));
     }
 }
+
+#[cfg(test)]
+#[path = "meter_usage_tests.rs"]
+mod usage_tests;

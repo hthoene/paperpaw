@@ -1,5 +1,9 @@
 //! Scripted, windowless runs for screenshots, CI and bug reports.
 //!
+//! This is the emulator's own short script. For tests with loops, measurements and
+//! checks that also run on the X4, see `docs/device-test-scripts.md`: `tools/x4-remote.py
+//! --emulator` drives `--repl` ([`crate::repl`]) with the same `.pps` files it drives an X4 with.
+//!
 //! A script is a comma-separated list of steps:
 //!
 //! | Step | Meaning |
@@ -16,8 +20,10 @@
 //! | `run:calibre.open` | run an action, as a button bound to it would |
 //! | `open:home.add-widget:kind=core.widgets.books` | open a screen with its parameters, as a plugin would |
 //! | `redraw` | draw the whole screen again, nothing on it changed |
+//! | `card-out`, `card-in` | the card is taken out of its slot (everything asked of the storage fails as on a card that went) and put back |
 //! | `phone-joins` | a phone joins the device's own network (the setup with a phone) |
 //! | `ble-key:right` | the pretend Bluetooth remote's key pressed (`right`, `left`, `up`, `down`, `page-down`, `page-up`, `space`, `enter`, `escape`, `volume-up`, `volume-down`), once its keys go to the key maps |
+//! | `make-room` | what the X4 does before a secure connection: close hyphenation tables, park idle plugins (`Kernel::make_room`) |
 //! | `reset-peak` | measure the heap's peak anew from now (what one step takes) |
 //! | `step:<name>` | print the heap's peak since the last step (`step <name>: peak … KiB, live … KiB`), then measure anew |
 //! | `emit:core.library-changed` | send an event without parameters, as a plugin would |
@@ -34,6 +40,8 @@ use paperpaw_platform::{ButtonState, InputEvent, Point, PointerEvent, PointerPha
 
 use crate::device::Device;
 
+/// How much emulated time passes per round while a plugin's socket is open (and as much real time).
+const SOCKET_SLICE_MS: u64 = 20;
 /// Time between script steps, long enough to never look like a long press.
 const STEP_MS: u64 = 100;
 /// Comfortably above the default long-press threshold.
@@ -42,12 +50,40 @@ const LONG_MS: u64 = 1200;
 pub fn run_script(device: &mut Device, script: &str) -> Result<(), String> {
     for step in script.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         run_step(device, step).map_err(|e| format!("step `{step}`: {e}"))?;
-        // Network answers take real time; wait for them, so runs repeat.
-        device.poll_http(Some(std::time::Duration::from_secs(25)));
-        device.advance(STEP_MS);
-        device.tick_if_due();
+        settle(device);
     }
     Ok(())
+}
+
+/// What goes on between steps: network answers take real time (waited for,
+/// so runs repeat), then a little emulated time passes.
+pub fn settle(device: &mut Device) {
+    device.poll_http(Some(std::time::Duration::from_secs(25)));
+    device.advance(STEP_MS);
+    device.tick_if_due();
+}
+
+/// Lets `ms` of emulated time pass (the remote protocol's `wait`, see [`crate::repl`]).
+pub fn pass_time(device: &mut Device, ms: u64) {
+    hold(device, ms);
+}
+
+/// A press of the button `name`, held `hold_ms` (the remote protocol's
+/// `press` and `hold`, see [`crate::repl`]).
+pub fn press_button(device: &mut Device, name: &str, hold_ms: u64) -> Result<(), String> {
+    let name = button(device, name)?;
+    press(device, name, hold_ms);
+    Ok(())
+}
+
+/// A finger put down, lifted or moved at a point (the remote's `touch`).
+pub fn touch_phase(device: &mut Device, down: bool, up: bool, x: i32, y: i32) {
+    let phase = match (down, up) {
+        (true, _) => PointerPhase::Down,
+        (_, true) => PointerPhase::Up,
+        _ => PointerPhase::Move,
+    };
+    device.input(finger(phase, Point::new(x, y)));
 }
 
 #[expect(
@@ -87,6 +123,8 @@ fn run_step(device: &mut Device, step: &str) -> Result<(), String> {
             let end = std::time::Instant::now() + std::time::Duration::from_secs(seconds);
             while std::time::Instant::now() < end {
                 device.poll_servers();
+                // The native plugins' servers (`core.net`) are the same loop's.
+                device.poll_http(None);
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
         }
@@ -107,6 +145,8 @@ fn run_step(device: &mut Device, step: &str) -> Result<(), String> {
             device.open_screen(screen, params);
         }
         ["redraw"] => device.draw_again(),
+        ["card-out"] => device.card_out(true),
+        ["card-in"] => device.card_out(false),
         ["phone-joins"] => device.phone_joins(),
         ["ble-key", key] => {
             if !device.ble_key(key) {
@@ -114,6 +154,10 @@ fn run_step(device: &mut Device, step: &str) -> Result<(), String> {
             }
         }
         ["reset-peak"] => crate::budget::reset_peak(),
+        ["make-room"] => {
+            let parked = device.kernel.make_room();
+            println!("make-room: parked {parked} idle plugins");
+        }
         ["step", name] => {
             let stats = crate::budget::stats();
             let kib = |bytes: usize| bytes as f64 / 1024.0;
@@ -238,10 +282,22 @@ fn hold(device: &mut Device, millis: u64) {
     let end = device.now().add_millis(millis);
     loop {
         let now = device.now();
-        let next = device.next_wake().filter(|&at| at < end).unwrap_or(end);
+        let mut next = device.next_wake().filter(|&at| at < end).unwrap_or(end);
+        // A socket of a plugin lives in real time (its threads read and write
+        // while time passes here): while one is open, time goes in small
+        // slices with as much real time, so a server on this computer is heard
+        // and the plugin's callbacks follow (a script that waits for mail).
+        let real = device.native_sockets_open();
+        if real && next.since(now) > SOCKET_SLICE_MS {
+            next = now.add_millis(SOCKET_SLICE_MS).min(end);
+        }
         // At least 1 ms per round, so "as soon as possible" requests cannot
         // stall simulated time.
-        device.advance(next.since(now).max(1));
+        let step = next.since(now).max(1);
+        device.advance(step);
+        if real {
+            std::thread::sleep(std::time::Duration::from_millis(step));
+        }
         device.tick_if_due();
         if next >= end {
             return;

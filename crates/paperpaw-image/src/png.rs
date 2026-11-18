@@ -7,8 +7,26 @@ use miniz_oxide::inflate::core::{DecompressorOxide, decompress, inflate_flags};
 
 use crate::{Downscaler, Fit, ImageError, ImageSink, Reader, zeroed};
 
-/// The deflate history.
+/// The deflate history (a power of two: the window wraps).
 const WINDOW: usize = 32 * 1024;
+
+/// The inflate flag for a window that holds all the data and does not wrap.
+fn non_wrapping(whole: bool) -> u32 {
+    if whole {
+        inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF
+    } else {
+        0
+    }
+}
+
+/// Where the window is written next after `written` bytes at `position`.
+fn advance(position: usize, written: usize, whole: bool) -> usize {
+    if whole {
+        position + written
+    } else {
+        (position + written) & (WINDOW - 1)
+    }
+}
 
 struct Header {
     width: u32,
@@ -48,12 +66,14 @@ fn luma(r: u32, g: u32, b: u32) -> u32 {
 /// or gray rows with transparency for one that wants that.
 struct Rows<'s> {
     header: Header,
-    /// Gray of each palette entry, over white.
-    palette: [u8; 256],
+    /// Gray of each palette entry, over white. The three tables are 256
+    /// entries of a palette image (1,536 B of heap in all, as long as its
+    /// rows are read), none for another.
+    palette: Vec<u8>,
     /// Each palette entry over white, for colour.
-    colors: [[u8; 3]; 256],
+    colors: Vec<[u8; 3]>,
     /// Gray and opacity of each palette entry, for transparency.
-    see_through: [[u8; 2]; 256],
+    see_through: Vec<[u8; 2]>,
     /// The colour shown as clear in a gray or RGB image (`tRNS`), its raw
     /// samples (gray in the first).
     key: Option<[u16; 3]>,
@@ -66,6 +86,42 @@ struct Rows<'s> {
     done: u32,
     scaler: Downscaler,
     sink: &'s mut dyn ImageSink,
+}
+
+/// What `PLTE` and `tRNS` say of a palette image's entries: on the heap
+/// (1,024 B, until the rows are set up), not in `decode`'s frame.
+struct Palette {
+    colors: Vec<[u8; 3]>,
+    alpha: Vec<u8>,
+}
+
+impl Palette {
+    fn new() -> Result<Self, ImageError> {
+        let mut alpha: Vec<u8> = zeroed(256)?;
+        alpha.fill(255);
+        Ok(Self {
+            colors: zeroed(256)?,
+            alpha,
+        })
+    }
+}
+
+/// The tables of `palette` for each way of showing an entry: gray, colour
+/// and gray with opacity, over white (all of 256 entries, 1,536 B of heap).
+type Tables = (Vec<u8>, Vec<[u8; 3]>, Vec<[u8; 2]>);
+
+#[inline(never)]
+fn entry_tables(palette: &Palette) -> Result<Tables, ImageError> {
+    let (mut gray, mut rgb, mut see_through): Tables = (zeroed(256)?, zeroed(256)?, zeroed(256)?);
+    for (i, &[r, g, b]) in palette.colors.iter().enumerate() {
+        let a = u32::from(palette.alpha[i]);
+        let over = |v: u8| ((u32::from(v) * a + 255 * (255 - a)) / 255) as u8;
+        let y = luma(u32::from(r), u32::from(g), u32::from(b));
+        gray[i] = ((y * a + 255 * (255 - a)) / 255) as u8;
+        rgb[i] = [over(r), over(g), over(b)];
+        see_through[i] = [y as u8, palette.alpha[i]];
+    }
+    Ok((gray, rgb, see_through))
 }
 
 impl Rows<'_> {
@@ -308,18 +364,25 @@ pub(crate) fn decode(
         return Err(ImageError::Invalid("not a PNG"));
     }
     let mut header: Option<Header> = None;
-    let mut palette = [255u8; 256];
-    let mut alpha = [255u8; 256];
+    // Made at the first `PLTE` or `tRNS` of a palette image, or at its
+    // rows; dropped once the rows' tables are made from it.
+    let mut entries: Option<Palette> = None;
     let mut key: Option<[u16; 3]> = None;
-    let mut colors = [(0u8, 0u8, 0u8); 256];
     let mut rows: Option<Rows<'_>> = None;
     let mut sink = Some(sink);
     // Inflate state, created at the first IDAT chunk.
     let mut decoder: Vec<DecompressorOxide> = Vec::new();
     let mut window: Vec<u8> = Vec::new();
     let mut position = 0usize;
+    // Inflating into a window of exactly the image's data (it fits the
+    // history): the output never wraps.
+    let mut whole = false;
+    // The data went on past the rows of an image whose window holds just
+    // them: nothing more is inflated.
+    let mut surplus = false;
     let mut zlib_header = 2usize;
-    let mut chunk = [0u8; 1024];
+    // Read from the stream a piece at a time: made with the window.
+    let mut chunk: Vec<u8> = Vec::new();
 
     loop {
         let len = reader.u32_be()? as usize;
@@ -346,7 +409,7 @@ pub(crate) fn decode(
                     return Err(ImageError::Unsupported("interlaced PNG"));
                 }
                 if width > 1 << 16 || height > 1 << 16 {
-                    return Err(ImageError::Unsupported("PNG too large"));
+                    return Err(ImageError::TooLarge);
                 }
                 header = Some(Header {
                     width,
@@ -356,14 +419,22 @@ pub(crate) fn decode(
                 });
             }
             b"PLTE" => {
-                let entries = (len / 3).min(colors.len());
-                for color in colors.iter_mut().take(entries) {
-                    *color = (reader.byte()?, reader.byte()?, reader.byte()?);
+                let count = (len / 3).min(256);
+                let palette = match &mut entries {
+                    Some(palette) => palette,
+                    none => none.insert(Palette::new()?),
+                };
+                for color in palette.colors.iter_mut().take(count) {
+                    *color = [reader.byte()?, reader.byte()?, reader.byte()?];
                 }
-                reader.skip(len - entries * 3)?;
+                reader.skip(len - count * 3)?;
             }
             b"tRNS" if header.as_ref().is_some_and(|h| h.color == 3) => {
-                for a in alpha.iter_mut().take(len) {
+                let palette = match &mut entries {
+                    Some(palette) => palette,
+                    none => none.insert(Palette::new()?),
+                };
+                for a in palette.alpha.iter_mut().take(len) {
                     *a = reader.byte()?;
                 }
                 reader.skip(len.saturating_sub(256))?;
@@ -391,23 +462,25 @@ pub(crate) fn decode(
                     let h = header
                         .take()
                         .ok_or(ImageError::Invalid("IDAT before IHDR"))?;
-                    let mut rgb = [[255u8; 3]; 256];
-                    let mut see_through = [[255u8; 2]; 256];
-                    for (i, &(r, g, b)) in colors.iter().enumerate() {
-                        let a = u32::from(alpha[i]);
-                        let over = |v: u8| ((u32::from(v) * a + 255 * (255 - a)) / 255) as u8;
-                        let y = luma(u32::from(r), u32::from(g), u32::from(b));
-                        palette[i] = ((y * a + 255 * (255 - a)) / 255) as u8;
-                        rgb[i] = [over(r), over(g), over(b)];
-                        see_through[i] = [y as u8, alpha[i]];
+                    // Only a palette image has entries to show.
+                    let (mut palette, mut colors, mut see_through) =
+                        (Vec::new(), Vec::new(), Vec::new());
+                    let mut clear_entry = false;
+                    if h.color == 3 {
+                        let entries = match &mut entries {
+                            Some(entries) => entries,
+                            none => none.insert(Palette::new()?),
+                        };
+                        clear_entry = entries.alpha.iter().any(|&a| a < 255);
+                        (palette, colors, see_through) = entry_tables(entries)?;
                     }
+                    entries = None;
                     let size = fit.size(h.width, h.height);
                     let sink = sink.take().ok_or(ImageError::Invalid("state"))?;
                     // Transparency where the image has it and the sink
                     // wants it; then colour.
-                    let has_alpha = matches!(h.color, 4 | 6)
-                        || (h.color == 3 && alpha.iter().any(|&a| a < 255))
-                        || key.is_some();
+                    let has_alpha =
+                        matches!(h.color, 4 | 6) || (h.color == 3 && clear_entry) || key.is_some();
                     let with_alpha = has_alpha && sink.wants_alpha();
                     let color = !with_alpha && sink.wants_color();
                     let channels = if with_alpha {
@@ -420,9 +493,15 @@ pub(crate) fn decode(
                     let scaler = Downscaler::new(h.width, h.height, size, channels)?;
                     sink.start(scaler.out_width(), scaler.out_height())?;
                     let row_len = h.row_bytes() + 1;
+                    // An image whose rows fit the deflate history inflates
+                    // whole into a window of its size (a 6 KiB icon no
+                    // longer asks for a 32 KiB piece); a larger one wraps
+                    // through the full history.
+                    let data = u64::from(h.height).saturating_mul(row_len as u64);
+                    whole = data <= WINDOW as u64;
                     rows = Some(Rows {
                         palette,
-                        colors: rgb,
+                        colors,
                         see_through,
                         key,
                         color,
@@ -442,7 +521,12 @@ pub(crate) fn decode(
                     // Made in place: pushed, its 11 KB went over the stack
                     // first.
                     decoder.resize_with(1, DecompressorOxide::default);
-                    window = zeroed(WINDOW)?;
+                    window = zeroed(if whole {
+                        (data as usize).max(1)
+                    } else {
+                        WINDOW
+                    })?;
+                    chunk = zeroed(1024)?;
                 }
                 let Some(state) = rows.as_mut() else {
                     return Err(ImageError::Invalid("state"));
@@ -457,17 +541,24 @@ pub(crate) fn decode(
                     let skip = zlib_header.min(input.len());
                     input = &input[skip..];
                     zlib_header -= skip;
-                    while !input.is_empty() {
+                    while !input.is_empty() && !surplus {
                         let (status, used, written) = decompress(
                             &mut decoder[0],
                             input,
                             &mut window,
                             position,
-                            inflate_flags::TINFL_FLAG_HAS_MORE_INPUT,
+                            inflate_flags::TINFL_FLAG_HAS_MORE_INPUT | non_wrapping(whole),
                         );
                         input = &input[used..];
                         state.push(&window[position..position + written])?;
-                        position = (position + written) & (WINDOW - 1);
+                        position = advance(position, written, whole);
+                        if whole && status == TINFLStatus::HasMoreOutput && position == window.len()
+                        {
+                            // More data than the rows: the rest is left
+                            // unread, as a wrapping window's is.
+                            surplus = true;
+                            input = &[];
+                        }
                         match status {
                             TINFLStatus::Done => {
                                 input = &[];
@@ -485,10 +576,21 @@ pub(crate) fn decode(
                 let state = rows.as_mut().ok_or(ImageError::Invalid("no image data"))?;
                 // Flush what the decoder still holds.
                 loop {
-                    let (status, _, written) =
-                        decompress(&mut decoder[0], &[], &mut window, position, 0);
+                    if surplus {
+                        break;
+                    }
+                    let (status, _, written) = decompress(
+                        &mut decoder[0],
+                        &[],
+                        &mut window,
+                        position,
+                        non_wrapping(whole),
+                    );
                     state.push(&window[position..position + written])?;
-                    position = (position + written) & (WINDOW - 1);
+                    position = advance(position, written, whole);
+                    if whole && status == TINFLStatus::HasMoreOutput && position == window.len() {
+                        break;
+                    }
                     if written == 0 || status != TINFLStatus::HasMoreOutput {
                         break;
                     }

@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-aids"
 description = "PaperPaw reading aids: bold word beginnings, replaced words and pictures, as text filters"
-version = "1.1.0"
+version = "1.1.5"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -9,13 +9,28 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
+include = ["src", "how", "i18n", "build.rs", "declarations.rs", "native", "stages", "READER-FILTER.md"]
+
+[features]
+linked = []
+native-entry = []
 
 [dependencies]
 paperpaw-sdk.workspace = true
 
+[build-dependencies]
+# `kernel` only for the build script (not unified with the plugin's own use of
+# the SDK): it makes the table of settings a linked build keeps in the program.
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
+
 [dev-dependencies]
+paperpaw-core.workspace = true
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-i18n.workspace = true
 proptest.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.paperpaw]
+card-files = ["i18n/*.ini"]

@@ -1,0 +1,78 @@
+{
+  "key": "keyboard.layouts",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 32,
+  "max_input": 64,
+  "max_reply": 3200,
+  "input": [
+    "layouts.ask"
+  ],
+  "reply": [
+    "layouts.layout"
+  ],
+  "reply_rows": 3,
+  "records": [
+    {
+      "id": 1,
+      "name": "layouts.ask",
+      "since": 0,
+      "fields": [
+        {
+          "name": "language",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 32
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "layouts.layout",
+      "since": 0,
+      "fields": [
+        {
+          "name": "id",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 64
+        },
+        {
+          "name": "code",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 16
+        },
+        {
+          "name": "letters",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 400
+        },
+        {
+          "name": "variants",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 512
+        }
+      ]
+    }
+  ]
+}

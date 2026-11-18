@@ -53,6 +53,38 @@ pub paperpaw_i18n::BuiltCatalogs::prints: &'static [u64]
 impl paperpaw_i18n::BuiltCatalogs
 pub const paperpaw_i18n::BuiltCatalogs::NONE: paperpaw_i18n::BuiltCatalogs
 pub const fn paperpaw_i18n::BuiltCatalogs::new(&'static [u64], &'static [u32], &'static [(&'static str, &'static str)]) -> Self
+#[non_exhaustive] pub struct paperpaw_i18n::BuiltLanguage
+pub paperpaw_i18n::BuiltLanguage::catalogs: paperpaw_i18n::BuiltCatalogs
+pub paperpaw_i18n::BuiltLanguage::language: &'static str
+pub paperpaw_i18n::BuiltLanguage::name: &'static str
+impl paperpaw_i18n::BuiltLanguage
+pub const fn paperpaw_i18n::BuiltLanguage::new(&'static str, &'static str, paperpaw_i18n::BuiltCatalogs) -> Self
+pub struct paperpaw_i18n::BuiltLanguageTable
+impl paperpaw_i18n::BuiltLanguageTable
+pub fn paperpaw_i18n::BuiltLanguageTable::add(&mut self, &str) -> core::result::Result<bool, paperpaw_i18n::CatalogError>
+pub fn paperpaw_i18n::BuiltLanguageTable::is_empty(&self) -> bool
+pub fn paperpaw_i18n::BuiltLanguageTable::leak(self) -> &'static paperpaw_i18n::BuiltLanguage
+pub fn paperpaw_i18n::BuiltLanguageTable::len(&self) -> usize
+pub fn paperpaw_i18n::BuiltLanguageTable::new(&str) -> Self
+pub fn paperpaw_i18n::BuiltLanguageTable::to_rust(&self) -> alloc::string::String
+#[non_exhaustive] pub struct paperpaw_i18n::BuiltMessages
+pub paperpaw_i18n::BuiltMessages::entries: &'static [u32]
+pub paperpaw_i18n::BuiltMessages::keys: &'static [u32]
+pub paperpaw_i18n::BuiltMessages::language: &'static str
+pub paperpaw_i18n::BuiltMessages::name: &'static str
+pub paperpaw_i18n::BuiltMessages::values: &'static str
+impl paperpaw_i18n::BuiltMessages
+pub const fn paperpaw_i18n::BuiltMessages::new(&'static str, &'static str, &'static [u32], &'static [u32], &'static str) -> Self
+pub struct paperpaw_i18n::BuiltMessagesTable
+impl paperpaw_i18n::BuiltMessagesTable
+pub fn paperpaw_i18n::BuiltMessagesTable::add(&mut self, &str) -> core::result::Result<bool, paperpaw_i18n::CatalogError>
+pub fn paperpaw_i18n::BuiltMessagesTable::clashes(&self) -> &[(alloc::string::String, alloc::string::String)]
+pub fn paperpaw_i18n::BuiltMessagesTable::is_empty(&self) -> bool
+pub fn paperpaw_i18n::BuiltMessagesTable::leak(self) -> &'static [paperpaw_i18n::BuiltMessages]
+pub fn paperpaw_i18n::BuiltMessagesTable::len(&self) -> usize
+pub fn paperpaw_i18n::BuiltMessagesTable::new(&[&str]) -> Self
+pub fn paperpaw_i18n::BuiltMessagesTable::size(&self) -> usize
+pub fn paperpaw_i18n::BuiltMessagesTable::to_rust(&self) -> alloc::string::String
 pub struct paperpaw_i18n::BuiltTable
 impl paperpaw_i18n::BuiltTable
 pub fn paperpaw_i18n::BuiltTable::add(&mut self, &str) -> core::result::Result<bool, paperpaw_i18n::CatalogError>
@@ -69,6 +101,7 @@ pub fn paperpaw_i18n::Catalog::digits(&self) -> [char; 10]
 pub fn paperpaw_i18n::Catalog::direction(&self) -> paperpaw_lang::Direction
 pub fn paperpaw_i18n::Catalog::forget_read(&mut self)
 pub fn paperpaw_i18n::Catalog::get(&self, &str) -> core::option::Option<&str>
+pub fn paperpaw_i18n::Catalog::get_copy(&self, &str) -> core::option::Option<alloc::borrow::Cow<'_, str>>
 pub fn paperpaw_i18n::Catalog::index_on_heap(&self) -> usize
 pub fn paperpaw_i18n::Catalog::is_empty(&self) -> bool
 pub fn paperpaw_i18n::Catalog::is_loaded(&self) -> bool
@@ -77,6 +110,7 @@ pub fn paperpaw_i18n::Catalog::keys(&self) -> impl core::iter::traits::iterator:
 pub fn paperpaw_i18n::Catalog::language(&self) -> &str
 pub fn paperpaw_i18n::Catalog::len(&self) -> usize
 pub fn paperpaw_i18n::Catalog::load(&mut self)
+pub fn paperpaw_i18n::Catalog::merge_sources<'a>(impl core::iter::traits::collect::IntoIterator<Item = &'a str>) -> alloc::string::String
 pub fn paperpaw_i18n::Catalog::name(&self) -> &str
 pub fn paperpaw_i18n::Catalog::narrow_index(&self) -> core::option::Option<&[u16]>
 pub fn paperpaw_i18n::Catalog::open(alloc::rcs::rc::Rc<dyn paperpaw_i18n::CatalogFile>) -> core::result::Result<paperpaw_i18n::Catalog, paperpaw_i18n::CatalogError>
@@ -90,13 +124,17 @@ pub struct paperpaw_i18n::Translator
 impl paperpaw_i18n::Translator
 pub fn paperpaw_i18n::Translator::add(&mut self, paperpaw_i18n::Catalog)
 pub fn paperpaw_i18n::Translator::built_catalogs(&mut self, &'static paperpaw_i18n::BuiltCatalogs)
+pub fn paperpaw_i18n::Translator::built_language(&mut self, &'static paperpaw_i18n::BuiltLanguage)
+pub fn paperpaw_i18n::Translator::built_messages(&mut self, &'static paperpaw_i18n::BuiltMessages)
 pub fn paperpaw_i18n::Translator::catalogs(&self) -> alloc::vec::Vec<paperpaw_i18n::Catalog>
 pub fn paperpaw_i18n::Translator::digits(&self) -> [char; 10]
 pub fn paperpaw_i18n::Translator::direction(&self) -> paperpaw_lang::Direction
+pub fn paperpaw_i18n::Translator::each_language(&self, &mut dyn core::ops::function::FnMut(&str, &str) -> core::ops::control_flow::ControlFlow<()>)
 pub fn paperpaw_i18n::Translator::fixed_indexes(&mut self, paperpaw_i18n::FixedIndexes)
 pub fn paperpaw_i18n::Translator::forget_read(&mut self)
 pub fn paperpaw_i18n::Translator::format(&self, &str, &[(&str, paperpaw_i18n::Arg<'_>)]) -> alloc::string::String
 pub fn paperpaw_i18n::Translator::get(&self, &str) -> core::option::Option<&str>
+pub fn paperpaw_i18n::Translator::get_copy(&self, &str) -> core::option::Option<alloc::borrow::Cow<'_, str>>
 pub fn paperpaw_i18n::Translator::indexes_on_heap(&self) -> usize
 pub fn paperpaw_i18n::Translator::language(&self) -> &str
 pub fn paperpaw_i18n::Translator::languages(&self) -> alloc::vec::Vec<(&str, &str)>

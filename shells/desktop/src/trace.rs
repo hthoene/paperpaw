@@ -21,6 +21,10 @@ thread_local! {
     static BAND: Cell<Option<usize>> = const { Cell::new(None) };
     /// The calls of the frame being recorded.
     static CALLS: RefCell<Vec<Call>> = const { RefCell::new(Vec::new()) };
+    /// Every call, while [`log`] is on.
+    static LOG: RefCell<Option<Vec<Call>>> = const { RefCell::new(None) };
+    /// What the card has been sent (see [`set_cost`]).
+    static COST: RefCell<Option<std::rc::Rc<dyn Fn() -> u64>>> = const { RefCell::new(None) };
 }
 
 /// Calls of one frame kept at most (a picture streamed row by row takes
@@ -69,6 +73,8 @@ pub struct Call {
     pub path: String,
     /// Bytes read.
     pub bytes: u64,
+    /// What the card was sent for it ([`set_cost`]); 0 without.
+    pub cost: u64,
 }
 
 impl Counts {
@@ -77,7 +83,7 @@ impl Counts {
         self.reads + self.sizes + self.lists + self.writes + self.other
     }
 
-    fn since(&self, before: &Counts) -> Counts {
+    pub fn since(&self, before: &Counts) -> Counts {
         Counts {
             reads: self.reads - before.reads,
             bytes: self.bytes - before.bytes,
@@ -127,6 +133,49 @@ pub fn take_frames() -> Vec<FrameRecord> {
     FRAMES.with(|frames| std::mem::take(&mut *frames.borrow_mut()))
 }
 
+/// The storage calls counted since tracing began (a test takes two and
+/// subtracts, see `Counts::since`).
+pub fn counts() -> Counts {
+    now()
+}
+
+/// What the card has been sent so far, as a number that only grows (a
+/// RAM disk's commands, say): each logged call takes what it cost
+/// ([`Call::cost`]).
+pub fn set_cost(cost: std::rc::Rc<dyn Fn() -> u64>) {
+    COST.with(|slot| *slot.borrow_mut() = Some(cost));
+}
+
+fn cost_now() -> u64 {
+    COST.with(|slot| slot.borrow().as_ref().map_or(0, |cost| cost()))
+}
+
+/// The card's cost since `before` goes to the call logged last.
+fn spent(before: u64) {
+    let cost = cost_now().saturating_sub(before);
+    LOG.with(|log| {
+        if let Some(call) = log.borrow_mut().as_mut().and_then(|log| log.last_mut()) {
+            call.cost += cost;
+        }
+    });
+}
+
+/// Keeps every storage call from now on for [`take_log`], for tests that
+/// look at what a step read and wrote.
+pub fn log() {
+    LOG.with(|log| *log.borrow_mut() = Some(Vec::new()));
+}
+
+/// The calls logged since [`log`] or the last call (the band is 0).
+pub fn take_log() -> Vec<Call> {
+    LOG.with(|log| {
+        log.borrow_mut()
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
+    })
+}
+
 fn on() -> bool {
     ON.with(Cell::get) || RECORDING.with(Cell::get)
 }
@@ -137,6 +186,19 @@ fn count(f: impl FnOnce(&mut Counts)) {
 
 /// Notes a call while a frame is recorded.
 fn note(op: &'static str, path: &str, bytes: u64) {
+    crate::budget::untracked(|| {
+        LOG.with(|log| {
+            if let Some(log) = log.borrow_mut().as_mut() {
+                log.push(Call {
+                    band: 0,
+                    op,
+                    path: path.to_string(),
+                    bytes,
+                    cost: 0,
+                });
+            }
+        });
+    });
     if let Some(band) = BAND.with(Cell::get) {
         // The trace's own memory is not the kernel's.
         crate::budget::untracked(|| {
@@ -148,6 +210,7 @@ fn note(op: &'static str, path: &str, bytes: u64) {
                         op,
                         path: path.to_string(),
                         bytes,
+                        cost: 0,
                     });
                 }
             });
@@ -236,6 +299,7 @@ pub struct Traced<S>(pub S);
 
 impl<S: Storage> Storage for Traced<S> {
     fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        let before = cost_now();
         let read = self.0.read_at(path, offset, buf);
         let n = *read.as_ref().unwrap_or(&0) as u64;
         count(|c| {
@@ -243,13 +307,17 @@ impl<S: Storage> Storage for Traced<S> {
             c.bytes += n;
         });
         note("read", path, n);
+        spent(before);
         read
     }
 
     fn size(&self, path: &str) -> Result<u64, StorageError> {
         count(|c| c.sizes += 1);
         note("size", path, 0);
-        self.0.size(path)
+        let before = cost_now();
+        let result = self.0.size(path);
+        spent(before);
+        result
     }
 
     fn modified(&self, path: &str) -> Option<i64> {
@@ -259,19 +327,41 @@ impl<S: Storage> Storage for Traced<S> {
     fn exists(&self, path: &str) -> bool {
         count(|c| c.sizes += 1);
         note("exists", path, 0);
-        self.0.exists(path)
+        let before = cost_now();
+        let result = self.0.exists(path);
+        spent(before);
+        result
     }
 
     fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         count(|c| c.writes += 1);
         note("write", path, 0);
-        self.0.write(path, data)
+        let before = cost_now();
+        let result = self.0.write(path, data);
+        spent(before);
+        result
     }
 
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
         count(|c| c.writes += 1);
         note("append", path, 0);
-        self.0.append(path, data)
+        let before = cost_now();
+        let result = self.0.append(path, data);
+        spent(before);
+        result
+    }
+
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        count(|c| c.writes += 1);
+        note("write_at", path, 0);
+        let before = cost_now();
+        let result = self.0.write_at(path, offset, data);
+        spent(before);
+        result
+    }
+
+    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
+        self.0.truncate(path, len)
     }
 
     fn sync(&self) -> Result<(), StorageError> {
@@ -281,7 +371,10 @@ impl<S: Storage> Storage for Traced<S> {
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
         count(|c| c.lists += 1);
         note("list", dir, 0);
-        self.0.list(dir, visit)
+        let before = cost_now();
+        let result = self.0.list(dir, visit);
+        spent(before);
+        result
     }
 
     fn list_from(
@@ -292,35 +385,72 @@ impl<S: Storage> Storage for Traced<S> {
     ) -> Result<Option<u64>, StorageError> {
         count(|c| c.lists += 1);
         note("list", dir, 0);
-        self.0.list_from(dir, from, visit)
+        let before = cost_now();
+        let result = self.0.list_from(dir, from, visit);
+        spent(before);
+        result
     }
 
     fn remove(&self, path: &str) -> Result<(), StorageError> {
         count(|c| c.other += 1);
         note("remove", path, 0);
-        self.0.remove(path)
+        let before = cost_now();
+        let result = self.0.remove(path);
+        spent(before);
+        result
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
         count(|c| c.other += 1);
         note("rename", from, 0);
-        self.0.rename(from, to)
+        let before = cost_now();
+        let result = self.0.rename(from, to);
+        spent(before);
+        result
     }
 
     fn create_dir(&self, path: &str) -> Result<(), StorageError> {
         count(|c| c.other += 1);
         note("create_dir", path, 0);
-        self.0.create_dir(path)
+        let before = cost_now();
+        let result = self.0.create_dir(path);
+        spent(before);
+        result
+    }
+
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        count(|c| c.other += 1);
+        note("remove_tree_step", root, place);
+        let before = cost_now();
+        let result = self.0.remove_tree_step(root, keep_root, place);
+        spent(before);
+        result
     }
 
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
         count(|c| c.other += 1);
         note("remove_dir_all", path, 0);
-        self.0.remove_dir_all(path)
+        let before = cost_now();
+        let result = self.0.remove_dir_all(path);
+        spent(before);
+        result
     }
 
     fn ignores_case(&self) -> bool {
         self.0.ignores_case()
+    }
+
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.0.same_entry(a, b)
+    }
+
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.0.entry_identity(path)
     }
 
     fn free_space(&self) -> Option<u64> {
@@ -333,5 +463,60 @@ impl<S: Storage> Storage for Traced<S> {
 
     fn local_path(&self, path: &str, with: &mut dyn FnMut(&str)) {
         self.0.local_path(path, with);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use paperpaw_sdk::MemoryStorage;
+
+    /// A storage that tells whether two spellings are one entry.
+    struct Twin(MemoryStorage);
+
+    impl Storage for Twin {
+        fn read_at(&self, path: &str, at: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+            self.0.read_at(path, at, buf)
+        }
+        fn size(&self, path: &str) -> Result<u64, StorageError> {
+            self.0.size(path)
+        }
+        fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.write(path, data)
+        }
+        fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+            self.0.append(path, data)
+        }
+        fn remove(&self, path: &str) -> Result<(), StorageError> {
+            self.0.remove(path)
+        }
+        fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
+            self.0.list(dir, visit)
+        }
+        fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+            Some(a.eq_ignore_ascii_case(b))
+        }
+    }
+
+    /// A save in place reaches the card through the wrapper (a wrapper that
+    /// says `Unsupported` sends every page turn to the whole-file write, #308).
+    #[test]
+    fn a_traced_storage_forwards_writes_in_place() {
+        let traced = Traced(MemoryStorage::new());
+        traced.write("a", &[0; 8]).unwrap();
+        assert_eq!(traced.write_at("a", 4, &[1; 2]), Ok(()));
+        let mut back = [0; 8];
+        traced.read_at("a", 0, &mut back).unwrap();
+        assert_eq!(back, [0, 0, 0, 0, 1, 1, 0, 0]);
+    }
+
+    /// The tracing wrapper says what the storage under it says (the default,
+    /// "cannot tell", would send every caller to its slow path).
+    #[test]
+    fn a_traced_storage_forwards_same_entry() {
+        let traced = Traced(Twin(MemoryStorage::new()));
+        assert_eq!(traced.same_entry("Books", "books"), Some(true));
+        assert_eq!(traced.same_entry("books", "books2"), Some(false));
+        assert_eq!(Traced(MemoryStorage::new()).same_entry("a", "A"), None);
     }
 }

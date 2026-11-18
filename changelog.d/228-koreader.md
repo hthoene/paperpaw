@@ -1,0 +1,3 @@
+### Changed
+
+- **KOReader's exchange of bookmarks and highlights runs on interface 7** (#228). When a book opens and when its highlights or bookmarks change, the plugin reads KOReader's file beside the book, takes over what is new there through the library's annotation facade (positions as XPointers through the document facade), and leaves what is new here for KOReader. The same rules as before: removals on one side reach the other, a copy of what is removed is kept aside, and where KOReader's file has none any more the reader is asked in the book. A file that cannot be read or understood changes nothing; a refused allocation stops the exchange instead of aborting. The old interface-6 plugin is gone.

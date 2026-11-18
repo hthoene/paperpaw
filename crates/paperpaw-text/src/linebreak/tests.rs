@@ -70,6 +70,11 @@ fn some_known_characters() {
     assert_eq!(class('"'), Class::QU);
     assert_eq!(class('ゃ'), Class::CJ);
     assert_eq!(class('\u{0E01}'), Class::AL); // Thai letter: SA, resolved
+    // Ethiopic (#159): a break after the wordspace, none before the full stop.
+    assert_eq!(class('\u{1361}'), Class::BA);
+    assert_eq!(class('\u{1362}'), Class::AL);
+    assert_eq!(class('\u{1230}'), Class::AL);
+    assert!(lookup('\u{1361}').uax && lookup('\u{1230}').uax);
     assert_eq!(class('\u{0E31}'), Class::CM); // Thai vowel sign: SA with Mn
     assert!(lookup('漢').uax && lookup('漢').wide);
     assert!(!lookup('a').uax && !lookup('a').wide);

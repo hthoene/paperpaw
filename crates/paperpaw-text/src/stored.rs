@@ -24,8 +24,10 @@ use crate::glyph::{self, Glyph, zeroed};
 use paperpaw_platform::MemoryClass;
 
 mod index;
+mod words;
 
 use index::{Advances, AdvancesBuilder, CharIndex, IndexBuilder, Refused};
+pub(crate) use words::with_words;
 
 const MAGIC: &[u8; 4] = b"PPFP";
 /// Packs made before PaperPaw had its name (the same format): still read.
@@ -52,7 +54,7 @@ pub trait PackSource {
 }
 
 /// A table of a pack, read through its source from its offset.
-struct Table<'a>(&'a dyn PackSource, u64);
+pub(crate) struct Table<'a>(&'a dyn PackSource, u64);
 
 impl anchors::Bytes for Table<'_> {
     fn bytes(&self, at: usize, buf: &mut [u8]) -> bool {
@@ -71,6 +73,12 @@ struct Strike {
     metrics: LineMetrics,
     glyph_table: u64,
     bitmaps: u64,
+    /// The bitmaps are stored packed (`crate::packed`): not read here.
+    packed: bool,
+    /// The size of its cells, where its glyphs are in cells
+    /// ([`crate::bitmap::STRIKE_CELLS`]): one read gives a glyph; 0 where
+    /// they are not.
+    cell: u32,
 }
 
 /// What the text family reads of a pack: general reading primitives,
@@ -133,10 +141,14 @@ trait Pack {
     /// and keeps none if it changed, as their letters may have been
     /// measured 0 wide.
     fn failed_reads(&self) -> u32;
+    /// [`Pack::render`] into `spare`, the bitmap of a glyph the cache let
+    /// go, so that a cache that is full takes no memory for the next one
+    /// (revision 2).
+    fn render_reusing(&self, strike: usize, index: u32, spare: Vec<u8>) -> Option<Glyph>;
 }
 
 /// The revision of [`Pack`] that this code has.
-const PACK_REVISION: u16 = 1;
+const PACK_REVISION: u16 = 2;
 
 /// What a pack read from a source may take of memory: chosen for the
 /// device (its profile's [`MemoryClass`]), not the processor, so that an
@@ -154,6 +166,18 @@ pub struct PackLimits {
     /// kept as half of it holds.
     advances: usize,
 }
+
+/// The glyph cache while a pack of thousands of characters is open
+/// ([`LARGE_SCRIPT`]) on a device of [`PackLimits::SMALL`]: glyphs read
+/// from a card cost a read each, and a page of such text has some hundred.
+/// Not a field of [`PackLimits`], whose size is part of the plugin
+/// interface's fingerprint: it follows from the index's limit.
+const SMALL_GLYPH_CACHE: usize = 24 * 1024;
+
+/// How many characters a pack has to hold for the glyph cache to be
+/// [`PackLimits::glyph_cache_bytes`]: Hangul and ideographs, not an alphabet's
+/// few hundred (Arabic's, Cyrillic's), whose page finds its glyphs kept.
+pub const LARGE_SCRIPT: usize = 1024;
 
 impl PackLimits {
     /// For devices of a few hundred kilobytes (the Xteink X4's 256 KiB
@@ -186,6 +210,18 @@ impl PackLimits {
     pub const fn advances_bytes(self) -> usize {
         self.advances
     }
+
+    /// The glyph cache while a pack of [`LARGE_SCRIPT`] characters or more
+    /// is open, on a device whose cache is smaller (24 KiB on the X4's
+    /// 256 KiB of heap, against its 12 KiB for glyphs of built-in
+    /// packs, which are read in place); 0: no change.
+    pub const fn glyph_cache_bytes(self) -> usize {
+        if self.index <= PackLimits::SMALL.index {
+            SMALL_GLYPH_CACHE
+        } else {
+            0
+        }
+    }
 }
 
 /// Glyph records read at once for the advances of a strike that has too
@@ -212,7 +248,7 @@ impl fmt::Debug for StoredPack {
 /// A pack as this firmware keeps it in memory: its characters and, for
 /// each size in use, their advances (see [`index`]).
 struct Paged {
-    source: Rc<dyn PackSource>,
+    source: Source,
     strikes: Vec<Strike>,
     /// The characters it holds (the same in every strike).
     chars: CharIndex,
@@ -224,6 +260,80 @@ struct Paged {
     advances_budget: usize,
     /// See [`Pack::failed_reads`].
     failed: Cell<u32>,
+}
+
+/// A pack's source, which keeps its substitution table (slot 4) in memory
+/// from when it is first read until [`Pack::trim`].
+struct Source {
+    inner: Rc<dyn PackSource>,
+    /// Where the table starts in the pack, 0: it has none.
+    table: u64,
+    held: RefCell<Held>,
+}
+
+/// What a [`Source`] keeps of the table.
+enum Held {
+    /// Not read yet.
+    Unread,
+    Whole(Vec<u8>),
+    /// Too large to keep, or no memory for it then: read where it is.
+    Not,
+}
+
+impl Source {
+    /// The bytes from `at` (within the table) into `buf`, from memory:
+    /// `None` where they are not kept.
+    fn kept(&self, at: u64, buf: &mut [u8]) -> Option<()> {
+        let mut held = self.held.try_borrow_mut().ok()?;
+        if let Held::Unread = *held {
+            *held = self.read_table().map_or(Held::Not, Held::Whole);
+        }
+        let Held::Whole(bytes) = &*held else {
+            return None;
+        };
+        let at = usize::try_from(at).ok()?;
+        buf.copy_from_slice(bytes.get(at..at.checked_add(buf.len())?)?);
+        Some(())
+    }
+
+    /// The whole table, if it is small enough and memory takes it.
+    fn read_table(&self) -> Option<Vec<u8>> {
+        let mut head = [0u8; 8];
+        if !self.inner.read_at(self.table, &mut head) {
+            return None;
+        }
+        let len = usize::try_from(u32_le(&head, 4)).ok()?;
+        if !(8..=crate::substitutions::MAX_HELD).contains(&len) {
+            return None;
+        }
+        let mut bytes = zeroed::<u8>(len)?;
+        self.inner.read_at(self.table, &mut bytes).then_some(bytes)
+    }
+
+    fn bytes(&self) -> usize {
+        match self.held.try_borrow().as_deref() {
+            Ok(Held::Whole(bytes)) => bytes.capacity(),
+            _ => 0,
+        }
+    }
+
+    fn trim(&self) {
+        if let Ok(mut held) = self.held.try_borrow_mut() {
+            *held = Held::Unread;
+        }
+    }
+}
+
+impl PackSource for Source {
+    fn read_at(&self, at: u64, buf: &mut [u8]) -> bool {
+        if self.table != 0
+            && let Some(within) = at.checked_sub(self.table)
+            && self.kept(within, buf).is_some()
+        {
+            return true;
+        }
+        self.inner.read_at(at, buf)
+    }
 }
 
 /// What a [`Paged`] keeps of a strike's advances, in 1/16 px.
@@ -316,6 +426,25 @@ fn read_records(
     Ok(())
 }
 
+/// The largest cell a strike of cells may have, in bytes: a glyph of the
+/// largest size a pack holds (4 px of reach to a side) is far less.
+const MAX_CELL: u32 = 16 * 1024;
+
+/// The size of the cells of a strike with `flags`, in bytes; 0 (read through
+/// its records, as any pack) where it has none, or where the size is not one
+/// a cell has.
+fn cell_size(flags: u16) -> u32 {
+    if flags & crate::bitmap::STRIKE_CELLS == 0 {
+        return 0;
+    }
+    let cell = u32::from(flags >> 2) * crate::bitmap::CELL_UNIT as u32;
+    if cell > crate::bitmap::CELL_HEAD as u32 && cell <= MAX_CELL {
+        cell
+    } else {
+        0
+    }
+}
+
 impl StoredPack {
     /// Reads the pack's header and its characters, within the limits of
     /// the smallest devices ([`PackLimits::SMALL`]); see
@@ -324,7 +453,6 @@ impl StoredPack {
         StoredPack::open_within(source, PackLimits::SMALL)
     }
 
-    paperpaw_table::shared! {
     /// Reads the pack's header and its characters, within `limits` (the
     /// device's: [`PackLimits::for_memory`]): the firmware's code, so
     /// that how it keeps them is the firmware's too.
@@ -333,8 +461,9 @@ impl StoredPack {
         source: Rc<dyn PackSource>,
         limits: PackLimits,
     ) -> Result<StoredPack, FontError> {
-        Paged::open(source, limits).map(|pack| StoredPack(Rc::new(pack)))
-    } @ text::STORED_OPEN
+        let pack = Paged::open(source, limits)?;
+        words::note(&pack.source.inner, pack.tables[words::WORDS]);
+        Ok(StoredPack(Rc::new(pack)))
     }
 
     /// Where table `slot` (0 to 7, see
@@ -343,6 +472,12 @@ impl StoredPack {
     /// is the next directory, of slots 8 to 15.
     pub fn table(&self, slot: usize) -> Option<u64> {
         self.0.table(slot)
+    }
+
+    /// Table `slot`, read through the pack's source (which keeps the
+    /// substitutions in memory once read).
+    pub(crate) fn table_bytes(&self, slot: usize) -> Option<Table<'_>> {
+        Some(Table(self.0.source(), self.0.table(slot)?))
     }
 
     /// The largest size it has, in pixels.
@@ -392,6 +527,23 @@ impl StoredPack {
             Some(index) => self.0.render(self.0.strike(size), index),
             None => Some(Glyph::empty(0.0)),
         }
+    }
+
+    /// [`StoredPack::render`] into `spare`, the memory of a glyph let go,
+    /// where the pack is of a revision that takes it.
+    pub(crate) fn render_reusing(&self, ch: char, size: f32, spare: Vec<u8>) -> Option<Glyph> {
+        match self.0.index(ch) {
+            Some(index) if self.0.revision() >= 2 => {
+                self.0.render_reusing(self.0.strike(size), index, spare)
+            }
+            Some(index) => self.0.render(self.0.strike(size), index),
+            None => Some(Glyph::empty(0.0)),
+        }
+    }
+
+    /// How many characters it holds.
+    pub fn chars(&self) -> usize {
+        self.0.chars()
     }
 
     /// The bytes of memory it holds.
@@ -449,6 +601,8 @@ impl Paged {
                 },
                 glyph_table: u64::from(u32_le(s, 20)),
                 bitmaps: u64::from(u32_le(s, 24)),
+                packed: u16_le(s, 2) & crate::bitmap::STRIKE_PACKED != 0,
+                cell: cell_size(u16_le(s, 2)),
             });
         }
         let n = glyphs.unwrap_or(0);
@@ -489,8 +643,13 @@ impl Paged {
         }
         let mut advances = Vec::new();
         advances.resize_with(strikes.len(), Kept::default);
+        let table = u64::from(tables[crate::BitmapFont::SUBSTITUTIONS]);
         Ok(Paged {
-            source,
+            source: Source {
+                inner: source,
+                table,
+                held: RefCell::new(Held::Unread),
+            },
             advances: RefCell::new(advances),
             strikes,
             chars,
@@ -508,7 +667,7 @@ impl Paged {
         let n = self.chars.len();
         let mut built = AdvancesBuilder::new(n, self.advances_budget);
         let mut refused = None;
-        let read = read_records(&*self.source, glyph_table, n, |r| {
+        let read = read_records(&self.source, glyph_table, n, |r| {
             refused = built.push(advance_16(r)).err();
             refused.is_none()
         });
@@ -558,7 +717,7 @@ impl Paged {
         let mut advances = Vec::new();
         advances.try_reserve_exact(count).ok()?;
         let at = glyph_table + (first * RECORD) as u64;
-        read_records(&*self.source, at, count, |r| {
+        read_records(&self.source, at, count, |r| {
             advances.push(advance_16(r));
             true
         })
@@ -581,8 +740,12 @@ impl Paged {
     }
 
     /// The glyph of the character at `index` in `strike`, as
-    /// [`Pack::render`] says.
-    fn read_glyph(&self, strike: Strike, index: u32) -> Option<Glyph> {
+    /// [`Pack::render`] says, its bitmap in `spare` (the memory of a glyph
+    /// let go: nothing is set aside where it is large enough).
+    fn read_glyph(&self, strike: Strike, index: u32, spare: Vec<u8>) -> Option<Glyph> {
+        if strike.cell != 0 && !strike.packed {
+            return self.read_cell(strike, index, spare);
+        }
         let mut record = [0u8; RECORD];
         let at = strike.glyph_table + u64::from(index) * RECORD as u64;
         if !self.source.read_at(at, &mut record) {
@@ -591,11 +754,16 @@ impl Paged {
         let advance = q6(i32_le(&record, 4)).max(0.0);
         let (width, height) = (u16_le(&record, 12), u16_le(&record, 14));
         let (w, h) = (usize::from(width), usize::from(height));
-        if !glyph::fits(w, h, f32::from(strike.size) / 4.0) {
+        // A packed strike is only for the firmware's own packs, read in place
+        // (`BitmapFont`): here it draws as nothing, not as noise.
+        if strike.packed || !glyph::fits(w, h, f32::from(strike.size) / 4.0) {
             // Damaged: drawn as nothing, every time.
             return Some(Glyph::empty(advance));
         }
-        let mut data = zeroed(w.div_ceil(2) * h)?;
+        let mut data = spare;
+        data.clear();
+        data.try_reserve_exact(w.div_ceil(2) * h).ok()?;
+        data.resize(w.div_ceil(2) * h, 0);
         let start = strike.bitmaps + u64::from(u32_le(&record, 16));
         if !self.source.read_at(start, &mut data) {
             return None;
@@ -604,6 +772,60 @@ impl Paged {
             format: crate::glyph::COVERAGE4,
             left: i16_le(&record, 8),
             top: i16_le(&record, 10),
+            width,
+            height,
+            advance,
+            data,
+        })
+    }
+
+    /// [`Paged::read_glyph`] of a strike of cells: its cell in one read,
+    /// into `spare` where it is large enough.
+    fn read_cell(&self, strike: Strike, index: u32, spare: Vec<u8>) -> Option<Glyph> {
+        let cell = strike.cell as usize;
+        let head = crate::bitmap::CELL_HEAD;
+        let mut data = spare;
+        data.clear();
+        data.try_reserve_exact(cell).ok()?;
+        data.resize(cell, 0);
+        let at = strike.bitmaps + u64::from(index) * u64::from(strike.cell);
+        if !self.source.read_at(at, &mut data) {
+            return None;
+        }
+        let advance = q6(i32_le(&data, 8)).max(0.0);
+        let (width, height) = (u16_le(&data, 4), u16_le(&data, 6));
+        let (w, h) = (usize::from(width), usize::from(height));
+        let len = w.div_ceil(2) * h;
+        if !glyph::fits(w, h, f32::from(strike.size) / 4.0) {
+            // Damaged: drawn as nothing, every time.
+            return Some(Glyph::empty(advance));
+        }
+        let (left, top) = (i16_le(&data, 0), i16_le(&data, 2));
+        if len <= cell - head {
+            // The bitmap to the front, the rest of the cell let go of by
+            // the length, not by the memory.
+            data.copy_within(head..head + len, 0);
+            data.truncate(len);
+        } else {
+            // One of the few larger than a cell: after the cells, where its
+            // record says.
+            let mut record = [0u8; RECORD];
+            let at = strike.glyph_table + u64::from(index) * RECORD as u64;
+            if !self.source.read_at(at, &mut record) {
+                return None;
+            }
+            let from = strike.bitmaps + u64::from(u32_le(&record, 16));
+            data.clear();
+            data.try_reserve_exact(len).ok()?;
+            data.resize(len, 0);
+            if !self.source.read_at(from, &mut data) {
+                return None;
+            }
+        }
+        Some(Glyph {
+            format: crate::glyph::COVERAGE4,
+            left,
+            top,
             width,
             height,
             advance,
@@ -669,13 +891,17 @@ impl Pack for Paged {
     }
 
     fn render(&self, strike: usize, index: u32) -> Option<Glyph> {
+        self.render_reusing(strike, index, Vec::new())
+    }
+
+    fn render_reusing(&self, strike: usize, index: u32, spare: Vec<u8>) -> Option<Glyph> {
         let Some(&strike) = self.strikes.get(strike) else {
             return Some(Glyph::empty(0.0));
         };
         if index as usize >= self.chars.len() {
             return Some(Glyph::empty(0.0));
         }
-        let glyph = self.read_glyph(strike, index);
+        let glyph = self.read_glyph(strike, index, spare);
         if glyph.is_none() {
             self.failed.set(self.failed.get().wrapping_add(1));
         }
@@ -690,7 +916,7 @@ impl Pack for Paged {
     }
 
     fn source(&self) -> &dyn PackSource {
-        &*self.source
+        &self.source
     }
 
     fn bytes(&self) -> usize {
@@ -699,12 +925,15 @@ impl Pack for Paged {
                 + advances.iter().map(Kept::bytes).sum::<usize>()
         });
         size_of::<Paged>()
+            + self.source.bytes()
             + self.strikes.capacity() * size_of::<Strike>()
             + self.chars.bytes()
             + advances
     }
 
     fn trim(&self) {
+        self.source.trim();
+        words::trim();
         let Ok(mut advances) = self.advances.try_borrow_mut() else {
             return;
         };
@@ -718,7 +947,7 @@ impl Pack for Paged {
     }
 
     fn failed_reads(&self) -> u32 {
-        self.failed.get()
+        self.failed.get().wrapping_add(words::failures())
     }
 }
 
@@ -824,6 +1053,92 @@ mod tests {
         stored.advance('а', 10.0);
         stored.advance('ж', 10.0);
         assert_eq!(memory.1.get(), reads);
+    }
+
+    /// A strike of cells: the same glyphs as without, one read each (three
+    /// for the few larger than a cell), the bitmap in the memory given, and
+    /// read as any pack by one that does not know cells (`BitmapFont`, the
+    /// records).
+    #[test]
+    fn a_strike_of_cells_gives_a_glyph_in_one_read() {
+        let metrics = LineMetrics {
+            ascent: 8.0,
+            descent: 2.0,
+            line_height: 12.5,
+        };
+        // 150 glyphs of a few widths, the last far wider than a cell is.
+        let chars: Vec<char> = (0x4e00..0x4e00 + 150).filter_map(char::from_u32).collect();
+        let glyphs = || -> Vec<(char, Glyph)> {
+            chars
+                .iter()
+                .enumerate()
+                .map(|(n, &ch)| match n {
+                    149 => (ch, glyph(30, 200, 31.0)),
+                    n if n % 7 == 0 => (ch, Glyph::empty(2.0)),
+                    n => (
+                        ch,
+                        glyph(2 + (n % 3) as u16, 17 * (1 + (n % 14) as u8), 3.0),
+                    ),
+                })
+                .collect()
+        };
+        let (mut plain, mut cells) = (PackBuilder::new(), PackBuilder::new());
+        cells.cells();
+        for builder in [&mut plain, &mut cells] {
+            builder.add_strike(10.0, metrics, glyphs());
+        }
+        let (plain, cells) = (plain.build(), cells.build());
+        assert!(cells.len() > plain.len());
+        let memory = Rc::new(Memory(cells.clone(), Cell::new(0)));
+        let stored = StoredPack::open(memory.clone()).unwrap();
+        let other = StoredPack::open(Rc::new(Memory(plain, Cell::new(0)))).unwrap();
+        let in_place = BitmapFont::new(cells).unwrap();
+        // Memory of a glyph let go, larger than any cell here.
+        let mut spare: Vec<u8> = Vec::with_capacity(512);
+        for (n, &ch) in chars.iter().chain(&['z']).enumerate() {
+            let before = memory.1.get();
+            let a = stored
+                .render_reusing(ch, 10.0, core::mem::take(&mut spare))
+                .unwrap();
+            let b = in_place.glyph(ch, 10.0);
+            let c = other.render(ch, 10.0).unwrap();
+            let reads = match n {
+                150 => 0,
+                149 => 3,
+                _ => 1,
+            };
+            assert_eq!(memory.1.get() - before, reads, "{n}");
+            assert_eq!(
+                (a.left, a.top, a.width, a.height),
+                (b.left, b.top, b.width, b.height)
+            );
+            assert_eq!(a.as_ref().data, b.data, "{n}");
+            assert_eq!(a.as_ref().data, c.as_ref().data, "{n}");
+            assert_eq!(a.advance, c.advance, "{n}");
+            spare = a.data;
+            assert!(spare.capacity() >= 512 || n == 150, "{n}: new memory");
+        }
+    }
+
+    #[test]
+    fn a_compact_strike_draws_as_nothing_here() {
+        let metrics = LineMetrics::fallback(10.0);
+        let mut builder = PackBuilder::new();
+        builder.compact();
+        builder.add_strike(10.0, metrics, alloc::vec![('а', glyph(3, 255, 3.5))]);
+        let data = builder.build();
+        assert!(
+            BitmapFont::new(data.clone())
+                .unwrap()
+                .glyph('а', 10.0)
+                .width
+                == 3
+        );
+        let stored = StoredPack::open(Rc::new(Memory(data, Cell::new(0)))).unwrap();
+        // Packed bitmaps are for the firmware's own packs, read in place:
+        // not noise here, nothing.
+        assert!(stored.render('а', 10.0).unwrap().width == 0);
+        assert_eq!(stored.advance('а', 10.0), 3.5);
     }
 
     #[test]

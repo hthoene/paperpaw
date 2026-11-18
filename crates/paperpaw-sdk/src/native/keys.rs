@@ -234,7 +234,6 @@ fn holding(storage: &dyn Storage, data: &[u8]) -> Vec<Revocation> {
 /// damaged byte, a key or signature of another length) is left out on
 /// its own: the others stay.
 fn revocations_in(data: &[u8]) -> Vec<Revocation> {
-    let bytes = |hex: &str| paperpaw_digest::hex::decode(hex);
     data.split(|&b| b == b'\n')
         .filter_map(|line| core::str::from_utf8(line).ok())
         .filter_map(|line| {
@@ -242,8 +241,8 @@ fn revocations_in(data: &[u8]) -> Vec<Revocation> {
             let (plugin, key, signature) = (parts.next()?, parts.next()?, parts.next()?);
             Some(Revocation::new(
                 plugin,
-                bytes(key)?.try_into().ok()?,
-                bytes(signature)?.try_into().ok()?,
+                paperpaw_digest::hex::decode_array(key)?,
+                paperpaw_digest::hex::decode_array(signature)?,
             ))
         })
         .collect()

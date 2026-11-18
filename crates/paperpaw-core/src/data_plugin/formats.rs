@@ -19,7 +19,8 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use paperpaw_sdk::{Id, RegisterError, Registrar};
+use crate::Staging;
+use paperpaw_sdk::{Id, RegisterError};
 
 use super::{own_id, parse_error, parsed_id};
 
@@ -32,7 +33,7 @@ const FOREIGN_MENU: &str = "menu ";
 
 /// A step of an action of `actions.ini`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Step {
+pub(crate) enum Step {
     /// `<setting>=<value>`, the value as written in `paperpaw.ini`.
     Set(Id, String),
     /// `<action>`.
@@ -69,17 +70,18 @@ impl Step {
 
     /// The command of this step; a value not of the setting's kind (or a
     /// setting not there) makes none.
-    fn command(&self, env: &paperpaw_sdk::Env<'_>) -> Option<paperpaw_sdk::Command> {
-        use paperpaw_sdk::{Command, Params};
+    pub(crate) fn command(&self, env: &crate::Place<'_>) -> Option<crate::Ask> {
+        use crate::Ask;
+        use paperpaw_sdk::Params;
         Some(match self {
             Step::Set(id, text) => {
                 let value = env.settings().spec(id.as_str())?.kind.parse(text)?;
-                Command::SetSetting(id.clone(), value)
+                Ask::SetSetting(id.clone(), value)
             }
-            Step::Run(action) => Command::run(action.clone()),
-            Step::Open(slot) => Command::OpenSlot(slot.clone(), Params::new()),
-            Step::Notify(key) => Command::Notify(env.i18n().tr(key).to_string()),
-            Step::Emit(event) => Command::Emit(event.clone(), Params::new()),
+            Step::Run(action) => Ask::run(action.clone()),
+            Step::Open(slot) => Ask::OpenSlot(slot.clone(), Params::new()),
+            Step::Notify(key) => Ask::Notify(env.i18n().tr(key).to_string()),
+            Step::Emit(event) => Ask::Emit(event.clone(), Params::new()),
         })
     }
 }
@@ -97,7 +99,9 @@ struct ReadAction {
 /// An action of `actions.ini`, with its icon.
 pub(super) struct MadeAction {
     pub(super) id: Id,
-    pub(super) spec: paperpaw_sdk::ActionSpec,
+    pub(super) spec: crate::kit::action::ActionSpec,
+    /// What it does, a step a line: the kernel runs them.
+    pub(super) steps: alloc::boxed::Box<[Step]>,
     pub(super) icon: Option<String>,
 }
 
@@ -152,10 +156,14 @@ pub(super) fn actions(plugin: &Id, source: &str) -> Result<Vec<MadeAction>, Regi
         } else {
             title
         };
-        let spec = paperpaw_sdk::ActionSpec::new(id.clone(), title).handler(move |env, _, out| {
-            out.extend(steps.iter().filter_map(|step| step.command(env)));
+        let spec = crate::kit::action::ActionSpec::new(id.clone(), title).run_by_kernel();
+        let steps = steps.into_boxed_slice();
+        made.push(MadeAction {
+            id,
+            spec,
+            steps,
+            icon,
         });
-        made.push(MadeAction { id, spec, icon });
     }
     Ok(made)
 }
@@ -206,7 +214,7 @@ fn ids_of(value: &str, line: u32) -> Result<Vec<Id>, RegisterError> {
 /// plugin, `add = <item>` (also `<item> after <other>`) and
 /// `hide = <item>`; any other section a menu of one's own, `title` and
 /// `entries`, an action of that name that shows it.
-pub(super) fn menus(r: &mut Registrar, plugin: &Id, source: &str) -> Result<(), RegisterError> {
+pub(super) fn menus(r: &mut Staging, plugin: &Id, source: &str) -> Result<(), RegisterError> {
     let mut order: i16 = 0;
     for entry in paperpaw_config::parse(source) {
         let entry = entry.map_err(parse_error)?;
@@ -219,7 +227,7 @@ pub(super) fn menus(r: &mut Registrar, plugin: &Id, source: &str) -> Result<(), 
         match (entry.key, foreign) {
             ("title", None) => {
                 let menu = own_id(plugin, entry.section, line)?;
-                r.add_action(paperpaw_sdk::ActionSpec::new(
+                r.add_action(crate::kit::action::ActionSpec::new(
                     menu.clone(),
                     value.trim().to_string(),
                 ))?;
@@ -228,7 +236,7 @@ pub(super) fn menus(r: &mut Registrar, plugin: &Id, source: &str) -> Result<(), 
                 let menu = own_id(plugin, entry.section, line)?;
                 for item in ids_of(&value, line)? {
                     order = order.saturating_add(10);
-                    let entry = paperpaw_sdk::MenuEntry::new(menu.clone(), item);
+                    let entry = crate::kit::menus::MenuEntry::new(menu.clone(), item);
                     r.add_menu_entry(entry.order(order))?;
                 }
             }
@@ -241,10 +249,10 @@ pub(super) fn menus(r: &mut Registrar, plugin: &Id, source: &str) -> Result<(), 
                 let item = parsed_id(item, line)?;
                 match after {
                     Some(after) => {
-                        let place = paperpaw_sdk::MenuPlace::After(parsed_id(after, line)?);
+                        let place = crate::kit::menus::MenuPlace::After(parsed_id(after, line)?);
                         r.place_menu_entry(menu, item, place)?;
                     }
-                    None => r.add_menu_entry(paperpaw_sdk::MenuEntry::new(menu, item))?,
+                    None => r.add_menu_entry(crate::kit::menus::MenuEntry::new(menu, item))?,
                 }
             }
             ("hide", _) => {
@@ -272,8 +280,8 @@ pub(super) fn menus(r: &mut Registrar, plugin: &Id, source: &str) -> Result<(), 
 pub(super) fn setup_steps(
     plugin: &Id,
     source: &str,
-) -> Result<Vec<paperpaw_sdk::setup::SetupStepSpec>, RegisterError> {
-    use paperpaw_sdk::setup::{SetupPage, SetupStepSpec};
+) -> Result<Vec<crate::kit::setup::SetupStepSpec>, RegisterError> {
+    use crate::kit::setup::{SetupPage, SetupStepSpec};
     let mut steps: Vec<(Id, Option<SetupPage>, i32, String, String, u32)> = Vec::new();
     for entry in paperpaw_config::parse(source) {
         let entry = entry.map_err(parse_error)?;
@@ -384,8 +392,9 @@ mod tests {
     /// in the reader's language; a text that is no key shows as it is.
     #[test]
     fn a_notification_is_said_in_the_reader_s_language() {
+        use crate::Ask;
         use paperpaw_platform::Instant;
-        use paperpaw_sdk::{Command, MemoryStorage};
+        use paperpaw_sdk::MemoryStorage;
         let storage = MemoryStorage::new()
             .with("plugins/cosy/plugin.ini", "[plugin]\nname = Cosy\nformats = 3\n")
             .with(
@@ -397,9 +406,9 @@ mod tests {
             .build()
             .unwrap();
         kernel.start(Instant(0));
-        let env = kernel.shared.env(Instant(0));
+        let env = kernel.shared.place(Instant(0));
         let said = |key: &str| match Step::Notify(key.into()).command(&env) {
-            Some(Command::Notify(text)) => text,
+            Some(Ask::Notify(text)) => text,
             other => panic!("{other:?}"),
         };
         assert_eq!(said("cosy.good-night"), "Good night, sleep well");

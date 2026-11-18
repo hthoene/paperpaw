@@ -1,0 +1,17 @@
+[package]
+name = "paperpaw-ui-kit"
+description = "Drawing helpers for interface-7 plugin screens: stock UI style, header, list rows, text fitting and catalog messages over the flat native SDK (no_std)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+categories = ["no-std", "gui"]
+
+[dependencies]
+paperpaw-sdk.workspace = true
+
+[lints]
+workspace = true

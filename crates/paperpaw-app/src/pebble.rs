@@ -6,7 +6,8 @@
 
 use alloc::borrow::Cow;
 
-use paperpaw_core::sdk::{Id, Manifest, Plugin, RegisterError, Registrar, Version};
+use paperpaw_core::Staging;
+use paperpaw_core::sdk::{Id, Manifest, RegisterError, Version};
 
 /// The theme.
 #[derive(Debug)]
@@ -31,15 +32,17 @@ static HOW: [(&str, &str); 2] = [
     ("de", include_str!("../how/pebble/de.txt")),
 ];
 
-impl Plugin for Pebble {
-    fn manifest(&self) -> Manifest {
+impl Pebble {
+    /// What it is listed and registered under.
+    pub fn manifest() -> Manifest {
         Manifest::new(Id::new_static("pebble"), "Pebble", Version::new(1, 0, 0))
             .description("A theme for touch screens: lists on rounded cards, a light highlight.")
             .how(&HOW)
             .uses(paperpaw_core::sdk::Uses::NOTHING)
     }
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+    /// Adds its texts and its defaults (`KernelBuilder::items_off`).
+    pub fn items(r: &mut Staging) -> Result<(), RegisterError> {
         for text in TEXTS {
             r.add_translations(Cow::Borrowed(text))?;
         }

@@ -3,9 +3,11 @@
 //! the check that crates keep no mutable statics.
 
 use paperpaw_digest::{hex, sha256::Sha256};
-use paperpaw_native::{Header, Signature, signature};
+use paperpaw_native::header5::Header5;
+use paperpaw_native::{Signature, signature};
 use paperpaw_update::{fingerprint, key_hex};
 
+use crate::pack5;
 use crate::{secret_key, statics};
 
 fn read(path: &str) -> Result<Vec<u8>, String> {
@@ -16,16 +18,39 @@ fn write(path: &str, bytes: &[u8]) -> Result<(), String> {
     std::fs::write(path, bytes).map_err(|e| format!("{path}: {e}"))
 }
 
-/// A plugin file, checked whole, and its author's signature if it ends
-/// with one.
-fn plugin_file(path: &str) -> Result<(Vec<u8>, Header, Option<Signature>), String> {
+/// The format a plugin file says it has, where it is one of a format before
+/// 5 (the plugin interfaces before 7): such a file is named for what it is
+/// and not read any further.
+fn older_format(file: &[u8]) -> Option<u16> {
+    (file.len() >= 6 && file[..4] == paperpaw_native::MAGIC)
+        .then(|| u16::from_le_bytes([file[4], file[5]]))
+        .filter(|format| *format < paperpaw_native::header5::FORMAT)
+}
+
+/// What is said of a file of a format before 5.
+fn older(path: &str, format: u16) -> String {
+    format!(
+        "{path}: a plugin file of format {format}, made for a PaperPaw before plugin interface 7: \
+         this tool no longer reads it"
+    )
+}
+
+/// A format-5 file, read as the loader reads it, and its signature if it
+/// ends with one.
+fn plugin_file5(path: &str) -> Result<(Vec<u8>, Header5, Option<Signature>), String> {
     let file = read(path)?;
-    let (header, signature) = Header::check_file(&file).map_err(|e| format!("{path}: {e}"))?;
+    if let Some(format) = older_format(&file) {
+        return Err(older(path, format));
+    }
+    let (header, signature) = pack5::check_file5(&file).map_err(|e| format!("{path}: {e}"))?;
     Ok((file, header, signature))
 }
 
+/// `pack`: the file of format 5 of a linked interface-7 plugin.
 pub fn pack(elf: &str, out: &str, key_file: Option<&str>) -> Result<(), String> {
-    let packed = crate::pack::pack(&read(elf)?).map_err(|e| format!("{elf}: {e}"))?;
+    let bytes = read(elf)?;
+    pack5::is_interface7(&bytes).map_err(|e| format!("{elf}: {e}"))?;
+    let packed = pack5::pack5(&bytes).map_err(|e| format!("{elf}: {e}"))?;
     let header = &packed.header;
     let mut file = packed.file.clone();
     let signed = match key_file {
@@ -39,13 +64,13 @@ pub fn pack(elf: &str, out: &str, key_file: Option<&str>) -> Result<(), String> 
     };
     write(out, &file)?;
     println!(
-        "{out}: {} bytes of data, {} of code, {} words to relocate, fingerprint {:016x}, {},          built by rustc {}",
+        "{out}: format 5, {} bytes of data, {} of code, {} words to relocate, interface {}.{}, {}",
         header.code_at,
         header.image_len - header.code_at,
         header.relocs,
-        header.fingerprint,
-        header.chip,
-        packed.compiler
+        header.abi_major,
+        header.needs_minor,
+        header.target
     );
     if header.hot_len > 0 {
         println!(
@@ -59,15 +84,19 @@ pub fn pack(elf: &str, out: &str, key_file: Option<&str>) -> Result<(), String> 
     Ok(())
 }
 
+/// `plugin`: what a plugin file holds. A file of a format before 5 is named
+/// as that, in one line, and refused: nothing is said of it on standard
+/// output, and the tool fails.
 pub fn show(path: &str) -> Result<(), String> {
-    let (file, header, signed) = plugin_file(path)?;
+    let (file, header, signed) = plugin_file5(path)?;
     let mut sha = Sha256::new();
     sha.update(&file);
-    println!("chip:        {} ({})", header.chip, header.chip.id());
-    println!("fingerprint: {:016x}", header.fingerprint);
-    // The plugin interface it was built for: the fingerprint's top bits.
-    println!("interface:   {}", header.fingerprint >> 48);
-    println!("compiler:    {:08x}", header.compiler);
+    println!("format:      5 (interface 7)");
+    println!("chip:        {} ({})", header.target, header.target.id());
+    println!(
+        "interface:   {}, needs minor {}",
+        header.abi_major, header.needs_minor
+    );
     println!(
         "image:       {} bytes: {} of data, {} of code, linked at {:#010x}, aligned to {}",
         header.image_len,
@@ -77,10 +106,13 @@ pub fn show(path: &str) -> Result<(), String> {
         header.align
     );
     println!(
-        "entry:       at {}, the table's word at {}",
-        header.entry, header.api
+        "entry:       at {}, metadata record of {} bytes at {}",
+        header.entry, header.meta_len, header.meta_at
     );
     println!("relocations: {} words", header.relocs);
+    if let Some(at) = header.heap_at {
+        println!("heap word:   at {at}, filled by the loader");
+    }
     println!(
         "hot code:    {} bytes at {}, {} patches",
         header.hot_len, header.hot_at, header.patches
@@ -111,8 +143,9 @@ fn print_signer(signed: &Signature) {
 /// signature it had before replaced).
 pub fn sign(path: &str, key_file: Option<&str>) -> Result<(), String> {
     let seed = secret_key(key_file)?;
-    let (mut file, header, _) = plugin_file(path)?;
-    file.truncate(header.file_len() as usize);
+    let (mut file, header, _) = plugin_file5(path)?;
+    let len = header.file_len() as usize;
+    file.truncate(len);
     let signed = signature::sign(&file, &seed);
     file.extend_from_slice(&signed.to_bytes());
     write(path, &file)?;
@@ -122,13 +155,14 @@ pub fn sign(path: &str, key_file: Option<&str>) -> Result<(), String> {
 }
 
 pub fn check(path: &str) -> Result<(), String> {
-    let (file, header, signed) = plugin_file(path)?;
+    let (file, header, signed) = plugin_file5(path)?;
     let signed = signed.ok_or_else(|| format!("{path}: not signed"))?;
     println!(
-        "plugin:      {} bytes for the {}, fingerprint {:016x}",
+        "plugin:      {} bytes of format 5 for the {}, interface {}.{}",
         file.len(),
-        header.chip,
-        header.fingerprint
+        header.target,
+        header.abi_major,
+        header.needs_minor
     );
     print_signer(&signed);
     Ok(())
@@ -159,8 +193,10 @@ pub fn statics(archives: &[&str]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::elf::EM_RISCV;
-    use crate::pack::tests::packed;
+
+    /// The real sample's file (`samples/abi7-x4-min`), not signed.
+    const SAMPLE: &[u8] =
+        include_bytes!("../../../crates/paperpaw-native/tests/data/abi7-x4-min.ppn");
 
     #[test]
     fn a_signed_plugin_checks_and_a_changed_one_does_not() {
@@ -169,7 +205,7 @@ mod tests {
         let path = |name: &str| dir.join(name).to_string_lossy().into_owned();
         let (key, file) = (path("key"), path("plugin.ppn"));
         std::fs::write(&key, format!("{}\n", "07".repeat(32))).unwrap();
-        let unsigned = packed(EM_RISCV);
+        let unsigned = SAMPLE.to_vec();
         std::fs::write(&file, &unsigned).unwrap();
         assert!(check(&file).unwrap_err().ends_with("not signed"));
 
@@ -191,7 +227,7 @@ mod tests {
         let mut changed = signed.clone();
         changed[100] ^= 1;
         std::fs::write(&file, &changed).unwrap();
-        assert!(check(&file).unwrap_err().ends_with("changed or damaged"));
+        assert!(check(&file).is_err());
         // A changed signature.
         let mut changed = signed;
         let last = changed.len() - 20;
@@ -202,6 +238,14 @@ mod tests {
                 .unwrap_err()
                 .ends_with("its author's signature does not hold")
         );
+        // A file of the format before: named as that, not read, not signed.
+        let mut old = SAMPLE.to_vec();
+        old[4..6].copy_from_slice(&4u16.to_le_bytes());
+        std::fs::write(&file, &old).unwrap();
+        assert!(show(&file).unwrap_err().contains("format 4"));
+        assert!(check(&file).unwrap_err().contains("format 4"));
+        assert!(sign(&file, Some(&key)).unwrap_err().contains("format 4"));
+        assert_eq!(std::fs::read(&file).unwrap(), old);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

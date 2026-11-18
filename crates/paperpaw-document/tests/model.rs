@@ -14,8 +14,9 @@
 )]
 
 use paperpaw_document::{
-    Align, Block, BlockKind, Document, DocumentError, Lang, Link, LinkKind, Locator, MAX_FAMILIES,
-    MAX_INLINE_LANGS, Metadata, NoStorage, OffsetMap, Run, Storage, TextStyle, is_external,
+    Align, Block, BlockKind, CheckpointError, Document, DocumentError, EditError, Lang, Link,
+    LinkKind, Locator, MAX_FAMILIES, MAX_INLINE_LANGS, Metadata, NoStorage, OffsetMap, Run,
+    Storage, TextStyle, is_external,
 };
 use proptest::prelude::*;
 
@@ -206,6 +207,48 @@ proptest! {
         for run in &block.runs {
             prop_assert!(run.start < run.end && run.end as usize <= block.text.len());
         }
+    }
+
+    /// An edit of a working copy, put back, gives the block exactly what
+    /// `Block::replace` gives it, and several steps chain the same way.
+    #[test]
+    fn edits_of_a_copy_match_replace(
+        chars in chars(),
+        cuts in proptest::collection::vec((any::<prop::sample::Index>(), any::<u8>()), 0..8),
+        steps in proptest::collection::vec(
+            (any::<prop::sample::Index>(), any::<prop::sample::Index>(), "[a-zé ]{0,6}"),
+            1..4,
+        ),
+    ) {
+        let (mut block, _) = decoded(10, &chars);
+        block.runs = runs_for(&block.text, &cuts);
+        let mut replaced = block.clone();
+        let mut edited = block.clone();
+        let mut same = true;
+        edited
+            .try_transform(usize::MAX - 1, |edit| -> Result<(), EditError> {
+                for (a, b, with) in &steps {
+                    let bounds: Vec<usize> = edit
+                        .text()
+                        .char_indices()
+                        .map(|(i, _)| i)
+                        .chain([edit.text().len()])
+                        .collect();
+                    let (a, b) = (a.index(bounds.len()), b.index(bounds.len()));
+                    let (from, to) = (bounds[a.min(b)], bounds[a.max(b)]);
+                    replaced.replace(from..to, with);
+                    edit.try_replace(from..to, with)?;
+                    same &= edit.text() == replaced.text && edit.runs() == replaced.runs.as_slice();
+                    for index in 0..=edit.text().len() {
+                        same &= edit.source_offset(index) == replaced.source_offset(index)
+                            && edit.style_at(index) == replaced.style_at(index);
+                    }
+                }
+                Ok(())
+            })
+            .unwrap();
+        prop_assert!(same);
+        prop_assert_eq!(edited, replaced);
     }
 
     /// Runs stay sorted and apart when a replacement covers the end of
@@ -469,4 +512,25 @@ fn a_link_is_plain_unless_it_says() {
     let block = Block::new(BlockKind::Paragraph, 0, 0, String::new());
     assert_eq!(block.lang, Lang::NONE);
     assert_eq!(block.drop_cap, 0);
+}
+
+#[test]
+fn try_checkpoint_refuses_without_changing_the_map() {
+    let mut map = OffsetMap::default();
+    assert_eq!(map.try_checkpoint(1, 1), Ok(()));
+    assert_eq!(map.try_checkpoint(2, 5), Ok(()));
+    // The same index again moves its source, as `checkpoint` does.
+    assert_eq!(map.try_checkpoint(2, 9), Ok(()));
+    assert_eq!(map.try_checkpoint(1, 0), Err(CheckpointError::OutOfOrder));
+    if let Ok(past) = usize::try_from(u64::from(u32::MAX) + 1) {
+        assert_eq!(map.try_checkpoint(past, 0), Err(CheckpointError::TooLarge));
+    }
+    assert_eq!(map.checkpoints().collect::<Vec<_>>(), [(1, 1), (2, 9)]);
+    assert_eq!(map.checkpoints().len(), 2);
+
+    let mut same = OffsetMap::default();
+    same.checkpoint(1, 1);
+    same.checkpoint(2, 5);
+    same.checkpoint(2, 9);
+    assert_eq!(map, same);
 }

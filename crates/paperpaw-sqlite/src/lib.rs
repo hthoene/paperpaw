@@ -27,7 +27,7 @@ mod varint;
 mod write;
 
 pub use read::{Database, Row, SchemaEntry, columns};
-pub use record::{Value, compare_records, decode_record, encode_record};
+pub use record::{Value, compare_records, decode_record, encode_record, try_encode_record};
 pub use write::Writer;
 
 use core::fmt;

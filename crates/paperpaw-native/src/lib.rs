@@ -1,14 +1,14 @@
 //! Native code plugins as files (ADR 0024), as the plugin, the firmware
 //! and the tools that make them agree on: what a plugin file (`.ppn`)
-//! holds and how it is checked ([`Header`]), how its image is moved to
-//! where it runs ([`Relocator`]), the table the firmware gives every
+//! holds and how it is checked ([`Header`], `header5`), how its image is
+//! moved to where it runs (`stream5`), the table the firmware gives every
 //! plugin ([`Api`]) and the plugin's entry ([`Entry`]), and, for the X4,
 //! the index of plugins kept in flash ([`index`]) behind the firmware's
 //! image ([`ImageExtent`]), where the web flasher also leaves a
 //! [`bundle`] of plugins to install. Authors sign their files
 //! ([`signature`]).
-//! Plugins get their entry from the SDK's `plugin!`; `paperpaw-sign pack`
-//! makes the files.
+//! Plugins get their entry from the SDK's `native_plugin!`;
+//! `paperpaw-sign pack` makes the files.
 //!
 //! # The file
 //!
@@ -64,7 +64,7 @@
 //! RAM, as the [`index`] says where. The image then no longer moves as
 //! one block, so what reaches across the hot code's edge by a distance
 //! changes: the file lists those instructions as patches, which the
-//! [`Relocator`] writes anew. Only RISC-V moves hot code (`auipc` with
+//! relocator writes anew. Only RISC-V moves hot code (`auipc` with
 //! `jalr`, `addi`, a load or a store); an Xtensa file has none, its hot
 //! code stays in place.
 
@@ -76,10 +76,20 @@ pub mod bundle;
 pub mod compiler;
 mod extent;
 mod header;
+#[cfg(feature = "kernel")]
+pub mod metadata;
+
+#[cfg(feature = "kernel")]
+pub mod header5;
+pub mod host_glue;
 pub mod index;
 mod interface;
+pub mod preflight;
+pub mod profile;
 mod reloc;
 pub mod signature;
+#[cfg(feature = "kernel")]
+pub mod stream5;
 
 pub use extent::ImageExtent;
 pub use header::{
@@ -87,5 +97,7 @@ pub use header::{
     Older, Problem,
 };
 pub use interface::{API_SYMBOL, Api, ENTRY_SECTION, ENTRY_SYMBOL, Entry, TABLE_SYMBOLS};
-pub use reloc::{PatchKind, Relocator, check_relocations};
+pub use reloc::PatchKind;
+#[cfg(test)]
+pub(crate) use reloc::{Relocator, check_relocations};
 pub use signature::Signature;

@@ -57,7 +57,7 @@ impl WordSet {
             spans.push((start, end));
         }
         let slice = |&(start, end): &(u32, u32)| &raw[start as usize..end as usize];
-        spans.sort_unstable_by(|a, b| slice(a).cmp(slice(b)));
+        paperpaw_sort::sort_by(&mut spans, |a, b| slice(a).cmp(slice(b)));
         spans.dedup_by(|a, b| slice(a) == slice(b));
         let mut text = String::with_capacity(spans.iter().map(|s| slice(s).len()).sum());
         let mut starts = Vec::with_capacity(spans.len() + 1);

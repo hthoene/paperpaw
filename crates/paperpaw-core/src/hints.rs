@@ -7,9 +7,10 @@ use alloc::borrow::Cow;
 use alloc::string::ToString;
 use alloc::vec::Vec;
 
+use crate::kit::action::ActionHint;
 use paperpaw_platform::{Instant, Rect, RefreshMode};
 use paperpaw_sdk::builtin::settings as core_settings;
-use paperpaw_sdk::{ActionHint, Hint, HintVisibility, Id};
+use paperpaw_sdk::{Hint, HintVisibility, Id};
 
 use crate::keymap::InputKey;
 use crate::{ActiveScreen, HINTS_MS, Kernel};
@@ -58,14 +59,14 @@ impl Kernel {
         let panel = self.framebuffer.bounds();
         let height = self.hint.height.min(panel.height / 2);
         let below = self.stack.last().is_some_and(|top| top.hinted);
-        let pressed = self.hint.until.is_some_and(|until| self.now < until);
+        let pressed = self.hint.until.is_some_and(|until| self.shared.now < until);
         (height > 0 && (below || pressed))
             .then(|| Rect::new(0, panel.height - height, panel.width, height))
     }
 
     /// When the full screen shown has the row of hints.
     pub(crate) fn base_hints(&self) -> HintVisibility {
-        let env = self.shared.env(self.now);
+        let env = self.shared.place(self.shared.now);
         self.stack
             .iter()
             .rev()
@@ -73,16 +74,12 @@ impl Kernel {
             .map_or(HintVisibility::Shown, |s| self.hints_of(s))
     }
 
-    /// When open screen `active` shows the row: as it says, else as its
-    /// plugin said for it.
+    /// When open screen `active` shows the row: as it says, else always.
     pub(crate) fn hints_of(&self, active: &ActiveScreen) -> HintVisibility {
         if active.screen.mode().is_full_screen() {
             return HintVisibility::Hidden;
         }
-        active
-            .screen
-            .hints()
-            .unwrap_or_else(|| self.shared.registry.hints_of(&active.id))
+        active.screen.hints().unwrap_or(HintVisibility::Shown)
     }
 
     /// Shows the row for a while over a screen that has it on a press.
@@ -90,7 +87,7 @@ impl Kernel {
         if self.hint.height == 0 || self.base_hints() != HintVisibility::OnPress {
             return;
         }
-        self.hint.until = Some(self.now.add_millis(HINTS_MS));
+        self.hint.until = Some(self.shared.now.add_millis(HINTS_MS));
         self.hint.shown.clear();
         // The row lies over the page's text, which a quicker waveform
         // would leave ghosts of at each press.
@@ -100,7 +97,11 @@ impl Kernel {
     /// Takes the row away again once its time is over: the screen below
     /// is drawn there again.
     pub(crate) fn hide_hints(&mut self) {
-        if !self.hint.until.is_some_and(|until| until <= self.now) {
+        if !self
+            .hint
+            .until
+            .is_some_and(|until| until <= self.shared.now)
+        {
             return;
         }
         self.hint.until = None;
@@ -122,7 +123,7 @@ impl Kernel {
                 .bool(core_settings::BUTTON_HINTS.as_str())
             && self.rotation() == paperpaw_platform::Rotation::Deg0;
         if shown {
-            paperpaw_sdk::ui::button_hints_height(&self.shared.env(self.now))
+            crate::kit::ui::button_hints_height(&self.shared.place(self.shared.now))
         } else {
             0
         }
@@ -140,11 +141,10 @@ impl Kernel {
     }
 
     /// What the row of hints shows for each button in it: what the button
-    /// runs here, as the screen on top names it.
+    /// runs here, as the screen input goes to names it.
     pub(crate) fn current_hints(&self) -> Vec<Hint> {
         use paperpaw_sdk::builtin::actions;
-        let env = self.shared.env(self.now);
-        let top = self.stack.last();
+        let top = self.input_index().map(|index| &self.stack[index]);
         self.hint
             .buttons
             .iter()
@@ -152,7 +152,20 @@ impl Kernel {
                 let Some(action) = self.resolve(&InputKey::Button(Cow::Borrowed(button))) else {
                     return Hint::Hidden;
                 };
-                match top.map_or(Hint::Default, |t| t.screen.hint(action, &env)) {
+                // What a native screen relabelled with `command.set_hint` wins
+                // over what its `hint` says.
+                let relabelled = top.and_then(|t| {
+                    self.shared
+                        .stack_rows
+                        .labels()
+                        .try_borrow()
+                        .ok()?
+                        .hint(t.serial, action.as_str())
+                });
+                if let Some(hint) = relabelled {
+                    return hint;
+                }
+                match top.map_or(Hint::Default, |t| t.screen.hint(action)) {
                     // Nowhere to go back to from the first screen.
                     Hint::Default if *action == actions::BACK && self.stack.len() < 2 => {
                         Hint::Hidden

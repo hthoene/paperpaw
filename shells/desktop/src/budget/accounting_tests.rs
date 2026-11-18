@@ -21,11 +21,37 @@ use super::*;
 
 /// Held by every test of this binary that tracks allocations or sets a
 /// budget.
-pub(crate) static LOCK: Mutex<()> = Mutex::new(());
+static LOCK: Mutex<()> = Mutex::new(());
+
+thread_local! {
+    /// Whether this thread holds [`LOCK`] (see [`Held`]).
+    static HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// [`LOCK`], held by this thread: what [`hold`] gives.
+pub(crate) struct Held(#[allow(dead_code, reason = "held until dropped")] MutexGuard<'static, ()>);
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        HELD.with(|held| held.set(false));
+    }
+}
+
+/// Takes [`LOCK`] for this thread until the guard is dropped.
+pub(crate) fn hold() -> Held {
+    let guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    HELD.with(|held| held.set(true));
+    Held(guard)
+}
+
+/// Whether this thread holds [`LOCK`].
+pub(crate) fn held() -> bool {
+    HELD.with(std::cell::Cell::get)
+}
 
 /// The counters to themselves, the budget lifted, as no profile set one.
-fn alone() -> MutexGuard<'static, ()> {
-    let guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+fn alone() -> Held {
+    let guard = hold();
     OVERRIDDEN.store(false, Ordering::Relaxed);
     set_limit(None);
     guard
@@ -275,4 +301,33 @@ fn stats_show_the_heap_in_kib_with_the_budget_where_there_is_one() {
         ..with
     };
     assert_eq!(without.to_string(), "heap 1.5 KiB (peak 2.0 KiB)");
+}
+
+#[test]
+fn flat_shared_depth_refuses_actual_allocation_at_full_heap_but_can_be_retained() {
+    use paperpaw_core::native_host::flat::{FlatDepth, FlatError};
+    let _alone = alone();
+    let baseline = stats();
+    let depth = track(FlatDepth::try_new).unwrap();
+    let before = stats();
+    set_limit(Some(before.live));
+    let refused = track(FlatDepth::try_new);
+    let retained = track(|| depth.try_clone());
+    let after = stats();
+    set_limit(None);
+    assert!(matches!(refused, Err(FlatError::Allocation)));
+    assert!(retained.is_some());
+    assert!(core::ptr::eq(
+        depth.as_depth(),
+        retained.as_ref().unwrap().as_depth()
+    ));
+    assert_eq!(after.failed, before.failed + 1);
+    assert_eq!(after.live, before.live);
+    let charged = before.live - baseline.live;
+    drop(retained);
+    drop(depth);
+    assert_eq!(live(), baseline.live);
+    eprintln!(
+        "FlatDepth shared allocation: {charged} budget bytes including header; full-heap retain: 0 bytes"
+    );
 }

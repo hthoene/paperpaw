@@ -13,13 +13,18 @@
 
 mod common;
 
+use common::AddDriver;
+
 use std::borrow::Cow;
 
 use common::{BASE, DEVICE, Harness, press};
+use paperpaw_core::Ask;
+use paperpaw_core::Staging;
+use paperpaw_core::kit::action::ActionSpec;
+use paperpaw_core::kit::menus::MenuEntry;
 use paperpaw_core::sdk::builtin::{actions, slots};
 use paperpaw_core::sdk::{
-    ActionSpec, Command, Id, Manifest, MemoryStorage, MenuEntry, Params, Plugin, PluginState,
-    Priority, RegisterError, Registrar, Screen, ScreenSpec, Setting, SettingSpec,
+    Id, Manifest, MemoryStorage, Params, PluginState, Priority, RegisterError, Setting, SettingSpec,
 };
 use paperpaw_core::{Kernel, Warning, WarningSource};
 use paperpaw_platform::Instant;
@@ -51,17 +56,21 @@ struct Faulty {
     harness: Harness,
 }
 
-impl Plugin for Faulty {
-    fn manifest(&self) -> Manifest {
-        common::manifest("bad")
-    }
+std::thread_local! {
+    /// The faulty plugin's log, in the test running (its handler is a plain
+    /// function and holds none).
+    static FAULTY_LOG: std::cell::RefCell<Option<common::Log>> = const { std::cell::RefCell::new(None) };
+}
 
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn faulty_items(kept: Faulty) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
         let id = |name: &str| Id::parse(&format!("bad.{name}")).unwrap();
-        r.add_screen(ScreenSpec::new(
+        r.add_fake(paperpaw_core::testing::FakeSpec::new(
             id("screen"),
             "x",
-            Box::new(|_, _| -> Box<dyn Screen> { unreachable!("never opened") }),
+            Box::new(|_, _| -> Box<dyn paperpaw_core::testing::Fake> {
+                unreachable!("never opened")
+            }),
         ))?;
         r.bind_slot(slots::HOME, id("screen"), Priority(i16::MAX))?;
         r.add_action(ActionSpec::new(id("act"), "x"))?;
@@ -70,25 +79,26 @@ impl Plugin for Faulty {
             "x",
             1,
             5,
-            if matches!(self.fault, Fault::Default) {
+            if matches!(kept.fault, Fault::Default) {
                 9
             } else {
                 2
             },
             paperpaw_sdk::builtin::groups::OTHER,
         ))?;
-        let log = self.harness.log.clone();
-        r.subscribe(
-            common::LATER,
-            Box::new(move |_, _, _| log.borrow_mut().push(String::from("faulty heard"))),
-        )?;
+        FAULTY_LOG.with(|log| *log.borrow_mut() = Some(kept.harness.log.clone()));
+        r.subscribe(common::LATER, |_, _| {
+            if let Some(log) = FAULTY_LOG.with(|log| log.borrow().clone()) {
+                log.borrow_mut().push(String::from("faulty heard"));
+            }
+        })?;
         r.add_menu_entry(
             MenuEntry::new(paperpaw_core::sdk::builtin::menus::MAIN, id("act")).order(1),
         )?;
         r.add_keymap(Cow::Borrowed(
             "[keymap.global]\nbutton.page-forward = bad.act\n",
         ))?;
-        match self.fault {
+        match kept.fault {
             Fault::Late => Err(RegisterError::Invalid {
                 message: Cow::Borrowed("gave up"),
             }),
@@ -102,13 +112,21 @@ impl Plugin for Faulty {
     }
 }
 
+/// What [`faulty_items`] registers under.
+fn faulty_manifest() -> Manifest {
+    common::manifest("bad")
+}
+
 fn faulty(harness: &Harness, fault: Fault) -> (Kernel, Vec<Warning>) {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Faulty {
-            fault,
-            harness: harness.clone(),
-        })
-        .plugin(harness.plugin())
+        .items(
+            faulty_manifest(),
+            faulty_items(Faulty {
+                fault,
+                harness: harness.clone(),
+            }),
+        )
+        .driver(harness.plugin())
         .build()
         .unwrap();
     let warnings = kernel.take_warnings();
@@ -147,11 +165,7 @@ fn a_plugin_that_fails_leaves_none_of_its_contributions() {
         assert!(kernel.settings().get("bad.level").is_none(), "{fault:?}");
         assert!(!kernel.actions().contains("bad.act"), "{fault:?}");
         assert!(!kernel.known_screens().any(|s| s.as_str() == "bad.screen"));
-        harness.run(
-            &mut kernel,
-            10,
-            [Command::Emit(common::LATER, Params::new())],
-        );
+        harness.run(&mut kernel, 10, [Ask::Emit(common::LATER, Params::new())]);
         assert!(harness.lines("faulty").is_empty(), "{fault:?}");
         press(&mut kernel, 1000, "page-forward");
         press(&mut kernel, 2000, "page-back");
@@ -178,11 +192,14 @@ fn a_broken_key_map_is_reported_with_its_line() {
 fn a_failing_plugin_switched_off_is_listed_without_a_warning() {
     let harness = Harness::new();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(Faulty {
-            fault: Fault::Late,
-            harness: harness.clone(),
-        })
-        .plugin(harness.plugin())
+        .items(
+            faulty_manifest(),
+            faulty_items(Faulty {
+                fault: Fault::Late,
+                harness: harness.clone(),
+            }),
+        )
+        .driver(harness.plugin())
         .user_config("[plugins]\nbad = off\n")
         .build()
         .unwrap();
@@ -196,28 +213,18 @@ fn a_failing_plugin_switched_off_is_listed_without_a_warning() {
 
 /// A plugin with a plain id other than its manifest's, or the same id as
 /// one loaded before.
-struct Named {
-    id: &'static str,
-}
-
-impl Plugin for Named {
-    fn manifest(&self) -> Manifest {
-        common::manifest(self.id)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.bind_slot(slots::HOME, Id::new_static("drv.full"), Priority(i16::MAX))
-    }
+fn named(r: &mut Staging) -> Result<(), RegisterError> {
+    r.bind_slot(slots::HOME, Id::new_static("drv.full"), Priority(i16::MAX))
 }
 
 #[test]
 fn plugins_with_taken_dotted_or_reserved_ids_are_refused() {
     let harness = Harness::new();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
-        .plugin(Named { id: "drv" })
-        .plugin(Named { id: "core" })
-        .plugin(Named { id: "drv.sub" })
+        .driver(harness.plugin())
+        .items(common::manifest("drv"), named)
+        .items(common::manifest("core"), named)
+        .items(common::manifest("drv.sub"), named)
         .build()
         .unwrap();
     let warnings = kernel.take_warnings();
@@ -297,7 +304,7 @@ fn broken_data_plugins_are_reported_and_good_ones_still_load() {
     ]);
     let harness = Harness::new();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .storage(storage)
         .build()
         .unwrap();
@@ -312,13 +319,15 @@ fn broken_data_plugins_are_reported_and_good_ones_still_load() {
         "bad-version",
         "latin1",
         "huge",
+        // The host's own id: refused as a manifest, before any duplicate check.
+        "plugins/core/plugin.ini: invalid id `core`",
     ] {
         assert!(
             text.iter().any(|w| w.contains(name)),
             "{name} not reported: {text:#?}"
         );
     }
-    for id in ["core", "drv", "bad-keys", "bad-default", "bad-presets"] {
+    for id in ["drv", "bad-keys", "bad-default", "bad-presets"] {
         assert!(
             warnings
                 .iter()
@@ -345,7 +354,7 @@ fn broken_data_plugins_are_reported_and_good_ones_still_load() {
 fn commands_for_plugins_that_are_not_data_plugins_are_refused() {
     let harness = Harness::new();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .storage(MemoryStorage::new().with("books/a.txt", b"keep".to_vec()))
         .build()
         .unwrap();
@@ -354,14 +363,14 @@ fn commands_for_plugins_that_are_not_data_plugins_are_refused() {
         &mut kernel,
         10,
         [
-            Command::RemovePlugin(Id::new_static("drv")),
-            Command::RemovePlugin(Id::new_static("core")),
-            Command::RemovePlugin(Id::new_static("nobody")),
-            Command::LoadPlugin(String::from("plugins/nothing-here")),
-            Command::LoadPlugin(String::new()),
-            Command::LoadPlugin(String::from("../../..")),
-            Command::SetPluginEnabled(Id::new_static("core"), false),
-            Command::SetPluginEnabled(Id::new_static("nobody"), true),
+            Ask::RemovePlugin(Id::new_static("drv")),
+            Ask::RemovePlugin(Id::new_static("core")),
+            Ask::RemovePlugin(Id::new_static("nobody")),
+            Ask::LoadPlugin(String::from("plugins/nothing-here")),
+            Ask::LoadPlugin(String::new()),
+            Ask::LoadPlugin(String::from("../../..")),
+            Ask::SetPluginEnabled(Id::new_static("core"), false),
+            Ask::SetPluginEnabled(Id::new_static("nobody"), true),
         ],
     );
     let warnings = kernel.take_warnings();
@@ -403,7 +412,7 @@ proptest! {
         ]);
         let harness = Harness::new();
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(harness.plugin())
+            .driver(harness.plugin())
             .storage(storage)
             .build()
             .unwrap();
@@ -465,14 +474,8 @@ impl paperpaw_platform::Storage for NoSecrets {
 static SECRET: paperpaw_core::sdk::SettingExtra = paperpaw_core::sdk::SettingExtra::new().secret();
 
 /// A plugin (`keeper`) with a secret setting, `keeper.key`.
-struct Keeper;
-
-impl Plugin for Keeper {
-    fn manifest(&self) -> Manifest {
-        common::manifest("keeper")
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn keeper() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         r.add_setting(
             SettingSpec::text(
                 "keeper.key",
@@ -483,6 +486,11 @@ impl Plugin for Keeper {
             .with_extra(&SECRET),
         )
     }
+}
+
+/// What [`keeper`] registers under.
+fn keeper_manifest() -> Manifest {
+    common::manifest("keeper")
 }
 
 /// A secret setting kept in `paperpaw.ini` before stays there while the
@@ -501,7 +509,7 @@ fn a_secret_setting_stays_in_the_file_until_the_secrets_are_saved() {
         .unwrap();
     let start = |storage: &NoSecrets| {
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(Keeper)
+            .items(keeper_manifest(), keeper())
             .storage(storage.clone())
             .build()
             .unwrap();

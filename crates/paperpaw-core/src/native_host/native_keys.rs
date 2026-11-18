@@ -1,0 +1,128 @@
+//! The key bindings native plugins declared (`key.bind`, `registry.md`
+//! section 6) in the kernel's key map.
+//!
+//! The rows live in the declaration store, charged there, and leave with their
+//! owner (`begin_native_unload`); this module reads them when the key map is
+//! built (`Kernel::rebuild_keymap`), after the preset, the plugins' key map
+//! sources and the device's (whose bindings outrank a plugin's) and before the
+//! user's, so the user's bindings win. A global row that would leave the global
+//! layer without an input to the main menu is dropped (`Keymap::bind_native`);
+//! the other rows stay. A row with
+//! a condition (`when_key`, `when_value`) binds while that setting has that
+//! value; a setting nobody declares holds nothing, so the binding stays off
+//! (interface 6 read a missing switch as off). A change of that setting builds
+//! the key map anew.
+use super::{
+    declaration_store::Kind, native_declarations::NativeDeclarations, registrations::Record,
+    registry_service::rules::value_holds,
+};
+use crate::{
+    Id, WarningSource,
+    keymap::{DeviceInputs, Keymap, Native},
+};
+use alloc::{format, string::String, vec::Vec};
+use paperpaw_native::host_glue::ERR_BUSY;
+use paperpaw_sdk::Settings;
+
+/// Whether a binding's condition holds: none, or the declared setting has the
+/// value. A setting that is not declared is off (unlike `shown_if`, which shows
+/// what it cannot judge), so a binding never acts on a switch nobody owns.
+fn condition_holds(settings: &Settings, key: &str, value: &str) -> bool {
+    key.is_empty() || (settings.spec(key).is_some() && value_holds(settings, key, value))
+}
+
+impl NativeDeclarations {
+    /// Each declared binding whose condition holds, as `(owner, layer, input,
+    /// action)`; `ERR_BUSY` when the store is borrowed (none was visited).
+    fn key_bindings(
+        &self,
+        settings: &Settings,
+        visit: &mut dyn FnMut(&str, &str, &str, &str),
+    ) -> Result<(), i32> {
+        let store = self.store.try_borrow().map_err(|_| ERR_BUSY)?;
+        store.keys(Kind::KeyBind, &mut |key| {
+            let owner = store.plugin_of(key).unwrap_or("");
+            store.with_record(key, &mut |record| {
+                if let Record::KeyBind(bind) = record
+                    && condition_holds(settings, bind.when_key, bind.when_value)
+                {
+                    visit(owner, bind.layer, bind.input, bind.action);
+                }
+            });
+        });
+        Ok(())
+    }
+
+    /// How many bindings are declared, and whether one is conditioned on the
+    /// setting `setting` (a change of it builds the key map anew).
+    fn key_summary(&self, setting: &str) -> Result<(usize, bool), i32> {
+        let store = self.store.try_borrow().map_err(|_| ERR_BUSY)?;
+        let (mut count, mut on_setting) = (0, false);
+        store.keys(Kind::KeyBind, &mut |key| {
+            count += 1;
+            store.with_record(key, &mut |record| {
+                if let Record::KeyBind(bind) = record {
+                    on_setting |= !setting.is_empty() && bind.when_key == setting;
+                }
+            });
+        });
+        Ok((count, on_setting))
+    }
+}
+
+impl crate::Kernel {
+    /// Binds the native plugins' declared bindings in `keymap`. A binding
+    /// dropped for leaving no input to the main menu is a warning of its plugin
+    /// (once, however often the key map is built).
+    pub(crate) fn native_keys_into(&mut self, keymap: &mut Keymap) {
+        let Some(declarations) = &self.shared.registry.native_declarations else {
+            return;
+        };
+        let has = DeviceInputs::new(&self.shared.device.input);
+        let mut dropped = Vec::new();
+        // A store in use (never during a rebuild) leaves the bindings out
+        // until the next one.
+        let _ =
+            declarations.key_bindings(&self.shared.settings, &mut |owner, layer, input, action| {
+                // Checked at admission (`native_binding_ok`).
+                if keymap.bind_native(layer, input, action, &has) == Native::Dropped {
+                    dropped.push((String::from(owner), String::from(input)));
+                }
+            });
+        for (owner, input) in dropped {
+            let message = format!(
+                "a global key binding of {input} was left out: it would leave no input to the main menu"
+            );
+            let Ok(owner) = Id::parse(&owner) else {
+                continue;
+            };
+            let known = self.warnings.iter().any(|warning| {
+                warning.message == message
+                    && matches!(&warning.source, WarningSource::Plugin(id) if *id == owner)
+            });
+            if !known {
+                self.warn(WarningSource::Plugin(owner), None, message);
+            }
+        }
+    }
+
+    /// How many bindings native plugins declared.
+    pub(crate) fn native_key_count(&self) -> usize {
+        self.shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .and_then(|declarations| declarations.key_summary("").ok())
+            .map_or(0, |(count, _)| count)
+    }
+
+    /// Whether a native binding is conditioned on the setting `setting`.
+    pub(crate) fn native_key_when(&self, setting: &str) -> bool {
+        self.shared
+            .registry
+            .native_declarations
+            .as_ref()
+            .and_then(|declarations| declarations.key_summary(setting).ok())
+            .is_some_and(|(_, on_setting)| on_setting)
+    }
+}

@@ -248,3 +248,72 @@ with that before the betas of 0.5:
   format 2 that name their compiler.
 - The stable, C-shaped plugin API of ADR 0024 for 1.0 is still to come;
   then its major version becomes the interface version.
+- Interface 5 was never released either: 0.6.0-beta.1 took the
+  interface-6 round too, as one raise from 4 to 6 (#363).
+
+## Amendment: the fingerprint kept (2026-11, #94)
+
+A plugin is loaded where its fingerprint is the firmware's, and the
+fingerprint holds the interface and the sizes and alignments of what
+crosses, not the order of a trait's items or an enum's variants. The
+first bless of the interface-6 round stayed at interface 5 with the
+number in `interface.txt` lowered by hand: the `Screen` trait's items
+moved, the fingerprint stayed, and plugins built before would have been
+loaded and called the wrong functions. So:
+
+- `interface.txt` keeps the fingerprint the bless was made with, and
+  what made it: the computer's architecture, with `+outline` where the
+  `outline` feature added its layouts (`fingerprint = x86_64 …`; a
+  workspace build turns the feature on, `-p paperpaw-sdk` does not).
+- A bless of a change plugins rely on is refused unless the interface
+  is above both the number `interface.txt` says and the interface of the
+  fingerprint it keeps.
+- Layouts that changed while the shapes did not (the fingerprint of the
+  same architecture and features is another at the same interface) are
+  such a change.
+- Outside a bless the fingerprint kept must be the build's: its
+  interface on any computer, its value on one of the same architecture
+  and features.
+- Items appended to a growing trait and anything new stay free: they
+  change neither the shapes kept nor the fingerprint.
+
+
+## Amendment: drafts of an interface (2026-11-06, #228)
+
+Interface 7 (ADR 0034) is raised early, as a baseline the ports build on
+before the owner freezes it, and its rows still change what plugins rely
+on (`abi/interface-7/raise.md`). Raising the interface for each would
+spend a number per change; keeping the number with a bless of a change
+plugins rely on is what the amendment above refuses. So an interface has
+drafts:
+
+- `native::DRAFT` (a `u16`, from 1) is the draft of `native::INTERFACE`.
+  It is hashed into `native::FINGERPRINT` like the layouts: a plugin
+  built for another draft does not fit and is refused, never loaded
+  (`Fingerprint::misfit` says so). `interface.txt` keeps it as `draft`.
+- Freezing deletes `native::DRAFT` and the `draft` line without a trace.
+  It is hashed only while it is not 0, so the frozen fingerprint is the
+  one the interface would have without drafts, and differs from every
+  draft's: their builds are refused.
+- At the interface kept, a bless of a change plugins rely on is refused
+  unless a draft is kept and `DRAFT` is a higher draft, or gone
+  (frozen). A frozen interface never becomes a draft again: only a raise
+  changes it. A raise may start at a draft or frozen.
+- Every raise, re-bless of a draft and freeze is named in
+  `abi/interface-<N>/blessings.txt`, a line `<draft> <what changed>
+  (#<ticket>)`, only appended. CI (`tools/abi-reference-check.py`)
+  compares the reference files and both constants with the PR's base:
+  the interface never moves back or skips, a frozen interface's files
+  stay byte for byte, a draft never moves back, and a change without a
+  new line naming the candidate's draft is refused.
+- Freezing is the owner's decision, named with draft 0.
+
+## Amendment: the shared function tables are gone (2026-11, #244)
+
+Interface 7 does not use them: a plugin file of format 5 carries its own
+copies and calls PaperPaw through the host slots (`abi/`). With the last
+code for plugin files of the formats before it, the tables went too: the
+crate `paperpaw-table`, the `shared!` declarations, `shared.list`,
+`table.sig`, `table.body` and `tools/shared-table.py`. "Shared functions
+run the firmware's body" above no longer applies: a change to the body
+of such a function is an ordinary change.

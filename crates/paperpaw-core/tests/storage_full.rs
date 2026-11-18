@@ -12,14 +12,17 @@
 
 mod common;
 
+use common::AddDriver;
+
 use std::cell::Cell;
 use std::rc::Rc;
 
 use common::{DEVICE, Harness, REPLY};
+use paperpaw_core::Ask;
 use paperpaw_core::sdk::builtin::CONFIG_FILE;
 use paperpaw_core::sdk::secrets::{FILE as SECRETS, SecretChange};
 use paperpaw_core::sdk::{
-    Command, DirEntry, HttpRequest, Id, MemoryStorage, SocketRead, Storage, StorageError,
+    DirEntry, HttpRequest, Id, MemoryStorage, SocketRead, Storage, StorageError,
 };
 use paperpaw_core::{HttpResponse, Io, Kernel, ServerCall, ServerEvent, SocketCall, SocketEvent};
 use paperpaw_platform::Instant;
@@ -93,7 +96,7 @@ impl Storage for Card {
 
 fn kernel(harness: &Harness, card: &Card) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(harness.plugin())
+        .driver(harness.plugin())
         .storage(card.clone())
         .network(true)
         .build()
@@ -121,9 +124,9 @@ fn a_setting_changed_on_a_full_card_applies_and_keeps_the_file() {
         &mut kernel,
         30,
         [
-            Command::ResetSetting(Id::new_static("core.ui-size")),
-            Command::SetMenu(Id::new_static("core.main"), Some(vec![])),
-            Command::bind(
+            Ask::ResetSetting(Id::new_static("core.ui-size")),
+            Ask::SetMenu(Id::new_static("core.main"), Some(vec![])),
+            Ask::bind(
                 String::from("global"),
                 String::from("button.up"),
                 Some(Id::new_static("core.menu")),
@@ -160,7 +163,7 @@ fn request_bodies_that_do_not_fit_are_refused_and_not_passed_on() {
     harness.run(
         &mut kernel,
         10,
-        [Command::serve(Id::new_static("drv.server"), 8080, REPLY)],
+        [Ask::serve(Id::new_static("drv.server"), 8080, REPLY)],
     );
     let number = kernel
         .take_io()
@@ -222,7 +225,7 @@ fn a_file_read_from_a_socket_onto_a_full_card_fails_and_closes() {
     harness.run(
         &mut kernel,
         10,
-        [Command::connect(
+        [Ask::connect(
             socket.clone(),
             String::from("calibre.local"),
             9090,
@@ -239,7 +242,7 @@ fn a_file_read_from_a_socket_onto_a_full_card_fails_and_closes() {
         .unwrap();
     kernel.socket_event(Instant(20), SocketEvent::Connected { socket: number });
     let read = || {
-        Command::socket_read(
+        Ask::socket_read(
             socket.clone(),
             SocketRead::File {
                 path: String::from("books/new.epub"),
@@ -271,7 +274,7 @@ fn a_file_read_from_a_socket_onto_a_full_card_fails_and_closes() {
     harness.run(
         &mut kernel,
         30,
-        [Command::connect(
+        [Ask::connect(
             socket.clone(),
             String::from("calibre.local"),
             9090,
@@ -292,7 +295,7 @@ fn a_download_onto_a_full_card_fails_and_keeps_the_old_file() {
     harness.run(
         &mut kernel,
         10,
-        [Command::http(
+        [Ask::http(
             HttpRequest::get("http://example.org/a.epub", REPLY).save_to("books/a.epub"),
         )],
     );

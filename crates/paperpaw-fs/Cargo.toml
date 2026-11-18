@@ -12,6 +12,7 @@ categories = ["filesystem"]
 
 [dependencies]
 paperpaw-platform.workspace = true
+paperpaw-sort.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

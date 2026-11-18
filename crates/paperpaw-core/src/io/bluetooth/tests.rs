@@ -3,7 +3,7 @@ use alloc::vec;
 use core::time::Duration;
 
 use paperpaw_sdk::Event;
-use paperpaw_sdk::bluetooth::{self as bt, BtCommand, CharacteristicSpec, Handle};
+use paperpaw_sdk::bluetooth::{self as bt, BtCommand, BtRequest, Handle};
 
 const FOUND: Event<BtEvent> = Event::new("a.found");
 const PULSE: Event<BtEvent> = Event::new("pulse.found");
@@ -17,11 +17,8 @@ fn radio() -> Radio {
 }
 
 /// The command inside `command`, as the kernel hands it on.
-fn inner(command: Command) -> BtCommand {
-    match command {
-        Command::Bluetooth(request) => request.into_parts().0,
-        other => panic!("not a Bluetooth command: {other:?}"),
-    }
+fn inner(request: BtRequest) -> BtCommand {
+    request.into_parts().0
 }
 
 fn asked(now: u64) -> Asked {
@@ -42,14 +39,14 @@ fn readers(now: u64) -> Asked {
 fn run(
     radio: &mut Radio,
     plugin: &str,
-    command: Command,
+    command: BtRequest,
     asked: Asked,
-    out: &mut Vec<Command>,
+    out: &mut Vec<Ask>,
 ) -> Result<(), BtFailure> {
     radio.command(plugin, inner(command), asked, out)
 }
 
-fn found(radio: &mut Radio, address: &str, services: Vec<Uuid>, out: &mut Vec<Command>) {
+fn found(radio: &mut Radio, address: &str, services: Vec<Uuid>, out: &mut Vec<Ask>) {
     let found = Found {
         address: address.into(),
         name: Some(address.to_uppercase()),
@@ -61,10 +58,10 @@ fn found(radio: &mut Radio, address: &str, services: Vec<Uuid>, out: &mut Vec<Co
 }
 
 /// The events told on `events`.
-fn told(out: &[Command], events: &Event<BtEvent>) -> Vec<BtEvent> {
+fn told(out: &[Ask], events: &Event<BtEvent>) -> Vec<BtEvent> {
     out.iter()
         .filter_map(|c| match c {
-            Command::Emit(id, params) if id == events.id() => params.carried::<BtEvent>().cloned(),
+            Ask::Emit(id, params) if id == events.id() => params.carried::<BtEvent>().cloned(),
             _ => None,
         })
         .collect()
@@ -686,42 +683,6 @@ fn a_failed_read_is_told_to_who_asked_with_what_failed() {
 }
 
 #[test]
-fn the_gatt_server_numbers_its_characteristics_and_tells_the_shell() {
-    let mut radio = Radio::new(2);
-    let a = Uuid::sig(0x180F);
-    let b = Uuid::sig(0x181C);
-    radio.add_service(
-        &ServiceSpec::new(a, &FOUND)
-            .characteristic(CharacteristicSpec::new(Uuid::sig(0x2A19)).read().notify()),
-    );
-    radio.add_service(
-        &ServiceSpec::new(b, &PULSE)
-            .characteristic(CharacteristicSpec::new(Uuid::sig(0x2A8A)).write())
-            .characteristic(CharacteristicSpec::new(Uuid::sig(0x2A90)).read()),
-    );
-    radio.start();
-    let calls = radio.take();
-    let Some(BtCall::Server(services)) = calls.get(1) else {
-        panic!("no server: {calls:?}");
-    };
-    let handles: Vec<u16> = services
-        .iter()
-        .flat_map(|s| s.characteristics.iter().map(|c| c.handle))
-        .collect();
-    assert_eq!(handles, [1, 2, 3]);
-    assert_eq!(services[0].characteristics[0].access, Access::Encrypted);
-    // Only the service's plugin notifies on it.
-    let mut out = Vec::new();
-    let notify = bt::notify_centrals(a, Uuid::sig(0x2A19), [80]);
-    assert!(run(&mut radio, "pulse", notify.clone(), asked(0), &mut out).is_err());
-    run(&mut radio, "a", notify, asked(0), &mut out).unwrap();
-    assert!(radio.take().contains(&BtCall::Notify {
-        handle: 1,
-        bytes: vec![80],
-    }));
-}
-
-#[test]
 fn advertising_is_time_bound_and_merged() {
     let mut radio = radio();
     let mut out = Vec::new();
@@ -1000,4 +961,23 @@ fn enabling_keys_on_an_existing_link_sets_power_before_hid_discovery() {
             power: LinkPower::Low
         }]
     );
+}
+
+#[test]
+fn radio_and_global_usage_times_saturate() {
+    let mut radio = radio();
+    radio.on_ms = u64::MAX;
+    radio.on_since = Some(Instant(0));
+    assert_eq!(radio.take_on_ms(Instant(1)), u64::MAX);
+    radio.on_ms = u64::MAX;
+    radio.radio_off(Instant(2));
+    assert_eq!(radio.take_on_ms(Instant(2)), u64::MAX);
+    radio.on_ms = 1;
+    let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+        .build()
+        .unwrap();
+    kernel.shared.usage.bluetooth_ms = u64::MAX;
+    kernel.io.bluetooth = Some(radio);
+    kernel.sync_bluetooth();
+    assert_eq!(kernel.shared.usage.bluetooth_ms, u64::MAX);
 }

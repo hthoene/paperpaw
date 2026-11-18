@@ -8,6 +8,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+
 use paperpaw_core::Kernel;
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
@@ -47,14 +49,16 @@ fn role(kernel: &Kernel, role: &paperpaw_sdk::Id) -> String {
 #[test]
 fn the_status_lines_follow_their_setting() {
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
-    let builder = Kernel::builder(DEVICE)
-        .storage(storage)
-        .user_config("[help]\nshow = false\n");
-    let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+    let builder = Kernel::builder(DEVICE).storage(storage).user_config("");
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let _ = kernel.start(Instant(0));
     // As the menus at first.
     assert_eq!(status(&kernel), role(&kernel, &fonts::UI));
-    assert_ne!(role(&kernel, &fonts::UI), role(&kernel, &fonts::READING));
+    // Book text has a font of its own, but where the firmware carries
+    // the UI font alone (the packs of a small device).
+    let lean = matches!(fonts(), paperpaw_app::Fonts::Packs);
+    let same = role(&kernel, &fonts::UI) == role(&kernel, &fonts::READING);
+    assert_eq!(same, lean);
     // As the book.
     let _ = kernel
         .set_setting(
@@ -64,7 +68,7 @@ fn the_status_lines_follow_their_setting() {
         )
         .unwrap();
     assert_eq!(status(&kernel), role(&kernel, &fonts::READING));
-    // A family of its own: every family installed is offered.
+    // A family of its own: every family that is there is offered.
     let spec = kernel
         .settings()
         .spec(settings::STATUS_FONT.as_str())
@@ -72,8 +76,13 @@ fn the_status_lines_follow_their_setting() {
     let paperpaw_sdk::SettingKind::Choice(choices) = &spec.kind else {
         panic!("a choice");
     };
+    // Literata's regular face comes on the card of a lean device, and
+    // this card has none: named, and not offered.
     let families = kernel.fonts().families();
-    assert!(families.iter().all(|f| choices.contains(f)), "{families:?}");
+    let absent = |family: &str| lean && family == "Literata";
+    for family in &families {
+        assert_eq!(choices.contains(family), !absent(family), "{family}");
+    }
     let ui_family = families
         .iter()
         .find(|f| f.contains("Source Sans") || f.contains("PaperPaw Sans"))
@@ -89,11 +98,11 @@ fn the_status_lines_follow_their_setting() {
 fn a_font_chosen_as_source_sans_3_is_kept_where_the_packs_are_paperpaw_sans() {
     // Chosen by the family's name before the packs were renamed.
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
-    let builder = Kernel::builder(DEVICE).storage(storage).user_config(
-        "[help]\nshow = false\n\n[core]\nreading-font = Source Sans 3\nstatus-font = Source Sans 3\n",
-    );
+    let builder = Kernel::builder(DEVICE)
+        .storage(storage)
+        .user_config("\n[core]\nreading-font = Source Sans 3\nstatus-font = Source Sans 3\n");
     let packs = matches!(fonts(), paperpaw_app::Fonts::Packs);
-    let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+    let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let _ = kernel.start(Instant(0));
     let _ = kernel.tick(Instant(10));
     let family = if packs {

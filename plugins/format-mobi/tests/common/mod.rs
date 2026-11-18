@@ -3,6 +3,8 @@
 
 #![allow(dead_code, reason = "each test uses some of it")]
 
+pub mod io;
+
 pub struct Builder {
     pub text: Vec<u8>,
     pub compress: bool,

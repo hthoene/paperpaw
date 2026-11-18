@@ -4,7 +4,7 @@ use super::*;
 use alloc::rc::Rc;
 use core::cell::Cell;
 use paperpaw_platform::{DirEntry, StorageError};
-use paperpaw_sdk::{MemoryStorage, Version};
+use paperpaw_sdk::MemoryStorage;
 
 const INSTALLED: &str = ".paperpaw/plugin-code.txt";
 
@@ -37,27 +37,16 @@ impl Storage for Counted {
     }
 }
 
-struct Code(Id);
-impl Plugin for Code {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(self.0.clone(), "Code", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-    fn register(&self, _: &mut Registrar) -> Result<(), RegisterError> {
-        Ok(())
-    }
-}
-
 struct Loader(Rc<Cell<usize>>);
 impl CodeLoader for Loader {
-    fn load(
+    fn load_native(
         &mut self,
         _: &dyn Storage,
         file: &CodeFile<'_>,
-    ) -> Result<Box<dyn Plugin>, PluginProblem> {
-        assert_eq!(file.sha256, [7; 32]);
+    ) -> Result<Option<Box<dyn NativeAdmission>>, PluginProblem> {
+        assert_eq!(file.sha256, Some([7; 32]));
         self.0.set(self.0.get() + 1);
-        Ok(Box::new(Code(file.id.clone())))
+        Ok(Some(Box::new(Admitted)))
     }
 }
 
@@ -102,4 +91,72 @@ fn thirty_two_plugins_read_the_installed_list_once() {
             .count(),
         32
     );
+}
+
+/// A loader that wires in `prepare` (or fails to) and admits a plugin that
+/// needs the wired services only if it did, recording what is asked in order.
+struct Ordered {
+    wiring_succeeds: bool,
+    wired: bool,
+    log: Rc<core::cell::RefCell<Vec<String>>>,
+}
+impl CodeLoader for Ordered {
+    fn prepare(&mut self, _: &Rc<dyn Storage>) {
+        self.wired = self.wiring_succeeds;
+        self.log.borrow_mut().push("prepare".into());
+    }
+    fn load_native(
+        &mut self,
+        _: &dyn Storage,
+        file: &CodeFile<'_>,
+    ) -> Result<Option<Box<dyn NativeAdmission>>, PluginProblem> {
+        self.log.borrow_mut().push(format!("load {}", file.id));
+        if !self.wired {
+            return Err(PluginProblem::Unsupported);
+        }
+        Ok(Some(Box::new(Admitted)))
+    }
+}
+
+fn start_with_wiring(wiring_succeeds: bool) -> (Vec<String>, usize) {
+    let storage = MemoryStorage::new();
+    for id in ["plugin-a", "plugin-b"] {
+        let ini = b"[plugin]\nversion = 1.0.0\n";
+        storage
+            .write(&format!("plugins/{id}/plugin.ini"), ini)
+            .unwrap();
+        storage
+            .write(&format!("plugins/{id}/code.ppn"), b"PPNP")
+            .unwrap();
+        assert!(paperpaw_sdk::native::remember_code(&storage, id, &[7; 32]));
+    }
+    let log = Rc::new(core::cell::RefCell::new(Vec::new()));
+    let loader = Ordered {
+        wiring_succeeds,
+        wired: false,
+        log: log.clone(),
+    };
+    let kernel = Kernel::builder(crate::tests::DEVICE)
+        .storage(storage)
+        .code_plugins(Native::new("code.ppn"), Box::new(loader))
+        .build()
+        .unwrap();
+    let running = kernel
+        .plugins()
+        .iter()
+        .filter(|p| p.state == PluginState::Running);
+    let running = running.filter(|p| p.kind == PluginKind::Code).count();
+    (log.take(), running)
+}
+
+#[test]
+fn plugins_are_admitted_against_what_prepare_wired() {
+    // Wiring before the first plugin: both are admitted.
+    let (log, running) = start_with_wiring(true);
+    assert_eq!(log, ["prepare", "load plugin-a", "load plugin-b"]);
+    assert_eq!(running, 2);
+    // A wiring that failed: the same plugins are refused, not admitted.
+    let (log, running) = start_with_wiring(false);
+    assert_eq!(log, ["prepare", "load plugin-a", "load plugin-b"]);
+    assert_eq!(running, 0);
 }

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "groups": ["reading", "formats", "library", "sync", "home", "look", "notes", "learning", "news", "tools", "games", "system"],
+  "groups": ["reading", "formats", "library", "sync", "home", "look", "notes", "learning", "news", "tools", "games", "languages", "system"],
   "retired": ["reading-nook", "airy-theme", "large-print"],
   "max_id": 40,
   "max_name": 60,

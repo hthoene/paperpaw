@@ -1,0 +1,11 @@
+<feed xmlns="http://www.w3.org/2005/Atom">
+<title>R&amp;D &lt;Books&gt; &#169; &#xe9; &bogus; &amp</title>
+<link rel="next" type="application/atom+xml" href="/n?a=1&amp;b=2&#38;c=3"/>
+<link rel="search" href="/s?q={searchTerms}&amp;f=x"/>
+<entry><title>&quot;Quoted&quot; &apos;title&apos;</title><id>a&amp;b</id>
+<author><name>O&apos;Brien &amp; Sons</name></author>
+<summary>A &amp;amp; B</summary>
+<link rel="http://opds-spec.org/acquisition" type="application/epub+zip" title="T &amp; U" href="/d?id=1&amp;fmt=epub"/>
+<link rel="http://opds-spec.org/image/thumbnail" href="/t?a=&#49;&amp;b=2"/></entry>
+<entry><title>Sub</title><link rel="subsection" type="application/atom+xml" href="/s?x=&amp;y=&lt;"/></entry>
+</feed>

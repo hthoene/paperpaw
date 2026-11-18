@@ -7,11 +7,11 @@
 //! A plugin that declares [`Uses::DEVELOPER`](crate::Uses::DEVELOPER)
 //! opens the link with [`open`] and hears everything on the event it
 //! names, each a [`DevEvent`]: opened, bytes from the computer, the
-//! screen it asked for, closed, failed. It writes with [`write`](fn@write), asks
-//! for the screen with [`screen`] and closes with [`close`]. Presses,
+//! screen it asked for, closed, failed. It writes with `write`, asks
+//! for the screen with `screen` and closes with `close`. Presses,
 //! actions, files and the memory are the plugin's as for any other
-//! (`Command::Input`, `Command::RunAction`, `Env::storage`,
-//! `Env::memory`), so the tools need no commands of their own for them.
+//! (`Ask::Input`, `Ask::RunAction`, `Place::storage`,
+//! `Place::memory`), so the tools need no commands of their own for them.
 //!
 //! The kernel keeps it safe, not the plugin: the link opens only while
 //! the reader allowed it under *Developer*, confirmed on the device; the
@@ -26,7 +26,6 @@
 
 use alloc::vec::Vec;
 
-use crate::command::Command;
 use crate::event::EventData;
 use crate::id::Id;
 use crate::params::Params;
@@ -69,31 +68,16 @@ impl DevRequest {
     }
 }
 
-fn request(command: DevCommand) -> Command {
-    Command::Developer(alloc::boxed::Box::new(DevRequest {
+fn request(command: DevCommand) -> DevRequest {
+    DevRequest {
         command,
         from: None,
-    }))
+    }
 }
 
 /// Opens the link `link`, heard as `events`.
-pub fn open(link: Id, events: Id) -> Command {
+pub fn open(link: Id, events: Id) -> DevRequest {
     request(DevCommand::Open { link, events })
-}
-
-/// Sends `data` to the computer over `link`.
-pub fn write(link: Id, data: Vec<u8>) -> Command {
-    request(DevCommand::Write { link, data })
-}
-
-/// Asks for the frame shown now ([`DevEvent::Screen`]).
-pub fn screen(link: Id) -> Command {
-    request(DevCommand::Screen { link })
-}
-
-/// Closes `link`.
-pub fn close(link: Id) -> Command {
-    request(DevCommand::Close { link })
 }
 
 /// Why a link closed ([`DevEvent::Closed`]).

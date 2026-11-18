@@ -12,11 +12,11 @@ use alloc::vec::Vec;
 
 use paperpaw_sdk::builtin::events;
 use paperpaw_sdk::memory::Placement;
-use paperpaw_sdk::realtime::{Room, RoomSteps, Squeeze};
+use paperpaw_sdk::realtime::{Room, RoomSteps};
 use paperpaw_sdk::wifi::{WifiCommand, WifiState};
-use paperpaw_sdk::{Handled, Id, Params, ScreenKey};
+use paperpaw_sdk::{Id, Params, ScreenKey};
 
-use crate::Kernel;
+use crate::{Kernel, meter};
 
 /// Room made for a screen, and what to give back.
 #[derive(Debug)]
@@ -31,6 +31,7 @@ pub(crate) struct Lease {
     /// Wi-Fi as it was: in a network (wanted again), or on alone.
     wifi: Option<WifiWas>,
     /// Bluetooth held off.
+    #[cfg(feature = "bluetooth")]
     bluetooth: bool,
     /// The rows of a frame's band before it was made smaller.
     rows: Option<u16>,
@@ -43,6 +44,22 @@ enum WifiWas {
 }
 
 impl Kernel {
+    /// Gives back what idle state holds before a secure connection takes the
+    /// heap (#287): the hyphenation tables open and the plugins that may sleep
+    /// and run idle (made again at their next use, as at standby). The
+    /// shell's, at a safe point outside every callback; how many plugins were
+    /// parked. Requests started by native plugins do not pass the commands that
+    /// close the tables, so the shell asks for this.
+    pub fn make_room(&mut self) -> usize {
+        let _running = self.shared.meter.enter(meter::CORE);
+        self.shared.hyphenation.close_tables();
+        self.native_repark_idle(usize::MAX)
+    }
+
+    pub(crate) fn room_screen_keys_reserved(&self) -> usize {
+        self.lease.as_ref().map_or(0, |lease| lease.closed.len())
+    }
+
     /// The memory free where `place` says, where the shell can tell:
     /// internal RAM or PSRAM where there are both, else the largest block
     /// the heap could give (all it has free where it does not say).
@@ -95,15 +112,15 @@ impl Kernel {
             steps: RoomSteps::default(),
             closed: Vec::new(),
             wifi: None,
+            #[cfg(feature = "bluetooth")]
             bluetooth: false,
             rows: None,
         });
         let enough = |k: &Kernel| k.free_for(place).is_none_or(|free| free >= asked);
-        let steps: [fn(&mut Kernel) -> Option<RoomSteps>; 6] = [
+        let steps: [fn(&mut Kernel) -> Option<RoomSteps>; 5] = [
             Kernel::room_from_caches,
             Kernel::room_from_work,
             Kernel::room_from_radios,
-            Kernel::room_from_squeeze,
             Kernel::room_from_bands,
             Kernel::room_from_screens,
         ];
@@ -166,10 +183,11 @@ impl Kernel {
                 lease.wifi = was;
             }
         }
+        #[cfg(feature = "bluetooth")]
         if !mode.wants_bluetooth()
             && let Some(radio) = &mut self.io.bluetooth
             && radio.is_on()
-            && radio.hold_off(true, self.now)
+            && radio.hold_off(true, self.shared.now)
         {
             taken = true;
             if let Some(lease) = &mut self.lease {
@@ -177,20 +195,6 @@ impl Kernel {
             }
         }
         taken.then_some(RoomSteps::RADIOS)
-    }
-
-    /// The screens below let go of what they make again as they show (a
-    /// book its pages, keeping its place), the lowest too
-    /// ([`Screen::on_squeeze`](paperpaw_sdk::Screen::on_squeeze)).
-    fn room_from_squeeze(&mut self) -> Option<RoomSteps> {
-        let top = self.stack.len().checked_sub(1)?;
-        let squeeze = Squeeze::new(self.lease.as_ref()?.asked);
-        let mut taken = false;
-        for index in 0..top {
-            taken |= self.with_screen(index, |screen, cx| screen.on_squeeze(&squeeze, cx))
-                == Handled::Yes;
-        }
-        taken.then_some(RoomSteps::SQUEEZED)
     }
 
     /// Frames drawn in bands of half the rows, where they are drawn in
@@ -221,6 +225,10 @@ impl Kernel {
         if below.is_empty() {
             return None;
         }
+        // Normal opens must leave these keys available until give_back.
+        if !self.require_screen_keys(below.len()) {
+            return None;
+        }
         for (serial, ..) in below.iter().rev() {
             self.close_screen(ScreenKey::new(*serial));
         }
@@ -236,6 +244,14 @@ impl Kernel {
     /// Everything given back: the screens opened again (the lowest first),
     /// the radios as they were, the work going on.
     fn give_back(&mut self) {
+        // Check before taking the lease or changing bands/radios. Normal
+        // opens cannot spend its reserved keys, so this is a defensive refusal.
+        if u32::try_from(self.room_screen_keys_reserved())
+            .map_or(true, |count| count > u32::MAX - self.next_serial)
+        {
+            self.warn_runtime("room restoration refused: screen key space exhausted");
+            return;
+        }
         let Some(lease) = self.lease.take() else {
             return;
         };
@@ -248,14 +264,20 @@ impl Kernel {
             self.open(id.clone(), slot.clone(), params);
         }
         match lease.wifi {
-            Some(WifiWas::Online) => self.output.commands.push(events::NETWORK_WANTED.emit(())),
+            Some(WifiWas::Online) => {
+                self.output
+                    .commands
+                    .push(crate::Ask::emit(&events::NETWORK_WANTED, ()));
+                self.native_hint(crate::native_host::registrations::EVENT_NETWORK_WANTED_TAG);
+            }
             Some(WifiWas::On) => self.io.wifi_calls.push(WifiCommand::On),
             None => {}
         }
+        #[cfg(feature = "bluetooth")]
         if lease.bluetooth
             && let Some(radio) = &mut self.io.bluetooth
         {
-            radio.hold_off(false, self.now);
+            radio.hold_off(false, self.shared.now);
         }
         self.works.hold(false);
         self.note_room();

@@ -1,6 +1,7 @@
 screen menu.list
-Text "Start reading"
-Text "Choose a book from your library."
+Button "Start reading, Choose a book from your library."
+Button "Edit"
+Dialog ""
 Row "Quick panel" (focused)
 Row "Home"
 Row "Library"

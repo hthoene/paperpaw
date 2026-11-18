@@ -1,0 +1,60 @@
+{
+  "target": "esp32c3-riscv32imc-ilp32-soft-le",
+  "floor": 1,
+  "used": [
+    {
+      "kind": "host",
+      "name": "heap.alloc"
+    },
+    {
+      "kind": "host",
+      "name": "heap.dealloc"
+    },
+    {
+      "kind": "host",
+      "name": "heap.realloc"
+    },
+    {
+      "kind": "host",
+      "name": "handle.release"
+    },
+    {
+      "kind": "host",
+      "name": "registrations.submit"
+    },
+    {
+      "kind": "host",
+      "name": "storage.size"
+    },
+    {
+      "kind": "host",
+      "name": "storage.read_at"
+    },
+    {
+      "kind": "host",
+      "name": "storage.write"
+    },
+    {
+      "kind": "host",
+      "name": "storage.append"
+    },
+    {
+      "kind": "host",
+      "name": "storage.remove"
+    },
+    {
+      "kind": "host",
+      "name": "storage.rename"
+    },
+    {
+      "kind": "callback",
+      "name": "drop"
+    },
+    {
+      "kind": "callback",
+      "name": "dispatch_event"
+    }
+  ],
+  "services": [],
+  "features": []
+}

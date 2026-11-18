@@ -285,7 +285,11 @@ fn is_removed(ch: char) -> bool {
 /// Whether text in a left-to-right paragraph needs the algorithm at all:
 /// it holds a right-to-left letter, an Arabic number or a directional
 /// control. Quotes, dashes, ellipses and ligatures do not count, so
-/// Latin text answers `false` at the cost of a scan of its bytes.
+/// Latin text answers `false` at the cost of a scan of its bytes. A Thai
+/// vowel or tone mark above or below a letter counts too, and a zero width
+/// space (where Thai text breaks a line, drawn as nothing), though they
+/// reorder nothing: only text laid out letter by letter puts a mark where
+/// its font's anchors say (see `marks`) and skips what draws nothing.
 #[must_use]
 pub fn needs_bidi(text: &str) -> bool {
     // Nothing below U+0590 counts: most labels are told at once.
@@ -309,7 +313,8 @@ pub fn needs_bidi(text: &str) -> bool {
                     | Class::FSI
                     | Class::PDI
             )
-            || matches!(ch, '\u{200E}' | '\u{200F}')
+            || matches!(ch, '\u{200B}' | '\u{200E}' | '\u{200F}')
+            || matches!(ch, '\u{E31}' | '\u{E34}'..='\u{E3A}' | '\u{E47}'..='\u{E4E}')
     })
 }
 

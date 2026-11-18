@@ -23,6 +23,10 @@ const BOOK: &str = "books/alice-in-wonderland.txt";
 /// How a page was shown: its refresh, and whether in grays.
 type Shown = Option<(RefreshMode, bool)>;
 
+/// The card has no hyphenation pack (the firmware seeds English): the reader would
+/// ask the store for it, and the dialog would cover the page.
+const NO_TABLES: &str = "[core]\nhyphenate = off\n";
+
 /// The book open on `profile`, `settings` in its `paperpaw.ini`.
 fn reading(profile: &str, settings: &str) -> Device {
     let files = MemoryStorage::new()
@@ -35,7 +39,10 @@ fn reading(profile: &str, settings: &str) -> Device {
             ".paperpaw/plugins/reader/state.ini",
             format!("[reader]\nlast = {BOOK}\n"),
         )
-        .with("paperpaw.ini", format!("[help]\nshow = false\n{settings}"));
+        .with(
+            "paperpaw.ini",
+            format!("{NO_TABLES}[help]\nshow = false\n{settings}"),
+        );
     // Refreshes are checked here, not memory (tests/memory.rs does): the
     // budget counts every thread's allocations at once, and the tests run
     // side by side.
@@ -43,7 +50,10 @@ fn reading(profile: &str, settings: &str) -> Device {
     let profile = profiles::find(profile).unwrap();
     let mut device = Device::in_memory(profile, None, Rc::new(files), true, None).unwrap();
     device.start();
-    device.advance(3_000);
+    // Time passes as on a device: the kernel runs when it asks to. The native
+    // reader hears `event.started` from the pump, on the first wake after the
+    // start (Beta 3's reader opened the book inside the start itself).
+    paperpaw_emulator::headless::run_script(&mut device, "wait:3000").unwrap();
     let mut screen = None;
     device.call(|kernel, _| {
         screen = kernel.active_screen().map(ToString::to_string);

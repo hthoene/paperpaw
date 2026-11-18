@@ -1,0 +1,103 @@
+{
+  "key": "core.files",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "page_rows": 32,
+  "ops": [
+    {
+      "id": 1,
+      "name": "list",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.fs_list"
+      ],
+      "reply": [
+        "service.fs_entry",
+        "service.end"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 2,
+      "name": "stat",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.fs_path"
+      ],
+      "reply": [
+        "service.fs_entry"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 3,
+      "name": "space",
+      "since": 0,
+      "effect": "query",
+      "feature": null,
+      "input": [
+        "service.fs_path"
+      ],
+      "reply": [
+        "service.fs_space"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 4,
+      "name": "make_dir",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.fs_path"
+      ],
+      "reply": [],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 5,
+      "name": "remove_tree",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.fs_list"
+      ],
+      "reply": [
+        "service.fs_progress"
+      ],
+      "max_input": 1024,
+      "max_reply": 4096,
+      "bound": "card"
+    },
+    {
+      "id": 6,
+      "name": "move",
+      "since": 0,
+      "effect": "mutate",
+      "feature": null,
+      "input": [
+        "service.fs_move"
+      ],
+      "reply": [],
+      "max_input": 2048,
+      "max_reply": 4096,
+      "bound": "card"
+    }
+  ]
+}

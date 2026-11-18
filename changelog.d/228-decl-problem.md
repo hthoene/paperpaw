@@ -1,0 +1,3 @@
+### Changed
+
+- **A plugin refused at a declaration cap says which in its `reg_plugin` row** (#228, `docs/abi/registry.md`). When a plugin's declarations are refused at the format or reader cap (8 or 32 formats, 4 or 16 readers), the plugin is listed as failed with `problem` 14 (too many formats) or 15 (too many readers) and `problem_arg` the cap it hit, so a plugin manager can say why. The cap, not the status, decides the value (a plugin's fifth reader is `ERR_INVALID`, the others `ERR_FULL`). The host keeps it for sixteen plugins at most and forgets it when the plugin is tried again; a refusal it cannot keep shows the general failure as before.

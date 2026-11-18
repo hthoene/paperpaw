@@ -45,7 +45,10 @@ fn bytes(kernel: &Kernel, path: &str) -> Vec<u8> {
 
 fn kernel_with(storage: impl Storage + 'static) -> Kernel {
     Kernel::builder(DEVICE)
-        .plugin(NoticePlugin { log: log() })
+        .items(
+            crate::tests::notice_plugin_manifest(),
+            crate::tests::notice_plugin(NoticePlugin { log: log() }),
+        )
         .storage(storage)
         .build()
         .unwrap()
@@ -80,7 +83,10 @@ fn unreadable_configs() -> Vec<(&'static str, Box<dyn Storage>)> {
 fn a_config_that_cannot_be_read_is_said_and_left_as_it_is() {
     for (case, storage) in unreadable_configs() {
         let mut kernel = Kernel::builder(DEVICE)
-            .plugin(NoticePlugin { log: log() })
+            .items(
+                crate::tests::notice_plugin_manifest(),
+                crate::tests::notice_plugin(NoticePlugin { log: log() }),
+            )
             .storage_boxed(storage)
             .build()
             .unwrap();
@@ -103,16 +109,16 @@ fn a_config_that_cannot_be_read_is_said_and_left_as_it_is() {
             .unwrap();
         // It applies, only it is not saved.
         assert!(kernel.settings().bool("core.night-mode"), "{case}");
-        kernel.apply(Command::bind(
+        kernel.apply(Ask::bind(
             String::from("global"),
             String::from("button.menu"),
             Some(actions::TOGGLE_NIGHT_MODE),
         ));
-        kernel.apply(Command::SetMenu(
+        kernel.apply(Ask::SetMenu(
             Id::new_static("core.main"),
             Some(alloc::vec![actions::BACK]),
         ));
-        kernel.apply(Command::ResetSetting(Id::new_static("core.ui-size")));
+        kernel.apply(Ask::ResetSetting(Id::new_static("core.ui-size")));
         kernel.finish();
         assert_eq!(bytes(&kernel, CONFIG_FILE), before, "{case}: written over");
         assert!(
@@ -129,6 +135,23 @@ fn a_config_that_cannot_be_read_is_said_and_left_as_it_is() {
             "{case}"
         );
     }
+}
+
+/// `[firmware]` is the firmware's own section (the X4's dual-boot choice,
+/// read before the kernel exists): the kernel leaves it alone, says nothing of
+/// it, and keeps it when it saves a setting.
+#[test]
+fn the_firmwares_own_section_is_no_plugins_and_stays() {
+    let config = "[firmware]\ndual-boot = on\n[core]\nui-size = 12\n";
+    let mut kernel = kernel_with(MemoryStorage::new().with(CONFIG_FILE, config));
+    assert_eq!(kernel.settings().int("core.ui-size"), 12);
+    assert!(kernel.take_warnings().is_empty());
+    kernel.start(Instant(0));
+    kernel
+        .set_setting(Instant(10), "core.night-mode", "on")
+        .unwrap();
+    let saved = String::from_utf8(bytes(&kernel, CONFIG_FILE)).unwrap();
+    assert!(saved.contains("[firmware]\ndual-boot = on"), "{saved}");
 }
 
 /// A file saved as "UTF-8 with BOM" (Windows Notepad) is read whole and
@@ -162,7 +185,7 @@ fn bindings_made_keep_the_shells_own() {
     kernel.start(Instant(0));
     let key = |name: &'static str| crate::keymap::InputKey::Button(Cow::Borrowed(name));
     assert_eq!(kernel.resolve(&key("up")), Some(&actions::HOME));
-    kernel.apply(Command::bind(
+    kernel.apply(Ask::bind(
         String::from("global"),
         String::from("button.menu"),
         Some(actions::TOGGLE_NIGHT_MODE),
@@ -174,7 +197,7 @@ fn bindings_made_keep_the_shells_own() {
     );
     assert_eq!(kernel.resolve(&key("up")), Some(&actions::HOME), "kept");
     // One the shell binds, bound here: the choice made here wins.
-    kernel.apply(Command::bind(
+    kernel.apply(Ask::bind(
         String::from("global"),
         String::from("button.up"),
         Some(actions::NOTHING),

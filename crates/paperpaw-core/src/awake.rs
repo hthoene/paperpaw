@@ -16,7 +16,7 @@ use paperpaw_sdk::Id;
 use paperpaw_sdk::builtin::settings as core_settings;
 use paperpaw_sdk::power::WakeHold;
 
-use crate::Kernel;
+use crate::{Effects, Kernel};
 
 /// At or below this charge, not charging, no hold counts: the device
 /// sleeps as it would.
@@ -64,6 +64,9 @@ pub(crate) struct Holds {
     /// The activity the kernel set itself at that time: an activity other
     /// than this one is the reader's.
     marked: Option<Instant>,
+    /// The shell says the device is on outer power and stays awake there
+    /// ([`Kernel::set_awake_on_usb`]).
+    usb: bool,
 }
 
 impl Kernel {
@@ -74,6 +77,7 @@ impl Kernel {
         let id = hold.id().clone();
         self.holds.held.retain(|h| h.id != id);
         let until = self
+            .shared
             .now
             .add_millis(u64::try_from(hold.duration().as_millis()).unwrap_or(u64::MAX));
         self.holds.held.push(Held {
@@ -105,6 +109,15 @@ impl Kernel {
         !self.battery_low() && self.shared.settings.read(&core_settings::AWAKE_HOLDS)
     }
 
+    /// What ends when the device goes to sleep: Bluetooth, a firmware
+    /// question, and the values shown while a setting is chosen
+    /// (`docs/abi/registry.md` 4.4; the kept ones show after the sleep).
+    pub(crate) fn end_at_suspend(&mut self) {
+        self.bluetooth_suspend();
+        self.firmware_suspend();
+        self.preview_settings(alloc::vec::Vec::new());
+    }
+
     /// The sleep is due at `now`: whether something puts it off (reading
     /// aloud, a download, a server, the library's walk). The caller sets
     /// the activity to `now` after, to look again one "Sleep after" later.
@@ -133,11 +146,34 @@ impl Kernel {
             && now.since(input) < WALK_AWAKE_MS
     }
 
+    /// Whether the device is kept awake by outer power (a developer's
+    /// choice, [`Kernel::set_awake_on_usb`]): not once the battery is
+    /// nearly empty and does not charge.
+    pub fn awake_on_usb(&self) -> bool {
+        self.holds.usb && !self.battery_low()
+    }
+
+    /// The shell says the device is on outer power and the reader chose to
+    /// keep it awake there (`on`): the sleep after `core.sleep-after`
+    /// without input does not come. An explicit sleep is the shell's to
+    /// handle; only the timer is held. When it ends (the cable is out),
+    /// the timer counts from `now`, not from the last use, so that the
+    /// device does not fall asleep the moment the cable is pulled.
+    pub fn set_awake_on_usb(&mut self, now: Instant, on: bool) -> Effects {
+        let _running = self.shared.meter.enter(crate::meter::CORE);
+        self.shared.now = now;
+        if self.holds.usb && !on {
+            self.last_activity = now;
+        }
+        self.holds.usb = on;
+        self.finish()
+    }
+
     /// The holds that count now: in force, and a screen's only while it is
     /// on top.
     fn holding(&self) -> impl Iterator<Item = &Held> {
         let top = self.stack.last().map(|s| s.serial);
-        let now = self.now;
+        let now = self.shared.now;
         let count = self.holds_count();
         self.holds
             .held
@@ -153,7 +189,7 @@ impl Kernel {
     /// Counts the time holds kept the device awake for their plugins, and
     /// lets go of holds that ended or whose screen closed.
     pub(crate) fn count_awake(&mut self) {
-        let now = self.now;
+        let now = self.shared.now;
         if let Some(since) = self.holds.counted_at {
             let millis = now.since(since);
             let holding: Vec<(String, Cow<'static, str>, u64)> = self

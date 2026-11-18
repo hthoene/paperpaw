@@ -1,0 +1,116 @@
+{
+  "target": "esp32c3-riscv32imc-ilp32-soft-le",
+  "floor": 1,
+  "used": [
+    {
+      "kind": "host",
+      "name": "heap.alloc"
+    },
+    {
+      "kind": "host",
+      "name": "heap.dealloc"
+    },
+    {
+      "kind": "host",
+      "name": "heap.realloc"
+    },
+    {
+      "kind": "host",
+      "name": "clock.micros"
+    },
+    {
+      "kind": "host",
+      "name": "env.snapshot"
+    },
+    {
+      "kind": "host",
+      "name": "settings.read"
+    },
+    {
+      "kind": "host",
+      "name": "i18n.copy"
+    },
+    {
+      "kind": "host",
+      "name": "handle.release"
+    },
+    {
+      "kind": "host",
+      "name": "commands.submit"
+    },
+    {
+      "kind": "host",
+      "name": "registrations.submit"
+    },
+    {
+      "kind": "host",
+      "name": "i18n.format"
+    },
+    {
+      "kind": "host",
+      "name": "services.query"
+    },
+    {
+      "kind": "host",
+      "name": "storage.write"
+    },
+    {
+      "kind": "host",
+      "name": "storage.append"
+    },
+    {
+      "kind": "host",
+      "name": "storage.remove"
+    },
+    {
+      "kind": "host",
+      "name": "storage.sync"
+    },
+    {
+      "kind": "host",
+      "name": "storage.rename"
+    },
+    {
+      "kind": "host",
+      "name": "blob.read"
+    },
+    {
+      "kind": "host",
+      "name": "blob.release"
+    },
+    {
+      "kind": "host",
+      "name": "storage.size"
+    },
+    {
+      "kind": "host",
+      "name": "storage.read_at"
+    },
+    {
+      "kind": "callback",
+      "name": "drop"
+    },
+    {
+      "kind": "callback",
+      "name": "dispatch_event"
+    },
+    {
+      "kind": "callback",
+      "name": "draw"
+    },
+    {
+      "kind": "callback",
+      "name": "input"
+    }
+  ],
+  "services": [
+    "core.net",
+    "core.secrets",
+    "core.ui",
+    "core.work"
+  ],
+  "features": [
+    "uses.network",
+    "uses.storage"
+  ]
+}

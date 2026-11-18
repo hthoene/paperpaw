@@ -18,11 +18,25 @@ The fonts of the plugins with the letters of other scripts (tools/fonts, which t
 
 - Noto Serif Hebrew, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/hebrew), without Reserved Font Name
 
+- Noto Serif Bengali, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/bengali), without Reserved Font Name
+
+- Noto Serif Devanagari, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/devanagari), without Reserved Font Name
+
+- Noto Serif Ethiopic, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/ethiopic), without Reserved Font Name
+
+- Noto Serif Thai and Noto Sans Thai, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/thai), without Reserved Font Name
+
+- Noto Serif Khmer, Noto Serif Lao and Noto Serif Tibetan, Copyright 2022 The Noto Project Authors (https://github.com/notofonts/khmer, /lao, /tibetan), without Reserved Font Name
+
+- Noto Serif SC, Noto Serif TC and Noto Serif JP, Copyright 2017-2024 Adobe (http://www.adobe.com/), from github.com/google/fonts without Reserved Font Name, cut to the characters of the Chinese and Japanese letters plugins (tools/fonts/NotoSerif*-subset.ttf: a Modified Version, not distributed itself; the plugins carry bitmap packs made from it and the licence's text, NotoSerifCJK-OFL.txt)
+
 - Nanum Myeongjo, Copyright 2010 NHN Corporation (http://www.nhncorp.com), with Reserved Font Names 'Nanum', 'Naver Nanum', 'NanumMyeongjo', 'Naver NanumMyeongjo' and the others of its family the licence names, kept unmodified as tools/fonts/NanumMyeongjo-Regular.ttf. The Korean letters plugin (script-korean) draws from a bitmap pack made from it (the Hangul syllables of KS X 1001, rasterised): a Modified Version under the licence, so it is named Korean letters (korean.ppfp), not with a Reserved Font Name, and is licensed under the SIL Open Font License, Version 1.1, as the font it is derived from.
 
-Each of those plugins carries the licence's text with its packs (tools/fonts/NotoNaskhArabic-OFL.txt, NotoSerifHebrew-OFL.txt, the text given for Literata; NanumMyeongjo-OFL.txt, the same licence under its own copyright and Reserved Font Names).
+Each of those plugins carries the licence's text with its packs (tools/fonts/NotoNaskhArabic-OFL.txt, NotoSerifHebrew-OFL.txt, NotoSerifBengali-OFL.txt, NotoSerifDevanagari-OFL.txt, NotoSerifEthiopic-OFL.txt, NotoSerifThai-OFL.txt, NotoSansThai-OFL.txt, NotoSerifKhmer-OFL.txt, NotoSerifLao-OFL.txt, NotoSerifTibetan-OFL.txt, the text given for Literata; NanumMyeongjo-OFL.txt, the same licence under its own copyright and Reserved Font Names).
 
-Hyphenation patterns (plugins/hyphenation/patterns, built in, and plugins/hyphenation-de/patterns, a plugin of the store) come from the hyph-utf8 project (https://github.com/hyphenation/tex-hyphen):
+The words of the Khmer and Lao letters plugins (tools/khmer-words.txt, tools/lao-words.txt, which their packs carry for breaking lines) are taken from ICU's word lists (khmerdict.txt, laodict.txt), Copyright (C) 2016 and later Unicode, Inc. and others, licensed under the Unicode License V3; the Lao list also Copyright (C) 2013 Brian Eugene Wilson, Robert Martin Campbell, under its BSD-style licence. Those plugins carry both texts (tools/fonts/ICU-word-lists-LICENSE.txt).
+
+Hyphenation patterns (plugins/hyphenation*/patterns: the data packs of the store, English and twelve other languages; none is built in) come from the hyph-utf8 project (https://github.com/hyphenation/tex-hyphen):
 
 - German, reformed spelling, Copyright (c) 2013-2024 Stephan Hennig, Werner Lemberg, Günter Milde, Sander van Geloven, Georg Pfeiffer, Gisbert W. Selke, Tobias Wendorf, Keno Wehr, licensed under the MIT License.
 
@@ -227,6 +241,9 @@ Copying and distribution of this file, with or without modification, are permitt
 Crates in the apps (Android, the desktop and web emulators) used under the MIT License:
 
 - adler2 2.0.1: Copyright (C) Jonas Schievink <jonasschievink@gmail.com>
+- aead 0.5.2: Copyright (c) 2019 The RustCrypto Project Developers; Copyright (c) 2019 MobileCoin, LLC
+- aes 0.8.4: Copyright (c) 2018 Artyom Pavlov
+- aes-gcm 0.10.3: Copyright (c) 2019 The RustCrypto Project Developers
 - ahash 0.8.12: Copyright (c) 2018 Tom Kaitchuck
 - android-activity 0.6.1: Copyright the android-activity contributors (https://github.com/rust-mobile/android-activity)
 - android-properties 0.2.2: Copyright (c) 2020 Mikhail Lappo
@@ -246,14 +263,18 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - cesu8 1.1.0: Copyright (C) 2000-2010 Julian Seward.  All rights; Copyright (c) 2003-2013 University of Illinois at; Copyright (c) 2009-2014 by the contributors listed in; Copyright (C) 2008-2010 Tachyon Technologies.; Copyright (c) 2008, Natacha Porté; Copyright (c) 2011, Vicent Martí; Copyright (c) 2013, Devin Torres and the Hoedown authors; Copyright (C) 2012-2014 Free Software Foundation, Inc.; Copyright (C) 2002-2014 Jason Evans; Copyright (C) 2007-2012 Mozilla Foundation.; Copyright (C) 2009-2014 Facebook, Inc.
 - cfg-if 1.0.5: Copyright (c) 2014 Alex Crichton
 - chrono 0.4.45: Copyright (c) 2014, Kang Seonghoon.
+- cipher 0.4.4: Copyright (c) 2016-2020 RustCrypto Developers
 - combine 4.6.8: Copyright (c) 2015 Markus Westerlind
 - core-foundation 0.9.4: Copyright (c) 2012-2013 Mozilla Foundation
 - core-foundation-sys 0.8.7: Copyright (c) 2012-2013 Mozilla Foundation
 - core-graphics 0.23.2: Copyright (c) 2012-2013 Mozilla Foundation
 - core-graphics-types 0.1.3: Copyright (c) 2012-2013 Mozilla Foundation
 - core_maths 0.1.1: Copyright (c) 2024 Robert Bastian
+- cpufeatures 0.2.17: Copyright (c) 2020-2025 The RustCrypto Project Developers
 - crc32fast 1.5.2: Copyright (c) 2018 Sam Rijs, Alex Crichton and contributors
+- crypto-common 0.1.7: Copyright (c) 2021 RustCrypto Developers
 - ctor 0.10.1: Copyright Matt Mastracci (https://github.com/mmastrac/rust-ctor)
+- ctr 0.9.2: Copyright (c) 2018-2022 RustCrypto Developers; Copyright (c) 2018 Artyom Pavlov
 - cursor-icon 1.2.0: Copyright 2023 Kirill Chibisov; Copyright (c) 2023 Kirill Chibisov
 - dispatch 0.2.0: Copyright Steven Sheldon (http://github.com/SSheldon/rust-dispatch)
 - dispatch2 0.3.1: Copyright Mads Marquart, Mary (https://github.com/madsmtm/objc2)
@@ -280,12 +301,15 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - futures-core 0.3.34: Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
 - futures-task 0.3.34: Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
 - futures-util 0.3.34: Copyright (c) 2016 Alex Crichton; Copyright (c) 2017 The Tokio Authors
+- generic-array 0.14.7: Copyright (c) 2015 Bartłomiej Kamiński
 - getrandom 0.2.17: Copyright (c) 2018-2024 The rust-random Project Developers; Copyright (c) 2014 The Rust Project Developers
 - getrandom 0.3.4: Copyright (c) 2018-2025 The rust-random Project Developers; Copyright (c) 2014 The Rust Project Developers
 - getrandom 0.4.3: Copyright (c) 2018-2026 The rust-random Project Developers; Copyright (c) 2014 The Rust Project Developers
+- ghash 0.5.1: Copyright (c) 2019 RustCrypto Developers
 - hashbrown 0.17.1: Copyright (c) 2016 Amanieu d'Antras
 - iana-time-zone 0.1.65: Copyright 2020 Andrew Straw; Copyright (c) 2020 Andrew D. Straw
 - indexmap 2.14.2: Copyright (c) 2016--2017
+- inout 0.1.4: Copyright (c) 2022 The RustCrypto Project Developers; Copyright (c) 2022 Artyom Pavlov
 - jni 0.21.1: Copyright (c) 2016 Prevoty, Inc. and jni-rs contributors
 - jni 0.22.4: Copyright jni team (https://github.com/jni-rs/jni-rs)
 - jni-macros 0.22.4: Copyright (c) 2016 Prevoty, Inc. and jni-rs contributors
@@ -325,12 +349,14 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - objc2-quartz-core 0.2.2: Copyright the objc2-quartz-core contributors (https://github.com/madsmtm/objc2)
 - objc2-quartz-core 0.3.2: Copyright the objc2-quartz-core contributors (https://github.com/madsmtm/objc2)
 - once_cell 1.21.4: Copyright Aleksey Kladov (https://github.com/matklad/once_cell)
+- opaque-debug 0.3.1: Copyright (c) 2018-2024 The RustCrypto Project Developers
 - percent-encoding 2.3.2: Copyright (c) 2013-2025 The rust-url developers
 - pin-project 1.1.13: Copyright the pin-project contributors (https://github.com/taiki-e/pin-project)
 - pin-project-internal 1.1.13: Copyright the pin-project-internal contributors (https://github.com/taiki-e/pin-project)
 - pin-project-lite 0.2.17: Copyright the pin-project-lite contributors (https://github.com/taiki-e/pin-project-lite)
 - png 0.18.1: Copyright (c) 2015 nwin
 - polling 3.11.0: Copyright Stjepan Glavina, John Nunley (https://github.com/smol-rs/polling)
+- polyval 0.6.2: Copyright (c) 2019-2023 RustCrypto Developers
 - proc-macro-crate 3.5.0: Copyright Bastian Köcher (https://github.com/bkchr/proc-macro-crate)
 - proc-macro2 1.0.107: Copyright David Tolnay, Alex Crichton (https://github.com/dtolnay/proc-macro2)
 - quick-xml 0.41.0: Copyright (c) 2016 Johann Tuffe
@@ -370,8 +396,10 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - toml_parser 1.1.5+spec-1.1.0: Copyright Individual contributors; Copyright (c) Individual contributors
 - tracing 0.1.44: Copyright (c) 2019 Tokio Contributors
 - tracing-core 0.1.36: Copyright (c) 2019 Tokio Contributors
+- typenum 1.20.1: Copyright 2014 Paho Lurie-Gregg; Copyright (c) 2014 Paho Lurie-Gregg
 - unicode-ident 1.0.27: COPYRIGHT AND PERMISSION NOTICE; Copyright © 1991-2023 Unicode, Inc.
 - unicode-segmentation 1.13.3: Copyright (c) 2015 The Rust Project Developers
+- universal-hash 0.5.1: Copyright (c) 2019-2020 RustCrypto Developers
 - wasm-bindgen 0.2.129: Copyright (c) 2014 Alex Crichton
 - wasm-bindgen-futures 0.4.79: Copyright (c) 2014 Alex Crichton
 - wasm-bindgen-macro 0.2.129: Copyright (c) 2014 Alex Crichton

@@ -7,19 +7,35 @@ not mean its SDK and plugin crates are available to plugin authors.
 
 ## Before the tag
 
-1. Set the workspace version, the Android version code and the CHANGELOG
-   section. Every plugin has its own version: change its manifest, the
+1. Set the workspace version and the Android version code. Run
+   `python3 tools/changelog.py collect --version <version>` on the release
+   preparation branch and review the dated `CHANGELOG.md` section and
+   consumed fragments together, as [RELEASING.md](../RELEASING.md) describes.
+   `python3 tools/changelog.py check --release` must pass before tagging.
+   Every plugin has its own version: change its manifest, the
    workspace requirement and the lockfiles when its package sources
    changed. This applies to built-in plugins as well as store plugins.
    A source refactor or changed package resource needs a new crate
    version even when the plugin's runtime behaviour stayed the same:
    crates.io cannot replace the sources of a published version.
+   `python3 tools/plugin-files/versions.py --release --bytes` (or
+   `tools/ci-local.sh --only release-versions`) builds the store files of
+   the last release's tag and of this tree and fails for each plugin whose
+   file differs under the same version, through the SDK or a crate it
+   depends on or a bump that rippled, which the commit check cannot see;
+   raise the versions it lists and run it again.
 2. Build every plugin of the release (store, test cards, Workshop) from
    the baseline the CHANGELOG's section names, or later. The firmware
    refuses plugins of another interface fingerprint, but not those built
    before a change it cannot tell, such as the library's folders split
    by key (#280): an older build of a plugin that reads the library would
    keep its books' details where no version reads them any more.
+   Run `tools/plugin-symbols.sh --events <kinds> <elf>...` on the files the
+   largest plugins (End of book, Battery, Profiles) are packed from, or give
+   them to `tools/flash-gate.sh` as `--plugin-elf <elf>`: it fails for a
+   plugin that links the whole records codec, the text-escaping tables
+   (`char`/`str` `Debug`, a failing `&str` slice) or, with `--events`, an
+   event decoder the plugin does not read. A stripped file is no proof (exit 2).
 3. Commit the prepared release. Run the checks in
    [CONTRIBUTING.md](../CONTRIBUTING.md) and review their GitHub results.
    Run `tools/release-gate.sh <previous-tag>` and complete the hardware
@@ -138,3 +154,194 @@ Offline regression tests for the publication tools:
 ```sh
 python3 -m unittest discover -s tools -p 'test_publish*.py'
 ```
+
+## The store release: where plugin files are published
+
+A firmware release (`v<version>`) holds 73 files: the firmware of each device,
+the emulators, the handbook, the web emulator, the ESP32-S3's core libraries,
+the plugin library's catalogue (`paperpaw-<version>-catalogue.zip`) and the
+checksums (`-plugins.sha256`). **No plugin file is in it** (#89): every `.ppn`
+and every plugin or data folder's ZIP goes to the *store release* of the year,
+tag `plugins-<year>` (`plugins-2026`), a pre-release that is never the latest
+and is **added to and never replaced**. Only versions not published before are
+uploaded (a version is published once; the catalogue names an old file by the
+release that holds it). At 800 assets the next number is opened
+(`plugins-2026-2`); the run stops at 900 (GitHub's limit is 1000). The tag does
+not begin with `v`, so `release.yml` does not start for it.
+
+`tools/plugin-files/store_release.py` chooses the release, plans the upload,
+uploads in batches with each file tried again, and checks that the release
+lists every file in full (state `uploaded`) with its SHA-256. **A published
+name means the same bytes**, compared by SHA-256 (GitHub's `digest` of the
+asset, else the downloaded bytes), never by size: the same bytes are skipped (so a
+run that broke off can be started again), other bytes stop the run with "raise
+the plugin's version", and so does a file whose upload was never finished
+(delete it with `gh release delete-asset <tag> <name>`). `release_assets.py`
+holds the list of the firmware release's files and checks that every address in
+a catalogue has an asset and that a published file has the checksum the entry
+names. Runs that add to the store release (this workflow and *Store plugin
+update*) wait for one another (concurrency group `store-release`). **Never delete
+or replace a plugin file in any release**, old firmware releases (`v0.x`)
+included: a plugin whose version did not change keeps its catalogue address
+there. The release job uploads the plugin files **before** it creates the
+firmware release, so paperpaw.org never reads an address without a file.
+
+Try it without publishing: run the workflow *Release* by hand from a branch
+(`version` = the workspace's version, `dry_run` on; a release is made only by a
+tag). It builds everything and signs with throw-away keys (the real ones are for
+a tag), then prints the commands that would upload and create, and fails if the
+lists do not fit; no tag, no release, no upload.
+
+## Store code plugins for the X4 family on interface 7 (Beta 4)
+
+**Why the store lists none today.** A device of interface 7 has no fingerprint
+(`Device.fingerprint` is `None`, `plugins/store/src/native_device.rs`). It keeps a
+build of the list only if the build's `device` is its own name (`x4`, `x4-pro`,
+`x4-classic`) and its `abi` is the dotted `7.<minor>` of a format-5 file
+(`Abi::is_for`, `native_model.rs`): a build with a 16-digit fingerprint (format 3
+or 4, interface 6 and older) is never for it. Every code build in the live
+index (`https://paperpaw.org/api/v1/plugins.json`) is of that kind, so the
+device shows data plugins only. The draft number (36) plays no part: a format-5
+file is checked by target, major and `needs_minor`, never by draft. Also,
+paperpaw.org on `main` and `deploy` reads files of format 4 at most (`src/native.rs`
+`FORMAT = 4`, no `7.<minor>`), so it would refuse to import a release's format-5
+files; that support is in the site's PR #49 (branch `web/flasher-interface7-272`,
+draft).
+
+**What a release publishes.** `plugins.txt` is the list: each plugin has one
+format-5 file per device (`<id>-<version>-x4.ppn`, `-x4-pro.ppn`, `-x4-classic.ppn`;
+the Classic's is the Pro's bytes under its own name), built by
+`tools/plugin-files7/build.sh <device>` (target 5 on the X4, target 9 on the X4 Pro
+and the X4 Classic), checked against the release's firmware (`paperpaw-sign fits`), signed with
+the first-party key and added to `plugins-<year>` with the plugin's folder ZIP
+and its entry in the release's catalogue ZIP. The versions in `Cargo.toml` are
+already above every version published (all published builds are interface 6),
+so no bump is needed until a plugin's code changes again (`versions.py`).
+
+**The one step at the release.** After the owner's OK, in this order:
+
+1. Merge the website's PR #49 and deploy the site (the `deploy` branch, owner's
+   OK): it must import format-5 files before the release's catalogue exists.
+2. Push the release tag `v<version>` of the prepared commit (the Release
+   workflow, as above). That single run builds the plugins of `plugins.txt`
+   for the three devices, signs them with `PAPERPAW_PLUGIN_KEY`, uploads the new
+   files to `plugins-<year>` before it creates the firmware release, and
+   publishes the catalogue ZIP; paperpaw.org imports it within the hour.
+   Nothing else is published by hand.
+
+Before the tag, run *Release* by hand from the release branch with `dry_run`
+on: it must list, for each plugin of `plugins.txt`, three `.ppn` files and one
+folder ZIP as new, and fail on nothing. After the import:
+
+```sh
+curl -s 'https://paperpaw.org/api/v1/plugins.json?device=x4&lang=en' | python3 -m json.tool | grep -c '"abi": "7\.'
+```
+
+must print one line for each code plugin (the same for `x4-pro` and `x4-classic`),
+and a device on Beta 4 lists them under *Plugin store*. To try the files before any of that, without publishing: `tools/plugin-files/local-store.py`
+makes a local release of them (the files signed with a throw-away key, the
+catalogue ZIP, a mirror for the site to import from, and a card tree with each
+plugin's `code.ppn`); its docstring has the site's settings. A single plugin
+(or a fix) between releases takes *Store plugin update* below, with its id.
+
+**After the release: updates from the current base.** A fix to code plugins reaches readers
+without a firmware release through *Store plugin update* (below), once the release is out: run it
+by hand from the integration branch or `main` with `plugins` = `changed` (or ids), `base` = the
+release's tag, `dry_run` on first. Its dry run lists the batch, the three files of each plugin and
+the commands that would upload and tag, and stops on the consistency check's refusals; the same
+check runs locally (below). Dispatching it, signing and publishing need the owner's OK.
+
+## A store plugin between releases
+
+One or several of PaperPaw's own store plugins, updates or new ones, can be
+published between releases with the workflow *Store plugin update* (run by hand,
+with the first-party plugin key): inputs `plugins` (ids, separated by commas or
+spaces, or `changed` or `all`: below), `base` (the release whose firmware it is for, e.g. `v0.6.0-beta.2`),
+`ref` (`main`, the default, or a branch made from that tag), `notes`, `dry_run`
+(on by default: nothing is uploaded or tagged, the commands and the lists are
+printed) and, only for a branch and only when needed, `accept`. It builds each
+plugin for the base firmware of each device (interface 7, format 5: no fingerprint;
+the base's ABI `7.<minor>` decides, see below), checks each file, signs them and adds them to the store release, with one
+catalogue ZIP for each plugin (`paperpaw-<id>-v<version>-catalogue.zip`, in the
+store release too); the plugin's commit gets the git tag `<id>-v<version>`
+(`versions.py` reads it). Devices are offered no firmware with it. Before it
+builds, `store_release.py versions` checks each version against what is
+published: not older than a published one (a version published already is
+allowed: the upload skips the same bytes and stops for other ones), and its id
+may not begin with `v` and a digit (its tag would start `release.yml`).
+
+From `main` (`ref` = `main`, or the integration branch the base was cut from, given as a
+branch name): what that has of the plugins now, built for the base release's interface. A
+format-5 file has no fingerprint and no draft check: the base firmware takes it when its target,
+`abi_major` (7) and `needs_minor` fit (`7.<minor>` of
+`crates/paperpaw-native/src/host_glue/paperpaw_abi.rs` at the base's tag). A plugin whose
+metadata needs a newer minor than the base's, or a source on another plugin interface, cannot
+be published between releases: it needs a firmware release (`store_consistency.py`, below).
+Other differences between main and the base are noted in the log, not refused
+(`store_update.py --main`).
+
+**A batch (`changed`, `all`).** `plugins` may name `changed`: every code plugin of `plugins.txt`
+with something to publish (a version that is not published yet, a change since the commit that
+published its version, or a build published for another plugin interface), or `all`: every code
+plugin (at most 20 in a run). Data plugins are named by id. Each plugin of the batch still has
+its own version, newer than the base's (`store_update.py`), and is built, checked and published
+together with the others, or not at all.
+
+**The consistency check** (`tools/plugin-files/store_consistency.py`, tests in
+`test_store_consistency.py`) holds each plugin of a batch to the source, to what is published and
+to what the released firmware accepts. It builds and uploads nothing, and the workflow runs it
+from its trusted checkout (the source is data to it). Locally, from a checkout of the source:
+
+```sh
+gh api --paginate --slurp repos/hthoene/paperpaw/releases > releases.json     # what is published
+python3 tools/plugin-files/store_consistency.py select changed --base v0.6.0-beta.4 --releases releases.json
+python3 tools/plugin-files/store_consistency.py check changed  --base v0.6.0-beta.4 --releases releases.json
+```
+
+`check` prints the base's ABI (`7.1`) and fails, with a line for each plugin, when
+
+- the source's plugin interface is not the base's (a firmware release is needed; a different draft
+  is only a note);
+- the plugin's generated metadata (`native/metadata.bin`, and `metadata.s3.bin` for the X4 Pro and
+  the X4 Classic: the numbers its file's header gets) has another ABI major, or needs a minor
+  above the base's: the firmware would refuse the file;
+- its version is older than the published one, or the same although its files
+  (`plugins/<id>/`, `tools/plugin-files7/src/bin/<id>.rs`) changed since the commit that published
+  it (the tag `<id>-v<version>`, else the oldest firmware tag with that version), or it was published
+  for another plugin interface (every build published before Beta 4 is interface 6): raise the
+  version in `plugins/<id>/Cargo.toml`, as `versions.py` asks.
+
+The workflow runs `check` in its first job (the ABI it prints is passed on), `files` on the built
+files before they are signed (format 5, the device's chip, ABI major 7, `needs_minor` not above the
+base's) and `entries` on the catalogue ZIPs before they are uploaded (the batch's version, a build
+for each of the three devices with an `abi` of `7.<minor>` the base accepts, nothing older than
+what is published).
+
+From a branch: the published firmware is the base's, so the source must differ
+from the base's tag only in the plugins, the plugin files' project (the
+manifest, lock file, list and binaries of `tools/plugin-files`, none of its
+scripts), the CHANGELOG and docs (`store_update.py` checks this and the version:
+above the base's for an update, any for a plugin the base does not have). A
+change anywhere else (the kernel, the SDK, another plugin, a script or a
+workflow) stops the run unless its path is named in `accept` (the workspace's
+`Cargo.toml` may gain only the plugin's member and its `workspace.dependencies`
+entry, and `Cargo.lock` only new packages, so a `[patch]`, a profile or another
+SDK is refused; renamed files count at both ends; a path dependency of the
+plugin must be another crate of the workspace): a decision for whoever runs it,
+who has to know the change cannot differ from what the firmware does.
+
+The source is somebody's push, so the workflow runs from `main` and keeps its
+code away from the key: the check, the file checks (`check_files.sh`, `store_consistency.py`), the
+signing and the upload run this workflow's own scripts, from a checkout of the
+commit the workflow is at (`github.workflow_sha`), not the source's. The
+source's code runs only where there is no secret and the token only reads
+(building the plugins, their catalogue entries); the signing job takes the
+build's files, accepts only the names and the base firmware's chip, format and ABI
+it expects, and signs them; the release job, the only one that writes, runs none of
+the source's code. A data plugin has no signature, and its version is read by
+the source's script (`data.py`) with no secret.
+
+Known limit: a data plugin has no such source rule. Its version is read by the
+source's own `data.py`, and nothing checks what else the branch changed; it
+carries no code and no signature, and the one who runs the workflow reviews the
+branch. A diff rule for data plugins would be a separate change.

@@ -142,24 +142,32 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "paperpaw-config"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
- "paperpaw-table",
+ "paperpaw-sort",
 ]
 
 [[package]]
 name = "paperpaw-digest"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
 ]
 
 [[package]]
 name = "paperpaw-document"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-lang",
  "paperpaw-platform",
+]
+
+[[package]]
+name = "paperpaw-epub-family"
+version = "1.0.5"
+dependencies = [
+ "miniz_oxide",
+ "paperpaw-sdk",
 ]
 
 [[package]]
@@ -168,12 +176,13 @@ version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "paperpaw-config",
+ "paperpaw-epub-family",
  "paperpaw-http",
  "paperpaw-hyphen",
  "paperpaw-i18n",
  "paperpaw-image",
  "paperpaw-json",
- "paperpaw-plugin-format-epub",
+ "paperpaw-plugin-format-rtf",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
  "paperpaw-plugin-koreader",
@@ -186,32 +195,31 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-graphics"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
 ]
 
 [[package]]
 name = "paperpaw-http"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-hyphen"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-i18n"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-config",
  "paperpaw-lang",
- "paperpaw-table",
+ "paperpaw-sort",
 ]
 
 [[package]]
 name = "paperpaw-image"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide",
  "paperpaw-platform",
@@ -219,19 +227,18 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-json"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
- "paperpaw-table",
 ]
 
 [[package]]
 name = "paperpaw-lang"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-layout"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-document",
  "paperpaw-platform",
@@ -240,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-native"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "ed25519-compact",
  "paperpaw-digest",
@@ -248,44 +255,44 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-platform"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 
 [[package]]
-name = "paperpaw-plugin-format-epub"
-version = "1.0.3"
+name = "paperpaw-plugin-format-rtf"
+version = "1.0.0"
 dependencies = [
- "miniz_oxide",
  "paperpaw-sdk",
 ]
 
 [[package]]
 name = "paperpaw-plugin-format-txt"
-version = "1.0.1"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-format-xtc"
-version = "1.0.1"
-dependencies = [
- "paperpaw-sdk",
-]
-
-[[package]]
-name = "paperpaw-plugin-koreader"
 version = "1.0.4"
 dependencies = [
  "paperpaw-sdk",
 ]
 
 [[package]]
+name = "paperpaw-plugin-format-xtc"
+version = "1.0.2"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-koreader"
+version = "1.0.8"
+dependencies = [
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
 name = "paperpaw-qr"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-sdk"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-config",
  "paperpaw-digest",
@@ -300,7 +307,7 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-qr",
- "paperpaw-table",
+ "paperpaw-sort",
  "paperpaw-text",
  "paperpaw-update",
  "paperpaw-xml",
@@ -308,57 +315,62 @@ dependencies = [
 ]
 
 [[package]]
+name = "paperpaw-sort"
+version = "0.6.0-beta.3"
+
+[[package]]
 name = "paperpaw-sqlite"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "paperpaw-platform",
 ]
 
 [[package]]
 name = "paperpaw-stardict"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide",
  "paperpaw-platform",
 ]
 
 [[package]]
-name = "paperpaw-table"
-version = "0.6.0-beta.1"
-
-[[package]]
 name = "paperpaw-text"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "font-types",
  "paperpaw-graphics",
  "paperpaw-lang",
  "paperpaw-platform",
- "paperpaw-table",
+ "paperpaw-sort",
  "read-fonts",
  "skrifa",
 ]
 
 [[package]]
+name = "paperpaw-ui-kit"
+version = "0.6.0-beta.3"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
 name = "paperpaw-update"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "ed25519-compact",
 ]
 
 [[package]]
 name = "paperpaw-xml"
-version = "0.6.0-beta.1"
-dependencies = [
- "paperpaw-table",
-]
+version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-zip"
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 dependencies = [
  "miniz_oxide",
  "paperpaw-platform",
+ "paperpaw-sort",
 ]
 
 [[package]]

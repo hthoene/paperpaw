@@ -121,7 +121,6 @@ pub fn wrap_lines_kerned_opts(
     wrap_lines_kerned_in(text, &width, &advance, &kern, hyphenate, options)
 }
 
-paperpaw_table::shared! {
 /// [`wrap_lines_kerned_opts`] without generics, the one function of it that
 /// is shared with the firmware: the caller's closures come as `dyn`.
 /// `options` are the bits of `paperpaw_layout::ScriptOptions`.
@@ -237,7 +236,6 @@ pub fn wrap_lines_kerned_in(
         );
     }
     lines
-} @ text::LAYOUT_WRAP_KERNED
 }
 
 /// The most places to break a paragraph (between newlines) that
@@ -349,7 +347,6 @@ pub fn wrap_lines_balanced_opts(
     )
 }
 
-paperpaw_table::shared! {
 /// [`wrap_lines_balanced_kerned_with_cost`] without generics, the one
 /// function of it that is shared with the firmware.
 pub fn wrap_lines_balanced_in(
@@ -367,8 +364,15 @@ pub fn wrap_lines_balanced_in(
         let end = text[start..].find('\n').map_or(text.len(), |k| start + k);
         let widths = (width(lines.len()), width(lines.len() + 1));
         let measures = Measures { advance, kern };
-        let balanced =
-            balanced_paragraph(text, start..end, widths, &measures, hyphenate, extra_cost, options);
+        let balanced = balanced_paragraph(
+            text,
+            start..end,
+            widths,
+            &measures,
+            hyphenate,
+            extra_cost,
+            options,
+        );
         match balanced {
             Some(mut paragraph) => lines.append(&mut paragraph),
             None => {
@@ -393,7 +397,6 @@ pub fn wrap_lines_balanced_in(
         start = end + 1;
     }
     lines
-} @ text::LAYOUT_WRAP_BALANCED
 }
 
 /// How characters are measured for [`balanced_paragraph`]: their
@@ -545,7 +548,7 @@ fn balanced_paragraph(
     // two letters, a dash's break after the dash, and a space's break
     // ends before its spaces and goes on after them. A point given twice
     // makes two equal breaks. So sorting in place gives the same order.
-    breaks.sort_unstable_by_key(|b| (b.end, b.next));
+    paperpaw_sort::sort_by_key(&mut breaks, |b| (b.end, b.next));
     let last = breaks.len();
     push_break(&mut breaks, at(range.end, range.end, x, x, 0.0))?;
     if breaks.len() > MAX_BREAKS {

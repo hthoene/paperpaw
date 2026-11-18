@@ -2,4 +2,4 @@ Highlights export (cloud) sends your highlights to Readwise, with their notes an
 
 The first export asks for your Readwise access token (readwise.io/access_token); it is kept with the other Passwords and keys. Readwise keeps each highlight once, so exporting again sends only what is new.
 
-The plugin is off at first: add it with More plugins, or switch it on under Plugins if it is listed there. Without a network, or if Readwise cannot be reached, the highlights wait and are sent later.
+The plugin is off at first: add it from the Plugin store, or switch it on under Plugins if it is listed there. Without a network, or if Readwise cannot be reached, the highlights wait and are sent later.

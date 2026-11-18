@@ -1,0 +1,3 @@
+### Added
+
+- **Declared work runs** (#228). The kernel now carries `core.work` to its plugins: when work comes due the plugin gets `event.work_due` (103) in a run, `event.work_refused` (104) when the user turned its network off, and `event.work_allowed` (105) when a hold ended. Wake, online and charging moments come from the device. A run's requests and sockets keep it open until their end events were delivered, those events come in the run, and at the longest time (10 minutes) the host ends them with reason 14 (requests) or 27 (sockets); a plugin that never takes its events loses the run 30 seconds later.

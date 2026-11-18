@@ -96,15 +96,17 @@ must leave its list.
    ask::confirm(question, &REPLY, true)      // bad: true for what?
    ```
 
-9. **Handlers get a context that can grow.** No signature takes a bare
-   `&mut Vec<Command>`. A screen's handler gets `Cx`, and every other
-   handler gets `Commands`. Both keep their fields private, so they can
-   carry more later, such as which plugin runs, its limits or small
-   helpers, through methods. Check: `handlers_take_no_vector_of_commands`.
+9. **Handlers get a context that can grow.** No handler takes a bare
+   `&mut Vec<Ask>`. The kernel's handlers get `Asks`, which keeps its
+   fields private, so it can carry more later, such as which plugin
+   runs, its limits or small helpers, through methods. Since #300 `Ask`
+   and `Asks` are the kernel's own (`paperpaw_core`): no signature of
+   the SDK can name them, so the check this rule had over the SDK
+   (`handlers_take_no_vector_of_commands`) went with the SDK's `Command`.
 
    ```rust
-   fn step(env: &Env<'_>, params: &Params, out: &mut Commands) -> Step     // good
-   fn step(env: &Env<'_>, params: &Params, out: &mut Vec<Command>) -> Step // bad
+   fn run(place: &Place<'_>, params: &Params, out: &mut Asks)     // good
+   fn run(place: &Place<'_>, params: &Params, out: &mut Vec<Ask>) // bad
    ```
 
 10. **What runs often does not allocate.** A callback that runs on every
@@ -133,7 +135,8 @@ must leave its list.
     `cargo test -p paperpaw-sdk --test interface`
     ([ADR 0026](adr/0026-plugin-interface-version.md)). The test says
     whether the change raises `native::INTERFACE`. The same change
-    brings `api.txt`, `docs/plugins.md` and the CHANGELOG up to date.
+    brings `api.txt` and `docs/plugins.md` up to date, with a fragment in
+    `changelog.d/` for the release notes.
 15. **Looks are numbers first.** What a theme can say as numbers (a tone
     curve, a palette) is a setting; code (a painter, a hook) is for what
     numbers cannot say.

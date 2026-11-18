@@ -24,6 +24,12 @@
 
 extern crate alloc;
 
+#[cfg(all(feature = "test-image", feature = "release"))]
+compile_error!("a test image (the high-water log, decision 156) must never be a release");
+
+#[cfg(all(feature = "textprobe", not(feature = "x4")))]
+compile_error!("textprobe is restricted to the X4 ESP32-C3 test build");
+
 #[cfg(all(feature = "bluetooth", not(feature = "x4-pro")))]
 compile_error!("Bluetooth is built for the X4 Pro alone (ADR 0027)");
 
@@ -50,13 +56,19 @@ mod card;
 mod clock;
 mod crash;
 mod device;
+#[cfg(feature = "ppn5")]
+mod device_host;
+mod dual;
+mod entropy;
 mod firmware;
 #[cfg(feature = "remote")]
 mod gray_test;
+#[cfg(feature = "test-image")]
+mod high_water;
+#[cfg(feature = "ppn5")]
+mod host_net;
 mod http;
 mod input;
-#[cfg(feature = "waveform-lab")]
-mod lab;
 #[cfg(feature = "x4-pro")]
 mod light;
 mod link;
@@ -73,16 +85,23 @@ mod provision;
 mod remote;
 mod roots;
 mod safe_mode;
+#[cfg(feature = "ppn5")]
+mod secrets;
 mod serve;
+#[cfg(feature = "ppn5")]
+mod serve7;
 mod sockets;
 mod stack;
 mod startup;
+#[cfg(feature = "textprobe")]
+mod textprobe;
 mod tls;
 mod tls_slots;
 #[cfg(feature = "remote")]
 mod traced;
+#[cfg(feature = "usb-drive")]
+mod usb_drive;
 mod usb_lines;
-#[cfg(any(feature = "esp32s3", feature = "x3"))]
 mod usb_power;
 mod volume;
 mod wifi;
@@ -151,7 +170,43 @@ esp_bootloader_esp_idf::esp_app_desc!(
 /// Bluetooth takes of the same memory for good, and less the X4's arena
 /// for plugins' hot code, which the heap gets once plugins are loaded as
 /// far as they did not take it (`native::HOT_ARENA_LEN`).
-const HEAP_SIZE: usize = (192 - BLUETOOTH_KB) * 1024 - native::HOT_ARENA_LEN;
+const HEAP_SIZE: usize = (192 + WIFI_IN_FLASH_KB - BLUETOOTH_KB - S3_BAND_KB - X4_BAND_KB) * 1024
+    - native::HOT_ARENA_LEN;
+/// RAM the ESP32-C3 devices gain as the Wi-Fi send and receive code runs from
+/// flash (`build.rs`, `wifi-flash-x4.x`, #304): the 28 KB it took in IRAM,
+/// less what the stack keeps as its margin. The heap takes it, the stack stays
+/// as it was (`build.rs` checks the stack's size). Measured on the image: the
+/// stack grew by as much as the code left RAM.
+const WIFI_IN_FLASH_KB: usize = if cfg!(target_arch = "riscv32") { 16 } else { 0 };
+/// The X4's band at the stack's end and its reserve (4 KB and the band's 2 KB,
+/// `paperpaw_x4::stack_band`) take the top 7.7 KB of a stack that had only
+/// 37.4 KB left once the interface-7 plugins were built in: the start's path
+/// (some 33 KB) and then the first frame's card read (37.9 KB, a plugin's call
+/// into the files host and the FAT) tripped the band in the first two test
+/// images (#2556, on the device). The stack grows by as much as the heap gives
+/// (`build.rs` checks its size), as the ESP32-S3's does (`S3_BAND_KB`, 16 KB):
+/// 53.4 KB, 45.7 KB above the band.
+const X4_BAND_KB: usize = if cfg!(all(target_arch = "riscv32", feature = "ppn5")) {
+    16
+} else {
+    0
+};
+/// The ESP32-S3's band at the stack's end and its reserve, in KB, where
+/// interface-7 plugins are built in (`ppn5`), and 12 KB more above them: the
+/// stack grows by as much (the heap gives it, `build.rs` checks the stack's
+/// size). 16 KB: 14,336 bytes of reserve and the band's 2,048
+/// (`paperpaw_x4::s3_band::SPARE`). Of the 12 KB, 4 are what the start's path
+/// through the kernel's build needs to keep 2 KB above the band
+/// (`tools/check-x4-start-stack.py --s3 --margin 2048`, static: it had 1,616 B
+/// on the X4 Pro, 608 B on the Classic with 2 KB more), and 8 are for the routes
+/// the scan cannot follow (a plugin's call through the files host into the FAT
+/// is a pointer call, review #2892). All static, to be confirmed by the owner's
+/// device test (#250, S4).
+const S3_BAND_KB: usize = if cfg!(all(target_arch = "xtensa", feature = "ppn5")) {
+    (paperpaw_x4::s3_band::SPARE / 1024) as usize + 12
+} else {
+    0
+};
 /// Bluetooth's fixed share of the internal RAM, in KB, as measured: its
 /// controller's code in IRAM (20.6 KB) and statics (4.4 KB). The stack,
 /// after them, would lose it: the heap gives it back (`build.rs` checks
@@ -254,6 +309,31 @@ fn random(buf: &mut [u8]) -> bool {
     true
 }
 
+/// One line of the host's own diagnostics (`KernelBuilder::device_log`): to
+/// the log. A plain function without state that never calls the kernel, as
+/// the builder asks; the line is at most 120 bytes of plugin ids and numbers
+/// (never plugin text), and `log` formats it in place, so nothing is
+/// allocated.
+fn device_log(line: &str) {
+    log::info!("host: {line}");
+}
+
+/// The crash log's line if the last run ended by a watchdog or a brownout
+/// (`paperpaw_x4::reset_note`).
+fn watchdog_entry() -> Option<alloc::string::String> {
+    let (place, naps, reason) = power::last_run();
+    let (name, meaning) = paperpaw_x4::reset_note::watchdog(reason? as u32)?;
+    Some(alloc::format!(
+        "{}",
+        paperpaw_x4::reset_note::Entry {
+            name,
+            meaning,
+            place: power::place_name(place),
+            naps,
+        }
+    ))
+}
+
 /// How this start came, from the chip's reason for its reset: a sleep
 /// that cut the power ends by the power coming again.
 fn started() -> paperpaw_sdk::power::Start {
@@ -331,8 +411,23 @@ fn now() -> Instant {
 
 #[main]
 fn main() -> ! {
+    // Counted first: a start that dies before anything else (#2556) must
+    // not go on dying; after two, this one leaves the band off and goes
+    // without native plugins (`safe_mode::check`).
+    let earlier = safe_mode::begin();
     stack::paint();
-    start().run()
+    if !paperpaw_x4::start_count::early::refuses(earlier) {
+        stack::arm_band();
+    }
+    let mut firmware = start();
+    // The radios the kernel has are told to the device once, now that the
+    // kernel exists (it answers their state itself).
+    #[cfg(feature = "ppn5")]
+    {
+        device_host::present(&firmware.device, &firmware.kernel);
+        device_host::check(&firmware.device, &firmware.kernel);
+    }
+    firmware.run()
 }
 
 /// Everything before the main loop, in frames of their own: what only the
@@ -346,6 +441,11 @@ fn start() -> Firmware {
     info!("startup: building the kernel");
     let bundle = ready.staged.other_slot.take();
     let flash = ready.flash.clone();
+    #[cfg(feature = "native-on")]
+    let device_table = match &ready.code {
+        CodePlugins::Load(loader) => Some(loader.device_table()),
+        _ => None,
+    };
     let firmware = Firmware {
         panel: ready.panel,
         network: ready.network,
@@ -358,12 +458,20 @@ fn start() -> Firmware {
         remote: remote::Remote,
         #[cfg(feature = "x4-pro")]
         light: ready.light,
+        card_swap: ready.card_swap,
+        #[cfg(feature = "ppn5")]
+        device: ready.device,
+        #[cfg(feature = "ppn5")]
+        secrets: secrets::Secrets::new(ready.secrets),
+        #[cfg(feature = "native-on")]
+        device_table,
         state: State::default(),
         // Last, and built right in its place: the kernel is large.
         kernel: kernel(
             ready.storage,
             ready.card_trouble,
             ready.firmware,
+            ready.firmware_host,
             ready.code,
             ready.staged,
         ),
@@ -373,6 +481,10 @@ fn start() -> Firmware {
     if let Some(at) = bundle {
         native::bundle::forget(&flash, at);
     }
+    // Nothing here borrows `firmware`: a local that is borrowed after it is
+    // built cannot be returned in place, and the copy takes 7.8 KB more of the
+    // stack (#2556: with the band, the start's path no longer fitted). What
+    // needs the kernel built runs in `main`, on the firmware where it lies.
     power::mark(power::at::START_KERNEL);
     info!(
         "startup: kernel ready in {} ms",
@@ -393,10 +505,21 @@ struct Ready {
     #[cfg(feature = "x4-pro")]
     light: Option<light::Light>,
     storage: Box<dyn Storage>,
+    /// What watches the card being taken out and put back, if there is one.
+    card_swap: Option<Box<dyn volume::Swap>>,
     /// Why there is no card to keep things on, if there is none.
     card_trouble: Option<paperpaw_core::CardTrouble>,
     firmware: Option<paperpaw_sdk::firmware::Firmware>,
+    /// What the kernel's firmware jobs run on: the OTA the shell also drives,
+    /// or a host that installs no firmware (`paperpaw_x4::host_jobs`).
+    firmware_host: Box<dyn paperpaw_platform::firmware::FirmwareHost>,
     code: CodePlugins,
+    /// The device behind `core.device`.
+    #[cfg(feature = "ppn5")]
+    device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    /// What the loader leaves of `core.secrets` for the main loop.
+    #[cfg(feature = "ppn5")]
+    secrets: secrets::Kept,
     staged: native::bundle::Staged,
     /// The flash, to let the web flasher's bundle go once installed.
     flash: ota::Flash,
@@ -421,11 +544,23 @@ fn prepare() -> Ready {
         esp_hal::psram
     );
     // The heap before the board: the board keeps its bus there.
+    // esp-alloc tries its regions in the order they were added. On the
+    // X4 the small reclaimed one comes first: the start-up's long-lived
+    // data fills it, and the large region stays whole for the big
+    // one-piece temporaries (a book's opening, an install, a download),
+    // instead of both sharing the large one and fragmenting it (#304).
+    #[cfg(not(feature = "esp32s3"))]
+    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: RECLAIMED_SIZE);
     esp_alloc::heap_allocator!(size: HEAP_SIZE);
+    #[cfg(feature = "esp32s3")]
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: RECLAIMED_SIZE);
     // Plugins choose internal RAM or PSRAM for their data (ADR 0030).
     paperpaw_sdk::memory::set_placer(native::api::alloc_in);
     esp_println::logger::init_logger_from_env();
+    stack::report_band();
+    // The test image says what the run before ended with, and starts counting.
+    #[cfg(feature = "test-image")]
+    high_water::start();
     // What hot code in internal RAM gains on this chip (test builds).
     #[cfg(feature = "remote")]
     bench::run();
@@ -447,8 +582,9 @@ fn prepare() -> Ready {
     // Taken only now: an update that failed its trial goes back after its
     // note (`install_note`), which has the update's panic message.
     // A start that goes back (a failed trial) leaves the message where it
-    // is: the firmware it goes back to reads it as its own.
-    let going_back = ota.as_ref().is_some_and(|ota| ota.failed_trial().is_some());
+    // is: the firmware it goes back to reads it as its own. Whether it does
+    // is known once the card has said this is no dual-boot setup (`dual`).
+    let going_back = ota.as_ref().is_some_and(ota::Ota::plans_to_go_back);
     let panicked = if going_back {
         crash::last()
     } else {
@@ -466,10 +602,24 @@ fn prepare() -> Ready {
     #[cfg(feature = "x4-classic")]
     let board = Board::take(p, probe::factory_controller(&flash));
     power::mark(power::at::START_BOARD);
-    let (storage, card_trouble) = match card::mount(board.card) {
-        Ok(storage) => (storage, None),
-        Err(trouble) => (Box::new(NoStorage) as Box<dyn Storage>, Some(trouble)),
+    let (storage, card_swap, card_trouble) = match card::mount(board.card) {
+        Ok(mounted) => (mounted.storage, Some(mounted.swap), None),
+        Err(trouble) => (Box::new(NoStorage) as Box<dyn Storage>, None, Some(trouble)),
     };
+    // The reader's choice and the bootloader say whether this is a dual-boot
+    // setup, nothing in the other firmware's partition or the OTA data
+    // changed: only then the start does what it needs (a tool's update
+    // marked as on trial, one undone), as before anything else is written
+    // to the card. An update this firmware installed, or one that failed its
+    // trial, was marked before the board's start (`Ota::start`), so that a
+    // hang there still ends in the way back.
+    let mut ota = ota;
+    let dual = dual::settle(&mut ota, &flash, storage.as_ref());
+    // A failed trial that the setup left alone: the message is no longer
+    // the other firmware's to read.
+    if going_back && ota.as_ref().is_some_and(|ota| ota.failed_trial().is_none()) {
+        crash::take_last();
+    }
     // After the card, which the note below goes to; before anything else
     // is written to it.
     #[cfg(feature = "x3")]
@@ -485,7 +635,15 @@ fn prepare() -> Ready {
     // For bug reports: on the card, and said over USB.
     if let Some(message) = &panicked {
         crash::keep(storage.as_ref(), message);
+    } else if let Some(entry) = watchdog_entry() {
+        // A watchdog or brownout leaves no message: the reason and the
+        // place are what there is (#289).
+        warn!("the last run ended by a reset: {entry}");
+        crash::keep(storage.as_ref(), &entry);
     }
+    // The run before's lows, a line on the card (test image).
+    #[cfg(feature = "test-image")]
+    high_water::note_to_card(storage.as_ref());
     #[cfg(feature = "remote")]
     remote::note_panic(panicked);
     let mut panel = board.panel;
@@ -495,26 +653,16 @@ fn prepare() -> Ready {
         board.display,
         panel.controller()
     );
-    // What a UC8179's OTP holds, if it was read (developer builds).
-    #[cfg(feature = "waveform-lab")]
-    probe::log_otp();
-    #[cfg(any(feature = "waveform-lab", feature = "x4-pro"))]
+    #[cfg(feature = "x4-pro")]
     panel.set_trial_power(probe::otp_power());
     // The X4 Pro's menus take the waveform of the registers where its
     // controller is a UC8179 (`device`, `firmware`).
     device::set_uc8179(
         cfg!(feature = "x4-pro") && panel.controller() == paperpaw_x4::probe::Controller::Uc8179,
     );
-    // Only an SSD1677's waveforms can be tried or set (`device`, `lab`).
+    // Only an SSD1677's waveforms can be set (`device`).
     #[cfg(feature = "x4")]
     device::set_ssd1677(panel.controller() == paperpaw_x4::probe::Controller::Ssd1677);
-    // The waveform lab tries those of the SSD1677 and the UC8179.
-    #[cfg(feature = "waveform-lab")]
-    lab::set_support(match panel.controller() {
-        paperpaw_x4::probe::Controller::Ssd1677 => lab::Support::Ssd1677,
-        paperpaw_x4::probe::Controller::Uc8179 => lab::Support::Uc8179,
-        _ => lab::Support::None,
-    });
     if let Err(e) = panel.init() {
         warn!("display: {e:?}");
     }
@@ -524,11 +672,15 @@ fn prepare() -> Ready {
         WATCHDOG_S,
     );
     // The radio (on when the kernel says so) and what goes over it.
-    let network = network::Network::new(wifi::Parts {
+    #[cfg_attr(not(feature = "ppn5"), allow(unused_mut))]
+    let mut network = network::Network::new(wifi::Parts {
         timer: board.timers1.timer0,
         interrupt: board.radio.1,
         wifi: board.radio.0,
     });
+    // A firmware check that finds no room asks the main loop for it (#273).
+    let update_room = alloc::rc::Rc::new(paperpaw_x4::update_room::Gate::new());
+    network.set_update_room(update_room.clone());
     input::start(input::Sampler::new(
         PeriodicTimer::new(board.timers.timer0),
         board.keys,
@@ -540,22 +692,66 @@ fn prepare() -> Ready {
     if let Some(unix_ms) = board.clock_ms {
         clock::set(now(), unix_ms);
     }
+    // The X4 has no clock chip: the RTC kept the time through a restart
+    // or a deep sleep, if it was set before (#280).
+    #[cfg(feature = "x4")]
+    clock::restore(now());
     // Plugins the web flasher wrote behind the image, onto the card first.
     let staged = {
         let mut startup = startup::Startup::new(&mut panel);
-        let staged = native::bundle::stage(&flash, storage.as_ref(), &mut |progress| {
+        let staged = native::bundle::stage(&flash, storage.as_ref(), !dual, &mut |progress| {
             startup.update(progress)
         })
         .unwrap_or_default();
-        startup.starting_if_needed();
+        startup.starting_if_needed(storage.as_ref());
         staged
     };
-    let code = code_plugins(ota.as_ref(), &flash);
+    #[cfg(feature = "ppn5")]
+    let host_net = host_net::Bridge::new();
+    #[cfg(feature = "ppn5")]
+    network.attach(host_net.clone());
+    // The device behind `core.device`, made before the code plugins are
+    // decided so that the loader can wire it.
+    #[cfg(feature = "ppn5")]
+    let device = device_host::make(
+        ota.as_ref().map(ota::Ota::running).as_ref(),
+        &staged.not_installed,
+        started(),
+    );
+    // English hyphenation is a data plugin on the card: the flasher puts it
+    // there, but an update of a firmware that had English built in (Beta 3)
+    // leaves none. Put it there once if no start did (`paperpaw-default-packs`);
+    // after the flasher's bundle, so that its own copy is found, not doubled.
+    native::seed::hyphenation(storage.as_ref());
+    // What the loader leaves of `core.secrets` for the main loop.
+    #[cfg(feature = "ppn5")]
+    let kept = secrets::Kept::default();
+    let code = code_plugins(
+        ota.as_ref(),
+        &flash,
+        #[cfg(feature = "ppn5")]
+        host_net,
+        #[cfg(feature = "ppn5")]
+        device.clone(),
+        #[cfg(feature = "ppn5")]
+        kept.clone(),
+    );
+    #[cfg(feature = "ppn5")]
+    network.attach_device(device.clone());
+    // Safe mode is known only now: no loader is made then, so the device is told.
+    #[cfg(feature = "ppn5")]
+    if let CodePlugins::SafeMode(mode) = &code {
+        device_host::tell_native(&device, Some(mode));
+    }
     // Light sleeps while idle on battery (allowed only by the main loop),
     // the deep one at the end.
     power::init(LowPower::new(board.low_power));
     Ready {
         firmware: ota.as_ref().map(ota::Ota::firmware),
+        firmware_host: match ota.as_ref() {
+            Some(ota) => Box::new(ota.host(update_room)),
+            None => Box::new(paperpaw_x4::host_jobs::NoFirmware::new(native::FAMILY)),
+        },
         panel,
         network,
         ota,
@@ -572,8 +768,13 @@ fn prepare() -> Ready {
         #[cfg(feature = "x4-pro")]
         light: board.light,
         storage,
+        card_swap,
         card_trouble,
         code,
+        #[cfg(feature = "ppn5")]
+        device,
+        #[cfg(feature = "ppn5")]
+        secrets: kept,
         staged,
         flash,
     }
@@ -693,11 +894,11 @@ enum CodePlugins {
     /// Safe mode: none loaded.
     SafeMode(paperpaw_sdk::native::SafeMode),
     /// None this start: an update is on trial, which must show it starts
-    /// by itself.
-    None,
+    /// by itself. What the firmware takes is told once it is kept (#164).
+    OnTrial,
 }
 
-/// What this firmware loads, as plugins see it ([`paperpaw_sdk::Env`]),
+/// What this firmware loads, as plugins see it (`Place`),
 /// with the plugins of the web flasher not installed.
 fn native(
     not_installed: alloc::vec::Vec<paperpaw_sdk::native::NotInstalled>,
@@ -710,23 +911,21 @@ fn native(
 /// Loads nothing: in safe mode the kernel asks for no code.
 struct NoCode;
 
-impl paperpaw_core::CodeLoader for NoCode {
-    fn load(
-        &mut self,
-        _: &dyn Storage,
-        _: &paperpaw_core::CodeFile<'_>,
-    ) -> Result<Box<dyn paperpaw_sdk::Plugin>, paperpaw_sdk::PluginProblem> {
-        Err(paperpaw_sdk::PluginProblem::SafeMode)
-    }
-}
+impl paperpaw_core::CodeLoader for NoCode {}
 
 /// Whether code plugins are loaded at this start, after the key for safe
 /// mode was looked for and the failed starts counted.
-fn code_plugins(ota: Option<&ota::Ota>, flash: &ota::Flash) -> CodePlugins {
+fn code_plugins(
+    ota: Option<&ota::Ota>,
+    flash: &ota::Flash,
+    #[cfg(feature = "ppn5")] host_net: alloc::rc::Rc<host_net::Bridge>,
+    #[cfg(feature = "ppn5")] device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>,
+    #[cfg(feature = "ppn5")] secrets: secrets::Kept,
+) -> CodePlugins {
     if ota.is_some_and(ota::Ota::on_trial) {
         info!("native: an update on trial starts without code plugins");
         native::no_hot_code();
-        return CodePlugins::None;
+        return CodePlugins::OnTrial;
     }
     if let Some(safe_mode) = safe_mode::check(input::held(safe_mode::KEY)) {
         warn!(
@@ -739,13 +938,19 @@ fn code_plugins(ota: Option<&ota::Ota>, flash: &ota::Flash) -> CodePlugins {
     #[cfg(feature = "esp32s3")]
     let place = {
         let _ = flash;
-        // SAFETY: the board does not use SHA; this loader owns it until
-        // all plugins are loaded, before the radio is started.
-        native::Place::new(unsafe { esp_hal::peripherals::SHA::steal() })
+        native::Place::new()
     };
     #[cfg(feature = "esp32c3")]
     let place = native::Place::new(flash.clone());
-    CodePlugins::Load(native::Loader::new(place))
+    CodePlugins::Load(native::Loader::new(
+        place,
+        #[cfg(feature = "ppn5")]
+        host_net,
+        #[cfg(feature = "ppn5")]
+        device,
+        #[cfg(feature = "ppn5")]
+        secrets::Wiring::new(flash.clone(), secrets),
+    ))
 }
 
 /// The status lines of the X4s by default (see `setting_default_text`):
@@ -776,6 +981,7 @@ fn kernel(
     storage: Box<dyn Storage>,
     card_trouble: Option<paperpaw_core::CardTrouble>,
     firmware: Option<paperpaw_sdk::firmware::Firmware>,
+    firmware_host: Box<dyn paperpaw_platform::firmware::FirmwareHost>,
     code: CodePlugins,
     staged: native::bundle::Staged,
 ) -> Kernel {
@@ -792,6 +998,7 @@ fn kernel(
         .clock(micros)
         // Fully random while the radio is on, as when serving.
         .random(random)
+        .device_log(device_log)
         .memory(memory)
         .started(start)
         .after_sleep(after_sleep)
@@ -799,8 +1006,10 @@ fn kernel(
         // refreshes' times as they are measured (ADR 0030).
         .panel(paperpaw_sdk::realtime::PanelInfo::new(2))
         // The panel refreshes on its own: a mark shows at once while slow
-        // work goes on.
+        // work goes on; for work that took as long as the refresh showing
+        // it (~504 ms on the X4), so shorter work does not wait (#118).
         .busy_mark(true)
+        .busy_mark_after(500)
         // Built-in packs are read in place; glyphs of packs on the card
         // (other scripts) are kept here once read. Empty until one is.
         .glyph_cache(12 * 1024)
@@ -809,7 +1018,7 @@ fn kernel(
         // The panel takes bands turned any way (`display`).
         .rotation(true)
         .sleep(true)
-        // A plugin may ask to switch the device off (`Command::PowerOff`);
+        // A plugin may ask to switch the device off (`Ask::PowerOff`);
         // `slept_for` stays unknown after a switch-off: the card keeps no
         // clock, so plugins hear no time asleep for such a start.
         .power_off(true)
@@ -819,6 +1028,13 @@ fn kernel(
         // TLS sockets (and HTTPS with them): one session at a time on the
         // X4's 256 KiB, two on the X4 Pro and Classic (`tls_slots`).
         .tls_sessions(tls_slots::SESSIONS);
+    // Every Xteink device has the USB serial unit the developer link
+    // (*Customise > Developer*, #12) talks over.
+    let builder = builder.capability(paperpaw_sdk::Capability::USB_LINK);
+    // The S3 devices show the card to a computer (`usb_drive`, #32); the
+    // ESP32-C3 devices have no OTG core and do not say they can.
+    #[cfg(feature = "usb-drive")]
+    let builder = builder.capability(paperpaw_sdk::Capability::USB_DRIVE);
     // The X4's row of hints under the screen (the X4 Classic has its
     // buttons); the X4 Pro is touched.
     #[cfg(feature = "x4")]
@@ -841,6 +1057,14 @@ fn kernel(
         // The keyboard's size, unless the reader chose another (see
         // `KEYBOARD_SIZE`).
         .setting_default_text("keyboard.size", KEYBOARD_SIZE);
+    // Test images never fall asleep by themselves (a sleeping device drops
+    // the serial bridge): no idle sleep, awake on the cable, no switch-off.
+    #[cfg(feature = "test-image")]
+    let builder = builder
+        .setting_default(&settings::SLEEP_AFTER, 0)
+        .setting_default(&device::STAY_AWAKE_USB, true);
+    #[cfg(all(feature = "test-image", feature = "asleep-light"))]
+    let builder = builder.setting_default_text("x4.power-off-after", "x4.power-off-after.never");
     // A small screen: calm status lines, the time and the page while
     // reading (and the mark of reading aloud while it reads), the time
     // and the battery elsewhere. Every item stays to be chosen.
@@ -859,10 +1083,16 @@ fn kernel(
         Some(firmware) => builder.firmware(firmware),
         None => builder,
     };
+    // Plugin jobs and the firmware's own update share this host's queue; the
+    // plugin host is handed over once the services are wired (`Firmware::run`).
+    let builder = builder.firmware_host(firmware_host);
     let builder = match card_trouble {
         Some(trouble) => builder.card_trouble(trouble),
         None => builder,
     };
+    // A card folder with code never takes the id of a plugin linked into
+    // this firmware (a plugin of Beta 3 that is built in now), on any start.
+    let builder = builder.built_in_ids(paperpaw_app::is_linked_id);
     let builder = match code {
         CodePlugins::Load(loader) => {
             builder.code_plugins(native(staged.not_installed), Box::new(loader))
@@ -870,7 +1100,7 @@ fn kernel(
         CodePlugins::SafeMode(safe_mode) => builder
             .code_plugins(native(staged.not_installed), Box::new(NoCode))
             .safe_mode(safe_mode),
-        CodePlugins::None => builder,
+        CodePlugins::OnTrial => builder.native_after_trial(native(staged.not_installed)),
     };
     let builder = staged
         .installs
@@ -885,9 +1115,10 @@ fn kernel(
         paperpaw_app::Fonts::Packs,
         paperpaw_app::StorePlugins::Left,
     )
-    .plugin(device::X4);
-    #[cfg(feature = "frame-test")]
-    let builder = builder.plugin(paperpaw_sample_frame_test::FrameTest);
+    .built_messages(device::MESSAGES)
+    .items(device::manifest(), device::register);
+    #[cfg(not(feature = "built-german"))]
+    let builder = builder.language_seed(&device::GERMAN);
     // Its warnings are logged as the main loop starts: taken here, the
     // kernel would be one more copy on the stack.
     builder.build().expect("kernel")

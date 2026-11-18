@@ -1,3 +1,0 @@
-Öffnet Comic-Archive (.cbz): ein Bild je Seite, an den Bildschirm angepasst, in der Reihenfolge ihrer Namen (2 vor 10).
-
-Lege sie in den Bibliotheksordner und öffne sie aus der Bibliothek; blättern wie in jedem Buch. Große Bilder brauchen beim ersten Mal einen Moment, auf dem X4 mehr als anderswo.

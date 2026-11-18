@@ -15,12 +15,14 @@ mod canvas;
 pub mod diffuse;
 mod framebuffer;
 mod mask;
+mod probe;
 pub mod round;
 
 pub use band::{BandView, FramePass, Region, RegionKind};
 pub use blit::{Bitmap, BitmapError, BitmapFormat, Blit, Dither};
 pub use canvas::{Canvas, Describe, Described, Role};
 pub use framebuffer::{Framebuffer, MONO_COVERAGE};
+pub use probe::InkBounds;
 
 use core::fmt;
 use paperpaw_platform::PixelFormat;

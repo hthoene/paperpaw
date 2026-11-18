@@ -1,0 +1,3 @@
+### Added
+
+- **The reader's side of `core.document`: blocks, table of contents and links** (#228). `Documents::block_at` reads the block at or after a position as validated fragments of typed records (`BlockFragment`, `BlockRecord`, `BlockHead` and the rest), with the continuation cursor for a block that goes on and the next block's offset; `toc` and `links` list entries and links in bounded pages (`DocPage`, `TocEntry`, `Link`), and `toc_target` and `link_target` resolve an entry or an internal link to a `DocPosition`. All are borrowed from the caller's buffers and allocate nothing; a malformed reply is refused whole.

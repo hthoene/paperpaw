@@ -200,6 +200,16 @@ pub struct Placement {
     pub erase_index: bool,
 }
 
+/// A point in a [`Layout`] to go back to ([`Layout::mark`], [`Layout::rewind`]).
+#[cfg(feature = "kernel")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Mark {
+    placed: usize,
+    hot_used: u32,
+    same: bool,
+    written: bool,
+}
+
 /// The plugins placed at a start, one after the other, and how that
 /// compares with the index found (see the [module documentation](self)).
 #[derive(Debug)]
@@ -249,6 +259,34 @@ impl Layout {
 
     /// Where the plugin of `header` goes, after those placed before.
     pub fn place(&mut self, header: &Header) -> Result<Placement, NoRoom> {
+        self.place_inner(
+            header.sha256,
+            header.image_len,
+            header.align,
+            header.hot_len,
+        )
+    }
+
+    /// [`Layout::place`] for a file of any format: the four things placing
+    /// needs of its header.
+    #[cfg(feature = "kernel")]
+    pub fn place_parts(
+        &mut self,
+        sha256: [u8; 32],
+        image_len: u32,
+        align: u32,
+        hot_len: u32,
+    ) -> Result<Placement, NoRoom> {
+        self.place_inner(sha256, image_len, align, hot_len)
+    }
+
+    fn place_inner(
+        &mut self,
+        sha256: [u8; 32],
+        image_len: u32,
+        align: u32,
+        hot_len: u32,
+    ) -> Result<Placement, NoRoom> {
         if self.placed.len() >= MAX_PLACED {
             return Err(NoRoom);
         }
@@ -257,20 +295,20 @@ impl Layout {
             None => self.region.start + SECTOR,
         };
         if at
-            .checked_add(header.image_len)
+            .checked_add(image_len)
             .is_none_or(|end| end > self.region.end)
         {
             return Err(NoRoom);
         }
         let base = self.region.base + (at - self.region.start);
-        if !base.is_multiple_of(header.align) {
+        if !base.is_multiple_of(align) {
             return Err(NoRoom);
         }
-        let hot = self.hot(header.hot_len);
+        let hot = self.hot(hot_len);
         let placed = Placed {
-            sha256: header.sha256,
+            sha256,
             at,
-            len: header.image_len,
+            len: image_len,
             base,
             api: self.api,
             hot,
@@ -304,6 +342,50 @@ impl Layout {
         let hot = self.arena.start + self.hot_used;
         self.hot_used = (self.hot_used + len).next_multiple_of(4);
         hot
+    }
+
+    /// Where the layout is now, to go back to if the plugin placed next is
+    /// refused after all.
+    #[cfg(feature = "kernel")]
+    pub fn mark(&self) -> Mark {
+        Mark {
+            placed: self.placed.len(),
+            hot_used: self.hot_used,
+            same: self.same,
+            written: self.written,
+        }
+    }
+
+    /// Takes back every plugin placed since `mark`: its room and its hot
+    /// code's part of the arena are free again. The index is written anew
+    /// at the end (an image may have been written, or the index erased),
+    /// so it says only what was kept.
+    ///
+    /// For a plugin whose image or whose index may have been written; the
+    /// index then differs from the old one (what the refused plugin
+    /// overwrote may be the next one's old image). If nothing was written
+    /// or erased since the mark, [`Layout::forget`] is the way back.
+    #[cfg(feature = "kernel")]
+    pub fn rewind(&mut self, mark: Mark) {
+        debug_assert!(mark.placed <= self.placed.len());
+        self.placed.truncate(mark.placed);
+        self.hot_used = mark.hot_used;
+        self.same = false;
+    }
+
+    /// [`Layout::rewind`] for a plugin refused **before** any flash was
+    /// erased or written for it: the layout is exactly as it was at `mark`,
+    /// as is its comparison with the old index, so the plugins placed
+    /// after it are found where they were, and neither they nor the index
+    /// are written again for the refused plugin's sake, at this start or at
+    /// any later one.
+    #[cfg(feature = "kernel")]
+    pub fn forget(&mut self, mark: Mark) {
+        debug_assert!(mark.placed <= self.placed.len());
+        self.placed.truncate(mark.placed);
+        self.hot_used = mark.hot_used;
+        self.same = mark.same;
+        self.written = mark.written;
     }
 
     /// The arena's bytes given to hot code.
@@ -556,5 +638,134 @@ mod tests {
         }
         assert_eq!(Index::read(&bytes[..bytes.len() - 1]), None);
         assert_eq!(Index::read(&[0xFF; SECTOR as usize]), None, "erased flash");
+    }
+
+    /// A plugin refused after it was placed is taken back: its room and its
+    /// hot code's part of the arena are free again, and the index is written
+    /// anew so that it says only what was kept.
+    #[cfg(feature = "kernel")]
+    #[test]
+    fn a_plugin_refused_after_placing_is_taken_back() {
+        let first = hot(5000, 400, 1);
+        let refused = hot(1000, 800, 2);
+        let next = hot(1000, 200, 3);
+        let mut layout = Layout::new(region(), FIRMWARE, API, ARENA, None);
+        let kept = layout.place(&first).unwrap();
+        let mark = layout.mark();
+        let used = layout.hot_used();
+        let gone = layout.place_parts(refused.sha256, refused.image_len, refused.align, 800);
+        assert!(gone.is_ok());
+        assert!(layout.hot_used() > used);
+        layout.rewind(mark);
+        assert_eq!(layout.hot_used(), used, "the arena's part is free again");
+        assert_eq!(layout.end(), kept.at + 5000);
+        // The next plugin takes the room the refused one had.
+        let again = layout.place(&next).unwrap();
+        assert_eq!(again.at, gone.unwrap().at);
+        assert_eq!(again.hot, gone.unwrap().hot);
+        // The index says what was kept: the first and the next, never the
+        // refused one, even though the layout began from no index at all.
+        let index = layout.index().unwrap();
+        assert_eq!(index.placed.len(), 2);
+        assert_eq!(index.placed[1].sha256, next.sha256);
+        // Rewinding to a mark taken before anything was placed forgets all.
+        let mut empty = Layout::new(region(), FIRMWARE, API, ARENA, None);
+        let start = empty.mark();
+        empty.place(&first).unwrap();
+        empty.rewind(start);
+        assert_eq!(empty.end(), region().start + SECTOR);
+        assert_eq!(empty.hot_used(), 0);
+    }
+
+    /// What a start places never overlaps an image placed before it at the same
+    /// start (those run from flash and are never erased under the code): a
+    /// replaced plugin, a bigger one, and a refused one whose room the next
+    /// takes, all leave the kept images in ascending, disjoint sectors.
+    #[cfg(feature = "kernel")]
+    #[test]
+    fn what_a_start_places_never_overlaps_an_image_placed_before_it() {
+        let (a, b, c) = (hot(5000, 0, 1), hot(9000, 0, 2), hot(3000, 0, 3));
+        let mut first = Layout::new(region(), FIRMWARE, API, ARENA, None);
+        for h in [&a, &b, &c] {
+            first.place(h).unwrap();
+        }
+        let old = first.index().unwrap();
+        // The next start: `a` replaced by a bigger file, a plugin refused after
+        // it was written, then `b` and `c` as before (now placed anew).
+        let a2 = hot(30_000, 0, 11);
+        let refused = hot(70_000, 0, 9);
+        let mut next = Layout::new(region(), FIRMWARE, API, ARENA, Some(old));
+        let mut kept = Vec::new();
+        kept.push(next.place(&a2).unwrap());
+        let mark = next.mark();
+        next.place(&refused).unwrap();
+        next.rewind(mark);
+        kept.push(next.place(&b).unwrap());
+        kept.push(next.place(&c).unwrap());
+        let len = [30_000u32, 9000, 3000];
+        for (i, (p, l)) in kept.iter().zip(len).enumerate() {
+            assert_eq!(p.at % SECTOR, 0, "image {i} begins at a sector");
+            assert!(!p.present, "image {i} is written anew after a change");
+            for (q, m) in kept.iter().zip(len).take(i) {
+                assert!(p.at >= q.at + m, "image {i} lies over an earlier one");
+            }
+            assert!(p.at + l <= region().end);
+        }
+    }
+
+    /// Placing by the four parts is placing by the header.
+    #[cfg(feature = "kernel")]
+    #[test]
+    fn placing_by_parts_is_placing_by_header() {
+        let h = hot(5000, 400, 7);
+        let mut by_header = Layout::new(region(), FIRMWARE, API, ARENA, None);
+        let mut by_parts = Layout::new(region(), FIRMWARE, API, ARENA, None);
+        assert_eq!(
+            by_header.place(&h).unwrap(),
+            by_parts
+                .place_parts(h.sha256, h.image_len, h.align, h.hot_len)
+                .unwrap()
+        );
+        assert_eq!(by_header.index(), by_parts.index());
+    }
+
+    /// A plugin refused before anything was written is forgotten: the plugins
+    /// placed after it are found in the old index as before, so neither they
+    /// nor the index are written again. A plugin refused after a write is
+    /// rewound: the index is written anew.
+    #[cfg(feature = "kernel")]
+    #[test]
+    fn a_plugin_refused_before_writing_costs_the_others_nothing() {
+        let a = hot(5000, 400, 1);
+        let b = hot(1000, 0, 2);
+        let refused = hot(3000, 0, 9);
+        // A first start wrote a and b.
+        let mut first = Layout::new(region(), FIRMWARE, API, ARENA, None);
+        first.place(&a).unwrap();
+        first.place(&b).unwrap();
+        let old = first.index().unwrap();
+        // The next start places a, tries a refused plugin, then b.
+        let mut next = Layout::new(region(), FIRMWARE, API, ARENA, Some(old.clone()));
+        assert!(next.place(&a).unwrap().present);
+        let mark = next.mark();
+        assert!(
+            !next
+                .place_parts(refused.sha256, 3000, 16, 0)
+                .unwrap()
+                .present
+        );
+        next.forget(mark);
+        let placement = next.place(&b).unwrap();
+        assert!(placement.present, "b is where the index says");
+        assert!(!placement.erase_index);
+        assert_eq!(next.index(), None, "nothing changed: no index to write");
+        // Had the refused plugin written something, b would move.
+        let mut worse = Layout::new(region(), FIRMWARE, API, ARENA, Some(old));
+        worse.place(&a).unwrap();
+        let mark = worse.mark();
+        worse.place_parts(refused.sha256, 3000, 16, 0).unwrap();
+        worse.rewind(mark);
+        assert!(!worse.place(&b).unwrap().present);
+        assert!(worse.index().is_some());
     }
 }

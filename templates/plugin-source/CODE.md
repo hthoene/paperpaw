@@ -1,0 +1,10 @@
+# Hello paw: the code
+
+`src/main.rs` is the plugin: an entry in the tools menu that opens a screen. It is written for PaperPaw's plugin interface 7 and built without the standard library.
+
+- **Build it:** `paperpaw-dev build` for the Xteink X4 and X3, `paperpaw-dev build --device x4-pro` for the X4 Pro and X4 Classic. It says what is missing of the compiler and how to install it, builds the program, packs it (the packer `paperpaw-sign` comes with PaperPaw) and leaves the plugin as it goes onto a card in `dist/<device>/hello-paw`. `rust-toolchain.toml` names the X4's compiler, `.cargo/config.toml` and `paperpaw-plugin7.x` how the program is linked; leave `RUSTFLAGS` unset. Commit the `Cargo.lock` the first build writes: `check-publish` asks for it.
+- **What the build leaves:** `dist/x4/hello-paw` (or `dist/x4-pro/hello-paw`) is the plugin's folder as it lies in the folder `plugins` of a card, with the code in it. The code is not signed.
+- **Try it in the emulator** (Linux, x86-64): `paperpaw-dev build --device emulator` builds the plugin for the computer and leaves `dist/emulator`, a library for the emulator with the plugin in it; `paperpaw-emu --library dist/emulator --trust-code` starts it as an X4, with the X4's memory. Build again and start again to see a change. The emulator comes with PaperPaw and must be built by the compiler `rust-toolchain.toml` names: the build says how to install it.
+- **If the packer refuses the program:** it says which function or data it is about. A plugin keeps no data it writes outside what `make` returns (no `static mut`, no cell in a `static`), and no function of it may take 2,048 bytes of stack or more: put a large buffer on the heap.
+- **What it may call:** `native/metadata.json` lists the device's functions the code calls. `paperpaw-dev metadata` (and every build) makes the records of it: `native/metadata.bin` and `native/metadata.s3.bin`, one for each chip, and `native/metadata.host.bin` for the emulator. A call that is not listed is refused: add it to the list with the code.
+- **Its words:** `plugin/i18n/en.ini`; add a file for each language.

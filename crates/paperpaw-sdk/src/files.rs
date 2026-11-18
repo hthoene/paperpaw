@@ -138,7 +138,7 @@ pub fn list(storage: &dyn Storage, dir: &str, hidden: bool) -> Result<Vec<Entry>
     // Compared letter by letter, without a lower-case copy of each name
     // for every comparison; names alike but for case by their letters.
     // Unstable: a stable sort takes 4 KiB of stack (too much on the X4).
-    entries.sort_unstable_by(|a, b| {
+    paperpaw_sort::sort_by(&mut entries, |a, b| {
         b.is_dir
             .cmp(&a.is_dir)
             .then_with(|| {
@@ -152,9 +152,11 @@ pub fn list(storage: &dyn Storage, dir: &str, hidden: bool) -> Result<Vec<Entry>
     Ok(entries)
 }
 
-/// Whether `path` is a folder.
+/// Whether `path` is a folder: listed as far as its first entry, not
+/// whole (a folder of thousands of books is not read to learn that it is
+/// there).
 pub fn is_dir(storage: &dyn Storage, path: &str) -> bool {
-    !storage.exists(path) && storage.list(path, &mut |_| {}).is_ok()
+    !storage.exists(path) && storage.list_bounded(path, 0, &mut |_| false).is_ok()
 }
 
 /// Names tried by [`free_path`]: more than a folder on a memory card
@@ -345,6 +347,52 @@ pub fn load_for_update(
     }
 }
 
+/// [`load_text_for_update`] without an infallible allocation: the text
+/// is read into one fallible reservation of its size, so a heap that
+/// cannot take it is [`Error::OutOfMemory`](crate::data::Error::OutOfMemory)
+/// (not a missing or too large file). `None` where there is no such file.
+///
+/// # Errors
+/// A [`StorageError`] as [`load_text_for_update`] (`TooLarge` over `cap`,
+/// `InvalidData` where it is not UTF-8) in
+/// [`Error::Storage`](crate::data::Error::Storage), and the memory error.
+pub fn try_load_text_for_update(
+    storage: &dyn Storage,
+    path: &str,
+    cap: usize,
+) -> Result<Option<String>, crate::data::Error> {
+    use crate::data::Error;
+    let size = match storage.size(path) {
+        Ok(size) => size,
+        Err(StorageError::NotFound) => return Ok(None),
+        Err(e) => return Err(Error::Storage(e)),
+    };
+    let size = usize::try_from(size).unwrap_or(usize::MAX);
+    if size > cap {
+        return Err(Error::Storage(StorageError::TooLarge));
+    }
+    let mut data: Vec<u8> = Vec::new();
+    data.try_reserve_exact(size)
+        .map_err(|_| Error::OutOfMemory)?;
+    data.resize(size, 0);
+    let mut filled = 0;
+    while filled < size {
+        match storage.read_at(path, filled as u64, &mut data[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n.min(size - filled),
+            Err(StorageError::NotFound) => return Ok(None),
+            Err(e) => return Err(Error::Storage(e)),
+        }
+    }
+    data.truncate(filled);
+    if data.starts_with(BOM) {
+        data.drain(..BOM.len());
+    }
+    String::from_utf8(data)
+        .map(Some)
+        .map_err(|_| Error::Storage(StorageError::InvalidData))
+}
+
 /// [`load_for_update`] for a text file:
 /// [`StorageError::InvalidData`] where it is not UTF-8 (e.g. saved in
 /// another encoding), so it is not written over.
@@ -408,7 +456,7 @@ pub fn for_each_line(
 }
 
 /// A size as people read it: `820 B`, `14 KB`, `2,3 MB` (with the
-/// decimal mark given, in Latin digits). To show one, see [`shown_size`].
+/// decimal mark given, in Latin digits). To show one, see `shown_size`.
 pub fn size(bytes: u64, decimal: &str) -> String {
     const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
     let mut value = bytes as f64;
@@ -423,13 +471,6 @@ pub fn size(bytes: u64, decimal: &str) -> String {
         let tenths = (value * 10.0 + 0.5) as u64;
         format!("{}{decimal}{} {}", tenths / 10, tenths % 10, UNITS[unit])
     }
-}
-
-/// A size as the language shown writes it: [`size`] with its decimal mark
-/// ([`decimal_mark`](crate::numbers::decimal_mark)) and its digits.
-pub fn shown_size(env: &crate::env::Env<'_>, bytes: u64) -> String {
-    let text = size(bytes, crate::numbers::decimal_mark(env));
-    env.i18n().localize_digits(&text).into_owned()
 }
 
 #[cfg(test)]

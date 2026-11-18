@@ -1,0 +1,3 @@
+### Fixed
+
+- **JPEG and PNG decoding no longer take 4 KB of stack each** (#228). A JPEG's quantization and Huffman tables, and a PNG's palette tables and read buffer, are kept on the heap instead of in the stack frame of `paperpaw_image::jpeg::decode` (3,808 B before, 224 B now) and `paperpaw_image::png::decode` (4,080 B before, 1,056 B now), as the X4 plugin packer refuses a frame of 2,048 B or more. The heap they take is freed with the decode: 1.8 KB for a JPEG, 1 KB for a PNG and 1.5 KB more for a palette image (2.5 KB at most at once, 1 KB for the tables' source); a refused allocation is `OutOfMemory`. Decoded pixels are unchanged.

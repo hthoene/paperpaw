@@ -1,0 +1,552 @@
+use super::*;
+use alloc::vec;
+use paperpaw_sdk::native::callbacks::FrameRect;
+
+/// What a focus step asked of the host, and the areas it refuses.
+#[derive(Default)]
+struct Asked {
+    areas: Vec<FrameRect>,
+    whole: usize,
+    refuse_after: Option<usize>,
+}
+
+impl crate::list::Redraws for Asked {
+    fn area(&mut self, area: FrameRect) -> Result<(), Error> {
+        if self.refuse_after.is_some_and(|n| self.areas.len() >= n) {
+            return Err(Error::Full);
+        }
+        self.areas.push(area);
+        Ok(())
+    }
+    fn whole(&mut self) -> Result<(), Error> {
+        self.whole += 1;
+        Ok(())
+    }
+}
+
+/// A list drawn with rows 1 to 3 of 61 px from y 75 on its page, in a
+/// region that began 10 px down the screen.
+fn drawn() -> ItemList {
+    let mut list = ItemList::new(items("hrrrrr"));
+    list.hits = (1..4)
+        .map(|i| (Rect::new(0, 75 + 61 * (i as u16 - 1), 480, 61), i))
+        .collect();
+    list.origin = (0, 10);
+    list
+}
+
+#[test]
+fn a_step_within_the_page_asks_for_its_two_rows() {
+    let mut asked = Asked::default();
+    drawn().redraw_focus_on(&mut asked, 1, 2).unwrap();
+    assert_eq!(
+        asked.areas,
+        [
+            FrameRect::new(0, 65, 480, 61),
+            FrameRect::new(0, 126, 480, 61)
+        ]
+    );
+    assert_eq!(asked.whole, 0);
+}
+
+#[test]
+fn a_step_off_the_page_or_a_refused_area_asks_for_the_screen() {
+    // Row 4 is on the next page: the step turns it.
+    let mut asked = Asked::default();
+    drawn().redraw_focus_on(&mut asked, 3, 4).unwrap();
+    assert_eq!((asked.areas.len(), asked.whole), (0, 1));
+    // The host takes the first area and refuses the second.
+    let mut asked = Asked {
+        refuse_after: Some(1),
+        ..Asked::default()
+    };
+    drawn().redraw_focus_on(&mut asked, 2, 3).unwrap();
+    assert_eq!(asked.whole, 1);
+    // It refuses the first already.
+    let mut asked = Asked {
+        refuse_after: Some(0),
+        ..Asked::default()
+    };
+    drawn().redraw_focus_on(&mut asked, 2, 3).unwrap();
+    assert_eq!((asked.areas.len(), asked.whole), (0, 1));
+}
+
+fn items(spec: &str) -> Vec<Item> {
+    spec.chars()
+        .map(|c| {
+            if c == 'h' {
+                Item::heading("h").unwrap()
+            } else {
+                Item::row("r", "").unwrap()
+            }
+        })
+        .collect()
+}
+
+fn style() -> Style {
+    Style {
+        corner: 4,
+        pill: false,
+        ring: false,
+        soft: false,
+        shadow: 0,
+        frame: None,
+        button: crate::style::ButtonLook::Outlined,
+        mono: false,
+        roles: crate::style::Roles::default(),
+        separator_dither: false,
+        separator_ink: paperpaw_sdk::Color::BLACK,
+        text: 22.0,
+        small: 17.0,
+        title: 26.0,
+        head: 28.0,
+        row: 60,
+        header: 56,
+        margin: 16,
+        gap: 8,
+        line: 2,
+        dark: false,
+        plain: false,
+        separators: alloc::string::ToString::to_string("core.separators.lines"),
+        ink: paperpaw_sdk::Color::BLACK,
+        paper: paperpaw_sdk::Color::WHITE,
+        disabled: paperpaw_sdk::Color::gray(160),
+        rule: paperpaw_sdk::Color::gray(190),
+        muted: paperpaw_sdk::Color::gray(100),
+        note: paperpaw_sdk::Color::gray(80),
+        heading: 30,
+        card: paperpaw_sdk::Color::gray(230),
+        on_dark_muted: paperpaw_sdk::Color::gray(200),
+        strong: false,
+        rtl: false,
+        describing: false,
+    }
+}
+
+#[test]
+fn a_field_row_is_a_selectable_row_that_looks_like_a_field() {
+    let Item::Row(row) = Item::field("Search").unwrap() else {
+        panic!("a row")
+    };
+    assert!(row.field && row.value.is_empty() && row.note.is_empty());
+    assert_eq!(row.title, "Search");
+    assert!(Item::field("Search").unwrap().selectable());
+    assert!(!matches!(Item::row("Search", "").unwrap(), Item::Row(r) if r.field));
+}
+
+#[test]
+fn a_whole_row_is_a_row_with_the_flag_and_no_other_change() {
+    let Item::Row(whole) = Item::whole("Title", "Keep", "A long note").unwrap() else {
+        panic!("a row")
+    };
+    let Item::Row(noted) = Item::noted("Title", "Keep", "A long note").unwrap() else {
+        panic!("a row")
+    };
+    assert!(whole.whole && !noted.whole);
+    assert_eq!(
+        RowItem {
+            whole: false,
+            ..whole
+        },
+        noted
+    );
+    const { assert!(WHOLE_NOTE_LINES > NOTE_LINES && WHOLE_TITLE_LINES == 2) };
+}
+
+#[test]
+fn a_title_that_fits_stays_on_one_line_and_a_long_one_wraps_to_two_at_most() {
+    // Ten units a letter.
+    let measure = |line: &str| Ok(line.chars().count() as f32 * 10.0);
+    assert!(
+        wrap_title(measure, "Short title", 200.0, WHOLE_TITLE_LINES)
+            .unwrap()
+            .is_empty()
+    );
+    let long = "Spanish: cards missing from the file, kept or removed";
+    let lines = wrap_title(measure, long, 200.0, WHOLE_TITLE_LINES).unwrap();
+    assert_eq!(lines.len(), WHOLE_TITLE_LINES);
+    assert!(lines.iter().all(|line| measure(line).unwrap() <= 200.0));
+    assert!(lines[0].starts_with("Spanish: cards"));
+    // More than two lines of text: the second ends in an ellipsis.
+    let longer = "one two three four five six seven eight nine ten eleven twelve thirteen";
+    let cut = wrap_title(measure, longer, 200.0, WHOLE_TITLE_LINES).unwrap();
+    assert_eq!(cut.len(), 2);
+    assert!(cut[1].ends_with('…'));
+}
+
+#[test]
+fn only_text_a_page_reads_out_shows_four_lines_whole() {
+    let whole = RowItem {
+        whole: true,
+        ..RowItem::default()
+    };
+    // A row to choose (a bookmark's quote) keeps two lines.
+    assert_eq!(title_most(&whole), WHOLE_TITLE_LINES);
+    let page = RowItem {
+        plain: true,
+        ..whole.clone()
+    };
+    assert_eq!(title_most(&page), WHOLE_BODY_LINES);
+    let small = RowItem {
+        small: true,
+        ..page
+    };
+    assert_eq!(title_most(&small), WHOLE_TITLE_LINES);
+}
+
+#[test]
+fn a_field_is_outlined_inside_its_row_with_the_corner_of_the_style() {
+    let style = style();
+    let (outline, radius, line) = field_outline(&style, Rect::new(0, 100, 480, 60));
+    assert_eq!(outline, Rect::new(8, 102, 464, 56));
+    assert_eq!((radius, line), (4, 2));
+    let pill = Style {
+        pill: true,
+        ..style
+    };
+    assert_eq!(field_outline(&pill, Rect::new(0, 100, 480, 60)).1, 28);
+}
+
+fn action(action: &str) -> Input<'_> {
+    Input::Action { now_ms: 0, action }
+}
+
+#[test]
+fn a_value_is_replaced_in_place_and_a_heading_has_none() {
+    let mut list = ItemList::new(items("hrr"));
+    list.set_focus(2);
+    assert!(list.set_value(1, "42 %".into()));
+    assert!(!list.set_value(0, "x".into()), "a heading has no value");
+    assert!(!list.set_value(9, "x".into()));
+    assert_eq!(list.focus(), 2);
+    let Item::Row(row) = &list.items()[1] else {
+        panic!("a row")
+    };
+    assert_eq!((row.title.as_str(), row.value.as_str()), ("r", "42 %"));
+}
+
+#[test]
+fn a_wiped_list_is_empty_and_its_focus_is_back_at_the_start() {
+    let mut list = ItemList::new(items("hrrr"));
+    list.set_focus(3);
+    list.wipe();
+    assert!(list.items().is_empty());
+    assert_eq!(list.focus(), 0);
+}
+
+#[test]
+fn the_focus_starts_on_the_first_row_and_skips_headings() {
+    let list = ItemList::new(items("hrrhr"));
+    assert_eq!(list.focus(), 1);
+    assert_eq!(list.decide(&action("core.down")), ItemStep::Focus(2));
+    let mut list = list;
+    list.set_focus(2);
+    assert_eq!(list.decide(&action("core.down")), ItemStep::Focus(4));
+    assert_eq!(list.decide(&action("core.up")), ItemStep::Focus(1));
+    list.set_focus(4);
+    assert_eq!(list.decide(&action("core.down")), ItemStep::Focus(4));
+}
+
+#[test]
+fn faint_rows_are_passed_by_the_focus_and_do_nothing_when_tapped() {
+    let mut spec = items("rrr");
+    if let Item::Row(row) = &mut spec[1] {
+        row.disabled = true;
+    }
+    let mut list = ItemList::new(spec);
+    assert_eq!(list.decide(&action("core.down")), ItemStep::Focus(2));
+    list.set_focus(2);
+    assert_eq!(list.decide(&action("core.up")), ItemStep::Focus(0));
+    // The focus never rests on one.
+    list.set_focus(1);
+    assert_eq!(list.focus(), 0);
+    list.hits = Vec::from([(Rect::new(0, 0, 10, 10), 1)]);
+    list.focus = 2;
+    assert_eq!(
+        list.decide(&Input::Gesture {
+            now_ms: 0,
+            position: Point::new(1, 1),
+            kind: InputGestureKind::Tap,
+        }),
+        ItemStep::Focus(2)
+    );
+}
+
+#[test]
+fn replacing_keeps_the_focus_near_where_it_was() {
+    let mut list = ItemList::new(items("hrrrr"));
+    list.set_focus(4);
+    list.replace(items("hrr"));
+    assert_eq!(list.focus(), 2);
+    list.replace(items("rrrh"));
+    assert_eq!(list.focus(), 2);
+    list.replace(Vec::new());
+    assert_eq!(list.focus(), 0);
+}
+
+#[test]
+fn a_heading_never_ends_a_page_alone() {
+    let list = items("rrhrr");
+    // Three rows fit; the heading would be last of the first page.
+    let starts = paginate(&list, &[10, 10, 10, 10, 10], 30).unwrap();
+    assert_eq!(starts, [0, 2]);
+    // A page that ends before the heading is left as it is.
+    let starts = paginate(&list, &[10, 10, 10, 10, 10], 20).unwrap();
+    assert_eq!(starts, [0, 2, 4]);
+}
+
+#[test]
+fn pagination_survives_every_refused_allocation() {
+    let list = items("rrhrrrhrr");
+    crate::fail_alloc::sweep(|| paginate(&list, &[10; 9], 20).map(|starts| starts.len()));
+}
+
+#[test]
+fn pages_follow_the_heights() {
+    let list = items("rrrr");
+    assert_eq!(paginate(&list, &[10, 25, 10, 10], 30).unwrap(), [0, 1, 2]);
+    assert_eq!(paginate(&items("rr"), &[40, 40], 30).unwrap(), [0, 1]);
+    assert_eq!(paginate(&list, &[40, 40], 30), Err(Error::Invalid));
+    assert_eq!(paginate(&[], &[], 30).unwrap(), [0]);
+}
+
+#[test]
+fn page_actions_go_to_the_first_row_of_the_other_page() {
+    let mut list = ItemList::new(items("hrrhrr"));
+    list.starts = Vec::from([0, 3]);
+    assert_eq!(list.decide(&action("core.next-page")), ItemStep::Focus(4));
+    list.set_focus(5);
+    assert_eq!(list.decide(&action("core.prev-page")), ItemStep::Focus(1));
+    assert_eq!(list.decide(&action("core.confirm")), ItemStep::Chosen(5));
+}
+
+#[test]
+fn a_long_press_holds_the_row_and_never_the_header() {
+    let mut list = ItemList::new(items("hr"));
+    list.hits = Vec::from([(Rect::new(0, 40, 100, 40), 1)]);
+    let press = |y| Input::Gesture {
+        now_ms: 0,
+        position: Point::new(5, y),
+        kind: InputGestureKind::LongPress,
+    };
+    assert_eq!(list.decide(&press(45)), ItemStep::Held(1));
+    assert_eq!(list.decide(&press(5)), ItemStep::Ignored);
+}
+
+#[test]
+fn taps_choose_rows_and_headings_are_not_hit() {
+    let mut list = ItemList::new(items("hrr"));
+    list.hits = Vec::from([
+        (Rect::new(0, 40, 100, 40), 1),
+        (Rect::new(0, 80, 100, 40), 2),
+    ]);
+    let tap = |y| Input::Gesture {
+        now_ms: 0,
+        position: Point::new(5, y),
+        kind: InputGestureKind::Tap,
+    };
+    assert_eq!(list.decide(&tap(45)), ItemStep::Chosen(1));
+    assert_eq!(list.decide(&tap(100)), ItemStep::Chosen(2));
+    assert_eq!(list.decide(&tap(10)), ItemStep::Ignored);
+}
+
+#[test]
+fn a_tall_row_takes_the_corner_of_the_style_not_a_pill_that_cuts_its_text() {
+    let pill = Style {
+        pill: true,
+        ..style()
+    };
+    let radius_of = |rect: Rect| {
+        let mut paint = Vec::new();
+        crate::list::backdrop(&mut paint, &pill, rect, true).unwrap();
+        paint
+            .iter()
+            .find_map(|part| match part {
+                Paint::Focus(_, radius, _, _) => Some(*radius),
+                _ => None,
+            })
+            .unwrap()
+    };
+    // One band: a pill. Two bands (a title over two lines, a note): the corner.
+    assert!(radius_of(Rect::new(0, 0, 480, pill.row)) > pill.corner);
+    assert_eq!(radius_of(Rect::new(0, 0, 480, pill.row * 2)), pill.corner);
+}
+
+/// The pill and the knob a switch is drawn with, as (bounds, filled).
+fn switch_parts(on: bool) -> (Rect, bool, Rect) {
+    let mut paint = Vec::new();
+    let band = Rect::new(0, 100, 480, 60);
+    let colours = (paperpaw_sdk::Color::BLACK, paperpaw_sdk::Color::WHITE);
+    switch_pill(&mut paint, &style(), band, on, colours).unwrap();
+    let mut shapes = paint.iter().filter_map(|op| match op {
+        Paint::Focus(rect, _, stroke, _) => Some((*rect, stroke.is_none())),
+        _ => None,
+    });
+    let (pill, filled) = shapes.next().unwrap();
+    let (knob, _) = shapes.next().unwrap();
+    assert!(shapes.next().is_none());
+    (pill, filled, knob)
+}
+
+#[test]
+fn a_switch_is_a_pill_with_its_knob_at_the_end_it_is_on_or_off_at() {
+    let (pill, filled, knob) = switch_parts(true);
+    // On: filled, the knob in the right half, inside the pill.
+    assert!(filled);
+    assert!(knob.x >= pill.x + pill.width / 2 && knob.x + knob.width <= pill.x + pill.width);
+    assert!(knob.y >= pill.y && knob.y + knob.height <= pill.y + pill.height);
+    let (pill, filled, knob) = switch_parts(false);
+    // Off: an outline, the knob in the left half.
+    assert!(!filled);
+    assert!(knob.x >= pill.x && knob.x + knob.width <= pill.x + pill.width / 2);
+    // At the row's end, within its margin, and centred on its line.
+    assert_eq!(pill.x + pill.width, 480 - style().margin);
+    assert_eq!(pill.y * 2 + pill.height, 100 * 2 + 60);
+}
+
+#[test]
+fn a_switch_row_shows_no_value_beside_its_title() {
+    let Item::Row(mut row) = Item::noted("Night mode", "Off", "").unwrap() else {
+        panic!("a row");
+    };
+    assert_eq!(shown_value(&row), "Off");
+    row.on = Some(false);
+    assert_eq!(shown_value(&row), "");
+    // The title keeps the room before the switch.
+    assert!(switch_room(&style()) > switch_size(&style()).0);
+}
+
+#[test]
+fn the_room_above_the_rows_takes_room_from_the_first_page_only() {
+    let items: Vec<Item> = (0..6)
+        .map(|n| Item::row(&alloc::format!("row {n}"), "").unwrap())
+        .collect();
+    let heights = [100u16; 6];
+    // Room for three rows a page; the head's 100 leaves two on the first.
+    assert_eq!(paginate_with(&items, &heights, 300, 0).unwrap(), [0, 3]);
+    assert_eq!(
+        paginate_with(&items, &heights, 300, 100).unwrap(),
+        [0, 2, 5]
+    );
+}
+
+#[test]
+fn a_list_has_no_room_above_its_rows_until_the_owner_keeps_and_sizes_it() {
+    let mut list = ItemList::new(alloc::vec![Item::row("Night mode", "").unwrap()]);
+    assert!(!list.set_head_height(100));
+    list.set_head("Preview").unwrap();
+    assert!(list.set_head_height(100));
+    assert!(!list.set_head_height(100));
+    assert_eq!(list.head_rect(), None);
+}
+
+#[test]
+fn a_faint_row_has_ink_on_a_panel_of_two_grays() {
+    let two = Style {
+        mono: true,
+        ..style()
+    };
+    // The grey 160 is paper on such a panel: the ink is the notes'.
+    assert_eq!(disabled_ink(&two), two.note);
+    assert_ne!(disabled_ink(&two), two.paper);
+    let many = style();
+    assert_eq!(disabled_ink(&many), many.disabled);
+}
+
+#[test]
+fn a_head_as_high_as_the_page_leaves_room_for_the_first_row() {
+    assert_eq!(head_fit(150, 700, Some(80)), 150);
+    // Taller than the page: cut to what the first row leaves.
+    assert_eq!(head_fit(900, 700, Some(80)), 620);
+    assert_eq!(head_fit(700, 700, Some(80)), 620);
+    // No rows: nothing to keep.
+    assert_eq!(head_fit(900, 700, None), 700);
+}
+
+fn measured_list() -> ItemList {
+    let mut list = ItemList::new(items("hrrr"));
+    list.kept = vec![10, 20, 30, 40];
+    list
+}
+
+#[test]
+fn kept_heights_are_dropped_by_whatever_changes_an_item() {
+    let mut list = measured_list();
+    list.replace(items("hrr"));
+    assert!(list.kept.is_empty());
+    let mut list = measured_list();
+    list.push(items("r").remove(0)).unwrap();
+    assert!(list.kept.is_empty());
+    let mut list = measured_list();
+    assert!(list.set_value(1, String::from("3")));
+    assert!(list.kept.is_empty());
+    let mut list = measured_list();
+    list.wipe();
+    assert!(list.kept.is_empty());
+}
+
+fn noted(notes: &[&str]) -> ItemList {
+    ItemList::new(
+        notes
+            .iter()
+            .map(|n| Item::noted("net", "", n).unwrap())
+            .collect(),
+    )
+}
+
+/// Swaps the rows of `list` (drawn as in [`drawn`]) for `notes`, as a plugin
+/// does that frees the old rows before it makes the new.
+fn swapped(list: &mut ItemList, notes: &[&str]) -> RowsChange {
+    let keys = list.row_keys();
+    list.free_rows();
+    list.swap_rows(noted(notes), keys.as_deref())
+}
+
+#[test]
+fn a_scan_that_changes_some_rows_asks_for_those_rows_alone() {
+    // Rows 0 to 2 are on the page, 61 px each from y 75; the region began 10 px down.
+    let drawn_list = || {
+        let mut list = noted(&["a", "b", "c", "d"]);
+        list.hits = (0..3)
+            .map(|i| (Rect::new(0, 75 + 61 * i as u16, 480, 61), i))
+            .collect();
+        list.origin = (0, 10);
+        list
+    };
+    // One signal that moved: its row, and no other (61 px of a 183 px page).
+    let mut list = drawn_list();
+    assert_eq!(
+        swapped(&mut list, &["a", "B", "c", "d"]),
+        RowsChange::Rows(FrameRect::new(0, 65 + 61, 480, 61))
+    );
+    // Two rows at the ends: the area between them.
+    let mut list = drawn_list();
+    assert_eq!(
+        swapped(&mut list, &["A", "b", "C", "d"]),
+        RowsChange::Rows(FrameRect::new(0, 65, 480, 183))
+    );
+    // Nothing on the page said something else: nothing is drawn (a row off
+    // the page changed, or none).
+    let mut list = drawn_list();
+    assert_eq!(swapped(&mut list, &["a", "b", "c", "D"]), RowsChange::None);
+    let mut list = drawn_list();
+    assert_eq!(swapped(&mut list, &["a", "b", "c", "d"]), RowsChange::None);
+    // A row more or less, or a list not drawn yet: the whole list.
+    let mut list = drawn_list();
+    assert_eq!(swapped(&mut list, &["a", "b", "c"]), RowsChange::All);
+    let mut list = noted(&["a", "b"]);
+    assert_eq!(swapped(&mut list, &["a", "c"]), RowsChange::All);
+}
+
+#[test]
+fn rows_that_were_freed_keep_the_focus_and_the_places() {
+    let mut list = noted(&["a", "b", "c"]);
+    list.hits = Vec::from([(Rect::new(0, 0, 10, 10), 1)]);
+    list.set_focus(2);
+    let keys = list.row_keys();
+    list.free_rows();
+    assert!(list.items().is_empty());
+    assert_eq!(list.rect_of(1), Some(Rect::new(0, 0, 10, 10)));
+    list.swap_rows(noted(&["a", "b", "c"]), keys.as_deref());
+    assert_eq!(list.focus, 2);
+}

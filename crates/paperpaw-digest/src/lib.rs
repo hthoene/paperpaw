@@ -14,5 +14,6 @@ pub mod hex;
 pub mod md5;
 pub mod sha1;
 pub mod sha256;
+mod wipe;
 
 pub use fnv::{Fnv1a64, fnv1a64};

@@ -19,6 +19,8 @@ use paperpaw_core::{HttpCall, HttpResponse};
 use paperpaw_http::{Parser, Url};
 use paperpaw_platform::Storage;
 use paperpaw_sdk::Trust;
+use paperpaw_x4::download_boost;
+use paperpaw_x4::file_sink::FileSink;
 
 use crate::link::{Link, Received};
 use crate::net::{self, Net, Resolve};
@@ -30,9 +32,10 @@ const OFFLINE_MS: u64 = 20_000;
 const STALL_MS: u64 = 20_000;
 /// Redirects followed at most.
 const MAX_REDIRECTS: u32 = 10;
-/// Bytes gathered before they are appended to a file: few, larger writes
-/// to the card.
-const FILE_BUF: usize = 4096;
+/// Rounds of receiving over TLS in one step at most: the connection's
+/// bytes go to mbedTLS 2 KB at a time (`tls::IN_LIMIT`, for the memory),
+/// so one round would move no more than that per pass of the main loop.
+const TLS_ROUNDS: usize = 8;
 /// Bytes of an error's body kept (its reason) where a file was asked for.
 const ERROR_BODY: usize = 4096;
 /// A connection that stalled without a byte of the answer
@@ -47,14 +50,13 @@ fn now_ms() -> u64 {
 
 /// Where a body goes.
 enum Sink {
-    /// Up to so many bytes, the rest cut.
-    Memory(Vec<u8>, usize),
-    File {
-        /// The `.part` file written.
-        part: String,
-        buf: Vec<u8>,
-        started: bool,
-    },
+    /// Up to so many bytes, the rest cut; whether the room is taken once
+    /// (core's requests, whose limit is reserved from the network pool) or
+    /// grown from the size of the pieces (interface 6, whose default limit
+    /// is 64 KiB and mostly not needed).
+    Memory(Vec<u8>, usize, bool),
+    /// The `.part` file written, in chunks (`paperpaw_x4::file_sink`).
+    File(FileSink),
 }
 
 /// A file sent as the body, read from storage in parts as it goes.
@@ -82,6 +84,11 @@ const UPLOAD_PART: usize = 1024;
 enum Phase {
     /// Waiting for the network, or for a free connection.
     Waiting,
+    /// A request core made (interface 7) that was redirected from `http` to
+    /// `https`: the plain connection is closed, the request waits as it is
+    /// (URL, redirects so far, method, body, headers) until core starts it
+    /// again, which it does once the one TLS session is its.
+    Parked,
     Resolving(net::Query, u16),
     Exchanging {
         link: Link,
@@ -122,6 +129,38 @@ struct Call {
     /// connection takes it.
     waiter: Option<Waiter>,
     slot: Option<Slot>,
+    /// Core's (interface 7): `save_to` is a staged file that exists, written
+    /// by appends and never renamed or removed here; a redirect from `http`
+    /// to `https` parks the request.
+    staged: bool,
+    /// Parked just now: core is not yet told.
+    just_parked: bool,
+    /// Its connection and file chunks are the larger pair of a download
+    /// (`download_boost::plan`), given back with the connection.
+    boosted: bool,
+    /// Its connection is one kept from an earlier request (`Idle`): if it
+    /// fails before any byte of the answer, the server closed it meanwhile,
+    /// and the request is made once more on a new one.
+    reused: bool,
+    /// Never on a kept connection (it failed as one).
+    fresh: bool,
+    /// When it was asked for (the download's time in the log, #216).
+    began: u64,
+}
+
+/// A connection kept open for the next request to the same server.
+struct Idle {
+    host: String,
+    port: u16,
+    https: bool,
+    link: Link,
+    since: u64,
+}
+
+impl Idle {
+    fn matches(&self, url: &Url<'_>) -> bool {
+        self.port == url.port && self.https == url.https && self.host.eq_ignore_ascii_case(url.host)
+    }
 }
 
 /// The requests going on.
@@ -131,6 +170,11 @@ pub struct Calls {
     /// A connection stalled without an answer: the radio starts anew
     /// before its request is made once more ([`Calls::take_restart`]).
     restart: bool,
+    /// Requests parked since the last [`Calls::take_parked`].
+    parked: Vec<u32>,
+    /// The connection of the last answer, kept a few seconds
+    /// (`download_boost::IDLE_MS`) for the next request to its server.
+    idle: Option<Idle>,
 }
 
 impl Calls {
@@ -138,7 +182,18 @@ impl Calls {
     /// replaces it (the kernel passes over the earlier one's answer), so
     /// that two never write one file.
     pub fn add(&mut self, call: HttpCall) {
-        if let Some(path) = &call.save_to {
+        self.add_as(call, false);
+    }
+
+    /// Starts a request of core (interface 7): its `save_to` is the staged
+    /// file core made (empty), which this appends to and never renames.
+    #[cfg(feature = "ppn5")]
+    pub fn add_staged(&mut self, call: HttpCall) {
+        self.add_as(call, true);
+    }
+
+    fn add_as(&mut self, call: HttpCall, staged: bool) {
+        if !staged && let Some(path) = &call.save_to {
             for earlier in &mut self.calls {
                 if earlier
                     .call
@@ -151,14 +206,24 @@ impl Calls {
             }
         }
         let sink = match &call.save_to {
-            Some(path) => Sink::File {
-                part: alloc::format!("{path}.part"),
-                buf: Vec::new(),
-                started: false,
-            },
-            None => Sink::Memory(Vec::new(), call.max_response),
+            Some(path) if staged => Sink::File(FileSink::new(
+                path.clone(),
+                true,
+                download_boost::BASE_CHUNK,
+            )),
+            Some(path) => Sink::File(FileSink::new(
+                alloc::format!("{path}.part"),
+                false,
+                download_boost::BASE_CHUNK,
+            )),
+            None => Sink::Memory(Vec::new(), call.max_response, staged),
         };
         let deadline = now_ms() + u64::from(call.timeout_ms);
+        if Url::parse(&call.url)
+            .is_some_and(|url| url.https && !self.idle.as_ref().is_some_and(|i| i.matches(&url)))
+        {
+            crate::tls_slots::ask_room();
+        }
         self.calls.push(Call {
             url: call.url.clone(),
             call,
@@ -173,7 +238,93 @@ impl Calls {
             again: false,
             waiter: None,
             slot: None,
+            staged,
+            just_parked: false,
+            boosted: false,
+            reused: false,
+            fresh: false,
+            began: now_ms(),
         });
+    }
+
+    /// The ids of requests parked since the last call.
+    #[cfg(feature = "ppn5")]
+    pub fn take_parked(&mut self) -> Vec<u32> {
+        core::mem::take(&mut self.parked)
+    }
+
+    /// Core starts a parked request again: it goes on as it was (the
+    /// redirects so far and the address it was sent to stay). `false` when
+    /// no request `id` is parked.
+    #[cfg(feature = "ppn5")]
+    pub fn resume(&mut self, id: u32) -> bool {
+        let Some(call) = self
+            .calls
+            .iter_mut()
+            .find(|c| c.call.id == id && matches!(c.phase, Phase::Parked))
+        else {
+            return false;
+        };
+        call.phase = Phase::Waiting;
+        call.until = now_ms() + OFFLINE_MS;
+        true
+    }
+
+    /// Drops request `id` with no answer: its connection is let go, and no
+    /// storage is touched (core removes the staged file after this).
+    #[cfg(feature = "ppn5")]
+    pub fn abort(&mut self, id: u32, net: Option<&mut Net>) {
+        if let Some(at) = self.calls.iter().position(|c| c.call.id == id) {
+            let mut call = self.calls.remove(at);
+            if let Some(net) = net {
+                call.stop(net);
+            }
+        }
+    }
+
+    /// Drops every request with no answer (the network went; core was told).
+    #[cfg(feature = "ppn5")]
+    pub fn clear(&mut self, net: Option<&mut Net>) {
+        let mut net = net;
+        self.release_idle(net.as_deref_mut());
+        for mut call in core::mem::take(&mut self.calls) {
+            if let Some(net) = net.as_deref_mut() {
+                call.stop(net);
+            }
+        }
+        self.parked.clear();
+    }
+
+    /// Lets the kept connection go (its socket with it, where the network
+    /// is still there).
+    fn release_idle(&mut self, net: Option<&mut Net>) {
+        if let Some(idle) = self.idle.take()
+            && let Some(net) = net
+        {
+            net.release(idle.link.socket);
+        }
+    }
+
+    /// Lets the kept connection go once it waited long enough, the other
+    /// side closed it, another secure session is wanted (a plugin's socket,
+    /// or a request to another server, whose session needs the heap), or
+    /// the network is gone. Called every step, also while no request runs.
+    pub fn settle_idle(&mut self, mut net: Option<&mut Net>, now: u64) {
+        let Some(idle) = &self.idle else {
+            return;
+        };
+        let ended = match net.as_deref_mut() {
+            Some(net) => idle.link.closed(net),
+            None => true,
+        };
+        let elsewhere = self.calls.iter().any(|c| {
+            matches!(c.phase, Phase::Waiting)
+                && Url::parse(&c.url).is_some_and(|url| url.https && !idle.matches(&url))
+        });
+        let pressed = idle.https && (crate::tls_slots::pressed() || elsewhere);
+        if download_boost::drop_idle(idle.since, now, pressed, ended) {
+            self.release_idle(net);
+        }
     }
 
     /// Whether the radio is to start anew (once taken, until a connection
@@ -203,7 +354,7 @@ impl Calls {
 
     /// Requests are going on.
     pub fn busy(&self) -> bool {
-        !self.calls.is_empty()
+        self.calls.iter().any(|c| !matches!(c.phase, Phase::Parked))
     }
 
     /// Moves every request on; the answers of those done. `net` is `None`
@@ -217,17 +368,18 @@ impl Calls {
         clock_ready: bool,
     ) -> Vec<HttpResponse> {
         let mut answers = Vec::new();
+        self.settle_idle(net.as_deref_mut(), now_ms());
         let mut at = 0;
         while at < self.calls.len() {
             let open = self
                 .calls
                 .iter()
-                .filter(|c| !matches!(c.phase, Phase::Waiting))
+                .filter(|c| !matches!(c.phase, Phase::Waiting | Phase::Parked))
                 .count();
             let secure = self
                 .calls
                 .iter()
-                .filter(|c| !matches!(c.phase, Phase::Waiting) && c.secure())
+                .filter(|c| !matches!(c.phase, Phase::Waiting | Phase::Parked) && c.secure())
                 .count();
             if self.calls[at].replaced {
                 let mut call = self.calls.remove(at);
@@ -237,16 +389,37 @@ impl Calls {
                 call.discard(storage);
                 continue;
             }
+            let boost_free = !self.calls.iter().any(|c| c.boosted);
             let call = &mut self.calls[at];
             // A TLS connection takes some 40 KB: one request at a time, and
             // within the device's TLS sessions, which plugins' sockets share
-            // (first asked, first served).
+            // (first asked, first served). A kept connection is a session
+            // that is held already.
+            let keeps = call.can_reuse(self.idle.as_ref());
             let may_open = open < MAX_CALLS
-                && (!call.secure() || (secure == 0 && clock_ready && call.slot_ready()));
+                && (keeps || !call.secure() || (secure == 0 && clock_ready && call.slot_ready()));
             let outcome = match net.as_deref_mut() {
                 None => Some(Err("no network")),
-                Some(net) => call.step(net, storage, may_open),
+                Some(net) => call.step(net, storage, may_open, &mut self.idle, boost_free),
             };
+            if let Some(Err(_)) = outcome
+                && call.reused
+                && !call.has_head()
+            {
+                // The server closed the kept connection meanwhile: once
+                // more on a new one, no radio restart (the network is fine).
+                log::info!("http: the kept connection was closed; on a new one");
+                if let Some(net) = net.as_deref_mut() {
+                    call.stop(net);
+                }
+                call.fresh = true;
+                call.until = now_ms() + OFFLINE_MS;
+                at += 1;
+                continue;
+            }
+            if core::mem::take(&mut call.just_parked) {
+                self.parked.push(call.call.id);
+            }
             if let Some(Err(SILENT)) = outcome
                 && paperpaw_x4::stall::stalled(false, call.again)
                     == paperpaw_x4::stall::Stalled::Again
@@ -269,6 +442,42 @@ impl Calls {
                 None => at += 1,
                 Some(result) => {
                     let mut call = self.calls.remove(at);
+                    if result.is_ok() && call.got >= 4096 {
+                        // What a device test reads (`final-b4` step 21): the
+                        // whole request, the lookup and the handshake counted.
+                        let ms = now_ms().saturating_sub(call.began).max(1);
+                        let url = call.call.url.as_str();
+                        let host = url.split("://").nth(1).unwrap_or(url);
+                        let host = host.split(['/', '?']).next().unwrap_or(host);
+                        log::info!(
+                            "http: {} {host} {} B in {ms} ms ({} KB/s){}{}",
+                            call.call.method,
+                            call.got,
+                            call.got * 1000 / 1024 / ms,
+                            if call.boosted { " boosted" } else { "" },
+                            if call.reused { " kept-connection" } else { "" },
+                        );
+                    }
+                    if result.is_ok()
+                        && call.keepable()
+                        && let Phase::Exchanging { link, .. } =
+                            core::mem::replace(&mut call.phase, Phase::Waiting)
+                    {
+                        // Kept for the next request to this server. A
+                        // connection kept before it is let go first.
+                        self.release_idle(net.as_deref_mut());
+                        if let Some(url) = Url::parse(&call.url) {
+                            self.idle = Some(Idle {
+                                host: String::from(url.host),
+                                port: url.port,
+                                https: url.https,
+                                link,
+                                since: now_ms(),
+                            });
+                        } else if let Some(net) = net.as_deref_mut() {
+                            net.release(link.socket);
+                        }
+                    }
                     if let Some(net) = net.as_deref_mut() {
                         call.stop(net);
                     }
@@ -309,18 +518,61 @@ impl Call {
         Url::parse(&self.url).is_some_and(|url| url.https)
     }
 
+    /// Whether the connection kept from an earlier request is this one's:
+    /// the same server, and a `GET` (a request that changes something is
+    /// never made again on a connection that may have been closed).
+    fn can_reuse(&self, idle: Option<&Idle>) -> bool {
+        !self.fresh
+            && matches!(self.phase, Phase::Waiting)
+            && self.call.method.eq_ignore_ascii_case("GET")
+            && idle.is_some_and(|idle| Url::parse(&self.url).is_some_and(|url| idle.matches(&url)))
+    }
+
+    /// Whether any byte of the answer's head came.
+    fn has_head(&self) -> bool {
+        matches!(&self.phase, Phase::Exchanging { parser, .. } if parser.head().is_some())
+    }
+
+    /// Whether its connection may be kept for the next request: it ended
+    /// cleanly, by its length, and the server keeps it (and it holds no
+    /// download's larger buffers, which are given back with it).
+    fn keepable(&self) -> bool {
+        let Phase::Exchanging { parser, .. } = &self.phase else {
+            return false;
+        };
+        let Some(head) = parser.head() else {
+            return false;
+        };
+        !self.boosted
+            && download_boost::may_keep(
+                &self.call.method,
+                head.keep_alive,
+                parser.done(),
+                parser.delimited(),
+                head.status,
+            )
+    }
+
     /// One step on; the outcome once there is one.
-    fn step(&mut self, net: &mut Net, storage: &dyn Storage, may_open: bool) -> Option<Outcome> {
+    fn step(
+        &mut self,
+        net: &mut Net,
+        storage: &dyn Storage,
+        may_open: bool,
+        idle: &mut Option<Idle>,
+        boost_free: bool,
+    ) -> Option<Outcome> {
         let now = now_ms();
-        if now > self.deadline {
+        if now > self.deadline && !matches!(self.phase, Phase::Parked) {
             return Some(Err("timed out"));
         }
-        if net.address().is_none() && !matches!(self.phase, Phase::Waiting) {
+        if net.address().is_none() && !matches!(self.phase, Phase::Waiting | Phase::Parked) {
             // The address went: what was open on it is gone.
             return Some(Err("no network"));
         }
         match self.phase {
-            Phase::Waiting => self.start(net, storage, may_open, now),
+            Phase::Waiting => self.start(net, storage, may_open, now, idle, boost_free),
+            Phase::Parked => None,
             Phase::Resolving(query, port) => {
                 let resolved = net.resolved(query);
                 if resolved.is_some() {
@@ -329,7 +581,7 @@ impl Call {
                 }
                 match resolved {
                     None => (now > self.until).then_some(Err("no such host")),
-                    Some(Ok(address)) => self.connect(net, storage, address, port),
+                    Some(Ok(address)) => self.connect(net, storage, address, port, boost_free),
                     Some(Err(_)) => Some(Err("no such host")),
                 }
             }
@@ -345,6 +597,8 @@ impl Call {
         storage: &dyn Storage,
         may_open: bool,
         now: u64,
+        idle: &mut Option<Idle>,
+        boost_free: bool,
     ) -> Option<Outcome> {
         if net.address().is_none() || !may_open {
             return (now > self.until).then_some(Err("no network"));
@@ -353,8 +607,23 @@ impl Call {
             return Some(Err("not an address"));
         };
         let port = url.port;
+        if self.can_reuse(idle.as_ref())
+            && let Some(kept) = idle.take()
+        {
+            // No lookup, no handshake: the request goes over the open
+            // connection.
+            let (upload, request) = match self.prepare(storage, &url) {
+                Ok(prepared) => prepared,
+                Err(reason) => {
+                    net.release(kept.link.socket);
+                    return Some(Err(reason));
+                }
+            };
+            self.reused = true;
+            return self.send_over(kept.link, upload, request);
+        }
         match net.resolve(url.host) {
-            Ok(Resolve::Done(address)) => self.connect(net, storage, address, port),
+            Ok(Resolve::Done(address)) => self.connect(net, storage, address, port, boost_free),
             Ok(Resolve::Asking(query)) => {
                 self.phase = Phase::Resolving(query, port);
                 self.until = now + STALL_MS;
@@ -389,20 +658,38 @@ impl Call {
             }
         }
         let max = self.call.max_response as u64;
-        let ended = match receive(
-            link,
-            net,
-            parser,
-            &mut self.sink,
-            &mut self.got,
-            max,
-            storage,
-        ) {
-            Ok((moved, ended)) => {
-                progress |= moved;
-                ended
+        let mut rounds = 0;
+        let ended = loop {
+            let (moved, ended) = match receive(
+                link,
+                net,
+                parser,
+                &mut self.sink,
+                &mut self.got,
+                max,
+                storage,
+            ) {
+                Ok(received) => received,
+                Err(problem) => return Some(Err(problem)),
+            };
+            progress |= moved;
+            // Over TLS the connection's bytes pass 2 KB at a time: where
+            // more waits and the answer goes on, they pass again in this
+            // step, not one pass of the main loop for each 2 KB.
+            rounds += 1;
+            if !moved
+                || ended
+                || rounds >= TLS_ROUNDS
+                || !link.secure()
+                || parser.done()
+                || parser.head().is_some_and(|head| head.is_redirect())
+            {
+                break ended;
             }
-            Err(problem) => return Some(Err(problem)),
+            match link.pump(net) {
+                Ok(moved) => progress |= moved,
+                Err(problem) => return Some(Err(problem.reason())),
+            }
         };
         if parser.head().is_some_and(|head| head.is_redirect()) {
             return self.redirect(net);
@@ -446,17 +733,12 @@ impl Call {
         }
     }
 
-    /// Opens the connection and sends the request.
-    fn connect(
-        &mut self,
-        net: &mut Net,
+    /// The request's head and the file it sends, if any.
+    fn prepare(
+        &self,
         storage: &dyn Storage,
-        address: smoltcp::wire::IpAddress,
-        port: u16,
-    ) -> Option<Outcome> {
-        let Some(url) = Url::parse(&self.url) else {
-            return Some(Err("not an address"));
-        };
+        url: &Url<'_>,
+    ) -> Result<(Option<Upload>, Vec<u8>), &'static str> {
         let upload = match &self.call.body_from {
             Some(path) => match storage.size(path) {
                 Ok(size) => Some(Upload {
@@ -464,7 +746,7 @@ impl Call {
                     size,
                     at: 0,
                 }),
-                Err(_) => return Some(Err("could not read the file")),
+                Err(_) => return Err("could not read the file"),
             },
             None => None,
         };
@@ -473,7 +755,54 @@ impl Call {
             Some(upload) => Some(upload.size as usize),
             None => body.map(<[u8]>::len),
         };
-        let request = paperpaw_http::request(&self.call.method, &url, &self.call.headers, body_len);
+        // A `GET` asks the server to keep the connection for the next
+        // request (`Idle`); what changes something is made on its own.
+        let keep = self.call.method.eq_ignore_ascii_case("GET");
+        let request = paperpaw_http::request_keeping(
+            &self.call.method,
+            url,
+            &self.call.headers,
+            body_len,
+            keep,
+        );
+        Ok((upload, request))
+    }
+
+    /// The request goes over `link`.
+    fn send_over(
+        &mut self,
+        link: Link,
+        upload: Option<Upload>,
+        request: Vec<u8>,
+    ) -> Option<Outcome> {
+        self.phase = Phase::Exchanging {
+            link,
+            request,
+            sent: 0,
+            upload,
+            parser: Parser::new(&self.call.method).wanting(&self.call.want_headers),
+        };
+        self.until = now_ms() + STALL_MS;
+        None
+    }
+
+    /// Opens the connection and sends the request.
+    fn connect(
+        &mut self,
+        net: &mut Net,
+        storage: &dyn Storage,
+        address: smoltcp::wire::IpAddress,
+        port: u16,
+        boost_free: bool,
+    ) -> Option<Outcome> {
+        let Some(url) = Url::parse(&self.url) else {
+            return Some(Err("not an address"));
+        };
+        // Before anything is opened: what cannot be made fails first.
+        let (upload, request) = match self.prepare(storage, &url) {
+            Ok(prepared) => prepared,
+            Err(reason) => return Some(Err(reason)),
+        };
         // The secure session first: it takes the most memory.
         let tls = match url.https.then(|| self.slot.take()) {
             Some(Some(slot)) => match crate::tls::Session::new(url.host, &Trust::Authorities, slot)
@@ -484,21 +813,58 @@ impl Call {
             Some(None) => return Some(Err("no secure connection was free")),
             None => None,
         };
-        let socket = match net.open((address, port), BUFFERS) {
+        // A large download's larger window and chunks, where the heap keeps
+        // its largest block (and for one download at a time).
+        let plan = download_boost::plan(
+            BUFFERS.receive,
+            self.call.save_to.is_some(),
+            self.call.max_response,
+            boost_free,
+            cfg!(feature = "esp32c3"),
+            crate::largest_block(),
+        );
+        let opened = if plan.boosted {
+            match net.open(
+                (address, port),
+                net::Buffers {
+                    receive: plan.receive,
+                    send: BUFFERS.send,
+                },
+            ) {
+                Err(net::Error::Memory) => net.open((address, port), BUFFERS),
+                other => {
+                    self.boosted = other.is_ok();
+                    other
+                }
+            }
+        } else {
+            net.open((address, port), BUFFERS)
+        };
+        let socket = match opened {
             Ok(socket) => socket,
             Err(net::Error::Memory) => return Some(Err("not enough memory for a connection")),
             Err(_) => return Some(Err("could not connect")),
         };
-        let link = Link::new(socket, tls);
-        self.phase = Phase::Exchanging {
-            link,
-            request,
-            sent: 0,
-            upload,
-            parser: Parser::new(&self.call.method).wanting(&self.call.want_headers),
-        };
-        self.until = now_ms() + STALL_MS;
-        None
+        if self.boosted
+            && let Sink::File(file) = &mut self.sink
+        {
+            file.set_chunk(plan.chunk);
+        }
+        log::debug!(
+            "http: window {} B, chunk {} B, heap {}",
+            if self.boosted {
+                plan.receive
+            } else {
+                BUFFERS.receive
+            },
+            if self.boosted {
+                plan.chunk
+            } else {
+                download_boost::BASE_CHUNK
+            },
+            heap()
+        );
+        self.send_over(Link::new(socket, tls), upload, request)
     }
 
     /// Follows a redirect as `paperpaw_http::follow` says: the same
@@ -530,8 +896,18 @@ impl Call {
             self.call.body_from = None;
         }
         redirect.keep(&mut self.call.headers);
+        let upgrade = self.staged
+            && !Url::parse(&self.url).is_some_and(|url| url.https)
+            && Url::parse(&redirect.url).is_some_and(|url| url.https);
         self.stop(net);
         self.url = redirect.url;
+        if upgrade {
+            // The plain connection is closed; core starts the request again
+            // when the TLS session is its.
+            self.phase = Phase::Parked;
+            self.just_parked = true;
+            return None;
+        }
         self.phase = Phase::Waiting;
         self.until = now_ms() + OFFLINE_MS;
         None
@@ -539,8 +915,10 @@ impl Call {
 
     /// Lets the connection or lookup go.
     fn stop(&mut self, net: &mut Net) {
+        self.boosted = false;
+        self.reused = false;
         match core::mem::replace(&mut self.phase, Phase::Waiting) {
-            Phase::Waiting => {}
+            Phase::Waiting | Phase::Parked => {}
             Phase::Resolving(query, _) => net.forget(query),
             Phase::Exchanging { link, .. } => net.release(link.socket),
         }
@@ -550,24 +928,14 @@ impl Call {
     /// made whole (the old one replaced only then).
     fn finish(self, mut answer: HttpResponse, storage: &dyn Storage) -> HttpResponse {
         match self.sink {
-            Sink::Memory(body, _) => {
+            Sink::Memory(body, ..) => {
                 // Kept to the most the request takes.
                 answer.truncated = self.got > body.len() as u64;
                 answer.body = body;
             }
-            Sink::File { part, buf, started } => {
-                let path = self.call.save_to.as_deref().unwrap_or_default();
-                let written = if started {
-                    storage.append(&part, &buf)
-                } else {
-                    storage.write(&part, &buf)
-                };
-                let replaced = written.and_then(|()| {
-                    let _ = storage.remove(path);
-                    storage.rename(&part, path)
-                });
-                if replaced.is_err() {
-                    let _ = storage.remove(&part);
+            Sink::File(file) => {
+                let target = self.call.save_to.as_deref().unwrap_or_default();
+                if file.finish(storage, target).is_err() {
                     let reason = "could not write the file";
                     return HttpResponse::failed(self.call.id, HttpError::Io, reason);
                 }
@@ -579,13 +947,9 @@ impl Call {
 
     /// Removes what a failed request wrote.
     fn discard(&self, storage: &dyn Storage) {
-        if let Sink::File {
-            part,
-            started: true,
-            ..
-        } = &self.sink
-        {
-            let _ = storage.remove(part);
+        // Core's staged file is core's to remove (`FileSink::discard`).
+        if let Sink::File(file) = &self.sink {
+            file.discard(storage);
         }
     }
 }
@@ -619,6 +983,7 @@ fn error_of(reason: &str) -> HttpError {
         "no such host" | "not an address" => HttpError::Dns,
         "timed out" | SILENT => HttpError::Timeout,
         "could not connect" | "too many redirects" | "too large" => HttpError::Refused,
+        _ if reason.starts_with("not enough memory") => HttpError::Refused,
         _ if reason.contains("certificate") || reason.contains("secure") => HttpError::Tls,
         _ => HttpError::Io,
     }
@@ -688,11 +1053,12 @@ fn receive(
     let mut problem = None;
     let mut early = Vec::new();
     let stop = core::cell::Cell::new(parser.done());
+    let mut expected = parser.head().and_then(|head| head.length);
     let received = link.receive(net, &mut || !stop.get(), &mut |data| {
         let had_head = parser.head().is_some();
         let fed = parser.feed(data, &mut |piece| {
             if had_head {
-                if let Err(e) = keep(sink, got, max, piece, storage) {
+                if let Err(e) = keep(sink, got, max, piece, expected, storage) {
                     problem.get_or_insert(e);
                 }
             } else {
@@ -707,13 +1073,16 @@ fn receive(
             && let Some(head) = parser.head()
             && !(200..300).contains(&head.status)
             && !head.is_redirect()
-            && matches!(sink, Sink::File { .. })
+            && matches!(sink, Sink::File(_))
         {
-            *sink = Sink::Memory(Vec::new(), ERROR_BODY);
+            *sink = Sink::Memory(Vec::new(), ERROR_BODY, false);
         }
         let redirect = parser.head().is_some_and(|head| head.is_redirect());
+        if !had_head {
+            expected = parser.head().and_then(|head| head.length);
+        }
         if !early.is_empty() && !redirect {
-            if let Err(e) = keep(sink, got, max, &early, storage) {
+            if let Err(e) = keep(sink, got, max, &early, expected, storage) {
                 problem.get_or_insert(e);
             }
             early.clear();
@@ -737,50 +1106,50 @@ fn keep(
     got: &mut u64,
     max: u64,
     piece: &[u8],
+    expected: Option<u64>,
     storage: &dyn Storage,
 ) -> Result<(), &'static str> {
     *got += piece.len() as u64;
     match sink {
-        Sink::Memory(body, limit) => {
-            let room = limit.saturating_sub(body.len());
-            let piece = &piece[..piece.len().min(room)];
-            // Growing as it comes, without failing hard where memory ends.
-            if body.try_reserve(piece.len()).is_err()
-                && body.try_reserve_exact(piece.len()).is_err()
+        Sink::Memory(body, limit, once) => {
+            let piece = &piece[..paperpaw_x4::body_room::fit(body.len(), piece.len(), *limit)];
+            // Core's requests take the room once (what the request reserved),
+            // or in exact steps; interface 6 grows from the pieces (a small
+            // answer stays small). Never past the limit, and without failing
+            // hard where memory ends.
+            let capacity = if *once {
+                paperpaw_x4::body_room::capacity_for(
+                    body.capacity(),
+                    body.len(),
+                    piece.len(),
+                    *limit,
+                    expected.map(|length| usize::try_from(length).unwrap_or(usize::MAX)),
+                )
+            } else {
+                paperpaw_x4::body_room::capacity_grown(
+                    body.capacity(),
+                    body.len(),
+                    piece.len(),
+                    *limit,
+                )
+            };
+            if let Some(capacity) = capacity
+                && body.try_reserve_exact(capacity - body.len()).is_err()
             {
-                return Err("the answer is too large for the memory of this device");
+                // Where doubling fails (interface 6), the exact size is tried
+                // before giving up, as in Beta 3.
+                let need = body.len() + piece.len();
+                if *once || need == capacity || body.try_reserve_exact(piece.len()).is_err() {
+                    return Err("the answer is too large for the memory of this device");
+                }
             }
             body.extend_from_slice(piece);
         }
-        Sink::File { part, buf, started } => {
+        Sink::File(file) => {
             if *got > max {
                 return Err("too large");
             }
-            let mut write = |bytes: &[u8]| {
-                let written = if *started {
-                    storage.append(part, bytes)
-                } else {
-                    storage.write(part, bytes)
-                };
-                *started = true;
-                written.map_err(|_| "could not write the file")
-            };
-            // Small pieces gathered to write in fewer calls; the buffer
-            // never grows past `FILE_BUF`, as pieces come up to a
-            // connection's whole buffer (16 KB) when memory is short.
-            if buf.len() + piece.len() > FILE_BUF && !buf.is_empty() {
-                write(buf)?;
-                buf.clear();
-            }
-            if piece.len() >= FILE_BUF {
-                write(piece)?;
-            } else {
-                if buf.capacity() < FILE_BUF {
-                    buf.try_reserve_exact(FILE_BUF - buf.len())
-                        .map_err(|_| "not enough memory to write the file")?;
-                }
-                buf.extend_from_slice(piece);
-            }
+            file.push(storage, piece).map_err(|e| e.reason())?;
         }
     }
     Ok(())

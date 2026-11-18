@@ -1,106 +1,21 @@
-//! The firmware's table for plugins (`paperpaw_native::Api`): its heap,
-//! its panics, its clock, the icons' names.
+//! What the release reads from the image about the plugins it runs
+//! ([`EXPORTED_ABI`]) and where the SDK's allocations with a placement come
+//! ([`alloc_in`]).
 
 use core::alloc::Layout;
 
-use paperpaw_native::Api;
-
-/// The table, at an address the loader writes into every plugin.
-pub static API: Api = Api {
-    size: Api::SIZE,
-    alloc,
-    dealloc,
-    realloc,
-    panic,
-    micros,
-    icon,
-    alloc_in,
-    family_revs: SHARED_REVISIONS,
-    family_min: SHARED_OLDEST,
-    build: BUILD.0.as_ptr(),
-    build_len: BUILD.1 as u32,
-};
-
-/// The revisions of the families of shared functions this firmware has,
-/// and the oldest whose plugins it still runs: the RISC-V chips (X4, X3)
-/// share, the X4 Pro's plugins carry their own copies.
-#[cfg(feature = "esp32c3")]
-const SHARED_REVISIONS: paperpaw_table::Revisions = paperpaw_table::REVISIONS;
-#[cfg(feature = "esp32c3")]
-const SHARED_OLDEST: paperpaw_table::Revisions = paperpaw_table::OLDEST;
-#[cfg(feature = "esp32s3")]
-const SHARED_REVISIONS: paperpaw_table::Revisions = [0; paperpaw_table::FAMILIES];
-#[cfg(feature = "esp32s3")]
-const SHARED_OLDEST: paperpaw_table::Revisions = [0; paperpaw_table::FAMILIES];
-
-/// What the release writes into its `-abi.txt` beside the fingerprint
-/// (`paperpaw-sign abi`), under a name of its own in the ELF file: the
-/// record's version (1), the plugin interface, the size of [`API`], then
-/// the revision of each family and the oldest it still runs (eight words
-/// each). The store and the web flasher read it to refuse a plugin that
-/// needs more of the table than the firmware has.
+/// What the release writes into its `-abi.txt` (`paperpaw-sign abi`), under a
+/// name of its own in the ELF file: the record's version (2), the plugin
+/// interface and its minor, the newest a plugin file may need to run here
+/// (`abi/ppn5.md`). The store and the web flasher read the file to choose
+/// the plugins this firmware runs.
 #[used]
 #[unsafe(export_name = "PAPERPAW_NATIVE_ABI")]
-static EXPORTED_ABI: [u32; 3 + 2 * paperpaw_table::FAMILIES] = {
-    let mut words = [0; 3 + 2 * paperpaw_table::FAMILIES];
-    words[0] = 1;
-    words[1] = paperpaw_sdk::native::INTERFACE as u32;
-    words[2] = Api::SIZE;
-    let mut i = 0;
-    while i < paperpaw_table::FAMILIES {
-        words[3 + i] = SHARED_REVISIONS[i] as u32;
-        words[3 + paperpaw_table::FAMILIES + i] = SHARED_OLDEST[i] as u32;
-        i += 1;
-    }
-    words
-};
-
-/// The address of this firmware's table of each family, by family number,
-/// for the loader to write into a plugin's family words (0: none).
-#[cfg(feature = "esp32c3")]
-pub fn tables() -> [u32; paperpaw_table::FAMILIES] {
-    let mut tables = [0; paperpaw_table::FAMILIES];
-    for (n, table) in tables.iter_mut().enumerate() {
-        if SHARED_REVISIONS[n] != 0
-            && let Some(family) = paperpaw_table::Family::of(n as u8)
-        {
-            *table = paperpaw_sdk::shared::table(family).0 as u32;
-        }
-    }
-    tables
-}
-
-/// What the logs and crash reports call this build: its version and the
-/// hash of its tables (`Api::build`), and its length.
-static BUILD: ([u8; 48], usize) = {
-    let mut text = [0u8; 48];
-    let mut len = 0;
-    let parts = [
-        "PaperPaw ".as_bytes(),
-        env!("CARGO_PKG_VERSION").as_bytes(),
-        " tables ".as_bytes(),
-        paperpaw_table::HASH.as_bytes(),
-    ];
-    let mut p = 0;
-    while p < parts.len() {
-        let mut i = 0;
-        while i < parts[p].len() {
-            text[len] = parts[p][i];
-            len += 1;
-            i += 1;
-        }
-        p += 1;
-    }
-    (text, len)
-};
-
-unsafe extern "C" fn alloc(size: usize, align: usize) -> *mut u8 {
-    match Layout::from_size_align(size, align) {
-        // SAFETY: not zero-sized; as `GlobalAlloc::alloc`.
-        Ok(layout) if size > 0 => unsafe { alloc::alloc::alloc(layout) },
-        _ => core::ptr::null_mut(),
-    }
-}
+static EXPORTED_ABI: [u32; 3] = [
+    2,
+    paperpaw_sdk::native::INTERFACE as u32,
+    paperpaw_native::host_glue::MINOR as u32,
+];
 
 /// Allocates where `placement` says (`paperpaw_sdk::memory::Placement`):
 /// 1 internal RAM, 2 PSRAM, where the device has it; where that has no
@@ -129,55 +44,4 @@ pub unsafe extern "C" fn alloc_in(size: usize, align: usize, placement: u32) -> 
     }
     // SAFETY: not zero-sized; as `GlobalAlloc::alloc`.
     unsafe { alloc::alloc::alloc(layout) }
-}
-
-unsafe extern "C" fn dealloc(ptr: *mut u8, size: usize, align: usize) {
-    if let Ok(layout) = Layout::from_size_align(size, align) {
-        // SAFETY: given by `alloc` or `realloc` with this layout.
-        unsafe { alloc::alloc::dealloc(ptr, layout) }
-    }
-}
-
-unsafe extern "C" fn realloc(ptr: *mut u8, size: usize, align: usize, new_size: usize) -> *mut u8 {
-    match Layout::from_size_align(size, align) {
-        // SAFETY: given by `alloc` or `realloc` with this layout.
-        Ok(layout) if new_size > 0 => unsafe { alloc::alloc::realloc(ptr, layout, new_size) },
-        _ => core::ptr::null_mut(),
-    }
-}
-
-/// Set when a plugin panicked through [`Api::panic`]: the panic is its own.
-/// A panic that did not come this way happened in the firmware's code,
-/// the shared functions a plugin calls included, and the plugin is not
-/// blamed for it (the rule "no panics on bad input" makes it a firmware
-/// bug); see `crash.rs`.
-static FROM_PLUGIN: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
-
-/// Whether the panic going on is a plugin's own (it called `Api::panic`).
-pub fn panic_is_a_plugins() -> bool {
-    FROM_PLUGIN.load(core::sync::atomic::Ordering::Relaxed)
-}
-
-unsafe extern "C" fn panic(message: *const u8, len: usize) -> ! {
-    // SAFETY: the plugin's message, `len` bytes on its stack.
-    let bytes = unsafe { core::slice::from_raw_parts(message, len) };
-    FROM_PLUGIN.store(true, core::sync::atomic::Ordering::Relaxed);
-    // The firmware's panic: kept, the plugin named by its calls.
-    panic!(
-        "{}",
-        core::str::from_utf8(bytes).unwrap_or("a plugin panicked")
-    )
-}
-
-extern "C" fn micros() -> u64 {
-    crate::micros()
-}
-
-unsafe extern "C" fn icon(name: *const u8, len: usize) -> u32 {
-    // SAFETY: the plugin's text, `len` bytes, read while this answers.
-    let bytes = unsafe { core::slice::from_raw_parts(name, len) };
-    core::str::from_utf8(bytes)
-        .ok()
-        .and_then(paperpaw_sdk::icons::char)
-        .map_or(0, u32::from)
 }

@@ -1,0 +1,2 @@
+### Changed
+- DOCX and MOBI answer the library's book details without converting the book. An open with the host's `details` flag (bit 3) is ready at once and answers the title, authors, language and subjects from the document's properties (DOCX) or its header (MOBI), and the cover from the book (MOBI); nothing is converted or written, the other asks are refused, and a normal open prepares the book as before. Index builds (`background`, bit 2) convert as usual.

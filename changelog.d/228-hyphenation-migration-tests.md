@@ -1,0 +1,3 @@
+### Changed
+
+- **Beta 3's hyphenation plugins move to the data packs without a second install path** (#228). A `hyphenation-<lang>` folder of Beta 3 (interface 6, a `code.ppn`) is replaced as a whole by the data pack of the same id through the one plugin install (`install_staged` for the flasher's bundle, the store's install otherwise), which keeps the old folder aside until the pack is in place and puts it back at the next start where the power went first. Tests cut the power at every write of the swap, and show a Beta 3 folder without a pack untouched and listed as built for an older interface (the language shows "needs update"; nothing is deleted or written).

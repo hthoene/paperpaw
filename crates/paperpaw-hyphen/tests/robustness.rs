@@ -7,6 +7,8 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+#[cfg(feature = "kernel")]
+use paperpaw_hyphen::check_table;
 use paperpaw_hyphen::{Patterns, compile};
 
 struct Rng(u64);
@@ -80,5 +82,50 @@ fn compiles_any_text() {
         let table = compile(&text, &text, 1, 1);
         let patterns = Patterns::new(&table).unwrap();
         patterns.hyphenate("aaaaaaa", &mut |_| {});
+    }
+}
+
+/// The check reads hostile bytes: whatever they are, it answers, and what it
+/// accepts a reader can use.
+#[cfg(feature = "kernel")]
+#[test]
+fn check_table_never_panics_and_what_it_accepts_hyphenates() {
+    let table = compile(
+        "hy3ph he2n hena4 hen5at 1na n2at 1tio 2io o2n 1ß 2ü1",
+        "ta-ble",
+        2,
+        2,
+    );
+    assert!(check_table(&table).is_ok());
+    for seed in 1..=3000u64 {
+        let mut rng = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        let mut data = table.clone();
+        for _ in 0..1 + rng.below(4) {
+            if data.is_empty() {
+                break;
+            }
+            let at = rng.below(data.len());
+            match rng.below(4) {
+                0 => data[at] = rng.next() as u8,
+                1 => data.truncate(at),
+                2 => data.push(rng.next() as u8),
+                _ => data[at] ^= 0x80,
+            }
+        }
+        if check_table(&data).is_ok() {
+            let patterns = Patterns::new(&data).unwrap();
+            for word in WORDS {
+                patterns.hyphenate(word, &mut |_| {});
+            }
+        }
+    }
+    // Random bytes, short and long, with and without the magic.
+    for seed in 1..=2000u64 {
+        let mut rng = Rng(seed);
+        let mut data: Vec<u8> = (0..rng.below(120)).map(|_| rng.next() as u8).collect();
+        if seed % 2 == 0 && data.len() >= 5 {
+            data[..5].copy_from_slice(b"PPHP\x01");
+        }
+        let _ = check_table(&data);
     }
 }

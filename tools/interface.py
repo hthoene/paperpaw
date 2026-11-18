@@ -27,6 +27,7 @@ version `PUBLIC_API` names (as CI installs it).
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -382,6 +383,50 @@ def shape(crate, target):
     return HEADER + "".join(line + "\n" for line in sorted(lines))
 
 
+# Types the SDK's public signatures name but its listing does not declare: a
+# plugin gets or must give a value of a type it cannot write down (the type is
+# behind the `kernel` feature, or private). The list may only shrink (#244).
+UNNAMEABLE = {
+    "paperpaw_sdk::env::Capabilities",  # MenuNeed::met
+    "paperpaw_sdk::env::Capability",  # MenuNeed::Has
+    "paperpaw_sdk::native::events::kinds::sealed::Sealed",  # seals `Kind`, on purpose
+    "paperpaw_sdk::params::Params",  # KeyBindings::extended, GestureRecognizer::extended
+    "paperpaw_sdk::plugins::PluginProblem",  # Native::problem_of_file
+    "paperpaw_sdk::settings::Settings",  # SettingCheck
+    "paperpaw_sdk::version::VersionError",  # Version::try_parse
+}
+DECLARES = re.compile(r"(?:#\[[^\]]*\] )*pub (?:unsafe )?(?:struct|enum|union|trait|type|use) (\w+(?:::\w+)+)")
+
+
+def type_named(path):
+    """The type a path names or lies in: up to its first segment written as a type."""
+    parts = path.split("::")
+    for at, part in enumerate(parts[1:], 1):
+        if part[0].isupper() and not part.isupper():
+            return "::".join(parts[: at + 1])
+    return None
+
+
+def unnameable(crate, listing):
+    """The crate's own types a line of `listing` names and none declares."""
+    lines = listing.splitlines()
+    declared = {m.group(1) for m in map(DECLARES.match, lines) if m}
+    paths = re.findall(rf"\b{crate.replace('-', '_')}(?:::\w+)+", listing)
+    return {named for named in map(type_named, paths) if named} - declared
+
+
+def check_names(listing):
+    found = unnameable("paperpaw-sdk", listing)
+    if found != UNNAMEABLE:
+        sys.exit(
+            "paperpaw-sdk: public signatures and the types a plugin can name differ from UNNAMEABLE"
+            " in tools/interface.py.\n  new (make the type public or change the signature): "
+            + ", ".join(sorted(found - UNNAMEABLE))
+            + "\n  no longer so (take it off the list): "
+            + ", ".join(sorted(UNNAMEABLE - found))
+        )
+
+
 def main():
     check = "--check" in sys.argv[1:]
     check_public_api()
@@ -389,6 +434,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix="interface-") as target:
         for crate in crates():
             for name, text in (("api.txt", api(crate)), ("shape.txt", shape(crate, target))):
+                if (crate, name) == ("paperpaw-sdk", "api.txt"):
+                    check_names(text)
                 path = REPO / "crates" / crate / name
                 old = path.read_text(encoding="utf-8").replace("\r\n", "\n") if path.exists() else None
                 if old == text:

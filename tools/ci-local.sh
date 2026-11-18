@@ -4,23 +4,30 @@
 #
 #   tools/ci-local.sh [quick|full] [-j N] [--only <group>[,<group>...]] [--list] [-v]
 #
-#   quick   fmt, lint, test: what every change needs (the default)
-#   full    every group below except `fuzz` and `firmware-build`
+#   quick   changelog, fmt, lint, test: what every change needs (the default)
+#   full    every group below except `fuzz`, `firmware-build` and `release-versions`
 #   --only  just these groups (names as `--list` prints them)
 #   -j N    cargo's parallel jobs (default 4; the container has 16 GB of RAM,
 #           an out-of-memory kill takes every agent's work with it)
 #   -v      show each step's output (otherwise it is kept in
 #           target/ci-local/<step>.log, and the end of a failed step's is shown)
 #
+# Full and --only abi require ABI_BASELINE pointing to an independently trusted
+# abi.lock and ABI_BASE_REV naming its exact reviewed base commit (for example git show origin/abi7/integration:abi/abi.lock > /tmp/base.lock
+# before local edits). No baseline is inferred from the candidate checkout.
+#
 # Each step is a real command with its real exit code: a failing step is
 # listed in the summary and the script exits 1, whatever the output looked
 # like. RUSTFLAGS is `-D warnings` as in CI. A step whose tool is not
 # installed is SKIPPED, with the reason, and listed; it is not a pass.
 #
+# `release-versions` (only on request) builds the store files twice, once for the last
+# release's tag (kept afterwards), and takes minutes.
+#
 # CI jobs that cannot run here: the X4 Pro and X4 Classic firmware (Xtensa
 # compiler, `esp` toolchain), the Windows and macOS emulator, the update path
-# (needs the release before's image), Android's APK (needs the SDK), the
-# reproducible build, CodeQL, release.
+# (needs the release before's image), Android's APK (needs the SDK),
+# CodeQL, release.
 set -uo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -52,10 +59,16 @@ done
 export CARGO_TERM_COLOR=never
 export CARGO_BUILD_JOBS="$jobs"
 export RUSTFLAGS="-D warnings"
+# A shared compiler cache where sccache is installed (tools/sccache-wrap.sh
+# says what it does and leaves alone); `CI_LOCAL_SCCACHE=0` turns it off, a
+# RUSTC_WRAPPER already set is kept.
+if [[ -z "${RUSTC_WRAPPER:-}" && "${CI_LOCAL_SCCACHE:-1}" != 0 ]] && command -v sccache > /dev/null; then
+    export RUSTC_WRAPPER="$root/tools/sccache-wrap.sh"
+fi
 
-all_groups=(fmt lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
-quick_groups=(fmt lint test)
-opt_groups=(firmware-build fuzz)
+all_groups=(changelog fmt abi lint test doc msrv screens sdk embedded native architecture emulator deny firmware android)
+quick_groups=(changelog fmt lint test)
+opt_groups=(firmware-build fuzz release-versions miri miri-stage)
 
 if [[ $list -eq 1 ]]; then
     echo "quick: ${quick_groups[*]}"
@@ -117,6 +130,11 @@ skip() {
 
 # ---- the groups, in the order of ci.yml's jobs ---------------------------
 
+g_changelog() {
+    run "changelog: fragments" "python3 tools/changelog.py check"
+    run "changelog: collection and PR checks" "python3 -m unittest discover -s tools -p test_changelog.py"
+}
+
 g_fmt() {
     run "fmt: workspace" "cargo fmt --all --check"
     run "fmt: shells/xteink/src/main.rs" "rustfmt --edition 2024 --check shells/xteink/src/main.rs"
@@ -131,7 +149,7 @@ g_lint() {
 g_test() {
     run "test: workspace" "cargo test --workspace"
     run "test: tools/bluetooth-tests" "cargo test --manifest-path tools/bluetooth-tests/Cargo.toml --locked --target x86_64-unknown-linux-gnu"
-    run "test: text and fonts without default features" "cargo test -p paperpaw-text -p paperpaw-plugin-fonts-default --no-default-features"
+    run "test: text and fonts without default features" "cargo test -p paperpaw-text -p paperpaw-plugin-fonts-default -p paperpaw-core --no-default-features"
 }
 
 g_doc() {
@@ -148,13 +166,16 @@ g_msrv() {
 }
 
 g_screens() {
+    # Where cargo puts the binary when CARGO_TARGET_DIR is set (a worktree's own).
+    local dev="${CARGO_TARGET_DIR:-target}/release/paperpaw-dev"
     run "screens: build paperpaw-dev" "cargo build --release -p paperpaw-dev"
-    run "screens: every screen drawn" "target/release/paperpaw-dev visual --quick --network fixtures"
-    run "screens: at the largest text" "target/release/paperpaw-dev visual --quick --network fixtures --set core.ui-size=24"
-    run "screens: reached with the buttons" "target/release/paperpaw-dev reach --quick --network fixtures"
+    run "screens: every screen drawn" "$dev visual --quick --network fixtures"
+    run "screens: at the largest text" "$dev visual --quick --network fixtures --set core.ui-size=24"
+    run "screens: reached with the buttons" "$dev reach --quick --network fixtures"
 }
 
 g_sdk() {
+    run "sdk: interface tooling tests (isolated Python)" "python3 -I tools/test_interface.py"
     if have_cmd cargo-semver-checks && have_toolchain "${nightly:-nightly}"; then
         run "sdk: semver-checks against crates.io" '
             packages=()
@@ -178,77 +199,66 @@ g_sdk() {
         skip "sdk: interface.py --check" "cargo-public-api or ${nightly:-the nightly} missing"
     fi
     run "sdk: interface test" "cargo test -p paperpaw-sdk --test interface"
-    if [[ -f tools/shared-table.py ]]; then
-        run "sdk: shared table's index and signatures" "python3 tools/shared-table.py --check && python3 -I tools/test_shared_table.py"
-    else
-        skip "sdk: shared-table" "tools/shared-table.py is not in this tree (interface 5)"
-    fi
-    if [[ -f tools/table-compat.sh ]]; then
-        if [[ -n "${TABLE_BASELINE:-}" ]]; then
-            run "sdk: table-compat against $TABLE_BASELINE" "tools/table-compat.sh '$TABLE_BASELINE'"
-        else
-            skip "sdk: table-compat" "set TABLE_BASELINE=<tag or commit of the last interface raise>"
-        fi
-    fi
+}
+
+# Keep the baseline supplied independently by the caller. Missing input fails
+# through abi-check --ci; a candidate checkout is never its own reference.
+g_abi() {
+    run "abi: interface reference files against the trusted base" 'python3 tools/abi-reference-check.py --base "${ABI_BASE_REV:?set the exact independently trusted PR-base commit}"'
+    run "abi: generated declarations and trusted baseline" "bash tools/abi-check.sh --ci"
 }
 
 g_embedded() {
-    run "embedded: kernel and plugins, riscv32imc" "cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat"
-    run "embedded: kernel and plugins, wasm32" "cargo build --release --target wasm32-unknown-unknown -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-sample-hello -p paperpaw-x4 -p paperpaw-fat"
+    run "embedded: kernel and plugins, riscv32imc" "cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-x4 -p paperpaw-fat"
+    run "embedded: kernel and plugins, wasm32" "cargo build --release --target wasm32-unknown-unknown -p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-x4 -p paperpaw-fat"
     run "embedded: lint the web emulator" "cargo clippy --target wasm32-unknown-unknown -p paperpaw-web -- -D warnings"
     # 16.4 MB: 16 held until the Mail plugin (about 0.25 MB of code and
     # texts, with what its generics pull in) came, 16.3 with it; 0.6.0-beta.1's
     # last fixes (#112, #119, #120, #122: kernel and SDK code in the browser
-    # emulator, +15.6 KB) took it to 16.4. Keep the limits in ci.yml and
-    # release.yml the same.
-    run "embedded: build the web emulator" "python3 shells/web/build.py --limit-mb 16.4"
+    # emulator, +15.6 KB) took it to 16.4. The 0.6.0-beta.2 train (card swap,
+    # search field, store fetch and more, ~+2 KB on a build already at
+    # 16.40 MB) went over it, so 16.8 leaves about 0.4 MB. The browser emulator
+    # is not memory-bound like the X4; the limit is there to catch what is
+    # pulled in by accident (debug info, a host-only dependency), not 2 KB.
+    # Keep the limits in ci.yml and release.yml the same.
+    run "embedded: build the web emulator" "python3 shells/web/build.py --limit-mb 16.8"
+}
+
+# Kept separate from Core's `miri` group until the stage and dispatcher slices merge.
+g_miri-stage() {
+    run "miri-stage: raw stage output (strict provenance, Stacked Borrows)" \
+        "RUSTC_WRAPPER= MIRIFLAGS='-Zmiri-strict-provenance' cargo +nightly-2026-10-17 miri test -p paperpaw-core --lib stage_slot"
+    run "miri-stage: raw stage output (strict provenance, Tree Borrows)" \
+        "RUSTC_WRAPPER= MIRIFLAGS='-Zmiri-strict-provenance -Zmiri-tree-borrows' cargo +nightly-2026-10-17 miri test -p paperpaw-core --lib stage_slot"
 }
 
 g_native() {
-    run "native: plugin from another workspace" "cargo build --release --manifest-path crates/paperpaw-core/tests/native-plugin/Cargo.toml && cargo test -p paperpaw-core --test native_plugin -- --ignored"
+    run "native: the preflight accepts a real plugin library" "cargo test -p paperpaw-native --test real_plugin -- --ignored"
     run "native: the SDK keeps no mutable statics" '
         CARGO_PROFILE_RELEASE_LTO=false cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-sdk --target-dir target/statics
         CARGO_PROFILE_RELEASE_LTO=false cargo run --release -p paperpaw-sign -- statics target/statics/riscv32imc-unknown-none-elf/release/deps/*.rlib'
     run "native: NOTICE names every crate that ships" "python3 tools/licences/build.py --check"
+    run "native: every Cargo.lock agrees with its manifests" "python3 tools/check-lockfiles.py"
     run "native: the store's rules are the site's" '
         if curl -sSf --max-time 20 https://paperpaw.org/api/v1/store-rules.json -o target/ci-local/store-rules.json; then
           cargo run --release -p paperpaw-sign -- store-rules target/ci-local/store-rules.json
         else
           echo "paperpaw.org serves no store rules: not compared"
         fi'
-    run "native: sample and templates name the firmware compilers" '
-        x4="$(sed -n "s/^channel = \"\(.*\)\"/\1/p" shells/xteink/rust-toolchain.toml)"
-        . shells/xteink/versions.env
-        template=samples/hello-native/.github/workflows/build.yml
-        release=tools/dev/templates/.github/workflows/paperpaw-release.yml
-        status=0
-        for found in \
-          "samples/hello-native/rust-toolchain.toml:channel = \"$x4\"" \
-          "$template:RUST_X4: \"$x4\"" \
-          "$template:RUST_X4_PRO: \"$ESP_RUST_VERSION\"" \
-          "$template:ESP_GCC: \"$ESP_GCC_VERSION\"" \
-          "$release:RUST_X4: \"$x4\"" \
-          "$release:RUST_X4_PRO: \"$ESP_RUST_VERSION\"" \
-          "$release:ESP_GCC: \"$ESP_GCC_VERSION\""; do
-          if ! grep -qF -- "${found#*:}" "${found%%:*}"; then
-            echo "${found%%:*} should say ${found#*:}"
-            status=1
-          fi
-        done
-        exit $status'
 }
 
 g_architecture() {
     run "architecture: plugins depend on the SDK only" '
         status=0
         for manifest in plugins/*/Cargo.toml samples/*/Cargo.toml; do
+          case "$manifest" in samples/frame-test/*|samples/interlinear/*) continue ;; esac
           if awk "/^\[/ { part = \$0 } part == \"[dependencies]\" && /^paperpaw-core/" "$manifest" | grep -q .; then
             echo "$manifest: plugins must depend on paperpaw-sdk, not paperpaw-core"
             status=1
           fi
         done
         exit $status'
-    run "architecture: store folders and x4-remote tests" "python3 -m unittest discover -s tools/plugin-files && python3 -m unittest discover -s tools -p test_x4_remote.py"
+    run "architecture: store folders and x4-remote tests" "python3 -m unittest discover -s tools/plugin-files && python3 -m unittest discover -s tools -p test_x4_remote.py && python3 -m unittest discover -s tools -p 'test_x4textprobe*.py'"
     if git rev-parse --verify -q origin/main > /dev/null; then
         # CI checks out the whole history; versions.py compares with the last release.
         run "architecture: a changed store plugin has a newer version" "python3 tools/plugin-files/versions.py"
@@ -257,9 +267,11 @@ g_architecture() {
     fi
     run "architecture: handbook tests" "python3 -m unittest discover -s tools -p test_handbook.py"
     run "architecture: CI tool setup tests" "python3 -m unittest discover -s tools -p test_ci_tools.py"
+    run "architecture: local check script tests" "python3 -m unittest discover -s tools -p test_check_local.py"
+    run "architecture: lockfile check tests" "python3 -m unittest discover -s tools -p test_check_lockfiles.py"
     run "architecture: Android version codes" '
         for pair in "0.4.0-dev 40050" "0.5.0-beta.1 50001" "0.5.0-beta.2 50002" \
-          "0.5.0-beta.10 50010" "0.6.0-beta.1 60001" "0.5.0-dev 50050" "0.5.0-rc.1 50051" "0.5.0 50099" \
+          "0.5.0-beta.10 50010" "0.6.0-beta.1 60001" "0.6.0-beta.2 60002" "0.5.0-dev 50050" "0.5.0-rc.1 50051" "0.5.0 50099" \
           "0.5.1-beta.1 50101"; do
           set -- $pair
           got="$(shells/android/version-code.sh "$1")"
@@ -295,8 +307,6 @@ g_emulator() {
         $emu --headless --profile two-buttons \
           --script "long:page-forward,page-forward,long:page-forward,page-forward,long:page-forward,page-forward,page-forward,page-forward,page-forward,page-forward,long:page-forward,page-forward,long:page-forward,page-forward" \
           --screenshot out/two-buttons-settings.png
-        $emu --headless --profile boox-go-7 --set slots.core.home=diagnostics.screen \
-          --script "page-forward,long-tap:600:800"
         $emu --registry out/registry.json
         printf '%s\n' '{"op": "quit"}' | $emu --stdio | grep -q '"event": "ready"'
         py="$(command -v python3 || command -v python)"
@@ -322,8 +332,8 @@ g_firmware() {
         skip "firmware: x4, x3 clippy" "toolchain $x4_toolchain not installed (rustup toolchain install $x4_toolchain --profile minimal --component clippy --target riscv32imc-unknown-none-elf)"
     else
         for device in x4 x3; do
-            run "firmware: clippy $device + remote" "cd shells/xteink && cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features $device,remote -- -D warnings"
-            run "firmware: clippy $device" "cd shells/xteink && cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features $device -- -D warnings"
+            run "firmware: clippy $device + remote" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features $device,remote -- -D warnings"
+            run "firmware: clippy $device" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features $device -- -D warnings"
         done
     fi
     skip "firmware: x4-pro, x4-classic" "needs the Xtensa (esp) toolchain; CI only"
@@ -343,17 +353,54 @@ g_firmware-build() {
         skip "firmware-build: x4" "toolchain $x4_toolchain not installed"
         return
     fi
-    run "firmware-build: x4 release build" "cd shells/xteink && cargo +$x4_toolchain build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4"
-    run "firmware-build: sample plugin fits the firmware" '
-        fp="$(cargo run -q --release -p paperpaw-sign -- fingerprint shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink)"
-        (cd samples/hello-native && env -u RUSTFLAGS cargo +'"$x4_toolchain"' x4)
-        cargo run -q --release -p paperpaw-sign -- pack samples/hello-native/target/riscv32imc-unknown-none-elf/release/hello target/ci-local/hello-esp32c3.ppn
-        cargo run -q --release -p paperpaw-sign -- plugin target/ci-local/hello-esp32c3.ppn | grep -Eq "^fingerprint: +$fp\$"'
+    run "firmware-build: x4 release build" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4"
+    run "firmware-build: no float parser or formatter in the image" "tools/firmware-symbols.sh shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink"
+    run "firmware-build: the panic path's stack frames fit the reserve" '
+        cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget.txt'
+    run "firmware-build: clippy the interface-7 host code (the native image)" "cd shells/xteink && env -u RUSTFLAGS cargo +$x4_toolchain clippy --release --target riscv32imc-unknown-none-elf --no-default-features --features x4 -- -D warnings"
+    run "firmware-build: the plugins' host frames fit under the band (the native image)" '
+        (cd shells/xteink && env -u RUSTFLAGS cargo +'"$x4_toolchain"' build --release --target riscv32imc-unknown-none-elf --no-default-features --features x4 --target-dir target/ppn5)
+        cargo run -q --release -p paperpaw-sign -- frames shells/xteink/target/ppn5/riscv32imc-unknown-none-elf/release/paperpaw-xteink --budget shells/xteink/frame-budget-ppn5.txt'
+    run "firmware-build: the start's stack paths fit above the band (the native image)" '
+        python3 tools/check-x4-start-stack.py shells/xteink/target/ppn5/riscv32imc-unknown-none-elf/release/paperpaw-xteink'
+    run "firmware-build: the interface-7 sample packs to the committed file" '
+        env -u RUSTFLAGS CARGO_TARGET_DIR="$PWD/target/ci-local/abi7-x4-min" samples/abi7-x4-min/build.sh --check'
+    run "firmware-build: SDK interface-7 entry packs and rejects misalignment" '
+        env -u RUSTFLAGS CARGO_TARGET_DIR="$PWD/target/ci-local/abi7-sdk-entry" samples/abi7-sdk-entry/check.sh'
     run "firmware-build: the store's plugins fit the firmware" '
-        fp="$(cargo run -q --release -p paperpaw-sign -- fingerprint shells/xteink/target/riscv32imc-unknown-none-elf/release/paperpaw-xteink)"
         out=target/ci-local/plugins
         rm -rf "$out"
-        tools/plugin-files/build.sh x4 "$out" --fingerprint "$fp"'
+        tools/plugin-files7/build.sh x4 "$out"'
+}
+
+g_release-versions() {
+    # The release's check (RELEASING.md): the store files built from this tree against
+    # the last release tag's, a plugin whose bytes changed under the same version fails.
+    # The tag's build is made once (a few minutes) and kept in ~/.cache/paperpaw/store-baseline.
+    if ! git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD > /dev/null 2>&1; then
+        skip "release-versions: store files against the last release" "no release tag in the history"
+        return
+    fi
+    if ! have_toolchain "$x4_toolchain"; then
+        skip "release-versions: store files against the last release" "toolchain $x4_toolchain not installed"
+        return
+    fi
+    run "release-versions: commits and built store files against the last release" \
+        "python3 tools/plugin-files/versions.py --release --bytes"
+}
+
+g_miri() {
+    local model flags test_name
+    for model in stacked tree; do
+        flags="-Zmiri-strict-provenance"
+        [[ "$model" == tree ]] && flags="$flags -Zmiri-tree-borrows"
+        run "miri: $model shared ownership and weak teardown" \
+            "env -u RUSTC_WRAPPER MIRIFLAGS='$flags' cargo +nightly-2026-10-17 miri test -j $jobs -p paperpaw-core --lib native_host::shared::tests::"
+        for test_name in token_tests tests; do
+            run "miri: $model $test_name" \
+                "env -u RUSTC_WRAPPER MIRIFLAGS='$flags' cargo +nightly-2026-10-17 miri test -j $jobs -p paperpaw-core --lib native_host::shell::$test_name::"
+        done
+    done
 }
 
 g_fuzz() {

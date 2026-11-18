@@ -10,6 +10,7 @@ mod breaker;
 mod table;
 #[rustfmt::skip]
 mod table_data;
+pub(crate) mod thai;
 
 #[cfg(test)]
 mod tests;
@@ -18,5 +19,6 @@ mod tests;
 /// One release does not mix versions: the bidi and Arabic tables are of the
 /// same one (a test compares them).
 pub(crate) use breaker::{LineBreaker, Opportunity, lifts_filter};
+pub(crate) use thai::Words;
 
 pub const UNICODE_VERSION: (u8, u8, u8) = table_data::UNICODE;

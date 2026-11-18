@@ -167,11 +167,13 @@ function row(entry, here) {
     b.textContent = label; b.onclick = run;
     acts.append(b);
   };
-  action(T.move, () => { moving = {path, name: entry.name}; showMoving(); window.scrollTo(0, 0); });
-  action(T.rename, () => {
-    const name = prompt(T.newName, entry.name);
-    if (name && name !== entry.name) move(path, here, name);
-  });
+  if (!T.noMove) {
+    action(T.move, () => { moving = {path, name: entry.name}; showMoving(); window.scrollTo(0, 0); });
+    action(T.rename, () => {
+      const name = prompt(T.newName, entry.name);
+      if (name && name !== entry.name) move(path, here, name);
+    });
+  }
   action(T.delete, async () => {
     if (!confirm(named(T.deleteQuestion, entry.name))) return;
     const answer = await fetch('/api/delete?' + query(path), {method: 'POST'});

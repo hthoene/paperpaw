@@ -1,0 +1,30 @@
+"chunk 1 Implicit: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Sending)", "Done"]
+"chunk 1 Implicit: lines sent"	["EHLO localhost", "AUTH PLAIN AGFkYQBzZWNyZXQ=", "MAIL FROM:<ada@example.org>", "RCPT TO:<bob@example.org>", "RCPT TO:<carol@example.org>", "DATA", "QUIT"]
+"chunk 1 Implicit: closed"	true
+"chunk 1 Implicit: TLS switches"	0
+"chunk 1 Implicit: the message"	#372:7416abe520c1eda2
+"chunk 1 StartTls: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Sending)", "Done"]
+"chunk 1 StartTls: lines sent"	#186:180b9901616f499b
+"chunk 1 StartTls: closed"	true
+"chunk 1 StartTls: TLS switches"	1
+"chunk 1 StartTls: the message"	#372:7416abe520c1eda2
+"chunk 5 Implicit: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Sending)", "Done"]
+"chunk 5 Implicit: lines sent"	["EHLO localhost", "AUTH PLAIN AGFkYQBzZWNyZXQ=", "MAIL FROM:<ada@example.org>", "RCPT TO:<bob@example.org>", "RCPT TO:<carol@example.org>", "DATA", "QUIT"]
+"chunk 5 Implicit: closed"	true
+"chunk 5 Implicit: TLS switches"	0
+"chunk 5 Implicit: the message"	#372:7416abe520c1eda2
+"chunk 5 StartTls: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Sending)", "Done"]
+"chunk 5 StartTls: lines sent"	#186:180b9901616f499b
+"chunk 5 StartTls: closed"	true
+"chunk 5 StartTls: TLS switches"	1
+"chunk 5 StartTls: the message"	#372:7416abe520c1eda2
+"chunk 1000 Implicit: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Sending)", "Done"]
+"chunk 1000 Implicit: lines sent"	["EHLO localhost", "AUTH PLAIN AGFkYQBzZWNyZXQ=", "MAIL FROM:<ada@example.org>", "RCPT TO:<bob@example.org>", "RCPT TO:<carol@example.org>", "DATA", "QUIT"]
+"chunk 1000 Implicit: closed"	true
+"chunk 1000 Implicit: TLS switches"	0
+"chunk 1000 Implicit: the message"	#372:7416abe520c1eda2
+"chunk 1000 StartTls: events"	["Stage(Connecting)", "Stage(LoggingIn)", "Stage(Sending)", "Done"]
+"chunk 1000 StartTls: lines sent"	#186:180b9901616f499b
+"chunk 1000 StartTls: closed"	true
+"chunk 1000 StartTls: TLS switches"	1
+"chunk 1000 StartTls: the message"	#372:7416abe520c1eda2

@@ -3,15 +3,16 @@
 
 use std::io::Write;
 
-use paperpaw_update::{AppInfo, Check, PLUGINS_AT, Plugins, TRAILER_LEN, Trailer};
+use paperpaw_update::{
+    APP_HEAD_LEN, AppInfo, Check, PLUGINS_AT, PLUGINS_HEAD_LEN, Plugins, TRAILER_LEN, Trailer,
+};
+use paperpaw_x4::updates::packed;
+
+use paperpaw_native::Chip;
+use paperpaw_native::header5::Header5;
 
 use crate::elf::Elf;
 use crate::secret_key;
-
-/// The symbol under which a firmware's ELF file holds the fingerprint
-/// native plugins must have (8 bytes, little-endian), as
-/// `shells/xteink/src/native` exports it.
-const FINGERPRINT_SYMBOL: &str = "PAPERPAW_NATIVE_FINGERPRINT";
 
 pub fn key(file: &str) -> Result<(), String> {
     let mut out = new_key_file(file).map_err(|e| match e.kind() {
@@ -81,6 +82,35 @@ pub fn sign(image: &str, update: &str, key_file: Option<&str>) -> Result<(), Str
     Ok(())
 }
 
+/// Signs the container of `image` (`packed`) as an update file: the same
+/// image a third smaller, for firmware that inflates it as it writes.
+pub fn pack(image: &str, update: &str, key_file: Option<&str>) -> Result<(), String> {
+    let seed = secret_key(key_file)?;
+    let data = std::fs::read(image).map_err(|e| format!("{image}: {e}"))?;
+    let info = AppInfo::read(&data).map_err(|e| format!("{image}: {e}"))?;
+    // The list of plugins stays in the stored head, where updates read it
+    // without unpacking.
+    let list = data
+        .get(PLUGINS_AT..PLUGINS_AT + PLUGINS_HEAD_LEN)
+        .and_then(Plugins::text_len)
+        .map_or(0, |text| PLUGINS_AT + PLUGINS_HEAD_LEN + text);
+    let stored = list.max(APP_HEAD_LEN).next_multiple_of(16);
+    let mut container = packed::pack(&data, stored, 9)
+        .ok_or_else(|| format!("{image}: not an app image that can be packed"))?;
+    let trailer = paperpaw_update::sign(&container, &seed).map_err(|e| format!("{image}: {e}"))?;
+    container.extend_from_slice(&trailer.to_bytes());
+    std::fs::write(update, &container).map_err(|e| format!("{update}: {e}"))?;
+    println!(
+        "{update}: {} {}, {} bytes packed from {}, signed by {}",
+        info.project,
+        info.version,
+        container.len(),
+        data.len(),
+        paperpaw_update::fingerprint(&trailer.key)
+    );
+    Ok(())
+}
+
 pub fn show(update: &str) -> Result<(), String> {
     let data = std::fs::read(update).map_err(|e| format!("{update}: {e}"))?;
     let split = data
@@ -89,14 +119,29 @@ pub fn show(update: &str) -> Result<(), String> {
         .ok_or_else(|| format!("{update}: too short"))?;
     let trailer =
         Trailer::read(&data[split..], data.len() as u64).map_err(|e| format!("{update}: {e}"))?;
-    let info = AppInfo::read(&data[..split]).map_err(|e| format!("{update}: {e}"))?;
+    // A packed update's container has the image's head as it is but for the
+    // first byte (`packed`), and its length in the footer.
+    let footer = split
+        .checked_sub(packed::FOOTER_LEN)
+        .and_then(|at| packed::Footer::read(&data[at..split], split as u32));
+    let mut head = data[..footer.map_or(split, |f| f.stored as usize)].to_vec();
+    if footer.is_some() {
+        head[0] = packed::IMAGE_MAGIC;
+    }
+    let info = AppInfo::read(&head).map_err(|e| format!("{update}: {e}"))?;
     let mut check = Check::new(&trailer).map_err(|e| format!("{update}: {e}"))?;
     check.absorb(&data[..split]);
     let holds = check.finish();
     println!("firmware:    {} {}", info.project, info.version);
     println!("chip:        {}", info.chip);
-    println!("image:       {} bytes", trailer.image_len);
-    match plugins_of(&data[..split]) {
+    match footer {
+        Some(footer) => println!(
+            "image:       {} bytes (packed in {} bytes)",
+            footer.raw_len, trailer.image_len
+        ),
+        None => println!("image:       {} bytes", trailer.image_len),
+    }
+    match plugins_of(&head) {
         Some(list) => println!("plugins:     {} built in", list.iter().count()),
         None => println!("plugins:     not listed"),
     }
@@ -129,21 +174,6 @@ pub fn plugins(image: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn fingerprint(elf: &str) -> Result<(), String> {
-    let data = std::fs::read(elf).map_err(|e| format!("{elf}: {e}"))?;
-    let fingerprint = fingerprint_of(&data).map_err(|e| format!("{elf}: {e}"))?;
-    println!("{fingerprint:016x}");
-    Ok(())
-}
-
-/// The fingerprint a firmware's ELF file names.
-fn fingerprint_of(file: &[u8]) -> Result<u64, String> {
-    let bytes = symbol_bytes(file, FINGERPRINT_SYMBOL, 8)
-        .map_err(|e| format!("{e}: a firmware without code plugins"))?;
-    let bytes: [u8; 8] = bytes.try_into().map_err(|_| "not 8 bytes")?;
-    Ok(u64::from_le_bytes(bytes))
-}
-
 /// The `len` bytes of the object `name` in a firmware's ELF file.
 fn symbol_bytes<'a>(file: &'a [u8], name: &str, len: usize) -> Result<&'a [u8], String> {
     let elf = Elf::parse(file)?;
@@ -162,22 +192,28 @@ fn symbol_bytes<'a>(file: &'a [u8], name: &str, len: usize) -> Result<&'a [u8], 
         .ok_or_else(|| format!("{name} is not {len} bytes of the file"))
 }
 
-/// What a firmware's ELF file says of its table for plugins, as its
-/// `PAPERPAW_NATIVE_ABI` keeps it (version 1): the plugin interface, the
-/// size of its `Api`, each family's revision and the oldest it runs.
+/// What a firmware's ELF file says of the plugins it runs, as its
+/// `PAPERPAW_NATIVE_ABI` keeps it (version 2): the plugin interface and its
+/// minor, the newest a plugin file may need to run on it (`abi/ppn5.md`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Abi {
     interface: u16,
-    api: u32,
-    families: [u16; paperpaw_table::FAMILIES],
-    min: [u16; paperpaw_table::FAMILIES],
+    minor: u16,
 }
 
 const ABI_SYMBOL: &str = "PAPERPAW_NATIVE_ABI";
-const ABI_WORDS: usize = 3 + 2 * paperpaw_table::FAMILIES;
+const ABI_WORDS: usize = 3;
+/// The record of the firmwares before (version 1: the size of the table for
+/// plugins and the shared functions' revisions): told apart, not read.
+const ABI_WORDS_BEFORE: usize = 19;
 
 fn abi_of(file: &[u8]) -> Result<Abi, String> {
-    let bytes = symbol_bytes(file, ABI_SYMBOL, 4 * ABI_WORDS)?;
+    let bytes = symbol_bytes(file, ABI_SYMBOL, 4 * ABI_WORDS).map_err(|e| {
+        match symbol_bytes(file, ABI_SYMBOL, 4 * ABI_WORDS_BEFORE) {
+            Ok(_) => format!("{ABI_SYMBOL} of version 1: a firmware before interface 7"),
+            Err(_) => e,
+        }
+    })?;
     let word = |i: usize| {
         let at = 4 * i;
         bytes
@@ -185,49 +221,82 @@ fn abi_of(file: &[u8]) -> Result<Abi, String> {
             .and_then(|b| b.try_into().ok())
             .map_or(0, u32::from_le_bytes)
     };
-    if word(0) != 1 {
-        return Err(format!("{ABI_SYMBOL} of version {}, not 1", word(0)));
+    if word(0) != 2 {
+        return Err(format!("{ABI_SYMBOL} of version {}, not 2", word(0)));
     }
     let small = |i: usize| {
         u16::try_from(word(i)).map_err(|_| format!("{ABI_SYMBOL}: word {i} is too large"))
     };
-    let mut families = [0; paperpaw_table::FAMILIES];
-    let mut min = [0; paperpaw_table::FAMILIES];
-    for i in 0..paperpaw_table::FAMILIES {
-        families[i] = small(3 + i)?;
-        min[i] = small(3 + paperpaw_table::FAMILIES + i)?;
-    }
     Ok(Abi {
         interface: small(1)?,
-        api: word(2),
-        families,
-        min,
+        minor: small(2)?,
     })
 }
 
-/// A release's `-abi.txt`: the fingerprint (the first line, as before),
-/// then the table's lines the store and the web flasher read.
-fn abi_text(fingerprint: u64, abi: &Abi) -> String {
-    let numbers = |list: &[u16]| {
-        list.iter()
-            .map(u16::to_string)
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
-    format!(
-        "{fingerprint:016x}\ninterface: {}\napi: {}\nfamilies: {}\nmin: {}\n",
-        abi.interface,
-        abi.api,
-        numbers(&abi.families),
-        numbers(&abi.min)
-    )
+/// A release's `-abi.txt`: two lines, the interface and its minor, which the
+/// store and the web flasher read. No fingerprint: an interface-7 plugin file
+/// has none.
+fn abi_text(abi: &Abi) -> String {
+    format!("interface: {}\nminor: {}\n", abi.interface, abi.minor)
 }
 
 pub fn abi(elf: &str) -> Result<(), String> {
     let data = std::fs::read(elf).map_err(|e| format!("{elf}: {e}"))?;
-    let fingerprint = fingerprint_of(&data).map_err(|e| format!("{elf}: {e}"))?;
     let abi = abi_of(&data).map_err(|e| format!("{elf}: {e}"))?;
-    print!("{}", abi_text(fingerprint, &abi));
+    print!("{}", abi_text(&abi));
+    Ok(())
+}
+
+/// Why a plugin file of format 5 does not run on a firmware with this record,
+/// built for `machine` (the ELF file's): another chip, another interface, or
+/// a minor the firmware does not have yet.
+fn misfit(abi: &Abi, machine: u16, header: &Header5) -> Option<String> {
+    let chip = match machine {
+        crate::elf::EM_RISCV => Chip::Esp32C3,
+        _ => Chip::Esp32S3,
+    };
+    if header.target != chip {
+        return Some(format!(
+            "built for the {}, the firmware is the {chip}'s",
+            header.target
+        ));
+    }
+    if header.abi_major != abi.interface {
+        return Some(format!(
+            "of interface {}, the firmware has {}",
+            header.abi_major, abi.interface
+        ));
+    }
+    (header.needs_minor > abi.minor).then(|| {
+        format!(
+            "needs minor {} of the interface, the firmware has {}",
+            header.needs_minor, abi.minor
+        )
+    })
+}
+
+/// Checks that each of the plugin files runs on the firmware: its chip, its
+/// interface, and no newer minor than it has. The release runs it on the
+/// plugins it builds for the store.
+pub fn fits(elf: &str, files: &[&str]) -> Result<(), String> {
+    let data = std::fs::read(elf).map_err(|e| format!("{elf}: {e}"))?;
+    let abi = abi_of(&data).map_err(|e| format!("{elf}: {e}"))?;
+    let machine = Elf::parse(&data)
+        .map_err(|e| format!("{elf}: {e}"))?
+        .machine;
+    for file in files {
+        let bytes = std::fs::read(file).map_err(|e| format!("{file}: {e}"))?;
+        let (header, _) = crate::pack5::check_file5(&bytes).map_err(|e| format!("{file}: {e}"))?;
+        if let Some(why) = misfit(&abi, machine, &header) {
+            return Err(format!("{file}: {why}"));
+        }
+    }
+    println!(
+        "{} plugin files run on interface {}.{}",
+        files.len(),
+        abi.interface,
+        abi.minor
+    );
     Ok(())
 }
 
@@ -237,100 +306,84 @@ mod tests {
     use crate::elf::build::Builder;
     use crate::elf::{EM_XTENSA, ET_EXEC, SHF_ALLOC};
 
-    #[test]
-    fn the_firmware_names_its_fingerprint() {
-        let fingerprint = 0x86fe_a46c_f2a7_188a_u64;
-        let mut data = vec![0xAA; 4];
-        data.extend_from_slice(&fingerprint.to_le_bytes());
-        let mut b = Builder::new(EM_XTENSA, ET_EXEC);
-        let rodata = b.section(".rodata", SHF_ALLOC, 0x3c00_0020, &data, 4);
-        b.symbol(FINGERPRINT_SYMBOL, 0x3c00_0024, 8, rodata as u16, false);
-        assert_eq!(fingerprint_of(&b.build()), Ok(fingerprint));
-
-        let mut b = Builder::new(EM_XTENSA, ET_EXEC);
-        let rodata = b.section(".rodata", SHF_ALLOC, 0x3c00_0020, &data, 4);
-        b.symbol("main", 0x3c00_0020, 4, rodata as u16, false);
-        assert!(fingerprint_of(&b.build()).unwrap_err().starts_with("no "));
-        // Not in the file.
-        let mut b = Builder::new(EM_XTENSA, ET_EXEC);
-        let rodata = b.section(".rodata", SHF_ALLOC, 0x3c00_0020, &data, 4);
-        b.symbol(FINGERPRINT_SYMBOL, 0x3c00_0030, 8, rodata as u16, false);
-        assert!(fingerprint_of(&b.build()).is_err());
-    }
-
-    /// The table's lines, read as the site reads them
-    /// (`paperpaw.org` `firmware.rs` `Table::read`): every key there,
-    /// `interface` a u16, `api` a u32, eight u16 for each family list.
-    fn site_reads(text: &str) -> Option<(u64, Abi)> {
-        let mut lines = text.lines();
-        let fingerprint = u64::from_str_radix(lines.next()?.split_whitespace().next()?, 16).ok()?;
-        let mut keys = std::collections::BTreeMap::new();
-        for line in lines {
-            let (key, value) = line.split_once(':')?;
-            keys.insert(key.trim(), value.trim());
-        }
-        let eight = |key: &str| -> Option<[u16; 8]> {
-            let list: Vec<u16> = keys
-                .get(key)?
-                .split_whitespace()
-                .map(|n| n.parse().ok())
-                .collect::<Option<_>>()?;
-            list.try_into().ok()
-        };
-        let abi = Abi {
-            interface: keys.get("interface")?.parse().ok()?,
-            api: keys.get("api")?.parse().ok()?,
-            families: eight("families")?,
-            min: eight("min")?,
-        };
-        Some((fingerprint, abi))
-    }
-
-    #[test]
-    fn the_abi_file_says_the_firmwares_table_as_the_site_reads_it() {
-        let fingerprint = 0x86fe_a46c_f2a7_188a_u64;
-        let mut words = vec![1u32, 5, 72];
-        words.extend([3, 0, 1, 0, 0, 0, 0, 0]);
-        words.extend([1, 0, 1, 0, 0, 0, 0, 0]);
-        let mut data = fingerprint.to_le_bytes().to_vec();
-        data.extend(words.iter().flat_map(|w| w.to_le_bytes()));
+    /// A firmware's ELF file with `words` under the record's name.
+    fn firmware_with(words: &[u32]) -> Vec<u8> {
+        let data: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
         let mut b = Builder::new(EM_XTENSA, ET_EXEC);
         let rodata = b.section(".rodata", SHF_ALLOC, 0x3c00_0000, &data, 4);
-        b.symbol(FINGERPRINT_SYMBOL, 0x3c00_0000, 8, rodata as u16, false);
         b.symbol(
             ABI_SYMBOL,
-            0x3c00_0008,
-            4 * ABI_WORDS as u32,
+            0x3c00_0000,
+            data.len() as u32,
             rodata as u16,
             false,
         );
-        let file = b.build();
-        let abi = abi_of(&file).unwrap();
-        let text = abi_text(fingerprint_of(&file).unwrap(), &abi);
+        b.build()
+    }
+
+    #[test]
+    fn the_abi_file_is_the_interface_and_its_minor() {
+        let abi = abi_of(&firmware_with(&[2, 7, 1])).unwrap();
         assert_eq!(
-            text,
-            "86fea46cf2a7188a\ninterface: 5\napi: 72\nfamilies: 3 0 1 0 0 0 0 0\nmin: 1 0 1 0 0 0 0 0\n"
+            abi,
+            Abi {
+                interface: 7,
+                minor: 1
+            }
         );
-        assert_eq!(site_reads(&text), Some((fingerprint, abi)));
-        // The first line alone, as store-plugin.yml reads it.
-        assert_eq!(text.lines().next(), Some("86fea46cf2a7188a"));
-        // A record of another version, or of another length: not read.
-        let mut later = data.clone();
-        later[8] = 2;
-        let mut b = Builder::new(EM_XTENSA, ET_EXEC);
-        let rodata = b.section(".rodata", SHF_ALLOC, 0x3c00_0000, &later, 4);
-        b.symbol(
-            ABI_SYMBOL,
-            0x3c00_0008,
-            4 * ABI_WORDS as u32,
-            rodata as u16,
-            false,
+        // Two lines, `key: value` in decimal, nothing before them: no
+        // fingerprint, no table of shared functions.
+        assert_eq!(abi_text(&abi), "interface: 7\nminor: 1\n");
+        assert_eq!(
+            abi_text(&abi_of(&firmware_with(&[2, 7, 12])).unwrap()),
+            "interface: 7\nminor: 12\n"
         );
-        assert!(abi_of(&b.build()).unwrap_err().contains("version 2"));
+        // The record of a firmware before (version 1, 19 words) is named, not
+        // read as this one; another version, another length or a number that
+        // is no `u16` is refused.
+        let mut before = vec![1u32, 6, 72];
+        before.extend([3, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0]);
+        let problem = abi_of(&firmware_with(&before)).unwrap_err();
+        assert!(problem.contains("version 1"), "{problem}");
+        let problem = abi_of(&firmware_with(&[3, 7, 1])).unwrap_err();
+        assert!(problem.contains("version 3"), "{problem}");
+        assert!(abi_of(&firmware_with(&[2, 7])).is_err());
+        assert!(abi_of(&firmware_with(&[2, 7, 1, 0])).is_err());
+        assert!(abi_of(&firmware_with(&[2, 7, 70_000])).is_err());
+        // A firmware without the record, and one whose record is not in the
+        // file.
         let mut b = Builder::new(EM_XTENSA, ET_EXEC);
-        let rodata = b.section(".rodata", SHF_ALLOC, 0x3c00_0000, &data, 4);
-        b.symbol(ABI_SYMBOL, 0x3c00_0008, 8, rodata as u16, false);
+        let rodata = b.section(".rodata", SHF_ALLOC, 0x3c00_0020, &[0xAA; 12], 4);
+        b.symbol("main", 0x3c00_0020, 4, rodata as u16, false);
+        assert!(abi_of(&b.build()).unwrap_err().starts_with("no "));
+        let mut b = Builder::new(EM_XTENSA, ET_EXEC);
+        let rodata = b.section(".rodata", SHF_ALLOC, 0x3c00_0020, &[0xAA; 12], 4);
+        b.symbol(ABI_SYMBOL, 0x3c00_0030, 12, rodata as u16, false);
         assert!(abi_of(&b.build()).is_err());
+    }
+
+    #[test]
+    fn a_plugin_file_fits_its_chip_its_interface_and_a_minor_the_firmware_has() {
+        // The sample's file as the packer made it: for the X4's chip,
+        // interface 7.
+        let file = include_bytes!("../../../crates/paperpaw-native/tests/data/abi7-x4-min.ppn");
+        let (header, _) = crate::pack5::check_file5(file).unwrap();
+        assert_eq!((header.target, header.abi_major), (Chip::Esp32C3, 7));
+        let has = |interface, minor| Abi { interface, minor };
+        let needs = header.needs_minor;
+        assert_eq!(misfit(&has(7, needs), crate::elf::EM_RISCV, &header), None);
+        assert_eq!(
+            misfit(&has(7, needs + 3), crate::elf::EM_RISCV, &header),
+            None
+        );
+        let other_chip = misfit(&has(7, needs), EM_XTENSA, &header).unwrap();
+        assert!(other_chip.contains("built for"), "{other_chip}");
+        let other = misfit(&has(8, needs), crate::elf::EM_RISCV, &header).unwrap();
+        assert!(other.contains("of interface 7"), "{other}");
+        let mut newer = header;
+        newer.needs_minor = needs + 1;
+        let too_new = misfit(&has(7, needs), crate::elf::EM_RISCV, &newer).unwrap();
+        assert!(too_new.contains("needs minor"), "{too_new}");
     }
 
     #[test]

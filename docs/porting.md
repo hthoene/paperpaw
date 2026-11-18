@@ -111,14 +111,6 @@ network, updates and remote control stay one. In the order it was done:
     ([ADR 0026](adr/0026-plugin-interface-version.md)): the firmware
     exports its fingerprint (`PAPERPAW_NATIVE_FINGERPRINT`), and the
     release builds PaperPaw's store plugins for each device with it.
-    On a RISC-V chip the plugins call the firmware's copy of the shared
-    functions (`crates/paperpaw-table/shared.list`: the families text,
-    ui, graphics and data) instead of carrying their own: the shell
-    fills the revisions of its families in `Api`
-    (`shells/xteink/src/native/api.rs`), gives the loader the table of
-    each (`Relocator::tables`) and refuses a plugin file whose families
-    do not fit (`paperpaw_table::misfit`) before it places anything. A shell for another chip leaves its
-    families at 0: its plugins carry their own copies.
 11. **The emulator.** A profile in `shells/desktop/src/profiles.rs` with
     the firmware's screen, buttons, memory budget and builder settings,
     so plugins can be tried for the device without it.
@@ -188,6 +180,60 @@ Pro's. A port to a board like one PaperPaw knows is mostly a board file.
   `rust-toolchain.toml` pin: plugin files run only on firmware of the
   same compiler, and newer Xtensa GCCs reject esp-hal's linker scripts.
 
+## Loading interface-7 plugins (desktop developer switch)
+
+Only the desktop emulator loads interface-7 libraries, and only behind
+`--abi7-dev-loader` / `PAPERPAW_ABI7_DEV_LOADER=1`; a device shell does not
+(see `docs/plugins.md`, "Interface-7 libraries"). A shell that adds this loader
+keeps this order, which the tests in `shells/desktop` pin:
+
+1. Read the file and tell its kind from the bytes: `PAPERPAW_METADATA` alone is
+   interface 7, `PAPERPAW_API` alone is interface 6 (refused as built for an
+   older PaperPaw: no loader takes it any more), anything else is refused.
+   Never guess.
+2. Run the strict freestanding check (`check_freestanding`, `PLUGIN_EXPORTS`)
+   before any code of the library runs.
+3. Open the plugin with the id of its **folder** (`PinnedPlugin::open`), never
+   the id the library reports; stage its declarations (`HostOwner::begin`) and
+   commit them. Staged declarations are kept and not applied until the kernel's
+   registry apply step (S2) exists; no draw is dispatched before then.
+4. Dispatch lifecycle, tick and draw only inside the kernel's scoped
+   environment; never retain `Env` or a canvas.
+5. Unload in this order: drop the registrations (their leases), revoke and
+   finish admission, drop the owner (the plugin's destructor runs), and only
+   then unmap the library. A removed folder changes nothing until then; the
+   private copy is what is mapped.
+
+## The lifecycle window
+
+Plugins save in `core.suspend` and `core.stopping`, and the interface-7
+storage contract relies on it (`docs/abi/proposals/interface-7-events-storage-services.md`,
+D1.2, gate V2). A shell must therefore not cut the power, restart or exit
+until `Kernel::suspend` / `Kernel::stop` have **returned**; both write the
+storage back (`storage.sync`) after the plugins ran, so what a plugin wrote
+in its handler is on the card when they return (host test
+`crates/paperpaw-core/tests/lifecycle_window.rs`). Order on every path:
+suspend or stop dispatch, then the work it started is finished, then the
+last `sync`, then the panel, then the power.
+
+| Shell | Path | Order (function, `file:line` at the time of writing) | Early cut? |
+| --- | --- | --- | --- |
+| X4 / X4 Pro / X3 / Classic | sleep (idle, power button, low battery, plugin asks) | `step` -> `sleep` (`firmware.rs:739`): `kernel.suspend` (`:747`) -> radios down -> `finish_work` (`:898`, waits for work the plugins started, at most `SLEEP_WAIT_MS`, stops at a press) -> `power_off` (`:786`): `slept::mark` writes the mark **and syncs** -> panel sleep -> `network.leave` -> latch low / deep sleep (`power::deep`) | none: `power_off` is called from `sleep` only |
+| X4 family | light sleep (`asleep-light`, hours) | `sleep` -> `kernel.suspend` -> `finish_work` -> **`write_back` (`storage.sync`, called in `sleep()` right after `finish_work`)** -> `sleep_lightly` (`:835`); a card swapped or a power cut during it loses only what was written after that sync (none) | none |
+| X4 family | doze on USB | `doze` (`firmware/dozing.rs:39`): `kernel.suspend`; no power is cut; a cable pulled ends in `sleep` (`suspended_already` skips a second suspend) | none |
+| X4 family | restart (kernel asks, code plugins to load, `Restart` over serial) | `restart` (`firmware.rs:463`): `kernel.stop` (`:468`) -> `network.leave` -> `software_reset` (`:470`); remote `Command::Restart` (`:1467`) the same | none |
+| X4 family | panic, watchdog, failed update trial | `crash.rs:134`, `ota.rs:225,257`, `power.rs:386` (`software_reset`) | **yes, by design**: no dispatch is possible after a panic or a hang; data not synced is lost. The update trial paths run before the kernel exists. The `remote` feature's `rest` reset (`firmware.rs:667`) and `try_long_nap` (`power.rs:386`) are developer-build trials after a sleep (suspend ran before it) |
+| Desktop emulator | window close, `quit` over stdio | `Device::shut_down` (`device.rs:666`): `kernel.suspend` unless asleep -> waits for answers (`SHUT_DOWN_WAIT`) -> the process ends (`gui.rs:257`, `stdio/mod.rs:380`) | none; host test `quitting_gives_plugins_their_moment_to_save_first` (`stdio/tests.rs`) |
+| Desktop emulator | sleep screen (power button), restart | `execute` (`device.rs:788`): `kernel.suspend`; `Device::restart` (`device.rs:887`): `kernel.stop` before the new kernel | none |
+| Android | app paused | `MainEvent::Pause` (`app.rs:184`): `kernel.suspend`, then the system may kill the process: Pause is the only save point there is. `Destroy` (`app.rs:205`) ends the loop without a `stop` (it follows a Pause); restart (`app.rs:317`) calls `kernel.stop` first | the system may kill after Pause returns: not a shell decision |
+| Web | none | no suspend or stop (a tab closing is not seen); the emulated card is memory only; `restart` goes through the desktop `Device` (`stop`) | not applicable |
+
+What only a device can show (owner's return package): `sleep`'s order on the
+X4 (`firmware.rs:739-776`, the firmware is not built for the host), the
+`finish_work` wait ending at a press, the power-button release wait in
+`power_off`, and that the card holds a plugin's last write after a power
+cut that follows a sleep.
+
 ## Checking a port on the device
 
 Build the firmware with remote control over USB (the feature `remote`,
@@ -214,11 +260,11 @@ every part one page at a time, with buttons alone or by touch:
 Each page ends with *Fail*, *Skip* and *Pass*, the answer its
 measurements suggest standing out. Pages for parts a device lacks are
 skipped, with the reason. After each answer the check writes its report
-to `.paperpaw/device-check.txt` on the card, and it goes on where it was
+to `.paperpaw/plugins/diagnostics/device-check.txt` on the card, and it goes on where it was
 when opened again.
 
 `tools/x4-remote.py` takes screenshots and fetches the log and the
-report. `--get .paperpaw/device-check.txt device-check.txt` copies the
+report. `--get .paperpaw/plugins/diagnostics/device-check.txt device-check.txt` copies the
 report. `--script heap` says the heap's peak and the stack never used,
 and `--help` lists all it does.
 
@@ -240,7 +286,7 @@ A pull request that adds a device is ready for review when it has:
       radio on, and the stack never used (the device check's Memory
       page, `x4-remote.py`).
 - [ ] **The device check's report**, the whole of
-      `.paperpaw/device-check.txt`.
+      `.paperpaw/plugins/diagnostics/device-check.txt`.
 - [ ] **Photos of the Screen page**: one as it opens, to show the
       grays; one after flipping the pattern a few times, to show
       ghosting; and one after a full refresh.

@@ -27,6 +27,21 @@
 //! U+F8FF) is the icons'. The keys of every table (anchors, kerning,
 //! substitutions) are such keys too.
 //!
+//! A strike's flags (the reserved field after its size): bit 0, its bitmaps
+//! are stored packed (`packed.rs`); bit 1, its glyphs are in **cells**, and
+//! the cell's size in 8 bytes in the bits above (flags >> 2). A strike of
+//! cells has, where the bitmaps are, one cell of that size for each glyph in
+//! the order of the glyph table: the glyph's left i16, top i16, width u16,
+//! height u16, advance i32 (as in its record), then its bitmap, zeros up to
+//! the cell's size. The few glyphs whose bitmap is larger than a cell holds
+//! (the cell is sized for 99 of 100) have the head only, and their bitmaps
+//! follow the last cell. A glyph's record points at its bitmap, in its cell
+//! (the cell's place times its size, and 12) or after the cells, so that a
+//! reader that does not know cells reads the pack as any other. A pack read
+//! a glyph at a time from a card (see `stored.rs`) finds a cell by
+//! arithmetic and gets metrics and bitmap in one read; `PackBuilder::cells`
+//! makes them, for packs of thousands of characters.
+//!
 //! The first strike's last reserved field is the offset of the pack's
 //! kerning table (0: none), which holds pairs of characters and how much
 //! they move the second one, in classes (see `kern_table.rs`). Readers
@@ -52,7 +67,8 @@
 //! 4  substitutions        keys drawn as other keys, as several, several
 //!                         as one (below)
 //! 5  vertical metrics     for vertical lines
-//! 6  reserved             0
+//! 6  words                Thai words, where lines break between
+//!                         them (below)
 //! 7  next directory       eight more offsets, slots 8 to 15, the same way
 //! ```
 //!
@@ -85,7 +101,8 @@
 //! it, else on its letter; where none meets, its ink is centred over the
 //! letter's. A part may list every glyph of its strike, in their order
 //! (those without anchors with none): a key's record is then where its
-//! glyph's is. The builder writes anchors for Arabic and Hebrew alone.
+//! glyph's is. The builder writes anchors for Arabic, Hebrew, Bengali and
+//! Devanagari.
 //! Anchors are whole pixels in an `i8`: one past ±127 px (a mark more
 //! than about 90 px from its letter's pen, so at sizes far beyond 48 px)
 //! is left out, and its mark centred.
@@ -111,7 +128,7 @@
 //!
 //! ```text
 //! head       8 bytes   version 1, 3 reserved, length u32
-//! count      4 bytes   feature count u16, 2 reserved
+//! count      4 bytes   feature count u16, skip set count u16
 //! features  16 bytes   tag [u8; 4] (an OpenType feature tag: half, blwf,
 //!   each               pres, liga, locl ...), script u8 (its index in
 //!                      paperpaw_lang::scripts(), from 1; 0: any), flags
@@ -120,7 +137,8 @@
 //!                      (its code in ASCII, zero-padded; all zero: any),
 //!                      offset u32 of its lookup list
 //! lookups    4 bytes   lookup count u16, 2 reserved, then per lookup
-//!                      8 bytes: kind u8, flags u8 (reserved), entry count
+//!                      8 bytes: kind u8, skip set u8 (0: none, else its
+//!                      number in the list at the end, from 1), entry count
 //!                      u16, offset u32 of its entries
 //! kind 1     8 bytes   single: key u32, drawn as key u32; sorted by key
 //!   each
@@ -132,14 +150,84 @@
 //!   each               each entry, sorted by their key; an entry: key
 //!                      u32, count u8 (1 to 16), 3 reserved, keys u32 x
 //!                      count
+//! kind 4     8 bytes   contextual (OpenType GSUB 5 and 6): key u32, offset
+//!   each               u32 of a rule that starts at that key; sorted by
+//!                      key, a key's rules in the order they are tried. A
+//!                      rule: backtrack, input (its first key counted) and
+//!                      lookahead counts and its record count (u8 each,
+//!                      up to 16), then the offsets u32 of the key sets
+//!                      before (nearest first), of the input after its
+//!                      first key and after, then its records: u32 each,
+//!                      its place in the input in the top byte, the offset
+//!                      of a lookup's record (8 bytes, of kind 1 to 3) in
+//!                      the others. A key set: count u16, 2 reserved,
+//!                      keys u32 x count, sorted
+//! kind 5     -         contextual by classes (OpenType's format 2), the
+//!                      entry count the number of classes the first key
+//!                      may have: offsets u32 of the class definitions
+//!                      before, of the input and after (0: none), of the
+//!                      key set of the keys it starts at, then per class of
+//!                      the first key the offset u32 of its rules (0:
+//!                      none). Rules: count u16, 2 reserved, offset u32 of
+//!                      each; a rule: the four counts as kind 4's, the
+//!                      classes u8 before, of the input after its first
+//!                      key and after, its records as kind 4's. A class
+//!                      definition: count u16, 2 reserved, per key key u32
+//!                      and class u16, sorted by key (a key not listed is
+//!                      of class 0)
+//! skip sets  4 bytes   at the table's end: the offset u32 of each key set
+//!   each               a lookup passes over (marks it ignores, OpenType's
+//!                      lookup flags), the skip set count of them
 //! ```
 //!
+//! A lookup with a skip set neither applies to its keys nor counts them:
+//! a ligature joins the keys around them (which follow it), a rule's keys
+//! before, in and after its input are those it does not pass over. A
+//! table made before skip sets has none (its bytes there are 0).
 //! Offsets are from the table's start. Features apply in their order and
 //! each one's lookups in theirs, a lookup to the whole text before the
 //! next. A reader skips a lookup of a kind it does not know (new kinds,
 //! such as contextual rules, need no new version), a feature of another
 //! script or language, and the table of a version it does not know. Of
 //! the ligatures that start at a key, the first that matches is made.
+//! The lookups a rule applies are of kinds 1 to 3, each at its place once,
+//! in their order. Bengali, Devanagari, Khmer, Lao and Tibetan packs carry
+//! such a table (`crate::indic`), which their shaper applies feature by
+//! feature, each where the script puts it.
+//!
+//! Version 2 is version 1 compact, for a table of less than 64 KiB: keys
+//! and offsets of 2 bytes (the head, the features and the lookups'
+//! records as in version 1), no reserved bytes after a count (of a key
+//! set, a class definition, the rules by classes, a ligature's length, a
+//! multiple's keys) and a rule's record of 3 bytes (its place in the
+//! input u8, the offset u16). A key below 0xD800 is that character's;
+//! from 0xD800 a glyph's without code point (`GLYPHS` and the key less
+//! 0xD800), from 0xE800 a mark's (`MARKS` and the key less 0xE800). The
+//! Indic packs' tables are of version 2.
+//!
+//! Words (version 1), slot 6: the words of a script written without
+//! spaces between them (Thai, Lao, Khmer), where the line breaker may
+//! break a line (`crate::linebreak`), as `tools/thai-dictionary.py` and
+//! `tools/word-table.py` write them:
+//!
+//! ```text
+//! head       8 bytes   version 1, script u8 (0 Thai, 1 Lao, 2 Khmer), 2
+//!                      reserved, length u32
+//! counts     4 bytes   word count u16, block count u16 (a block per 16
+//!                      words)
+//! blocks     2 bytes   offset u16 of each block from the first's start
+//!   each
+//! words      -         sorted by their letters, each one byte: its code
+//!                      point less its block's first (U+0E00, U+0E80,
+//!                      U+1780); a word: one byte, the letters it
+//!                      shares with the word before in its high four bits
+//!                      (0 for a block's first) and the count (1 to 15) of
+//!                      those that follow in its low four, then those
+//! ```
+//!
+//! A word has 1 to 15 letters. Per script, the first pack opened with the
+//! table holds it in memory from when text of the script is first broken
+//! into lines until the pack is trimmed or closed.
 
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
@@ -164,6 +252,21 @@ const DIRECTORY: usize = SLOTS * 4;
 const TABLE_HEAD: usize = 8;
 const STRIKE: usize = 32;
 const RECORD: usize = 20;
+/// The strike's flag (the reserved field after its size): its bitmaps are
+/// stored packed (`crate::packed`); 0, as before, as 4-bit coverage.
+pub(crate) const STRIKE_PACKED: u16 = 1;
+/// The strike's flag for cells: every glyph of it has a cell of one size
+/// holding its metrics and bitmap, so that a pack read from a card gets a
+/// glyph in one read (see [`PackBuilder::cells`]).
+pub(crate) const STRIKE_CELLS: u16 = 2;
+/// What a cell holds before the bitmap: left, top, width, height (2 bytes
+/// each) and the advance (4 bytes, as in the glyph record).
+pub(crate) const CELL_HEAD: usize = 12;
+/// The unit of a cell's size in the flags, in bytes.
+pub(crate) const CELL_UNIT: usize = 8;
+/// The most units a cell may have (the flags' 14 bits; 128 KiB less 8):
+/// a pack whose glyphs need more is made without cells.
+const MAX_CELL_UNITS: usize = (u16::MAX >> 2) as usize;
 /// Where in the first strike's header the kerning table's offset is.
 const KERNING: usize = HEADER + 28;
 
@@ -270,20 +373,15 @@ impl BitmapFont {
         (0..usize::from(self.strikes)).filter_map(|i| self.strike(i).map(|s| s.size))
     }
 
-    paperpaw_table::shared! {
     /// The largest size text can be set in, in pixels: of the sizes with
     /// every character (not those made large for a few, a clock's).
     pub fn largest_size(&self) -> Option<f32> {
-        let strikes: Vec<Strike> = (0..usize::from(self.strikes))
-            .filter_map(|i| self.strike(i))
-            .collect();
-        let full = strikes.iter().map(|s| s.glyphs).max()?;
-        strikes
-            .iter()
+        let strikes = || (0..usize::from(self.strikes)).filter_map(|i| self.strike(i));
+        let full = strikes().map(|s| s.glyphs).max()?;
+        strikes()
             .filter(|s| s.glyphs >= full)
             .map(|s| s.size)
             .reduce(f32::max)
-    } @ text::PACK_LARGEST_SIZE
     }
 
     fn strike(&self, index: usize) -> Option<Strike> {
@@ -346,11 +444,9 @@ impl BitmapFont {
         self.strike(self.nearest_index(size)?)
     }
 
-    paperpaw_table::shared! {
     pub fn line_metrics(&self, size: f32) -> LineMetrics {
         self.nearest(size)
             .map_or(LineMetrics::fallback(size), |s| s.metrics)
-    } @ text::PACK_LINE_METRICS
     }
 
     /// Where a strike's glyphs are: their number, their table and their
@@ -359,9 +455,11 @@ impl BitmapFont {
         let base = HEADER + index * STRIKE;
         let d = &self.data;
         Some(Tables {
+            size: f32::from(u16_at(d, base)?) / 4.0,
             glyphs: u32_at(d, base + 16)? as usize,
             glyph_table: u32_at(d, base + 20)? as usize,
             bitmaps: u32_at(d, base + 24)? as usize,
+            packed: u16_at(d, base + 2)? & STRIKE_PACKED != 0,
         })
     }
 
@@ -393,15 +491,12 @@ impl BitmapFont {
         None
     }
 
-    paperpaw_table::shared! {
     pub fn has_char(&self, ch: char) -> bool {
         self.nearest_quarters(0)
             .and_then(|i| self.tables(i))
             .is_some_and(|strike| self.record(&strike, ch).is_some())
-    } @ text::PACK_HAS_CHAR
     }
 
-    paperpaw_table::shared! {
     /// The size `text` is drawn at when asked for `size`, at a strike
     /// that has every character of the pack (the sizes text is drawn at),
     /// or, for a `display` (a clock's time, a number, drawn large alone),
@@ -432,7 +527,6 @@ impl BitmapFont {
             .filter_map(|i| Some((i, i32::from(u16_at(&self.data, HEADER + i * STRIKE)?))))
             .min_by_key(|&(_, quarters)| quarters.abs_diff(wanted))
             .map_or(size, |(_, quarters)| quarters as f32 / 4.0)
-    } @ text::PACK_SIZE_FOR
     }
 
     /// Where marks sit on `ch` at the strike nearest to `size`, the one
@@ -469,7 +563,6 @@ impl BitmapFont {
             .map(|(_, tables, record)| (tables, record))
     }
 
-    paperpaw_table::shared! {
     /// The glyph for `ch` at the strike nearest to `size`; where that
     /// strike lacks it (a large one made for digits), at the nearest that
     /// has it. Missing characters fall back to U+FFFD, then `?`.
@@ -505,28 +598,38 @@ impl BitmapFont {
             let start = strike
                 .bitmaps
                 .checked_add(u32_at(d, offset + 16)? as usize)?;
-            let len = usize::from(width).div_ceil(2) * usize::from(height);
+            // Packed: the glyph's stream, as far as the pack goes (the
+            // decoder stops at the glyph's last pixel).
+            let (format, data) = if strike.packed {
+                // The data does not bound the decoding, the size does.
+                if !crate::glyph::fits(usize::from(width), usize::from(height), strike.size) {
+                    return None;
+                }
+                (crate::glyph::PACKED4, d.get(start..)?)
+            } else {
+                let len = usize::from(width).div_ceil(2) * usize::from(height);
+                (
+                    crate::glyph::COVERAGE4,
+                    d.get(start..start.checked_add(len)?)?,
+                )
+            };
             Some(GlyphRef {
-                format: crate::glyph::COVERAGE4,
+                format,
                 advance: q6(i32_at(d, offset + 4)?).max(0.0),
                 left: i16_at(d, offset + 8)?,
                 top: i16_at(d, offset + 10)?,
                 width,
                 height,
-                data: d.get(start..start.checked_add(len)?)?,
+                data,
             })
         };
         read().unwrap_or(empty)
-    } @ text::PACK_GLYPH
     }
 
-    paperpaw_table::shared! {
     pub fn advance(&self, ch: char, size: f32) -> f32 {
         self.glyph(ch, size).advance
-    } @ text::PACK_ADVANCE
     }
 
-    paperpaw_table::shared! {
     /// How much the pair `left`, `right` moves the second character, in
     /// pixels at the strike nearest to `size` (negative: closer); 0 for a
     /// pack without kerning. Read in place: no memory.
@@ -546,15 +649,18 @@ impl BitmapFont {
             return 0.0;
         };
         f32::from(units) * f32::from(quarters) / (4.0 * kern_table::UNITS)
-    } @ text::PACK_KERN
     }
 }
 
 /// Where a strike's glyphs are (see [`BitmapFont::tables`]).
 struct Tables {
+    /// Pixels.
+    size: f32,
     glyphs: usize,
     glyph_table: usize,
     bitmaps: usize,
+    /// The strike's bitmaps are stored packed ([`STRIKE_PACKED`]).
+    packed: bool,
 }
 
 /// Builds a pack from rasterized glyphs (used by `paperpaw-fontgen`).
@@ -566,6 +672,11 @@ pub struct PackBuilder {
     /// The tables of slots 0 to 6, with their heads (see
     /// [`PackBuilder::table`]).
     tables: [Vec<u8>; 7],
+    /// Store the bitmaps packed where every glyph of a strike can be
+    /// ([`PackBuilder::compact`]).
+    compact: bool,
+    /// Store each strike's glyphs in cells ([`PackBuilder::cells`]).
+    cells: bool,
 }
 
 #[derive(Debug)]
@@ -580,9 +691,32 @@ impl PackBuilder {
         Self::default()
     }
 
+    /// Stores each strike's bitmaps packed (`crate::packed`, about half the
+    /// bytes, the same pixels), for the packs a firmware carries; a strike
+    /// with a glyph too wide for it stays as it is. Readers that know the
+    /// strike flag only: the packs of cards and stores are built without.
+    pub fn compact(&mut self) -> &mut Self {
+        self.compact = true;
+        self
+    }
+
+    /// Stores each strike's glyphs in cells of one size, each with the
+    /// glyph's metrics and bitmap (padded), the glyph records pointing at
+    /// the bitmaps in them as ever: a pack read a glyph at a time from a
+    /// card ([`StoredPack`](crate::StoredPack)) finds a glyph's cell by its
+    /// place among the characters and reads it in one read, not two.
+    /// Worth it for packs of thousands of characters (Hangul, ideographs),
+    /// which cost some tenth more on the card; readers that do not know
+    /// cells read the same pack through its records. Not for packs stored
+    /// packed ([`PackBuilder::compact`]).
+    pub fn cells(&mut self) -> &mut Self {
+        self.cells = true;
+        self
+    }
+
     /// Adds a strike; glyphs may come in any order.
     pub fn add_strike(&mut self, size: f32, metrics: LineMetrics, mut glyphs: Vec<(char, Glyph)>) {
-        glyphs.sort_by_key(|(ch, _)| *ch);
+        paperpaw_sort::sort_by_key(&mut glyphs, |(ch, _)| *ch);
         glyphs.dedup_by_key(|(ch, _)| *ch);
         self.strikes.push(StrikeData {
             size,
@@ -617,6 +751,26 @@ impl PackBuilder {
         table.extend_from_slice(body);
     }
 
+    /// The size of the cells of a strike of `glyphs`, if it is to have
+    /// them: the head and the bitmap that 99 of 100 glyphs fit in, to a
+    /// multiple of 8; the others follow the cells.
+    fn cell_size(&self, glyphs: &[(char, Glyph)], packed: bool) -> Option<usize> {
+        if !self.cells
+            || packed
+            || glyphs.len() < 2
+            || glyphs
+                .iter()
+                .any(|(_, g)| g.format != crate::glyph::COVERAGE4)
+        {
+            return None;
+        }
+        let mut lens: Vec<usize> = glyphs.iter().map(|(_, g)| g.data.len()).collect();
+        lens.sort_unstable();
+        let body = lens[(lens.len() * 99).div_ceil(100) - 1];
+        Some((CELL_HEAD + body).next_multiple_of(CELL_UNIT))
+            .filter(|&c| c / CELL_UNIT <= MAX_CELL_UNITS)
+    }
+
     pub fn build(&self) -> Vec<u8> {
         let tables = self.tables.iter().any(|t| !t.is_empty());
         let mut out = Vec::new();
@@ -637,9 +791,40 @@ impl PackBuilder {
             let glyph_table = out.len();
             out.resize(glyph_table + glyphs.len() * RECORD, 0);
             let bitmaps = out.len();
+            // Every bitmap of the strike packed, or none of them.
+            let packed: Option<Vec<Vec<u8>>> = self
+                .compact
+                .then(|| {
+                    glyphs
+                        .iter()
+                        .map(|(_, glyph)| {
+                            (glyph.format == crate::glyph::COVERAGE4)
+                                .then(|| {
+                                    crate::packed::encode(&glyph.data, glyph.width, glyph.height)
+                                })
+                                .flatten()
+                        })
+                        .collect()
+                })
+                .flatten();
+            check_packed(size, glyphs, &packed);
+            let cell = self.cell_size(glyphs, packed.is_some());
+            let mut overflow = cell.map_or(0, |cell| glyphs.len() * cell);
+            let mut spilled = Vec::new();
             for (i, (ch, glyph)) in glyphs.iter().enumerate() {
-                let data_offset = (out.len() - bitmaps) as u32;
-                out.extend_from_slice(&glyph.data);
+                let mut data_offset = (out.len() - bitmaps) as u32;
+                match (&packed, cell) {
+                    (_, Some(cell)) if put_cell(&mut out, glyph, cell) => {
+                        data_offset += CELL_HEAD as u32;
+                    }
+                    (_, Some(_)) => {
+                        data_offset = overflow as u32;
+                        overflow += glyph.data.len();
+                        spilled.extend_from_slice(&glyph.data);
+                    }
+                    (Some(all), None) => out.extend_from_slice(&all[i]),
+                    (None, None) => out.extend_from_slice(&glyph.data),
+                }
                 let mut record = Vec::with_capacity(RECORD);
                 record.extend_from_slice(&(*ch as u32).to_le_bytes());
                 record.extend_from_slice(&to_q6(glyph.advance).to_le_bytes());
@@ -651,9 +836,15 @@ impl PackBuilder {
                 let at = glyph_table + i * RECORD;
                 out[at..at + RECORD].copy_from_slice(&record);
             }
+            out.extend_from_slice(&spilled);
             let mut header = Vec::with_capacity(STRIKE);
             header.extend_from_slice(&((size * 4.0 + 0.5) as u16).to_le_bytes());
-            header.extend_from_slice(&[0, 0]);
+            let flags = match (&packed, cell) {
+                (Some(_), _) => STRIKE_PACKED,
+                (None, Some(cell)) => STRIKE_CELLS | ((cell / CELL_UNIT) as u16) << 2,
+                (None, None) => 0,
+            };
+            header.extend_from_slice(&flags.to_le_bytes());
             header.extend_from_slice(&to_q6(metrics.ascent).to_le_bytes());
             header.extend_from_slice(&to_q6(metrics.descent).to_le_bytes());
             header.extend_from_slice(&to_q6(metrics.line_height).to_le_bytes());
@@ -678,6 +869,43 @@ impl PackBuilder {
             }
         }
         out
+    }
+}
+
+/// Writes the cell of `glyph`, `cell` bytes: its head and, if it fits, its
+/// bitmap (`true`; else the cell has the head only).
+fn put_cell(out: &mut Vec<u8>, glyph: &Glyph, cell: usize) -> bool {
+    let start = out.len();
+    out.extend_from_slice(&glyph.left.to_le_bytes());
+    out.extend_from_slice(&glyph.top.to_le_bytes());
+    out.extend_from_slice(&glyph.width.to_le_bytes());
+    out.extend_from_slice(&glyph.height.to_le_bytes());
+    out.extend_from_slice(&to_q6(glyph.advance).to_le_bytes());
+    let fits = CELL_HEAD + glyph.data.len() <= cell;
+    if fits {
+        out.extend_from_slice(&glyph.data);
+    }
+    out.resize(start + cell, 0);
+    fits
+}
+
+/// Panics if a strike's `packed` bitmaps (all or none) do not read back as the
+/// glyphs were: a pack that does not read back as it was made is not written.
+fn check_packed(size: f32, glyphs: &[(char, Glyph)], packed: &Option<Vec<Vec<u8>>>) {
+    for ((ch, glyph), bytes) in glyphs.iter().zip(packed.iter().flatten()) {
+        let rows = crate::packed::Rows::new(bytes, glyph.width, glyph.height);
+        let stride = usize::from(glyph.width).div_ceil(2);
+        for y in 0..usize::from(glyph.height) {
+            for x in 0..usize::from(glyph.width) {
+                let byte = glyph.data.get(y * stride + x / 2).copied().unwrap_or(0);
+                let level = if x % 2 == 0 { byte >> 4 } else { byte & 15 };
+                assert_eq!(
+                    rows.level(x as u32, y as u32),
+                    level,
+                    "packed glyph {ch:?} at {size}: pixel {x},{y}"
+                );
+            }
+        }
     }
 }
 
@@ -919,6 +1147,125 @@ mod tests {
         let mut data = pack().data.into_owned();
         data[..4].copy_from_slice(OLD_MAGIC);
         assert!(BitmapFont::new(data).unwrap().has_char('b'));
+    }
+
+    /// A glyph of `width` x `height` of deterministic levels (empty, full and
+    /// edge pixels).
+    fn noisy(width: u16, height: u16, seed: u32) -> Glyph {
+        let (mut s, mut run, mut level) = (seed, 0, 0u8);
+        let levels: Vec<u8> = (0..usize::from(width) * usize::from(height))
+            .map(|_| {
+                if run == 0 {
+                    s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    level = match (s >> 24) % 8 {
+                        0..=3 => 0,
+                        4..=5 => 15,
+                        n => (n * 2) as u8,
+                    };
+                    run = 1 + (s >> 16) % 24;
+                }
+                run -= 1;
+                level
+            })
+            .collect();
+        let stride = usize::from(width).div_ceil(2);
+        let mut data = alloc::vec![0u8; stride * usize::from(height)];
+        for (i, v) in levels.iter().enumerate() {
+            let (x, y) = (i % usize::from(width), i / usize::from(width));
+            data[y * stride + x / 2] |= if x % 2 == 0 { v << 4 } else { *v };
+        }
+        Glyph {
+            format: crate::glyph::COVERAGE4,
+            left: -1,
+            top: -(height as i16),
+            width,
+            height,
+            advance: f32::from(width) + 1.5,
+            data,
+        }
+    }
+
+    #[test]
+    fn a_compact_pack_gives_every_pixel_of_the_plain_one() {
+        let metrics = LineMetrics::fallback(20.0);
+        let strike = |sizes: &[(char, u16, u16)]| -> Vec<(char, Glyph)> {
+            sizes
+                .iter()
+                .enumerate()
+                .map(|(i, &(ch, w, h))| (ch, noisy(w, h, i as u32 * 7 + u32::from(w))))
+                .collect()
+        };
+        let strikes = [
+            (
+                10.0,
+                strike(&[('a', 5, 9), ('b', 6, 10), (' ', 0, 0), ('c', 1, 1)]),
+            ),
+            (
+                20.0,
+                strike(&[('a', 11, 18), ('b', 150, 20), ('c', 30, 30)]),
+            ),
+            // A glyph too wide to pack leaves its whole strike plain.
+            (40.0, strike(&[('a', 21, 36), ('b', 200, 8)])),
+        ];
+        let build = |compact: bool| {
+            let mut builder = PackBuilder::new();
+            if compact {
+                builder.compact();
+            }
+            for (size, glyphs) in &strikes {
+                builder.add_strike(*size, metrics, glyphs.clone());
+            }
+            builder.build()
+        };
+        let (plain, packed) = (build(false), build(true));
+        assert!(packed.len() < plain.len());
+        let (plain, packed) = (
+            BitmapFont::new(plain).unwrap(),
+            BitmapFont::new(packed).unwrap(),
+        );
+        for (size, glyphs) in &strikes {
+            for (ch, _) in glyphs {
+                let (a, b) = (plain.glyph(*ch, *size), packed.glyph(*ch, *size));
+                assert_eq!(
+                    (a.width, a.height, a.left, a.top, a.advance),
+                    (b.width, b.height, b.left, b.top, b.advance)
+                );
+                let (la, lb) = (a.levels(), b.levels());
+                for y in 0..a.height {
+                    for x in 0..a.width {
+                        assert_eq!(a.level(x, y), b.level(x, y), "{ch} {size} {x},{y}");
+                        assert_eq!(
+                            la(u32::from(x), u32::from(y)),
+                            lb(u32::from(x), u32::from(y))
+                        );
+                    }
+                }
+                assert_eq!(a.ink_box(), b.ink_box(), "{ch} {size}");
+            }
+        }
+        // Only the strikes that could be packed are.
+        assert!(packed.tables(0).unwrap().packed && packed.tables(1).unwrap().packed);
+        assert!(!packed.tables(2).unwrap().packed);
+    }
+
+    #[test]
+    fn a_packed_glyph_of_an_impossible_size_reads_as_empty() {
+        let mut builder = PackBuilder::new();
+        builder.compact();
+        builder.add_strike(
+            10.0,
+            LineMetrics::fallback(10.0),
+            alloc::vec![('a', noisy(6, 8, 3))],
+        );
+        let mut data = builder.build();
+        let font = BitmapFont::new(data.clone()).unwrap();
+        assert_eq!(font.glyph('a', 10.0).height, 8);
+        let record = font.record(&font.tables(0).unwrap(), 'a').unwrap();
+        // A damaged pack: a height no glyph at 10 px has, which the data
+        // does not bound, as it bounds a plain bitmap.
+        data[record + 14..record + 16].copy_from_slice(&u16::MAX.to_le_bytes());
+        let damaged = BitmapFont::new(data).unwrap();
+        assert!(damaged.glyph('a', 10.0).is_empty());
     }
 }
 

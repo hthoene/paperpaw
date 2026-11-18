@@ -1,0 +1,111 @@
+"""Compile probes for borrowed ABI frame views, independent of Cargo artifacts."""
+import json
+from pathlib import Path
+import re
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[2]
+MODULE = ROOT / 'crates/paperpaw-core/src/abi7/context.rs'
+# Every status the generated glue defines, read from it, so a status the
+# module comes to use never needs this fixture changed.
+GLUE = ROOT / 'crates/paperpaw-native/src/host_glue/paperpaw_abi.rs'
+STATUSES = '\n'.join(f'    {line}' for line in re.findall(
+    r'^pub const ERR_[A-Z0-9_]+: i32 = -?\d+;$', GLUE.read_text(encoding='utf-8'), re.M))
+PREFIX = '''#![allow(dead_code, reason = "compile-only lifetime probe")]
+extern crate self as paperpaw_sdk;
+extern crate self as paperpaw_i18n;
+extern crate self as paperpaw_native;
+extern crate self as paperpaw_platform;
+extern crate self as paperpaw_graphics;
+pub mod host_glue {
+STATUSES
+}
+mod snapshot_wire { pub struct Snapshot; }
+pub struct Settings;
+pub struct Env<'a>(core::marker::PhantomData<&'a ()>);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rect;
+pub struct Canvas<'a>(core::marker::PhantomData<&'a mut ()>);
+pub struct Fonts;
+pub struct Place<'a>(core::marker::PhantomData<&'a ()>);
+pub trait Storage {}
+pub struct Translator;
+pub struct Id;
+impl Id { pub fn as_str(&self) -> &str { "fixture" } }
+pub mod usage {
+    pub struct Refreshes { pub fast: u32, pub partial: u32, pub full: u32 }
+    pub struct Usage {
+        pub refreshes: Refreshes, pub pixels: u64, pub inputs: u32, pub sleeps: u32,
+        pub panel_ms: u64, pub bluetooth_ms: u64,
+    }
+    pub struct PluginUsage {
+        pub plugin: super::Id, pub busy_us: u64, pub calls: u32, pub shown_ms: u32,
+        pub refreshes: Refreshes, pub pixels: u64, pub read: u32, pub written: u32,
+        pub requests: u32, pub refused: u32, pub awake_ms: u32, pub awake_reason: &'static str,
+    }
+}
+#[path = MODULE_PATH]
+mod context;
+'''.replace('MODULE_PATH', json.dumps(str(MODULE))).replace('STATUSES', STATUSES)
+
+
+# A plain type the module names from one of the stand-in crates (`paperpaw_sdk::RoleMemo`)
+# and PREFIX does not declare is a unit struct here: a new memo or cache type of the module
+# needs no line in this fixture (#309). Types with lifetimes, generics or methods are
+# declared in PREFIX by hand.
+_NAMED = sorted(set(re.findall(
+    r'\bpaperpaw_(?:sdk|i18n|native|platform|graphics)::([A-Z][A-Za-z0-9]*)\b',
+    MODULE.read_text(encoding='utf-8'))))
+PREFIX += ''.join(
+    f'pub struct {name};\n' for name in _NAMED
+    if not re.search(rf'\b(?:struct|trait|enum)\s+{name}\b', PREFIX))
+
+
+class FrameLifetimes(unittest.TestCase):
+    def test_owned_results_compile_but_frame_references_cannot_escape(self):
+        cases = [
+            ('owned', 'fn valid(s: &context::FrameSlot) { '
+             'let _: Result<usize, _> = s.with(|_| 7); }', True),
+            ('snapshot_owned', 'fn valid(s: &context::FrameSlot) { '
+             'let _: Result<Result<snapshot_wire::Snapshot, i32>, _> = '
+             's.with(|frame| frame.snapshot()); }', True),
+            ('usage_owned', 'fn valid(s: &context::FrameSlot) { '
+             'let _: Result<Result<context::DeviceUsageView, i32>, _> = '
+             's.with(|frame| frame.device_usage()); }', True),
+            ('row_text', 'fn escape(s: &context::FrameSlot) { let mut out = None; '
+             's.with(|f| f.plugin_rows(0, &mut |r| { out = Some(r.plugin); '
+             'core::ops::ControlFlow::Continue(()) })).unwrap(); let _ = out; }', False),
+            ('name_text', 'fn escape(s: &context::FrameSlot) { let mut out = None; '
+             's.with(|f| f.plugin_name("fixture", &mut |text| out = Some(text))).unwrap(); '
+             'let _ = out; }', False),
+            ('note_text', 'fn escape(s: &context::FrameSlot) { let mut out = None; '
+             's.with(|f| f.work_note("fixture", &mut |_, text| out = Some(text))).unwrap(); '
+             'let _ = out; }', False),
+            ('frame', 'fn escape(s: &context::FrameSlot) -> &dyn context::Frame { '
+             's.with(|f| f).unwrap() }', False),
+            ('derived', 'fn escape(s: &context::FrameSlot) -> &Settings { '
+             's.with(|f| f.settings()).unwrap() }', False),
+            ('capture', 'fn escape(s: &context::FrameSlot) { let mut out = None; '
+             's.with(|f| out = Some(f)).unwrap(); let _ = out; }', False),
+        ]
+        with tempfile.TemporaryDirectory(prefix='paperpaw-frame-') as directory:
+            folder = Path(directory)
+            for name, body, accepted in cases:
+                with self.subTest(case=name):
+                    source = folder / (name + '.rs')
+                    source.write_text(PREFIX + body)
+                    result = subprocess.run(
+                        ['rustc', '--edition', '2024', '--crate-type', 'lib',
+                         str(source), '--out-dir', str(folder)],
+                        capture_output=True, text=True, check=False)
+                    if accepted:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                    else:
+                        self.assertNotEqual(result.returncode, 0, 'borrow escaped')
+                        self.assertRegex(result.stderr, r'lifetime may not live long enough|E0521')
+
+
+if __name__ == '__main__':
+    unittest.main()

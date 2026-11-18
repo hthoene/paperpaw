@@ -11,7 +11,6 @@ members = [
     "crates/paperpaw-i18n",
     "crates/paperpaw-graphics",
     "crates/paperpaw-lang",
-    "crates/paperpaw-table",
     "crates/paperpaw-text",
     "crates/paperpaw-document",
     "crates/paperpaw-layout",
@@ -30,19 +29,30 @@ members = [
     "crates/paperpaw-update",
     "crates/paperpaw-digest",
     "crates/paperpaw-native",
+    "crates/paperpaw-scripted-host",
     "crates/paperpaw-json",
     "crates/paperpaw-qr",
+    "crates/paperpaw-caldav",
+    "crates/paperpaw-ui-kit",
     "crates/paperpaw-hid",
+    "crates/paperpaw-sort",
+    "crates/paperpaw-default-packs",
     "plugins/diagnostics",
     "plugins/dictionary",
     "plugins/fonts-default",
     "plugins/fonts-browser",
     "plugins/store",
     "plugins/format-mobi",
+    "plugins/format-rtf",
     "plugins/format-docx",
     "plugins/format-images",
     "plugins/format-txt",
+    "crates/paperpaw-epub-family",
     "plugins/format-epub",
+    "plugins/format-html",
+    "plugins/format-fb2",
+    "plugins/format-markdown",
+    "plugins/format-cbz",
     "plugins/format-xtc",
     "plugins/reader",
     "plugins/files",
@@ -57,6 +67,7 @@ members = [
     "plugins/end-of-book",
     "plugins/notes-overview",
     "plugins/notes-vault",
+    "plugins/picture-home",
     "plugins/wifi",
     "plugins/bluetooth",
     "plugins/power",
@@ -80,44 +91,38 @@ members = [
     "plugins/mail",
     "plugins/wallabag",
     "plugins/about",
+    "plugins/anki",
+    "plugins/picture-frame",
+    "plugins/file-sync",
     "plugins/setup",
     "plugins/update",
     "plugins/widgets",
-    "samples/hello-plugin",
-    "samples/frame-test",
-    "samples/interlinear",
     "plugins/news",
     "plugins/weather",
+    "plugins/pomodoro",
+    "plugins/smart-home",
+    "plugins/puzzles",
+    "plugins/edge-light",
+    "plugins/tasks",
+    "plugins/calendar",
     "plugins/plugin-manager",
     "plugins/settings",
     "plugins/home",
-    "plugins/hyphenation",
-    "plugins/hyphenation-da",
-    "plugins/hyphenation-es",
-    "plugins/hyphenation-de",
-    "plugins/hyphenation-fr",
-    "plugins/hyphenation-it",
-    "plugins/hyphenation-nb",
-    "plugins/hyphenation-nl",
-    "plugins/hyphenation-pl",
-    "plugins/hyphenation-pt",
-    "plugins/hyphenation-ru",
-    "plugins/hyphenation-sv",
-    "plugins/hyphenation-uk",
     "plugins/keyboard",
     "shells/desktop",
     "shells/web",
     "shells/android",
     "tools/fontgen",
+    "tools/hyphenation-packs",
     "tools/sign",
     "tools/publish",
     "tools/dev",
     "tools/checks",
-    "tools/library-bench",
+    "tools/stack-budget",
 ]
 
 [workspace.package]
-version = "0.6.0-beta.1"
+version = "0.6.0-beta.3"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
@@ -126,102 +131,109 @@ homepage = "https://github.com/hthoene/paperpaw"
 authors = ["Hannes Thoene", "The PaperPaw contributors"]
 
 [workspace.dependencies]
-paperpaw-platform = { path = "crates/paperpaw-platform", version = "0.6.0-beta.1" }
-paperpaw-config = { path = "crates/paperpaw-config", version = "0.6.0-beta.1" }
-paperpaw-sqlite = { path = "crates/paperpaw-sqlite", version = "0.6.0-beta.1" }
-paperpaw-serve = { path = "crates/paperpaw-serve", version = "0.6.0-beta.1" }
-paperpaw-i18n = { path = "crates/paperpaw-i18n", version = "0.6.0-beta.1" }
-paperpaw-graphics = { path = "crates/paperpaw-graphics", version = "0.6.0-beta.1" }
-paperpaw-lang = { path = "crates/paperpaw-lang", version = "0.6.0-beta.1" }
-paperpaw-table = { path = "crates/paperpaw-table", version = "0.6.0-beta.1" }
-paperpaw-text = { path = "crates/paperpaw-text", version = "0.6.0-beta.1" }
-paperpaw-document = { path = "crates/paperpaw-document", version = "0.6.0-beta.1" }
-paperpaw-zip = { path = "crates/paperpaw-zip", version = "0.6.0-beta.1" }
-paperpaw-http = { path = "crates/paperpaw-http", version = "0.6.0-beta.1" }
-paperpaw-xml = { path = "crates/paperpaw-xml", version = "0.6.0-beta.1" }
-paperpaw-stardict = { path = "crates/paperpaw-stardict", version = "0.6.0-beta.1" }
-paperpaw-layout = { path = "crates/paperpaw-layout", version = "0.6.0-beta.1" }
-paperpaw-x4 = { path = "crates/paperpaw-x4", version = "0.6.0-beta.1" }
+paperpaw-platform = { path = "crates/paperpaw-platform", version = "0.6.0-beta.3" }
+paperpaw-config = { path = "crates/paperpaw-config", version = "0.6.0-beta.3" }
+paperpaw-sqlite = { path = "crates/paperpaw-sqlite", version = "0.6.0-beta.3" }
+paperpaw-serve = { path = "crates/paperpaw-serve", version = "0.6.0-beta.3" }
+paperpaw-i18n = { path = "crates/paperpaw-i18n", version = "0.6.0-beta.3" }
+paperpaw-graphics = { path = "crates/paperpaw-graphics", version = "0.6.0-beta.3" }
+paperpaw-lang = { path = "crates/paperpaw-lang", version = "0.6.0-beta.3" }
+paperpaw-sort = { path = "crates/paperpaw-sort", version = "0.6.0-beta.3" }
+paperpaw-text = { path = "crates/paperpaw-text", version = "0.6.0-beta.3" }
+paperpaw-document = { path = "crates/paperpaw-document", version = "0.6.0-beta.3" }
+paperpaw-zip = { path = "crates/paperpaw-zip", version = "0.6.0-beta.3" }
+paperpaw-http = { path = "crates/paperpaw-http", version = "0.6.0-beta.3" }
+paperpaw-xml = { path = "crates/paperpaw-xml", version = "0.6.0-beta.3" }
+paperpaw-stardict = { path = "crates/paperpaw-stardict", version = "0.6.0-beta.3" }
+paperpaw-layout = { path = "crates/paperpaw-layout", version = "0.6.0-beta.3" }
+paperpaw-x4 = { path = "crates/paperpaw-x4", version = "0.6.0-beta.3" }
 paperpaw-fat = { path = "crates/paperpaw-fat" }
-paperpaw-update = { path = "crates/paperpaw-update", version = "0.6.0-beta.1" }
-paperpaw-digest = { path = "crates/paperpaw-digest", version = "0.6.0-beta.1" }
-paperpaw-native = { path = "crates/paperpaw-native", version = "0.6.0-beta.1" }
+paperpaw-update = { path = "crates/paperpaw-update", version = "0.6.0-beta.3" }
+paperpaw-digest = { path = "crates/paperpaw-digest", version = "0.6.0-beta.3" }
+paperpaw-native = { path = "crates/paperpaw-native", version = "0.6.0-beta.3" }
 paperpaw-publish = { path = "tools/publish" }
-paperpaw-json = { path = "crates/paperpaw-json", version = "0.6.0-beta.1" }
-paperpaw-qr = { path = "crates/paperpaw-qr", version = "0.6.0-beta.1" }
-paperpaw-hid = { path = "crates/paperpaw-hid", version = "0.6.0-beta.1" }
-paperpaw-sdk = { path = "crates/paperpaw-sdk", version = "0.6.0-beta.1" }
-paperpaw-core = { path = "crates/paperpaw-core", version = "0.6.0-beta.1" }
-paperpaw-hyphen = { path = "crates/paperpaw-hyphen", version = "0.6.0-beta.1" }
-paperpaw-image = { path = "crates/paperpaw-image", version = "0.6.0-beta.1" }
-paperpaw-app = { path = "crates/paperpaw-app", version = "0.6.0-beta.1" }
-paperpaw-fs = { path = "crates/paperpaw-fs", version = "0.6.0-beta.1" }
+paperpaw-stack-budget = { path = "tools/stack-budget" }
+paperpaw-json = { path = "crates/paperpaw-json", version = "0.6.0-beta.3" }
+paperpaw-qr = { path = "crates/paperpaw-qr", version = "0.6.0-beta.3" }
+paperpaw-caldav = { path = "crates/paperpaw-caldav", version = "0.6.0-beta.3" }
+paperpaw-ui-kit = { path = "crates/paperpaw-ui-kit", version = "0.6.0-beta.3" }
+paperpaw-hid = { path = "crates/paperpaw-hid", version = "0.6.0-beta.3" }
+paperpaw-sdk = { path = "crates/paperpaw-sdk", version = "0.6.0-beta.3" }
+paperpaw-core = { path = "crates/paperpaw-core", version = "0.6.0-beta.3" }
+paperpaw-hyphen = { path = "crates/paperpaw-hyphen", version = "0.6.0-beta.3" }
+paperpaw-default-packs = { path = "crates/paperpaw-default-packs" }
+paperpaw-image = { path = "crates/paperpaw-image", version = "0.6.0-beta.3" }
+paperpaw-app = { path = "crates/paperpaw-app", version = "0.6.0-beta.3" }
+paperpaw-fs = { path = "crates/paperpaw-fs", version = "0.6.0-beta.3" }
 paperpaw-plugin-diagnostics = { path = "plugins/diagnostics", version = "1.0.4" }
 paperpaw-plugin-dictionary = { path = "plugins/dictionary", version = "1.0.2" }
 paperpaw-plugin-menu = { path = "plugins/menu", version = "1.0.2" }
-paperpaw-plugin-menu-editor = { path = "plugins/menu-editor", version = "1.0.2" }
-paperpaw-plugin-kosync = { path = "plugins/kosync", version = "1.0.2" }
-paperpaw-plugin-calibre = { path = "plugins/calibre", version = "1.0.4" }
+paperpaw-plugin-menu-editor = { path = "plugins/menu-editor", version = "1.0.9" }
+paperpaw-plugin-kosync = { path = "plugins/kosync", version = "1.0.5" }
+paperpaw-plugin-calibre = { path = "plugins/calibre", version = "1.0.7" }
 paperpaw-plugin-stats = { path = "plugins/stats", version = "1.0.4" }
-paperpaw-plugin-battery = { path = "plugins/battery", version = "1.0.3" }
-paperpaw-plugin-help = { path = "plugins/help", version = "1.0.2" }
+paperpaw-plugin-battery = { path = "plugins/battery", version = "1.0.6" }
+paperpaw-plugin-help = { path = "plugins/help", version = "1.0.4" }
 paperpaw-plugin-reading-goal = { path = "plugins/reading-goal", version = "1.0.3" }
-paperpaw-plugin-end-of-book = { path = "plugins/end-of-book", version = "1.0.0" }
-paperpaw-plugin-notes-overview = { path = "plugins/notes-overview", version = "1.0.0" }
+paperpaw-plugin-end-of-book = { path = "plugins/end-of-book", version = "1.0.2" }
+paperpaw-plugin-notes-overview = { path = "plugins/notes-overview", version = "1.0.2" }
+paperpaw-plugin-picture-home = { path = "plugins/picture-home", version = "1.0.0" }
 paperpaw-plugin-notes-vault = { path = "plugins/notes-vault", version = "1.0.0" }
-paperpaw-plugin-format-mobi = { path = "plugins/format-mobi", version = "1.0.0" }
-paperpaw-plugin-format-docx = { path = "plugins/format-docx", version = "1.0.0" }
-paperpaw-plugin-format-images = { path = "plugins/format-images", version = "1.0.0" }
+paperpaw-plugin-format-mobi = { path = "plugins/format-mobi", version = "1.0.2" }
+paperpaw-plugin-format-rtf = { path = "plugins/format-rtf", version = "1.0.0" }
+paperpaw-plugin-format-docx = { path = "plugins/format-docx", version = "1.0.2" }
+paperpaw-plugin-format-images = { path = "plugins/format-images", version = "1.0.2" }
 paperpaw-plugin-wifi = { path = "plugins/wifi", version = "1.0.2" }
-paperpaw-plugin-bluetooth = { path = "plugins/bluetooth", version = "1.0.2" }
-paperpaw-plugin-power = { path = "plugins/power", version = "1.1.0" }
+paperpaw-plugin-bluetooth = { path = "plugins/bluetooth", version = "1.0.3" }
+paperpaw-plugin-power = { path = "plugins/power", version = "1.1.3" }
 paperpaw-plugin-file-manager = { path = "plugins/file-manager", version = "1.0.3" }
 paperpaw-plugin-transfer = { path = "plugins/transfer", version = "1.0.3" }
 paperpaw-plugin-browser = { path = "plugins/browser", version = "1.0.3" }
 paperpaw-plugin-opds = { path = "plugins/opds", version = "1.0.3" }
-paperpaw-plugin-fonts-browser = { path = "plugins/fonts-browser", version = "1.0.2" }
+paperpaw-plugin-fonts-browser = { path = "plugins/fonts-browser", version = "1.0.5" }
 paperpaw-plugin-store = { path = "plugins/store", version = "1.0.2" }
-paperpaw-plugin-rules = { path = "plugins/rules", version = "1.0.3" }
+paperpaw-plugin-rules = { path = "plugins/rules", version = "1.0.8" }
 paperpaw-plugin-lock = { path = "plugins/lock", version = "1.0.3" }
 paperpaw-plugin-mail = { path = "plugins/mail", version = "1.0.0" }
-paperpaw-plugin-profiles = { path = "plugins/profiles", version = "1.0.4" }
-paperpaw-plugin-keys = { path = "plugins/keys", version = "1.0.3" }
+paperpaw-plugin-profiles = { path = "plugins/profiles", version = "1.0.10" }
+paperpaw-plugin-keys = { path = "plugins/keys", version = "1.0.9" }
 paperpaw-plugin-wikipedia = { path = "plugins/wikipedia", version = "1.0.1" }
-paperpaw-plugin-aids = { path = "plugins/aids", version = "1.0.2" }
+paperpaw-plugin-aids = { path = "plugins/aids", version = "1.1.2" }
 paperpaw-plugin-vocabulary = { path = "plugins/vocabulary", version = "1.0.5" }
 paperpaw-plugin-sleep = { path = "plugins/sleep", version = "1.0.1" }
-paperpaw-plugin-translate = { path = "plugins/translate", version = "1.0.2" }
+paperpaw-plugin-translate = { path = "plugins/translate", version = "1.0.5" }
 paperpaw-plugin-readwise = { path = "plugins/readwise", version = "1.0.2" }
 paperpaw-plugin-read-later-cloud = { path = "plugins/read-later-cloud", version = "1.0.0" }
 paperpaw-plugin-joplin = { path = "plugins/joplin", version = "1.0.2" }
-paperpaw-plugin-koreader = { path = "plugins/koreader", version = "1.0.3" }
+paperpaw-plugin-koreader = { path = "plugins/koreader", version = "1.0.6" }
 paperpaw-plugin-wallabag = { path = "plugins/wallabag", version = "1.0.2" }
-paperpaw-plugin-about = { path = "plugins/about", version = "1.0.2" }
-paperpaw-plugin-setup = { path = "plugins/setup", version = "1.0.2" }
+paperpaw-plugin-about = { path = "plugins/about", version = "1.0.3" }
+paperpaw-plugin-anki = { path = "plugins/anki", version = "1.0.0" }
+paperpaw-plugin-picture-frame = { path = "plugins/picture-frame", version = "1.0.0" }
+paperpaw-plugin-file-sync = { path = "plugins/file-sync", version = "1.0.0" }
+paperpaw-plugin-setup = { path = "plugins/setup", version = "1.0.4" }
 paperpaw-plugin-update = { path = "plugins/update", version = "1.0.2" }
 paperpaw-plugin-news = { path = "plugins/news", version = "1.0.5" }
 paperpaw-plugin-weather = { path = "plugins/weather", version = "1.0.2" }
+paperpaw-plugin-pomodoro = { path = "plugins/pomodoro", version = "1.0.0" }
+paperpaw-plugin-smart-home = { path = "plugins/smart-home", version = "1.0.0" }
+paperpaw-plugin-puzzles = { path = "plugins/puzzles", version = "1.0.0" }
+paperpaw-plugin-edge-light = { path = "plugins/edge-light", version = "1.0.0" }
+paperpaw-plugin-tasks = { path = "plugins/tasks", version = "1.0.0" }
+paperpaw-plugin-calendar = { path = "plugins/calendar", version = "1.0.0" }
 paperpaw-plugin-widgets = { path = "plugins/widgets", version = "1.0.3" }
 paperpaw-plugin-keyboard = { path = "plugins/keyboard", version = "1.1.0" }
 paperpaw-plugin-plugin-manager = { path = "plugins/plugin-manager", version = "1.0.4" }
-paperpaw-plugin-hyphenation = { path = "plugins/hyphenation", version = "1.1.1" }
-paperpaw-plugin-hyphenation-da = { path = "plugins/hyphenation-da", version = "1.0.0" }
-paperpaw-plugin-hyphenation-es = { path = "plugins/hyphenation-es", version = "1.0.0" }
-paperpaw-plugin-hyphenation-de = { path = "plugins/hyphenation-de", version = "1.0.0" }
-paperpaw-plugin-hyphenation-fr = { path = "plugins/hyphenation-fr", version = "1.0.0" }
-paperpaw-plugin-hyphenation-it = { path = "plugins/hyphenation-it", version = "1.0.0" }
-paperpaw-plugin-hyphenation-nb = { path = "plugins/hyphenation-nb", version = "1.0.0" }
-paperpaw-plugin-hyphenation-nl = { path = "plugins/hyphenation-nl", version = "1.0.0" }
-paperpaw-plugin-hyphenation-pl = { path = "plugins/hyphenation-pl", version = "1.0.0" }
-paperpaw-plugin-hyphenation-pt = { path = "plugins/hyphenation-pt", version = "1.0.0" }
-paperpaw-plugin-hyphenation-ru = { path = "plugins/hyphenation-ru", version = "1.0.0" }
-paperpaw-plugin-hyphenation-sv = { path = "plugins/hyphenation-sv", version = "1.0.0" }
-paperpaw-plugin-hyphenation-uk = { path = "plugins/hyphenation-uk", version = "1.0.0" }
 paperpaw-plugin-home = { path = "plugins/home", version = "1.0.2" }
 paperpaw-plugin-settings = { path = "plugins/settings", version = "1.0.2" }
 paperpaw-plugin-files = { path = "plugins/files", version = "1.0.3" }
 paperpaw-plugin-reader = { path = "plugins/reader", version = "1.0.3" }
-paperpaw-plugin-format-epub = { path = "plugins/format-epub", version = "1.0.3" }
+paperpaw-epub-family = { path = "crates/paperpaw-epub-family", version = "1.0.5" }
+paperpaw-plugin-format-epub = { path = "plugins/format-epub", version = "1.0.5" }
+paperpaw-plugin-format-html = { path = "plugins/format-html", version = "1.0.5" }
+paperpaw-plugin-format-fb2 = { path = "plugins/format-fb2", version = "1.0.5" }
+paperpaw-plugin-format-markdown = { path = "plugins/format-markdown", version = "1.0.5" }
+paperpaw-plugin-format-cbz = { path = "plugins/format-cbz", version = "1.0.5" }
 paperpaw-plugin-format-txt = { path = "plugins/format-txt", version = "1.0.1" }
 paperpaw-plugin-format-xtc = { path = "plugins/format-xtc", version = "1.0.1" }
 paperpaw-plugin-fonts-default = { path = "plugins/fonts-default", version = "1.0.1", default-features = false }
@@ -230,9 +242,9 @@ proptest = { version = "1.5", default-features = false, features = ["std"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
-# `paperpaw_plugin`: set where native plugin files are built (ADR 0024,
-# samples/hello-native). `fuzzing`: set by cargo-fuzz.
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(paperpaw_plugin)", "cfg(paperpaw_table_host)", "cfg(fuzzing)"] }
+# `paperpaw_plugin`: set where plugin files of the format before interface 7
+# were built (ADR 0024). `fuzzing`: set by cargo-fuzz.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(paperpaw_plugin)", "cfg(fuzzing)"] }
 missing_debug_implementations = "warn"
 rust_2018_idioms = { level = "warn", priority = -1 }
 
@@ -289,7 +301,9 @@ jni-macros = { path = "patches/jni-macros" }
 # again (`Dir::rename_found`, `remove_found`), lists a folder from an entry
 # on (`Dir::iter_from`, seeking from a place in the folder's cluster chain
 # kept with its note) and keeps notes about folders until an entry is
-# added to them (`Dir::note`), for lookups in big folders (patches/fatfs,
+# added to them (`Dir::note`), for lookups in big folders; and it counts
+# the clusters it marks taken and free (`FileSystem::cluster_changes`), so
+# paperpaw-fat follows the free space exactly (patches/fatfs,
 # "Modified for PaperPaw"). The X4's
 # firmware, a workspace of its own, patches it the same way.
 [patch."https://github.com/rafalh/rust-fatfs"]

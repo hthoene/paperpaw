@@ -10,48 +10,24 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+use paperpaw_core::Place;
 use std::rc::Rc;
 use std::sync::Mutex;
 
 use paperpaw_core::KernelBuilder;
-use paperpaw_core::sdk::ui::{self, UiStyle};
-use paperpaw_core::sdk::{
-    Canvas, Env, Id, Manifest, MemoryStorage, Plugin, RegisterError, Registrar, Screen, ScreenSpec,
-    Version,
-};
+use paperpaw_core::kit::ui::{self, UiStyle};
+use paperpaw_core::sdk::{Canvas, Id, Manifest, MemoryStorage, Version};
 use paperpaw_emulator::{device::Device, headless, profiles};
 
 /// The descriptions found too long: device, language, setting, text.
 static CUT: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-/// Looks at every setting's description when its screen is drawn.
-struct Probe;
-
 const SCREEN: Id = Id::new_static("help-probe.screen");
-
-impl Plugin for Probe {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("help-probe"),
-            "Help probe",
-            Version::new(0, 1, 0),
-        )
-        .uses(paperpaw_core::sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
-            SCREEN,
-            "Help probe",
-            Box::new(|_, _| Box::new(Look)),
-        ))
-    }
-}
 
 struct Look;
 
-impl Screen for Look {
-    fn draw(&mut self, _: &mut Canvas<'_>, env: &Env<'_>) {
+impl paperpaw_core::testing::Fake for Look {
+    fn draw(&mut self, _: &mut Canvas<'_>, env: &Place<'_>) {
         // Not the device's heap: the probe is no part of what it runs.
         paperpaw_emulator::budget::untracked(|| look(env));
     }
@@ -59,14 +35,14 @@ impl Screen for Look {
     fn on_action(
         &mut self,
         _: &Id,
-        _: &mut paperpaw_core::sdk::Cx<'_, '_>,
+        _: &mut paperpaw_core::Turn<'_, '_>,
     ) -> paperpaw_core::sdk::Handled {
         paperpaw_core::sdk::Handled::No
     }
 }
 
 /// Every setting's description that does not fit, kept in [`CUT`].
-fn look(env: &Env<'_>) {
+fn look(env: &Place<'_>) {
     {
         let style = UiStyle::new(env);
         let width = env.device().display.width;
@@ -90,8 +66,21 @@ fn look(env: &Env<'_>) {
     }
 }
 
+/// Adds the screen that looks at every setting's description when it is drawn.
 fn add(builder: KernelBuilder) -> KernelBuilder {
-    builder.plugin(Probe)
+    let manifest = Manifest::new(
+        Id::new_static("help-probe"),
+        "Help probe",
+        Version::new(0, 1, 0),
+    )
+    .uses(paperpaw_core::sdk::Uses::NOTHING);
+    builder.items(manifest, |items| {
+        items.add_fake(paperpaw_core::testing::FakeSpec::new(
+            SCREEN,
+            "Help probe",
+            Box::new(|_, _| Box::new(Look)),
+        ))
+    })
 }
 
 #[test]

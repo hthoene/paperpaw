@@ -1,4 +1,4 @@
-Read-later articles (own server) fetches the articles you saved in wallabag as books, with their pictures, into the folder Wallabag of your library. It is off at first: add it with More plugins, or switch it on under Plugins if it is listed there.
+Read-later articles (own server) fetches the articles you saved in wallabag as books, with their pictures, into the folder Wallabag of your library. It is off at first: add it from the Plugin store, or switch it on under Plugins if it is listed there.
 
 Open Read-later articles (own server) from Tools. Enter the server, your user name and password, and the ID and secret of an API client made in Wallabag under API clients management. Then choose Fetch articles, with Wi-Fi on.
 

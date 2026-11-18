@@ -55,10 +55,18 @@ const PIECE: usize = 4096;
 pub static OTHER_SLOT: [u8; 32] = *b"PaperPaw bundle: other slot, 1\0\0";
 
 /// Where a bundle lies, if one does: from `start` to at most `end`.
-fn found(flash: &mut FlashStorage<'static>, behind: (u32, u32)) -> Option<(u32, u32)> {
+///
+/// `other_slot`: the other app partition is looked in too; not in a dual-boot
+/// setup, where it holds another firmware, which is never read for this.
+fn found(
+    flash: &mut FlashStorage<'static>,
+    behind: (u32, u32),
+    other_slot: bool,
+) -> Option<(u32, u32)> {
     let mut head = [0u8; 4];
-    let other = other_app(flash)
-        .ok()
+    let other = other_slot
+        .then(|| other_app(flash).ok())
+        .flatten()
         .map(|(offset, size)| (offset, offset + size));
     [Some(behind), other]
         .into_iter()
@@ -118,11 +126,12 @@ pub fn forget(flash: &Flash, at: u32) {
 pub fn stage(
     flash: &Flash,
     storage: &dyn Storage,
+    other_slot: bool,
     progress: &mut dyn FnMut(Progress<'_>),
 ) -> Option<Staged> {
     let mut flash = flash.borrow_mut();
     let behind = behind_image(&mut flash).ok()?;
-    let (start, end) = found(&mut flash, (behind.start, behind.end))?;
+    let (start, end) = found(&mut flash, (behind.start, behind.end), other_slot)?;
     info!("bundle: at {start:#x}");
     progress(Progress::Checking);
     let checking = crate::micros();

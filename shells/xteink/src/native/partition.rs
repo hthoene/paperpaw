@@ -62,11 +62,12 @@ pub fn other_app(flash: &mut FlashStorage<'static>) -> Result<(u32, u32), &'stat
         .ok_or("no other app partition")
 }
 
-/// The app partition this code runs from (its offset and size): the one
-/// holding the flash page the MMU maps this function's address to (the
-/// bootloader's choice; the OTA data may say another after an update).
-pub fn running_partition(flash: &mut FlashStorage<'static>) -> Result<(u32, u32), &'static str> {
-    let here = running_partition as *const () as u32;
+/// Where in the flash the code running is: the address of the page the MMU
+/// maps this function's page to, with the offset in it. Read from the
+/// MMU's entry for this code, not from its first (which is the bootloader's
+/// to map as it likes, as a dualbooter's does, #167).
+pub fn code_address() -> Result<u32, &'static str> {
+    let here = code_address as *const () as u32;
     let entry = here
         .checked_sub(LINK_BASE + CODE_OFFSET)
         .ok_or("the firmware does not run from flash")?
@@ -75,7 +76,14 @@ pub fn running_partition(flash: &mut FlashStorage<'static>) -> Result<(u32, u32)
     if page.invalid().bit() {
         return Err("the firmware's code is not mapped");
     }
-    let paddr = u32::from(page.paddr().bits()) * PAGE;
+    Ok(u32::from(page.paddr().bits()) * PAGE + (here % PAGE))
+}
+
+/// The app partition this code runs from (its offset and size): the one
+/// holding the flash page the MMU maps this function's address to (the
+/// bootloader's choice; the OTA data may say another after an update).
+pub fn running_partition(flash: &mut FlashStorage<'static>) -> Result<(u32, u32), &'static str> {
+    let paddr = code_address()?;
     let mut table = alloc::vec![0u8; PARTITION_TABLE_MAX_LEN];
     let table = partitions::read_partition_table(flash, &mut table)
         .map_err(|_| "the partition table cannot be read")?;

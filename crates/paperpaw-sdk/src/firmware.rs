@@ -1,8 +1,8 @@
 //! Firmware updates, on devices whose firmware PaperPaw is (the X4):
-//! [`Env::firmware`](crate::Env) is `Some` there. Elsewhere PaperPaw is
+//! `Place::firmware` is `Some` there. Elsewhere PaperPaw is
 //! an app, updated by the system's store.
 //!
-//! The shell does what it is told ([`Command::Firmware`](crate::Command)
+//! The shell does what it is told (`Ask::Firmware`
 //! with a [`FirmwareCommand`]: install an update file, restart) and
 //! reports how it goes in [`Firmware::state`], with
 //! [`events::FIRMWARE_CHANGED`](crate::builtin::events::FIRMWARE_CHANGED).
@@ -157,7 +157,12 @@ pub enum InstallFailure {
     /// A cause this build has no variant for, by its code (0: not said).
     /// Codes are listed here as they are given and never reused; a build
     /// that doesn't know one treats it as the most general failure of its
-    /// kind.
+    /// kind. Codes given so far: 1, the device is shared with another
+    /// firmware (`dual-boot`) and nothing is installed here; 2, the memory has no
+    /// room for the install's buffers (nothing was written; a later try may
+    /// find room); 3, a firmware job of the kernel (`core.device`) is open
+    /// and nothing else installs meanwhile (nothing was written; a later
+    /// try finds it ended).
     Other(u16),
 }
 
@@ -171,7 +176,7 @@ impl From<Problem> for InstallFailure {
     }
 }
 
-/// Firmware as the kernel knows it ([`Env::firmware`](crate::Env)).
+/// Firmware as the kernel knows it (`Place::firmware`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Firmware {

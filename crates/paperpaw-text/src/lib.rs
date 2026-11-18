@@ -45,6 +45,8 @@ mod hangul;
 pub use hangul::has_jamo;
 mod hinting;
 pub use hinting::Hinting;
+mod indic;
+pub use indic::{has_indic, shaped_at};
 mod ink;
 mod kern_table;
 #[cfg(feature = "outline")]
@@ -56,6 +58,7 @@ mod mark_table;
 mod marks;
 #[cfg(feature = "outline")]
 mod outline;
+mod packed;
 #[cfg_attr(
     not(feature = "outline"),
     allow(
@@ -66,13 +69,6 @@ mod outline;
 mod raster;
 pub mod sfnt;
 mod stored;
-#[cfg_attr(
-    not(any(test, fuzzing)),
-    allow(
-        dead_code,
-        reason = "read by the shaper that comes with Indic scripts (#92, D5)"
-    )
-)]
 mod substitutions;
 
 pub use around::{Around, draw_text_in, measure_in};
@@ -81,7 +77,7 @@ pub use cache::GlyphCache;
 pub use curve::ToneCurve;
 pub use font::{Font, FontError, LineMetrics};
 pub use ink::TextInk;
-pub use stored::{PackLimits, PackSource, StoredPack};
+pub use stored::{LARGE_SCRIPT, PackLimits, PackSource, StoredPack};
 
 /// Whether this build renders scalable (OpenType/TrueType) fonts.
 pub const OUTLINES: bool = cfg!(feature = "outline");
@@ -100,7 +96,6 @@ pub use outline::OutlineFont;
 use paperpaw_graphics::Canvas;
 use paperpaw_platform::Color;
 
-paperpaw_table::shared! {
 /// Width of `text` in pixels, its pairs kerned ([`Font::kern`]).
 pub fn measure(font: &Font, size: f32, text: &str) -> f32 {
     let mut width = 0.0;
@@ -113,7 +108,6 @@ pub fn measure(font: &Font, size: f32, text: &str) -> f32 {
         before = Some(ch);
     }
     width
-} @ text::TEXT_MEASURE
 }
 
 /// How a line of text is drawn: its font (and the font's number in the
@@ -173,7 +167,6 @@ impl<'a> TextStyle<'a> {
     }
 }
 
-paperpaw_table::shared! {
 /// Whether `ch` is a combining mark, drawn onto or beside the character
 /// before it (an accent, a diaeresis below, the vowel signs of Thai,
 /// Devanagari or Khmer): Unicode's general category M (Mn, Mc, Me).
@@ -187,7 +180,6 @@ pub fn is_mark(ch: char) -> bool {
     at.checked_sub(1)
         .and_then(|i| mark_table::MARKS.get(i))
         .is_some_and(|run| cp - (run >> mark_table::SHIFT) <= run & ((1 << mark_table::SHIFT) - 1))
-} @ text::TEXT_IS_MARK
 }
 
 /// Whether `ch` is a control that draws nothing and takes no room: the
@@ -207,7 +199,6 @@ pub fn is_invisible(ch: char) -> bool {
     )
 }
 
-paperpaw_table::shared! {
 /// Where a glyph whose bitmap begins `left` pixels from the pen at `pen`
 /// is drawn across. A combining mark with no character before it
 /// (`lone`) would reach back onto nothing: it sits on a base of no width
@@ -216,7 +207,6 @@ pub fn glyph_x(pen: f32, left: i16, lone: bool) -> i32 {
     let at = raster::floor(pen + 0.5);
     let x = at.saturating_add(i32::from(left));
     if lone { x.max(at) } else { x }
-} @ text::TEXT_GLYPH_X
 }
 
 impl core::fmt::Debug for TextStyle<'_> {
@@ -231,7 +221,6 @@ impl core::fmt::Debug for TextStyle<'_> {
     }
 }
 
-paperpaw_table::shared! {
 /// Draws one line of `text` in `style` with its baseline at `baseline` and
 /// returns the advance in pixels, its pairs kerned as [`measure`] kerns
 /// them. Newlines are not interpreted; use [`wrap`] first.
@@ -266,7 +255,6 @@ pub fn draw_text(
         pen += glyph.advance;
     }
     pen - x
-} @ text::TEXT_DRAW_TEXT
 }
 
 /// Draws `glyph` with its pen at `gx` across and `baseline`, in `style`'s
@@ -298,6 +286,7 @@ fn paint(
         );
     } else if !glyph.is_empty() {
         let width = u32::from(glyph.width);
+        let level = glyph.levels();
         canvas.draw_mask(
             gx,
             gy,
@@ -310,7 +299,7 @@ fn paint(
                 // not rise, so the curve comes first).
                 (0..=u32::from(extra))
                     .filter(|k| *k <= px && px - k < width)
-                    .map(|k| tone.alpha(glyph.level((px - k) as u16, py as u16)))
+                    .map(|k| tone.alpha(level(px - k, py)))
                     .max()
                     .unwrap_or(0)
             },
@@ -342,8 +331,44 @@ pub fn build_pack_hinted(
     chars: impl IntoIterator<Item = char> + Clone,
     hinting: Hinting,
 ) -> alloc::vec::Vec<u8> {
+    build_pack_with(font, sizes, chars, hinting, false)
+}
+
+/// [`build_pack`] with the bitmaps stored packed (see
+/// [`PackBuilder::compact`]): the same pixels in about half the bytes, for the
+/// packs a firmware carries.
+#[cfg(feature = "outline")]
+pub fn build_pack_compact(
+    font: &OutlineFont,
+    sizes: &[f32],
+    chars: impl IntoIterator<Item = char> + Clone,
+) -> alloc::vec::Vec<u8> {
+    build_pack_with(font, sizes, chars, Hinting::None, true)
+}
+
+/// How many characters a pack made by [`build_pack`] and the like needs to
+/// be stored in cells (see [`PackBuilder::cells`]).
+#[cfg(feature = "outline")]
+const CELLS_FROM: usize = 1024;
+
+#[cfg(feature = "outline")]
+fn build_pack_with(
+    font: &OutlineFont,
+    sizes: &[f32],
+    chars: impl IntoIterator<Item = char> + Clone,
+    hinting: Hinting,
+    compact: bool,
+) -> alloc::vec::Vec<u8> {
     let mut builder = PackBuilder::new();
+    if compact {
+        builder.compact();
+    }
     let kerned: alloc::vec::Vec<char> = chars.clone().into_iter().collect();
+    // Thousands of characters (Hangul, ideographs) are read a glyph at a
+    // time from a card: in cells, one read for each.
+    if !compact && kerned.len() >= CELLS_FROM {
+        builder.cells();
+    }
     builder.kerning(&font.kerning_pairs(&kerned));
     // Every key of a strike, in order, so that a key's anchors are where
     // its glyph is.
@@ -352,7 +377,21 @@ pub fn build_pack_hinted(
         .copied()
         .filter(|&ch| font.has_char(ch))
         .collect();
-    keys.sort_unstable();
+    // Bengali, Devanagari: the font's substitutions, and the glyphs they
+    // draw that have no code point.
+    let indic = font.indic_substitutions(&keys);
+    let drawn: alloc::vec::Vec<char> = indic
+        .as_ref()
+        .map_or(alloc::vec::Vec::new(), |m| m.keys.clone());
+    if let Some(made) = &indic {
+        builder.table(
+            BitmapFont::SUBSTITUTIONS,
+            made.table.first().copied().unwrap_or(1),
+            made.table.get(8..).unwrap_or_default(),
+        );
+    }
+    keys.extend_from_slice(&drawn);
+    paperpaw_sort::sort(&mut keys);
     keys.dedup();
     let anchored: alloc::vec::Vec<_> = sizes
         .iter()
@@ -363,7 +402,11 @@ pub fn build_pack_hinted(
     }
     for &size in sizes {
         let glyphs = font.rasterize_chars(
-            chars.clone().into_iter().filter(|&ch| font.has_char(ch)),
+            chars
+                .clone()
+                .into_iter()
+                .filter(|&ch| font.has_char(ch))
+                .chain(drawn.iter().copied()),
             size,
             hinting,
         );

@@ -28,24 +28,51 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+extern crate std;
+
+#[cfg(test)]
+mod allocation_tests;
+
+const MAX_KEY_BYTES: usize = 128;
+const PLURAL_SCRATCH: usize = 128 + 1 + 5;
+const _: () = {
+    let categories = [
+        PluralCategory::Zero,
+        PluralCategory::One,
+        PluralCategory::Two,
+        PluralCategory::Few,
+        PluralCategory::Many,
+        PluralCategory::Other,
+    ];
+    let mut index = 0;
+    while index < categories.len() {
+        assert!(PLURAL_SCRATCH >= MAX_KEY_BYTES + 1 + categories[index].id().len());
+        index += 1;
+    }
+};
+
 mod built;
 mod card;
 mod catalog;
 pub mod check;
 mod format;
+mod messages;
 mod plural;
 
-pub use built::{BuiltCatalogs, BuiltTable};
+pub use built::{BuiltCatalogs, BuiltLanguage, BuiltLanguageTable, BuiltTable};
 pub use card::{CatalogFile, MAX_MESSAGE, MAX_READ};
 pub use catalog::{Catalog, CatalogError, FixedIndexes, fingerprint};
 pub use catalog::{calendars, digit_systems};
 pub use format::Arg;
+pub use messages::{BuiltMessages, BuiltMessagesTable};
 pub use paperpaw_lang::{Direction, Lang};
 pub use plural::{PluralCategory, PluralRule, cldr_rules};
 
 use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
+use core::ops::ControlFlow;
 
 use catalog::{LATIN as LATIN_DIGITS, Parked};
 
@@ -100,11 +127,15 @@ impl Translator {
     pub fn add(&mut self, mut catalog: Catalog) {
         // An English catalog built in, indexed with the others: its source
         // fills its slot of their one catalog.
-        if let Some(source) = catalog.static_source()
-            && catalog.language() == FALLBACK_LANGUAGE
-            && self.catalogs.iter_mut().any(|c| c.take_built(source))
-        {
-            return;
+        if let Some(source) = catalog.static_source() {
+            let print = fingerprint(source);
+            if self
+                .catalogs
+                .iter_mut()
+                .any(|c| c.take_built(print, source))
+            {
+                return;
+            }
         }
         catalog.added = self.added;
         self.added = self.added.wrapping_add(1);
@@ -130,10 +161,55 @@ impl Translator {
     /// catalog of its own (some hundred bytes each). Catalogs added after
     /// take precedence over them, as any added later.
     pub fn built_catalogs(&mut self, table: &'static BuiltCatalogs) {
+        self.built_in(table, FALLBACK_LANGUAGE, "English");
+    }
+
+    /// The same for the catalogs of one language, English or another
+    /// (call it once for each language).
+    pub fn built_language(&mut self, table: &'static BuiltLanguage) {
+        self.built_in(&table.catalogs, table.language, table.name);
+    }
+
+    /// The messages of one language built into the program without their
+    /// keys, by its build script (call it once for each language): one
+    /// catalog that answers for all their sources, which are not added.
+    /// Every other catalog takes precedence over it, one added before as
+    /// one added later: what a plugin on the card or the user says anew
+    /// is heard whenever the tables come.
+    pub fn built_messages(&mut self, table: &'static BuiltMessages) {
+        if table.keys.is_empty() {
+            return;
+        }
+        let Some(mut catalog) = Catalog::messages(table) else {
+            return;
+        };
+        // The tables are the first added, in their order, and so the
+        // first kept (they are never parked); every other catalog moves
+        // up by one.
+        let under = self.catalogs.iter().filter(|c| c.is_messages()).count();
+        let others = self.catalogs.iter_mut().map(|c| &mut c.added);
+        for added in others.chain(self.parked.iter_mut().map(|p| &mut p.added)) {
+            if *added as usize >= under {
+                *added = added.wrapping_add(1);
+            }
+        }
+        self.added = self.added.wrapping_add(1);
+        catalog.added = under as u32;
+        if self.chain().contains(&catalog.language()) {
+            catalog.load();
+            catalog.use_fixed(self.fixed);
+        } else {
+            catalog.unload();
+        }
+        self.catalogs.insert(under, catalog);
+        self.rebuild_order();
+    }
+
+    fn built_in(&mut self, table: &'static BuiltCatalogs, language: &str, name: &str) {
         if table.prints.is_empty() {
             return;
         }
-        if let Some(catalog) = Catalog::built(table) {
+        if let Some(catalog) = Catalog::built(table, language, name) {
             self.add(catalog);
         }
     }
@@ -235,15 +311,57 @@ impl Translator {
             .iter()
             .map(|p| (p.added, p.language(), p.name()));
         let mut all: Vec<(u32, &str, &str)> = live.chain(parked).collect();
-        all.sort_unstable_by_key(|(added, ..)| *added);
+        paperpaw_sort::sort_by_key(&mut all, |(added, ..)| *added);
         for (_, tag, name) in all {
             if !languages.iter().any(|(t, _)| *t == tag) {
                 languages.push((tag, name));
             }
         }
         let english = |tag: &str| tag == "en" || tag.starts_with("en-");
-        languages.sort_unstable_by_key(|&(tag, _)| (!english(tag), tag));
+        paperpaw_sort::sort_by_key(&mut languages, |&(tag, _)| (!english(tag), tag));
         languages
+    }
+
+    /// [`Translator::languages`] without a list: `visit` is given each
+    /// available language once, its tag and its name, in the same order
+    /// (English first, then the others by tag; a language of several
+    /// catalogs is named by the one added first), until it breaks. Nothing
+    /// is allocated: each language is found by a walk of the catalogs.
+    pub fn each_language(&self, visit: &mut dyn FnMut(&str, &str) -> ControlFlow<()>) {
+        fn key(tag: &str) -> (bool, &str) {
+            (!(tag == "en" || tag.starts_with("en-")), tag)
+        }
+        let mut last: Option<&str> = None;
+        loop {
+            // The next in the order after `last`, and the first added of it.
+            let mut next: Option<(u32, &str, &str)> = None;
+            let live = self
+                .catalogs
+                .iter()
+                .map(|c| (c.added, c.language(), c.name()));
+            let parked = self
+                .parked
+                .iter()
+                .map(|p| (p.added, p.language(), p.name()));
+            for (added, tag, name) in live.chain(parked) {
+                if last.is_some_and(|last| key(tag) <= key(last)) {
+                    continue;
+                }
+                let sooner = next.is_none_or(|(first, best, _)| {
+                    key(tag) < key(best) || (tag == best && added < first)
+                });
+                if sooner {
+                    next = Some((added, tag, name));
+                }
+            }
+            let Some((_, tag, name)) = next else {
+                return;
+            };
+            if visit(tag, name).is_break() {
+                return;
+            }
+            last = Some(tag);
+        }
     }
 
     /// The bytes the catalogs' indexes take on the heap (see
@@ -258,15 +376,20 @@ impl Translator {
     pub fn catalogs(&self) -> Vec<Catalog> {
         let mut all: Vec<Catalog> = self.catalogs.clone();
         all.extend(self.parked.iter().cloned().map(Parked::unpark));
-        all.sort_unstable_by_key(|c| c.added);
+        paperpaw_sort::sort_by_key(&mut all, |c| c.added);
         all
     }
 
-    paperpaw_table::shared! {
     /// The message for `key`, if a catalog has it.
     pub fn get(&self, key: &str) -> Option<&str> {
         self.ordered().find_map(|catalog| catalog.get(key))
-    } @ data::I18N_GET as for<'s> fn(&'s Self, &str) -> Option<&'s str>
+    }
+
+    /// [`Translator::get`] for a caller that copies the message out at once
+    /// (the host's `i18n` calls): a message on the card is found even when
+    /// the most that is kept of them is read, instead of English.
+    pub fn get_copy(&self, key: &str) -> Option<Cow<'_, str>> {
+        self.ordered().find_map(|catalog| catalog.get_copy(key))
     }
 
     /// The message for `key`, or `key` itself if no catalog has it.
@@ -276,39 +399,78 @@ impl Translator {
             .unwrap_or(key)
     }
 
-    paperpaw_table::shared! {
+    /// Selects a plural message without formatting or allocating.
+    ///
+    /// Looks up `key.<category>` using each catalog's own plural rule,
+    /// then `key.other` in that same catalog, in normal fallback order.
+    /// Returns `None` if `key` exceeds 128 bytes or no catalog has a message.
+    /// The message borrows this translator's catalog storage.
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn get_plural(&self, key: &str, count: i64) -> Option<&str> {
+        // Reserve six extra bytes for the dot and longest category suffix.
+        self.lookup_plural(key, count, &mut [0; PLURAL_SCRATCH], Catalog::get)
+    }
+
+    /// [`Translator::get_plural`] for a caller that copies the message out
+    /// at once (see [`Translator::get_copy`]).
+    #[cfg(any(test, feature = "kernel"))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "kernel")))]
+    pub fn get_plural_copy(&self, key: &str, count: i64) -> Option<Cow<'_, str>> {
+        self.lookup_plural(key, count, &mut [0; PLURAL_SCRATCH], Catalog::get_copy)
+    }
+
+    fn lookup_plural<'a, M: 'a>(
+        &'a self,
+        key: &str,
+        count: i64,
+        scratch: &mut [u8],
+        get: impl Fn(&'a Catalog, &str) -> Option<M>,
+    ) -> Option<M> {
+        let required = key.len().checked_add(PLURAL_SCRATCH - MAX_KEY_BYTES)?;
+        let scratch = scratch.get_mut(..required)?;
+        scratch[..key.len()].copy_from_slice(key.as_bytes());
+        scratch[key.len()] = b'.';
+        for catalog in self.ordered() {
+            for category in [catalog.plural_rule().category(count), PluralCategory::Other] {
+                let end = key.len() + 1 + category.id().len();
+                scratch[key.len() + 1..end].copy_from_slice(category.id().as_bytes());
+                let candidate = core::str::from_utf8(&scratch[..end]).ok()?;
+                if let Some(message) = get(catalog, candidate) {
+                    return Some(message);
+                }
+            }
+        }
+        None
+    }
+
     /// The message for `key` with `{placeholders}` replaced by `args`.
     pub fn format(&self, key: &str, args: &[(&str, Arg<'_>)]) -> String {
         format::interpolate(self.tr(key), args, self.digits.as_ref())
-    } @ data::I18N_FORMAT
     }
 
-    paperpaw_table::shared! {
     /// Selects the plural form of `key` for `count`, then formats it.
     ///
     /// Looks up `key.<category>` (e.g. `library.books.few`) using each
     /// catalog's own plural rule, falling back to `key.other`. `{count}` is
     /// always available as an argument.
     pub fn plural(&self, key: &str, count: i64, args: &[(&str, Arg<'_>)]) -> String {
-        let mut candidate = String::with_capacity(key.len() + 6);
-        for catalog in self.ordered() {
-            for category in [catalog.plural_rule().category(count), PluralCategory::Other] {
-                candidate.clear();
-                candidate.push_str(key);
-                candidate.push('.');
-                candidate.push_str(category.id());
-                if let Some(message) = catalog.get(&candidate) {
-                    return format::interpolate_with_count(
-                        message,
-                        count,
-                        args,
-                        self.digits.as_ref(),
-                    );
-                }
+        let mut scratch = [0; PLURAL_SCRATCH];
+        // Preserve the existing unbounded SDK lookup for long keys. The host
+        // lookup above always uses the fixed stack buffer instead.
+        let mut long_key;
+        let buffer = if key.len() > MAX_KEY_BYTES {
+            long_key = alloc::vec![0; key.len().saturating_add(PLURAL_SCRATCH - MAX_KEY_BYTES)];
+            long_key.as_mut_slice()
+        } else {
+            &mut scratch
+        };
+        match self.lookup_plural(key, count, buffer, Catalog::get) {
+            Some(message) => {
+                format::interpolate_with_count(message, count, args, self.digits.as_ref())
             }
+            None => String::from(key),
         }
-        String::from(key)
-    } @ data::I18N_PLURAL
     }
 
     fn ordered(&self) -> impl Iterator<Item = &Catalog> {
@@ -358,7 +520,7 @@ impl Translator {
                 }
             }
         }
-        kept.sort_unstable_by_key(|c| c.added);
+        paperpaw_sort::sort_by_key(&mut kept, |c| c.added);
         self.catalogs = kept;
         self.rebuild_order();
     }
@@ -672,6 +834,19 @@ mod tests {
         t.add(Catalog::parse(DE_OVERRIDE).unwrap());
         let tags: Vec<&str> = t.languages().into_iter().map(|(tag, _)| tag).collect();
         assert_eq!(tags, ["en", "de", "de-AT"]);
+        // The walk without a list gives the same, in the same order.
+        let mut walked = Vec::new();
+        t.each_language(&mut |tag, name| {
+            walked.push((String::from(tag), String::from(name)));
+            ControlFlow::Continue(())
+        });
+        let listed: Vec<_> = t.languages();
+        assert!(
+            walked
+                .iter()
+                .map(|(t, n)| (t.as_str(), n.as_str()))
+                .eq(listed)
+        );
     }
 
     /// A catalog finds none of the keys before its first or after its
@@ -707,5 +882,68 @@ mod tests {
     #[test]
     fn missing_plural_returns_key() {
         assert_eq!(translator("de").plural("nothing", 3, &[]), "nothing");
+    }
+
+    #[test]
+    fn borrowed_plural_preserves_catalog_rules_and_fallback_order() {
+        let mut t = Translator::new();
+        for source in [
+            "[meta]\nlanguage = en\nplural = one-other\n[messages]\nbooks.one = English one\nbooks.other = English other\nonly-en.one = Fallback one\nonly-en.other = Fallback other\n",
+            "[meta]\nlanguage = fr\nplural = zero-one-other\n[messages]\nbooks.one = French one\n",
+            "[meta]\nlanguage = fr\nplural = other\n[messages]\nbooks.other = Override other\n",
+        ] {
+            t.add(Catalog::parse(source).unwrap());
+        }
+        t.set_language("fr");
+        let message = t.get_plural("books", 1).unwrap();
+        assert_eq!(
+            message, "Override other",
+            "same-catalog other precedes older one"
+        );
+        assert_eq!(t.get_plural("only-en", 0), Some("Fallback other"));
+        assert_eq!(t.get_plural("only-en", 1), Some("Fallback one"));
+        assert_eq!(t.get_plural("missing", 1), None);
+        for count in [i64::MIN, -2, -1, 0, 1, 2, 5, i64::MAX] {
+            for key in ["books", "only-en"] {
+                assert_eq!(t.get_plural(key, count).unwrap(), t.plural(key, count, &[]));
+            }
+        }
+    }
+
+    #[test]
+    fn borrowed_plural_accepts_the_full_host_key_limit() {
+        let key = "x".repeat(128);
+        let mut t = Translator::new();
+        t.add(
+            Catalog::parse(alloc::format!(
+                "[meta]\nlanguage = en\nplural = one-other\n[messages]\n{key}.other = Found\n"
+            ))
+            .unwrap(),
+        );
+        assert_eq!(t.get_plural(&key, 5), Some("Found"));
+        assert_eq!(t.plural(&key, 5, &[]), "Found");
+        let missing = "x".repeat(129);
+        assert_eq!(t.get_plural(&missing, 5), None);
+        assert_eq!(t.plural(&missing, 5, &[]), missing);
+    }
+
+    #[test]
+    fn borrowed_plural_bounds_keys_and_uses_each_catalog_rule() {
+        let mut t = Translator::new();
+        t.add(Catalog::parse("[meta]\nlanguage = en\nplural = one-other\n[messages]\nbooks.one = English one\nbooks.other = English other\n").unwrap());
+        t.add(Catalog::parse("[meta]\nlanguage = fr\nplural = zero-one-other\n[messages]\nbooks.one = French one\n").unwrap());
+        t.set_language("fr");
+        assert_eq!(t.get_plural("books", 0), Some("French one"));
+        assert_eq!(t.get_plural("books", 2), Some("English other"));
+        assert_eq!(t.get_plural(&"x".repeat(129), 0), None);
+        for language in ["en", "fr"] {
+            t.set_language(language);
+            for count in [0, 1, 2, 5] {
+                assert_eq!(
+                    t.get_plural("books", count).unwrap(),
+                    t.plural("books", count, &[])
+                );
+            }
+        }
     }
 }

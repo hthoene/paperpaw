@@ -1,13 +1,18 @@
 //! Declared work (ADR 0025): moments, deadlines, work that waits for a
 //! cheap moment, jobs in steps, periods, cancelling.
 
+extern crate std;
+
 use super::*;
-use core::cell::Cell;
+use crate::Staging;
+
+use crate::WorkSpec;
+use crate::tests::{hear_into, heard};
 use core::time::Duration;
 use paperpaw_sdk::Params;
 use paperpaw_sdk::builtin::{events, params};
 use paperpaw_sdk::wifi::WifiState;
-use paperpaw_sdk::work::{Moments, Progress, Step, Work, WorkSpec, WorkState};
+use paperpaw_sdk::work::{Moments, Progress, Step, Work, WorkState};
 
 use crate::work::IDLE_MS;
 use crate::{Effects, WifiEvent};
@@ -20,110 +25,103 @@ struct WorkPlugin {
 }
 
 const RAN: [&str; 4] = ["wk.closed", "wk.push", "wk.weather", "wk.repeat"];
+
+std::thread_local! {
+    /// The steps the job made, in the test running.
+    static STEPS: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+}
 const JOB: Id = Id::new_static("wk.job");
 
 struct Blank;
 
-impl Screen for Blank {
-    fn draw(&mut self, _: &mut Canvas<'_>, _: &Env<'_>) {}
+impl crate::testing::Fake for Blank {
+    fn draw(&mut self, _: &mut Canvas<'_>, _: &Place<'_>) {}
 
-    fn on_action(&mut self, _: &Id, _: &mut Cx<'_, '_>) -> Handled {
+    fn on_action(&mut self, _: &Id, _: &mut Turn<'_, '_>) -> Handled {
         Handled::No
     }
 }
 
-impl Plugin for WorkPlugin {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("wk"), "Work", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NETWORK)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        r.add_screen(ScreenSpec::new(
+fn work_plugin(kept: WorkPlugin) -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    move |r| {
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("wk.home"),
             "home",
             Box::new(|_, _| Box::new(Blank)),
         ))?;
         r.bind_slot(slots::HOME, Id::new_static("wk.home"), Priority(i16::MAX))?;
-        for event in RAN {
-            let log = self.log.clone();
-            r.subscribe(
-                Id::new_static(event),
-                Box::new(move |_, params, _| {
-                    let why = params.get(paperpaw_sdk::work::params::WHY).unwrap_or("-");
-                    log.borrow_mut().push(alloc::format!("{event} {why}"));
-                }),
-            )?;
+        hear_into(&kept.log);
+        /// Writes down `event` and why it came.
+        fn ran(event: &str, params: &Params) {
+            let why = params.get(paperpaw_sdk::work::params::WHY).unwrap_or("-");
+            heard(alloc::format!("{event} {why}"));
         }
-        let steps = Rc::new(Cell::new(0u32));
-        let log = self.log.clone();
-        r.add_work(WorkSpec::new(JOB, "job", move |_, _, _| {
-            steps.set(steps.get() + 1);
-            log.borrow_mut()
-                .push(alloc::format!("step {}", steps.get()));
-            if steps.get() < 3 {
-                Step::Progress(Progress::new(steps.get(), 3))
+        let ran: [crate::Hear; 4] = [
+            |_, p| ran(RAN[0], p),
+            |_, p| ran(RAN[1], p),
+            |_, p| ran(RAN[2], p),
+            |_, p| ran(RAN[3], p),
+        ];
+        for (event, run) in RAN.into_iter().zip(ran) {
+            r.subscribe(Id::new_static(event), run)?;
+        }
+        STEPS.with(|steps| steps.set(0));
+        r.add_work(WorkSpec::new(JOB, "job", |_, _| {
+            let done = STEPS.with(|steps| {
+                steps.set(steps.get() + 1);
+                steps.get()
+            });
+            heard(alloc::format!("step {done}"));
+            if done < 3 {
+                Step::Progress(Progress::new(done, 3))
             } else {
                 Step::Done
             }
         }))?;
-        let log = self.log.clone();
-        r.subscribe(
-            events::WORK_CHANGED.id().clone(),
-            Box::new(move |_, params, _| {
-                let id = params.get(params::ID).unwrap_or("");
-                log.borrow_mut().push(alloc::format!("changed {id}"));
-            }),
-        )?;
+        r.subscribe(events::WORK_CHANGED.id().clone(), |_, params| {
+            let id = params.get(params::ID).unwrap_or("");
+            heard(alloc::format!("changed {id}"));
+        })?;
         // Says whose doing it is handling, run as an action.
-        let log = self.log.clone();
-        r.add_action(ActionSpec::new(Id::new_static("wk.who"), "who").handler(
-            move |env, _, _| {
-                log.borrow_mut()
-                    .push(alloc::format!("reader {}", env.reader()));
-            },
-        ))?;
-        r.subscribe(
-            Id::new_static("wk.fire"),
-            Box::new(|_, _, out| out.push(Command::run(Id::new_static("wk.who")))),
+        r.add_action(
+            ActionSpec::new(Id::new_static("wk.who"), "who")
+                .handler(|env, _, _| heard(alloc::format!("reader {}", env.reader()))),
         )?;
+        r.subscribe(Id::new_static("wk.fire"), |k, _| {
+            k.with_env(|_, out| out.push(Ask::run(Id::new_static("wk.who"))));
+        })?;
         // Work that fetches: its request goes out as it runs.
-        r.subscribe(
-            Id::new_static("wk.fetch"),
-            Box::new(|_, _, out| {
-                out.push(Command::http(paperpaw_sdk::HttpRequest::get(
+        r.subscribe(Id::new_static("wk.fetch"), |k, _| {
+            k.with_env(|_, out| {
+                out.push(Ask::http(paperpaw_sdk::HttpRequest::get(
                     "https://example.org/",
                     Id::new_static("wk.answered"),
                 )));
-            }),
-        )?;
-        let log = self.log.clone();
-        r.subscribe(
-            Id::new_static("wk.answered"),
-            Box::new(move |_, params, _| {
-                let refused = params.get(paperpaw_sdk::work::params::REFUSED);
-                log.borrow_mut()
-                    .push(alloc::format!("answered {}", refused.unwrap_or("-")));
-            }),
-        )?;
-        for (event, name) in [
-            (events::NETWORK_WANTED.id(), "wanted"),
-            (events::WORK_ALLOWED.id(), "allowed"),
-            (events::WORK_REFUSED.id(), "refused"),
-        ] {
-            let log = self.log.clone();
-            r.subscribe(
-                event.clone(),
-                Box::new(move |_, _, _| log.borrow_mut().push(String::from(name))),
-            )?;
-        }
+            });
+        })?;
+        r.subscribe(Id::new_static("wk.answered"), |_, params| {
+            let refused = params.get(paperpaw_sdk::work::params::REFUSED);
+            heard(alloc::format!("answered {}", refused.unwrap_or("-")));
+        })?;
+        r.subscribe(events::NETWORK_WANTED.id().clone(), |_, _| heard("wanted"))?;
+        r.subscribe(events::WORK_ALLOWED.id().clone(), |_, _| heard("allowed"))?;
+        r.subscribe(events::WORK_REFUSED.id().clone(), |_, _| heard("refused"))?;
         Ok(())
     }
 }
 
+/// What [`work_plugin`] registers under.
+fn work_plugin_manifest() -> Manifest {
+    Manifest::new(Id::new_static("wk"), "Work", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NETWORK)
+}
+
 fn kernel(log: &Log, network: bool) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WorkPlugin { log: log.clone() })
+        .items(
+            work_plugin_manifest(),
+            work_plugin(WorkPlugin { log: log.clone() }),
+        )
         .network(network)
         .build()
         .unwrap();
@@ -133,8 +131,8 @@ fn kernel(log: &Log, network: bool) -> Kernel {
 }
 
 fn declare(kernel: &mut Kernel, at: u64, work: Work) -> Effects {
-    kernel.now = Instant(at);
-    kernel.apply(Command::work(work));
+    kernel.shared.now = Instant(at);
+    kernel.apply(Ask::work(work));
     kernel.finish()
 }
 
@@ -184,7 +182,10 @@ fn a_deadline_runs_work_that_no_moment_did() {
 fn optional_network_work_waits_until_the_radio_is_on() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WorkPlugin { log: log.clone() })
+        .items(
+            work_plugin_manifest(),
+            work_plugin(WorkPlugin { log: log.clone() }),
+        )
         .network(true)
         .wifi(true)
         .build()
@@ -273,7 +274,7 @@ fn work_taken_back_does_not_run() {
     let mut kernel = kernel(&log, false);
     let push = Work::new(Id::new_static("wk.push")).within(Duration::from_secs(1));
     declare(&mut kernel, 0, push);
-    kernel.apply(Command::CancelWork(Id::new_static("wk.push"), None));
+    kernel.apply(Ask::CancelWork(Id::new_static("wk.push"), None));
     kernel.tick(Instant(5000));
     assert!(log.borrow().is_empty());
 }
@@ -300,17 +301,10 @@ fn offline_holds_network_work_back() {
 }
 
 /// Says something when its events come, or its action runs.
-struct Sayer;
-
-impl Plugin for Sayer {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(Id::new_static("sy"), "Sayer", Version::new(1, 0, 0))
-            .uses(paperpaw_sdk::Uses::NOTHING)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
+fn sayer_items() -> impl Fn(&mut Staging) -> Result<(), RegisterError> {
+    |r| {
         // Notices need a screen to show them.
-        r.add_screen(ScreenSpec::new(
+        r.add_fake(crate::testing::FakeSpec::new(
             Id::new_static("sy.notice"),
             "notice",
             Box::new(|_, _| Box::new(Blank)),
@@ -320,33 +314,36 @@ impl Plugin for Sayer {
             Id::new_static("sy.notice"),
             Priority(i16::MAX),
         )?;
-        r.subscribe(
-            Id::new_static("sy.say"),
-            Box::new(|_, _, out| out.push(Command::Notify(String::from("synced")))),
-        )?;
-        r.subscribe(
-            Id::new_static("sy.foreign"),
-            Box::new(|_, _, out| {
+        r.subscribe(Id::new_static("sy.say"), |k, _| {
+            k.with_env(|_, out| out.push(Ask::Notify(String::from("synced"))));
+        })?;
+        r.subscribe(Id::new_static("sy.foreign"), |k, _| {
+            k.with_env(|_, out| {
                 let work = Work::new(Id::new_static("wk.push")).at_moments(Moments::NONE);
-                out.push(Command::work(work));
-            }),
-        )?;
-        r.subscribe(
-            Id::new_static("sy.remind"),
-            Box::new(|_, _, out| out.push(Command::Announce(String::from("unplug")))),
-        )?;
+                out.push(Ask::work(work));
+            });
+        })?;
+        r.subscribe(Id::new_static("sy.remind"), |k, _| {
+            k.with_env(|_, out| out.push(Ask::Announce(String::from("unplug"))));
+        })?;
         r.add_action(
             ActionSpec::new(Id::new_static("sy.act"), "act")
-                .handler(|_, _, out| out.push(Command::Notify(String::from("done")))),
+                .handler(|_, _, out| out.push(Ask::Notify(String::from("done")))),
         )
     }
+}
+
+/// What [`sayer_items`] registers under.
+fn sayer_manifest() -> Manifest {
+    Manifest::new(Id::new_static("sy"), "Sayer", Version::new(1, 0, 0))
+        .uses(paperpaw_sdk::Uses::NOTHING)
 }
 
 fn sayer() -> Kernel {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WorkPlugin { log })
-        .plugin(Sayer)
+        .items(work_plugin_manifest(), work_plugin(WorkPlugin { log }))
+        .items(sayer_manifest(), sayer_items())
         .build()
         .unwrap();
     kernel.start(Instant(0));
@@ -420,13 +417,80 @@ fn a_plugin_whose_network_is_off_gets_none() {
         kernel.shared.work_states.get(&Id::new_static("wk.push")),
         None
     );
-    kernel.apply(Command::http(paperpaw_sdk::HttpRequest::get(
+    kernel.apply(Ask::http(paperpaw_sdk::HttpRequest::get(
         "https://example.org/",
         Id::new_static("wk.closed"),
     )));
     kernel.finish();
     assert!(kernel.take_io().is_empty(), "nor does a request go out");
     assert_eq!(log.borrow()[1], "wk.closed -", "it is answered at once");
+}
+
+/// What the native network services are told about plugin `wk`.
+fn policy_of(
+    kernel: &mut Kernel,
+    policy: &crate::native_host::net_policy::NetPolicy,
+    background: bool,
+) -> Option<(u32, bool)> {
+    kernel.refresh_net_policy(policy);
+    policy
+        .end_for("wk", background)
+        .map(|e| (e.reason, e.later))
+}
+
+#[test]
+fn the_native_network_policy_follows_the_mode_and_the_plugins_own_setting() {
+    use crate::native_host::net_service::reason;
+    let log = log();
+    let mut kernel = kernel(&log, true);
+    let policy = crate::native_host::net_policy::NetPolicy::new();
+    assert_eq!(policy_of(&mut kernel, &policy, true), None, "as it starts");
+    // Held to manual: refused for its background use, not for the reader's.
+    kernel
+        .set_setting(Instant(1), "core.saving.wk", "core.saving.manual")
+        .unwrap();
+    assert_eq!(
+        policy_of(&mut kernel, &policy, true),
+        Some((reason::SAVING, true))
+    );
+    assert_eq!(policy_of(&mut kernel, &policy, false), None);
+    // Off wins over everything, with no retry.
+    kernel
+        .set_setting(Instant(2), "core.network.wk", "off")
+        .unwrap();
+    assert_eq!(
+        policy_of(&mut kernel, &policy, false),
+        Some((reason::NETWORK_OFF, false))
+    );
+    kernel
+        .set_setting(Instant(3), "core.network.wk", "on")
+        .unwrap();
+    assert_eq!(
+        policy_of(&mut kernel, &policy, true),
+        Some((reason::SAVING, true))
+    );
+    // The offline mode ends everyone's, with a retry.
+    kernel.shared.power = paperpaw_sdk::power::Power::new(
+        paperpaw_sdk::power::PowerLevel::Offline,
+        paperpaw_sdk::power::OFFLINE,
+        false,
+        4,
+    );
+    assert_eq!(
+        policy_of(&mut kernel, &policy, false),
+        Some((reason::OFFLINE, true))
+    );
+    // Back to normal, and the setting back to follow the mode.
+    kernel.shared.power = paperpaw_sdk::power::Power::new(
+        paperpaw_sdk::power::PowerLevel::Normal,
+        paperpaw_sdk::power::NORMAL,
+        false,
+        1,
+    );
+    kernel
+        .set_setting(Instant(4), "core.saving.wk", "core.saving.follow")
+        .unwrap();
+    assert_eq!(policy_of(&mut kernel, &policy, true), None);
 }
 
 #[test]
@@ -465,7 +529,10 @@ fn an_exempt_plugin_keeps_normal_limits_in_saving() {
 
 fn wifi_kernel(log: &Log) -> Kernel {
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WorkPlugin { log: log.clone() })
+        .items(
+            work_plugin_manifest(),
+            work_plugin(WorkPlugin { log: log.clone() }),
+        )
         .network(true)
         .wifi(true)
         .build()
@@ -565,8 +632,8 @@ fn work_brought_due_by_the_readers_call_is_still_background() {
 fn a_held_button_is_the_readers_input() {
     let log = log();
     let mut kernel = Kernel::builder(DEVICE)
-        .plugin(WorkPlugin { log })
-        .plugin(Sayer)
+        .items(work_plugin_manifest(), work_plugin(WorkPlugin { log }))
+        .items(sayer_manifest(), sayer_items())
         .user_config("[keymap.global]\nlong.menu = sy.act\n")
         .build()
         .unwrap();
@@ -611,7 +678,7 @@ fn a_full_queue_refuses_and_then_allows_again() {
         declare(&mut kernel, 1, work);
     }
     assert_eq!(*log.borrow(), ["refused"]);
-    kernel.apply(Command::CancelWork(
+    kernel.apply(Ask::CancelWork(
         Id::new_static("wk.push"),
         Some(String::from("0")),
     ));
@@ -641,7 +708,7 @@ fn work_under_another_plugins_name_is_dropped() {
 fn a_plugin_that_does_not_declare_the_network_gets_none() {
     let mut kernel = sayer();
     kernel.take_warnings();
-    kernel.apply(Command::http(paperpaw_sdk::HttpRequest::get(
+    kernel.apply(Ask::http(paperpaw_sdk::HttpRequest::get(
         "https://example.org/",
         Id::new_static("sy.answer"),
     )));
@@ -659,13 +726,13 @@ fn a_plugin_that_does_not_declare_the_network_gets_none() {
 fn requests_are_taken_back_and_answered_so() {
     let log = log();
     let mut kernel = kernel(&log, true);
-    kernel.apply(Command::http(paperpaw_sdk::HttpRequest::get(
+    kernel.apply(Ask::http(paperpaw_sdk::HttpRequest::get(
         "https://example.org/",
         Id::new_static("wk.answered"),
     )));
     kernel.finish();
     assert!(kernel.io.http.busy());
-    kernel.apply(Command::CancelHttp(Id::new_static("wk.answered")));
+    kernel.apply(Ask::CancelHttp(Id::new_static("wk.answered")));
     kernel.finish();
     assert_eq!(*log.borrow(), ["answered cancelled"]);
     assert!(!kernel.io.http.busy());
@@ -682,7 +749,7 @@ fn offline_lets_out_only_what_the_reader_went_online_for() {
         4,
     );
     let request = || {
-        Command::http(paperpaw_sdk::HttpRequest::get(
+        Ask::http(paperpaw_sdk::HttpRequest::get(
             "https://example.org/",
             Id::new_static("wk.answered"),
         ))
@@ -698,7 +765,7 @@ fn offline_lets_out_only_what_the_reader_went_online_for() {
     assert_eq!(log.borrow()[1], "answered offline");
     // Gone online on the screen in front: it goes out.
     kernel.shared.reader = true;
-    kernel.apply(Command::GoOnline);
+    kernel.apply(Ask::GoOnline);
     kernel.apply(request());
     kernel.finish();
     assert!(kernel.io.http.busy(), "{:?}", log.borrow());
@@ -718,37 +785,37 @@ fn offline_lets_out_everything_for_the_while_the_reader_went_online_for() {
         4,
     );
     let request = || {
-        Command::http(paperpaw_sdk::HttpRequest::get(
+        Ask::http(paperpaw_sdk::HttpRequest::get(
             "https://example.org/",
             Id::new_static("wk.answered"),
         ))
     };
     // Sent by background work: not taken.
     kernel.shared.reader = false;
-    kernel.apply(Command::GoOnlineFor(Duration::from_secs(60)));
+    kernel.apply(Ask::GoOnlineFor(Duration::from_secs(60)));
     kernel.apply(request());
     kernel.finish();
     assert_eq!(*log.borrow(), ["answered offline"]);
     // The reader's: background work goes out within it.
     kernel.shared.reader = true;
-    kernel.apply(Command::GoOnlineFor(Duration::from_secs(3600)));
+    kernel.apply(Ask::GoOnlineFor(Duration::from_secs(3600)));
     kernel.shared.reader = false;
     assert_eq!(
         kernel.works.online_until,
-        Some(kernel.now.add_millis(10 * 60 * 1000))
+        Some(kernel.shared.now.add_millis(10 * 60 * 1000))
     );
     let effects = kernel.finish();
     assert!(
         effects
             .wake_at()
-            .is_some_and(|at| at <= kernel.now.add_millis(600_000))
+            .is_some_and(|at| at <= kernel.shared.now.add_millis(600_000))
     );
     kernel.apply(request());
     kernel.finish();
     assert!(kernel.io.http.busy(), "{:?}", log.borrow());
     // After it: refused again.
     let _ = kernel.io.http.take();
-    kernel.now = kernel.now.add_millis(600_001);
+    kernel.shared.now = kernel.shared.now.add_millis(600_001);
     kernel.apply(request());
     kernel.finish();
     assert_eq!(
@@ -770,4 +837,58 @@ fn plugins_know_whether_the_reader_is_waiting() {
     );
     kernel.tick(Instant(10));
     assert_eq!(*log.borrow(), ["reader true", "reader false"]);
+}
+
+#[test]
+fn stored_work_notes_cut_at_utf8_boundaries() {
+    let mut kernel = Kernel::builder(DEVICE).build().unwrap();
+    let owner = Id::new_static("wk");
+    for (text, expected) in [
+        ("a".repeat(256), "a".repeat(256)),
+        (alloc::format!("{}é!", "a".repeat(255)), "a".repeat(255)),
+        (alloc::format!("{}🦊!", "a".repeat(254)), "a".repeat(254)),
+        (String::with_capacity(4096), String::new()),
+        ("a".repeat(4096), "a".repeat(256)),
+        (String::new(), String::new()),
+    ] {
+        kernel.shared.set_work_note(
+            owner.clone(),
+            paperpaw_sdk::work::Note::new(Instant(42), text),
+        );
+        let note = kernel.shared.work_states.note(&owner).unwrap();
+        assert_eq!(note.text, expected);
+        assert!(note.text.capacity() <= 256);
+        assert_eq!(note.at, Instant(42));
+    }
+}
+
+#[test]
+fn global_usage_counters_saturate() {
+    let mut kernel = Kernel::builder(DEVICE).build().unwrap();
+    kernel.shared.usage.inputs = u32::MAX;
+    kernel.shared.usage.sleeps = u32::MAX;
+    kernel.shared.usage.panel_ms = u64::MAX;
+    kernel.shared.usage.pixels = u64::MAX;
+    kernel.shared.usage.refreshes =
+        paperpaw_sdk::usage::Refreshes::new(u32::MAX, u32::MAX, u32::MAX);
+    kernel.handle(
+        Instant(1),
+        InputEvent::Button {
+            name: "next",
+            state: ButtonState::Pressed,
+        },
+    );
+    kernel.panel_busy(1);
+    kernel.suspend(Instant(2));
+    for mode in [RefreshMode::Fast, RefreshMode::Partial, RefreshMode::Full] {
+        kernel.shared.usage.refreshed(mode, Rect::new(0, 0, 1, 1));
+    }
+    assert_eq!(kernel.shared.usage.inputs, u32::MAX);
+    assert_eq!(kernel.shared.usage.sleeps, u32::MAX);
+    assert_eq!(kernel.shared.usage.panel_ms, u64::MAX);
+    assert_eq!(kernel.shared.usage.pixels, u64::MAX);
+    assert_eq!(
+        kernel.shared.usage.refreshes,
+        paperpaw_sdk::usage::Refreshes::new(u32::MAX, u32::MAX, u32::MAX)
+    );
 }

@@ -1,0 +1,764 @@
+//! The interface-7 All notes: the list of books with notes and the notes of
+//! one book, over the library service, and the export of every note to
+//! `My Clippings.txt`. A note opens its book at its place in the reader the
+//! user bound to `core.reader` (`PORTING-7.md`).
+use crate::declarations::{BOOK_TOKEN, LIST_TOKEN, OPEN_TOKEN};
+use crate::model::{self, Counted, Handle, Kind};
+use crate::native_library::{BUFFER, HostSource};
+use crate::native_notes::{self, Choice, HostReplies, Layout, Place, Row, Show, Start};
+use crate::native_run::run;
+use crate::native_scan::scan;
+use alloc::string::String;
+use alloc::vec::Vec;
+use paperpaw_sdk::{
+    Handled,
+    native::{
+        Error, Host, Plugin,
+        callbacks::{DrawFrame, Input},
+        commands::CommandSender,
+        events::{Event, Incoming, kinds},
+        formatting::Arg,
+        library::{AnnotationCursor, BookRef, Library},
+        registrations,
+        reply::Reply,
+        ui::{HandoverId, Instance, Notify, Open, Param, Ui},
+    },
+};
+use paperpaw_ui_kit::{
+    Footer, Item, ItemList, ItemStep, Messages, Screens,
+    mem::{buffer, push},
+    read_event,
+    text::copy,
+};
+
+mod image {
+    include!(concat!(env!("OUT_DIR"), "/notes_overview_declarations.rs"));
+}
+
+/// The handover parameters that name a book: its catalog handle and the
+/// generation of the catalog it came from, as decimal numbers.
+const KEY: &str = "key";
+const GENERATION: &str = "generation";
+/// The handover parameters of `core.reader`: the book's path and the place in
+/// it (`docs/abi/document.md`).
+const PATH: &str = "path";
+const SECTION: &str = "section";
+const OFFSET: &str = "offset";
+/// Digits of a `u32`.
+const DIGITS: usize = 10;
+
+/// `n` in decimal, written into `buf`.
+fn digits(mut n: u32, buf: &mut [u8; DIGITS]) -> &str {
+    let mut at = DIGITS;
+    loop {
+        at -= 1;
+        buf[at] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    core::str::from_utf8(&buf[at..]).unwrap_or("0")
+}
+
+/// What a screen's rows stand for.
+#[derive(Debug)]
+enum Rows {
+    /// The books of the list by catalog handle, then the *Export* row.
+    Books(Vec<Handle>),
+    /// The notes of a book: one page of them.
+    Notes(Layout),
+}
+
+/// One open screen.
+#[derive(Debug)]
+struct View {
+    title: String,
+    rows: Rows,
+    list: ItemList,
+    /// What the screen says with no rows: the heading and the text.
+    empty: (String, String),
+    /// The book of a notes screen, to read its rows again.
+    book: Option<Handle>,
+    /// Whether the rows are held. A notes screen hidden under another one has
+    /// none ([`free_notes`]) and reads them again when it is shown.
+    loaded: bool,
+    /// The focused row when the rows were freed.
+    focus: usize,
+    /// Where each page of notes shown so far starts; the last is this one.
+    pages: Vec<Start<AnnotationCursor>>,
+    /// Where the page after this one starts.
+    next: Option<Start<AnnotationCursor>>,
+    /// Where each note of the page starts (what the reader opens at).
+    places: Vec<Place>,
+}
+
+/// Frees the rows of every notes screen that holds them. Rows of a book take
+/// up to 45 KiB each, and the stack can hold several books (book A, the Tools
+/// menu, All notes again, book B), so only the book on top keeps its rows.
+fn free_notes<'a>(views: impl Iterator<Item = &'a mut View>) {
+    for view in views {
+        if matches!(view.rows, Rows::Notes(_)) && view.loaded {
+            view.focus = view.list.focus();
+            view.list.replace(Vec::new());
+            view.places = Vec::new();
+            view.loaded = false;
+        }
+    }
+}
+
+/// The interface-7 All notes.
+#[derive(Debug, Default)]
+pub struct NativeNotesOverview {
+    ui: Option<Ui>,
+    library: Option<Library>,
+    screens: Screens<View>,
+}
+
+impl Plugin for NativeNotesOverview {
+    fn make(host: &Host<'_>) -> Result<Self, Error> {
+        for batch in image::UI {
+            registrations::submit(host, batch)?;
+        }
+        // The services are opened by the first callback: opening needs a live frame.
+        Ok(Self::default())
+    }
+
+    fn event(
+        &mut self,
+        host: &Host<'_>,
+        token: u32,
+        incoming: Incoming<'_>,
+        _: &mut Reply<'_>,
+    ) -> Result<(), Error> {
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed)
+        else {
+            return Ok(());
+        };
+        match event {
+            Event::ActionRun {
+                action: "notes-overview.open",
+                ..
+            } if token == OPEN_TOKEN => {
+                let mut scratch = [0; 128];
+                CommandSender::new(host, &mut scratch).open(Open::screen("notes-overview.screen")?)
+            }
+            Event::ScreenOpened { instance, .. } if token == LIST_TOKEN => {
+                self.opened_list(host, instance)
+            }
+            Event::ScreenOpened {
+                instance, handover, ..
+            } if token == BOOK_TOKEN => self.opened_book(host, instance, handover),
+            Event::ScreenShown {
+                instance: Some(instance),
+                ..
+            } if token == LIST_TOKEN || token == BOOK_TOKEN => {
+                self.screens.shown(token, instance)?;
+                if token == BOOK_TOKEN {
+                    self.reload(host, instance)?;
+                }
+                Ok(())
+            }
+            Event::ScreenClosed { instance, .. } => {
+                self.screens.close(instance);
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        let view = self.screens.top(token).ok_or(Error::State)?;
+        let View {
+            title, list, empty, ..
+        } = view;
+        let footer = if list.items().is_empty() {
+            Footer::Empty {
+                title: &empty.0,
+                text: &empty.1,
+            }
+        } else {
+            Footer::None
+        };
+        list.draw_with(host, &mut frame, title, true, footer)
+    }
+
+    fn input(&mut self, host: &Host<'_>, token: u32, input: Input<'_>) -> Result<Handled, Error> {
+        let Some(view) = self.screens.top(token) else {
+            return Ok(Handled::No);
+        };
+        let step = view.list.input(host, &input)?;
+        let ItemStep::Chosen(index) = step else {
+            return Ok(ItemList::handled(step));
+        };
+        let book = match &view.rows {
+            Rows::Books(handles) => index < handles.len(),
+            Rows::Notes(_) => false,
+        };
+        if book {
+            self.open_chosen(host, token, index)?;
+            return Ok(Handled::Yes);
+        }
+        match view.rows {
+            Rows::Books(_) => {
+                self.export(host)?;
+                Ok(Handled::Yes)
+            }
+            Rows::Notes(layout) => match layout.choice(index) {
+                Choice::Previous => self.turn(host, token, false).map(|()| Handled::Yes),
+                Choice::Next => self.turn(host, token, true).map(|()| Handled::Yes),
+                Choice::Note => self.open_note(host, token, index).map(|()| Handled::Yes),
+            },
+        }
+    }
+}
+
+impl NativeNotesOverview {
+    fn ensure(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        if self.ui.is_none() {
+            self.ui = Some(Ui::open(host)?);
+        }
+        if self.library.is_none() {
+            self.library = Some(Library::open(host)?);
+        }
+        Ok(())
+    }
+
+    fn library(&self) -> Result<&Library, Error> {
+        self.library.as_ref().ok_or(Error::State)
+    }
+
+    /// Writes every note to `My Clippings.txt` and says what came of it.
+    fn export(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        self.ensure(host)?;
+        let mut messages = Messages::new()?;
+        let text = match run(host, self.library()?) {
+            Ok((done, path)) if done.notes > 0 => messages.format(
+                host,
+                "notes-overview.exported",
+                &[
+                    Arg::Count(i64::from(done.notes)),
+                    Arg::Text {
+                        name: "path",
+                        value: &path,
+                    },
+                ],
+            )?,
+            Ok(_) => messages.copy(host, "notes-overview.none")?,
+            Err(_) => messages.copy(host, "notes-overview.export-failed")?,
+        };
+        let mut scratch = [0; 512];
+        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
+    }
+
+    /// Opens the notes of the book the row `index` of the list names. A
+    /// handle is good in one generation of the catalog: when the catalog has
+    /// changed (`State`) or the book is gone (`NotFound`), the list is made
+    /// again once, and the book is opened if it is still there (found by its
+    /// title, among equal titles by place); else the list shows what is there
+    /// now and says that it changed.
+    fn open_chosen(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        self.ensure(host)?;
+        let Some(Rows::Books(handles)) = self.screens.top(token).map(|view| &view.rows) else {
+            return Err(Error::State);
+        };
+        let handle = *handles.get(index).ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
+        let found = BookRef::catalog(handle.key, handle.generation).and_then(|book| {
+            self.library()?
+                .book(host, book, &mut input, &mut out)
+                .map(|_| ())
+        });
+        match found {
+            Ok(()) => self.open_book(host, handle),
+            Err(Error::State | Error::NotFound) => self.refresh(host, token, index),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Makes the list again under the screen of `token`; opens the book that
+    /// row `index` of the old list was, or says the list changed.
+    fn refresh(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        let (title, place) = {
+            let view = self.screens.top(token).ok_or(Error::State)?;
+            let (title, place) = place_of(view.list.items(), index).ok_or(Error::State)?;
+            (copy(title)?, place)
+        };
+        let mut messages = Messages::new()?;
+        let (handles, items) = self.list_rows(host, &mut messages)?;
+        let again = find_again(&items, &handles, &title, place);
+        let hint = messages.copy(host, "notes-overview.changed")?;
+        let view = self.screens.top(token).ok_or(Error::State)?;
+        view.rows = Rows::Books(handles);
+        view.list.replace(items);
+        match again {
+            Some(handle) => self.open_book(host, handle),
+            None => {
+                let mut scratch = [0; 256];
+                CommandSender::new(host, &mut scratch).notify(Notify::new(&hint)?)
+            }
+        }
+    }
+
+    /// Opens the notes of the book named by `handle`, which is handed over as
+    /// two numbers; the book's path is never fetched.
+    fn open_book(&mut self, host: &Host<'_>, handle: Handle) -> Result<(), Error> {
+        let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
+        let (mut key, mut generation) = ([0; DIGITS], [0; DIGITS]);
+        let params = [
+            Param::new(KEY, digits(handle.key, &mut key))?,
+            Param::new(GENERATION, digits(handle.generation, &mut generation))?,
+        ];
+        let handover = self
+            .ui
+            .as_ref()
+            .ok_or(Error::State)?
+            .handover(host, &params, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch)
+            .open(Open::screen("notes-overview.book")?.handover(handover))
+    }
+
+    /// Opens the book at the note the row `index` of the notes screen for
+    /// `token` is: `command.open` into `core.reader` (the reader the user
+    /// bound there) with the book's path and the note's section and offset
+    /// (`docs/abi/document.md`, *Opening at a place*). A book that changed
+    /// under the screen (`State`/`NotFound`) is told, nothing opens.
+    fn open_note(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        self.ensure(host)?;
+        let view = self.screens.top(token).ok_or(Error::State)?;
+        let Rows::Notes(layout) = view.rows else {
+            return Err(Error::State);
+        };
+        let place = layout.place(&view.places, index).ok_or(Error::State)?;
+        let handle = view.book.ok_or(Error::State)?;
+        let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
+        let book = BookRef::catalog(handle.key, handle.generation)?;
+        let path = match self.library()?.book(host, book, &mut input, &mut out) {
+            Ok(found) => copy(found.path())?,
+            Err(Error::State | Error::NotFound) => {
+                let mut messages = Messages::new()?;
+                let text = messages.copy(host, "notes-overview.gone")?;
+                let mut scratch = [0; 256];
+                return CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?);
+            }
+            Err(error) => return Err(error),
+        };
+        let (mut section, mut offset) = ([0; DIGITS], [0; DIGITS]);
+        let params = [
+            Param::new(PATH, &path)?,
+            Param::new(SECTION, digits(place.section, &mut section))?,
+            Param::new(OFFSET, digits(place.offset, &mut offset))?,
+        ];
+        let handover = self
+            .ui
+            .as_ref()
+            .ok_or(Error::State)?
+            .handover(host, &params, &mut input, &mut out)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
+    }
+
+    /// The books with notes as handles and rows: each book, then the
+    /// *Export* row.
+    fn list_rows(
+        &self,
+        host: &Host<'_>,
+        messages: &mut Messages,
+    ) -> Result<(Vec<Handle>, Vec<Item>), Error> {
+        let listing = {
+            let mut source = HostSource::new(host, self.library()?)?;
+            scan(&mut source)?
+        };
+        let mut items = Vec::new();
+        let mut handles = Vec::new();
+        for book in listing.books() {
+            push(&mut handles, book.handle)?;
+            let note = counts(host, messages, book)?;
+            push(&mut items, Item::noted(&book.title, "", &note)?)?;
+        }
+        if !listing.books().is_empty() {
+            let help = if listing.more() {
+                "notes-overview.export.help.more"
+            } else {
+                "notes-overview.export.help"
+            };
+            let (title, note) = (
+                messages.copy(host, "notes-overview.export")?,
+                messages.copy(host, help)?,
+            );
+            push(&mut items, Item::noted(&title, "›", &note)?)?;
+        }
+        Ok((handles, items))
+    }
+
+    fn opened_list(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        self.ensure(host)?;
+        let mut messages = Messages::new()?;
+        let (handles, items) = self.list_rows(host, &mut messages)?;
+        let view = View {
+            title: messages.copy(host, "notes-overview.title")?,
+            rows: Rows::Books(handles),
+            list: ItemList::new(items),
+            empty: empty(host, &mut messages)?,
+            book: None,
+            loaded: true,
+            focus: 0,
+            pages: Vec::new(),
+            next: None,
+            places: Vec::new(),
+        };
+        self.screens.open(instance, view)
+    }
+
+    /// Reads the rows again of a notes screen that was shown after it had
+    /// freed them. A book that changed under it leaves it with nothing to
+    /// show but what to do.
+    fn reload(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        let Some(view) = self.screens.get(instance) else {
+            return Ok(());
+        };
+        if !matches!(view.rows, Rows::Notes(_)) || view.loaded || view.book.is_none() {
+            return Ok(());
+        }
+        let focus = view.focus;
+        self.fill(host, instance, Some(focus))
+    }
+
+    /// Shows the page after (or before) the one of the notes screen on top
+    /// for `token`. Its rows are freed first, so two pages are never held.
+    fn turn(&mut self, host: &Host<'_>, token: u32, forward: bool) -> Result<(), Error> {
+        let instance = self.screens.top_instance(token).ok_or(Error::State)?;
+        let view = self.screens.get(instance).ok_or(Error::State)?;
+        view.list.replace(Vec::new());
+        view.places = Vec::new();
+        view.loaded = false;
+        if forward {
+            let next = view.next.take().ok_or(Error::State)?;
+            view.pages.try_reserve(1).map_err(|_| Error::NoMemory)?;
+            view.pages.push(next);
+        } else if view.pages.len() > 1 {
+            view.pages.pop();
+        }
+        // Coming back, the focus is on the row that went forward.
+        self.fill(
+            host,
+            instance,
+            if forward { None } else { Some(usize::MAX) },
+        )
+    }
+
+    /// Reads the page of notes the screen `instance` is at into it: the other
+    /// notes screens give up their rows first. A page the library no longer
+    /// knows (the book's notes changed) starts again at the first; a book
+    /// that is gone leaves the screen with what to do.
+    fn fill(
+        &mut self,
+        host: &Host<'_>,
+        instance: Instance,
+        focus: Option<usize>,
+    ) -> Result<(), Error> {
+        free_notes(self.screens.all());
+        let view = self.screens.get(instance).ok_or(Error::State)?;
+        let handle = view.book.ok_or(Error::State)?;
+        let mut pages = core::mem::take(&mut view.pages);
+        let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
+        let mut messages = Messages::new()?;
+        let book = BookRef::catalog(handle.key, handle.generation)?;
+        let library = self.library()?;
+        let mut read = |pages: &[Start<AnnotationCursor>]| {
+            let mut source = HostReplies {
+                library,
+                host,
+                book,
+                input: &mut input,
+                out: &mut out,
+            };
+            native_notes::page(&mut source, pages, &mut |show| {
+                show_row(host, &mut messages, show)
+            })
+        };
+        let mut found = read(&pages);
+        if matches!(found, Err(Error::State)) && pages.len() > 1 {
+            pages.truncate(1);
+            found = read(&pages);
+        }
+        let gone = match found {
+            Err(Error::State | Error::NotFound) => Some((
+                messages.copy(host, "notes-overview.empty.title")?,
+                messages.copy(host, "notes-overview.gone")?,
+            )),
+            _ => None,
+        };
+        let view = self.screens.get(instance).ok_or(Error::State)?;
+        view.pages = pages;
+        match found {
+            Ok(page) => {
+                view.list.replace(page.items);
+                view.places = page.places;
+                view.list.set_focus(focus.unwrap_or(0));
+                view.rows = Rows::Notes(page.layout);
+                view.next = page.next;
+            }
+            Err(Error::State | Error::NotFound) => {}
+            Err(error) => return Err(error),
+        }
+        if let Some(gone) = gone {
+            view.empty = gone;
+        }
+        view.loaded = true;
+        Ok(())
+    }
+
+    fn opened_book(
+        &mut self,
+        host: &Host<'_>,
+        instance: Instance,
+        handover: Option<HandoverId>,
+    ) -> Result<(), Error> {
+        self.ensure(host)?;
+        let (mut input, mut out) = (buffer(BUFFER)?, buffer(BUFFER)?);
+        let (mut key, mut generation) = (None, None);
+        if let Some(handover) = handover {
+            for param in self
+                .ui
+                .as_ref()
+                .ok_or(Error::State)?
+                .params(host, handover, &mut input, &mut out)?
+            {
+                let param = param?;
+                match param.key() {
+                    KEY => key = param.value().parse().ok(),
+                    GENERATION => generation = param.value().parse().ok(),
+                    _ => {}
+                }
+            }
+        }
+        // A handover without the two numbers names no book.
+        let (Some(key), Some(generation)) = (key, generation) else {
+            return Err(Error::Invalid);
+        };
+        let book = BookRef::catalog(key, generation)?;
+        // A list older than a change to the catalog is `State` here, as is a
+        // book that is gone (`NotFound`): the screen is not opened.
+        let title = copy(
+            self.library()?
+                .book(host, book, &mut input, &mut out)?
+                .title(),
+        )?;
+        drop((input, out));
+        let mut messages = Messages::new()?;
+        let mut pages = Vec::new();
+        push(&mut pages, Start::default())?;
+        let view = View {
+            title,
+            rows: Rows::Notes(Layout::default()),
+            list: ItemList::new(Vec::new()),
+            empty: empty(host, &mut messages)?,
+            book: Some(Handle { key, generation }),
+            loaded: false,
+            focus: 0,
+            pages,
+            next: None,
+            places: Vec::new(),
+        };
+        self.screens.open(instance, view)?;
+        // The rows are read into the open screen, after the others gave up
+        // theirs.
+        self.fill(host, instance, None)
+    }
+}
+
+/// The row a notes screen shows for `show`: a bookmark as its label, a
+/// highlight quoted, each with its own note (else its kind) and how far into
+/// the book it lies.
+fn show_row(host: &Host<'_>, messages: &mut Messages, show: Show<'_, '_>) -> Result<Item, Error> {
+    match show {
+        Show::Previous => Item::row(&messages.copy(host, "notes-overview.previous")?, "‹"),
+        Show::More => Item::row(&messages.copy(host, "notes-overview.more")?, "›"),
+        Show::Note(row) => note_row(host, messages, row),
+    }
+}
+
+fn note_row(host: &Host<'_>, messages: &mut Messages, row: &Row<'_>) -> Result<Item, Error> {
+    let (kind, text) = match row.kind {
+        Kind::Highlight => (
+            "notes-overview.highlight",
+            messages.format(
+                host,
+                "notes-overview.quoted",
+                &[Arg::Text {
+                    name: "text",
+                    value: row.text,
+                }],
+            )?,
+        ),
+        _ => ("notes-overview.bookmark", copy(row.text)?),
+    };
+    let what = if row.note.is_empty() {
+        messages.copy(host, kind)?
+    } else {
+        copy(row.note)?
+    };
+    let mut detail = String::new();
+    model::put_detail(&mut detail, &what, row.percent)?;
+    Item::noted(&text, "", &detail)
+}
+
+/// The title of row `index` and how many rows before it have the same title.
+fn place_of(items: &[Item], index: usize) -> Option<(&str, usize)> {
+    let Some(Item::Row(row)) = items.get(index) else {
+        return None;
+    };
+    let place = items[..index]
+        .iter()
+        .filter(|item| matches!(item, Item::Row(other) if other.title == row.title))
+        .count();
+    Some((&row.title, place))
+}
+
+/// The book of the rows `items` (the first `handles.len()` are books) that is
+/// the `place`th with `title`.
+fn find_again(items: &[Item], handles: &[Handle], title: &str, place: usize) -> Option<Handle> {
+    items
+        .iter()
+        .zip(handles)
+        .filter(|(item, _)| matches!(item, Item::Row(row) if row.title == title))
+        .nth(place)
+        .map(|(_, handle)| *handle)
+}
+
+/// `3 highlights · 1 bookmark`.
+fn counts(host: &Host<'_>, messages: &mut Messages, book: &Counted) -> Result<String, Error> {
+    let mut out = String::new();
+    for (key, n) in model::count_parts(book).into_iter().flatten() {
+        let part = messages.format(host, key, &[Arg::Count(i64::from(n))])?;
+        if !out.is_empty() {
+            model::Sink::put(&mut out, model::COUNT_SEPARATOR)?;
+        }
+        model::Sink::put(&mut out, &part)?;
+    }
+    Ok(out)
+}
+
+/// What an empty screen says.
+fn empty(host: &Host<'_>, messages: &mut Messages) -> Result<(String, String), Error> {
+    Ok((
+        messages.copy(host, "notes-overview.empty.title")?,
+        messages.copy(host, "notes-overview.empty")?,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        DIGITS, Handle, Item, ItemList, Layout, Rows, View, digits, find_again, free_notes,
+        place_of,
+    };
+    use alloc::string::String;
+    use alloc::vec::Vec;
+
+    fn rows(titles: &[&str]) -> (Vec<Item>, Vec<Handle>) {
+        let items = titles
+            .iter()
+            .map(|title| Item::noted(title, "", "").unwrap())
+            .collect();
+        let handles = (0..titles.len() as u32)
+            .map(|key| Handle {
+                key: key + 50,
+                generation: 2,
+            })
+            .collect();
+        (items, handles)
+    }
+
+    #[test]
+    fn a_book_is_found_again_by_its_title_and_its_place_among_equal_titles() {
+        // The old list: two books of one title; the second was chosen.
+        let (old, _) = rows(&["Apple", "Apple", "Pear", "Export"]);
+        assert_eq!(place_of(&old, 1), Some(("Apple", 1)));
+        assert_eq!(place_of(&old, 2), Some(("Pear", 0)));
+        assert_eq!(place_of(&old, 9), None);
+        // The new list has a book added before them: the handles are new, the
+        // book is the same.
+        let (new, handles) = rows(&["Aaa", "Apple", "Apple", "Pear", "Export"]);
+        let handles = &handles[..4];
+        assert_eq!(find_again(&new, handles, "Apple", 1), Some(handles[2]));
+        assert_eq!(find_again(&new, handles, "Pear", 0), Some(handles[3]));
+        // The second Apple is gone: not found, and so is a title never listed.
+        let (new, handles) = rows(&["Apple", "Pear", "Export"]);
+        assert_eq!(find_again(&new, &handles[..2], "Apple", 1), None);
+        // The *Export* row is not a book, even under the title of a book.
+        assert_eq!(find_again(&new, &handles[..2], "Export", 0), None);
+        assert_eq!(find_again(&new, &handles[..2], "Quince", 0), None);
+    }
+
+    #[test]
+    fn the_notes_of_a_book_fit_in_48_kib_at_worst() {
+        // The rows of a screen, and the vector holding them grown to the next
+        // power of two (an item is 80 bytes or so).
+        let rows = crate::native_notes::MOST_NOTES * crate::native_notes::ROW_WORST;
+        let vector =
+            crate::native_notes::MOST_NOTES.next_power_of_two() * core::mem::size_of::<Item>();
+        assert!(rows + vector <= 48 * 1024, "{}", rows + vector);
+    }
+
+    fn notes_view(rows: &[&str], focus: usize) -> View {
+        let items: Vec<Item> = rows
+            .iter()
+            .map(|t| Item::noted(t, "", "").unwrap())
+            .collect();
+        let mut list = ItemList::new(items);
+        list.set_focus(focus);
+        View {
+            title: String::new(),
+            rows: Rows::Notes(Layout::default()),
+            list,
+            empty: (String::new(), String::new()),
+            book: Some(Handle {
+                key: 1,
+                generation: 1,
+            }),
+            loaded: true,
+            focus: 0,
+            pages: Vec::new(),
+            next: None,
+            places: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn opening_a_second_book_frees_the_rows_of_the_first() {
+        // Book A under the list, then book B opens: only B keeps rows.
+        let mut a = notes_view(&["one", "two", "three"], 2);
+        let mut list = notes_view(&["Book A"], 0);
+        list.rows = Rows::Books(Vec::new());
+        list.book = None;
+        let mut b = notes_view(&["x", "y"], 1);
+        free_notes([&mut a, &mut list].into_iter());
+        assert!(!a.loaded);
+        assert!(a.list.items().is_empty());
+        assert_eq!(a.focus, 2, "the focus is kept for the reload");
+        assert!(a.book.is_some(), "the book is kept to read it again");
+        // The list of books is not a notes screen: its rows stay.
+        assert!(list.loaded);
+        assert_eq!(list.list.items().len(), 1);
+        // B is loaded after A was freed; freeing again changes nothing of A,
+        // and frees B when a third book opens.
+        free_notes([&mut a, &mut b].into_iter());
+        assert!(a.list.items().is_empty());
+        assert!(!b.loaded);
+        assert!(b.list.items().is_empty());
+        assert_eq!(b.focus, 1);
+    }
+
+    #[test]
+    fn numbers_are_written_in_decimal_without_allocating() {
+        let mut buf = [0; DIGITS];
+        assert_eq!(digits(0, &mut buf), "0");
+        assert_eq!(digits(7, &mut buf), "7");
+        assert_eq!(digits(1_000, &mut buf), "1000");
+        assert_eq!(digits(u32::MAX, &mut buf), "4294967295");
+        assert_eq!("4294967295".parse::<u32>().ok(), Some(u32::MAX));
+    }
+}

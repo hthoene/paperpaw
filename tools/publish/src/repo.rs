@@ -131,6 +131,7 @@ pub fn check(dir: &Path, rules: &Rules) -> Found {
     files(&folder, &at, rules, &mut add);
     if code {
         code_checks(dir, &folder, &at, &store, &long, rules, &mut add);
+        crate::kernel::check(dir, &id, &mut add);
     }
     around(dir, rules, &mut add);
     found.plugin = (!id.is_empty() && !version.is_empty()).then_some(Plugin {
@@ -715,7 +716,7 @@ fn code_checks(
             "Cargo.toml",
             format!(
                 "`{}`: name the SDK of a PaperPaw release by its version, such as \
-                 paperpaw-sdk = \"0.6.0-beta.1\", never a path or a git checkout",
+                 paperpaw-sdk = \"0.6.0-beta.3\", never a path or a git checkout",
                 line.trim()
             ),
         ));

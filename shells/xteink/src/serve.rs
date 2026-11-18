@@ -19,25 +19,25 @@ use crate::net::{self, Handle, Net};
 
 /// Connections per server at a time; each socket waits for the next once
 /// its request is answered. Two, for a page and what it loads with it.
-const SLOTS: usize = 2;
+pub(crate) const SLOTS: usize = 2;
 /// A connection's buffers: uploads come in, pages and files go out.
-const BUFFERS: net::Buffers = net::Buffers {
+pub(crate) const BUFFERS: net::Buffers = net::Buffers {
     receive: 8 * 1024,
     send: 4 * 1024,
 };
 /// Bytes of a request's body passed on at a time.
 const PART: usize = 16 * 1024;
 /// Ports tried after the one asked for, if it is taken.
-const MORE_PORTS: u16 = 20;
+pub(crate) const MORE_PORTS: u16 = 20;
 /// How long a request's head may take to come in all, and its plugin to
 /// answer; how long a connection may make no progress, and take to close.
 /// Progress is a whole [`PART`] of a body or an answer moved: a client
 /// trickling bytes cannot hold a connection, while a large upload or
 /// download that moves takes as long as it needs.
-const HEAD_MS: u64 = 30_000;
+pub(crate) const HEAD_MS: u64 = 30_000;
 const ANSWER_MS: u64 = 120_000;
-const STALL_MS: u64 = 30_000;
-const CLOSE_MS: u64 = 2_000;
+pub(crate) const STALL_MS: u64 = 30_000;
+pub(crate) const CLOSE_MS: u64 = 2_000;
 
 /// What a connection is at.
 enum Phase {
@@ -262,7 +262,7 @@ fn failed(server: u32, reason: &str) -> ServerEvent {
 }
 
 /// The connection is gone (reset, or closed before its answer).
-fn lost(socket: &tcp::Socket<'_>) -> bool {
+pub(crate) fn lost(socket: &tcp::Socket<'_>) -> bool {
     !matches!(
         socket.state(),
         tcp::State::Established | tcp::State::CloseWait
@@ -538,7 +538,7 @@ impl Slot {
 /// Lets go of what the client still sends once it is answered (a body
 /// refused on the way): its window stays open, so it is not held up
 /// before it reads the answer.
-fn drop_received(socket: &mut tcp::Socket<'_>) {
+pub(crate) fn drop_received(socket: &mut tcp::Socket<'_>) {
     while socket.can_recv() {
         if !matches!(socket.recv(|data| (data.len(), data.len())), Ok(n) if n > 0) {
             break;
@@ -581,6 +581,6 @@ fn send_file(
 
 /// Whether moving on from `from` to `to` bytes finished a [`PART`]: only
 /// that counts as progress (see [`HEAD_MS`]).
-fn part_done(from: u64, to: u64) -> bool {
+pub(crate) fn part_done(from: u64, to: u64) -> bool {
     from / PART as u64 != to / PART as u64
 }

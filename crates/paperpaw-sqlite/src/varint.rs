@@ -52,15 +52,38 @@ pub(crate) fn write(out: &mut alloc::vec::Vec<u8>, value: u64) {
 
 /// The length of `value` as a varint.
 pub(crate) fn len(value: u64) -> usize {
-    let mut out = alloc::vec::Vec::new();
-    write(&mut out, value);
-    out.len()
+    // Nine bytes carry 64 bits; below that, seven bits a byte.
+    if value > 0x00ff_ffff_ffff_ffff {
+        return 9;
+    }
+    let bits = (u64::BITS - value.leading_zeros()) as usize;
+    bits.div_ceil(7).max(1)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloc::vec::Vec;
+
+    #[test]
+    fn lengths_match_what_is_written() {
+        let mut values = alloc::vec![
+            0,
+            1,
+            127,
+            128,
+            16_383,
+            16_384,
+            u64::MAX,
+            0x00ff_ffff_ffff_ffff
+        ];
+        values.extend((0..64).map(|shift| 1u64 << shift));
+        for value in values {
+            let mut out = Vec::new();
+            write(&mut out, value);
+            assert_eq!(len(value), out.len(), "{value}");
+        }
+    }
 
     #[test]
     fn round_trips() {

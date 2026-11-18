@@ -2,4 +2,4 @@ Book notes sync keeps the highlights and notes of each book as one note in Jopli
 
 Set it up under Tools, as Book notes sync: where Joplin synchronises to (Joplin Cloud, Joplin Server or WebDAV, such as Nextcloud), your account and the Notebook. Then use Export as Markdown at the end of a book's bookmarks and highlights; the note is sent at once and updated by the next export.
 
-Notes that cannot be sent wait and go later, or with Send to Joplin. With Joplin's end-to-end encryption on, nothing is sent. The plugin is off at first: add it with More plugins, or switch it on under Plugins if it is listed there.
+Notes that cannot be sent wait and go later, or with Send to Joplin. With Joplin's end-to-end encryption on, nothing is sent. The plugin is off at first: add it from the Plugin store, or switch it on under Plugins if it is listed there.

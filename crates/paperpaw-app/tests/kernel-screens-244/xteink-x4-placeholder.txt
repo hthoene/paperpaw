@@ -1,0 +1,2 @@
+screen core.placeholder
+frame 800 rows, fnv1a64 b5d53cbf6bcdc590

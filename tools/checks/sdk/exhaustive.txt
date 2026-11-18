@@ -4,9 +4,15 @@
 # shorter. A type that must stay exhaustive is listed with its reason.
 
 # Exhaustive on purpose
-paperpaw_sdk::library::service::LibraryService  # a service type: its one field is all it is; another takes a new key
 paperpaw_sdk::Handled  # an event is handled or not, and a plugin matches both
-paperpaw_table::Table  # one address: its layout is the word the loader fills (repr(transparent))
+paperpaw_native::host_glue::PpBytes  # a C pair (pointer, length): its layout is the ABI (generated from abi/abi.def)
+paperpaw_native::host_glue::PpBuffer  # a C pair (pointer, capacity): its layout is the ABI (generated from abi/abi.def)
+paperpaw_native::host_glue::PpHost  # the host table, repr(C): it grows by sized appends of generated slots, never by Rust fields
+paperpaw_native::profile::Profile  # a profile row of abi/abi.def as the metadata prefix carries it: it changes only with the format, and the kernel builds it from the prefix it reads
+paperpaw_platform::Reason  # a device.md 5.5 reason NUMBER (#783): every u8 is already a value (the kernel reads an unknown number as 0), so it grows by new constants, which breaks nothing; a constructor would only repeat `Reason(n)`
+paperpaw_platform::firmware::Reason  # the same type by its module path
+paperpaw_platform::Step  # how one step of a firmware job ends: Progress, Done or Failed, and the driver (the kernel's install job) must handle each; a fourth way would need every driver changed, so a `_` arm would hide it
+paperpaw_platform::firmware::Step  # the same type by its module path
 
 # Not decided yet: each leaves as it gets #[non_exhaustive] and a
 # constructor, or moves up with its reason (SDK review A1)
@@ -46,12 +52,13 @@ paperpaw_platform::geometry::Point
 paperpaw_platform::geometry::Rect
 paperpaw_platform::input::Instant
 paperpaw_platform::pixel::Color
-paperpaw_sdk::Priority
 paperpaw_sdk::SettingCheck
 paperpaw_sdk::native::Fingerprint
-paperpaw_sdk::ui::sections::Section
 paperpaw_update::AppInfo
 paperpaw_update::PluginCrate
 paperpaw_update::Trailer
 paperpaw_xml::Token
 paperpaw_zip::Entry
+paperpaw_native::host_glue::PpEntry  # generated repr(C) entry prefix: plugins initialize its exact sized factory contract
+paperpaw_native::host_glue::PpPlugin  # generated repr(C) lifecycle prefix: plugins initialize its exact sized state/drop contract
+paperpaw_native::host_glue::PpHeap  # generated repr(C) heap table the host fills: it grows by sized appends of generated slots (size/minor checked), never by Rust fields

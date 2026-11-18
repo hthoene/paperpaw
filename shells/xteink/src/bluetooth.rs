@@ -255,6 +255,7 @@ impl Bluetooth {
                 // Dropped: the host, the links and the controller go down,
                 // and everything they had on the heap.
                 self.hid = on.shared.hid.take();
+                crate::entropy::bluetooth(false);
                 self.on = None;
                 log::info!("bluetooth: off, heap {}", crate::http::heap());
                 self.reports.push(BtReport::Radio { on: false });
@@ -294,6 +295,7 @@ impl Bluetooth {
                     core::mem::size_of_val(&*session)
                 );
                 self.on = Some(On { shared, session });
+                crate::entropy::bluetooth(true);
             }
             Err(e) => {
                 log::warn!("bluetooth: controller: {e:?}");
@@ -334,6 +336,7 @@ impl Bluetooth {
             if stopped {
                 log::warn!("bluetooth: the host stopped");
                 self.hid = on.shared.hid.take();
+                crate::entropy::bluetooth(false);
                 self.on = None;
                 self.reports.push(BtReport::Radio { on: false });
             }

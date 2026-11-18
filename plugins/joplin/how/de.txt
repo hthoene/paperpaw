@@ -2,4 +2,4 @@ Buchnotizen abgleichen legt die Markierungen und Notizen jedes Buchs als eine No
 
 Richte es unter Werkzeuge ein, als Buchnotizen abgleichen: womit Joplin synchronisiert (Joplin Cloud, Joplin Server oder WebDAV, etwa Nextcloud), dein Konto und das Notizbuch. Dann nimmst du am Ende der Lesezeichen und Markierungen eines Buchs Als Markdown exportieren; die Notiz wird sofort geschickt und beim nächsten Export aktualisiert.
 
-Notizen, die nicht geschickt werden können, warten und gehen später oder mit An Joplin schicken. Ist Joplins Ende-zu-Ende-Verschlüsselung an, wird nichts geschickt. Das Plugin ist anfangs aus: Füge es mit Mehr Plugins hinzu, oder schalte es unter Plugins ein, wenn es dort steht.
+Notizen, die nicht geschickt werden können, warten und gehen später oder mit An Joplin schicken. Ist Joplins Ende-zu-Ende-Verschlüsselung an, wird nichts geschickt. Das Plugin ist anfangs aus: Füge es aus dem Plugin-Store hinzu, oder schalte es unter Plugins ein, wenn es dort steht.

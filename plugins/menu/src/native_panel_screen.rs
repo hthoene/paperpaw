@@ -1,0 +1,1103 @@
+//! The quick panel as a screen (`menu.panel`, slot `core.panel`): the controls
+//! of `native_panel` read from the registry, drawn at the bottom of the screen
+//! or hanging from its top, and what input does to them. Changes apply at once
+//! and the panel stays open; the host tells the panel when a value changed.
+use crate::native_data::Reader;
+use crate::native_model::{self as model, Kind, Row, SettingInfo, SettingKind, Value};
+use crate::native_panel::{
+    self as panel, Control, Drag, Entry, Geometry, Layout, MAX_SEGMENTS, Measure, button_text,
+};
+use alloc::{string::String, vec::Vec};
+use paperpaw_sdk::{
+    Handled, Point, Rect,
+    native::{
+        Error, Host,
+        callbacks::{DrawFrame, DrawPurpose, FrameRect, Input, InputGestureKind, PointerPhase},
+        canvas::PartRole,
+        commands::{CommandSender, PreviewSetting, RedrawMode},
+        fonts::{Font, FontRole},
+        formatting::Arg,
+        settings::SettingValue,
+        snapshot,
+    },
+};
+use paperpaw_ui_kit::{Messages, Page, Paint, Style, mem::buffer, paint, sheet, text, text::copy};
+
+/// Hand-over parameter: where the panel hangs.
+pub const PARAM_MODE: &str = "mode";
+/// The value of [`PARAM_MODE`] for the quick panel, hanging from the top.
+pub const MODE_TOP: &str = "top";
+
+/// A row of the menu with what the panel knows of it.
+#[derive(Debug)]
+struct Part {
+    row: Row,
+    info: Option<SettingInfo>,
+    /// A choice's values and their translated labels (two to
+    /// [`MAX_SEGMENTS`] of them), else empty.
+    values: Vec<String>,
+    labels: Vec<String>,
+}
+
+/// What opening something follows an input with: the panel stages its own
+/// commands, the plugin opens screens (it holds the hand-over service).
+#[derive(Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// Handled, or not, with nothing to open.
+    Handled(Handled),
+    /// Open the screen `screen` for setting `key` (hand-over `id`).
+    Screen { screen: String, key: String },
+    /// Open `slot` with one hand-over parameter.
+    Slot {
+        slot: &'static str,
+        param: &'static str,
+        value: String,
+    },
+    /// Open a slot for a setting with a name of its own (a setting's editor).
+    SettingSlot { slot: String, key: String },
+}
+
+/// A panel on screen.
+#[derive(Debug, Default)]
+pub struct PanelView {
+    menu: String,
+    top: bool,
+    parts: Vec<Part>,
+    layout: Option<Layout>,
+    /// The control the buttons chose, in reading order.
+    focus: Option<usize>,
+    page: usize,
+    touch: bool,
+    /// The arrows of the pager as last drawn.
+    header: Page,
+    region: Rect,
+    /// Made anew when it shows again.
+    stale: bool,
+    /// The knob a finger holds.
+    drag: Option<Drag>,
+}
+
+/// The width of text in one font at one size.
+struct FontMeasure<'a, 'cb> {
+    font: &'a Font<'cb>,
+    size: f32,
+}
+
+impl Measure for FontMeasure<'_, '_> {
+    /// A text the font cannot measure counts as no width: it is shown cut
+    /// by the drawing, never wrongly packed.
+    fn width(&self, text: &str) -> f32 {
+        self.font.measure_text(self.size, text).unwrap_or(0.0)
+    }
+}
+
+impl PanelView {
+    /// A panel for `menu`, hanging from the top when `mode` is [`MODE_TOP`].
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] and the host's refusals.
+    pub fn new(host: &Host<'_>, menu: &str, mode: &str) -> Result<Self, Error> {
+        let touch = snapshot::capture_snapshot(host)?.has_touch();
+        let mut view = Self {
+            menu: copy(menu)?,
+            top: mode == MODE_TOP,
+            touch,
+            ..Self::default()
+        };
+        view.read(host)?;
+        Ok(view)
+    }
+
+    /// The menu's rows read anew; the layout is made when it is drawn.
+    ///
+    /// # Errors
+    /// [`Error::NoMemory`] and the host's refusals; the view is unchanged.
+    pub fn read(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let mut reader = Reader::open(host)?;
+        let made = self.parts_from(host, &mut reader);
+        let parts = reader.finish(made)?;
+        self.parts = parts;
+        self.layout = None;
+        self.stale = false;
+        Ok(())
+    }
+
+    fn parts_from(&self, host: &Host<'_>, reader: &mut Reader<'_, '_>) -> Result<Vec<Part>, Error> {
+        let mut rows = reader.menu(&self.menu)?;
+        panel::cap_rows(&mut rows);
+        let mut messages = Messages::new()?;
+        let mut parts: Vec<Part> = Vec::new();
+        parts
+            .try_reserve_exact(rows.len())
+            .map_err(|_| Error::NoMemory)?;
+        for row in rows {
+            let info = if row.kind == Kind::Setting {
+                reader.setting(&row.item)?
+            } else {
+                None
+            };
+            let (mut values, mut labels) = (Vec::new(), Vec::new());
+            if let Some(info) = info.as_ref().filter(|i| {
+                i.kind == SettingKind::Choice && (2..=MAX_SEGMENTS as u32).contains(&i.choices)
+            }) {
+                values = reader.choice_values(&info.key)?;
+                labels = choice_labels(&values, &mut |value| messages.copy(host, value))?;
+            }
+            parts.push(Part {
+                row,
+                info,
+                values,
+                labels,
+            });
+        }
+        Ok(parts)
+    }
+
+    /// The menu it shows.
+    #[must_use]
+    pub fn menu(&self) -> &str {
+        &self.menu
+    }
+
+    /// Made anew when it shows again.
+    pub fn mark_stale(&mut self) {
+        self.stale = true;
+    }
+
+    /// It must be read anew.
+    #[must_use]
+    pub const fn is_stale(&self) -> bool {
+        self.stale
+    }
+
+    /// Where the panel was drawn last.
+    #[must_use]
+    pub const fn region(&self) -> Rect {
+        self.region
+    }
+
+    fn entries(&self) -> Result<Vec<Entry<'_>>, Error> {
+        let mut entries = Vec::new();
+        entries
+            .try_reserve_exact(self.parts.len())
+            .map_err(|_| Error::NoMemory)?;
+        for part in &self.parts {
+            entries.push(Entry {
+                row: &part.row,
+                info: part.info.as_ref(),
+                options: &part.labels,
+            });
+        }
+        Ok(entries)
+    }
+
+    /// Whether control `index` can be used now (its row is not faint).
+    fn enabled(&self, layout: &Layout, index: usize) -> bool {
+        layout
+            .controls()
+            .nth(index)
+            .and_then(|(c, _, _)| self.parts.get(c.row()))
+            .is_some_and(|part| part.row.choosable())
+    }
+
+    /// The panel laid out for the screen and the font.
+    fn lay_out(
+        &self,
+        font: &Font<'_>,
+        style: &Style,
+        width: u16,
+        height: u16,
+    ) -> Result<Layout, Error> {
+        let g = Geometry {
+            width,
+            height,
+            gap: style.gap,
+            spacing: if self.touch { style.gap } else { style.gap / 2 },
+            row: style.row,
+            button: style.row.saturating_sub(style.gap),
+            border: (style.line * 2).max(2),
+            label: 0,
+            pager: style.row,
+            margin: style.margin,
+            rtl: false,
+            top: self.top,
+            touch: self.touch,
+        };
+        let entries = self.entries()?;
+        let label = panel::label_width(
+            &entries,
+            &FontMeasure {
+                font,
+                size: style.text,
+            },
+            &g,
+        );
+        let g = Geometry { label, ..g };
+        let small = FontMeasure {
+            font,
+            size: style.small,
+        };
+        let lines = panel::lines(&entries, &small, &g)?;
+        panel::layout(&lines, &g)
+    }
+
+    /// Draws the panel: the page the focus is on.
+    ///
+    /// # Errors
+    /// Propagates allocation, font, catalog and drawing errors.
+    pub fn draw(
+        &mut self,
+        host: &Host<'_>,
+        frame: &mut DrawFrame<'_>,
+        shown: bool,
+    ) -> Result<Rect, Error> {
+        let display = snapshot::capture_snapshot(host)?;
+        let font = Font::acquire_role(host, FontRole::Ui)?;
+        let mut style = Style::read(host, &display, &font)?;
+        style.describing = matches!(frame.purpose, DrawPurpose::Screen) && paint::asking(frame);
+        let layout = self.lay_out(
+            &font,
+            &style,
+            display.display_width(),
+            display.display_height(),
+        )?;
+        self.region = layout.region;
+        self.page = self.page.min(layout.pages().saturating_sub(1));
+        if self.focus.is_none() && !self.touch {
+            self.focus = (0..layout.count()).find(|i| self.enabled(&layout, *i));
+        }
+        if !matches!(frame.purpose, DrawPurpose::Screen) {
+            font.release()?;
+            let region = layout.region;
+            self.layout = Some(layout);
+            return Ok(region);
+        }
+        let mut body = Vec::new();
+        let mut header = Page::default();
+        let made = self.prepare(host, &mut body, &mut header, &font, &style, &layout, shown);
+        if made.is_ok() {
+            paint::replay(frame, &font, body.iter())?;
+        }
+        font.release()?;
+        made?;
+        let region = layout.region;
+        self.layout = Some(layout);
+        self.header = header;
+        Ok(region)
+    }
+
+    #[allow(clippy::too_many_arguments, reason = "what the panel is drawn from")]
+    fn prepare(
+        &self,
+        host: &Host<'_>,
+        body: &mut Vec<Paint>,
+        header: &mut Page,
+        font: &Font<'_>,
+        style: &Style,
+        layout: &Layout,
+        shown: bool,
+    ) -> Result<(), Error> {
+        let r = layout.region;
+        paint::push(body, Paint::Fill(r, style.paper))?;
+        let border = (style.line * 2).max(2);
+        let edge = if self.top {
+            Rect::new(
+                r.x,
+                r.y.saturating_add(r.height).saturating_sub(border),
+                r.width,
+                border,
+            )
+        } else {
+            Rect::new(r.x, r.y, r.width, border)
+        };
+        paint::push(body, Paint::Fill(edge, style.ink))?;
+        let mut messages = Messages::new()?;
+        if self.parts.is_empty() {
+            let empty = messages.copy(host, "menu.empty")?;
+            let x = f32::from(r.x)
+                + (f32::from(r.width) - font.measure_text(style.text, &empty)?).max(0.0) / 2.0;
+            return text::label(body, font, &empty, style.text, x, r, style.muted, Some(r));
+        }
+        let (on, off) = (
+            messages.copy(host, "core.on")?,
+            messages.copy(host, "core.off")?,
+        );
+        let mut index = 0;
+        for row in &layout.rows {
+            if row.page != self.page {
+                index += row.controls.len();
+                continue;
+            }
+            if let Some(part) = row.label.and_then(|i| self.parts.get(i)) {
+                self.draw_label(
+                    body,
+                    font,
+                    style,
+                    row.area,
+                    part,
+                    row.controls.first().map(|(_, c)| *c),
+                )?;
+            }
+            for (control, rect) in &row.controls {
+                let focused = shown && self.focus == Some(index);
+                self.draw_control(
+                    body,
+                    font,
+                    style,
+                    (host, &mut messages, (&on, &off)),
+                    *control,
+                    *rect,
+                    focused,
+                )?;
+                index += 1;
+            }
+            if let (Some(track), Some(part)) =
+                (row.track, row.label.and_then(|i| self.parts.get(i)))
+            {
+                let at = row.label.unwrap_or_default();
+                let held = self.drag.filter(|d| d.row == at).map(|d| d.value);
+                if style.describing {
+                    let shown = self.number_text(host, &mut messages, part, at)?;
+                    let disabled = !part.row.choosable();
+                    let told = (PartRole::Slider, track);
+                    paint::describe_named(body, true, told.0, told.1, &shown, false, disabled)?;
+                }
+                Self::draw_slider(body, style, track, part, held)?;
+            }
+        }
+        if let Some(bar) = layout.pager {
+            let pages = layout.pages();
+            let label = messages.format(
+                host,
+                "core.page-of",
+                &[
+                    Arg::Int {
+                        name: "page",
+                        value: self.page.saturating_add(1) as i64,
+                    },
+                    Arg::Int {
+                        name: "pages",
+                        value: pages as i64,
+                    },
+                ],
+            )?;
+            sheet::pager(
+                body, header, font, style, bar, &label, self.page, pages, self.touch,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// A setting's title on the left of its row (a number's, a choice's).
+    fn draw_label(
+        &self,
+        body: &mut Vec<Paint>,
+        font: &Font<'_>,
+        style: &Style,
+        area: Rect,
+        part: &Part,
+        first: Option<Rect>,
+    ) -> Result<(), Error> {
+        // An opened setting draws its own title in its row.
+        if matches!(part.info.as_ref().map(|i| i.kind), Some(kind) if kind != SettingKind::Int && kind != SettingKind::Choice)
+            || part.info.as_ref().is_some_and(|i| i.editor_kind != 0)
+        {
+            return Ok(());
+        }
+        if part
+            .info
+            .as_ref()
+            .is_some_and(|i| i.kind == SettingKind::Choice && part.labels.is_empty())
+        {
+            return Ok(());
+        }
+        let x = f32::from(style.margin);
+        let end = first.map_or(area.x.saturating_add(area.width), |c| c.x);
+        let clip = Rect::new(
+            area.x,
+            area.y,
+            end.saturating_sub(area.x).saturating_sub(style.gap),
+            area.height,
+        );
+        text::label(
+            body,
+            font,
+            &part.row.title,
+            style.text,
+            x,
+            clip,
+            style.ink,
+            Some(clip),
+        )
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "geometry, look and state of one control"
+    )]
+    fn draw_control(
+        &self,
+        body: &mut Vec<Paint>,
+        font: &Font<'_>,
+        style: &Style,
+        (host, messages, (on_text, off_text)): (&Host<'_>, &mut Messages, (&str, &str)),
+        control: Control,
+        rect: Rect,
+        focused: bool,
+    ) -> Result<(), Error> {
+        let Some(part) = self.parts.get(control.row()) else {
+            return Ok(());
+        };
+        let faint = !part.row.choosable();
+        let thickness = u32::from(style.line).max(1);
+        let ink = if faint { style.disabled } else { style.ink };
+        let button = |body: &mut Vec<Paint>, label: &str, on: bool| -> Result<(), Error> {
+            if on && !faint {
+                paint::push(body, Paint::Focus(rect, style.corner, None, ink))?;
+            } else {
+                paint::push(body, Paint::Focus(rect, style.corner, Some(thickness), ink))?;
+            }
+            if focused {
+                paint::push(
+                    body,
+                    Paint::Focus(rect.grow(2), style.corner, Some(thickness), style.ink),
+                )?;
+            }
+            let color = if on && !faint { style.paper } else { ink };
+            let room = f32::from(button_room(rect.width, style.margin)).max(1.0);
+            let size = label_size(style.small, room, &mut |size| {
+                font.measure_text(size, label)
+            })?;
+            let fitted = text::fit(font, size, label, room)?;
+            let wide = font.measure_text(size, &fitted)?;
+            let x = f32::from(rect.x) + (f32::from(rect.width) - wide).max(0.0) / 2.0;
+            text::label(body, font, &fitted, size, x, rect, color, Some(rect))
+        };
+        match control {
+            Control::Toggle(_) => {
+                let on = match part.info.as_ref().and_then(|i| i.value.as_ref()) {
+                    Some(Value::Bool(v)) => *v,
+                    _ => part.row.checked(),
+                };
+                button(body, &button_text(&part.row)?, on)
+            }
+            Control::Run(_) => button(body, &button_text(&part.row)?, part.row.checked()),
+            Control::Step(_, step) => {
+                button(body, if step < 0 { "\u{2212}" } else { "+" }, false)?;
+                if step > 0 {
+                    let shown = self.number_text(host, messages, part, control.row())?;
+                    self.draw_number(body, font, style, &shown, rect)?;
+                }
+                Ok(())
+            }
+            Control::Option(_, option) => {
+                let now = match part.info.as_ref().and_then(|i| i.value.as_ref()) {
+                    Some(Value::Text(v)) => v.as_str(),
+                    _ => "",
+                };
+                let on = part.values.get(option).is_some_and(|v| v == now);
+                let label = part.labels.get(option).map_or("", String::as_str);
+                button(body, label, on)
+            }
+            Control::Open(_) => {
+                let value = match &part.info {
+                    Some(info) => {
+                        crate::native_plugin::value_text(info, on_text, off_text, &mut |key, n| {
+                            crate::native_plugin::say(messages, host, key, n)
+                        })?
+                    }
+                    None => String::new(),
+                };
+                let shown = text::concat(&[&value, " \u{203a}"])?;
+                if focused {
+                    paint::push(
+                        body,
+                        Paint::Focus(rect.inset(2, 2), style.corner, Some(thickness), style.ink),
+                    )?;
+                }
+                let x = f32::from(style.margin);
+                text::label(
+                    body,
+                    font,
+                    &part.row.title,
+                    style.text,
+                    x,
+                    rect,
+                    ink,
+                    Some(rect),
+                )?;
+                let value_size = self.value_size(style);
+                let wide = font.measure_text(value_size, &shown)?;
+                let right =
+                    f32::from(rect.x) + f32::from(rect.width) - f32::from(style.margin) - wide;
+                text::label(
+                    body,
+                    font,
+                    &shown,
+                    value_size,
+                    right.max(0.0),
+                    rect,
+                    style.muted,
+                    Some(rect),
+                )
+            }
+        }
+    }
+
+    fn value_size(&self, style: &Style) -> f32 {
+        if self.menu == paperpaw_sdk::builtin::menus::QUICK.as_str() {
+            style.text
+        } else {
+            style.small
+        }
+    }
+
+    /// The number of a stepped setting with its unit as the catalogs say
+    /// it (*9 pt*); empty where it has no number.
+    fn number_text(
+        &self,
+        host: &Host<'_>,
+        messages: &mut Messages,
+        part: &Part,
+        row: usize,
+    ) -> Result<String, Error> {
+        let Some(info) = part.info.as_ref() else {
+            return Ok(String::new());
+        };
+        let Some(Value::Int(now)) = info.value.as_ref() else {
+            return Ok(String::new());
+        };
+        // The knob a finger holds shows its number, not the one kept.
+        let held = self.drag.filter(|d| d.row == row).map(|d| d.value);
+        let now = held.as_ref().unwrap_or(now);
+        model::said_with_unit(*now, &info.unit, &mut |key, n| {
+            crate::native_plugin::say(messages, host, key, Some(n))
+        })
+    }
+
+    /// A slider's track: a thin line, thick up to the knob, and the knob.
+    fn draw_slider(
+        body: &mut Vec<Paint>,
+        style: &Style,
+        track: Rect,
+        part: &Part,
+        held: Option<i64>,
+    ) -> Result<(), Error> {
+        let Some(info) = part.info.as_ref().filter(|i| i.slider()) else {
+            return Ok(());
+        };
+        let Some(Value::Int(now)) = held.map(Value::Int).or(info.value.clone()) else {
+            return Ok(());
+        };
+        let ink = if part.row.choosable() {
+            style.ink
+        } else {
+            style.disabled
+        };
+        let radius = panel::knob_radius(track);
+        let knob = panel::knob_x(track, now, (info.min, info.max)).clamp(0, i32::from(u16::MAX));
+        let middle = track.y.saturating_add(track.height / 2);
+        let (thin, thick) = (style.line.max(1), style.line.saturating_mul(3).max(3));
+        let start = track.x.saturating_add(radius);
+        let end = track.x.saturating_add(track.width).saturating_sub(radius);
+        let at = knob as u16;
+        let line = |from: u16, to: u16, height: u16| {
+            Rect::new(
+                from,
+                middle.saturating_sub(height / 2),
+                to.saturating_sub(from),
+                height,
+            )
+        };
+        paint::push(body, Paint::Fill(line(start, end, thin), ink))?;
+        paint::push(body, Paint::Fill(line(start, at, thick), ink))?;
+        let circle = Rect::new(
+            at.saturating_sub(radius),
+            middle.saturating_sub(radius),
+            radius.saturating_mul(2),
+            radius.saturating_mul(2),
+        );
+        paint::push(body, Paint::Focus(circle, u32::from(radius), None, ink))
+    }
+
+    /// A number's value between its `−` and its `+`, drawn beside the `+`.
+    fn draw_number(
+        &self,
+        body: &mut Vec<Paint>,
+        font: &Font<'_>,
+        style: &Style,
+        shown: &str,
+        plus: Rect,
+    ) -> Result<(), Error> {
+        if shown.is_empty() {
+            return Ok(());
+        }
+        let wide = font.measure_text(style.small, shown)?;
+        let x = f32::from(plus.x) - style.gap as f32 - wide;
+        let area = Rect::new(0, plus.y, plus.x, plus.height);
+        text::label(
+            body,
+            font,
+            shown,
+            style.small,
+            x.max(0.0),
+            area,
+            style.ink,
+            Some(area),
+        )
+    }
+
+    /// What input does. Settings change and menus close through staged
+    /// commands; what is to be opened is returned.
+    ///
+    /// # Errors
+    /// Propagates allocation and command errors; an error drops what the
+    /// callback staged.
+    pub fn input(&mut self, host: &Host<'_>, input: &Input<'_>) -> Result<Outcome, Error> {
+        let Some(layout) = self.layout.take() else {
+            return Ok(Outcome::Handled(Handled::No));
+        };
+        let result = self.input_with(host, input, &layout);
+        self.layout = Some(layout);
+        result
+    }
+
+    fn input_with(
+        &mut self,
+        host: &Host<'_>,
+        input: &Input<'_>,
+        layout: &Layout,
+    ) -> Result<Outcome, Error> {
+        match *input {
+            Input::Action { action, .. } => self.on_action(host, action, layout),
+            Input::Gesture {
+                position,
+                kind: InputGestureKind::Tap,
+                ..
+            } => self.on_tap(host, position, layout),
+            Input::Pointer {
+                position,
+                phase,
+                contact,
+                ..
+            } => self.on_pointer(host, (contact, position), phase, layout),
+            _ => Ok(Outcome::Handled(Handled::No)),
+        }
+    }
+
+    /// A finger on a slider's track: a knob it moves shows the number at once
+    /// without keeping it (a quick refresh of the slider's row), and lifting
+    /// the finger keeps it. A finger that stays within the reach of a tap is
+    /// left to the tap.
+    fn on_pointer(
+        &mut self,
+        host: &Host<'_>,
+        (contact, at): (u32, Point),
+        phase: PointerPhase,
+        layout: &Layout,
+    ) -> Result<Outcome, Error> {
+        let (yes, no) = (Handled::Yes, Handled::No);
+        let held = self.drag.filter(|d| d.contact == contact);
+        match (phase, held) {
+            (PointerPhase::Down, _) if self.touch => {
+                self.drag = None;
+                if let Some((row, track)) = layout.track_at(self.page, at) {
+                    self.drag = self.begin_drag((contact, row), track, at.x);
+                }
+                // A finger taken is the slider's alone, up to its lifting.
+                Ok(Outcome::Handled(if self.drag.is_some() { yes } else { no }))
+            }
+            (PointerPhase::Move, Some(mut drag)) => {
+                let moved = drag.follow(at.x);
+                self.drag = Some(drag);
+                if let Some(value) = moved {
+                    self.show_drag(host, &drag, value, layout)?;
+                }
+                Ok(Outcome::Handled(yes))
+            }
+            (PointerPhase::Up, Some(mut drag)) => {
+                self.drag = None;
+                if !drag.moved() {
+                    // A tap on the track: the value there.
+                    return self.set_by_tap(host, drag.row, drag.track(), at);
+                }
+                drag.follow(at.x);
+                self.keep_drag(host, &drag)?;
+                Ok(Outcome::Handled(yes))
+            }
+            (PointerPhase::Cancel, Some(drag)) => {
+                self.drag = None;
+                if drag.moved() {
+                    CommandSender::new(host, &mut [0; 64]).end_preview()?;
+                    self.redraw(host)?;
+                }
+                Ok(Outcome::Handled(yes))
+            }
+            _ => Ok(Outcome::Handled(no)),
+        }
+    }
+
+    /// The knob taken where a finger came down on `track` of the slider `row`.
+    fn begin_drag(&self, (contact, row): (u32, usize), track: Rect, x: i32) -> Option<Drag> {
+        let part = self.parts.get(row)?;
+        let info = part.info.as_ref().filter(|i| i.slider())?;
+        let Some(Value::Int(now)) = info.value else {
+            return None;
+        };
+        part.row.choosable().then(|| {
+            let range = (info.min, info.max, info.step);
+            Drag::begin(
+                (contact, row),
+                track,
+                range,
+                x,
+                now.clamp(info.min, info.max),
+            )
+        })
+    }
+
+    /// The number dragged to, shown and not kept: the setting previewed (what
+    /// it changes shows at once) and the slider's row drawn again, quickly.
+    fn show_drag(
+        &self,
+        host: &Host<'_>,
+        drag: &Drag,
+        value: i64,
+        layout: &Layout,
+    ) -> Result<(), Error> {
+        let Some(part) = self.parts.get(drag.row) else {
+            return Ok(());
+        };
+        let Some(info) = part.info.as_ref() else {
+            return Ok(());
+        };
+        let mut scratch = buffer(1024)?;
+        let mut encoded = [0; 64];
+        CommandSender::new(host, &mut scratch).preview_settings(
+            &[PreviewSetting::new(&info.key, SettingValue::Int(value))],
+            &mut encoded,
+        )?;
+        let Some(row) = layout.rows.iter().find(|r| r.label == Some(drag.row)) else {
+            return Ok(());
+        };
+        let area = FrameRect::new(
+            i32::from(row.area.x),
+            i32::from(row.area.y),
+            u32::from(row.area.width),
+            u32::from(row.area.height),
+        );
+        CommandSender::new(host, &mut [0; 128]).queue_redraw_area(RedrawMode::Fast, area)
+    }
+
+    /// The finger lifted off a knob it moved: the number is kept, the panel
+    /// drawn cleanly.
+    fn keep_drag(&mut self, host: &Host<'_>, drag: &Drag) -> Result<(), Error> {
+        let Some(info) = self.parts.get(drag.row).and_then(|p| p.info.as_ref()) else {
+            return Ok(());
+        };
+        CommandSender::new(host, &mut [0; 64]).end_preview()?;
+        let mut scratch = buffer(1024)?;
+        CommandSender::new(host, &mut scratch).set_setting(&info.key, SettingValue::Int(drag.value))
+    }
+
+    fn on_tap(&mut self, host: &Host<'_>, at: Point, layout: &Layout) -> Result<Outcome, Error> {
+        if !self.region.contains(at) {
+            // A tap outside closes it.
+            CommandSender::new(host, &mut [0; 64]).back()?;
+            return Ok(Outcome::Handled(Handled::Yes));
+        }
+        match self.header.action(at) {
+            Some("core.next-page") => {
+                self.page = (self.page + 1).min(layout.pages().saturating_sub(1));
+                self.focus = None;
+                self.redraw(host)?;
+                return Ok(Outcome::Handled(Handled::Yes));
+            }
+            Some("core.prev-page") => {
+                self.page = self.page.saturating_sub(1);
+                self.focus = None;
+                self.redraw(host)?;
+                return Ok(Outcome::Handled(Handled::Yes));
+            }
+            _ => {}
+        }
+        if let Some((row, track)) = layout.track_at(self.page, at) {
+            return self.set_by_tap(host, row, track, at);
+        }
+        if let Some((_, control)) = layout.hit(self.page, at) {
+            // The focus shown goes, as after other taps.
+            if self.focus.take().is_some() {
+                self.redraw(host)?;
+            }
+            return self.activate(host, control);
+        }
+        Ok(Outcome::Handled(Handled::Yes))
+    }
+
+    /// A tap on a slider's track: the number is the nearest step to it.
+    fn set_by_tap(
+        &mut self,
+        host: &Host<'_>,
+        row: usize,
+        track: Rect,
+        at: Point,
+    ) -> Result<Outcome, Error> {
+        let handled = Ok(Outcome::Handled(Handled::Yes));
+        // The focus shown goes, as after other taps.
+        if self.focus.take().is_some() {
+            self.redraw(host)?;
+        }
+        let Some(part) = self.parts.get(row) else {
+            return handled;
+        };
+        let Some(info) = part.info.as_ref().filter(|i| i.slider()) else {
+            return handled;
+        };
+        if !part.row.choosable() {
+            return handled;
+        }
+        let next = panel::value_at(track, at.x, (info.min, info.max, info.step));
+        if !matches!(info.value, Some(Value::Int(now)) if now == next) {
+            let mut scratch = buffer(1024)?;
+            CommandSender::new(host, &mut scratch)
+                .set_setting(&info.key, SettingValue::Int(next))?;
+        }
+        handled
+    }
+
+    fn on_action(
+        &mut self,
+        host: &Host<'_>,
+        action: &str,
+        layout: &Layout,
+    ) -> Result<Outcome, Error> {
+        let yes = Ok(Outcome::Handled(Handled::Yes));
+        match action {
+            "core.confirm" => {
+                let control = self
+                    .focus
+                    .and_then(|f| layout.controls().nth(f))
+                    .map(|(c, _, _)| *c);
+                match control {
+                    Some(control) => return self.activate(host, control),
+                    None => {
+                        self.focus = Some(0);
+                        self.redraw(host)?;
+                    }
+                }
+                yes
+            }
+            "core.menu" | "core.back" => {
+                CommandSender::new(host, &mut [0; 64]).back()?;
+                yes
+            }
+            "core.up" | "core.left" | "core.previous" | "core.prev-page" => {
+                self.move_focus(host, layout, -1)?;
+                yes
+            }
+            "core.down" | "core.right" | "core.next" | "core.next-page" => {
+                self.move_focus(host, layout, 1)?;
+                yes
+            }
+            _ => Ok(Outcome::Handled(Handled::No)),
+        }
+    }
+
+    fn move_focus(&mut self, host: &Host<'_>, layout: &Layout, delta: isize) -> Result<(), Error> {
+        let count = layout.count();
+        let enabled = |i: usize| self.enabled(layout, i);
+        if let Some(focus) = panel::step_focus(count, self.focus, delta, enabled) {
+            self.focus = Some(focus);
+            self.page = layout.page_of(focus);
+            self.redraw(host)?;
+        }
+        Ok(())
+    }
+
+    fn redraw(&self, host: &Host<'_>) -> Result<(), Error> {
+        use paperpaw_sdk::native::commands::RedrawMode;
+        CommandSender::new(host, &mut [0; 64]).queue_redraw(RedrawMode::Partial)
+    }
+
+    /// Does what tapping `control` does.
+    fn activate(&mut self, host: &Host<'_>, control: Control) -> Result<Outcome, Error> {
+        let handled = Ok(Outcome::Handled(Handled::Yes));
+        let Some(part) = self.parts.get(control.row()) else {
+            return handled;
+        };
+        // Shown faint by its plugin: nothing to do now.
+        if !part.row.choosable() {
+            return handled;
+        }
+        let mut scratch = buffer(1024)?;
+        let mut commands = CommandSender::new(host, &mut scratch);
+        match control {
+            Control::Toggle(_) => {
+                let Some(info) = &part.info else {
+                    return handled;
+                };
+                if let Some(Value::Bool(on)) = model::stepped(info, 1) {
+                    commands.set_setting(&info.key, SettingValue::Bool(on))?;
+                }
+            }
+            Control::Step(_, step) => {
+                let Some(info) = &part.info else {
+                    return handled;
+                };
+                if let Some(Value::Int(next)) = model::stepped(info, i64::from(step)) {
+                    commands.set_setting(&info.key, SettingValue::Int(next))?;
+                }
+            }
+            Control::Option(_, option) => {
+                let (Some(info), Some(value)) = (&part.info, part.values.get(option)) else {
+                    return handled;
+                };
+                if !matches!(&info.value, Some(Value::Text(now)) if now == value) {
+                    commands.set_setting(&info.key, SettingValue::Text(value))?;
+                }
+            }
+            Control::Open(_) => return self.open_setting(part),
+            Control::Run(_) if part.row.kind == Kind::Submenu => {
+                commands.back()?;
+                return Ok(Outcome::Slot {
+                    slot: "core.menu",
+                    param: model::PARAM_MENU,
+                    value: copy(&part.row.item)?,
+                });
+            }
+            Control::Run(_) => {
+                commands.back()?;
+                commands.run_action(&part.row.item)?;
+            }
+        }
+        handled
+    }
+
+    /// The setting's list, editor or page.
+    fn open_setting(&self, part: &Part) -> Result<Outcome, Error> {
+        let Some(info) = &part.info else {
+            return Ok(Outcome::Handled(Handled::Yes));
+        };
+        Ok(match model::act(info, false, true)? {
+            model::Act::Screen(screen) => Outcome::Screen {
+                screen,
+                key: copy(&info.key)?,
+            },
+            model::Act::Slot(slot) => Outcome::SettingSlot {
+                slot,
+                key: copy(&info.key)?,
+            },
+            model::Act::Values => Outcome::Slot {
+                slot: "core.choose-value",
+                param: "id",
+                value: copy(&info.key)?,
+            },
+            model::Act::Page => Outcome::Slot {
+                slot: "core.settings",
+                param: "focus",
+                value: copy(&info.key)?,
+            },
+            _ => Outcome::Handled(Handled::Yes),
+        })
+    }
+}
+
+/// The room for a button's label: its width less the margin on each side
+/// (at most a sixteenth of the width: the X4's UI font has one size, so a
+/// label that is a little too wide cannot be drawn smaller there, and
+/// "Refresh the screen" was cut to "Refresh the scr…" in a 200 px button),
+/// so a small round button (`−`, `+`) keeps most of its width and its sign
+/// is never cut to `…`.
+fn button_room(width: u16, margin: u16) -> u16 {
+    width.saturating_sub(margin.min(width / 16).saturating_mul(2))
+}
+
+/// The size a button's label is drawn at: the normal one, or smaller in
+/// steps of 5 % (never under three quarters) until `measure` says it fits
+/// the button's room, so "Refresh the screen" is not cut to "Refresh the
+/// scr…" (#257; Beta 3 drew these labels smaller). Only what still does not
+/// fit at that size is cut with "…".
+///
+/// # Errors
+/// What `measure` answers.
+fn label_size(
+    size: f32,
+    room: f32,
+    measure: &mut dyn FnMut(f32) -> Result<f32, Error>,
+) -> Result<f32, Error> {
+    let floor = size * 0.75;
+    let mut now = size;
+    while now > floor && measure(now)? > room {
+        now = (now * 0.95).max(floor);
+    }
+    Ok(now)
+}
+
+/// The labels of a choice's `values`, as `translate` says them; a value
+/// without a text of its own is said as it is and never takes the whole
+/// panel with it (#257: the reader's font panel did not open).
+///
+/// # Errors
+/// [`Error::NoMemory`] and the host's refusals other than "no such key".
+fn choice_labels(
+    values: &[String],
+    translate: &mut dyn FnMut(&str) -> Result<String, Error>,
+) -> Result<Vec<String>, Error> {
+    let mut labels = Vec::new();
+    labels
+        .try_reserve_exact(values.len())
+        .map_err(|_| Error::NoMemory)?;
+    for value in values {
+        labels.push(crate::native_plugin::or_as_it_is(translate(value), value)?);
+    }
+    Ok(labels)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, reason = "test assertions")]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_choice_value_without_a_text_is_said_as_it_is_and_the_panel_opens() {
+        let values = [String::from("core.spacing.normal"), String::from("wide")];
+        let mut translate = |value: &str| match value {
+            "wide" => copy("Wide"),
+            _ => Err(Error::NotFound),
+        };
+        let labels = choice_labels(&values, &mut translate).unwrap();
+        assert_eq!(labels, ["core.spacing.normal", "Wide"]);
+        // A real failure still fails.
+        let mut refused = |_: &str| Err(Error::NoMemory);
+        assert_eq!(choice_labels(&values, &mut refused), Err(Error::NoMemory));
+    }
+
+    #[test]
+    fn a_label_wider_than_its_button_is_drawn_smaller_before_it_is_cut() {
+        // 0.6 of the size a letter: "Refresh the screen" is 18 letters.
+        let mut wide = |size: f32| Ok(18.0 * size * 0.6);
+        // At 17 it is 183 px in a 150 px room: smaller, and measured to fit.
+        let now = label_size(17.0, 150.0, &mut wide).unwrap();
+        assert!((12.75..17.0).contains(&now));
+        assert!(wide(now).unwrap() <= 150.0);
+        // A label that fits keeps its size.
+        assert_eq!(label_size(17.0, 200.0, &mut wide).unwrap(), 17.0);
+        // Never under three quarters of the size: the rest is cut with "…".
+        assert_eq!(label_size(17.0, 20.0, &mut wide).unwrap(), 12.75);
+        // A refusal of the measure is passed on.
+        let mut refused = |_: f32| Err(Error::NoMemory);
+        assert_eq!(label_size(17.0, 20.0, &mut refused), Err(Error::NoMemory));
+    }
+
+    #[test]
+    fn a_small_step_button_keeps_room_for_its_sign() {
+        // X4: a 44 px round button and a 20 px margin left 4 px, so `−`
+        // and `+` were drawn as `…`.
+        assert_eq!(button_room(44, 20), 40);
+        // A 200 px button keeps 176 px: "Refresh the screen" (154 px) fits.
+        assert_eq!(button_room(200, 20), 176);
+        // A wide button keeps its margins.
+        assert_eq!(button_room(400, 20), 360);
+        assert_eq!(button_room(0, 20), 0);
+    }
+}

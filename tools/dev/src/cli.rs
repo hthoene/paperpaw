@@ -36,22 +36,39 @@ COMMANDS:
     perf        Time per frame, heap per screen, storage reads while drawing,
                 against the X4's budgets
     package     A data plugin as the installer and the website take it, a .ppn
-                file's header, fingerprint, signature and sizes, compatibility
+                file's header, fingerprint, signature and sizes, compatibility;
+                a .so library (interface 7) is checked to be freestanding
     snapshots   Compares screens with the pictures in --snapshots (--bless writes them)
     check-publish [repo] [--release-dir <dir>] [--tag <tag>] [--rules <file>]
                 A plugin's own repository (and its release's files) checked by the
                 plugin store's rules at paperpaw.org, saying what to change: run it
                 before tagging; the release workflow runs it too
-    new --github <id> [--code] [--dir <path>]
+    new --github <id> [--code] [--sdk <path>] [--dir <path>]
                 A plugin's own repository for GitHub that check-publish passes: the
                 plugin's folder, store/store.ini, the release workflow, README,
-                .gitignore; with --code the crate too
-    ui-kit      Every building block of the SDK's `ui` module, as the gallery shows
-                screens (every device, look, light and dark), checked as `visual`
-                checks; a label shortened to fit is an error
+                .gitignore. With --code also a plugin with code for plugin interface
+                7: its crate, the X4's build configuration and what it calls of the
+                device (CODE.md says how to build it); --sdk names a PaperPaw
+                checkout's crates/paperpaw-sdk instead of the published SDK
+    build [plugin's folder] [--device <x4|x3|x4-pro|x4-classic|emulator>]
+          [--sign-tool <path>]
+                A plugin with code, from its repository to dist/<device>/<id>, its
+                folder as it goes onto a card: the records of what it calls, the
+                compiler checked (with how to install what is missing), the build for
+                the device's chip, and the packing by paperpaw-sign into code.ppn. The
+                code is not signed. `--device emulator` (Linux, x86-64) builds it for
+                this computer and leaves dist/emulator, a library to start the
+                emulator with: paperpaw-emu --library dist/emulator --trust-code
+    metadata [plugin's folder] [--check]
+                A plugin with code: writes native/metadata.bin (X4, X3),
+                native/metadata.s3.bin (X4 Pro, X4 Classic) and native/metadata.host.bin
+                (the emulator) from native/metadata.json,
+                the list of the device's functions the code calls. Run it after
+                changing the list; --check only says whether they are current
 
 PATHS:
-    A data plugin folder (with plugin.ini) or a .ppn file. A plugin with code
+    A data plugin folder (with plugin.ini), a .ppn file or a .so library
+    (interface 7). A plugin with code
     is added from its own repository (see docs/plugins.md, \"Checking your plugin\").
 
 OPTIONS:
@@ -77,7 +94,7 @@ OPTIONS:
                           while requests went unanswered is an error
     --strict              Warnings fail the run too
     --labels-whole        A label shortened to fit is an error, wherever it ends
-                          (`visual`; `ui-kit` checks its strict pages so by itself)
+                          (`visual`)
     --verbose             Notes too on the console
     --keep                Keep the emulated libraries (in <out>/work)
     --list                List profiles and looks
@@ -247,27 +264,17 @@ pub fn run(args: impl Iterator<Item = String>, add: Option<AddPlugins>) -> Resul
     match args.first().map(String::as_str) {
         Some("check-publish") => return crate::publish::check(&args[1..]),
         Some("new") => return crate::publish::new(&args[1..]),
+        Some("build") => return crate::build::run(&args[1..]),
+        Some("metadata") => return crate::metadata::run(&args[1..]),
         _ => {}
     }
     let Some((command, mut context)) = parse(args.into_iter())? else {
         return Ok(true);
     };
     context.target.add = add;
-    // The kit's pages, drawn as the gallery draws a plugin's screens.
-    // The kit's pages, drawn as the gallery draws a plugin's screens and
-    // checked as `visual` checks them, a label shortened an error.
-    let kit = command == "ui-kit";
-    if kit {
-        context.target.plugins = vec![crate::ui_kit::PLUGIN.to_string()];
-        context.target.add = Some(crate::ui_kit::add);
-        // Its blocks never cut a label.
-        context.labels_whole = true;
-    }
     let mut report = Report::default();
     let commands: Vec<&str> = if command == "check" {
         COMMANDS.to_vec()
-    } else if kit {
-        vec!["gallery", "visual"]
     } else {
         vec![command.as_str()]
     };
@@ -298,6 +305,7 @@ fn applies(command: &str, context: &Context) -> bool {
         "package" => {
             !context.target.data.is_empty()
                 || !context.target.ppn.is_empty()
+                || !context.target.libraries.is_empty()
                 || !context.target.sources.is_empty()
         }
         "flows" => !context.flows.is_empty(),
@@ -464,7 +472,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Option<(String, Conte
 }
 
 fn is_command(word: &str) -> bool {
-    word == "check" || word == "ui-kit" || COMMANDS.contains(&word)
+    word == "check" || COMMANDS.contains(&word)
 }
 
 #[cfg(test)]

@@ -4,6 +4,7 @@
 """
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -48,6 +49,49 @@ class Versions(unittest.TestCase):
     def test_the_interface_is_read_from_native_rs(self):
         self.assertEqual(versions.interface_at("pub const INTERFACE: u16 = 3;\n"), 3)
         self.assertIsNone(versions.interface_at("nothing here"))
+        self.assertEqual(versions.draft_at("pub const DRAFT: u16 = 2;\n"), 2)
+        self.assertIsNone(versions.draft_at("pub const INTERFACE: u16 = 7;\n"))
+
+    def test_a_new_draft_or_the_freeze_is_raised_like_an_interface(self):
+        def raised(then, now):
+            with tempfile.TemporaryDirectory() as root:
+                path = pathlib.Path(root) / versions.NATIVE
+                path.parent.mkdir(parents=True)
+                path.write_text(now)
+                with unittest.mock.patch.object(versions, "ROOT", pathlib.Path(root)), \
+                        unittest.mock.patch.object(versions, "git", return_value=then):
+                    return versions.interface_raised("v0.6.0-beta.3")
+        six = "pub const INTERFACE: u16 = 6;\n"
+        seven = "pub const INTERFACE: u16 = 7;\n"
+        draft = lambda n: seven + f"pub const DRAFT: u16 = {n};\n"
+        self.assertEqual(raised(six, draft(1)), "7 (draft 1)")
+        self.assertEqual(raised(draft(1), draft(2)), "7 (draft 2)")
+        self.assertEqual(raised(draft(2), seven), "7")
+        self.assertIsNone(raised(draft(2), draft(2)))
+        self.assertIsNone(raised(seven, seven))
+
+    def test_the_interface_constants_must_stand_alone_on_their_line(self):
+        for text in ['// pub const INTERFACE: u16 = 9;\n', '    pub const INTERFACE: u16 = 9;\n',
+                     'pub const INTERFACE: u16 = 9; // x\n', 'const X: &str = "pub const INTERFACE: u16 = 9;";\n',
+                     'pub(crate) const INTERFACE: u16 = 9;\n']:
+            self.assertIsNone(versions.interface_at(text), text)
+            self.assertIsNone(versions.draft_at(text.replace("INTERFACE", "DRAFT")), text)
+        self.assertEqual(versions.interface_at("//\npub const INTERFACE: u16 = 7;\n"), 7)
+
+    def test_a_plugin_s_raise_is_counted_from_the_build_that_carries_its_version(self):
+        def raised(**tags):
+            """`interface_raised` answers by the tag it is asked about."""
+            with unittest.mock.patch.object(versions, "interface_raised", side_effect=tags.get) as asked:
+                found = versions.raised_for({"v1": "1.0.0", "p-v1.0.1": "1.0.1"}, "1.0.1", "v1")
+                return found, asked.call_args
+        # Its own release carries the version: asked from there, the draft counted.
+        self.assertEqual(raised(**{"v1": "7 (draft 1)"})[0], None)
+        self.assertEqual(raised(**{"p-v1.0.1": "7 (draft 2)"})[0], "7 (draft 2)")
+        self.assertEqual(raised(**{"p-v1.0.1": "8 (draft 1)"})[1].args, ("p-v1.0.1",))
+        # The release itself carries it.
+        with unittest.mock.patch.object(versions, "interface_raised", return_value="7 (draft 1)") as asked:
+            self.assertEqual(versions.raised_for({"v1": "1.0.0"}, "1.0.0", "v1"), "7 (draft 1)")
+            self.assertEqual(asked.call_args.args, ("v1",))
 
     def test_a_change_no_reader_sees_keeps_it(self):
         quiet = "test(stats): one more case\n\nPlugin-unchanged: stats, widgets"
@@ -74,6 +118,110 @@ class Versions(unittest.TestCase):
         self.assertEqual(versions.own_tags("reading", tags), ["reading-v2.0.0"])
 
 
+class BuiltFiles(unittest.TestCase):
+    """The comparison of built store files: no build needed."""
+
+    def files(self, folder, **plugins):
+        """store files in `folder`: id (underscores for hyphens) -> (version, bytes)."""
+        folder = pathlib.Path(folder)
+        for name, (version, data) in plugins.items():
+            (folder / f"{name.replace('_', '-')}-{version}-x4.ppn").write_bytes(data)
+        return versions.store_files(folder, "x4")
+
+    def test_files_are_found_by_their_names(self):
+        with tempfile.TemporaryDirectory() as folder:
+            found = self.files(folder, end_of_book=("1.0.0", b"a"), stats=("1.0.3-beta.1", b"b"))
+            (pathlib.Path(folder) / "stats-1.0.3-x4-pro.ppn").write_bytes(b"other device")
+            (pathlib.Path(folder) / "readme.txt").write_text("x")
+            found = versions.store_files(folder, "x4")
+            self.assertEqual({k: v[0] for k, v in found.items()},
+                             {"end-of-book": "1.0.0", "stats": "1.0.3-beta.1"})
+
+    def test_the_next_patch(self):
+        self.assertEqual(versions.next_patch("1.0.4"), "1.0.5")
+        self.assertEqual(versions.next_patch("1.9.9"), "1.9.10")
+        self.assertIsNone(versions.next_patch("1.0.0-beta.2"))
+
+    def test_other_bytes_under_the_same_version_are_wrong(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            then = self.files(a, kosync=("1.0.2", b"old"), stats=("1.0.0", b"same"),
+                              widgets=("1.0.4", b"old"), gone=("1.0.0", b"x"))
+            now = self.files(b, kosync=("1.0.2", b"new"), stats=("1.0.0", b"same"),
+                             widgets=("1.0.5", b"new"), fresh=("1.0.0", b"y"))
+            wrong, apart, new = versions.built_problems(then, now)
+            self.assertEqual(wrong, [("kosync", "1.0.2")])
+            self.assertEqual((apart, new), ([], ["fresh"]))
+
+    def test_files_for_another_firmware_are_not_compared(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            then = self.files(a, kosync=("1.0.2", b"fp1|code"))
+            now = self.files(b, kosync=("1.0.2", b"fp2|code"))
+            identity = lambda path: path.read_bytes().split(b"|")[0]  # noqa: E731
+            self.assertEqual(versions.built_problems(then, now, identity), ([], ["kosync"], []))
+            self.assertEqual(versions.built_problems(then, now), ([("kosync", "1.0.2")], [], []))
+
+
+class PublishedData(unittest.TestCase):
+    """A data plugin's folder against the zip a release published."""
+
+    def folder(self, root, text="description = One\n"):
+        folder = pathlib.Path(root) / "p"
+        (folder / "i18n").mkdir(parents=True)
+        (folder / "plugin.ini").write_text(f"id = p\nversion = 1.0.0\n{text}", encoding="utf-8")
+        (folder / "i18n" / "en.ini").write_text(text, encoding="utf-8")
+        return pathlib.Path(root)
+
+    def releases(self, root, name="p-1.0.0.zip"):
+        """GitHub's list with the zip of the folder as `folder` made it, by its digest."""
+        import catalogue
+        zipped = pathlib.Path(root) / "published.zip"
+        folder = pathlib.Path(root) / "p"
+        files = [(f.relative_to(folder).as_posix(), f.read_bytes())
+                 for f in sorted(folder.rglob("*")) if f.is_file() and f.name != "plugin.ini"]
+        catalogue.folder_zip(zipped, (folder / "plugin.ini").read_text(encoding="utf-8"), files)
+        digest = hashlib.sha256(zipped.read_bytes()).hexdigest()
+        return json.dumps([[{
+            "tag_name": "v0.6.0-beta.1", "created_at": "2026-11-01T00:00:00Z",
+            "assets": [{"name": name, "state": "uploaded", "browser_download_url": "https://x/" + name,
+                        "digest": f"sha256:{digest}"}]}]])
+
+    def wrong(self, source, text):
+        with unittest.mock.patch("data.plugins", return_value={"p": {"version": "1.0.0"}}):
+            return versions.published_data_problems(source, text)
+
+    def test_the_published_folder_is_right(self):
+        with tempfile.TemporaryDirectory() as a:
+            self.folder(a)
+            self.assertEqual(self.wrong(a, self.releases(a)), [])
+
+    def test_another_text_under_the_same_version_is_wrong(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            self.folder(a, "description = One\n")
+            text = self.releases(a)
+            self.folder(b, "description = One, and choose it in Settings\n")
+            self.assertEqual(self.wrong(b, text), [("p", "1.0.0")])
+
+    def test_a_version_not_published_before_is_not_compared(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            self.folder(a, "description = One\n")
+            text = self.releases(a, name="p-0.9.0.zip")
+            self.folder(b, "description = Two\n")
+            self.assertEqual(self.wrong(b, text), [])
+
+    def test_the_message_names_the_next_patch(self):
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            self.folder(a, "description = One\n")
+            (pathlib.Path(b) / "releases.json").write_text(self.releases(a), encoding="utf-8")
+            data_dir = self.folder(pathlib.Path(b) / "built", "description = Two\n")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), \
+                    unittest.mock.patch("data.plugins", return_value={"p": {"version": "1.0.0"}}):
+                ok = versions.published_check(pathlib.Path(b) / "releases.json", data_dir)
+            self.assertFalse(ok)
+            self.assertIn("p: its folder at 1.0.0", out.getvalue())
+            self.assertIn("raise it to 1.0.1", out.getvalue())
+
+
 class Repository(unittest.TestCase):
     """The check in a repository of one plugin: released with PaperPaw
     (`v0.5.0-beta.2`), then alone (`vocabulary-v1.0.1`, from a branch of
@@ -93,6 +241,7 @@ class Repository(unittest.TestCase):
         self.write("Cargo.toml", '[workspace.package]\nversion = "0.5.0-beta.2"\n')
         self.version("1.0.0")
         self.write("plugins/vocabulary/src/lib.rs", "// one\n")
+        self.write(versions.NATIVE, "pub const INTERFACE: u16 = 6;\n")
         self.commit("release: 0.5.0-beta.2")
         self.git("tag", "v0.5.0-beta.2")
         # The fix alone, from the release's tag, merged back.
@@ -224,6 +373,57 @@ class Repository(unittest.TestCase):
         self.commit("fix(vocabulary): another")
         self.assertFalse(self.check())
 
+    def raise_to(self, interface, draft=None):
+        self.write(versions.NATIVE, f"pub const INTERFACE: u16 = {interface};\n"
+                   + ("" if draft is None else f"pub const DRAFT: u16 = {draft};\n"))
+
+    def test_one_bump_after_a_raise_and_none_for_a_draft_after_it(self):
+        # The raise: vocabulary (1.0.1, its own release) needs a bump, and the trailer is no excuse.
+        self.raise_to(7, 1)
+        self.commit("interface: raise to 7, draft 1\n\nPlugin-unchanged: all")
+        self.assertFalse(self.check())
+        self.version("1.0.2")
+        self.commit("vocabulary 1.0.2 for interface 7")
+        self.assertTrue(self.check())
+        # A draft re-bless between releases asks for no further bump.
+        self.raise_to(7, 2)
+        self.commit("interface: draft 2")
+        self.assertTrue(self.check())
+        # Still unreleased, the one bump covers a further raise as well: versions are
+        # held to the release, not to each raise.
+        self.raise_to(8, 1)
+        self.commit("interface: raise to 8")
+        self.assertTrue(self.check())
+
+    def test_a_plugin_released_alone_at_the_current_draft_is_not_asked_again(self):
+        self.raise_to(7, 1)
+        self.version("1.0.2")
+        self.commit("interface: raise to 7, draft 1; vocabulary 1.0.2")
+        self.git("tag", "vocabulary-v1.0.2")
+        # Its newest release is built at interface 7 draft 1: nothing is owed, though the
+        # PaperPaw release before it was at 6.
+        self.assertTrue(self.check())
+
+    def test_a_plugin_released_alone_at_an_older_draft_owes_one_bump(self):
+        self.raise_to(7, 1)
+        self.version("1.0.2")
+        self.commit("interface: raise to 7, draft 1; vocabulary 1.0.2")
+        self.git("tag", "vocabulary-v1.0.2")
+        self.assertTrue(self.check())
+        # Draft 2: beta drafts can reach devices, so the draft 1 build is stale.
+        self.raise_to(7, 2)
+        self.commit("interface: draft 2\n\nPlugin-unchanged: all")
+        self.assertFalse(self.check())
+        self.version("1.0.3")
+        self.commit("vocabulary 1.0.3 for draft 2")
+        self.assertTrue(self.check())
+        # Released at draft 2, it owes nothing more until the interface moves again.
+        self.git("tag", "vocabulary-v1.0.3")
+        self.assertTrue(self.check())
+        self.raise_to(8, 1)
+        self.commit("interface: raise to 8")
+        self.assertFalse(self.check())
+
     def test_a_version_older_than_one_published_fails(self):
         # The fix released alone, not merged back yet.
         self.git("reset", "-q", "--hard", "HEAD^1")
@@ -294,6 +494,97 @@ class Repository(unittest.TestCase):
         self.data("1.0.0")
         self.commit("back")
         self.assertFalse(self.check())
+
+
+    BUILD = """#!/usr/bin/env bash
+# A fake build.sh: each plugin's file holds its source, the crate it depends on
+# (crates/dep: no part of plugins/<id>/) and the firmware's name (fingerprint.txt).
+set -e
+device=$1; out=$2; root="$(cd "$(dirname "$0")/../.." && pwd)"
+mkdir -p "$out"
+for id in $(awk 'NF { print $1 }' "$root/tools/plugin-files/plugins.txt"); do
+  [ -f "$root/plugins/$id/Cargo.toml" ] || continue
+  v=$(sed -n 's/^version = "\\(.*\\)"/\\1/p' "$root/plugins/$id/Cargo.toml")
+  { cat "$root/fingerprint.txt"; cat "$root/plugins/$id/src/lib.rs" "$root/crates/dep/lib.rs"; } \\
+    > "$out/$id-$v-$device.ppn"
+done
+"""
+    SIGN = """#!/usr/bin/env bash
+# A fake paperpaw-sign: `plugin <file>` says the firmware the file's first line names.
+echo "fingerprint: $(head -1 "$2")"; echo "interface: 6"; echo "compiler: abc"
+"""
+
+    def released_with_a_dependency(self):
+        """A release (`v0.5.0-beta.3`) whose store files are built by a fake build.sh from
+        the plugin and a crate it depends on."""
+        self.write("tools/plugin-files7/build.sh", self.BUILD)
+        self.write("fingerprint.txt", "fp1\n")
+        self.write("crates/dep/lib.rs", "// the SDK, one\n")
+        self.commit("a dependency and a builder")
+        self.git("tag", "v0.5.0-beta.3")
+        self.sign = self.root / "fake-sign"
+        self.sign.write_text(self.SIGN, encoding="utf-8")
+        self.sign.chmod(0o755)
+        self.cache = tempfile.TemporaryDirectory()
+        self.addCleanup(self.cache.cleanup)
+        env = unittest.mock.patch.dict(os.environ, {"PAPERPAW_STORE_BASELINE": self.cache.name})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def bytes_check(self):
+        return self.check("--release", "--bytes", "--sign", str(self.sign))
+
+    def test_a_change_in_a_dependency_needs_a_newer_version(self):
+        self.released_with_a_dependency()
+        self.assertTrue(self.bytes_check())
+        self.write("crates/dep/lib.rs", "// the SDK, two\n")
+        self.commit("sdk: a change no plugins/<id>/ shows")
+        # The commit check cannot see it; the built files can.
+        self.assertTrue(self.check("--release"))
+        self.assertFalse(self.bytes_check())
+        self.version("1.0.2")
+        self.commit("vocabulary 1.0.2")
+        self.assertTrue(self.bytes_check())
+
+    def test_a_change_that_leaves_the_files_alone_needs_no_version(self):
+        self.released_with_a_dependency()
+        self.write("README.md", "docs\n")
+        self.commit("docs")
+        self.assertTrue(self.bytes_check())
+
+    def test_files_built_for_another_firmware_are_left_to_the_version_rules(self):
+        self.released_with_a_dependency()
+        self.write("fingerprint.txt", "fp2\n")
+        self.commit("the firmware's fingerprint changed")
+        self.assertTrue(self.bytes_check())
+
+    def test_a_release_before_interface_7_has_no_bytes_to_compare(self):
+        self.released_with_a_dependency()
+        self.assertTrue(self.bytes_check())
+        # The release's tree has no interface-7 build: nothing to compare, not a failure.
+        self.git("rm", "-q", "tools/plugin-files7/build.sh")
+        self.git("commit", "-q", "-m", "an old tree")
+        self.git("tag", "v0.5.0-beta.4")
+        self.git("revert", "--no-edit", "HEAD")
+        self.assertTrue(self.check("--release", "--bytes", "--sign", str(self.sign), "v0.5.0-beta.4"))
+
+    def test_the_release_s_build_is_kept_and_not_made_twice(self):
+        self.released_with_a_dependency()
+        built = []
+
+        def build(root, out, device, target=None):
+            built.append(device)
+            versions.build_store(root, out, device, target)
+
+        with unittest.mock.patch.object(versions, "ROOT", self.root):
+            first = versions.baseline_files("v0.5.0-beta.3", "x4", build)
+            second = versions.baseline_files("v0.5.0-beta.3", "x4", build)
+        self.assertEqual((first, built), (second, ["x4"]))
+        self.assertEqual(sorted(versions.store_files(first, "x4")), ["vocabulary"])
+        # No worktree is left behind in the repository.
+        listed = subprocess.run(["git", "worktree", "list"], cwd=self.root, capture_output=True,
+                                text=True).stdout.splitlines()
+        self.assertEqual(len(listed), 1)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@
 //! them), holds a single page and the row at hand, and allocates fallibly,
 //! so its work and memory stay bounded by the file's size.
 
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::vec::Vec;
 
 use paperpaw_platform::Storage;
@@ -97,9 +97,14 @@ impl<'s> Database<'s> {
         } else {
             in_file
         };
+        let mut owned = String::new();
+        owned
+            .try_reserve_exact(path.len())
+            .map_err(|_| Error::OutOfMemory)?;
+        owned.push_str(path);
         Ok(Self {
             storage,
-            path: path.to_string(),
+            path: owned,
             page_size,
             usable,
             pages,
@@ -165,7 +170,7 @@ impl<'s> Database<'s> {
             .into_iter()
             .find(|e| e.kind == "table" && e.name.eq_ignore_ascii_case(name))
             .ok_or(Error::Missing)?;
-        Ok((columns(&entry.sql), entry.root))
+        Ok((columns(&entry.sql)?, entry.root))
     }
 
     /// Calls `visit` with every row's id and values of the table at page
@@ -431,8 +436,12 @@ fn zeroed(len: usize) -> Result<Vec<u8>, Error> {
 
 /// The column names of a `CREATE TABLE` statement, in order. SQLite
 /// keeps the statement as it was written: comments and quoted names and
-/// texts are passed over, with the commas and brackets in them.
-pub fn columns(sql: &str) -> Vec<String> {
+/// texts are passed over, with the commas and brackets in them. Allocated
+/// fallibly.
+///
+/// # Errors
+/// [`Error::OutOfMemory`] where the names' room cannot be had.
+pub fn columns(sql: &str) -> Result<Vec<String>, Error> {
     // The definitions between the outermost brackets, without comments.
     let mut parts = Vec::new();
     let mut part = String::new();
@@ -442,35 +451,36 @@ pub fn columns(sql: &str) -> Vec<String> {
         match c {
             '-' if chars.peek() == Some(&'-') => {
                 chars.find(|&c| c == '\n');
-                part.push(' ');
+                push_char(&mut part, ' ')?;
                 continue;
             }
             '/' if chars.peek() == Some(&'*') => {
                 chars.next();
                 let mut last = ' ';
                 chars.find(|&c| core::mem::replace(&mut last, c) == '*' && c == '/');
-                part.push(' ');
+                push_char(&mut part, ' ')?;
                 continue;
             }
             '\'' | '"' | '`' | '[' => {
                 // Up to the closing quote; a quote doubled stands for
                 // itself.
                 let close = if c == '[' { ']' } else { c };
-                let mut quoted = String::from(c);
+                let mut quoted = String::new();
+                push_char(&mut quoted, c)?;
                 while let Some(q) = chars.next() {
-                    quoted.push(q);
+                    push_char(&mut quoted, q)?;
                     if q == close {
                         if c != '['
                             && let Some(again) = chars.next_if_eq(&close)
                         {
-                            quoted.push(again);
+                            push_char(&mut quoted, again)?;
                         } else {
                             break;
                         }
                     }
                 }
                 if depth > 0 {
-                    part.push_str(&quoted);
+                    push_str(&mut part, &quoted)?;
                 }
                 continue;
             }
@@ -483,37 +493,63 @@ pub fn columns(sql: &str) -> Vec<String> {
             ')' => {
                 depth = depth.saturating_sub(1);
                 if depth == 0 {
-                    parts.push(core::mem::take(&mut part));
+                    push_part(&mut parts, core::mem::take(&mut part))?;
                     break;
                 }
             }
             ',' if depth == 1 => {
-                parts.push(core::mem::take(&mut part));
+                push_part(&mut parts, core::mem::take(&mut part))?;
                 continue;
             }
             _ => {}
         }
         if depth > 0 {
-            part.push(c);
+            push_char(&mut part, c)?;
         }
     }
     if depth > 0 {
         // Not closed: no statement.
-        return Vec::new();
+        return Ok(Vec::new());
     }
-    parts
-        .into_iter()
-        .filter_map(|part| {
-            let name = part
-                .split_whitespace()
-                .next()?
-                .trim_matches(|c| c == '"' || c == '`' || c == '[' || c == ']');
-            let constraint = ["CONSTRAINT", "PRIMARY", "UNIQUE", "CHECK", "FOREIGN"]
-                .iter()
-                .any(|k| name.eq_ignore_ascii_case(k));
-            (!constraint && !name.is_empty()).then(|| name.to_string())
-        })
-        .collect()
+    let mut names = Vec::new();
+    for part in parts {
+        let Some(word) = part.split_whitespace().next() else {
+            continue;
+        };
+        let name = word.trim_matches(|c| c == '"' || c == '`' || c == '[' || c == ']');
+        let constraint = ["CONSTRAINT", "PRIMARY", "UNIQUE", "CHECK", "FOREIGN"]
+            .iter()
+            .any(|k| name.eq_ignore_ascii_case(k));
+        if !constraint && !name.is_empty() {
+            let mut owned = String::new();
+            push_str(&mut owned, name)?;
+            push_part(&mut names, owned)?;
+        }
+    }
+    Ok(names)
+}
+
+/// Appends `c`, allocating fallibly.
+fn push_char(text: &mut String, c: char) -> Result<(), Error> {
+    text.try_reserve(c.len_utf8())
+        .map_err(|_| Error::OutOfMemory)?;
+    text.push(c);
+    Ok(())
+}
+
+/// Appends `more`, allocating fallibly.
+fn push_str(text: &mut String, more: &str) -> Result<(), Error> {
+    text.try_reserve(more.len())
+        .map_err(|_| Error::OutOfMemory)?;
+    text.push_str(more);
+    Ok(())
+}
+
+/// Appends `part`, allocating fallibly.
+fn push_part(parts: &mut Vec<String>, part: String) -> Result<(), Error> {
+    parts.try_reserve(1).map_err(|_| Error::OutOfMemory)?;
+    parts.push(part);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -523,9 +559,9 @@ mod tests {
     #[test]
     fn columns_come_from_create_table() {
         let sql = "CREATE TABLE page_stat_data\n (\n id_book integer, -- the book\n page integer NOT NULL DEFAULT 0,\n start_time integer,\n UNIQUE (id_book, page, start_time),\n FOREIGN KEY(id_book) REFERENCES book(id)\n )";
-        assert_eq!(columns(sql), ["id_book", "page", "start_time"]);
+        assert_eq!(columns(sql).unwrap(), ["id_book", "page", "start_time"]);
         assert_eq!(
-            columns("CREATE TABLE \"t\"(\"a\" text, [b], c DEFAULT (1+2))"),
+            columns("CREATE TABLE \"t\"(\"a\" text, [b], c DEFAULT (1+2))").unwrap(),
             ["a", "b", "c"]
         );
     }
@@ -533,6 +569,7 @@ mod tests {
     use crate::Writer;
     use crate::memory::Memory;
     use crate::record::encode_record;
+    use alloc::string::ToString;
     use alloc::vec;
     use paperpaw_platform::Storage;
 

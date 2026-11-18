@@ -1,0 +1,44 @@
+{
+  "target": "linux-x86_64-sysv64-le",
+  "floor": 1,
+  "used": [
+    {
+      "kind": "host",
+      "name": "heap.alloc"
+    },
+    {
+      "kind": "host",
+      "name": "heap.dealloc"
+    },
+    {
+      "kind": "host",
+      "name": "heap.realloc"
+    },
+    {
+      "kind": "host",
+      "name": "handle.release"
+    },
+    {
+      "kind": "host",
+      "name": "registrations.submit"
+    },
+    {
+      "kind": "host",
+      "name": "settings.read"
+    },
+    {
+      "kind": "host",
+      "name": "i18n.copy"
+    },
+    {
+      "kind": "callback",
+      "name": "drop"
+    },
+    {
+      "kind": "callback",
+      "name": "dispatch_event"
+    }
+  ],
+  "services": [],
+  "features": []
+}

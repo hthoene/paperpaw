@@ -375,3 +375,210 @@ proptest! {
         place.untouched();
     }
 }
+
+/// `remove_tree_step` on the host's file system: a big folder goes in pieces
+/// within the limits, a tree 256 levels deep is removed, one level more is
+/// refused (`InvalidData`, what the service answers `ERR_STATE`), the root is
+/// kept when asked, and nothing outside the tree is touched.
+#[test]
+fn trees_are_removed_in_bounded_pieces_to_the_depth_limit() {
+    use paperpaw_platform::tree::{MAX_READS, MAX_REMOVALS};
+    let place = Place::new();
+    let s = &place.storage;
+    for n in 0..300 {
+        s.write(&format!("Big/f{n:03}.txt"), b"x").unwrap();
+    }
+    s.write("Keep/k.txt", b"keep").unwrap();
+    let mut calls = 0;
+    loop {
+        let step = s.remove_tree_step("Big", true, 1).unwrap();
+        assert!(step.removed <= MAX_REMOVALS && MAX_READS >= 256);
+        calls += 1;
+        assert!(calls < 100);
+        if step.done {
+            break;
+        }
+    }
+    assert!(calls >= 300 / 64, "{calls}");
+    let mut left = 0;
+    s.list("Big", &mut |_| left += 1).unwrap();
+    assert_eq!(left, 0, "kept root, empty");
+    assert_eq!(s.size("Keep/k.txt"), Ok(4));
+    s.remove_tree_step("Big", false, 0).unwrap();
+    assert_eq!(s.size("Big/x"), Err(StorageError::NotFound));
+
+    let mut deep = place.base.join("root");
+    for levels in [256usize, 257] {
+        let mut dir = deep.join(format!("T{levels}"));
+        for _ in 0..levels {
+            dir.push("a");
+        }
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("leaf.txt"), b"leaf").unwrap();
+        let name = format!("T{levels}");
+        let mut outcome = Ok(());
+        for _ in 0..5000 {
+            match s.remove_tree_step(&name, false, 1) {
+                Ok(step) if step.done => break,
+                Ok(_) => {}
+                Err(e) => {
+                    outcome = Err(e);
+                    break;
+                }
+            }
+        }
+        match levels {
+            256 => {
+                assert_eq!(outcome, Ok(()));
+                assert!(!deep.join(&name).exists());
+            }
+            _ => assert_eq!(outcome, Err(StorageError::InvalidData)),
+        }
+    }
+    deep.push("x");
+    assert_eq!(s.size("Keep/k.txt"), Ok(4));
+}
+
+/// The file id: kept by a rename and a move, another for another entry, an
+/// error for nothing; a link answers its own, never its target's.
+#[cfg(unix)]
+#[test]
+fn entry_identity_is_the_file_id_kept_by_a_move() {
+    let place = Place::new();
+    let s = &place.storage;
+    s.write("Books/a.epub", b"a book").unwrap();
+    s.write("Books/b.epub", b"another").unwrap();
+    s.write("empty.txt", b"").unwrap();
+    let book = s.entry_identity("Books/a.epub").unwrap().unwrap();
+    assert_ne!(Some(book), s.entry_identity("Books/b.epub").unwrap());
+    // Unlike FAT, an empty file has one here.
+    assert!(s.entry_identity("empty.txt").unwrap().is_some());
+    s.rename("Books/a.epub", "Inbox/a.epub").unwrap();
+    assert_eq!(s.entry_identity("Inbox/a.epub"), Ok(Some(book)));
+    assert_eq!(
+        s.entry_identity("Books/a.epub"),
+        Err(StorageError::NotFound)
+    );
+    std::os::unix::fs::symlink(
+        place.base.join("root/Inbox/a.epub"),
+        place.base.join("root/link.epub"),
+    )
+    .unwrap();
+    assert_ne!(s.entry_identity("link.epub"), Ok(Some(book)));
+    // Two hard links share the id: neither has one to tell a move by.
+    std::fs::hard_link(
+        place.base.join("root/Inbox/a.epub"),
+        place.base.join("root/twin.epub"),
+    )
+    .unwrap();
+    assert_eq!(s.entry_identity("twin.epub"), Ok(None));
+    assert_eq!(s.entry_identity("Inbox/a.epub"), Ok(None));
+    // A folder keeps its own whatever subfolders it holds.
+    s.write("Inbox/Sub/c.epub", b"c").unwrap();
+    assert!(s.entry_identity("Inbox").unwrap().is_some());
+}
+
+/// The same name in the same folder is one entry; two entries are two;
+/// what names nothing, or is refused, is none of them (`Some(false)`).
+#[cfg(unix)]
+#[test]
+fn same_entry_tells_one_entry_from_two() {
+    let place = Place::new();
+    let s = &place.storage;
+    s.write("Books/a.txt", b"a").unwrap();
+    s.write("Books/b.txt", b"b").unwrap();
+    s.write(".paperpaw/secrets", b"s").unwrap();
+    let same = |a, b| s.same_entry(a, b);
+    assert_eq!(same("Books/a.txt", "Books/a.txt"), Some(true));
+    assert_eq!(same("Books", "Books"), Some(true));
+    assert_eq!(same(".paperpaw/secrets", ".paperpaw/secrets"), Some(true));
+    assert_eq!(same("Books/a.txt", "Books/b.txt"), Some(false));
+    assert_eq!(same("Books", "Books/a.txt"), Some(false));
+    // The secrets file is its own entry, whatever is beside it.
+    assert_eq!(same(".paperpaw/secrets", "Books/a.txt"), Some(false));
+    // Names nothing.
+    assert_eq!(same("Books/a.txt", "Books/none.txt"), Some(false));
+    assert_eq!(same("none", "none"), Some(false));
+    // Refused paths: not an entry of this storage.
+    assert_eq!(same("../outside/secret.txt", "Books/a.txt"), Some(false));
+    assert_eq!(
+        same("../outside/secret.txt", "../outside/secret.txt"),
+        Some(false)
+    );
+    assert_eq!(same("", ""), Some(false));
+    place.untouched();
+}
+
+/// Another case of a name is the same entry exactly where the file system
+/// ignores case (a case-only rename); where it does not, it is two.
+#[cfg(unix)]
+#[test]
+fn same_entry_follows_the_file_systems_case() {
+    let place = Place::new();
+    let s = &place.storage;
+    s.write("Books/A.txt", b"a").unwrap();
+    assert_eq!(
+        s.same_entry("Books/A.txt", "Books/a.TXT"),
+        Some(s.ignores_case())
+    );
+    // The folder in another case is the same folder on such a file system.
+    assert_eq!(
+        s.same_entry("Books/A.txt", "books/A.txt"),
+        Some(s.ignores_case())
+    );
+}
+
+/// Nothing is followed at the last name: a second name for the same file
+/// (a hard link, a symlink) is another entry, so a move onto it still
+/// checks that the target exists and never replaces the book.
+#[cfg(unix)]
+#[test]
+fn same_entry_does_not_follow_links() {
+    let place = Place::new();
+    let s = &place.storage;
+    s.write("a.txt", b"a").unwrap();
+    s.write("other.txt", b"o").unwrap();
+    let root = place.base.join("root");
+    std::fs::hard_link(root.join("a.txt"), root.join("hard.txt")).unwrap();
+    std::os::unix::fs::symlink("a.txt", root.join("soft.txt")).unwrap();
+    assert_eq!(s.same_entry("a.txt", "hard.txt"), Some(false));
+    assert_eq!(s.same_entry("hard.txt", "a.txt"), Some(false));
+    assert_eq!(s.same_entry("a.txt", "soft.txt"), Some(false));
+    assert_eq!(s.same_entry("soft.txt", "a.txt"), Some(false));
+    assert_eq!(s.same_entry("other.txt", "soft.txt"), Some(false));
+    // A link is itself, by its own name.
+    assert_eq!(s.same_entry("soft.txt", "soft.txt"), Some(true));
+    // A link to nothing is an entry too, and itself.
+    std::os::unix::fs::symlink("gone", root.join("dangling")).unwrap();
+    assert_eq!(s.same_entry("dangling", "dangling"), Some(true));
+    // A link out of the root is no entry inside by another name.
+    std::os::unix::fs::symlink(place.base.join("outside/secret.txt"), root.join("out")).unwrap();
+    assert_eq!(s.same_entry("out", "a.txt"), Some(false));
+    // Hard links in two folders under one name are two entries.
+    s.write("one/x.txt", b"x").unwrap();
+    std::fs::create_dir_all(root.join("two")).unwrap();
+    std::fs::hard_link(root.join("one/x.txt"), root.join("two/x.txt")).unwrap();
+    assert_eq!(s.same_entry("one/x.txt", "two/x.txt"), Some(false));
+    // A folder reached by a link is the folder: the same entry of it.
+    std::os::unix::fs::symlink("one", root.join("dirlink")).unwrap();
+    assert_eq!(s.same_entry("dirlink/x.txt", "one/x.txt"), Some(true));
+}
+
+/// A root that is gone cannot tell.
+#[test]
+fn same_entry_cannot_tell_without_the_root() {
+    let place = Place::new();
+    place.storage.write("a.txt", b"a").unwrap();
+    std::fs::remove_dir_all(place.base.join("root")).unwrap();
+    assert_eq!(place.storage.same_entry("a.txt", "a.txt"), None);
+}
+
+/// Where the path has not been run, there is no answer to give.
+#[cfg(windows)]
+#[test]
+fn same_entry_is_not_answered_on_windows() {
+    let place = Place::new();
+    place.storage.write("a.txt", b"a").unwrap();
+    assert_eq!(place.storage.same_entry("a.txt", "a.txt"), None);
+    assert_eq!(place.storage.same_entry("a.txt", "A.TXT"), None);
+}

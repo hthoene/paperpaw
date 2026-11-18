@@ -10,6 +10,7 @@ use android_activity::input::{InputEvent as AndroidInput, KeyAction, MotionActio
 use android_activity::{AndroidApp, InputStatus, MainEvent, PollEvent, WindowManagerFlags};
 use ndk::hardware_buffer_format::HardwareBufferFormat;
 use ndk::native_window::NativeWindow;
+use paperpaw_core::kit::library;
 use paperpaw_core::{Effects, Io, Kernel};
 use paperpaw_fs::DirStorage;
 use paperpaw_graphics::Framebuffer;
@@ -19,7 +20,6 @@ use paperpaw_platform::{
     StorageError,
 };
 use paperpaw_sdk::builtin::settings;
-use paperpaw_sdk::library;
 
 use crate::epd::Epd;
 use crate::lights::Lights;
@@ -415,6 +415,12 @@ fn start_kernel(
             return None;
         }
     };
+    // English hyphenation is a data plugin: this app has no flasher, so put it
+    // there once (`paperpaw-default-packs`).
+    let seeded = paperpaw_default_packs::seed_hyphenation(&storage);
+    if !matches!(seeded, paperpaw_default_packs::Seeded::Kept) {
+        log::info!("English hyphenation: {seeded:?}");
+    }
     // The passwords where only PaperPaw reads them (see `private`).
     let storage = Volumes(
         match internal
@@ -515,23 +521,29 @@ fn start_kernel(
     if let Some(language) = app.config().language() {
         builder = builder.setting_default(&settings::LANGUAGE, language.into());
     }
+    // No code plugins here (ADR 0024, amended): they are listed as
+    // unsupported, never opened.
+    let builder = crate::code::policy(builder);
     let builder = paperpaw_app::install_with(
         builder,
         paperpaw_app::Fonts::Outline,
         paperpaw_app::StorePlugins::Off(&|_| ran_before),
     )
-    .plugin(AndroidPlugin {
-        app: app.clone(),
-        shared_storage,
-        screen: (
-            u32::from(device.display.width),
-            u32::from(device.display.height),
-        ),
-        frontlight: lights.map(|lights| Frontlight {
-            lights,
-            brightness: lights.brightness(app),
-            warmth: lights.warmth(app),
-        }),
+    .items(AndroidPlugin::manifest(), {
+        let plugin = AndroidPlugin {
+            app: app.clone(),
+            shared_storage,
+            screen: (
+                u32::from(device.display.width),
+                u32::from(device.display.height),
+            ),
+            frontlight: lights.map(|lights| Frontlight {
+                lights,
+                brightness: lights.brightness(app),
+                warmth: lights.warmth(app),
+            }),
+        };
+        move |r| plugin.register(r)
     });
     let mut kernel = match builder.build() {
         Ok(kernel) => kernel,
@@ -811,6 +823,14 @@ impl Storage for Volumes {
         self.0.append(path, data)
     }
 
+    fn write_at(&self, path: &str, offset: u64, data: &[u8]) -> Result<(), StorageError> {
+        self.0.write_at(path, offset, data)
+    }
+
+    fn truncate(&self, path: &str, len: u64) -> Result<(), StorageError> {
+        self.0.truncate(path, len)
+    }
+
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
         self.0.list(dir, visit)
     }
@@ -840,12 +860,42 @@ impl Storage for Volumes {
         self.0.create_dir(path)
     }
 
+    fn list_bounded(
+        &self,
+        dir: &str,
+        from: u64,
+        visit: &mut dyn FnMut(DirEntry<'_>) -> bool,
+    ) -> Result<Option<u64>, StorageError> {
+        self.0.list_bounded(dir, from, visit)
+    }
+
+    fn remove_listed(&self, dir: &str, place: u64) -> Result<(), StorageError> {
+        self.0.remove_listed(dir, place)
+    }
+
+    fn remove_tree_step(
+        &self,
+        root: &str,
+        keep_root: bool,
+        place: u64,
+    ) -> Result<paperpaw_platform::tree::TreeStep, StorageError> {
+        self.0.remove_tree_step(root, keep_root, place)
+    }
+
     fn remove_dir_all(&self, path: &str) -> Result<(), StorageError> {
         self.0.remove_dir_all(path)
     }
 
     fn ignores_case(&self) -> bool {
         self.0.ignores_case()
+    }
+
+    fn same_entry(&self, a: &str, b: &str) -> Option<bool> {
+        self.0.same_entry(a, b)
+    }
+
+    fn entry_identity(&self, path: &str) -> Result<Option<u64>, StorageError> {
+        self.0.entry_identity(path)
     }
 
     fn free_space(&self) -> Option<u64> {

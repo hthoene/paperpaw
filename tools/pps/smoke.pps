@@ -1,0 +1,44 @@
+# A short smoke test: the same file runs on the X4 and on the emulator.
+#   python3 tools/x4-remote.py --port 'rfc2217://esp-host:4001?ign_set_control' --script-file tools/pps/smoke.pps --out out/smoke
+#   python3 tools/x4-remote.py --emulator target/debug/paperpaw-emu --library <card folder> --script-file tools/pps/smoke.pps --out out/smoke
+# `--baseline out/earlier/results.json` adds before -> now to the report and arms `baseline` in the asserts.
+# Another book: --var book=books/other.epub
+let:book=books/alice-in-wonderland.epub
+
+define:to-home {
+  back
+  wait:1500
+  back
+  wait:1500
+}
+
+test:home {
+  call:to-home
+  expect-not:Error
+  no-warn
+}
+
+test:page-turns {
+  open:$book
+  wait:5000
+  measure:turn:n=5:warm=1:settle=3000 {
+    page-forward
+  }
+  # Times count on the X4 only: on the emulator these asserts say SKIP.
+  assert:turn.first_ms.median<=1000:a page turn within a second
+  assert:turn.frames.max<=2:no extra frames
+  if:has:turn.card_writes {
+    assert:turn.card_writes.max<=1:at most one write command per turn
+  }
+  assert:turn.first_ms.median<=baseline*1.15:not slower than before
+  no-warn
+}
+
+test:back-home {
+  measure:back-home:n=3:settle=4000 {
+    back
+  }
+  assert:back-home.first_ms.median<=1500
+  heap
+  assert:heap.block>=30000:largest free block at Home
+}

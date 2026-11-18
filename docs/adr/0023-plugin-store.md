@@ -39,8 +39,8 @@ download written as it arrives, nothing unpacked in memory.
   - `name`, `summary`: in the language asked for (from an optional
     `[i18n.<lang>]` table of the catalogue entry), English otherwise.
   - `group`: one of `reading`, `formats`, `library`, `sync`, `home`,
-    `look`, `notes`, `learning`, `news`, `tools`, `games`, `system`, in
-    that order (the five before `system` came later; a device that does
+    `look`, `notes`, `learning`, `news`, `tools`, `games`, `languages`,
+    `system`, in that order (the five before `system` and `languages` came later; a device that does
     not know a group shows its plugins under `system`).
   - `kind`: `data` or `code`; `built_in` where true.
   - `latest.formats`: the data format the plugin says in its
@@ -57,7 +57,7 @@ download written as it arrives, nothing unpacked in memory.
   (`GET /api/v1/plugins/{id}/{version}/{*path}`), so a device needs no
   unpacking. A `plugin.ini` is always among them. Plugins with code get
   `latest.builds` there later.
-- **The device's store** is a plugin (`store`, *More plugins*), the same
+- **The device's store** is a plugin (`store`, *Plugin store*), the same
   on every device, by buttons and by touch. The shell says what plugin
   libraries call its device (`KernelBuilder::catalog_device`, read as
   `Env::catalog_device`: `x4`, `x4-pro`, `android`); a device without

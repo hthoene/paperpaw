@@ -51,7 +51,16 @@ pub enum ImageError {
     Io,
     /// Writing to the storage failed, as it says (see [`PngWriter`]).
     Storage(paperpaw_platform::StorageError),
+    /// An allocation was refused: memory may be free later, so trying again
+    /// can work. Never said of a picture that could never fit ([`TooLarge`]).
+    ///
+    /// [`TooLarge`]: ImageError::TooLarge
     OutOfMemory,
+    /// The picture needs more than this decoder ever takes, as its header
+    /// says (its pixels, its rows, or the memory it would keep, over the
+    /// decoder's caps), decided before anything is allocated: trying again
+    /// never helps, so a caller may keep the alternative text for good.
+    TooLarge,
     /// The sink stopped decoding.
     Stopped,
     /// A cause this build has no variant for, by its code (0: not said).
@@ -69,6 +78,7 @@ impl fmt::Display for ImageError {
             ImageError::Io => f.write_str("image could not be read or written"),
             ImageError::Storage(e) => write!(f, "image could not be written: {e}"),
             ImageError::OutOfMemory => f.write_str("not enough memory for the image"),
+            ImageError::TooLarge => f.write_str("image too large for this decoder"),
             ImageError::Stopped => f.write_str("decoding stopped"),
             ImageError::Other(code) => write!(f, "image error {code}"),
         }
@@ -107,12 +117,15 @@ pub trait ImageSink {
     /// blue). Only for sinks that want colour; otherwise it is passed on
     /// as gray.
     fn row_rgb(&mut self, rgb: &[u8]) -> Result<(), ImageError> {
-        let gray: alloc::vec::Vec<u8> = rgb
-            .as_chunks::<3>()
-            .0
-            .iter()
-            .map(|p| luma(u32::from(p[0]), u32::from(p[1]), u32::from(p[2])))
-            .collect();
+        let mut gray = alloc::vec::Vec::new();
+        gray.try_reserve_exact(rgb.len() / 3)
+            .map_err(|_| ImageError::OutOfMemory)?;
+        gray.extend(
+            rgb.as_chunks::<3>()
+                .0
+                .iter()
+                .map(|p| luma(u32::from(p[0]), u32::from(p[1]), u32::from(p[2]))),
+        );
         self.row(&gray)
     }
 
@@ -127,12 +140,16 @@ pub trait ImageSink {
     /// and how opaque it is (0 transparent, 255 opaque). Only for sinks
     /// that want it; otherwise it is passed on over white.
     fn row_alpha(&mut self, gray_alpha: &[u8]) -> Result<(), ImageError> {
-        let gray: alloc::vec::Vec<u8> = gray_alpha
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|p| over_white(p[0], p[1]))
-            .collect();
+        let mut gray = alloc::vec::Vec::new();
+        gray.try_reserve_exact(gray_alpha.len() / 2)
+            .map_err(|_| ImageError::OutOfMemory)?;
+        gray.extend(
+            gray_alpha
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|p| over_white(p[0], p[1])),
+        );
         self.row(&gray)
     }
 }
@@ -359,19 +376,26 @@ impl<'a> Reader<'a> {
         self.before + self.pos as u64
     }
 
-    /// The next byte, `None` at the end.
+    /// The next byte, `None` at the end. Inlined where it is called: a
+    /// byte at hand is a load and a step (it was a call for every byte of
+    /// a picture's data, #250).
+    #[inline]
     fn next(&mut self) -> Result<Option<u8>, ImageError> {
-        if self.pos == self.len {
-            self.before += self.len as u64;
-            (self.pos, self.len) = (0, 0);
-            // A source that says it read more than asked for is not believed.
-            self.len = self.source.read(&mut self.buf)?.min(self.buf.len());
-            if self.len == 0 {
-                return Ok(None);
-            }
+        if self.pos == self.len && !self.more()? {
+            return Ok(None);
         }
         self.pos += 1;
         Ok(Some(self.buf[self.pos - 1]))
+    }
+
+    /// Reads the next bytes of the source; whether there were any.
+    #[inline(never)]
+    fn more(&mut self) -> Result<bool, ImageError> {
+        self.before += self.len as u64;
+        (self.pos, self.len) = (0, 0);
+        // A source that says it read more than asked for is not believed.
+        self.len = self.source.read(&mut self.buf)?.min(self.buf.len());
+        Ok(self.len > 0)
     }
 
     fn byte(&mut self) -> Result<u8, ImageError> {
@@ -427,7 +451,10 @@ pub struct Downscaler {
     channels: usize,
     out_width: u32,
     out_height: u32,
-    /// The pixel of the smaller row each pixel goes to.
+    /// Never filled since #316 (the pixel each one goes to is stepped along
+    /// the row); the field stays because the struct's layout is part of the
+    /// plugin interface (draft 36).
+    #[allow(dead_code, reason = "kept for the layout the interface fingerprints")]
     columns: alloc::vec::Vec<u16>,
     /// Pixels of a row each pixel of the smaller one covers.
     counts: alloc::vec::Vec<u16>,
@@ -451,7 +478,7 @@ impl Downscaler {
         let out_width = size.0.clamp(1, width.max(1));
         let out_height = size.1.clamp(1, height.max(1));
         if out_width > u32::from(u16::MAX) {
-            return Err(ImageError::Unsupported("image this large"));
+            return Err(ImageError::TooLarge);
         }
         if !matches!(channels, 1..=3) {
             return Err(ImageError::Unsupported("channels"));
@@ -463,17 +490,12 @@ impl Downscaler {
         let down = u64::from(height.div_ceil(out_height));
         let most = if channels == 2 { 255 * 255 } else { 255 };
         if across > u64::from(u16::MAX) || across * down * most > u64::from(u32::MAX) {
-            return Err(ImageError::Unsupported("image this large made this small"));
+            return Err(ImageError::TooLarge);
         }
-        let mut columns = alloc::vec::Vec::new();
         let mut counts: alloc::vec::Vec<u16> = zeroed(out_width as usize)?;
         if out_width != width {
-            columns
-                .try_reserve_exact(width as usize)
-                .map_err(|_| ImageError::OutOfMemory)?;
             for x in 0..u64::from(width) {
                 let to = (x * u64::from(out_width) / u64::from(width)) as usize;
-                columns.push(to as u16);
                 counts[to] = counts[to].saturating_add(1);
             }
         } else {
@@ -486,7 +508,7 @@ impl Downscaler {
             channels,
             out_width,
             out_height,
-            columns,
+            columns: alloc::vec::Vec::new(),
             counts,
             sums: zeroed(len)?,
             rows: 0,
@@ -578,30 +600,44 @@ impl Downscaler {
     #[inline]
     fn add(&mut self, pixels: &[u8], times: u32) {
         let ch = self.channels;
+        let same = self.out_width == self.width;
+        // The pixel of the smaller row each pixel goes to,
+        // `x * out_width / width`, stepped along the row (no table of a
+        // row's length on the heap: 3.2 KiB for a 1,600 pixel row, #316).
+        let (out, width) = (self.out_width as usize, self.width as usize);
+        let (mut to, mut rem) = (0usize, 0usize);
+        let mut next = move |x: usize| {
+            if same {
+                return x;
+            }
+            let at = to;
+            rem += out;
+            if rem >= width {
+                rem -= width;
+                to += 1;
+            }
+            at
+        };
         if ch == 2 {
             // The gray weighted by how opaque it is: a transparent pixel
             // lends the mean no gray of its own.
             for (x, pixel) in pixels.as_chunks::<2>().0.iter().enumerate() {
-                let to = if self.columns.is_empty() {
-                    x
-                } else {
-                    usize::from(self.columns[x])
-                };
+                let to = next(x);
                 let (g, a) = (u32::from(pixel[0]), u32::from(pixel[1]));
                 self.sums[to * 2] += g * a * times;
                 self.sums[to * 2 + 1] += a * times;
             }
-        } else if self.columns.is_empty() {
+        } else if same {
             for (sum, &v) in self.sums.iter_mut().zip(pixels) {
                 *sum += u32::from(v) * times;
             }
         } else if ch == 1 {
-            for (&to, &v) in self.columns.iter().zip(pixels) {
-                self.sums[usize::from(to)] += u32::from(v) * times;
+            for (x, &v) in pixels.iter().enumerate() {
+                self.sums[next(x)] += u32::from(v) * times;
             }
         } else {
-            for (&to, pixel) in self.columns.iter().zip(pixels.chunks_exact(ch)) {
-                let at = usize::from(to) * ch;
+            for (x, pixel) in pixels.chunks_exact(ch).enumerate() {
+                let at = next(x) * ch;
                 for (sum, &v) in self.sums[at..at + ch].iter_mut().zip(pixel) {
                     *sum += u32::from(v) * times;
                 }
@@ -668,19 +704,38 @@ impl ImageFile {
         }
     }
 
-    /// Opens a decoded image of any kind, checking its size.
+    /// Opens a decoded image of any kind, checking its size: `None` where
+    /// there is none at `path` or memory is short (see [`try_open`]).
+    ///
+    /// [`try_open`]: ImageFile::try_open
     pub fn open(storage: &dyn paperpaw_platform::Storage, path: &str) -> Option<ImageFile> {
-        Some(match Decoded::open(storage, path)? {
-            Decoded::Gray(file) => {
-                ImageFile::new(&file.path, file.width, file.height, false, false)
-            }
-            Decoded::Color(file) => {
-                ImageFile::new(&file.path, file.width, file.height, true, false)
-            }
-            Decoded::Alpha(file) => {
-                ImageFile::new(&file.path, file.width, file.height, false, true)
-            }
-        })
+        Self::try_open(storage, path).ok().flatten()
+    }
+
+    /// [`open`](ImageFile::open) that says why: `Ok(None)` where there is no
+    /// decoded image of the right size at `path`, and
+    /// [`ImageError::OutOfMemory`] where its path could not be copied.
+    ///
+    /// # Errors
+    /// [`ImageError::OutOfMemory`] when the copy of `path` is refused.
+    pub fn try_open(
+        storage: &dyn paperpaw_platform::Storage,
+        path: &str,
+    ) -> Result<Option<ImageFile>, ImageError> {
+        let file = |path, width, height, color, alpha| ImageFile {
+            path,
+            width,
+            height,
+            color,
+            alpha,
+        };
+        Ok(
+            Decoded::try_open(storage, path)?.map(|decoded| match decoded {
+                Decoded::Gray(f) => file(f.path, f.width, f.height, false, false),
+                Decoded::Color(f) => file(f.path, f.width, f.height, true, false),
+                Decoded::Alpha(f) => file(f.path, f.width, f.height, false, true),
+            }),
+        )
     }
 }
 
@@ -697,34 +752,58 @@ impl Decoded {
     /// Opens a decoded image of any kind: its header read once, its size
     /// checked.
     pub fn open(storage: &dyn paperpaw_platform::Storage, path: &str) -> Option<Decoded> {
-        let (decoded, bytes) = Self::header(storage, path)?;
+        Self::try_open(storage, path).ok().flatten()
+    }
+
+    /// [`open`](Decoded::open) that says why: `Ok(None)` where there is no
+    /// decoded image of the right size at `path`.
+    ///
+    /// # Errors
+    /// [`ImageError::OutOfMemory`] when the copy of `path` is refused.
+    pub fn try_open(
+        storage: &dyn paperpaw_platform::Storage,
+        path: &str,
+    ) -> Result<Option<Decoded>, ImageError> {
+        let Some((decoded, bytes)) = Self::header(storage, path)? else {
+            return Ok(None);
+        };
         let (width, height) = decoded.size();
         let expected = (u64::from(width) * u64::from(height))
-            .checked_mul(bytes)?
-            .checked_add(12)?;
-        (storage.size(path).ok()? == expected).then_some(decoded)
+            .checked_mul(bytes)
+            .and_then(|pixels| pixels.checked_add(12));
+        Ok((expected.is_some() && storage.size(path).ok() == expected).then_some(decoded))
     }
 
     /// The image whose header is at `path`, trusting it, its size not
     /// checked: for drawing band by band, where one read is all it may
     /// take (a file cut short only reads short).
     pub fn peek(storage: &dyn paperpaw_platform::Storage, path: &str) -> Option<Decoded> {
-        Self::header(storage, path).map(|(decoded, _)| decoded)
+        Self::header(storage, path)
+            .ok()
+            .flatten()
+            .map(|(decoded, _)| decoded)
     }
 
     /// The image the header names, and its bytes a pixel.
-    fn header(storage: &dyn paperpaw_platform::Storage, path: &str) -> Option<(Decoded, u64)> {
+    fn header(
+        storage: &dyn paperpaw_platform::Storage,
+        path: &str,
+    ) -> Result<Option<(Decoded, u64)>, ImageError> {
         let mut header = [0u8; 12];
         if !gray::read_all(storage, path, 0, &mut header) {
-            return None;
+            return Ok(None);
         }
         let width = u32::from_le_bytes([header[4], header[5], header[6], header[7]]);
         let height = u32::from_le_bytes([header[8], header[9], header[10], header[11]]);
-        if width == 0 || height == 0 {
-            return None;
+        if width == 0 || height == 0 || !matches!(&header[..4], b"PPGI" | b"PPCI" | b"PPGA") {
+            return Ok(None);
         }
-        let path = alloc::string::String::from(path);
-        Some(match &header[..4] {
+        let mut copy = alloc::string::String::new();
+        copy.try_reserve_exact(path.len())
+            .map_err(|_| ImageError::OutOfMemory)?;
+        copy.push_str(path);
+        let path = copy;
+        Ok(Some(match &header[..4] {
             b"PPGI" => (
                 Decoded::Gray(GrayFile {
                     path,
@@ -741,9 +820,16 @@ impl Decoded {
                 }),
                 3,
             ),
-            b"PPGA" => (Decoded::Alpha(AlphaFile::new(&path, width, height)), 2),
-            _ => return None,
-        })
+            b"PPGA" => (
+                Decoded::Alpha(AlphaFile {
+                    path,
+                    width,
+                    height,
+                }),
+                2,
+            ),
+            _ => return Ok(None),
+        }))
     }
 
     /// Its width and height.

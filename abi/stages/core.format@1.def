@@ -1,0 +1,359 @@
+{
+  "key": "core.format",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 32,
+  "max_input": 3840,
+  "max_reply": 3840,
+  "input": [
+    "fmt.call",
+    "fmt.option"
+  ],
+  "reply": [
+    "fmt.yes",
+    "fmt.image",
+    "fmt.state",
+    "fmt.meta",
+    "fmt.text",
+    "fmt.section",
+    "fmt.end",
+    "fmt.block",
+    "fmt.text_part",
+    "fmt.run",
+    "fmt.map",
+    "fmt.columns",
+    "fmt.cell",
+    "fmt.ruby",
+    "fmt.inline_lang",
+    "fmt.toc",
+    "fmt.at",
+    "fmt.label",
+    "fmt.xpointer",
+    "fmt.link",
+    "fmt.font",
+    "fmt.progress"
+  ],
+  "reply_rows": 64,
+  "records": [
+    {
+      "id": 1,
+      "name": "fmt.call",
+      "since": 0,
+      "fields": [
+        {
+          "name": "op",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "document",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "section",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "offset",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "index",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "cursor",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "generation",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "image_side",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "cover_side",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "conversion",
+          "type": "u64",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "text",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 1024
+        },
+        {
+          "name": "arg",
+          "type": "bytes",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 512
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "fmt.option",
+      "since": 0,
+      "mirrors": "service.doc_option"
+    },
+    {
+      "id": 3,
+      "name": "fmt.yes",
+      "since": 0,
+      "fields": [
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "fmt.image",
+      "since": 0,
+      "fields": [
+        {
+          "name": "path",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 256
+        },
+        {
+          "name": "index",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "width",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "height",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "fmt.state",
+      "since": 0,
+      "mirrors": "service.doc_state"
+    },
+    {
+      "id": 6,
+      "name": "fmt.meta",
+      "since": 0,
+      "mirrors": "service.doc_meta"
+    },
+    {
+      "id": 7,
+      "name": "fmt.text",
+      "since": 0,
+      "mirrors": "service.doc_text"
+    },
+    {
+      "id": 8,
+      "name": "fmt.section",
+      "since": 0,
+      "mirrors": "service.doc_section"
+    },
+    {
+      "id": 9,
+      "name": "fmt.end",
+      "since": 0,
+      "mirrors": "service.end"
+    },
+    {
+      "id": 10,
+      "name": "fmt.block",
+      "since": 0,
+      "mirrors": "service.doc_block"
+    },
+    {
+      "id": 11,
+      "name": "fmt.text_part",
+      "since": 0,
+      "mirrors": "service.doc_text_part"
+    },
+    {
+      "id": 12,
+      "name": "fmt.run",
+      "since": 0,
+      "mirrors": "service.doc_run"
+    },
+    {
+      "id": 13,
+      "name": "fmt.map",
+      "since": 0,
+      "mirrors": "service.doc_map"
+    },
+    {
+      "id": 14,
+      "name": "fmt.columns",
+      "since": 0,
+      "mirrors": "service.doc_columns"
+    },
+    {
+      "id": 15,
+      "name": "fmt.cell",
+      "since": 0,
+      "mirrors": "service.doc_cell"
+    },
+    {
+      "id": 16,
+      "name": "fmt.ruby",
+      "since": 0,
+      "mirrors": "service.doc_ruby"
+    },
+    {
+      "id": 17,
+      "name": "fmt.inline_lang",
+      "since": 0,
+      "mirrors": "service.doc_inline_lang"
+    },
+    {
+      "id": 18,
+      "name": "fmt.toc",
+      "since": 0,
+      "mirrors": "service.doc_toc"
+    },
+    {
+      "id": 19,
+      "name": "fmt.at",
+      "since": 0,
+      "mirrors": "service.doc_at"
+    },
+    {
+      "id": 20,
+      "name": "fmt.label",
+      "since": 0,
+      "mirrors": "service.doc_label"
+    },
+    {
+      "id": 21,
+      "name": "fmt.xpointer",
+      "since": 0,
+      "mirrors": "service.doc_xpointer"
+    },
+    {
+      "id": 22,
+      "name": "fmt.link",
+      "since": 0,
+      "mirrors": "service.doc_link"
+    },
+    {
+      "id": 23,
+      "name": "fmt.font",
+      "since": 0,
+      "mirrors": "service.doc_font"
+    },
+    {
+      "id": 24,
+      "name": "fmt.progress",
+      "since": 0,
+      "mirrors": "service.doc_progress"
+    }
+  ]
+}

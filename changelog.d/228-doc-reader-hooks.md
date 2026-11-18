@@ -1,0 +1,3 @@
+### Added
+
+- **The document service tells the host which book a reader holds, and gives a book to show its place** (#228). Every `open` calls the host's `reader_opened` before the format and every end (close, opener or format stopped, the host closing it, its place taken) calls `reader_closed` once, so the book is not freed under a reader. The host can end one document with reason 2 `the card went` or 3 `moved or removed`. Where the device-wide places are full, an `open` that is not a background build takes the first background document, else the oldest of an opener that shows no screen (`document.md` 2.1); its opener hears reason 4 `needed`, the format gets op 4, and later calls on its id are `ERR_CANCELLED`.

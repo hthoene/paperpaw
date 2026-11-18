@@ -27,6 +27,8 @@ pub struct Memory {
     pub budget: Cell<Option<usize>>,
     /// Appends fail (a full card).
     pub full: Cell<bool>,
+    /// Files cannot be moved (a storage without `rename`).
+    pub fixed: Cell<bool>,
 }
 
 impl Memory {
@@ -100,6 +102,9 @@ impl Storage for Memory {
     }
 
     fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
+        if self.fixed.get() {
+            return Err(StorageError::Unsupported);
+        }
         let mut files = self.files.borrow_mut();
         let data = files.remove(from).ok_or(StorageError::NotFound)?;
         files.insert(to.to_string(), data);

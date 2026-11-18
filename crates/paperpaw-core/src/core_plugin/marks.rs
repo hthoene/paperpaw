@@ -1,6 +1,10 @@
-use paperpaw_sdk::decorations::{Decoration, LineKind, Tone};
-use paperpaw_sdk::role_settings;
-use paperpaw_sdk::{RegisterError, Registrar, SettingSpec};
+//! The roles of the marks every reader draws: highlights, links, a
+//! search hit, the sentence read aloud (see `paperpaw_sdk::decorations`).
+
+use crate::Staging;
+use crate::kit::decorations::{Decoration, LineKind, Tone};
+use crate::role_settings;
+use paperpaw_sdk::{RegisterError, SettingSpec};
 
 pub(super) static HIGHLIGHT: [SettingSpec; 7] = role_settings!(
     "core.highlight",
@@ -27,7 +31,7 @@ pub(super) static ALOUD: [SettingSpec; 7] = role_settings!(
 );
 
 /// The marks' settings, each role's.
-pub(super) fn register(r: &mut Registrar) -> Result<(), RegisterError> {
+pub(super) fn register(r: &mut Staging) -> Result<(), RegisterError> {
     for role in [&HIGHLIGHT, &LINK, &SEARCH_HIT, &ALOUD] {
         r.add_settings(role)?;
     }

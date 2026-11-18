@@ -1,0 +1,2 @@
+### Added
+- Native plugins can declare library book fields (`book_field.spec`) and badges (`book_badge.spec`, interface 7): both are admitted into the declaration store (at most 8 fields and 4 badges per plugin, 64 fields and 16 badges on the device, one name once per plugin and kind), listed in load order and dropped with their plugin; the host can tell whether a field id is declared and whether it is kept in the catalog.

@@ -1,0 +1,5 @@
+Öffnet Comic-Archive (.cbz): ein Bild je Seite, an den Bildschirm angepasst, in der Reihenfolge ihrer Namen (2 vor 10).
+
+Lege sie in den Bibliotheksordner und öffne sie aus der Bibliothek; blättern wie in jedem Buch. Große Bilder brauchen beim ersten Mal einen Moment, auf dem X4 mehr als anderswo.
+
+Lesen (Einstellungen, Lesen): „Bild für Bild“ zeigt immer nur ein Panel einer Seite, so groß wie der Bildschirm es zulässt, und das Umblättern geht von Panel zu Panel; eine Seite ohne Panels wird ganz gezeigt. „Comicseiten laufen“ spiegelt das Umblättern für Manga (von rechts nach links); die ComicInfo.xml des Buches sagt es von selbst. Die Bibliothek zeigt Titel, Reihe und Nummer aus der ComicInfo.xml.

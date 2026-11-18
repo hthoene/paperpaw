@@ -28,6 +28,7 @@
 //! and `report.json` in the output folder, `target/paperpaw-dev` unless
 //! `--out` says otherwise); errors make the run fail, for CI.
 
+pub mod build;
 pub mod cases;
 pub mod cli;
 pub mod data;
@@ -35,7 +36,9 @@ pub mod explore;
 pub mod flows;
 pub mod gallery;
 pub mod image;
+pub mod library;
 pub mod lint;
+pub mod metadata;
 pub mod package;
 pub mod perf;
 pub mod ppn;
@@ -46,7 +49,6 @@ pub mod report;
 pub mod session;
 pub mod snapshot;
 pub mod target;
-pub mod ui_kit;
 pub mod variant;
 pub mod vary;
 pub mod visual;

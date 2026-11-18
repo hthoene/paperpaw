@@ -6,6 +6,10 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use paperpaw_sdk::document::DocumentError;
+
+use crate::fallible;
+
 /// Lines of front matter held at most, while it is looked at.
 const MAX_LINES: usize = 100;
 /// Bytes of front matter held at most.
@@ -44,68 +48,72 @@ pub(super) enum Step {
 
 impl Front {
     /// Reads `raw`, a line of the file.
-    pub fn feed(&mut self, raw: &str) -> Step {
+    pub fn feed(&mut self, raw: &str) -> Result<Step, DocumentError> {
         match self {
-            Front::Done => Step::Past,
+            Front::Done => Ok(Step::Past),
             Front::Start => {
                 if raw.trim_end() == "---" {
                     *self = Front::Open {
                         lines: Vec::new(),
                         bytes: 0,
                     };
-                    Step::Taken
+                    Ok(Step::Taken)
                 } else {
                     *self = Front::Done;
-                    Step::Past
+                    Ok(Step::Past)
                 }
             }
             Front::Open { lines, bytes } => {
                 let closing = matches!(raw.trim_end(), "---" | "...");
                 if closing {
-                    let tags = tags(lines);
+                    let tags = tags(lines)?;
                     *self = Front::Done;
-                    return Step::Closed(tags);
+                    return Ok(Step::Closed(tags));
                 }
                 if lines.len() >= MAX_LINES || *bytes + raw.len() > MAX_BYTES {
                     return self.give_up(Some(raw));
                 }
+                let line = fallible::string(raw)?;
                 *bytes += raw.len();
-                lines.push(String::from(raw));
-                Step::Taken
+                fallible::push(lines, line)?;
+                Ok(Step::Taken)
             }
         }
     }
 
     /// The file ended: front matter still open was none.
-    pub fn end(&mut self) -> Step {
+    pub fn end(&mut self) -> Result<Step, DocumentError> {
         if matches!(self, Front::Open { .. }) {
             self.give_up(None)
         } else {
-            Step::Past
+            Ok(Step::Past)
         }
     }
 
-    fn give_up(&mut self, last: Option<&str>) -> Step {
+    fn give_up(&mut self, last: Option<&str>) -> Result<Step, DocumentError> {
         let Front::Open { lines, .. } = core::mem::replace(self, Front::Done) else {
-            return Step::Past;
+            return Ok(Step::Past);
         };
-        let mut text = Vec::with_capacity(lines.len() + 2);
-        text.push(String::from("---"));
+        let mut text = Vec::new();
+        fallible::reserve_exact(&mut text, lines.len() + 2)?;
+        text.push(fallible::string("---")?);
         text.extend(lines);
-        text.extend(last.map(String::from));
-        Step::Text(text)
+        if let Some(last) = last {
+            text.push(fallible::string(last)?);
+        }
+        Ok(Step::Text(text))
     }
 }
 
 /// The tags the properties name: `tags: a, b`, `tags: [a, b]`, or a list
 /// under `tags:` (the key is `tag` too).
-fn tags(lines: &[String]) -> Vec<String> {
+fn tags(lines: &[String]) -> Result<Vec<String>, DocumentError> {
     let mut found: Vec<String> = Vec::new();
     let mut listing = false;
     for line in lines {
         let item = line.trim_start().strip_prefix("- ");
         if listing && let Some(item) = item {
-            add(&mut found, item);
+            add(&mut found, item)?;
             continue;
         }
         listing = false;
@@ -116,7 +124,8 @@ fn tags(lines: &[String]) -> Vec<String> {
         else {
             continue;
         };
-        if !matches!(key.trim().to_ascii_lowercase().as_str(), "tags" | "tag") {
+        let key = key.trim();
+        if !(key.eq_ignore_ascii_case("tags") || key.eq_ignore_ascii_case("tag")) {
             continue;
         }
         let value = value.trim().trim_start_matches('[').trim_end_matches(']');
@@ -124,25 +133,33 @@ fn tags(lines: &[String]) -> Vec<String> {
             listing = true;
         }
         for part in value.split([',', ' ']) {
-            add(&mut found, part);
+            add(&mut found, part)?;
         }
     }
-    found
+    Ok(found)
 }
 
-fn add(found: &mut Vec<String>, tag: &str) {
+fn add(found: &mut Vec<String>, tag: &str) -> Result<(), DocumentError> {
     let tag = tag.trim().trim_matches(['"', '\'']).trim_start_matches('#');
-    let clean: String = tag
+    let mut clean = String::new();
+    for c in tag
         .chars()
         .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '/'))
-        .collect();
+    {
+        // A tag that is too long is none: not built to its end.
+        if clean.len() > MAX_TAG {
+            return Ok(());
+        }
+        fallible::push_char(&mut clean, c)?;
+    }
     if !clean.is_empty()
         && clean.len() <= MAX_TAG
         && found.len() < MAX_TAGS
         && !found.contains(&clean)
     {
-        found.push(clean);
+        fallible::push(found, clean)?;
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -151,8 +168,8 @@ mod tests {
 
     fn run(lines: &[&str]) -> Vec<Step> {
         let mut front = Front::default();
-        let mut steps: Vec<Step> = lines.iter().map(|l| front.feed(l)).collect();
-        steps.push(front.end());
+        let mut steps: Vec<Step> = lines.iter().map(|l| front.feed(l).unwrap()).collect();
+        steps.push(front.end().unwrap());
         steps
     }
 

@@ -4,13 +4,19 @@ pub enum paperpaw_json::stream::Event<'a>
 pub paperpaw_json::stream::Event::Close(&'a [alloc::string::String])
 pub paperpaw_json::stream::Event::Open(&'a [alloc::string::String])
 pub paperpaw_json::stream::Event::Value(&'a [alloc::string::String], &'a str)
+#[non_exhaustive] pub struct paperpaw_json::stream::OutOfMemory
+impl core::fmt::Display for paperpaw_json::stream::OutOfMemory
+pub fn paperpaw_json::stream::OutOfMemory::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct paperpaw_json::stream::Parser
 impl paperpaw_json::stream::Parser
 pub fn paperpaw_json::stream::Parser::feed(&mut self, &[u8], &mut dyn core::ops::function::FnMut(paperpaw_json::stream::Event<'_>))
 pub fn paperpaw_json::stream::Parser::finish(&mut self, &mut dyn core::ops::function::FnMut(paperpaw_json::stream::Event<'_>))
+pub fn paperpaw_json::stream::Parser::try_feed(&mut self, &[u8], &mut dyn core::ops::function::FnMut(paperpaw_json::stream::Event<'_>)) -> core::result::Result<(), paperpaw_json::stream::OutOfMemory>
+pub fn paperpaw_json::stream::Parser::try_finish(&mut self, &mut dyn core::ops::function::FnMut(paperpaw_json::stream::Event<'_>)) -> core::result::Result<(), paperpaw_json::stream::OutOfMemory>
 pub const paperpaw_json::stream::MAX_DEPTH: usize
 pub const paperpaw_json::stream::MAX_STRING: usize
 pub fn paperpaw_json::stream::read_file(&dyn paperpaw_platform::storage::Storage, &str, &mut dyn core::ops::function::FnMut(paperpaw_json::stream::Event<'_>))
+pub fn paperpaw_json::stream::try_read_file(&dyn paperpaw_platform::storage::Storage, &str, &mut dyn core::ops::function::FnMut(paperpaw_json::stream::Event<'_>)) -> core::result::Result<(), paperpaw_json::stream::OutOfMemory>
 pub type paperpaw_json::stream::Path = alloc::vec::Vec<alloc::string::String>
 pub enum paperpaw_json::Value
 pub paperpaw_json::Value::Num(f64)

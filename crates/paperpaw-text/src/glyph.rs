@@ -6,6 +6,11 @@ use alloc::vec::Vec;
 /// doesn't know them reads as empty.
 pub(crate) const COVERAGE4: u8 = 0;
 
+/// The same coverage stored compactly (`crate::packed`, the strike flag of a
+/// pack), read row by row: [`GlyphRef::levels`] and [`GlyphRef::level`] give
+/// the pixels either way.
+pub(crate) const PACKED4: u8 = 1;
+
 /// A borrowed glyph bitmap with 4-bit coverage.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
@@ -35,6 +40,12 @@ impl GlyphRef<'_> {
     /// [`GlyphRef::coverage`] reads it.
     #[inline]
     pub(crate) fn level(&self, x: u16, y: u16) -> u8 {
+        if self.format == PACKED4 {
+            // Decoded from the first row to `y`: a measure over a whole glyph
+            // uses `levels`.
+            return crate::packed::Rows::new(self.data, self.width, self.height)
+                .level(u32::from(x), u32::from(y));
+        }
         let stride = usize::from(self.width).div_ceil(2);
         if self.format != COVERAGE4 {
             return 0;
@@ -49,29 +60,66 @@ impl GlyphRef<'_> {
         }
     }
 
-    /// [`GlyphRef::level`] of every pixel, the length of a row worked out
-    /// once rather than for each pixel.
+    /// The level (0 to 15) of every pixel, the length of a row worked out
+    /// once rather than for each pixel. A packed glyph is decoded a row at a
+    /// time (rows asked in order cost one pass; an earlier row starts over).
     #[inline]
-    pub(crate) fn levels(&self) -> impl Fn(u32, u32) -> u8 + '_ {
+    pub fn levels(&self) -> impl Fn(u32, u32) -> u8 + '_ {
         let stride = usize::from(self.width).div_ceil(2);
-        let data = if self.format == COVERAGE4 {
-            self.data
-        } else {
-            &[]
+        let source = match self.format {
+            COVERAGE4 => Levels::Raw(self.data),
+            PACKED4 => Levels::Packed(crate::packed::Rows::new(self.data, self.width, self.height)),
+            _ => Levels::Raw(&[]),
         };
-        move |x, y| {
-            let at = (y as usize) * stride + (x as usize) / 2;
-            match data.get(at) {
-                Some(&byte) if x % 2 == 0 => byte >> 4,
-                Some(&byte) => byte & 0x0f,
-                None => 0,
+        move |x, y| match &source {
+            Levels::Packed(rows) => rows.level(x, y),
+            Levels::Raw(data) => {
+                let at = (y as usize) * stride + (x as usize) / 2;
+                match data.get(at) {
+                    Some(&byte) if x % 2 == 0 => byte >> 4,
+                    Some(&byte) => byte & 0x0f,
+                    None => 0,
+                }
             }
         }
+    }
+
+    /// The first and last row, the first and last column (in this order) of
+    /// the pixels at least half covered, as panels of black and white show
+    /// them; `None` for a glyph without ink. One pass in order, which a
+    /// packed glyph reads cheaply (a column at a time would decode it again and
+    /// again).
+    pub fn ink_box(&self) -> Option<(u16, u16, u16, u16)> {
+        let level = self.levels();
+        let (mut top, mut bottom, mut left, mut right) = (u16::MAX, 0, u16::MAX, 0);
+        let mut any = false;
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if level(u32::from(x), u32::from(y)) >= 8 {
+                    any = true;
+                    top = top.min(y);
+                    bottom = bottom.max(y);
+                    left = left.min(x);
+                    right = right.max(x);
+                }
+            }
+        }
+        any.then_some((top, bottom, left, right))
     }
 
     pub fn is_empty(&self) -> bool {
         self.width == 0 || self.height == 0
     }
+}
+
+/// Where [`GlyphRef::levels`] reads from.
+#[allow(
+    clippy::large_enum_variant,
+    reason = "on the stack of one glyph draw, never boxed: no heap on the draw path"
+)]
+enum Levels<'a> {
+    Raw(&'a [u8]),
+    Packed(crate::packed::Rows<'a>),
 }
 
 /// An owned glyph bitmap (e.g. rasterized at runtime and cached).
@@ -114,9 +162,10 @@ impl Glyph {
         }
     }
 
-    /// Approximate heap usage, for cache accounting.
+    /// Approximate heap usage, for cache accounting: the bitmap's memory,
+    /// which a glyph read into the memory of another may not fill.
     pub fn byte_size(&self) -> usize {
-        self.data.len() + core::mem::size_of::<Glyph>()
+        self.data.capacity() + core::mem::size_of::<Glyph>()
     }
 }
 

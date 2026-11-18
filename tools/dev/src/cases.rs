@@ -3,9 +3,10 @@
 //! drawn (picture, described parts) and, for widgets, the cell it was
 //! given. Galleries, visual checks and budgets share these.
 
+use paperpaw_core::kit::widgets;
+use paperpaw_core::sdk::Params;
 use paperpaw_core::sdk::builtin::slots;
 use paperpaw_core::sdk::semantics::{Described, Part};
-use paperpaw_core::sdk::{Params, widgets};
 use paperpaw_platform::Rect;
 
 use crate::image::Image;
@@ -97,13 +98,14 @@ pub fn widgets(session: &Session, target: &Target) -> Vec<(String, String)> {
     let kernel = &session.device.kernel;
     let mut list: Vec<(String, String)> = kernel
         .widgets()
-        .iter()
-        .filter(|(id, _)| {
+        .everywhere()
+        .into_iter()
+        .filter(|(id, _, _)| {
             target.ours(id.as_str())
                 && !id.as_str().starts_with(probe::PLUGIN)
                 && !widgets::repeatable(id.as_str())
         })
-        .map(|(id, title)| (id.to_string(), kernel.translator().tr(title).to_string()))
+        .map(|(id, title, _)| (id.to_string(), kernel.translator().tr(&title).to_string()))
         .collect();
     list.sort();
     list

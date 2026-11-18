@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-mail"
 description = "PaperPaw mail: read and send e-mail over IMAP and SMTP, with a password or an app password"
-version = "1.0.0"
+version = "1.0.5"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -10,12 +10,24 @@ homepage.workspace = true
 authors.workspace = true
 categories = ["no-std"]
 
+[features]
+linked = []
+native-entry = []
+
 [dependencies]
 paperpaw-sdk.workspace = true
+paperpaw-ui-kit.workspace = true
+
+[build-dependencies]
+# `kernel` only for the build script (not unified with the plugin's own use of
+# the SDK): it makes the tables a linked build keeps in the program.
+paperpaw-sdk = { workspace = true, features = ["kernel"] }
+paperpaw-ui-kit.workspace = true
 
 [dev-dependencies]
 paperpaw-i18n.workspace = true
 paperpaw-core.workspace = true
+paperpaw-native.workspace = true
 paperpaw-platform.workspace = true
 paperpaw-plugin-fonts-default = { workspace = true, features = ["packs"] }
 paperpaw-plugin-home.workspace = true
@@ -23,3 +35,6 @@ proptest.workspace = true
 
 [lints]
 workspace = true
+
+[package.metadata.paperpaw]
+card-files = ["i18n/*.ini"]

@@ -3,6 +3,7 @@
     python3 -m unittest discover -s tools/plugin-files
 """
 
+import hashlib
 import json
 import pathlib
 import struct
@@ -26,6 +27,38 @@ def ppn(fingerprint, body, compiler=0x6A1F03C2, chip=5):
 def release(tag, created, names):
     return {"tag_name": tag, "created_at": created, "draft": False,
             "assets": [{"name": n, "browser_download_url": f"https://r/{tag}/{n}"} for n in names]}
+
+
+class Digests(unittest.TestCase):
+    def listing(self, **more):
+        asset = {"name": "a-1.0.0-x4.ppn", "size": 3, "browser_download_url": "https://r/t/a-1.0.0-x4.ppn", **more}
+        return json.dumps([[{"tag_name": "t", "created_at": "2026-11-01", "draft": False, "assets": [asset]}]])
+
+    def test_the_digest_github_gives_is_used_without_a_download(self):
+        digest = hashlib.sha256(b"abc").hexdigest()
+        checksum = published.checksums(self.listing(state="uploaded", digest="sha256:" + digest.upper()),
+                                       fetch=lambda url: self.fail("no download"))
+        self.assertEqual(checksum("a-1.0.0-x4.ppn"), digest)
+
+    def test_without_a_digest_the_bytes_are_downloaded_once(self):
+        asked = []
+
+        def fetch(url):
+            asked.append(url)
+            return b"abc"
+
+        checksum = published.checksums(self.listing(state="uploaded"), fetch=fetch)
+        self.assertEqual(checksum("a-1.0.0-x4.ppn"), hashlib.sha256(b"abc").hexdigest())
+        checksum("a-1.0.0-x4.ppn")
+        self.assertEqual(asked, ["https://r/t/a-1.0.0-x4.ppn"])
+
+    def test_an_asset_that_is_not_finished_is_no_published_asset(self):
+        text = self.listing(state="starter")
+        self.assertEqual(published.assets(text), {})
+        self.assertEqual(published.partial(text), {"a-1.0.0-x4.ppn": "t"})
+        self.assertEqual(published.assets(self.listing(state="uploaded")),
+                         {"a-1.0.0-x4.ppn": ("t", "https://r/t/a-1.0.0-x4.ppn")})
+        self.assertEqual(published.partial(self.listing(state="uploaded")), {})
 
 
 class Published(unittest.TestCase):
@@ -75,6 +108,39 @@ class Published(unittest.TestCase):
         self.assertEqual(published.folders(self.folder, found, self.online.__getitem__), [])
         folder.write_bytes(b"another How it works")
         self.assertEqual(len(published.folders(self.folder, found, self.online.__getitem__)), 1)
+
+
+class PrivateRepositories(unittest.TestCase):
+    """With the job's token an asset comes from the API address (#217)."""
+
+    def setUp(self):
+        asset = {"name": "a-1.0.0-x4.ppn", "browser_download_url": "https://github.com/o/r/releases/download/t/a-1.0.0-x4.ppn",
+                 "url": "https://api.github.com/repos/o/r/releases/assets/7"}
+        text = json.dumps([[{"tag_name": "t", "created_at": "2026-11-01", "draft": False, "assets": [asset]}]])
+        self.public = published.assets(text)["a-1.0.0-x4.ppn"][1]
+        self.addCleanup(published.API_URLS.clear)
+
+    def test_without_a_token_the_public_address_is_asked_as_before(self):
+        asked = published.request(self.public)
+        self.assertEqual(asked.full_url, self.public)
+        self.assertIsNone(asked.get_header("Authorization"))
+
+    def test_with_a_token_the_api_gives_the_bytes(self):
+        asked = published.request(self.public, "s3cret")
+        self.assertEqual(asked.full_url, "https://api.github.com/repos/o/r/releases/assets/7")
+        self.assertEqual(asked.get_header("Authorization"), "Bearer s3cret")
+        self.assertEqual(asked.get_header("Accept"), "application/octet-stream")
+
+    def test_an_address_the_list_did_not_give_is_asked_as_it_is(self):
+        self.assertEqual(published.request("https://elsewhere/x", "s3cret").full_url, "https://elsewhere/x")
+
+    def test_the_token_does_not_follow_a_redirect_to_another_host(self):
+        asked = published.request(self.public, "s3cret")
+        handler = published.KeepTokenHome()
+        away = handler.redirect_request(asked, None, 302, "Found", {}, "https://objects.example/file?sig=1")
+        self.assertIsNone(away.get_header("Authorization"))
+        same = handler.redirect_request(asked, None, 302, "Found", {}, "https://api.github.com/other")
+        self.assertEqual(same.get_header("Authorization"), "Bearer s3cret")
 
 
 if __name__ == "__main__":

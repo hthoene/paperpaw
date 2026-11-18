@@ -1,5 +1,6 @@
-//! A plugin file (`.ppn`, see `paperpaw-native`) from a native plugin
-//! linked with `paperpaw-plugin.x` and `--emit-relocs`.
+//! The image of a linked native plugin, as a plugin file (`.ppn`, see
+//! `paperpaw-native` and [`crate::pack5`]) holds it, and the words to
+//! relocate in it.
 //!
 //! The image is the linked `.rodata` (at [`LINK_BASE`]) followed by
 //! `.text` (at `LINK_BASE + CODE_OFFSET` and the size of `.rodata`), so
@@ -14,179 +15,19 @@
 //! - addresses of the plugin built into instructions (on RISC-V, code
 //!   not built with `-C code-model=medium`);
 //! - relative reaches and differences out of the image, which would
-//!   change when it moves;
-//! - a plugin that does not say which compiler built it, or says more
-//!   than one (its `.comment`): it runs only on firmware built by the
-//!   same, so its file names it.
+//!   change when it moves.
 //!
 //! The hot code and the patches that move it come from [`crate::hot`].
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use paperpaw_native::{
-    API_SYMBOL, API_WORDS, CODE_OFFSET, Chip, ENTRY_SYMBOL, HEADER_LEN, Header, LINK_BASE,
-    MAX_IMAGE_LEN, TABLE_SYMBOLS,
-};
+use paperpaw_native::{CODE_OFFSET, Chip, LINK_BASE, MAX_IMAGE_LEN};
 
-use crate::elf::{
-    EM_RISCV, EM_XTENSA, ET_EXEC, ET_REL, Elf, SHN_ABS, SHN_UNDEF, SHT_REL, SHT_RELA, STT_SECTION,
-    Section, Symbol, le32,
-};
-use crate::hot::Hot;
+use crate::elf::{Elf, SHN_ABS, SHN_UNDEF, SHT_REL, SHT_RELA, STT_SECTION, Section, Symbol, le32};
 use crate::relocation::{self, Kind};
 
-/// The bytes an [`Entry`](paperpaw_native::Entry) takes.
-const ENTRY_LEN: u32 = 32;
 /// The most problems with relocations told at once.
 const MAX_TOLD: usize = 20;
-
-/// A plugin file made.
-#[derive(Debug)]
-pub struct Packed {
-    pub header: Header,
-    /// The compiler it was built with: its release, as
-    /// `paperpaw_native::compiler::release` gives it.
-    pub compiler: String,
-    /// The whole file, checked with [`Header::check_file`].
-    pub file: Vec<u8>,
-}
-
-/// The plugin file of the linked plugin `elf`.
-pub fn pack(elf: &[u8]) -> Result<Packed, String> {
-    let elf = Elf::parse(elf)?;
-    match elf.kind {
-        ET_EXEC => {}
-        ET_REL => return Err("an object, not a linked plugin: pack the plugin as linked".into()),
-        _ => return Err("not a linked program".into()),
-    }
-    let chip = match elf.machine {
-        EM_RISCV => Chip::Esp32C3,
-        EM_XTENSA => Chip::Esp32S3,
-        other => {
-            return Err(format!(
-                "made for machine {other}, neither RISC-V nor Xtensa"
-            ));
-        }
-    };
-    let (symtab, symbols) = elf
-        .symbols()?
-        .ok_or("no symbol table: do not strip the plugin")?;
-    let image = Image::of(&elf, &symbols)?;
-    let entry = image.entry(&symbols)?;
-    let api = image.api(&symbols)?;
-    let mut used = [false; TABLE_SYMBOLS.len()];
-    let words = image.words(&elf, chip, symtab, &symbols, &mut used)?;
-    if let Some(at) = words.iter().find(|&&w| w >= api && w < api + 4 * API_WORDS) {
-        return Err(format!(
-            "the word at {at:#x} after `{API_SYMBOL}` has a relocation: nothing may be linked \
-             into the firmware's words"
-        ));
-    }
-    let hot = Hot::of(&elf, &image, chip, &symbols, &words)?;
-
-    let compiler = compiler(&elf)?;
-    let fingerprint = u64::from(image.word(entry)) | (u64::from(image.word(entry + 4)) << 32);
-    // The entry after `make` (a word on the chips): what the plugin needs.
-    let needs = image.word(entry + 12);
-    let (needs_api, interface) = (needs & 0xFFFF, (needs >> 16) as u16);
-    // The SDK's revision of the families the code reads the word of, as
-    // the entry says; 0 for the others, which the loader then does not
-    // check. A family used with no revision would call a table the
-    // loader does not vouch for.
-    let mut families = [0u16; TABLE_SYMBOLS.len()];
-    for (i, family) in families.iter_mut().enumerate() {
-        let word = image.word(entry + 16 + 4 * (i as u32 / 2));
-        let revision = (word >> (16 * (i % 2))) as u16;
-        if used[i] {
-            if chip != Chip::Esp32C3 {
-                return Err(format!(
-                    "the code reads `{}`: only the RISC-V chips share functions",
-                    TABLE_SYMBOLS[i]
-                ));
-            }
-            if revision == 0 {
-                return Err(format!(
-                    "the code reads `{}`, but its entry has no revision of family {i}: \
-                     built with an SDK that does not know it",
-                    TABLE_SYMBOLS[i]
-                ));
-            }
-            *family = revision;
-        }
-    }
-    if interface == 0 {
-        return Err(
-            "its entry names no plugin interface: built with an SDK before interface 5".into(),
-        );
-    }
-    let align = [image.rodata.addralign, image.text.addralign, 4]
-        .into_iter()
-        .max()
-        .unwrap_or(4)
-        .min(4096);
-    let mut rest = image.bytes;
-    for word in words.iter().chain(hot.patches.iter().flatten()) {
-        rest.extend_from_slice(&word.to_le_bytes());
-    }
-    let mut header = Header {
-        chip,
-        fingerprint,
-        base: LINK_BASE,
-        image_len: image.len,
-        code_at: image.code_at,
-        entry,
-        api,
-        relocs: words.len() as u32,
-        align,
-        compiler: paperpaw_native::compiler::id(&compiler),
-        hot_at: hot.at,
-        hot_len: hot.len,
-        patches: hot.patches.len() as u32,
-        needs_api,
-        // The SDK's revision of every family; the families the code does
-        // not use are to be 0 here (the words it reads: firmware step of
-        // interface 5).
-        families,
-        interface,
-        sha256: [0; 32],
-    };
-    let mut sha = header.digest();
-    sha.update(&rest);
-    header.sha256 = sha.finish();
-    let mut file = Vec::with_capacity(HEADER_LEN + rest.len());
-    file.extend_from_slice(&header.to_bytes());
-    file.extend_from_slice(&rest);
-    Header::check_file(&file).map_err(|e| format!("the file made does not hold: {e}"))?;
-    Ok(Packed {
-        header,
-        compiler,
-        file,
-    })
-}
-
-/// The release of the one compiler that built `elf`, as its `.comment`
-/// names it: Rust writes its own into every object, the core libraries'
-/// included.
-fn compiler(elf: &Elf<'_>) -> Result<String, String> {
-    let named = match elf.section(".comment") {
-        Some((_, section)) => paperpaw_native::compiler::named_in(elf.data(section)?)
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        None => Vec::new(),
-    };
-    match named.as_slice() {
-        [one] => Ok(one.clone()),
-        [] => Err(
-            "no .comment names the compiler: link the plugin with paperpaw-plugin.x as it is now,              which keeps it"
-                .into(),
-        ),
-        _ => Err(format!(
-            "built by more than one compiler ({}): build the plugin and the core libraries with              the one of PaperPaw's release",
-            named.join(", ")
-        )),
-    }
-}
 
 /// The image: `.rodata`, then `.text`.
 pub(crate) struct Image<'e> {
@@ -212,23 +53,23 @@ pub(crate) enum Place {
 
 impl<'e> Image<'e> {
     /// The image of `elf`, all its sections checked.
-    fn of(elf: &'e Elf<'_>, symbols: &[Symbol]) -> Result<Self, String> {
+    pub(crate) fn of(elf: &'e Elf<'_>, symbols: &[Symbol]) -> Result<Self, String> {
         let (rodata_index, rodata) = elf
             .section(".rodata")
-            .ok_or("no .rodata: link the plugin with paperpaw-plugin.x")?;
+            .ok_or("no .rodata: link the plugin with paperpaw-plugin7.x")?;
         let (text_index, text) = elf
             .section(".text")
             .ok_or("no .text: the plugin has no code")?;
         if rodata.addr != LINK_BASE {
             return Err(format!(
-                ".rodata is linked at {:#010x}, not at {LINK_BASE:#010x}: link the plugin with paperpaw-plugin.x",
+                ".rodata is linked at {:#010x}, not at {LINK_BASE:#010x}: link the plugin with paperpaw-plugin7.x",
                 rodata.addr
             ));
         }
         let code = LINK_BASE + CODE_OFFSET + rodata.size;
         if text.addr != code {
             return Err(format!(
-                ".text is linked at {:#010x}, not right after .rodata at {code:#010x}: link the plugin with paperpaw-plugin.x",
+                ".text is linked at {:#010x}, not right after .rodata at {code:#010x}: link the plugin with paperpaw-plugin7.x",
                 text.addr
             ));
         }
@@ -267,7 +108,12 @@ impl<'e> Image<'e> {
 
     /// The offset of the symbol called `name` in `.rodata`, for something
     /// of `len` bytes.
-    fn in_rodata(&self, symbols: &[Symbol], name: &str, len: u32) -> Result<u32, String> {
+    pub(crate) fn in_rodata(
+        &self,
+        symbols: &[Symbol],
+        name: &str,
+        len: u32,
+    ) -> Result<u32, String> {
         let symbol = symbols
             .iter()
             .find(|s| s.name == name && s.shndx != SHN_UNDEF)
@@ -279,43 +125,7 @@ impl<'e> Image<'e> {
             .ok_or_else(|| format!("`{name}` is at {:#010x}, not in .rodata", symbol.value))
     }
 
-    /// The plugin's entry: its offset.
-    fn entry(&self, symbols: &[Symbol]) -> Result<u32, String> {
-        let at = self
-            .in_rodata(symbols, ENTRY_SYMBOL, ENTRY_LEN)
-            .map_err(|e| format!("{e}: a plugin's entry is made by the SDK's `plugin!`"))?;
-        if !at.is_multiple_of(8) {
-            return Err(format!("`{ENTRY_SYMBOL}` is not 8-aligned"));
-        }
-        Ok(at)
-    }
-
-    /// The word for the address of the firmware's table: its offset.
-    fn api(&self, symbols: &[Symbol]) -> Result<u32, String> {
-        let at = self
-            .in_rodata(symbols, API_SYMBOL, 4)
-            .map_err(|e| format!("{e}: link the plugin with paperpaw-plugin.x"))?;
-        if !at.is_multiple_of(4) {
-            return Err(format!("`{API_SYMBOL}` is not 4-aligned"));
-        }
-        if self.word(at) != 0 {
-            return Err(format!("`{API_SYMBOL}` is not linked as 0"));
-        }
-        // The families' words follow it, as paperpaw-plugin.x makes them.
-        for (n, name) in TABLE_SYMBOLS.iter().enumerate() {
-            let word = self.in_rodata(symbols, name, 4).map_err(|e| {
-                format!("{e}: link the plugin with this PaperPaw's paperpaw-plugin.x")
-            })?;
-            if word != at + 4 * (n as u32 + 1) || self.word(word) != 0 {
-                return Err(format!(
-                    "`{name}` is not linked as 0 right after the words before it"
-                ));
-            }
-        }
-        Ok(at)
-    }
-
-    fn word(&self, at: u32) -> u32 {
+    pub(crate) fn word(&self, at: u32) -> u32 {
         le32(&self.bytes, at as usize)
     }
 
@@ -371,13 +181,12 @@ impl<'e> Image<'e> {
         clippy::too_many_lines,
         reason = "longer than the limit from before it was set; split it when it is next changed"
     )]
-    fn words(
+    pub(crate) fn words(
         &self,
         elf: &Elf<'_>,
         chip: Chip,
         symtab: usize,
         symbols: &[Symbol],
-        used: &mut [bool; TABLE_SYMBOLS.len()],
     ) -> Result<BTreeSet<u32>, String> {
         let mut words = BTreeSet::new();
         let mut problems = Vec::new();
@@ -424,12 +233,6 @@ impl<'e> Image<'e> {
                     })?),
                 };
                 let place = self.place(symbol);
-                // A family's word read: the plugin calls its table.
-                if let Some(n) =
-                    symbol.and_then(|s| TABLE_SYMBOLS.iter().position(|t| *t == s.name))
-                {
-                    used[n] = true;
-                }
                 let kind = relocation::kind(chip, rela.kind);
                 let told = || Told {
                     elf,
@@ -589,17 +392,14 @@ fn writable_data(elf: &Elf<'_>, symbols: &[Symbol]) -> Result<(), String> {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+mod tests {
     use super::*;
     use crate::elf::build::Builder;
-    use crate::elf::{SHF_ALLOC, SHF_WRITE};
+    use crate::elf::{EM_RISCV, EM_XTENSA, ET_EXEC, SHF_ALLOC, SHF_WRITE};
 
     const TEXT: u32 = LINK_BASE + CODE_OFFSET + 96;
     const DATA: u32 = LINK_BASE + 80;
     const ROM: u32 = 0x4000_1234;
-    const FINGERPRINT: u64 = 0x0123_4567_89ab_cdef;
-    /// What the linker keeps of the compilers.
-    const COMMENT: &[u8] = b"Linker: LLD 21.1.0\0rustc version 1.99.0 (b940084d7 2026-09-28)\0";
 
     /// The kinds a test uses, by what they are on each chip.
     struct Kinds {
@@ -610,9 +410,9 @@ pub(crate) mod tests {
         marker: u32,
     }
 
-    /// A small plugin that packs: 96 bytes of read-only data (the entry
-    /// at 0 with the address of `make` at 8, the firmware's words at 32,
-    /// the address of `DATA` at 68, a difference at 72, `DATA` at 80), then 32
+    /// A small plugin whose image holds: 96 bytes of read-only data (the
+    /// address of `make` at 8, the address of `DATA` at 68, a difference at
+    /// 72, `DATA` at 80), then 32
     /// bytes of code (a call of `make`, a relative reach of `DATA`, a
     /// literal of `DATA`'s address at 24 and of a ROM function's at 28).
     struct Plugin {
@@ -625,17 +425,6 @@ pub(crate) mod tests {
     }
 
     fn plugin(machine: u16) -> Plugin {
-        plugin_with(machine, COMMENT)
-    }
-
-    /// The small plugin, with `comment` as its `.comment` (none if empty).
-    fn plugin_with(machine: u16, comment: &[u8]) -> Plugin {
-        plugin_full(machine, comment, [0; 8])
-    }
-
-    /// The small plugin whose entry says it was built with `families`'
-    /// revisions of the shared functions.
-    fn plugin_full(machine: u16, comment: &[u8], families: [u16; 8]) -> Plugin {
         let k = match machine {
             EM_RISCV => Kinds {
                 word: 1,
@@ -653,13 +442,7 @@ pub(crate) mod tests {
             },
         };
         let mut rodata = [0u8; 96];
-        rodata[..8].copy_from_slice(&FINGERPRINT.to_le_bytes());
         rodata[8..12].copy_from_slice(&TEXT.to_le_bytes());
-        // Needs 64 bytes of the firmware's table, plugin interface 5.
-        rodata[12..16].copy_from_slice(&(64u32 | (5 << 16)).to_le_bytes());
-        for (i, revision) in families.iter().enumerate() {
-            rodata[16 + 2 * i..18 + 2 * i].copy_from_slice(&revision.to_le_bytes());
-        }
         rodata[68..72].copy_from_slice(&DATA.to_le_bytes());
         rodata[80..88].copy_from_slice(b"PaperPaw");
         let mut text = [0x13u8; 32];
@@ -669,16 +452,8 @@ pub(crate) mod tests {
         let mut b = Builder::new(machine, ET_EXEC);
         let ro = b.section(".rodata", SHF_ALLOC, LINK_BASE, &rodata, 16);
         let tx = b.section(".text", SHF_ALLOC | 4, TEXT, &text, 4);
-        if !comment.is_empty() {
-            b.section(".comment", 0x30, 0, comment, 1);
-        }
         let data = b.symbol("DATA", DATA, 8, ro as u16, true);
         let label = b.symbol(".Lpcrel", TEXT + 4, 0, tx as u16, true);
-        b.symbol(ENTRY_SYMBOL, LINK_BASE, 32, ro as u16, false);
-        b.symbol(API_SYMBOL, LINK_BASE + 32, 0, SHN_ABS, false);
-        for (n, name) in TABLE_SYMBOLS.iter().enumerate() {
-            b.symbol(name, LINK_BASE + 36 + 4 * n as u32, 0, SHN_ABS, false);
-        }
         let make = b.symbol("make", TEXT, 8, tx as u16, false);
         // No hot code.
         b.symbol("PAPERPAW_HOT", TEXT + 32, 0, tx as u16, false);
@@ -702,99 +477,32 @@ pub(crate) mod tests {
         }
     }
 
-    /// The file names the one compiler that built the plugin, and a
-    /// plugin of none or of two is refused.
-    #[test]
-    fn the_compiler_is_named_and_must_be_one() {
-        let packed = pack(&plugin(EM_RISCV).b.build()).unwrap();
-        assert_eq!(packed.compiler, "1.99.0 (b940084d7 2026-09-28)");
-        assert_eq!(
-            packed.header.compiler,
-            paperpaw_native::compiler::id("1.99.0 (b940084d7 2026-09-28)")
-        );
-        let none = pack(&plugin_with(EM_RISCV, b"Linker: LLD 21.1.0\0").b.build()).unwrap_err();
-        assert!(none.contains("no .comment names the compiler"), "{none}");
-        let two = pack(
-            &plugin_with(
-                EM_XTENSA,
-                b"rustc version 1.99.0 (b940084d7 2026-09-28)\0rustc version 1.97.0-nightly (8ea53bcd7 2026-07-08) (1.97.0.0)\0",
-            )
-            .b
-            .build(),
-        )
-        .unwrap_err();
-        assert!(two.contains("more than one compiler"), "{two}");
-    }
-
-    /// The packed file of the small plugin for `machine`.
-    pub(crate) fn packed(machine: u16) -> Vec<u8> {
-        pack(&plugin(machine).b.build()).unwrap().file
+    /// The words to relocate of the linked plugin `elf`, as a packer asks
+    /// for them: its image made, every relocation of it checked.
+    fn words(elf: &[u8]) -> Result<BTreeSet<u32>, String> {
+        let elf = Elf::parse(elf)?;
+        let chip = match elf.machine {
+            EM_RISCV => Chip::Esp32C3,
+            _ => Chip::Esp32S3,
+        };
+        let (symtab, symbols) = elf.symbols()?.ok_or("no symbol table")?;
+        let image = Image::of(&elf, &symbols)?;
+        assert_eq!((image.code_at, image.len), (96, 128));
+        image.words(&elf, chip, symtab, &symbols)
     }
 
     fn refused(p: &Plugin) -> String {
-        pack(&p.b.build()).unwrap_err()
+        words(&p.b.build()).unwrap_err()
     }
 
+    /// The words that hold an address of the image are to relocate, on both
+    /// chips; the ROM's address stays as it is.
     #[test]
-    fn a_plugin_packs_for_both_chips() {
-        for (machine, chip) in [(EM_RISCV, Chip::Esp32C3), (EM_XTENSA, Chip::Esp32S3)] {
-            let elf = plugin(machine).b.build();
-            let packed = pack(&elf).unwrap();
-            let (header, _) = Header::check_file(&packed.file).unwrap();
-            assert_eq!(header, packed.header);
-            assert_eq!(header.chip, chip);
-            assert_eq!(header.fingerprint, FINGERPRINT);
-            assert_eq!((header.base, header.image_len), (LINK_BASE, 128));
-            assert_eq!((header.code_at, header.entry, header.api), (96, 0, 32));
-            assert_eq!((header.needs_api, header.interface), (64, 5));
-            assert_eq!((header.relocs, header.align), (3, 16));
-            let image = &packed.file[HEADER_LEN..HEADER_LEN + 128];
-            assert_eq!(image[..8], FINGERPRINT.to_le_bytes());
-            assert_eq!(image[96..100], [0x13; 4]);
-            let words: Vec<u32> = packed.file[HEADER_LEN + 128..]
-                .chunks(4)
-                .map(|w| le32(w, 0))
-                .collect();
-            // The ROM's address stays as it is.
-            assert_eq!(words, [8, 68, 120]);
+    fn the_words_to_relocate_are_those_that_hold_an_address_of_the_image() {
+        for machine in [EM_RISCV, EM_XTENSA] {
+            let found = words(&plugin(machine).b.build()).unwrap();
+            assert_eq!(found.into_iter().collect::<Vec<_>>(), [8, 68, 120]);
         }
-    }
-
-    /// Makes the code of `p` read the word of family `n`, as a call of a
-    /// shared function does, and packs it.
-    fn pack_reading(mut p: Plugin, n: &[usize]) -> Result<Packed, String> {
-        for (i, &family) in n.iter().enumerate() {
-            let at = LINK_BASE + 36 + 4 * family as u32;
-            let word =
-                p.b.symbol(TABLE_SYMBOLS[family], at, 0, p.rodata as u16, false);
-            p.b.rela(p.text, TEXT + 8 + 8 * i as u32, word, p.k.call);
-        }
-        pack(&p.b.build())
-    }
-
-    #[test]
-    fn the_families_the_code_reads_are_in_the_header() {
-        // The SDK has revisions of families 0, 1 and 3; the code uses 0 and 3.
-        let revisions = [2, 1, 0, 4, 0, 0, 0, 0];
-        let packed = pack_reading(plugin_full(EM_RISCV, COMMENT, revisions), &[0, 3]).unwrap();
-        assert_eq!(packed.header.families, [2, 0, 0, 4, 0, 0, 0, 0]);
-        // Reading none: none to check, whatever the SDK has.
-        let packed = pack(&plugin_full(EM_RISCV, COMMENT, revisions).b.build()).unwrap();
-        assert_eq!(packed.header.families, [0; 8]);
-    }
-
-    #[test]
-    fn a_family_read_without_a_revision_is_refused() {
-        let error = pack_reading(plugin(EM_RISCV), &[0]).unwrap_err();
-        assert!(error.contains("PAPERPAW_TABLE_0"), "{error}");
-        assert!(error.contains("no revision"), "{error}");
-    }
-
-    #[test]
-    fn only_the_risc_v_chips_share() {
-        let revisions = [1, 0, 0, 0, 0, 0, 0, 0];
-        let error = pack_reading(plugin_full(EM_XTENSA, COMMENT, revisions), &[0]).unwrap_err();
-        assert!(error.contains("only the RISC-V chips"), "{error}");
     }
 
     #[test]
@@ -844,7 +552,7 @@ pub(crate) mod tests {
         // Against the ROM it stays right.
         let mut p = plugin(EM_RISCV);
         p.b.rela(p.text, TEXT + 16, p.rom, p.k.absolute);
-        assert!(pack(&p.b.build()).is_ok());
+        assert!(words(&p.b.build()).is_ok());
     }
 
     #[test]
@@ -907,29 +615,23 @@ pub(crate) mod tests {
     fn a_file_not_linked_as_a_plugin_is_refused() {
         // No relocations kept.
         let mut b = Builder::new(EM_RISCV, ET_EXEC);
-        let mut rodata = [0u8; 96];
-        rodata[..8].copy_from_slice(&FINGERPRINT.to_le_bytes());
-        let ro = b.section(".rodata", SHF_ALLOC, LINK_BASE, &rodata, 16);
+        let rodata = [0u8; 96];
+        b.section(".rodata", SHF_ALLOC, LINK_BASE, &rodata, 16);
         b.section(
             ".text",
             SHF_ALLOC | 4,
             LINK_BASE + CODE_OFFSET + 96,
-            &[0; 16],
+            &[0; 32],
             4,
         );
-        b.symbol(ENTRY_SYMBOL, LINK_BASE, 32, ro as u16, false);
-        b.symbol(API_SYMBOL, LINK_BASE + 32, 0, ro as u16, false);
-        for (n, name) in TABLE_SYMBOLS.iter().enumerate() {
-            b.symbol(name, LINK_BASE + 36 + 4 * n as u32, 0, ro as u16, false);
-        }
-        let error = pack(&b.build()).unwrap_err();
+        let error = words(&b.build()).unwrap_err();
         assert!(error.contains("--emit-relocs"), "{error}");
 
         // Code not right after the data.
         let mut b = Builder::new(EM_RISCV, ET_EXEC);
         b.section(".rodata", SHF_ALLOC, LINK_BASE, &rodata, 16);
         b.section(".text", SHF_ALLOC | 4, 0x4200_0000, &[0; 16], 4);
-        let error = pack(&b.build()).unwrap_err();
+        let error = words(&b.build()).unwrap_err();
         assert!(error.contains("not right after .rodata"), "{error}");
 
         // Another section that takes memory.
@@ -940,9 +642,5 @@ pub(crate) mod tests {
             error.contains("unexpected section .got (8 bytes)"),
             "{error}"
         );
-
-        // An object, not linked.
-        let error = pack(&Builder::new(EM_RISCV, ET_REL).build()).unwrap_err();
-        assert!(error.contains("an object, not a linked plugin"), "{error}");
     }
 }

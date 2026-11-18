@@ -5,9 +5,7 @@ description: >
   for the X4 Pro and the X4 Classic), and espflash if asked. Sets
   FIRMWARE_TOOLCHAIN, FIRMWARE_TARGET, FIRMWARE_CHIP (as espflash names
   it), FIRMWARE_CHIP_ID (as images do), FIRMWARE_CARGO (the arguments
-  every build takes, the features left to add) and PLUGIN_ALIAS (the
-  alias code plugins build with, as samples/hello-native names it; for
-  the ESP32-S3 after the action xtensa-std).
+  every build takes, the features left to add).
 inputs:
   device:
     description: x4, x3, x4-pro or x4-classic.
@@ -15,18 +13,56 @@ inputs:
   espflash:
     description: Whether to install espflash too.
     default: "false"
+  clang-fallback:
+    description: >
+      Whether mbedTLS may be built with the runner's own (newer) clang where the
+      named clang-18 cannot be installed from a slow mirror in time. Source
+      checks say yes; a release does not (it keeps to the named compiler).
+    default: "false"
 runs:
   using: composite
   steps:
     - name: The versions
       shell: bash
-      run: grep -E '^[A-Z_]+=' shells/xteink/versions.env >> "$GITHUB_ENV"
+      run: grep -E '^[A-Z0-9_]+=' shells/xteink/versions.env >> "$GITHUB_ENV"
+    # tools/check-x4-start-stack.py reads the firmware's symbols with rustup's
+    # llvm-nm, which is in the `llvm-tools` component of the repository's
+    # toolchain (rust-toolchain.toml); no step of any device adds it otherwise.
+    - name: The llvm tools the stack checks read symbols with
+      shell: bash
+      run: |
+        toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
+        rustup toolchain install "$toolchain" --profile minimal --component llvm-tools
+    # The runner image has no clang-18, and Ubuntu's Azure mirror has stalled
+    # for most of an hour (#876): the packages' .deb files are kept here, so a
+    # run that finds them downloads nothing. Where the mirror stays slow, the
+    # source checks (clang-fallback) go on with the runner's own clang and say
+    # so; no cache exists before a push has saved one, and a pull request
+    # reads the one of its base branch. Only pushes to main and
+    # abi7/integration save an entry (about 150 MB each, one per branch scope; a
+    # manual run of a workflow or a pull request only reads).
+    # The script gives apt a kept file only if its SHA-256 is the authenticated
+    # package list's, so a cached file can only be the one the mirror offers.
+    - name: The apt packages for mbedTLS, kept between runs
+      id: apt-debs
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ~/apt-debs
+        key: apt-debs-${{ runner.os }}-${{ env.MBEDTLS_CLANG_PACKAGE }}-${{ hashFiles('tools/ci/build-prerequisites.sh', 'shells/xteink/versions.env') }}
     - name: What builds mbedTLS
       shell: bash
+      env:
+        MBEDTLS_CLANG_FALLBACK: ${{ inputs.clang-fallback == 'true' && 'runner' || '' }}
       run: |
         # CMake and Ninja for every device; clang compiles it for the X4
         # (the ESP32-S3's with espup's Xtensa GCC).
-        bash tools/ci/build-prerequisites.sh
+        APT_DEB_CACHE="$HOME/apt-debs" bash tools/ci/build-prerequisites.sh
+    - name: Keep the apt packages
+      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/abi7/integration') && steps.apt-debs.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ~/apt-debs
+        key: ${{ steps.apt-debs.outputs.cache-primary-key }}
     # The X4's and the X3's (their chip, the ESP32-C3).
     - name: The X4's Rust
       if: inputs.device == 'x4' || inputs.device == 'x3'
@@ -41,12 +77,13 @@ runs:
           echo "FIRMWARE_CHIP=esp32c3"
           echo "FIRMWARE_CHIP_ID=5"
           echo "FIRMWARE_CARGO=--release --target $target --no-default-features"
-          echo "PLUGIN_ALIAS=x4"
         } >> "$GITHUB_ENV"
+    # Restored by every run, saved only by a push to abi7/integration or main
+    # (a pull request's copy would be one more of the 10 GB the repository may keep).
     - name: espup's toolchain, kept between runs
       id: esp-cache
       if: inputs.device != 'x4' && inputs.device != 'x3'
-      uses: actions/cache@v4
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
       with:
         path: |
           ~/.rustup/toolchains/esp
@@ -55,10 +92,29 @@ runs:
     - name: espup's toolchain
       if: inputs.device != 'x4' && inputs.device != 'x3' && steps.esp-cache.outputs.cache-hit != 'true'
       shell: bash
+      # espup asks GitHub's API for its releases: without the token a fresh
+      # repository (no cache) is stopped by the unauthenticated rate limit.
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
-        cargo install espup --version "$ESPUP_VERSION" --locked
+        # The release's binary, not `cargo install` (3.5 minutes of compiling on
+        # every run that has no toolchain cache): checked against the SHA-256
+        # in versions.env, which is GitHub's digest of the release asset.
+        mkdir -p "$HOME/.cargo/bin"
+        curl -sSfL --retry 3 -o "$HOME/.cargo/bin/espup" \
+          "https://github.com/esp-rs/espup/releases/download/v${ESPUP_VERSION}/espup-x86_64-unknown-linux-gnu"
+        echo "$ESPUP_SHA256_X86_64  $HOME/.cargo/bin/espup" | sha256sum -c -
+        chmod +x "$HOME/.cargo/bin/espup"
         espup install --targets esp32s3 --toolchain-version "$ESP_RUST_VERSION" \
           --crosstool-toolchain-version "$ESP_GCC_VERSION" --export-file "$HOME/export-esp.sh"
+    - name: Keep espup's toolchain
+      if: inputs.device != 'x4' && inputs.device != 'x3' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/abi7/integration') && steps.esp-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: |
+          ~/.rustup/toolchains/esp
+          ~/export-esp.sh
+        key: ${{ steps.esp-cache.outputs.cache-primary-key }}
     - name: The ESP32-S3's Rust
       if: inputs.device != 'x4' && inputs.device != 'x3'
       shell: bash
@@ -81,7 +137,6 @@ runs:
           # library is built for Xtensa here.
           echo "FIRMWARE_CARGO=--release --target $target --no-default-features -Zbuild-std=core,alloc"
           # Code plugins link with the release's core libraries instead.
-          echo "PLUGIN_ALIAS=x4pro"
         } >> "$GITHUB_ENV"
     - name: espflash
       if: inputs.espflash == 'true'

@@ -193,17 +193,11 @@ pub fn english(session: &Session) -> BTreeMap<String, String> {
         );
     }
     // Later catalogs win, as in the translator.
-    for catalog in kernel.translator().catalogs() {
-        if catalog.language() != paperpaw_i18n::FALLBACK_LANGUAGE {
-            continue;
-        }
-        let mut catalog = catalog;
-        catalog.load();
-        for key in catalog.keys() {
-            if let Some(value) = catalog.get(key) {
-                messages.insert(key.to_string(), value.to_string());
-            }
-        }
+    let english = super::languages(kernel)
+        .into_iter()
+        .find(|l| l.code == paperpaw_i18n::FALLBACK_LANGUAGE);
+    if let Some(english) = english {
+        messages.extend(english.messages);
     }
     messages
 }

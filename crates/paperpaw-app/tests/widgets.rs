@@ -11,12 +11,14 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
+mod native_activation;
+
+use paperpaw_core::kit::widgets::{self, FRAMES};
 use paperpaw_core::{Effects, Kernel};
 use paperpaw_platform::{
     DeviceInfo, DisplayInfo, InputCaps, Instant, MemoryClass, PixelFormat, Rotation,
 };
 use paperpaw_sdk::builtin::{params, slots};
-use paperpaw_sdk::widgets::{self, FRAMES};
 use paperpaw_sdk::{MemoryStorage, Params};
 
 const X4: DeviceInfo = DeviceInfo::new(
@@ -67,10 +69,8 @@ impl App {
             .with(".paperpaw/plugins/setup/done", "");
         let builder = Kernel::builder(device)
             .storage(storage)
-            .user_config(format!(
-                "[help]\nshow = false\n[core]\nlanguage = {language}\n"
-            ));
-        let mut kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+            .user_config(format!("[core]\nlanguage = {language}\n"));
+        let mut kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
         let effects = kernel.start(Instant(0));
         let mut app = Self { kernel, now: 0 };
         app.settle(effects);
@@ -150,11 +150,19 @@ fn draw_all(device: DeviceInfo, language: &str, read: bool) {
     }
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn every_widget_draws_on_the_x4() {
     draw_all(X4, "en", true);
 }
 
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`): the interface-6 home is removed (#244)"
+)]
 #[test]
 fn every_widget_draws_on_the_boox() {
     draw_all(BOOX, "de", false);
@@ -182,41 +190,34 @@ fn every_widget_can_be_shaped() {
 
 #[test]
 fn one_week_start_for_all() {
+    use paperpaw_core::kit::time::WEEK_STARTS;
     use paperpaw_sdk::builtin::settings::WEEK_START;
-    use paperpaw_sdk::time::WEEK_STARTS;
     let mut app = App::new(X4, "en");
     assert_eq!(app.kernel.settings().read(&WEEK_START), WEEK_STARTS[0]);
     app.set(WEEK_START.as_str(), "core.week.sunday");
     assert_eq!(app.kernel.settings().read(&WEEK_START), "core.week.sunday");
-    // The calendars follow it, drawn as before.
-    app.set(
-        "home.page-1",
-        "widgets.calendar 0/0 4x3, stats.widget.calendar 0/3 4x3",
-    );
+    // The widgets still on interface 6 draw with it set; the calendars are native now.
+    app.set("home.page-1", "vocabulary.widget.word 0/0 4x3");
     assert!(app.draw());
 }
 
 #[test]
+#[cfg_attr(
+    not(feature = "native-linked-reading"),
+    ignore = "needs the native home (`native-linked-reading`)"
+)]
 fn a_widget_placed_twice_has_two_looks() {
     let mut app = App::new(X4, "en");
-    app.set(
-        "home.page-1",
-        "widgets.analogue-clock@1 0/0 2x2, widgets.analogue-clock@2 2/0 2x2",
-    );
-    app.set("widgets.analogue-clock@2.frame", "core.frame.dark");
+    // A widget of the native home itself: the widgets pack is linked only
+    // with `native-linked-store`, and its `widgets.day` has no frame setting
+    // where it is not (`native-linked,native-linked-reading` alone).
+    let id = "home.date".to_string();
+    app.set("home.page-1", &format!("{id}@1 0/0 2x2, {id}@2 2/0 2x2"));
+    app.set(&format!("{id}@2.frame"), "core.frame.dark");
     let settings = app.kernel.settings();
-    assert_eq!(
-        settings.text("widgets.analogue-clock@2.frame"),
-        "core.frame.dark"
-    );
-    assert_eq!(
-        settings.text("widgets.analogue-clock@1.frame"),
-        "core.frame.none"
-    );
-    assert_eq!(
-        settings.text("widgets.analogue-clock.frame"),
-        "core.frame.none"
-    );
+    assert_eq!(settings.text(&format!("{id}@2.frame")), "core.frame.dark");
+    assert_eq!(settings.text(&format!("{id}@1.frame")), "core.frame.none");
+    assert_eq!(settings.text(&format!("{id}.frame")), "core.frame.none");
     assert!(app.draw());
     // Kept in the configuration, as other settings are, and read back.
     let config = paperpaw_sdk::read_file(
@@ -226,22 +227,17 @@ fn a_widget_placed_twice_has_two_looks() {
     )
     .unwrap();
     let config = String::from_utf8(config).unwrap();
-    assert!(config.contains("analogue-clock@2.frame"), "{config}");
+    assert!(config.contains("@2.frame"), "{config}");
     let storage = MemoryStorage::new().with(".paperpaw/plugins/setup/done", "");
     let builder = Kernel::builder(X4).storage(storage).user_config(config);
-    let kernel = paperpaw_app::install(builder, fonts()).build().unwrap();
+    let kernel = native_activation::build(paperpaw_app::install(builder, fonts()));
     let settings = kernel.settings();
-    assert_eq!(
-        settings.text("widgets.analogue-clock@2.frame"),
-        "core.frame.dark"
-    );
-    assert_eq!(
-        settings.text("widgets.analogue-clock@1.frame"),
-        "core.frame.none"
-    );
+    assert_eq!(settings.text(&format!("{id}@2.frame")), "core.frame.dark");
+    assert_eq!(settings.text(&format!("{id}@1.frame")), "core.frame.none");
     // While placement 2 is drawn, its widget reads its own.
-    let frame = settings.with_placement(Some("widgets.analogue-clock@2"), || {
-        settings.text("widgets.analogue-clock.frame").to_string()
+    let second = format!("{id}@2");
+    let frame = settings.with_placement(Some(second.as_str()), || {
+        settings.text(&format!("{id}.frame")).to_string()
     });
     assert_eq!(frame, "core.frame.dark");
 }

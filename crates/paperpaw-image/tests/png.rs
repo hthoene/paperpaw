@@ -279,7 +279,7 @@ fn invalid_headers_fail_cleanly() {
         png.height = h;
         assert_eq!(
             png_result(&png.with_zlib(&[0x78, 0x01]), Fit::side(10), false).0,
-            Err(ImageError::Unsupported("PNG too large"))
+            Err(ImageError::TooLarge)
         );
     }
     // Not a PNG at all.
@@ -476,7 +476,7 @@ fn the_widest_png_fits_the_screen() {
     assert_eq!((image.width, image.height), (800, 1));
     // Decoded whole, it would be wider than a row may be.
     let (result, _) = png_result(&png.encode(), Fit::side(100_000), false);
-    assert_eq!(result, Err(ImageError::Unsupported("image this large")));
+    assert_eq!(result, Err(ImageError::TooLarge));
 }
 
 fn kind() -> impl Strategy<Value = (u8, u8)> {

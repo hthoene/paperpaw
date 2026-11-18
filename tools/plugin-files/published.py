@@ -15,16 +15,26 @@ has them); one for another fingerprint (the plugin interface changed) is
 a new build of that version and stays. `folders`, after catalogue.py: a
 folder of a version published before must be the same bytes, else it
 fails (versions.py keeps a plugin that changed from its old version).
+
+With `GH_TOKEN` (or `GITHUB_TOKEN`) set, the files are downloaded through the
+asset's API address with it, so a private repository's releases work too.
 """
 
+import hashlib
 import json
+import os
 import pathlib
 import sys
+import urllib.parse
 import urllib.request
 
 # Where the header says what a file runs on (paperpaw-native's Header):
 # its chip, its fingerprint, its compiler.
 RUNS_ON = [(6, 8), (8, 16), (44, 48)]
+
+# An asset's public address to its API address (`details` fills it): with the job's token
+# the bytes come from the API, which a private repository's assets need (#217).
+API_URLS = {}
 
 
 def fail(message):
@@ -32,10 +42,9 @@ def fail(message):
     sys.exit(1)
 
 
-def assets(text):
-    """Name to (tag, address) of every asset of the releases in GitHub's
-    list `text` (pages as `--slurp` or `--paginate` give them), drafts
-    left out; a name in several, the first release's."""
+def releases(text):
+    """The releases of GitHub's list `text` (pages as `--slurp` or
+    `--paginate` give them), drafts left out, the oldest first."""
     decoder = json.JSONDecoder()
     pages, at = [], 0
     text = text.strip()
@@ -44,18 +53,83 @@ def assets(text):
         pages.append(page)
         while at < len(text) and text[at].isspace():
             at += 1
-    releases = []
+    found = []
     for page in pages:
         for item in page:
-            releases.extend(item if isinstance(item, list) else [item])
-    found = {}
+            found.extend(item if isinstance(item, list) else [item])
     # Oldest first: GitHub lists the newest first.
-    for release in sorted(releases, key=lambda r: r.get("created_at") or ""):
-        if release.get("draft"):
-            continue
+    found = sorted(found, key=lambda r: r.get("created_at") or "")
+    return [release for release in found if not release.get("draft")]
+
+
+def usable(asset):
+    """Whether an asset is uploaded in full: GitHub lists a file whose
+    upload broke off with another state (`starter`, `open`) and some size."""
+    return asset.get("state", "uploaded") == "uploaded"
+
+
+def details(text):
+    """Name to what GitHub says of every finished asset of the releases in
+    `text`, drafts left out; a name in several, the first (oldest)
+    release's: {"tag", "url", "size", "digest"} (`digest` is
+    `sha256:<hex>`, or None where GitHub gives none)."""
+    found = {}
+    for release in releases(text):
         for asset in release.get("assets", []):
-            found.setdefault(asset["name"], (release["tag_name"], asset["browser_download_url"]))
+            if usable(asset):
+                if asset.get("url"):
+                    API_URLS.setdefault(asset["browser_download_url"], asset["url"])
+                found.setdefault(
+                    asset["name"],
+                    {
+                        "tag": release["tag_name"],
+                        "url": asset["browser_download_url"],
+                        "size": asset.get("size"),
+                        "digest": asset.get("digest"),
+                    },
+                )
     return found
+
+
+def assets(text):
+    """Name to (tag, address) of every finished asset of the releases in
+    GitHub's list `text`, drafts left out; a name in several, the first
+    (oldest) release's."""
+    return {name: (info["tag"], info["url"]) for name, info in details(text).items()}
+
+
+def partial(text):
+    """Name to tag of the assets whose upload is not finished and that no
+    finished asset of the same name makes good."""
+    done = details(text)
+    found = {}
+    for release in releases(text):
+        for asset in release.get("assets", []):
+            if not usable(asset) and asset["name"] not in done:
+                found.setdefault(asset["name"], release["tag_name"])
+    return found
+
+
+def sha256_of(info, fetch=None):
+    """The SHA-256 (hex) of a published asset: GitHub's `digest` where it
+    gives one, else the bytes `fetch` downloads from its address."""
+    digest = info.get("digest") or ""
+    if digest.startswith("sha256:"):
+        return digest[len("sha256:"):].lower()
+    return hashlib.sha256((fetch or download)(info["url"])).hexdigest()
+
+
+def checksums(text, fetch=None):
+    """A function: name of a published asset to its SHA-256 (hex), looked up
+    once for each name."""
+    found, seen = details(text), {}
+
+    def checksum(name):
+        if name not in seen:
+            seen[name] = sha256_of(found[name], fetch)
+        return seen[name]
+
+    return checksum
 
 
 def runs_on(data):
@@ -89,8 +163,37 @@ def folders(folder, published, fetch):
     ]
 
 
+def token():
+    """The job's token (`GH_TOKEN`, as `gh` reads it, or `GITHUB_TOKEN`), or ""."""
+    return os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+
+
+def request(url, secret=""):
+    """The request for the asset at `url`: with a token, GitHub's API address of
+    the asset where `details` knew it (the bytes, not the asset's JSON), else the
+    public address as before."""
+    api = API_URLS.get(url)
+    if not secret or not api:
+        return urllib.request.Request(url)
+    return urllib.request.Request(
+        api, headers={"Authorization": f"Bearer {secret}", "Accept": "application/octet-stream"}
+    )
+
+
+class KeepTokenHome(urllib.request.HTTPRedirectHandler):
+    """The API answers with a redirect to the file's own host, which refuses a
+    request that carries the token as well as its signed address."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None and urllib.parse.urlparse(newurl).netloc != urllib.parse.urlparse(req.full_url).netloc:
+            new.remove_header("Authorization")
+        return new
+
+
 def download(url):
-    with urllib.request.urlopen(url, timeout=60) as reply:
+    opener = urllib.request.build_opener(KeepTokenHome)
+    with opener.open(request(url, token()), timeout=60) as reply:
         return reply.read()
 
 

@@ -27,70 +27,14 @@
 //! Underneath, what an event carries travels as [`Params`] (named
 //! strings), so it can cross to plugins in other languages and be
 //! declared as work ([`work`](crate::work)); events of other plugins, known only
-//! at run time, are heard by id ([`Registrar::subscribe`](crate::Registrar::subscribe)).
+//! at run time, are heard by id (`Staging::subscribe`).
 
-use alloc::boxed::Box;
 use alloc::string::{String, ToString};
 use core::fmt;
 use core::marker::PhantomData;
 
-use crate::command::Command;
-use crate::env::Env;
 use crate::id::Id;
 use crate::params::Params;
-
-/// Reacts to an event by emitting commands.
-///
-/// Events are notifications: the kernel and plugins emit them with
-/// [`Command::Emit`], and every subscriber is called in registration order.
-/// Any plugin can define its own events (namespaced ids such as
-/// `reader.page-turned`), which other plugins may subscribe to.
-pub type EventHandler = Box<dyn Fn(&Env<'_>, &Params, &mut crate::Commands)>;
-
-/// A subscription kept in the program, in a `static` list of them
-/// ([`Registrar::add_subscriptions`](crate::Registrar::add_subscriptions)):
-/// it takes next to no memory, where each added with
-/// [`Registrar::on`](crate::Registrar::on) or
-/// [`subscribe`](crate::Registrar::subscribe) takes some thirty bytes.
-/// Its handler reads what the event carries itself (e.g.
-/// [`Event::read`]):
-///
-/// ```
-/// # use paperpaw_sdk::{builtin::events, event::FixedSubscription};
-/// static HEARS: [FixedSubscription; 1] = [FixedSubscription::new(
-///     events::STARTED.id_static(),
-///     |_env, _params, _out| {},
-/// )];
-/// ```
-#[non_exhaustive]
-pub struct FixedSubscription {
-    event: Id,
-    handler: fn(&Env<'_>, &Params, &mut crate::Commands),
-}
-
-impl FixedSubscription {
-    /// `handler` hears `event`.
-    pub const fn new(event: Id, handler: fn(&Env<'_>, &Params, &mut crate::Commands)) -> Self {
-        Self { event, handler }
-    }
-
-    pub fn event(&self) -> &Id {
-        &self.event
-    }
-
-    /// Calls its handler.
-    pub fn call(&self, env: &Env<'_>, params: &Params, out: &mut crate::Commands) {
-        (self.handler)(env, params, out);
-    }
-}
-
-impl core::fmt::Debug for FixedSubscription {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("FixedSubscription")
-            .field("event", &self.event)
-            .finish_non_exhaustive()
-    }
-}
 
 /// What an event carries, written as and read from [`Params`]; made with
 /// [`event_data!`](crate::event_data) for structs of named values.
@@ -190,85 +134,22 @@ macro_rules! numbers {
 }
 numbers!(u8, u16, u32, u64, usize, i32, i64);
 
-/// Read without `core`'s exact parser of floats: its tables are some
-/// 16 KB, which every native plugin taking a reading event would carry
-/// (ADR 0024). As near as the float can say (within a unit of its last
-/// place), which is all a parameter needs.
+/// Written and read without `core`'s formatter and parser of floats:
+/// those are some 36 KB of the firmware (#258) and 16 KB of a native
+/// plugin taking a reading event (ADR 0024). Written as `Display` writes
+/// it; read as near as the float can say (within a unit of its last
+/// place).
 impl ParamValue for f32 {
     fn to_param(&self) -> String {
-        self.to_string()
+        let mut text = String::new();
+        // A string takes what is written.
+        let _ = crate::float_text::write_f32(&mut text, *self);
+        text
     }
 
     fn from_param(text: &str) -> Option<Self> {
-        parse_f32(text.trim())
+        crate::float_text::parse_f32(text.trim())
     }
-}
-
-/// `[+-]digits[.digits][e[+-]digits]`, `inf` or `NaN`, as `f32`'s
-/// `Display` writes them.
-fn parse_f32(text: &str) -> Option<f32> {
-    let (negative, rest) = match text.as_bytes().first()? {
-        b'-' => (true, &text[1..]),
-        b'+' => (false, &text[1..]),
-        _ => (false, text),
-    };
-    let sign = if negative { -1.0 } else { 1.0 };
-    match rest {
-        "inf" | "infinity" => return Some(sign * f32::INFINITY),
-        "NaN" | "nan" => return Some(f32::NAN),
-        _ => {}
-    }
-    let (number, exponent) = match rest.find(['e', 'E']) {
-        // Clamped so that counting digits cannot overflow it.
-        Some(at) => (
-            &rest[..at],
-            rest[at + 1..].parse::<i32>().ok()?.clamp(-10_000, 10_000),
-        ),
-        None => (rest, 0),
-    };
-    let (whole, fraction) = number.split_once('.').unwrap_or((number, ""));
-    if whole.is_empty() && fraction.is_empty() {
-        return None;
-    }
-    // The first 19 digits, as a whole number, and where the point is.
-    let mut mantissa: u64 = 0;
-    let mut digits = 0;
-    let mut scale = exponent;
-    for (i, b) in whole.bytes().chain(fraction.bytes()).enumerate() {
-        if !b.is_ascii_digit() {
-            return None;
-        }
-        let in_fraction = i >= whole.len();
-        if digits < 19 {
-            if mantissa > 0 || b != b'0' {
-                digits += 1;
-            }
-            mantissa = mantissa * 10 + u64::from(b - b'0');
-            scale -= i32::from(in_fraction);
-        } else if !in_fraction {
-            scale += 1;
-        }
-    }
-    // Worked out in f64, whose 53 bits keep the steps' rounding far
-    // below an f32's last place; powers of ten to 10^22 are exact in it.
-    const TENS: [f64; 23] = [
-        1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16,
-        1e17, 1e18, 1e19, 1e20, 1e21, 1e22,
-    ];
-    let mut value = mantissa as f64;
-    // Beyond what an f32 holds either way: no endless steps.
-    let mut scale = scale.clamp(-400, 400);
-    while scale > 0 {
-        let step = scale.min(22);
-        value *= TENS[step as usize];
-        scale -= step;
-    }
-    while scale < 0 {
-        let step = (-scale).min(22);
-        value /= TENS[step as usize];
-        scale += step;
-    }
-    Some(sign * value as f32)
 }
 
 /// An optional value: `None` when the event does not carry it.
@@ -329,23 +210,6 @@ pub fn take<T: ParamValue>(params: &Params, key: &str) -> Option<T> {
 /// let read = Read::new(String::from("books/a.epub")).page(12);
 /// assert_eq!(read.page, Some(12));
 /// ```
-/// A [`FixedSubscription`] of `event` (an [`Event`] constant) calling
-/// `handler` with what it carries, as [`Registrar::on`](crate::Registrar::on)
-/// would; `handler` a function or a closure that captures nothing:
-///
-/// ```
-/// # use paperpaw_sdk::{builtin::events, hears, FixedSubscription};
-/// static HEARS: [FixedSubscription; 1] = [hears!(events::STARTED, |_env, _, _out| {})];
-/// ```
-#[macro_export]
-macro_rules! hears {
-    ($event:expr, $handler:expr $(,)?) => {
-        $crate::FixedSubscription::new($event.id_static(), |env, params, out| {
-            $event.hear(env, params, out, $handler)
-        })
-    };
-}
-
 #[macro_export]
 macro_rules! event_data {
     (
@@ -440,7 +304,7 @@ impl<P: EventData> Event<P> {
     }
 
     /// Its id, kept in the program: for `static` lists, e.g. of
-    /// [`FixedSubscription`]s. Takes the event, so it can be used in
+    /// `FixedSubscription`s. Takes the event, so it can be used in
     /// `const` and `static` items.
     pub const fn id_static(self) -> Id {
         let id = Id::new_static(self.id.static_text());
@@ -452,41 +316,8 @@ impl<P: EventData> Event<P> {
         self.id.as_str()
     }
 
-    /// The command that emits the event with `data`.
-    pub fn emit(&self, data: P) -> Command {
-        Command::Emit(self.id.clone(), data.into_params())
-    }
-
-    /// The command that emits it with `data` at `at`: work at a time
-    /// ([`Work::at`](crate::work::Work::at)), in place of the one before.
-    pub fn schedule(&self, data: P, at: paperpaw_platform::Instant) -> Command {
-        Command::work(crate::work::Work::at(self.id.clone(), at).with(data.to_params()))
-    }
-
-    /// Calls `handler` with what `params` carry, without a copy where they
-    /// carry it as it is ([`Registrar::on`](crate::Registrar::on) does the
-    /// same): for handlers kept in the program ([`FixedSubscription`],
-    /// [`hears!`](crate::hears)). Not called where they lack what it
-    /// needs.
-    pub fn hear(
-        &self,
-        env: &Env<'_>,
-        params: &Params,
-        out: &mut crate::Commands,
-        handler: impl FnOnce(&Env<'_>, &P, &mut crate::Commands),
-    ) {
-        match params.carried::<P>() {
-            Some(data) => handler(env, data, out),
-            None => {
-                if let Some(data) = P::from_params(params) {
-                    handler(env, &data, out);
-                }
-            }
-        }
-    }
-
     /// What it carries, if `event` is this event (for screens'
-    /// [`on_event`](crate::Screen::on_event)).
+    /// `on_event`).
     pub fn read(&self, event: &Id, params: &Params) -> Option<P> {
         if *event != self.id {
             return None;
@@ -543,8 +374,6 @@ impl<P: EventData> PartialEq for Event<P> {
     }
 }
 
-impl<P: EventData> Eq for Event<P> {}
-
 impl<P: EventData> PartialEq<Event<P>> for Id {
     fn eq(&self, other: &Event<P>) -> bool {
         *self == other.id
@@ -576,9 +405,7 @@ mod tests {
             note: None,
             done: true,
         };
-        let Command::Emit(id, params) = MOVED.emit(moved.clone()) else {
-            panic!("an emit");
-        };
+        let (id, params) = (MOVED.id().clone(), moved.clone().into_params());
         assert_eq!(id, MOVED);
         assert_eq!(params.get("from"), Some("a b.epub"));
         assert_eq!(params.get("note"), None, "absent, not empty");

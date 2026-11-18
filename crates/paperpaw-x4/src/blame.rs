@@ -34,6 +34,11 @@ pub fn blame(from_plugin: bool, from_exception: bool, fault_in_plugin: bool) -> 
     }
 }
 
+/// What the crash slot says where a panic came while the panic handler
+/// was formatting another (a message whose `Display` panics): the first
+/// message is lost, the place and the plugin to blame are kept.
+pub const PANIC_IN_PANIC: &str = "panic in panic (the first message was not formatted again)";
+
 /// Whether the panic is the plugin's own. `from_plugin`: it called
 /// `Api::panic`. `from_exception`: the panic comes from the CPU's
 /// exception handler (see [`is_exception`]). `fault_in_plugin`: the program
@@ -95,6 +100,19 @@ mod tests {
         assert_eq!(blame(true, false, false), Blame::Own);
         assert_eq!(blame(false, true, true), Blame::Own);
         assert_eq!(blame(true, true, false), Blame::Own);
+    }
+
+    #[test]
+    fn the_panic_in_panic_note_fits_the_crash_slot_with_room_for_the_place() {
+        // The slot's body holds the note, ` (file:line)` and ` @` with some
+        // calls; the note must leave most of it.
+        let body = crate::rtc_guard::BODY.len();
+        assert!(
+            PANIC_IN_PANIC.len() < body / 4,
+            "{} of {body}",
+            PANIC_IN_PANIC.len()
+        );
+        assert!(PANIC_IN_PANIC.is_ascii());
     }
 
     #[test]

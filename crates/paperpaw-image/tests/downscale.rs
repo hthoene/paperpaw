@@ -52,7 +52,7 @@ fn never_larger_than_the_rows_never_empty() {
     // Rows wider than a u16 counts are refused, narrower ones taken.
     assert_eq!(
         Downscaler::new(70_000, 1, (70_000, 1), 1).unwrap_err(),
-        ImageError::Unsupported("image this large")
+        ImageError::TooLarge
     );
     assert!(Downscaler::new(70_000, 1, (500, 1), 3).is_ok());
 }
@@ -161,7 +161,7 @@ fn a_pixel_covering_more_than_its_sums_hold_is_refused() {
     for (width, height) in [(5000, 5000), (4105, 4105), (140_000, 1), (65_536, 1)] {
         assert_eq!(
             Downscaler::new(width, height, (1, 1), 1).err(),
-            Some(ImageError::Unsupported("image this large made this small")),
+            Some(ImageError::TooLarge),
             "{width} x {height}"
         );
     }

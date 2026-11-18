@@ -1,331 +1,255 @@
-//! A device with the real kernel and the kosync plugin, whose requests the
-//! tests answer as a sync server would.
+//! Deterministic interface-7 services; no sockets or real accounts.
+#![allow(dead_code, reason = "shared by the native acceptance cases")]
+use paperpaw_core::native_host::{environment::SettingValueRef, registrations::*};
+use paperpaw_plugin_kosync::{NATIVE_ENTRY, declarations as tokens};
+use paperpaw_scripted_host::{Callback, Dialogs, Plugin, ScriptedHost, event_batch, row};
+use std::{cell::RefCell, rc::Rc};
 
-// Not every test file uses every helper.
-#![allow(
-    dead_code,
-    reason = "shared by the tests; not every test file uses every helper"
-)]
+pub const FINGERPRINT: &str = "d41d8cd98f00b204e9800998ecf8427e";
+pub const TEST_KEY: &str = "test-only-key";
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
-use paperpaw_core::{Effects, HttpCall, HttpResponse, Io, Kernel};
-use paperpaw_platform::{InputEvent, Point, PointerEvent, PointerPhase, PointerTool, Rotation};
-use paperpaw_plugin_format_txt::TxtFormat;
-use paperpaw_plugin_kosync::Kosync;
-use paperpaw_sdk::builtin::events::{self, Goto, Reading};
-use paperpaw_sdk::event::{Event, EventData};
-use paperpaw_sdk::secrets::{FILE, SecretChange, Secrets};
-use paperpaw_sdk::{
-    DeviceInfo, DirEntry, DisplayInfo, Id, InputCaps, Instant, Manifest, MemoryClass,
-    MemoryStorage, Params, PixelFormat, Plugin, RegisterError, Registrar, Storage, StorageError,
-    Version,
-};
-
-pub const fn device(touch: bool) -> DeviceInfo {
-    DeviceInfo::new(
-        "test",
-        "Test device",
-        DisplayInfo::new(480, 800, 220, PixelFormat::Gray4, Rotation::Deg0, None),
-        InputCaps::new(!touch, touch, false, &[]),
-        MemoryClass::Large,
-    )
+pub struct Request {
+    pub id: u32,
+    pub token: u32,
+    pub method: String,
+    pub url: String,
+    pub body: Vec<u8>,
+    pub authenticated: bool,
 }
 
-/// The MD5 of `secret`, the account's key.
-pub const KEY: &str = "5ebe2294ecd0e0f08eab7690d2a6ee69";
-/// Where the plugin keeps its files.
-pub const DIR: &str = ".paperpaw/plugins/kosync";
-/// The device id of [`Sync::with_id`].
-pub const DEVICE_ID: &str = "0123456789ABCDEF0123456789ABCDEF";
-pub const SIGNED_IN: &str = "[kosync]\nuser = alice\n";
-
-/// A storage the test looks into while the kernel has it.
-#[derive(Clone, Default)]
-pub struct Shared(pub Rc<MemoryStorage>);
-
-impl Shared {
-    pub fn text(&self, path: &str) -> Option<String> {
-        self.0.get(path).map(|b| String::from_utf8(b).unwrap())
-    }
+#[derive(Default)]
+pub struct Server {
+    pub requests: Vec<Request>,
+    pub body: Vec<u8>,
+    pub limit: Option<usize>,
+    pub key: Option<String>,
+    pub keep_calls: usize,
+    pub remove_calls: usize,
 }
 
-impl Storage for Shared {
-    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
-        self.0.read_at(path, offset, buf)
-    }
-    fn size(&self, path: &str) -> Result<u64, StorageError> {
-        self.0.size(path)
-    }
-    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        self.0.write(path, data)
-    }
-    fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
-        self.0.append(path, data)
-    }
-    fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
-        self.0.list(dir, visit)
-    }
-    fn remove(&self, path: &str) -> Result<(), StorageError> {
-        self.0.remove(path)
-    }
-    fn exists(&self, path: &str) -> bool {
-        self.0.exists(path)
-    }
-    fn rename(&self, from: &str, to: &str) -> Result<(), StorageError> {
-        self.0.rename(from, to)
-    }
-    fn create_dir(&self, path: &str) -> Result<(), StorageError> {
-        self.0.create_dir(path)
-    }
+pub struct World {
+    pub host: ScriptedHost,
+    pub dialogs: Dialogs,
+    pub server: Rc<RefCell<Server>>,
+    pub library_ops: Rc<RefCell<Vec<u32>>>,
 }
 
-/// Hears where the reader is asked to go.
-struct Listener(Rc<RefCell<Vec<Goto>>>);
-
-impl Plugin for Listener {
-    fn manifest(&self) -> Manifest {
-        Manifest::new(
-            Id::new_static("listener"),
-            "Listener",
-            Version::new(0, 1, 0),
-        )
-        .uses(paperpaw_sdk::Uses::NETWORK)
-    }
-
-    fn register(&self, r: &mut Registrar) -> Result<(), RegisterError> {
-        let heard = self.0.clone();
-        r.on(events::GOTO, move |_, goto, _| {
-            heard.borrow_mut().push(goto.clone())
-        })
-    }
-}
-
-/// Secrets file content with the account's key, if any.
-pub fn secrets_file(key: Option<&str>) -> Vec<u8> {
-    let mut secrets = Secrets::default();
-    if let Some(key) = key {
-        secrets.apply(SecretChange::keep("kosync.key", "kosync.secret", key));
-    }
-    secrets.encode().into_bytes()
-}
-
-pub struct Options {
-    pub config: &'static str,
-    pub key: Option<&'static str>,
-    pub network: bool,
-    pub touch: bool,
-}
-
-impl Default for Options {
-    fn default() -> Self {
+impl World {
+    pub fn new(signed_in: bool) -> Self {
+        let mut host = ScriptedHost::new();
+        for key in ["kosync.user", "kosync.server"] {
+            host.settings_mut()
+                .define(paperpaw_sdk::SettingSpec::text(
+                    key,
+                    key,
+                    "",
+                    paperpaw_sdk::Id::new_static("kosync.group"),
+                ))
+                .unwrap();
+        }
+        host.add_catalogs_in(concat!(env!("CARGO_MANIFEST_DIR"), "/i18n"))
+            .unwrap();
+        host.set_setting(
+            "kosync.user",
+            SettingValueRef::Text(if signed_in { "test-reader" } else { "" }),
+        );
+        host.set_setting("kosync.auto", SettingValueRef::Bool(true));
+        host.set_setting(
+            "kosync.server",
+            SettingValueRef::Text("https://fake.invalid/kosync"),
+        );
+        let dialogs = host.dialogs();
+        let server = Rc::new(RefCell::new(Server {
+            key: signed_in.then(|| TEST_KEY.to_owned()),
+            ..Server::default()
+        }));
+        let state = server.clone();
+        host.service("core.secrets", 1, 0, move |op, input| {
+            let rows = records_decode(input).map_err(|_| -2)?;
+            let mut server = state.borrow_mut();
+            match op {
+                1 => {
+                    let key = server.key.as_deref().ok_or(-10)?;
+                    row(&Record::ServiceSecValue(ServiceSecValue {
+                        flags: 0,
+                        label: "test",
+                        value: key,
+                    }))
+                }
+                3 => {
+                    let Some(Record::ServiceSecKeep(write)) = rows.iter().next() else {
+                        return Err(-2);
+                    };
+                    server.key = Some(write.value.to_owned());
+                    server.keep_calls += 1;
+                    Ok(Vec::new())
+                }
+                4 => {
+                    server.key = None;
+                    server.remove_calls += 1;
+                    Ok(Vec::new())
+                }
+                5 => Err(-1),
+                _ => Err(-1),
+            }
+        });
+        for op in [1, 3, 4] {
+            host.reply_bound("core.secrets", op, 1280);
+        }
+        let state = server.clone();
+        host.service("core.net", 1, 0, move |op, input| {
+            let rows = records_decode(input).map_err(|_| -2)?;
+            let mut server = state.borrow_mut();
+            match op {
+                1 => {
+                    let Some(Record::ServiceNetRequest(request)) = rows.iter().next() else { return Err(-2); };
+                    let id = u32::try_from(server.requests.len() + 1).map_err(|_| -2)?;
+                    let body = rows.iter().find_map(|r| match r { Record::ServiceNetBody(body) => Some(body.data.to_vec()), _ => None }).unwrap_or_default();
+                    let authenticated = rows.iter().any(|r| matches!(r, Record::ServiceNetHeader(h) if h.name == "x-auth-key" && !h.value.is_empty()));
+                    server.requests.push(Request { id, token: request.token, method: request.method.to_owned(), url: request.url.to_owned(), body, authenticated });
+                    row(&Record::ServiceNetStarted(ServiceNetStarted { id }))
+                }
+                4 => {
+                    let Some(Record::ServiceNetRead(read)) = rows.iter().next() else { return Err(-2); };
+                    let start = read.offset as usize;
+                    let end = server.limit.unwrap_or(server.body.len()).min(server.body.len()).min(start.saturating_add(3840));
+                    let part = server.body.get(start..end).unwrap_or_default();
+                    row(&Record::ServiceNetBytes(ServiceNetBytes { data: part }))
+                }
+                _ => Err(-1),
+            }
+        });
+        let library_ops = Rc::new(RefCell::new(Vec::new()));
+        let calls = library_ops.clone();
+        host.service("core.library", 1, 0, move |op, input| {
+            calls.borrow_mut().push(op);
+            if op != 25 { return Err(-1); }
+            let rows = records_decode(input).map_err(|_| -2)?;
+            if !matches!(rows.iter().next(), Some(Record::ServiceLibRef(book)) if !book.path.is_empty()) { return Err(-2); }
+            row(&Record::ServiceLibKey(ServiceLibKey { key: "0123456789abcdef", fingerprint: FINGERPRINT, size: 0 }))
+        });
         Self {
-            config: SIGNED_IN,
-            key: Some(KEY),
-            network: true,
-            touch: false,
+            host,
+            dialogs,
+            server,
+            library_ops,
         }
     }
-}
 
-pub struct Sync {
-    pub kernel: Kernel,
-    pub storage: Shared,
-    pub gone: Rc<RefCell<Vec<Goto>>>,
-    pub now: u64,
-}
+    pub fn load(&self) -> Plugin<'_> {
+        self.host.load(NATIVE_ENTRY.entry()).unwrap()
+    }
 
-impl Sync {
-    /// Signed in as `alice` with [`KEY`], the device id [`DEVICE_ID`].
-    pub fn with_id() -> Self {
-        let storage = Shared::default();
-        storage
-            .write(
-                &format!("{DIR}/device.ini"),
-                format!("[device]\nid = {DEVICE_ID}\n").as_bytes(),
+    pub fn opened(&self, plugin: &Plugin<'_>, path: &str, ppm: u32) -> Callback {
+        plugin
+            .event(
+                tokens::BOOK_OPENED,
+                &event_batch(&Record::EventBookOpened(EventBookOpened {
+                    now_ms: 0,
+                    section: 0,
+                    offset: 10,
+                    progress_ppm: ppm,
+                    path,
+                    title: "Test",
+                    chapter: "",
+                    reason: 0,
+                    page: None,
+                    pages: None,
+                    insert: None,
+                    chapter_left: None,
+                }))
+                .unwrap(),
+            )
+            .unwrap()
+    }
+
+    pub fn closed(&self, plugin: &Plugin<'_>, path: &str, ppm: u32, now_ms: u64) -> Callback {
+        plugin
+            .event(
+                tokens::BOOK_CLOSED,
+                &event_batch(&Record::EventBookClosed(EventBookClosed {
+                    now_ms,
+                    section: 0,
+                    offset: 10,
+                    progress_ppm: ppm,
+                    path,
+                    title: "Test",
+                    chapter: "",
+                    reason: 0,
+                    page: None,
+                    pages: None,
+                    insert: None,
+                    chapter_left: None,
+                }))
+                .unwrap(),
+            )
+            .unwrap()
+    }
+
+    pub fn complete(
+        &self,
+        plugin: &Plugin<'_>,
+        request: usize,
+        status: u32,
+        body: &[u8],
+    ) -> Callback {
+        self.server.borrow_mut().body = body.to_vec();
+        let server = self.server.borrow();
+        let request = &server.requests[request];
+        let done = event_batch(&Record::EventHttpDone(EventHttpDone {
+            now_ms: 100,
+            id: request.id,
+            token: request.token,
+            status,
+            reason: 0,
+            flags: 1,
+            body_len: u32::try_from(body.len()).unwrap(),
+        }))
+        .unwrap();
+        drop(server);
+        plugin.event(tokens::HTTP_DONE, &done).unwrap()
+    }
+
+    pub fn account(&self, plugin: &Plugin<'_>) -> Callback {
+        let opened = plugin
+            .event(
+                tokens::ACCOUNT,
+                &event_batch(&Record::EventScreenOpened(EventScreenOpened {
+                    now_ms: 0,
+                    instance: 1,
+                    screen: "kosync.account",
+                    slot: "",
+                    flags: 0,
+                    handover: 0,
+                    params: 0,
+                    text_bytes: 0,
+                }))
+                .unwrap(),
             )
             .unwrap();
-        Self::on(storage, Options::default())
+        assert_eq!(opened.status, 0);
+        plugin
+            .event(
+                tokens::ACCOUNT,
+                &event_batch(&Record::EventScreenShown(EventScreenShown {
+                    now_ms: 0,
+                    screen: "kosync.account",
+                    width: 480,
+                    height: 800,
+                    instance: Some(1),
+                    last_input: 0,
+                }))
+                .unwrap(),
+            )
+            .unwrap()
     }
 
-    /// A device on `storage`, the secrets as `options` say.
-    pub fn on(storage: Shared, options: Options) -> Self {
-        if !storage.exists(FILE) {
-            storage.write(FILE, &secrets_file(options.key)).unwrap();
-        }
-        let gone = Rc::default();
-        let mut kernel = Kernel::builder(device(options.touch))
-            .storage(storage.clone())
-            .user_config(options.config)
-            .network(options.network)
-            .plugin(paperpaw_plugin_fonts_default::DefaultFontPacks)
-            .plugin(TxtFormat)
-            .plugin(Kosync)
-            .plugin(paperpaw_plugin_power::Power)
-            .plugin(Listener(Rc::clone(&gone)))
-            .build()
-            .unwrap();
-        kernel.start(Instant(0));
-        let mut sync = Self {
-            kernel,
-            storage,
-            gone,
-            now: 0,
-        };
-        sync.calls();
-        sync
+    pub fn action(&self, plugin: &Plugin<'_>, action: &str) -> Callback {
+        plugin
+            .input(
+                tokens::ACCOUNT,
+                &event_batch(&Record::InputAction(InputAction { now_ms: 0, action })).unwrap(),
+            )
+            .unwrap()
     }
-
-    pub fn later(&mut self, millis: u64) -> Instant {
-        self.now += millis;
-        Instant(self.now)
-    }
-
-    /// The requests the kernel asks the shell to make.
-    pub fn calls(&mut self) -> Vec<HttpCall> {
-        self.kernel
-            .take_io()
-            .into_iter()
-            .filter_map(|io| match io {
-                Io::Http(call) => Some(call),
-                _ => None,
-            })
-            .collect()
-    }
-
-    pub fn reading(&mut self, event: Event<Reading>, path: &str, percent: f32) -> Vec<HttpCall> {
-        let reading = Reading::new(
-            path.to_string(),
-            String::new(),
-            percent,
-            0,
-            // Each progress another place.
-            (percent * 100.0) as u32,
-            String::new(),
-        );
-        let now = self.later(1000);
-        self.kernel
-            .send_event(now, event.id().clone(), reading.to_params());
-        self.calls()
-    }
-
-    pub fn open(&mut self, path: &str, percent: f32) -> Vec<HttpCall> {
-        self.reading(events::BOOK_OPENED, path, percent)
-    }
-
-    pub fn turn(&mut self, path: &str, percent: f32) -> Vec<HttpCall> {
-        self.reading(events::PAGE_TURNED, path, percent)
-    }
-
-    pub fn answer(&mut self, call: &HttpCall, status: u16, body: &str) -> Vec<HttpCall> {
-        self.answer_bytes(call, status, body.as_bytes())
-    }
-
-    pub fn answer_bytes(&mut self, call: &HttpCall, status: u16, body: &[u8]) -> Vec<HttpCall> {
-        let now = self.later(100);
-        self.kernel.http_response(
-            now,
-            HttpResponse {
-                id: call.id,
-                status,
-                body: body.to_vec(),
-                ..HttpResponse::default()
-            },
-        );
-        self.calls()
-    }
-
-    /// Sets a setting as the reader would, e.g. the power mode.
-    pub fn set(&mut self, id: &str, value: &str) -> Vec<HttpCall> {
-        let now = self.later(100);
-        self.kernel.set_setting(now, id, value).unwrap();
-        self.calls()
-    }
-
-    pub fn run(&mut self, action: Id) -> Vec<HttpCall> {
-        let now = self.later(100);
-        let effects = self.kernel.run_action(now, action);
-        self.settle(effects);
-        self.calls()
-    }
-
-    pub fn send(&mut self, event: &str, params: Params) -> Vec<HttpCall> {
-        let now = self.later(100);
-        self.kernel
-            .send_event(now, Id::parse(event).unwrap(), params);
-        self.calls()
-    }
-
-    fn settle(&mut self, mut effects: Effects) {
-        for _ in 0..1000 {
-            let Some(at) = effects.wake_at() else {
-                return;
-            };
-            if at.0 > self.now + 1000 {
-                return;
-            }
-            self.now = self.now.max(at.0);
-            effects = self.kernel.tick(Instant(self.now));
-        }
-    }
-
-    /// What the screen shows, as one text.
-    pub fn shown(&mut self) -> String {
-        self.kernel.render(&mut |_, _| {});
-        self.kernel
-            .describe()
-            .into_iter()
-            .map(|p| p.label)
-            .collect::<Vec<_>>()
-            .join(" | ")
-    }
-
-    pub fn screen(&self) -> Option<&str> {
-        self.kernel.active_screen().map(Id::as_str)
-    }
-
-    /// A tap on the part of the screen that says `label`.
-    pub fn tap_on(&mut self, label: &str) -> Vec<HttpCall> {
-        self.kernel.render(&mut |_, _| {});
-        let parts = self.kernel.describe();
-        let area = paperpaw_sdk::semantics::find(&parts, label)
-            .unwrap_or_else(|| panic!("nothing says {label}"))
-            .area;
-        let at = Point::new(
-            i32::from(area.x) + i32::from(area.width) / 2,
-            i32::from(area.y) + i32::from(area.height) / 2,
-        );
-        for phase in [PointerPhase::Down, PointerPhase::Up] {
-            let now = self.later(50);
-            let effects = self.kernel.handle(
-                now,
-                InputEvent::Pointer(PointerEvent::new(0, phase, at, PointerTool::Finger, 1000)),
-            );
-            if phase == PointerPhase::Up {
-                self.settle(effects);
-            }
-        }
-        self.calls()
-    }
-
-    pub fn secret(&self) -> Option<String> {
-        self.kernel.secrets().get("kosync.key").map(str::to_string)
-    }
-
-    pub fn user(&self) -> String {
-        self.kernel.settings().text("kosync.user").to_string()
-    }
-}
-
-/// The value of header `name` of `call`.
-pub fn header<'a>(call: &'a HttpCall, name: &str) -> Option<&'a str> {
-    call.headers
-        .iter()
-        .find(|(n, _)| n.eq_ignore_ascii_case(name))
-        .map(|(_, v)| v.as_str())
-}
-
-pub fn body(call: &HttpCall) -> String {
-    String::from_utf8(call.body.clone().unwrap_or_default()).unwrap()
 }

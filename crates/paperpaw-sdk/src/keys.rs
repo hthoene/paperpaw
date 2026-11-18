@@ -1,5 +1,5 @@
 //! What the key map binds, as plugins see it, e.g. to show and change
-//! the bindings ([`Command::Bind`](crate::Command::Bind)).
+//! the bindings (`Ask::Bind`).
 //!
 //! Inputs are named as in `paperpaw.ini`: `button.<name>`, `long.<name>`
 //! (held), `double.<name>` (pressed twice), `tap.<zone>`,
@@ -53,7 +53,7 @@ pub const POLICIES: [&str; 3] = [
 /// buttons pressed, held and pressed twice, and on touch screens taps,
 /// long taps and double taps in each zone, two-finger taps, swipes,
 /// swipes in from the edges and pinches. Plugins' inputs are in
-/// [`Env::inputs`](crate::Env::inputs).
+/// `Place::inputs`.
 pub fn inputs(caps: &InputCaps) -> Vec<String> {
     let mut all = Vec::new();
     for key in caps.keys {
@@ -75,7 +75,7 @@ pub fn inputs(caps: &InputCaps) -> Vec<String> {
     all
 }
 
-/// What the reader used last ([`Env::last_input`](crate::Env::last_input)).
+/// What the reader used last (`Place::last_input`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum InputMode {
@@ -88,7 +88,7 @@ pub enum InputMode {
 impl InputMode {
     /// What counts as used last before anything was: a touch screen is
     /// touched first, so no focus shows before a button is pressed
-    /// ([`ui::focus_shown`](crate::ui::focus_shown)); buttons elsewhere.
+    /// (`ui::focus_shown`); buttons elsewhere.
     pub fn at_start(input: &InputCaps) -> Self {
         if input.touch {
             Self::Touch
@@ -100,8 +100,8 @@ impl InputMode {
 
 /// An input of one's own (`input.<id>` in key maps), e.g. a chord a
 /// plugin recognizes or a switch of a switch-access device: bound like
-/// any other, raised with [`Command::Input`](crate::Command::Input).
-/// [`Env::inputs`](crate::Env::inputs) lists them with the gestures
+/// any other, raised with `Ask::Input`.
+/// `Place::inputs` lists them with the gestures
 /// plugins recognize ([`InputKind::Gesture`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -115,14 +115,14 @@ pub struct InputSpec {
     pub kind: InputKind,
 }
 
-/// What an input of [`Env::inputs`](crate::Env::inputs) is.
+/// What an input of `Place::inputs` is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[non_exhaustive]
 pub enum InputKind {
-    /// `input.<id>` ([`Registrar::add_input`](crate::Registrar::add_input)).
+    /// `input.<id>` (`Staging::add_input`).
     #[default]
     Input,
-    /// `gesture.<id>` ([`Registrar::add_gesture`](crate::Registrar::add_gesture)).
+    /// `gesture.<id>` (`Staging::add_gesture`).
     Gesture,
 }
 
@@ -248,6 +248,12 @@ impl fmt::Debug for GestureSpec {
     }
 }
 
+/// What a walk of one layer's bindings calls: the input's name, the action
+/// (`None`: bound to nothing on purpose) and the origin; `Break` ends it.
+#[cfg(any(test, feature = "kernel"))]
+pub type BindingVisit<'a> =
+    dyn FnMut(&str, Option<&Id>, BindingOrigin) -> core::ops::ControlFlow<()> + 'a;
+
 /// The bindings in effect.
 pub trait KeyBindings {
     /// The action `input` runs, looked up in `layers` from the most
@@ -261,6 +267,35 @@ pub trait KeyBindings {
     fn bindings(&self, layer: &str) -> Vec<(String, Option<Id>, BindingOrigin)> {
         let _ = layer;
         Vec::new()
+    }
+
+    /// Every layer that has a binding, by name in a stable order, without a
+    /// list: `visit` ends the walk with `Break` (and so does the result).
+    /// Kernel only (the registry's op 13 with an empty scope); the default
+    /// has no layers.
+    #[cfg(any(test, feature = "kernel"))]
+    fn each_layer(
+        &self,
+        visit: &mut dyn FnMut(&str) -> core::ops::ControlFlow<()>,
+    ) -> core::ops::ControlFlow<()> {
+        let _ = visit;
+        core::ops::ControlFlow::Continue(())
+    }
+
+    /// [`bindings`](Self::bindings) of one layer without a list: `visit` gets
+    /// each input's name, the action and the origin, until it says `Break`.
+    /// A host that can names the inputs without allocating overrides it; the
+    /// default walks [`bindings`](Self::bindings).
+    #[cfg(any(test, feature = "kernel"))]
+    fn each_binding(
+        &self,
+        layer: &str,
+        visit: &mut BindingVisit<'_>,
+    ) -> core::ops::ControlFlow<()> {
+        for (input, action, origin) in self.bindings(layer) {
+            visit(&input, action.as_ref(), origin)?;
+        }
+        core::ops::ControlFlow::Continue(())
     }
 
     /// A question asked after this release, by its key and parameters

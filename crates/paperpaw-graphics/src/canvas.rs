@@ -7,6 +7,9 @@ use crate::blit::{Bitmap, Blit, Dither};
 use crate::framebuffer::Framebuffer;
 use crate::round::{self, corner_inset};
 
+#[path = "canvas/bounded.rs"]
+mod bounded;
+
 /// A drawing surface clipped to a region of a [`Framebuffer`].
 ///
 /// Coordinates are screen coordinates, or relative to an origin set with
@@ -251,10 +254,13 @@ impl<'a> Canvas<'a> {
     /// left out.
     #[doc(hidden)]
     pub fn is_blind(&self) -> bool {
-        self.framebuffer.is_blind()
+        self.framebuffer.is_blind() && !self.framebuffer.is_probe()
     }
 
-    paperpaw_table::shared! {
+    pub(crate) fn framebuffer_mut(&mut self) -> &mut Framebuffer {
+        self.framebuffer
+    }
+
     /// Tells that a picture lies at `area` where nothing is drawn
     /// ([`Canvas::is_blind`]), for
     /// [`Framebuffer::take_all_pictured`](crate::Framebuffer::take_all_pictured);
@@ -270,7 +276,6 @@ impl<'a> Canvas<'a> {
             let pixels = u32::from(shown.width) * u32::from(shown.height);
             self.framebuffer.count_picture(pixels);
         }
-    } @ graphics::CANVAS_NOTE_PICTURE
     }
 
     /// Whether anyone asks what is drawn (see [`Canvas::describe`]).
@@ -278,7 +283,6 @@ impl<'a> Canvas<'a> {
         self.described.is_some()
     }
 
-    paperpaw_table::shared! {
     /// Tells what is drawn at `area`, for those who ask: a part in
     /// `role` with `label`, said as it is once the statement ends;
     /// `focused`, `on` and `disabled`
@@ -297,7 +301,6 @@ impl<'a> Canvas<'a> {
             on: None,
             disabled: self.disabled,
         }
-    } @ graphics::CANVAS_DESCRIBE
     }
 
     /// The grays a picture is shown in where the frame has few (2 to 16:
@@ -321,7 +324,6 @@ impl<'a> Canvas<'a> {
         self.framebuffer.mono_coverage()
     }
 
-    paperpaw_table::shared! {
     /// The error of a picture diffused from its first row ([`Atkinson`]),
     /// as the band above left it at row `y`
     /// ([`Canvas::keep_diffusion`]): the picture goes on from there
@@ -334,10 +336,8 @@ impl<'a> Canvas<'a> {
     pub fn take_diffusion(&mut self, key: u64, y: i32) -> Option<crate::diffuse::Atkinson> {
         let row = u16::try_from(y + self.origin.1).ok()?;
         self.framebuffer.take_diffusion(key, row)
-    } @ graphics::CANVAS_TAKE_DIFFUSION
     }
 
-    paperpaw_table::shared! {
     /// Keeps the error of picture `key` at row `y` for the next band
     /// ([`Canvas::take_diffusion`]), where this band ends there. Freed
     /// when the next band begins elsewhere or the frame ends
@@ -347,7 +347,6 @@ impl<'a> Canvas<'a> {
         if let Ok(row) = u16::try_from(y + self.origin.1) {
             self.framebuffer.keep_diffusion(key, row, atkinson);
         }
-    } @ graphics::CANVAS_KEEP_DIFFUSION
     }
 
     /// The visible region of this canvas, in its coordinates.
@@ -362,7 +361,6 @@ impl<'a> Canvas<'a> {
         Rect::new(x, y, width, height)
     }
 
-    paperpaw_table::shared! {
     /// A canvas restricted to `region` (intersected with this canvas).
     pub fn clipped(&mut self, region: Rect) -> Canvas<'_> {
         let region = self.to_screen(region);
@@ -374,7 +372,6 @@ impl<'a> Canvas<'a> {
             described: self.described.as_deref_mut(),
             disabled: self.disabled,
         }
-    } @ graphics::CANVAS_CLIPPED
     }
 
     /// This canvas, telling every part drawn into it as doing nothing now
@@ -390,20 +387,16 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    paperpaw_table::shared! {
     /// Fills the whole clip region.
     pub fn clear(&mut self, color: Color) {
         self.framebuffer.fill_clipped(self.clip, color);
-    } @ graphics::CANVAS_CLEAR
     }
 
-    paperpaw_table::shared! {
     /// Fills `area`. The `…_rect` forms take signed coordinates, for
     /// shapes that reach past the screen's edges.
     pub fn fill(&mut self, area: Rect, color: Color) {
         let (x, y, width, height) = signed(area);
         self.fill_rect(x, y, width, height, color);
-    } @ graphics::CANVAS_FILL
     }
 
     /// The colour drawn at `point` (in this canvas's coordinates), to
@@ -453,7 +446,6 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    paperpaw_table::shared! {
     /// Fills `area` with `color` as a tint, e.g. a light line between
     /// rows or a slider's track: on panels of black and white alone, which
     /// would show a light gray white, every other pixel black instead (it
@@ -466,10 +458,8 @@ impl<'a> Canvas<'a> {
         if let Some(rect) = self.clip_signed(x, y, width, height) {
             self.framebuffer.tint_clipped(rect);
         }
-    } @ graphics::CANVAS_FILL_TINT
     }
 
-    paperpaw_table::shared! {
     /// Fills `area` with `color` as a shade, e.g. behind marked text: where
     /// the panel has few grays (black and white alone, four), ordered
     /// dithered by its lightness, so a light gray stays a light pattern
@@ -479,10 +469,8 @@ impl<'a> Canvas<'a> {
         if let Some(rect) = self.clip_signed(x, y, width, height) {
             self.framebuffer.shade_clipped(rect, color);
         }
-    } @ graphics::CANVAS_FILL_SHADED
     }
 
-    paperpaw_table::shared! {
     /// [`fill_shaded`](Self::fill_shaded) with the corners rounded by
     /// `radius` pixels, e.g. a light card behind a widget.
     pub fn fill_round_shaded(&mut self, area: Rect, radius: u32, color: Color) {
@@ -503,7 +491,6 @@ impl<'a> Canvas<'a> {
                 self.framebuffer.shade_clipped(rect, color);
             }
         }
-    } @ graphics::CANVAS_FILL_ROUND_SHADED
     }
 
     /// Draws small pictures with `draw` (e.g. covers in a list): they do
@@ -531,20 +518,16 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    paperpaw_table::shared! {
     /// Draws the outline of `area`, `thickness` wide, growing inwards.
     pub fn stroke(&mut self, area: Rect, thickness: u32, color: Color) {
         let (x, y, width, height) = signed(area);
         self.stroke_rect(x, y, width, height, thickness, color);
-    } @ graphics::CANVAS_STROKE
     }
 
-    paperpaw_table::shared! {
     /// Fills `area` with its corners rounded by `radius` pixels.
     pub fn fill_round(&mut self, area: Rect, radius: u32, color: Color) {
         let (x, y, width, height) = signed(area);
         self.fill_round_rect(x, y, width, height, radius, color);
-    } @ graphics::CANVAS_FILL_ROUND
     }
 
     /// Rounds the corners of what is drawn in `area` by `radius` pixels,
@@ -561,20 +544,16 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    paperpaw_table::shared! {
     /// Draws the outline of `area` with its corners rounded by `radius`
     /// pixels, `thickness` wide, growing inwards.
     pub fn stroke_round(&mut self, area: Rect, thickness: u32, radius: u32, color: Color) {
         let (x, y, width, height) = signed(area);
         self.stroke_round_rect(x, y, width, height, thickness, radius, color);
-    } @ graphics::CANVAS_STROKE_ROUND
     }
 
-    paperpaw_table::shared! {
     /// Fills a rectangle given in signed coordinates.
     pub fn fill_rect(&mut self, x: i32, y: i32, width: u32, height: u32, color: Color) {
         self.fill_wide(x.into(), y.into(), width.into(), height.into(), color);
-    } @ graphics::CANVAS_FILL_RECT
     }
 
     /// [`fill_rect`](Self::fill_rect) in coordinates wide enough for the
@@ -585,7 +564,6 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    paperpaw_table::shared! {
     /// Draws the outline of a rectangle with the given border thickness,
     /// growing inwards.
     pub fn stroke_rect(
@@ -604,10 +582,8 @@ impl<'a> Canvas<'a> {
         self.fill_wide(x, y + height as i64 - t as i64, width, t, color);
         self.fill_wide(x, y, t, height, color);
         self.fill_wide(x + width as i64 - t as i64, y, t, height, color);
-    } @ graphics::CANVAS_STROKE_RECT
     }
 
-    paperpaw_table::shared! {
     /// Fills a rectangle with corners rounded by `radius` pixels (none
     /// for 0).
     pub fn fill_round_rect(
@@ -633,10 +609,8 @@ impl<'a> Canvas<'a> {
                 color,
             );
         }
-    } @ graphics::CANVAS_FILL_ROUND_RECT
     }
 
-    paperpaw_table::shared! {
     /// Draws the outline of a rectangle with corners rounded by `radius`
     /// pixels, `thickness` wide, growing inwards.
     #[allow(
@@ -678,10 +652,8 @@ impl<'a> Canvas<'a> {
                 _ => self.fill_wide(left, top, span, 1, color),
             }
         }
-    } @ graphics::CANVAS_STROKE_ROUND_RECT
     }
 
-    paperpaw_table::shared! {
     /// Draws a straight line from `from` to `to`, `width` pixels thick
     /// (a square pen moved along it).
     pub fn draw_line(&mut self, from: Point, to: Point, width: u32, color: Color) {
@@ -725,26 +697,20 @@ impl<'a> Canvas<'a> {
             let right = a.max(b) - half + pen;
             self.fill_wide(left, row, (right - left) as u64, 1, color);
         }
-    } @ graphics::CANVAS_DRAW_LINE
     }
 
-    paperpaw_table::shared! {
     /// Fills a circle of `radius` pixels around `center` (the corner
     /// between four pixels, so the circle is `2 * radius` across).
     pub fn fill_circle(&mut self, center: Point, radius: u32, color: Color) {
         self.fill_ring(center, radius, radius, 0, 360, color);
-    } @ graphics::CANVAS_FILL_CIRCLE
     }
 
-    paperpaw_table::shared! {
     /// Draws a circle's outline of `radius` pixels around `center`,
     /// `thickness` wide, growing inwards.
     pub fn stroke_circle(&mut self, center: Point, radius: u32, thickness: u32, color: Color) {
         self.fill_ring(center, radius, thickness, 0, 360, color);
-    } @ graphics::CANVAS_STROKE_CIRCLE
     }
 
-    paperpaw_table::shared! {
     /// Draws an arc of a ring of `radius` pixels around `center`,
     /// `thickness` wide, growing inwards: `sweep` degrees clockwise from
     /// `from` (degrees clockwise from twelve o'clock, see
@@ -793,7 +759,6 @@ impl<'a> Canvas<'a> {
                 self.ring_pixels(&ring, (x, y, r), dy, at..end, color);
             }
         }
-    } @ graphics::CANVAS_FILL_RING
     }
 
     /// The pixels of row `dy` of a ring's box (at `x`, `y`, `r` round),
@@ -837,7 +802,6 @@ impl<'a> Canvas<'a> {
         self.fill_rect(point.x, point.y, 1, 1, color);
     }
 
-    paperpaw_table::shared! {
     /// Draws a row of 8-bit gray pixels (an image row) starting at
     /// `(x, y)`; dithered on panels with few gray levels.
     pub fn draw_gray_row(&mut self, x: i32, y: i32, gray: &[u8]) {
@@ -850,10 +814,8 @@ impl<'a> Canvas<'a> {
         let row = &gray[from..from + usize::from(rect.width)];
         self.framebuffer.put_gray_row(rect.x, rect.y, row);
         self.framebuffer.mark_dirty(rect);
-    } @ graphics::CANVAS_DRAW_GRAY_ROW
     }
 
-    paperpaw_table::shared! {
     /// Draws a row of gray pixels with transparency (an image row, two
     /// bytes a pixel: gray, and how opaque it is) starting at `(x, y)`,
     /// blended over what is drawn there and dithered as pictures are;
@@ -873,10 +835,8 @@ impl<'a> Canvas<'a> {
                 .put_gray_over(px, rect.y, gray_alpha[at], alpha as u8);
         }
         self.framebuffer.mark_dirty(rect);
-    } @ graphics::CANVAS_DRAW_GRAY_ALPHA_ROW
     }
 
-    paperpaw_table::shared! {
     /// Draws a row of RGB pixels (an image row, three bytes a pixel)
     /// starting at `(x, y)`: as they are on colour frames, as gray
     /// (dithered like gray rows) on gray ones.
@@ -892,7 +852,6 @@ impl<'a> Canvas<'a> {
                 .put_rgb(px, rect.y, [rgb[at], rgb[at + 1], rgb[at + 2]]);
         }
         self.framebuffer.mark_dirty(rect);
-    } @ graphics::CANVAS_DRAW_RGB_ROW
     }
 
     /// Draws `bitmap` as `blit` says, fast enough for every frame (e.g.
@@ -928,6 +887,9 @@ impl<'a> Canvas<'a> {
         color: Color,
         coverage: impl Fn(u32, u32) -> u8,
     ) {
+        if self.framebuffer.is_probe() {
+            return self.probe_mask(x, y, width, height, coverage);
+        }
         let Some(rect) = self.clip_signed(x, y, width, height) else {
             return;
         };

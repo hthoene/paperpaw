@@ -82,8 +82,18 @@ struct Asked {
 pub struct Network {
     radio: Radio,
     calls: Calls,
+    /// The radio's power saving stays off a little after data moved
+    /// (`paperpaw_x4::download_boost`).
+    power_hold: paperpaw_x4::download_boost::PowerHold,
     servers: Servers,
     sockets: Sockets,
+    /// The sockets of interface 7 (`core.sockets`), shared with the loader
+    /// that wires core with them.
+    #[cfg(feature = "ppn5")]
+    host: Option<alloc::rc::Rc<crate::host_net::Bridge>>,
+    /// The device behind `core.device`, told of the networks a scan found.
+    #[cfg(feature = "ppn5")]
+    device: Option<alloc::rc::Rc<paperpaw_x4::device_host::X4Device>>,
     /// What the kernel asked for plugins' servers and sockets, for the
     /// next step.
     server_calls: Vec<ServerCall>,
@@ -98,6 +108,8 @@ pub struct Network {
     sync_failed: bool,
     #[cfg(feature = "bluetooth")]
     bluetooth: crate::bluetooth::Bluetooth,
+    /// Where a firmware check asks for room (#273).
+    update_room: Option<alloc::rc::Rc<paperpaw_x4::update_room::Gate>>,
 }
 
 impl Network {
@@ -105,8 +117,13 @@ impl Network {
         Self {
             radio: Radio::new(parts),
             calls: Calls::default(),
+            power_hold: paperpaw_x4::download_boost::PowerHold::new(),
             servers: Servers::default(),
             sockets: Sockets::default(),
+            #[cfg(feature = "ppn5")]
+            host: None,
+            #[cfg(feature = "ppn5")]
+            device: None,
             server_calls: Vec::new(),
             socket_calls: Vec::new(),
             #[cfg(feature = "remote")]
@@ -116,7 +133,62 @@ impl Network {
             sync_failed: false,
             #[cfg(feature = "bluetooth")]
             bluetooth: crate::bluetooth::Bluetooth::new(),
+            update_room: None,
         }
+    }
+
+    /// Gives room to the firmware checks that ask `gate` for it.
+    pub fn set_update_room(&mut self, gate: alloc::rc::Rc<paperpaw_x4::update_room::Gate>) {
+        self.update_room = Some(gate);
+    }
+
+    /// A firmware check's request for room (#273): idle plugins are parked
+    /// and the radio goes down, unless data moves over it (the check is of a
+    /// file that was downloaded; the download ended before it). The check
+    /// goes on once the radio is down. Logs the heap where a check begins.
+    fn give_update_room(&mut self, kernel: &mut Kernel) {
+        let Some(gate) = self.update_room.clone() else {
+            return;
+        };
+        if gate.take_began() {
+            log::info!(
+                "update check: {} B free, largest block {} B, radio {}",
+                esp_alloc::HEAP.free(),
+                crate::largest_block(),
+                if self.radio.is_on() { "on" } else { "off" }
+            );
+        }
+        if gate.take_asked() {
+            let parked = kernel.make_room();
+            if self.radio.is_on() && !self.moving() {
+                self.radio.apply(WifiCommand::Off);
+            }
+            log::info!(
+                "update check: no room, {parked} idle plugins parked, radio going down: {} B free, largest block {} B",
+                esp_alloc::HEAP.free(),
+                crate::largest_block()
+            );
+        }
+        if gate.shedding() && !self.radio.is_on() {
+            gate.shed();
+            log::info!(
+                "update check: room given: {} B free, largest block {} B",
+                esp_alloc::HEAP.free(),
+                crate::largest_block()
+            );
+        }
+    }
+
+    /// Runs the interface-7 sockets of `host` from now on.
+    #[cfg(feature = "ppn5")]
+    pub fn attach(&mut self, host: alloc::rc::Rc<crate::host_net::Bridge>) {
+        self.host = Some(host);
+    }
+
+    /// Tells `device` of the networks a scan finds, from now on.
+    #[cfg(feature = "ppn5")]
+    pub fn attach_device(&mut self, device: alloc::rc::Rc<paperpaw_x4::device_host::X4Device>) {
+        self.device = Some(device);
     }
 
     /// A radio is on: its tasks need the processor (no light sleep).
@@ -163,17 +235,35 @@ impl Network {
         // served (the transfer, the setup with a phone) or a connection
         // is open (Calibre): asleep, it missed parts of what came in a
         // burst, and the connection stalled until the other side gave up.
-        let busy = self.moving() || kernel.serving() || kernel.sockets_open();
+        let busy = self.moving() || kernel.serving() || kernel.sockets_open() || self.host_open();
         // Beside Bluetooth the radio is shared: Wi-Fi never keeps it to
         // itself (its modem sleeps between beacons, Bluetooth's links run
         // meanwhile).
         #[cfg(feature = "bluetooth")]
         let busy = busy && !self.bluetooth.is_on();
-        self.radio.save_power(!busy);
+        // Every step: a request that failed or was dropped lets go as one
+        // that ended does, after the hold.
+        let saving = self.power_hold.saving(busy, now.0);
+        self.radio.save_power(saving);
+        // A connection kept for the next request goes before the heap is
+        // looked at for a session that is wanted.
+        self.calls.settle_idle(self.radio.net(), now.0);
+        #[cfg(feature = "ppn5")]
+        let mut scanned = false;
         for event in self.radio.poll() {
             #[cfg(feature = "remote")]
             self.answer_asked(kernel, &event);
+            #[cfg(feature = "ppn5")]
+            {
+                scanned |= matches!(event, paperpaw_core::WifiEvent::Scanned(_));
+            }
             effects.push(kernel.wifi_event(now, event));
+        }
+        // The networks the scan found, as the kernel keeps them (sorted, each
+        // name once), before its effects are carried out.
+        #[cfg(feature = "ppn5")]
+        if let (true, Some(device)) = (scanned, &self.device) {
+            crate::device_host::sync_networks(device, kernel);
         }
         #[cfg(feature = "bluetooth")]
         self.bluetooth
@@ -185,8 +275,25 @@ impl Network {
         // Secure requests and sockets wait for the clock (their
         // certificates' dates are checked against it), unless it cannot be
         // had.
-        let clock_ready = clock::unix_ms(now).is_some() || self.sync_failed;
+        let clock_ready = clock::exact() || self.sync_failed;
+        // A secure request's session takes about 60 KB: where the heap is
+        // short for it, what sits idle is given back first (#287).
+        if crate::tls_slots::take_room_asked() {
+            let free = esp_alloc::HEAP.free();
+            if !paperpaw_x4::tls_gate::session_fits(free, crate::largest_block()) {
+                let parked = kernel.make_room();
+                log::info!(
+                    "secure request: {free} B free, {} B after parking {parked} idle plugins",
+                    esp_alloc::HEAP.free()
+                );
+            }
+        }
+        self.give_update_room(kernel);
         self.serve(kernel, now, clock_ready, &mut effects);
+        #[cfg(feature = "ppn5")]
+        if let Some(host) = &self.host {
+            effects.extend(host.run(&mut self.radio, kernel, now, clock_ready));
+        }
         self.sync_clock(now);
         if self.calls.busy() {
             for answer in self
@@ -248,7 +355,23 @@ impl Network {
     /// Whether data is moving for plugins' requests, servers or sockets:
     /// the main loop comes by again at once.
     pub fn moving(&self) -> bool {
-        self.calls.busy() || self.servers.moving() || self.sockets.moving()
+        self.calls.busy() || self.servers.moving() || self.sockets.moving() || self.host_moving()
+    }
+
+    /// Whether the interface-7 sockets have something to do now.
+    fn host_moving(&self) -> bool {
+        #[cfg(feature = "ppn5")]
+        return self.host.as_ref().is_some_and(|host| host.moving());
+        #[cfg(not(feature = "ppn5"))]
+        false
+    }
+
+    /// Whether an interface-7 socket is open (the radio does not doze).
+    fn host_open(&self) -> bool {
+        #[cfg(feature = "ppn5")]
+        return self.host.as_ref().is_some_and(|host| host.open());
+        #[cfg(not(feature = "ppn5"))]
+        false
     }
 
     /// Plugins' servers and sockets: what the kernel asked, then a step
@@ -319,7 +442,7 @@ impl Network {
             self.sync_failed = false;
             return;
         };
-        let due = clock::unix_ms(now).is_none()
+        let due = !clock::exact()
             || self
                 .synced
                 .is_none_or(|at| ms.saturating_sub(at) >= RESYNC_MS);

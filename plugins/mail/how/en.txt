@@ -6,4 +6,8 @@ Open Mail in the tools. Check for mail fetches the latest mails and the folders.
 
 If your provider is not on the list, choose Own servers and set the server names, ports and security under the advanced settings. A server whose certificate no authority vouches for asks once whether to trust it; compare the fingerprint with what your provider shows.
 
+A mail with a book attached (EPUB, PDF and the like, up to 2 MB) has Open book below it: it fetches the file, puts it in your library and opens it.
+
+To see new mail without opening Mail, turn on Check for new mail in the background under Settings, Mail, and choose how often (every 15, 30 or 60 minutes). It is off until you turn it on. The reader then connects now and then over a secure connection while it is awake and online, one account after the other, and updates the unread count on Home. It uses some battery. Opening Mail stops a check that is running.
+
 Home screen widgets show the unread count, the latest and the starred mails, one mailbox, and a shortcut to write a mail.

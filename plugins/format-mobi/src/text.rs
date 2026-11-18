@@ -12,7 +12,10 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use paperpaw_sdk::document::DocumentError;
+
 use crate::cache::{Block, Kind, Output};
+use crate::mem::{self, Refused};
 
 /// How the characters of the text are stored.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,11 +38,27 @@ fn cp1252(byte: u8) -> char {
 }
 
 /// `bytes` as text, onto `out` (for the strings of the headers).
-pub(crate) fn decode_into(bytes: &[u8], encoding: Encoding, out: &mut String) {
+pub(crate) fn decode_into(
+    bytes: &[u8],
+    encoding: Encoding,
+    out: &mut String,
+) -> Result<(), Refused> {
     match encoding {
-        Encoding::Utf8 => out.push_str(&String::from_utf8_lossy(bytes)),
-        Encoding::Windows1252 => out.extend(bytes.iter().map(|&b| cp1252(b))),
+        Encoding::Utf8 => {
+            for chunk in bytes.utf8_chunks() {
+                mem::push_str(out, chunk.valid())?;
+                if !chunk.invalid().is_empty() {
+                    mem::push_char(out, char::REPLACEMENT_CHARACTER)?;
+                }
+            }
+        }
+        Encoding::Windows1252 => {
+            for &byte in bytes {
+                mem::push_char(out, cp1252(byte))?;
+            }
+        }
     }
+    Ok(())
 }
 
 /// A piece of text is cut at the first space after this many bytes.
@@ -52,8 +71,6 @@ const TAG: usize = 1024;
 const MOST_CHECKS: usize = 96;
 /// Longest alternative text of a picture kept.
 const ALT: usize = 200;
-/// Longest title of a table of contents entry.
-const TITLE: usize = 120;
 
 const BOLD: u16 = 1;
 const ITALIC: u16 = 2;
@@ -66,7 +83,10 @@ const SUBSCRIPT: u16 = 1 << 9;
 pub(crate) trait Pictures {
     /// The size a picture is decoded to, if the record `index` (counted
     /// from the first picture, 1 for the first) holds one that can be.
-    fn size(&mut self, index: u32) -> Option<(u32, u32)>;
+    ///
+    /// # Errors
+    /// A card or memory that fails: the conversion stops with it.
+    fn size(&mut self, index: u32) -> Result<Option<(u32, u32)>, DocumentError>;
 }
 
 /// Whether a tag ends the block of text before it.
@@ -179,9 +199,8 @@ fn entity(name: &[u8]) -> Option<char> {
 }
 
 /// Reads the text and writes its blocks.
-pub(crate) struct Converter<'p, P: Pictures> {
+pub(crate) struct Converter {
     encoding: Encoding,
-    pictures: &'p mut P,
     pub(crate) out: Output,
     /// The source offset of the next byte.
     pos: u32,
@@ -221,11 +240,10 @@ pub(crate) struct Converter<'p, P: Pictures> {
     link: Option<(u32, usize)>,
 }
 
-impl<'p, P: Pictures> Converter<'p, P> {
-    pub(crate) fn new(encoding: Encoding, pictures: &'p mut P, out: Output) -> Self {
+impl Converter {
+    pub(crate) fn new(encoding: Encoding, out: Output) -> Self {
         Self {
             encoding,
-            pictures,
             out,
             pos: 0,
             in_tag: false,
@@ -259,12 +277,12 @@ impl<'p, P: Pictures> Converter<'p, P> {
     }
 
     /// The bytes of the text from where the last call ended.
-    pub(crate) fn feed(&mut self, bytes: &[u8]) {
+    pub(crate) fn feed(&mut self, bytes: &[u8], pictures: &mut dyn Pictures) {
         for &byte in bytes {
             if self.out.failed() {
                 return;
             }
-            self.byte(byte);
+            self.byte(byte, pictures);
             self.pos = self.pos.wrapping_add(1);
         }
     }
@@ -276,7 +294,18 @@ impl<'p, P: Pictures> Converter<'p, P> {
         self.flush(self.pos, false);
     }
 
-    fn byte(&mut self, byte: u8) {
+    /// What `result` says, a refusal noted for good.
+    fn kept<T>(&mut self, result: Result<T, Refused>) -> Option<T> {
+        match result {
+            Ok(value) => Some(value),
+            Err(Refused) => {
+                self.out.refuse();
+                None
+            }
+        }
+    }
+
+    fn byte(&mut self, byte: u8, pictures: &mut dyn Pictures) {
         if self.in_tag {
             if let Some(quote) = self.quote {
                 if byte == quote {
@@ -284,13 +313,14 @@ impl<'p, P: Pictures> Converter<'p, P> {
                 }
             } else if byte == b'>' {
                 self.in_tag = false;
-                self.end_tag();
+                self.end_tag(pictures);
                 return;
             } else if byte == b'"' || byte == b'\'' {
                 self.quote = Some(byte);
             }
             if self.tag.len() < TAG {
-                self.tag.push(byte);
+                let pushed = mem::push(&mut self.tag, byte);
+                self.kept(pushed);
             }
             return;
         }
@@ -323,7 +353,9 @@ impl<'p, P: Pictures> Converter<'p, P> {
                 return;
             }
             if (byte.is_ascii_alphanumeric() || byte == b'#') && name.len() < 10 {
-                name.push(byte);
+                if mem::push(name, byte).is_err() {
+                    self.out.refuse();
+                }
                 return;
             }
             self.close_entity();
@@ -367,7 +399,10 @@ impl<'p, P: Pictures> Converter<'p, P> {
             self.character(char::REPLACEMENT_CHARACTER, self.pos);
             return;
         }
-        self.character.push(byte);
+        let pushed = mem::push(&mut self.character, byte);
+        if self.kept(pushed).is_none() {
+            return;
+        }
         let need = match self.character[0] {
             0xc0..=0xdf => 2,
             0xe0..=0xef => 3,
@@ -420,10 +455,16 @@ impl<'p, P: Pictures> Converter<'p, P> {
         }
         let shift = self.text.len() as i64 - i64::from(at.wrapping_sub(self.block_start));
         if shift != self.shift && self.checks.len() < MOST_CHECKS && self.text.len() < 60_000 {
-            self.checks.push((self.text.len() as u16, at));
+            let pushed = mem::push(&mut self.checks, (self.text.len() as u16, at));
+            if self.kept(pushed).is_none() {
+                return;
+            }
             self.shift = shift;
         }
-        self.text.push(c);
+        let pushed = mem::push_char(&mut self.text, c);
+        if self.kept(pushed).is_none() {
+            return;
+        }
         // Text with no space to cut at (Chinese, say) is cut where it is.
         if self.text.len() >= HARD {
             self.flush(at.wrapping_add(1), true);
@@ -433,7 +474,8 @@ impl<'p, P: Pictures> Converter<'p, P> {
     fn bullet_if_needed(&mut self) {
         if self.bullets {
             self.bullets = false;
-            self.text.push_str("• ");
+            let pushed = mem::push_str(&mut self.text, "• ");
+            self.kept(pushed);
             self.shift = 0;
             self.checks.clear();
         }
@@ -458,8 +500,9 @@ impl<'p, P: Pictures> Converter<'p, P> {
 
     fn close_run(&mut self) {
         if self.run_style != 0 && self.text.len() > self.run_from {
-            self.runs
-                .push((self.run_from as u16, self.text.len() as u16, self.run_style));
+            let run = (self.run_from as u16, self.text.len() as u16, self.run_style);
+            let pushed = mem::push(&mut self.runs, run);
+            self.kept(pushed);
         }
         self.run_from = self.text.len();
     }
@@ -491,20 +534,14 @@ impl<'p, P: Pictures> Converter<'p, P> {
         let trimmed = self.text.trim_end_matches([' ', '\n']).len();
         self.text.truncate(trimmed);
         if !self.text.is_empty() {
-            let runs: Vec<(u16, u16, u16)> = core::mem::take(&mut self.runs)
-                .into_iter()
-                .filter(|r| r.0 < r.1 && usize::from(r.1) <= trimmed)
-                .collect();
+            self.runs
+                .retain(|r| r.0 < r.1 && usize::from(r.1) <= trimmed);
             let level = match self.kind {
                 Kind::Heading(level) => Some(level),
                 _ => None,
             };
             if let Some(level) = level.filter(|&l| l <= 3) {
-                let mut title = String::new();
-                for c in self.text.chars().take(TITLE) {
-                    title.push(if c == '\n' { ' ' } else { c });
-                }
-                self.out.toc(self.block_start, level - 1, &title);
+                self.out.toc(self.block_start, level - 1, &self.text);
             }
             self.out.block(&Block {
                 kind: self.kind,
@@ -514,7 +551,7 @@ impl<'p, P: Pictures> Converter<'p, P> {
                 start: self.block_start,
                 end,
                 text: &self.text,
-                runs: &runs,
+                runs: &self.runs,
                 checks: &self.checks,
                 image: None,
             });
@@ -545,7 +582,7 @@ impl<'p, P: Pictures> Converter<'p, P> {
         self.link = if going_on { Some((filepos, 0)) } else { None };
     }
 
-    fn end_tag(&mut self) {
+    fn end_tag(&mut self, pictures: &mut dyn Pictures) {
         let tag = core::mem::take(&mut self.tag);
         let start = self.tag_start;
         let next = self.pos.wrapping_add(1);
@@ -555,18 +592,30 @@ impl<'p, P: Pictures> Converter<'p, P> {
             .iter()
             .position(|b| b.is_ascii_whitespace() || *b == b'/')
             .unwrap_or(body.len());
-        let mut name = String::new();
-        name.extend(
-            body[..name_end]
-                .iter()
-                .map(|b| char::from(b.to_ascii_lowercase())),
-        );
+        // Every tag the converter knows has a short name; a longer one is
+        // none of them.
+        let mut name = [0u8; 16];
+        let name = match name.get_mut(..name_end) {
+            Some(room) => {
+                room.copy_from_slice(&body[..name_end]);
+                room.make_ascii_lowercase();
+                core::str::from_utf8(room).unwrap_or("")
+            }
+            None => "",
+        };
         self.tag = tag;
-        self.tag_named(&name, closing, start, next);
+        self.tag_named(name, closing, start, next, pictures);
         self.tag.clear();
     }
 
-    fn tag_named(&mut self, name: &str, closing: bool, start: u32, next: u32) {
+    fn tag_named(
+        &mut self,
+        name: &str,
+        closing: bool,
+        start: u32,
+        next: u32,
+        pictures: &mut dyn Pictures,
+    ) {
         if matches!(name, "head" | "style" | "script" | "title") {
             self.skipping = !closing;
             return;
@@ -607,7 +656,8 @@ impl<'p, P: Pictures> Converter<'p, P> {
             }
             if name == "hr" {
                 self.align = paperpaw_sdk::document::Align::Center;
-                self.text.push_str("* * *");
+                let pushed = mem::push_str(&mut self.text, "* * *");
+                self.kept(pushed);
                 self.flush(next, false);
                 self.align = self.base_align();
             }
@@ -624,7 +674,8 @@ impl<'p, P: Pictures> Converter<'p, P> {
                 let trimmed = self.text.trim_end_matches(' ').len();
                 self.text.truncate(trimmed);
                 if !self.text.is_empty() && !self.text.ends_with('\n') {
-                    self.text.push('\n');
+                    let pushed = mem::push_char(&mut self.text, '\n');
+                    self.kept(pushed);
                 }
                 return;
             }
@@ -638,7 +689,7 @@ impl<'p, P: Pictures> Converter<'p, P> {
                 return;
             }
             "img" | "image" => {
-                self.picture(start, next);
+                self.picture(start, next, pictures);
                 return;
             }
             _ => return,
@@ -660,11 +711,18 @@ impl<'p, P: Pictures> Converter<'p, P> {
     }
 
     /// A picture: the text before it is a block, the picture another.
-    fn picture(&mut self, start: u32, next: u32) {
+    fn picture(&mut self, start: u32, next: u32, pictures: &mut dyn Pictures) {
         let Some(index) = attribute(&self.tag, "recindex").and_then(number) else {
             return;
         };
-        let Some((width, height)) = self.pictures.size(index) else {
+        let size = match pictures.size(index) {
+            Ok(size) => size,
+            Err(error) => {
+                self.out.note(error);
+                return;
+            }
+        };
+        let Some((width, height)) = size else {
             return;
         };
         let was_continued = self.continued;
@@ -673,15 +731,23 @@ impl<'p, P: Pictures> Converter<'p, P> {
         let mut alt = String::new();
         if let Some(value) = attribute(&self.tag, "alt") {
             let mut raw = String::new();
-            decode_into(value, self.encoding, &mut raw);
+            let decoded = decode_into(value, self.encoding, &mut raw);
+            if self.kept(decoded).is_none() {
+                return;
+            }
             for word in raw.split_whitespace() {
                 if alt.len() + word.len() + 1 > ALT {
                     break;
                 }
-                if !alt.is_empty() {
-                    alt.push(' ');
+                let added = if alt.is_empty() {
+                    Ok(())
+                } else {
+                    mem::push_char(&mut alt, ' ')
                 }
-                alt.push_str(word);
+                .and_then(|()| mem::push_str(&mut alt, word));
+                if self.kept(added).is_none() {
+                    return;
+                }
             }
         }
         self.out.block(&Block {
@@ -736,10 +802,10 @@ mod tests {
     #[test]
     fn windows_1252_text() {
         let mut out = String::new();
-        decode_into(b"caf\xe9 \x93hi\x94 \x80", Encoding::Windows1252, &mut out);
+        decode_into(b"caf\xe9 \x93hi\x94 \x80", Encoding::Windows1252, &mut out).unwrap();
         assert_eq!(out, "café “hi” €");
         let mut out = String::new();
-        decode_into("café".as_bytes(), Encoding::Utf8, &mut out);
+        decode_into("café".as_bytes(), Encoding::Utf8, &mut out).unwrap();
         assert_eq!(out, "café");
     }
 }
