@@ -29,6 +29,10 @@
 #             header, transfer and quick-panel layout tests) as CI builds them, and the app's own screens:
 #             kernel_screens and screens (golden pictures and layout faults)
 #                                                         [plugins/, app, ui-kit, layout, text, graphics, fonts, i18n, core, sdk, shells/desktop]
+#   publish   the publisher's tests: its exempt list of plugins that name the SDK `kernel` feature must be
+#             the plugins' own manifests (red twice on Nov 18)   [plugins/*/Cargo.toml, tools/publish]
+#   wasm32    CI's "no_std targets (wasm32-unknown-unknown)" build, release, of the kernel with every first-party
+#             plugin: for the changed packages that build for it, or the lock file [a crate or plugin under the app, Cargo.lock]
 #   frames    the changed plugins (at most 4; `store` stands in when a library under them changed) built for the X4's
 #             C3 as CI builds them and packed: a frame of 2,048 B or more is refused  [plugins/, ui-kit, sdk, core native, text, layout]
 #   frames-s3 the same plugins built for the X4 Pro / Classic (ESP32-S3, espup's `esp` toolchain,
@@ -80,7 +84,7 @@ step_limit="${QUICK_CHECK_STEP_LIMIT:-400}"
 
 base=origin/abi7/integration
 all=0 list=0 only="" skip=""
-steps=" fmt clippy doc interface checks libs desktop memory app snapshots frames frames-s3 "
+steps=" fmt clippy doc interface checks libs desktop memory app snapshots publish wasm32 frames frames-s3 "
 while (($#)); do
     case "$1" in
         --base) base="${2:?--base needs a revision}"; shift 2 ;;
@@ -132,6 +136,9 @@ done <<< "$picked"
 
 if ((all && ${#pkg_names[@]} == 0)); then pkg_names=(paperpaw-sdk paperpaw-emulator); pkg_libs=(paperpaw-sdk); fi
 
+# CI's wasm32/riscv32 build: the app with the standard feature set and the libraries it names.
+wasm_pkgs=(-p paperpaw-app --no-default-features --features packs,store-plugins,diagnostics
+    -p paperpaw-image -p paperpaw-sqlite -p paperpaw-stardict -p paperpaw-x4 -p paperpaw-fat)
 touches() { grep -Eq "$1" <<< "$files"; }
 rs_pkg_change() { touches '(\.rs|Cargo\.toml)$'; }
 # Which steps run, and why.
@@ -147,6 +154,13 @@ if [[ $all = 1 ]]; then for s in $steps; do why[$s]="--all"; done; else
     touches '^(crates/paperpaw-(text|image|layout|document|epub-family|hyphen|zip|xml|core|native|json|digest)/|shells/desktop/|plugins/(reading|format-|picture|home|library|store))' && why[memory]="a crate on the reading path or the emulator changed"
     touches '^(plugins/|crates/paperpaw-(app|core|sdk|ui-kit|native)/)' && why[app]="plugins, app, core, SDK or ui-kit changed"
     touches '^(plugins/|crates/paperpaw-(app|ui-kit|layout|text|graphics|fonts|i18n|core|sdk|native|config)/|shells/desktop/|tools/fonts)' && why[snapshots]="plugins, app, ui-kit, layout, text, fonts, i18n, core, SDK or the emulator changed"
+    touches '^(plugins/[^/]+/Cargo\.toml|tools/publish/)' && why[publish]="a plugin manifest or the publisher changed"
+    if touches '^Cargo\.lock$'; then why[wasm32]="Cargo.lock changed"
+    elif ((${#pkg_names[@]})) && rs_pkg_change; then
+        wasm_closure="$(cargo tree --offline --target wasm32-unknown-unknown --prefix none -e normal,build "${wasm_pkgs[@]}" 2> /dev/null | awk '/\(\/|\(\.\.?\//{print $1}' | sort -u)"
+        wasm_hit="$(comm -12 <(printf '%s\n' "${pkg_names[@]}" | sort -u) <(printf '%s\n' "$wasm_closure") | tr '\n' ' ')"
+        [[ -z "$wasm_hit" ]] || why[wasm32]="changed, in the no_std build: $wasm_hit"
+    fi
     touches '^(plugins/|crates/paperpaw-(ui-kit|sdk|core|native|text|layout|i18n)/|tools/plugin-files7/)' && why[frames]="plugin code or what it builds with changed"
     touches '^(plugins/|crates/paperpaw-(ui-kit|sdk|core|native|text|layout|i18n)/|tools/plugin-files7/)' && why[frames-s3]="plugin code or what it builds with changed (S3 frames differ from the C3's)"
 fi
@@ -212,6 +226,10 @@ step() { # NAME COMMAND...
         echo "ok    $name (${dt}s)" > "$logs/$name.res"
     fi
 }
+publish_step() { cargo test -j"$jobs_n" -p paperpaw-publish; }
+# CI's job "no_std targets", its wasm32 leg (the riscv32 leg builds the same packages for the C3
+# firmware, which `frames` covers by the plugins): the same command, in the build lane's directory.
+wasm32_step() { CARGO_TARGET_DIR="$lane2_target" cargo build -j"$jobs_n" --release --target wasm32-unknown-unknown "${wasm_pkgs[@]}"; }
 pk() { local a=(); for n in "$@"; do a+=(-p "$n"); done; printf '%s\n' "${a[@]}"; }
 
 fmt_step() { cargo fmt --all -- --check && rustfmt --edition 2024 --check shells/xteink/src/main.rs; }
@@ -297,9 +315,9 @@ frames_s3_step() {
 # The host lane and the build lane (doc, frames) run side by side: each has one cargo at a time and
 # its own build directories, so none waits on the other's lock.
 lane() { local s; for s in "$@"; do run_step "$s" && step "$s" "${s//-/_}_step"; done; return 0; }
-lane doc frames frames-s3 &
+lane doc wasm32 frames frames-s3 &
 build_lane=$!
-lane fmt clippy interface checks libs desktop memory app snapshots
+lane fmt clippy interface checks libs desktop memory app snapshots publish
 wait "$build_lane"
 
 echo
