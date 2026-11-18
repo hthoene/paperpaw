@@ -15,11 +15,12 @@
 //! Every turn logs `turn-lab: variant N turn K [clean]: shown in X ms`.
 
 use paperpaw_platform::RefreshMode;
-use paperpaw_x4::display::Experiment as Ssd1677;
+use paperpaw_x4::display::{Experiment as Ssd1677, Refresh};
 use paperpaw_x4::panel::Experiment;
 use paperpaw_x4::waveform::Direct;
 
 use super::Firmware;
+use log::info;
 
 /// Variant 4 cleans with a half refresh every this many turns.
 pub(super) const CLEAN_EVERY: u32 = 5;
@@ -37,8 +38,6 @@ pub(super) struct Lab {
 pub(super) struct Turn {
     pub variant: u8,
     pub number: u32,
-    /// Show it as a half refresh (cleans).
-    pub clean: bool,
 }
 
 impl Turn {
@@ -56,10 +55,10 @@ impl Turn {
 }
 
 impl Firmware {
-    /// The next page turn, if `mode` is one; a change of variant starts the
-    /// count again.
-    pub(super) fn turn_lab(&mut self, mode: RefreshMode) -> Option<Turn> {
-        if mode != RefreshMode::Partial {
+    /// The next page turn, if the lab is on and `mode` is one: a change of
+    /// variant starts the count again; a clean turn is a half refresh.
+    pub(super) fn turn_lab(&mut self, mode: RefreshMode, refresh: &mut Refresh) -> Option<Turn> {
+        if !cfg!(feature = "turn-lab") || mode != RefreshMode::Partial {
             return None;
         }
         let mut digit = *b"0";
@@ -72,10 +71,32 @@ impl Firmware {
         }
         lab.turns += 1;
         let number = lab.turns;
-        Some(Turn {
-            variant,
-            number,
-            clean: variant == MOST_VARIANT && number.is_multiple_of(CLEAN_EVERY),
-        })
+        let clean = variant == MOST_VARIANT && number.is_multiple_of(CLEAN_EVERY);
+        if clean && *refresh == Refresh::Fast {
+            *refresh = Refresh::Half;
+        }
+        Some(Turn { variant, number })
+    }
+
+    /// Sets the variant's waveform for a page turn shown as a fast refresh.
+    pub(super) fn turn_lab_waveform(&mut self, turn: Option<Turn>, refresh: Refresh) {
+        if refresh == Refresh::Fast
+            && let Some(turn) = turn
+            && turn.variant != 0
+        {
+            let _supported = self.panel.set_experiment(turn.waveform());
+        }
+    }
+}
+
+/// Logs the page turn and the time the panel took.
+pub(super) fn log(turn: Option<Turn>, refresh: Refresh, shown_ms: u64) {
+    if let Some(turn) = turn {
+        info!(
+            "turn-lab: variant {} turn {}{}: shown in {shown_ms} ms",
+            turn.variant,
+            turn.number,
+            if refresh == Refresh::Fast { "" } else { " clean" },
+        );
     }
 }

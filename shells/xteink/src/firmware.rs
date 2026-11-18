@@ -37,7 +37,6 @@ mod paced;
 mod remote_commands;
 #[cfg(feature = "asleep-light")]
 mod sleeping_board;
-#[cfg(feature = "turn-lab")]
 mod turn_lab;
 mod waveform;
 
@@ -179,8 +178,7 @@ pub struct State {
     /// The panel showed grays until the frame being drawn: its refresh drives
     /// every pixel ([`clean`]).
     after_gray: bool,
-    /// LAB ONLY (#40): the page-turn variant (`turn_lab.rs`).
-    #[cfg(feature = "turn-lab")]
+    /// LAB ONLY (#40, feature `turn-lab`): the page-turn variant.
     turn_lab: turn_lab::Lab,
 }
 
@@ -1345,13 +1343,7 @@ impl Firmware {
             // Partial and fast, and modes to come.
             _ => Refresh::Fast,
         };
-        // LAB ONLY (#40): how this page turn is shown.
-        #[cfg(feature = "turn-lab")]
-        let turn = self.turn_lab(mode);
-        #[cfg(feature = "turn-lab")]
-        if refresh == Refresh::Fast && turn.is_some_and(|turn| turn.clean) {
-            refresh = Refresh::Half;
-        }
+        let turn = self.turn_lab(mode, &mut refresh);
         // After grays, home is drawn while the panel is cleaned to white
         // and then shown with a fast refresh (see `clean`).
         let mut cleaning = self.cleans_while_drawing(after_gray, refresh == Refresh::Half);
@@ -1420,27 +1412,12 @@ impl Firmware {
         let drawn = now();
         self.kernel.showing(drawn);
         self.set_waveform(refresh, mode);
-        #[cfg(feature = "turn-lab")]
-        if refresh == Refresh::Fast
-            && let Some(turn) = turn
-            && turn.variant != 0
-        {
-            let _supported = self.panel.set_experiment(turn.waveform());
-        }
+        self.turn_lab_waveform(turn, refresh);
         if let Err(e) = self.refresh(refresh) {
             failed = Some(e);
         }
         let shown = now();
-        #[cfg(feature = "turn-lab")]
-        if let Some(turn) = turn {
-            info!(
-                "turn-lab: variant {} turn {}{}: shown in {} ms",
-                turn.variant,
-                turn.number,
-                if refresh == Refresh::Fast { "" } else { " clean" },
-                shown.since(drawn)
-            );
-        }
+        turn_lab::log(turn, refresh, shown.since(drawn));
         self.kernel.panel_busy(shown.since(drawn));
         self.kernel.shown(shown);
         let ms = core::time::Duration::from_millis;
