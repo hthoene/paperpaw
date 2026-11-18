@@ -33,7 +33,7 @@ use paperpaw_sdk::{
         Error, Host,
         callbacks::{DrawFrame, Input},
         events::Event,
-        formatting::{self, Arg},
+        formatting::Arg,
     },
 };
 use paperpaw_ui_kit::{
@@ -421,17 +421,18 @@ pub fn size_text(bytes: u64, mark: &str) -> Result<String, Error> {
     }
 }
 
-/// How far a download came: `1.2 MB / 3.4 MB`, or the bytes so far where the
-/// total is not known.
+/// How far a download came: `2 / 4`. The numbers are files (the download
+/// knows its files, not their bytes), so they are never written as sizes.
 ///
 /// # Errors
 /// `NoMemory`.
-pub fn progress_text(done: u32, total: u32, mark: &str) -> Result<String, Error> {
-    let done = size_text(u64::from(done), mark)?;
-    if total == 0 {
-        return Ok(done);
-    }
-    concat(&[&done, " / ", &size_text(u64::from(total), mark)?])
+pub fn progress_text(done: u32, total: u32) -> Result<String, Error> {
+    let (mut a, mut b) = ([0; 20], [0; 20]);
+    concat(&[
+        decimal_u64(u64::from(done), &mut a),
+        " / ",
+        decimal_u64(u64::from(total), &mut b),
+    ])
 }
 
 /// What the page shows of the plugin's description: its first paragraph on one
@@ -822,9 +823,7 @@ impl View {
             }
             Value::Arrow => copy("\u{203a}")?,
             Value::Progress => match *look.step {
-                Step::Downloading { done, total } => {
-                    say.digits(host, &progress_text(done, total, look.mark)?)?
-                }
+                Step::Downloading { done, total } => progress_files(host, say, done, total)?,
                 _ => say.copy(host, "store.preparing")?,
             },
             Value::Preparing => say.copy(host, "store.preparing")?,
@@ -1032,31 +1031,29 @@ impl View {
         let Some(at) = self.targets.iter().position(|row| *row == Some(Row::Stop)) else {
             return Ok(false);
         };
-        let value = progress_value(ctx.host, done, total)?;
+        let value = progress_files(ctx.host, &mut Messages::default(), done, total)?;
         Ok(self.list.set_value(at, value))
     }
 }
 
-/// The value of the progress row, said through stack arrays: no 4 KiB buffer
-/// is made for a progress event (one comes many times a second). A text that
-/// does not fit them (it does not happen for a size) falls back to `Messages`.
-fn progress_value(host: &Host<'_>, done: u32, total: u32) -> Result<String, Error> {
-    let mut mark = [0; 16];
-    let mut out = [0; 96];
-    let mark = match formatting::copy_message(host, "core.decimal", &mut mark) {
-        Ok(found) => copy(found)?,
-        Err(Error::NoSpace) => Messages::default().copy(host, "core.decimal")?,
-        Err(error) => return Err(error),
-    };
-    let text = progress_text(done, total, &mark)?;
-    match formatting::digits(host, &text, &mut out) {
-        Ok(length) => {
-            let bytes = out.get(..length).ok_or(Error::NoSpace)?;
-            copy(core::str::from_utf8(bytes).map_err(|_| Error::Utf8)?)
-        }
-        Err(Error::NoSpace) => Messages::default().digits(host, &text),
-        Err(error) => Err(error),
+/// The value of the progress row: `2 / 4 files`, the files of the download
+/// that are here. Before the files are known (`total` 0) it is *Preparing*.
+fn progress_files(
+    host: &Host<'_>,
+    say: &mut Messages,
+    done: u32,
+    total: u32,
+) -> Result<String, Error> {
+    if total == 0 {
+        return say.copy(host, "store.preparing");
     }
+    let progress = progress_text(done.min(total), total)?;
+    let line = say.format(
+        host,
+        "store.progress.files",
+        &[text("progress", &progress), Arg::Count(i64::from(total))],
+    )?;
+    say.digits(host, &line)
 }
 
 fn text<'a>(name: &'a str, value: &'a str) -> Arg<'a> {
