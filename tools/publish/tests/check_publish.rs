@@ -214,6 +214,15 @@ fn store_entries_the_site_refuses_are_found() {
 }
 
 #[test]
+fn a_hyphenation_table_belongs_in_a_data_plugin() {
+    // The site's package rules take `.pphp` (the `hyphenation` data plugin).
+    let dir = data_repo("data-hyphenation");
+    write(&dir, "plugin/hyphenation/de.pphp", "PPHP");
+    let problems = check(&dir, &["--tag", "v1.0.0"]);
+    assert!(errors(&problems).is_empty(), "{problems:#?}");
+}
+
+#[test]
 fn manifests_and_folders_the_site_refuses_are_found() {
     let dir = data_repo("data-manifest");
     write(
