@@ -161,7 +161,7 @@ fn segment(file: &[u8], body: &[u8]) -> Result<(), Refusal> {
     if want != body.len() {
         return Err(Refusal::Segments);
     }
-    for s in body[SEGMENT_64..].chunks_exact(SECTION_64) {
+    for s in body[SEGMENT_64..].as_chunks::<SECTION_64>().0 {
         section(s)?;
     }
     Ok(())
@@ -305,9 +305,12 @@ mod tests {
         );
     }
 
+    /// Added sections, header flags, an added command, and what is refused.
+    type Case = (&'static [(&'static str, u32)], u32, Vec<u8>, &'static str);
+
     #[test]
     fn every_way_to_run_code_at_load_is_refused() {
-        let cases: [(&[(&str, u32)], u32, Vec<u8>, &str); 14] = [
+        let cases: [Case; 14] = [
             (
                 &[("__mod_init_func", 0x9)],
                 0,

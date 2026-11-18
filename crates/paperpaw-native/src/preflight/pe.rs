@@ -88,7 +88,7 @@ pub fn check_pe32plus(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
         .checked_add(SECTION * usize::from(sections))
         .ok_or(Refusal::Truncated)?;
     let table = bytes.get(table..table_end).ok_or(Refusal::Truncated)?;
-    for s in table.chunks_exact(SECTION) {
+    for s in table.as_chunks::<SECTION>().0 {
         let raw = to_usize(u64::from(u32_at(s, 16)?))?;
         let at = to_usize(u64::from(u32_at(s, 20)?))?;
         if raw != 0 && at.checked_add(raw).is_none_or(|end| end > bytes.len()) {
@@ -117,7 +117,7 @@ pub fn check_pe32plus(bytes: &[u8], machine: u16) -> Result<(), Refusal> {
 
 /// The file offset of `rva`, from the section that holds it in the file.
 fn offset_of(table: &[u8], rva: u32) -> Result<usize, Refusal> {
-    for s in table.chunks_exact(SECTION) {
+    for s in table.as_chunks::<SECTION>().0 {
         let (address, raw, at) = (u32_at(s, 12)?, u32_at(s, 16)?, u32_at(s, 20)?);
         if rva >= address && rva - address < raw {
             return to_usize(u64::from(at) + u64::from(rva - address));
