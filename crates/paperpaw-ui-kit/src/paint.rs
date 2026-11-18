@@ -4,7 +4,7 @@ use paperpaw_sdk::{
     Color, Point, Rect,
     native::{
         Error,
-        callbacks::{DrawFrame, FrameRect},
+        callbacks::{DrawFrame, DrawPurpose, FrameRect},
         canvas::{Canvas, PartFlags, PartRole},
         fonts::{Font, IconGlyph, Ink, TextOrigin},
     },
@@ -378,8 +378,11 @@ pub fn replay_icons<'a>(
     icons: Option<&Font<'_>>,
     ops: impl IntoIterator<Item = &'a Paint>,
 ) -> Result<(), Error> {
-    let clip_top = frame.clip_top - frame.rect.y;
-    let clip_bottom = frame.clip_bottom - frame.rect.y;
+    let (clip_top, clip_bottom) = band_rows(
+        frame.purpose == DrawPurpose::Widget,
+        frame.rect.y,
+        (frame.clip_top, frame.clip_bottom),
+    );
     let mut canvas = frame.draw_canvas()?;
     // Whether anybody asks what is drawn; once not, no more is told.
     let mut asked = true;
@@ -474,6 +477,20 @@ pub fn replay_icons<'a>(
     Ok(())
 }
 
+/// The rows of a frame's band in the coordinates of its operations. A screen's
+/// are relative to its pane, whose top is `rect_y` in screen pixels; a widget's
+/// rectangle, clip and operations are all in the coordinates of the pane it
+/// stands in (the widget draws at its own `rect.y`), so its band is the clip as
+/// it is: taking the rectangle's top off it left every operation of a widget
+/// below the first band outside the band, and nothing of it was drawn.
+const fn band_rows(widget: bool, rect_y: i32, (top, bottom): (i32, i32)) -> (i32, i32) {
+    if widget {
+        (top, bottom)
+    } else {
+        (top - rect_y, bottom - rect_y)
+    }
+}
+
 /// Whether `op` lies wholly outside the rows `top..bottom` of its frame (it
 /// draws nothing there). Texts are taken to reach a size and a half above and
 /// below their baseline, strokes their width past their line; what tells and
@@ -543,12 +560,22 @@ fn replay_section(canvas: &mut Canvas<'_>, op: &Paint) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Paint, bold_extra, describe};
+    use super::{Paint, band_rows, bold_extra, describe};
     use alloc::vec::Vec;
     use paperpaw_sdk::{
         Rect,
         native::canvas::{PartFlags, PartRole},
     };
+
+    #[test]
+    fn a_widget_below_the_first_band_is_drawn_in_its_own_rows() {
+        // A widget at y 312, its first band 312..384: its operations lie at 312 and
+        // below, in the pane's coordinates, as its clip does.
+        assert_eq!(band_rows(true, 312, (312, 384)), (312, 384));
+        // A screen's operations are relative to its pane, whose top is at 40.
+        assert_eq!(band_rows(false, 40, (240, 490)), (200, 450));
+        assert_eq!(band_rows(false, 0, (0, 250)), (0, 250));
+    }
 
     #[test]
     fn a_part_is_queued_with_its_flags_and_only_where_somebody_asks() {
