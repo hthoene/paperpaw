@@ -7,7 +7,7 @@ Conventions. **[V]** is a verified fact with a `path:line` citation (lines on th
 base above unless a ref is named). **[P]** is a proposal. **[Q]** is an open
 question. Plugin-side facts come from `origin/samples/abi7-snapshot-settings-734`
 (`plugins/battery`, `plugins/battery/tests/PORTING.md`). ADR 0034 is read from
-`origin/fw/adr-flat-boundary-228:docs/adr/0034-stable-plugin-boundary.md` (cited
+`docs/adr/0034-stable-plugin-boundary.md` (cited
 as ADR34:line).
 
 Out of scope: declarative registration (manifest, translations, setting specs,
