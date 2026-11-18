@@ -98,6 +98,22 @@ pub fn child(rel: &str, name: &str) -> Result<String, Error> {
     }
 }
 
+/// The order of two names as the card tells them apart: without case, as FAT
+/// does (`Note.md` and `note.md` are one file of the card, and two of most
+/// servers).
+#[must_use]
+pub fn order(a: &str, b: &str) -> core::cmp::Ordering {
+    a.chars()
+        .flat_map(char::to_uppercase)
+        .cmp(b.chars().flat_map(char::to_uppercase))
+}
+
+/// Whether the card takes two names for one.
+#[must_use]
+pub fn same(a: &str, b: &str) -> bool {
+    order(a, b).is_eq()
+}
+
 /// Whether a name is left out of a sync: hidden (a dot), a file the host is
 /// writing (`.pp-staged`), one the card or a server cannot take back (a
 /// control character, a tab or a line end of the state) or one a path cannot
@@ -159,6 +175,14 @@ mod tests {
             assert!(left_out(name), "{name}");
         }
         assert!(!left_out("Note ü.md"));
+    }
+
+    #[test]
+    fn names_are_told_apart_as_the_card_does() {
+        assert!(same("Note \u{e4}.md", "NOTE \u{c4}.MD"));
+        assert!(!same("Note.md", "Note.txt"));
+        assert_eq!(order("a.md", "B.md"), core::cmp::Ordering::Less);
+        assert_eq!(order("b.md", "A.md"), core::cmp::Ordering::Greater);
     }
 
     #[test]

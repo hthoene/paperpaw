@@ -30,7 +30,8 @@ pub const MOST_DIRS: usize = 64;
 pub const MAX_DEPTH: usize = 6;
 /// The largest file fetched (the host's limit for a saved answer).
 pub const DOWNLOAD_MAX: u64 = 64 << 20;
-/// Files the trash holds; older ones are removed.
+/// Files the trash holds; older ones are removed (never those of the sync
+/// under way).
 pub const TRASH_MAX: usize = 100;
 /// Where the card's files that were deleted on the server go: a folder of
 /// the plugin's data folder (`.paperpaw/plugins/file-sync/trash`).
@@ -131,7 +132,11 @@ pub enum Step {
 /// One file of the folder being synced.
 #[derive(Debug)]
 struct Item {
+    /// Its name: the server's, where it is there.
     name: String,
+    /// The card's name of it, where that is of another case (the card takes
+    /// `Note.md` and `note.md` for one file).
+    card: Option<String>,
     local: Option<Side>,
     remote: Option<Side>,
 }
@@ -142,6 +147,8 @@ enum Wait {
     Nothing,
     Listing,
     Folder,
+    /// Making a folder above the one being synced: the first parts of its path.
+    Above(usize),
     Get(usize),
     Put(usize),
     Delete(usize),
@@ -155,8 +162,12 @@ struct Dir {
     items: Vec<Item>,
     at: usize,
     kept: Vec<Kept>,
+    /// The listing of the folder above named it on the server.
+    listed: bool,
     /// The server has no such folder yet.
     remote_missing: bool,
+    /// The folders above it were made on the server.
+    above: bool,
     /// The card's folder is known to be there.
     made: bool,
     hold: bool,
@@ -166,10 +177,17 @@ struct Dir {
 #[derive(Debug)]
 pub struct Sync {
     job: Option<Job>,
+    /// Whose state the job's is.
+    of: state::Of,
     wait: Wait,
-    dirs: Vec<String>,
+    /// The folders still to do, and whether the server's listing named each.
+    dirs: Vec<(String, bool)>,
     dir: Dir,
     totals: Totals,
+    /// Files this sync put in the trash.
+    trashed: usize,
+    /// The card's top folder is gone though it was synced before.
+    lost: bool,
     problem: &'static str,
 }
 
@@ -177,10 +195,13 @@ impl Default for Sync {
     fn default() -> Self {
         Self {
             job: None,
+            of: state::Of::default(),
             wait: Wait::Nothing,
             dirs: Vec::new(),
             dir: Dir::default(),
             totals: Totals::default(),
+            trashed: 0,
+            lost: false,
             problem: "",
         }
     }
@@ -216,7 +237,8 @@ impl Sync {
         self.dirs
             .try_reserve(MOST_DIRS)
             .map_err(|_| Error::NoMemory)?;
-        self.dirs.push(String::new());
+        self.dirs.push((String::new(), false));
+        self.of = state::Of::new(job.pair, &job.root, &job.url)?;
         self.job = Some(job);
         self.guarded(link, Self::next_dir)
     }
@@ -307,11 +329,12 @@ impl Sync {
 
     /// Lists the next folder on the server, or ends.
     fn next_dir(&mut self, link: &mut dyn Link) -> Result<Step, Error> {
-        while let Some(rel) = self.dirs.pop() {
+        while let Some((rel, listed)) = self.dirs.pop() {
             let url = self.dir_url(&rel)?;
             self.dir = Dir {
                 rel,
                 url,
+                listed,
                 ..Dir::default()
             };
             link.data().remove(LISTING).ok();
@@ -340,10 +363,26 @@ impl Sync {
     fn ended(&mut self, link: &mut dyn Link, wait: Wait, done: &Done) -> Result<Step, Error> {
         match wait {
             Wait::Listing => self.listed(link, done),
-            Wait::Folder => {
-                if matches!(done.status, 200..=299 | 405) {
+            Wait::Folder => match done.status {
+                200..=299 | 405 => {
                     self.dir.remote_missing = false;
                     self.run(link)
+                }
+                // A folder above is not there either (the card's held
+                // folders only, so nothing made it): they are made, the top
+                // one first.
+                409 if !self.dir.above => {
+                    self.dir.above = true;
+                    self.make_above(link, 1)
+                }
+                _ => {
+                    self.skip_dir("file-sync.failed");
+                    self.next_dir(link)
+                }
+            },
+            Wait::Above(parts) => {
+                if matches!(done.status, 200..=299 | 405) {
+                    self.make_above(link, parts + 1)
                 } else {
                     self.skip_dir("file-sync.failed");
                     self.next_dir(link)
@@ -368,6 +407,31 @@ impl Sync {
         }
     }
 
+    /// Makes the folder of the first `parts` parts of the path of the folder
+    /// being synced on the server, the folder itself at the end.
+    fn make_above(&mut self, link: &mut dyn Link, parts: usize) -> Result<Step, Error> {
+        let rel = copy(&self.dir.rel)?;
+        let end = rel.match_indices('/').nth(parts.saturating_sub(1));
+        let (url, wait) = match end {
+            Some((at, _)) => (
+                self.dir_url(rel.get(..at).unwrap_or(""))?,
+                Wait::Above(parts),
+            ),
+            None => (copy(&self.dir.url)?, Wait::Folder),
+        };
+        match link.mkcol(&url) {
+            Ok(()) => {
+                self.wait = wait;
+                Ok(Step::Quiet)
+            }
+            Err(Error::NoMemory) => Err(Error::NoMemory),
+            Err(_) => {
+                self.skip_dir("file-sync.failed");
+                self.next_dir(link)
+            }
+        }
+    }
+
     /// A folder that cannot be synced: said, and its files are left as they are.
     fn skip_dir(&mut self, key: &'static str) {
         self.fail(key);
@@ -381,9 +445,12 @@ impl Sync {
             (End::Answered, 200..=299) => {}
             (End::Answered, 404 | 410) => {
                 // The top folder gone that was synced before is no folder to
-                // empty the card by: only a pair never synced makes it.
-                let fresh = state::read(link.data(), self.job()?.pair, &self.dir.rel)?.is_empty();
-                if !(two && (fresh || !self.dir.rel.is_empty())) {
+                // empty the card by: only a pair never synced makes it. And
+                // a folder the server just listed and now does not find is
+                // no folder that was deleted there: its files stay.
+                let top = self.dir.rel.is_empty();
+                let fresh = state::read(link.data(), self.of, &self.dir.rel)?.is_empty();
+                if !two || self.dir.listed || (top && !fresh) {
                     self.skip_dir("file-sync.not-found");
                     return self.next_dir(link);
                 }
@@ -432,6 +499,8 @@ impl Sync {
             link.data().remove(LISTING).ok();
             match more {
                 Ok(false) => {}
+                // More than a sync takes, or a listing that is not all
+                // there: what it does not name was not deleted.
                 Ok(true) | Err(Error::NoSpace) => return Ok(self.too_many()),
                 Err(Error::NoMemory) => return Err(Error::NoMemory),
                 Err(_) => {
@@ -447,9 +516,10 @@ impl Sync {
         } else {
             concat(&[&root, "/", &self.dir.rel])?
         };
+        let mut gone = false;
         match link.list(&folder, &mut local, MOST + 1) {
             Ok(()) => {}
-            Err(Error::NotFound) => {}
+            Err(Error::NotFound) => gone = true,
             Err(Error::NoMemory) => return Err(Error::NoMemory),
             Err(_) => {
                 self.skip_dir("file-sync.failed");
@@ -461,9 +531,15 @@ impl Sync {
             return Ok(self.too_many());
         }
         self.dir.made = !local.is_empty();
-        self.dir.kept = state::read(link.data(), self.job()?.pair, &self.dir.rel)?;
+        self.dir.kept = state::read(link.data(), self.of, &self.dir.rel)?;
         self.merge(remote, local)?;
-        self.dir.hold = self.holds()?;
+        // The card's top folder gone that was synced before (renamed, or
+        // another card) is no folder to empty the server by: its files and
+        // those of the folders below it come back.
+        if self.dir.rel.is_empty() {
+            self.lost = gone && !self.dir.kept.is_empty();
+        }
+        self.dir.hold = (self.lost && gone) || self.holds()?;
         Ok(true)
     }
 
@@ -473,51 +549,67 @@ impl Sync {
     }
 
     /// The files of both sides as one list by name; the folders of either go
-    /// to the folders still to do.
+    /// to the folders still to do. Names are set side by side as the card
+    /// tells them apart ([`names::order`]): a file whose name differs in
+    /// case only between the sides is one file, and names of one side that
+    /// the card cannot tell apart are not touched (the card would keep one
+    /// file for both, and each sync would take it for the other).
     fn merge(
         &mut self,
         mut remote: Vec<(String, bool, Side)>,
         mut local: Vec<Entry>,
     ) -> Result<(), Error> {
-        paperpaw_sdk::sort::sort_by(&mut remote, |a, b| a.0.cmp(&b.0));
-        paperpaw_sdk::sort::sort_by(&mut local, |a, b| a.name.cmp(&b.name));
+        paperpaw_sdk::sort::sort_by(&mut remote, |a, b| names::order(&a.0, &b.0));
+        paperpaw_sdk::sort::sort_by(&mut local, |a, b| names::order(&a.name, &b.name));
         let (mut r, mut l) = (remote.into_iter().peekable(), local.into_iter().peekable());
         loop {
             let order = match (r.peek(), l.peek()) {
                 (None, None) => break,
                 (Some(_), None) => core::cmp::Ordering::Less,
                 (None, Some(_)) => core::cmp::Ordering::Greater,
-                (Some(a), Some(b)) => a.0.cmp(&b.name),
+                (Some(a), Some(b)) => names::order(&a.0, &b.name),
             };
-            let (name, rem, loc) = match order {
-                core::cmp::Ordering::Less => {
-                    let (n, f, s) = r.next().ok_or(Error::State)?;
-                    (n, Some((f, s)), None)
+            let rem = if order.is_le() { r.next() } else { None };
+            let loc = if order.is_ge() { l.next() } else { None };
+            let mut twice = false;
+            if let Some(name) = rem.as_ref().map(|x| &x.0).or(loc.as_ref().map(|e| &e.name)) {
+                while r.next_if(|next| names::same(&next.0, name)).is_some() {
+                    twice = true;
                 }
-                core::cmp::Ordering::Greater => {
-                    let e = l.next().ok_or(Error::State)?;
-                    (e.name, None, Some((e.folder, e.side)))
+                while l.next_if(|next| names::same(&next.name, name)).is_some() {
+                    twice = true;
                 }
-                core::cmp::Ordering::Equal => {
-                    let (n, f, s) = r.next().ok_or(Error::State)?;
-                    let e = l.next().ok_or(Error::State)?;
-                    (n, Some((f, s)), Some((e.folder, e.side)))
-                }
-            };
-            let folder = rem.is_some_and(|(f, _)| f) || loc.is_some_and(|(f, _)| f);
-            let file = rem.is_some_and(|(f, _)| !f) || loc.is_some_and(|(f, _)| !f);
-            if folder && file {
-                // A file on one side, a folder on the other: neither is touched.
+            }
+            let folder =
+                rem.as_ref().is_some_and(|x| x.1) || loc.as_ref().is_some_and(|e| e.folder);
+            let file =
+                rem.as_ref().is_some_and(|x| !x.1) || loc.as_ref().is_some_and(|e| !e.folder);
+            if twice || (folder && file) {
+                // Two names the card takes for one, or a file on one side
+                // and a folder on the other: none is touched.
                 self.fail("file-sync.failed");
-            } else if folder {
-                self.add_dir(&name)?;
+                continue;
+            }
+            let listed = rem.is_some();
+            let (name, card, local, remote) = match (rem, loc) {
+                (Some((name, _, side)), Some(entry)) => {
+                    let card = (entry.name != name).then_some(entry.name);
+                    (name, card, Some(entry.side), Some(side))
+                }
+                (Some((name, _, side)), None) => (name, None, None, Some(side)),
+                (None, Some(entry)) => (entry.name, None, Some(entry.side), None),
+                (None, None) => break,
+            };
+            if folder {
+                self.add_dir(&name, listed)?;
             } else {
                 push(
                     &mut self.dir.items,
                     Item {
                         name,
-                        local: loc.map(|(_, s)| s),
-                        remote: rem.map(|(_, s)| s),
+                        card,
+                        local,
+                        remote,
                     },
                 )?;
             }
@@ -525,14 +617,14 @@ impl Sync {
         Ok(())
     }
 
-    fn add_dir(&mut self, name: &str) -> Result<(), Error> {
+    fn add_dir(&mut self, name: &str, listed: bool) -> Result<(), Error> {
         let child = names::child(&self.dir.rel, name)?;
         let depth = child.split('/').count();
         if depth > MAX_DEPTH || self.dirs.len() >= MOST_DIRS {
             self.fail("file-sync.too-many");
             return Ok(());
         }
-        self.dirs.push(child);
+        self.dirs.push((child, listed));
         Ok(())
     }
 
@@ -554,12 +646,16 @@ impl Sync {
     }
 
     fn kept_of(&self, name: &str) -> Option<&Kept> {
-        let at = self
-            .dir
-            .kept
-            .binary_search_by(|k| k.name.as_str().cmp(name))
-            .ok()?;
+        let at = self.kept_at(name).ok()?;
         self.dir.kept.get(at)
+    }
+
+    /// Where the state of `name` is, or would be (the state is in the
+    /// card's order of names, so a name of another case finds it too).
+    fn kept_at(&self, name: &str) -> Result<usize, usize> {
+        self.dir
+            .kept
+            .binary_search_by(|k| names::order(&k.name, name))
     }
 
     // --- files -------------------------------------------------------------
@@ -614,8 +710,16 @@ impl Sync {
         })
     }
 
+    /// The card's path of `name`: by the card's own name of the file being
+    /// synced, where that is of another case than the server's.
     fn local_path(&self, name: &str) -> Result<String, Error> {
-        names::path(&self.job()?.root, &self.dir.rel, name)
+        let card = self
+            .dir
+            .items
+            .get(self.dir.at)
+            .filter(|item| item.name == name)
+            .and_then(|item| item.card.as_deref());
+        names::path(&self.job()?.root, &self.dir.rel, card.unwrap_or(name))
     }
 
     fn remote_url(&self, name: &str) -> Result<String, Error> {
@@ -624,8 +728,7 @@ impl Sync {
 
     /// The state of the folder kept, after a change.
     fn persist(&mut self, link: &mut dyn Link) -> Result<(), Error> {
-        let pair = self.job()?.pair;
-        match state::write(link.data(), pair, &self.dir.rel, &self.dir.kept) {
+        match state::write(link.data(), self.of, &self.dir.rel, &self.dir.kept) {
             Ok(()) => Ok(()),
             Err(Error::NoMemory) => Err(Error::NoMemory),
             Err(_) => {
@@ -649,11 +752,7 @@ impl Sync {
             local,
             remote,
         };
-        match self
-            .dir
-            .kept
-            .binary_search_by(|k| k.name.as_str().cmp(name))
-        {
+        match self.kept_at(name) {
             Ok(at) => {
                 if let Some(slot) = self.dir.kept.get_mut(at) {
                     *slot = kept;
@@ -669,11 +768,7 @@ impl Sync {
     }
 
     fn forget(&mut self, link: &mut dyn Link, name: &str) -> Result<bool, Error> {
-        if let Ok(at) = self
-            .dir
-            .kept
-            .binary_search_by(|k| k.name.as_str().cmp(name))
-        {
+        if let Ok(at) = self.kept_at(name) {
             self.dir.kept.remove(at);
             self.persist(link)?;
         }
@@ -820,7 +915,10 @@ impl Sync {
         }
         link.trash(path, &target)?;
         push(&mut held, target)?;
-        while held.len() > TRASH_MAX {
+        self.trashed += 1;
+        // What this sync put there stays, however many: a server that lost
+        // its files must not take the card's last copies with it.
+        while held.len() > TRASH_MAX.max(self.trashed) {
             let oldest = held.remove(0);
             link.data().remove(&oldest).ok();
         }
@@ -843,7 +941,11 @@ impl Sync {
         for n in 1..=9u32 {
             let candidate = names::conflict(name, &device, &date, n)?;
             if link.stat(&self.local_path(&candidate)?)?.is_none()
-                && !self.dir.items.iter().any(|i| i.name == candidate)
+                && !self
+                    .dir
+                    .items
+                    .iter()
+                    .any(|i| names::same(&i.name, &candidate))
             {
                 copy_name = candidate;
                 break;
@@ -855,6 +957,10 @@ impl Sync {
         link.rename(&from, &self.local_path(&copy_name)?)?;
         self.totals.conflicts += 1;
         self.forget(link, name)?;
+        // The card's file of that name is gone: the server's comes by its own.
+        if let Some(item) = self.dir.items.get_mut(at) {
+            item.card = None;
+        }
         if self.job()?.mode == Mode::TwoWay
             && let Some(side) = local
         {
@@ -862,6 +968,7 @@ impl Sync {
                 &mut self.dir.items,
                 Item {
                     name: copy_name,
+                    card: None,
                     local: Some(side),
                     remote: None,
                 },
