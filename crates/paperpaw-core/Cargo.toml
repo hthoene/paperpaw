@@ -61,7 +61,8 @@ paperpaw-sort.workspace = true
 paperpaw-digest.workspace = true
 paperpaw-document.workspace = true
 paperpaw-lang.workspace = true
-paperpaw-text.workspace = true
+# `kernel`: the table of Thai words, a static only the kernel may hold (a native plugin may not).
+paperpaw-text = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
 # Tests' screens (`testing`) for the tests in `tests/`.
