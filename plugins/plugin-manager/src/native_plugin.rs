@@ -42,8 +42,11 @@ type StartFacts = (
     Vec<(String, NotInstalled)>,
     Option<(SafeMode, String, String)>,
 );
-/// Pages of one list read at most (the plugins are about seventy).
-const MOST_PAGES: usize = 16;
+/// Pages of one list read at most. The registry hands a list over in pages of
+/// the service buffer; the emulator links about eighty plugins and the sixteen
+/// pages that were allowed before cut its last plugins (Calendar, Tasks, Smart
+/// home …) out of the list without a word.
+const MOST_PAGES: usize = 64;
 /// The most plugin rows reserved at once from the registry's total.
 const MOST_ROWS: usize = 256;
 /// The longest description kept for a row: a note shows two lines.

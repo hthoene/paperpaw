@@ -1,0 +1,1 @@
+Calendar: a calendar file of the card is read with the radio off (only a run that reaches over the network asks for it); the plugin list reads up to 64 pages, so the emulator no longer drops its last plugins (Calendar, Tasks, Smart home …) from Manage plugins; the sleep screen keeps a margin; `tools/pps/calendar.pps` runs through on the emulator (#133)

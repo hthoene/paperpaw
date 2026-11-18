@@ -1139,7 +1139,15 @@ impl NativeCalendar {
             return Ok(());
         }
         self.only = only;
-        let spec = WorkSpec::new(SYNC_KEY, WORK_TOKEN)?.network();
+        // A calendar file of the card is read with the radio off; only a run
+        // that reaches over the network asks for it.
+        let spec = WorkSpec::new(SYNC_KEY, WORK_TOKEN)?;
+        let online = self
+            .store
+            .sources
+            .iter()
+            .any(|source| only.is_none_or(|id| id == source.id) && source.kind.online());
+        let spec = if online { spec.network() } else { spec };
         self.manual = self.handles.declare(host, &spec)?;
         if !self.manual {
             // The network is turned off for the plugin, or no work is taken.

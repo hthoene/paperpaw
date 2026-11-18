@@ -10,6 +10,9 @@ include:beta4/common.pps
 
 # On the emulator the plugin ships off: switch it on in Manage plugins, which applies after a restart.
 test:calendar-01-on {
+  set:help.show=off
+  set:core.sleep-after=0
+  set:core.language=en
   if:$target==emu {
     call:home
     call:settings-row:Manage plugins
@@ -48,9 +51,10 @@ test:calendar-03-add-file {
   until:Hold Back:8000
   type-enter:calendars/work.ics
   until:Name:8000
-  type-enter:Work
-  until:Work:8000
-  expect:Calendar file on the card
+  # The name is offered from the file's (work.ics): Select keeps it.
+  type-enter:
+  until:work.ics:8000
+  expect:work.ics
   back
   until:Water the plants:8000
   expect:Today
@@ -64,45 +68,73 @@ test:calendar-04-detail {
   select:Water the plants
   until:Every day:8000
   expect:Calendar
-  expect:Work
+  expect:work.ics
   expect:Repeats
   expect-not:Error
   back
   until:Water the plants:8000
+  wait:6000
+  shot:$out/calendar-agenda.png
   no-warn
 }
 
-# The views: the first row offers them; Day steps by a day, Week lists the days, Month is a grid with
-# the day chosen, Select on a day opens it.
+# Back to the first row (the view's name), where Select opens the menu of views.
+define:top {
+  repeat:30 {
+    left
+  }
+  wait:300
+}
+
+# The views: the first row names the view and Select on it opens the menu; Day steps by a day, Week
+# lists the days, Month is a grid with the day chosen, Select on a day opens it, Birthdays lists the
+# birthdays of contacts.
 test:calendar-05-views {
-  select:Agenda
+  call:top
+  confirm
   until:Birthdays:8000
+  expect:Agenda
   expect:Day
   expect:Week
   expect:Month
+  shot:$out/calendar-view-menu.png
   select:Day
   until:Next day:8000
   expect:Water the plants
+  shot:$out/calendar-day.png
+  call:top
   select:Next day
   wait:800
   expect:Water the plants
-  select:Agenda
+  call:top
+  confirm
   until:Birthdays:8000
   select:Week
   until:Next week:8000
   expect:Water the plants
-  select:Agenda
+  shot:$out/calendar-week.png
+  call:top
+  confirm
   until:Birthdays:8000
   select:Month
   wait:1500
   expect:Mon
+  shot:$out/calendar-month.png
   confirm
   until:Next day:8000
   back
   wait:1000
   expect:Mon
   back
-  until:Water the plants:8000
+  wait:1000
+  call:top
+  confirm
+  until:Birthdays:8000
+  select:Birthdays
+  wait:1500
+  shot:$out/calendar-birthdays.png
+  back
+  wait:1000
   no-warn
 }
 
@@ -110,26 +142,49 @@ test:calendar-05-views {
 test:calendar-06-sources {
   show:calendar.sources
   until:Add a calendar:8000
-  expect:Work
+  expect:work.ics
   expect:Sync now
-  select:Work
+  select:work.ics
   until:Read now:8000
   expect:Change the marking
   expect:Remove
+  shot:$out/calendar-sources.png
   back
   wait:500
   back
-  until:Edit:8000
+  wait:500
+  call:home
   no-warn
 }
 
-# The widgets and the sleep screen's place among the choices.
+# The five widgets, each on a Home page of its own, and the sleep screen with today's agenda.
 test:calendar-07-widgets {
-  set:home.page-1=calendar.today\,calendar.next\,calendar.month
+  set:home.page-1=calendar.today\,calendar.next
+  set:home.page-2=calendar.agenda
+  set:home.page-3=calendar.month
+  set:home.page-4=calendar.birthdays
   call:home
   expect:Water the plants
   expect-not:Error
+  shot:$out/calendar-widgets-1.png
+  page-forward
+  wait:1500
+  expect:Water the plants
+  shot:$out/calendar-widgets-2.png
+  page-forward
+  wait:1500
+  shot:$out/calendar-widgets-3.png
+  page-forward
+  wait:1500
+  shot:$out/calendar-widgets-4.png
+  set:home.page-2=
+  set:home.page-3=
+  set:home.page-4=
   set:home.page-1=home.clock\, home.continue\, home.recent
+  show:calendar.sleep
+  wait:2000
+  expect:Water the plants
+  shot:$out/calendar-sleep.png
   no-warn
 }
 
