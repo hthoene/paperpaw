@@ -40,7 +40,7 @@ pub(crate) use fonts::fonts;
 use nav::{read_nav, read_ncx};
 
 /// Bump when the cache format or the conversion changes.
-pub(crate) const CACHE_VERSION: u32 = 30;
+pub(crate) const CACHE_VERSION: u32 = 31;
 
 /// A chapter: where it is in the archive and its uncompressed size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,0 +1,123 @@
+//! Tables' rows set in columns with rules, or as paragraphs where they
+//! cannot be; the rules of block quotes. A character is one unit wide,
+//! a line ten high, an em ten units.
+
+use super::*;
+use paperpaw_document::{TableCell, TableRow};
+
+/// A row of the cells `texts`, the second and later set apart by the
+/// separator as formats write it, in columns of `weights`.
+fn row(texts: &[&str], weights: &[u16], start: u32) -> Block {
+    let mut text = String::new();
+    let mut cells = Vec::new();
+    for (n, cell) in texts.iter().enumerate() {
+        if n > 0 {
+            text.push_str(" \u{b7} ");
+        }
+        text.push_str(cell);
+        cells.push(TableCell::new(text.len() as u32));
+    }
+    let end = start + text.len() as u32;
+    let mut table = TableRow::new(cells.into_boxed_slice());
+    table.columns = weights.into();
+    let mut block = block(&text, start, end);
+    block.kind = BlockKind::TableRow;
+    block.table = Some(alloc::boxed::Box::new(table));
+    block
+}
+
+/// The page of `blocks` (one after the other), `width` wide and `height`
+/// high.
+fn laid(blocks: Vec<Block>, width: f32, height: f32) -> Page {
+    let doc = Blocks::new(move |at: Locator| {
+        blocks
+            .iter()
+            .find(|b| at.offset < b.end && b.start <= at.offset)
+            .cloned()
+    });
+    let storage = paperpaw_document::NoStorage;
+    let cx = LayoutContext::new(&doc, &storage, width, &STYLE, &Units);
+    layout_page(&cx, Locator::START, height).unwrap()
+}
+
+fn rules(page: &Page) -> Vec<(f32, f32, f32, f32)> {
+    page.rules
+        .iter()
+        .map(|r| (r.x, r.y, r.width, r.height))
+        .collect()
+}
+
+#[test]
+fn a_table_is_set_in_columns_with_rules_around_its_cells() {
+    let first = row(&["Name", "Description of it"], &[1, 3], 0);
+    let second = row(&["Ab", "cd"], &[1, 3], first.end);
+    let page = laid(vec![first, second], 100.0, 100.0);
+    assert_eq!(texts(&page), ["Name", "Description of it", "Ab", "cd"]);
+    // Columns of 21.25 and 63.75 units, each with 3 on either side and a
+    // rule of one between: the text 4 in, the second column's 32.25.
+    let placed: Vec<_> = page.lines.iter().map(|l| (l.x, l.baseline)).collect();
+    assert_eq!(
+        placed,
+        [(4.0, 10.5), (32.25, 10.5), (4.0, 24.5), (32.25, 24.5)]
+    );
+    // A rule above the first row, one below each, and the rules beside
+    // the cells as tall as the rows (15 and 14: the second has none above).
+    assert_eq!(
+        rules(&page),
+        [
+            (0.0, 0.0, 100.0, 1.0),
+            (0.0, 14.0, 100.0, 1.0),
+            (0.0, 0.0, 1.0, 15.0),
+            (28.25, 0.0, 1.0, 15.0),
+            (99.0, 0.0, 1.0, 15.0),
+            (0.0, 28.0, 100.0, 1.0),
+            (0.0, 15.0, 1.0, 14.0),
+            (28.25, 15.0, 1.0, 14.0),
+            (99.0, 15.0, 1.0, 14.0),
+        ]
+    );
+    // A cell's text broken in its column: a quarter of 45 units would be
+    // narrower than two ems, so the column is 20 wide.
+    let narrow = row(&["Description of the thing", "x"], &[1, 3], 0);
+    let page_narrow = laid(vec![narrow], 60.0, 100.0);
+    assert_eq!(texts(&page_narrow), ["Description of the", "thing", "x"]);
+    // A row that does not fit goes to the next page whole.
+    let first = row(&["a", "b"], &[1, 1], 0);
+    let tall = row(&["aaaaaaaaaa bbbbbbbbbbbb", "g"], &[1, 1], first.end);
+    let short = laid(vec![first, tall], 60.0, 30.0);
+    assert_eq!(texts(&short), ["a", "b"]);
+    assert_eq!(short.end.offset, 6);
+}
+
+#[test]
+fn a_table_too_wide_for_the_page_is_set_as_its_text() {
+    // Columns of two ems at least do not fit 30 units: the row's text as
+    // a paragraph, its cells set apart, nothing cut and no rules.
+    let wide = row(&["Name", "Value"], &[1, 1], 0);
+    let narrow = laid(vec![wide.clone()], 30.0, 100.0);
+    assert_eq!(texts(&narrow), ["Name \u{b7} Value"]);
+    assert!(narrow.rules.is_empty());
+    // In 60 units it is set in columns.
+    let set = laid(vec![wide.clone()], 60.0, 100.0);
+    assert_eq!(texts(&set), ["Name", "Value"]);
+    assert!(!set.rules.is_empty());
+    // A row taller than a page is set as its text too, which goes on.
+    let tall = laid(vec![wide], 60.0, 12.0);
+    assert_eq!(texts(&tall), ["Name \u{b7} Value"]);
+    assert!(tall.rules.is_empty());
+}
+
+#[test]
+fn a_quote_has_a_rule_beside_its_lines() {
+    let mut quote = block("aaaa bbbb cccc dddd eeee ffff gggg", 0, 34);
+    quote.kind = BlockKind::Extended(decor::QUOTE);
+    let page = laid(vec![quote, block("dd", 34, 36)], 40.0, 100.0);
+    // Set in by an em, the rule half an em before the lines, as tall as
+    // they are; none beside the paragraph after.
+    assert_eq!(
+        texts(&page),
+        ["aaaa bbbb cccc dddd eeee ffff", "gggg", "dd"]
+    );
+    assert_eq!(page.lines[0].x, 10.0);
+    assert_eq!(rules(&page), [(5.0, 0.0, 1.0, 20.0)]);
+}

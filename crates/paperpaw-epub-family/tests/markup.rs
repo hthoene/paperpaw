@@ -314,3 +314,57 @@ fn html_changed_at_its_start_is_converted_anew() {
     assert_eq!(text(&doc, &storage), "New page");
     assert_eq!(doc.block_at(&storage, Locator::new(1, 0)).unwrap(), None);
 }
+
+#[test]
+fn html_tables_are_rows_of_cells_in_columns_and_quotes_are_marked() {
+    let page = "<html><body><p>Before</p><table><thead><tr><th>Name</th><th>Note</th></tr></thead>\
+                <tr><td><p>Ann</p><p>Lee</p></td><td>A rather long note about her</td></tr>\
+                <tr><td colspan=\"2\">Both</td></tr></table>\
+                <blockquote><p>Said</p></blockquote>\
+                <blockquote class=\"callout\"><p>Mind</p></blockquote><p>After</p></body></html>";
+    let (storage, doc) = html(page);
+    let read = blocks(&doc, &storage);
+    let kinds: Vec<(BlockKind, &str)> = read
+        .iter()
+        .map(|(_, b)| (b.kind, b.text.as_str()))
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            (BlockKind::Paragraph, "Before"),
+            (BlockKind::TableRow, "Name · Note"),
+            (
+                BlockKind::TableRow,
+                "Ann\nLee · A rather long note about her"
+            ),
+            (BlockKind::TableRow, "Both"),
+            (BlockKind::Extended(8), "Said"),
+            (BlockKind::Extended(5), "Mind"),
+            (BlockKind::Paragraph, "After"),
+        ]
+    );
+    let rows: Vec<_> = read[1..4]
+        .iter()
+        .map(|(_, b)| b.table.as_deref().unwrap())
+        .collect();
+    let ends: Vec<Vec<u32>> = rows
+        .iter()
+        .map(|r| r.cells.iter().map(|c| c.end).collect())
+        .collect();
+    assert_eq!(ends, [vec![4, 12], vec![7, 39], vec![4]]);
+    // The same columns in every row: the most characters of a cell (at
+    // most 30), never fewer than its longest word.
+    for row in &rows {
+        assert_eq!(&*row.columns, [7, 28]);
+    }
+    let flags: Vec<_> = rows.iter().map(|r| (r.header, r.first, r.last)).collect();
+    assert_eq!(
+        flags,
+        [
+            (true, true, false),
+            (false, false, false),
+            (false, false, true)
+        ]
+    );
+    assert_eq!(rows[2].cells[0].span, 2);
+}

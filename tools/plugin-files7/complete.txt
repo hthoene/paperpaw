@@ -51,3 +51,4 @@ pomodoro
 puzzles
 file-sync
 edge-light
+smart-home

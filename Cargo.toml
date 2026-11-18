@@ -98,6 +98,7 @@ members = [
     "plugins/news",
     "plugins/weather",
     "plugins/pomodoro",
+    "plugins/smart-home",
     "plugins/puzzles",
     "plugins/edge-light",
     "plugins/plugin-manager",
@@ -209,6 +210,7 @@ paperpaw-plugin-update = { path = "plugins/update", version = "1.0.2" }
 paperpaw-plugin-news = { path = "plugins/news", version = "1.0.5" }
 paperpaw-plugin-weather = { path = "plugins/weather", version = "1.0.2" }
 paperpaw-plugin-pomodoro = { path = "plugins/pomodoro", version = "1.0.0" }
+paperpaw-plugin-smart-home = { path = "plugins/smart-home", version = "1.0.0" }
 paperpaw-plugin-puzzles = { path = "plugins/puzzles", version = "1.0.0" }
 paperpaw-plugin-edge-light = { path = "plugins/edge-light", version = "1.0.0" }
 paperpaw-plugin-widgets = { path = "plugins/widgets", version = "1.0.3" }

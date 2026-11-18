@@ -67,11 +67,13 @@ mod decode;
 mod direction;
 mod elements;
 mod lists;
+mod tables;
 use crate::package::error;
 pub(crate) use decode::{decode_entry, decode_file, decode_image};
 use decode::{decode_range, image_size};
 pub(crate) use direction::{BookText, dir_from_bits};
 use elements::{element_props, furniture, heading_level, is_block, is_capital, is_void, styled};
+pub(crate) use tables::{MAX_DATA, read_row};
 
 /// Size of a record header.
 pub(crate) const HEADER: u32 = 8;
@@ -190,6 +192,8 @@ pub(crate) fn encode_kind(kind: BlockKind) -> (u8, u8) {
         BlockKind::Heading(level) => (1, level),
         BlockKind::Preformatted => (2, 0),
         BlockKind::Image => (3, 0),
+        BlockKind::TableRow => (4, 0),
+        BlockKind::Extended(n) if n <= u16::from(u8::MAX) => (5, n as u8),
         _ => (0, 0),
     }
 }
@@ -199,6 +203,8 @@ pub(crate) fn decode_kind(kind: u8, level: u8) -> BlockKind {
         1 => BlockKind::Heading(level.clamp(1, 6)),
         2 => BlockKind::Preformatted,
         3 => BlockKind::Image,
+        4 => BlockKind::TableRow,
+        5 => BlockKind::Extended(u16::from(level)),
         _ => BlockKind::Paragraph,
     }
 }
@@ -273,6 +279,8 @@ struct Frame {
     /// It is a block, in which white space alone before anything else is
     /// no text node for crengine.
     block: bool,
+    /// What its paragraphs are: of a block quote, a callout.
+    quote: tables::Quoted,
 }
 
 /// The element paths of text nodes, each kept once and named by its number:
@@ -399,6 +407,11 @@ struct Converter<'a> {
     drop_cap: (u8, Option<usize>),
     /// A list item's marker, waiting for the item's text.
     marker: Option<lists::Marker>,
+    /// The table and its row being read, and what the current block is in.
+    /// Boxed, so the converter's frame stays as small without them.
+    table: Option<alloc::boxed::Box<tables::Table>>,
+    row: Option<alloc::boxed::Box<tables::Row>>,
+    quote: tables::Quoted,
     /// The book's indent of the current block, set by its first character.
     indent: Option<i16>,
     /// The book's text size of the current block, set likewise.
@@ -481,6 +494,7 @@ impl Converter<'_> {
             self.indent = block.and_then(|f| f.indent);
             self.size = block.and_then(|f| f.size);
             self.margins = block.map_or((0, 0), |f| f.margins);
+            self.quote = block.map_or(tables::Quoted::None, |f| f.quote);
             self.line_height = block.and_then(|f| f.line_height);
             self.block_path.clear();
             self.block_path.try_push_str(&self.path)?;
@@ -740,7 +754,11 @@ impl Converter<'_> {
             && self.hidden == 0
             && (is_block(&tag) || matches!(tag.as_str(), "li" | "pre" | "hr"))
         {
-            self.flush()?;
+            match self.in_row() {
+                // In a cell: a line of it.
+                true => self.line_in_cell()?,
+                false => self.flush()?,
+            }
         }
         if let Some(id) = attrs.try_get("id").map_err(|_| fallible::OOM)? {
             self.add_anchor(&id)?;
@@ -860,7 +878,13 @@ impl Converter<'_> {
             self.hidden = self.hidden.saturating_sub(1);
         }
         let frame_tag = fallible::string(&tag)?;
+        let quote = tables::Quoted::of(
+            &tag,
+            &attrs,
+            self.stack.last().map_or_else(Default::default, |f| f.quote),
+        )?;
         self.stack.try_push(Frame {
+            quote,
             link,
             focus,
             children: Vec::new(),
@@ -910,7 +934,7 @@ impl Converter<'_> {
             }
             return Ok(());
         }
-        if self.hidden > 0 {
+        if self.hidden > 0 || self.enter_table(&tag, &attrs)? {
             return Ok(());
         }
         match tag.as_str() {
@@ -920,25 +944,17 @@ impl Converter<'_> {
                 }
                 self.space = false;
             }
-            "hr" => {
+            "hr" if !self.in_row() => {
                 self.align = Some(Align::Center);
                 self.push_str("* * *")?;
                 self.flush()?;
             }
             "li" => self.list_item(&attrs)?,
-            "td" | "th" => {
-                // A row's cells on its line, set apart.
-                if !self.text.is_empty() {
-                    self.push_str(" · ")?;
-                }
-                self.space = false;
-                self.space_origin = None;
-            }
             "pre" => {
                 self.kind = BlockKind::Preformatted;
                 self.pre += 1;
             }
-            tag if is_block(tag) => {
+            tag if is_block(tag) && !self.in_row() => {
                 if let Some(level) = heading_level(tag) {
                     self.kind = BlockKind::Heading(level);
                 }
@@ -970,11 +986,15 @@ impl Converter<'_> {
             return Ok(());
         };
         self.marker = self.marker.take().filter(|_| tag != "li");
+        // Blocks in a row's cells are lines of it: the row ends them.
+        let in_cell = self.in_cell(open);
         if self.hidden == 0 {
             if tag == "pre" {
-                self.flush()?;
+                if !in_cell {
+                    self.flush()?;
+                }
                 self.pre = self.pre.saturating_sub(1);
-            } else if tag == "li" || is_block(tag) {
+            } else if (tag == "li" || is_block(tag)) && !in_cell {
                 self.flush()?;
             }
         }
@@ -1006,6 +1026,7 @@ impl Converter<'_> {
             margin = larger(margin, frame.after.0);
             padding = css::sum(padding, frame.after.1);
         }
+        self.left_table(tag, open);
         // Written as they come: a chapter of notes has many links and few
         // ids, and its links once filled tens of KB before an id came.
         if self.links.len() >= FLUSH_SMALL {
@@ -1210,6 +1231,7 @@ impl Converter<'_> {
             .filter(|&i| i > 0)
             .unwrap_or(limit);
         let kind = self.kind;
+        self.break_row();
         self.write_record(kind, cut, true)?;
         // Keep the rest in place, so the buffer is never reallocated.
         let rest = self.text.len() - self.text.trim_start().len();
@@ -1240,6 +1262,7 @@ impl Converter<'_> {
         self.size = None;
         self.margins = (0, 0);
         self.line_height = None;
+        self.quote = tables::Quoted::None;
         self.kind = BlockKind::Paragraph;
         self.continues = false;
         self.space = false;
@@ -1265,7 +1288,13 @@ impl Converter<'_> {
     }
 
     /// One entry of the index, in the room asked for before.
-    fn push_index_entry(&mut self, indent: i16, space: u16, lang: Lang, dir: Direction) {
+    fn push_index_entry(
+        &mut self,
+        (indent, space): (i16, u16),
+        lang: Lang,
+        dir: Direction,
+        table: u8,
+    ) {
         self.index
             .extend_from_slice(&(self.length + HEADER).to_le_bytes());
         self.index.extend_from_slice(&indent.to_le_bytes());
@@ -1279,7 +1308,7 @@ impl Converter<'_> {
         self.index.extend_from_slice(&lang.to_bits().to_le_bytes());
         let langs = self.inline_langs.len() as u8;
         self.index
-            .extend_from_slice(&[direction::dir_bits(dir), langs, self.drop_cap.0, 0]);
+            .extend_from_slice(&[direction::dir_bits(dir), langs, self.drop_cap.0, table]);
     }
 
     /// Writes the first `len` bytes of the current text as a record and
@@ -1303,6 +1332,7 @@ impl Converter<'_> {
             self.drop_front(len);
             return Ok(());
         }
+        let (kind, table) = self.written(kind, len, continued || self.continues);
         let (kind, level) = encode_kind(kind);
         let flags =
             (u8::from(self.continues) * FLAG_CONTINUES) | (u8::from(continued) * FLAG_CONTINUED);
@@ -1351,9 +1381,10 @@ impl Converter<'_> {
             &mut self.out,
             usize::from(HEADER as u8)
                 + len.min(FLUSH)
-                + (self.runs.len() + self.inline_langs.len()) * RUN,
+                + (self.runs.len() + self.inline_langs.len()) * RUN
+                + table,
         )?;
-        self.push_index_entry(indent, space, lang, dir);
+        self.push_index_entry((indent, space), lang, dir, table as u8);
         if self.index.len() >= FLUSH_SMALL {
             self.write_index();
         }
@@ -1390,6 +1421,7 @@ impl Converter<'_> {
         }
         self.length +=
             HEADER + len as u32 + (runs.len() * RUN) as u32 + (self.inline_langs.len() as u32) * 4;
+        self.write_row_data(table);
         self.drop_front(len);
         Ok(())
     }
@@ -1406,9 +1438,12 @@ impl Converter<'_> {
     }
 
     fn write_out(&mut self) {
+        // The rows held for their table's weights get them now.
+        self.weigh();
         let failed = self.append(&self.paths.text, &self.out);
         self.failed = self.failed.take().or(failed);
         self.out.clear();
+        self.rows_written_out();
     }
 
     /// Notes that anchor `id` is here, written as they come (a book of
@@ -1576,6 +1611,9 @@ pub(crate) fn convert(
         inline_langs: Vec::new(),
         drop_cap: (0, None),
         marker: None,
+        table: None,
+        row: None,
+        quote: tables::Quoted::None,
         indent: None,
         size: None,
         margins: (0, 0),
