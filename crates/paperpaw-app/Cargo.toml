@@ -134,6 +134,7 @@ native-linked-store = [
     "dep:paperpaw-plugin-rules",
     "dep:paperpaw-plugin-calibre",
     "dep:paperpaw-plugin-end-of-book",
+    "dep:paperpaw-plugin-anki",
     "dep:paperpaw-plugin-diagnostics",
     "dep:paperpaw-plugin-translate",
     "dep:paperpaw-plugin-pomodoro",
@@ -155,6 +156,7 @@ native-linked-store = [
     "paperpaw-plugin-rules/linked",
     "paperpaw-plugin-calibre/linked",
     "paperpaw-plugin-end-of-book/linked",
+    "paperpaw-plugin-anki/linked",
     "paperpaw-plugin-diagnostics/linked",
     "paperpaw-plugin-translate/linked",
     "paperpaw-plugin-pomodoro/linked",
@@ -222,6 +224,7 @@ paperpaw-plugin-menu-editor = { workspace = true, optional = true }
 paperpaw-plugin-rules = { workspace = true, optional = true }
 paperpaw-plugin-calibre = { workspace = true, optional = true }
 paperpaw-plugin-end-of-book = { workspace = true, optional = true }
+paperpaw-plugin-anki = { workspace = true, optional = true }
 paperpaw-plugin-diagnostics = { workspace = true, optional = true }
 paperpaw-plugin-translate = { workspace = true, optional = true }
 paperpaw-plugin-pomodoro = { workspace = true, optional = true }

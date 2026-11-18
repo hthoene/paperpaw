@@ -582,7 +582,10 @@ pub fn prepare(
     let resources = pool
         .resources(profile.device.memory)
         .ok_or(Unavailable::NoRoom)?;
-    let device: Rc<DesktopDevice> = Rc::new(DesktopDevice::new(profile));
+    let device: Rc<DesktopDevice> = Rc::new({
+        let view = inputs.view.clone();
+        DesktopDevice::new(profile).with_online(Rc::new(move || view.network_up()))
+    });
     let mut wiring = HostWiring::new()
         .device(device)
         .lookup()
