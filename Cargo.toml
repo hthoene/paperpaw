@@ -90,6 +90,7 @@ members = [
     "plugins/wallabag",
     "plugins/about",
     "plugins/anki",
+    "plugins/picture-frame",
     "plugins/setup",
     "plugins/update",
     "plugins/widgets",
@@ -197,6 +198,7 @@ paperpaw-plugin-koreader = { path = "plugins/koreader", version = "1.0.6" }
 paperpaw-plugin-wallabag = { path = "plugins/wallabag", version = "1.0.2" }
 paperpaw-plugin-about = { path = "plugins/about", version = "1.0.3" }
 paperpaw-plugin-anki = { path = "plugins/anki", version = "1.0.0" }
+paperpaw-plugin-picture-frame = { path = "plugins/picture-frame", version = "1.0.0" }
 paperpaw-plugin-setup = { path = "plugins/setup", version = "1.0.4" }
 paperpaw-plugin-update = { path = "plugins/update", version = "1.0.2" }
 paperpaw-plugin-news = { path = "plugins/news", version = "1.0.5" }
