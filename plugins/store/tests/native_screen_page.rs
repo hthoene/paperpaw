@@ -316,8 +316,12 @@ fn sizes_and_progress_are_written_without_floats() {
     assert_eq!(size_text(14 * 1024, ".").unwrap(), "14 KB");
     assert_eq!(size_text(2_411_724, ",").unwrap(), "2,3 MB");
     assert!(size_text(u64::MAX, ".").is_ok());
-    assert_eq!(progress_text(1024, 4096, ".").unwrap(), "1.0 KB / 4.0 KB");
-    assert_eq!(progress_text(100, 0, ".").unwrap(), "100 B");
+}
+
+#[test]
+fn download_progress_counts_files_never_bytes() {
+    assert_eq!(progress_text(2, 4).unwrap(), "2 / 4");
+    assert_eq!(progress_text(0, 1).unwrap(), "0 / 1");
 }
 
 #[test]
@@ -406,6 +410,8 @@ fn every_row_and_text_has_both_languages() {
         "store.heap.tight",
         "store.installed-version",
         "store.preparing",
+        "store.progress.files.one",
+        "store.progress.files.other",
         "store.downloading",
         "store.busy",
         "store.restart.help",

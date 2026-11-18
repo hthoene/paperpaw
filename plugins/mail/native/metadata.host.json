@@ -148,11 +148,14 @@
     }
   ],
   "services": [
+    "core.library",
     "core.secrets",
     "core.sockets",
-    "core.ui"
+    "core.ui",
+    "core.work"
   ],
   "features": [
+    "uses.library",
     "uses.network"
   ]
 }

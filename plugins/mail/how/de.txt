@@ -6,4 +6,8 @@ Richte ein Konto unter Einstellungen, Mail ein. Wähle deinen Anbieter, tippe de
 
 Steht dein Anbieter nicht in der Liste, wähle Eigener Server und trage Servernamen, Ports und Sicherheit unter den erweiterten Einstellungen ein. Ein Server, für dessen Zertifikat keine Stelle bürgt, fragt einmal, ob du ihm vertraust; vergleiche den Fingerabdruck mit dem, den dein Anbieter nennt.
 
+Eine Mail mit angehängtem Buch (EPUB, PDF und Ähnliches, bis 2 MB) hat darunter Buch öffnen: Es holt die Datei, legt sie in deine Bibliothek und öffnet sie.
+
+Um neue Mails zu sehen, ohne Mail zu öffnen, schalte unter Einstellungen, Mail, Im Hintergrund nach neuer Mail suchen ein und wähle, wie oft (alle 15, 30 oder 60 Minuten). Es ist aus, bis du es einschaltest. Das Lesegerät verbindet sich dann ab und zu verschlüsselt, solange es wach und online ist, ein Konto nach dem anderen, und aktualisiert die Zahl der ungelesenen Mails auf dem Startbildschirm. Das kostet etwas Akku. Öffnest du Mail, endet eine laufende Prüfung.
+
 Widgets auf dem Startbildschirm zeigen die Zahl ungelesener Mails, die neuesten und die markierten Mails, ein Postfach und eine Abkürzung zum Schreiben.

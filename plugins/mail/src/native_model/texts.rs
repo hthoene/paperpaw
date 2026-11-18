@@ -73,6 +73,7 @@ pub fn failure(failure: &Failure) -> Say<'_> {
         }
         Failure::Unsafe => "mail.fail.unsafe",
         Failure::Storage => "mail.fail.storage",
+        Failure::TooLarge => "mail.fail.too-large",
         _ => "mail.fail.protocol",
     };
     Say::Key(key)

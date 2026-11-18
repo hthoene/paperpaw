@@ -758,6 +758,22 @@ impl Device {
         0
     }
 
+    /// Whether a native plugin has a socket open (`core.sockets`): its
+    /// threads work in real time, so a script's `wait` gives them real time.
+    #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
+    pub fn native_sockets_open(&self) -> bool {
+        self.linked.net.borrow().as_ref().is_some_and(|net| {
+            net.sockets
+                .as_ref()
+                .is_some_and(|(sockets, _)| sockets.open() > 0)
+        })
+    }
+
+    #[cfg(not(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64")))]
+    pub fn native_sockets_open(&self) -> bool {
+        false
+    }
+
     /// Passes requests to plugins' servers on, and what their sockets
     /// brought.
     pub fn poll_servers(&mut self) {
