@@ -318,6 +318,39 @@ fn without_standby_or_pressure_nothing_sleeps_again() {
 }
 
 #[test]
+fn after_the_start_s_work_an_idle_plugin_it_made_sleeps_again() {
+    // #393: what the start (or a details run) made is not kept on the heap
+    // until the next standby, once the background work is over.
+    let mut w = world(&[Ok(()), Ok(())]);
+    w.change_stack();
+    w.kernel.native_stack_pump();
+    assert!(!w.parked());
+    w.kernel.native_service_pump();
+    assert!(!w.parked(), "nothing asked: the pump alone parks nothing");
+    w.kernel.shared.native_instances.repark_after_jobs();
+    w.kernel.native_service_pump();
+    assert!(w.parked(), "idle after the start's work: parked again");
+    assert_eq!(w.dropped.get(), 1, "its instance (and `destroy`) is gone");
+    w.change_stack();
+    w.kernel.native_stack_pump();
+    assert_eq!(w.made.get(), 2, "made again at its next use");
+    w.kernel.native_service_pump();
+    assert!(!w.parked(), "asked once: not parked again at every pass");
+}
+
+#[test]
+fn after_the_start_s_work_a_plugin_that_holds_something_stays_running() {
+    let mut w = world(&[Ok(())]);
+    w.change_stack();
+    w.kernel.native_stack_pump();
+    w.idle.set(false);
+    w.kernel.shared.native_instances.repark_after_jobs();
+    w.kernel.native_service_pump();
+    assert!(!w.parked());
+    assert_eq!(w.dropped.get(), 0);
+}
+
+#[test]
 fn memory_pressure_parks_one_idle_plugin_at_the_next_safe_point() {
     let mut w = world(&[Ok(())]);
     w.change_stack();

@@ -162,6 +162,39 @@ impl crate::Kernel {
 }
 
 impl crate::Kernel {
+    /// The start's work and the details run are over: the sleeping plugins
+    /// they made (a format that read a book's details or cover, a plugin told
+    /// of a setting at the start) are parked again where idle, instead of
+    /// keeping their state on the heap until the next standby (#393). Only
+    /// after the background work: a plugin the user's screens use is no
+    /// background plugin, and nothing is parked between two books of a run.
+    /// At the end of a service pump, outside every callback.
+    pub(crate) fn native_repark_after_jobs(&mut self) {
+        let instances = &self.shared.native_instances;
+        if !instances.repark_after_jobs_due()
+            || instances.service_more()
+            || self.native_repark_blocked()
+        {
+            return;
+        }
+        let busy = instances
+            .hosts()
+            .and_then(|hosts| hosts.documents())
+            .is_some_and(|documents| {
+                documents.0.preparing()
+                    || documents.0.cover_job_active()
+                    || documents
+                        .0
+                        .details_job()
+                        .is_some_and(|job| job.run().armed() || job.run().running())
+            });
+        if busy {
+            return;
+        }
+        instances.repark_after_jobs_done();
+        self.native_repark_idle(usize::MAX);
+    }
+
     /// Whether no plugin may be parked again now, whichever is idle: a staged
     /// batch waits (it runs for the plugin that staged it), a callback runs,
     /// or a hand-over waits.

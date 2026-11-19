@@ -229,6 +229,8 @@ impl crate::Kernel {
             Pass::Wait(at) => Some(at),
             Pass::End => {
                 self.native_details_wanted(true);
+                // The formats it made are parked again once all is quiet.
+                self.shared.native_instances.repark_after_jobs();
                 // The run is over: what its opens reserved is given back
                 // where no document is open (#248).
                 if let Some(hosts) = self.shared.native_instances.hosts() {
