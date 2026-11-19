@@ -33,15 +33,17 @@ pub(crate) fn on_screen(region: Rect, area: Rect) -> Rect {
 
 impl Kernel {
     /// The part of the screen a full screen gets: above the row of hints
-    /// where `hinted`, else all of it.
-    pub(crate) fn layout(&self, hinted: bool) -> Rect {
+    /// where `hinted`, else all of it, below a status bar `band` high
+    /// (`status_band.rs`).
+    pub(crate) fn layout_below(&self, hinted: bool, band: u16) -> Rect {
         let panel = self.framebuffer.bounds();
         let row = if hinted {
             self.hint.height.min(panel.height / 2)
         } else {
             0
         };
-        Rect::new(0, 0, panel.width, panel.height - row)
+        let band = band.min((panel.height - row) / 2);
+        Rect::new(0, band, panel.width, panel.height - row - band)
     }
 
     /// The part of the screen screen `index` has: above the row of hints
@@ -59,7 +61,7 @@ impl Kernel {
     /// [`Kernel::area_of`] tells, no detail beside it.
     pub(crate) fn whole_area(&self, index: usize) -> Rect {
         let hinted = self.stack.get(index).is_some_and(|active| active.hinted);
-        self.layout(hinted)
+        self.layout_below(hinted, self.status_band(index))
     }
 
     /// Makes the screens shown anew where the part of the screen they

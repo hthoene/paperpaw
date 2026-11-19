@@ -95,6 +95,7 @@ mod room;
 mod screen;
 mod screens;
 mod secrets_i6;
+mod status_band;
 mod turn;
 pub use crate::place::Place;
 pub use crate::turn::Turn;
@@ -818,6 +819,7 @@ impl Kernel {
         if shown(&old) != shown(&status) || offset(&old) != offset(&status) || jumped {
             self.output.emit(&events::STATUS_CHANGED, ());
             self.native_hint(native_host::registrations::EVENT_STATUS_CHANGED_TAG);
+            self.status_band_changed();
         }
         // Without a shell external-power fact, charging is the only known source.
         let charge = native_host::event_producers::ChargeState::from_status;
@@ -866,6 +868,7 @@ impl Kernel {
         if let Some(ui) = self.shared.native_instances.ui_services() {
             ui.minute_tick(now.millis()).ok(); // a refusal waits for the next tick
         }
+        self.status_band_tick();
         if self.sleep_due().is_some_and(|at| at <= now) {
             // Busy: reading aloud, downloading, serving, the library being
             // walked. Else asleep.

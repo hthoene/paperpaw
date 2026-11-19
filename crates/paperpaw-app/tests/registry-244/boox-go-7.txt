@@ -305,6 +305,9 @@ setting core.group.reading-text | core.kerning Bool default=Bool(true) Advanced 
 setting core.group.reading-text | core.ligatures Bool default=Bool(true) Advanced scoped=true guarded=false secret=false kept=false title=core.setting.ligatures
 setting core.group.status | core.status-font Choice(Owned(["core.status-font.ui", "core.status-font.book", "PaperPaw Sans"])) default=Text("core.status-font.ui") Basic scoped=false guarded=false secret=false kept=false title=core.setting.status-font
 setting core.group.status | core.battery-low Int { min: 5, max: 50 } default=Int(20) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.battery-low
+setting core.group.status | core.status-bar.all Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=core.setting.status-bar
+setting core.group.status | core.status-bar.line Text default=Text("core.status-line.items") Advanced scoped=false guarded=false secret=false kept=false title=core.setting.status-bar.line
+setting core.group.status | core.status-bar.screens Text default=Text("") Advanced scoped=false guarded=false secret=false kept=false title=core.setting.status-bar.screens
 setting core.group.status | reader.status.size Int { min: 5, max: 16 } default=Int(6) Basic scoped=false guarded=false secret=false kept=false title=reader.status.size
 setting core.group.status | reader.status.edge Int { min: 0, max: 150 } default=Int(15) Advanced scoped=false guarded=false secret=false kept=false title=reader.status.edge
 setting core.group.status | reader.status.top-lines List default=Text("") Basic scoped=false guarded=false secret=false kept=false title=reader.status.top-lines
@@ -2307,7 +2310,7 @@ native Screen fonts-browser | ScreenSpec(ScreenSpec { name: "font", title: "font
 native Screen fonts-browser | ScreenSpec(ScreenSpec { name: "list", title: "fonts-browser.title", token: 11, flags: 64 })
 native Screen help | ScreenSpec(ScreenSpec { name: "overlay", title: "help.title", token: 10, flags: 4 })
 native Screen help | ScreenSpec(ScreenSpec { name: "again", title: "help.setting.again", token: 11, flags: 0 })
-native Screen home | ScreenSpec(ScreenSpec { name: "dashboard", title: "home.title", token: 10, flags: 0 })
+native Screen home | ScreenSpec(ScreenSpec { name: "dashboard", title: "home.title", token: 10, flags: 4096 })
 native Screen home | ScreenSpec(ScreenSpec { name: "add-widget", title: "home.edit.add", token: 11, flags: 0 })
 native Screen home | ScreenSpec(ScreenSpec { name: "drawer", title: "home.drawer", token: 12, flags: 0 })
 native Screen home | ScreenSpec(ScreenSpec { name: "status-items", title: "home.setting.footer-items", token: 13, flags: 0 })
@@ -2324,13 +2327,13 @@ native Screen notes-vault | ScreenSpec(ScreenSpec { name: "tags", title: "notes-
 native Screen opds | ScreenSpec(ScreenSpec { name: "catalogs", title: "opds.title", token: 10, flags: 64 })
 native Screen opds | ScreenSpec(ScreenSpec { name: "browse", title: "opds.title", token: 11, flags: 128 })
 native Screen opds | ScreenSpec(ScreenSpec { name: "edit", title: "opds.title", token: 12, flags: 128 })
-native Screen picture-home | ScreenSpec(ScreenSpec { name: "dashboard", title: "picture-home.title", token: 10, flags: 0 })
+native Screen picture-home | ScreenSpec(ScreenSpec { name: "dashboard", title: "picture-home.title", token: 10, flags: 4096 })
 native Screen picture-home | ScreenSpec(ScreenSpec { name: "add", title: "picture-home.add", token: 11, flags: 0 })
 native Screen picture-home | ScreenSpec(ScreenSpec { name: "pick", title: "picture-home.setting.picture", token: 12, flags: 0 })
 native Screen picture-home | ScreenSpec(ScreenSpec { name: "status-items", title: "picture-home.setting.bar", token: 13, flags: 0 })
 native Screen plugin-manager | ScreenSpec(ScreenSpec { name: "list", title: "plugin-manager.title", token: 10, flags: 64 })
 native Screen plugin-manager | ScreenSpec(ScreenSpec { name: "screens", title: "plugin-manager.screens", token: 11, flags: 0 })
-native Screen reader | ScreenSpec(ScreenSpec { name: "screen", title: "reader.title", token: 10, flags: 256 })
+native Screen reader | ScreenSpec(ScreenSpec { name: "screen", title: "reader.title", token: 10, flags: 4352 })
 native Screen reader | ScreenSpec(ScreenSpec { name: "toc", title: "reader.toc", token: 11, flags: 0 })
 native Screen reader | ScreenSpec(ScreenSpec { name: "annotations", title: "reader.annotations", token: 12, flags: 0 })
 native Screen reader | ScreenSpec(ScreenSpec { name: "skim-screen", title: "reader.skim", token: 13, flags: 4 })

@@ -57,7 +57,10 @@ pub(crate) const POLICY_GUARDS: u32 = 1 << 1;
 pub(crate) const POLICY_SECRET: u32 = 1 << 4;
 pub(crate) const POLICY_EDGES: u32 = 1 << 5;
 pub(crate) const POLICY_GRAYS: u32 = crate::native_host::declarations::SCREEN_GRAYS;
-pub(crate) const POLICY_BITS: u32 = POLICY_GUARDS | POLICY_SECRET | POLICY_EDGES | POLICY_GRAYS;
+/// `status_bar` (11-12): 0 keeps what the screen declared.
+pub(crate) const POLICY_STATUS_BAR: u32 = crate::native_host::declarations::SCREEN_STATUS_BAR;
+pub(crate) const POLICY_BITS: u32 =
+    POLICY_GUARDS | POLICY_SECRET | POLICY_EDGES | POLICY_GRAYS | POLICY_STATUS_BAR;
 
 impl ActiveScreen {
     /// Whether it guards the device: what a native plugin set at run time,
@@ -80,6 +83,20 @@ impl ActiveScreen {
     pub(crate) fn grays(&self) -> bool {
         self.policy
             .map_or_else(|| self.screen.grays(), |bits| bits & POLICY_GRAYS != 0)
+    }
+
+    /// Its status bar bits (`screen.spec.flags` 11-12): what a native plugin
+    /// set at run time where it set one (0 there keeps the declared), else
+    /// the screen's own.
+    pub(crate) fn status_bar(&self) -> u32 {
+        let shift = crate::native_host::declarations::SCREEN_STATUS_BAR_SHIFT;
+        match self
+            .policy
+            .map_or(0, |bits| (bits & POLICY_STATUS_BAR) >> shift)
+        {
+            0 => self.screen.status_bar(),
+            set => set,
+        }
     }
 
     /// Whether it holds the edge swipes.
@@ -196,7 +213,18 @@ impl Kernel {
         // Made once, at the size it asked for: above the row of hints, or
         // all of the screen.
         let mut hinted = true;
-        let mut area = self.layout(hinted);
+        // Below the status bar where it shows above this screen (#123): known
+        // before a native screen is made, from its declaration.
+        let band = native_screen.as_ref().map_or(0, |screen| {
+            let full = screen.region(&self.shared.place(self.shared.now)).is_none()
+                && !screen.mode().is_full_screen();
+            if full {
+                self.status_band_of(id.as_str(), screen.status_bar())
+            } else {
+                0
+            }
+        });
+        let mut area = self.layout_below(hinted, band);
         set_area(&mut self.shared.device, &mut self.shared.content, area);
         let running = self.shared.meter.enter(id.namespace());
         let mut screen = match native_screen {
@@ -220,7 +248,7 @@ impl Kernel {
             && (own == HintVisibility::Shown) != hinted
         {
             hinted = !hinted;
-            area = self.layout(hinted);
+            area = self.layout_below(hinted, band);
             set_area(&mut self.shared.device, &mut self.shared.content, area);
             spec.remake(&mut screen, &self.shared.place(self.shared.now), params);
         }

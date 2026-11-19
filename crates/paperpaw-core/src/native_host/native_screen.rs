@@ -554,6 +554,11 @@ impl<D: Dispatch> NativeScreen<D> {
         // `ActiveScreen::grays` takes the place of it once one is set.
         self.flags & super::declarations::SCREEN_GRAYS != 0
     }
+    pub(crate) fn status_bar(&self) -> u32 {
+        // Declared (`screen.spec.flags` bits 11-12).
+        (self.flags & super::declarations::SCREEN_STATUS_BAR)
+            >> super::declarations::SCREEN_STATUS_BAR_SHIFT
+    }
     pub(crate) fn dims_below(&self) -> bool {
         // Declared (`screen.spec.flags` bit 10); only an overlay has a below.
         self.flags & super::declarations::SCREEN_DIMS_BELOW != 0

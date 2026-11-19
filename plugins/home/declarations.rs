@@ -5,7 +5,7 @@
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl,
     HelpHintDecl, KeyBindingDecl, Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl,
-    StatusPlaceDecl, WidgetDecl, WidgetLayout, WidgetPlaceDecl,
+    StatusBar, StatusPlaceDecl, WidgetDecl, WidgetLayout, WidgetPlaceDecl,
 };
 use paperpaw_sdk::native::ui::HintInput;
 use paperpaw_ui_kit::widget::options::{Opt, declare_all, shared_look};
@@ -184,7 +184,8 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
-    d.screen(ScreenDecl::new("dashboard", "home.title", DASHBOARD))?;
+    // Home keeps its own status line: no status bar of the host above it.
+    d.screen(ScreenDecl::new("dashboard", "home.title", DASHBOARD).status_bar(StatusBar::Hide))?;
     d.screen(ScreenDecl::new("add-widget", "home.edit.add", ADD))?;
     d.screen(ScreenDecl::new("drawer", "home.drawer", DRAWER))?;
     d.screen(ScreenDecl::new(
