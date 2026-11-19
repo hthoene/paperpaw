@@ -6,9 +6,9 @@ use log::info;
 use super::{Firmware, POLL_MS, SAMPLE_MS, SLEEP_WAIT_MS, STATUS_MS, SYNC_MS};
 #[cfg(feature = "asleep-light")]
 use super::{card_swap, sleeping_board};
-use crate::usb_power::Sense;
 #[cfg(feature = "asleep-light")]
 use crate::device;
+use crate::usb_power::Sense;
 use crate::{input, now, power};
 use esp_hal::gpio::{Event, WakeupConfig};
 
