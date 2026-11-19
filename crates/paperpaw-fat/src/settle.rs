@@ -100,6 +100,18 @@ pub(super) fn same_bytes<IO: ReadWriteSeek + 'static>(
     true
 }
 
+/// The most a write looks at first to see whether the file already holds it.
+pub(super) const UNCHANGED_MAX: usize = 8192;
+
+/// Whether `file` holds exactly `data` (its size is known to be `data.len()`).
+pub(super) fn holds<IO: ReadWriteSeek + 'static>(file: &mut FatFile<IO>, data: &[u8]) -> bool {
+    let mut piece = [0u8; 256];
+    data.chunks(piece.len()).all(|want| {
+        let got = &mut piece[..want.len()];
+        file.read_exact(got).is_ok() && got == want
+    })
+}
+
 impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
     /// Records in [`JOURNAL`] a move from `from` to `to`, makes it (`op`)
     /// and clears the record: cut off between, or where `op` fails, the

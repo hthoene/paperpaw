@@ -1,9 +1,10 @@
-//! scratch: The card cost of the Library's book walk and first open (#297): on the X4
-//! the first draw after the walk took 98 writes and 11,760 card blocks (1,491
-//! read commands) for 14 books. The emulator's storage counts calls, not what
-//! the card is sent: this mounts the X4's FAT file system (`paperpaw-fat`, its
-//! 24-block cache and read-ahead) on a RAM disk that counts the commands and
-//! blocks it is sent.
+//! What a second start, an opening and a Back to Home write to the card
+//! (#389). On the X4 a write of a file costs 17 to 36 card commands of 5.6 ms
+//! (a temporary file and two renames), and start, opening and Back rewrote
+//! files exactly as they were (the book list, the page list, the reading
+//! widget's file). The FAT layer leaves a small file that already holds what
+//! is written alone (`paperpaw-fat`). This mounts the X4's FAT file system on
+//! a RAM disk that counts the commands it is sent.
 #![allow(clippy::unwrap_used, reason = "test assertions")]
 
 use std::cell::{Cell, RefCell};
@@ -85,7 +86,6 @@ impl Blocks for Ram {
     }
 }
 
-
 fn card(last: bool) -> (Rc<FatStorage<SharedDisk<Ram>>>, Rc<Cell<Commands>>) {
     let ram = Ram {
         bytes: Rc::new(RefCell::new(vec![0u8; 300 << 20])),
@@ -94,7 +94,9 @@ fn card(last: bool) -> (Rc<FatStorage<SharedDisk<Ram>>>, Rc<Cell<Commands>>) {
     let mut disk = BlockDisk::new(ram.clone()).unwrap();
     paperpaw_fat::fatfs::format_volume(
         &mut disk,
-        FormatVolumeOptions::new().fat_type(FatType::Fat32).bytes_per_cluster(4096),
+        FormatVolumeOptions::new()
+            .fat_type(FatType::Fat32)
+            .bytes_per_cluster(4096),
     )
     .unwrap();
     disk.flush().unwrap();
@@ -105,7 +107,10 @@ fn card(last: bool) -> (Rc<FatStorage<SharedDisk<Ram>>>, Rc<Cell<Commands>>) {
     let storage = Rc::new(FatStorage::new(Box::leak(Box::new(fs))).with_disk(shared));
     storage.write(".paperpaw/plugins/setup/done", b"").unwrap();
     storage
-        .write("paperpaw.ini", b"[help]\nshow = false\n[core]\nhyphenate = off\n")
+        .write(
+            "paperpaw.ini",
+            b"[help]\nshow = false\n[core]\nhyphenate = off\n",
+        )
         .unwrap();
     for n in 0..6 {
         let mut b = ALICE.to_vec();
@@ -116,63 +121,69 @@ fn card(last: bool) -> (Rc<FatStorage<SharedDisk<Ram>>>, Rc<Cell<Commands>>) {
     }
     if last {
         storage
-            .write(".paperpaw/plugins/reader/state.ini", b"[reader]\nlast = books/b003.epub\n")
+            .write(
+                ".paperpaw/plugins/reader/state.ini",
+                b"[reader]\nlast = books/b003.epub\n",
+            )
             .unwrap();
     }
     storage.sync().unwrap();
     (storage, ram.sent)
 }
 
-fn step(device: &mut Device, sent: &Rc<Cell<Commands>>, label: &str, steps: &[&str]) {
-    sent.set(Commands::default());
-    paperpaw_core::native_host::host_slot::slot_counts::reset();
-    paperpaw_emulator::trace::take_log();
-    for s in steps {
-        if *s == "START" {
-            device.start();
-            continue;
-        }
-        run_script(device, s).unwrap();
-    }
-    let c = sent.replace(Commands::default());
-    let counts = paperpaw_core::native_host::host_slot::slot_counts::snapshot();
-    let total: u32 = counts.iter().map(|(_, n)| *n).sum();
-    let top: Vec<_> = {
-        let mut v = counts.clone();
-        v.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
-        v.into_iter().take(8).collect()
-    };
-    eprintln!("== {label}: card r{} ({} blk) w{} ({} blk) ; slots {total} {top:?}", c.reads, c.read_blocks, c.writes, c.write_blocks);
-    report(label, &paperpaw_emulator::trace::take_log());
-}
-
 fn mk(last: bool) -> (Device, Rc<Cell<Commands>>) {
     let (storage, sent) = card(last);
     paperpaw_emulator::budget::override_limit(None);
+    {
+        let mut first =
+            Device::on_storage(profiles::find("xteink-x4").unwrap(), storage.clone(), true)
+                .unwrap();
+        first.start();
+        run_script(&mut first, "wait:6000").unwrap();
+        if last {
+            for _ in 0..3 {
+                run_script(&mut first, "page-forward").unwrap();
+                run_script(&mut first, "wait:500").unwrap();
+            }
+            run_script(&mut first, "back").unwrap();
+            run_script(&mut first, "wait:5000").unwrap();
+        }
+    }
     let device = Device::on_storage(profiles::find("xteink-x4").unwrap(), storage, true).unwrap();
-    let probe = sent.clone();
-    paperpaw_emulator::trace::set_cost(Rc::new(move || {
-        let c = probe.get();
-        u64::from(c.reads + c.writes)
-    }));
-    paperpaw_emulator::trace::log();
     (device, sent)
 }
 
+/// Write commands the card is sent for `steps` on a device.
+fn writes_of(device: &mut Device, sent: &Rc<Cell<Commands>>, steps: &[&str]) -> u32 {
+    sent.set(Commands::default());
+    for step in steps {
+        if *step == "START" {
+            device.start();
+        } else {
+            run_script(device, step).unwrap();
+        }
+    }
+    sent.replace(Commands::default()).writes
+}
+
 #[test]
-fn scratch_profile() {
-    let (mut device, sent) = mk(false);
-    step(&mut device, &sent, "start-home", &["START", "wait:3000"]);
-    step(&mut device, &sent, "home-right", &["right", "wait:500"]);
-    step(&mut device, &sent, "home-right2", &["right", "wait:500"]);
-    step(&mut device, &sent, "home-left", &["left", "wait:500"]);
+fn a_started_card_is_not_written_with_what_it_already_holds() {
     let (mut device, sent) = mk(true);
-    step(&mut device, &sent, "start-book", &["START", "wait:6000"]);
-    step(&mut device, &sent, "turn1", &["page-forward", "wait:500"]);
-    step(&mut device, &sent, "turn2", &["page-forward", "wait:500"]);
-    step(&mut device, &sent, "turn3", &["page-forward", "wait:500"]);
-    step(&mut device, &sent, "back-home-cold", &["back", "wait:3000"]);
-    step(&mut device, &sent, "home-right", &["right", "wait:500"]);
-    step(&mut device, &sent, "confirm-open", &["confirm", "wait:5000"]);
-    step(&mut device, &sent, "back-home-warm", &["back", "wait:3000"]);
+    let start = writes_of(&mut device, &sent, &["START", "wait:6000"]);
+    let back = writes_of(&mut device, &sent, &["back", "wait:3000"]);
+    let again = writes_of(
+        &mut device,
+        &sent,
+        &["confirm", "wait:5000", "back", "wait:3000"],
+    );
+    eprintln!("write commands: start {start}, back {back}, open and back {again}");
+    // Measured before the change: 30, 51 and 44 commands (a restart of a
+    // card that had all of it written once); 6, 51 and 8 after. The first
+    // Back after a start lets the library walk write its list again.
+    assert!(start <= 12, "the start sent {start} write commands");
+    assert!(back <= 60, "Back sent {back} write commands");
+    assert!(
+        again <= 14,
+        "opening a book and Back sent {again} write commands"
+    );
 }

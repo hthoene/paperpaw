@@ -1343,6 +1343,7 @@ mod listed;
 mod noted;
 mod same_entry;
 mod tree_cuts;
+mod unchanged;
 
 /// The time a file was changed is the same listed and asked for, and
 /// read from FAT's date and time as seconds since 1970.

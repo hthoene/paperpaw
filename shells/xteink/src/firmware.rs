@@ -201,6 +201,7 @@ fn kind(refresh: Refresh) -> usize {
 impl Firmware {
     /// Starts the kernel, then runs the main loop.
     pub fn run(&mut self) -> ! {
+        let ran = crate::micros();
         crate::startup::finish(&mut self.panel);
         // Startup released its bands before loading the kernel. Drive the
         // first frame whole instead of comparing its old panel memories.
@@ -240,8 +241,20 @@ impl Firmware {
         // Interface 6's passwords through the same sealer, before the start.
         #[cfg(feature = "ppn5")]
         self.secrets.started(&mut self.kernel);
+        let began = crate::micros();
         let effects = self.kernel.start(now());
+        let started = crate::micros();
         self.apply(effects);
+        // Where the time from reset to the first frame goes (#389): the
+        // splash and the hosting up to here, the kernel's start (the plugins'
+        // start events included), and the first frame.
+        info!(
+            "startup: first frame shown {} ms after the run began (splash, hosting and jobs {} ms, kernel start {} ms, first frame {} ms)",
+            (crate::micros() - ran) / 1000,
+            (began - ran) / 1000,
+            (started - began) / 1000,
+            (crate::micros() - started) / 1000,
+        );
         self.finishing_update();
         // Its first frame is shown: its code plugins started cleanly.
         crate::safe_mode::started();
