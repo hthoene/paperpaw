@@ -213,7 +213,7 @@ impl Writer<'_> {
     fn lookup(&mut self, index: u16, nested: bool) -> Option<[u8; 8]> {
         if let Some(&record) = self.records.get(&index) {
             // A rule applies no contextual lookups.
-            return record.filter(|r| !nested || r[0] < 4);
+            return record.filter(|r| !nested || !matches!(r[0], 4 | 5));
         }
         // Not twice, also not while it is being written.
         self.records.insert(index, None);
@@ -233,7 +233,9 @@ impl Writer<'_> {
                 let all: Vec<_> = subtables.iter().flatten().collect();
                 if let [SequenceContext::Format2(t)] = all.as_slice() {
                     let made = self.context_classes(t);
-                    return self.finish(index, made).filter(|r| !nested || r[0] < 4);
+                    return self
+                        .finish(index, made)
+                        .filter(|r| !nested || !matches!(r[0], 4 | 5));
                 }
                 let mut rules = Vec::new();
                 for t in subtables.iter().flatten() {
@@ -245,7 +247,9 @@ impl Writer<'_> {
                 let all: Vec<_> = subtables.iter().flatten().collect();
                 if let [ChainedSequenceContext::Format2(t)] = all.as_slice() {
                     let made = self.chained_classes(t);
-                    return self.finish(index, made).filter(|r| !nested || r[0] < 4);
+                    return self
+                        .finish(index, made)
+                        .filter(|r| !nested || !matches!(r[0], 4 | 5));
                 }
                 let mut rules = Vec::new();
                 for t in subtables.iter().flatten() {
@@ -255,7 +259,8 @@ impl Writer<'_> {
             }
             _ => None,
         };
-        self.finish(index, record).filter(|r| !nested || r[0] < 4)
+        self.finish(index, record)
+            .filter(|r| !nested || !matches!(r[0], 4 | 5))
     }
 
     fn singles(&mut self, subtables: Vec<SingleSubst<'_>>) -> Option<(u8, usize, usize)> {
@@ -311,6 +316,9 @@ impl Writer<'_> {
                 }
             }
         }
+        if let Some(made) = self.around(&map) {
+            return Some(made);
+        }
         let (entries, o) = (self.out.len(), self.offset_width());
         self.out.resize(entries + map.len() * o, 0);
         for (i, (f, to)) in map.iter().enumerate() {
@@ -323,6 +331,37 @@ impl Writer<'_> {
             }
         }
         Some((3, map.len(), entries))
+    }
+
+    /// Writes `map` as a lookup of kind 6 if each key in it is drawn as
+    /// the same keys around it (a spacing glyph before a letter, 300
+    /// times in Noto Serif Myanmar): its key set and those keys once.
+    fn around(&mut self, map: &BTreeMap<u32, Vec<u32>>) -> Option<(u8, usize, usize)> {
+        let (&first, to) = map.iter().next().filter(|_| map.len() > 1)?;
+        let at = to.iter().position(|&k| k == first)?;
+        let (before, after) = (&to[..at], &to[at + 1..]);
+        let same = |(&f, to): (&u32, &Vec<u32>)| {
+            to.len() == before.len() + 1 + after.len()
+                && to[..at] == *before
+                && to[at] == f
+                && to[at + 1..] == *after
+        };
+        if !map.iter().all(same) {
+            return None;
+        }
+        let (before, after) = (before.to_vec(), after.to_vec());
+        let set = self.set(map.keys().copied().collect());
+        let entries = self.out.len();
+        self.put_offset(None, set);
+        self.out
+            .extend_from_slice(&[before.len() as u8, after.len() as u8]);
+        if !self.compact {
+            self.out.extend_from_slice(&[0, 0]);
+        }
+        for &k in before.iter().chain(&after) {
+            self.put_key(k);
+        }
+        Some((6, map.len(), entries))
     }
 
     fn ligatures(
