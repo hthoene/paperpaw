@@ -17,7 +17,6 @@ use paperpaw_fat::{
 };
 use paperpaw_platform::Storage;
 
-const BOOKS: usize = 14;
 const ALICE: &[u8] = include_bytes!("../../../samples/library/books/alice-in-wonderland.epub");
 
 /// What the card was sent.

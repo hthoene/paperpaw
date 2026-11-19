@@ -990,24 +990,12 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             return Err(StorageError::InvalidPath);
         }
         let found = settled(&dir, name)?;
-        let old = found.old;
         let there = found.entry.is_some();
         let mark = found.entry.as_ref().map(state);
         if found.others || found.entry.as_ref().is_some_and(|entry| entry.is_dir()) {
             return Err(StorageError::InvalidPath);
         }
-        // A small file that already holds `data` is left as it is: one or
-        // two reads for the 17 to 36 commands of a replace (settings and
-        // lists are mostly written again as they were). Not where a cut left
-        // temporary files, which only a write settles.
-        if let Some(entry) = found.entry.as_ref().filter(|entry| {
-            !old && !found.twice
-                && found.tmp.is_none()
-                && found.ready.is_none()
-                && data.len() <= settle::UNCHANGED_MAX
-                && entry.len() == data.len() as u64
-        }) && settle::holds(&mut entry.to_file(), data)
-        {
+        if settle::unchanged(&found, data) {
             return Ok(());
         }
         // Whole under one name of the moment, synced, then under another
@@ -1048,7 +1036,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             // (its temporary file beside it, taken away by `settled`).
             dir.rename(temps.tmp(), &dir, name).map_err(error)?;
         }
-        if old {
+        if found.old {
             self.clean_old(parent(path), &dir);
         }
         Ok(())

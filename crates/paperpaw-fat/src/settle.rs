@@ -101,15 +101,33 @@ pub(super) fn same_bytes<IO: ReadWriteSeek + 'static>(
 }
 
 /// The most a write looks at first to see whether the file already holds it.
-pub(super) const UNCHANGED_MAX: usize = 8192;
+const UNCHANGED_MAX: usize = 8192;
 
 /// Whether `file` holds exactly `data` (its size is known to be `data.len()`).
-pub(super) fn holds<IO: ReadWriteSeek + 'static>(file: &mut FatFile<IO>, data: &[u8]) -> bool {
+fn holds<IO: ReadWriteSeek + 'static>(file: &mut FatFile<IO>, data: &[u8]) -> bool {
     let mut piece = [0u8; 256];
     data.chunks(piece.len()).all(|want| {
         let got = &mut piece[..want.len()];
         file.read_exact(got).is_ok() && got == want
     })
+}
+
+/// Whether a write of `data` over what `found` names changes nothing: a small
+/// file that already holds it is left as it is (one or two reads for the 17
+/// to 36 commands of a replace; settings and lists are mostly written again as
+/// they were). Not where a cut left temporary files (`old`, `twice`, `tmp`,
+/// `ready`), which only a write settles.
+pub(super) fn unchanged<IO: ReadWriteSeek + 'static>(found: &Lookup<IO>, data: &[u8]) -> bool {
+    let Some(entry) = found.entry.as_ref() else {
+        return false;
+    };
+    !found.old
+        && !found.twice
+        && found.tmp.is_none()
+        && found.ready.is_none()
+        && data.len() <= UNCHANGED_MAX
+        && entry.len() == data.len() as u64
+        && holds(&mut entry.to_file(), data)
 }
 
 impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
