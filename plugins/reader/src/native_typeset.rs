@@ -13,7 +13,7 @@ mod tables;
 pub use letters::Letters;
 pub use tables::Tables;
 
-use core::cell::Cell;
+use core::cell::{Cell, OnceCell};
 use paperpaw_sdk::{
     layout::{Face, Typesetter},
     native::{Error, Host, fonts::Font},
@@ -113,32 +113,39 @@ impl<M: Measure + ?Sized> Measure for &M {
     }
 }
 
-/// The host's reading fonts, held for one callback.
+/// The host's reading fonts, held for one callback: each is acquired when
+/// first used, so a callback that sets (or a band that shows) only the body's
+/// font takes one handle, not four (each a host crossing, and one to give back).
 #[derive(Debug)]
 pub struct HostFonts<'h> {
-    fonts: [Font<'h>; 4],
+    host: &'h Host<'h>,
+    fonts: [OnceCell<Font<'h>>; 4],
 }
 
 impl<'h> HostFonts<'h> {
-    /// The four reading fonts of the host (four of the plugin's font handles).
+    /// The four reading fonts of the host (up to four of the plugin's font
+    /// handles, each taken when first used).
     ///
     /// # Errors
-    /// The host's refusal (the handles are released again).
+    /// None now: the host's refusal comes with the first use of a font.
     pub fn acquire(host: &'h Host<'h>) -> Result<Self, Error> {
         Ok(Self {
-            fonts: [
-                Font::acquire(host, Role::Reading.key())?,
-                Font::acquire(host, Role::Bold.key())?,
-                Font::acquire(host, Role::Italic.key())?,
-                Font::acquire(host, Role::BoldItalic.key())?,
-            ],
+            host,
+            fonts: [const { OnceCell::new() }; 4],
         })
     }
 
-    /// The font of `role`.
-    #[must_use]
-    pub fn font_of(&self, role: Role) -> &Font<'h> {
-        &self.fonts[role as usize]
+    /// The font of `role`, acquired at the first call.
+    ///
+    /// # Errors
+    /// The host's refusal.
+    pub fn font_of(&self, role: Role) -> Result<&Font<'h>, Error> {
+        let cell = &self.fonts[role as usize];
+        if let Some(font) = cell.get() {
+            return Ok(font);
+        }
+        let font = Font::acquire(self.host, role.key())?;
+        Ok(cell.get_or_init(|| font))
     }
 
     /// Gives the handles back.
@@ -147,7 +154,7 @@ impl<'h> HostFonts<'h> {
     /// The host's refusal (the others are released anyway).
     pub fn release(self) -> Result<(), Error> {
         let mut result = Ok(());
-        for font in self.fonts {
+        for font in self.fonts.into_iter().filter_map(OnceCell::into_inner) {
             if let Err(error) = font.release() {
                 result = Err(error);
             }
@@ -158,11 +165,11 @@ impl<'h> HostFonts<'h> {
 
 impl Measure for HostFonts<'_> {
     fn width(&self, role: Role, size: f32, text: &str) -> Result<f32, Error> {
-        self.font_of(role).measure_text(size, text)
+        self.font_of(role)?.measure_text(size, text)
     }
 
     fn metrics(&self, role: Role, size: f32) -> Result<(f32, f32), Error> {
-        let metrics = self.font_of(role).read_line_metrics(size)?;
+        let metrics = self.font_of(role)?.read_line_metrics(size)?;
         Ok((metrics.ascent, metrics.descent))
     }
 
@@ -170,7 +177,7 @@ impl Measure for HostFonts<'_> {
         let mut buffer = [0u8; 4];
         let text = &*c.encode_utf8(&mut buffer);
         self.font_of(role)
-            .covers(text)
+            .and_then(|font| font.covers(text))
             .is_ok_and(|bytes| bytes == text.len())
     }
 }

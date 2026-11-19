@@ -474,7 +474,7 @@ impl Ink for HostInk<'_, '_> {
         text: &str,
     ) -> Result<f32, Error> {
         draw_run(
-            self.fonts.font_of(role),
+            self.fonts.font_of(role)?,
             self.canvas,
             size,
             TextOrigin::new(x, baseline),
