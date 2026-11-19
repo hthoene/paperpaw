@@ -166,7 +166,8 @@ impl CommandStage<'_> {
         instance: u32,
         flags: u32,
     ) -> Result<PolicyChange, i32> {
-        if flags & !POLICY_BITS != 0 {
+        let bar = crate::screens::POLICY_STATUS_BAR;
+        if flags & !POLICY_BITS != 0 || flags & bar == bar {
             return Err(ERR_INVALID);
         }
         let instance = if instance == 0 {

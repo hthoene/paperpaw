@@ -77,23 +77,32 @@ fn committed_raw_construction_refuses_duplicates_and_store_refuses_invalid_flags
             assert_eq!(raw.check_duplicates(image), Err(ERR_INVALID));
         }
     }
-    let source = source(&[Record::ScreenSpec(ScreenSpec {
-        name: "panel",
-        title: "Panel",
-        token: 1,
-        flags: 1 << 11,
-    })]);
-    let mut allocations = Allocations::default();
-    assert!(matches!(
-        pending(&source, false, &mut allocations),
-        Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
-    ));
+    // An unknown bit, and `status_bar` 3 (bits 11-12, #123).
+    for flags in [1 << 13, 3 << 11] {
+        let source = source(&[Record::ScreenSpec(ScreenSpec {
+            name: "panel",
+            title: "Panel",
+            token: 1,
+            flags,
+        })]);
+        let mut allocations = Allocations::default();
+        assert!(matches!(
+            pending(&source, false, &mut allocations),
+            Err(paperpaw_native::host_glue::ERR_UNSUPPORTED)
+        ));
+    }
 }
 
 #[test]
 fn an_overlay_may_be_declared_to_dim_what_is_below_it() {
     // Bit 10 `dims_below`, alone and beside the other policy bits.
-    for flags in [1 << 10, (1 << 10) | (1 << 2), 0x7ff & !(1 << 3) & !(1 << 7)] {
+    for flags in [
+        1 << 10,
+        (1 << 10) | (1 << 2),
+        0x7ff & !(1 << 3) & !(1 << 7),
+        1 << 11,
+        2 << 11,
+    ] {
         let source = source(&[Record::ScreenSpec(ScreenSpec {
             name: "panel",
             title: "Panel",

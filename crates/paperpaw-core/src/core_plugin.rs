@@ -1155,6 +1155,7 @@ fn register_time_and_battery(r: &mut Staging) -> Result<(), RegisterError> {
         },
     ))?;
     r.add_settings(&BATTERY_LOW)?;
+    r.add_settings(&crate::status_band::SETTINGS)?;
     r.add_settings(&crate::awake::AWAKE_HOLDS)?;
     Ok(())
 }

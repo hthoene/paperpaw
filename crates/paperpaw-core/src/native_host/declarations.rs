@@ -604,8 +604,14 @@ pub const SCREEN_GRAYS: u32 = 1 << 9;
 /// `screen.spec` flag bit 10: an overlay that washes out what lies below it
 /// while it shows (a menu, a panel).
 pub const SCREEN_DIMS_BELOW: u32 = 1 << 10;
+/// `screen.spec` flag bits 11-12 `status_bar`: 0 the device default, 1
+/// shown, 2 hidden (3 `ERR_UNSUPPORTED`); `command.screen_policy` may change
+/// them at run time.
+pub const SCREEN_STATUS_BAR_SHIFT: u32 = 11;
+/// The mask of bits 11-12.
+pub const SCREEN_STATUS_BAR: u32 = 3 << SCREEN_STATUS_BAR_SHIFT;
 /// Every `screen.spec` flag bit this host knows.
-const SCREEN_FLAGS_KNOWN: u32 = 0x7ff;
+const SCREEN_FLAGS_KNOWN: u32 = 0x1fff;
 /// `action.spec` flag bit 0: runs only while one of the plugin's screens is on top.
 pub const ACTION_NEEDS_SCREEN: u32 = 1;
 
@@ -623,7 +629,7 @@ fn screen_check(plugin_id: &str, screen: &ScreenSpec<'_>) -> Check {
     if flags & !SCREEN_FLAGS_KNOWN != 0 || flags & (1 << 3) != 0 {
         return Err(ERR_UNSUPPORTED);
     }
-    if (flags >> 6) & 3 == 3 {
+    if (flags >> 6) & 3 == 3 || flags & SCREEN_STATUS_BAR == SCREEN_STATUS_BAR {
         return Err(ERR_UNSUPPORTED);
     }
     Ok(())

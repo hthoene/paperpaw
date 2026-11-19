@@ -770,6 +770,7 @@ impl crate::Kernel {
     ) {
         use crate::screens::POLICY_GUARDS;
         let mut changed = false;
+        let mut moved = false;
         for change in changes {
             let Some(index) = self.stack.iter().position(|active| {
                 active.serial == change.instance && active.id.namespace() == owner.as_str()
@@ -803,8 +804,14 @@ impl crate::Kernel {
                 self.warn_runtime("native screen policy dropped: its screen is no longer on top");
                 continue;
             }
+            let bar = self.stack[index].status_bar();
             self.stack[index].policy = Some(change.flags);
+            moved |= bar != self.stack[index].status_bar();
             changed = true;
+        }
+        if moved {
+            // The status bar came or went: the screens' parts change.
+            self.lay_out_shown();
         }
         if changed {
             // The stack rows and the guard follow; what the guard held waits

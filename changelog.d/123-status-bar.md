@@ -1,0 +1,3 @@
+### Added
+
+- A status bar of the host above any screen (#123): native screens say whether it shows with `screen.spec.flags` bits 11-12 `status_bar` (SDK `ScreenDecl::status_bar(StatusBar)`, changed at run time with `ScreenPolicy::status_bar`); the user or other plugins override that per screen with the kernel setting `core.status-bar.screens` (`<screen id>=shown|hidden` per line) and choose its line with `core.status-bar.line`. The setting *Status bar on all screens* (`core.status-bar.all`, off) is the device default. Home, Picture Home and the reader's page declare it hidden. When the time or the battery changes, only the bar is drawn again.
