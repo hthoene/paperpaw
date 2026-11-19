@@ -4,6 +4,9 @@ use crate::native::ui::{
     ButtonHint, Instance, Notify, Open, ScreenPolicy, SpeechRequest, navigation::full_id,
 };
 
+/// The least `after_ms` of [`CommandSender::show_again`] (one minute).
+pub const SHOW_AGAIN_MIN_MS: u32 = 60_000;
+
 impl CommandSender<'_, '_> {
     /// Set runtime policies for a decoded own instance, or None for own top.
     ///
@@ -17,6 +20,39 @@ impl CommandSender<'_, '_> {
         self.submit(wire::Command::ScreenPolicy {
             instance: instance.map_or(0, Instance::get),
             flags: policy.flags(),
+        })
+    }
+    /// Ask for the sleep screen to be shown again while the device sleeps
+    /// (`command.show_again`): `after_ms` from now (at least
+    /// [`SHOW_AGAIN_MIN_MS`]), then every `every_ms` (at least the same; 0:
+    /// once); a new request replaces the one waiting. For the own top
+    /// instance, and only while the device is asleep (send it from the
+    /// `core.suspend` event).
+    ///
+    /// # Errors
+    /// `Unsupported` where the device cannot refresh while asleep
+    /// ([`DeviceCapability::RefreshAsleep`](crate::native::device::DeviceCapability)),
+    /// `State` when it is not asleep or the plugin has no screen on top,
+    /// `Invalid` for a time under the least; buffer limits.
+    pub fn show_again(&mut self, after_ms: u32, every_ms: u32) -> Result<(), Error> {
+        self.submit(wire::Command::ShowAgain {
+            instance: 0,
+            after_ms,
+            every_ms,
+            flags: 0,
+        })
+    }
+    /// Cancel what [`show_again`](Self::show_again) asked for; nothing if
+    /// nothing waits.
+    ///
+    /// # Errors
+    /// Returns buffer limits or the host's refusal.
+    pub fn cancel_show_again(&mut self) -> Result<(), Error> {
+        self.submit(wire::Command::ShowAgain {
+            instance: 0,
+            after_ms: 0,
+            every_ms: 0,
+            flags: 0,
         })
     }
     /// Queue typed speech with an unchanged caller-chosen cookie.

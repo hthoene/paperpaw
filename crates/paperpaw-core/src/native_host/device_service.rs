@@ -103,8 +103,11 @@ pub mod caps {
     pub const POWER_OFF: u64 = 1 << 13;
     /// A pen.
     pub const PEN: u64 = 1 << 14;
+    /// The sleep screen can be shown again while the device sleeps
+    /// (`command.show_again`).
+    pub const REFRESH_ASLEEP: u64 = 1 << 15;
     /// Every defined bit.
-    pub const CAPS_MASK: u64 = (1 << 15) - 1;
+    pub const CAPS_MASK: u64 = (1 << 16) - 1;
 }
 
 /// `dev_device.controls` bits: bit 0 radio, 1 CPU clock, 2 buttons, 3

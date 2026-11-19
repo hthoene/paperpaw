@@ -56,6 +56,40 @@ pub const OFF_SHOW: &str = "sleep.off-show";
 pub const START_SHOW: &str = "sleep.start-show";
 pub const RESTART_SHOW: &str = "sleep.restart-show";
 
+/// The setting that says how often the screen is drawn again while asleep.
+pub const REFRESH: &str = "sleep.refresh-every";
+
+/// The minutes between two redraws asleep that `value` of [`REFRESH`] means;
+/// 0 for never (and for a word this version does not know).
+#[must_use]
+pub fn refresh_minutes(value: &str) -> u32 {
+    match value {
+        "sleep.refresh.15" => 15,
+        "sleep.refresh.30" => 30,
+        "sleep.refresh.60" => 60,
+        _ => 0,
+    }
+}
+
+/// The time a redraw asleep waits, in milliseconds, so that it comes just
+/// after a whole `minutes` of the clock (`unix`, seconds; `None` where the
+/// clock is not set: `minutes` from now). A device wakes a little early or late
+/// by its slow clock, so the screen is drawn some seconds past the mark, never
+/// before it; a mark less than a minute away is the next one.
+#[must_use]
+pub fn refresh_wait_ms(minutes: u32, unix: Option<i64>) -> u32 {
+    /// Past the mark, in seconds.
+    const PAST: u32 = 20;
+    let period = i64::from(minutes.max(1)) * 60;
+    let mut wait = unix.map_or(period, |unix| period - unix.rem_euclid(period));
+    if wait < 60 {
+        wait += period;
+    }
+    u32::try_from(wait).map_or(u32::MAX, |wait| {
+        wait.saturating_add(PAST).saturating_mul(1000)
+    })
+}
+
 /// Whether the off screen shows what `off_show` (the setting
 /// `sleep.off-show`) names rather than what the sleep screen shows
 /// (`sleep.show`): not when it is empty or [`SAME`].

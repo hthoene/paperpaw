@@ -266,6 +266,8 @@ pub const COMMAND_SET_HINT_LABEL_MAX_BYTES: usize = 64;
 pub const COMMAND_FIRMWARE_DUAL_BOOT_TAG: u32 = 1595;
 /// Wire tag of the `command.redraw_area` command.
 pub const COMMAND_REDRAW_AREA_TAG: u32 = 1596;
+/// Wire tag of the `command.show_again` command.
+pub const COMMAND_SHOW_AGAIN_TAG: u32 = 1598;
 pub const COMMAND_SET_SETTING_TAG: u32 = 4;
 
 /// A command borrowed from one validated batch. No Rust value crosses the ABI.
@@ -686,6 +688,17 @@ pub enum Command<'a> {
         width: u32,
         /// Little-endian u32.
         height: u32,
+    },
+    /// The `command.show_again` command (`docs/abi/registry.md`).
+    ShowAgain {
+        /// Little-endian u32.
+        instance: u32,
+        /// Little-endian u32.
+        after_ms: u32,
+        /// Little-endian u32.
+        every_ms: u32,
+        /// Little-endian u32.
+        flags: u32,
     },
 }
 
@@ -1402,6 +1415,15 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                     height: u32::from_le_bytes(scalar(body.take(4)?)),
                 }
             }
+            COMMAND_SHOW_AGAIN_TAG => {
+                body.bitmap()?;
+                Command::ShowAgain {
+                    instance: u32::from_le_bytes(scalar(body.take(4)?)),
+                    after_ms: u32::from_le_bytes(scalar(body.take(4)?)),
+                    every_ms: u32::from_le_bytes(scalar(body.take(4)?)),
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
             _ => return Err(-1),
         });
     }
@@ -1717,6 +1739,7 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
         }
         Command::FirmwareDualBoot { .. } => Ok((COMMAND_FIRMWARE_DUAL_BOOT_TAG, 1 + 8)),
         Command::RedrawArea { .. } => Ok((COMMAND_REDRAW_AREA_TAG, 1 + 20)),
+        Command::ShowAgain { .. } => Ok((COMMAND_SHOW_AGAIN_TAG, 1 + 16)),
     }
 }
 
@@ -2125,6 +2148,21 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     out[offset..offset + 4].copy_from_slice(&width.to_le_bytes());
                     offset += 4;
                     out[offset..offset + 4].copy_from_slice(&height.to_le_bytes());
+                    offset += 4;
+                }
+                Command::ShowAgain {
+                    instance,
+                    after_ms,
+                    every_ms,
+                    flags,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&instance.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&after_ms.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&every_ms.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
                     offset += 4;
                 }
                 Command::SetSetting { .. } => {}

@@ -89,6 +89,7 @@ mod refresh;
 mod registry;
 mod screen_names;
 mod shell_asks;
+mod show_again;
 pub mod start_picture;
 pub use screen_names::ScreenNames;
 mod room;
@@ -1194,6 +1195,7 @@ impl Kernel {
         self.shared.native_input.clear();
         self.shared.now = now;
         self.suspended_at = Some(now);
+        self.shared.asleep = true;
         self.developer_suspend();
         self.shared.usage.sleeps = self.shared.usage.sleeps.saturating_add(1);
         self.output.emit(&events::SUSPEND, ());
@@ -1253,6 +1255,8 @@ impl Kernel {
     /// What waking does before the frame: the time asleep, plugins told.
     fn woke(&mut self, now: Instant) {
         self.storage_kept = false;
+        self.shared.asleep = false;
+        self.shared.show_again = None;
         if let Some(at) = self.suspended_at.take() {
             let slept = now.0.saturating_sub(at.0);
             self.shared.slept_for = Some(core::time::Duration::from_millis(slept));
@@ -1433,6 +1437,13 @@ struct Shared {
     /// How long the device slept last (see [`KernelBuilder::slept_for`]
     /// and [`Kernel::resume`]).
     slept_for: Option<core::time::Duration>,
+    /// The device is asleep: after [`Kernel::suspend`], until it wakes.
+    asleep: bool,
+    /// The device's preview of a setting is an input filter's (verdict
+    /// `preview`): it ends with the capture that showed it.
+    filter_preview: bool,
+    /// The sleep screen to show again while asleep (`show_again.rs`).
+    show_again: Option<show_again::Plan>,
     /// What the panel can do and how the last frame went (see
     /// [`KernelBuilder::panel`]).
     panel: paperpaw_sdk::realtime::PanelInfo,

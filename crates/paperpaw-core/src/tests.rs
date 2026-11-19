@@ -1393,6 +1393,7 @@ mod services_and_pictures;
 mod services_declared;
 mod settings_files;
 mod shell_io;
+mod show_again;
 mod stack;
 mod start_screens;
 mod stay_awake;

@@ -102,6 +102,14 @@ pub enum Ask {
     /// (the language, the turn of the screen) waits for the value kept.
     /// See `Settings::set_preview`.
     PreviewSettings(Vec<(Id, Option<SettingValue>)>),
+    /// Shows the screen `screen` again while the device sleeps, after
+    /// `after_ms` (then every `every_ms`, 0: once); `after_ms` 0 cancels
+    /// (`command.show_again`, see [`Kernel::show_again_now`](crate::Kernel)).
+    ShowAgain {
+        screen: paperpaw_sdk::ScreenKey,
+        after_ms: u32,
+        every_ms: u32,
+    },
     /// Redraws the current screen completely; with
     /// [`RefreshMode::Full`] the whole screen, flashing.
     Redraw(RefreshMode),

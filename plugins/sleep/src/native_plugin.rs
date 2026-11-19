@@ -13,7 +13,7 @@
 use crate::{
     declarations::{
         EDIT, EVENTS, IMAGE_READY, LIBRARY_CHANGED, PICK, PLUGINS_CHANGED, SCREEN, SETTING_CHANGED,
-        STARTED,
+        STARTED, SUSPEND,
     },
     native_picker::Picker,
     native_screen::{Sleeping, read_text},
@@ -90,6 +90,7 @@ impl Plugin for NativeSleep {
         let Some(event) = read_event!(
             incoming;
             kinds::Resume,
+            kinds::Suspend,
             kinds::Started,
             kinds::PluginsChanged,
             kinds::SettingChanged,
@@ -107,14 +108,7 @@ impl Plugin for NativeSleep {
                 instance, handover, ..
             } if token == SCREEN => self.opened(host, instance, handover),
             Event::ScreenOpened { instance, .. } if token == PICK => {
-                // Without the registry the pictures folder is still there.
-                let registry = match self.registry(host) {
-                    Ok(registry) => Some(registry),
-                    Err(Error::NoMemory) => return Err(Error::NoMemory),
-                    Err(_) => None,
-                };
-                let picker = Picker::read(host, registry)?;
-                self.pickers.open(instance, picker)
+                self.pick_opened(host, instance)
             }
             Event::ScreenOpened {
                 instance, handover, ..
@@ -182,6 +176,7 @@ impl Plugin for NativeSleep {
                 self.cover_ready(host)
             }
             Event::Resume { .. } if token == EVENTS => self.woke(host),
+            Event::Suspend { .. } if token == SUSPEND => self.suspended(host),
             // At start and when the plugins changed: a stored foreign mode
             // binds the slot where the reader has not bound it, never unbinds.
             Event::Started { .. } if token == STARTED => self.bind_all_stored(host),
@@ -516,6 +511,37 @@ impl NativeSleep {
         }
         let mut scratch = [0; 64];
         view.refresh(&mut CommandSender::new(host, &mut scratch))
+    }
+
+    /// The picker of the picture over the page opened.
+    fn pick_opened(&mut self, host: &Host<'_>, instance: Instance) -> Result<(), Error> {
+        // Without the registry the pictures folder is still there.
+        let registry = match self.registry(host) {
+            Ok(registry) => Some(registry),
+            Err(Error::NoMemory) => return Err(Error::NoMemory),
+            Err(_) => None,
+        };
+        let picker = Picker::read(host, registry)?;
+        self.pickers.open(instance, picker)
+    }
+
+    /// The device goes to sleep: a sleep screen that shows what changes with
+    /// the time asks to be drawn again every `sleep.refresh-every` minutes, the
+    /// first time at the next whole mark of the clock. A device that cannot
+    /// refresh asleep says so (`Unsupported`), and nothing is asked twice: not
+    /// a fault.
+    fn suspended(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let Some(view) = self.screens.top(SCREEN) else {
+            return Ok(());
+        };
+        let Some((wait, minutes)) = view.refresh_plan(host)? else {
+            return Ok(());
+        };
+        let mut scratch = [0; 64];
+        match CommandSender::new(host, &mut scratch).show_again(wait, minutes * 60_000) {
+            Err(Error::Unsupported | Error::State | Error::Invalid) => Ok(()),
+            other => other,
+        }
     }
 
     /// The device woke: every open sleep screen goes.

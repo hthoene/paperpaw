@@ -808,7 +808,9 @@ impl Device {
     /// button wakes the device then.
     pub fn next_wake(&self) -> Option<Instant> {
         if self.asleep {
-            return None;
+            // The sleep screen shown again (`command.show_again`), as the X4's
+            // light sleep wakes for it; nothing else wakes.
+            return self.kernel.show_again_at();
         }
         let speech = self.speech.front().map(|&(_, end)| end);
         [
@@ -825,6 +827,11 @@ impl Device {
     /// Ticks the kernel if a requested wake-up is due.
     pub fn tick_if_due(&mut self) {
         if self.asleep {
+            let now = self.now();
+            if let Some(effects) = budget::track(|| self.kernel.show_again_now(now)) {
+                eprintln!("{}: the sleep screen again", self.profile.device.id);
+                self.execute(effects);
+            }
             return;
         }
         self.poll_http(None);
@@ -1197,6 +1204,9 @@ fn build_kernel(
             .power_off(profile.power_off)
             .button_row(profile.button_row)
             .rotation(true);
+        if profile.refresh_asleep {
+            builder = builder.capability(paperpaw_core::sdk::Capability::REFRESH_ASLEEP);
+        }
         // Scalable fonts only where the emulated device renders them.
         if !profile.font_packs {
             builder = builder.font_dir("fonts");

@@ -44,6 +44,18 @@ impl Kernel {
                 self.run_commands();
                 Err(self.finish())
             }
+            Native::Preview {
+                owner,
+                key,
+                value,
+                begun_mid,
+            } => {
+                if begun_mid {
+                    self.cancel_input(&event);
+                }
+                self.filter_preview(owner, &key, &value);
+                Err(self.finish())
+            }
             Native::Run(action) => match Id::parse(&action) {
                 Ok(action) => {
                     self.dispatch(action);
@@ -52,6 +64,27 @@ impl Kernel {
                 }
                 Err(_) => Ok(event),
             },
+        }
+    }
+
+    /// Shows the value a filter's verdict `preview` asked for in place of the
+    /// setting's own, as `command.preview_setting` would, until its capture
+    /// ends ([`Self::end_filter_preview`]) or another preview is set. A row
+    /// that is not accepted shows nothing (the input is taken all the same).
+    fn filter_preview(&mut self, owner: u64, key: &str, value: &[u8]) {
+        match self.filter_preview_row(owner, key, value) {
+            Ok((id, shown)) => {
+                self.preview_settings(alloc::vec![(id, Some(shown))]);
+                self.shared.filter_preview = true;
+            }
+            Err(_) => self.warn_runtime("a filter's preview was refused"),
+        }
+    }
+
+    /// Ends the preview a filter's capture showed (not another one's).
+    pub(crate) fn end_filter_preview(&mut self) {
+        if self.shared.filter_preview {
+            self.preview_settings(Vec::new());
         }
     }
 
@@ -79,7 +112,7 @@ impl Kernel {
             // Taken or cancelled, a recognized gesture is only dropped: the
             // finger's input was recognized (and passed) already, so unlike a
             // cancelled key or pointer there is nothing more of it to drop.
-            Native::Taken | Native::Cancelled => {}
+            Native::Taken | Native::Cancelled | Native::Preview { .. } => {}
             Native::Run(action) => {
                 if let Ok(action) = Id::parse(&action) {
                     self.dispatch(action);

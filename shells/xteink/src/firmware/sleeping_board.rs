@@ -95,9 +95,35 @@ impl paperpaw_x4::sleeping::Board for Light<'_> {
     fn say(&mut self, what: &str) {
         info!("sleeping: {what}");
     }
+
+    fn show_again_at(&mut self) -> Option<u64> {
+        self.firmware.kernel.show_again_at().map(|at| at.millis())
+    }
+
+    fn show_again(&mut self) {
+        self.firmware.draw_sleep_again();
+    }
 }
 
 impl Firmware {
+    /// The sleep screen drawn again while the device sleeps (`command.show_again`,
+    /// asked for by the plugin that shows it): the kernel draws it whole, the
+    /// panel refreshes what changed (a partial update) and the work this
+    /// brought is finished, as for the off screen. The caller has the watchdogs
+    /// awake and the readings going, and puts the sleep back. The radios are
+    /// not touched: nothing here needs the network.
+    #[inline(never)]
+    pub(super) fn draw_sleep_again(&mut self) {
+        let Some(effects) = self.kernel.show_again_now(now()) else {
+            return;
+        };
+        info!("sleeping: the sleep screen again");
+        self.apply(effects);
+        self.finish_work();
+        self.settle_frame();
+        self.write_back();
+    }
+
     /// The off screen (the slot `core.off`) of a reader about to be switched
     /// off by the time of its choice (`ended`; a low battery cuts the power
     /// without): drawn whole once, the pictures it asks for waited for, what

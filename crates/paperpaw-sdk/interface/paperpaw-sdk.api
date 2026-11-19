@@ -931,6 +931,7 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::set_scope(&mut sel
 impl paperpaw_sdk::native::commands::CommandSender<'_, '_>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::back(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::back_to(&mut self, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::cancel_show_again(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::close(&mut self, paperpaw_sdk::native::ui::Instance) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::notify(&mut self, paperpaw_sdk::native::ui::Notify<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::open(&mut self, paperpaw_sdk::native::ui::Open<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
@@ -939,6 +940,7 @@ pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::screen_policy(&mut
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::screen_ready(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::set_hint(&mut self, paperpaw_sdk::native::ui::ButtonHint<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::set_key_layer(&mut self, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::show_again(&mut self, u32, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::show_hints(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::speak(&mut self, paperpaw_sdk::native::ui::SpeechRequest<'_>) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'_, '_>::stop_speaking(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
@@ -1031,6 +1033,7 @@ impl<'a> paperpaw_sdk::native::commands::Rotation<'a>
 pub const fn paperpaw_sdk::native::commands::Rotation<'a>::new(&'a [u8; 32], &'a [u8; 64]) -> Self
 pub const paperpaw_sdk::native::commands::MAX_REVOCATIONS: usize
 pub const paperpaw_sdk::native::commands::MAX_ROTATIONS: usize
+pub const paperpaw_sdk::native::commands::SHOW_AGAIN_MIN_MS: u32
 pub mod paperpaw_sdk::native::declare
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::BookDataKind
 pub paperpaw_sdk::native::declare::BookDataKind::Cache
@@ -1420,6 +1423,7 @@ pub paperpaw_sdk::native::device::DeviceCapability::Monochrome
 pub paperpaw_sdk::native::device::DeviceCapability::Network
 pub paperpaw_sdk::native::device::DeviceCapability::Pen
 pub paperpaw_sdk::native::device::DeviceCapability::PowerOff
+pub paperpaw_sdk::native::device::DeviceCapability::RefreshAsleep
 pub paperpaw_sdk::native::device::DeviceCapability::Rotation
 pub paperpaw_sdk::native::device::DeviceCapability::Sleep
 pub paperpaw_sdk::native::device::DeviceCapability::Speech
@@ -3822,6 +3826,7 @@ pub paperpaw_sdk::native::settings::SettingValue::Absent
 pub paperpaw_sdk::native::settings::SettingValue::Bool(bool)
 pub paperpaw_sdk::native::settings::SettingValue::Int(i64)
 pub paperpaw_sdk::native::settings::SettingValue::Text(&'a str)
+pub fn paperpaw_sdk::native::settings::encode_value<'o>(paperpaw_sdk::native::settings::SettingValue<'_>, &'o mut [u8]) -> core::result::Result<&'o [u8], paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::settings::own_grant(&paperpaw_sdk::native::Host<'_>, paperpaw_sdk::native::settings::GrantKind) -> core::result::Result<bool, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::settings::read_setting<'a>(&paperpaw_sdk::native::Host<'_>, impl core::convert::AsRef<str>, &'a mut [u8]) -> core::result::Result<paperpaw_sdk::native::settings::SettingValue<'a>, paperpaw_sdk::native::Error>
 pub mod paperpaw_sdk::native::snapshot
@@ -4486,14 +4491,16 @@ pub const fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterIn
 #[non_exhaustive] pub struct paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>
 pub paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict::action: &'a str
 pub paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict::input: &'a [u8]
+pub paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict::key: &'a str
 pub paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict::kind: u32
 pub paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict::raise: &'a str
+pub paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict::value: &'a [u8]
 impl<'a> paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>
 pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>::TAG: u32
 pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>::decode(&'a [u8]) -> core::result::Result<Self, i32>
 pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>::encode(&self, &mut [u8]) -> core::result::Result<usize, i32>
 impl<'a> paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>
-pub const fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>::new(u32, &'a str, &'a [u8], &'a str) -> Self
+pub const fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>::new(u32, &'a str, &'a [u8], &'a str, &'a str, &'a [u8]) -> Self
 pub struct paperpaw_sdk::native::stage_schemas::core_input_filter_v1::InputWriter<'w>
 impl<'w> paperpaw_sdk::native::stage_schemas::core_input_filter_v1::InputWriter<'w>
 pub fn paperpaw_sdk::native::stage_schemas::core_input_filter_v1::InputWriter<'w>::finish(self) -> core::result::Result<usize, i32>
@@ -4519,8 +4526,10 @@ pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_INPU
 pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_INPUT_TAG: u32
 pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_VERDICT_ACTION_MAX_BYTES: usize
 pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_VERDICT_INPUT_MAX_BYTES: usize
+pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_VERDICT_KEY_MAX_BYTES: usize
 pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_VERDICT_RAISE_MAX_BYTES: usize
 pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_VERDICT_TAG: u32
+pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_VERDICT_VALUE_MAX_BYTES: usize
 pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::INPUT_TAGS: &[u32]
 pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::KEY: &str
 pub const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::MAJOR: u16

@@ -15,7 +15,8 @@
 //! - at most [`MAX_FILTERS`] filters, in the order given (registration order);
 //!   on the X4 key inputs only (no pointer, no gesture);
 //! - a filter the guard rule skips is not called (`Policy::runs`);
-//! - verdicts: 0 pass, 1 take, 2 run, 3 cancel, 4 replace, 5 raise. Anything
+//! - verdicts: 0 pass, 1 take, 2 run, 3 cancel, 4 replace, 5 raise, 6 preview
+//!   (a take that also shows a setting value, see below). Anything
 //!   else, an empty or invalid reply, a failed callback, an over-cap capture,
 //!   a run without an action, a replace that is not one key, pointer or
 //!   gesture record, a raise of a name the filter's plugin did not declare:
@@ -34,6 +35,15 @@
 //! - a filter takes or cancels only at the start (pointer down, key press, or a
 //!   gesture); for an up, move, release or repeat whose start it did not
 //!   capture that is a pass; a replace may not make `power`;
+//! - `preview` (revision 1, `key` and `value`) is a take that sets the
+//!   device's preview of one setting ([`Routed::Preview`]): of a key press or
+//!   pointer down, or of a pointer move that began no capture before (the
+//!   router cancels what the screens got of that finger, as for `cancel`).
+//!   The capturer may answer it again for the moves of the capture (the next
+//!   value replaces the last), and the preview ends with the capture's up or
+//!   release (`InputFilters::take_preview_ended`) unless the filter answers
+//!   the up with a `run`, whose action keeps the value in one write; a
+//!   `preview` anywhere else is a pass;
 //! - `raise` and `run` end the chain; `raise` is checked against the
 //!   plugin's own declared inputs and gestures; raised inputs pass no filter
 //!   (the router applies them as a chain step).
@@ -57,8 +67,11 @@ pub(crate) const MAX_CAPTURES: usize = 8;
 const INPUT_BYTES: usize = 128;
 /// A `filter.input` batch: the input, the flags and the framing.
 const PAYLOAD_BYTES: usize = 160;
-/// A `filter.verdict` batch: kind, action, input, raise and the framing.
-const REPLY_BYTES: usize = 384;
+/// A `filter.verdict` batch: kind, action, input, raise, key, value and the
+/// framing.
+const REPLY_BYTES: usize = 448;
+/// A preview's setting value (`filter.verdict.value`).
+const VALUE_BYTES: usize = stage::FILTER_VERDICT_VALUE_MAX_BYTES;
 const KEY_BYTES: usize = 32;
 
 /// The stage the broker runs: bounds sized to one input and one verdict, so a
@@ -100,6 +113,35 @@ impl<const N: usize> Short<N> {
             .get(..self.len)
             .and_then(|bytes| core::str::from_utf8(bytes).ok())
             .unwrap_or("")
+    }
+}
+
+/// The setting a `preview` verdict shows and its value (the setting codec's
+/// bytes), kept by value.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct Preview {
+    key: Short<128>,
+    value: [u8; VALUE_BYTES],
+    len: usize,
+}
+
+impl Preview {
+    fn new(key: &str, value: &[u8]) -> Option<Self> {
+        let mut bytes = [0; VALUE_BYTES];
+        bytes.get_mut(..value.len())?.copy_from_slice(value);
+        Some(Self {
+            key: Short::new(key)?,
+            value: bytes,
+            len: value.len(),
+        })
+    }
+
+    pub(crate) fn key(&self) -> &str {
+        self.key.as_str()
+    }
+
+    pub(crate) fn value(&self) -> &[u8] {
+        self.value.get(..self.len).unwrap_or(&[])
     }
 }
 
@@ -221,6 +263,15 @@ pub(crate) enum Routed {
     Run(Short<128>),
     /// Raise `input` (one of `owner`'s declared inputs or gestures).
     Raise { owner: u64, input: Short<64> },
+    /// Nothing else sees it (as [`Routed::Taken`]), and `owner`'s preview of
+    /// one setting is shown (or its value changed) until the capture ends.
+    Preview {
+        owner: u64,
+        preview: Preview,
+        /// The capture began at a pointer move: what the screens got of the
+        /// finger is cancelled.
+        begun_mid: bool,
+    },
 }
 
 /// The verdict of a dispatch and how many filters were refused (failed or
@@ -316,6 +367,8 @@ struct Holder {
 
 #[derive(Clone, Copy, Debug)]
 struct Capture {
+    /// The capture shows a `preview` verdict's value (it ends with the capture).
+    previewing: bool,
     /// The physical input (the key as the device gave it, the pointer
     /// contact), not what a replace made of it.
     subject: Subject,
@@ -328,6 +381,8 @@ struct Capture {
 #[derive(Debug, Default)]
 pub(crate) struct InputFilters {
     captures: [Option<Capture>; MAX_CAPTURES],
+    /// A capture that showed a preview ended since the router last asked.
+    preview_ended: bool,
 }
 
 impl InputFilters {
@@ -350,9 +405,18 @@ impl InputFilters {
         }
     }
 
-    /// Forgets every capture (a reset of the input path).
+    /// Forgets every capture (a reset of the input path); a preview one of
+    /// them showed has ended.
     pub(crate) fn clear(&mut self) {
+        self.preview_ended |= self.captures.iter().flatten().any(|c| c.previewing);
         self.captures = [None; MAX_CAPTURES];
+    }
+
+    /// Whether a capture that showed a preview ended since the last call: the
+    /// router ends the preview then, before it acts on the verdict that
+    /// ended it.
+    pub(crate) fn take_preview_ended(&mut self) -> bool {
+        core::mem::take(&mut self.preview_ended)
     }
 
     fn find(&self, subject: &Subject) -> Option<usize> {
@@ -361,7 +425,7 @@ impl InputFilters {
             .position(|c| c.is_some_and(|c| c.subject == *subject))
     }
 
-    fn capture(&mut self, subject: Subject, owner: Holder) -> Result<(), i32> {
+    fn capture(&mut self, subject: Subject, owner: Holder) -> Result<usize, i32> {
         // Free room first; else a released capture (its plugin stopped or
         // failed, it only waits for an up that may never come).
         let at = self
@@ -373,11 +437,14 @@ impl InputFilters {
                     .position(|c| c.is_some_and(|c| c.owner.is_none()))
             })
             .ok_or(ERR_FULL)?;
+        // A capture this one replaces (its up was lost) took its preview with it.
+        self.preview_ended |= self.captures[at].is_some_and(|c| c.previewing);
         self.captures[at] = Some(Capture {
+            previewing: false,
             subject,
             owner: Some(owner),
         });
-        Ok(())
+        Ok(at)
     }
 
     /// Sends `input` through the filters (`filters` in registration order).
@@ -406,6 +473,7 @@ impl InputFilters {
         if phase == Phase::Start
             && let Some(at) = self.find(&subject)
         {
+            self.preview_ended |= self.captures[at].is_some_and(|c| c.previewing);
             self.captures[at] = None;
         }
         if !policy.touch && !matches!(subject, Subject::Key { .. }) {
@@ -431,6 +499,18 @@ impl InputFilters {
                 // gets its up. Take and cancel on anything else are a pass.
                 Verdict::Take | Verdict::Cancel if !matches!(phase, Phase::Start | Phase::Once) => {
                     continue;
+                }
+                // A preview lives as long as a capture: a start has one, so
+                // has a pointer move that begins it.
+                Verdict::Preview(_) if !can_preview(phase, subject) => continue,
+                Verdict::Preview(preview) => {
+                    match self.begin_preview(subject, filter, preview, phase) {
+                        Ok(routed) => routed,
+                        Err(_) => {
+                            refused += 1;
+                            continue;
+                        }
+                    }
                 }
                 Verdict::Take | Verdict::Cancel => {
                     let holder = Holder {
@@ -473,6 +553,30 @@ impl InputFilters {
                 Routed::Pass
             },
             refused,
+        })
+    }
+
+    /// The capture a `preview` verdict begins, and what the router does for
+    /// it; `Err` when there is no room for the capture.
+    fn begin_preview(
+        &mut self,
+        subject: Subject,
+        filter: &Subscription<'_>,
+        preview: Preview,
+        phase: Phase,
+    ) -> Result<Routed, i32> {
+        let holder = Holder {
+            plugin: filter.plugin,
+            token: filter.token,
+        };
+        let at = self.capture(subject, holder)?;
+        if let Some(capture) = self.captures[at].as_mut() {
+            capture.previewing = true;
+        }
+        Ok(Routed::Preview {
+            owner: filter.plugin,
+            preview,
+            begun_mid: phase == Phase::Mid,
         })
     }
 
@@ -541,6 +645,14 @@ impl InputFilters {
                     }
                     Some(Verdict::Run(action)) => routed = run(action),
                     Some(Verdict::Raise(name)) => routed = raise(filter, name, policy),
+                    // The next value of the preview, while the capture goes on.
+                    Some(Verdict::Preview(preview)) if phase != Phase::End => {
+                        routed = Routed::Preview {
+                            owner: filter.plugin,
+                            preview,
+                            begun_mid: false,
+                        };
+                    }
                     Some(Verdict::Invalid) => refused += 1,
                     Some(_) => {}
                 }
@@ -556,10 +668,17 @@ impl InputFilters {
             }
         }
         if phase == Phase::End {
+            self.preview_ended |= self.captures[at].is_some_and(|c| c.previewing);
             self.captures[at] = None;
         }
         Dispatched { routed, refused }
     }
+}
+
+/// Whether a `preview` verdict can begin a capture on `subject` at `phase`:
+/// a key press or pointer down, or a pointer move.
+fn can_preview(phase: Phase, subject: Subject) -> bool {
+    phase == Phase::Start || phase == Phase::Mid && matches!(subject, Subject::Pointer(_))
 }
 
 /// A run verdict: it needs an action. `Pass` stands for "refused".
@@ -596,6 +715,7 @@ enum Verdict {
     Cancel,
     Replace(Encoded),
     Raise(Short<64>),
+    Preview(Preview),
     /// Not a verdict the host knows, or one that does not fit.
     Invalid,
 }
@@ -625,6 +745,9 @@ fn ask(
         3 => Verdict::Cancel,
         4 => Encoded::from_batch(verdict.input).map_or(Verdict::Invalid, Verdict::Replace),
         5 => Short::new(verdict.raise).map_or(Verdict::Invalid, Verdict::Raise),
+        6 => Preview::new(verdict.key, verdict.value)
+            .filter(|preview| !preview.key().is_empty())
+            .map_or(Verdict::Invalid, Verdict::Preview),
         _ => Verdict::Invalid,
     })
 }
