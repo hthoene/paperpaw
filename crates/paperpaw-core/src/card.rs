@@ -11,11 +11,16 @@ pub enum CardTrouble {
     Missing,
     /// The card answers, but its blocks cannot be read.
     Unreadable,
-    /// It is formatted as exFAT (or NTFS), not FAT32.
+    /// No trouble that keeps the card from being used: it is exFAT, which
+    /// PaperPaw reads and writes as an experiment. The reader is told
+    /// once, which the card remembers.
     ExFat,
-    /// It has no FAT file system, nor a partition with one.
+    /// It has no FAT or exFAT file system, nor a partition with one.
     NoFat,
 }
+
+/// On an exFAT card whose reader was told that exFAT is an experiment.
+pub(crate) const EXFAT_TOLD: &str = ".paperpaw/core/exfat-told";
 
 impl CardTrouble {
     /// The key of the text that tells the reader.
@@ -23,7 +28,7 @@ impl CardTrouble {
         match self {
             Self::Missing => "core.card.missing",
             Self::Unreadable => "core.card.unreadable",
-            Self::ExFat => "core.card.exfat",
+            Self::ExFat => "core.card.exfat-experimental",
             Self::NoFat => "core.card.no-fat",
         }
     }

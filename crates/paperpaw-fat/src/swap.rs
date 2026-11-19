@@ -112,10 +112,12 @@ impl Seen {
     fn found(first: u32, boot: &[u8; BLOCK]) -> Self {
         // Not the bytes that say "in use" (FAT12 and FAT16 at 0x25, FAT32
         // at 0x41): written while it is mounted.
+        // exFAT says it at 106 and 107, and how full it is at 112.
+        let exfat = boot[3..11] == *b"EXFAT   ";
         let stable = boot
             .iter()
             .enumerate()
-            .filter(|(at, _)| !matches!(at, 0x25 | 0x41))
+            .filter(|(at, _)| !matches!(at, 0x25 | 0x41) && !(exfat && matches!(at, 106 | 107 | 112)))
             .map(|(_, byte)| *byte);
         let fat32 = boot[0x52..0x55] == *b"FAT";
         let blocks = u32::from(u16::from_le_bytes([boot[11], boot[12]])) / BLOCK as u32;

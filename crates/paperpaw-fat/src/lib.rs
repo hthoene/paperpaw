@@ -113,10 +113,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
 
-use fatfs::{
-    DefaultTimeProvider, Dir, File, FileAttributes, FileSystem, FsOptions, LossyOemCpConverter,
-    Read, ReadWriteSeek, Seek, SeekFrom, Write,
-};
+use fatfs::vol::{Dir, File, Volume, VolumeRef};
+use fatfs::{FileAttributes, Read, ReadWriteSeek, Seek, SeekFrom, Write};
 use paperpaw_platform::storage::is_valid_path;
 use paperpaw_platform::{DirEntry, Storage, StorageError};
 
@@ -126,14 +124,14 @@ pub use fatfs;
 use found::BIG;
 use found::{Lookup, Scan, lookup, lookup_with};
 
-type FatFile<IO> = File<'static, IO, DefaultTimeProvider, LossyOemCpConverter>;
+type FatFile<IO> = File<'static, IO>;
 
 /// Files kept open (each takes about a hundred bytes).
 pub const OPEN_FILES: usize = 16;
 /// Folders kept (each takes about a hundred bytes).
 pub const FOLDERS: usize = 8;
-type FatDir<IO> = Dir<'static, IO, DefaultTimeProvider, LossyOemCpConverter>;
-type FatEntry<IO> = fatfs::DirEntry<'static, IO, DefaultTimeProvider, LossyOemCpConverter>;
+type FatDir<IO> = Dir<'static, IO>;
+type FatEntry<IO> = fatfs::vol::DirEntry<'static, IO>;
 
 /// A file smaller than this takes its clusters one at a time.
 const AHEAD_FROM: u64 = 16 * 1024;
@@ -184,7 +182,7 @@ impl<IO: ReadWriteSeek + 'static> Open<IO> {
 /// PaperPaw's storage on a FAT file system, owned with [`Self::owned`]
 /// (see [`mount`]) or borrowed for the device's lifetime with [`Self::new`].
 pub struct FatStorage<IO: ReadWriteSeek + 'static> {
-    fs: &'static FileSystem<IO>,
+    fs: VolumeRef<'static, IO>,
     /// The files used last, the latest last.
     open: RefCell<alloc::vec::Vec<Open<IO>>>,
     /// The folders looked up last, the latest last, by their paths.
@@ -228,7 +226,7 @@ pub struct FatStorage<IO: ReadWriteSeek + 'static> {
 /// Why there is no FAT file system PaperPaw can read on `blocks`.
 pub fn mount<B: Blocks + 'static>(blocks: B) -> Result<FatStorage<SharedDisk<B>>, VolumeError> {
     let disk = SharedDisk::new(BlockDisk::volume(blocks)?);
-    let fs = FileSystem::new(disk.clone(), FsOptions::new()).map_err(|_| VolumeError::NoFat)?;
+    let fs = Volume::new(disk.clone()).map_err(|_| VolumeError::NoFat)?;
     Ok(FatStorage::owned(fs).with_disk(disk))
 }
 
@@ -717,7 +715,8 @@ fn rename_in<IO: ReadWriteSeek + 'static>(
 }
 
 impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
-    pub fn new(fs: &'static FileSystem<IO>) -> Self {
+    pub fn new(fs: impl Into<VolumeRef<'static, IO>>) -> Self {
+        let fs = fs.into();
         // What a cut left taken by no file is freed before anything else
         // (see the crate documentation).
         #[expect(
@@ -731,7 +730,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             folders: RefCell::new(alloc::vec::Vec::new()),
             flush_disk: None,
             read: None,
-            free: RefCell::new(free::Free::new(fs.cluster_changes())),
+            free: RefCell::new(free::Free::new(fs.cluster_changes(), fs.free_map())),
             kept: Cell::new(false),
             moves_settled: Cell::new(false),
             settled_folders: RefCell::new(Vec::new()),
@@ -748,8 +747,8 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
     /// Call [`Storage::sync`] before dropping a card that is still present
     /// to report write errors. A removed card must reject old-mount I/O,
     /// as [`Watched`] does, including writes attempted by destructors.
-    pub fn owned(fs: FileSystem<IO>) -> Self {
-        owned::storage(fs)
+    pub fn owned(fs: impl Into<Volume<IO>>) -> Self {
+        owned::storage(fs.into())
     }
 
     /// Whether a file that grows by appends takes its clusters ahead, a run
@@ -783,6 +782,24 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         let _ = self.write_back();
         self.trust_kept();
         self
+    }
+
+    /// The type of the volume: FAT or exFAT.
+    #[must_use]
+    pub fn kind(&self) -> fatfs::VolumeKind {
+        self.fs.kind()
+    }
+
+    /// Whether the free space is counted a part at a time (see `free`):
+    /// not on an exFAT volume whose bitmap lies in pieces, which no
+    /// formatter makes; the driver counts it then.
+    fn counts_in_parts(&self) -> bool {
+        self.dots() || self.fs.free_map().is_some()
+    }
+
+    /// Whether every folder but the root begins with `.` and `..` (FAT).
+    fn dots(&self) -> bool {
+        self.fs.kind() == fatfs::VolumeKind::Fat
     }
 
     /// Whether folder `path` is kept (see [`FOLDERS`]): it is there.
@@ -1315,7 +1332,9 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
     /// The free space, once counted, is kept on the card too (see `free`).
     fn sync(&self) -> Result<(), StorageError> {
         self.sync_files()?;
-        self.keep_free()
+        self.keep_free()?;
+        // Everything is on the card: an exFAT card says so.
+        self.fs.rest().map_err(error)
     }
 
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
@@ -1460,12 +1479,12 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
     /// read all of the FAT).
     fn free_space(&self) -> Option<u64> {
         match &self.read {
-            Some(read) => {
+            Some(read) if self.counts_in_parts() => {
                 let mut free = self.free.borrow_mut();
                 free.follow(self.fs.cluster_changes());
                 free.ask(read.as_ref())
             }
-            None => {
+            _ => {
                 let stats = self.fs.stats().ok()?;
                 Some(u64::from(stats.free_clusters()) * u64::from(stats.cluster_size()))
             }
@@ -1475,8 +1494,8 @@ impl<IO: ReadWriteSeek + 'static> Storage for FatStorage<IO> {
     /// The bytes for files in all, from the boot sector.
     fn total_space(&self) -> Option<u64> {
         match &self.read {
-            Some(read) => self.free.borrow_mut().total(read.as_ref()),
-            None => {
+            Some(read) if self.counts_in_parts() => self.free.borrow_mut().total(read.as_ref()),
+            _ => {
                 let stats = self.fs.stats().ok()?;
                 Some(u64::from(stats.total_clusters()) * u64::from(stats.cluster_size()))
             }

@@ -84,9 +84,7 @@ pub trait Blocks {
 pub enum VolumeError {
     /// The disk could not be read.
     Disk,
-    /// It is formatted as exFAT (or NTFS), not FAT32.
-    ExFat,
-    /// Neither a FAT volume nor a partition with one.
+    /// Neither a FAT or exFAT volume nor a partition with one.
     NoFat,
 }
 
@@ -105,8 +103,13 @@ enum Boot {
 }
 
 fn boot(block: &[u8; BLOCK]) -> Boot {
-    if matches!(&block[3..11], b"EXFAT   " | b"NTFS    ") {
+    // exFAT names itself where FAT keeps its OEM name; the driver checks
+    // the rest of its boot sector when it mounts.
+    if &block[3..11] == b"EXFAT   " && block[510] == 0x55 && block[511] == 0xAA {
         return Boot::ExFat;
+    }
+    if &block[3..11] == b"NTFS    " {
+        return Boot::Other;
     }
     let jump = matches!(block[0], 0xEB | 0xE9);
     // FAT12 and FAT16 name their type at 0x36, FAT32 at 0x52.
@@ -238,14 +241,12 @@ impl<B: Blocks> BlockDisk<B> {
         let mut block = [0u8; BLOCK];
         disk.read_block(0, &mut block)?;
         match boot(&block) {
-            Boot::Fat => {
+            Boot::Fat | Boot::ExFat => {
                 disk.volume_found(0, &block);
                 return Ok(Self::part(disk, 0, blocks));
             }
-            Boot::ExFat => return Err(VolumeError::ExFat),
             Boot::Other => {}
         }
-        let mut exfat = false;
         for (first, count) in partitions(&mut disk, &block)? {
             if first == 0 || count == 0 || first >= u64::from(blocks) {
                 continue;
@@ -257,19 +258,14 @@ impl<B: Blocks> BlockDisk<B> {
             let (first, count) = (first as u32, count as u32);
             disk.read_block(first, &mut block)?;
             match boot(&block) {
-                Boot::Fat => {
+                Boot::Fat | Boot::ExFat => {
                     disk.volume_found(first, &block);
                     return Ok(Self::part(disk, first, count));
                 }
-                Boot::ExFat => exfat = true,
                 Boot::Other => {}
             }
         }
-        Err(if exfat {
-            VolumeError::ExFat
-        } else {
-            VolumeError::NoFat
-        })
+        Err(VolumeError::NoFat)
     }
 
     /// `blocks` blocks of the disk from block `first` on.

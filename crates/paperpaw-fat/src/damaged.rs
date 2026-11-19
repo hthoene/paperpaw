@@ -25,7 +25,7 @@ fn is_damaged_name(name: &str) -> bool {
 }
 
 /// Whether `size` bytes are more than the card holds.
-fn is_past_card<IO: ReadWriteSeek + 'static>(fs: &FileSystem<IO>, size: u64) -> bool {
+fn is_past_card<IO: ReadWriteSeek + 'static>(fs: VolumeRef<'static, IO>, size: u64) -> bool {
     size > u64::from(fs.total_clusters()) * u64::from(fs.cluster_size())
 }
 
@@ -40,12 +40,17 @@ pub(super) type Place = (Option<u32>, Option<u32>);
 /// `place` where it is known. Not one that leads back up, or into
 /// another folder (an entry cross-linked).
 pub(super) fn is_damaged<IO: ReadWriteSeek + 'static>(
-    fs: &FileSystem<IO>,
+    fs: VolumeRef<'static, IO>,
     entry: &FatEntry<IO>,
     name: &str,
     at: usize,
     place: Option<Place>,
 ) -> bool {
+    // An exFAT folder holds no `.` and `..`: each entry as one after them.
+    let at = match fs.kind() {
+        fatfs::VolumeKind::Fat => at,
+        fatfs::VolumeKind::ExFat => 2,
+    };
     let clusters = fs.total_clusters();
     // Clusters are numbered from 2.
     let past = entry
@@ -152,7 +157,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
                 return Ok(false);
             }
         }
-        // Its `.` and `..` at least.
-        Ok(seen >= 2)
+        // Its `.` and `..` at least (FAT).
+        Ok(seen >= 2 || !self.dots())
     }
 }

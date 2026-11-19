@@ -6,16 +6,17 @@ use alloc::boxed::Box;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-use fatfs::{FileSystem, ReadWriteSeek};
+use fatfs::ReadWriteSeek;
+use fatfs::vol::Volume;
 
 use crate::FatStorage;
 
 pub(super) struct FileSystemOwner<IO: ReadWriteSeek> {
-    pointer: NonNull<FileSystem<IO>>,
-    allocation: PhantomData<Box<FileSystem<IO>>>,
+    pointer: NonNull<Volume<IO>>,
+    allocation: PhantomData<Box<Volume<IO>>>,
 }
 
-pub(super) fn storage<IO: ReadWriteSeek + 'static>(fs: FileSystem<IO>) -> FatStorage<IO> {
+pub(super) fn storage<IO: ReadWriteSeek + 'static>(fs: Volume<IO>) -> FatStorage<IO> {
     let pointer = Box::into_raw(Box::new(fs));
     // SAFETY: Box::into_raw returns a non-null, aligned allocation. It
     // stays at this address, owned only by FileSystemOwner below.
