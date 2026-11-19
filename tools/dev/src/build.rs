@@ -15,6 +15,15 @@
 //! `plugin` folder is not touched (the plugin store takes no code file in
 //! it). `--device emulator` builds the plugin for this computer instead
 //! (`build/emulator.rs`).
+//!
+//! The same source makes the same file in any folder and on any computer
+//! (the plugin store rebuilds a published plugin and compares): the paths
+//! that end up in a build, in the messages of its panics and the lines of
+//! its crashes, are written as `/plugin` (the plugin's folder), `/cargo`
+//! (Cargo's home, where its dependencies lie), `/paperpaw` (a PaperPaw
+//! checkout the SDK is taken from by a path), `/target` (a build folder
+//! elsewhere) and `/rust` (the compiler, where its libraries are built
+//! along), whatever they are here (`same_paths`).
 
 mod emulator;
 
@@ -130,6 +139,72 @@ fn compiler(dir: &Path, chip: &Chip) -> Result<bool, String> {
         })
     });
     Ok(!installed)
+}
+
+/// The folder the SDK is taken from where `Cargo.toml` names it by a path
+/// outside the plugin's folder (`paperpaw-sdk = { path = '/..' }`): the
+/// PaperPaw checkout it lies in (`crates/paperpaw-sdk` of it), else itself.
+/// Its path is kept out of the build, but such a build is still not the same
+/// on another computer (Cargo makes the path a part of it): `new --code
+/// --sdk` names the SDK through a link in the plugin's folder instead.
+fn sdk_folder(dir: &Path) -> Option<PathBuf> {
+    let text = std::fs::read_to_string(dir.join("Cargo.toml")).ok()?;
+    let value = text.lines().find_map(|line| {
+        let rest = line.trim().strip_prefix("paperpaw-sdk")?.trim_start();
+        let table = rest.strip_prefix('=')?.trim().strip_prefix('{')?;
+        let path = table.trim_start().strip_prefix("path")?.trim_start();
+        let path = path.strip_prefix('=')?.trim_start();
+        let quote = path.chars().next().filter(|c| matches!(c, '\'' | '"'))?;
+        path[1..].split(quote).next()
+    })?;
+    // One in the plugin's own folder (its link `.paperpaw`) is written as
+    // the folder is.
+    if Path::new(value).is_relative() {
+        return None;
+    }
+    let sdk = dir.join(value).canonicalize().ok()?;
+    let checkout = sdk
+        .parent()
+        .filter(|crates| sdk.ends_with("crates/paperpaw-sdk") && crates.parent().is_some())
+        .and_then(Path::parent)
+        .map(Path::to_path_buf);
+    Some(checkout.unwrap_or(sdk))
+}
+
+/// Cargo's setting that has the compiler write the folders of this build
+/// the same wherever they lie (the module's description), for `triple`:
+/// added to the flags of the plugin's `.cargo/config.toml`, which link it.
+/// `rust` is the compiler's folder, where its libraries are built along.
+fn same_paths(dir: &Path, target: &Path, triple: &str, rust: Option<&Path>) -> String {
+    let whole = |path: &Path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let source = whole(dir);
+    let cargo = std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| {
+            let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+            Some(PathBuf::from(home).join(".cargo"))
+        })
+        .map(|home| whole(&home));
+    let target = Some(whole(target)).filter(|target| !target.starts_with(&source));
+    // The compiler takes the last of these that fits a path: the folder of
+    // the plugin before what may lie in it.
+    let folders = [
+        (cargo, "/cargo"),
+        (Some(source), "/plugin"),
+        (target, "/target"),
+        (sdk_folder(dir), "/paperpaw"),
+        (rust.map(whole), "/rust"),
+    ];
+    let flags: Vec<String> = folders
+        .into_iter()
+        .filter_map(|(folder, name)| {
+            // A TOML string: `\` and `"` are written with a `\` before them.
+            let folder = folder?.display().to_string();
+            let folder = folder.replace('\\', "\\\\").replace('"', "\\\"");
+            Some(format!("\"--remap-path-prefix={folder}={name}\""))
+        })
+        .collect();
+    format!("target.{triple}.rustflags=[{}]", flags.join(", "))
 }
 
 /// The crate's name, which is the plugin's id (`new --code` writes it so).
@@ -301,9 +376,16 @@ pub fn run(args: &[String]) -> Result<bool, String> {
         cargo.arg(format!("+{toolchain}"));
     }
     cargo.args(["build", "--release", "--target", chip.triple]);
+    let mut rust = None;
     if build_std {
         cargo.arg("-Zbuild-std=core,alloc");
+        let toolchain = format!("+{}", chip.toolchain.unwrap_or("stable"));
+        rust = said(&dir, "rustc", &[&toolchain, "--print", "sysroot"])
+            .map(|sysroot| PathBuf::from(sysroot.trim()));
     }
+    cargo
+        .arg("--config")
+        .arg(same_paths(&dir, &target, chip.triple, rust.as_deref()));
     step(&mut cargo, "the build (cargo)")?;
 
     let built = target.join(chip.triple).join("release").join(&id);

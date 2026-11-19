@@ -14,6 +14,7 @@
 use std::path::Path;
 
 use paperpaw_native::HEADER_LEN;
+use paperpaw_native::header5;
 use paperpaw_native::signature::SIGNATURE_LEN;
 use paperpaw_sdk::native::{self, Chip, Fingerprint, Header};
 
@@ -50,6 +51,13 @@ pub fn check_file(path: &Path, release: Option<(&str, Option<Fingerprint>)>) -> 
     } else {
         folder
     };
+    // A file of plugin interface 7 (format 5) has a header of its own.
+    if let Ok(bytes) = std::fs::read(path)
+        && bytes.get(..4) == Some(&paperpaw_native::MAGIC[..])
+        && bytes.get(4..6) == Some(&header5::FORMAT.to_le_bytes()[..])
+    {
+        return check_file5(&bytes, place, release);
+    }
     let storage = match paperpaw_fs::DirStorage::new(folder) {
         Ok(storage) => storage,
         Err(e) => return vec![Finding::error("package.ppn", place, e.to_string())],
@@ -82,23 +90,7 @@ pub fn check_file(path: &Path, release: Option<(&str, Option<Fingerprint>)>) -> 
         place.clone(),
         sizes(&header, signature.is_some()),
     ));
-    match &signature {
-        Some(signature) => findings.push(Finding::info(
-            "package.ppn-signature",
-            place.clone(),
-            format!(
-                "signed by the key {}: the store remembers it at the first install and \
-                 asks before code by another key replaces it",
-                paperpaw_digest::hex::encode(&signature.key)
-            ),
-        )),
-        None => findings.push(Finding::warning(
-            "package.ppn-signature",
-            place.clone(),
-            "not signed: nobody can tell who made it; sign it with \
-             `paperpaw-sign sign-plugin <file> --key <key>` (or `pack ... --key`)",
-        )),
-    }
+    findings.push(signed(&place, signature.as_ref()));
     match release {
         Some((_, Some(release))) if release != fingerprint => findings.push(Finding::error(
             "package.ppn-release",
@@ -127,11 +119,93 @@ pub fn check_file(path: &Path, release: Option<(&str, Option<Fingerprint>)>) -> 
     findings
 }
 
+/// A file of plugin interface 7 (format 5, `abi/ppn5.md`), read as a
+/// reader of its chip reads it: no fingerprint, it names the interface's
+/// minor it needs instead.
+fn check_file5(
+    bytes: &[u8],
+    place: String,
+    release: Option<(&str, Option<Fingerprint>)>,
+) -> Vec<Finding> {
+    let (header, signature) = match paperpaw_publish::release::build(bytes) {
+        Ok(read) => read,
+        Err(problem) => return vec![Finding::error("package.ppn", place, problem)],
+    };
+    let mut findings = vec![Finding::info(
+        "package.ppn",
+        place.clone(),
+        format!(
+            "made for the {} ({}), plugin interface {}.{}, linked at {:#010x}, aligned to {}",
+            header.target,
+            devices(header.target),
+            header.abi_major,
+            header.needs_minor,
+            header.base,
+            header.align
+        ),
+    )];
+    let trailer = if signature.is_some() {
+        SIGNATURE_LEN as u64
+    } else {
+        0
+    };
+    findings.push(Finding::info(
+        "package.ppn-size",
+        place.clone(),
+        format!(
+            "{} bytes: header {}, read-only data {}, code {} ({} hot), relocations {} \
+             ({} words), patches {}, signature {trailer}",
+            header.file_len() + trailer,
+            header5::HEADER_LEN,
+            header.code_at,
+            header.image_len - header.code_at,
+            header.hot_len,
+            u64::from(header.relocs) * 4,
+            header.relocs,
+            u64::from(header.patches) * header5::PATCH_BYTES,
+        ),
+    ));
+    findings.push(signed(&place, signature.as_ref()));
+    if release.is_some() {
+        findings.push(Finding::info(
+            "package.ppn-release",
+            place,
+            format!(
+                "runs on every PaperPaw of plugin interface {}.{} or later: a file of \
+                 interface 7 has no fingerprint",
+                header.abi_major, header.needs_minor
+            ),
+        ));
+    }
+    findings
+}
+
+/// Who signed the file, or that nobody did.
+fn signed(place: &str, signature: Option<&paperpaw_native::Signature>) -> Finding {
+    match signature {
+        Some(signature) => Finding::info(
+            "package.ppn-signature",
+            place.to_string(),
+            format!(
+                "signed by the key {}: the store remembers it at the first install and \
+                 asks before code by another key replaces it",
+                paperpaw_digest::hex::encode(&signature.key)
+            ),
+        ),
+        None => Finding::warning(
+            "package.ppn-signature",
+            place.to_string(),
+            "not signed: nobody can tell who made it; sign it with \
+             `paperpaw-sign sign-plugin <file> --key <key>` (or `pack ... --key`)",
+        ),
+    }
+}
+
 /// The devices with `chip`.
 fn devices(chip: Chip) -> &'static str {
     match chip {
-        Chip::Esp32C3 => "Xteink X4",
-        Chip::Esp32S3 => "Xteink X4 Pro",
+        Chip::Esp32C3 => "Xteink X4, X3",
+        Chip::Esp32S3 => "Xteink X4 Pro, X4 Classic",
         _ => "an unknown chip",
     }
 }

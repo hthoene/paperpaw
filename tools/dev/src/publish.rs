@@ -90,7 +90,8 @@ pub fn files(id: &str) -> Vec<(String, String)> {
         ("README.md".to_string(), readme(id, &name)),
         (
             ".gitignore".to_string(),
-            "/target/\n/dist/\n/release/\n# The author's signing key never goes into the repository: keep it\n\
+            "/target/\n/dist/\n/release/\n# A link to a PaperPaw checkout on this computer (`new --code --sdk`).\n\
+             /.paperpaw\n# The author's signing key never goes into the repository: keep it\n\
              # outside (e.g. ~/.paperpaw/author.key) and in the CI's secrets.\n*.key\n"
                 .to_string(),
         ),
@@ -117,11 +118,36 @@ fn type_of(id: &str) -> String {
     name
 }
 
+/// The link in a plugin's folder to the PaperPaw checkout its SDK is taken
+/// from (`new --code --sdk`), and the SDK's crate through it.
+pub const SDK_LINK: &str = ".paperpaw";
+const SDK_IN_LINK: &str = ".paperpaw/crates/paperpaw-sdk";
+
+/// The PaperPaw checkout whose `crates/paperpaw-sdk` is `sdk`, if it is one.
+fn checkout_of(sdk: &Path) -> Option<&Path> {
+    sdk.ends_with("crates/paperpaw-sdk")
+        .then(|| sdk.parent()?.parent())
+        .flatten()
+}
+
+/// Makes `link` a link to the folder `to`; whether it could (not on a
+/// Windows that keeps links to folders for administrators).
+fn link_folder(to: &Path, link: &Path) -> bool {
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(to, link);
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_dir(to, link);
+    #[cfg(not(any(unix, windows)))]
+    let made: std::io::Result<()> = Err(std::io::ErrorKind::Unsupported.into());
+    made.is_ok()
+}
+
 /// The files a plugin with code has beside those of [`files`]: the crate
 /// (`Cargo.toml`, `src/main.rs`), how it is built for the X4
 /// (`.cargo/config.toml`, the linker script, the compiler), the record of
 /// the device's functions it calls (`native/`), and its words. The SDK is
-/// the one of this tool's release, or the checkout at `sdk`.
+/// the one of this tool's release, or the checkout at `sdk`, named as it is;
+/// `new` names it through the plugin's own link ([`SDK_LINK`]) where it can.
 pub fn code_files(id: &str, sdk: Option<&Path>) -> Vec<(String, Vec<u8>)> {
     let name = name_of(id);
     let sdk = match sdk {
@@ -312,8 +338,34 @@ pub fn new(args: &[String]) -> Result<bool, String> {
         .into_iter()
         .map(|(path, text)| (path, text.into_bytes()))
         .collect();
+    // A checkout's SDK is reached through a link in the plugin's own folder,
+    // and named by that: Cargo makes a path outside the folder a part of
+    // the build, so that the same source would build to another file on
+    // another computer, and the plugin store could not rebuild it. Named
+    // through the link, the build is the same wherever the checkout lies.
+    let mut linked = false;
+    if let Some(checkout) = sdk.as_deref().and_then(checkout_of) {
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let link = dir.join(SDK_LINK);
+        if link.exists() || link.is_symlink() {
+            return Err(format!("{} is there already", link.display()));
+        }
+        linked = link_folder(checkout, &link);
+    }
     if code {
-        all.extend(code_files(&id, sdk.as_deref()));
+        let named = if linked {
+            Some(Path::new(SDK_IN_LINK))
+        } else {
+            sdk.as_deref()
+        };
+        all.extend(code_files(&id, named));
+    }
+    if sdk.is_some() && !linked {
+        println!(
+            "note: the SDK is named by its path on this computer (it is no PaperPaw checkout's \
+             crates/paperpaw-sdk, or a link to it could not be made here): the plugin builds, \
+             but the plugin store cannot rebuild it to the same file"
+        );
     }
     write(&dir, &all)?;
     println!(
@@ -441,6 +493,52 @@ mod tests {
             .map(ToString::to_string)
             .collect();
         assert!(new(&alone).unwrap_err().contains("--sdk goes with --code"));
+    }
+
+    /// A checkout's SDK is named through a link in the plugin's own folder,
+    /// so that the same source builds to the same file wherever the checkout
+    /// lies (and the plugin store can rebuild it); an SDK that is no
+    /// checkout's is named by its path, as before.
+    #[cfg(unix)]
+    #[test]
+    fn a_checkouts_sdk_is_named_through_a_link_in_the_plugins_folder() {
+        let top = std::env::temp_dir()
+            .join("paperpaw-dev-new")
+            .join(format!("sdk-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&top);
+        let (checkout, alone) = (top.join("checkout"), top.join("alone"));
+        std::fs::create_dir_all(checkout.join("crates/paperpaw-sdk")).unwrap();
+        std::fs::create_dir_all(&alone).unwrap();
+        let made = |sdk: &Path, name: &str| {
+            let dir = top.join(name);
+            let args: Vec<String> = ["--github", "night-owl", "--code", "--sdk"]
+                .iter()
+                .map(ToString::to_string)
+                .chain([sdk.display().to_string(), "--dir".into()])
+                .chain([dir.display().to_string()])
+                .collect();
+            assert_eq!(new(&args), Ok(true));
+            (
+                std::fs::read_to_string(dir.join("Cargo.toml")).unwrap(),
+                dir,
+            )
+        };
+        let (manifest, dir) = made(&checkout.join("crates/paperpaw-sdk"), "linked");
+        assert!(
+            manifest.contains("paperpaw-sdk = { path = '.paperpaw/crates/paperpaw-sdk' }"),
+            "{manifest}"
+        );
+        assert!(manifest.contains("[workspace]\nexclude = [\".paperpaw\"]"));
+        assert_eq!(std::fs::read_link(dir.join(SDK_LINK)).unwrap(), checkout);
+        let ignored = std::fs::read_to_string(dir.join(".gitignore")).unwrap();
+        assert!(ignored.lines().any(|line| line == "/.paperpaw"));
+        let (manifest, dir) = made(&alone, "by-path");
+        assert!(manifest.contains(&format!(
+            "paperpaw-sdk = {{ path = '{}' }}",
+            alone.display()
+        )));
+        assert!(!dir.join(SDK_LINK).exists());
+        let _ = std::fs::remove_dir_all(&top);
     }
 
     /// The template of a community plugin source (`templates/plugin-source`,

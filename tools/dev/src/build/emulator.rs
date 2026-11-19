@@ -61,7 +61,10 @@ pub(super) fn build(dir: &Path, id: &str, target: &Path) -> Result<bool, String>
     let mut cargo = Command::new("cargo");
     cargo
         .current_dir(dir)
-        .args(["rustc", "--release", "--target", TRIPLE, "--bin", id, "--"]);
+        .args(["rustc", "--release", "--target", TRIPLE, "--bin", id])
+        .arg("--config")
+        .arg(super::same_paths(dir, target, TRIPLE, None))
+        .arg("--");
     for arg in [
         "-shared".to_string(),
         "-nostartfiles".to_string(),
