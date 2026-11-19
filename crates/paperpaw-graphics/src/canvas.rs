@@ -913,6 +913,40 @@ impl<'a> Canvas<'a> {
         );
     }
 
+    /// [`draw_mask`](Self::draw_mask) with the coverage given a run of a row
+    /// at a time: `rows(dy, dx, out)` fills `out` (at most 64 pixels) with the
+    /// coverage of the pixels `dx`, `dx + 1`... of row `dy`, rows in order, a
+    /// row left to right. The pixels come out as `draw_mask` draws them; a
+    /// glyph's rows are cheaper this way than a call for each pixel.
+    pub fn draw_mask_rows(
+        &mut self,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        color: Color,
+        rows: impl FnMut(u32, u32, &mut [u8]),
+    ) {
+        if self.framebuffer.is_probe() || !self.framebuffer.has_row_masks() {
+            let rows = core::cell::RefCell::new(rows);
+            return self.draw_mask(x, y, width, height, color, |dx, dy| {
+                let mut one = [0u8; 1];
+                (rows.borrow_mut())(dy, dx, &mut one);
+                one[0]
+            });
+        }
+        let Some(rect) = self.clip_signed(x, y, width, height) else {
+            return;
+        };
+        let from = (
+            (i64::from(rect.x) - i64::from(x) - i64::from(self.origin.0)) as u32,
+            (i64::from(rect.y) - i64::from(y) - i64::from(self.origin.1)) as u32,
+        );
+        if self.framebuffer.blend_mask_rows(rect, from, color, rows) {
+            self.framebuffer.mark_dirty(rect);
+        }
+    }
+
     /// [`draw_mask`](Self::draw_mask) in wide coordinates, pixel by pixel.
     pub(crate) fn mask_wide(
         &mut self,

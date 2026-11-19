@@ -125,6 +125,15 @@ impl<'a> Rows<'a> {
         self.buf.get(x as usize).map_or(0, Cell::get)
     }
 
+    /// Row `y`'s levels, one per pixel; none beyond the glyph.
+    #[inline]
+    pub(crate) fn row(&self, y: u32) -> &[Cell<u8>] {
+        if y != self.row.get() && !self.seek(y) {
+            return &[];
+        }
+        self.buf.get(..self.width).unwrap_or(&[])
+    }
+
     /// Has row `y` in the buffer, decoding from the row after the one there
     /// (from the start for an earlier one); false beyond the glyph.
     #[inline(never)]

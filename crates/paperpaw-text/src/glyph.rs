@@ -112,6 +112,78 @@ impl GlyphRef<'_> {
     }
 }
 
+/// A glyph's rows as the opacities a tone curve gives their levels, a run of
+/// a row at a time (`Canvas::draw_mask_rows`): what a draw asks for pixel by
+/// pixel with [`GlyphRef::levels`] costs the choice of the storage and the
+/// row's start again for each.
+pub(crate) struct AlphaRows<'a> {
+    tone: [u8; 16],
+    stride: usize,
+    source: Levels<'a>,
+}
+
+impl AlphaRows<'_> {
+    /// Fills `out` with the opacities of the pixels `dx`, `dx + 1`... of row
+    /// `dy` (0 beyond the glyph's data).
+    #[inline]
+    pub(crate) fn fill(&self, dy: u32, dx: u32, out: &mut [u8]) {
+        let x = dx as usize;
+        match &self.source {
+            Levels::Raw(data) => {
+                let row = data.get(dy as usize * self.stride..).unwrap_or(&[]);
+                let mut at = 0;
+                let mut x = x;
+                // From the second pixel of a byte, then two pixels a byte.
+                if x % 2 == 1 && !out.is_empty() {
+                    let byte = row.get(x / 2).copied().unwrap_or(0);
+                    out[0] = self.tone[usize::from(byte & 0x0f)];
+                    (at, x) = (1, x + 1);
+                }
+                let bytes = row.get(x / 2..).unwrap_or(&[]);
+                let (pairs, _) = out[at..].as_chunks_mut::<2>();
+                let mut used = 0;
+                for (pair, &byte) in pairs.iter_mut().zip(bytes) {
+                    pair[0] = self.tone[usize::from(byte >> 4)];
+                    pair[1] = self.tone[usize::from(byte & 0x0f)];
+                    used += 1;
+                }
+                // Past the data: empty (the buffer holds the run before).
+                let done = at + used * 2;
+                for alpha in &mut out[done..] {
+                    *alpha = 0;
+                }
+                if let (true, Some(&byte)) = (done < out.len(), bytes.get(used)) {
+                    // A last pixel alone: the high half of its byte.
+                    out[done] = self.tone[usize::from(byte >> 4)];
+                }
+            }
+            Levels::Packed(rows) => {
+                let row = rows.row(dy);
+                for (n, alpha) in out.iter_mut().enumerate() {
+                    let level = row.get(x + n).map_or(0, core::cell::Cell::get);
+                    *alpha = self.tone[usize::from(level & 0x0f)];
+                }
+            }
+        }
+    }
+}
+
+impl GlyphRef<'_> {
+    /// The rows of this glyph in the opacities of `tone` (its 16 alphas).
+    pub(crate) fn alpha_rows(&self, tone: [u8; 16]) -> AlphaRows<'_> {
+        let source = match self.format {
+            COVERAGE4 => Levels::Raw(self.data),
+            PACKED4 => Levels::Packed(crate::packed::Rows::new(self.data, self.width, self.height)),
+            _ => Levels::Raw(&[]),
+        };
+        AlphaRows {
+            tone,
+            stride: usize::from(self.width).div_ceil(2),
+            source,
+        }
+    }
+}
+
 /// Where [`GlyphRef::levels`] reads from.
 #[allow(
     clippy::large_enum_variant,
@@ -276,5 +348,53 @@ mod tests {
         assert!(fits(32, 32, 1.0) && !fits(1, 33, 1.0));
         assert!(!fits(4096, 4096, 1000.0));
         assert!(!fits(1, 1, f32::NAN));
+    }
+
+    /// A glyph's rows in runs of any start and length are what `levels` and
+    /// the tone give pixel by pixel, packed or not, past the data too.
+    #[test]
+    fn alpha_rows_are_the_levels_on_the_tone_in_every_run() {
+        let tone: [u8; 16] = core::array::from_fn(|i| (i * 16 + 3) as u8);
+        let mut tone = tone;
+        tone[0] = 0;
+        let mut state = 7u32;
+        for (width, height) in [(1usize, 1usize), (2, 3), (7, 5), (16, 4), (33, 9)] {
+            let stride = width.div_ceil(2);
+            let mut raw = alloc::vec![0u8; stride * height];
+            for byte in &mut raw {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                *byte = (state >> 24) as u8;
+            }
+            let packed = crate::packed::encode(&raw, width as u16, height as u16).unwrap();
+            for (format, data) in [
+                (COVERAGE4, &raw[..]),
+                (PACKED4, &packed[..]),
+                (COVERAGE4, &raw[..raw.len() / 2]),
+            ] {
+                let glyph = GlyphRef {
+                    format,
+                    left: 0,
+                    top: 0,
+                    width: width as u16,
+                    height: height as u16,
+                    advance: 0.0,
+                    data,
+                };
+                let level = glyph.levels();
+                let rows = glyph.alpha_rows(tone);
+                for dy in 0..height as u32 {
+                    for dx in 0..width as u32 {
+                        for len in 0..=(width as u32 - dx) as usize {
+                            let mut out = alloc::vec![0xAAu8; len];
+                            rows.fill(dy, dx, &mut out);
+                            for (n, &alpha) in out.iter().enumerate() {
+                                let want = tone[usize::from(level(dx + n as u32, dy) & 15)];
+                                assert_eq!(alpha, want, "{width}x{height} {format} {dx}+{n},{dy}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

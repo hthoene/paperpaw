@@ -275,14 +275,16 @@ fn paint(
     let gy = baseline.saturating_add(i32::from(glyph.top));
     if !glyph.is_empty() && extra == 0 {
         // The usual weight: each pixel's own coverage, on its curve.
-        let level = glyph.levels();
-        canvas.draw_mask(
+        // A run of a row at a time: the glyph's storage is chosen once, not
+        // for each pixel.
+        let rows = glyph.alpha_rows(tone.alphas());
+        canvas.draw_mask_rows(
             gx,
             gy,
             u32::from(glyph.width),
             u32::from(glyph.height),
             color,
-            |px, py| tone.alpha(level(px, py)),
+            |dy, dx, out| rows.fill(dy, dx, out),
         );
     } else if !glyph.is_empty() {
         let width = u32::from(glyph.width);
