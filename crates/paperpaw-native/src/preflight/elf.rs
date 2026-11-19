@@ -89,25 +89,25 @@ const ALLOWED_NEEDED: [&[u8]; 6] = [
     b"libdl.so",
 ];
 
-fn u16_at(b: &[u8], at: usize) -> Result<u16, Refusal> {
+pub(super) fn u16_at(b: &[u8], at: usize) -> Result<u16, Refusal> {
     let s = b.get(at..at.checked_add(2).ok_or(Refusal::Truncated)?);
     s.map(|s| u16::from_le_bytes([s[0], s[1]]))
         .ok_or(Refusal::Truncated)
 }
 
-fn u32_at(b: &[u8], at: usize) -> Result<u32, Refusal> {
+pub(super) fn u32_at(b: &[u8], at: usize) -> Result<u32, Refusal> {
     let s = b.get(at..at.checked_add(4).ok_or(Refusal::Truncated)?);
     s.map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
         .ok_or(Refusal::Truncated)
 }
 
-fn u64_at(b: &[u8], at: usize) -> Result<u64, Refusal> {
+pub(super) fn u64_at(b: &[u8], at: usize) -> Result<u64, Refusal> {
     let s = b.get(at..at.checked_add(8).ok_or(Refusal::Truncated)?);
     s.map(|s| u64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]))
         .ok_or(Refusal::Truncated)
 }
 
-fn to_usize(v: u64) -> Result<usize, Refusal> {
+pub(super) fn to_usize(v: u64) -> Result<usize, Refusal> {
     usize::try_from(v).map_err(|_| Refusal::Truncated)
 }
 

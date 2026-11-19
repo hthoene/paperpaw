@@ -1364,7 +1364,15 @@ impl Plugin for NativeReader {
             let skim = self.skims.top(token).ok_or(Error::State)?;
             return skim.draw(host, &mut frame);
         }
-        let (Some(view), Some(docs)) = (self.screens.top(token), &self.docs) else {
+        // A screen covered in the round it opened (a dialog asked for as the book
+        // opens) is drawn before the host tells it is shown: the newest one is
+        // the one drawn then (#359).
+        let instance = self
+            .screens
+            .top_instance(token)
+            .or_else(|| self.screens.all_with_instance().last().map(|(i, _)| i));
+        let (Some(view), Some(docs)) = (instance.and_then(|i| self.screens.get(i)), &self.docs)
+        else {
             return Err(Error::State);
         };
         view.draw(host, (docs, self.ui.as_ref()), &mut frame)

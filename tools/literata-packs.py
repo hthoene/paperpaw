@@ -70,7 +70,7 @@ def plugin(out, id, sections):
 
 
 def main():
-    if len(sys.argv) != 2:
+    if len(sys.argv) != 2 or sys.argv[1].startswith("-"):
         sys.exit(__doc__)
     subprocess.run(["cargo", "build", "-q", "--release", "-p", "paperpaw-fontgen"],
                    cwd=ROOT, check=True)

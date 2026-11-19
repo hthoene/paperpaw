@@ -10,7 +10,7 @@
 #   tools/quick-check.sh [--base REV] [--all] [--list] [--skip a,b] [--only a,b]
 #
 # Steps (the files that trigger each one in brackets):
-#   fmt       always: cargo fmt --all --check and shells/xteink's rustfmt check
+#   fmt       always: cargo fmt --all --check and shells/xteink's rustfmt check; no tracked path starting with `-`
 #   clippy    the changed packages, -D warnings           [any .rs/Cargo.toml of a package]
 #   doc       the workspace's API docs, -D warnings (CI's)   [a package with a library]
 #   interface the SDK's interface test: what plugins see changes only with the
@@ -235,7 +235,11 @@ publish_step() { cargo test -j"$jobs_n" -p paperpaw-publish; }
 wasm32_step() { CARGO_TARGET_DIR="$lane2_target" cargo build -j"$jobs_n" --release --target wasm32-unknown-unknown "${wasm_pkgs[@]}"; }
 pk() { local a=(); for n in "$@"; do a+=(-p "$n"); done; printf '%s\n' "${a[@]}"; }
 
-fmt_step() { cargo fmt --all -- --check && rustfmt --edition 2024 --check shells/xteink/src/main.rs; }
+# A path starting with `-` is a tool that took `--help` for its output folder (#367).
+fmt_step() {
+    if git ls-files | grep -q '^-'; then git ls-files | grep '^-' | head -5; echo "a tracked path starts with '-' (#367)"; return 1; fi
+    cargo fmt --all -- --check && rustfmt --edition 2024 --check shells/xteink/src/main.rs
+}
 clippy_step() {
     # The emulator's tests name `paperpaw_core::testing`: CI's feature on core.
     local rc=0 plain=() n
