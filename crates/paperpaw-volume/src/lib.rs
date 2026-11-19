@@ -29,6 +29,7 @@ mod boot_sector;
 mod dir;
 mod dir_entry;
 mod error;
+mod exfat;
 mod file;
 #[cfg(any(feature = "format", test))]
 mod format;
@@ -38,10 +39,13 @@ mod kind;
 mod names;
 mod table;
 mod time;
+pub mod vol;
 
 pub use crate::dir::*;
 pub use crate::dir_entry::*;
 pub use crate::error::*;
+#[cfg(any(feature = "format", test))]
+pub use crate::exfat::format::format_exfat;
 pub use crate::file::*;
 #[cfg(any(feature = "format", test))]
 pub use crate::format::*;

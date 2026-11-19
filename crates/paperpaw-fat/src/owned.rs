@@ -6,16 +6,17 @@ use alloc::boxed::Box;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-use fatfs::{FileSystem, ReadWriteSeek};
+use fatfs::ReadWriteSeek;
+use fatfs::vol::Volume;
 
 use crate::FatStorage;
 
 pub(super) struct FileSystemOwner<IO: ReadWriteSeek> {
-    pointer: NonNull<FileSystem<IO>>,
-    allocation: PhantomData<Box<FileSystem<IO>>>,
+    pointer: NonNull<Volume<IO>>,
+    allocation: PhantomData<Box<Volume<IO>>>,
 }
 
-pub(super) fn storage<IO: ReadWriteSeek + 'static>(fs: FileSystem<IO>) -> FatStorage<IO> {
+pub(super) fn storage<IO: ReadWriteSeek + 'static>(fs: Volume<IO>) -> FatStorage<IO> {
     let pointer = Box::into_raw(Box::new(fs));
     // SAFETY: Box::into_raw returns a non-null, aligned allocation. It
     // stays at this address, owned only by FileSystemOwner below.
@@ -40,5 +41,25 @@ impl<IO: ReadWriteSeek> Drop for FileSystemOwner<IO> {
         // FatStorage's fields are dropped in declaration order: all
         // handles borrowing it are gone before this last field drops.
         unsafe { drop(Box::from_raw(self.pointer.as_ptr())) };
+    }
+}
+
+impl<IO: fatfs::ReadWriteSeek + 'static> crate::FatStorage<IO> {
+    /// The type of the volume: FAT or exFAT.
+    #[must_use]
+    pub fn kind(&self) -> fatfs::VolumeKind {
+        self.fs.kind()
+    }
+
+    /// Whether the free space is counted a part at a time (see `free`):
+    /// not on an exFAT volume whose bitmap lies in pieces, which no
+    /// formatter makes; the driver counts it then.
+    pub(crate) fn counts_in_parts(&self) -> bool {
+        self.dots() || self.fs.free_map().is_some()
+    }
+
+    /// Whether every folder but the root begins with `.` and `..` (FAT).
+    pub(crate) fn dots(&self) -> bool {
+        self.fs.kind() == fatfs::VolumeKind::Fat
     }
 }

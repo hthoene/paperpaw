@@ -491,8 +491,17 @@ impl Kernel {
             self.output.commands.push(Ask::Notify(text));
         }
         if let Some(trouble) = self.card_trouble {
-            let text = String::from(self.shared.translator.tr(trouble.key()));
-            self.output.commands.push(Ask::Notify(text));
+            // An exFAT card is in use: told once, which the card keeps. A
+            // card that cannot keep it is told again.
+            let storage = self.shared.storage.as_ref();
+            let told = trouble == CardTrouble::ExFat && storage.size(card::EXFAT_TOLD).is_ok();
+            if trouble == CardTrouble::ExFat && !told {
+                storage.write(card::EXFAT_TOLD, b"").ok();
+            }
+            if !told {
+                let text = String::from(self.shared.translator.tr(trouble.key()));
+                self.output.commands.push(Ask::Notify(text));
+            }
         }
         self.finish_start()
     }

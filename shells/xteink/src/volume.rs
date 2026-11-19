@@ -3,7 +3,7 @@
 
 use alloc::boxed::Box;
 
-use log::warn;
+use log::{info, warn};
 use paperpaw_core::CardTrouble;
 use paperpaw_fat::{Blocks, CardSwap, Restart, Swapped, VolumeError, Watched};
 use paperpaw_platform::Storage;
@@ -13,7 +13,13 @@ use paperpaw_platform::Storage;
 pub struct Mounted {
     pub storage: Box<dyn Storage>,
     pub swap: Box<dyn Swap>,
+    /// The card is exFAT: used, and the reader told once that it is an
+    /// experiment (`CardTrouble::ExFat`).
+    pub exfat: bool,
 }
+
+/// Whether the card mounted last is exFAT.
+static EXFAT: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
 /// A card that may be taken out and put back while PaperPaw runs (#145,
 /// see `paperpaw_fat::CardSwap`), whatever card it is.
@@ -57,6 +63,7 @@ pub fn mount_swappable<B: Restart + 'static>(card: B) -> Result<Mounted, CardTro
     Ok(Mounted {
         storage: Box::new(storage),
         swap: Box::new(swap),
+        exfat: EXFAT.load(core::sync::atomic::Ordering::Relaxed),
     })
 }
 
@@ -71,14 +78,17 @@ pub fn mount<B: Blocks + 'static>(blocks: B) -> Result<Box<dyn Storage>, CardTro
     // blocks (folders, the FAT) on sync; the storage owns its file system,
     // so a card mounted anew gives back what the old mount took (#151).
     match paperpaw_fat::mount(blocks) {
-        Ok(storage) => Ok(Box::new(storage)),
-        Err(e) => Err(match e {
-            VolumeError::ExFat => {
-                warn!("SD card: exFAT; PaperPaw reads FAT32");
-                CardTrouble::ExFat
+        Ok(storage) => {
+            let exfat = storage.kind() == paperpaw_fat::fatfs::VolumeKind::ExFat;
+            if exfat {
+                info!("SD card: exFAT (experimental)");
             }
+            EXFAT.store(exfat, core::sync::atomic::Ordering::Relaxed);
+            Ok(Box::new(storage))
+        }
+        Err(e) => Err(match e {
             VolumeError::NoFat => {
-                warn!("SD card: no FAT file system");
+                warn!("SD card: neither FAT nor exFAT");
                 CardTrouble::NoFat
             }
             VolumeError::Disk => {

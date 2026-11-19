@@ -658,3 +658,51 @@ fn a_card_lent_as_a_usb_drive_is_unmounted_for_the_computer_and_mounted_anew_aft
     assert_eq!(read(&storage, "kept.txt"), b"before");
     assert!(!swap.lost());
 }
+
+/// An exFAT card of 8 MB in clusters of `cluster` with `files` on it.
+fn exfat_with(cluster: u32, files: &[(&str, &[u8])]) -> Rc<RefCell<Vec<u8>>> {
+    let bytes = common::Bytes(Rc::new(RefCell::new(vec![0u8; 8 << 20])));
+    let mut disk = BlockDisk::new(bytes.clone()).unwrap();
+    paperpaw_fat::fatfs::format_exfat(&mut disk, 8 << 20, cluster).unwrap();
+    disk.flush().unwrap();
+    let storage = paperpaw_fat::mount(bytes.clone()).unwrap();
+    for (path, data) in files {
+        storage.write(path, data).unwrap();
+    }
+    storage.sync().unwrap();
+    drop(storage);
+    let image = bytes.0.borrow().clone();
+    Rc::new(RefCell::new(image))
+}
+
+#[test]
+fn an_exfat_card_swapped_for_another_is_read_anew_and_the_old_one_writes_nothing_to_it() {
+    let old = exfat_with(4096, &[("books/old.epub", b"old book")]);
+    let sim = Sim::with(&old);
+    let (mut swap, storage) = mounted(&sim);
+    assert_eq!(names(&storage, "books"), ["old.epub"]);
+    // Written, but kept back in the caches: never synced to the old card.
+    storage.write("books/old.epub.note", b"pending").unwrap();
+    sim.take_out();
+    until_lost(&storage, &swap);
+    let new = exfat_with(8192, &[("books/new.epub", b"new book")]);
+    let before = new.borrow().clone();
+    sim.put_in(&new);
+    assert!(storage.write("books/old.epub.note", b"again").is_err());
+    let _ = storage.sync();
+    assert_eq!(*new.borrow(), before, "the old mount wrote to the new card");
+    let writes = sim.writes();
+    assert_eq!(swap.check(0), Swapped::Remounted);
+    assert_eq!(sim.writes(), writes, "mounting wrote to the card");
+    assert_eq!(names(&storage, "books"), ["new.epub"]);
+    assert_eq!(read(&storage, "books/new.epub"), b"new book");
+    // The same card put back after a use that marked it in use and moved
+    // its percentage is still the same card, read anew.
+    storage.write("books/second.epub", b"second").unwrap();
+    storage.sync().unwrap();
+    sim.take_out();
+    until_lost(&storage, &swap);
+    sim.put_in(&new);
+    assert_eq!(swap.check(RETRY_MS), Swapped::Remounted);
+    assert_eq!(read(&storage, "books/second.epub"), b"second");
+}

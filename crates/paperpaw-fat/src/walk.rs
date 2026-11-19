@@ -384,7 +384,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
         if reads.work + 2 >= MAX_READS {
             return Ok(Outcome::Yield(slot));
         }
-        if !top_of_card {
+        if !top_of_card && self.dots() {
             let mut first = entries(&frame.dir);
             for at in 0..2 {
                 let Some(entry) = first.next() else {

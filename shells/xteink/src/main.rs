@@ -643,7 +643,11 @@ fn prepare() -> Ready {
     let board = Board::take(p, probe::factory_controller(&flash));
     power::mark(power::at::START_BOARD);
     let (storage, card_swap, card_trouble) = match card::mount(board.card) {
-        Ok(mounted) => (mounted.storage, Some(mounted.swap), None),
+        Ok(mounted) => {
+            // Used all the same; the kernel tells it once.
+            let exfat = mounted.exfat.then_some(paperpaw_core::CardTrouble::ExFat);
+            (mounted.storage, Some(mounted.swap), exfat)
+        }
         Err(trouble) => (Box::new(NoStorage) as Box<dyn Storage>, None, Some(trouble)),
     };
     // The reader's choice and the bootloader say whether this is a dual-boot

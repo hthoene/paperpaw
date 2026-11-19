@@ -56,7 +56,8 @@ pub(crate) type Read = dyn Fn(u64, &mut [u8]) -> bool;
 struct Geometry {
     /// The FAT's first byte in the volume.
     fat: u64,
-    /// The bits of an entry: 12, 16 or 32.
+    /// The bits of an entry: 12, 16 or 32; 1 for an exFAT volume, whose
+    /// bitmap (at `fat`) holds a bit for each cluster (1: taken).
     bits: u8,
     /// Clusters for data; their entries are 2 to `clusters + 1`.
     clusters: u32,
@@ -111,6 +112,11 @@ impl Geometry {
                 let end = u64::from(first + count - 1) * 3 / 2 + 2;
                 (self.fat + start, (end - start) as usize)
             }
+            // From a cluster whose bit begins a byte (as `ask` reads them).
+            1 => (
+                self.fat + u64::from(first - 2) / 8,
+                count.div_ceil(8) as usize,
+            ),
             bits => {
                 let size = u64::from(bits / 8);
                 (
@@ -140,6 +146,9 @@ impl Geometry {
                     })
                     .count() as u32
             }
+            1 => (0..count as usize)
+                .filter(|n| bytes[n / 8] & (1 << (n % 8)) == 0)
+                .count() as u32,
             16 => bytes
                 .as_chunks::<2>()
                 .0
@@ -191,6 +200,8 @@ pub(crate) fn noted(record: &[u8; NOTE], free: u32, next: u32) -> Option<u32> {
 /// documentation](self).
 #[derive(Debug, Default)]
 pub(crate) struct Free {
+    /// An exFAT volume's bitmap, counted in place of a FAT.
+    map: Option<Geometry>,
     geometry: Option<Geometry>,
     /// Free clusters, once counted (and followed since); `None` before.
     known: Option<u64>,
@@ -214,10 +225,18 @@ pub(crate) struct Free {
 
 impl Free {
     /// Nothing known yet, the file system's `cluster_changes` being
-    /// `seen` now.
-    pub(crate) fn new(seen: (u64, u64)) -> Free {
+    /// `seen` now; `map` is an exFAT volume's bitmap, counted in place of
+    /// a FAT.
+    pub(crate) fn new(seen: (u64, u64), map: Option<fatfs::vol::FreeMap>) -> Free {
+        let map = map.map(|map| Geometry {
+            fat: map.offset,
+            bits: 1,
+            clusters: map.clusters,
+            cluster: u64::from(map.cluster_size),
+        });
         Free {
             seen,
+            map,
             ..Free::default()
         }
     }
@@ -242,6 +261,7 @@ impl Free {
         // size (an even number of FAT12's, which share bytes in pairs).
         let per_read = match geometry.bits {
             12 => (SECTOR as u32 * 2 / 3) & !1,
+            1 => SECTOR as u32 * 8,
             bits => (SECTOR / usize::from(bits / 8)) as u32,
         };
         let mut buffer = [0u8; SECTOR];
@@ -278,8 +298,13 @@ impl Free {
     /// The volume's geometry, read from its boot sector at the first ask.
     fn geometry(&mut self, read: &Read) -> Option<Geometry> {
         if self.geometry.is_none() {
-            let mut boot = [0u8; 512];
-            let geometry = read(0, &mut boot).then(|| Geometry::of(&boot)).flatten()?;
+            let geometry = match self.map {
+                Some(map) => map,
+                None => {
+                    let mut boot = [0u8; 512];
+                    read(0, &mut boot).then(|| Geometry::of(&boot)).flatten()?
+                }
+            };
             self.counting = Some((2, 0));
             self.geometry = Some(geometry);
         }

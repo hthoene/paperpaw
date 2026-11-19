@@ -4,7 +4,7 @@ use super::*;
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
-use fatfs::{FormatVolumeOptions, FsOptions, StdIoWrapper};
+use fatfs::{FileSystem, FormatVolumeOptions, FsOptions, StdIoWrapper};
 use std::io::Cursor;
 
 mod sparse;
@@ -402,7 +402,10 @@ fn cross_linked<IO: ReadWriteSeek>(s: &FatStorage<IO>) -> Vec<String> {
             if entry.is_dir() && name != "." && name != ".." {
                 dirs.push((path, entry.to_dir()));
             } else if entry.is_file() {
-                for extent in entry.to_file().extents() {
+                let fatfs::vol::File::Fat(mut file) = entry.to_file() else {
+                    unreachable!("a FAT volume");
+                };
+                for extent in file.extents() {
                     clusters.push((extent.unwrap().offset, path.clone()));
                 }
             }
@@ -1003,7 +1006,15 @@ fn volumes_found_in_partitions() {
         ],
     );
     card.data[first * BLOCK + 3..first * BLOCK + 11].copy_from_slice(b"EXFAT   ");
-    assert_eq!(opens(card).unwrap_err(), VolumeError::ExFat);
+    let ntfs = {
+        let mut data = card.data.clone();
+        data[first * BLOCK + 3..first * BLOCK + 11].copy_from_slice(b"NTFS    ");
+        Card { data }
+    };
+    // Found as a volume (`tests/exfat.rs` mounts real ones).
+    assert!(BlockDisk::volume(card).is_ok());
+    // NTFS is none PaperPaw reads.
+    assert_eq!(opens(ntfs).unwrap_err(), VolumeError::NoFat);
     // Nothing at all.
     let card = Card {
         data: vec![0; blocks * BLOCK],
