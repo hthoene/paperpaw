@@ -410,6 +410,33 @@ pub enum Instances {
     Many,
 }
 
+/// Whether the host draws its status bar above a native screen
+/// (`screen.spec.flags` bits 11-12, `docs/abi/ui.md` section 1.2). The
+/// user's per-screen choice (kernel setting `core.status-bar.screens`) wins
+/// over what the screen says.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum StatusBar {
+    /// As the device does (hidden unless the user turned it on everywhere).
+    #[default]
+    Default,
+    /// Shown: the screen gets the part of the display below the bar.
+    Show,
+    /// Hidden: the screen shows a status line of its own, or none.
+    Hide,
+}
+
+impl StatusBar {
+    /// The value of bits 11-12.
+    pub(crate) const fn bits(self) -> u32 {
+        match self {
+            Self::Default => 0,
+            Self::Show => 1 << 11,
+            Self::Hide => 2 << 11,
+        }
+    }
+}
+
 /// A `screen.spec` declaration with a plugin-owned callback token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -497,6 +524,15 @@ impl ScreenDecl<'_> {
     #[must_use]
     pub const fn dims_below(mut self) -> Self {
         self.policy_flags |= 1024;
+        self
+    }
+    /// Whether the host's status bar shows above this screen; a screen
+    /// with a status line of its own (Home, the reader) says
+    /// [`StatusBar::Hide`]. A screen may change it at run time
+    /// ([`ScreenPolicy::status_bar`](crate::native::ui::ScreenPolicy::status_bar)).
+    #[must_use]
+    pub const fn status_bar(mut self, bar: StatusBar) -> Self {
+        self.policy_flags = (self.policy_flags & !(3 << 11)) | bar.bits();
         self
     }
     /// Show no row of button hints with this screen (the sleep screen).

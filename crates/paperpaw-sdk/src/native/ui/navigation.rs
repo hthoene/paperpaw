@@ -226,6 +226,15 @@ impl ScreenPolicy {
         self.flags |= 512;
         self
     }
+    /// Whether the host's status bar shows above the screen (see
+    /// [`ScreenDecl::status_bar`](crate::native::declare::ScreenDecl::status_bar));
+    /// [`StatusBar::Default`](crate::native::declare::StatusBar::Default)
+    /// keeps what the screen declared.
+    #[must_use]
+    pub const fn status_bar(mut self, bar: crate::native::declare::StatusBar) -> Self {
+        self.flags = (self.flags & !(3 << 11)) | bar.bits();
+        self
+    }
     pub(crate) const fn flags(self) -> u32 {
         self.flags
     }

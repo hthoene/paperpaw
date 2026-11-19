@@ -1130,6 +1130,10 @@ pub paperpaw_sdk::native::declare::Kind::Text(&'a str)
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::SetupPage<'a>
 pub paperpaw_sdk::native::declare::SetupPage::Screen(&'a str)
 pub paperpaw_sdk::native::declare::SetupPage::Setting(&'a str)
+#[non_exhaustive] pub enum paperpaw_sdk::native::declare::StatusBar
+pub paperpaw_sdk::native::declare::StatusBar::Default
+pub paperpaw_sdk::native::declare::StatusBar::Hide
+pub paperpaw_sdk::native::declare::StatusBar::Show
 #[non_exhaustive] pub enum paperpaw_sdk::native::declare::WidgetLayout
 pub paperpaw_sdk::native::declare::WidgetLayout::Grid
 pub paperpaw_sdk::native::declare::WidgetLayout::Stack
@@ -1327,6 +1331,7 @@ pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::holds_edges(self) ->
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::instances(self, paperpaw_sdk::native::declare::Instances) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::overlay(self) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::secret(self) -> Self
+pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::status_bar(self, paperpaw_sdk::native::declare::StatusBar) -> Self
 pub const fn paperpaw_sdk::native::declare::ScreenDecl<'_>::waits_ready(self) -> Self
 impl<'a> paperpaw_sdk::native::declare::ScreenDecl<'a>
 pub fn paperpaw_sdk::native::declare::ScreenDecl<'a>::new(&'a str, &'a str, u32) -> Self
@@ -4989,6 +4994,7 @@ pub const fn paperpaw_sdk::native::ui::ScreenPolicy::guards(self) -> Self
 pub const fn paperpaw_sdk::native::ui::ScreenPolicy::holds_edges(self) -> Self
 pub const fn paperpaw_sdk::native::ui::ScreenPolicy::new() -> Self
 pub const fn paperpaw_sdk::native::ui::ScreenPolicy::secret(self) -> Self
+pub const fn paperpaw_sdk::native::ui::ScreenPolicy::status_bar(self, paperpaw_sdk::native::declare::StatusBar) -> Self
 pub struct paperpaw_sdk::native::ui::SpeechRequest<'a>
 impl<'a> paperpaw_sdk::native::ui::SpeechRequest<'a>
 pub fn paperpaw_sdk::native::ui::SpeechRequest<'a>::language(self, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>

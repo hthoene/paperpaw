@@ -5,7 +5,7 @@
 use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Kind, ScreenDecl,
-    SlotOfferDecl, SpecDecl, StatusPlaceDecl, WidgetLayout, WidgetPlaceDecl,
+    SlotOfferDecl, SpecDecl, StatusBar, StatusPlaceDecl, WidgetLayout, WidgetPlaceDecl,
 };
 
 /// Callback tokens: stable within this plugin.
@@ -450,11 +450,10 @@ fn pages<F: FnMut(&[u8]) -> Result<(), i32>>(d: &mut Declarations<F>) -> Result<
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
-    d.screen(ScreenDecl::new(
-        "dashboard",
-        "picture-home.title",
-        DASHBOARD,
-    ))?;
+    // Its own status bar: none of the host's above it.
+    d.screen(
+        ScreenDecl::new("dashboard", "picture-home.title", DASHBOARD).status_bar(StatusBar::Hide),
+    )?;
     d.screen(ScreenDecl::new("add", "picture-home.add", ADD))?;
     d.screen(ScreenDecl::new(
         "pick",

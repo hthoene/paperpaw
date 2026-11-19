@@ -9,7 +9,7 @@ use paperpaw_sdk::MenuNeed;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, HelpHintDecl, Instances,
     KeyBindingDecl, Kind, MenuEntryDecl, ReaderDecl, ScreenDecl, SetupPage, SetupStepDecl,
-    SlotOfferDecl, SpecDecl, StageDecl, StatusItemDecl, StatusLineDecl, StatusPlaceDecl,
+    SlotOfferDecl, SpecDecl, StageDecl, StatusBar, StatusItemDecl, StatusLineDecl, StatusPlaceDecl,
     WidgetDecl,
 };
 use paperpaw_sdk::native::ui::HintInput;
@@ -345,9 +345,10 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
         // One instance for each set of parameters (the book, the section), as in
         // interface 6.
         let mut decl = ScreenDecl::new(name, title, token).instances(Instances::PerParams);
-        // The page of the book shows no row of button hints, as in Beta 3.
+        // The page of the book shows no row of button hints, as in Beta 3, and
+        // no status bar of the host: it has status lines of its own.
         if token == SCREEN {
-            decl = decl.hints_hidden();
+            decl = decl.hints_hidden().status_bar(StatusBar::Hide);
         }
         // The note and the skim bar are laid over the page, which shows above them.
         d.screen(if matches!(token, FOOTNOTE | SKIM) {
