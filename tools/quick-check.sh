@@ -40,6 +40,11 @@
 #             native host reads is dead there)           [shells/desktop, shells/web, paperpaw-x4/core/sdk/emulator]
 #   x4tests   the X4 crate's update tests (update_path, updates): the boards, partition tables and the constants
 #             of shells/xteink/src/ota.rs they check      [crates/paperpaw-x4, shells/xteink, .github/actions/install-image]
+#   pkgtests  the own tests (unit, integration, doc) of the changed packages, with CI's `paperpaw-core/testing` where a
+#             package has core as a dependency: a red test of the package itself (settings scripted_pages, epub-family,
+#             battery, dev perf ... were 11 of the 18 red bases of Nov 18/19)   [any .rs/Cargo.toml of a package but the app]
+#   python    CI's python checks of seconds: the changelog fragments and their tests, the store plugins' versions and folders
+#             (tools/plugin-files unittests), the size gate, the owner-image check, the x4 remote tool   [always]
 #   frames    the changed plugins (at most 4; `store` stands in when a library under them changed) built for the X4's
 #             C3 as CI builds them and packed: a frame of 2,048 B or more is refused  [plugins/, ui-kit, sdk, core native, text, layout]
 #   frames-s3 the same plugins built for the X4 Pro / Classic (ESP32-S3, espup's `esp` toolchain,
@@ -99,7 +104,7 @@ step_limit="${QUICK_CHECK_STEP_LIMIT:-440}"
 
 base=origin/abi7/integration
 all=0 list=0 only="" skip=""
-steps=" fmt generated clippy doc interface checks libs desktop memory app snapshots publish wasm32 webemu x4tests frames frames-s3 "
+steps=" fmt generated python clippy doc interface checks libs pkgtests desktop memory app snapshots publish wasm32 webemu x4tests frames frames-s3 "
 while (($#)); do
     case "$1" in
         --base) base="${2:?--base needs a revision}"; shift 2 ;;
@@ -130,21 +135,22 @@ pkgs = []
 for p in json.load(sys.stdin)["packages"]:
     d = p["manifest_path"][len(root):].rsplit("/", 1)[0] if p["manifest_path"].startswith(root) else None
     if d is not None:
-        pkgs.append((d, p["name"], any(t["kind"] and ("lib" in t["kind"] or "rlib" in t["kind"]) for t in p["targets"])))
+        pkgs.append((d, p["name"], any(t["kind"] and ("lib" in t["kind"] or "rlib" in t["kind"]) for t in p["targets"]), any(x["name"] == "paperpaw-core" for x in p["dependencies"])))
 pkgs.sort(key=lambda x: -len(x[0]))
 seen = {}
 for f in os.environ["FILES"].split("\n"):
-    for d, n, lib in pkgs:
+    for d, n, lib, core in pkgs:
         if f.startswith(d + "/"):
-            seen[n] = (d, lib)
+            seen[n] = (d, lib, core)
             break
-for n, (d, lib) in sorted(seen.items()):
-    print(n, d, int(lib))
+for n, (d, lib, core) in sorted(seen.items()):
+    print(n, d, int(lib), int(core))
 ' <<< "$meta")"
-pkg_names=() pkg_libs=() plugin_ids=()
-while read -r n d lib; do
+pkg_names=() pkg_libs=() plugin_ids=() pkg_core=0
+while read -r n d lib core; do
     [[ -n "$n" ]] || continue
     pkg_names+=("$n")
+    ((core)) && pkg_core=1
     ((lib)) && pkg_libs+=("$n")
     [[ "$d" == plugins/* && -f "tools/plugin-files7/src/bin/${d#plugins/}.rs" ]] && plugin_ids+=("${d#plugins/}")
 done <<< "$picked"
@@ -161,6 +167,8 @@ declare -A why
 if [[ $all = 1 ]]; then for s in $steps; do why[$s]="--all"; done; else
     why[fmt]="always"
     why[generated]="always (a few seconds)"
+    why[python]="always (about 20 s, no cargo)"
+    ((${#pkg_names[@]})) && rs_pkg_change && why[pkgtests]="changed: ${pkg_names[*]}"
     ((${#pkg_names[@]})) && rs_pkg_change && why[clippy]="changed: ${pkg_names[*]}"
     ((${#pkg_libs[@]})) && rs_pkg_change && why[doc]="changed: ${pkg_libs[*]}"
     touches '^crates/(paperpaw-(sdk|platform|graphics|i18n|config|text|document|layout|xml|zip|hyphen|image|update|digest|json|qr|native|lang|sort))/|^tools/plugin-files7/paperpaw-plugin7\.x$|^abi/|^tools/interface' && why[interface]="an interface crate or file changed"
@@ -208,6 +216,7 @@ lane2_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane2"
 lane3_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane3"
 lane4_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane4"
 lane5_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane5"
+lane6_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane6"
 # One step: run in its own process group, cut after its time limit or when the total budget is used up.
 # Writes "$logs/NAME.res": the summary line of the step, FAIL or ok.
 step() { # NAME COMMAND...
@@ -253,6 +262,30 @@ x4tests_step() { CARGO_TARGET_DIR="$lane2_target" cargo test -j"$jobs_n" -p pape
 # CI's job "no_std targets", its wasm32 leg (the riscv32 leg builds the same packages for the C3
 # firmware, which `frames` covers by the plugins): the same command, in the build lane's directory.
 wasm32_step() { CARGO_TARGET_DIR="$lane2_target" cargo build -j"$jobs_n" --release --target wasm32-unknown-unknown "${wasm_pkgs[@]}"; }
+# CI's python checks that take seconds (job "Architecture rules" and the changelog workflow); no cargo.
+python_step() {
+    local rc=0 c
+    for c in "tools/changelog.py check" "tools/plugin-files/versions.py"; do
+        # shellcheck disable=SC2086
+        python3 $c || { echo "FAILED: python3 $c"; rc=1; }
+    done
+    python3 -m unittest discover -s tools -p test_changelog.py || rc=1
+    python3 -m unittest discover -s tools/plugin-files || rc=1
+    for c in test_x4_remote.py test_size_report.py test_check_owner_image.py; do
+        python3 -m unittest discover -s tools -p "$c" || rc=1
+    done
+    return $rc
+}
+# The own tests of the changed packages (not the app: `app` and `snapshots` run its goldens). CI's
+# `paperpaw-core/testing` is given when a changed package depends on core (cargo refuses it otherwise).
+pkgtests_step() {
+    local plain=() n f=() a=()
+    for n in "${pkg_names[@]}"; do [[ "$n" == paperpaw-app ]] || plain+=("$n"); done
+    ((${#plain[@]})) || { echo "only the app changed: its goldens are in app/snapshots"; return 0; }
+    ((pkg_core)) && f=(--features paperpaw-core/testing)
+    mapfile -t a < <(pk "${plain[@]}")
+    CARGO_TARGET_DIR="$lane6_target" cargo test -j"$jobs_n" --no-fail-fast "${a[@]}" "${f[@]}"
+}
 pk() { local a=(); for n in "$@"; do a+=(-p "$n"); done; printf '%s\n' "${a[@]}"; }
 
 # A path starting with `-` is a tool that took `--help` for its output folder (#367).
@@ -368,6 +401,10 @@ frames_s3_step() {
 lane() { local s; for s in "$@"; do run_step "$s" && step "$s" "${s//-/_}_step"; done; return 0; }
 lane frames-s3 &
 lane_s3=$!
+lane pkgtests &
+lane_pkg=$!
+lane python &
+lane_py=$!
 lane frames &
 lane_frames=$!
 lane doc &
@@ -382,7 +419,7 @@ lane_wasm=$!
 ) &
 lane_tests=$!
 lane fmt generated clippy interface checks libs
-wait "$lane_s3" "$lane_frames" "$lane_doc" "$lane_wasm" "$lane_tests"
+wait "$lane_s3" "$lane_pkg" "$lane_py" "$lane_frames" "$lane_doc" "$lane_wasm" "$lane_tests"
 
 echo
 echo "quick-check summary ($((SECONDS - t_start))s of ${budget}s):"
@@ -392,5 +429,16 @@ for s in $steps; do
     echo "  $(cat "$logs/$s.res")"
     [[ "$(cut -c1-2 "$logs/$s.res")" == ok ]] || failed=1
 done
+# What no step here checks, and the cheap hints that go with it.
+if touches '^(crates|plugins)/.*\.rs$'; then
+    echo "  NOT CHECKED: the S3 band (shells/xteink/frame-budget-s3*.txt, 'allow indirect'): CI's \"Firmware interface-7 build\" counts it, 5 of the 18"
+    echo "               red bases of Nov 18/19. After a change in layout, text, ui-kit, sdk, core or a plugin run: tools/check-s3-budget.sh $root x4-pro (~45 s warm, ~13 min cold)"
+fi
+raised="$(git diff -U0 "$mb" -- shells/xteink/frame-budget-s3.txt shells/xteink/frame-budget-s3-classic.txt shells/xteink/frame-budget-s3-linked.txt | grep -E '^[-+]allow indirect(-in)? ' | cut -c1-150)"
+if [[ -n "$raised" ]]; then
+    echo "  NOTE: this branch changes S3 'allow indirect' lines. A raise names the code that added the calls (a jump table of a \`match\` and a spilled"
+    echo "        callee are no trait object; a real vtable or fn-pointer call is a finding), not just the CI count:"
+    sed 's/^/        /' <<< "$raised"
+fi
 ((failed)) && { echo "quick-check: FAILED"; exit 1; }
 echo "quick-check: passed"
