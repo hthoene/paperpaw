@@ -43,7 +43,7 @@ use std::{
 use paperpaw_core::{
     Kernel, KernelBuilder,
     native_host::{
-        environment::{EnvironmentScope, SNAPSHOT_BYTES},
+        environment::{EnvironmentScope, SNAPSHOT_EXTENDED_BYTES},
         registrations::{Record, ServiceEnd, ServiceUsage, record_encode_one},
     },
 };
@@ -125,7 +125,7 @@ fn capture(builder: KernelBuilder, result: Rc<RefCell<Option<EnvironmentBytes>>>
                 scope
                     .as_ref()
                     .scope(env, || {
-                        let mut snapshot = vec![0; SNAPSHOT_BYTES];
+                        let mut snapshot = vec![0; SNAPSHOT_EXTENDED_BYTES];
                         let mut enabled = vec![0; 32];
                         // SAFETY: the pinned scope borrows this live Place. Outputs are
                         // exclusive local vectors, disjoint from the static key.
@@ -419,7 +419,7 @@ unsafe extern "C" fn snapshot(ctx: *mut c_void, out: PpBuffer) -> i32 {
         if out.cap < environment.snapshot.len() {
             return ERR_NO_SPACE;
         }
-        assert_eq!(copy(&environment.snapshot, out), SNAPSHOT_BYTES);
+        assert_eq!(copy(&environment.snapshot, out), SNAPSHOT_EXTENDED_BYTES);
     }
     OK
 }

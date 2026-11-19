@@ -3,7 +3,7 @@ use super::super::environment as bridge;
 use super::*;
 use paperpaw_core::KernelBuilder;
 use paperpaw_core::Place;
-use paperpaw_core::native_host::environment::SNAPSHOT_BYTES;
+use paperpaw_core::native_host::environment::SNAPSHOT_EXTENDED_BYTES;
 use paperpaw_core::sdk::{Manifest, SettingSpec, builtin};
 use paperpaw_native::host_glue::PpBuffer;
 use paperpaw_platform::{
@@ -128,7 +128,7 @@ fn expected_snapshot(battery: Option<Battery>, clock: bool) -> Vec<u8> {
         result.millivolts = input.millivolts;
         result
     });
-    let mut output = [MaybeUninit::uninit(); SNAPSHOT_BYTES];
+    let mut output = [MaybeUninit::uninit(); SNAPSHOT_EXTENDED_BYTES];
     let count = wire::snapshot_encode(&value, &mut output).unwrap();
     output[..count]
         .iter()

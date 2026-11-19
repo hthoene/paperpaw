@@ -5,8 +5,8 @@ use super::Error;
 use crate::Place;
 pub use crate::abi7::settings_wire::{SettingValueRef, settings_decode, settings_encode};
 pub use crate::abi7::snapshot_wire::{
-    Battery, PixelFormat, SNAPSHOT_BYTES, SNAPSHOT_MAX_BYTES, SNAPSHOT_VERSION, Snapshot,
-    snapshot_decode,
+    Battery, PixelFormat, SNAPSHOT_BYTES, SNAPSHOT_EXTENDED_BYTES, SNAPSHOT_MAX_BYTES,
+    SNAPSHOT_VERSION, Snapshot, snapshot_decode,
 };
 use crate::abi7::{
     context::{Error as FrameError, FrameSlot},
