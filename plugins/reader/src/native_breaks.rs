@@ -1,41 +1,48 @@
 //! Where a word may be broken at the end of a line (`core.hyphenate`): the
 //! places the host's table for the book's language gives, kept for the words
 //! met so that a page laid again, or the page before and after, does not ask the
-//! host for the same word twice. A language the host has no table for is
+//! host for the same word twice (each ask is a card-backed table lookup, about
+//! ten milliseconds on the X4). A language the host has no table for is
 //! remembered too (one more entry): no word of the book is asked then, until the
 //! tables are dropped (the book is closed, a setting changes, another screen
 //! covers the reader), so a pack installed meanwhile is found when the reader
-//! is shown again. One fixed allocation per book (about 2 KiB),
-//! made at the first page, never grown and freed with the book (or a changed
-//! setting). Where there is no room the reader carries on without it: every
-//! word is asked of the host.
+//! is shown again. One fixed allocation per book (`ENTRIES` + 1 of 8 bytes: 2,056
+//! bytes), made at the first page, never grown and freed with the book (or a
+//! changed setting). Where there is no room the reader carries on without it:
+//! every word is asked of the host.
 use alloc::{rc::Rc, vec::Vec};
 use core::cell::RefCell;
 use paperpaw_sdk::native::{Error, text as host_text};
 
-/// Words kept (a power of two; a word takes the entry its hash names).
-const ENTRIES: usize = 128;
+/// Words kept (a power of two): in sets of two, a word is in either entry of
+/// the set its hash names.
+const ENTRIES: usize = 256;
 /// What asks the host for the places of a word (the number of them).
 pub type Ask<'a> = dyn Fn(&str, &mut [u8]) -> Result<usize, Error> + 'a;
 /// The entry after the words': the key of the language the host has no table for.
 const NO_TABLE: usize = ENTRIES;
-/// The longest word kept, in bytes: its places are bits of one `u64`.
-const LONGEST: usize = 63;
+/// The longest word kept, in bytes: its places are bits of one `u32`.
+const LONGEST: usize = 31;
 
 /// A word's hash (never 0) and the places it may be broken at, one bit for each
 /// byte offset.
 #[derive(Clone, Copy, Debug, Default)]
 struct Entry {
-    key: u64,
-    places: u64,
+    key: u32,
+    places: u32,
 }
 
 /// The places of the words met.
 #[derive(Clone, Debug, Default)]
 pub struct Breaks(Option<Rc<RefCell<Vec<Entry>>>>);
 
+/// A 64-bit FNV-1a hash folded to 32 bits (never 0).
+fn fold(hash: u64) -> u32 {
+    ((hash ^ hash >> 32) as u32) | 1
+}
+
 /// The hash of a word in `language` with the minimums `left` and `right`.
-fn key_of(language: &str, (left, right): (u32, u32), word: &str) -> u64 {
+fn key_of(language: &str, (left, right): (u32, u32), word: &str) -> u32 {
     let mut hash = paperpaw_sdk::digest::fnv1a64(language);
     for byte in left
         .to_le_bytes()
@@ -45,7 +52,12 @@ fn key_of(language: &str, (left, right): (u32, u32), word: &str) -> u64 {
     {
         hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
     }
-    hash | 1
+    fold(hash)
+}
+
+/// The first entry of the set of a word's hash.
+const fn set_of(key: u32) -> usize {
+    (key >> 8) as usize & (ENTRIES - 2)
 }
 
 /// Tells the layout where a word may break: the `places` the host gave (the
@@ -58,7 +70,7 @@ pub fn break_places(asked: Result<usize, Error>, places: &[u8], out: &mut dyn Fn
 }
 
 impl Breaks {
-    /// Room for 128 words and a language without a table.
+    /// Room for 256 words and a language without a table.
     ///
     /// # Errors
     /// `NoMemory`.
@@ -90,7 +102,7 @@ impl Breaks {
         word: &str,
         out: &mut dyn FnMut(usize),
     ) {
-        let table = paperpaw_sdk::digest::fnv1a64(language) | 1;
+        let table = fold(paperpaw_sdk::digest::fnv1a64(language));
         if let Some(entries) = &self.0
             && let Ok(entries) = entries.try_borrow()
             && entries
@@ -100,11 +112,12 @@ impl Breaks {
             return;
         }
         let key = key_of(language, (left, right), word);
-        let slot = (key >> 40) as usize & (ENTRIES - 1);
+        let set = set_of(key);
         if let Some(entries) = &self.0
             && let Ok(entries) = entries.try_borrow()
-            && let Some(entry) = entries.get(slot)
-            && entry.key == key
+            && let Some(entry) = entries
+                .get(set..set + 2)
+                .and_then(|two| two.iter().find(|entry| entry.key == key))
         {
             for at in (0..LONGEST).filter(|at| (entry.places >> at) & 1 == 1) {
                 out(at);
@@ -115,8 +128,8 @@ impl Breaks {
         let asked = ask(word, &mut places);
         break_places(asked, &places, out);
         let kept = match asked {
-            Ok(count) => places.iter().take(count).try_fold(0u64, |mask, &at| {
-                (usize::from(at) < LONGEST).then(|| mask | (1u64 << at))
+            Ok(count) => places.iter().take(count).try_fold(0u32, |mask, &at| {
+                (usize::from(at) < LONGEST).then(|| mask | (1u32 << at))
             }),
             Err(Error::NotFound) => {
                 self.keep(
@@ -133,7 +146,7 @@ impl Breaks {
         if word.len() <= LONGEST
             && let Some(places) = kept
         {
-            self.keep(slot, Entry { key, places });
+            self.keep_in_set(set, Entry { key, places });
         }
     }
 
@@ -143,6 +156,20 @@ impl Breaks {
             && let Some(entry) = entries.get_mut(slot)
         {
             *entry = new;
+        }
+    }
+
+    /// Keeps `new` in a free entry of the set, else in the first, the first's
+    /// word moving to the second (the older one is forgotten).
+    fn keep_in_set(&self, set: usize, new: Entry) {
+        if let Some(entries) = &self.0
+            && let Ok(mut entries) = entries.try_borrow_mut()
+            && let Some([first, second]) = entries.get_mut(set..set + 2)
+        {
+            if first.key != 0 {
+                *second = *first;
+            }
+            *first = new;
         }
     }
 }
@@ -220,26 +247,27 @@ mod tests {
     }
 
     #[test]
-    fn a_hundred_and_twenty_eight_words_are_kept_for_the_pages_around() {
+    fn a_set_of_two_words_is_kept_for_the_pages_around() {
         use alloc::string::String;
         let (breaks, asks) = (Breaks::new().unwrap(), Cell::new(0));
-        // Words with a slot each: two pages of a book's long words and more.
-        let mut taken = [false; ENTRIES];
-        let words: Vec<String> = (0..100_000)
+        // Words with two to a set: all of the entries but not more than two of a set.
+        let mut taken = [0u8; ENTRIES];
+        let words: Vec<String> = (0..400_000)
             .map(|n| alloc::format!("word{n}"))
             .filter(|word| {
-                let slot = (key_of("ru", (0, 0), word) >> 40) as usize & (ENTRIES - 1);
-                !core::mem::replace(&mut taken[slot], true)
+                let set = set_of(key_of("ru", (0, 0), word));
+                taken[set] = taken[set].saturating_add(1);
+                taken[set] <= 2
             })
             .collect();
-        assert_eq!(words.len(), 128);
+        assert_eq!(words.len(), ENTRIES);
         for word in &words {
             told(&breaks, true, &asks, word);
         }
-        assert_eq!(asks.get(), 128);
+        assert_eq!(asks.get() as usize, ENTRIES);
         for word in &words {
             told(&breaks, true, &asks, word);
         }
-        assert_eq!(asks.get(), 128);
+        assert_eq!(asks.get() as usize, ENTRIES);
     }
 }

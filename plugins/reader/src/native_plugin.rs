@@ -50,6 +50,7 @@ use paperpaw_ui_kit::{
     read_event, text, uitext,
 };
 
+mod ahead;
 mod reopen;
 use reopen::rest;
 
@@ -917,45 +918,7 @@ impl NativeReader {
     /// has no work, the place is written at sleep, stop and close.
     fn start_quiet(&mut self, host: &Host<'_>) {
         self.declare_work(host, (QUIET_KEY, WORK_DUE), QUIET_MS);
-    }
-
-    /// The pages of the reading screen on top are counted in the background:
-    /// a step now, then one after the other.
-    fn start_count(&mut self, host: &Host<'_>) {
-        if self
-            .screens
-            .top(SCREEN)
-            .is_some_and(|view| view.counting() || view.marks_due())
-        {
-            self.declare_work(
-                host,
-                (native_index::WORK_KEY, WORK_DUE),
-                native_index::DELAY_MS,
-            );
-        }
-    }
-
-    /// One step of the count of the pages; the next is declared while pages remain.
-    /// The count waits while another screen covers the reading screen: its
-    /// layouts would add to that screen's peak (#248, Manager's decision 1).
-    /// `reading_shown` starts it again.
-    fn count_step(&mut self, host: &Host<'_>) {
-        if self.ui.is_some()
-            && self.stack_top(host).ok().flatten() != self.screens.top_instance(SCREEN)
-        {
-            return;
-        }
-        let more = match (self.screens.top(SCREEN), &self.docs) {
-            (Some(view), Some(docs)) => {
-                // The first page's marks are asked here, after it is shown.
-                view.marks_step(host, docs);
-                view.count_step(host, docs)
-            }
-            _ => None,
-        };
-        if let Some(delay) = more {
-            self.declare_work(host, (native_index::WORK_KEY, WORK_DUE), delay);
-        }
+        self.declare_work(host, (ahead::KEY, WORK_DUE), ahead::AFTER_MS);
     }
 
     /// Declares the work `(key, token)` to be due after `after` milliseconds.
@@ -1295,8 +1258,11 @@ impl Plugin for NativeReader {
             }
             Event::Answered { answer, .. } => self.answered(host, &answer),
             // The quiet time has come, or the device sleeps or stops.
-            Event::WorkDue(due) if token == WORK_DUE && due.key() == native_index::WORK_KEY => {
-                self.count_step(host);
+            Event::WorkDue(due)
+                if token == WORK_DUE
+                    && matches!(due.key(), ahead::KEY | native_index::WORK_KEY) =>
+            {
+                self.quiet_step(host, due.key());
                 Ok(())
             }
             Event::WorkDue(_) | Event::Suspend { .. } | Event::Stopping { .. }

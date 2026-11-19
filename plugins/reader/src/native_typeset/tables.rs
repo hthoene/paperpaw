@@ -34,7 +34,10 @@ const CONTEXTS: usize = 4;
 /// every page. Letters without a number have their widths kept in the table of
 /// the others and are set without kerning.
 const STALE: u32 = 3_000;
-/// Entries of the table of kerned pairs (a power of two, 4 bytes each).
+/// Entries of the table of kerned pairs (a power of two, 4 bytes each): sets of
+/// two, a pair is in either entry of its set (a page of English has about a
+/// hundred and fifty kerned pairs, and one entry for each lost a third of them
+/// to others at every page; the same 1,024 bytes as before).
 const KERNED: usize = 256;
 /// The pairs of one context, as bits.
 const PAIR_BYTES: usize = ALPHABET * ALPHABET / 8;
@@ -230,19 +233,29 @@ impl Tables {
         let pair = a * ALPHABET + b;
         let key = (context as u32) << 14 | pair as u32;
         let at = slot(key);
-        let Some(&before) = state.kerned.get(at) else {
+        let name = (key + 1) & 0xffff;
+        let Some(two) = state.kerned.get(at..at + 2) else {
             return;
         };
-        let name = (key + 1) & 0xffff;
-        let mine = before >> 16 == name;
+        let (mine, free) = (
+            two.iter().position(|&entry| entry >> 16 == name),
+            two.iter().position(|&entry| entry == 0),
+        );
         if kerning != 0 {
-            if before != 0 && !mine {
-                // The entry is another pair's: it is not known any more.
-                state.forget_pair(before);
+            let new = name << 16 | u32::from(kerning as u16);
+            match mine.or(free) {
+                Some(place) => state.kerned[at + place] = new,
+                None => {
+                    // Both are other pairs': the second is not known any more,
+                    // the first moves to its place and the new one is the first.
+                    let (first, second) = (state.kerned[at], state.kerned[at + 1]);
+                    state.forget_pair(second);
+                    state.kerned[at + 1] = first;
+                    state.kerned[at] = new;
+                }
             }
-            state.kerned[at] = name << 16 | u32::from(kerning as u16);
-        } else if mine {
-            state.kerned[at] = 0;
+        } else if let Some(place) = mine {
+            state.kerned[at + place] = 0;
         }
         if let Some(byte) = state.known.get_mut(context * PAIR_BYTES + pair / 8) {
             *byte |= 1 << (pair % 8);
@@ -278,9 +291,9 @@ fn extra_slot(key: u64) -> usize {
     ((key >> 16).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 56) as usize & (EXTRA - 2)
 }
 
-/// The entry of a pair in the table of kerned pairs.
+/// The first of the two entries of a pair's set in the table of kerned pairs.
 const fn slot(key: u32) -> usize {
-    (key.wrapping_mul(0x9E37_79B1) >> 20) as usize & (KERNED - 1)
+    (key.wrapping_mul(0x9E37_79B1) >> 20) as usize & (KERNED - 2)
 }
 
 /// A kerning in sixty-fourths of a pixel, as the table keeps it.
@@ -302,12 +315,14 @@ impl State {
             return None;
         }
         let key = (context as u32) << 14 | pair as u32;
-        let entry = *self.kerned.get(slot(key))?;
-        Some(if entry >> 16 == (key + 1) & 0xffff {
-            f32::from(entry as u16 as i16) / 64.0
-        } else {
-            0.0
-        })
+        let at = slot(key);
+        let name = (key + 1) & 0xffff;
+        let entry = self
+            .kerned
+            .get(at..at + 2)?
+            .iter()
+            .find(|&&e| e >> 16 == name);
+        Some(entry.map_or(0.0, |&e| f32::from(e as u16 as i16) / 64.0))
     }
 
     /// The number of `c` among the characters met; it is numbered now if

@@ -40,6 +40,34 @@ impl Open {
         page.and_then(|page| released.map(|()| page))
     }
 
+    /// Lays out the page after the one on show and keeps it for the next
+    /// forward turn (`forward`), which then only takes it. Nothing happens
+    /// where it is kept already, the page on show is not drawn with the
+    /// current settings, it is the last, or the host refuses.
+    pub(super) fn lay_ahead(&mut self, host: &Host<'_>, docs: &Documents) {
+        let Some(page) = &self.page else {
+            return;
+        };
+        let end = (page.end.section, page.end.offset);
+        if self.ahead.is_some() || page.is_past_end() || end <= self.at {
+            return;
+        }
+        let Ok(setup) = self.settings.setup(host) else {
+            return;
+        };
+        let key = self.key(&setup);
+        if self.laid != Some(key) {
+            return;
+        }
+        if let Onto::Page(laid) = onto(self.lay(host, docs, &setup, end)) {
+            self.ahead = Some(Ahead {
+                from: self.at,
+                key,
+                page: *laid,
+            });
+        }
+    }
+
     /// The page's last word, where the layout broke it at the page's end, made
     /// whole with the first word of the next page: laid out for it, only when a
     /// word is being chosen or the touch is on that word (a page turn does not
@@ -167,6 +195,7 @@ impl Open {
         let key = self.key(setup);
         if self.page.is_some() && self.laid != Some(key) {
             self.page = None;
+            self.ahead = None;
             self.trail.clear();
             self.layers.forget_pages();
         }
