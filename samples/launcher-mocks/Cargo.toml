@@ -1,0 +1,26 @@
+[package]
+name = "launcher-mocks"
+description = "Mock screens for a simple launcher plugin (#236): four concepts, drawn with the SDK's blocks. Not a product: static content, for screenshots from the emulator."
+version = "0.0.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# A workspace of its own, as tools/plugin-host-libs is.
+[workspace]
+
+[[bin]]
+name = "launcher-mocks"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
+paperpaw-ui-kit = { path = "../../crates/paperpaw-ui-kit" }
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
