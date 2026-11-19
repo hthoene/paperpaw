@@ -791,7 +791,8 @@ fn line_runs(
     levels: &BlockLevels,
 ) -> Vec<LineRun> {
     let line_levels = levels.line(&block.text, range.clone());
-    let mut runs: Vec<LineRun> = Vec::new();
+    // Most lines are one run: room for it alone, not for four.
+    let mut runs: Vec<LineRun> = Vec::with_capacity(1);
     for (k, (i, _)) in block.text[range.clone()].char_indices().enumerate() {
         let face = face_at(block, base, range.start + i, book);
         let level = line_levels.get(k).map_or(0, |l| l.number());

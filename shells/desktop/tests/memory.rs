@@ -1352,3 +1352,136 @@ fn reading_thai_with_its_words_peaks_within_its_ceiling() {
         "the words add {held} KiB to the peak (18.7 KiB held)"
     );
 }
+
+/// The packs of Burmese letters as the store's are made
+/// (`tools/script-pack.py`: a regular and a bold pack, the Myanmar block,
+/// the words put into both by `tools/word-table.py`), the interface in
+/// Burmese from its pack and a Burmese EPUB of long paragraphs (the
+/// interface's own sentences).
+fn burmese_files() -> Vec<(&'static str, Vec<u8>)> {
+    let font = fs::read(root().join("tools/fonts/NotoSerifMyanmar.ttf")).unwrap();
+    let sizes = [20.0, 24.0, 28.0, 32.0, 36.0, 40.0, 48.0];
+    let packs: Vec<Vec<u8>> = [400.0, 700.0]
+        .iter()
+        .map(|&weight| {
+            let outline =
+                paperpaw_text::OutlineFont::new(font.clone(), &[("wght", weight)]).unwrap();
+            paperpaw_text::build_pack(&outline, &sizes, '\u{1000}'..='\u{104F}')
+        })
+        .collect();
+    let dir = std::env::temp_dir().join(format!("paperpaw-memory-myanmar-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let paths = [dir.join("myanmar.ppfp"), dir.join("myanmar-bold.ppfp")];
+    for (path, pack) in paths.iter().zip(&packs) {
+        fs::write(path, pack).unwrap();
+    }
+    let added = Command::new("python3")
+        .arg(root().join("tools/word-table.py"))
+        .args(["add", "myanmar"])
+        .args(&paths)
+        .status()
+        .unwrap();
+    assert!(added.success(), "tools/word-table.py add");
+    let [regular, bold] = paths.map(|path| fs::read(path).unwrap());
+    let _ = fs::remove_dir_all(&dir);
+    let ini = "[plugin]\nid = script-myanmar\nname = myanmar\nversion = 1.0.0\nformats = 5\n\n[extends]\n\
+               myanmar.ppfp = fonts-default.literata, literata-styles.italic, fonts-default.source-sans\n\
+               myanmar-bold.ppfp = literata-styles.bold, literata-bold-italic.bold-italic\n";
+    let burmese = fs::read_to_string(root().join("tools/plugin-files/languages/my.ini")).unwrap();
+    let sentences: Vec<&str> = burmese
+        .lines()
+        .filter_map(|line| line.split_once(" = ").map(|(_, text)| text.trim()))
+        .filter(|text| {
+            text.chars()
+                .all(|c| c == ' ' || ('\u{1000}'..='\u{109F}').contains(&c))
+        })
+        .take(600)
+        .collect();
+    let mut zip = paperpaw_zip::testing::ZipBuilder::new()
+        .stored("mimetype", "application/epub+zip")
+        .deflated(
+            "META-INF/container.xml",
+            "<?xml version=\"1.0\"?><container version=\"1.0\" \
+             xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\"><rootfiles>\
+             <rootfile full-path=\"content.opf\" media-type=\"application/oebps-package+xml\"/>\
+             </rootfiles></container>",
+        )
+        .deflated(
+            "content.opf",
+            "<?xml version=\"1.0\"?><package xmlns=\"http://www.idpf.org/2007/opf\" \
+             version=\"3.0\" unique-identifier=\"id\"><metadata \
+             xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:identifier id=\"id\">my</dc:identifier>\
+             <dc:title>မြန်မာ</dc:title><dc:language>my</dc:language></metadata>\
+             <manifest><item id=\"c1\" href=\"c1.xhtml\" media-type=\"application/xhtml+xml\"/>\
+             <item id=\"c2\" href=\"c2.xhtml\" media-type=\"application/xhtml+xml\"/></manifest>\
+             <spine><itemref idref=\"c1\"/><itemref idref=\"c2\"/></spine></package>",
+        );
+    for (n, half) in sentences.chunks(sentences.len().div_ceil(2)).enumerate() {
+        let paragraphs: String = half
+            .chunks(15)
+            .map(|p| format!("<p>{}။</p>", p.join("။ ")))
+            .collect();
+        zip = zip.deflated(
+            &format!("c{}.xhtml", n + 1),
+            format!(
+                "<html xml:lang=\"my\"><body><h1>အခန်း {}</h1>{paragraphs}</body></html>",
+                n + 1
+            ),
+        );
+    }
+    vec![
+        ("plugins/script-myanmar/plugin.ini", ini.as_bytes().to_vec()),
+        ("plugins/script-myanmar/fonts/myanmar.ppfp", regular),
+        ("plugins/script-myanmar/fonts/myanmar-bold.ppfp", bold),
+        (
+            "plugins/language-my/plugin.ini",
+            b"[plugin]\nid = language-my\nname = Burmese\nversion = 1.0.0\nformats = 4\nrequires = script-myanmar\n".to_vec(),
+        ),
+        ("plugins/language-my/i18n/my.ppcat", paperpaw_i18n::Catalog::compile(&burmese).unwrap()),
+        ("books/myanmar.epub", zip.build()),
+    ]
+}
+
+/// Reading a Burmese book with the interface in Burmese (#401), 30 pages
+/// forward and back, its substitutions whole (20.3 KiB held) and its lines
+/// broken between words, peaks within the ceiling of the Indic scripts
+/// ([`INDIC_PEAK_KIB`]), with no allocation refused: measured at 213 KiB,
+/// 226.6 before with its table cut to 17.7 KiB (now: a page's lists as
+/// long as they are, a paragraph's places to break as many as it has, not
+/// one per letter, and only the glyphs its letters can come to).
+#[test]
+fn reading_burmese_peaks_within_the_indic_ceiling() {
+    let files = burmese_files();
+    let run = |extra: &[&str]| {
+        let mut args = vec!["--set", "core.language=my"];
+        args.extend_from_slice(extra);
+        let flow = [
+            times("page-forward", 30),
+            times("page-back", 30),
+            "run:core.home".into(),
+        ]
+        .join(",");
+        args.extend_from_slice(&["--script", &flow]);
+        heap(&emulator_with(
+            "x4-burmese",
+            "xteink-x4",
+            Some("books/myanmar.epub"),
+            &files,
+            &args,
+        ))
+    };
+    let (budgeted, free) = (run(&[]), run(&["--heap-budget", "none"]));
+    eprintln!("x4 Burmese: peak {} KiB", free.peak);
+    assert_eq!(budgeted.screen, "home.dashboard", "the flow went home");
+    assert!(
+        (budgeted.peak - free.peak).abs() < 0.05,
+        "Burmese: peak {} KiB under the budget, {} KiB without",
+        budgeted.peak,
+        free.peak
+    );
+    assert!(
+        free.peak <= INDIC_PEAK_KIB,
+        "Burmese: peak {} KiB, over {INDIC_PEAK_KIB} KiB",
+        free.peak
+    );
+}

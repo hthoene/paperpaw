@@ -27,7 +27,7 @@ pub(crate) const LINE_BREAK_ANYWHERE: u32 = 3 << 3;
 pub(crate) const BREAK_ALL: u32 = 1 << 5;
 
 /// Whether the options lift the compat filter: UAX #14 decides everywhere.
-pub(crate) const fn lifts_filter(options: u32) -> bool {
+const fn lifts_filter(options: u32) -> bool {
     options & LINE_BREAK_MASK == LINE_BREAK_ANYWHERE || options & BREAK_ALL != 0
 }
 
