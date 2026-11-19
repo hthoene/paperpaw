@@ -990,11 +990,13 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             return Err(StorageError::InvalidPath);
         }
         let found = settled(&dir, name)?;
-        let old = found.old;
         let there = found.entry.is_some();
         let mark = found.entry.as_ref().map(state);
-        if found.others || found.entry.is_some_and(|entry| entry.is_dir()) {
+        if found.others || found.entry.as_ref().is_some_and(|entry| entry.is_dir()) {
             return Err(StorageError::InvalidPath);
+        }
+        if settle::unchanged(&found, data) {
+            return Ok(());
         }
         // Whole under one name of the moment, synced, then under another
         // (see the crate documentation): settled, a cut is told by them.
@@ -1034,7 +1036,7 @@ impl<IO: ReadWriteSeek + 'static> FatStorage<IO> {
             // (its temporary file beside it, taken away by `settled`).
             dir.rename(temps.tmp(), &dir, name).map_err(error)?;
         }
-        if old {
+        if found.old {
             self.clean_old(parent(path), &dir);
         }
         Ok(())
