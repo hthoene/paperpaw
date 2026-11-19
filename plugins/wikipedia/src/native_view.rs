@@ -22,7 +22,7 @@ use paperpaw_sdk::{
     },
 };
 use paperpaw_ui_kit::{
-    Messages, Paint, Style,
+    Messages, Paint, Style, anchored,
     mem::{SERVICE_BUFFER, buffer, push},
     paint, text,
 };
@@ -54,6 +54,9 @@ struct Layout {
 pub struct View {
     word: String,
     language: String,
+    /// Where the word is on the screen (the param `anchor`): the window goes
+    /// next to it.
+    anchor: Option<Rect>,
     body: Body,
     /// The request in flight.
     request: Option<RequestId>,
@@ -74,7 +77,7 @@ impl View {
         if let Some(handover) = handover {
             // A hand-over that cannot be read is a screen for no word, not a failed open:
             // the screen must exist for the draws that follow.
-            let _ = read_params(host, ui, handover, &mut view.word, &mut view.language);
+            let _ = read_params(host, ui, handover, &mut view);
             // The entry's text handed over (`document.md` 7, the panel's
             // *Open Wikipedia ›*): shown, not fetched again. A text that cannot
             // be read is fetched instead.
@@ -284,8 +287,8 @@ impl View {
         let display = snapshot::capture_snapshot(host)?;
         let style = Style::read(host, &display, font)?;
         let (width, height) = (display.display_width(), display.display_height());
-        let top = height.saturating_mul(9) / 20;
-        let region = Rect::new(0, top, width, height.saturating_sub(top));
+        let window = anchored::place(self.anchor, width, height, style.gap);
+        let region = window.region;
         let line = paperpaw_ui_kit::geometry::line_px(font, style.text)?.max(1);
         let header = style.row;
         let room = region
@@ -306,7 +309,7 @@ impl View {
         let page = self.page.as_ref().ok_or(Error::State)?;
         let mut body = Vec::new();
         push(&mut body, Paint::Fill(region, style.paper))?;
-        paperpaw_ui_kit::sheet::edge(&mut body, &style, region, style.ink)?;
+        anchored::edges(&mut body, &style, window, style.ink)?;
         let margin = f32::from(style.margin);
         let head = Rect::new(region.x, region.y, region.width, header);
         let source = messages.copy(host, "wikipedia.title")?;
@@ -440,20 +443,20 @@ fn clean(text: &str, max: usize) -> Result<String, Error> {
     text::copy(text.get(..end).unwrap_or(""))
 }
 
-/// The word and language of `handover`, as the caller gave them.
+/// The word, language and anchor of `handover`, as the caller gave them.
 fn read_params(
     host: &Host<'_>,
     ui: &Ui,
     handover: HandoverId,
-    word: &mut String,
-    language: &mut String,
+    view: &mut View,
 ) -> Result<(), Error> {
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     for param in ui.params(host, handover, &mut input, &mut out)? {
         let param = param?;
         match param.key() {
-            "word" => *word = text::copy(param.value())?,
-            "language" => *language = text::copy(param.value())?,
+            "word" => view.word = text::copy(param.value())?,
+            "language" => view.language = text::copy(param.value())?,
+            "anchor" => view.anchor = anchored::parse(param.value()),
             _ => {}
         }
     }
