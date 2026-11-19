@@ -2477,7 +2477,7 @@ enum paperpaw_sdk::native::library::edits::Action { Add, Replace(0: u32), Remove
 enum paperpaw_sdk::native::library::edits::ReceiptAction { Added, Replaced, Removed, Updated, Other(0: u32) }
 enum paperpaw_sdk::native::library::facets::Facet { Authors, Series, Tags, Letters, Folders }
 enum paperpaw_sdk::native::library::files::Existing { Refuse, Replace, FreeName }
-enum paperpaw_sdk::native::library::query::Show { All, Unread, Reading, Finished, Favourites, New }
+enum paperpaw_sdk::native::library::query::Show { All, Unread, Reading, Finished, Favourites, New, Opened }
 enum paperpaw_sdk::native::library::query::Sort { Title, Author, Series, Added, RecentlyOpened }
 enum paperpaw_sdk::native::library::rows::CatalogPhase { Empty, Walking, Ready, Failed, Unknown(0: u32) }
 enum paperpaw_sdk::native::net::FileRoot { Data, Files, Install }

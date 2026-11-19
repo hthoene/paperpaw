@@ -191,6 +191,7 @@ pub(super) struct Engine<'a> {
     /// Show (but `new`), author, series, tag, folder and day.
     base: catalog::Query,
     new_only: bool,
+    opened_only: bool,
     words: Vec<String>,
     archive: Option<String>,
     order: Order,
@@ -261,6 +262,7 @@ impl<'a> Engine<'a> {
             reads,
             base,
             new_only: q.show == 5,
+            opened_only: q.show == 6,
             words,
             archive,
             order,
@@ -278,6 +280,9 @@ impl<'a> Engine<'a> {
         if let Some(archive) = &self.archive
             && in_folder(&record.path, archive)
         {
+            return Ok(false);
+        }
+        if self.opened_only && !record.status.opened && record.status.progress.is_none() {
             return Ok(false);
         }
         if self.new_only {

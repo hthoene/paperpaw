@@ -9,7 +9,7 @@ use paperpaw_sdk::{
         Error, Host,
         fonts::Font,
         image::ImageId,
-        library::{BookRef, Library, Query, Sort},
+        library::{BookRef, Library, Query, Show, Sort},
     },
 };
 use paperpaw_ui_kit::{SharedInputs, mem, text::copy};
@@ -428,7 +428,9 @@ fn listed(host: &Host<'_>, rows: usize) -> Result<Vec<Book>, Error> {
             mem::buffer(mem::SERVICE_BUFFER)?,
             mem::buffer(mem::SERVICE_BUFFER)?,
         );
-        let query = Query::new().sort(Sort::RecentlyOpened);
+        // The opened books only: the rows after them are never shown here,
+        // and every row is a read of the card on the X4 (#393).
+        let query = Query::new().show(Show::Opened).sort(Sort::RecentlyOpened);
         let page = library.query(host, &query, &mut input, &mut out)?;
         let generation = page.end().generation();
         let mut books = Vec::new();

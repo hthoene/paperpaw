@@ -269,7 +269,7 @@ fn descending_is_the_whole_order_turned_round() {
 }
 
 #[test]
-fn the_show_filters_tell_unread_reading_finished_favourite_and_new() {
+fn the_show_filters_tell_unread_reading_finished_favourite_new_and_opened() {
     let s = shelf(&[
         // Never opened, added long ago.
         line("books/a.epub", "A", "Unread", "", "", ["", "", "100"]),
@@ -295,6 +295,8 @@ fn the_show_filters_tell_unread_reading_finished_favourite_and_new() {
     assert_eq!(shown(3), ["Finished"]);
     assert_eq!(shown(4), ["Loved"]);
     assert_eq!(shown(5), ["Fresh"]);
+    // Opened at least once, read or finished (#393).
+    assert_eq!(shown(6), ["Finished", "Opened", "Reading"]);
 }
 
 #[test]

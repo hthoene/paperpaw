@@ -560,6 +560,7 @@ mod owned_texts;
 
 #[path = "native_host/native_screen.rs"]
 pub(crate) mod native_screen;
+pub(crate) use native_screen::HIDDEN as SCREEN_HIDDEN;
 
 #[allow(
     dead_code,

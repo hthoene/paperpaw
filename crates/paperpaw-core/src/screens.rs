@@ -297,6 +297,10 @@ impl Kernel {
         self.stack.push(active);
         self.sync_stack();
         let top = self.stack.len() - 1;
+        // The native screens it covers are told before it opens and builds.
+        for covered in self.covered_by(top) {
+            self.tell_hidden(covered);
+        }
         self.native_screen_opened(top, params);
         let overlay = self.overlay(top);
         self.screen_changed(self.changed_region(top), overlay.is_some());
@@ -308,6 +312,38 @@ impl Kernel {
 
     fn hidden_screen_opened(&mut self, index: usize, params: &Params) {
         self.native_screen_opened(index, params);
+        self.tell_hidden(index);
+    }
+
+    /// The screens below `top` it covers as it opens: where it is a full
+    /// screen over all of the content, those shown until now (down to the
+    /// first full screen below it); none for an overlay or a pane. Those
+    /// below that one were covered already: told once, when it opened.
+    fn covered_by(&self, top: usize) -> core::ops::Range<usize> {
+        if self.overlay(top).is_some() || self.region_of(top) != self.content() {
+            return top..top;
+        }
+        let base = (0..top)
+            .rev()
+            .find(|i| self.overlay(*i).is_none())
+            .unwrap_or(0);
+        base..top
+    }
+
+    /// Tells the native screen at `index` that a full screen covers it
+    /// (`event.screen_hidden`, `ui.md` 1.1): a callback of its own, in no
+    /// frame and with no command stage (a command is `ERR_STATE`, as in `draw`),
+    /// before the cover's `screen_opened`. Other screens know it from
+    /// [`Screen::on_hide`].
+    fn tell_hidden(&mut self, index: usize) {
+        if !self.is_native_at(index) {
+            return;
+        }
+        let event = Id::new_static(crate::native_host::SCREEN_HIDDEN);
+        self.with_screen_staged(index, false, |screen, cx| {
+            screen.on_event(&event, &Params::new(), cx);
+            Handled::Yes
+        });
     }
 
     fn native_screen_opened(&mut self, index: usize, params: &Params) {
@@ -1131,6 +1167,17 @@ impl Kernel {
         index: usize,
         f: impl FnOnce(&mut crate::screen::Screen, &mut Turn<'_, '_>) -> Handled,
     ) -> Handled {
+        self.with_screen_staged(index, true, f)
+    }
+
+    /// [`Kernel::with_screen`], with the command stage of a native screen's
+    /// callbacks only where `staged` (without it a command is `ERR_STATE`).
+    fn with_screen_staged(
+        &mut self,
+        index: usize,
+        staged: bool,
+        f: impl FnOnce(&mut crate::screen::Screen, &mut Turn<'_, '_>) -> Handled,
+    ) -> Handled {
         let earlier = mem::take(&mut self.output.redraw);
         let given = self.output.commands.len();
         // The guard, and the screens it opened above itself (the
@@ -1141,7 +1188,7 @@ impl Kernel {
         });
         // What the screen's callbacks need for their command stage (a native
         // screen's), asked of the kernel before it is borrowed.
-        let armed = self.arm_screen_stage(index);
+        let armed = staged.then(|| self.arm_screen_stage(index)).flatten();
         let Some(active) = self.stack.get_mut(index) else {
             self.disarm_screen_stage(armed);
             self.output.redraw = earlier;

@@ -253,7 +253,7 @@ fn state(host: &dyn super::LibHost, input: &[u8], out: &mut [u8]) -> Result<usiz
 /// bytes is `ERR_NO_SPACE` from the decoder (no field is ever shortened).
 fn check_query(query: &wire::ServiceLibQuery<'_>, facets: bool) -> Result<(), i32> {
     require(
-        query.show <= 5
+        query.show <= 6
             && query.sort <= 4
             && query.flags & !0b11 == 0
             && query.facet <= if facets { 4 } else { 0 },

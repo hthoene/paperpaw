@@ -20,7 +20,9 @@ use crate::native_host::{
     declaration_store::{DeclKey, DeclarationStore, Kind},
     registrations::{self as wire, Record},
 };
+use alloc::vec::Vec;
 use core::ops::ControlFlow;
+use paperpaw_digest::fnv1a64;
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID};
 
 /// `reg_widget.flags`.
@@ -110,13 +112,52 @@ pub(super) fn rows(
         return Ok(());
     };
     let store = directory.store.try_borrow().map_err(|_| ERR_BUSY)?;
+    let places = placed(env, &store);
     let mut stopped = false;
     store.keys(Kind::Widget, &mut |key| {
         if !stopped {
-            stopped = declared(env, &store, key, wanted, visit).is_break();
+            stopped = declared(env, &store, key, wanted, places.as_deref(), visit).is_break();
         }
     });
     Ok(())
+}
+
+/// The widgets the places list (`widget.place` whose condition holds), as
+/// hashes, sorted: read once for a call, not once for each widget (#393). A
+/// widget not among them is listed by no place; one among them is looked up
+/// as before. `None` without memory: every widget is looked up.
+fn placed(env: &Place<'_>, store: &DeclarationStore) -> Option<Vec<u32>> {
+    let mut out = Vec::new();
+    let mut failed = false;
+    store.keys(Kind::WidgetPlace, &mut |key| {
+        let _read = ordered::with_plugin(store, key, &mut |record, _| {
+            let Record::WidgetPlace(place) = record else {
+                return ControlFlow::Continue(());
+            };
+            if !rules::value_holds(env.settings(), place.shown_if_key, place.shown_if_value) {
+                return ControlFlow::Continue(());
+            }
+            for key in place.list_keys.split('\n').filter(|key| !key.is_empty()) {
+                for item in env.settings().text(key).split(',') {
+                    let Some(item) = item.split_whitespace().next() else {
+                        continue;
+                    };
+                    if out.try_reserve(1).is_err() {
+                        failed = true;
+                        return ControlFlow::Break(());
+                    }
+                    out.push(fnv1a64(base(item).as_bytes()) as u32);
+                }
+            }
+            ControlFlow::Continue(())
+        });
+    });
+    if failed {
+        return None;
+    }
+    out.sort_unstable();
+    out.dedup();
+    Some(out)
 }
 
 /// The widgets to add that native plugins declared, for the kernel's own
@@ -153,6 +194,7 @@ fn declared(
     store: &DeclarationStore,
     key: DeclKey,
     wanted: Wanted<'_>,
+    places: Option<&[u32]>,
     visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
 ) -> ControlFlow<()> {
     // The id first: whether a place lists it scans the store again, which no
@@ -167,7 +209,7 @@ fn declared(
     let Some(id) = id else {
         return ControlFlow::Continue(());
     };
-    let shown = listed(env, store, id.as_str());
+    let shown = listed(env, store, id.as_str(), places);
     ordered::with_plugin(store, key, &mut |record, plugin| {
         let Record::WidgetSpec(spec) = record else {
             return ControlFlow::Continue(());
@@ -191,9 +233,16 @@ fn declared(
 
 /// Whether a place that shows now lists widget `id`: one of the environment's
 /// places (`Widgets::shown`) or a native `widget.place`.
-fn listed(env: &Place<'_>, store: &DeclarationStore, id: &str) -> bool {
+fn listed(env: &Place<'_>, store: &DeclarationStore, id: &str, places: Option<&[u32]>) -> bool {
     if env.widgets().shown(env, id) {
         return true;
+    }
+    if places.is_some_and(|places| {
+        places
+            .binary_search(&(fnv1a64(id.as_bytes()) as u32))
+            .is_err()
+    }) {
+        return false;
     }
     let mut found = false;
     store.keys(Kind::WidgetPlace, &mut |key| {

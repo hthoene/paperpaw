@@ -170,7 +170,7 @@ fn query_values_are_checked_and_the_limits_are_exact() {
     *fake.rows.borrow_mut() = (0..2).map(entry_row).collect();
     let with = |edit: fn(&mut Query<'static>)| ask(&fake, 2, &[query(edit)]);
     assert!(with(|q| q.show = 5).is_ok());
-    assert_eq!(with(|q| q.show = 6), Err(ERR_INVALID));
+    assert_eq!(with(|q| q.show = 7), Err(ERR_INVALID));
     assert!(with(|q| q.sort = 4).is_ok());
     assert_eq!(with(|q| q.sort = 5), Err(ERR_INVALID));
     assert!(with(|q| q.flags = 3).is_ok());

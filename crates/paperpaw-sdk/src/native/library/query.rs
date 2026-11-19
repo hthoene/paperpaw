@@ -17,6 +17,11 @@ pub enum Show {
     Favourites,
     /// Books added recently and not opened.
     New,
+    /// Books opened at least once, being read or finished: what a list of
+    /// the books opened last shows, without the rows of every other book
+    /// (each a read of the card on the X4). A host before it refuses the
+    /// query (`Error::Invalid`).
+    Opened,
 }
 /// Catalog ordering.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -93,6 +98,7 @@ impl<'a> Query<'a> {
             Show::Finished => 3,
             Show::Favourites => 4,
             Show::New => 5,
+            Show::Opened => 6,
         };
         self
     }
