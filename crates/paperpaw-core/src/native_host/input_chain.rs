@@ -49,6 +49,17 @@ pub(crate) enum Native {
     /// A gesture in place of the input (a replace that made an
     /// `input.gesture`): the screens get it as the kernel's own.
     Gesture(Gesture),
+    /// Nothing else sees it, and the filter's plugin (`owner`, its host key)
+    /// shows `value` for the setting `key` until the capture ends (verdict
+    /// `preview`, ui.md 4.1).
+    Preview {
+        owner: u64,
+        key: String,
+        value: Vec<u8>,
+        /// The capture began at a pointer move: the screens' part of the
+        /// finger is cancelled first.
+        begun_mid: bool,
+    },
 }
 
 /// The buttons the platform names: the only key names a filter can make.
@@ -411,6 +422,16 @@ pub(crate) fn run_record(
         Routed::Run(action) => Native::Run(String::from(action.as_str())),
         // Only a name the filter's plugin declared gets here (`declared`).
         Routed::Raise { input, .. } => Native::Raise(String::from(input.as_str())),
+        Routed::Preview {
+            owner,
+            preview,
+            begun_mid,
+        } => Native::Preview {
+            owner,
+            key: String::from(preview.key()),
+            value: preview.value().to_vec(),
+            begun_mid,
+        },
     };
     (native, refused)
 }
@@ -462,7 +483,13 @@ impl crate::Kernel {
         let mut cache = self.shared.native_filters.take();
         let (native, refused, failed) =
             self.native_input_run(&mut chain, &mut cache, now, record, event);
+        let preview_ended = chain.take_preview_ended();
         self.shared.native_input = chain;
+        // The preview of a capture that ended goes before the verdict that
+        // ended it is acted on (its action keeps the value).
+        if preview_ended {
+            self.end_filter_preview();
+        }
         // A filter that fails input after input is left out until the
         // declarations change.
         let gave_up = cache.as_mut().is_some_and(|cache| cache.settle(&failed));

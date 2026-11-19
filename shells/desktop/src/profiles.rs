@@ -369,6 +369,10 @@ pub struct Profile {
     /// *Switch off*): the X4s do; here the device is as asleep, the power button
     /// wakes it.
     pub power_off: bool,
+    /// The sleep screen can be drawn again while the device sleeps
+    /// (`command.show_again`): the X4 and X3 wake from their light sleep now
+    /// and then; the emulator does it on its timer.
+    pub refresh_asleep: bool,
     /// The buttons in a row below the screen, left to right (see
     /// `KernelBuilder::button_row`).
     pub button_row: &'static [&'static str],
@@ -422,6 +426,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: Some("x4"),
         sleep: true,
         power_off: true,
+        refresh_asleep: true,
         button_row: &X4_ROW,
         light: None,
         body: X4_BODY,
@@ -458,6 +463,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: Some("x4-pro"),
         sleep: true,
         power_off: true,
+        refresh_asleep: false,
         button_row: &[],
         // As the X4 Pro's shell has it: brightness in single percents,
         // cool and warm LEDs mixed in fives.
@@ -499,6 +505,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: Some("x4-pro"),
         sleep: true,
         power_off: true,
+        refresh_asleep: false,
         button_row: &[],
         light: Some(Light {
             max: 100,
@@ -534,6 +541,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: Some("x4-classic"),
         sleep: true,
         power_off: true,
+        refresh_asleep: false,
         button_row: &X4_ROW,
         light: None,
         body: X4_BODY,
@@ -567,6 +575,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: Some("x4"),
         sleep: true,
         power_off: true,
+        refresh_asleep: true,
         button_row: &X4_ROW,
         light: None,
         body: X4_BODY,
@@ -605,6 +614,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: Some("android"),
         sleep: false,
         power_off: false,
+        refresh_asleep: false,
         button_row: &[],
         // Unverified: Onyx's levels from 0 to 255, warm and cool LEDs;
         // the Android shell takes the device's range, in steps of 1.
@@ -648,6 +658,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: None,
         sleep: true,
         power_off: false,
+        refresh_asleep: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,
@@ -677,6 +688,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: None,
         sleep: true,
         power_off: false,
+        refresh_asleep: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,
@@ -706,6 +718,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: None,
         sleep: true,
         power_off: false,
+        refresh_asleep: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,
@@ -736,6 +749,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: None,
         sleep: true,
         power_off: false,
+        refresh_asleep: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,

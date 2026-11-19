@@ -20,7 +20,11 @@
 //! the better state to be in; unplugged, the choice counts from then),
 //! except for the choice *Now*, which is how the X4 slept before: switched
 //! off at once, USB or not. A battery that cannot be read three looks in a
-//! row counts as a low one. [`run`] is the whole sleep, written against
+//! row counts as a low one. While it sleeps, the sleep screen can be drawn
+//! again (`command.show_again`, [`Board::show_again_at`]): at its time, never
+//! sooner than [`SHOW_MIN_MS`] after the last, only on the cable or with a
+//! battery above [`LOW_PERCENT`]; the panel is put down and the sleep goes on.
+//! [`run`] is the whole sleep, written against
 //! what the board does ([`Board`]) so that its order (radios checked off
 //! before the sleep, the watchdogs put back on both ways out, bounded
 //! early wakes) is tested on a computer.
@@ -59,6 +63,9 @@ pub const MAX_EARLY: u8 = 5;
 /// How long the power button may be held when going to sleep (ms): a
 /// reader in a tight case is switched off rather than woken at once.
 pub const HELD_MS: u64 = 10_000;
+/// The least time between two shows of the sleep screen while asleep
+/// (`command.show_again`, ms): a refresh costs about a hundred times a look.
+pub const SHOW_MIN_MS: u64 = 5 * 60_000;
 /// The watchdog of the sleep (ms): longer than the longest nap
 /// ([`CHECK_MS`]), so that one that never ends is a reset, not a flat
 /// battery.
@@ -292,6 +299,39 @@ pub trait Board {
     fn nap(&mut self, until_ms: u64) -> Napped;
     /// Says why the sleep went the way it did (for the owner's log).
     fn say(&mut self, what: &str);
+    /// When the sleep screen is to be shown again (`command.show_again`), by
+    /// the clock of [`Board::now_ms`]; `None` where nothing is asked for.
+    fn show_again_at(&mut self) -> Option<u64> {
+        None
+    }
+    /// Shows the sleep screen again, with the watchdogs awake, the readings
+    /// going and the panel up for as long as it takes (the caller puts the
+    /// sleep back).
+    fn show_again(&mut self) {}
+}
+
+/// Whether the battery lets the screen be drawn again: on the cable, or
+/// above [`LOW_PERCENT`] (a battery that cannot be read, never).
+const fn refresh_allowed(look: Look) -> bool {
+    look.usb || matches!(look.percent, Some(percent) if percent > LOW_PERCENT)
+}
+
+/// When the sleep screen is shown next, by the clock: its time, no sooner than
+/// [`SHOW_MIN_MS`] after the last show, and none where the battery does not
+/// allow it (`allowed`).
+fn show_due(board: &mut impl Board, allowed: bool, last: Option<u64>) -> Option<u64> {
+    let at = board.show_again_at().filter(|_| allowed)?;
+    Some(last.map_or(at, |last| at.max(last.saturating_add(SHOW_MIN_MS))))
+}
+
+/// The sleep screen shown again, then asleep as before.
+fn show_again(board: &mut impl Board) {
+    board.watchdog_awake();
+    board.resume_inputs();
+    board.show_again();
+    board.panel_down();
+    board.pause_inputs();
+    board.watchdog_for_sleep();
 }
 
 /// How a light sleep ended.
@@ -396,9 +436,12 @@ pub fn run(off: Off, board: &mut impl Board) -> Ended {
     board.pause_inputs();
     board.watchdog_for_sleep();
     let mut until = until_ms;
+    let mut allowed = refresh_allowed(first);
+    let mut shown_at = None;
     let ended = loop {
         board.feed();
-        match board.nap(until) {
+        let wake = show_due(board, allowed, shown_at).map_or(until, |due| until.min(due));
+        match board.nap(wake) {
             Napped::Pressed => {
                 board.say("the power button woke it");
                 break Ended::Woken;
@@ -410,7 +453,7 @@ pub fn run(off: Off, board: &mut impl Board) -> Ended {
                 }
             }
             Napped::Ended => {
-                let early = board.now_ms().saturating_add(1000) < until;
+                let early = board.now_ms().saturating_add(1000) < wake;
                 if let Some(why) = asleep.restless(early) {
                     board.say("light sleep keeps ending early: switching off");
                     break Ended::SwitchOff(why);
@@ -418,7 +461,16 @@ pub fn run(off: Off, board: &mut impl Board) -> Ended {
                 board.feed();
                 let look = board.look();
                 match asleep.next(look) {
-                    Next::Nap { until_ms } => until = until_ms,
+                    Next::Nap { until_ms } => {
+                        until = until_ms;
+                        allowed = refresh_allowed(look);
+                        let now = board.now_ms();
+                        if show_due(board, allowed, shown_at).is_some_and(|due| due <= now) {
+                            board.say("showing the sleep screen again");
+                            show_again(board);
+                            shown_at = Some(board.now_ms());
+                        }
+                    }
                     Next::SwitchOff(why) => {
                         board.say(match why {
                             Why::Battery => "the battery is low: switching off",
@@ -761,6 +813,8 @@ mod tests {
         held: bool,
         radios_stay_on: bool,
         asleep: bool,
+        /// When the sleep screen is wanted again; cleared once it is shown.
+        show_at: Option<u64>,
     }
 
     impl Fake {
@@ -774,6 +828,7 @@ mod tests {
                 held: false,
                 radios_stay_on: false,
                 asleep: false,
+                show_at: None,
             }
         }
 
@@ -847,6 +902,46 @@ mod tests {
         fn say(&mut self, what: &str) {
             self.calls.push(format!("say {what}"));
         }
+        fn show_again_at(&mut self) -> Option<u64> {
+            self.show_at
+        }
+        fn show_again(&mut self) {
+            assert!(!self.asleep, "drawn with the watchdogs of the sleep");
+            self.calls.push("show".into());
+            self.show_at = None;
+        }
+    }
+
+    #[test]
+    fn the_sleep_screen_is_shown_again_at_its_time_and_the_sleep_goes_on() {
+        // Wanted at 15 minutes: the first nap ends at the look (10), the
+        // next at the time asked for (15), then the button.
+        let mut board = Fake::new(vec![
+            (Napped::Ended, 10 * MIN),
+            (Napped::Ended, 5 * MIN),
+            (Napped::Pressed, 0),
+        ]);
+        board.show_at = Some(15 * MIN);
+        assert_eq!(run(Off::of(NEVER), &mut board), Ended::Woken);
+        assert_eq!(board.calls.iter().filter(|c| *c == "show").count(), 1);
+        let show = board.at("show").unwrap();
+        // Not before its time: two naps went before it, the last after.
+        assert_eq!(
+            board.calls[..show].iter().filter(|c| *c == "nap").count(),
+            2
+        );
+        assert!(board.calls[show - 1..show].contains(&"resume".into()));
+        // Asleep again as before: the panel down, the readings stopped.
+        let after: Vec<_> = board.calls[show + 1..].iter().map(String::as_str).collect();
+        assert_eq!(&after[..3], ["panel", "pause", "wd-sleep"]);
+        assert!(after.contains(&"nap"));
+    }
+
+    #[test]
+    fn nothing_is_shown_again_that_was_not_asked_for() {
+        let mut board = Fake::new(vec![(Napped::Ended, 10 * MIN), (Napped::Pressed, 0)]);
+        assert_eq!(run(Off::of(NEVER), &mut board), Ended::Woken);
+        assert_eq!(board.at("show"), None);
     }
 
     #[test]

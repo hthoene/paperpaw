@@ -89,6 +89,39 @@ pub fn read_setting<'a>(
     })
 }
 
+/// `value` as the bytes of a settings value: what `filter.verdict.value`
+/// (verdict `preview` of an input filter, `docs/abi/ui.md` 4.1) and
+/// `command.preview_setting` carry, written to the start of `out`; the part
+/// written is returned.
+///
+/// # Errors
+/// Returns NoSpace when the value does not fit in `out`, Invalid for
+/// [`SettingValue::Absent`] (a preview of "not set" is `command.preview_setting`'s).
+pub fn encode_value<'o>(value: SettingValue<'_>, out: &'o mut [u8]) -> Result<&'o [u8], Error> {
+    let value = match value {
+        SettingValue::Bool(value) => wire::SettingValueRef::Bool(value),
+        SettingValue::Int(value) => wire::SettingValueRef::Int(value),
+        SettingValue::Text(value) => wire::SettingValueRef::Text(value),
+        _ => return Err(Error::Invalid),
+    };
+    let mut raw = [core::mem::MaybeUninit::new(0_u8); ENCODED_MAX];
+    let length = wire::settings_encode(value, &mut raw).map_err(Error::from_status)?;
+    let (slots, room) = (raw.get(..length), out.get_mut(..length));
+    let (Some(slots), Some(room)) = (slots, room) else {
+        return Err(Error::NoSpace);
+    };
+    for (to, from) in room.iter_mut().zip(slots) {
+        // SAFETY: every slot was initialized above, and `settings_encode`
+        // writes initialized bytes only.
+        *to = unsafe { from.assume_init() };
+    }
+    Ok(&*room)
+}
+
+/// The most bytes of an encoded value [`encode_value`] makes (a number, a
+/// switch or a short text).
+const ENCODED_MAX: usize = 64;
+
 fn read_raw(host: &Host<'_>, key: &str, scratch: &mut [u8]) -> Result<usize, Error> {
     // SAFETY: the key and exclusively borrowed output remain live for this call.
     let result = unsafe {

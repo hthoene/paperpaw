@@ -2,10 +2,13 @@
 //! an edge (`swipe::Tracker`), the setting of the light, the notice of the new
 //! level, the action *Light on or off* and the widget.
 //!
-//! The filter answers *pass* to every input but two: a step of a swipe of ours
-//! (*run* the action `edge-light.step`: a filter may send no command, the action
-//! sets the level and says it), and the vertical swipe the kernel makes of that
-//! finger when it lifts (*take*, so that no page turns).
+//! The filter answers *pass* to every input but two: a swipe of ours and the
+//! vertical swipe the kernel makes of that finger when it lifts (*take*, so
+//! that no page turns). A swipe is one *preview* after another (the host shows
+//! the level the finger is at, no card write, from the swipe's first sample on,
+//! which also takes the finger from the screens); when the finger lifts the
+//! filter answers *run* the action `edge-light.step` (a filter may send no
+//! command, the action sets the level once and says it).
 use crate::{
     declarations::{
         FILTER_STAGE, FILTER_TOKEN, FN_BRIGHTNESS, FN_OFF, FN_WARMTH, LEFT, LIFECYCLE_TOKEN, RIGHT,
@@ -26,7 +29,7 @@ use paperpaw_sdk::{
         formatting::Arg,
         registrations,
         reply::Reply,
-        settings::{SettingValue, read_setting},
+        settings::{SettingValue, encode_value, read_setting},
         snapshot,
         stage_schemas::core_input_filter_v1 as stage,
         ui::{Instance, Notify, WidgetInputKind, WidgetTarget, stages::WidgetCall},
@@ -62,6 +65,23 @@ const SLOP_MM: u32 = 3;
 const PASS: u32 = 0;
 const TAKE: u32 = 1;
 const RUN: u32 = 2;
+/// A take that shows a setting's value until the finger lifts (revision 1).
+const PREVIEW: u32 = 6;
+/// The most bytes of a setting value in a verdict (`filter.verdict.value`).
+const VALUE: usize = 64;
+/// What the filter answers to one input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Answer {
+    Pass,
+    Take,
+    /// Keep the level of the swipe that ended (the action `step`).
+    Run,
+    /// Show this level of `function` while the finger goes on.
+    Preview {
+        function: Function,
+        level: i64,
+    },
+}
 
 /// What the strips are, as read from the settings (until one changes).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,15 +347,29 @@ impl NativeEdgeLight {
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
         // What cannot be read, or fails, passes: a filter never holds an input up.
-        let kind = self.verdict(host, payload).unwrap_or(PASS);
-        let action = if kind == RUN { STEP_ACTION } else { "" };
-        let mut out = [0; 64];
+        let answer = self.verdict(host, payload).unwrap_or(Answer::Pass);
+        let mut value = [0; VALUE];
+        let (kind, action, key, value) = match answer {
+            Answer::Pass => (PASS, "", "", &[][..]),
+            Answer::Take => (TAKE, "", "", &[][..]),
+            Answer::Run => (RUN, STEP_ACTION, "", &[][..]),
+            Answer::Preview { function, level } => match function.setting() {
+                Some(key) => {
+                    let bytes = encode_value(SettingValue::Int(level), &mut value)?;
+                    (PREVIEW, "", key, bytes)
+                }
+                None => (PASS, "", "", &[][..]),
+            },
+        };
+        let mut out = [0; 192];
         let written = stage::reply_encode(
             &[stage::Record::FilterVerdict(stage::FilterVerdict::new(
                 kind,
                 action,
                 &[],
                 "",
+                key,
+                value,
             ))],
             &mut out,
         )
@@ -343,10 +377,10 @@ impl NativeEdgeLight {
         reply.write(out.get(..written).ok_or(Error::NoSpace)?)
     }
 
-    fn verdict(&mut self, host: &Host<'_>, payload: &[u8]) -> Result<u32, Error> {
+    fn verdict(&mut self, host: &Host<'_>, payload: &[u8]) -> Result<Answer, Error> {
         let mut rows = stage::input_decode(payload).map_err(|_| Error::Invalid)?;
         let Some(Ok(stage::Record::FilterInput(input))) = rows.next() else {
-            return Ok(PASS);
+            return Ok(Answer::Pass);
         };
         match Input::decode(input.input)? {
             Input::Pointer {
@@ -360,10 +394,9 @@ impl NativeEdgeLight {
                     PointerPhase::Move => Phase::Move,
                     PointerPhase::Up => Phase::Up,
                     PointerPhase::Cancel => Phase::Cancel,
-                    _ => return Ok(PASS),
+                    _ => return Ok(Answer::Pass),
                 };
                 self.pointer(host, phase, contact, position.x, position.y)
-                    .map(|run| if run { RUN } else { PASS })
             }
             Input::Gesture { kind, .. } => {
                 let vertical = matches!(
@@ -371,12 +404,12 @@ impl NativeEdgeLight {
                     InputGestureKind::SwipeUp | InputGestureKind::SwipeDown
                 );
                 Ok(if self.tracker.gesture(vertical) {
-                    TAKE
+                    Answer::Take
                 } else {
-                    PASS
+                    Answer::Pass
                 })
             }
-            _ => Ok(PASS),
+            _ => Ok(Answer::Pass),
         }
     }
 
@@ -387,27 +420,34 @@ impl NativeEdgeLight {
         contact: u32,
         x: i32,
         y: i32,
-    ) -> Result<bool, Error> {
+    ) -> Result<Answer, Error> {
         if phase == Phase::Down {
             self.zone = None;
+            self.pending = None;
             if !self.usable(host)? {
-                return Ok(false);
+                return Ok(Answer::Pass);
             }
             let strips = self.strips(host)?;
             if strips.left == Function::Off && strips.right == Function::Off {
-                return Ok(false);
+                return Ok(Answer::Pass);
             }
             self.zone = Some(zone_of(host, strips)?);
         }
         let Some((zone, travel)) = self.zone else {
-            return Ok(false);
+            return Ok(Answer::Pass);
         };
         let strips = self.strips(host)?;
         match self.tracker.pointer(&zone, phase, contact, x, y) {
-            Out::Pass => Ok(false),
+            Out::Pass => Ok(Answer::Pass),
+            // Lifted: the level the finger ended at is kept, once (the action
+            // *step*). Cancelled, or another finger: the preview just ends.
             Out::End => {
                 self.active = None;
-                Ok(false)
+                if phase == Phase::Up && self.pending.is_some() {
+                    return Ok(Answer::Run);
+                }
+                self.pending = None;
+                Ok(Answer::Pass)
             }
             Out::Swipe { side, rise, first } => {
                 let function = match side {
@@ -417,7 +457,7 @@ impl NativeEdgeLight {
                 if first {
                     self.begin(host, function)?;
                 }
-                Ok(self.follow(rise, travel))
+                Ok(self.follow(first, rise, travel))
             }
         }
     }
@@ -436,23 +476,31 @@ impl NativeEdgeLight {
         Ok(())
     }
 
-    /// The finger is `rise` pixels above where it began: asks for the level it
-    /// wants once a step is made, by *run* (a filter may send no command, so the
-    /// action *step* does the setting), and says whether it did.
-    fn follow(&mut self, rise: i32, travel: u16) -> bool {
+    /// The finger is `rise` pixels above where it began: the level to show
+    /// while it goes on. The swipe's first sample answers the level it began
+    /// at (that takes the finger); the others only when the level changed.
+    /// What the finger ends at is kept by the action *step* when it lifts
+    /// (`pending`: none while it is back where it began).
+    fn follow(&mut self, first: bool, rise: i32, travel: u16) -> Answer {
         let Some(active) = &mut self.active else {
-            return false;
+            return Answer::Pass;
         };
+        if active.function.setting().is_none() {
+            return Answer::Pass;
+        }
         let level = swipe::level_at(active.start, rise, travel);
-        if level == active.last || active.function.setting().is_none() {
-            return false;
+        if level == active.last && !first {
+            return Answer::Pass;
         }
         active.last = level;
-        self.pending = Some(Pending {
+        self.pending = (level != active.start).then_some(Pending {
             function: active.function,
             level,
         });
-        true
+        Answer::Preview {
+            function: active.function,
+            level,
+        }
     }
 
     /// The action *step*: the level the filter asked for, set, and told.

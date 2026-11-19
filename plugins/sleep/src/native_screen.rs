@@ -103,6 +103,8 @@ pub struct Sleeping {
     off: bool,
     /// The device woke since the screen opened.
     pub woke: bool,
+    /// Minutes between redraws while asleep (`sleep.refresh-every`); 0 never.
+    refresh: u32,
     /// The widgets of `sleep.widgets`, where they show.
     list: String,
     over: Option<OverSetup>,
@@ -125,6 +127,7 @@ impl Sleeping {
             setting: String::new(),
             off,
             woke: false,
+            refresh: 0,
             list: String::new(),
             over: None,
             laid: None,
@@ -184,6 +187,9 @@ impl Sleeping {
             }
         }
         view.facts = facts_before(off);
+        if !off {
+            view.refresh = model::refresh_minutes(&read_text(host, model::REFRESH)?);
+        }
         let effective = model::effective(&view.setting, view.facts);
         if effective == model::WIDGETS {
             view.list = read_text(host, "sleep.widgets")?;
@@ -209,6 +215,32 @@ impl Sleeping {
     #[must_use]
     pub fn quiet(&self) -> bool {
         self.setting == model::PAGE && !self.off
+    }
+
+    /// How long to the first redraw asleep and the minutes between the others: `None` where
+    /// the setting is off or what shows does not change with the time (a
+    /// picture, the cat, a message, the page): only the widgets, and the widget
+    /// over the page, show a clock, a calendar or a weather.
+    ///
+    /// # Errors
+    /// The host's refusal of the clock.
+    pub fn refresh_plan(&self, host: &Host<'_>) -> Result<Option<(u32, u32)>, Error> {
+        let live = match self.content() {
+            Content::Widgets => true,
+            Content::Overlay => self
+                .over
+                .as_ref()
+                .is_some_and(|over| !over.widget.is_empty()),
+            _ => false,
+        };
+        if self.off || self.refresh == 0 || !live {
+            return Ok(None);
+        }
+        let unix = snapshot::capture_snapshot(host)?.unix_seconds();
+        Ok(Some((
+            model::refresh_wait_ms(self.refresh, unix),
+            self.refresh,
+        )))
     }
 
     /// Asks for a full refresh, as interface 6 did each time the screen showed.

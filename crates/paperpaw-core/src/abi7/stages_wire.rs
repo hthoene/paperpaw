@@ -3351,7 +3351,7 @@ pub mod core_input_filter_v1 {
     /// Schema major.
     pub const MAJOR: u16 = 1;
     /// Schema revision.
-    pub const REVISION: u16 = 0;
+    pub const REVISION: u16 = 1;
     /// Schema test_only.
     pub const TEST_ONLY: bool = false;
     /// Schema max_subscribers.
@@ -3404,6 +3404,10 @@ pub mod core_input_filter_v1 {
     pub const FILTER_VERDICT_INPUT_MAX_BYTES: usize = 128;
     /// Maximum bytes of `filter.verdict.raise`.
     pub const FILTER_VERDICT_RAISE_MAX_BYTES: usize = 64;
+    /// Maximum bytes of `filter.verdict.key`.
+    pub const FILTER_VERDICT_KEY_MAX_BYTES: usize = 128;
+    /// Maximum bytes of `filter.verdict.value`.
+    pub const FILTER_VERDICT_VALUE_MAX_BYTES: usize = 64;
 
     /// The `filter.verdict` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3417,26 +3421,41 @@ pub mod core_input_filter_v1 {
         pub input: &'a [u8],
         /// UTF-8 text of at most 64 bytes.
         pub raise: &'a str,
+        /// UTF-8 text of at most 128 bytes. Appended and optional; empty when absent.
+        pub key: &'a str,
+        /// Opaque bytes, at most 64. Appended and optional; empty when absent.
+        pub value: &'a [u8],
     }
 
     wire_fields! {
         /// The fields of `filter.verdict` as the codec walks them.
-        FILTER_VERDICT_FIELDS: [FilterVerdict<'static>; 4] {
+        FILTER_VERDICT_FIELDS: [FilterVerdict<'static>; 6] {
             kind: u32, 0, 0;
             action: text, 0, 128;
             input: bytes, 0, 128;
             raise: text, 0, 64;
+            key: text, 1, 128;
+            value: bytes, 2, 64;
         }
     }
 
     impl<'a> FilterVerdict<'a> {
         /// Build a record; encoding validates its bounds.
-        pub const fn new(kind: u32, action: &'a str, input: &'a [u8], raise: &'a str) -> Self {
+        pub const fn new(
+            kind: u32,
+            action: &'a str,
+            input: &'a [u8],
+            raise: &'a str,
+            key: &'a str,
+            value: &'a [u8],
+        ) -> Self {
             Self {
                 kind,
                 action,
                 input,
                 raise,
+                key,
+                value,
             }
         }
     }
@@ -3466,7 +3485,7 @@ pub mod core_input_filter_v1 {
             }
         }),
         (FILTER_VERDICT_TAG, &FILTER_VERDICT_FIELDS, {
-            let record = Record::FilterVerdict(FilterVerdict::new(0, "", &[], ""));
+            let record = Record::FilterVerdict(FilterVerdict::new(0, "", &[], "", "", &[]));
             // SAFETY: `inner` is the struct inside `record`.
             match &record {
                 Record::FilterVerdict(inner) => unsafe { wire_offset(&record, inner) },

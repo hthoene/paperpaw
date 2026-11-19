@@ -851,6 +851,11 @@ fn x3_panel_or_back(
 }
 
 /// The name of this device in the note on the card.
+/// The sleep screen can be drawn again while asleep (`command.show_again`,
+/// the `core.device` caps bit 15): where the light sleep wakes now and then
+/// and the wake is written (the X4 and X3).
+const REFRESH_ASLEEP: bool = cfg!(all(feature = "asleep-light", not(feature = "x4-pro")));
+
 const DEVICE_NAME: &str = if cfg!(feature = "x3") {
     "Xteink X3"
 } else if cfg!(feature = "picco") {
@@ -1062,6 +1067,15 @@ fn kernel(
         // TLS sockets (and HTTPS with them): one session at a time on the
         // X4's 256 KiB, two on the X4 Pro and Classic (`tls_slots`).
         .tls_sessions(tls_slots::SESSIONS);
+    // The light sleep wakes now and then (`paperpaw_x4::sleeping`), so the
+    // sleep screen can be drawn again meanwhile (`command.show_again`): the X4
+    // and X3. The X4 Pro sleeps lightly too but its wake is not written for
+    // it (#319), the Classic boots fully.
+    let builder = if REFRESH_ASLEEP {
+        builder.capability(paperpaw_sdk::Capability::REFRESH_ASLEEP)
+    } else {
+        builder
+    };
     // Every Xteink device has the USB serial unit the developer link
     // (*Customise > Developer*, #12) talks over.
     let builder = builder.capability(paperpaw_sdk::Capability::USB_LINK);

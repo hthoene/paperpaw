@@ -1,6 +1,6 @@
 //! The native declarations are those pinned in `tests/pinned/declarations.txt`
 //! (written while the interface-6 registration was still compared with them,
-//! line for line): the group, the nine settings (kinds, defaults, choices,
+//! line for line): the group, the settings (kinds, defaults, choices,
 //! titles, help, editors, units; the picker as the editor of the picture and
 //! the widget over the page), the screens (the picker and the sleep screen),
 //! the slot, the icon, the needs and the two places of widgets, and the sleep
@@ -40,10 +40,10 @@ fn the_declarations_are_the_pinned_ones() {
     }
     let native = declared::native("sleep", &all);
     declared::assert_pinned("declarations", &native);
-    assert_eq!(native.specs.len(), 12);
+    assert_eq!(native.specs.len(), 13);
     assert_eq!(native.screens.len(), 3);
     assert_eq!(native.widget_places.len(), 2);
-    assert_eq!(native.needs.len(), 13);
+    assert_eq!(native.needs.len(), 14);
     assert!(native.events.is_empty());
     assert!(native.others.is_empty(), "{:?}", native.others);
     assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);

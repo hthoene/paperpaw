@@ -265,6 +265,7 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
 | 1552 | `command.raise_input` | `input: str 64` |
 | 1563 | `command.screen_policy` | `instance: u32`, `flags: u32` |
 | 1594 | `command.set_hint` | `action: str 128`, `kind: u32`, `label: str 64` |
+| 1598 | `command.show_again` | `instance: u32`, `after_ms: u32`, `every_ms: u32`, `flags: u32` |
 
 - [D] `open.mode`: 0 `screen` (open screen `target` on top), 1 `slot` (show the screen bound to slot
   `target`; if that slot is open already, close the screens above it and pass it the new hand-over),
@@ -339,6 +340,31 @@ after the callback, chains bounded at 8 hops, `screens-input.md` section 3).
 
   A slot nobody offers a screen for opens nothing (`ERR_NOT_FOUND`), so a plugin may test for it
   first (`core.registry` op 9 `slots`, op 10 `slot_offers`).
+
+### 1.4 The sleep screen shown again while asleep (`command.show_again`)
+
+- [D] `command.show_again` (#152, #319): the plugin's screen asks to be shown again while the
+  device sleeps, at `after_ms` from now (at least 60,000) and then every `every_ms` (0: once, else
+  at least 60,000); `after_ms` 0 cancels (`every_ms` must then be 0). `instance` 0 is the submitter's
+  own top instance, or that instance by its number, else `ERR_STATE`; `flags` has no bits yet
+  (`ERR_INVALID`). One request is kept for the device, and a new one replaces it. A request
+  is `ERR_UNSUPPORTED` where `dev_device.caps` bit 15 `refresh_asleep` is 0, and `ERR_STATE`
+  while the device is awake: the sleep screen asks from its `event.suspend` (the host has set the
+  device asleep before it sends it). A cancel is accepted whenever the plugin has a screen. The
+  request ends when the device wakes, or when the screen is no longer on top.
+- [D] The shell that can wake the device for a moment (`caps` bit 15: the X4 and X3 wake from
+  their light sleep every 10 minutes anyway, `crates/paperpaw-x4/src/sleeping.rs`) asks the
+  kernel when (`Kernel::show_again_at`) and at that time (`Kernel::show_again_now`) the kernel
+  draws the whole screen again, as `command.redraw` with mode 2 (a partial refresh), and the
+  panel refreshes what changed. The plugin's `draw` is called as ever (`frame.purpose`
+  unchanged) and sends nothing; the next time comes from `every_ms`, counted from the time asked
+  for, never from when the wake came, so the cadence does not drift. A wake is never earlier than
+  5 minutes after the last show, never on a battery at or below 10 % or one that cannot be read
+  (on USB it is not asked), and never turns a radio on: what the screen shows is what plugins
+  already hold. A press of the power button wakes the device as before. A device that does not
+  have bit 15 (the X4 Pro and Classic: their sleep would need a full start for every refresh)
+  keeps the screen as it was. Cost per wake on the X4: about 0.03 mAh (an estimate from
+  the panel's refresh and about 2 s of the processor awake; not yet measured).
 
 ## 2. Plugin inputs and gestures (declarations)
 
@@ -507,8 +533,30 @@ asker learns its request id at once and long texts move in pages, never cut.
 - [D] Each subscriber replies with one `ui.verdict` record (stage-local tag 1):
   `kind: u32` 0 pass, 1 take, 2 run (`action: str 128`), 3 cancel, 4 replace (`input: bytes 128`,
   one input record), 5 raise (`input: str 64`, one of the subscriber's own declared inputs or
-  gestures). Anything else, an empty reply or a failed callback is pass (logged). 1-5 end the
-  filter chain; replace passes the new input on to the filters after it and everything else.
+  gestures), 6 preview (`key: str 128`, `value: bytes 64`, appended optional fields of stage
+  revision 1: see "Preview" below). Anything else, an empty reply or a failed callback is pass
+  (logged). 1-6 end the filter chain; replace passes the new input on to the filters after it and
+  everything else.
+- [D] **Preview** (verdict 6, #104, stage `core.input-filter@1` revision 1; stepless edge-swipe
+  light). A take that also shows `value` (a settings value, the codec of `settings.read`) for
+  `key` in place of the one kept, as `command.preview_setting` would, and without a card write.
+  The row is checked as a `preview_setting` row is (`registry.md` 4.4): registered, not secret,
+  not a `core.grant.*` key, this plugin's to set, a value the setting takes; one that is not is
+  taken all the same and shows nothing (logged). It is allowed at a key press, at a pointer down
+  and at a pointer **move that begins the capture** (a finger recognized as a swipe only after it
+  moved: the host cancels what the screens got of that finger first, as for verdict 3); anywhere
+  else (a key repeat or release, an up, a gesture, a move of a finger already captured by another
+  subscription) it counts as pass. The preview belongs to that capture (plugin, token and
+  physical input): the capturer answers 6 again to a move of it and its value replaces the last;
+  any other answer to a move keeps what shows. It ends at the capture's pointer up, cancel or key
+  release, when the capture is released or the input path reset, and with any other preview set
+  (a `preview_setting` command, another capture's verdict 6), so there is one at a time and it
+  never outlives a finger. To keep the value the filter answers the up with 2 run: the host ends
+  the preview first, then runs the action, which does the one `set_setting`, so a whole swipe is
+  one write. A cancel keeps nothing. A device that follows the value (the X4 Pro's front light
+  does, at once, from the effective setting) needs nothing else. Plugins that use it declare the
+  revision (the generator derives `needs_minor`); a host without it counts the unknown kind as
+  pass.
 - [D] A filter that takes or cancels a pointer down takes it whole, to its up; one that takes a
   key press, its release too (interface 6 rule). If the capturing plugin stops, or its filter
   callback fails while it holds a capture, the host releases the capture: the rest of that

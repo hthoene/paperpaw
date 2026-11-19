@@ -61,6 +61,7 @@ pub fn make(
         bluetooth: cfg!(feature = "bluetooth"),
         frontlight: cfg!(feature = "x4-pro"),
         firmware: running.is_some(),
+        refresh_asleep: crate::REFRESH_ASLEEP,
     };
     let identity = Identity {
         id: crate::DEVICE.id,
