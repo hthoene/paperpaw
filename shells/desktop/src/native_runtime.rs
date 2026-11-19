@@ -38,14 +38,23 @@ pub(crate) fn host_profile() -> paperpaw_native::metadata::Profile<'static> {
     }
 }
 
-/// The metadata record a library exports, for the install checks of the plugin
-/// jobs (`native_host::HostCode`): `None` where it is no library of an
-/// interface-7 plugin.
+/// The metadata record the library at `path` of `storage` exports (its
+/// `len` bytes, the signature trailer after them not counted), for the install
+/// checks of the plugin jobs (`native_host::HostCode`): `None` where it is no
+/// library of an interface-7 plugin. The library is read as the loader's own
+/// reads are, not on the device's heap budget.
 #[cfg(all(feature = "native-linked", target_os = "linux", target_arch = "x86_64"))]
-pub(crate) fn exported_record(bytes: &[u8]) -> Option<&[u8]> {
-    data_export(bytes, 62, METADATA_SYMBOL, true)
-        .ok()
-        .map(|export| export.bytes)
+pub(crate) fn exported_record(
+    storage: &dyn paperpaw_platform::Storage,
+    path: &str,
+    len: u64,
+) -> Option<Vec<u8>> {
+    crate::budget::untracked(|| {
+        let bytes = paperpaw_core::sdk::read_file(storage, path, len as usize + 112).ok()?;
+        data_export(&bytes[..len as usize], 62, METADATA_SYMBOL, true)
+            .ok()
+            .map(|export| export.bytes.to_vec())
+    })
 }
 
 /// Refusal before factory invocation, or a failed factory result.

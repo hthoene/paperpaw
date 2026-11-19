@@ -13,17 +13,17 @@ use crate::native_host::plugin_job::{Answer, DONE_AT_NEXT_START, Finished, Plugi
 use crate::native_host::plugin_rules::Evidence;
 use paperpaw_native::signature::sign;
 use paperpaw_sdk::{MemoryStorage, Storage, native};
-use std::{format, sync::OnceLock, vec::Vec};
+use std::{format, vec::Vec};
 
 const SOURCE: &str = "Download/dials";
 const FILE: &str = "code-host.so";
 
 /// What a library's record is (the tests' libraries are not ELF).
-fn record(bytes: &[u8]) -> Option<&[u8]> {
-    static RECORD: OnceLock<Vec<u8>> = OnceLock::new();
-    bytes
-        .starts_with(b"\x7fELF")
-        .then(|| RECORD.get_or_init(good_record).as_slice())
+fn record(storage: &dyn Storage, path: &str, len: u64) -> Option<Vec<u8>> {
+    let mut head = [0_u8; 4];
+    storage.read_at(path, 0, &mut head).ok()?;
+    assert!(len >= 4, "the trailer is not part of it");
+    (&head == b"\x7fELF").then(good_record)
 }
 
 fn host_code() -> PluginHost {

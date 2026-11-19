@@ -797,9 +797,9 @@ fn uses_of_record(record: &[u8], env: &JobEnv<'_>) -> Result<Uses, u8> {
 #[inline(never)]
 fn host_uses(env: &JobEnv<'_>, host: super::plugin_job::HostCode, path: &str) -> Result<Uses, u8> {
     let size = env.storage.size(path).map_err(io)?;
-    let library = super::plugin_check::host::read_library(env, path, size)?;
-    let record = (host.record)(&library).ok_or(reason::DAMAGED)?;
-    uses_of_record(record, env)
+    let len = size.saturating_sub(paperpaw_native::signature::SIGNATURE_LEN as u64);
+    let record = (host.record)(env.storage, path, len).ok_or(reason::DAMAGED)?;
+    uses_of_record(&record, env)
 }
 
 impl PluginJob for PluginInstall {

@@ -5,7 +5,6 @@
 //! loader holds it to), and the metadata record is the one the library
 //! exports ([`HostCode::record`]). The steps then go on at the trust.
 
-use alloc::vec::Vec;
 use paperpaw_native::{
     metadata,
     signature::{SIGNATURE_LEN, Signature},
@@ -109,14 +108,11 @@ impl PluginCheck {
         let Some(host) = env.host.host_code else {
             return self.end(reason::OTHER);
         };
-        let library = match read_library(env, &self.code, self.size) {
-            Ok(library) => library,
-            Err(why) => return self.end(why),
-        };
-        let Some(record) = (host.record)(&library) else {
+        let len = self.size - SIGNATURE_LEN as u64;
+        let Some(record) = (host.record)(env.storage, &self.code, len) else {
             return self.end(reason::DAMAGED);
         };
-        match metadata::check(record, &env.host.offered) {
+        match metadata::check(&record, &env.host.offered) {
             Ok(_) => {}
             Err(metadata::Refusal::Malformed) => return self.end(reason::DAMAGED),
             Err(metadata::Refusal::Incompatible) => return self.end(reason::OTHER_CHIP),
@@ -125,17 +121,6 @@ impl PluginCheck {
         self.phase = Phase::Trust;
         JobStep::More
     }
-}
-
-/// The library of the file at `path` (`size` bytes with its trailer).
-pub(crate) fn read_library(env: &JobEnv<'_>, path: &str, size: u64) -> Result<Vec<u8>, u8> {
-    let len =
-        usize::try_from(size.saturating_sub(SIGNATURE_LEN as u64)).map_err(|_| reason::OTHER)?;
-    let mut bytes = Vec::new();
-    bytes.try_reserve_exact(len).map_err(|_| reason::OTHER)?;
-    bytes.resize(len, 0);
-    read_exact(env.storage, path, 0, &mut bytes)?;
-    Ok(bytes)
 }
 
 #[cfg(test)]
