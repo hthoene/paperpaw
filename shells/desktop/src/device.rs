@@ -131,6 +131,11 @@ pub struct Device {
     gray_shown: bool,
     /// When the kernel wants to be ticked.
     pub wake_at: Option<Instant>,
+    /// When the shell tells the kernel the time and the battery next: about
+    /// once a minute while awake, as the X4's firmware does (`STATUS_MS`).
+    /// It is also what delivers the minute tick where nothing else wakes
+    /// the kernel.
+    status_at: Option<Instant>,
     clock: Clock,
     /// The wall clock set (`set_time`): at this time it was so many
     /// milliseconds since 1970, in the time zone it had.
@@ -217,6 +222,8 @@ fn linked_inputs(library: &Library, simulated: bool) -> LinkedInputs {
 fn linked_inputs(_: &Library, _: bool) -> LinkedInputs {}
 
 /// How many frames [`Device::shown`] keeps.
+/// How often the clock and battery are told to the kernel (the X4's `STATUS_MS`).
+const STATUS_MS: u64 = 60_000;
 const KEPT_FRAMES: usize = 64;
 
 /// How many of the kernel's warnings [`Device::warnings`] keeps.
@@ -335,6 +342,7 @@ impl Device {
             panel: Panel::new(display.width, display.height, display.color),
             gray_shown: false,
             wake_at: None,
+            status_at: None,
             http: crate::http::Http::new(),
             requests: None,
             servers: servers(),
@@ -412,9 +420,7 @@ impl Device {
 
     pub fn start(&mut self) {
         let now = self.now();
-        let status = self.status(now);
-        let effects = budget::track(|| self.kernel.set_status(now, status));
-        self.execute(effects);
+        self.send_status(now);
         let effects = budget::track(|| self.kernel.start(now));
         self.execute(effects);
         if self.fixtures && self.profile.wifi {
@@ -455,9 +461,7 @@ impl Device {
         self.share_secrets_with_native();
         self.wifi.online(now);
         // On USB: what keeps the radio on, as on a device.
-        let status = self.status(now);
-        let effects = budget::track(|| self.kernel.set_status(now, status));
-        self.execute(effects);
+        self.send_status(now);
         self.tick_if_due();
     }
 
@@ -486,6 +490,15 @@ impl Device {
         self.fixtures = true;
     }
 
+    /// Tells the kernel the clock and the battery now, and starts the minute
+    /// to the next time it is told.
+    fn send_status(&mut self, now: Instant) {
+        let status = self.status(now);
+        self.status_at = Some(now.add_millis(STATUS_MS));
+        let effects = budget::track(|| self.kernel.set_status(now, status));
+        self.execute(effects);
+    }
+
     /// The emulated clock and battery: the computer's time and time zone
     /// (with simulated time a fixed one, so screenshots repeat) and a
     /// battery at 80 %, charging where it starts online.
@@ -503,9 +516,11 @@ impl Device {
                     Some(local.offset().local_minus_utc() / 60),
                 )
             }
-            // 14 October 2026, 10:41 in Berlin (also in a browser, which
-            // drives the clock itself).
-            _ => WallClock::new(now, 1_791_967_260_000, Some(120)),
+            // 14 October 2026, 10:41 in Berlin at the start of the emulated
+            // time (also in a browser, which drives the clock itself). One
+            // pair for every status, so that the time goes on with the
+            // emulated time and a status a minute later is no jump.
+            _ => WallClock::new(Instant(0), 1_791_967_260_000, Some(120)),
         };
         SystemStatus::new(
             Some(clock),
@@ -524,9 +539,7 @@ impl Device {
         // The time zone stays as it was.
         let offset = self.status(now).clock.and_then(|c| c.utc_offset_minutes);
         self.wall = Some((now, unix_millis, offset));
-        let status = self.status(now);
-        let effects = budget::track(|| self.kernel.set_status(now, status));
-        self.execute(effects);
+        self.send_status(now);
     }
 
     /// The wall clock now, in milliseconds since 1970 (UTC).
@@ -811,6 +824,7 @@ impl Device {
         let speech = self.speech.front().map(|&(_, end)| end);
         [
             self.wake_at,
+            self.status_at,
             speech,
             self.wifi.next_due(),
             self.bluetooth.next_due(),
@@ -842,6 +856,9 @@ impl Device {
             self.speech.pop_front();
             let effects = budget::track(|| self.kernel.speech_done(now, id, true));
             self.execute(effects);
+        }
+        if self.status_at.is_some_and(|at| at <= now) {
+            self.send_status(now);
         }
         if self.wake_at.is_some_and(|at| at <= now) {
             let effects = budget::track(|| self.kernel.tick(now));

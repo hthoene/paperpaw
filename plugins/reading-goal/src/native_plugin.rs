@@ -535,6 +535,9 @@ impl NativeReadingGoal {
             width: 0,
         });
         self.statistics = read_statistics(host).unwrap_or(self.statistics);
+        // Asked for here, an event where commands are allowed: at the first
+        // widget the size is not measured yet, so the screen's is asked for.
+        self.want_picture(host);
         Ok(())
     }
 
@@ -559,7 +562,8 @@ impl NativeReadingGoal {
                 if let Some(item) = self.items.iter_mut().find(|item| item.instance == instance) {
                     item.width = width;
                 }
-                self.want_picture(host);
+                // No picture is asked for here: a stage call refuses commands
+                // (ERR_STATE), so the request would be lost (#370).
                 written
             }
             WidgetCall::Place { instance, .. } => {
