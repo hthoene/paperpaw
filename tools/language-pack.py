@@ -15,7 +15,8 @@ This tool helps to make it and checks it:
     python3 tools/language-pack.py check LANG [FILE ...]
         What is wrong with the translations in FILE (default:
         tools/plugin-files/languages/LANG.ini): keys English does not have,
-        placeholders that differ, empty messages, plural forms.
+        placeholders that differ, empty messages, plural forms, messages
+        longer than a compiled catalog holds.
     python3 tools/language-pack.py merge LANG OUT.ini CHUNK ...
         The messages of the translated chunks, in the order of the English
         catalogs, with the language's [meta], as OUT.ini.
@@ -45,6 +46,8 @@ LANGUAGES = ROOT / "tools/plugin-files/languages"
 # of such a pair may bring (a form it lacks reads as `other`).
 PLURALS = ("zero", "one", "two", "few", "many", "other")
 PLACEHOLDER = re.compile(r"\{[^{}]*\}")
+# The longest message a compiled catalog holds, in bytes (paperpaw_i18n's MAX_MESSAGE).
+MAX_MESSAGE = 4096
 
 
 def unquote(value):
@@ -162,6 +165,8 @@ def check(lang, files):
                 continue
             if not text.strip():
                 problems.append(f"{file}: {key}: empty")
+            if len(text.encode("utf-8")) > MAX_MESSAGE:
+                problems.append(f"{file}: {key}: {len(text.encode('utf-8'))} bytes, over {MAX_MESSAGE}")
             # The placeholders of the English message of this key (a plural form of
             # the pair: that of `.other`, which has the count).
             base, _, form = key.rpartition(".")
