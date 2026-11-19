@@ -110,16 +110,10 @@ mod tall_band;
 pub mod testing;
 #[cfg(any(test, feature = "testing"))]
 pub(crate) use testing::FakeSpec;
-/// No test's screen outside the feature `testing`.
 #[cfg(not(any(test, feature = "testing")))]
-#[derive(Debug)]
-pub(crate) enum FakeSpec {}
+mod fake_spec_off;
 #[cfg(not(any(test, feature = "testing")))]
-impl FakeSpec {
-    pub(crate) fn id(&self) -> &Id {
-        match *self {}
-    }
-}
+pub(crate) use fake_spec_off::FakeSpec;
 mod warning;
 pub use hear::{Hear, Stepper};
 pub use warning::{Warning, WarningSource};
