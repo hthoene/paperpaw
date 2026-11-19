@@ -485,3 +485,58 @@ fn a_hovering_pen_reaches_no_screen() {
     };
     assert_eq!((tilted.tilt_x, tilted.tilt_y), (30, -90));
 }
+
+/// A kernel with plugin `a`'s screen and the tap zone settings `layout`
+/// and `swap`.
+fn tap_kernel(log: &Log, layout: &'static str, swap: bool) -> Kernel {
+    let mut kernel = Kernel::builder(DEVICE)
+        .test_plugin(TestPlugin::new("a", log))
+        .setting_default(&crate::tap_layout::LAYOUT, layout.into())
+        .setting_default(&crate::tap_layout::SWAP, swap)
+        .build()
+        .unwrap();
+    kernel.start(Instant(0));
+    render(&mut kernel);
+    kernel
+}
+
+/// Taps turn pages and open the menu where the tap zone settings say.
+#[test]
+fn tap_zones_follow_the_layout_and_swap() {
+    let spots = [(5, 50), (95, 50), (50, 50), (50, 95), (95, 95), (44, 50)];
+    // A kernel for each tap: the menu it opens would take the next.
+    let run = |layout, swap| {
+        let mut done = Vec::new();
+        for (x, y) in spots {
+            let log = log();
+            let mut kernel = tap_kernel(&log, layout, swap);
+            tap(&mut kernel, 1000, x, y);
+            kernel.tick(Instant(1500));
+            done.extend(log.borrow().iter().cloned());
+        }
+        done
+    };
+    let (prev, next, menu) = ("a:core.prev-page", "a:core.next-page", "a:core.menu");
+    assert_eq!(
+        run("core.tap-thirds", false),
+        [prev, next, menu, menu, next, menu]
+    );
+    assert_eq!(
+        run("core.tap-thirds", true),
+        [next, prev, menu, menu, prev, menu]
+    );
+    // Halves: two columns; the middle of the screen is a side.
+    assert_eq!(
+        run("core.tap-halves", false),
+        [prev, next, next, next, next, prev]
+    );
+    // L-shape: the bottom edge goes on.
+    assert_eq!(
+        run("core.tap-l-shape", false),
+        [prev, next, menu, next, next, menu]
+    );
+    assert_eq!(
+        run("core.tap-top-bottom", false),
+        [menu, menu, menu, next, next, menu]
+    );
+}

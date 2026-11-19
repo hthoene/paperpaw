@@ -499,6 +499,8 @@ impl Kernel {
                 .set_mono_coverage(mono_coverage(&self.shared.settings));
         }
         if *id == core_settings::KEYMAP_PRESET
+            || *id == crate::tap_layout::LAYOUT
+            || *id == crate::tap_layout::SWAP
             || self.keys.when.iter().any(|(s, _)| s == id)
             || self.native_key_when(id.as_str())
         {

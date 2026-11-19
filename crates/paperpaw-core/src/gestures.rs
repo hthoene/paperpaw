@@ -355,7 +355,11 @@ impl Kernel {
                 if self.policy() != keymap::Policy::Standard {
                     return;
                 }
-                let mut zone = Zone::of(gesture.start, area.width, area.height);
+                let mut zone =
+                    self.shared
+                        .keymap
+                        .layout
+                        .zone(gesture.start, area.width, area.height);
                 // A screen that goes right to left (a book's pages, an
                 // Arabic interface): sides and swipes the other way.
                 if self.mirrored() {

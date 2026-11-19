@@ -284,7 +284,7 @@ pub(super) fn register_look_settings(r: &mut Staging) -> Result<(), RegisterErro
 
 /// Buttons, the panel's refresh, sleep, rotation, notices and long
 /// presses.
-static DEVICE: [SettingSpec; 17] = [
+static DEVICE: [SettingSpec; 19] = [
     SettingSpec::choice(
         settings::KEYMAP_PRESET.static_str(),
         "core.setting.keymap-preset",
@@ -293,6 +293,21 @@ static DEVICE: [SettingSpec; 17] = [
         groups::CONTROLS,
     )
     .description("core.setting.keymap-preset.help"),
+    SettingSpec::choice(
+        crate::tap_layout::LAYOUT.static_str(),
+        "core.setting.tap-layout",
+        crate::tap_layout::OPTIONS,
+        crate::tap_layout::THIRDS,
+        groups::CONTROLS,
+    )
+    .description("core.setting.tap-layout.help"),
+    SettingSpec::switch(
+        crate::tap_layout::SWAP.static_str(),
+        "core.setting.tap-swap",
+        false,
+        groups::CONTROLS,
+    )
+    .description("core.setting.tap-swap.help"),
     SettingSpec::number(
         settings::FULL_REFRESH_INTERVAL.static_str(),
         "core.setting.full-refresh-interval",
@@ -464,6 +479,9 @@ pub(super) fn register_device_settings(r: &mut Staging) -> Result<(), RegisterEr
     for setting in touch {
         r.set_menu_need(setting, paperpaw_sdk::MenuNeed::Touch)?;
     }
+    // The tap zones are a touch screen's.
+    r.set_menu_need(crate::tap_layout::LAYOUT, paperpaw_sdk::MenuNeed::Touch)?;
+    r.set_menu_need(crate::tap_layout::SWAP, paperpaw_sdk::MenuNeed::Touch)?;
     for light in [settings::FRONTLIGHT, settings::FRONTLIGHT_WARMTH] {
         r.set_menu_need(light, paperpaw_sdk::MenuNeed::Frontlight)?;
     }
