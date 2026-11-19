@@ -33,7 +33,7 @@ class Faces(unittest.TestCase):
 
     def test_every_face_names_a_font_file_and_its_licence(self):
         for name, (_, faces, licence, _, _) in script_pack.SETS.items():
-            for _, file, _, _ in faces:
+            for _, file, *_ in faces:
                 self.assertTrue(pathlib.Path(file).exists(), (name, file))
             for file in licence if isinstance(licence, list) else [licence]:
                 self.assertTrue(pathlib.Path(file).exists(), (name, file))

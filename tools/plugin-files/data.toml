@@ -232,6 +232,24 @@ description = "Amharic, Tigrinya and other books written in Ethiopic letters, in
 de.name = "Äthiopische Schrift"
 de.description = "Bücher auf Amharisch, Tigrinya und in anderen Sprachen mit äthiopischer Schrift, in Noto Serif Ethiopic."
 
+# script-latin-extended (#385): the Latin letters Azerbaijani (ə), Hausa (ɓ ɗ ƙ ƴ) and
+# Yoruba (ẹ ọ ṣ, ǹ ḿ and the combining tone marks) need beyond the built-in Latin set,
+# from Literata's four faces and Source Sans 3, what those lack from Noto Serif (a pack
+# for each weight, shared as script-bengali's: formats 5) and Noto Sans, 0.2 MiB.
+[script-latin-extended]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["plugins/fonts-default/fonts/Literata.ttf", "plugins/fonts-default/fonts/Literata-Italic.ttf", "plugins/fonts-default/fonts/SourceSans3.ttf", "tools/fonts/NotoSerif-subset.ttf", "tools/fonts/NotoSans-subset.ttf", "tools/fontgen"]
+name = "Latin Extended letters"
+description = "The letters Azerbaijani (ə), Hausa (ɓ ɗ ƙ ƴ) and Yoruba (ẹ ọ ṣ with tone marks) add to the Latin alphabet, in Literata."
+de.name = "Erweiterte lateinische Schrift"
+de.description = "Die Buchstaben, die Aserbaidschanisch (ə), Hausa (ɓ ɗ ƙ ƴ) und Yoruba (ẹ ọ ṣ mit Tonzeichen) dem lateinischen Alphabet hinzufügen, in Literata."
+
 [script-chinese-simplified]
 version = "1.0.0"
 group = "languages"
@@ -1449,3 +1467,54 @@ de.name = "Paschtu (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Paschtu, von rechts nach links. Braucht die Arabische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
 how = "PaperPaw's menus and settings in Pashto, running from right to left.\n\nIt needs the Arabic letters pack (Arabic letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
 de.how = "PaperPaws Menüs und Einstellungen auf Paschtu, von rechts nach links.\n\nSie braucht die Arabische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-az]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-latin-extended"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/az.ini", "tools/language-pack.py", "tools/sign"]
+name = "Azerbaijani (user interface)"
+description = "PaperPaw's menus and settings in Azerbaijani. Needs Latin Extended letters. A machine translation, a draft."
+de.name = "Aserbaidschanisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Aserbaidschanisch. Braucht die Erweiterte lateinische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Azerbaijani.\n\nIt needs the Latin Extended letters pack (Latin Extended letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Aserbaidschanisch.\n\nSie braucht die Erweiterte lateinische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-ha]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-latin-extended"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/ha.ini", "tools/language-pack.py", "tools/sign"]
+name = "Hausa (user interface)"
+description = "PaperPaw's menus and settings in Hausa. Needs Latin Extended letters. A machine translation, a draft."
+de.name = "Hausa (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Hausa. Braucht die Erweiterte lateinische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Hausa.\n\nIt needs the Latin Extended letters pack (Latin Extended letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Hausa.\n\nSie braucht die Erweiterte lateinische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-yo]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-latin-extended"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/yo.ini", "tools/language-pack.py", "tools/sign"]
+name = "Yoruba (user interface)"
+description = "PaperPaw's menus and settings in Yoruba. Needs Latin Extended letters. A machine translation, a draft."
+de.name = "Yoruba (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Yoruba. Braucht die Erweiterte lateinische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Yoruba.\n\nIt needs the Latin Extended letters pack (Latin Extended letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Yoruba.\n\nSie braucht die Erweiterte lateinische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
