@@ -204,6 +204,7 @@ fn note_text(
         Note::Loading(host_name) => say.format(host, "opds.loading", &[at(host_name)]),
         Note::NoNetwork => say.copy(host, "opds.no-network"),
         Note::FailedHost(host_name) => say.format(host, "opds.failed-host", &[at(host_name)]),
+        Note::CertificateUnknown => say.copy(host, "opds.certificate-unknown"),
         Note::Unauthorized => say.copy(
             host,
             if touch {
