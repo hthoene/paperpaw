@@ -210,7 +210,9 @@ fn a_picture_a_font_change_brings_onto_the_page_is_asked_for_and_drawn() {
 /// answer is read, and a small request buffer (#248); it made two of 4 KiB and
 /// a third of 4 KiB for the request, while the answer was read: 16.9 KiB above
 /// the live heap before, 9.0 after. Measured by `redraw` between `reset-peak`
-/// and `step:` on an X4.
+/// and `step:` on an X4. The book here has a question over it, and since the
+/// reader draws its page then too (#359) the frame is the page's: 12.7 KiB
+/// above live (it was an error frame, drawing nothing, before).
 #[test]
 fn a_frame_of_a_book_with_status_lines_takes_little_heap() {
     let library = library("status-frame");
@@ -243,7 +245,7 @@ fn a_frame_of_a_book_with_status_lines_takes_little_heap() {
     };
     let above_live = number("peak ") - number("live ");
     assert!(
-        above_live < 12.0,
+        above_live < 13.0,
         "a frame peaks {above_live} KiB above live: {line}"
     );
 }
