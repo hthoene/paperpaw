@@ -207,7 +207,7 @@ impl Plugin for NativeLauncher {
             return Ok(());
         }
         let kind = kind_of(token).ok_or(Error::Invalid)?;
-        self.load(host, token, kind)?;
+        self.load(host, kind)?;
         let display = snapshot::capture_snapshot(host)?;
         let font = Font::acquire_role(host, FontRole::Ui)?;
         let icon_font = icons::font(host)?;
@@ -328,12 +328,13 @@ impl NativeLauncher {
             } else {
                 menu
             };
+            view.panel = Some(panel_model(host, &view.menu)?);
         }
         self.screens.open(instance, view)
     }
 
     /// Reads what the screen `kind` shows and the dock, where it is not known.
-    fn load(&mut self, host: &Host<'_>, token: u32, kind: Kind) -> Result<(), Error> {
+    fn load(&mut self, host: &Host<'_>, kind: Kind) -> Result<(), Error> {
         if matches!(kind, Kind::Customise) {
             return Ok(());
         }
@@ -354,14 +355,8 @@ impl NativeLauncher {
                     self.books = Some(data::books(host, data::MOST_BOOKS)?);
                 }
             }
-            Kind::Panel => {
-                let view = self.screens.top(token).ok_or(Error::State)?;
-                if view.panel.is_none() {
-                    let model = panel_model(host, &view.menu)?;
-                    view.panel = Some(model);
-                }
-            }
-            Kind::Customise => {}
+            // The panel's model is made when it opens and when a setting changes.
+            Kind::Panel | Kind::Customise => {}
         }
         Ok(())
     }
@@ -424,7 +419,7 @@ impl NativeLauncher {
             }
             Kind::Panel => {
                 let title = ui.t("launcher-simple.panel.title")?;
-                let model = view.panel.as_ref().ok_or(Error::State)?;
+                let model = view.panel.as_mut().ok_or(Error::State)?;
                 panel::draw(&mut ui, model, &title, dock_rows)?;
             }
             Kind::Library => {
@@ -468,7 +463,7 @@ impl NativeLauncher {
         let mut any = false;
         for view in self.screens.all() {
             if view.kind == Kind::Panel {
-                view.panel = None;
+                view.panel = Some(panel_model(host, &view.menu)?);
                 any = true;
             }
         }
@@ -742,7 +737,7 @@ fn panel_model(host: &Host<'_>, menu: &str) -> Result<panel::Model, Error> {
     let mut reader = Reader::open(host)?;
     let made = (|| {
         let rows = reader.menu(menu)?;
-        let mut model = panel::Model::default();
+        let (mut toggles, mut bars) = (Vec::new(), Vec::new());
         for mut row in rows {
             if row.faint {
                 continue;
@@ -751,17 +746,17 @@ fn panel_model(host: &Host<'_>, menu: &str) -> Result<panel::Model, Error> {
                 data::Kind::Setting => match reader.setting(&row.item)? {
                     Some(Setting::Switch(on)) => {
                         row.on = on;
-                        paperpaw_ui_kit::mem::push(&mut model.toggles, Toggle { row })?;
+                        paperpaw_ui_kit::mem::push(&mut toggles, Toggle { row })?;
                     }
                     Some(Setting::Number(number)) => {
-                        paperpaw_ui_kit::mem::push(&mut model.bars, Bar { row, number })?;
+                        paperpaw_ui_kit::mem::push(&mut bars, Bar { row, number })?;
                     }
                     _ => {}
                 },
-                _ => paperpaw_ui_kit::mem::push(&mut model.toggles, Toggle { row })?,
+                _ => paperpaw_ui_kit::mem::push(&mut toggles, Toggle { row })?,
             }
         }
-        Ok(model)
+        Ok(panel::Model::new(toggles, bars))
     })();
     reader.finish(made)
 }

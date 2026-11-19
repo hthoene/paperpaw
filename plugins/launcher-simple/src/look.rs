@@ -4,7 +4,11 @@
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Point, Rect,
-    native::{Error, Host, canvas::PartRole, fonts::Font},
+    native::{
+        Error, Host,
+        canvas::PartRole,
+        fonts::{Font, IconGlyph},
+    },
 };
 use paperpaw_ui_kit::{
     Messages, Paint, Style, focus, icons, paint, parts,
@@ -17,7 +21,7 @@ use paperpaw_ui_kit::{
 use crate::model::{Target, Zone};
 
 /// A box in pixels, signed so that sums need no care.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct B {
     pub x: i32,
     pub y: i32,
@@ -315,10 +319,22 @@ impl<'a, 'h> Ui<'a, 'h> {
 
     /// The icon `name` in the middle of `b`.
     pub fn icon(&mut self, name: &str, size: f32, b: B, color: Color) -> Result<(), Error> {
-        let Some(font) = self.icons else {
+        if self.icons.is_none() {
             return Ok(());
-        };
-        let Some(glyph) = icons::glyph(self.host, name)? else {
+        }
+        let glyph = icons::glyph(self.host, name)?;
+        self.icon_glyph(glyph, size, b, color)
+    }
+
+    /// The icon `glyph` (looked up before) in the middle of `b`.
+    pub fn icon_glyph(
+        &mut self,
+        glyph: Option<IconGlyph>,
+        size: f32,
+        b: B,
+        color: Color,
+    ) -> Result<(), Error> {
+        let (Some(font), Some(glyph)) = (self.icons, glyph) else {
             return Ok(());
         };
         icons::draw_centred(&mut self.ops, font, &glyph, size, b.rect(), color)
@@ -341,12 +357,17 @@ impl<'a, 'h> Ui<'a, 'h> {
     /// A card: a thick round outline; the focus on it where `focused`.
     /// Returns its inside and the ink to draw in.
     pub fn card(&mut self, b: B, focused: bool) -> Result<(B, Color), Error> {
+        self.card_inset(b, focused, self.pad * 3 / 4)
+    }
+
+    /// [`Ui::card`] with its text `across` from the left and right edge.
+    pub fn card_inset(&mut self, b: B, focused: bool, across: i32) -> Result<(B, Color), Error> {
         let radius = self.radius();
         let stroke = self.stroke;
         let ink = self.ink;
         self.frame(b, radius, stroke, ink)?;
         let tone = if focused { self.focus_on(b)? } else { ink };
-        Ok((b.inset_xy(self.pad * 3 / 4, stroke + 8), tone))
+        Ok((b.inset_xy(across, stroke + 8), tone))
     }
 
     /// A progress bar: the kit's, `permille` thousandths full.
@@ -379,14 +400,31 @@ impl<'a, 'h> Ui<'a, 'h> {
     /// A round switch: a disc of `radius` at `centre` with an icon, filled where
     /// `on`, an outline where not; the focus a frame round it.
     pub fn disc(&mut self, centre: Point, radius: i32, icon: &str, on: bool) -> Result<B, Error> {
+        let glyph = if self.icons.is_some() {
+            icons::glyph(self.host, icon)?
+        } else {
+            None
+        };
+        self.disc_glyph(centre, radius, glyph, on)
+    }
+
+    /// [`Ui::disc`] with the icon looked up before.
+    pub fn disc_glyph(
+        &mut self,
+        centre: Point,
+        radius: i32,
+        glyph: Option<IconGlyph>,
+        on: bool,
+    ) -> Result<B, Error> {
         let r = radius.max(1) as u32;
         let around = B::new(centre.x - radius, centre.y - radius, 2 * radius, 2 * radius);
+        let size = radius as f32 * 1.3;
         if on {
             shape::fill_circle(&mut self.ops, centre, r, self.ink)?;
-            self.icon(icon, radius as f32 * 1.3, around, self.paper)?;
+            self.icon_glyph(glyph, size, around, self.paper)?;
         } else {
             shape::stroke_circle(&mut self.ops, centre, r, self.stroke as u32, self.ink)?;
-            self.icon(icon, radius as f32 * 1.3, around, self.ink)?;
+            self.icon_glyph(glyph, size, around, self.ink)?;
         }
         Ok(around)
     }

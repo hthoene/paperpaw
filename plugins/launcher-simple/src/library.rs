@@ -66,7 +66,9 @@ pub fn draw(
         let row = area.row(at as i32, per_page as i32, apart);
         let _ = count;
         let focused = ui.focused();
-        let (inner, tone) = ui.card(row, focused)?;
+        // The text starts at the interface's margin, as a list row's does.
+        let across = i32::from(ui.style.margin);
+        let (inner, tone) = ui.card_inset(row, focused, across)?;
         let size = (ui.u * 1.25).min(inner.h as f32 * 0.34);
         ui.bold(inner.part(0, 40), Align::Left, size, &book.title, tone)?;
         let small = ui.small.min(inner.h as f32 * 0.24);
