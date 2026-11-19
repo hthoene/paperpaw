@@ -1576,6 +1576,8 @@ const paperpaw_sdk::native::image::PREPARED_MAX: usize = 8usize
 const paperpaw_sdk::native::image::SIDE_MAX: u32 = 1_600u32
 const paperpaw_sdk::native::image::TONE_BYTES: usize = 256usize
 const paperpaw_sdk::native::image::WAITING_MAX: usize = 4usize
+const paperpaw_sdk::native::image::picture::HISTOGRAM_BINS: usize = 16usize
+const paperpaw_sdk::native::image::picture::STAGE: &str = stage::KEY
 const paperpaw_sdk::native::keys::MAX_REVOKED: usize = 256usize
 const paperpaw_sdk::native::library::edits::MAX_EDITS_PER_CALL: usize = 3usize
 const paperpaw_sdk::native::library::edits::NOTE_MAX_BYTES: usize = 3_072usize
@@ -1641,6 +1643,7 @@ const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_COLUMNS_TAG: u32 
 const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_COLUMNS_WEIGHTS_MAX_BYTES: usize = 32usize
 const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_END_TAG: u32 = 9u32
 const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_FONT_TAG: u32 = 23u32
+const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_IMAGE_PART_MAX_BYTES: usize = 16usize
 const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_IMAGE_PATH_MAX_BYTES: usize = 256usize
 const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_IMAGE_TAG: u32 = 4u32
 const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_INLINE_LANG_LANG_MAX_BYTES: usize = 35usize
@@ -1706,7 +1709,7 @@ const paperpaw_sdk::native::stage_schemas::core_format_v1::MAX_REPLY: usize = 3_
 const paperpaw_sdk::native::stage_schemas::core_format_v1::MAX_SUBSCRIBERS: usize = 32usize
 const paperpaw_sdk::native::stage_schemas::core_format_v1::REPLY_ROWS: usize = 64usize
 const paperpaw_sdk::native::stage_schemas::core_format_v1::REPLY_TAGS: &[u32] = &[ 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, ]
-const paperpaw_sdk::native::stage_schemas::core_format_v1::REVISION: u16 = 0u16
+const paperpaw_sdk::native::stage_schemas::core_format_v1::REVISION: u16 = 1u16
 const paperpaw_sdk::native::stage_schemas::core_format_v1::SERVICE_TAGS: &[(u32, u32)] = &[ (2, 1061), (5, 1062), (6, 1064), (7, 1065), (8, 1068), (9, 52), (10, 1082), (11, 1090), (12, 1083), (13, 1084), (14, 1091), (15, 1085), (16, 1086), (17, 1087), (18, 1070), (19, 1069), (20, 1072), (21, 1073), (22, 1075), (23, 1077), (24, 1081), ]
 const paperpaw_sdk::native::stage_schemas::core_format_v1::TEST_ONLY: bool = false
 const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_INPUT_INPUT_MAX_BYTES: usize = 128usize
@@ -1750,6 +1753,23 @@ const paperpaw_sdk::native::stage_schemas::core_lookup_v1::REPLY_TAGS: &[u32] = 
 const paperpaw_sdk::native::stage_schemas::core_lookup_v1::REVISION: u16 = 0u16
 const paperpaw_sdk::native::stage_schemas::core_lookup_v1::SERVICE_TAGS: &[(u32, u32)] = &[(1, 1092)]
 const paperpaw_sdk::native::stage_schemas::core_lookup_v1::TEST_ONLY: bool = false
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::INPUT_TAGS: &[u32] = &[1]
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::KEY: &str = "core.picture"
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::MAJOR: u16 = 1u16
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::MAX_INPUT: usize = 640usize
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::MAX_REPLY: usize = 320usize
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::MAX_SUBSCRIBERS: usize = 2usize
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::PICTURE_ASK_HISTOGRAM_MAX_BYTES: usize = 16usize
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::PICTURE_ASK_PATH_MAX_BYTES: usize = 512usize
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::PICTURE_ASK_TAG: u32 = 1u32
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::PICTURE_TONE_TAG: u32 = 2u32
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::PICTURE_TONE_TONE_MAX_BYTES: usize = 256usize
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::PictureAsk<'a>::TAG: u32 = PICTURE_ASK_TAG
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::PictureTone<'a>::TAG: u32 = PICTURE_TONE_TAG
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::REPLY_ROWS: usize = 1usize
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::REPLY_TAGS: &[u32] = &[2]
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::REVISION: u16 = 0u16
+const paperpaw_sdk::native::stage_schemas::core_picture_v1::TEST_ONLY: bool = false
 const paperpaw_sdk::native::stage_schemas::core_status_v1::INPUT_TAGS: &[u32] = &[1]
 const paperpaw_sdk::native::stage_schemas::core_status_v1::KEY: &str = "core.status"
 const paperpaw_sdk::native::stage_schemas::core_status_v1::MAJOR: u16 = 1u16
@@ -2357,6 +2377,7 @@ enum paperpaw_sdk::native::format::request::FormatOp { Sniff, Open, Prepare, Clo
 enum paperpaw_sdk::native::formatting::Arg<'a> { Text { name: &'a str, value: &'a str }, Int { name: &'a str, value: i64 }, Count(0: i64) }
 enum paperpaw_sdk::native::image::ImageStatus { Ready, Unsupported, Damaged, TooLarge, CardFailure, NoMemory, NotFound }
 enum paperpaw_sdk::native::image::PrepareRoot { Data, Library, Bundle }
+enum paperpaw_sdk::native::image::picture::Place { ReaderPage, ComicPage, Cover, Thumbnail, SleepScreen, Ui, Other }
 enum paperpaw_sdk::native::keys::RevokedError { Full, NotKept }
 enum paperpaw_sdk::native::keys::RotationError { NoAuthor, NoRecoveryKey, BadSignature, Refused, NotKept }
 enum paperpaw_sdk::native::library::annotation_text::AnnotationTextKind { Text, Note }
@@ -2396,6 +2417,7 @@ enum paperpaw_sdk::native::stage_schemas::core_book_badge_v1::Record<'a> { Badge
 enum paperpaw_sdk::native::stage_schemas::core_format_v1::Record<'a> { FmtCall(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtCall<'a>), FmtOption(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtOption<'a>), FmtYes(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtYes), FmtImage(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtImage<'a>), FmtState(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtState<'a>), FmtMeta(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtMeta<'a>), FmtText(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtText<'a>), FmtSection(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtSection), FmtEnd(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtEnd), FmtBlock(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtBlock<'a>), FmtTextPart(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtTextPart<'a>), FmtRun(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtRun), FmtMap(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtMap), FmtColumns(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtColumns<'a>), FmtCell(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtCell), FmtRuby(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtRuby<'a>), FmtInlineLang(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtInlineLang<'a>), FmtToc(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtToc<'a>), FmtAt(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtAt), FmtLabel(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtLabel<'a>), FmtXpointer(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtXpointer<'a>), FmtLink(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtLink<'a>), FmtFont(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtFont), FmtProgress(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtProgress) }
 enum paperpaw_sdk::native::stage_schemas::core_input_filter_v1::Record<'a> { FilterInput(0: paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterInput<'a>), FilterVerdict(0: paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>) }
 enum paperpaw_sdk::native::stage_schemas::core_lookup_v1::Record<'a> { LookupAsk(0: paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupAsk<'a>), LookupEntry(0: paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a>) }
+enum paperpaw_sdk::native::stage_schemas::core_picture_v1::Record<'a> { PictureAsk(0: paperpaw_sdk::native::stage_schemas::core_picture_v1::PictureAsk<'a>), PictureTone(0: paperpaw_sdk::native::stage_schemas::core_picture_v1::PictureTone<'a>) }
 enum paperpaw_sdk::native::stage_schemas::core_status_v1::Record<'a> { StatusAsk(0: paperpaw_sdk::native::stage_schemas::core_status_v1::StatusAsk<'a>), StatusValue(0: paperpaw_sdk::native::stage_schemas::core_status_v1::StatusValue<'a>) }
 enum paperpaw_sdk::native::stage_schemas::core_widget_v1::Record { WidgetMeasure(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetMeasure), WidgetPlace(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetPlace), WidgetTargets(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetTargets), WidgetSize(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetSize), WidgetTarget(0: paperpaw_sdk::native::stage_schemas::core_widget_v1::WidgetTarget) }
 enum paperpaw_sdk::native::storage::Root { Data, Files, Install, DocumentCache, Book, UserCss }
@@ -2731,7 +2753,7 @@ struct paperpaw_sdk::native::declare::records_wire::ServiceDocFont { index: u32,
 struct paperpaw_sdk::native::declare::records_wire::ServiceDocFormat<'a> { id: &'a str, title: &'a str, extensions: &'a str, flags: u32, priority: i32 }
 struct paperpaw_sdk::native::declare::records_wire::ServiceDocHref<'a> { document: u32, href: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceDocImage { image: u32, index: u32, width: u32, height: u32, flags: u32 }
-struct paperpaw_sdk::native::declare::records_wire::ServiceDocImageAsk { document: u32, index: u32, side: u32 }
+struct paperpaw_sdk::native::declare::records_wire::ServiceDocImageAsk { document: u32, index: u32, side: u32, flags: u32 }
 struct paperpaw_sdk::native::declare::records_wire::ServiceDocIndex { document: u32, index: u32 }
 struct paperpaw_sdk::native::declare::records_wire::ServiceDocInlineLang<'a> { lang: &'a str }
 struct paperpaw_sdk::native::declare::records_wire::ServiceDocLabel<'a> { text: &'a str }
@@ -3049,9 +3071,12 @@ struct paperpaw_sdk::native::format::request::FormatOptions<'a>(0: paperpaw_sdk:
 struct paperpaw_sdk::native::formatting::FormatBuffers<'scratch, 'out> { scratch: &'scratch mut [u8], out: &'out mut [u8] }
 struct paperpaw_sdk::native::image::ImageId(0: core::num::nonzero::NonZeroU32)
 struct paperpaw_sdk::native::image::ImageInfo { width: u32, height: u32, colour: bool, not_decoded: bool }
+struct paperpaw_sdk::native::image::ImagePart { x: u32, y: u32, width: u32, height: u32 }
 struct paperpaw_sdk::native::image::ImageReady { now_ms: u64, cookie: u32, status: paperpaw_sdk::native::image::ImageStatus, image: core::option::Option<paperpaw_sdk::native::image::ImageId>, width: u32, height: u32, luma: core::option::Option<[u8; 64]> }
 struct paperpaw_sdk::native::image::ImageStyle { flags: u32 }
-struct paperpaw_sdk::native::image::PrepareImage<'a> { root: paperpaw_sdk::native::image::PrepareRoot, path: &'a str, cookie: u32, side: u32, colour: bool, turn: bool, see_through: bool, tone: core::option::Option<&'a [u8; 256]> }
+struct paperpaw_sdk::native::image::PrepareImage<'a> { root: paperpaw_sdk::native::image::PrepareRoot, path: &'a str, cookie: u32, side: u32, colour: bool, turn: bool, see_through: bool, tone: core::option::Option<&'a [u8; 256]>, turned: bool }
+struct paperpaw_sdk::native::image::picture::Asked<'a> { place: paperpaw_sdk::native::image::picture::Place, width: u32, height: u32, flags: u32, histogram: [u8; 16], path: &'a str }
+struct paperpaw_sdk::native::image::picture::Tone<'a> { curve: core::option::Option<&'a [u8; 256]>, flags: u32 }
 struct paperpaw_sdk::native::keys::Revocation { plugin: alloc::string::String, key: [u8; 32], signature: [u8; 64] }
 struct paperpaw_sdk::native::library::BookRef<'a>(0: paperpaw_sdk::native::declare::records_wire::ServiceLibRef<'a>)
 struct paperpaw_sdk::native::library::Library { service: paperpaw_sdk::native::services::call::Service }
@@ -3171,7 +3196,7 @@ struct paperpaw_sdk::native::stage_schemas::core_format_v1::FmtCell { end: u32, 
 struct paperpaw_sdk::native::stage_schemas::core_format_v1::FmtColumns<'a> { weights: &'a [u8] }
 struct paperpaw_sdk::native::stage_schemas::core_format_v1::FmtEnd { flags: u32, total: u32, generation: u32, next: u32, cursor: core::option::Option<u64> }
 struct paperpaw_sdk::native::stage_schemas::core_format_v1::FmtFont { index: u32, family: u32, flags: u32, bytes: u32 }
-struct paperpaw_sdk::native::stage_schemas::core_format_v1::FmtImage<'a> { path: &'a str, index: u32, width: u32, height: u32, flags: u32 }
+struct paperpaw_sdk::native::stage_schemas::core_format_v1::FmtImage<'a> { path: &'a str, index: u32, width: u32, height: u32, flags: u32, part: &'a [u8] }
 struct paperpaw_sdk::native::stage_schemas::core_format_v1::FmtInlineLang<'a> { lang: &'a str }
 struct paperpaw_sdk::native::stage_schemas::core_format_v1::FmtLabel<'a> { text: &'a str }
 struct paperpaw_sdk::native::stage_schemas::core_format_v1::FmtLink<'a> { start: u32, end: u32, kind: u32, href: &'a str }
@@ -3201,6 +3226,11 @@ struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupAsk<'a> { text
 struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a> { title: &'a str, text: &'a str, flags: u32, opens: &'a str }
 struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::RecordStream<'a> { bytes: &'a [u8], remaining: usize }
 struct paperpaw_sdk::native::stage_schemas::core_lookup_v1::ReplyWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
+struct paperpaw_sdk::native::stage_schemas::core_picture_v1::InputWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
+struct paperpaw_sdk::native::stage_schemas::core_picture_v1::PictureAsk<'a> { place: u32, width: u32, height: u32, flags: u32, histogram: &'a [u8], path: &'a str }
+struct paperpaw_sdk::native::stage_schemas::core_picture_v1::PictureTone<'a> { tone: &'a [u8], flags: u32 }
+struct paperpaw_sdk::native::stage_schemas::core_picture_v1::RecordStream<'a> { bytes: &'a [u8], remaining: usize }
+struct paperpaw_sdk::native::stage_schemas::core_picture_v1::ReplyWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
 struct paperpaw_sdk::native::stage_schemas::core_status_v1::InputWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
 struct paperpaw_sdk::native::stage_schemas::core_status_v1::RecordStream<'a> { bytes: &'a [u8], remaining: usize }
 struct paperpaw_sdk::native::stage_schemas::core_status_v1::ReplyWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }

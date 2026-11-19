@@ -805,6 +805,12 @@ fn make(
     } else {
         1
     };
+    // `turned`: a quarter clockwise after that, any format, in the same pass.
+    let orientation = if job.recipe.turned {
+        recipe::then_quarter(orientation)
+    } else {
+        orientation
+    };
     if !recipe::needs_turn(orientation) {
         return run(storage, &job.source, path, side, (made, tone)).map_err(|error| {
             let _ = storage.remove(path);
@@ -812,13 +818,17 @@ fn make(
         });
     }
     let first = first_name(job.owner, number).map_err(|_| NO_MEMORY)?;
-    // Only a JPEG is turned: gray or colour.
+    let channels = match made {
+        Made::Gray => 1,
+        Made::SeeThrough => 2,
+        Made::Colour => 3,
+    };
     let turned = run(storage, &job.source, &first, side, (made, tone)).and_then(|_| {
         recipe::turn_file(
             storage,
             (&first, path),
             orientation,
-            if colour { 3 } else { 1 },
+            channels,
             (env.turn_band, env.turn_reads),
         )
     });

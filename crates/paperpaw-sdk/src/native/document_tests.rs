@@ -441,6 +441,45 @@ fn ask_image_asks_for_one_picture_by_its_index() {
 }
 
 #[test]
+fn ask_image_turned_sets_the_flag_and_tells_a_turned_answer() {
+    setup!(table, state, host, docs);
+    let (mut input, mut out) = ([0; 64], [0; 4096]);
+    let row = |flags| {
+        Record::ServiceDocImage(wire::ServiceDocImage {
+            image: 7,
+            index: 3,
+            width: 100,
+            height: 200,
+            flags,
+        })
+    };
+    let asked = |state: &State| {
+        let bytes = state.input.borrow();
+        match wire::records_decode(&bytes).unwrap().iter().next() {
+            Some(Record::ServiceDocImageAsk(a)) => (a.document, a.index, a.side, a.flags),
+            _ => panic!("no ask"),
+        }
+    };
+    reply(&state, &[row(4)]);
+    let image = docs
+        .ask_image_turned(&host, DocId(4), 3, 800, &mut input, &mut out)
+        .unwrap();
+    assert_eq!(asked(&state), (4, 3, 800, 1));
+    assert!(image.turned());
+    assert_eq!((image.width(), image.height()), (100, 200));
+    // Not turned (no id was free): the answer says so.
+    reply(&state, &[row(0)]);
+    let image = docs
+        .ask_image_turned(&host, DocId(4), 3, 800, &mut input, &mut out)
+        .unwrap();
+    assert!(!image.turned());
+    // The plain ask sets no flag.
+    docs.ask_image(&host, DocId(4), 3, 800, &mut input, &mut out)
+        .unwrap();
+    assert_eq!(asked(&state), (4, 3, 800, 0));
+}
+
+#[test]
 fn ask_image_passes_refusals_through_and_wants_exactly_one_picture() {
     setup!(table, state, host, docs);
     let (mut input, mut out) = ([0; 64], [0; 4096]);

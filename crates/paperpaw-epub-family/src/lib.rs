@@ -43,7 +43,7 @@ use alloc::vec;
 use paperpaw_sdk::Id;
 
 pub use cbz::{CbzDocument, DIRECTION, LEFT_TO_RIGHT, PANELS, RIGHT_TO_LEFT};
-pub use document::EpubDocument;
+pub use document::{EpubDocument, IMAGE_PART};
 pub use fb2::Fb2Document;
 pub use html::HtmlDocument;
 pub use markdown::MarkdownDocument;

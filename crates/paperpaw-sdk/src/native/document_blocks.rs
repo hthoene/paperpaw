@@ -241,6 +241,13 @@ impl BlockImage {
     pub const fn pending(&self) -> bool {
         self.0.flags & 2 != 0
     }
+    /// The picture was turned a quarter clockwise, as
+    /// [`Documents::ask_image_turned`] asked: it is the plugin's own prepared
+    /// image, to give back with `image_release`.
+    #[must_use]
+    pub const fn turned(&self) -> bool {
+        self.0.flags & 4 != 0
+    }
 }
 
 /// A cell of a table row.
@@ -596,10 +603,47 @@ impl Documents {
         input: &mut [u8],
         out: &mut [u8],
     ) -> Result<BlockImage, Error> {
+        self.ask_image_as(host, (document, index, side, 0), input, out)
+    }
+
+    /// [`ask_image`](Self::ask_image) for the picture turned a quarter
+    /// clockwise (op 16 with `flags` bit 0): a wide picture for a tall
+    /// screen. The host turns the decoded picture once, so drawing it costs
+    /// what any picture costs. The answer has the turned size and
+    /// [`BlockImage::turned`]; its image is then the plugin's own prepared
+    /// image (one of its eight), which does not end with the document: give
+    /// it back with `image_release`. An answer without an image id (none was
+    /// free) is not turned: draw, then ask again.
+    ///
+    /// # Errors
+    /// As [`ask_image`](Self::ask_image); `Full` with eight prepared images
+    /// out; `NoMemory` for a picture too large to turn on this device (on the
+    /// X4 ask for the screen's side); `Unsupported` on a host older than the
+    /// flag.
+    pub fn ask_image_turned(
+        &self,
+        host: &Host<'_>,
+        document: DocId,
+        index: u32,
+        side: u32,
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<BlockImage, Error> {
+        self.ask_image_as(host, (document, index, side, 1), input, out)
+    }
+
+    fn ask_image_as(
+        &self,
+        host: &Host<'_>,
+        (document, index, side, flags): (DocId, u32, u32, u32),
+        input: &mut [u8],
+        out: &mut [u8],
+    ) -> Result<BlockImage, Error> {
         let ask = wire::ServiceDocImageAsk {
             document: document.0,
             index,
             side,
+            flags,
         };
         let n = self.call(host, schema::OP_IMAGE, &[&ask], input, out)?;
         let row = one(out.get(..n).ok_or(Error::Invalid)?)?

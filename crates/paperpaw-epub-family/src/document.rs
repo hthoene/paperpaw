@@ -27,6 +27,13 @@ const MAX_FONT: u64 = 16 * 1024 * 1024;
 /// streamed, 2 no room, 3 unreadable) and the size written (u32).
 pub(crate) const FONT_COPY: &str = "format-epub.font-copy";
 
+/// The key of [`Document::extended`] that asks which part of its picture a
+/// block shows (`fmt.image.part`, a comic's panel): its parameters are the
+/// block's section and offset (two `u32`, little-endian); the answer is the
+/// part as `x, y, width, height` in the picture's pixels (four `u32`), or
+/// `None` for the whole picture.
+pub const IMAGE_PART: &str = "format.image-part";
+
 /// Marks a chapter whose converted length is not known yet.
 const UNKNOWN: u32 = u32::MAX;
 /// Marks a chapter that could not be converted since the book was opened:

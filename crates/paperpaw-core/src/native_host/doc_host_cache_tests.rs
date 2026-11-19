@@ -93,6 +93,7 @@ fn cover_reply(path: &str) -> Vec<u8> {
             8,
             4,
             0,
+            &[],
         ))],
         &mut bytes,
     )
@@ -403,6 +404,7 @@ fn a_cover_at_its_caps_fits_the_cover_reply_room() {
             u32::MAX,
             u32::MAX,
             u32::MAX,
+            &[],
         ))],
         &mut bytes,
     )

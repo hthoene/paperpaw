@@ -668,7 +668,7 @@ fn a_fmt_image_record_becomes_the_openers_doc_image() {
     let t = ImageTable::new();
     let storage = MemoryStorage::new();
     gray_file(&storage, ".paperpaw/cache/k/f/c/a.gray", 8, 4, 40);
-    let fmt = FmtImage::new("a.gray", 6, 8, 4, 0);
+    let fmt = FmtImage::new("a.gray", 6, 8, 4, 0, &[]);
     let doc = t
         .map_fmt_image(&storage, A, 7, CACHE, &fmt, true, true)
         .unwrap()
@@ -678,13 +678,13 @@ fn a_fmt_image_record_becomes_the_openers_doc_image() {
     assert_eq!(doc.flags, 0, "decoded: no flag");
     // `fmt.image` bit 0 (not decoded yet) is `doc_image` bit 1; bit 0 there is
     // colour, which a format's record does not set; other bits are dropped.
-    let pending = FmtImage::new("a.gray", 6, 8, 4, 0b101);
+    let pending = FmtImage::new("a.gray", 6, 8, 4, 0b101, &[]);
     let doc = t
         .map_fmt_image(&storage, A, 7, CACHE, &pending, true, true)
         .unwrap()
         .unwrap();
     assert_eq!(doc.flags, 0b10);
-    let other = FmtImage::new("a.gray", 6, 8, 4, 0b110);
+    let other = FmtImage::new("a.gray", 6, 8, 4, 0b110, &[]);
     let doc = t
         .map_fmt_image(&storage, A, 7, CACHE, &other, true, true)
         .unwrap()
@@ -698,7 +698,7 @@ fn a_fmt_image_record_becomes_the_openers_doc_image() {
         writer.row_rgb(&[9; 8 * 3]).unwrap();
     }
     writer.finish().unwrap();
-    let colour = FmtImage::new("c.rgb", 7, 8, 4, 1);
+    let colour = FmtImage::new("c.rgb", 7, 8, 4, 1, &[]);
     let shown = t
         .map_fmt_image(&storage, A, 7, CACHE, &colour, true, true)
         .unwrap()
@@ -713,7 +713,7 @@ fn a_fmt_image_record_becomes_the_openers_doc_image() {
     assert_eq!(gray_screen.flags, 0b10, "no colour on a gray screen");
     assert_eq!(t.info(A, gray_screen.image).unwrap().flags, 0);
     // A picture the card does not vouch for is no doc_image.
-    let lying = FmtImage::new("a.gray", 6, 9, 4, 0);
+    let lying = FmtImage::new("a.gray", 6, 9, 4, 0, &[]);
     assert_eq!(
         t.map_fmt_image(&storage, A, 7, CACHE, &lying, true, true),
         Ok(None)
@@ -726,8 +726,8 @@ fn a_picture_not_decoded_yet_comes_without_an_id_and_its_index() {
     let t = ImageTable::new();
     // No cache file yet: the format decodes it when the opener asks (op 16).
     let storage = MemoryStorage::new();
-    let pending = FmtImage::new("img/12.gray", 12, 300, 200, 1);
-    let edge = FmtImage::new("img/13.gray", 13, 1_600, 1, 1);
+    let pending = FmtImage::new("img/12.gray", 12, 300, 200, 1, &[]);
+    let edge = FmtImage::new("img/13.gray", 13, 1_600, 1, 1, &[]);
     assert!(matches!(
         t.map_fmt_image(&storage, A, 7, CACHE, &edge, true, true),
         Ok(Some(doc)) if doc.image == 0 && doc.width == 1_600
@@ -745,7 +745,7 @@ fn a_picture_not_decoded_yet_comes_without_an_id_and_its_index() {
     // Nothing was handed out for it.
     assert!(t.info(A, 1).is_err());
     // A decoded picture whose file is not there is still left out.
-    let decoded = FmtImage::new("img/12.gray", 12, 300, 200, 0);
+    let decoded = FmtImage::new("img/12.gray", 12, 300, 200, 0, &[]);
     assert_eq!(
         t.map_fmt_image(&storage, A, 7, CACHE, &decoded, true, true),
         Ok(None)
@@ -753,11 +753,11 @@ fn a_picture_not_decoded_yet_comes_without_an_id_and_its_index() {
     // A pending one is still checked for what can be checked without the
     // file: the path and a size a document image can have (1 to 1,600).
     for (n, bad) in [
-        FmtImage::new("../x.gray", 12, 300, 200, 1),
-        FmtImage::new(".host/x.gray", 12, 300, 200, 1),
-        FmtImage::new("img/12.gray", 12, 0, 200, 1),
-        FmtImage::new("img/12.gray", 12, 300, 1_601, 1),
-        FmtImage::new("img/12.gray", 12, u32::MAX, 200, 1),
+        FmtImage::new("../x.gray", 12, 300, 200, 1, &[]),
+        FmtImage::new(".host/x.gray", 12, 300, 200, 1, &[]),
+        FmtImage::new("img/12.gray", 12, 0, 200, 1, &[]),
+        FmtImage::new("img/12.gray", 12, 300, 1_601, 1, &[]),
+        FmtImage::new("img/12.gray", 12, u32::MAX, 200, 1, &[]),
     ]
     .iter()
     .enumerate()
@@ -778,7 +778,7 @@ fn a_picture_not_decoded_yet_is_checked_at_the_edges() {
     // A file there whose header says another size does not vouch for the
     // record: no id, the record's own size, as for a file not there yet.
     gray_file(&storage, ".paperpaw/cache/k/f/c/a.gray", 8, 4, 40);
-    let other_size = FmtImage::new("a.gray", 6, 9, 4, 1);
+    let other_size = FmtImage::new("a.gray", 6, 9, 4, 1, &[]);
     assert_eq!(
         t.map_fmt_image(&storage, A, 7, CACHE, &other_size, true, true),
         Ok(Some(wire::ServiceDocImage {
@@ -791,7 +791,7 @@ fn a_picture_not_decoded_yet_is_checked_at_the_edges() {
     );
     assert!(t.info(A, 1).is_err(), "no id handed out");
     // One pixel wide, 1,600 high: the narrowest and tallest box.
-    let tall = FmtImage::new("img/14.gray", 14, 1, 1_600, 1);
+    let tall = FmtImage::new("img/14.gray", 14, 1, 1_600, 1, &[]);
     assert!(matches!(
         t.map_fmt_image(&storage, A, 7, CACHE, &tall, true, true),
         Ok(Some(doc)) if doc.image == 0 && (doc.width, doc.height) == (1, 1_600)
@@ -801,7 +801,7 @@ fn a_picture_not_decoded_yet_is_checked_at_the_edges() {
     let room = PATH_MAX - CACHE.len() - 1 - folders.len() - 1;
     for (name, kept) in [("n".repeat(room), true), ("n".repeat(room + 1), false)] {
         let path = std::format!("{folders}/{name}");
-        let image = FmtImage::new(&path, 15, 300, 200, 1);
+        let image = FmtImage::new(&path, 15, 300, 200, 1, &[]);
         let mapped = t.map_fmt_image(&storage, A, 7, CACHE, &image, true, true);
         assert_eq!(mapped.map(|doc| doc.is_some()), Ok(kept), "{}", path.len());
     }
@@ -1033,7 +1033,7 @@ fn every_allocation_of_a_fmt_image_mapping_may_fail_and_keeps_no_id() {
     use crate::native_host::shell::tests::FAIL_NTH;
     let storage = MemoryStorage::new();
     gray_file(&storage, ".paperpaw/cache/k/f/c/a.gray", 8, 4, 40);
-    let fmt = FmtImage::new("a.gray", 6, 8, 4, 0);
+    let fmt = FmtImage::new("a.gray", 6, 8, 4, 0, &[]);
     let mut failed = 0;
     for nth in 1..=20 {
         let t = ImageTable::new();

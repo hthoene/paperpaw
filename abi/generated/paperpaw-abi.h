@@ -54,6 +54,7 @@ typedef struct {
     int32_t (*text_draw_inked)(void * ctx, uint32_t font, float size, float x, int32_t baseline, uint32_t color, PpBytes text, uint32_t extra, PpBytes tone, uint32_t flags, float * out);
     int32_t (*canvas_describe)(void * ctx, uint32_t role, uint32_t flags, PpBytes label, int32_t x, int32_t y, uint32_t width, uint32_t height);
     int32_t (*canvas_fill_pattern)(void * ctx, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t color, uint32_t pattern);
+    int32_t (*canvas_draw_image_part)(void * ctx, uint32_t image, PpBytes source, int32_t x, int32_t y, uint32_t width, uint32_t height, uint32_t flags);
 } PpHost;
 #define PP_ABI_MAJOR 7
 #define PP_ABI_MINOR 1

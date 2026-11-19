@@ -19,6 +19,8 @@ struct Context {
     info_status: Cell<i32>,
     info_asked: Cell<u32>,
     draws: RefCell<Vec<[i64; 6]>>,
+    /// The part draws: the source's length, then image, source, rectangle, flags.
+    parts: RefCell<Vec<(usize, Vec<i64>)>>,
     draw_status: Cell<i32>,
     batches: RefCell<Vec<Vec<u8>>>,
 }
@@ -57,6 +59,42 @@ unsafe extern "C" fn draw_slot(
     ]);
     ctx.draw_status.get()
 }
+#[allow(clippy::too_many_arguments, reason = "the slot's scalars")]
+unsafe extern "C" fn draw_part_slot(
+    ctx: *mut c_void,
+    image: u32,
+    source: PpBytes,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+    flags: u32,
+) -> i32 {
+    // SAFETY: tests retain the context; the canvas lends its 16 source bytes.
+    let (ctx, source) = unsafe {
+        (
+            &*ctx.cast::<Context>(),
+            core::slice::from_raw_parts(source.ptr, source.len),
+        )
+    };
+    let mut row = alloc::vec![i64::from(image)];
+    row.extend(
+        source
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|word| i64::from(u32::from_le_bytes(*word))),
+    );
+    row.extend([
+        i64::from(x),
+        i64::from(y),
+        i64::from(w),
+        i64::from(h),
+        i64::from(flags),
+    ]);
+    ctx.parts.borrow_mut().push((source.len(), row));
+    ctx.draw_status.get()
+}
 unsafe extern "C" fn submit(ctx: *mut c_void, batch: PpBytes) -> i32 {
     // SAFETY: tests retain the context; the sender lends initialized bytes.
     let (ctx, bytes) = unsafe {
@@ -72,6 +110,7 @@ fn table() -> PpHost {
     let mut table = abi::host_table();
     table.image_info = info_slot;
     table.canvas_draw_image = draw_slot;
+    table.canvas_draw_image_part = draw_part_slot;
     table.commands_submit = submit;
     table
 }
@@ -193,6 +232,49 @@ fn draw_passes_the_rectangle_and_only_defined_flags() {
     assert_eq!(
         canvas.draw_image(id, rect, ImageStyle::new()),
         Err(Error::NotFound)
+    );
+}
+
+#[test]
+fn a_part_is_drawn_through_its_own_slot_as_sixteen_bytes() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let frame = FrameRect::new(0, 0, 480, 800);
+    let canvas = Canvas::from(&host, frame, frame);
+    let id = ImageId::new(9).unwrap();
+    let part = ImagePart::new(240, 16, 200, 300);
+    canvas
+        .draw_image_part(
+            id,
+            part,
+            FrameRect::new(-5, 6, 480, 720),
+            ImageStyle::new().fill(),
+        )
+        .unwrap();
+    assert_eq!(
+        ctx.parts.borrow().as_slice(),
+        &[(16, alloc::vec![9, 240, 16, 200, 300, -5, 6, 480, 720, 1])]
+    );
+    // The whole picture's slot was not used, and the host's refusals come back.
+    assert!(ctx.draws.borrow().is_empty());
+    ctx.draw_status.set(abi::ERR_INVALID);
+    assert_eq!(
+        canvas.draw_image_part(id, part, frame, ImageStyle::new()),
+        Err(Error::Invalid)
+    );
+    // A host older than the entry answers through the table's own stub.
+    let old = abi::host_table();
+    let host = Host {
+        table: &old,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    assert_eq!(
+        Canvas::from(&host, frame, frame).draw_image_part(id, part, frame, ImageStyle::new()),
+        Err(Error::Unsupported)
     );
 }
 
@@ -365,6 +447,15 @@ fn prepare_sets_the_turn_flag_and_carries_the_tone_table() {
         panic!("not a prepare");
     };
     assert_eq!(flags, SEE_THROUGH);
+    // Kept turned a quarter clockwise: bit 3, with or without the others.
+    let Command::ImagePrepare { flags, .. } = plain.turned().command().unwrap() else {
+        panic!("not a prepare");
+    };
+    assert_eq!(flags, 1 << 3);
+    let Command::ImagePrepare { flags, .. } = plain.turn().turned().command().unwrap() else {
+        panic!("not a prepare");
+    };
+    assert_eq!(flags, TURN | 1 << 3);
 }
 
 #[test]

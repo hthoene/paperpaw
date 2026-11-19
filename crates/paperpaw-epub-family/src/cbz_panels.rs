@@ -1,7 +1,8 @@
 //! Panels of a comic page, found in its decoded gray picture by the white
 //! gutters between them (a recursive cut: rows, then columns, then rows
-//! again), and a panel drawn on a canvas of the page's size, as large as the
-//! canvas allows, for a reader to show it as a page of its own.
+//! again). A panel is shown as a part of the page's picture (`fmt.image.part`):
+//! the host draws that rectangle as large as the reader's page allows, so no
+//! enlarged copy of it is written.
 //!
 //! Only rows are read, a few at a time: the heap holds a few buffers of the
 //! page's width (about 6 KiB for a page 480 wide), never the picture.
@@ -10,7 +11,7 @@ use alloc::vec::Vec;
 
 use paperpaw_sdk::Storage;
 use paperpaw_sdk::document::DocumentError;
-use paperpaw_sdk::image::{GrayFile, GrayWriter, ImageSink};
+use paperpaw_sdk::image::GrayFile;
 
 use crate::fallible;
 
@@ -126,11 +127,6 @@ struct Scan<'a> {
     rows: Vec<u8>,
     columns: Vec<u16>,
     gap: u32,
-}
-
-/// A write that failed.
-fn io() -> DocumentError {
-    DocumentError::Storage(paperpaw_sdk::StorageError::Io)
 }
 
 /// The page is not read.
@@ -354,104 +350,6 @@ fn keep(found: Vec<Rect>, (width, height): (u32, u32)) -> Result<Vec<Panel>, Doc
         });
     }
     Ok(if panels.len() < 2 { Vec::new() } else { panels })
-}
-
-/// Reads `buf` from the picture at `path` (`PPGI`, rows of `width`): row `y`
-/// from column `x` on.
-fn read_span(
-    storage: &dyn Storage,
-    file: &GrayFile,
-    (x, y): (u32, u32),
-    buf: &mut [u8],
-) -> Result<(), DocumentError> {
-    let at = 12 + u64::from(y) * u64::from(file.width) + u64::from(x);
-    let mut filled = 0;
-    while filled < buf.len() {
-        match storage.read_at(&file.path, at + filled as u64, &mut buf[filled..]) {
-            Ok(0) | Err(_) => return Err(unreadable()),
-            Ok(n) => filled += n,
-        }
-    }
-    Ok(())
-}
-
-/// `panel` of the page in `file`, enlarged as far as the page's own size
-/// allows (smooth, its proportions kept) and centred on white, written to
-/// `path` as a gray picture of the page's size, through a temporary name.
-pub(crate) fn crop(
-    storage: &dyn Storage,
-    file: &GrayFile,
-    panel: Panel,
-    path: &str,
-) -> Result<(), DocumentError> {
-    let (pw, ph) = (u32::from(panel.w), u32::from(panel.h));
-    let (x, y) = (u32::from(panel.x), u32::from(panel.y));
-    if pw == 0 || ph == 0 || x + pw > file.width || y + ph > file.height {
-        return Err(unreadable());
-    }
-    let (width, height) = (file.width, file.height);
-    // 16.16 enlargement, the same both ways.
-    let scale =
-        ((u64::from(width) << 16) / u64::from(pw)).min((u64::from(height) << 16) / u64::from(ph));
-    let scale = scale.max(1 << 16);
-    let (cw, ch) = (
-        ((u64::from(pw) * scale) >> 16).min(u64::from(width)) as u32,
-        ((u64::from(ph) * scale) >> 16).min(u64::from(height)) as u32,
-    );
-    let (ox, oy) = ((width - cw) / 2, (height - ch) / 2);
-    let mut columns: Vec<u32> = Vec::new();
-    fallible::reserve_exact(&mut columns, cw as usize)?;
-    for c in 0..cw {
-        // A position in the panel, 16.16, the last column the panel's own.
-        columns.push((((u64::from(c) << 16) * 65536) / scale).min(u64::from(pw - 1) << 16) as u32);
-    }
-    let mut top = fallible::zeroed(pw as usize)?;
-    let mut bottom = fallible::zeroed(pw as usize)?;
-    let mut line = fallible::zeroed(width as usize)?;
-    let temporary = fallible::try_format!("{path}.tmp")?;
-    let result = (|| {
-        let mut writer = GrayWriter::new(storage, &temporary);
-        writer.start(width, height).map_err(|_| io())?;
-        let mut loaded: Option<u32> = None;
-        for row in 0..height {
-            line.fill(255);
-            if row >= oy && row < oy + ch {
-                let position =
-                    (((u64::from(row - oy) << 16) * 65536) / scale).min(u64::from(ph - 1) << 16);
-                let (upper, fraction) = ((position >> 16) as u32, ((position >> 8) & 0xff) as u32);
-                let lower = (upper + 1).min(ph - 1);
-                match loaded {
-                    Some(have) if have == upper => {}
-                    Some(have) if have + 1 == upper => {
-                        core::mem::swap(&mut top, &mut bottom);
-                        read_span(storage, file, (x, y + lower), &mut bottom)?;
-                    }
-                    _ => {
-                        read_span(storage, file, (x, y + upper), &mut top)?;
-                        read_span(storage, file, (x, y + lower), &mut bottom)?;
-                    }
-                }
-                loaded = Some(upper);
-                for (c, &at) in columns.iter().enumerate() {
-                    let (left, mix) = ((at >> 16) as usize, (at >> 8) & 0xff);
-                    let right = (left + 1).min(pw as usize - 1);
-                    let blend = |a: u8, b: u8| u32::from(a) * (256 - mix) + u32::from(b) * mix;
-                    let above = blend(top[left], top[right]);
-                    let below = blend(bottom[left], bottom[right]);
-                    line[ox as usize + c] =
-                        ((above * (256 - fraction) + below * fraction) >> 16) as u8;
-                }
-            }
-            writer.row(&line).map_err(|_| io())?;
-        }
-        writer.finish().map_err(|_| io())?;
-        storage.rename(&temporary, path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = storage.remove(&temporary);
-    }
-    result
 }
 
 #[cfg(test)]

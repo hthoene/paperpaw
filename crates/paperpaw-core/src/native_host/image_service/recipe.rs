@@ -39,6 +39,8 @@ pub(crate) struct Recipe {
     pub(crate) see_through: bool,
     /// The luma table: exactly [`TONE_BYTES`] bytes, or none.
     pub(crate) tone: Option<Vec<u8>>,
+    /// The picture is kept turned a quarter clockwise (after `turn`).
+    pub(crate) turned: bool,
 }
 
 impl Recipe {
@@ -61,6 +63,7 @@ impl Recipe {
             turn: self.turn,
             see_through: self.see_through,
             tone,
+            turned: self.turned,
         })
     }
 }
@@ -273,6 +276,21 @@ impl Turn {
             _ => return None,
         };
         Some(Self { swap, across, down })
+    }
+}
+
+/// The orientation that turns a picture as `orientation` does and then a
+/// quarter clockwise (`image_prepare` `turned`): one pass makes both.
+pub(super) const fn then_quarter(orientation: u8) -> u8 {
+    match orientation {
+        2 => 7,
+        3 => 8,
+        4 => 5,
+        5 => 2,
+        6 => 3,
+        7 => 4,
+        8 => 1,
+        _ => 6,
     }
 }
 

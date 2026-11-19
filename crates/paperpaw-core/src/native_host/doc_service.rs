@@ -38,6 +38,7 @@ pub(crate) mod pending;
 mod report;
 mod steps;
 mod table;
+mod turned;
 #[allow(unused_imports, reason = "the shell builds the table with its limits")]
 pub(crate) use args::ROOT_HANDED;
 pub(crate) use call::{FormatCall, Options};
@@ -354,6 +355,10 @@ pub(crate) trait DocHost {
         image: &wire::ServiceDocImage,
         in_block: bool,
     ) -> Result<Option<u32>, i32>;
+    /// The caller's image turned a quarter clockwise (op 16, `flags` bit 0).
+    fn turned(&self, _image: u32) -> Result<wire::ServiceDocImage, i32> {
+        Err(ERR_UNSUPPORTED)
+    }
     /// A picture of `document` was left out of a block stream (it failed the
     /// image check, or the format sent none): the block keeps its alt text.
     /// The host says so once per run of left-out pictures of the same
@@ -672,6 +677,9 @@ impl DocHost for OwnedHost<'_> {
         in_block: bool,
     ) -> Result<Option<u32>, i32> {
         self.host.map_image(document, image, in_block)
+    }
+    fn turned(&self, image: u32) -> Result<wire::ServiceDocImage, i32> {
+        self.host.turned(image)
     }
     fn formats_of_owner(&self, owner: u64, visit: &mut dyn FnMut(FormatRef)) {
         self.host.formats_of_owner(owner, visit);
@@ -1139,9 +1147,9 @@ fn prepare<'a>(
             Check::At
         }
         (op::IMAGE, DocAsk::Question(r)) => {
+            turned::asked(r.flags)?;
             if r.index == u32::MAX {
-                // The cover is index `u32::MAX` (`document.md` 5): its own
-                // size, larger when asked.
+                // The cover (index `u32::MAX`): its own size, larger when asked.
                 call.op = fmt::COVER;
                 call.cover_side = args::image_side(r.side, document.cover_side);
                 call.image_side = document.image_side;
@@ -1168,7 +1176,7 @@ fn read(host: &dyn DocHost, op: &ServiceOp, input: &[u8], out: &mut [u8]) -> Res
     let verdict = verify(host, &document, &check, out, length);
     let kept = verdict.as_ref().map_or(0, |kept| *kept);
     settle(host, &document, verdict.map(|_| ()))?;
-    Ok(kept)
+    turned::answer(host, &record, out, kept)
 }
 
 /// Paging rows must move forward from the cursor.

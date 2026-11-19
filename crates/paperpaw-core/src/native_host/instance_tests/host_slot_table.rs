@@ -167,6 +167,10 @@ fn every_called_host_table_entry_but_the_allocator_and_the_clock_announces_its_s
         canvas_fill_pattern,
         (table.canvas_fill_pattern)(ctx, 0, 0, 0, 0, 0, 0)
     );
+    entry!(
+        canvas_draw_image_part,
+        (table.canvas_draw_image_part)(ctx, 0, none, 0, 0, 0, 0, 0)
+    );
     // Every field of the table is accounted for: the four exempt ones
     // (heap_alloc, heap_dealloc, heap_realloc, clock_micros) plus the
     // list above. A new entry makes the table longer than the list.

@@ -579,6 +579,7 @@ fn a_jpeg_is_turned_as_its_exif_says_and_the_size_told_is_the_size_after_the_tur
         let recipe = Recipe {
             turn: true,
             see_through: false,
+            turned: false,
             tone: None,
         };
         let (table, ready) = prepare_jpeg(&storage, Some(orientation), 0, &recipe, ENV);
@@ -611,6 +612,7 @@ fn a_jpeg_is_left_as_it_is_without_the_turn_flag_or_an_orientation_to_apply() {
     let turn = Recipe {
         turn: true,
         see_through: false,
+        turned: false,
         tone: None,
     };
     let (table, ready) = prepare_jpeg(&storage, Some(1), 0, &turn, ENV);
@@ -642,6 +644,7 @@ fn the_longest_side_is_the_one_before_the_turn_and_the_turn_swaps_the_axes() {
     let turn = Recipe {
         turn: true,
         see_through: false,
+        turned: false,
         tone: None,
     };
     let (_, ready) = prepare_jpeg(&storage, Some(6), 100, &turn, ENV);
@@ -666,6 +669,7 @@ fn a_tone_table_is_applied_while_the_picture_is_decoded() {
     let recipe = Recipe {
         turn: false,
         see_through: false,
+        turned: false,
         tone: Some(inverted()),
     };
     table.prepare(A, "a.png", 0, 1, false, &recipe).unwrap();
@@ -711,6 +715,7 @@ fn a_recipe_is_copied_for_the_waiting_request_and_the_copy_is_its_own() {
     let recipe = Recipe {
         turn: true,
         see_through: false,
+        turned: false,
         tone: Some(inverted()),
     };
     let copy = recipe.try_copy().unwrap();

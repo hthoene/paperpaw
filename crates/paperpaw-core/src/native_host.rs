@@ -334,6 +334,8 @@ pub(crate) mod net_service;
 mod network_demand;
 pub(crate) mod owner_paths;
 pub(crate) mod paths_in_use;
+#[path = "native_host/picture_stage.rs"]
+pub(crate) mod picture_stage;
 mod reading_events;
 pub(crate) mod save_files;
 pub(crate) mod screen_apply;

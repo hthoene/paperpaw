@@ -192,11 +192,11 @@ class StageTests(unittest.TestCase):
         stages = self.schema['stages']
         self.assertEqual([s['key'] for s in stages],
                          ['core.book-badge', 'core.format', 'core.input-filter', 'core.lookup',
-                          'core.status', 'core.widget'])
+                          'core.picture', 'core.status', 'core.widget'])
         self.assertTrue(all(s['records'][0]['id'] == 1 for s in stages))
         source = rust_stages(self.schema)
         for module in ['core_book_badge_v1', 'core_format_v1', 'core_input_filter_v1',
-                       'core_lookup_v1', 'core_status_v1', 'core_widget_v1']:
+                       'core_lookup_v1', 'core_picture_v1', 'core_status_v1', 'core_widget_v1']:
             self.assertIn(f'pub mod {module}', source)
         self.assertIn('pub static STAGES:', source)
         # The host's stages walk tables with one interpreter (#307): one reader and one
@@ -523,22 +523,24 @@ class MirrorTests(unittest.TestCase):
         new['records'] = records
         new['minor'] = self.schema['minor'] + 1
         stage, record = self.raw_format_stage()
-        stage['revision'] = 1
-        record['field_since'] = {'later': 1}
+        # The stage's next revision, whatever it is at today (1 since `fmt.image.part`, #369).
+        was = stage['revision']
+        stage['revision'] = was + 1
+        record['field_since'] = {'later': was + 1}
         new['stages'] = [s if s['key'] != 'core.format' else expand_mirrors([stage], records)[0]
                          for s in new['stages']]
         validate_stages(new)
         compatible_stages(self.schema, new, self.schema['minor'] + 1)
         grown = next(r for r in self.format_stage(new)['records'] if r['name'] == 'fmt.state')
-        self.assertEqual(grown['fields'][-1]['since'], 1)
+        self.assertEqual(grown['fields'][-1]['since'], was + 1)
         # The stamp stays when the stage's revision grows again.
-        stage['revision'] = 2
+        stage['revision'] = was + 2
         again = expand_mirrors([stage], records)[0]
         self.assertEqual(next(r for r in again['records'] if r['name'] == 'fmt.state'
-                              )['fields'][-1]['since'], 1)
+                              )['fields'][-1]['since'], was + 1)
         # Stamped at the old revision, it is a changed record, not an appended field.
-        record['field_since'] = {'later': 0}
-        stage['revision'] = 1
+        record['field_since'] = {'later': was}
+        stage['revision'] = was + 1
         new['stages'] = [s if s['key'] != 'core.format' else expand_mirrors([stage], records)[0]
                          for s in new['stages']]
         with self.assertRaisesRegex(ValueError, 'appended fields need next revision'):

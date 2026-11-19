@@ -115,6 +115,8 @@ pub struct PpHost {
     pub canvas_describe: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, role: u32, flags: u32, label: PpBytes, x: i32, y: i32, width: u32, height: u32) -> i32,
     /// canvas.fill_pattern: mutate, status, since 1.
     pub canvas_fill_pattern: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, x: i32, y: i32, width: u32, height: u32, color: u32, pattern: u32) -> i32,
+    /// canvas.draw_image_part: mutate, status, since 1.
+    pub canvas_draw_image_part: unsafe extern "C" fn(ctx: *mut core::ffi::c_void, image: u32, source: PpBytes, x: i32, y: i32, width: u32, height: u32, flags: u32) -> i32,
 }
 /// Generated ABI major.
 pub const MAJOR: u16 = 7;

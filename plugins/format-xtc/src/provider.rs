@@ -428,6 +428,7 @@ impl XtcProvider {
                 image.width,
                 image.height,
                 0,
+                &[],
             )),
             out,
         )
@@ -544,6 +545,7 @@ impl XtcProvider {
                 image.width,
                 image.height,
                 0,
+                &[],
             )));
         }
         let mut rows: Vec<Record<'_>> = Vec::new();
