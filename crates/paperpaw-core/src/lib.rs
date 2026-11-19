@@ -125,7 +125,9 @@ pub use warning::{Warning, WarningSource};
 mod tests;
 mod timing;
 mod work;
-
+pub use crate::ask::{Ask, Asks};
+use crate::kit::{action::Actions, menus::Menus, status::StatusItems};
+pub use crate::turn::Output;
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::format;
@@ -133,10 +135,6 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt;
 use core::mem;
-
-pub use crate::ask::{Ask, Asks};
-use crate::kit::{action::Actions, menus::Menus, status::StatusItems};
-pub use crate::turn::Output;
 use paperpaw_graphics::{Framebuffer, GraphicsError};
 use paperpaw_i18n::Translator;
 use paperpaw_platform::{
@@ -179,10 +177,9 @@ use crate::screens::{ActiveScreen, uncovered};
 #[doc(hidden)]
 pub use crate::work::network_specs_of;
 pub use crate::work::{NetworkSettings, WorkSpec};
+pub use paperpaw_sdk as sdk;
 pub use paperpaw_sdk::firmware::{Firmware, FirmwareCommand, FirmwareState, InstallFailure};
 pub use paperpaw_sdk::wifi::{JoinFailure, WifiCommand, WifiNetwork, WifiState};
-
-pub use paperpaw_sdk as sdk;
 
 /// Asks may trigger further commands; this bounds runaway loops.
 const MAX_COMMAND_ROUNDS: usize = 16;

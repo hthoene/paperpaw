@@ -6,6 +6,11 @@
 //! is something to do. Whatever the kernel gives back is shown
 //! ([`Firmware::apply`]); when it says so, the X4 sleeps.
 
+use crate::board::Panel;
+use crate::network::{Network, NetworkIo};
+use crate::ota::Ota;
+use crate::usb_power::Sense;
+use crate::{clock, device, input, now, power, stack};
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Event, Output, WakeupConfig};
 use log::{info, warn};
@@ -20,12 +25,6 @@ use paperpaw_x4::display::{Planes, Refresh};
 #[cfg(feature = "remote")]
 use paperpaw_x4::sent::Check;
 use paperpaw_x4::sent::Sent;
-
-use crate::board::Panel;
-use crate::network::{Network, NetworkIo};
-use crate::ota::Ota;
-use crate::usb_power::Sense;
-use crate::{clock, device, input, now, power, stack};
 
 mod cable;
 mod card_swap;
