@@ -10,7 +10,9 @@ other languages written in it) from Noto Serif Ethiopic, Thai from Noto Serif Th
 interface's font; tools/fonts), and Khmer, Lao and Tibetan from Noto Serif
 Khmer, Lao and Tibetan (shaped as Bengali, Khmer's and Lao's packs with
 their words), one pack for each built-in face they extend,
-the interface's font too.
+the interface's font too. The Latin letters Azerbaijani, Hausa and Yoruba add
+(latin-extended) come from Literata and Source Sans 3, with what those lack
+from Noto Serif and Noto Sans.
 Chinese (the 6,763 ideographs of GB 2312, or the 5,401 frequently used ones
 of Big5 for Traditional) and Japanese (kana and 2,998 kanji: the Joyo and JIS X
 0208 level 1) come from Noto Serif SC, TC and JP in four sizes, as Korean's.
@@ -115,6 +117,22 @@ def han(name, file):
             (f"{name}-sans", file, None, "fonts-default.source-sans")]
 
 
+# Latin Extended (#385): Azerbaijani's schwa, Yoruba's letters with a dot below and the
+# combining tone marks, from Literata's faces and Source Sans 3; what those lack (Hausa's
+# hooked letters, n and m with a grave or acute) from Noto Serif, a pack for each weight
+# shared by the faces it stands for (as `shared`), and Noto Sans for the interface's font.
+LATIN_OWN = ["U+018F", "U+0259", "U+1E62-1E63", "U+1EB8-1EB9", "U+1ECC-1ECD",
+             "U+0300-0304", "U+030C", "U+0323"]
+LATIN_NOTO = "U+0181,U+0253,U+018A,U+0257,U+0198-0199,U+01B3-01B4,U+01F8-01F9,U+1E3E-1E3F"
+LATIN_EXTENDED = [
+    *with_sans(LITERATA, FONTS / "SourceSans3.ttf", "latin-extended-sans"),
+    ("noto-serif", OTHER_FONTS / "NotoSerif-subset.ttf", 400,
+     ["fonts-default.literata", "literata-styles.italic"], LATIN_NOTO),
+    ("noto-serif-bold", OTHER_FONTS / "NotoSerif-subset.ttf", 700,
+     ["literata-styles.bold", "literata-bold-italic.bold-italic"], LATIN_NOTO),
+    ("noto-sans", OTHER_FONTS / "NotoSans-subset.ttf", 400, "fonts-default.source-sans", LATIN_NOTO),
+]
+
 # The other 8,822 syllables, a pack of its own that only adds letters to
 # the Korean pack (about 30 MiB on the card): offered for books that use them.
 KOREAN_EXTRA = [("korean-extra", OTHER_FONTS / "NanumMyeongjo-Regular.ttf", None,
@@ -122,8 +140,13 @@ KOREAN_EXTRA = [("korean-extra", OTHER_FONTS / "NanumMyeongjo-Regular.ttf", None
 
 # Per set: its name, the faces it is drawn in, the font's licence, the
 # font named in the plugin's description, and the characters
-# (paperpaw-fontgen's --chars) where they are not the set of that name.
+# (paperpaw-fontgen's --chars) where they are not the set of that name. A
+# face may name characters of its own, fifth (a font for what the others lack).
 SETS = {
+    "latin-extended": ("Latin Extended", LATIN_EXTENDED,
+                       [FONTS / "Literata-OFL.txt", FONTS / "SourceSans3-OFL.txt",
+                        OTHER_FONTS / "NotoSerif-OFL.txt", OTHER_FONTS / "NotoSans-OFL.txt"],
+                       "Literata", LATIN_OWN),
     # Source Sans 3 has these letters: the interface's face keeps its look.
     "cyrillic": ("Cyrillic", with_sans(LITERATA, FONTS / "SourceSans3.ttf", "cyrillic-sans"),
                  [FONTS / "Literata-OFL.txt", FONTS / "SourceSans3-OFL.txt"], "Literata", None),
@@ -227,10 +250,10 @@ def build(base, sets):
     shutil.rmtree(out, ignore_errors=True)
     (out / "fonts").mkdir(parents=True)
     sizes = ["--sizes", CJK_SIZES] if sets[0] in CJK else []
-    for name, file, weight, _ in faces:
+    for name, file, weight, _, *own in faces:
         axis = ["--axis", f"wght={weight}"] if weight else []
         subprocess.run([str(FONTGEN), str(file), str(out / "fonts" / f"{name}.ppfp"),
-                        "--chars", chars, "--hinting", "none", *axis, *sizes], check=True)
+                        "--chars", own[0] if own else chars, "--hinting", "none", *axis, *sizes], check=True)
     # Thai's words, for breaking lines between them (#313): in the packs of
     # Literata's regular face and of the interface's font, one of which is
     # open wherever Thai is set.
@@ -243,7 +266,7 @@ def build(base, sets):
                         *(str(out / "fonts" / f"{name}.ppfp") for name, *_ in faces)], check=True)
     extends = "\n".join(
         f"{name}.ppfp = {', '.join(extended) if isinstance(extended, list) else extended}"
-        for name, _, _, extended in faces)
+        for name, _, _, extended, *_ in faces)
     listed = data.plugins().get(id)
     if listed:
         head = data.plugin_ini(id, listed)
