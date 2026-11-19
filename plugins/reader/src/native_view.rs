@@ -116,6 +116,10 @@ struct Open {
     /// What the page on show was laid out with: a change of the reading
     /// settings or of the screen lays it out again.
     laid: Option<LayoutKey>,
+    /// The page after the one on show, laid out in the quiet time after a
+    /// turn so that the next turn only takes it (`lay_ahead`): one more page
+    /// of heap while the reader is shown, let go of with the page on show.
+    ahead: Option<Ahead>,
     trail: Trail,
     /// The book's path, for its saved place.
     path: String,
@@ -399,6 +403,7 @@ impl View {
             marking: Marking::new(),
             marks,
             laid: None,
+            ahead: None,
             trail: Trail::new(),
             root: root_code(root),
             unsaved: native_open::names_place(|k| found.get(k), sections),
@@ -569,6 +574,7 @@ impl View {
         self.pause_aloud(host, (docs, None), true);
         if let Body::Open(open) = &mut self.body {
             open.page = None;
+            open.ahead = None;
             open.laid = None;
             open.trail.clear();
             open.pictures = pictures::Pass::Whole;
@@ -796,6 +802,7 @@ impl View {
         }
         if let Body::Open(open) = &mut self.body {
             open.page = None;
+            open.ahead = None;
             open.words = Vec::new();
         }
     }
@@ -1283,7 +1290,19 @@ impl Open {
         let Ok(setup) = self.settings.setup(host) else {
             return self.next();
         };
-        match onto(self.lay(host, docs, &setup, end)) {
+        // Laid out in the quiet time after the turn before, if still what a
+        // layout now would make (the same page start, settings and rules).
+        let key = self.key(&setup);
+        let ahead = self.ahead.take().filter(|ahead| {
+            ahead.from == self.at
+                && ahead.key == key
+                && (ahead.page.start.section, ahead.page.start.offset) == end
+        });
+        let laid = match ahead {
+            Some(ahead) => Ok(ahead.page),
+            None => self.lay(host, docs, &setup, end),
+        };
+        match onto(laid) {
             Onto::Stay => Ok(false),
             Onto::Unlaid => self.next(),
             Onto::Page(laid) => {
@@ -1366,6 +1385,14 @@ use setup::{Kept, LayoutKey, Setup, flag, integer};
 mod r3;
 mod status;
 mod zoom;
+
+/// The page after the one starting at `from`, laid out with `key` in advance.
+#[derive(Debug)]
+struct Ahead {
+    from: (u32, u32),
+    key: LayoutKey,
+    page: Page,
+}
 
 /// What a forward turn finds after the page on show.
 #[derive(Debug)]

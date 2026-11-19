@@ -31,11 +31,11 @@ use paperpaw_platform::{ButtonState, InputEvent, buttons};
 /// base's own, as nothing can be kept for most of them), a
 /// Cyrillic book that starts in Latin 22 (116), a page of Vietnamese 238 (535),
 /// kerning and ligatures off 151 (224).
-const CHINESE: (u32, u32) = (2_430, 2_510);
+const CHINESE: (u32, u32) = (2_450, 2_580);
 const CYRILLIC: (u32, u32) = (40, 345);
 /// The same book declared Russian: no table, so one ask for the whole book.
 const RUSSIAN: (u32, u32) = (40, 245);
-const VIETNAMESE: (u32, u32) = (260, 485);
+const VIETNAMESE: (u32, u32) = (260, 510);
 const PLAIN: (u32, u32) = (200, 485);
 
 /// Turns that are not measured: the book opens and its caches fill over the
@@ -96,9 +96,19 @@ const TURN_FLOOR: u32 = 50;
 const INKED_PER_TURN_FLOOR: u32 = 100;
 /// The most text measures of a turn on average, the Latin book.
 const MEASURES_PER_TURN: u32 = 55;
+/// What the key's own handling may make on average of the measures and the
+/// hyphenations (the page after is laid in the quiet time before), and the
+/// most slots of one key.
+const KEY_MEASURES_PER_TURN: u32 = 25;
+const KEY_HYPHENS_PER_TURN: u32 = 2;
+const KEY_TOTAL_CEILING: u32 = 300;
+
+fn button(device: &mut Device, name: &'static str, state: ButtonState) {
+    device.call(|kernel, now| kernel.handle(now, InputEvent::Button { name, state }));
+}
 
 fn press_button(device: &mut Device, name: &'static str, state: ButtonState) {
-    device.call(|kernel, now| kernel.handle(now, InputEvent::Button { name, state }));
+    button(device, name, state);
     device.advance(400);
 }
 
@@ -153,6 +163,12 @@ struct Seen {
     quietest: u32,
     inked: u32,
     measures: u32,
+    /// What the key's own handling entered (the turn takes the page laid in
+    /// the quiet time before; the quiet time's layout is not counted): text
+    /// measures and hyphenations summed over the turns, and the most slots of one.
+    key_measures: u32,
+    key_hyphens: u32,
+    key_total: u32,
 }
 
 /// Turns `MEASURED` pages (after `WARM_UP`) of `book` and counts the host slots.
@@ -168,12 +184,20 @@ fn measure(label: &str, name: &str, book: &[u8], ini: &str) -> Seen {
         quietest: u32::MAX,
         inked: 0,
         measures: 0,
+        key_measures: 0,
+        key_hyphens: 0,
+        key_total: 0,
     };
     for _ in 0..MEASURED {
         slot_counts::reset();
-        press(&mut device, ButtonState::Pressed);
+        button(&mut device, buttons::PAGE_FORWARD, ButtonState::Pressed);
+        let key = slot_counts::snapshot();
+        device.advance(400);
         press(&mut device, ButtonState::Released);
         let counts = slot_counts::snapshot();
+        seen.key_measures += count_of(&key, "text_measure");
+        seen.key_hyphens += count_of(&key, "text_hyphenate");
+        seen.key_total = seen.key_total.max(key.iter().map(|(_, n)| *n).sum());
         eprintln!(
             "page turn {label}: measures {} hyph {} reads {} service {} settings {} inked {}",
             count_of(&counts, "text_measure"),
@@ -182,6 +206,12 @@ fn measure(label: &str, name: &str, book: &[u8], ini: &str) -> Seen {
             count_of(&counts, "service_call"),
             count_of(&counts, "settings_read"),
             count_of(&counts, "text_draw_inked"),
+        );
+        eprintln!(
+            "page turn {label}: the key alone: measures {} hyph {} all {}",
+            count_of(&key, "text_measure"),
+            count_of(&key, "text_hyphenate"),
+            key.iter().map(|(_, n)| *n).sum::<u32>()
         );
         let turn: u32 = counts.iter().map(|(_, n)| *n).sum();
         seen.total = seen.total.max(turn);
@@ -327,6 +357,21 @@ fn latin_over(alice: &[u8], over: &mut Vec<String>) {
             "{} measures in {MEASURED} turns, over {} : what was measured is forgotten",
             seen.measures,
             MEASURES_PER_TURN * MEASURED as u32
+        ));
+    }
+    // The page after the one on show is laid out in the quiet time after a
+    // turn (#399): the key itself takes it, draws it and starts the next wait.
+    eprintln!(
+        "page turn: the key alone: measures {} and hyphenations {} in {MEASURED} turns, most slots {}",
+        seen.key_measures, seen.key_hyphens, seen.key_total
+    );
+    if seen.key_measures > KEY_MEASURES_PER_TURN * MEASURED as u32
+        || seen.key_hyphens > KEY_HYPHENS_PER_TURN * MEASURED as u32
+        || seen.key_total > KEY_TOTAL_CEILING
+    {
+        over.push(format!(
+            "the key itself lays a page out again: {} measures, {} hyphenations, {} slots at most",
+            seen.key_measures, seen.key_hyphens, seen.key_total
         ));
     }
     if seen.quietest < TURN_FLOOR {

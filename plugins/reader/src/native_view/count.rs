@@ -128,6 +128,13 @@ impl View {
         }
     }
 
+    /// The page after the one on show is laid out for the next turn.
+    pub fn lay_ahead(&mut self, host: &Host<'_>, docs: &Documents) {
+        if let Body::Open(open) = &mut self.body {
+            open.lay_ahead(host, docs);
+        }
+    }
+
     /// Whether this screen's pages still need counting.
     #[must_use]
     pub fn counting(&self) -> bool {

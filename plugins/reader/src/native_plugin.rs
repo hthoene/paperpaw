@@ -78,6 +78,10 @@ const BATCHES: [&[&[u8]]; 9] = [
 /// (Beta 3's `SAVE_QUIET_MS`).
 const QUIET_KEY: &str = "place";
 const QUIET_MS: u32 = 2_000;
+/// The page after the one on show is laid out this long after a turn (the
+/// screen is drawn and refreshing by then), so the next turn only takes it.
+const AHEAD_KEY: &str = "ahead";
+const AHEAD_MS: u32 = 300;
 /// The key of the work that reads the next blocks of a search, and the pause
 /// between two steps (the page is drawn between them).
 const SEARCH_KEY: &str = "search";
@@ -917,6 +921,29 @@ impl NativeReader {
     /// has no work, the place is written at sleep, stop and close.
     fn start_quiet(&mut self, host: &Host<'_>) {
         self.declare_work(host, (QUIET_KEY, WORK_DUE), QUIET_MS);
+        self.declare_work(host, (AHEAD_KEY, WORK_DUE), AHEAD_MS);
+    }
+
+    /// The quiet time of the work `key` has come: the next page is laid out,
+    /// or a step of the count of the pages is made.
+    fn quiet_step(&mut self, host: &Host<'_>, key: &str) {
+        match key {
+            AHEAD_KEY => self.ahead_step(host),
+            _ => self.count_step(host),
+        }
+    }
+
+    /// The next page is laid out now, as the count's steps wait while another
+    /// screen covers the reader.
+    fn ahead_step(&mut self, host: &Host<'_>) {
+        if self.ui.is_some()
+            && self.stack_top(host).ok().flatten() != self.screens.top_instance(SCREEN)
+        {
+            return;
+        }
+        if let (Some(view), Some(docs)) = (self.screens.top(SCREEN), &self.docs) {
+            view.lay_ahead(host, docs);
+        }
     }
 
     /// The pages of the reading screen on top are counted in the background:
@@ -1295,8 +1322,10 @@ impl Plugin for NativeReader {
             }
             Event::Answered { answer, .. } => self.answered(host, &answer),
             // The quiet time has come, or the device sleeps or stops.
-            Event::WorkDue(due) if token == WORK_DUE && due.key() == native_index::WORK_KEY => {
-                self.count_step(host);
+            Event::WorkDue(due)
+                if token == WORK_DUE && matches!(due.key(), AHEAD_KEY | native_index::WORK_KEY) =>
+            {
+                self.quiet_step(host, due.key());
                 Ok(())
             }
             Event::WorkDue(_) | Event::Suspend { .. } | Event::Stopping { .. }
