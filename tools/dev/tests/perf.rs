@@ -53,6 +53,10 @@ impl paperpaw_core::testing::Fake for Big {
 /// What the leaking screen keeps, never let go.
 static LEAKED: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
 
+/// The heap counter `perf` reads is the process's: tests measuring at the same
+/// time count each other's allocations as leaks, so they take turns.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
 struct Leaks;
 
 impl paperpaw_core::testing::Fake for Leaks {
@@ -112,6 +116,9 @@ fn add(builder: KernelBuilder) -> KernelBuilder {
 #[test]
 #[ignore = "the dev tool measures a widget's cell with its interface-6 probe widget, which the native Home does not place (todo 634, #244)"]
 fn reads_while_drawing_large_screens_and_leaks_are_found() {
+    let _turn = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let out = std::env::temp_dir().join(format!("paperpaw-dev-perf-{}", std::process::id()));
     let mut context = Context::new(
         Target {
@@ -173,6 +180,9 @@ fn reads_while_drawing_large_screens_and_leaks_are_found() {
 /// (#330), so `perf` does not call it a leak.
 #[test]
 fn a_request_left_under_way_is_not_a_leak_of_the_stores_list() {
+    let _turn = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let out = std::env::temp_dir().join(format!("paperpaw-dev-perf-store-{}", std::process::id()));
     let mut context = Context::new(
         Target {
@@ -203,6 +213,9 @@ fn a_request_left_under_way_is_not_a_leak_of_the_stores_list() {
 /// screen, and a screen not measured is an error naming it.
 #[test]
 fn screens_after_a_guarding_screen_are_measured() {
+    let _turn = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let out = std::env::temp_dir().join(format!("paperpaw-dev-perf-guard-{}", std::process::id()));
     let mut context = Context::new(
         Target {
