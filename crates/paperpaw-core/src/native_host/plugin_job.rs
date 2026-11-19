@@ -105,9 +105,11 @@ pub(crate) struct PluginHost {
 pub struct HostCode {
     /// The file's name in a plugin's folder (one of `CODE_FILES`).
     pub file: &'static str,
-    /// The metadata record the library `bytes` exports, `None` where it is no
-    /// library of an interface-7 plugin.
-    pub record: for<'a> fn(&'a [u8]) -> Option<&'a [u8]>,
+    /// The metadata record the library at `path` exports (`len` bytes, the
+    /// trailer not counted) as read from `storage`: the shell reads the file
+    /// as it holds its own memory, `None` where it is no library of an
+    /// interface-7 plugin.
+    pub record: fn(&dyn Storage, &str, u64) -> Option<Vec<u8>>,
 }
 
 impl PluginHost {

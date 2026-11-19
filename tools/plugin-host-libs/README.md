@@ -1,6 +1,6 @@
 # plugin-host-libs
 
-A few first-party plugins (stats, battery, keys) as x86-64 shared libraries
+A few first-party plugins (stats, battery, keys, reading-goal) as x86-64 shared libraries
 (`code-host.so`) for the emulator's interface-7 loader (#2850), to check
 install and heap on the X4 profile. Its own workspace; the build settings in
 `.cargo/config.toml` are needed (never set `RUSTFLAGS`).

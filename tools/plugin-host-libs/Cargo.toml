@@ -12,6 +12,7 @@ publish = false
 [dependencies]
 paperpaw-plugin-battery = { path = "../../plugins/battery", features = ["native-entry"] }
 paperpaw-plugin-keys = { path = "../../plugins/keys", features = ["native-entry"] }
+paperpaw-plugin-reading-goal = { path = "../../plugins/reading-goal", features = ["native-entry"] }
 paperpaw-plugin-stats = { path = "../../plugins/stats", features = ["native-entry"] }
 
 [[example]]
@@ -20,6 +21,10 @@ crate-type = ["cdylib"]
 
 [[example]]
 name = "battery"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "reading-goal"
 crate-type = ["cdylib"]
 
 [[example]]
