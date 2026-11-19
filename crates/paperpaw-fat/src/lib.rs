@@ -43,13 +43,12 @@
 //! aside as `<name>.unsaved`, the file kept: whether it changed since
 //! cannot be told. A file that cannot be settled is left as it is, its
 //! folder in reach; so are the paths of a move that cannot be settled,
-//! held up until the next start (`held_up`).
-//! The next write, move or removal of a file does the same, so at most
-//! one of each is ever left beside it. They are neither listed nor taken
-//! by name: one may hold the clusters of the file itself. rust-fatfs, as
-//! patched, removes a file's entry before it frees its clusters: cut off
-//! between, they are taken by no file, never a file pointing at free
-//! ones. A file's size is its entry's, and reading it fails where its
+//! held up until the next start (`held_up`). The next write, move or removal of
+//! a file does the same, so at most one of each is ever left beside it. They
+//! are neither listed nor taken by name: one may hold the clusters of the file
+//! itself. rust-fatfs, as patched, removes a file's entry before it frees its
+//! clusters: cut off between, they are taken by no file, never a file pointing
+//! at free ones. A file's size is its entry's, and reading it fails where its
 //! clusters end before (left so by an earlier version).
 //!
 //! No cluster stays taken by no file after a cut (#238, #269). A new
