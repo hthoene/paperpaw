@@ -28,6 +28,8 @@ extern crate alloc;
 mod check;
 mod compile;
 #[cfg(feature = "kernel")]
+mod short;
+#[cfg(feature = "kernel")]
 mod stored;
 
 use alloc::vec::Vec;

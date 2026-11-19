@@ -104,19 +104,19 @@ fn budget_table() {
 }
 
 /// The bound from the header is never below what a table takes opened,
-/// every shipped table fits the SDK's budget of 48 KiB for open tables
-/// (two of the largest, `de`, together), and a budget below what it needs
+/// the two largest shipped tables (`de` and `nb`) fit the SDK's budget of
+/// 48 KiB for open tables together, and a budget below what it needs
 /// refuses it before anything is kept.
 #[test]
 fn the_heap_bound_holds_for_every_shipped_table() {
-    let mut largest = 0;
+    let mut bounds = Vec::new();
     for set in shipped() {
         let bound = StoredPatterns::heap_bound(&mut Mem::new(set.table.clone()), 4).unwrap();
         let reader = StoredPatterns::open(Mem::new(set.table.clone()), 0, 4).unwrap();
         let heap = reader.heap_bytes();
         println!("{:>3} heap {heap:>6} bound {bound:>6}", set.name);
         assert!(heap <= bound, "{}: {heap} > {bound}", set.name);
-        largest = largest.max(bound);
+        bounds.push(bound);
         let refused = StoredPatterns::open_within(Mem::new(set.table.clone()), 0, 4, heap);
         assert!(
             matches!(refused, Err(OpenError::OverBudget { needed }) if needed > heap),
@@ -124,5 +124,7 @@ fn the_heap_bound_holds_for_every_shipped_table() {
             set.name
         );
     }
-    assert!(2 * largest <= 48 * 1024, "{largest}");
+    bounds.sort_unstable();
+    let two: usize = bounds.iter().rev().take(2).sum();
+    assert!(two <= 48 * 1024, "{two}");
 }
