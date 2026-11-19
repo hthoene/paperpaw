@@ -193,6 +193,22 @@ mod lut {
     ];
 }
 
+/// `table` with the frame counts of its phases (bytes 1 to 4 and 7 to 10 of
+/// its two groups) scaled to `percent`, none that was there less than one
+/// frame; what drives and what holds keep their proportions.
+fn scaled(table: &Lut, percent: u8) -> Lut {
+    let mut out = *table;
+    for group in [1..5, 7..11] {
+        for byte in &mut out[group] {
+            if *byte > 0 {
+                let frames = (u16::from(*byte) * u16::from(percent) + 50) / 100;
+                *byte = u8::try_from(frames.max(1)).unwrap_or(u8::MAX);
+            }
+        }
+    }
+    out
+}
+
 /// Waveforms for one refresh: the border and data interval (`CDI`), then
 /// the registers VCOM, white to white, black to white, white to black,
 /// black to black.
@@ -367,6 +383,9 @@ pub struct Display<SPI, DC, RST, BUSY, D> {
     powered: bool,
     rotation: Rotation,
     pending: Option<Pending>,
+    /// LAB ONLY (#40): the percentage the fast waveform's frame counts are
+    /// scaled to (`None`: the SDK's own).
+    fast_percent: Option<u8>,
     /// A band's bytes on their way.
     buffer: Vec<u8>,
 }
@@ -392,8 +411,17 @@ where
             powered: false,
             rotation: Rotation::Deg0,
             pending: None,
+            fast_percent: None,
             buffer: Vec::new(),
         }
+    }
+
+    /// LAB ONLY (#40): shows fast refreshes with the SDK's fast waveform
+    /// whose frame counts are scaled to `percent` of its own (100: as it is;
+    /// 50: half the frames, faster, more ghosting; 150: longer, cleaner),
+    /// or as it is where `None`. Kept to 25 to 200.
+    pub fn set_fast_percent(&mut self, percent: Option<u8>) {
+        self.fast_percent = percent.map(|p| p.clamp(25, 200));
     }
 
     /// How the screen PaperPaw draws is turned: [`Rotation::Deg90`] is
@@ -560,7 +588,10 @@ where
             Refresh::Half => &HALF,
             Refresh::Fast => &FAST,
         };
-        self.load(bank)?;
+        match self.fast_percent {
+            Some(percent) if refresh == Refresh::Fast => self.load_scaled(bank, percent)?,
+            _ => self.load(bank)?,
+        }
         self.power_on()?;
         self.window_in()?;
         self.command(cmd::REFRESH, &[])?;
@@ -685,6 +716,18 @@ where
         let mut lut = [0u8; LUT_LEN];
         for (register, table) in (cmd::LUT_VCOM..).zip(bank.luts) {
             lut[..table.len()].copy_from_slice(table);
+            self.command(register, &lut)?;
+        }
+        Ok(())
+    }
+
+    /// [`Display::load`] with the frame counts of every phase scaled to
+    /// `percent` (LAB ONLY, #40; see [`scaled`]).
+    fn load_scaled(&mut self, bank: &Bank, percent: u8) -> Result<(), Error> {
+        self.command(cmd::VCOM_DATA_INTERVAL, &bank.interval)?;
+        let mut lut = [0u8; LUT_LEN];
+        for (register, table) in (cmd::LUT_VCOM..).zip(bank.luts) {
+            lut[..table.len()].copy_from_slice(&scaled(table, percent));
             self.command(register, &lut)?;
         }
         Ok(())

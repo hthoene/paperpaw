@@ -831,6 +831,8 @@ fn register_screens(r: &mut Staging) -> Result<(), RegisterError> {
     // (`core.edit-widgets`), a folder for a setting the folder chooser's,
     // whichever plugin fills those slots (#293).
     r.add_host_screens(&crate::host_screen::ENTRIES)?;
+    #[cfg(feature = "turn-lab")]
+    r.add_host_screens(&crate::host_screen::TURN_LAB)?;
     // Notices are the host's (`docs/abi/ui.md`, *Messages*) where no plugin
     // shows them its own way (#257).
     r.bind_slot(

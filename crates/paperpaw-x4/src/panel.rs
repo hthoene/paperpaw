@@ -43,6 +43,12 @@ pub enum Device {
 pub enum Experiment {
     Ssd1677(display::Experiment),
     Uc8179(uc8179::Experiment),
+    /// The UC8253's fast waveform with its frame counts scaled to this
+    /// percent of the SDK's (the X3).
+    Uc8253(u8),
+    /// Which stock waveform the Picco's "SSD2677" shows fast refreshes with.
+    #[cfg(feature = "picco")]
+    Ssd2677(ssd2677::Table),
 }
 
 /// A panel, its controller's driver.
@@ -251,9 +257,21 @@ where
                 Some(Experiment::Uc8179(experiment)) => Some(experiment),
                 _ => None,
             }),
-            Panel::Uc8253(_) => false,
+            Panel::Uc8253(display) => {
+                display.set_fast_percent(match experiment {
+                    Some(Experiment::Uc8253(percent)) => Some(percent),
+                    _ => None,
+                });
+                true
+            }
             #[cfg(feature = "picco")]
-            Panel::Ssd2677(_) => false,
+            Panel::Ssd2677(display) => {
+                display.set_table(match experiment {
+                    Some(Experiment::Ssd2677(table)) => table,
+                    _ => ssd2677::Table::Auto,
+                });
+                true
+            }
         }
     }
 
