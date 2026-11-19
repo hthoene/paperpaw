@@ -150,6 +150,15 @@ struct Entry {
     /// Its drawn rows, kept while Home is shown, or the wish for them
     /// ([`kept`]).
     kept: Option<kept::Kept>,
+    /// A part of its file (`fmt.image.part`): where the part begins and the
+    /// size of the whole file; `width` and `height` are the part's then.
+    part: Option<[u16; 4]>,
+    /// What `core.picture` answered for it ([`tone`]): its curve, the
+    /// `canvas.draw_image` bit it draws with where a draw names none, and
+    /// whether the stage is still to be asked.
+    tone: Option<alloc::boxed::Box<[u8; 256]>>,
+    forced: u32,
+    unasked: bool,
 }
 
 struct Inner {
@@ -183,6 +192,12 @@ pub(crate) mod commands;
 mod kept;
 pub(crate) mod prepare;
 pub(crate) mod recipe;
+pub(crate) mod tone;
+mod turned;
+
+/// `doc_image.flags` bit 2: the picture was turned a quarter clockwise as
+/// asked (`doc_image_ask.flags` bit 0).
+pub(crate) const TURNED: u32 = 4;
 
 /// The device's images, all plugins'.
 pub(crate) struct ImageTable {
@@ -193,6 +208,8 @@ pub(crate) struct ImageTable {
     /// How pictures are drawn (contrast, gamma, dither: #82), made once
     /// when a setting changes ([`ImageTable::set_look`]).
     look: RefCell<crate::kit::ui::picture_look::PictureLook>,
+    /// A prepared picture may wait for `core.picture` ([`tone`]).
+    unasked: core::cell::Cell<bool>,
 }
 
 /// The X4's draw scratch (`document.md` 5): one transient block of 32 KiB.
@@ -258,6 +275,7 @@ impl ImageTable {
             }),
             scratch_max: core::cell::Cell::new(SCRATCH_X4),
             look: RefCell::new(crate::kit::ui::picture_look::PictureLook::standard()),
+            unasked: core::cell::Cell::new(false),
         }
     }
 
@@ -297,7 +315,7 @@ impl ImageTable {
         height: u32,
         colour: bool,
     ) -> Result<u32, i32> {
-        self.add_entry(owner, origin, path, 0, width, height, colour)
+        self.add_entry(owner, origin, path, 0, (width, height), colour, None)
     }
 
     /// A prepared image: its file is the one named by `owner` and `seq`
@@ -313,7 +331,15 @@ impl ImageTable {
         height: u32,
         colour: bool,
     ) -> Result<u32, i32> {
-        self.add_entry(owner, Origin::Prepared, "", seq, width, height, colour)
+        self.add_entry(
+            owner,
+            Origin::Prepared,
+            "",
+            seq,
+            (width, height),
+            colour,
+            None,
+        )
     }
 
     #[allow(clippy::too_many_arguments, reason = "an entry's parts")]
@@ -323,11 +349,12 @@ impl ImageTable {
         origin: Origin,
         path: &str,
         seq: u32,
-        width: u32,
-        height: u32,
+        (width, height): (u32, u32),
         colour: bool,
+        part: Option<[u32; 4]>,
     ) -> Result<u32, i32> {
         let prepared = origin == Origin::Prepared;
+        let (part, (width, height)) = part_kept(part, (width, height))?;
         let side_max = if prepared { MAX_SIDE } else { DOC_SIDE_MAX };
         if !(1..=side_max).contains(&width)
             || !(1..=side_max).contains(&height)
@@ -342,6 +369,7 @@ impl ImageTable {
                 e.owner == owner
                     && matches!(e.origin, Origin::Document { document: d, .. } if d == document)
                     && e.path == path
+                    && e.part == part
             })
         {
             return Ok(known.id);
@@ -414,7 +442,14 @@ impl ImageTable {
             used_now: false,
             drawn: 0,
             kept: None,
+            part,
+            tone: None,
+            forced: 0,
+            unasked: prepared,
         };
+        if prepared {
+            self.unasked.set(true);
+        }
         inner.next_id = id;
         match evict {
             Some(index) => inner.entries[index] = entry,
@@ -458,6 +493,7 @@ impl ImageTable {
                 image,
                 in_block,
                 screen_colour,
+                None,
             )?
             .map(|(id, _)| id))
     }
@@ -476,6 +512,7 @@ impl ImageTable {
         image: &wire::ServiceDocImage,
         in_block: bool,
         screen_colour: bool,
+        part: Option<[u32; 4]>,
     ) -> Result<Option<(u32, bool)>, i32> {
         if !cache_path_ok(path) || cache.len().saturating_add(1 + path.len()) > PATH_MAX {
             return Ok(None);
@@ -498,7 +535,8 @@ impl ImageTable {
             index: image.index,
         };
         let colour = kind == crate::kit::ui::PictureKind::Color && screen_colour;
-        match self.add(owner, origin, &full, image.width, image.height, colour) {
+        let size = (image.width, image.height);
+        match self.add_entry(owner, origin, &full, 0, size, colour, part) {
             Ok(id) => Ok(Some((id, colour))),
             Err(ERR_INVALID) => Ok(None),
             Err(ERR_BUSY) if in_block => Ok(Some((0, colour))),
@@ -537,6 +575,12 @@ impl ImageTable {
             height: image.height,
             flags: (image.flags & 1) << 1,
         };
+        // A part of the file (`fmt.image.part`): the opener gets a picture of
+        // the part's size; one that is not inside the file is no picture.
+        let part = match part_of(image.part, (image.width, image.height)) {
+            Ok(part) => part,
+            Err(()) => return Ok(None),
+        };
         let mapped = self.map_document_colour(
             storage,
             owner,
@@ -546,7 +590,16 @@ impl ImageTable {
             &doc,
             in_block,
             screen_colour,
+            part,
         )?;
+        let doc = match part {
+            Some([_, _, width, height]) => wire::ServiceDocImage {
+                width,
+                height,
+                ..doc
+            },
+            None => doc,
+        };
         Ok(match mapped {
             Some((image, colour)) => Some(wire::ServiceDocImage {
                 image,
@@ -727,6 +780,28 @@ impl ImageTable {
         height: u32,
         flags: u32,
     ) -> Result<(), i32> {
+        let target = (x, y, width, height);
+        self.draw_part(owner, id, canvas, storage, target, flags, None)
+    }
+
+    /// `canvas.draw_image_part`: [`ImageTable::draw`] of the rectangle
+    /// `source` (`x, y, width, height` in the image's pixels, as `image.info`
+    /// says its size) alone, scaled into `target`; `None` is the whole image.
+    ///
+    /// # Errors
+    /// As [`ImageTable::draw`]; `ERR_INVALID` also for a source that is empty
+    /// or not inside the image.
+    #[allow(clippy::too_many_arguments, reason = "the slot's scalars")]
+    pub(crate) fn draw_part(
+        &self,
+        owner: u64,
+        id: u32,
+        canvas: &mut Canvas<'_>,
+        storage: &dyn Storage,
+        target: (i32, i32, u32, u32),
+        flags: u32,
+        source: Option<[u32; 4]>,
+    ) -> Result<(), i32> {
         if flags & !KNOWN != 0 {
             return Err(ERR_UNSUPPORTED);
         }
@@ -734,43 +809,32 @@ impl ImageTable {
         if flags & (FILL | STRETCH) == FILL | STRETCH || flags & (DOTS | GRAYS) == DOTS | GRAYS {
             return Err(ERR_INVALID);
         }
-        let opacity = 255 - u8::try_from((flags >> TRANSPARENCY_SHIFT) & 0xff).unwrap_or(0);
-        let target = (x, y, width, height);
+        let found = self.found(owner, id)?;
+        // The picture's own rule (`core.picture`) where the draw names none.
+        let flags = if flags & (DOTS | GRAYS) == 0 {
+            flags | found.forced
+        } else {
+            flags
+        };
+        let window = found.window(source)?;
         // Its rows as they were drawn before, where they are kept: no card.
-        if self.draw_kept(owner, id, canvas, target, flags) {
+        if source.is_none() && self.draw_kept(owner, id, canvas, target, flags) {
             return self.drawn(owner, id);
         }
-        let (path, w, h) = {
-            let inner = self.inner.try_borrow().map_err(|_| ERR_BUSY)?;
-            let e = inner
-                .entries
-                .iter()
-                .find(|e| e.id == id && e.owner == owner)
-                .ok_or(ERR_NOT_FOUND)?;
-            let path = match e.origin {
-                Origin::Prepared => prepare::file_name(e.owner, e.seq)?,
-                Origin::Document { .. } => {
-                    let mut path = String::new();
-                    path.try_reserve_exact(e.path.len())
-                        .map_err(|_| ERR_NO_MEMORY)?;
-                    path.push_str(&e.path);
-                    path
-                }
-            };
-            (path, e.width, e.height)
-        };
         // The file is the card's, downloaded input: its header must say what
         // the id says, and it must be readable now.
         // A short file or a card that fails is ERR_IO, a header that is not
         // what it should be ERR_INVALID.
-        let (kind, fw, fh) = crate::kit::ui::probe_picture(storage, &path).map_err(draw_status)?;
-        if (fw, fh) != (w, h) {
+        let (kind, fw, fh) =
+            crate::kit::ui::probe_picture(storage, &found.path).map_err(draw_status)?;
+        if (fw, fh) != found.file {
             return Err(ERR_INVALID);
         }
+        let (x, y, width, height) = target;
         let placed = if flags & STRETCH != 0 {
             stretched(x, y, width, height)?
         } else {
-            place(x, y, width, height, w, h, flags & FILL != 0)?
+            place(x, y, width, height, window.2, window.3, flags & FILL != 0)?
         };
         let Some(place) = placed else {
             return Ok(());
@@ -779,19 +843,50 @@ impl ImageTable {
             // Nothing of the rectangle is on the canvas; still a draw.
             return self.drawn(owner, id);
         };
+        // The picture's curve is lent to the draw and given back: no copy.
+        let tone = self.take_tone(owner, id);
+        let picture =
+            crate::kit::ui::Picture::new(&found.path, kind, fw, fh, self.scratch_max.get())
+                .with_part((window != (0, 0, fw, fh)).then_some(window))
+                .with_tone(tone.as_deref());
+        let drawn = self.draw_rows(
+            (owner, id),
+            canvas,
+            storage,
+            picture,
+            (&place, visible, target),
+            (flags, source.is_none()),
+        );
+        self.give_tone(owner, id, tone);
+        // Nothing is marked drawn for a draw that failed.
+        drawn?;
+        self.drawn(owner, id)
+    }
+
+    /// The rows of a draw whose place is worked out: `picture` into `place`,
+    /// clipped to `visible`. `whole`: not a part named by the call, so its
+    /// rows may be kept.
+    fn draw_rows(
+        &self,
+        (owner, id): (u64, u32),
+        canvas: &mut Canvas<'_>,
+        storage: &dyn Storage,
+        picture: crate::kit::ui::Picture<'_>,
+        (place, visible, target): (&Place, Rect, (i32, i32, u32, u32)),
+        (flags, whole): (u32, bool),
+    ) -> Result<(), i32> {
+        let opacity = 255 - u8::try_from((flags >> TRANSPARENCY_SHIFT) & 0xff).unwrap_or(0);
         let tones = match flags & (DOTS | GRAYS) {
             DOTS => crate::kit::ui::Tones::Dots,
             GRAYS => crate::kit::ui::Tones::Grays,
             _ => crate::kit::ui::Tones::Panel,
         };
         let look = self.look.try_borrow().map_err(|_| ERR_BUSY)?;
-        let picture = crate::kit::ui::Picture::new(&path, kind, w, h, self.scratch_max.get())
-            .with_tones(tones)
-            .with_look(&look);
+        let picture = picture.with_tones(tones).with_look(&look);
         // The rows this draw shows are kept where there is room for them, and
         // wished for where not yet.
-        let keeping = (kind != crate::kit::ui::PictureKind::Alpha)
-            .then(|| self.keeping(owner, id, canvas, &place, target, (flags, look.steps())))
+        let keeping = (whole && picture.kind != crate::kit::ui::PictureKind::Alpha)
+            .then(|| self.keeping(owner, id, canvas, place, target, (flags, look.steps())))
             .flatten();
         let keep = |row: usize, column: usize, grays: &[u8]| {
             if let (Some(shape), Ok(mut inner)) = (keeping, self.inner.try_borrow_mut())
@@ -822,9 +917,43 @@ impl ImageTable {
         } else {
             drawn = draw(&mut child);
         }
-        // Nothing is marked drawn for a draw that failed.
-        drawn.map_err(draw_status)?;
-        self.drawn(owner, id)
+        drawn.map_err(draw_status)
+    }
+
+    /// What a draw needs of the image `id` of `owner`, copied out.
+    fn found(&self, owner: u64, id: u32) -> Result<Found, i32> {
+        let inner = self.inner.try_borrow().map_err(|_| ERR_BUSY)?;
+        let e = inner
+            .entries
+            .iter()
+            .find(|e| e.id == id && e.owner == owner)
+            .ok_or(ERR_NOT_FOUND)?;
+        let path = match e.origin {
+            Origin::Prepared => prepare::file_name(e.owner, e.seq)?,
+            Origin::Document { .. } => {
+                let mut path = String::new();
+                path.try_reserve_exact(e.path.len())
+                    .map_err(|_| ERR_NO_MEMORY)?;
+                path.push_str(&e.path);
+                path
+            }
+        };
+        let (at, file) = match e.part {
+            Some([x, y, w, h]) => ((x.into(), y.into()), (w.into(), h.into())),
+            None => ((0, 0), (e.width, e.height)),
+        };
+        Ok(Found {
+            path,
+            file,
+            at,
+            size: (e.width, e.height),
+            colour: e.colour,
+            index: match e.origin {
+                Origin::Document { index, .. } => index,
+                Origin::Prepared => 0,
+            },
+            forced: e.forced,
+        })
     }
 
     /// Whether a draw with `flags` on `canvas` is one whose rows are kept:
@@ -1007,6 +1136,86 @@ impl ImageTable {
     }
 }
 
+/// An image as a draw (or a turn) finds it.
+struct Found {
+    /// Its file on the card and the size the file's header must say.
+    path: String,
+    file: (u32, u32),
+    /// Where the image begins in the file (a part's corner) and its size.
+    at: (u32, u32),
+    size: (u32, u32),
+    colour: bool,
+    /// The format's number of a document picture.
+    index: u32,
+    /// The `canvas.draw_image` bit the picture stage chose for it.
+    forced: u32,
+}
+
+impl Found {
+    /// The rectangle of the file a draw reads: the image, or `source` in it.
+    fn window(&self, source: Option<[u32; 4]>) -> Result<(u32, u32, u32, u32), i32> {
+        let (width, height) = self.size;
+        let Some([x, y, w, h]) = source else {
+            return Ok((self.at.0, self.at.1, width, height));
+        };
+        let inside = |at: u32, len: u32, all: u32| {
+            len != 0 && at.checked_add(len).is_some_and(|end| end <= all)
+        };
+        if !inside(x, w, width) || !inside(y, h, height) {
+            return Err(ERR_INVALID);
+        }
+        Ok((self.at.0 + x, self.at.1 + y, w, h))
+    }
+}
+
+/// `fmt.image.part` (empty, or `x, y, width, height` as four `u32`, little
+/// endian) as a rectangle inside a file of `size`: `Err` for any other length
+/// and for a part that is empty or not inside.
+fn part_of(part: &[u8], (width, height): (u32, u32)) -> Result<Option<[u32; 4]>, ()> {
+    if part.is_empty() {
+        return Ok(None);
+    }
+    let (words, rest) = part.as_chunks::<4>();
+    let &[x, y, w, h] = words else {
+        return Err(());
+    };
+    let [x, y, w, h] = [x, y, w, h].map(u32::from_le_bytes);
+    let inside =
+        |at: u32, len: u32, all: u32| len != 0 && at.checked_add(len).is_some_and(|end| end <= all);
+    if !rest.is_empty() || !inside(x, w, width) || !inside(y, h, height) {
+        return Err(());
+    }
+    Ok(Some([x, y, w, h]))
+}
+
+/// A part as an entry keeps it (its corner and the size of the whole file),
+/// and the entry's own size: the part's, or `file`'s without one. The part
+/// lies in its file (the caller's check).
+#[allow(
+    clippy::type_complexity,
+    reason = "the two things an entry keeps of a part"
+)]
+fn part_kept(
+    part: Option<[u32; 4]>,
+    file: (u32, u32),
+) -> Result<(Option<[u16; 4]>, (u32, u32)), i32> {
+    let Some([x, y, width, height]) = part else {
+        return Ok((None, file));
+    };
+    let fits = |n: u32| u16::try_from(n).map_err(|_| ERR_INVALID);
+    let kept = [fits(x)?, fits(y)?, fits(file.0)?, fits(file.1)?];
+    Ok((Some(kept), (width, height)))
+}
+
+/// The four `u32` (little endian) of a `canvas.draw_image_part` source.
+pub(crate) fn source_of(bytes: &[u8]) -> Result<[u32; 4], i32> {
+    let (words, rest) = bytes.as_chunks::<4>();
+    match (words, rest) {
+        (&[x, y, w, h], []) => Ok([x, y, w, h].map(u32::from_le_bytes)),
+        _ => Err(ERR_INVALID),
+    }
+}
+
 /// Where a picture of `(sw, sh)` goes in `(x, y, width, height)`.
 #[derive(Debug, PartialEq, Eq)]
 struct Place {
@@ -1137,6 +1346,48 @@ pub(super) fn draw_slot(
                     settings.text(crate::kit::ui::picture_look::DITHER),
                 ));
                 table.draw(owner, image, canvas, storage, x, y, width, height, flags)
+            })
+            .and_then(core::convert::identity)
+    });
+    match result {
+        Ok(Ok(())) => OK,
+        Ok(Err(status)) | Err(status) => status,
+    }
+}
+
+/// Slot 44: `canvas.draw_image_part`, as [`draw_slot`] for the rectangle
+/// `source` of the image (16 bytes: `x, y, width, height` as `u32`).
+///
+/// # Safety
+/// `source` is live and readable for its length.
+#[allow(clippy::too_many_arguments, reason = "the slot's scalars")]
+pub(super) unsafe fn draw_part_slot(
+    canvas: &super::canvas::CanvasScope,
+    environment: &super::environment::EnvironmentScope,
+    resources: &super::resources::OwnerResources,
+    image: u32,
+    source: paperpaw_native::host_glue::PpBytes,
+    target: (i32, i32, u32, u32),
+    flags: u32,
+) -> i32 {
+    // SAFETY: as documented.
+    let source = match unsafe { buffers::bytes_in(source, 16) }.and_then(source_of) {
+        Ok(source) => source,
+        Err(status) => return status,
+    };
+    let owner = resources.owner_id();
+    let table = resources.hosts().images();
+    let result = canvas.with_canvas(|canvas| {
+        environment
+            .with_frame(|frame| {
+                let storage = frame.storage().ok_or(ERR_STATE)?;
+                let settings = frame.settings();
+                table.set_look(crate::kit::ui::picture_look::Steps::of(
+                    settings.text(crate::kit::ui::picture_look::CONTRAST),
+                    settings.text(crate::kit::ui::picture_look::GAMMA),
+                    settings.text(crate::kit::ui::picture_look::DITHER),
+                ));
+                table.draw_part(owner, image, canvas, storage, target, flags, Some(source))
             })
             .and_then(core::convert::identity)
     });

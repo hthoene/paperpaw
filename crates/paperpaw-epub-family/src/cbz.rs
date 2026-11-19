@@ -20,7 +20,7 @@ use paperpaw_sdk::document::{
     Align, Block, BlockKind, Document, DocumentError, ImageRef, Locator, Metadata, OffsetMap,
     PageProgression,
 };
-use paperpaw_sdk::image::{Fit, GrayFile, ImageFile};
+use paperpaw_sdk::image::{Fit, GrayFile};
 use paperpaw_sdk::xml::{Token, Tokenizer, local_name};
 use paperpaw_sdk::zip::ZipArchive;
 
@@ -298,49 +298,29 @@ impl CbzDocument {
         Ok(found)
     }
 
-    /// The picture file of panel `k` of page `index`.
-    fn crop_path(&self, index: usize, k: usize) -> Result<String, DocumentError> {
-        fallible::try_format!("{}/q{index}.{k}{}.gray", self.cache, self.way())
-    }
-
-    /// Draws the panel `image` names (a file made by [`Self::crop_path`]): the
-    /// pictures of the page shown before go, so a book keeps the panels of
-    /// one page.
-    fn make_crop(&self, storage: &dyn Storage, image: &ImageRef) -> Option<ImageRef> {
-        let name = image
-            .path
-            .strip_prefix(self.cache.as_str())?
-            .strip_prefix("/q")?;
-        let name = name.strip_suffix(".gray")?;
-        let (index, rest) = name.split_once('.')?;
-        let (k, way) = rest.split_at(rest.len().checked_sub(1)?);
-        let (index, k): (usize, usize) = (index.parse().ok()?, k.parse().ok()?);
-        if way != self.way().encode_utf8(&mut [0; 4]) || index >= self.pages as usize {
+    /// The part of its page's picture the block at `params` (section and
+    /// offset, `u32` little-endian) shows: the panel as `x, y, width, height`
+    /// in the picture's pixels, four `u32`. `None` for a page shown whole.
+    fn panel_part(&self, storage: &dyn Storage, params: &[u8]) -> Option<Vec<u8>> {
+        let (&[section, offset], []) = params.as_chunks::<4>() else {
+            return None;
+        };
+        let (index, k) = (
+            u32::from_le_bytes(section) as usize,
+            u32::from_le_bytes(offset) as usize,
+        );
+        if !self.panels || index >= self.pages as usize {
             return None;
         }
         let base = fallible::try_format!("{}/p{index}", self.cache).ok()?;
         let page = crate::pictures::open(storage, &base, false)?;
         let panel = *self.panels_of(storage, index, &page).ok()?.get(k)?;
-        let file = GrayFile::open(storage, &page.path)?;
-        let marker = fallible::try_format!("{}/q.page", self.cache).ok()?;
-        let shown = paperpaw_sdk::read_file(storage, &marker, 16).ok();
-        let number = fallible::try_format!("{index}").ok()?;
-        if shown.as_deref() != Some(number.as_bytes()) {
-            if let Some(old) = shown
-                .as_deref()
-                .and_then(|b| core::str::from_utf8(b).ok())
-                .and_then(|t| t.parse::<usize>().ok())
-            {
-                for k in 0..MAX_PANELS {
-                    if let Ok(path) = self.crop_path(old, k) {
-                        let _ = storage.remove(&path);
-                    }
-                }
-            }
-            storage.write(&marker, number.as_bytes()).ok()?;
+        let mut part = Vec::new();
+        fallible::reserve_exact(&mut part, 16).ok()?;
+        for value in [panel.x, panel.y, panel.w, panel.h] {
+            part.extend_from_slice(&u32::from(value).to_le_bytes());
         }
-        cbz_panels::crop(storage, &file, panel, &image.path).ok()?;
-        crate::pictures::open_path(storage, &image.path)
+        Some(part)
     }
 }
 
@@ -573,10 +553,6 @@ impl Document for CbzDocument {
         if self.panels { MAX_PANELS as u32 } else { 1 }
     }
 
-    fn pictures_deferred(&self) -> bool {
-        self.panels
-    }
-
     fn block_at(&self, storage: &dyn Storage, at: Locator) -> Result<Option<Block>, DocumentError> {
         let index = at.section as usize;
         if index >= self.pages as usize || (!self.panels && at.offset >= 1) {
@@ -592,16 +568,9 @@ impl Document for CbzDocument {
         if k >= panels.len().max(1) {
             return Ok(None);
         }
-        // A panel is a picture of its own, of the page's size, made when a
-        // page shows it (`prepare_image`).
-        let image = match (panels.get(k), &page) {
-            (Some(_), Some(page)) => Some(ImageRef {
-                path: self.crop_path(index, k)?,
-                width: page.width,
-                height: page.height,
-            }),
-            _ => page,
-        };
+        // A panel is a part of the page's picture ([`IMAGE_PART`]): the
+        // block names the page's file, and nothing more is written.
+        let image = page;
         // A picture that cannot be shown is named instead.
         let (kind, text) = match &image {
             Some(_) => (BlockKind::Image, String::new()),
@@ -620,11 +589,10 @@ impl Document for CbzDocument {
         ))
     }
 
-    fn prepare_image(&self, storage: &dyn Storage, image: &ImageRef) -> Option<ImageRef> {
-        if !self.panels || ImageFile::open(storage, &image.path).is_some() {
-            return None;
-        }
-        self.make_crop(storage, image)
+    fn extended(&self, storage: &dyn Storage, key: &str, params: &[u8]) -> Option<Vec<u8>> {
+        (key == crate::document::IMAGE_PART)
+            .then(|| self.panel_part(storage, params))
+            .flatten()
     }
 
     fn cover(&self, storage: &dyn Storage) -> Result<Option<ImageRef>, DocumentError> {

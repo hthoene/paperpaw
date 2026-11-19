@@ -322,7 +322,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-cbz"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-epub-family",
  "paperpaw-sdk",

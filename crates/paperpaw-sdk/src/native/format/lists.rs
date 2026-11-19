@@ -153,7 +153,7 @@ impl FormatCall<'_> {
         if index != wanted || path.is_empty() || path.len() > schema::FMT_IMAGE_PATH_MAX_BYTES {
             return Err(Error::Invalid);
         }
-        schema::FmtImage::new(path, index, width, height, u32::from(!decoded))
+        schema::FmtImage::new(path, index, width, height, u32::from(!decoded), &[])
             .encode(out)
             .map_err(Error::from_status)
     }

@@ -68,7 +68,7 @@ fn all() -> Vec<Vec<u8>> {
 fn the_decoded_batches_are_the_pinned_ones() {
     let native = declared::native("reader", &all());
     declared::assert_pinned("declarations", &native);
-    assert_eq!(native.specs.len(), 19);
+    assert_eq!(native.specs.len(), 20);
     assert_eq!(native.extras.len(), 2 + 10);
     assert_eq!(native.screens.len(), 6);
     // The instance policy, decoded: one for each set of parameters (flags 0),

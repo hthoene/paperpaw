@@ -1654,6 +1654,50 @@
       "reentry": "deny",
       "result": "status",
       "since": 1
+    },
+    {
+      "args": [
+        {
+          "name": "ctx",
+          "type": "context"
+        },
+        {
+          "name": "image",
+          "type": "u32"
+        },
+        {
+          "name": "source",
+          "type": "bytes"
+        },
+        {
+          "name": "x",
+          "type": "i32"
+        },
+        {
+          "name": "y",
+          "type": "i32"
+        },
+        {
+          "name": "width",
+          "type": "u32"
+        },
+        {
+          "name": "height",
+          "type": "u32"
+        },
+        {
+          "name": "flags",
+          "type": "u32"
+        }
+      ],
+      "effect": "mutate",
+      "id": 44,
+      "max_bytes": 16,
+      "name": "canvas.draw_image_part",
+      "ownership": "call",
+      "reentry": "deny",
+      "result": "status",
+      "since": 1
     }
   ],
   "i18n_limits": {
@@ -9604,6 +9648,15 @@
           "name": "side",
           "optional": false,
           "ordinal": null,
+          "since": 1,
+          "type": "u32"
+        },
+        {
+          "default": 0,
+          "max_bytes": 0,
+          "name": "flags",
+          "optional": true,
+          "ordinal": 0,
           "since": 1,
           "type": "u32"
         }

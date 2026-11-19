@@ -13,7 +13,9 @@ use super::{
     wire::commands_wire::{COMMAND_IMAGE_PREPARE_PATH_MAX_BYTES, Command},
 };
 use core::num::NonZeroU32;
-use paperpaw_native::host_glue::PpBuffer;
+use paperpaw_native::host_glue::{PpBuffer, PpBytes};
+
+pub mod picture;
 
 /// Longest side `image_prepare` decodes to; the host clamps a larger one.
 pub const SIDE_MAX: u32 = 1_600;
@@ -29,6 +31,8 @@ const NOT_DECODED: u32 = 1 << 1;
 const TURN: u32 = 1 << 1;
 /// Bit 2 of `image_prepare.flags`: keep a PNG's or GIF's transparency.
 const SEE_THROUGH: u32 = 1 << 2;
+/// Bit 3 of `image_prepare.flags`: keep the picture turned a quarter clockwise.
+const TURNED: u32 = 1 << 3;
 /// Bits of `canvas.draw_image` flags.
 const FILL: u32 = 1;
 const SMALL: u32 = 1 << 1;
@@ -243,6 +247,85 @@ impl Canvas<'_> {
     }
 }
 
+/// A rectangle of a decoded picture, in its own pixels (the size
+/// [`ImageInfo`] says): what [`Canvas::draw_image_part`] draws of it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ImagePart {
+    /// The left edge, from the picture's left.
+    pub x: u32,
+    /// The top edge, from the picture's top.
+    pub y: u32,
+    /// The width; never 0.
+    pub width: u32,
+    /// The height; never 0.
+    pub height: u32,
+}
+
+impl ImagePart {
+    /// The rectangle `width` by `height` at `(x, y)` of the picture.
+    #[must_use]
+    pub const fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+}
+
+impl Canvas<'_> {
+    /// Draw the rectangle `part` of a decoded picture scaled into `rect`
+    /// (`canvas.draw_image_part`, slot 44): as [`draw_image`](Self::draw_image)
+    /// with the part in the picture's place, so `style` fits, fills or
+    /// stretches the part. The host reads only the part's rows and columns
+    /// from the card, so a panel of a comic page or a zoomed corner of a
+    /// large picture costs what it shows; the 65,535-pixel limit is the
+    /// scaled part's. Only inside a draw callback.
+    ///
+    /// # Errors
+    /// As [`draw_image`](Self::draw_image); `Invalid` also for a part that is
+    /// empty or not inside the picture; `Unsupported` on a host older than
+    /// the entry.
+    pub fn draw_image_part(
+        &self,
+        image: ImageId,
+        part: ImagePart,
+        rect: FrameRect,
+        style: ImageStyle,
+    ) -> Result<(), Error> {
+        let host = self.host();
+        let mut source = [0_u8; 16];
+        for (bytes, value) in
+            source
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip([part.x, part.y, part.width, part.height])
+        {
+            *bytes = value.to_le_bytes();
+        }
+        // SAFETY: the callback host outlives this canvas; `source` is live for
+        // the call and the other inputs are scalars.
+        status(unsafe {
+            (host.table.canvas_draw_image_part)(
+                host.ctx,
+                image.get(),
+                PpBytes {
+                    ptr: source.as_ptr(),
+                    len: source.len(),
+                },
+                rect.x,
+                rect.y,
+                rect.width,
+                rect.height,
+                style.flags(),
+            )
+        })
+    }
+}
+
 /// Where a file to prepare is: the plugin's own data folder (root 0), the
 /// library (root 1, needs `uses.storage`) or the plugin's own install folder
 /// (root 2).
@@ -273,6 +356,7 @@ pub struct PrepareImage<'a> {
     turn: bool,
     see_through: bool,
     tone: Option<&'a [u8; TONE_BYTES]>,
+    turned: bool,
 }
 
 impl<'a> PrepareImage<'a> {
@@ -289,6 +373,7 @@ impl<'a> PrepareImage<'a> {
             turn: false,
             see_through: false,
             tone: None,
+            turned: false,
         }
     }
 
@@ -326,6 +411,19 @@ impl<'a> PrepareImage<'a> {
         self
     }
 
+    /// Keep the picture turned a quarter clockwise (any format, after
+    /// [`turn`](Self::turn)): a wide picture for a tall screen. The turn is
+    /// made once, when the picture is prepared, so drawing it costs what any
+    /// picture costs; the size in [`ImageReady`] is the turned one. On the X4
+    /// a picture much larger than the screen is too large to turn
+    /// ([`ImageStatus::TooLarge`]): ask for the screen's side. A host older
+    /// than the flag refuses the command (`Unsupported`).
+    #[must_use]
+    pub const fn turned(mut self) -> Self {
+        self.turned = true;
+        self
+    }
+
     /// Map every gray (every colour channel) through `table` while the picture
     /// is decoded: `table[value]` is the new value. The plugin keeps its own
     /// curve; the host defines no brightness or contrast.
@@ -350,7 +448,8 @@ impl<'a> PrepareImage<'a> {
             cookie: self.cookie,
             flags: if self.colour { COLOUR } else { 0 }
                 | if self.turn { TURN } else { 0 }
-                | if self.see_through { SEE_THROUGH } else { 0 },
+                | if self.see_through { SEE_THROUGH } else { 0 }
+                | if self.turned { TURNED } else { 0 },
             tone: self.tone.map_or(&[], |table| &table[..]),
         })
     }

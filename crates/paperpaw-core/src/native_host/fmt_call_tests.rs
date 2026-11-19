@@ -213,7 +213,7 @@ fn lists_keep_their_order_and_the_end_row_gets_its_tag() {
 #[test]
 fn a_picture_becomes_the_openers_doc_image_or_is_left_out() {
     let block = reply(&[
-        L::FmtImage(local::FmtImage::new("c/a.gray", 6, 8, 4, 1)),
+        L::FmtImage(local::FmtImage::new("c/a.gray", 6, 8, 4, 1, &[])),
         L::FmtEnd(local::FmtEnd::new(0, 0, 0, 0, None)),
     ]);
     let mapper = images(Ok(Some(77)));
@@ -253,6 +253,7 @@ fn a_picture_becomes_the_openers_doc_image_or_is_left_out() {
         8,
         4,
         0,
+        &[],
     ))]);
     let mapper = images(Ok(Some(3)));
     let (r, _, _) = go(Behavior::Raw(cover), &mapper, "", &call(fmt::COVER));
@@ -268,7 +269,7 @@ fn a_record_the_op_does_not_answer_with_is_invalid() {
         assert_eq!(r, Err(ERR_INVALID), "op {op}");
     }
     // A picture where none is answered.
-    let image = reply(&[L::FmtImage(local::FmtImage::new("a", 0, 1, 1, 0))]);
+    let image = reply(&[L::FmtImage(local::FmtImage::new("a", 0, 1, 1, 0, &[]))]);
     let (r, _, _) = go(
         Behavior::Raw(image),
         &images(Ok(Some(1))),

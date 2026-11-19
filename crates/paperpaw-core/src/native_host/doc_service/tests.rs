@@ -287,6 +287,16 @@ impl DocHost for Fake {
     fn picture_left_out(&self, document: u32) {
         self.left_out.borrow_mut().push(document);
     }
+    fn turned(&self, image: u32) -> Result<Image, i32> {
+        // The fake's turned picture: another id, the sides swapped.
+        Ok(Image {
+            image: image + 100,
+            index: 0,
+            width: 4,
+            height: 8,
+            flags: 4,
+        })
+    }
     fn map_image(&self, _: &Document, _: &Image, in_block: bool) -> Result<Option<u32>, i32> {
         match self.image.get() {
             Some(Some(0)) if !in_block => Err(ERR_BUSY),

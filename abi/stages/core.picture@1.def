@@ -1,0 +1,105 @@
+{
+  "key": "core.picture",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 2,
+  "max_input": 640,
+  "max_reply": 320,
+  "input": [
+    "picture.ask"
+  ],
+  "reply": [
+    "picture.tone"
+  ],
+  "reply_rows": 1,
+  "records": [
+    {
+      "id": 1,
+      "name": "picture.ask",
+      "since": 0,
+      "fields": [
+        {
+          "name": "place",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "width",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "height",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "histogram",
+          "type": "bytes",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 16
+        },
+        {
+          "name": "path",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 512
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "picture.tone",
+      "since": 0,
+      "fields": [
+        {
+          "name": "tone",
+          "type": "bytes",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 256
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    }
+  ]
+}

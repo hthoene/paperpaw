@@ -40,7 +40,7 @@ fn admission_checks_shape_roots_flags_and_room_without_side_effects() {
     );
     assert_eq!(a.room, 8, "root 2 took one room");
     assert_eq!(
-        a.admit(&prepare_cmd(0, "a.png", 8)),
+        a.admit(&prepare_cmd(0, "a.png", 16)),
         Some(Err(ERR_UNSUPPORTED))
     );
     for bad in ["", "/a", "../a", "a/../b", "a//b", "a\\b", "a\0b"] {
@@ -473,9 +473,11 @@ fn the_turn_flag_and_a_tone_table_are_admitted_and_kept_for_the_decode() {
         flags,
         tone,
     };
-    // Bit 1 turn (with colour or alone), bit 2 see-through, a whole table or
-    // none.
+    // Bit 1 turn (with colour or alone), bit 2 see-through, bit 3 turned, a
+    // whole table or none.
     let admitted = [
+        (8, &[][..]),
+        (15, &TABLE[..]),
         (2, &[][..]),
         (3, &[][..]),
         (4, &[][..]),
@@ -488,7 +490,7 @@ fn the_turn_flag_and_a_tone_table_are_admitted_and_kept_for_the_decode() {
     }
     // Other bits are unsupported as before; a table of another length is
     // invalid.
-    for flags in [8, 0x100, 0x1_0002] {
+    for flags in [16, 0x100, 0x1_0002] {
         assert_eq!(
             admit.admit(&with(flags, &[])),
             Some(Err(ERR_UNSUPPORTED)),
@@ -525,13 +527,18 @@ fn the_turn_flag_and_a_tone_table_are_admitted_and_kept_for_the_decode() {
         crate::native_host::image_service::recipe::Recipe {
             turn: true,
             see_through: false,
+            turned: false,
             tone: Some(TABLE.to_vec()),
         }
     );
     let ImageCommand::Prepare { recipe, .. } = owned_of(4, &[]) else {
         panic!("not a prepare");
     };
-    assert!(recipe.see_through && !recipe.turn);
+    assert!(recipe.see_through && !recipe.turn && !recipe.turned);
+    let ImageCommand::Prepare { recipe, .. } = owned_of(8, &[]) else {
+        panic!("not a prepare");
+    };
+    assert!(recipe.turned && !recipe.turn && !recipe.see_through);
 }
 
 #[test]

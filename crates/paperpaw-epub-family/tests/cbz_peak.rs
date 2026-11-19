@@ -175,10 +175,20 @@ fn comic_extras_stay_within_a_few_kib_on_a_page_of_the_x4() {
     let opened = with_info.saturating_sub(baseline);
     let (block, found) = peak(|| doc.block_at(&storage, Locator::new(0, 1)).unwrap().unwrap());
     let image = block.image.unwrap();
+    // A panel is a part of the page's picture: showing it makes nothing.
     let (made, drawn) = peak(|| doc.prepare_image(&storage, &image));
-    assert!(made.is_some());
+    assert!(made.is_none());
+    let (part, asked) = peak(|| {
+        doc.extended(
+            &storage,
+            paperpaw_epub_family::IMAGE_PART,
+            &[0, 0, 0, 0, 1, 0, 0, 0],
+        )
+    });
+    assert_eq!(part.map(|part| part.len()), Some(16));
+    let drawn = drawn.max(asked);
     println!(
-        "open: {baseline} B with a small ComicInfo.xml (a stored one: a deflated one adds the archive reader's 32 KiB window, as before), {opened} B more with a 160 KiB one, find panels: {found} B, draw a panel: {drawn} B"
+        "open: {baseline} B with a small ComicInfo.xml (a stored one: a deflated one adds the archive reader's 32 KiB window, as before), {opened} B more with a 160 KiB one, find panels: {found} B, a panel's part: {drawn} B"
     );
     assert!(opened < 12 * 1024, "{opened}");
     assert!(found < 12 * 1024, "{found}");

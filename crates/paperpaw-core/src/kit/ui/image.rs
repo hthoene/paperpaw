@@ -70,6 +70,8 @@ pub(crate) fn draw_image_over(
             scratch_max: usize::MAX,
             tones: Tones::Panel,
             look: None,
+            part: None,
+            tone: None,
         },
         area,
         opacity,
@@ -124,6 +126,12 @@ pub struct Picture<'a> {
     pub tones: Tones,
     /// Its contrast, gamma and dither (`None`: today's look).
     pub look: Option<&'a super::picture_look::PictureLook>,
+    /// The part of it that is drawn, `(x, y, width, height)` in its pixels
+    /// and inside it (`None`: all of it).
+    pub part: Option<(u32, u32, u32, u32)>,
+    /// The picture's own tone curve, through which its grays go before the
+    /// look's (`None`: as they are).
+    pub tone: Option<&'a [u8; 256]>,
 }
 
 impl<'a> Picture<'a> {
@@ -146,7 +154,24 @@ impl<'a> Picture<'a> {
             scratch_max,
             tones: Tones::Panel,
             look: None,
+            part: None,
+            tone: None,
         }
+    }
+
+    /// Only the part `(x, y, width, height)` of the picture is drawn, scaled
+    /// into the area; the caller has checked that it lies inside the picture.
+    #[must_use]
+    pub const fn with_part(mut self, part: Option<(u32, u32, u32, u32)>) -> Self {
+        self.part = part;
+        self
+    }
+
+    /// The picture's grays go through `tone` first (not what shows through).
+    #[must_use]
+    pub const fn with_tone(mut self, tone: Option<&'a [u8; 256]>) -> Self {
+        self.tone = tone;
+        self
     }
 
     /// The picture drawn with `look` (a table through which its grays go
@@ -313,11 +338,18 @@ fn draw_picture(
         canvas.note_picture(area);
         return Ok(());
     }
+    let (left, top, width, height) = picture
+        .part
+        .unwrap_or((0, 0, picture.width, picture.height));
     let source = ImageSource {
         kind: picture.kind,
         path: picture.path,
-        width: picture.width,
-        height: picture.height,
+        width,
+        height,
+        left,
+        top,
+        pitch: picture.width,
+        tone: picture.tone,
     };
     // On gray frames an opaque colour picture is drawn as colour rows the
     // frame turns to gray.
@@ -344,8 +376,15 @@ fn draw_picture(
 struct ImageSource<'a> {
     kind: PictureKind,
     path: &'a str,
+    /// The size of what is drawn: the picture, or a part of it.
     width: u32,
     height: u32,
+    /// Where that part begins in the file, and how wide the file's rows are.
+    left: u32,
+    top: u32,
+    pitch: u32,
+    /// The picture's own tone curve.
+    tone: Option<&'a [u8; 256]>,
 }
 
 /// Bytes of the header of a decoded picture file.
@@ -368,18 +407,31 @@ impl ImageSource<'_> {
     /// Reads rows from `y` on into `out`, as many whole ones as fit and the
     /// picture has, in one read; the rows read, 0 if none could be.
     fn read_rows(&self, storage: &dyn Storage, y: u32, out: &mut [u8]) -> u32 {
-        let row = self.width as usize * self.bytes();
-        let rows = (out.len() / row.max(1)).min(self.height.saturating_sub(y) as usize);
-        if rows == 0 {
+        let bytes = self.bytes();
+        let row = self.width as usize * bytes;
+        let pitch = self.pitch as usize * bytes;
+        let left = self.height.saturating_sub(y) as usize;
+        if row == 0 || pitch < row || out.len() < row || left == 0 {
             return 0;
         }
-        let want = &mut out[..rows * row];
+        // The file's rows from the part's first column on, the last one only
+        // as far as the part goes: one read, also where the part is narrower.
+        let rows = ((out.len() - row) / pitch + 1).min(left);
+        let want = &mut out[..(rows - 1) * pitch + row];
+        let start = HEADER
+            + (u64::from(self.top) + u64::from(y)) * pitch as u64
+            + u64::from(self.left) * bytes as u64;
         let mut done = 0;
         while done < want.len() {
-            let at = HEADER + u64::from(y) * row as u64 + done as u64;
-            match storage.read_at(self.path, at, &mut want[done..]) {
+            match storage.read_at(self.path, start + done as u64, &mut want[done..]) {
                 Ok(0) | Err(_) => return 0,
                 Ok(n) => done += n,
+            }
+        }
+        // The part's rows moved together where the file's are wider.
+        if pitch != row {
+            for i in 1..rows {
+                out.copy_within(i * pitch..i * pitch + row, i * row);
             }
         }
         rows as u32
@@ -579,7 +631,7 @@ fn draw_source(
             }
             let line: &[u8] = if between_rows { &mixed } else { &upper };
             made_row(line, &columns, blended, &mut row);
-            through(curve, &mut row);
+            toned(source.tone.filter(|_| !blended), curve, &mut row);
             made = Some((above, below, ty));
         }
         match &mut diffusion {
@@ -651,7 +703,9 @@ fn picture_key(
     levels: u8,
 ) -> u64 {
     let path = source.path;
-    let mut bytes = [0u8; 25];
+    let mut bytes = [0u8; 33];
+    bytes[25..29].copy_from_slice(&source.left.to_le_bytes());
+    bytes[29..33].copy_from_slice(&source.top.to_le_bytes());
     bytes[..2].copy_from_slice(&area.x.to_le_bytes());
     bytes[2..4].copy_from_slice(&area.y.to_le_bytes());
     bytes[4..6].copy_from_slice(&area.width.to_le_bytes());
@@ -781,6 +835,12 @@ fn made_row(line: &[u8], columns: &Columns, blended: bool, out: &mut [u8]) {
     }
 }
 
+/// The grays of `row` through the picture's own curve, then the look's.
+fn toned(tone: Option<&[u8; 256]>, curve: Option<&[u8; 256]>, row: &mut [u8]) {
+    through(tone, row);
+    through(curve, row);
+}
+
 /// The grays of `row` through the look's table, if it has one.
 fn through(curve: Option<&[u8; 256]>, row: &mut [u8]) {
     if let Some(curve) = curve {
@@ -891,6 +951,7 @@ fn draw_color_image(
                     row[x * 3 + c] = (sum / (to - from) as u32) as u8;
                 }
             }
+            through(file.tone, &mut row);
         }
         canvas.draw_rgb_row(vx0, y, &row);
     }

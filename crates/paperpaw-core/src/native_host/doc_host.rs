@@ -1197,6 +1197,9 @@ impl super::doc_service::DocHost for Bound<'_> {
         self
     }
     frameless!();
+    fn turned(&self, image: u32) -> Result<wire::ServiceDocImage, i32> {
+        self.turned_image(image)
+    }
     fn picture_left_out(&self, document: u32) {
         if self.state.pictures_logged.replace(document) != document {
             self.frame.log(format_args!(
@@ -1478,6 +1481,8 @@ mod details_job;
 pub(crate) use cover_make::CoverAt;
 #[path = "doc_prepare.rs"]
 mod prepare;
+#[path = "doc_host_turned.rs"]
+mod turned;
 
 #[cfg(test)]
 #[path = "doc_host_tests.rs"]

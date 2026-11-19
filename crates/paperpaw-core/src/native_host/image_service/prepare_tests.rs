@@ -947,6 +947,7 @@ fn cache_of(
 fn see_through() -> Recipe {
     Recipe {
         see_through: true,
+        turned: false,
         ..Recipe::default()
     }
 }
@@ -1006,6 +1007,7 @@ fn a_tone_table_maps_a_see_through_pictures_gray_and_keeps_its_opacity() {
     let inverted: std::vec::Vec<u8> = (0..=255_u8).rev().collect();
     let recipe = Recipe {
         see_through: true,
+        turned: false,
         tone: Some(inverted),
         ..Recipe::default()
     };

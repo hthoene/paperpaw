@@ -17,6 +17,8 @@ const COLOUR: u32 = 1;
 const TURN: u32 = 1 << 1;
 /// Bit 2: keep a PNG's or GIF's transparency (see-through, gray).
 const SEE_THROUGH: u32 = 1 << 2;
+/// Bit 3: keep the picture turned a quarter clockwise.
+const TURNED: u32 = 1 << 3;
 
 /// What the stage checks a batch against.
 #[derive(Clone, Copy, Debug)]
@@ -106,7 +108,7 @@ impl ImageAdmit {
             2 => {}
             _ => return Err(ERR_UNSUPPORTED),
         }
-        if flags & !(COLOUR | TURN | SEE_THROUGH) != 0 {
+        if flags & !(COLOUR | TURN | SEE_THROUGH | TURNED) != 0 {
             return Err(ERR_UNSUPPORTED);
         }
         // A tone table is all 256 values, or none.
@@ -180,6 +182,7 @@ pub(crate) fn owned(command: &WireCommand<'_>) -> Option<Result<ImageCommand, i3
                     turn: *flags & TURN != 0,
                     see_through: *flags & SEE_THROUGH != 0,
                     tone: table,
+                    turned: *flags & TURNED != 0,
                 },
             }))
         }

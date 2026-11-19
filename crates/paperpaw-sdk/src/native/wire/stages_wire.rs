@@ -80,6 +80,18 @@ pub static STAGES: &[StageSchema] = &[
         reply_tags: core_lookup_v1::REPLY_TAGS,
     },
     StageSchema {
+        key: core_picture_v1::KEY,
+        major: core_picture_v1::MAJOR,
+        revision: core_picture_v1::REVISION,
+        test_only: core_picture_v1::TEST_ONLY,
+        max_subscribers: core_picture_v1::MAX_SUBSCRIBERS,
+        max_input: core_picture_v1::MAX_INPUT,
+        max_reply: core_picture_v1::MAX_REPLY,
+        reply_rows: core_picture_v1::REPLY_ROWS,
+        input_tags: core_picture_v1::INPUT_TAGS,
+        reply_tags: core_picture_v1::REPLY_TAGS,
+    },
+    StageSchema {
         key: core_status_v1::KEY,
         major: core_status_v1::MAJOR,
         revision: core_status_v1::REVISION,
@@ -1123,7 +1135,7 @@ pub mod core_format_v1 {
     /// Schema major.
     pub const MAJOR: u16 = 1;
     /// Schema revision.
-    pub const REVISION: u16 = 0;
+    pub const REVISION: u16 = 1;
     /// Schema test_only.
     pub const TEST_ONLY: bool = false;
     /// Schema max_subscribers.
@@ -1317,6 +1329,8 @@ pub mod core_format_v1 {
     pub const FMT_IMAGE_TAG: u32 = 4;
     /// Maximum bytes of `fmt.image.path`.
     pub const FMT_IMAGE_PATH_MAX_BYTES: usize = 256;
+    /// Maximum bytes of `fmt.image.part`.
+    pub const FMT_IMAGE_PART_MAX_BYTES: usize = 16;
 
     /// The `fmt.image` record, borrowed from its batch.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1332,28 +1346,39 @@ pub mod core_format_v1 {
         pub height: u32,
         /// Little-endian u32.
         pub flags: u32,
+        /// Opaque bytes, at most 16. Appended and optional; empty when absent.
+        pub part: &'a [u8],
     }
 
     wire_fields! {
         /// The fields of `fmt.image` as the codec walks them.
-        FMT_IMAGE_FIELDS: [FmtImage<'static>; 5] {
+        FMT_IMAGE_FIELDS: [FmtImage<'static>; 6] {
             path: text, 0, 256;
             index: u32, 0, 0;
             width: u32, 0, 0;
             height: u32, 0, 0;
             flags: u32, 0, 0;
+            part: bytes, 1, 16;
         }
     }
 
     impl<'a> FmtImage<'a> {
         /// Build a record; encoding validates its bounds.
-        pub const fn new(path: &'a str, index: u32, width: u32, height: u32, flags: u32) -> Self {
+        pub const fn new(
+            path: &'a str,
+            index: u32,
+            width: u32,
+            height: u32,
+            flags: u32,
+            part: &'a [u8],
+        ) -> Self {
             Self {
                 path,
                 index,
                 width,
                 height,
                 flags,
+                part,
             }
         }
     }
@@ -2318,7 +2343,7 @@ pub mod core_format_v1 {
             }
         }),
         (FMT_IMAGE_TAG, &FMT_IMAGE_FIELDS, {
-            let record = Record::FmtImage(FmtImage::new("", 0, 0, 0, 0));
+            let record = Record::FmtImage(FmtImage::new("", 0, 0, 0, 0, &[]));
             // SAFETY: `inner` is the struct inside `record`.
             match &record {
                 Record::FmtImage(inner) => unsafe { wire_offset(&record, inner) },
@@ -4338,6 +4363,510 @@ pub mod core_lookup_v1 {
             }
             match records.next() {
                 Some(Ok(Record::LookupEntry(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+}
+
+/// Local records of `core.picture` major 1.
+pub mod core_picture_v1 {
+    /// Schema key.
+    pub const KEY: &str = "core.picture";
+    /// Schema major.
+    pub const MAJOR: u16 = 1;
+    /// Schema revision.
+    pub const REVISION: u16 = 0;
+    /// Schema test_only.
+    pub const TEST_ONLY: bool = false;
+    /// Schema max_subscribers.
+    pub const MAX_SUBSCRIBERS: usize = 2;
+    /// Schema max_input.
+    pub const MAX_INPUT: usize = 640;
+    /// Schema max_reply.
+    pub const MAX_REPLY: usize = 320;
+    /// Schema reply_rows.
+    pub const REPLY_ROWS: usize = 1;
+    /// Schema input_tags.
+    pub const INPUT_TAGS: &[u32] = &[1];
+    /// Schema reply_tags.
+    pub const REPLY_TAGS: &[u32] = &[2];
+    use super::*;
+    /// Wire tag of the `picture.ask` record.
+    pub const PICTURE_ASK_TAG: u32 = 1;
+    /// Maximum bytes of `picture.ask.histogram`.
+    pub const PICTURE_ASK_HISTOGRAM_MAX_BYTES: usize = 16;
+    /// Maximum bytes of `picture.ask.path`.
+    pub const PICTURE_ASK_PATH_MAX_BYTES: usize = 512;
+
+    /// The `picture.ask` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct PictureAsk<'a> {
+        /// Little-endian u32.
+        pub place: u32,
+        /// Little-endian u32.
+        pub width: u32,
+        /// Little-endian u32.
+        pub height: u32,
+        /// Little-endian u32.
+        pub flags: u32,
+        /// Opaque bytes, at most 16.
+        pub histogram: &'a [u8],
+        /// UTF-8 text of at most 512 bytes.
+        pub path: &'a str,
+    }
+
+    wire_fields! {
+        /// The fields of `picture.ask` as the codec walks them.
+        PICTURE_ASK_FIELDS: [PictureAsk<'static>; 6] {
+            place: u32, 0, 0;
+            width: u32, 0, 0;
+            height: u32, 0, 0;
+            flags: u32, 0, 0;
+            histogram: bytes, 0, 16;
+            path: text, 0, 512;
+        }
+    }
+
+    impl<'a> PictureAsk<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(
+            place: u32,
+            width: u32,
+            height: u32,
+            flags: u32,
+            histogram: &'a [u8],
+            path: &'a str,
+        ) -> Self {
+            Self {
+                place,
+                width,
+                height,
+                flags,
+                histogram,
+                path,
+            }
+        }
+    }
+    /// Wire tag of the `picture.tone` record.
+    pub const PICTURE_TONE_TAG: u32 = 2;
+    /// Maximum bytes of `picture.tone.tone`.
+    pub const PICTURE_TONE_TONE_MAX_BYTES: usize = 256;
+
+    /// The `picture.tone` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct PictureTone<'a> {
+        /// Opaque bytes, at most 256.
+        pub tone: &'a [u8],
+        /// Little-endian u32.
+        pub flags: u32,
+    }
+
+    wire_fields! {
+        /// The fields of `picture.tone` as the codec walks them.
+        PICTURE_TONE_FIELDS: [PictureTone<'static>; 2] {
+            tone: bytes, 0, 256;
+            flags: u32, 0, 0;
+        }
+    }
+
+    impl<'a> PictureTone<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(tone: &'a [u8], flags: u32) -> Self {
+            Self { tone, flags }
+        }
+    }
+
+    /// A record with a tag local to this stage.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub enum Record<'a> {
+        /// A `picture.ask` record.
+        PictureAsk(PictureAsk<'a>),
+        /// A `picture.tone` record.
+        PictureTone(PictureTone<'a>),
+    }
+    /// The tag and the table of each record and where its struct lies in a [`Record`]
+    /// (read off a record of that variant), in the order of the variants.
+    #[allow(
+        unreachable_patterns,
+        reason = "a schema of one record has one variant"
+    )]
+    static ROWS: [(u32, &[WireField], usize); 2] = [
+        (PICTURE_ASK_TAG, &PICTURE_ASK_FIELDS, {
+            let record = Record::PictureAsk(PictureAsk::new(0, 0, 0, 0, &[], ""));
+            // SAFETY: `inner` is the struct inside `record`.
+            match &record {
+                Record::PictureAsk(inner) => unsafe { wire_offset(&record, inner) },
+                _ => 0,
+            }
+        }),
+        (PICTURE_TONE_TAG, &PICTURE_TONE_FIELDS, {
+            let record = Record::PictureTone(PictureTone::new(&[], 0));
+            // SAFETY: `inner` is the struct inside `record`.
+            match &record {
+                Record::PictureTone(inner) => unsafe { wire_offset(&record, inner) },
+                _ => 0,
+            }
+        }),
+    ];
+    impl<'a> Record<'a> {
+        /// Local wire tag.
+        pub fn tag(&self) -> u32 {
+            self.row().0
+        }
+        /// Its tag, its table and where its struct lies in it.
+        fn row(&self) -> (u32, &'static [WireField], usize) {
+            let place: usize = match self {
+                Record::PictureAsk(_) => 0,
+                Record::PictureTone(_) => 1,
+            };
+            ROWS.get(place).copied().unwrap_or((0, &[], 0))
+        }
+        /// Its struct.
+        fn at(&self) -> *const u8 {
+            // SAFETY: `ROWS` holds, at the place of each variant, where that variant's struct
+            // lies in a `Record`: inside `self`.
+            unsafe { core::ptr::from_ref(self).cast::<u8>().add(self.row().2) }
+        }
+        fn body_len(&self) -> Result<usize, i32> {
+            // SAFETY: `ROWS` holds each record's own table at the place of its variant.
+            unsafe { fields_len(self.row().1, self.at()) }
+        }
+        /// Its presence bitmap and its fields.
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            // SAFETY: `ROWS` holds each record's own table at the place of its variant.
+            unsafe { fields_write(self.row().1, self.at(), out, offset) }
+        }
+        fn validate(&self) -> Result<(), i32> {
+            match self {
+                _ => {}
+            }
+            Ok(())
+        }
+    }
+    fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        // SAFETY: each arm decodes with the table of the record it makes, which borrows
+        // from the body alone.
+        let record = unsafe {
+            match tag {
+                PICTURE_ASK_TAG => {
+                    Record::PictureAsk(fields_decode_as(&PICTURE_ASK_FIELDS, body.remaining)?)
+                }
+                PICTURE_TONE_TAG => {
+                    Record::PictureTone(fields_decode_as(&PICTURE_TONE_FIELDS, body.remaining)?)
+                }
+                _ => return Err(-2),
+            }
+        };
+        // Unknown appended fields are bounded by the record framing.
+        record.validate()?;
+        Ok(record)
+    }
+    /// A validated stage batch, borrowed without keeping a decoded array.
+    #[derive(Clone, Debug)]
+    pub struct RecordStream<'a> {
+        bytes: &'a [u8],
+        remaining: usize,
+    }
+    impl RecordStream<'_> {
+        /// Records still to iterate.
+        pub fn len(&self) -> usize {
+            self.remaining
+        }
+        /// Whether iteration is complete.
+        pub fn is_empty(&self) -> bool {
+            self.remaining == 0
+        }
+    }
+    impl<'a> Iterator for RecordStream<'a> {
+        type Item = Result<Record<'a>, i32>;
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.remaining == 0 {
+                return None;
+            }
+            let mut reader = Reader {
+                remaining: self.bytes,
+            };
+            let decoded = (|| {
+                let (tag, mut body) = reader.record()?;
+                decode_body(tag, &mut body)
+            })();
+            self.bytes = reader.remaining;
+            self.remaining -= 1;
+            Some(decoded)
+        }
+    }
+    /// Tooling-only, side-agnostic batch validation. Runtime callers use a direction.
+    pub(crate) fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
+    }
+    /// Decode exactly one stage input using only input tags and its byte cap.
+    pub fn input_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        let records = decode_with(bytes, MAX_INPUT, 1, INPUT_TAGS)?;
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        Ok(records)
+    }
+    /// Decode a subscriber's reply using only reply tags, rows and byte cap.
+    pub fn reply_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn decode_with<'a>(
+        bytes: &'a [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<RecordStream<'a>, i32> {
+        if bytes.len() > cap {
+            return Err(-2);
+        }
+        let mut reader = Reader { remaining: bytes };
+        let count = reader.varint()? as usize;
+        if count > rows {
+            return Err(-2);
+        }
+        let records = reader.remaining;
+        for _ in 0..count {
+            let (tag, mut body) = reader.record()?;
+            if !tags.is_empty() && !tags.contains(&tag) {
+                return Err(-2);
+            }
+            decode_body(tag, &mut body)?;
+        }
+        reader.finish()?;
+        Ok(RecordStream {
+            bytes: records,
+            remaining: count,
+        })
+    }
+    /// Tooling-only, side-agnostic encoding. Runtime callers use a direction.
+    pub(crate) fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(
+            records,
+            out,
+            MAX_INPUT.max(MAX_REPLY),
+            REPLY_ROWS.max(1),
+            &[],
+        )
+    }
+    /// Encode exactly one input using its tag and byte bounds.
+    pub fn input_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        encode_with(records, out, MAX_INPUT, 1, INPUT_TAGS)
+    }
+    /// Encode a subscriber reply using its tag, row and byte bounds.
+    pub fn reply_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(records, out, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn encode_with(
+        records: &[Record<'_>],
+        out: &mut [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<usize, i32> {
+        if records.len() > rows {
+            return Err(-2);
+        }
+        let mut required = varint_len(records.len() as u32);
+        for record in records {
+            if !tags.is_empty() && !tags.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            required += varint_len(record.tag()) + varint_len(body as u32) + body;
+        }
+        if required > cap {
+            return Err(-3);
+        }
+        if out.len() < required {
+            return Err(-3);
+        }
+        let mut offset = 0;
+        write_varint(records.len() as u32, out, &mut offset);
+        for record in records {
+            let body = record.body_len()?;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+
+            record.write(out, &mut offset);
+        }
+        Ok(offset)
+    }
+    /// Writes one reply batch record by record, straight into `out`: the
+    /// bytes [`reply_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct ReplyWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> ReplyWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= REPLY_ROWS {
+                return Err(-2);
+            }
+            if !REPLY_TAGS.is_empty() && !REPLY_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_REPLY || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
+    /// Writes one input batch record by record, straight into `out`: the
+    /// bytes [`input_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct InputWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> InputWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= 1 {
+                return Err(-2);
+            }
+            if !INPUT_TAGS.is_empty() && !INPUT_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_INPUT || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            if self.rows == 0 {
+                return Err(-2);
+            }
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
+    impl<'a> PictureAsk<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = PICTURE_ASK_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            input_encode(&[Record::PictureAsk(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = input_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::PictureAsk(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> PictureTone<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = PICTURE_TONE_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::PictureTone(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::PictureTone(r))) => Ok(r),
                 _ => Err(-2),
             }
         }

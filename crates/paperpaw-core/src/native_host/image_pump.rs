@@ -351,6 +351,8 @@ impl crate::Kernel {
             // One request a turn, decoded to the end.
             hosts.images().prepare_step(storage.as_ref(), env).is_err()
         });
+        // The picture stage has its say before a plugin hears of its picture.
+        self.picture_tones();
         more |= self.image_tell_ready();
         let instances = &self.shared.native_instances;
         // A held-back command waits for its own time (`retry_at`), it does not

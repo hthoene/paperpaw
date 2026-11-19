@@ -2199,7 +2199,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-cbz"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-core",
  "paperpaw-epub-family",
@@ -2639,7 +2639,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reader"
-version = "1.1.0"
+version = "1.2.0"
 dependencies = [
  "paperpaw-core",
  "paperpaw-epub-family",

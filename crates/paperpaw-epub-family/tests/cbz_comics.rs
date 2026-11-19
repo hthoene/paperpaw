@@ -8,7 +8,9 @@
     reason = "tests panic on purpose when something is wrong"
 )]
 
-use paperpaw_epub_family::{CbzDocument, DIRECTION, LEFT_TO_RIGHT, PANELS, RIGHT_TO_LEFT};
+use paperpaw_epub_family::{
+    CbzDocument, DIRECTION, IMAGE_PART, LEFT_TO_RIGHT, PANELS, RIGHT_TO_LEFT,
+};
 use paperpaw_sdk::document::{BlockKind, Document, ImageRef, Locator, PageProgression};
 use paperpaw_sdk::image::{GrayFile, PngWriter};
 use paperpaw_sdk::{MemoryStorage, OpenOptions, Storage};
@@ -66,21 +68,36 @@ fn open(storage: &MemoryStorage, settings: &[(&str, &str)]) -> CbzDocument {
     CbzDocument::open_options(storage, "c.cbz", &options(settings)).unwrap()
 }
 
-/// The gray at the middle of the picture a panel block names, made the way a
-/// page showing it makes it.
+/// The part of its picture the block at `at` shows (`fmt.image.part`): `x, y,
+/// width, height`, or none for a page shown whole.
+fn part(doc: &CbzDocument, storage: &MemoryStorage, at: Locator) -> Option<[u32; 4]> {
+    let mut params = at.section.to_le_bytes().to_vec();
+    params.extend_from_slice(&at.offset.to_le_bytes());
+    let bytes = doc.extended(storage, IMAGE_PART, &params)?;
+    let words: Vec<u32> = bytes
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|w| u32::from_le_bytes(*w))
+        .collect();
+    Some(words.try_into().unwrap())
+}
+
+/// The gray at the middle of the panel a block shows: a part of the page's
+/// own picture, of which no copy is made.
 fn middle(doc: &CbzDocument, storage: &MemoryStorage, at: Locator) -> u8 {
     let block = doc.block_at(storage, at).unwrap().unwrap();
     assert_eq!(block.kind, BlockKind::Image);
     let image = block.image.unwrap();
-    let made = doc
-        .prepare_image(storage, &image)
-        .unwrap_or_else(|| image.clone());
-    // As large as the page: a page of its own.
-    assert_eq!((made.width, made.height), (W, H));
-    let file = GrayFile::open(storage, &made.path).unwrap();
+    // The page's file, whole: nothing is made when a page shows the panel.
+    assert_eq!((image.width, image.height), (W, H));
+    assert_eq!(doc.prepare_image(storage, &image), None);
+    let [x, y, w, h] = part(doc, storage, at).unwrap();
+    assert!(w > 0 && h > 0 && x + w <= W && y + h <= H);
+    let file = GrayFile::open(storage, &image.path).unwrap();
     let mut row = vec![0; W as usize];
-    assert!(file.read_row(storage, H / 2, &mut row));
-    row[W as usize / 2]
+    assert!(file.read_row(storage, y + h / 2, &mut row));
+    row[(x + w / 2) as usize]
 }
 
 const INFO: &str = "<?xml version=\"1.0\"?><ComicInfo><Title>The Start</Title>\
@@ -159,7 +176,7 @@ fn panels_are_off_unless_asked_for() {
 }
 
 #[test]
-fn panels_step_through_a_page_each_as_a_picture_of_the_pages_size() {
+fn panels_step_through_a_page_each_as_a_part_of_the_pages_picture() {
     let storage = comic(three_panels(), None);
     let doc = open(&storage, &[(PANELS, "true")]);
     assert!(doc.whole_pages());
@@ -176,12 +193,16 @@ fn panels_step_through_a_page_each_as_a_picture_of_the_pages_size() {
     // Each block is one position: offsets `k` to `k + 1`.
     let second = doc.block_at(&storage, Locator::new(0, 1)).unwrap().unwrap();
     assert_eq!((second.start, second.end), (1, 2));
-    // The panel is enlarged on white: the corner is still paper.
+    // Every panel names the page's one picture (no enlarged copy on the
+    // card), each with its own part of it.
+    let first = doc.block_at(&storage, Locator::new(0, 0)).unwrap().unwrap();
     let image: ImageRef = second.image.unwrap();
-    let file = GrayFile::open(&storage, &image.path).unwrap();
-    let mut row = vec![0; W as usize];
-    assert!(file.read_row(&storage, 0, &mut row));
-    assert_eq!(row[0], 255);
+    assert_eq!(first.image.unwrap().path, image.path);
+    let parts: Vec<_> = (0..3)
+        .map(|k| part(&doc, &storage, Locator::new(0, k)).unwrap())
+        .collect();
+    assert!(parts[0] != parts[1] && parts[1] != parts[2] && parts[0] != parts[2]);
+    assert_eq!(part(&doc, &storage, Locator::new(0, 3)), None);
 }
 
 #[test]
@@ -211,7 +232,8 @@ fn a_page_without_panels_is_shown_whole() {
                 .is_none()
         );
         // The page itself, not a panel of it.
-        assert!(!whole.image.unwrap().path.contains("/q"));
+        assert!(whole.image.is_some());
+        assert_eq!(part(&doc, &storage, Locator::new(0, 0)), None);
     }
 }
 
@@ -302,16 +324,21 @@ fn hostile_pictures_are_no_panels_and_never_panic() {
                 .is_none()
         );
     }
-    // A panel list or crop name that lies is refused.
+    // A part asked for where there is none is none: a page or a panel the
+    // book does not have, parameters that are not two numbers, panels off.
     let storage = comic(three_panels(), None);
     let doc = open(&storage, &[(PANELS, "true")]);
-    for path in ["../q0.9l.gray", "x/q0.0l.gray", "q99.0l.gray"] {
-        let lie = ImageRef {
-            path: path.into(),
-            width: W,
-            height: H,
-        };
-        assert!(doc.prepare_image(&storage, &lie).is_none());
-    }
+    // A block is read before its part is asked for: the page is decoded then.
+    assert!(
+        doc.block_at(&storage, Locator::new(0, 0))
+            .unwrap()
+            .is_some()
+    );
+    assert!(part(&doc, &storage, Locator::new(0, 0)).is_some());
+    assert_eq!(part(&doc, &storage, Locator::new(9, 0)), None);
+    assert_eq!(part(&doc, &storage, Locator::new(0, 99)), None);
+    assert_eq!(doc.extended(&storage, IMAGE_PART, &[0; 7]), None);
+    let whole = open(&storage, &[]);
+    assert_eq!(part(&whole, &storage, Locator::new(0, 0)), None);
     let _ = storage.size("c.cbz");
 }
