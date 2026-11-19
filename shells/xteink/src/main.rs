@@ -68,14 +68,14 @@ mod entropy;
 mod firmware;
 #[cfg(feature = "remote")]
 mod gray_test;
-#[cfg(feature = "turn-lab")]
-mod lab_presets;
 #[cfg(feature = "test-image")]
 mod high_water;
 #[cfg(feature = "ppn5")]
 mod host_net;
 mod http;
 mod input;
+#[cfg(feature = "turn-lab")]
+mod lab_presets;
 #[cfg(all(feature = "x4-pro", not(feature = "picco")))]
 mod light;
 #[cfg(feature = "picco")]

@@ -6,10 +6,10 @@
 //! `turn-lab: <preset> turn K [clean]: shown in X ms`; the time also goes to
 //! the lab's screen.
 
-#[cfg(feature = "turn-lab")]
-pub(super) use on::*;
 #[cfg(not(feature = "turn-lab"))]
 pub(super) use off::*;
+#[cfg(feature = "turn-lab")]
+pub(super) use on::*;
 
 #[cfg(feature = "turn-lab")]
 mod on {
@@ -54,7 +54,10 @@ mod on {
                 return None;
             }
             let value = self.kernel.settings().read(&lab_presets::PRESET);
-            let name = lab_presets::choices().iter().copied().find(|c| *c == value)?;
+            let name = lab_presets::choices()
+                .iter()
+                .copied()
+                .find(|c| *c == value)?;
             let preset = lab_presets::preset(name);
             let lab = &mut self.state.turn_lab;
             if lab.name != name {
@@ -119,7 +122,11 @@ mod off {
 
     impl Firmware {
         #[inline(always)]
-        pub(in crate::firmware) fn turn_lab(&mut self, _: RefreshMode, _: &mut Refresh) -> Option<Turn> {
+        pub(in crate::firmware) fn turn_lab(
+            &mut self,
+            _: RefreshMode,
+            _: &mut Refresh,
+        ) -> Option<Turn> {
             None
         }
 

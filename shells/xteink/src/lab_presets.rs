@@ -189,10 +189,7 @@ pub fn register(r: &mut Staging) -> Result<(), RegisterError> {
             for (key, word) in paperpaw_core::turn_lab::WORDS.iter().zip(WORDS) {
                 params = params.with(*key, i18n.tr(word));
             }
-            asks.push(Ask::OpenScreen(
-                paperpaw_core::turn_lab::SCREEN,
-                params,
-            ));
+            asks.push(Ask::OpenScreen(paperpaw_core::turn_lab::SCREEN, params));
         }),
     )?;
     r.add_menu_entry(MenuEntry::new(menus::SETTINGS, OPEN))
