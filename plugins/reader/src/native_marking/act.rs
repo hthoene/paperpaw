@@ -1,6 +1,7 @@
 //! What the bar's buttons do with the chosen words: copy them, look them up.
 use alloc::string::String;
 use paperpaw_sdk::{
+    Rect,
     document::Locator,
     native::{
         Error, Host,
@@ -114,9 +115,12 @@ pub fn look_up(
     if phrase.is_empty() {
         return Ok(());
     }
+    let mut place = [0; ANCHOR_BYTES];
+    let anchor = anchor(ctx.words, lo, hi).map_or("", |r| anchor_text(r, &mut place));
     let params = [
         Param::new("word", phrase)?,
         Param::new("language", ctx.language)?,
+        Param::new("anchor", anchor)?,
     ];
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     let ui = ctx.ui.ok_or(Error::State)?;
@@ -139,6 +143,51 @@ pub fn look_up(
     )
     .ok();
     Ok(())
+}
+
+/// The most bytes of an `anchor` hand-over param: four u16 and three commas.
+const ANCHOR_BYTES: usize = 24;
+
+/// The box the words `lo..=hi` take in the first line they are in: where a
+/// lookup's window goes next to them (the hand-over param `anchor`).
+#[must_use]
+pub fn anchor(words: &[WordBox], lo: usize, hi: usize) -> Option<Rect> {
+    let first = words.get(lo)?.area;
+    let line = words.iter().take(hi + 1).skip(lo).map(|w| w.area);
+    let same = line.filter(|a| a.y == first.y && a.height == first.height);
+    let (left, right) = same.fold((first.x, first.x), |(l, r), a| {
+        (l.min(a.x), r.max(a.x.saturating_add(a.width)))
+    });
+    Some(Rect::new(left, first.y, right - left, first.height))
+}
+
+/// `area` as the param `anchor` says it: `x,y,width,height` in the screen's
+/// pixels, written into `out`.
+pub fn anchor_text(area: Rect, out: &mut [u8; ANCHOR_BYTES]) -> &str {
+    let mut len = 0;
+    for (n, value) in [area.x, area.y, area.width, area.height]
+        .into_iter()
+        .enumerate()
+    {
+        if n > 0 {
+            out[len] = b',';
+            len += 1;
+        }
+        let mut digits = [0_u8; 5];
+        let (mut v, mut d) = (value, 0);
+        loop {
+            digits[d] = b'0' + (v % 10) as u8;
+            (v, d) = (v / 10, d + 1);
+            if v == 0 {
+                break;
+            }
+        }
+        for digit in digits[..d].iter().rev() {
+            out[len] = *digit;
+            len += 1;
+        }
+    }
+    core::str::from_utf8(&out[..len]).unwrap_or_default()
 }
 
 /// The note *Note* starts: where it goes, and the note there is to edit.

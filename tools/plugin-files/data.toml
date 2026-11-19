@@ -1070,6 +1070,24 @@ description = "PaperPaw's menus and settings in Thai. Needs Thai letters. A mach
 de.name = "Thailändisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Thailändisch. Braucht die Thailändische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
 
+# The roots of Mozilla's list the firmware does not have built in (#387): the X4's TLS
+# trusts about twenty roots without it (tools/roots/builtin.txt) and all of them with it.
+# tools/roots-pack.py builds the file, signed with the first-party plugin key.
+
+[tls-roots]
+version = "1.0.0"
+group = "system"
+licence = "CDLA-Permissive-2.0"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/roots-pack.py"
+inputs = ["tools/roots", "tools/sign/src/roots.rs", "crates/paperpaw-x4/src/tls_roots.rs"]
+name = "All certificates"
+description = "Mozilla's full list of root certificates. Install it if a secure connection fails with 'Certificate not known'."
+de.name = "Alle Zertifikate"
+de.description = "Mozillas vollständige Liste der Stammzertifikate. Installiere sie, wenn eine sichere Verbindung mit „Zertifikat unbekannt“ scheitert."
+
 [language-ca]
 version = "1.0.0"
 group = "languages"

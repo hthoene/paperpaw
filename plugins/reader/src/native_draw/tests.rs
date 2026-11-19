@@ -641,3 +641,35 @@ fn the_check_for_a_line_wider_than_its_measure_sees_one() {
     let ends = line_ends(false);
     assert!(ends.iter().any(|end| *end > 400.5), "{ends:?}");
 }
+
+#[test]
+fn a_gloss_of_a_text_stage_is_drawn_under_its_word_in_italics() {
+    use crate::stages::reader_text_v1 as stage;
+    // A plugin's answer for the block: "zwei" under "two".
+    let mut reply = [0u8; 64];
+    let mut writer = stage::ReplyWriter::new(&mut reply).unwrap();
+    let gloss = stage::TextGloss::new(4, 7, 2, 0, "zwei");
+    writer.push(&stage::Record::TextGloss(gloss)).unwrap();
+    let len = writer.finish().unwrap();
+    let text = "one two three";
+    let mut block = Block::new(BlockKind::Paragraph, 0, 13, text.into());
+    crate::native_layers::apply(&reply[..len], &mut block).unwrap();
+    let book = Book {
+        blocks: alloc::vec![block],
+        metadata: Metadata::default(),
+    };
+    let faces = Faces::new(Fixed, 20.0, 1.0).unwrap();
+    let style = Style::new(0.0, 0.0, 20.0, false);
+    let cx = LayoutContext::new(&book, &NoStorage, 400.0, &style, &faces);
+    let page = layout_page(&cx, Locator::START, 400.0).unwrap();
+    let mut ink = Recorder::default();
+    draw_lines(&mut ink, &faces, &page, (30.0, 50.0)).unwrap();
+    let find = |word: &str| ink.calls.iter().find(|c| c.3 == word).cloned().unwrap();
+    let (two, zwei) = (find("two"), find("zwei"));
+    assert_eq!(
+        (zwei.0, zwei.1),
+        (Role::Italic, two.1),
+        "italic, where its word starts"
+    );
+    assert!(zwei.2 > two.2, "under the line");
+}

@@ -500,6 +500,7 @@ pub mod keys;
 pub mod library;
 pub mod lookup;
 pub mod net;
+pub mod page_layers;
 pub mod registrations;
 /// Borrowed registry rows and lossless generation-bound paging.
 pub mod registry;

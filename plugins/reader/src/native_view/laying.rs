@@ -86,7 +86,10 @@ impl Open {
         area: native_pages::Box,
     ) -> Result<Page, Error> {
         let document = HostDocument::new(host, docs, self.id, self.sections, self.whole_pages)?
-            .filtered(&self.filters, &self.path);
+            .filtered(&self.filters, &self.path)
+            .layered(&self.layers);
+        // The blocks a plugin's text stage changes are asked before the layout.
+        self.prepare_layers(host, &document, start);
         let style = setup
             .style(faces.line_height())
             .script_options(native_pages::script_options(
@@ -117,12 +120,20 @@ impl Open {
         };
         let cx = LayoutContext::new(&document, &NoStorage, f32::from(area.width), &style, faces)
             .hyphenate(on.then_some(&hyphenate as Hyphenate<'_>));
-        layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(|error| {
-            match document_error_kind(&error) {
-                Some(kind) => kind,
-                None => Error::Invalid,
-            }
-        })
+        let lay = || {
+            layout_page(&cx, Locator::new(start.0, start.1), f32::from(area.height)).map_err(
+                |error| match document_error_kind(&error) {
+                    Some(kind) => kind,
+                    None => Error::Invalid,
+                },
+            )
+        };
+        let page = lay()?;
+        // A block read beyond what was asked ahead: asked now, laid out once more.
+        if self.prepare_missed(host, &document) {
+            return lay();
+        }
+        Ok(page)
     }
 
     pub(super) fn draw(
@@ -157,6 +168,7 @@ impl Open {
         if self.page.is_some() && self.laid != Some(key) {
             self.page = None;
             self.trail.clear();
+            self.layers.forget_pages();
         }
         if self.page.is_none() {
             let page = self.lay_with(host, docs, &faces, setup, self.at, area)?;
@@ -178,6 +190,13 @@ impl Open {
             // Highlights of another conversion that this page has the text of.
             self.marks.accept_foreign(&self.words);
             self.decorate(host);
+        }
+        // Asked once for the page (and for each sentence read aloud where the
+        // plugin follows it); a page kept is not asked again.
+        // The whole content box: a layer's region leaves the text a part of it.
+        let full = self.page_area(setup).unwrap_or(area);
+        if self.ask_marks {
+            self.ask_layer(host, full);
         }
         let page = self.page.as_ref().ok_or(Error::State)?;
         let rect = frame.rect;
@@ -212,11 +231,14 @@ impl Open {
             origin,
             (self.mark.clone(), pictures),
         )?;
+        // What a plugin's page layer draws, over the text.
+        let at = (rect.x + i32::from(full.x), rect.y + i32::from(full.y));
+        self.draw_layer(&canvas, (fonts, &look), at);
         // Other plugins' marks under the reader's own, as Beta 3 drew them.
         self.draw_over(&canvas, gauge, (rect.x, rect.y)).ok();
         painted.over(&mut CanvasPen(&canvas)).ok();
-        self.draw_ribbon(&canvas, rect, (&area, setup.display.display_dpi()))?;
-        self.paint_status(host, ui, frame, (setup, &area))?;
+        self.draw_ribbon(&canvas, rect, (&full, setup.display.display_dpi()))?;
+        self.paint_status(host, ui, frame, (setup, &full))?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
             &self.words,

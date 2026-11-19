@@ -95,6 +95,7 @@ pub mod stall;
 pub mod start_count;
 pub mod stay_awake;
 pub mod tls_gate;
+pub mod tls_roots;
 pub mod tls_trust;
 pub mod tls_watch;
 pub mod tma525c;
