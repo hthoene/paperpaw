@@ -214,10 +214,13 @@ embassy-sync = { version = "0.8", optional = true }
 # the X4's memory is tightest. Records received stay 16 KB, as servers
 # send them that large.
 #
-# Trimmed (#304, row 24): TLS 1.3 (and HKDF, which only it uses), SHA-1,
-# the CBC suites, RSA key exchange without forward secrecy and the P-521
-# curve are out. What stays is TLS 1.2 with ECDHE (X25519, P-256, P-384),
-# AES-GCM and ChaCha20-Poly1305, RSA and ECDSA certificates signed with
+# Trimmed (#304, row 24; #387): TLS 1.3 (and HKDF, which only it uses), the
+# server side, PEM/Base64 parsing, SHA-1, the CBC suites, ChaCha20-Poly1305,
+# RSA key exchange without forward secrecy and the P-521 curve are out. The
+# first three could not be left out from here (the crate itself asks for them
+# on mbedtls-rs-sys, features only add): that is what `[patch.crates-io]`
+# below, patches/mbedtls-rs, is for. What stays is TLS 1.2 with ECDHE (X25519,
+# P-256, P-384), AES-GCM, RSA and ECDSA certificates signed with
 # SHA-256/384/512 (P-384 stays: Let's Encrypt's, Sectigo's and Google's
 # intermediates are P-384). A server that speaks TLS 1.3 only, or only
 # CBC suites, no longer connects; the servers the firmware knows
@@ -229,7 +232,7 @@ mbedtls-rs = { version = "0.3", default-features = false, features = [
     "x509-parse", "pk", "drbg-ctr", "entropy",
     "alg-rsa", "alg-rsa-pss", "alg-ecp", "alg-ecdh", "alg-ecdsa",
     "curve-secp256r1", "curve-secp384r1", "curve-curve25519",
-    "alg-aes", "alg-gcm", "alg-chacha20", "alg-chachapoly",
+    "alg-aes", "alg-gcm",
     "alg-sha256", "alg-sha512",
     "kex-ecdhe-ecdsa", "kex-ecdhe-rsa",
     "ssl-in-content-len-16384", "ssl-out-content-len-4096",
@@ -369,3 +372,4 @@ debug = 2
 # PaperPaw").
 [patch.crates-io]
 trouble-host = { path = "../../patches/trouble-host" }
+mbedtls-rs = { path = "../../patches/mbedtls-rs" }

@@ -37,6 +37,7 @@ fn main() {
     println!("cargo::rerun-if-changed=../../Cargo.toml");
     println!("cargo::rerun-if-changed=memory-x4.x");
     println!("cargo::rerun-if-changed=rwtext-x4.x");
+    println!("cargo::rerun-if-changed=rwtext-s3.x");
     println!("cargo::rerun-if-changed=wifi-flash-x4.x");
     plugins();
     device_messages();
@@ -46,7 +47,13 @@ fn main() {
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     if std::env::var_os("CARGO_FEATURE_ESP32S3").is_some() {
         println!("cargo::rustc-link-arg=-nostartfiles");
+        // esp-hal's `rwtext.x` less the Wi-Fi send and receive code, which
+        // `wifi-flash-x4.x` puts in flash (found first as it is in `out`, #387).
+        std::fs::copy("rwtext-s3.x", out.join("rwtext.x")).expect("rwtext-s3.x");
+        std::fs::copy("wifi-flash-x4.x", out.join("wifi-flash-x4.x")).expect("wifi-flash-x4.x");
+        println!("cargo::rustc-link-search={}", out.display());
         println!("cargo::rustc-link-arg=-Wl,-Tlinkall.x");
+        println!("cargo::rustc-link-arg=-Wl,-Twifi-flash-x4.x");
         stack_floor(&out);
         no_rodata_gap(&out);
         return;

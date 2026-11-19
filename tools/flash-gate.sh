@@ -117,7 +117,7 @@ git worktree add -q -f --detach "$ours/tree" "$base_sha"
 # What the chip's flash holds: code, read-only data and the initial values of
 # data (the sections the ELF loads into flash).
 flash_bytes() {
-    size -A "$1" | awk '$1 ~ /^(\.trap|\.rwtext.*|\.data.*|\.flash\.appdesc|\.rodata.*|\.text)$/ && $1 != ".rwdata_dummy" {s += $2} END {print s}'
+    size -A "$1" | awk '$1 ~ /^(\.trap|\.rwtext.*|\.data.*|\.flash\.appdesc|\.rodata.*|\.wifi_flash_text|\.text)$/ && $1 != ".rwdata_dummy" {s += $2} END {print s}'
 }
 
 build() { # name rev sha features
