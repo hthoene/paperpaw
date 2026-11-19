@@ -250,13 +250,7 @@ impl Bar {
         focus: Option<usize>,
     ) -> Result<(), Error> {
         paperpaw_ui_kit::paint::push(paint, Paint::Fill(self.area, style.paper))?;
-        paperpaw_ui_kit::paint::push(
-            paint,
-            Paint::Fill(
-                Rect::new(self.area.x, self.area.y, self.area.width, style.line.max(2)),
-                style.ink,
-            ),
-        )?;
+        paperpaw_ui_kit::sheet::edge(paint, style, self.area, style.ink)?;
         // None is chosen: the focus frame says where the buttons are.
         self.chips.prepare(paint, font, usize::MAX, focus)
     }

@@ -10,12 +10,8 @@ use paperpaw_sdk::{
     native::{Error, Host, snapshot::capture_snapshot},
 };
 use paperpaw_ui_kit::{
-    Paint, geometry, paint,
-    widget::{
-        Cx, Settings,
-        look::{Align, Look},
-        text::{self, Wrapped},
-    },
+    Paint, geometry,
+    widget::{Cx, Settings, look::Look, text},
 };
 
 use crate::native_recent::{self, Ask, Book, Covered, MOST, Pictures};
@@ -295,8 +291,7 @@ fn covers(
     Ok(found)
 }
 
-/// A book without a cover: a frame with its title in it, broken between words
-/// as far as fits; where more is left than fits, the last line ends in "…".
+/// A book without a cover: the one placeholder every screen draws.
 fn placeholder(
     cx: &mut Cx<'_>,
     out: &mut Vec<Paint>,
@@ -304,29 +299,7 @@ fn placeholder(
     place: Rect,
     title: &str,
 ) -> Result<(), Error> {
-    let (small, gap, line) = {
-        let style = cx.style();
-        (style.small, style.gap, style.line)
-    };
-    let thickness = u32::from(line).max(2);
-    paint::push(out, Paint::Focus(place, 0, Some(thickness), look.ink))?;
-    let pad = gap / 2;
-    let (width, height) = (
-        place.width.saturating_sub(2 * pad),
-        place.height.saturating_sub(2 * pad),
-    );
-    if f32::from(width) < small * 2.0 || height < geometry::line_px(&cx.font, small)? {
-        return Ok(());
-    }
-    let lines = Wrapped::new(&cx.font, title, small, (width, height), false)?;
-    let room = Rect::new(
-        place.x.saturating_add(pad),
-        place.y.saturating_add(pad),
-        width,
-        lines.height(&cx.font)?,
-    );
-    lines.draw(out, &cx.font, room, Align::Left, look.ink)?;
-    Ok(())
+    paperpaw_ui_kit::parts::placeholder(out, &cx.font, cx.style(), place, title, look.ink)
 }
 
 /// What the shelf `widget` shows, to tell when it changed.

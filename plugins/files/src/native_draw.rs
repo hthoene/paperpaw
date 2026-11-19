@@ -7,7 +7,7 @@ use crate::{
     native_covers::{Covers, Slot},
     native_list::{BookList, Cell, Metrics, Row, pages},
 };
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
 use paperpaw_sdk::{
     Color, Rect,
     native::{
@@ -51,19 +51,8 @@ fn thumb(r: Rect, style: &Style) -> Rect {
     )
 }
 
-/// The title's first letter in capitals: what a book without a cover shows.
-fn initial(title: &str) -> Result<String, Error> {
-    let mut letter = String::new();
-    letter.try_reserve(12).map_err(|_| Error::NoMemory)?;
-    if let Some(c) = title.chars().find(|c| c.is_alphanumeric()) {
-        for upper in c.to_uppercase().take(3) {
-            letter.push(upper);
-        }
-    }
-    Ok(letter)
-}
-
-/// An outline with the title's first letter, where a book has no cover (yet).
+/// What stands where a book has no cover (yet): the one placeholder every
+/// screen draws.
 fn placeholder(
     out: &mut Vec<Paint>,
     font: &Font<'_>,
@@ -72,19 +61,7 @@ fn placeholder(
     title: &str,
     color: Color,
 ) -> Result<(), Error> {
-    let radius = style.corner.min(u32::from(at.width.min(at.height)) / 8);
-    paint::push(
-        out,
-        Paint::Focus(at, radius, Some(u32::from(style.line).max(1)), color),
-    )?;
-    let letter = initial(title)?;
-    if letter.is_empty() {
-        return Ok(());
-    }
-    let size = style.title * 1.3;
-    let wide = font.measure_text(size, &letter)?;
-    let x = f32::from(at.x) + (f32::from(at.width) - wide) / 2.0;
-    text::label(out, font, &letter, size, x, at, color, Some(at))
+    paperpaw_ui_kit::parts::placeholder(out, font, style, at, title, color)
 }
 
 /// A bar `percent` full inside `at`.
@@ -95,13 +72,7 @@ fn bar(
     percent: u8,
     color: Color,
 ) -> Result<(), Error> {
-    paint::push(out, Paint::Fill(at, style.rule))?;
-    let full = u32::from(at.width) * u32::from(percent.min(100)) / 100;
-    let full = u16::try_from(full).unwrap_or(at.width);
-    paint::push(
-        out,
-        Paint::Fill(Rect::new(at.x, at.y, full, at.height), color),
-    )
+    paperpaw_ui_kit::parts::progress_bar(out, style, at, u16::from(percent.min(100)) * 10, color)
 }
 
 /// What a cell's drawing needs besides the cell.
@@ -305,7 +276,11 @@ impl Look<'_> {
         focused: bool,
     ) -> Result<Rect, Error> {
         let (font, style) = (self.font, self.style);
-        backdrop(out, style, r, focused)?;
+        // A tile is no row: the theme's focus on the whole tile, and no
+        // separator under the ones that are not chosen.
+        if focused {
+            paperpaw_ui_kit::focus::frame(out, style, r)?;
+        }
         let inset = style.gap / 2;
         let cover = Rect::new(
             r.x.saturating_add(inset),

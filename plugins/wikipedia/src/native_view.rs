@@ -306,13 +306,7 @@ impl View {
         let page = self.page.as_ref().ok_or(Error::State)?;
         let mut body = Vec::new();
         push(&mut body, Paint::Fill(region, style.paper))?;
-        push(
-            &mut body,
-            Paint::Fill(
-                Rect::new(region.x, region.y, region.width, style.line),
-                style.rule,
-            ),
-        )?;
+        paperpaw_ui_kit::sheet::edge(&mut body, &style, region, style.ink)?;
         let margin = f32::from(style.margin);
         let head = Rect::new(region.x, region.y, region.width, header);
         let source = messages.copy(host, "wikipedia.title")?;

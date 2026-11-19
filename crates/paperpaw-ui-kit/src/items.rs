@@ -846,6 +846,32 @@ fn draw_note(
     Ok(())
 }
 
+/// A note in `rect`, as a list's [`Footer::Note`] is drawn: the paper, a light
+/// rule along the top (none where the theme has no separators) and the text in
+/// small letters, wrapped to as many lines as `rect` is high enough for (the
+/// last ends in "…" where there was more). For the screens that are no list
+/// (a hint below buttons, a status line).
+///
+/// # Errors
+/// Font refusals and [`Error::NoMemory`].
+pub fn note_in(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    rect: Rect,
+    text: &str,
+) -> Result<(), Error> {
+    let line = crate::geometry::line_px(font, style.small)?.max(1);
+    let fits = usize::from((rect.height.saturating_sub(style.line) / line).max(1));
+    let lines = text::wrap_with(
+        |l| font.measure_text(style.small, l),
+        text,
+        f32::from(rect.width.saturating_sub(2 * style.margin)).max(1.0),
+        fits,
+    )?;
+    draw_note(paint, font, style, rect, &lines)
+}
+
 /// What a footer draws below the rows: the empty page's words (over `icon`), or
 /// the code.
 fn footer_below<'a>(

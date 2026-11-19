@@ -372,10 +372,7 @@ impl CalendarView {
             text::label(body, font, number, number_size, x, area, ink, None)?;
             let border = u32::from(style.line.max(1)).max(2);
             if day == self.day {
-                paint::push(
-                    body,
-                    Paint::Focus(square, style.corner, Some(border * 2), Color::BLACK),
-                )?;
+                paperpaw_ui_kit::focus::ring(body, style, square)?;
             } else if Some(day) == self.today {
                 paint::push(
                     body,

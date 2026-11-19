@@ -213,13 +213,7 @@ impl Footnote {
         let chips = Chips::new(font, &style, finger, strip, &[close.as_str(), go.as_str()])?;
         let mut body: Vec<Paint> = Vec::new();
         paint::push(&mut body, Paint::Fill(region, style.paper))?;
-        paint::push(
-            &mut body,
-            Paint::Fill(
-                Rect::new(region.x, region.y, region.width, style.line.max(2)),
-                style.ink,
-            ),
-        )?;
+        paperpaw_ui_kit::sheet::edge(&mut body, &style, region, style.ink)?;
         let mut y = region.y.saturating_add(style.gap);
         for row in &lines {
             let area = Rect::new(region.x, y, region.width, line);

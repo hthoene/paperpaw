@@ -9,7 +9,7 @@ use paperpaw_sdk::{
     native::{
         Error, Host,
         callbacks::DrawFrame,
-        fonts::{Font, FontRole, TextOrigin},
+        fonts::{Font, FontRole},
         formatting::Arg,
         snapshot::capture_snapshot,
     },
@@ -242,43 +242,7 @@ impl Ink<'_> {
         on: bool,
         focused: bool,
     ) -> Result<(), Error> {
-        let s = self.style;
-        let radius = if s.pill {
-            u32::from(rect.height) / 2
-        } else {
-            s.corner
-        };
-        let thickness = u32::from(s.line) * if focused { 3 } else { 1 };
-        let (text_color, filled) = if on { (s.paper, true) } else { (s.ink, false) };
-        if filled {
-            paint::push(ops, Paint::Focus(rect, radius, None, s.ink))?;
-        }
-        if !filled || focused {
-            paint::push(ops, Paint::Focus(rect, radius, Some(thickness), s.ink))?;
-        }
-        let label = text::fit(
-            self.font,
-            s.text,
-            label,
-            f32::from(rect.width.saturating_sub(s.gap)),
-        )?;
-        let width = self.font.measure_text(s.text, &label)?;
-        let (ascent, descent, _) = paperpaw_ui_kit::geometry::line_metrics(self.font, s.text)?;
-        let baseline =
-            i32::from(rect.y) + ((f32::from(rect.height) + ascent - descent) / 2.0) as i32;
-        paint::push(
-            ops,
-            Paint::Text {
-                text: label,
-                size: s.text,
-                origin: TextOrigin::new(
-                    f32::from(rect.x) + (f32::from(rect.width) - width) / 2.0,
-                    baseline,
-                ),
-                color: text_color,
-                clip: Some(rect),
-            },
-        )
+        paperpaw_ui_kit::parts::button(ops, self.font, self.style, rect, label, on || focused)
     }
 
     /// A row: a name and its value at the other end.
@@ -292,10 +256,7 @@ impl Ink<'_> {
     ) -> Result<(), Error> {
         let s = self.style;
         if focused {
-            paint::push(
-                ops,
-                Paint::Focus(rect, s.corner, Some(u32::from(s.line) * 3), s.ink),
-            )?;
+            paperpaw_ui_kit::focus::ring(ops, s, rect)?;
         }
         let pad = f32::from(s.margin);
         let value_width = if value.is_empty() {

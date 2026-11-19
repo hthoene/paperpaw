@@ -464,11 +464,7 @@ impl BarView {
             paint::push(body, Paint::Focus(frame, style.corner, None, back))?;
         }
         if focused {
-            let thickness = Some(u32::from(style.line).max(1));
-            paint::push(
-                body,
-                Paint::Focus(frame, style.corner, thickness, style.ink),
-            )?;
+            paperpaw_ui_kit::focus::ring(body, style, frame)?;
         }
         let ink = match (on, enabled) {
             (true, _) => style.paper,

@@ -147,7 +147,7 @@ pub(super) fn draw_progress(
         None,
     )?;
     y = y.saturating_add(head.saturating_add(style.gap.saturating_mul(2)));
-    // The bar: an outline and, inside it, the part done.
+    // The bar: the one every screen draws.
     let wide = area.width.saturating_sub(4 * style.margin).max(1);
     let bar = Rect::new(
         area.x.saturating_add((area.width - wide) / 2),
@@ -155,18 +155,7 @@ pub(super) fn draw_progress(
         wide,
         high,
     );
-    paint::push(paint, Paint::Focus(bar, 3, Some(2), style.ink))?;
-    let inner = bar.width.saturating_sub(8);
-    let filled = (u32::from(inner) * u32::from(permille.min(1000)) / 1000) as u16;
-    if filled > 0 {
-        let fill = Rect::new(
-            bar.x.saturating_add(4),
-            bar.y.saturating_add(4),
-            filled,
-            high.saturating_sub(8).max(1),
-        );
-        paint::push(paint, Paint::Fill(fill, style.ink))?;
-    }
+    crate::parts::progress_bar(paint, style, bar, permille, style.ink)?;
     y = y.saturating_add(high.saturating_add(style.gap));
     if !label.is_empty() {
         let x = centred(font, style.text, label)?;

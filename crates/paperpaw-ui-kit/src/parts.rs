@@ -1,5 +1,5 @@
 //! The small parts every screen draws the same way: a progress bar, a pill, a
-//! cover's placeholder and a checkbox.
+//! cover's placeholder, a checkbox, a button and a slider.
 //!
 //! Each takes the [`Style`] and the room it is drawn in and queues its
 //! [`Paint`]; none keeps state, and none allocates beyond the paint list.
@@ -27,10 +27,11 @@ pub fn bar_height(style: &Style) -> u16 {
     style.line.max(2).saturating_mul(2)
 }
 
-/// A bar `permille` thousandths full in `rect`: a track in the style's rule
-/// colour and, from its start, the part done in `ink`. Both have the style's
-/// corners (the ends of a pill theme are round), the part done never rounder
-/// than it is wide.
+/// A bar `permille` thousandths full in `rect`: an outline in `ink` with the
+/// style's corners (the ends of a pill theme are round) and, from its start,
+/// the part done in `ink` as well, inside the outline where the bar is high
+/// enough for a gap and over it where it is a thin one. (The gray a track
+/// would be filled with does not show on a panel of few grays.)
 ///
 /// # Errors
 /// [`Error::NoMemory`] when the paint list cannot grow.
@@ -49,15 +50,19 @@ pub fn progress_bar(
     } else {
         style.corner.min(u32::from(rect.height) / 2)
     };
-    paint::push(out, Paint::Focus(rect, radius, None, style.rule))?;
-    let done = u32::from(rect.width) * u32::from(permille.min(1000)) / 1000;
+    let edge = style.line.max(1);
+    paint::push(out, Paint::Focus(rect, radius, Some(u32::from(edge)), ink))?;
+    // A gap between the outline and the part done, where the bar has room.
+    let gap = if rect.height >= 8 { edge + 1 } else { 0 };
+    let inner = rect.inset(gap, gap);
+    let done = u32::from(inner.width) * u32::from(permille.min(1000)) / 1000;
     let done = clamp_u16(i64::from(done));
-    if done > 0 {
-        let part = Rect::new(rect.x, rect.y, done, rect.height);
-        paint::push(
-            out,
-            Paint::Focus(part, radius.min(u32::from(done) / 2), None, ink),
-        )?;
+    if done > 0 && inner.height > 0 {
+        let part = Rect::new(inner.x, inner.y, done, inner.height);
+        let round = radius
+            .saturating_sub(u32::from(gap))
+            .min(u32::from(done.min(inner.height)) / 2);
+        paint::push(out, Paint::Focus(part, round, None, ink))?;
     }
     Ok(())
 }
@@ -117,7 +122,8 @@ fn initial(title: &str) -> Result<String, Error> {
 /// What stands in the place of a cover the book has none of (or not yet): a
 /// frame with the style's corners and, in it, the title in small letters
 /// broken between words as far as it fits (the last line ends in "…"); where
-/// the place is too small for words, the title's first letter.
+/// the place is too small for words (under five letters wide or three lines
+/// high), the title's first letter.
 ///
 /// # Errors
 /// Font refusals and [`Error::NoMemory`].
@@ -139,7 +145,10 @@ pub fn placeholder(
         at.width.saturating_sub(2 * pad),
         at.height.saturating_sub(2 * pad),
     );
-    if f32::from(width) >= style.small * 2.0 && height >= line_px(font, style.small)? {
+    // Words need room for a few lines of a few letters; less shows the initial.
+    if f32::from(width) >= style.small * 5.0
+        && height >= line_px(font, style.small)?.saturating_mul(3)
+    {
         let words = Wrapped::new(font, title, style.small, (width, height), false)?;
         let room = Rect::new(
             at.x.saturating_add(pad),
@@ -233,4 +242,97 @@ pub fn checkbox(
         stroke_line(out, b, c, width, tones.tick)?;
     }
     Ok(())
+}
+
+/// A button with `label` in `rect`, as a dialog's buttons are: the chosen one
+/// is the theme's focus (a bar, or a frame with a ring focus) with the ink that
+/// reads on it, the others an outline, a card's colour behind the label, or the
+/// label alone as the theme chose (`core.ui-button`). The label is shortened to
+/// fit and centred.
+///
+/// # Errors
+/// Font refusals and [`Error::NoMemory`].
+pub fn button(
+    out: &mut Vec<Paint>,
+    font: &Font<'_>,
+    style: &Style,
+    rect: Rect,
+    label: &str,
+    focused: bool,
+) -> Result<(), Error> {
+    let radius = if style.pill {
+        u32::from(rect.height) / 2
+    } else {
+        style.corner
+    };
+    paint::describe(
+        out,
+        style.describing,
+        paperpaw_sdk::native::canvas::PartRole::Button,
+        rect,
+        focused,
+        false,
+    )?;
+    let ink = if focused {
+        paint::push(out, Paint::Focus(rect, radius, None, style.bar()))?;
+        crate::list::ink(style, true)
+    } else {
+        match style.button {
+            crate::style::ButtonLook::Filled => {
+                paint::push(out, Paint::Focus(rect, radius, None, style.control()))?;
+            }
+            crate::style::ButtonLook::Flat => {}
+            _ => paint::push(
+                out,
+                Paint::Focus(rect, radius, Some(u32::from(style.line).max(1)), style.ink),
+            )?,
+        }
+        style.ink
+    };
+    let room = f32::from(rect.width.saturating_sub(style.margin)).max(1.0);
+    let shown = crate::text::fit(font, style.text, label, room)?;
+    let wide = font.measure_text(style.text, &shown)?;
+    let x = f32::from(rect.x) + (f32::from(rect.width) - wide).max(0.0) / 2.0;
+    crate::text::label(out, font, &shown, style.text, x, rect, ink, Some(rect))
+}
+
+/// A slider's line along `line` (its middle row): thin, thicker up to the
+/// knob, ticks at the pixels of `marks`, and the round knob of `radius` centred
+/// on pixel `knob`, all in `ink`.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the paint list cannot grow.
+pub fn slider(
+    out: &mut Vec<Paint>,
+    style: &Style,
+    line: Rect,
+    (knob, radius): (u16, u16),
+    marks: &[u16],
+    ink: Color,
+) -> Result<(), Error> {
+    let middle = line.y.saturating_add(line.height / 2);
+    let (thin, thick) = (style.line.max(1), style.line.saturating_mul(3).max(3));
+    let (start, end) = (line.x, line.x.saturating_add(line.width));
+    let bar = |from: u16, to: u16, height: u16| {
+        Rect::new(
+            from,
+            middle.saturating_sub(height / 2),
+            to.saturating_sub(from),
+            height,
+        )
+    };
+    paint::push(out, Paint::Fill(bar(start, end, thin), ink))?;
+    paint::push(out, Paint::Fill(bar(start, knob, thick), ink))?;
+    let tick = radius.saturating_mul(3) / 2;
+    for &mark in marks {
+        let top = middle.saturating_sub(tick / 2);
+        paint::push(out, Paint::Fill(Rect::new(mark, top, thin, tick), ink))?;
+    }
+    let circle = Rect::new(
+        knob.saturating_sub(radius),
+        middle.saturating_sub(radius),
+        radius.saturating_mul(2),
+        radius.saturating_mul(2),
+    );
+    paint::push(out, Paint::Focus(circle, u32::from(radius), None, ink))
 }

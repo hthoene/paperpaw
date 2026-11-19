@@ -10,7 +10,7 @@
 use crate::native_skim::{self as model, BUTTONS, Focus, Move, Skim, Step};
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
-    Color, Handled, Point, Rect,
+    Handled, Point, Rect,
     native::{
         Error, Host,
         callbacks::{DrawFrame, DrawPurpose, Input, InputGestureKind},
@@ -206,13 +206,7 @@ impl SkimView {
         let track = track_of((style.line, style.gap), bar);
         let mut body: Vec<Paint> = Vec::new();
         paint::push(&mut body, Paint::Fill(region, style.paper))?;
-        paint::push(
-            &mut body,
-            Paint::Fill(
-                Rect::new(region.x, region.y, region.width, style.line.max(2)),
-                style.ink,
-            ),
-        )?;
+        paperpaw_ui_kit::sheet::edge(&mut body, &style, region, style.ink)?;
         self.info(&mut body, font, &style, info_area)?;
         self.bar(&mut body, &style, (bar, track))?;
         chips.prepare(&mut body, font, usize::MAX, self.skim.button())?;
@@ -280,44 +274,27 @@ impl SkimView {
                 bar.width + 2 * side,
                 bar.height,
             );
-            paint::push(
-                body,
-                Paint::Focus(
-                    around,
-                    style.corner,
-                    Some(u32::from(style.line.max(1))),
-                    style.ink,
-                ),
-            )?;
+            paperpaw_ui_kit::focus::ring(body, style, around)?;
         }
-        paint::push(body, Paint::Fill(track, Color::gray(170)))?;
         let done = model::done_width(track.width, self.skim.permille());
-        paint::push(
-            body,
-            Paint::Fill(Rect::new(track.x, track.y, done, track.height), style.ink),
-        )?;
-        let tick = track.height.saturating_mul(3);
+        let mut ticks: Vec<u16> = Vec::new();
         for &mark in self
             .skim
             .marks()
             .iter()
             .filter(|&&m| m > 0 && m < model::WHOLE)
         {
-            let at = track.x.saturating_add(model::done_width(track.width, mark));
-            let top = (track.y + track.height / 2).saturating_sub(tick / 2);
-            paint::push(
-                body,
-                Paint::Fill(Rect::new(at, top, style.line.max(1), tick), style.ink),
-            )?;
+            ticks.try_reserve(1).map_err(|_| Error::NoMemory)?;
+            ticks.push(track.x.saturating_add(model::done_width(track.width, mark)));
         }
-        let knob = knob_of(bar);
-        let left = track.x.saturating_add(done).saturating_sub(knob / 2);
-        paint::push(
+        let knob = track.x.saturating_add(done);
+        paperpaw_ui_kit::parts::slider(
             body,
-            Paint::Fill(
-                Rect::new(left, bar.y + (bar.height - knob) / 2, knob, knob),
-                style.ink,
-            ),
+            style,
+            track,
+            (knob, knob_of(bar) / 2),
+            &ticks,
+            style.ink,
         )
     }
 }

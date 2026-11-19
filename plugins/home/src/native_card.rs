@@ -9,7 +9,7 @@ use paperpaw_sdk::{
     native::{Error, fonts::Font, formatting::Arg},
 };
 use paperpaw_ui_kit::{
-    Paint, geometry, icons, paint,
+    Paint, geometry, icons,
     widget::{
         Cx,
         look::Align,
@@ -255,7 +255,7 @@ fn text_column(
         &percent,
         look.faint,
     )?;
-    // The bar beside it: an outline, filled as far as the book is read.
+    // The bar beside it, filled as far as the book is read.
     let bar = u16::try_from(u32::from(line_px) * 4)
         .unwrap_or(u16::MAX)
         .max(3);
@@ -267,15 +267,12 @@ fn text_column(
         geometry::clamp_u16(width as i64),
     );
     let top = geometry::clamp_u16(i64::from(y) + i64::from(label) / 2 - i64::from(bar) / 2);
-    let outline = Rect::new(left, top, width, bar);
-    paint::push(
+    paperpaw_ui_kit::parts::progress_bar(
         out,
-        Paint::Focus(outline, 0, Some(u32::from(line_px)), look.ink),
-    )?;
-    let filled = geometry::clamp_u16(i64::from(width) * i64::from(book.progress.min(100)) / 100);
-    paint::push(
-        out,
-        Paint::Fill(Rect::new(left, top, filled, bar), look.ink),
+        cx.style(),
+        Rect::new(left, top, width, bar),
+        u16::from(book.progress.min(100)) * 10,
+        look.ink,
     )
 }
 
