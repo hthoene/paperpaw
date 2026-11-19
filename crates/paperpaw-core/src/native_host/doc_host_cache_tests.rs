@@ -156,6 +156,33 @@ fn a_format_picture_is_the_openers_image_id_until_its_document_ends() {
 }
 
 #[test]
+fn a_picture_asked_for_turned_is_turned_in_the_openers_id_space() {
+    // #374: the turn looked the picture up under no owner, so the reader's
+    // full-screen view never got a turned picture.
+    world(|w| {
+        w.install("epub", EPUB, &[format("epub", "epub", 0, 0)]);
+        let document = w.open(1, "books/a.epub").unwrap();
+        let cache = seen_cache(w, 0);
+        gray_picture(w, &std::format!("{cache}/pic.gray"));
+        *w.reply.borrow_mut() = Ok(cover_reply("pic.gray"));
+        let ask = Record::ServiceDocImageAsk(wire::ServiceDocImageAsk {
+            document,
+            index: u32::MAX,
+            side: 800,
+            flags: 1,
+        });
+        let reply = w.call(AdmittedFeatures::NONE, 16, &[ask]).unwrap();
+        let Record::ServiceDocImage(image) = wire::record_decode_one(&reply).unwrap() else {
+            panic!("no picture");
+        };
+        assert_ne!(image.image, 0);
+        assert_eq!((image.width, image.height, image.flags & 4), (4, 8, 4));
+        let info = w.hosts.images().info(OPENER, image.image).unwrap();
+        assert_eq!((info.width, info.height), (4, 8));
+    });
+}
+
+#[test]
 fn a_picture_the_cache_does_not_hold_or_a_hostile_one_is_left_out() {
     use paperpaw_sdk::image::{GrayWriter, ImageSink};
     // One case a world: three failed answers in a row close a document.
