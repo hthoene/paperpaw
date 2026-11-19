@@ -126,7 +126,9 @@ impl Card {
 }
 
 fn data(len: usize, seed: u8) -> Vec<u8> {
-    (0..len).map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed)).collect()
+    (0..len)
+        .map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed))
+        .collect()
 }
 
 fn write(dir: &XDir<'_, Disk>, name: &str, bytes: &[u8]) {
@@ -171,7 +173,10 @@ fn tree(fs: &Fs) -> BTreeMap<String, Vec<u8>> {
                     .cluster_at(entry.chain(), &mut walked, index)
                     .unwrap()
                     .unwrap_or_else(|| panic!("{name}: its clusters end before its size"));
-                assert!(fs.is_taken(cluster).unwrap(), "{name}: cluster {cluster} is free");
+                assert!(
+                    fs.is_taken(cluster).unwrap(),
+                    "{name}: cluster {cluster} is free"
+                );
                 let owner = *owners.entry(cluster).or_insert(entry.first);
                 assert_eq!(owner, entry.first, "{name}: cluster {cluster} is another's");
             }
@@ -202,7 +207,11 @@ fn fsck(image: &[u8]) {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(format!("{:?}.img", std::thread::current().id()));
     std::fs::write(&path, image).unwrap();
-    let out = std::process::Command::new(tool).arg("-n").arg(&path).output().unwrap();
+    let out = std::process::Command::new(tool)
+        .arg("-n")
+        .arg(&path)
+        .output()
+        .unwrap();
     std::fs::remove_file(&path).ok();
     let text = format!(
         "{}{}",
@@ -248,9 +257,17 @@ fn every_cut(
         fs.flush().unwrap();
         drop(root);
         let then = tree(&fs);
-        assert_eq!(then.get("after the cut, a longer name.bin"), Some(&more), "cut {n}");
+        assert_eq!(
+            then.get("after the cut, a longer name.bin"),
+            Some(&more),
+            "cut {n}"
+        );
         for (path, bytes) in &now {
-            assert_eq!(then.get(path), Some(bytes), "cut {n}: {path} changed by a later write");
+            assert_eq!(
+                then.get(path),
+                Some(bytes),
+                "cut {n}: {path} changed by a later write"
+            );
         }
         assert_eq!(then.len(), now.len() + 2, "cut {n}: an entry came back");
     }
@@ -277,7 +294,11 @@ fn filled(cluster: u32) -> Card {
         let fs = card.mount();
         let root = fs.root_dir();
         write(&root, "first.txt", &data(700, 1));
-        write(&root, "a book with a rather long name, volume two.epub", &data(3000, 2));
+        write(
+            &root,
+            "a book with a rather long name, volume two.epub",
+            &data(3000, 2),
+        );
         let sub = root.create_dir("books").unwrap();
         write(&sub, "inside.txt", &data(1200, 3));
         write(&root, "last.txt", &data(10, 4));
@@ -310,10 +331,17 @@ fn a_new_file_is_absent_empty_or_whole() {
         let bytes = data(2600, 9);
         every_cut(
             &card,
-            |fs| write(&fs.root_dir(), "new file with a name of some length.bin", &bytes),
+            |fs| {
+                write(
+                    &fs.root_dir(),
+                    "new file with a name of some length.bin",
+                    &bytes,
+                )
+            },
             |_, after, now| {
                 let got = now.get("new file with a name of some length.bin");
-                assert!(got.is_none_or(|got| got.is_empty() || Some(got) == after.get("new file with a name of some length.bin")));
+                assert!(got.is_none_or(|got| got.is_empty()
+                    || Some(got) == after.get("new file with a name of some length.bin")));
             },
         );
     }
@@ -393,13 +421,20 @@ fn a_move_leaves_the_file_at_one_place_or_both() {
         |fs| {
             let root = fs.root_dir();
             let to = root.find("books").unwrap().unwrap().to_dir();
-            root.rename("a book with a rather long name, volume two.epub", &to, "moved.epub")
-                .unwrap();
+            root.rename(
+                "a book with a rather long name, volume two.epub",
+                &to,
+                "moved.epub",
+            )
+            .unwrap();
         },
         |_, _, now| {
             let old = now.get("a book with a rather long name, volume two.epub");
             let new = now.get("books/moved.epub");
-            assert!(old.is_some() || new.is_some(), "the file is at neither place");
+            assert!(
+                old.is_some() || new.is_some(),
+                "the file is at neither place"
+            );
             assert!(old.is_none_or(|b| b == &whole) && new.is_none_or(|b| b == &whole));
         },
     );
@@ -422,7 +457,10 @@ fn a_removal_leaves_the_file_whole_or_gone() {
             root.remove("books").unwrap();
         },
         |_, _, now| {
-            assert!(now.get("books/inside.txt").is_none_or(|b| b == &data(1200, 3)));
+            assert!(
+                now.get("books/inside.txt")
+                    .is_none_or(|b| b == &data(1200, 3))
+            );
         },
     );
 }
@@ -438,8 +476,16 @@ fn folders_grow_at_every_cut() {
             let root = fs.root_dir();
             let sub = root.find("books").unwrap().unwrap().to_dir();
             for n in 0..14 {
-                write(&sub, &format!("a file of the folder, number {n}.txt"), &data(40, n));
-                write(&root, &format!("a file of the root, number {n}.txt"), &data(600, n));
+                write(
+                    &sub,
+                    &format!("a file of the folder, number {n}.txt"),
+                    &data(40, n),
+                );
+                write(
+                    &root,
+                    &format!("a file of the root, number {n}.txt"),
+                    &data(600, n),
+                );
             }
         },
         |_, _, now| {
@@ -462,7 +508,9 @@ fn a_file_cut_short_is_old_or_new() {
     every_cut(
         &card,
         |fs| {
-            let entry = fs.root_dir().find("a book with a rather long name, volume two.epub");
+            let entry = fs
+                .root_dir()
+                .find("a book with a rather long name, volume two.epub");
             let mut file = entry.unwrap().unwrap().to_file();
             file.seek(crate::io::SeekFrom::Start(700)).unwrap();
             file.truncate().unwrap();

@@ -14,11 +14,14 @@ use paperpaw_fat::fatfs::{VolumeKind, format_exfat};
 use paperpaw_fat::{BLOCK, BlockDisk, Blocks, DiskError, FatStorage, SharedDisk};
 use paperpaw_platform::{Storage, StorageError};
 
+/// A block written: where, and what.
+type Written = (u32, Vec<u8>);
+
 /// A card in memory that remembers the blocks written to it.
 #[derive(Clone)]
 struct Card {
     bytes: Rc<RefCell<Vec<u8>>>,
-    log: Rc<RefCell<Vec<(u32, Vec<u8>)>>>,
+    log: Rc<RefCell<Vec<Written>>>,
 }
 
 impl Blocks for Card {
@@ -75,7 +78,9 @@ impl Card {
 }
 
 fn data(len: usize, seed: u8) -> Vec<u8> {
-    (0..len).map(|i| (i as u8).wrapping_mul(13).wrapping_add(seed)).collect()
+    (0..len)
+        .map(|i| (i as u8).wrapping_mul(13).wrapping_add(seed))
+        .collect()
 }
 
 /// Every file of the storage by its path, read whole.
@@ -83,10 +88,16 @@ fn files(storage: &dyn Storage) -> BTreeMap<String, Vec<u8>> {
     fn walk(storage: &dyn Storage, dir: &str, out: &mut BTreeMap<String, Vec<u8>>) {
         let mut found = Vec::new();
         storage
-            .list(dir, &mut |entry| found.push((entry.name.to_string(), entry.is_dir)))
+            .list(dir, &mut |entry| {
+                found.push((entry.name.to_string(), entry.is_dir))
+            })
             .unwrap();
         for (name, is_dir) in found {
-            let path = if dir.is_empty() { name } else { format!("{dir}/{name}") };
+            let path = if dir.is_empty() {
+                name
+            } else {
+                format!("{dir}/{name}")
+            };
             if is_dir {
                 walk(storage, &path, out);
             } else {
@@ -94,7 +105,9 @@ fn files(storage: &dyn Storage) -> BTreeMap<String, Vec<u8>> {
                 let mut bytes = vec![0; size];
                 let mut read = 0;
                 while read < size {
-                    let n = storage.read_at(&path, read as u64, &mut bytes[read..]).unwrap();
+                    let n = storage
+                        .read_at(&path, read as u64, &mut bytes[read..])
+                        .unwrap();
                     assert!(n > 0, "{path} reads short");
                     read += n;
                 }
@@ -117,7 +130,11 @@ fn checked(image: &[u8]) -> Option<Vec<u8>> {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join(format!("{:?}.img", std::thread::current().id()));
     std::fs::write(&path, image).unwrap();
-    let out = std::process::Command::new(tool).arg("-y").arg(&path).output().unwrap();
+    let out = std::process::Command::new(tool)
+        .arg("-y")
+        .arg(&path)
+        .output()
+        .unwrap();
     let after = std::fs::read(&path).unwrap();
     std::fs::remove_file(&path).ok();
     if out.status.code() != Some(0) && std::env::var_os("PP_FSCK_SAYS").is_some() {
@@ -140,8 +157,14 @@ fn untouched(card: &Card) {
         return;
     };
     let image = card.image();
-    let differ: Vec<usize> = (0..image.len()).filter(|&i| image[i] != repaired[i]).take(8).collect();
-    assert!(differ.is_empty(), "a computer's check changed the card at {differ:?}");
+    let differ: Vec<usize> = (0..image.len())
+        .filter(|&i| image[i] != repaired[i])
+        .take(8)
+        .collect();
+    assert!(
+        differ.is_empty(),
+        "a computer's check changed the card at {differ:?}"
+    );
 }
 
 /// A card with a few files, as a reader's card holds them.
@@ -150,7 +173,9 @@ fn filled(cluster: u32) -> Card {
     let storage = card.mount();
     storage.write("keep.txt", &data(5000, 1)).unwrap();
     storage.write("note.txt", &data(1800, 2)).unwrap();
-    storage.write("books/a long name of a book, part one.epub", &data(9000, 3)).unwrap();
+    storage
+        .write("books/a long name of a book, part one.epub", &data(9000, 3))
+        .unwrap();
     storage.write("books/more/b.txt", &data(300, 4)).unwrap();
     storage.append("log.txt", &data(100, 5)).unwrap();
     storage.sync().unwrap();
@@ -167,7 +192,13 @@ fn same(got: &Files, want: &Files, what: &str) {
         .keys()
         .chain(want.keys())
         .filter(|path| got.get(*path) != want.get(*path))
-        .map(|path| format!("{path}: {:?} for {:?} bytes", got.get(path).map(Vec::len), want.get(path).map(Vec::len)))
+        .map(|path| {
+            format!(
+                "{path}: {:?} for {:?} bytes",
+                got.get(path).map(Vec::len),
+                want.get(path).map(Vec::len)
+            )
+        })
         .collect();
     assert!(differ.is_empty(), "{what}: {differ:?}");
 }
@@ -186,7 +217,11 @@ fn every_cut(cluster: u32, call: impl Fn(&dyn Storage), sound: impl Fn(&Files, &
     }
     let after = files(&card.mount());
     if let Some(repaired) = checked(&card.image()) {
-        same(&files(&Card::of(repaired).mount()), &after, "the check changed a file");
+        same(
+            &files(&Card::of(repaired).mount()),
+            &after,
+            "the check changed a file",
+        );
     }
     let log = card.log.borrow().clone();
     assert!(!log.is_empty(), "the call wrote nothing");
@@ -209,16 +244,29 @@ fn every_cut(cluster: u32, call: impl Fn(&dyn Storage), sound: impl Fn(&Files, &
         // no file.
         let storage = state.mount();
         let settled = files(&storage);
-        storage.write("after/the cut.txt", &data(2500, cut as u8)).unwrap();
+        storage
+            .write("after/the cut.txt", &data(2500, cut as u8))
+            .unwrap();
         storage.append("log.txt", b"more").unwrap();
         storage.sync().unwrap();
         let mut expected = settled;
         expected.insert("after/the cut.txt".into(), data(2500, cut as u8));
-        expected.entry("log.txt".into()).or_default().extend_from_slice(b"more");
+        expected
+            .entry("log.txt".into())
+            .or_default()
+            .extend_from_slice(b"more");
         drop(storage);
-        same(&files(&state.mount()), &expected, &format!("cut {cut}: after further writes"));
+        same(
+            &files(&state.mount()),
+            &expected,
+            &format!("cut {cut}: after further writes"),
+        );
         if let Some(repaired) = checked(&state.image()) {
-            same(&files(&Card::of(repaired).mount()), &expected, &format!("cut {cut}: the check changed a file"));
+            same(
+                &files(&Card::of(repaired).mount()),
+                &expected,
+                &format!("cut {cut}: the check changed a file"),
+            );
         }
     }
 }
@@ -248,11 +296,15 @@ fn the_storage_works_on_exfat() {
         storage.rename("books/more", "books/less").unwrap();
         storage.rename("note.txt", "NOTE.txt").unwrap();
         storage.create_dir("empty/inside").unwrap();
-        storage.remove("books/a long name of a book, part one.epub").unwrap();
+        storage
+            .remove("books/a long name of a book, part one.epub")
+            .unwrap();
         assert_eq!(storage.remove("nothing.txt"), Ok(()));
         assert_eq!(storage.size("nothing.txt"), Err(StorageError::NotFound));
         for n in 0..40 {
-            storage.write(&format!("many/file number {n}.txt"), &data(n * 37, n as u8)).unwrap();
+            storage
+                .write(&format!("many/file number {n}.txt"), &data(n * 37, n as u8))
+                .unwrap();
         }
         storage.remove_dir_all("empty").unwrap();
         storage.sync().unwrap();
@@ -286,9 +338,21 @@ fn the_storage_works_on_exfat() {
 #[test]
 fn a_write_is_cut_off_at_every_block() {
     for cluster in [512, 4096] {
-        every_cut(cluster, |s| s.write("new file.txt", &data(3000, 7)).unwrap(), old_or_new("new file.txt"));
-        every_cut(cluster, |s| s.write("note.txt", &data(6000, 8)).unwrap(), old_or_new("note.txt"));
-        every_cut(cluster, |s| s.write("note.txt", &[]).unwrap(), old_or_new("note.txt"));
+        every_cut(
+            cluster,
+            |s| s.write("new file.txt", &data(3000, 7)).unwrap(),
+            old_or_new("new file.txt"),
+        );
+        every_cut(
+            cluster,
+            |s| s.write("note.txt", &data(6000, 8)).unwrap(),
+            old_or_new("note.txt"),
+        );
+        every_cut(
+            cluster,
+            |s| s.write("note.txt", &[]).unwrap(),
+            old_or_new("note.txt"),
+        );
     }
 }
 
@@ -305,7 +369,10 @@ fn an_append_is_cut_off_at_every_block() {
             // What was there stays, and what follows is what was appended.
             let log = &now["log.txt"];
             assert!(log.starts_with(&before["log.txt"]) && after["log.txt"].starts_with(log));
-            assert!(now.get("fresh.log").is_none_or(|b| after["fresh.log"].starts_with(b)));
+            assert!(
+                now.get("fresh.log")
+                    .is_none_or(|b| after["fresh.log"].starts_with(b))
+            );
         },
     );
     every_cut(
@@ -327,9 +394,21 @@ fn a_move_is_cut_off_at_every_block() {
             );
         }
     };
-    every_cut(512, |s| s.rename("note.txt", "renamed.txt").unwrap(), moved("note.txt", "renamed.txt"));
-    every_cut(512, |s| s.rename("note.txt", "books/more/moved.txt").unwrap(), moved("note.txt", "books/more/moved.txt"));
-    every_cut(512, |s| s.rename("note.txt", "keep.txt").unwrap(), moved("note.txt", "keep.txt"));
+    every_cut(
+        512,
+        |s| s.rename("note.txt", "renamed.txt").unwrap(),
+        moved("note.txt", "renamed.txt"),
+    );
+    every_cut(
+        512,
+        |s| s.rename("note.txt", "books/more/moved.txt").unwrap(),
+        moved("note.txt", "books/more/moved.txt"),
+    );
+    every_cut(
+        512,
+        |s| s.rename("note.txt", "keep.txt").unwrap(),
+        moved("note.txt", "keep.txt"),
+    );
     every_cut(
         512,
         |s| s.rename("books", "shelf").unwrap(),
@@ -339,12 +418,19 @@ fn a_move_is_cut_off_at_every_block() {
 
 #[test]
 fn a_removal_is_cut_off_at_every_block() {
-    every_cut(512, |s| s.remove("note.txt").unwrap(), old_or_new("note.txt"));
+    every_cut(
+        512,
+        |s| s.remove("note.txt").unwrap(),
+        old_or_new("note.txt"),
+    );
     every_cut(
         512,
         |s| s.remove_dir_all("books").unwrap(),
         |before, _, now| {
-            for path in ["books/a long name of a book, part one.epub", "books/more/b.txt"] {
+            for path in [
+                "books/a long name of a book, part one.epub",
+                "books/more/b.txt",
+            ] {
                 assert!(now.get(path).is_none_or(|b| b == &before[path]), "{path}");
             }
         },
@@ -362,12 +448,20 @@ fn many_calls_keep_every_file() {
         let mut model: Files = BTreeMap::new();
         let mut state = seed;
         let mut next = |below: u64| {
-            state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
             (state >> 33) % below
         };
         let names = [
-            "a.txt", "b with a longer name than one entry holds.bin", "dir/c.txt",
-            "dir/deeper/d.txt", "dir/E.TXT", "ünï/cödé.txt", "f", "dir/deeper/g and more.dat",
+            "a.txt",
+            "b with a longer name than one entry holds.bin",
+            "dir/c.txt",
+            "dir/deeper/d.txt",
+            "dir/E.TXT",
+            "ünï/cödé.txt",
+            "f",
+            "dir/deeper/g and more.dat",
         ];
         for step in 0..600 {
             let path = names[next(names.len() as u64) as usize];
@@ -379,7 +473,10 @@ fn many_calls_keep_every_file() {
                 }
                 2 | 3 => {
                     storage.append(path, &bytes).unwrap();
-                    model.entry(path.into()).or_default().extend_from_slice(&bytes);
+                    model
+                        .entry(path.into())
+                        .or_default()
+                        .extend_from_slice(&bytes);
                 }
                 4 => {
                     storage.remove(path).unwrap();
@@ -415,7 +512,11 @@ fn many_calls_keep_every_file() {
             }
             if step % 50 == 49 {
                 storage.sync().unwrap();
-                same(&files(&storage), &model, &format!("step {step}, clusters of {cluster}"));
+                same(
+                    &files(&storage),
+                    &model,
+                    &format!("step {step}, clusters of {cluster}"),
+                );
             }
         }
         storage.sync().unwrap();

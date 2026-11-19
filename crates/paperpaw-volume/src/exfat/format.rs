@@ -16,7 +16,11 @@ use crate::io::SeekFrom;
 ///
 /// `Error::InvalidInput` for a size no volume can have, `Error::Io` where
 /// the disk fails.
-pub fn format_exfat<IO: ReadWriteSeek>(disk: &mut IO, bytes: u64, cluster: u32) -> Result<(), Error<IO::Error>> {
+pub fn format_exfat<IO: ReadWriteSeek>(
+    disk: &mut IO,
+    bytes: u64,
+    cluster: u32,
+) -> Result<(), Error<IO::Error>> {
     const SECTOR: u64 = 512;
     if !cluster.is_power_of_two() || u64::from(cluster) < SECTOR || bytes < (1 << 20) {
         return Err(Error::InvalidInput);
@@ -92,9 +96,17 @@ pub fn format_exfat<IO: ReadWriteSeek>(disk: &mut IO, bytes: u64, cluster: u32) 
     disk.seek(SeekFrom::Start(fat_offset * SECTOR))?;
     disk.write_all(&0xFFFF_FFF8u32.to_le_bytes())?;
     disk.write_all(&FAT_END.to_le_bytes())?;
-    for (first, len) in [(bitmap_first, bitmap_clusters), (upcase_first, upcase_clusters), (root, 1)] {
+    for (first, len) in [
+        (bitmap_first, bitmap_clusters),
+        (upcase_first, upcase_clusters),
+        (root, 1),
+    ] {
         for n in first..first + len {
-            let next = if n + 1 < first + len { (n + 1) as u32 } else { FAT_END };
+            let next = if n + 1 < first + len {
+                (n + 1) as u32
+            } else {
+                FAT_END
+            };
             disk.write_all(&next.to_le_bytes())?;
         }
     }

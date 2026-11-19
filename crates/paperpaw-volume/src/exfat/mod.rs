@@ -435,7 +435,11 @@ impl<IO: ReadWriteSeek> ExFat<IO> {
         for left in (0..count).rev() {
             // Read before it is freed: the link stays as it is, but so
             // nothing depends on that.
-            let next = if left > 0 { self.fat_next(cluster) } else { Ok(None) };
+            let next = if left > 0 {
+                self.fat_next(cluster)
+            } else {
+                Ok(None)
+            };
             self.mark(cluster, 1, false)?;
             match next {
                 Ok(Some(next)) => cluster = next,

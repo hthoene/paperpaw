@@ -225,6 +225,7 @@ impl<'a, IO: ReadWriteSeek> VolumeRef<'a, IO> {
     }
 
     /// As `FileSystem::check_kept_places`, for tests; nothing on exFAT.
+    #[cfg(debug_assertions)]
     pub fn check_kept_places(&self, on: bool) {
         if let Self::Fat(fs) = self {
             fs.check_kept_places(on);

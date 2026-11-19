@@ -84,7 +84,11 @@ impl Set {
         {
             return false;
         }
-        let (valid, first, len) = (u64_at(b, ENTRY + 8), u32_at(b, ENTRY + 20), u64_at(b, ENTRY + 24));
+        let (valid, first, len) = (
+            u64_at(b, ENTRY + 8),
+            u32_at(b, ENTRY + 20),
+            u64_at(b, ENTRY + 24),
+        );
         let on_volume = first >= 2 && first - 2 < clusters;
         valid <= len
             && len <= u64::from(clusters) << shift
@@ -425,13 +429,7 @@ impl<'a, IO: ReadWriteSeek> XEntry<'a, IO> {
     }
 
     pub(crate) fn to_file(&self) -> XFile<'a, IO> {
-        XFile::new(
-            self.fs,
-            self.chain(),
-            self.len,
-            self.valid,
-            Some(self.loc),
-        )
+        XFile::new(self.fs, self.chain(), self.len, self.valid, Some(self.loc))
     }
 
     pub(crate) fn to_dir(&self) -> XDir<'a, IO> {
@@ -776,7 +774,11 @@ impl<'a, IO: ReadWriteSeek> XDir<'a, IO> {
         }
         let mut walked = (0, chain.first);
         let last = fs
-            .cluster_at(*chain, &mut walked, ((room >> fs.cluster_shift()) - 1) as u32)?
+            .cluster_at(
+                *chain,
+                &mut walked,
+                ((room >> fs.cluster_shift()) - 1) as u32,
+            )?
             .ok_or(Error::CorruptedFileSystem)?;
         let new = fs.take(Some(last.wrapping_add(1)))?;
         fs.zero(fs.cluster_offset(new)?, size)?;
@@ -793,11 +795,16 @@ impl<'a, IO: ReadWriteSeek> XDir<'a, IO> {
         let room = room + size;
         if let Some(own) = &self.own {
             let chain = *chain;
-            fs.update(own, |set| set_stream(set, chain.first, room, room, chain.contiguous))?;
+            fs.update(own, |set| {
+                set_stream(set, chain.first, room, room, chain.contiguous)
+            })?;
         }
         fs.grew();
-        self.extent
-            .set(Some((*chain, if self.own.is_some() { room } else { 0 }, fs.grown())));
+        self.extent.set(Some((
+            *chain,
+            if self.own.is_some() { room } else { 0 },
+            fs.grown(),
+        )));
         Ok(room)
     }
 
@@ -910,7 +917,12 @@ impl<'a, IO: ReadWriteSeek> XDir<'a, IO> {
     /// Moves `entry` of this directory to `name` in `to`: the new set is
     /// added before the old one is removed. Cut off between, the entry is
     /// at both places with the same clusters, never at neither.
-    pub(crate) fn rename_found(&self, entry: &XEntry<'a, IO>, to: &Self, name: &str) -> Res<(), IO> {
+    pub(crate) fn rename_found(
+        &self,
+        entry: &XEntry<'a, IO>,
+        to: &Self,
+        name: &str,
+    ) -> Res<(), IO> {
         let (units, hash) = encode(name)?;
         if let Some(there) = to.find_units(&units, hash)? {
             return match there.loc == entry.loc {

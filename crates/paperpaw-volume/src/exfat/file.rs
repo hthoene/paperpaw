@@ -48,7 +48,13 @@ impl<IO: ReadWriteSeek> Clone for XFile<'_, IO> {
 }
 
 impl<'a, IO: ReadWriteSeek> XFile<'a, IO> {
-    pub(crate) fn new(fs: &'a ExFat<IO>, chain: Chain, len: u64, valid: u64, loc: Option<Loc>) -> Self {
+    pub(crate) fn new(
+        fs: &'a ExFat<IO>,
+        chain: Chain,
+        len: u64,
+        valid: u64,
+        loc: Option<Loc>,
+    ) -> Self {
         Self {
             fs,
             chain,

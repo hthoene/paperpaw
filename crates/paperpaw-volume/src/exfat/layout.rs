@@ -202,9 +202,9 @@ mod tests {
         assert_eq!(upcase(0xFFFF), 0xFFFF);
         assert_eq!(upcase(0x4E2D), 0x4E2D);
         // The table's checksum, as the specification gives it.
-        let sum = UPCASE
-            .iter()
-            .fold(0u32, |sum, &b| sum.rotate_right(1).wrapping_add(u32::from(b)));
+        let sum = UPCASE.iter().fold(0u32, |sum, &b| {
+            sum.rotate_right(1).wrapping_add(u32::from(b))
+        });
         assert_eq!(sum, UPCASE_CHECKSUM);
     }
 }

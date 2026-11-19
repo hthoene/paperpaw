@@ -60,7 +60,7 @@ Unicode data: the bidirectional and Arabic joining tables of crates/paperpaw-tex
 
 Patched copies of trouble-host, mbedtls-rs and jni-macros (patches/) keep their licences; their changes are marked "Modified for PaperPaw".
 
-crates/paperpaw-volume is PaperPaw's file-system driver. Its FAT code is rust-fatfs 0.4 (https://github.com/rafalh/rust-fatfs), Copyright 2017 Rafał Harabień, under the MIT licence (crates/paperpaw-volume/LICENSE.txt), cut down and changed for PaperPaw; the changes are marked "Modified for PaperPaw".
+crates/paperpaw-volume is PaperPaw's file-system driver. Its FAT code is rust-fatfs 0.4 (https://github.com/rafalh/rust-fatfs), Copyright 2017 Rafał Harabień, under the MIT licence (crates/paperpaw-volume/LICENSE.txt), cut down and changed for PaperPaw; the changes are marked "Modified for PaperPaw". Its exFAT code (crates/paperpaw-volume/src/exfat) is written for PaperPaw from the exFAT code of hadris 3.0.0-rc (https://github.com/hxyulin/hadris), Copyright (c) 2026 The Hadris Project Contributors, under the MIT licence (crates/paperpaw-volume/LICENSE-hadris.txt).
 
 The cats (the sleeping cat in plugins/sleep/pictures, the reading cats in plugins/reading-goal/pictures, the README's pictures in docs/images/readme and their dark versions) are PaperPaw artwork, generated with an AI image model (Google Nano Banana) for the project, and licensed under the Apache License, Version 2.0, as the rest of PaperPaw.
 

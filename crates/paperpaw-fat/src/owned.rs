@@ -43,3 +43,23 @@ impl<IO: ReadWriteSeek> Drop for FileSystemOwner<IO> {
         unsafe { drop(Box::from_raw(self.pointer.as_ptr())) };
     }
 }
+
+impl<IO: fatfs::ReadWriteSeek + 'static> crate::FatStorage<IO> {
+    /// The type of the volume: FAT or exFAT.
+    #[must_use]
+    pub fn kind(&self) -> fatfs::VolumeKind {
+        self.fs.kind()
+    }
+
+    /// Whether the free space is counted a part at a time (see `free`):
+    /// not on an exFAT volume whose bitmap lies in pieces, which no
+    /// formatter makes; the driver counts it then.
+    pub(crate) fn counts_in_parts(&self) -> bool {
+        self.dots() || self.fs.free_map().is_some()
+    }
+
+    /// Whether every folder but the root begins with `.` and `..` (FAT).
+    pub(crate) fn dots(&self) -> bool {
+        self.fs.kind() == fatfs::VolumeKind::Fat
+    }
+}
