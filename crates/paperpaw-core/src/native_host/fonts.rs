@@ -576,27 +576,28 @@ pub(crate) unsafe fn draw_inked(
 ) -> i32 {
     status((|| {
         canvas.present()?;
-        with_font(scope, owner, handle, |_| Ok(()))?;
-        outputs([out])?;
-        size_check(size)?;
-        if color >> 24 != 0 || flags & !INKED_SHARP != 0 {
-            return Err(ERR_INVALID);
-        }
-        let [_, red, green, blue] = color.to_be_bytes();
-        let color = Color::rgb(red, green, blue);
-        // SAFETY: the caller provides live readable input.
-        let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
-        // SAFETY: as above.
-        let tone = unsafe { buffers::bytes_in(tone, TONE_BYTES) }?;
-        if !tone.is_empty() && tone.len() != TONE_BYTES {
-            return Err(ERR_INVALID);
-        }
-        let given = <[u8; TONE_BYTES]>::try_from(tone)
-            .ok()
-            .map(paperpaw_sdk::text::ToneCurve::from_alphas);
-        // Widening is clamped; it never refuses.
-        let extra = u16::try_from(extra.min(EXTRA_MAX)).unwrap_or(0);
+        // The handle is resolved once, first: a stale one refuses before the
+        // arguments are looked at, and all of it before the first pixel.
         let width = with_bold(scope, owner, handle, Some(size), |font, faux| {
+            outputs([out])?;
+            size_check(size)?;
+            if color >> 24 != 0 || flags & !INKED_SHARP != 0 {
+                return Err(ERR_INVALID);
+            }
+            let [_, red, green, blue] = color.to_be_bytes();
+            let color = Color::rgb(red, green, blue);
+            // SAFETY: the caller provides live readable input.
+            let text = unsafe { buffers::text_in(text, buffers::TEXT_MAX) }?;
+            // SAFETY: as above.
+            let tone = unsafe { buffers::bytes_in(tone, TONE_BYTES) }?;
+            if !tone.is_empty() && tone.len() != TONE_BYTES {
+                return Err(ERR_INVALID);
+            }
+            let given = <[u8; TONE_BYTES]>::try_from(tone)
+                .ok()
+                .map(paperpaw_sdk::text::ToneCurve::from_alphas);
+            // Widening is clamped; it never refuses.
+            let extra = u16::try_from(extra.min(EXTRA_MAX)).unwrap_or(0);
             canvas.with_canvas(|canvas| {
                 let extra = extra.saturating_add(faux);
                 let curve = given.unwrap_or_else(|| font.text_ink().tone());

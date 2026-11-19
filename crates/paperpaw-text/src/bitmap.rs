@@ -159,7 +159,7 @@
 //!                      before (nearest first), of the input after its
 //!                      first key and after, then its records: u32 each,
 //!                      its place in the input in the top byte, the offset
-//!                      of a lookup's record (8 bytes, of kind 1 to 3) in
+//!                      of a lookup's record (8 bytes, of kind 1 to 3, 6) in
 //!                      the others. A key set: count u16, 2 reserved,
 //!                      keys u32 x count, sorted
 //! kind 5     -         contextual by classes (OpenType's format 2), the
@@ -175,6 +175,12 @@
 //!                      definition: count u16, 2 reserved, per key key u32
 //!                      and class u16, sorted by key (a key not listed is
 //!                      of class 0)
+//! kind 6     -         multiple whose keys are each drawn as the same
+//!                      keys around it (a space before a letter): the
+//!                      offset u32 of the key set of the keys it draws,
+//!                      how many keys go before and after (u8 each), 2
+//!                      reserved, those keys u32 (before, then after);
+//!                      the entry count is the key set's
 //! skip sets  4 bytes   at the table's end: the offset u32 of each key set
 //!   each               a lookup passes over (marks it ignores, OpenType's
 //!                      lookup flags), the skip set count of them
@@ -190,8 +196,9 @@
 //! such as contextual rules, need no new version), a feature of another
 //! script or language, and the table of a version it does not know. Of
 //! the ligatures that start at a key, the first that matches is made.
-//! The lookups a rule applies are of kinds 1 to 3, each at its place once,
-//! in their order. Bengali, Devanagari, Khmer, Lao and Tibetan packs carry
+//! The lookups a rule applies are of kinds 1 to 3 and 6, each at its
+//! place once, in their order. Bengali, Devanagari, Khmer, Lao, Tibetan
+//! and Myanmar packs carry
 //! such a table (`crate::indic`), which their shaper applies feature by
 //! feature, each where the script puts it.
 //!
