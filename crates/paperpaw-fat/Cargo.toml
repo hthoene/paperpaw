@@ -13,10 +13,11 @@ publish = false
 
 [dependencies]
 paperpaw-platform.workspace = true
-paperpaw-volume.workspace = true
+# FAT12 and FAT16 cards (up to 2 GB) mount on the device too.
+paperpaw-volume = { workspace = true, features = ["fat16"] }
 
 [dev-dependencies]
-paperpaw-volume = { workspace = true, features = ["std", "format", "fat16"] }
+paperpaw-volume = { workspace = true, features = ["std", "format"] }
 proptest.workspace = true
 
 [lints]
