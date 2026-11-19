@@ -23,7 +23,7 @@
 //! (Cargo's home, where its dependencies lie), `/paperpaw` (a PaperPaw
 //! checkout the SDK is taken from by a path), `/target` (a build folder
 //! elsewhere) and `/rust` (the compiler, where its libraries are built
-//! along), whatever they are here ([`same_paths`]).
+//! along), whatever they are here (`same_paths`).
 
 mod emulator;
 
