@@ -2,7 +2,7 @@
    out, `use_rwtext_ld_hook` off), with one change (#387, as `rwtext-x4.x` for
    the X4 since #304): the Wi-Fi send and receive code (`.wifi0iram`,
    `.wifirxiram` and `.wifiextrairam`) is not kept in RAM here but runs from
-   flash (`wifi-flash-x4.x` puts it there): that much RAM more for the heap
+   flash (`text-s3.x` puts it there): that much RAM more for the heap
    (the `.rwdata_dummy` of esp-hal's `esp32s3.x` counts the size of what is
    left). What runs in an interrupt or while the flash is written (`.iram1`,
    the sleep and PHY sections, esp-hal's own `.rwtext`) stays in RAM. Found
