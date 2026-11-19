@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # CI job update-path: this build's installer, started from the release
-# before's image (ci.yml explains what it does and does not prove).
+# before's image, and the release before's own installer (its tag's
+# crates/paperpaw-x4 and tests/update_path.rs, in a worktree) on this
+# run's file, as devices in the field install it (ci.yml explains it).
 #
 #   tools/ci/update-path.sh <images-dir> <work-dir>
 #
@@ -16,6 +18,10 @@
 #   GH=<command>             instead of gh
 #   SIGN=<command>           instead of target/release/paperpaw-sign
 #   UPDATE_PATH_TEST=<cmd>   instead of cargo test (run once for each device)
+#   UPDATE_PATH_OLD_TEST=<cmd>  the same for the release before's installer
+#                               (run in its tree, with the same variables)
+#   OLD_TREE=<dir>           the release before's tree, instead of a git
+#                            worktree of its tag (made here; needs the tag)
 set -euo pipefail
 
 [[ $# -eq 2 ]] || { echo "usage: $0 <images-dir> <work-dir>" >&2; exit 2; }
@@ -24,6 +30,7 @@ dir=$2
 gh_cmd=${GH:-gh}
 sign=${SIGN:-target/release/paperpaw-sign}
 run_test=${UPDATE_PATH_TEST:-cargo test -q --release -p paperpaw-x4 --test update_path}
+run_old_test=${UPDATE_PATH_OLD_TEST:-cargo test -q --release -p paperpaw-x4 --test update_path}
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 mkdir -p "$dir"
@@ -45,6 +52,26 @@ if [[ -z "$before" ]]; then
 fi
 "$sign" key "$dir/run.key" > "$dir/run.txt"
 key="$(awk '/^public key:/ { print $3 }' "$dir/run.txt")"
+# The release before's tree, if it has the installer (`paperpaw_x4::updates`
+# and its test with these variables; Beta 3 on): a worktree of its tag. The
+# tag is fetched when the checkout has no history. Empty when it has none.
+old_tree=""
+if [[ -n "${OLD_TREE:-}" ]]; then
+  old_tree=$OLD_TREE
+else
+  repo="${GITHUB_REPOSITORY:-hthoene/paperpaw}"
+  if ! git -C "$root" rev-parse -q --verify "refs/tags/$before^{commit}" > /dev/null; then
+    git -C "$root" fetch -q --no-tags --depth=1 "https://github.com/$repo" "+refs/tags/$before:refs/tags/$before" \
+      || { echo "::error::cannot fetch $before: the release before's installer is not tested"; exit 1; }
+  fi
+  if git -C "$root" cat-file -e "$before:crates/paperpaw-x4/tests/update_path.rs" 2> /dev/null; then
+    old_tree="$dir/old-tree"
+    [[ -d "$old_tree" ]] || git -C "$root" worktree add -q --detach "$old_tree" "$before"
+  fi
+fi
+if [[ -z "$old_tree" ]]; then
+  echo "::warning::$before has no installer test: its own installer is not tested"
+fi
 tested=0
 for device in x4 x3 x4-pro x4-classic; do
   old="paperpaw-$device-${before#v}-update.bin"
@@ -66,6 +93,16 @@ for device in x4 x3 x4-pro x4-classic; do
     PAPERPAW_UPDATE_NEW="$dir/$device-new.bin" PAPERPAW_UPDATE_KEY="$key" \
     $run_test
   echo "::endgroup::"
+  if [[ -n "$old_tree" ]]; then
+    # What the devices of $before do: its own installer takes this run's
+    # file, the run's key built in.
+    echo "::group::$device: $before's own installer on this build's file"
+    (cd "$old_tree" && CARGO_TARGET_DIR="$dir/target-old" \
+      PAPERPAW_UPDATE_DEVICE="$device" PAPERPAW_UPDATE_OLD="$dir/$old" \
+      PAPERPAW_UPDATE_NEW="$dir/$device-new.bin" PAPERPAW_UPDATE_KEY="$key" \
+      $run_old_test)
+    echo "::endgroup::"
+  fi
   tested=$((tested + 1))
 done
 if ((tested == 0)); then

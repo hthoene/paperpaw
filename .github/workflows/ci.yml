@@ -997,14 +997,15 @@ jobs:
   # runs the same test with images made in it.
   #
   # What it proves: the release before's image parses and boots as the
-  # running firmware, and this build's installer
+  # running firmware, this build's installer
   # (crates/paperpaw-x4/src/updates.rs) accepts and installs this build's
-  # file. What it does not: that the release before's own installer
-  # installs this build's file, as devices in the field will do. From the
-  # first release that contains `paperpaw_x4::updates`, add a step that
-  # checks out the previous tag's `crates/paperpaw-x4` (git worktree) and
-  # runs that tag's installer on this run's file; the harness takes the
-  # run's key as a built-in key, so the old code needs only that hook.
+  # file, and the release before's own installer does: a worktree of its
+  # tag runs its own tests/update_path.rs (its kernel, update plugin and
+  # `paperpaw_x4::updates`) on this run's file, the run's key built in
+  # through the same variables, as the devices in the field will update
+  # (#402). A tag without that test (before Beta 3) is only warned about.
+  # What it does not: a real device, and what the update server offers a
+  # device of the release before (paperpaw.org's tests).
   # The job fails when the x4's update is missing from the release before
   # or no device was tested (tools/ci/update-path.sh).
   update-path:
@@ -1029,7 +1030,7 @@ jobs:
         run: |
           cargo build -q --release -p paperpaw-sign
           cargo test -q --release -p paperpaw-x4 --test update_path --no-run
-      - name: Each device, from the release before's image
+      - name: Each device, from the release before's image, with both installers
         env:
           GH_TOKEN: ${{ github.token }}
         run: tools/ci/update-path.sh "$RUNNER_TEMP/images" "$RUNNER_TEMP/update-path"

@@ -54,7 +54,7 @@ keep the logs and the card as they are (no reflash loop).
 
 1. On the origin, point `update.server` at the controlled server (`paperpaw-notes/scripts/serve-hardware-ota.py`, adapted: its arming guards name beta.8/9 and must not be bypassed unreviewed) that answers as paperpaw.org does (the real server: no offer of an interface-7 release to a device that sends no `abi_major`, `paperpaw.org/src/updates.rs`; also test the packed file is not offered to Beta 3).
 2. Update page: Search online. Expect: no offer or a clear "no update"; nothing downloaded to `updates/`; no change on the card (`diff` empty besides logs).
-3. Put the signed `-update.bin` of Beta 4 on the card by hand and open the update page. **Open question for the device**: what does Beta N's installer do with an interface-7 plain update (the host cannot say: the installer of the origin is the thing under test)? Record exactly: refuses with a message, installs, or waits for plugins. If it installs: continue as U1 steps 4 to 6 and record that the in-app path from Beta N works; if it refuses: the row passes as "refused safely, old firmware still runs, card unchanged".
+3. Put the signed `-update.bin` of Beta 4 on the card by hand and open the update page. What the host says (#402, `docs/testing/update-rollback.md`): Beta 3's own installer **installs** the plain interface-7 update (CI `update-path` runs Beta 3's tests on this build's file). So on the device expect: the update page names the file, installs, the device restarts into Beta 4 on trial and keeps it. Record exactly what is seen, then continue as U1 steps 4 to 6. A refusal with the old firmware still running is a finding (host and device differ), not a pass.
 
 ### R1 Rollback by flashing Beta N back over Beta 4
 
