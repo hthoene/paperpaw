@@ -26,6 +26,7 @@ members = [
     "crates/paperpaw-fs",
     "crates/paperpaw-x4",
     "crates/paperpaw-fat",
+    "crates/paperpaw-volume",
     "crates/paperpaw-update",
     "crates/paperpaw-digest",
     "crates/paperpaw-native",
@@ -148,6 +149,7 @@ paperpaw-stardict = { path = "crates/paperpaw-stardict", version = "0.6.0-beta.3
 paperpaw-layout = { path = "crates/paperpaw-layout", version = "0.6.0-beta.3" }
 paperpaw-x4 = { path = "crates/paperpaw-x4", version = "0.6.0-beta.3" }
 paperpaw-fat = { path = "crates/paperpaw-fat" }
+paperpaw-volume = { path = "crates/paperpaw-volume" }
 paperpaw-update = { path = "crates/paperpaw-update", version = "0.6.0-beta.3" }
 paperpaw-digest = { path = "crates/paperpaw-digest", version = "0.6.0-beta.3" }
 paperpaw-native = { path = "crates/paperpaw-native", version = "0.6.0-beta.3" }
@@ -291,20 +293,3 @@ opt-level = 3
 # (patches/jni-macros, "Modified for PaperPaw"), for reproducible builds.
 [patch.crates-io]
 jni-macros = { path = "patches/jni-macros" }
-
-# rust-fatfs freed a removed file's clusters before it removed its entry,
-# and renamed by removing the old entry before writing the new one: cut
-# off between (an empty battery on the X4), a file read short or was
-# lost. This copy removes an entry before its clusters, writes a new
-# entry before it removes the old one (rename, `Dir::replace`) and adds
-# `Dir::unlink`; it moves and removes an entry found without looking for it
-# again (`Dir::rename_found`, `remove_found`), lists a folder from an entry
-# on (`Dir::iter_from`, seeking from a place in the folder's cluster chain
-# kept with its note) and keeps notes about folders until an entry is
-# added to them (`Dir::note`), for lookups in big folders; and it counts
-# the clusters it marks taken and free (`FileSystem::cluster_changes`), so
-# paperpaw-fat follows the free space exactly (patches/fatfs,
-# "Modified for PaperPaw"). The X4's
-# firmware, a workspace of its own, patches it the same way.
-[patch."https://github.com/rafalh/rust-fatfs"]
-fatfs = { path = "patches/fatfs" }

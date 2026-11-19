@@ -715,14 +715,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
-name = "fatfs"
-version = "0.4.0"
-dependencies = [
- "bitflags 2.13.2",
- "log",
-]
-
-[[package]]
 name = "fdeflate"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1832,6 +1824,7 @@ dependencies = [
  "paperpaw-sdk",
  "paperpaw-serve",
  "paperpaw-text",
+ "paperpaw-volume",
  "paperpaw-x4",
  "paperpaw-zip",
  "png",
@@ -1858,8 +1851,8 @@ dependencies = [
 name = "paperpaw-fat"
 version = "0.6.0-beta.3"
 dependencies = [
- "fatfs",
  "paperpaw-platform",
+ "paperpaw-volume",
  "proptest",
 ]
 
@@ -2814,6 +2807,7 @@ dependencies = [
  "paperpaw-qr",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
+ "paperpaw-volume",
  "proptest",
 ]
 
@@ -2966,7 +2960,6 @@ dependencies = [
 name = "paperpaw-sdk"
 version = "0.6.0-beta.3"
 dependencies = [
- "fatfs",
  "paperpaw-config",
  "paperpaw-digest",
  "paperpaw-document",
@@ -2985,6 +2978,7 @@ dependencies = [
  "paperpaw-sort",
  "paperpaw-text",
  "paperpaw-update",
+ "paperpaw-volume",
  "paperpaw-xml",
  "paperpaw-zip",
  "proptest",
@@ -3038,6 +3032,7 @@ dependencies = [
  "paperpaw-fat",
  "paperpaw-plugin-format-images",
  "paperpaw-sdk",
+ "paperpaw-volume",
  "paperpaw-x4",
 ]
 
@@ -3079,6 +3074,14 @@ name = "paperpaw-update"
 version = "0.6.0-beta.3"
 dependencies = [
  "ed25519-compact",
+]
+
+[[package]]
+name = "paperpaw-volume"
+version = "0.6.0-beta.3"
+dependencies = [
+ "bitflags 2.13.2",
+ "paperpaw-volume",
 ]
 
 [[package]]

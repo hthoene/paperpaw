@@ -14,6 +14,8 @@ publish = false
 paperpaw-fat.workspace = true
 
 [dev-dependencies]
+# Tests format a card in memory.
+paperpaw-volume = { workspace = true, features = ["std", "format"] }
 paperpaw-plugin-format-images.workspace = true
 paperpaw-sdk.workspace = true
 paperpaw-x4.workspace = true

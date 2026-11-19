@@ -251,7 +251,11 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
     /// Seeks to `offset` from the start, walking the chain on from `at` (a place `chain_at` gave
     /// for this very chain) where that is ahead of the position and not past `offset`: a seek
     /// far into a long chain does not read the FAT from its first cluster again.
-    pub(crate) fn seek_from(&mut self, offset: u64, at: Option<(u32, u32)>) -> Result<u64, Error<IO::Error>> {
+    pub(crate) fn seek_from(
+        &mut self,
+        offset: u64,
+        at: Option<(u32, u32)>,
+    ) -> Result<u64, Error<IO::Error>> {
         if let (Some((n, cluster)), Some(_)) = (at, self.first_cluster) {
             let ahead = n > self.fs.clusters_from_bytes(u64::from(self.offset));
             let bytes = self.fs.bytes_from_clusters(n);
@@ -285,7 +289,11 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
                 _ => return,
             }
         }
-        debug_assert_eq!(walked, cluster, "the place kept for cluster {} of the chain from {}", n, first);
+        debug_assert_eq!(
+            walked, cluster,
+            "the place kept for cluster {} of the chain from {}",
+            n, first
+        );
     }
 
     /// Returns the attributes of this file.
@@ -306,8 +314,10 @@ impl<'a, IO: ReadWriteSeek, TP, OCC> File<'a, IO, TP, OCC> {
     /// flushed or dropped. Nothing happens for the root directory, which has no directory entry.
     pub fn set_attributes(&mut self, attrs: FileAttributes) {
         if let Some(ref mut e) = self.entry {
-            let settable =
-                FileAttributes::READ_ONLY | FileAttributes::HIDDEN | FileAttributes::SYSTEM | FileAttributes::ARCHIVE;
+            let settable = FileAttributes::READ_ONLY
+                | FileAttributes::HIDDEN
+                | FileAttributes::SYSTEM
+                | FileAttributes::ARCHIVE;
             let kept = e.inner().attributes() & !settable;
             e.set_attributes(kept | (attrs & settable));
         }
@@ -435,7 +445,8 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Read for File<'_, IO, TP, OCC> {
             return Ok(0);
         }
         trace!("read {} bytes in cluster {}", read_size, current_cluster);
-        let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+        let offset_in_fs =
+            self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         let read_bytes = {
             let mut disk = self.fs.disk.borrow_mut();
             disk.seek(SeekFrom::Start(offset_in_fs))?;
@@ -474,7 +485,10 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
         let offset_in_cluster = self.offset % cluster_size;
         let bytes_left_in_cluster = (cluster_size - offset_in_cluster) as usize;
         let bytes_left_until_max_file_size = (MAX_FILE_SIZE - self.offset) as usize;
-        let write_size = buf.len().min(bytes_left_in_cluster).min(bytes_left_until_max_file_size);
+        let write_size = buf
+            .len()
+            .min(bytes_left_in_cluster)
+            .min(bytes_left_until_max_file_size);
         // Exit early if we are going to write no data
         if write_size == 0 {
             return Ok(0);
@@ -501,14 +515,19 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
                 // end of chain reached - allocate new cluster
                 // Modified for PaperPaw: a file (not a directory) that was asked to may take a run.
                 let new_cluster = if self.is_dir() {
-                    let referrer = self.current_cluster.map_or(Referrer::Unknown, Referrer::Link);
-                    self.fs.alloc_cluster(self.current_cluster, true, referrer)?
+                    let referrer = self
+                        .current_cluster
+                        .map_or(Referrer::Unknown, Referrer::Link);
+                    self.fs
+                        .alloc_cluster(self.current_cluster, true, referrer)?
                 } else {
                     let entry = self
                         .entry
                         .as_ref()
                         .map_or(Referrer::Unknown, |e| Referrer::NewEntry(e.pos()));
-                    let (first, count) = self.fs.alloc_clusters(self.current_cluster, 1 + self.ahead, entry)?;
+                    let (first, count) =
+                        self.fs
+                            .alloc_clusters(self.current_cluster, 1 + self.ahead, entry)?;
                     if count > 1 {
                         self.ahead_taken = true;
                     }
@@ -533,7 +552,8 @@ impl<IO: ReadWriteSeek, TP: TimeProvider, OCC> Write for File<'_, IO, TP, OCC> {
             }
         };
         trace!("write {} bytes in cluster {}", write_size, current_cluster);
-        let offset_in_fs = self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
+        let offset_in_fs =
+            self.fs.offset_from_cluster(current_cluster) + u64::from(offset_in_cluster);
         let written_bytes = {
             let mut disk = self.fs.disk.borrow_mut();
             disk.seek(SeekFrom::Start(offset_in_fs))?;
@@ -595,7 +615,10 @@ impl<IO: ReadWriteSeek, TP, OCC> Seek for File<'_, IO, TP, OCC> {
                 new_offset = size;
             }
         }
-        trace!("file seek {} -> {} - entry {:?}", self.offset, new_offset, self.entry);
+        trace!(
+            "file seek {} -> {} - entry {:?}",
+            self.offset, new_offset, self.entry
+        );
         if new_offset == self.offset {
             // position is the same - nothing to do
             return Ok(u64::from(self.offset));
@@ -615,7 +638,10 @@ impl<IO: ReadWriteSeek, TP, OCC> Seek for File<'_, IO, TP, OCC> {
             // `old_offset_in_clusters`th, counted from 1), as reading on would walk it, not from the
             // first one again.
             let (start_cluster, start_in_clusters) = match self.current_cluster {
-                Some(n) if old_offset_in_clusters > 0 && new_offset_in_clusters > old_offset_in_clusters => {
+                Some(n)
+                    if old_offset_in_clusters > 0
+                        && new_offset_in_clusters > old_offset_in_clusters =>
+                {
                     (n, old_offset_in_clusters)
                 }
                 _ => (first_cluster, 1),

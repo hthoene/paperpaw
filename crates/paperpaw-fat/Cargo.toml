@@ -9,15 +9,14 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 categories = ["no-std", "embedded", "filesystem"]
-# Its FAT library is not released with no_std support yet (see deny.toml).
 publish = false
 
 [dependencies]
 paperpaw-platform.workspace = true
-fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "38b3a7950bf0e765e34286d1dfe76c519ee347e2", default-features = false, features = ["alloc", "lfn", "unicode"] }
+paperpaw-volume.workspace = true
 
 [dev-dependencies]
-fatfs = { git = "https://github.com/rafalh/rust-fatfs", rev = "38b3a7950bf0e765e34286d1dfe76c519ee347e2", default-features = false, features = ["alloc", "lfn", "unicode", "std"] }
+paperpaw-volume = { workspace = true, features = ["std", "format"] }
 proptest.workspace = true
 
 [lints]

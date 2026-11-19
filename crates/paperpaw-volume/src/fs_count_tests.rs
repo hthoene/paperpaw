@@ -1,5 +1,6 @@
 //! Mutations of corrupt chains must not over-report free clusters.
 use super::*;
+use crate::format::{FormatVolumeOptions, format_volume};
 use crate::io::StdIoWrapper;
 use std::io::Cursor;
 
@@ -7,7 +8,11 @@ type TestFs = FileSystem<StdIoWrapper<Cursor<Vec<u8>>>>;
 
 fn filesystem() -> TestFs {
     let mut disk = StdIoWrapper::new(Cursor::new(vec![0u8; 8 << 20]));
-    format_volume(&mut disk, FormatVolumeOptions::new().fat_type(FatType::Fat16)).unwrap();
+    format_volume(
+        &mut disk,
+        FormatVolumeOptions::new().fat_type(FatType::Fat16),
+    )
+    .unwrap();
     disk.seek(SeekFrom::Start(0)).unwrap();
     FileSystem::new(disk, FsOptions::new()).unwrap()
 }
@@ -80,12 +85,24 @@ impl std::io::Write for FailMirror {
 fn a_failed_mirror_allocation_keeps_the_count_on_the_low_side() {
     let mut disk = StdIoWrapper::new(FailMirror(Cursor::new(vec![0u8; 128])));
     let mut fat = DiskSlice::<_, StdIoWrapper<FailMirror>>::new(0, 64, 2, &mut disk);
-    let before = crate::table::count_free_clusters::<_, std::io::Error>(&mut fat, FatType::Fat16, 30).unwrap();
+    let before =
+        crate::table::count_free_clusters::<_, std::io::Error>(&mut fat, FatType::Fat16, 30)
+            .unwrap();
     let taken = Cell::new(0);
     assert!(
-        crate::table::alloc_cluster::<_, std::io::Error>(&mut fat, FatType::Fat16, None, None, 30, &taken).is_err()
+        crate::table::alloc_cluster::<_, std::io::Error>(
+            &mut fat,
+            FatType::Fat16,
+            None,
+            None,
+            30,
+            &taken
+        )
+        .is_err()
     );
-    let actual = crate::table::count_free_clusters::<_, std::io::Error>(&mut fat, FatType::Fat16, 30).unwrap();
+    let actual =
+        crate::table::count_free_clusters::<_, std::io::Error>(&mut fat, FatType::Fat16, 30)
+            .unwrap();
     assert_eq!(actual, before - 1);
     assert_eq!(taken.get(), 1);
     assert!(u64::from(before).saturating_sub(taken.get()) <= u64::from(actual));
@@ -96,7 +113,11 @@ fn a_failed_mirror_truncate_counts_the_cluster_as_taken() {
     let mut disk = StdIoWrapper::new(FailMirror(Cursor::new(vec![0u8; 128])));
     let mut fat = DiskSlice::<_, StdIoWrapper<FailMirror>>::new(0, 64, 2, &mut disk);
     let mut iter =
-        ClusterIterator::<_, std::io::Error, DiskSlice<_, StdIoWrapper<FailMirror>>>::new(&mut fat, FatType::Fat16, 2);
+        ClusterIterator::<_, std::io::Error, DiskSlice<_, StdIoWrapper<FailMirror>>>::new(
+            &mut fat,
+            FatType::Fat16,
+            2,
+        );
     assert!(iter.truncate().is_err());
     assert_eq!((iter.taken(), iter.freed()), (1, 0));
 }
