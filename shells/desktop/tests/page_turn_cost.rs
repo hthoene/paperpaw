@@ -62,8 +62,8 @@ const CEILINGS: &[(&str, u32, &str)] = &[
     ),
     (
         "text_measure",
-        230,
-        "layout of the next page, widths and pairs kept for the book (227, #27 quotes)",
+        185,
+        "layout of the next page, widths and pairs kept for the book (172: a chapter's first page)",
     ),
     (
         "storage_read_at",
@@ -77,15 +77,16 @@ const CEILINGS: &[(&str, u32, &str)] = &[
     ),
     ("service_call", 30, "document service and status line (17)"),
     (
-        "other",
-        45,
-        "hyphenation of the words at line ends (40; 13 without)",
+        "text_hyphenate",
+        20,
+        "words at line ends the reader has not been told the places of (15; 25 with 128 words kept, #399)",
     ),
 ];
 
-/// All slots together, one turn (475 now with hyphenation; 517 before a font
-/// was acquired only when a callback draws with it, #393).
-const TOTAL_CEILING: u32 = 485;
+/// All slots together, one turn (412 now; 475 before the pairs and words were
+/// kept for more than a page, #399; 517 before a font was acquired only when a
+/// callback draws with it, #393).
+const TOTAL_CEILING: u32 = 430;
 
 /// Floors, so that a turn which does nothing cannot pass: every measured turn
 /// enters at least this many slots (the quietest, a page with one picture,
@@ -93,6 +94,8 @@ const TOTAL_CEILING: u32 = 485;
 /// text per turn on average (about 205 measured).
 const TURN_FLOOR: u32 = 50;
 const INKED_PER_TURN_FLOOR: u32 = 100;
+/// The most text measures of a turn on average, the Latin book.
+const MEASURES_PER_TURN: u32 = 40;
 
 fn press_button(device: &mut Device, name: &'static str, state: ButtonState) {
     device.call(|kernel, now| kernel.handle(now, InputEvent::Button { name, state }));
@@ -149,6 +152,7 @@ struct Seen {
     total: u32,
     quietest: u32,
     inked: u32,
+    measures: u32,
 }
 
 /// Turns `MEASURED` pages (after `WARM_UP`) of `book` and counts the host slots.
@@ -163,6 +167,7 @@ fn measure(label: &str, name: &str, book: &[u8], ini: &str) -> Seen {
         total: 0,
         quietest: u32::MAX,
         inked: 0,
+        measures: 0,
     };
     for _ in 0..MEASURED {
         slot_counts::reset();
@@ -170,9 +175,9 @@ fn measure(label: &str, name: &str, book: &[u8], ini: &str) -> Seen {
         press(&mut device, ButtonState::Released);
         let counts = slot_counts::snapshot();
         eprintln!(
-            "page turn {label}: measures {} other {} reads {} service {} settings {} inked {}",
+            "page turn {label}: measures {} hyph {} reads {} service {} settings {} inked {}",
             count_of(&counts, "text_measure"),
-            count_of(&counts, "other"),
+            count_of(&counts, "text_hyphenate"),
             count_of(&counts, "storage_read_at"),
             count_of(&counts, "service_call"),
             count_of(&counts, "settings_read"),
@@ -182,6 +187,7 @@ fn measure(label: &str, name: &str, book: &[u8], ini: &str) -> Seen {
         seen.total = seen.total.max(turn);
         seen.quietest = seen.quietest.min(turn);
         seen.inked += count_of(&counts, "text_draw_inked");
+        seen.measures += count_of(&counts, "text_measure");
         for (at, (slot, ..)) in CEILINGS.iter().enumerate() {
             seen.worst[at] = seen.worst[at].max(count_of(&counts, slot));
         }
@@ -311,6 +317,16 @@ fn latin_over(alice: &[u8], over: &mut Vec<String>) {
         over.push(format!(
             "all slots together: {} > {TOTAL_CEILING}",
             seen.total
+        ));
+    }
+    // What the tables of pairs and the kept break places save is in the turns
+    // that are not the worst: about 33 on average (65 when a pair or a word
+    // met on one page was forgotten by the next, #399).
+    if seen.measures > MEASURES_PER_TURN * MEASURED as u32 {
+        over.push(format!(
+            "{} measures in {MEASURED} turns, over {} : what was measured is forgotten",
+            seen.measures,
+            MEASURES_PER_TURN * MEASURED as u32
         ));
     }
     if seen.quietest < TURN_FLOOR {
