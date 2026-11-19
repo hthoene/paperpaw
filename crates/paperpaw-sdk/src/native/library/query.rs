@@ -19,8 +19,8 @@ pub enum Show {
     New,
     /// Books opened at least once, being read or finished: what a list of
     /// the books opened last shows, without the rows of every other book
-    /// (each a read of the card on the X4). A host before it lists every
-    /// book.
+    /// (each a read of the card on the X4). A host before it refuses the
+    /// query (`Error::Invalid`).
     Opened,
 }
 /// Catalog ordering.
