@@ -143,8 +143,13 @@ fn the_boards_are_what_the_firmware_says() {
     let manifest = include_str!("../../../shells/xteink/Cargo.toml");
     for board in BOARDS {
         let (name, project) = (board.name, board.project);
-        let line =
-            format!("#[cfg(feature = \"{name}\")]\npub const PROJECT: &str = \"{project}\";");
+        // The X4 Pro's constant is not the Picco's (`picco` turns `x4-pro` on).
+        let cfg = if name == "x4-pro" {
+            "all(feature = \"x4-pro\", not(feature = \"picco\"))".to_string()
+        } else {
+            format!("feature = \"{name}\"")
+        };
+        let line = format!("#[cfg({cfg})]\npub const PROJECT: &str = \"{project}\";");
         assert!(ota.contains(&line), "{name}: {line}");
         let tag = format!("const BOARD_TAG: &str = \"{}\";", board.tag);
         assert!(ota.contains(&tag), "{name}: {tag}");

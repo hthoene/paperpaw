@@ -54,7 +54,9 @@ pub(crate) fn wifi_online() -> bool {
     WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Whether code plugins built for this computer load (`--trust-code`).
+/// Whether code plugins built for this computer load (`--trust-code`); read
+/// by the native device host, which the web build does not have.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn code_plugins_on() -> bool {
     CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed)
 }
