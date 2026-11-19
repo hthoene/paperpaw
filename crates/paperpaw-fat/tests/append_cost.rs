@@ -131,25 +131,22 @@ fn picture_sized_appends_cost_about_one_command_each() {
 /// it took one for each block (eight for 4 KiB clusters).
 #[test]
 fn a_new_folder_zeroes_its_cluster_in_one_command() {
-    for (cluster, blocks) in [(4096u32, 8usize)] {
-        let (storage, counted) = card(cluster, 300 << 20);
-        storage.create_dir("books").unwrap();
-        storage.sync().unwrap();
-        let before = counted.counts.borrow().write_commands;
-        storage.create_dir("books/shard").unwrap();
-        storage.sync().unwrap();
-        let c = counted.counts.borrow();
-        let commands = c.write_commands - before;
-        println!("cluster {cluster} B: {commands} write commands for a new folder");
-        let zeroed = c.log.iter().rev().take(commands).any(|&(_, n)| n == 8);
-        assert!(zeroed, "no run of 8 blocks was written: {:?}", c.log);
-        // The FAT (and its copy, and FSInfo) for the cluster, the zeroed blocks (8 at
-        // most in one), the entry in the parent, the dot entries, and a few more.
-        assert!(
-            commands <= 5 + blocks.div_ceil(8) + 2,
-            "{commands} write commands for a new folder of {blocks} blocks"
-        );
-    }
+    let (storage, counted) = card(4096, 300 << 20);
+    storage.create_dir("books").unwrap();
+    storage.sync().unwrap();
+    let before = counted.counts.borrow().write_commands;
+    storage.create_dir("books/shard").unwrap();
+    storage.sync().unwrap();
+    let c = counted.counts.borrow();
+    let commands = c.write_commands - before;
+    assert!(
+        c.log.iter().rev().take(commands).any(|&(_, n)| n == 8),
+        "no run of 8 blocks was written: {:?}",
+        c.log
+    );
+    // The FAT (and its copy, and FSInfo) for the cluster, the zeroed blocks in one, the
+    // entry in the parent and the dot entries: 6 measured, 13 with a command for each block.
+    assert!(commands <= 8, "{commands} write commands for a new folder");
 }
 
 /// A block of a file read again is not asked of the card again.

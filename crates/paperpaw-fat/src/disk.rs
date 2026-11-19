@@ -522,7 +522,7 @@ impl<B: Blocks> Write for BlockDisk<B> {
         self.write_back(self.changes)
     }
 
-    /// Whole blocks of zeros go out [`MAX_RUN`] at a time in one command each
+    /// Whole blocks of zeros go out `MAX_RUN` blocks at a time in one command each
     /// (a new folder's cluster: one command, not one for each block), in the
     /// order the single blocks went; where there is no room for the zeros
     /// they go block by block.
