@@ -55,6 +55,7 @@ pub(crate) fn wifi_online() -> bool {
 }
 
 /// Whether code plugins built for this computer load (`--trust-code`).
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn code_plugins_on() -> bool {
     CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed)
 }
@@ -503,6 +504,8 @@ impl Device {
     /// (with simulated time a fixed one, so screenshots repeat) and a
     /// battery at 80 %, charging where it starts online.
     fn status(&self, now: Instant) -> SystemStatus {
+        // The web build has no real clock to read at `now`.
+        let _ = now;
         let clock = match (self.wall, &self.clock) {
             (Some((at, unix_millis, utc_offset_minutes)), _) => {
                 WallClock::new(at, unix_millis, utc_offset_minutes)
