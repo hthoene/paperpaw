@@ -96,13 +96,13 @@ pub(super) fn entry(row: &wire::ServiceLibEntry<'_>) -> Result<(), i32> {
 }
 
 pub(super) fn state(state: &wire::ServiceLibState) -> Result<(), i32> {
-    // 0 no books yet, 1 walking, 2 ready; the generation is never 0 (a handle
-    // needs one).
+    // 0 no books yet, 1 walking, 2 ready, 3 failed; the generation is never 0
+    // (a handle needs one).
     require(
-        state.state <= 2
+        state.state <= 3
             && state.walk_ppm <= PPM
             && state.generation != 0
-            && (state.state != 0 || state.books == 0),
+            && (!matches!(state.state, 0 | 3) || state.books == 0),
     )
 }
 

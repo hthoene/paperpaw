@@ -434,6 +434,7 @@ fn job<'a>(
         start.max_body,
         start.max_file,
         start.timeout_ms,
+        start.foreground,
     )
 }
 

@@ -305,6 +305,13 @@ fn fixtures() -> Vec<Vec<u8>> {
                 screen: "fixture.screen",
                 instance: 71,
             }),
+            Record::EventDisplayChanged(EventDisplayChanged {
+                now_ms: 42,
+                width: 800,
+                height: 480,
+                ppi: 220,
+                flags: 0,
+            }),
             Record::EventStackChanged(EventStackChanged { now_ms: 42 }),
             Record::EventAnswered(EventAnswered {
                 now_ms: 42,

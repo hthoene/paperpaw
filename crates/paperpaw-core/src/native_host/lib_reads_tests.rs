@@ -1212,3 +1212,57 @@ fn a_long_note_is_cut_for_its_row_and_read_whole_by_id() {
     assert_eq!(text(&reads, book, 6, 2, 1).unwrap_err(), ERR_INVALID);
     assert_eq!(text(&reads, book, 6, 2, 2101).unwrap_err(), ERR_INVALID);
 }
+
+/// A card whose catalog is there but cannot be read (a damaged file).
+struct Unreadable(MemoryStorage);
+
+impl paperpaw_sdk::Storage for Unreadable {
+    fn read_at(
+        &self,
+        path: &str,
+        offset: u64,
+        buf: &mut [u8],
+    ) -> Result<usize, paperpaw_sdk::StorageError> {
+        if path.ends_with("catalog.txt") {
+            return Err(paperpaw_sdk::StorageError::Io);
+        }
+        self.0.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, paperpaw_sdk::StorageError> {
+        self.0.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        self.0.write(path, data)
+    }
+    fn append(&self, path: &str, data: &[u8]) -> Result<(), paperpaw_sdk::StorageError> {
+        self.0.append(path, data)
+    }
+    fn list(
+        &self,
+        dir: &str,
+        visit: &mut dyn FnMut(paperpaw_sdk::DirEntry<'_>),
+    ) -> Result<(), paperpaw_sdk::StorageError> {
+        self.0.list(dir, visit)
+    }
+    fn remove(&self, path: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        self.0.remove(path)
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), paperpaw_sdk::StorageError> {
+        self.0.rename(from, to)
+    }
+}
+
+#[test]
+fn a_catalog_that_cannot_be_read_is_failed_with_no_books() {
+    let card = card();
+    let mut catalog = HEADER.as_bytes().to_vec();
+    catalog.extend_from_slice(b"books/x.epub\tAnn\tTitle\t\t\t\t\t\t\t\t1\n");
+    let storage = MemoryStorage::new().with(".paperpaw/library/catalog.txt", catalog);
+    let reads = CatalogReads::new(Rc::new(Unreadable(storage)), card.env.clone());
+    let (s, books, generation, ppm) = state(&reads);
+    assert_eq!((s, books, ppm), (3, 0, 0));
+    assert_ne!(generation, 0);
+    // A walk under way says so first: it may make the catalog again.
+    card.env.walking.set(Some(10));
+    assert_eq!(state(&reads).0, 1);
+}

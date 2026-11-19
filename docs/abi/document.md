@@ -82,12 +82,21 @@ owner decision 125). Records: `abi/services/core.document@1.def`.
   and, optionally, `page` (decimal): mode 1 with target slot `core.reader` opens it with the
   screen the user bound there (the default reading app); mode 3 with a `doc_reader.screen` as
   target and slot `core.reader` opens it with that reader. The reader opens the document with
-  op 1 (`open`), which starts the host's reading session (`core-events.md`). Interface 6's
-  `cannot_open` passing a book on to the next reader is not carried: a reader that cannot open a
-  book shows why itself. A plugin opens one of its own
+  op 1 (`open`), which starts the host's reading session (`core-events.md`). A plugin opens one of its own
   files in a reader the same way, with the params `root` (`0` its data folder, `2` its install
   folder) and `path` instead of a book's path: About's licence texts. The reader opens it with
   `doc_open.root` 5 (section 2.1).
+- [D] **Passing a book on** (#369 G, interface 6's `cannot_open`): `command.pass_on` (1597:
+  `instance: u32` 0 or the submitter's top instance, `reason: i32` an `ERR_*` status for the log,
+  `flags: u32` none, others `ERR_INVALID`) from a reading app that cannot open its book after all.
+  Only from the submitter's own top screen opened in the slot `core.reader` (`ERR_STATE`
+  otherwise). The host opens the book (`path` hand-over) in the next reading app that reads it:
+  the order of #260 (book, folder, format, default), then the slot's own screen, then any app that
+  reads the book's format, as declared, leaving out the apps that passed it on; the one passing it
+  closes as the slot takes the next. At most 4 apps pass one book on: a pass with none left (or
+  past 4) closes the reader and the notice "No reading app can open this book." shows. Nothing of
+  it is kept; a new open of the book starts afresh. A reader that cannot open a book and does not
+  send it shows why itself.
 - [D] **Opening a book at a place** (interface 6: open, then `events::GOTO`; notes-overview at an
   annotation's start, vocabulary, stats, search, todo 167): the hand-over may also carry `section`
   and `offset` (decimal `u32`, both or neither: the `doc_at` position of section 2, the format's
@@ -321,7 +330,12 @@ caller's own Data). Every op on a document is the opener's only (`ERR_DENIED` fo
   `toc_target` finds the exact place, `title: str 512`, cut at a UTF-8 boundary with bit 1). Up to
   10,000 entries (FB2) in pages; the reader shows the first 500.
 - [D] `links` (`doc_span`: `document`, `section`, `from`, `to`, `cursor`, `generation`) rows
-  `doc_link` (`start`, `end`, `kind` 0 internal, 1 external, 2 footnote, `href: str 1024`). An
+  `doc_link` (`start`, `end`, `kind` 0 internal, 1 external, 2 footnote, 3 file, `href: str 1024`).
+  Kind 3 (#369 M) is another file on the card (a note of the same vault): `href` is its path, from
+  the card's top where it starts with `/`, else from the book's folder (no `..`); the reader opens
+  it with `command.open` (a `path` hand-over to `core.reader`). An SDK before it reads
+  `LinkKind::Other(3)`. A format lists `file:<path>` links as kind 3 only where it says so
+  (`FormatProvider::with_file_links`, the notes vault); a book's own are external. An
   `href` over 1,024 bytes is not listed (logged); `link_target` resolves one inside the book.
 - [D] `page_label` (`doc_label: str 32`), `xpointer` and `locate` (`doc_xpointer`: `document`,
   `text: str 1024`) as interface 6 (KOReader XPointers for EPUB, for koreader and kosync).

@@ -37,6 +37,21 @@ fn a_plain_request_gets_a_checked_id_and_starts() {
 }
 
 #[test]
+fn foreground_is_honoured_only_from_a_screen_that_shows() {
+    let started = |flags, screen| {
+        let fake = Fake::x4();
+        fake.screen.set(screen);
+        let mut h = head(1, "http://a.b/");
+        h.flags = flags;
+        request(&fake, OWNER, &with_head(h)).unwrap();
+        fake.foreground.borrow().clone()
+    };
+    assert_eq!(started(2, Some(7)), [true]);
+    assert_eq!(started(2, None), [false]);
+    assert_eq!(started(0, Some(7)), [false]);
+}
+
+#[test]
 fn the_records_must_come_in_their_order_and_once() {
     let h = || rec(head(1, "https://example.org/"));
     let hd = || header("Accept", "text/html");
@@ -183,10 +198,12 @@ fn urls_follow_the_grammar() {
 #[test]
 fn flags_timeouts_and_caps_hold_at_their_limits() {
     let mut h = head(1, "http://a.b/");
-    h.flags = 2;
+    h.flags = 4;
     assert_eq!(call(&with_head(h)), Err(ERR_UNSUPPORTED));
-    h.flags = 1;
-    assert!(call(&with_head(h)).is_ok());
+    for flags in [1, 2, 3] {
+        h.flags = flags;
+        assert!(call(&with_head(h)).is_ok());
+    }
     for (timeout, ok) in [
         (0, true),
         (999, false),

@@ -97,7 +97,12 @@ file's size, 2.1).
 - [D] **Saving the answer:** a `net_file` with role 1 `save` (root 0, or root 1 with
   `uses.storage`; root 2 is `ERR_DENIED`) writes a 2xx answer's body to that file, without
   limit of memory (3.3). Without it, the body comes back in memory, cut at `max_body`.
-- [D] **`flags`**: bit 0 `progress` (send `net.http_progress`, 4.2); others `ERR_UNSUPPORTED`.
+- [D] **`flags`**: bit 0 `progress` (send `net.http_progress`, 4.2); bit 1 `foreground` (#369 H:
+  the user waits for this download, a store install or a pack: the shell gives it its larger
+  receive window and write chunks where the heap allows, whatever `max_file` says, and the radio
+  stays out of power saving while data moves). It is honoured only when the request is made from
+  a callback of a screen of the plugin that shows, outside a work run; otherwise it is ignored
+  without an error (no background radio hold). Others `ERR_UNSUPPORTED`.
 - [D] **`timeout_ms`**: 0 for the default; else 1,000-600,000. The default is 30,000 for a request
   in memory, the whole request, connection and TLS counted, and for a request with a file
   60,000 **without a byte moving** (a long download never ends while it moves).

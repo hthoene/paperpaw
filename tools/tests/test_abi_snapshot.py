@@ -26,9 +26,9 @@ mod tests {
         Snapshot::new(480, 800, 220, PixelFormat::Mono1)
     }
 
-    fn encode(snapshot: &Snapshot) -> [u8; SNAPSHOT_BYTES] {
-        let mut out = [MaybeUninit::uninit(); SNAPSHOT_BYTES];
-        assert_eq!(snapshot_encode(snapshot, &mut out), Ok(SNAPSHOT_BYTES));
+    fn encode(snapshot: &Snapshot) -> [u8; SNAPSHOT_EXTENDED_BYTES] {
+        let mut out = [MaybeUninit::uninit(); SNAPSHOT_EXTENDED_BYTES];
+        assert_eq!(snapshot_encode(snapshot, &mut out), Ok(SNAPSHOT_EXTENDED_BYTES));
         // Every prefix byte is initialized after successful encoding.
         out.map(|byte| unsafe { byte.assume_init() })
     }
@@ -36,9 +36,10 @@ mod tests {
     #[test]
     fn canonical_golden_and_absent_is_distinct_from_zero() {
         let golden = [
-            1,0,0,0, 52,0,0,0, 0,0,0,0, 0,0,0,0,
+            1,0,0,0, 56,0,0,0, 0,0,0,0, 0,0,0,0,
             0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,
             0xe0,1,0x20,3,0xdc,0, 0,0,0,0,1,0, 0,0,0,0,0,0,0,0,
+            0,0,0,0,
         ];
         let mut snapshot = base();
         assert_eq!(encode(&snapshot), golden);
@@ -107,14 +108,14 @@ mod tests {
 
     #[test]
     fn every_short_capacity_is_untouched_and_success_writes_only_prefix() {
-        for cap in 0..SNAPSHOT_BYTES {
+        for cap in 0..SNAPSHOT_EXTENDED_BYTES {
             let mut out = [MaybeUninit::new(0xa5); SNAPSHOT_MAX_BYTES];
             assert_eq!(snapshot_encode(&base(), &mut out[..cap]), Err(-3));
             assert!(out.into_iter().all(|byte| unsafe { byte.assume_init() } == 0xa5));
         }
         let mut out = [MaybeUninit::new(0xa5); SNAPSHOT_MAX_BYTES];
-        assert_eq!(snapshot_encode(&base(), &mut out), Ok(SNAPSHOT_BYTES));
-        assert!(out[SNAPSHOT_BYTES..].iter().all(|byte| unsafe { byte.assume_init() } == 0xa5));
+        assert_eq!(snapshot_encode(&base(), &mut out), Ok(SNAPSHOT_EXTENDED_BYTES));
+        assert!(out[SNAPSHOT_EXTENDED_BYTES..].iter().all(|byte| unsafe { byte.assume_init() } == 0xa5));
         let mut invalid = base();
         invalid.battery = Some(Battery::new(101));
         for cap in 0..=SNAPSHOT_MAX_BYTES {
@@ -127,7 +128,7 @@ mod tests {
     #[test]
     fn strict_presence_boolean_percent_and_reserved_validation() {
         let canonical = encode(&base());
-        for offset in [12, 13, 14, 15, 24, 31, 43, 44, 45, 46, 47, 49, 50, 51] {
+        for offset in [12, 13, 14, 15, 24, 31, 43, 44, 45, 46, 47, 49, 50, 51, 53, 54, 55] {
             let mut bytes = canonical;
             bytes[offset] = 1;
             assert_eq!(snapshot_decode(&bytes), Err(-2), "offset {offset}");
@@ -142,7 +143,7 @@ mod tests {
             bytes[8..12].copy_from_slice(&(1_u32 << bit).to_le_bytes());
             assert_eq!(snapshot_decode(&bytes), Err(-1));
         }
-        for offset in [46, 47, 48] {
+        for offset in [46, 47, 48, 52] {
             for value in 2..=255 {
                 let mut bytes = canonical;
                 bytes[8] = 1;
@@ -203,20 +204,41 @@ mod tests {
             invalid[..4].copy_from_slice(&version.to_le_bytes());
             assert_eq!(snapshot_decode(&invalid), Err(-1));
         }
-        for len in SNAPSHOT_BYTES..=SNAPSHOT_MAX_BYTES {
+        for len in SNAPSHOT_EXTENDED_BYTES..=SNAPSHOT_MAX_BYTES {
             let mut extended = [0xa5; SNAPSHOT_MAX_BYTES];
-            extended[..SNAPSHOT_BYTES].copy_from_slice(&bytes);
+            extended[..SNAPSHOT_EXTENDED_BYTES].copy_from_slice(&bytes);
             extended[4..8].copy_from_slice(&(len as u32).to_le_bytes());
             assert_eq!(snapshot_decode(&extended[..len]), Ok(base()));
         }
         assert_eq!(snapshot_decode(&[0; SNAPSHOT_MAX_BYTES + 1]), Err(-3));
         // All byte values at each prefix position must remain safe to inspect.
-        for offset in 0..SNAPSHOT_BYTES {
+        for offset in 0..SNAPSHOT_EXTENDED_BYTES {
             for value in 0..=255 {
                 let mut changed = bytes;
                 changed[offset] = value;
                 let _result = snapshot_decode(&changed);
             }
+        }
+    }
+
+    #[test]
+    fn hints_shown_extension_and_the_first_layout() {
+        let mut snapshot = base();
+        snapshot.hints_shown = true;
+        let bytes = encode(&snapshot);
+        assert_eq!(&bytes[52..56], &[1, 0, 0, 0]);
+        assert_eq!(snapshot_decode(&bytes), Ok(snapshot));
+        // A host without the extension writes the first 52 bytes: no hints.
+        let mut first = [0; SNAPSHOT_BYTES];
+        first.copy_from_slice(&bytes[..SNAPSHOT_BYTES]);
+        first[4..8].copy_from_slice(&(SNAPSHOT_BYTES as u32).to_le_bytes());
+        assert_eq!(snapshot_decode(&first), Ok(base()));
+        // Between the two lengths the extension is not there yet.
+        for len in SNAPSHOT_BYTES + 1..SNAPSHOT_EXTENDED_BYTES {
+            let mut short = [0; SNAPSHOT_EXTENDED_BYTES];
+            short.copy_from_slice(&bytes);
+            short[4..8].copy_from_slice(&(len as u32).to_le_bytes());
+            assert_eq!(snapshot_decode(&short[..len]), Ok(base()));
         }
     }
 }
@@ -234,6 +256,7 @@ class SnapshotTests(unittest.TestCase):
         candidate = copy.deepcopy(self.schema)
         candidate['minor'] = 2
         candidate['snapshot_value']['since'] = 2
+        candidate['snapshot_value']['extension']['since'] = 2
         ABI.check_lock(trusted, candidate)
         used = [dict(kind='host', name='env.snapshot')]
         self.assertEqual(required_minor(candidate, used, 0), 2)
@@ -294,11 +317,27 @@ class SnapshotTests(unittest.TestCase):
         later = copy.deepcopy(self.schema)
         later['minor'] = 2
         later['snapshot_value']['since'] = 2
+        later['snapshot_value']['extension']['since'] = 2
         ABI.compatible(before, later, 1)
         with self.assertRaisesRegex(ValueError, 'snapshot value contract'):
             ABI.compatible(self.schema, later, 0)
         with self.assertRaisesRegex(ValueError, 'snapshot value contract'):
             ABI.compatible(self.schema, before, 0)
+
+    def test_extension_is_appended_only_and_absent_renders_the_first_layout(self):
+        first = copy.deepcopy(self.schema)
+        del first['snapshot_value']['extension']
+        ABI.validate(first)
+        self.assertNotIn('hints_shown', rust_snapshot(first))
+        self.assertIn('Ok(SNAPSHOT_BYTES)', rust_snapshot(first))
+        ABI.compatible(first, self.schema, 0)
+        with self.assertRaisesRegex(ValueError, 'changed or removed snapshot extension'):
+            ABI.compatible(self.schema, first, 0)
+        for change in [dict(since=0), dict(fields=[])]:
+            candidate = copy.deepcopy(self.schema)
+            candidate['snapshot_value']['extension'].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                ABI.validate(candidate)
 
     def test_lock_coverage_and_legacy_formats(self):
         trusted = ABI.lock_record(self.schema)
@@ -351,6 +390,42 @@ class SnapshotTests(unittest.TestCase):
                             str(source), '-o', str(folder / 'snapshot.rlib')], check=True)
             source.write_text(rust_snapshot(self.schema) + RUST_TESTS)
             binary = folder / 'snapshot-tests'
+            subprocess.run([rustc, '--edition=2024', '--test', '-Dwarnings', str(source),
+                            '-o', str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
+    def test_a_decoder_of_the_first_layout_reads_what_the_extended_host_writes(self):
+        # Plugins built before the extension (#369 L) keep running: their
+        # decoder takes the host's longer snapshot, and the new decoder the
+        # old host's shorter one.
+        first = copy.deepcopy(self.schema)
+        del first['snapshot_value']['extension']
+        test = r'''
+#[test]
+fn old_and_new_layouts_read_each_other() {
+    use core::mem::MaybeUninit;
+    let mut value = new::Snapshot::new(480, 800, 220, new::PixelFormat::Gray2);
+    value.hints_shown = true;
+    value.monotonic_ms = 77;
+    let mut out = [MaybeUninit::uninit(); new::SNAPSHOT_EXTENDED_BYTES];
+    assert_eq!(new::snapshot_encode(&value, &mut out), Ok(new::SNAPSHOT_EXTENDED_BYTES));
+    let bytes = out.map(|byte| unsafe { byte.assume_init() });
+    let old = old::snapshot_decode(&bytes).unwrap();
+    assert_eq!((old.width, old.height, old.dpi, old.monotonic_ms), (480, 800, 220, 77));
+    let mut short = [MaybeUninit::uninit(); old::SNAPSHOT_BYTES];
+    let previous = old::Snapshot::new(480, 800, 220, old::PixelFormat::Gray2);
+    assert_eq!(old::snapshot_encode(&previous, &mut short), Ok(old::SNAPSHOT_BYTES));
+    let short = short.map(|byte| unsafe { byte.assume_init() });
+    assert!(!new::snapshot_decode(&short).unwrap().hints_shown);
+}
+'''
+        rustc = shutil.which('rustc') or str(Path.home() / '.cargo/bin/rustc')
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            source = folder / 'layouts.rs'
+            source.write_text('#![allow(dead_code)]\nmod old {\n' + rust_snapshot(first) +
+                              '}\nmod new {\n' + rust_snapshot(self.schema) + '}\n' + test)
+            binary = folder / 'layouts-tests'
             subprocess.run([rustc, '--edition=2024', '--test', '-Dwarnings', str(source),
                             '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True)

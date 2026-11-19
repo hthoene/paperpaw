@@ -18,6 +18,12 @@
 //! - **Hidden with one app.** With fewer than two reading apps nothing is
 //!   resolved, the settings offer nothing to choose and are not listed
 //!   ([`nothing_to_choose`]).
+//! - **Passed on.** A reading app that cannot open its book after all says
+//!   so (`command.pass_on`, #369 G): the book opens in the next app of the
+//!   same order that reads it, then the slot's own screen, then any other
+//!   app that reads its format, the apps tried left out (at most
+//!   [`PASS_MAX`]); with none left the reader closes and a notice says so.
+//!   Nothing of it is kept.
 use crate::Kernel;
 use crate::native_host::declaration_store::DeclarationStore;
 use crate::native_host::format_index::{extensions_of, has_extension};
@@ -81,7 +87,17 @@ pub(crate) struct ReadingApps {
     unreadable: bool,
     /// The registry generation of the last offer; 0 for none yet.
     synced: u32,
+    /// The book the reader slot was opened with last.
+    book: Option<String>,
+    /// The reading apps (their screens) that passed `book` on.
+    tried: Vec<Id>,
+    /// The open in progress is a pass: `tried` stays.
+    passing: bool,
 }
+
+/// The most reading apps one book is passed on from: a pass beyond it ends
+/// with the notice, never a loop.
+pub(crate) const PASS_MAX: usize = 4;
 
 /// A path as choices are kept by: without `/` at its ends.
 fn plain(path: &str) -> &str {
@@ -277,6 +293,74 @@ pub(crate) fn chosen(
     )
 }
 
+/// The screen of the next reading app for the book at `path` after the
+/// screens in `tried`: the resolver's order (book, folder, format, default),
+/// then the slot's own `bound` screen, then every app that reads the book's
+/// format, as declared.
+fn next_after(
+    store: &DeclarationStore,
+    settings: &Settings,
+    (kept, path): (&str, &str),
+    bound: Option<&Id>,
+    tried: &[Id],
+) -> Option<Id> {
+    let path = plain(path);
+    let mut format = String::new();
+    format_of(store, settings, path, &mut format);
+    let fresh = |screen: &Id| !tried.contains(screen);
+    let app = |id: &str| screen_of(store, id, &format).filter(|screen| fresh(screen));
+    let fits = |id: &str| app(id).is_some();
+    if let Some(screen) = kept_for(kept, path, &fits).and_then(app) {
+        return Some(screen);
+    }
+    let mut key = String::new();
+    if !format.is_empty()
+        && key
+            .try_reserve_exact(PER_FORMAT.len() + format.len())
+            .is_ok()
+    {
+        key.push_str(PER_FORMAT);
+        key.push_str(&format);
+        if let Some(screen) = app(settings.text(&key)) {
+            return Some(screen);
+        }
+    }
+    if let Some(screen) = app(settings.text(core_settings::READING_APP.as_str())) {
+        return Some(screen);
+    }
+    if let Some(screen) = bound.filter(|screen| fresh(screen)) {
+        return screen.try_clone();
+    }
+    let mut found = None;
+    store.each_reader(&mut |reader| {
+        if found.is_none() && reads(reader.spec.formats, &format) {
+            found = Id::try_parse(reader.spec.screen)
+                .ok()
+                .filter(|screen| fresh(screen));
+        }
+    });
+    found
+}
+
+/// `n` in decimal, into `out`.
+fn decimal(n: i32, out: &mut [u8; 12]) -> &str {
+    let mut at = out.len();
+    let mut rest = n.unsigned_abs();
+    loop {
+        at -= 1;
+        out[at] = b'0' + (rest % 10) as u8;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    if n < 0 {
+        at -= 1;
+        out[at] = b'-';
+    }
+    core::str::from_utf8(&out[at..]).unwrap_or_default()
+}
+
 /// Whether `spec` is a reading-app setting with nothing to choose (fewer than
 /// two apps read its books): not listed in the settings.
 pub(crate) fn nothing_to_choose(spec: &SettingSpec) -> bool {
@@ -441,6 +525,13 @@ impl Kernel {
         let Some((path, keep)) = self.book_opened(params) else {
             return screen;
         };
+        // The book the slot holds now, for a pass on; a new book has no
+        // apps tried yet.
+        let apps = &mut self.shared.registry.reading_apps;
+        if !apps.passing {
+            apps.tried.clear();
+        }
+        apps.book = owned(&path).map(Cow::into_owned);
         if let Some(keep) = keep {
             self.keep_reading_app(keep, &path, screen.as_ref());
         }
@@ -463,6 +554,75 @@ impl Kernel {
                 )
             });
         chosen.or_else(|| registry.resolve_slot(slots::READER.as_str()).cloned())
+    }
+
+    /// `command.pass_on` from the reading app of `key` (#369 G): the book goes
+    /// to the next app that reads it (see the module); with none left, that
+    /// reader closes and a notice says so. `reason` is logged.
+    pub(crate) fn pass_book_on(&mut self, key: paperpaw_sdk::ScreenKey, reason: i32) {
+        let Some(index) = self
+            .stack
+            .iter()
+            .position(|active| paperpaw_sdk::ScreenKey::new(active.serial) == key)
+        else {
+            return;
+        };
+        if self.stack[index].slot.as_ref() != Some(&slots::READER) {
+            return;
+        }
+        let Some(path) = self
+            .shared
+            .registry
+            .reading_apps
+            .book
+            .as_deref()
+            .and_then(owned)
+        else {
+            return;
+        };
+        let current = self.stack[index].id.try_clone();
+        let mut status = [0; 12];
+        self.try_warn_runtime(&[
+            current.as_ref().map_or("", Id::as_str),
+            " cannot open ",
+            &path,
+            " (status ",
+            decimal(reason, &mut status),
+            "): passed on",
+        ]);
+        let apps = &mut self.shared.registry.reading_apps;
+        let room = apps.tried.len() < PASS_MAX && apps.tried.try_reserve(1).is_ok();
+        let next = match current.filter(|_| room) {
+            Some(current) => {
+                apps.tried.push(current);
+                let registry = &self.shared.registry;
+                registry
+                    .native_declarations
+                    .as_ref()
+                    .and_then(|directory| directory.store.try_borrow().ok())
+                    .and_then(|store| {
+                        next_after(
+                            &store,
+                            &self.shared.settings,
+                            (&registry.reading_apps.kept, &path),
+                            registry.resolve_slot(slots::READER.as_str()),
+                            &registry.reading_apps.tried,
+                        )
+                    })
+            }
+            None => None,
+        };
+        let Some(screen) = next else {
+            self.shared.registry.reading_apps.tried.clear();
+            self.close_screen(key);
+            let text = String::from(self.shared.translator.tr("core.reading-app.none"));
+            self.output.commands.push(crate::Ask::Notify(text));
+            return;
+        };
+        let params = Params::new().with(params::PATH, path.into_owned());
+        self.shared.registry.reading_apps.passing = true;
+        self.open_slot_command(slots::READER, Some(screen), params);
+        self.shared.registry.reading_apps.passing = false;
     }
 
     /// The book an open of the reader slot names, and what it keeps: from the

@@ -302,12 +302,37 @@ fn wikilink(
     }
     let mut shown = String::new();
     link.shown(&mut shown)?;
+    // Another note of the vault, found on the card: a link to that file
+    // (kind 3, #369 M), which the reader opens; its heading is not kept.
+    if let Some(found) = vault
+        && !link.target.is_empty()
+        && let Some(path) = note_file(found, link.target)?
+    {
+        out.try_push_str("<a href=\"file:/")?;
+        fallible::escape(&path, out)?;
+        out.try_push_str("\">")?;
+        inline_in(&shown, pictures, vault, true, out)?;
+        out.try_push_str("</a>")?;
+        return Ok(Some(used));
+    }
     out.try_push_str("<a href=\"")?;
     link.href(pictures, out)?;
     out.try_push_str("\">")?;
     inline_in(&shown, pictures, vault, true, out)?;
     out.try_push_str("</a>")?;
     Ok(Some(used))
+}
+
+/// The card path of the note or file a wikilink names: `[[Note]]` is
+/// `Note.md`, a name with an extension is that file.
+fn note_file(vault: &Vault<'_>, target: &str) -> Result<Option<String>, DocumentError> {
+    let name = target.rsplit('/').next().unwrap_or(target);
+    if name.contains('.') {
+        return vault.find(target);
+    }
+    let mut file = fallible::string(target)?;
+    file.try_push_str(".md")?;
+    vault.find(&file)
 }
 
 /// Where `what` is next in a text, at or after where it was asked for:
@@ -965,6 +990,23 @@ mod tests {
         assert_eq!(
             html("[a [[b]]](x.md)"),
             "<p><a href=\"x.md\">a [[b]]</a></p>\n"
+        );
+    }
+
+    #[test]
+    fn a_note_of_the_vault_is_linked_as_its_file() {
+        let way = "../../../../";
+        assert_eq!(
+            html_in(
+                "[[Other|that one]] [[Sub/Deep#Part]] [[map.pdf]] [[Gone]]",
+                &["v/Other.md", "v/Sub/Deep.md", "v/map.pdf"]
+            ),
+            format!(
+                "<p><a href=\"file:/v/Other.md\">that one</a> \
+                 <a href=\"file:/v/Sub/Deep.md\">Sub/Deep &gt; Part</a> \
+                 <a href=\"file:/v/map.pdf\">map.pdf</a> \
+                 <a href=\"{way}[[Gone]]\">Gone</a></p>\n"
+            )
         );
     }
 

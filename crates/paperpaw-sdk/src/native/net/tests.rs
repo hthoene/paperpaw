@@ -95,6 +95,7 @@ fn a_request_goes_out_as_request_headers_files_and_body_in_order() {
             .save_to(FileRoot::Data, "answer.json")
             .unwrap()
             .progress()
+            .foreground()
             .timeout_ms(15_000)
             .unwrap()
             .max_body(8192)
@@ -111,7 +112,7 @@ fn a_request_goes_out_as_request_headers_files_and_body_in_order() {
         assert_eq!(rows.len(), 5);
         assert!(matches!(rows[0], Record::ServiceNetRequest(r)
             if (r.token, r.method, r.flags, r.timeout_ms, r.max_body, r.max_file)
-                == (5, "POST", 1, 15_000, 8192, 1 << 20)
+                == (5, "POST", 3, 15_000, 8192, 1 << 20)
                 && r.url == "https://example.org/api?key=1"));
         assert!(matches!(rows[1], Record::ServiceNetHeader(h)
             if (h.name, h.value) == ("Authorization", "Token secret")));

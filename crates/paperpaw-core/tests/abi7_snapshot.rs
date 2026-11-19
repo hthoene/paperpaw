@@ -26,7 +26,7 @@ use paperpaw_platform::{
     SystemStatus, WallClock,
 };
 use paperpaw_sdk::{Id, Manifest, RegisterError, Settings, Version};
-use snapshot_wire::{SNAPSHOT_BYTES, SNAPSHOT_MAX_BYTES, Snapshot, snapshot_decode};
+use snapshot_wire::{SNAPSHOT_EXTENDED_BYTES, SNAPSHOT_MAX_BYTES, Snapshot, snapshot_decode};
 use std::{cell::RefCell, mem::MaybeUninit, pin::pin, ptr, rc::Rc};
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
@@ -132,7 +132,7 @@ fn every_pixel_format_retains_display_and_touch_semantics() {
 #[test]
 fn fresh_frames_preserve_unknown_zero_and_charging_transitions() {
     let slot = pin!(FrameSlot::new());
-    let mut bytes = [0; SNAPSHOT_BYTES];
+    let mut bytes = [0; SNAPSHOT_EXTENDED_BYTES];
     for battery in [
         None,
         Some(Battery::new(0, false, None)),
@@ -168,7 +168,7 @@ fn short_invalid_and_uninitialized_outputs_have_bounded_writes() {
     let frame = view(SystemStatus::default()).unwrap();
     slot.as_ref()
         .scope(&frame, || {
-            for length in [0, SNAPSHOT_BYTES - 1] {
+            for length in [0, SNAPSHOT_EXTENDED_BYTES - 1] {
                 let mut out = vec![0xa5; length];
                 assert_eq!(output(&slot, &mut out), ERR_NO_SPACE);
                 assert!(out.iter().all(|b| *b == 0xa5));
@@ -183,13 +183,13 @@ fn short_invalid_and_uninitialized_outputs_have_bounded_writes() {
                         &slot,
                         PpBuffer {
                             ptr: ptr::null_mut(),
-                            cap: SNAPSHOT_BYTES,
+                            cap: SNAPSHOT_EXTENDED_BYTES,
                         },
                     )
                 },
                 ERR_INVALID
             );
-            let mut out = [MaybeUninit::<u8>::uninit(); SNAPSHOT_BYTES];
+            let mut out = [MaybeUninit::<u8>::uninit(); SNAPSHOT_EXTENDED_BYTES];
             // SAFETY: output is valid uninitialized exclusive storage.
             assert_eq!(
                 unsafe {
@@ -203,12 +203,12 @@ fn short_invalid_and_uninitialized_outputs_have_bounded_writes() {
                 },
                 OK
             );
-            // SAFETY: successful encoder return initialized exactly SNAPSHOT_BYTES.
+            // SAFETY: successful encoder return initialized exactly SNAPSHOT_EXTENDED_BYTES.
             let bytes = unsafe { std::slice::from_raw_parts(out.as_ptr().cast::<u8>(), out.len()) };
             assert_eq!(snapshot_decode(bytes).unwrap(), frame.value);
             let mut extra = [0xa5; SNAPSHOT_MAX_BYTES];
             assert_eq!(output(&slot, &mut extra), OK);
-            assert!(extra[SNAPSHOT_BYTES..].iter().all(|b| *b == 0xa5));
+            assert!(extra[SNAPSHOT_EXTENDED_BYTES..].iter().all(|b| *b == 0xa5));
         })
         .unwrap();
 }
@@ -217,7 +217,7 @@ fn short_invalid_and_uninitialized_outputs_have_bounded_writes() {
 fn scope_cleanup_and_nested_refusal_preserve_the_current_snapshot() {
     let slot = pin!(FrameSlot::new());
     let frame = view(SystemStatus::default()).unwrap();
-    let mut bytes = [0xa5; SNAPSHOT_BYTES];
+    let mut bytes = [0xa5; SNAPSHOT_EXTENDED_BYTES];
     assert_eq!(output(&slot, &mut bytes), ERR_STATE);
     slot.as_ref()
         .scope(&frame, || {
@@ -263,7 +263,7 @@ fn probe(kept: Rc<RefCell<Vec<Snapshot>>>) -> impl Fn(&mut Staging) -> Result<()
                     return;
                 };
                 let slot = pin!(paperpaw_core::native_host::environment::EnvironmentScope::new());
-                let mut bytes = [0; SNAPSHOT_BYTES];
+                let mut bytes = [0; SNAPSHOT_EXTENDED_BYTES];
                 slot.as_ref()
                     .scope(env, || {
                         // SAFETY: bytes is exclusive live output disjoint from the context.

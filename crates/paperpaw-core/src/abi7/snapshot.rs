@@ -30,6 +30,7 @@ impl Frame for Place<'_> {
         // the SDK's local time reads it; absent without a clock.
         value.utc_offset_minutes =
             crate::kit::time::local_time(self).and_then(|local| utc_offset_minutes(local.offset));
+        value.hints_shown = self.hints_shown();
         Ok(value)
     }
 }
@@ -78,6 +79,7 @@ pub(crate) fn capture(
         touch: device.input.touch,
         pixel,
         utc_offset_minutes: None,
+        hints_shown: false,
     })
 }
 

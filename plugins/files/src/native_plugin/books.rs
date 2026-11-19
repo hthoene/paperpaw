@@ -72,11 +72,15 @@ impl NativeFiles {
         let state = library
             .state(host, &mut input, &mut out)
             .map(|state| (state.phase(), state.books(), state.walk_ppm()));
-        let card = if unreadable || state.as_ref().is_err_and(|error| *error != Error::Busy) {
-            Self::card_present(host)?
-        } else {
-            true
-        };
+        let failed = state
+            .as_ref()
+            .is_ok_and(|state| state.0 == paperpaw_sdk::native::library::CatalogPhase::Failed);
+        let card =
+            if unreadable || failed || state.as_ref().is_err_and(|error| *error != Error::Busy) {
+                Self::card_present(host)?
+            } else {
+                true
+            };
         let condition = match state {
             Ok(_) if unreadable && card => Condition::Failed,
             Ok(_) if unreadable => Condition::CardGone,

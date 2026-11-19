@@ -472,6 +472,7 @@ impl Kernel {
                 self.open_slot_command(slot, Some(screen), params);
             }
             Ask::OpenBook(params) => self.open_book_command(params),
+            Ask::PassOn(key, reason) => self.pass_book_on(key, reason),
             Ask::Close(key) => self.close_screen(key),
             Ask::Replace(screen, params) => self.replace(screen, &params),
             Ask::BackTo(id) => self.back_to(&id),

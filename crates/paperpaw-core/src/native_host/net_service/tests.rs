@@ -59,6 +59,8 @@ pub(crate) struct Fake {
     pub(crate) claims: RefCell<Vec<(u64, u32, std::string::String)>>,
     pub(crate) released: RefCell<Vec<(u64, u32, std::string::String)>>,
     pub(crate) started: RefCell<Vec<u32>>,
+    /// The `foreground` of each started request, in order.
+    pub(crate) foreground: RefCell<Vec<bool>>,
     pub(crate) aborted: RefCell<Vec<u32>>,
     pub(crate) start_fails: Cell<Option<i32>>,
     pub(crate) demand: RefCell<Vec<bool>>,
@@ -102,6 +104,7 @@ impl Fake {
             claims: RefCell::new(Vec::new()),
             released: RefCell::new(Vec::new()),
             started: RefCell::new(Vec::new()),
+            foreground: RefCell::new(Vec::new()),
             aborted: RefCell::new(Vec::new()),
             start_fails: Cell::new(None),
             demand: RefCell::new(Vec::new()),
@@ -136,11 +139,12 @@ impl Fake {
 }
 
 impl NetTransport for Fake {
-    fn start(&self, id: u32, _: &Start<'_>) -> Result<(), i32> {
+    fn start(&self, id: u32, start: &Start<'_>) -> Result<(), i32> {
         if let Some(error) = self.start_fails.get() {
             return Err(error);
         }
         self.started.borrow_mut().push(id);
+        self.foreground.borrow_mut().push(start.foreground);
         Ok(())
     }
     fn abort(&self, id: u32) {

@@ -48,7 +48,7 @@ const QUEUE_MAX: usize = 28;
 
 /// The lifecycle events that are edges, held encoded (and `library_changed`,
 /// held the same way: its queue must not be pruned for want of a listener).
-const EDGE_TAGS: [u32; 12] = [
+const EDGE_TAGS: [u32; 13] = [
     wire::EVENT_SCREEN_READY_TAG,
     wire::EVENT_STARTED_TAG,
     wire::EVENT_BATTERY_MEASURED_TAG,
@@ -61,6 +61,7 @@ const EDGE_TAGS: [u32; 12] = [
     wire::EVENT_SPOKEN_TAG,
     wire::EVENT_PLUGINS_REQUESTED_TAG,
     wire::EVENT_PLUGIN_ANSWERED_TAG,
+    wire::EVENT_DISPLAY_CHANGED_TAG,
 ];
 
 /// The wire tag of the kernel event `event`, `None` for any other event.
@@ -138,6 +139,9 @@ fn drop_note(tag: u32) -> &'static str {
         }
         wire::EVENT_PLUGIN_ANSWERED_TAG => {
             "a native plugin lost event.plugin_answered; not retried"
+        }
+        wire::EVENT_DISPLAY_CHANGED_TAG => {
+            "a native plugin lost event.display_changed; not retried"
         }
         _ => "a native plugin lost event.page_turned; not retried",
     }
@@ -302,6 +306,24 @@ impl Kernel {
             self.try_warn_runtime(&[drop_note(tag)]);
         }
         held_by
+    }
+
+    /// `event.display_changed` (112, #369 K): the display has another size
+    /// (turned, a window resized), to every running subscriber, after the
+    /// screens were made anew for it. An edge: a second change is told too.
+    pub(crate) fn native_display_changed(&mut self, width: u16, height: u16) {
+        let now_ms = self.shared.now.millis();
+        let ppi = u32::from(self.shared.device.display.dpi);
+        self.native_queue_event(wire::EVENT_DISPLAY_CHANGED_TAG, &|_| true, &|queue| {
+            let record = wire::Record::EventDisplayChanged(wire::EventDisplayChanged {
+                now_ms,
+                width: u32::from(width),
+                height: u32::from(height),
+                ppi,
+                flags: 0,
+            });
+            queue.push_record(wire::EVENT_DISPLAY_CHANGED_TAG, &record)
+        });
     }
 
     /// `event.screen_ready` (87) for the instance `instance` of `screen`, to

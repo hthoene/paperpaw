@@ -5,6 +5,10 @@ pub const SNAPSHOT_VERSION: u32 = 1;
 pub const SNAPSHOT_BYTES: usize = 52;
 /// Maximum snapshot length, including same-version extensions.
 pub const SNAPSHOT_MAX_BYTES: usize = 128;
+/// Length with the appended extension (`hints_shown` and three reserved
+/// bytes): what a host writes. A shorter snapshot (52 bytes) is one from a
+/// host without it.
+pub const SNAPSHOT_EXTENDED_BYTES: usize = 56;
 const BATTERY: u32 = 1;
 const VOLTAGE: u32 = 2;
 const UNIX: u32 = 4;
@@ -38,6 +42,9 @@ pub struct Snapshot {
     /// included), in SNAPSHOT_UTC_OFFSET_MIN..=SNAPSHOT_UTC_OFFSET_MAX,
     /// when known.
     pub utc_offset_minutes: Option<i16>,
+    /// Whether the host's hint row is on screen now (appended extension);
+    /// false from a host that does not write it.
+    pub hints_shown: bool,
 }
 
 impl Snapshot {
@@ -53,6 +60,7 @@ impl Snapshot {
             touch: false,
             pixel,
             utc_offset_minutes: None,
+            hints_shown: false,
         }
     }
 }
@@ -164,7 +172,7 @@ fn pixel_decode(kind: u16, code: u16, bits: u8) -> Result<PixelFormat, i32> {
     Ok(pixel)
 }
 
-/// Encode exactly SNAPSHOT_BYTES, leaving every output byte unchanged on error.
+/// Encode exactly SNAPSHOT_EXTENDED_BYTES, leaving every output byte unchanged on error.
 ///
 /// Output may be uninitialized. Validation and capacity checks precede writes.
 /// This is a status operation: a short output is ERR_NO_SPACE, never a prefix copy.
@@ -179,10 +187,10 @@ pub fn snapshot_encode(
     {
         return Err(-2);
     }
-    if out.len() < SNAPSHOT_BYTES {
+    if out.len() < SNAPSHOT_EXTENDED_BYTES {
         return Err(-3);
     }
-    let mut bytes = [0_u8; SNAPSHOT_BYTES];
+    let mut bytes = [0_u8; SNAPSHOT_EXTENDED_BYTES];
     let mut presence = 0_u32;
     if let Some(battery) = value.battery {
         presence |= BATTERY;
@@ -203,7 +211,7 @@ pub fn snapshot_encode(
         bytes[49..51].copy_from_slice(&minutes.to_le_bytes());
     }
     bytes[0..4].copy_from_slice(&SNAPSHOT_VERSION.to_le_bytes());
-    bytes[4..8].copy_from_slice(&(SNAPSHOT_BYTES as u32).to_le_bytes());
+    bytes[4..8].copy_from_slice(&(SNAPSHOT_EXTENDED_BYTES as u32).to_le_bytes());
     bytes[8..12].copy_from_slice(&presence.to_le_bytes());
     bytes[16..24].copy_from_slice(&value.monotonic_ms.to_le_bytes());
     bytes[32..34].copy_from_slice(&value.width.to_le_bytes());
@@ -214,10 +222,11 @@ pub fn snapshot_encode(
     bytes[40..42].copy_from_slice(&code.to_le_bytes());
     bytes[42] = bits;
     bytes[48] = u8::from(value.touch);
+    bytes[52] = u8::from(value.hints_shown);
     for (slot, byte) in out.iter_mut().zip(bytes) {
         slot.write(byte);
     }
-    Ok(SNAPSHOT_BYTES)
+    Ok(SNAPSHOT_EXTENDED_BYTES)
 }
 
 fn scalar<const N: usize>(bytes: &[u8], offset: usize) -> [u8; N] {
@@ -282,6 +291,14 @@ pub fn snapshot_decode(bytes: &[u8]) -> Result<Snapshot, i32> {
     {
         return Err(-2);
     }
+    let hints_shown = if bytes.len() >= SNAPSHOT_EXTENDED_BYTES {
+        if bytes[53..56].iter().any(|&byte| byte != 0) {
+            return Err(-2);
+        }
+        boolean(bytes[52])?
+    } else {
+        false
+    };
     Ok(Snapshot {
         monotonic_ms: u64::from_le_bytes(scalar(bytes, 16)),
         unix_seconds: if presence & UNIX == 0 {
@@ -317,5 +334,6 @@ pub fn snapshot_decode(bytes: &[u8]) -> Result<Snapshot, i32> {
         } else {
             Some(minutes)
         },
+        hints_shown,
     })
 }

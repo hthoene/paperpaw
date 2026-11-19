@@ -293,7 +293,7 @@ impl ShellHttp for Bridge {
                 job.max_body as usize
             },
         ));
-        inner.http.add_staged(call);
+        inner.http.add_staged(call, job.foreground);
         Ok(())
     }
 

@@ -410,6 +410,8 @@ impl Kernel {
             .iter()
             .map(|s| s.screen.shows_through())
             .collect();
+        // Before the place borrows the kernel's state for the drawing.
+        self.shared.hints_shown = self.hint_row().is_some();
         let env = self.shared.place(self.shared.now);
         // Overlays that wash out what lies below them.
         let dims: Vec<bool> = self
@@ -572,6 +574,7 @@ impl Kernel {
     fn draw_aside(&mut self, canvas: &mut paperpaw_sdk::Canvas<'_>) {
         let regions: Vec<Option<Rect>> = (0..self.stack.len()).map(|i| self.overlay(i)).collect();
         let row = self.hint_row();
+        self.shared.hints_shown = row.is_some();
         let env = self.shared.place(self.shared.now);
         let base = self.full_base();
         {
@@ -698,6 +701,7 @@ impl Kernel {
         self.output
             .commands
             .push(crate::Ask::emit(&events::DISPLAY_CHANGED, changed));
+        self.native_display_changed(panel.width, panel.height);
     }
 
     /// The screen has another size, e.g. turned (see

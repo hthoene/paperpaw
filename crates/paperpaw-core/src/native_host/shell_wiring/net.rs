@@ -82,6 +82,10 @@ pub struct HttpJob<'a> {
     pub max_body: u32,
     pub max_file: u64,
     pub timeout_ms: u32,
+    /// The user waits for this download (`net_request.flags` bit 1, from a
+    /// screen that shows): the shell gives it its larger receive window and
+    /// write chunks where memory allows, whatever `max_file` says.
+    pub foreground: bool,
 }
 
 /// The URL, headers and body are the plugin's data (they can hold
@@ -94,6 +98,7 @@ impl core::fmt::Debug for HttpJob<'_> {
             .field("max_body", &self.max_body)
             .field("max_file", &self.max_file)
             .field("timeout_ms", &self.timeout_ms)
+            .field("foreground", &self.foreground)
             .finish_non_exhaustive()
     }
 }
@@ -111,6 +116,7 @@ impl<'a> HttpJob<'a> {
         max_body: u32,
         max_file: u64,
         timeout_ms: u32,
+        foreground: bool,
     ) -> Self {
         Self {
             id,
@@ -123,6 +129,7 @@ impl<'a> HttpJob<'a> {
             max_body,
             max_file,
             timeout_ms,
+            foreground,
         }
     }
 }

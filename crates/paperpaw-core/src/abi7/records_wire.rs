@@ -15139,6 +15139,58 @@ impl<'a> WireRecord<'a> for ServiceDocReport<'a> {
         unsafe { fields_decode_as(&SERVICE_DOC_REPORT_FIELDS, body) }
     }
 }
+/// Wire tag of the `event.display_changed` record.
+pub const EVENT_DISPLAY_CHANGED_TAG: u32 = 112;
+
+/// The `event.display_changed` record, borrowed from its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventDisplayChanged {
+    /// Little-endian u64.
+    pub now_ms: u64,
+    /// Little-endian u32.
+    pub width: u32,
+    /// Little-endian u32.
+    pub height: u32,
+    /// Little-endian u32.
+    pub ppi: u32,
+    /// Little-endian u32.
+    pub flags: u32,
+}
+
+wire_fields! {
+    /// The fields of `event.display_changed` as the codec walks them.
+    EVENT_DISPLAY_CHANGED_FIELDS: [EventDisplayChanged; 5] {
+        now_ms: u64, 0, 0;
+        width: u32, 0, 0;
+        height: u32, 0, 0;
+        ppi: u32, 0, 0;
+        flags: u32, 0, 0;
+    }
+}
+
+impl WireEncode for EventDisplayChanged {
+    fn wire_tag(&self) -> u32 {
+        EVENT_DISPLAY_CHANGED_TAG
+    }
+
+    fn wire_body_len(&self) -> Result<usize, i32> {
+        Ok(25)
+    }
+
+    fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {
+        // SAFETY: `EVENT_DISPLAY_CHANGED_FIELDS` is the table of this struct.
+        unsafe { fields_write_of(&EVENT_DISPLAY_CHANGED_FIELDS, self, out, offset) }
+    }
+}
+
+impl<'a> WireRecord<'a> for EventDisplayChanged {
+    const TAG: u32 = EVENT_DISPLAY_CHANGED_TAG;
+
+    fn decode_body(body: &'a [u8]) -> Result<Self, i32> {
+        // SAFETY: `EVENT_DISPLAY_CHANGED_FIELDS` is the table of this struct; it borrows from `body`.
+        unsafe { fields_decode_as(&EVENT_DISPLAY_CHANGED_FIELDS, body) }
+    }
+}
 
 /// A registration or declaration record, borrowed from one validated batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -15682,6 +15734,8 @@ pub enum Record<'a> {
     EventDocumentChanged(EventDocumentChanged),
     /// A `ServiceDocReport` record.
     ServiceDocReport(ServiceDocReport<'a>),
+    /// A `EventDisplayChanged` record.
+    EventDisplayChanged(EventDisplayChanged),
 }
 
 impl<'a> Reader<'a> {
@@ -15992,6 +16046,7 @@ fn record_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32>
         EVENT_SCREEN_HIDDEN_TAG => Record::EventScreenHidden(body.decode()?),
         EVENT_DOCUMENT_CHANGED_TAG => Record::EventDocumentChanged(body.decode()?),
         SERVICE_DOC_REPORT_TAG => Record::ServiceDocReport(body.decode()?),
+        EVENT_DISPLAY_CHANGED_TAG => Record::EventDisplayChanged(body.decode()?),
         _ => return Err(-1),
     })
 }
@@ -16338,6 +16393,7 @@ impl Record<'_> {
             Record::EventScreenHidden(record) => record,
             Record::EventDocumentChanged(record) => record,
             Record::ServiceDocReport(record) => record,
+            Record::EventDisplayChanged(record) => record,
         }
     }
 }
@@ -16618,22 +16674,22 @@ where
 }
 
 /// The tags of the declared records, ascending (registrations are named by their constants).
-const RECORD_TAGS: [u16; 268] = [
+const RECORD_TAGS: [u16; 269] = [
     5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
     30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 64, 65,
     66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90,
     91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111,
-    192, 193, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 512, 513, 1024, 1025, 1026, 1027,
-    1028, 1029, 1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037, 1038, 1039, 1040, 1041, 1042, 1043,
-    1044, 1045, 1046, 1047, 1048, 1049, 1050, 1051, 1052, 1053, 1054, 1055, 1056, 1057, 1058, 1059,
-    1060, 1061, 1062, 1063, 1064, 1065, 1066, 1067, 1068, 1069, 1070, 1071, 1072, 1073, 1074, 1075,
-    1076, 1077, 1078, 1079, 1080, 1081, 1082, 1083, 1084, 1085, 1086, 1087, 1088, 1089, 1090, 1091,
-    1092, 1093, 1094, 1095, 1096, 1097, 1098, 1099, 1100, 1101, 1102, 1103, 1104, 1105, 1106, 1107,
-    1108, 1109, 1110, 1111, 1112, 1113, 1114, 1115, 1116, 1117, 1118, 1119, 1120, 1121, 1122, 1123,
-    1124, 1125, 1126, 1127, 1128, 1129, 1130, 1131, 1132, 1133, 1134, 1135, 1136, 1137, 1138, 1139,
-    1140, 1141, 1142, 1143, 1144, 1145, 1146, 1147, 1148, 1149, 1150, 1151, 1152, 1153, 1154, 1155,
-    1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169, 1170, 1171,
-    1172, 1173, 1174, 1175, 1176, 1177, 1178, 1179, 1180, 1181, 1182, 1183,
+    112, 192, 193, 224, 225, 226, 227, 228, 229, 230, 231, 232, 233, 512, 513, 1024, 1025, 1026,
+    1027, 1028, 1029, 1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037, 1038, 1039, 1040, 1041, 1042,
+    1043, 1044, 1045, 1046, 1047, 1048, 1049, 1050, 1051, 1052, 1053, 1054, 1055, 1056, 1057, 1058,
+    1059, 1060, 1061, 1062, 1063, 1064, 1065, 1066, 1067, 1068, 1069, 1070, 1071, 1072, 1073, 1074,
+    1075, 1076, 1077, 1078, 1079, 1080, 1081, 1082, 1083, 1084, 1085, 1086, 1087, 1088, 1089, 1090,
+    1091, 1092, 1093, 1094, 1095, 1096, 1097, 1098, 1099, 1100, 1101, 1102, 1103, 1104, 1105, 1106,
+    1107, 1108, 1109, 1110, 1111, 1112, 1113, 1114, 1115, 1116, 1117, 1118, 1119, 1120, 1121, 1122,
+    1123, 1124, 1125, 1126, 1127, 1128, 1129, 1130, 1131, 1132, 1133, 1134, 1135, 1136, 1137, 1138,
+    1139, 1140, 1141, 1142, 1143, 1144, 1145, 1146, 1147, 1148, 1149, 1150, 1151, 1152, 1153, 1154,
+    1155, 1156, 1157, 1158, 1159, 1160, 1161, 1162, 1163, 1164, 1165, 1166, 1167, 1168, 1169, 1170,
+    1171, 1172, 1173, 1174, 1175, 1176, 1177, 1178, 1179, 1180, 1181, 1182, 1183,
 ];
 
 /// Whether `tag` names a record of this codec ([`Record`]), without decoding anything: a
@@ -17175,7 +17231,8 @@ fn host_decode<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
         | EVENT_TEXT_TYPED_TAG
         | EVENT_LOOKUP_READY_TAG
         | EVENT_SCREEN_HIDDEN_TAG
-        | EVENT_DOCUMENT_CHANGED_TAG => return Err(-2),
+        | EVENT_DOCUMENT_CHANGED_TAG
+        | EVENT_DISPLAY_CHANGED_TAG => return Err(-2),
         _ => return Err(-1),
     })
 }

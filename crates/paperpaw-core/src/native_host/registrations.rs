@@ -141,6 +141,7 @@ pub use wire::{
     WIDGET_PLACE_LIST_KEYS_MAX_ITEMS, WIDGET_PLACE_LIST_KEYS_SEPARATOR, WIDGET_PLACE_TAG,
     WIDGET_SPEC_TAG, WidgetPlace, WidgetSpec,
 };
+pub use wire::{EVENT_DISPLAY_CHANGED_TAG, EventDisplayChanged};
 // Documents, formats, lookup and the library (DOC and LIB, `docs/abi/document.md`,
 // `library.md`): declarations, events 90-91 and the `core.document`, `core.lookup` and
 // `core.library` rows 1060-1124; the host admits and answers them once wired.

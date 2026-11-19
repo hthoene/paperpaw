@@ -286,6 +286,32 @@ fn a_redraw_area_carries_its_mode_and_rectangle_unchanged() {
 }
 
 #[test]
+fn a_pass_on_names_the_own_top_and_why() {
+    let table = table();
+    let mut ctx = Context::default();
+    let host = Host {
+        table: &table,
+        ctx: ptr::from_mut(&mut ctx).cast(),
+    };
+    let mut scratch = [0; 64];
+    CommandSender::new(&host, &mut scratch)
+        .pass_on(Error::Unsupported)
+        .unwrap();
+    let batches = ctx.batches.borrow();
+    assert_eq!(
+        wire::commands_decode(&batches[0])
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>(),
+        [wire::Command::PassOn {
+            instance: 0,
+            reason: -1,
+            flags: 0,
+        }]
+    );
+}
+
+#[test]
 fn empty_and_overlong_screen_action_ids_are_invalid_without_effects() {
     let table = table();
     let mut ctx = Context::default();

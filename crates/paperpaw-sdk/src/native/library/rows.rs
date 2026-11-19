@@ -11,6 +11,10 @@ pub enum CatalogPhase {
     Walking,
     /// The catalog is ready.
     Ready,
+    /// The catalog cannot be read or made (a damaged file, the card
+    /// failing): no books until a walk makes it again (state 3; an SDK
+    /// before it reads `Unknown(3)`).
+    Failed,
     /// A phase added by a newer host.
     Unknown(u32),
 }
@@ -34,6 +38,7 @@ impl CatalogState {
             0 => CatalogPhase::Empty,
             1 => CatalogPhase::Walking,
             2 => CatalogPhase::Ready,
+            3 => CatalogPhase::Failed,
             n => CatalogPhase::Unknown(n),
         }
     }

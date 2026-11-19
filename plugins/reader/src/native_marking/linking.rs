@@ -163,6 +163,14 @@ impl Marking {
             return Ok(Outcome::Handled);
         };
         let label = label_of(ctx.words, link)?;
+        // Another file on the card (a note of the vault): opened in its
+        // reading app, this book left open below (#369 M).
+        if link.kind == LinkKind::File {
+            return match open_file(host, ui, ctx.path, href) {
+                Ok(()) | Err(Error::NoSpace) => Ok(Outcome::Handled),
+                Err(error) => Err(error),
+            };
+        }
         // An address too long to hand over is not followed (the input is taken).
         if link.kind == LinkKind::External || is_external(href) {
             return match open_web(host, ui, href, ctx.now_ms) {
@@ -413,6 +421,48 @@ fn open_web(host: &Host<'_>, ui: &Ui, href: &str, now_ms: u64) -> Result<(), Err
     }
 }
 
+/// The card path of the file a link of kind `File` names: from the card's
+/// top where `href` starts with `/`, else from the folder of `book`. `None`
+/// for a path that climbs (`..`) or names nothing.
+fn file_path(book: &str, href: &str) -> Result<Option<String>, Error> {
+    if href.is_empty() || href.split('/').any(|part| part == "..") {
+        return Ok(None);
+    }
+    let (dir, rest) = match href.strip_prefix('/') {
+        Some(top) => ("", top),
+        None => (book.rsplit_once('/').map_or("", |(dir, _)| dir), href),
+    };
+    if rest.is_empty() {
+        return Ok(None);
+    }
+    let mut path = String::new();
+    path.try_reserve(dir.len() + 1 + rest.len())
+        .map_err(|_| Error::NoMemory)?;
+    if !dir.is_empty() {
+        path.push_str(dir);
+        path.push('/');
+    }
+    path.push_str(rest);
+    Ok(Some(path))
+}
+
+/// Opens the file a link names in the reading app the host chooses for it
+/// (`core.reader`, a `path` hand-over); a file no app opens is left alone.
+fn open_file(host: &Host<'_>, ui: &Ui, book: &str, href: &str) -> Result<(), Error> {
+    let Some(path) = file_path(book, href)? else {
+        return Ok(());
+    };
+    let params = [Param::new("path", &path)?];
+    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    let handover = ui.handover(host, &params, &mut input, &mut out)?;
+    let mut scratch = [0; 256];
+    match CommandSender::new(host, &mut scratch).open(Open::slot("core.reader")?.handover(handover))
+    {
+        Ok(()) | Err(Error::Unsupported | Error::NotFound | Error::Denied) => Ok(()),
+        Err(error) => Err(error),
+    }
+}
+
 /// Opens the note over the page (`core.footnote`).
 fn open_note(host: &Host<'_>, ui: &Ui, note: &str, path: &str, url: &str) -> Result<(), Error> {
     let params = [
@@ -440,5 +490,22 @@ fn push_number(to: &mut String, mut n: u64) {
     }
     for d in &digits[at..] {
         to.push(char::from(*d));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, reason = "fixtures must fail the test")]
+    use super::file_path;
+
+    #[test]
+    fn a_file_link_is_read_from_the_top_or_beside_the_book() {
+        let at = |href| file_path("v/notes/a.md", href).unwrap();
+        assert_eq!(at("/v/Other.md").as_deref(), Some("v/Other.md"));
+        assert_eq!(at("b.md").as_deref(), Some("v/notes/b.md"));
+        assert_eq!(file_path("a.md", "b.md").unwrap().as_deref(), Some("b.md"));
+        for none in ["", "/", "../x.md", "/v/../x.md"] {
+            assert_eq!(at(none), None, "{none}");
+        }
     }
 }

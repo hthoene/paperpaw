@@ -65,6 +65,9 @@ struct Req {
     /// with `core.sockets`, `NetPool`) from its start to its end.
     tls: bool,
     progress: bool,
+    /// Asked for in the foreground (flags bit 1) from a screen of the plugin
+    /// that shows, outside a work run: the shell gives it the larger window.
+    foreground: bool,
     max_body: u32,
     max_file: u64,
     timeout_ms: u32,
@@ -439,6 +442,7 @@ impl Inner {
             max_body: r.max_body,
             max_file: r.max_file,
             timeout_ms: r.timeout_ms,
+            foreground: r.foreground,
         };
         host.transport().start(r.id, &start)
     }
@@ -548,6 +552,11 @@ pub(super) fn request(host: &dyn NetHost, who: &Caller<'_>, input: &[u8]) -> Res
         saving,
         tls: is_https(parsed.head.url),
         progress: parsed.head.flags & args::FLAG_PROGRESS != 0,
+        // Honoured only while the user sees the plugin (`network.md` 2.1):
+        // otherwise ignored, never an error.
+        foreground: parsed.head.flags & args::FLAG_FOREGROUND != 0
+            && run.is_none()
+            && host.showing_screen(who.owner).is_some(),
         max_body,
         max_file: if parsed.head.max_file == 0 {
             args::MAX_FILE

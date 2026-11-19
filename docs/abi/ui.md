@@ -58,6 +58,7 @@ events 83, 88 and 90 are free).
 | 79 | `event.screen_opened` | `now_ms: u64`, `screen: str 128`, `instance: u32`, `slot: str 128`, `flags: u32`, `handover: u32`, `params: u32`, `text_bytes: u32` | the screen's token |
 | 80 | `event.screen_closed` | `now_ms: u64`, `screen: str 128`, `instance: u32` | the screen's token |
 | 111 | `event.screen_hidden` | `now_ms: u64`, `screen: str 128`, `instance: u32` | the screen's token |
+| 112 | `event.display_changed` | `now_ms: u64`, `width: u32`, `height: u32`, `ppi: u32`, `flags: u32` | subscribers |
 | 81 | `event.stack_changed` | `now_ms: u64` | subscribers (hint) |
 
 - [D] `screen_opened` comes once per instance, before its first `screen_shown`, and **again**
@@ -80,6 +81,10 @@ events 83, 88 and 90 are free).
   opened above the first sends nothing to the instance below it, and a cover opened after the
   instance's next `screen_shown` sends it again. A task switch closes the instance
   (`screen_closed`) and opens it anew, so it sends none.
+- [D] **`display_changed`** (112, #369 K; #88): the display has another size (turned, a desktop
+  window resized, Android), after the open screens were made anew for it; `flags` none yet. A
+  plugin subscribes (`registration.event`); the snapshot gives the same size and ppi from then on,
+  and a screen class is the SDK's helper over them. An edge: each change is told.
 - [D] **Delivery of `screen_hidden`.** The host calls the instance's token synchronously while it
   applies the open of the covering screen, at depth 0 (never inside the opener's callback), before
   the cover's own `screen_opened` and first `draw`, so that what it frees is free before the cover

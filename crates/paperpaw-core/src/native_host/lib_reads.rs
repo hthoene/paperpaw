@@ -275,10 +275,21 @@ impl LibQuery for CatalogReads {
         // books: a handle made of it is stale and the plugin asks again.
         let mut before = self.snapshot()?;
         let mut answer = None;
+        // A catalog that is there but cannot be read (a damaged file, the
+        // card failing): state 3 `failed` with no books (#369 N), not a failed
+        // call. Memory is the caller's to try again.
+        let mut failed = false;
         for _ in 0..STATE_TRIES {
             let books = match self.counted.get() {
                 Some((generation, books)) if before.1 && generation == before.0 => books,
-                _ if before.1 => catalog::try_count(&*self.storage).map_err(fail)?,
+                _ if before.1 => match catalog::try_count(&*self.storage) {
+                    Ok(books) => books,
+                    Err(data::Error::OutOfMemory) => return Err(ERR_NO_MEMORY),
+                    Err(_) => {
+                        failed = true;
+                        break;
+                    }
+                },
                 _ => 0,
             };
             let after = self.snapshot()?;
@@ -295,9 +306,11 @@ impl LibQuery for CatalogReads {
         let (state, walk_ppm) = match self.env.walking() {
             // Never 100 % while walking: that is state 2.
             Some(ppm) => (1, ppm.min(PPM - 1)),
+            None if failed => (3, 0),
             None if ready => (2, PPM),
             None => (0, 0),
         };
+        let books = if failed { 0 } else { books };
         visit(Record::ServiceLibState(wire::ServiceLibState {
             state,
             books,

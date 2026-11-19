@@ -132,7 +132,7 @@ pub(super) fn toc_row_ok(row: &wire::ServiceDocToc<'_>) -> bool {
 /// Whether the row is well formed in itself (a kind, a range): else it is
 /// dropped from the page.
 pub(super) fn link_row_ok(row: &wire::ServiceDocLink<'_>) -> bool {
-    row.kind <= 2 && row.start <= row.end
+    row.kind <= 3 && row.start <= row.end
 }
 
 pub(super) fn toc(row: &wire::ServiceDocToc<'_>, index: u32) -> Result<(), i32> {

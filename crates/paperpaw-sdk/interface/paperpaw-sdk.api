@@ -986,6 +986,7 @@ impl<'cb, 'buf> paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::close_screen(&mut self) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::new(&'cb paperpaw_sdk::native::Host<'cb>, &'buf mut [u8]) -> Self
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::open_screen(&mut self, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::pass_on(&mut self, paperpaw_sdk::native::Error) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::queue_redraw(&mut self, paperpaw_sdk::native::commands::RedrawMode) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::queue_redraw_area(&mut self, paperpaw_sdk::native::commands::RedrawMode, paperpaw_sdk::native::callbacks::FrameRect) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::commands::CommandSender<'cb, 'buf>::run_action(&mut self, impl core::convert::AsRef<str>) -> core::result::Result<(), paperpaw_sdk::native::Error>
@@ -1714,6 +1715,7 @@ pub paperpaw_sdk::native::document::DocClosedReason::FormatStopped
 pub paperpaw_sdk::native::document::DocClosedReason::Needed
 #[non_exhaustive] pub enum paperpaw_sdk::native::document::LinkKind
 pub paperpaw_sdk::native::document::LinkKind::External
+pub paperpaw_sdk::native::document::LinkKind::File
 pub paperpaw_sdk::native::document::LinkKind::Footnote
 pub paperpaw_sdk::native::document::LinkKind::Internal
 pub paperpaw_sdk::native::document::LinkKind::Other(u32)
@@ -2004,6 +2006,9 @@ pub const paperpaw_sdk::native::events::kinds::Broadcast::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::ChargeChanged
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ChargeChanged
 pub const paperpaw_sdk::native::events::kinds::ChargeChanged::TAG: u32
+pub struct paperpaw_sdk::native::events::kinds::DisplayChanged
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::DisplayChanged
+pub const paperpaw_sdk::native::events::kinds::DisplayChanged::TAG: u32
 pub struct paperpaw_sdk::native::events::kinds::DocumentChanged
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::DocumentChanged
 pub const paperpaw_sdk::native::events::kinds::DocumentChanged::TAG: u32
@@ -2166,6 +2171,8 @@ impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events:
 pub const paperpaw_sdk::native::events::kinds::Broadcast::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::ChargeChanged
 pub const paperpaw_sdk::native::events::kinds::ChargeChanged::TAG: u32
+impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::DisplayChanged
+pub const paperpaw_sdk::native::events::kinds::DisplayChanged::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::DocumentChanged
 pub const paperpaw_sdk::native::events::kinds::DocumentChanged::TAG: u32
 impl paperpaw_sdk::native::events::kinds::Kind for paperpaw_sdk::native::events::kinds::DocumentClosed
@@ -2320,6 +2327,11 @@ pub paperpaw_sdk::native::events::Event::Broadcast(paperpaw_sdk::native::sockets
 #[non_exhaustive] pub paperpaw_sdk::native::events::Event::ChargeChanged
 pub paperpaw_sdk::native::events::Event::ChargeChanged::flags: paperpaw_sdk::native::events::ChargeFlags
 pub paperpaw_sdk::native::events::Event::ChargeChanged::now_ms: u64
+#[non_exhaustive] pub paperpaw_sdk::native::events::Event::DisplayChanged
+pub paperpaw_sdk::native::events::Event::DisplayChanged::height: u32
+pub paperpaw_sdk::native::events::Event::DisplayChanged::now_ms: u64
+pub paperpaw_sdk::native::events::Event::DisplayChanged::ppi: u32
+pub paperpaw_sdk::native::events::Event::DisplayChanged::width: u32
 #[non_exhaustive] pub paperpaw_sdk::native::events::Event::DocumentChanged
 pub paperpaw_sdk::native::events::Event::DocumentChanged::document: paperpaw_sdk::native::document::DocId
 pub paperpaw_sdk::native::events::Event::DocumentChanged::now_ms: u64
@@ -2692,6 +2704,7 @@ pub paperpaw_sdk::native::format::FormatOp::TocTarget
 pub paperpaw_sdk::native::format::FormatOp::Xpointer
 #[non_exhaustive] #[repr(u32)] pub enum paperpaw_sdk::native::format::LinkKind
 pub paperpaw_sdk::native::format::LinkKind::External = 1
+pub paperpaw_sdk::native::format::LinkKind::File = 3
 pub paperpaw_sdk::native::format::LinkKind::Footnote = 2
 pub paperpaw_sdk::native::format::LinkKind::Internal = 0
 #[non_exhaustive] pub struct paperpaw_sdk::native::format::BlockReply<'a>
@@ -2890,6 +2903,7 @@ pub paperpaw_sdk::native::library::AnnotationTextKind::Note
 pub paperpaw_sdk::native::library::AnnotationTextKind::Text
 #[non_exhaustive] pub enum paperpaw_sdk::native::library::CatalogPhase
 pub paperpaw_sdk::native::library::CatalogPhase::Empty
+pub paperpaw_sdk::native::library::CatalogPhase::Failed
 pub paperpaw_sdk::native::library::CatalogPhase::Ready
 pub paperpaw_sdk::native::library::CatalogPhase::Unknown(u32)
 pub paperpaw_sdk::native::library::CatalogPhase::Walking
@@ -3388,6 +3402,7 @@ pub fn paperpaw_sdk::native::net::Net::stop_serving(&self, &paperpaw_sdk::native
 pub struct paperpaw_sdk::native::net::Request<'a>
 impl<'a> paperpaw_sdk::native::net::Request<'a>
 pub fn paperpaw_sdk::native::net::Request<'a>::body(self, &'a [u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
+pub const fn paperpaw_sdk::native::net::Request<'a>::foreground(self) -> Self
 pub fn paperpaw_sdk::native::net::Request<'a>::get(u32, &'a str) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::net::Request<'a>::headers(self, &'a [paperpaw_sdk::native::net::Header<'a>]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub const fn paperpaw_sdk::native::net::Request<'a>::max_body(self, u32) -> Self
@@ -3840,6 +3855,7 @@ pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_height(&self) -> 
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_is_colour(&self) -> bool
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::display_width(&self) -> u16
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::has_touch(&self) -> bool
+pub const fn paperpaw_sdk::native::snapshot::Snapshot::hints_shown(&self) -> bool
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::instant(&self) -> paperpaw_platform::input::Instant
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::is_charging(&self) -> bool
 pub const fn paperpaw_sdk::native::snapshot::Snapshot::is_power_saving(&self) -> bool

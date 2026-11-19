@@ -41,7 +41,9 @@ pub fn markdown_provider() -> Result<FormatProvider, Error> {
         },
         dir,
         |_| false,
-    ))
+    )
+    // Its links between notes are files on the card (`markdown::wikilink`).
+    .with_file_links())
 }
 
 /// The storage of one call: the book and the cache of the document (`base`,
