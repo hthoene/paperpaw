@@ -526,14 +526,17 @@ fn a_covered_group_page_is_made_anew_once_it_shows() {
     spec.groups
         .push(G::new("core.group.reading.fonts", "Fonts", 0).within("core.group.reading"));
     let pages = [(GROUP, "settings.group", 1), (GROUP, "settings.group", 2)];
-    // A page alone: what a change of a setting costs it.
+    // A page alone: a change only notes it stale (#375), it is made anew once
+    // when it draws or shows.
     let alone = World::new(&spec, false);
     let plugin = alone.load();
     alone.open(&plugin, pages[0], &[("id", "core.group.reading")]);
-    let cost = reads_during(&alone, || {
+    let noted = reads_during(&alone, || {
         let done = changed(&plugin, "core.group-unknown");
         assert!(finished(done.status));
     });
+    assert_eq!(noted, 0, "a change only notes the page on top");
+    let cost = reads_during(&alone, || shown(&plugin, pages[0], (480, 800)));
     assert!(cost > 0, "a page on top is made anew for a change");
     // The same page below another: not made anew for each change, but once
     // when it shows again.
@@ -541,17 +544,12 @@ fn a_covered_group_page_is_made_anew_once_it_shows() {
     let plugin = world.load();
     world.open(&plugin, pages[0], &[("id", "core.group.reading")]);
     world.open(&plugin, pages[1], &[("id", "calibre.group")]);
-    let one = reads_during(&world, || {
-        changed(&plugin, "core.group-unknown");
-    });
-    let three = reads_during(&world, || {
+    let covered = reads_during(&world, || {
         for _ in 0..3 {
             changed(&plugin, "core.group-unknown");
         }
     });
-    assert!(one > 0);
-    // Each change makes the page on top anew, the covered one none.
-    assert_eq!(three, 3 * one, "the covered page is not made anew");
+    assert_eq!(covered, 0, "no page is made anew by a change");
     let again = reads_during(&world, || shown(&plugin, pages[0], (480, 800)));
     assert!(again > 0, "once it shows again");
     let twice = reads_during(&world, || shown(&plugin, pages[0], (480, 800)));
