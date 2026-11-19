@@ -183,6 +183,23 @@ impl<'cb, 'buf> CommandSender<'cb, 'buf> {
         self.submit(wire::Command::CloseScreen)
     }
 
+    /// Stage passing this reading app's book on: it cannot open it after all
+    /// (`why`, e.g. [`Error::Unsupported`] for a part of the format it does not
+    /// read). The host closes this screen and opens the book in the next
+    /// reading app that reads it, leaving out the ones that passed it on; with
+    /// none left it tells the reader so (`document.md` 1).
+    ///
+    /// # Errors
+    /// Returns NoSpace for short scratch or the host's refusal: State unless
+    /// the screen on top is this plugin's, opened in the reading slot.
+    pub fn pass_on(&mut self, why: Error) -> Result<(), Error> {
+        self.submit(wire::Command::PassOn {
+            instance: 0,
+            reason: why.status(),
+            flags: 0,
+        })
+    }
+
     fn submit(&mut self, command: wire::Command<'_>) -> Result<(), Error> {
         self.submit_batch(&[command])
     }

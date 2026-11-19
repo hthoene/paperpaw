@@ -511,6 +511,17 @@ pub enum Event<'a> {
         screen: &'a str,
         instance: super::ui::Instance,
     },
+    /// The display has another size (turned, a window resized): the open
+    /// screens were made anew for it and are drawn again (`ui.md` 1.6). The
+    /// snapshot tells the same size from now on; a screen class is
+    /// [`crate::native::snapshot::Snapshot`]'s size and ppi.
+    #[non_exhaustive]
+    DisplayChanged {
+        now_ms: u64,
+        width: u32,
+        height: u32,
+        ppi: u32,
+    },
     /// Read the current stack through core.ui.
     #[non_exhaustive]
     StackChanged { now_ms: u64 },

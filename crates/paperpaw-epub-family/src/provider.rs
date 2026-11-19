@@ -49,6 +49,8 @@ mod op {
 /// Open documents (the host allows 8 elsewhere, 2 on the X4).
 pub const MAX_DOCUMENTS: usize = 8;
 const TEXT: usize = 1024;
+/// The scheme of a link to a file on the card ([`FormatProvider::with_file_links`]).
+const FILE_SCHEME: &str = "file:";
 const PART: usize = 3072;
 const ROWS: usize = 64;
 /// The most faces a book lists (document.md section 6).
@@ -94,6 +96,9 @@ pub struct FormatProvider {
     /// The values of the format's own settings the next open is given
     /// ([`OpenOptions::setting`]).
     settings: Vec<(String, String)>,
+    /// Links `file:<path>` are files on the card (kind 3), not the web
+    /// ([`FormatProvider::with_file_links`]).
+    file_links: bool,
 }
 
 impl core::fmt::Debug for FormatProvider {
@@ -158,7 +163,19 @@ impl FormatProvider {
             sniffs,
             slots: Vec::new(),
             settings: Vec::new(),
+            file_links: false,
         }
+    }
+
+    /// Lists the links `file:<path>` its documents make as files on the card
+    /// (link kind 3, `href` the path), for a format whose own conversion
+    /// writes them (a notes vault's links between notes). A book's own
+    /// `file:` links stay external: a format that converts what others wrote
+    /// does not ask for this.
+    #[must_use]
+    pub const fn with_file_links(mut self) -> Self {
+        self.file_links = true;
+        self
     }
 
     /// Whether `input` is the call that opens a document: the one that is
@@ -243,8 +260,9 @@ impl FormatProvider {
                 Self::fonts(document.as_ref(), cache, io, &call, bad_faces, out)
             }
             _ => {
+                let file_links = self.file_links;
                 let document = self.ready(call.document)?;
-                Self::ask(document, &self.cache, io, &call, out)
+                Self::ask(document, &self.cache, io, &call, out, file_links)
             }
         }
     }
@@ -412,6 +430,7 @@ impl FormatProvider {
         io: &dyn Storage,
         call: &stage::FmtCall<'_>,
         out: &mut [u8],
+        file_links: bool,
     ) -> Result<usize, Error> {
         let at = Locator::new(call.section, call.offset);
         match call.op {
@@ -447,7 +466,7 @@ impl FormatProvider {
                     .ok_or(Error::NotFound)?;
                 one(at_record(call.document, to), out)
             }
-            op::LINKS => Self::links(document, io, call, out),
+            op::LINKS => Self::links(document, io, call, out, file_links),
             op::LINK_TARGET => {
                 let to = document.link_target(io, call.text).ok_or(Error::NotFound)?;
                 one(at_record(call.document, to), out)
@@ -715,6 +734,7 @@ impl FormatProvider {
         io: &dyn Storage,
         call: &stage::FmtCall<'_>,
         out: &mut [u8],
+        file_links: bool,
     ) -> Result<usize, Error> {
         let all = document.links(io, call.section, call.offset, call.index);
         let from = min(
@@ -729,15 +749,21 @@ impl FormatProvider {
             if link.href.len() > TEXT {
                 continue;
             }
-            let kind = if is_external(&link.href) {
-                1
+            let file = file_links
+                .then(|| link.href.strip_prefix(FILE_SCHEME))
+                .flatten()
+                .filter(|path| !path.is_empty());
+            let (kind, href) = if let Some(path) = file {
+                (3, path)
+            } else if is_external(&link.href) {
+                (1, link.href.as_str())
             } else if matches!(link.kind, LinkKind::NoteRef) {
-                2
+                (2, link.href.as_str())
             } else {
-                0
+                (0, link.href.as_str())
             };
             rows.push(Record::FmtLink(stage::FmtLink::new(
-                link.start, link.end, kind, &link.href,
+                link.start, link.end, kind, href,
             )));
         }
         page(&rows, from, all.len(), out)

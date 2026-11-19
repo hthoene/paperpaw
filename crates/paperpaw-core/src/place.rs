@@ -53,6 +53,12 @@ impl<'a> Place<'a> {
         self.now
     }
 
+    /// Whether the row of hints was on screen when the screen was last
+    /// drawn (the snapshot's `hints_shown`).
+    pub fn hints_shown(&self) -> bool {
+        self.shared.hints_shown
+    }
+
     /// Its `metrics`.
     pub fn metrics(&self) -> Metrics {
         Metrics::new(self.shared.device.display.dpi)

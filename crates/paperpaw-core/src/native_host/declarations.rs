@@ -164,6 +164,7 @@ pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
         | Record::EventScreenOpened(_)
         | Record::EventScreenClosed(_)
         | Record::EventScreenHidden(_)
+        | Record::EventDisplayChanged(_)
         | Record::EventStackChanged(_)
         | Record::EventAnswered(_)
         | Record::EventWidgetMade(_)

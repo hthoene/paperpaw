@@ -156,6 +156,8 @@ pub(crate) struct Start<'a> {
     pub(crate) max_body: u32,
     pub(crate) max_file: u64,
     pub(crate) timeout_ms: u32,
+    /// The user waits for it (`net_request.flags` bit 1, honoured).
+    pub(crate) foreground: bool,
 }
 
 /// An answer to a served request.

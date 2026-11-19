@@ -859,12 +859,12 @@ fn a_bad_toc_or_link_row_is_dropped_and_the_others_are_delivered() {
         last(),
     ]);
     assert_eq!(call_raw(&fake, 7, &input_for(7, id)).unwrap(), good);
-    // `end < start` and a kind over 2: dropped.
+    // `end < start` and a kind over 3: dropped.
     let good = stream(&[range_link(1, 3, 0), range_link(5, 5, 2), last()]);
     *fake.answer.borrow_mut() = stream(&[
         range_link(1, 3, 0),
         range_link(4, 3, 0),
-        range_link(5, 5, 3),
+        range_link(5, 5, 4),
         range_link(5, 5, 2),
         last(),
     ]);

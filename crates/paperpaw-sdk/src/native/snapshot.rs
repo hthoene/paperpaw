@@ -20,6 +20,7 @@ pub struct Snapshot {
     gray_levels: Option<u16>,
     colour: bool,
     utc_offset_minutes: Option<i16>,
+    hints_shown: bool,
 }
 
 impl Snapshot {
@@ -105,6 +106,15 @@ impl Snapshot {
     pub const fn utc_offset_minutes(&self) -> Option<i16> {
         self.utc_offset_minutes
     }
+
+    /// Whether the host's row of hints was on screen when the screen was
+    /// last drawn: a screen that lets the first press only show the row asks
+    /// this instead of keeping a timer of its own. False from a host that
+    /// does not tell it.
+    #[must_use]
+    pub const fn hints_shown(&self) -> bool {
+        self.hints_shown
+    }
 }
 
 /// Capture the current snapshot with one fixed-size, allocation-free host call.
@@ -150,6 +160,7 @@ pub fn capture_snapshot(host: &Host<'_>) -> Result<Snapshot, Error> {
             wire::PixelFormat::Rgb565 | wire::PixelFormat::Rgb888
         ),
         utc_offset_minutes: value.utc_offset_minutes,
+        hints_shown: value.hints_shown,
     })
 }
 

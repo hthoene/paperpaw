@@ -96,7 +96,7 @@ fn framed(tag: u32, body: &[u8]) -> Vec<u8> {
 /// Kinds only the host sends, each by its tag (`docs/abi/stages-services.md`).
 /// Every other known kind (`service.echo`, 1024, a service input, among them)
 /// is one a plugin sends.
-const HOST_ONLY: [u32; 152] = [
+const HOST_ONLY: [u32; 153] = [
     3,    // event.tick
     32,   // event.started
     33,   // event.resume
@@ -249,6 +249,7 @@ const HOST_ONLY: [u32; 152] = [
     88,   // event.document_changed
     110,  // event.lookup_ready
     111,  // event.screen_hidden
+    112,  // event.display_changed
 ];
 
 fn host_only(tag: u32) -> bool {

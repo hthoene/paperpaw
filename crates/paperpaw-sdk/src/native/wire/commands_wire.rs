@@ -266,6 +266,8 @@ pub const COMMAND_SET_HINT_LABEL_MAX_BYTES: usize = 64;
 pub const COMMAND_FIRMWARE_DUAL_BOOT_TAG: u32 = 1595;
 /// Wire tag of the `command.redraw_area` command.
 pub const COMMAND_REDRAW_AREA_TAG: u32 = 1596;
+/// Wire tag of the `command.pass_on` command.
+pub const COMMAND_PASS_ON_TAG: u32 = 1597;
 /// Wire tag of the `command.show_again` command.
 pub const COMMAND_SHOW_AGAIN_TAG: u32 = 1598;
 pub const COMMAND_SET_SETTING_TAG: u32 = 4;
@@ -688,6 +690,15 @@ pub enum Command<'a> {
         width: u32,
         /// Little-endian u32.
         height: u32,
+    },
+    /// The `command.pass_on` command (`docs/abi/registry.md`).
+    PassOn {
+        /// Little-endian u32.
+        instance: u32,
+        /// Little-endian i32.
+        reason: i32,
+        /// Little-endian u32.
+        flags: u32,
     },
     /// The `command.show_again` command (`docs/abi/registry.md`).
     ShowAgain {
@@ -1415,6 +1426,14 @@ pub fn commands_decode(bytes: &[u8]) -> Result<CommandBatch<'_>, i32> {
                     height: u32::from_le_bytes(scalar(body.take(4)?)),
                 }
             }
+            COMMAND_PASS_ON_TAG => {
+                body.bitmap()?;
+                Command::PassOn {
+                    instance: u32::from_le_bytes(scalar(body.take(4)?)),
+                    reason: i32::from_le_bytes(scalar(body.take(4)?)),
+                    flags: u32::from_le_bytes(scalar(body.take(4)?)),
+                }
+            }
             COMMAND_SHOW_AGAIN_TAG => {
                 body.bitmap()?;
                 Command::ShowAgain {
@@ -1739,6 +1758,7 @@ fn command_len(command: &Command<'_>) -> Result<(u32, usize), i32> {
         }
         Command::FirmwareDualBoot { .. } => Ok((COMMAND_FIRMWARE_DUAL_BOOT_TAG, 1 + 8)),
         Command::RedrawArea { .. } => Ok((COMMAND_REDRAW_AREA_TAG, 1 + 20)),
+        Command::PassOn { .. } => Ok((COMMAND_PASS_ON_TAG, 1 + 12)),
         Command::ShowAgain { .. } => Ok((COMMAND_SHOW_AGAIN_TAG, 1 + 16)),
     }
 }
@@ -2148,6 +2168,18 @@ pub fn commands_encode(commands: &[Command<'_>], out: &mut [u8]) -> Result<usize
                     out[offset..offset + 4].copy_from_slice(&width.to_le_bytes());
                     offset += 4;
                     out[offset..offset + 4].copy_from_slice(&height.to_le_bytes());
+                    offset += 4;
+                }
+                Command::PassOn {
+                    instance,
+                    reason,
+                    flags,
+                } => {
+                    out[offset..offset + 4].copy_from_slice(&instance.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&reason.to_le_bytes());
+                    offset += 4;
+                    out[offset..offset + 4].copy_from_slice(&flags.to_le_bytes());
                     offset += 4;
                 }
                 Command::ShowAgain {

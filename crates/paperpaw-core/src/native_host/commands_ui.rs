@@ -264,6 +264,25 @@ impl<'a> CommandStage<'a> {
         Ok(top.key)
     }
 
+    /// `command.pass_on` (#369 G): from the submitter's own top screen (its
+    /// instance, or 0), opened in the reading slot; no flags yet.
+    fn validate_pass_on(&self, instance: u32, flags: u32) -> Result<ScreenKey, i32> {
+        if flags != 0 {
+            return Err(ERR_INVALID);
+        }
+        let key = self.own_top()?;
+        let ui = self.ui.as_ref().ok_or(ERR_UNSUPPORTED)?;
+        let top = ui.env.stack().last().ok_or(ERR_STATE)?;
+        let reader = top
+            .slot
+            .as_ref()
+            .is_some_and(|slot| *slot == paperpaw_sdk::builtin::slots::READER);
+        if (instance != 0 && instance != key.serial()) || !reader {
+            return Err(ERR_STATE);
+        }
+        Ok(key)
+    }
+
     /// The submitting plugin's screen of this callback, for a `redraw`: it has
     /// only overlays above it (`native_screen::redrawable`), not just the top.
     pub(super) fn own_redrawable(&self) -> Result<ScreenKey, i32> {
@@ -335,6 +354,9 @@ impl<'a> CommandStage<'a> {
             }
             WireCommand::Redraw { .. } => self.own_redrawable().map(|_| 0),
             WireCommand::CloseScreen => self.own_top().map(|_| 0),
+            WireCommand::PassOn {
+                instance, flags, ..
+            } => self.validate_pass_on(instance, flags).map(|_| 0),
             WireCommand::RedrawArea { mode, .. } => self.validate_redraw_area(mode),
             WireCommand::ShowAgain {
                 instance,
@@ -530,6 +552,11 @@ impl<'a> CommandStage<'a> {
                 Ok(Ask::RunAction(copy_id(action)?, Params::new()))
             }
             WireCommand::CloseScreen => Ok(Ask::Close(self.own_top()?)),
+            WireCommand::PassOn {
+                instance,
+                reason,
+                flags,
+            } => Ok(Ask::PassOn(self.validate_pass_on(instance, flags)?, reason)),
             WireCommand::ShowAgain {
                 after_ms, every_ms, ..
             } => Ok(Ask::ShowAgain {

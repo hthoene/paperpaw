@@ -171,11 +171,15 @@ fn a_row_of_hints_names_the_buttons_below_the_screen() {
     assert_eq!(kernel.hint_row(), Some(over));
     assert!(effects.wake_at().is_some());
     render(&mut kernel);
+    // Drawn: the snapshot says the row shows (#369 L).
+    assert!(kernel.shared.place(Instant(100)).hints_shown());
     // Recognized as the button is let go, 50 ms after it went down.
     kernel.tick(Instant(150 + 4000));
     assert_eq!(kernel.hint_row(), None);
     // Gone, the page is drawn there again.
     assert_eq!(kernel.frame.unrendered.map(|r| r.bottom()), Some(90));
+    render(&mut kernel);
+    assert!(!kernel.shared.place(Instant(4200)).hints_shown());
     kernel.apply(Ask::ShowHints);
     kernel.finish();
     assert_eq!(kernel.hint_row(), Some(over));

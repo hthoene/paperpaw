@@ -242,6 +242,18 @@ impl<'a> Request<'a> {
         self
     }
 
+    /// The user waits for this download (an install, a pack the screen
+    /// shows the progress of): the device gives it its larger buffers and
+    /// keeps the radio awake for it. Honoured only while a screen of the
+    /// plugin shows when the request starts; ignored otherwise and in work
+    /// runs (`network.md` 2.1). A host before it refuses the request
+    /// (`Unsupported`).
+    #[must_use]
+    pub const fn foreground(mut self) -> Self {
+        self.flags |= 2;
+        self
+    }
+
     /// How long the request may take: 1,000 to 600,000 ms; 0 for the default.
     ///
     /// # Errors

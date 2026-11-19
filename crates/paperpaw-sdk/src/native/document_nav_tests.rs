@@ -363,7 +363,8 @@ fn links_of_a_span_read_as_typed_links_and_a_bad_span_sends_nothing() {
             link(5, 9, 1, "https://x.test/"),
             link(10, 12, 2, "#n1"),
             link(13, 14, 9, "#o"),
-            end(1, 4, 6, 4),
+            link(15, 16, 3, "/v/Other.md"),
+            end(1, 5, 6, 5),
         ],
     );
     let page = docs
@@ -384,7 +385,8 @@ fn links_of_a_span_read_as_typed_links_and_a_bad_span_sends_nothing() {
             LinkKind::Internal,
             LinkKind::External,
             LinkKind::Footnote,
-            LinkKind::Other(9)
+            LinkKind::Other(9),
+            LinkKind::File
         ]
     );
     assert_eq!(

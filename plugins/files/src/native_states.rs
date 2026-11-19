@@ -38,6 +38,9 @@ impl Condition {
             Ok((CatalogPhase::Ready, ..)) => Ok(Self::Ready),
             Ok((CatalogPhase::Walking, books, ppm)) => Ok(Self::Scanning { books, ppm }),
             Ok((CatalogPhase::Empty, ..)) | Err(Error::Busy) => Ok(Self::Preparing),
+            // The host could not read its catalog (#369 N): as a refused ask.
+            Ok((CatalogPhase::Failed, ..)) if !card => Ok(Self::CardGone),
+            Ok((CatalogPhase::Failed, ..)) => Ok(Self::Failed),
             // A phase a newer host added is read as a catalog that is there.
             Ok(_) => Ok(Self::Ready),
             Err(Error::NoMemory) => Err(Error::NoMemory),
@@ -89,6 +92,15 @@ mod tests {
         assert_eq!(
             of(Ok((CatalogPhase::Unknown(9), 0, 0)), true),
             Condition::Ready
+        );
+        // A catalog the host could not read says so, as a refused ask does.
+        assert_eq!(
+            of(Ok((CatalogPhase::Failed, 0, 0)), true),
+            Condition::Failed
+        );
+        assert_eq!(
+            of(Ok((CatalogPhase::Failed, 0, 0)), false),
+            Condition::CardGone
         );
         // A refused ask is a folder that could not be read, or a card that is gone.
         assert_eq!(of(Err(Error::Io), true), Condition::Failed);

@@ -249,3 +249,51 @@ fn with_one_reading_app_there_is_nothing_to_choose() {
     let epub = spec(&kernel, "core.reading-app.fmt.epub").unwrap();
     assert!(!crate::reading_apps::nothing_to_choose(&epub));
 }
+
+/// `command.pass_on` (#369 G) as the native host stages it for the top screen.
+fn pass_on(kernel: &mut Kernel) -> String {
+    let key = paperpaw_sdk::ScreenKey::new(kernel.stack.last().unwrap().serial);
+    kernel.apply(Ask::PassOn(
+        key,
+        paperpaw_native::host_glue::ERR_UNSUPPORTED,
+    ));
+    kernel.finish();
+    kernel
+        .active_screen()
+        .map(|id| id.to_string())
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_reading_app_that_cannot_open_a_book_passes_it_on_and_never_loops() {
+    let config = "reading-app.fmt.cbz = comics.app\n";
+    let mut kernel = started(books(""), config, true);
+    assert_eq!(opened(&mut kernel, "books/b.cbz"), COMICS);
+    // The format's app cannot: the slot's own reader gets the book.
+    assert_eq!(pass_on(&mut kernel), READER);
+    assert_eq!(
+        kernel.stack.last().unwrap().params.get("path"),
+        Some("books/b.cbz")
+    );
+    // Neither can it: no app is left, the reader closes.
+    let left = pass_on(&mut kernel);
+    assert!(left != READER && left != COMICS, "{left}");
+    assert!(
+        kernel
+            .stack
+            .iter()
+            .all(|s| s.slot.as_ref() != Some(&slots::READER))
+    );
+    // The next open of the book starts afresh with its own app.
+    assert_eq!(opened(&mut kernel, "books/b.cbz"), COMICS);
+}
+
+#[test]
+fn only_a_screen_of_the_reading_slot_passes_a_book_on() {
+    let mut kernel = started(books(""), "", true);
+    let home = kernel.active_screen().map(|id| id.to_string());
+    let key = paperpaw_sdk::ScreenKey::new(kernel.stack.last().unwrap().serial);
+    kernel.apply(Ask::PassOn(key, -1));
+    kernel.finish();
+    assert_eq!(kernel.active_screen().map(|id| id.to_string()), home);
+}

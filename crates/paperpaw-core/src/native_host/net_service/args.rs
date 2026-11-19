@@ -13,6 +13,8 @@ pub(super) const ROLE_SEND: u32 = 0;
 pub(super) const ROLE_SAVE: u32 = 1;
 /// `net_request.flags` bit 0: send `event.http_progress`.
 pub(super) const FLAG_PROGRESS: u32 = 1;
+/// `net_request.flags` bit 1: the user waits for this download (#369 H).
+pub(super) const FLAG_FOREGROUND: u32 = 2;
 /// The largest file a request saves (2.1).
 pub(super) const MAX_FILE: u64 = 64 * 1024 * 1024;
 /// A server's default and largest request body (5.1).
@@ -114,7 +116,7 @@ pub(crate) fn parse_request(input: &[u8]) -> Result<Request<'_>, i32> {
 /// The fields of `net_request` that need no device: method, URL, flags and
 /// `timeout_ms`. The caps `max_body` / `max_file` are the device's (profile).
 fn check_head(head: &wire::ServiceNetRequest<'_>) -> Result<(), i32> {
-    if head.flags & !FLAG_PROGRESS != 0 {
+    if head.flags & !(FLAG_PROGRESS | FLAG_FOREGROUND) != 0 {
         return Err(ERR_UNSUPPORTED);
     }
     if !is_token(head.method, 16) || !url_ok(head.url) {

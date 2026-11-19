@@ -182,6 +182,11 @@ pub enum Ask {
     /// book being read, while the screen that sent it stays open; `None`
     /// ends the scope.
     SetScope(Option<String>),
+    /// The reading app of this screen cannot open its book after all: the
+    /// book goes to the next reading app that reads it, the ones tried left
+    /// out (`command.pass_on`, #369 G); the status says why, for the notice
+    /// when none is left.
+    PassOn(paperpaw_sdk::ScreenKey, i32),
     /// Redefines a menu with exactly these entries (actions, settings or
     /// submenus), saved in `[menus]` of `paperpaw.ini`; `None` returns to
     /// the entries plugins contribute.

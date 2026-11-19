@@ -194,6 +194,11 @@ pub enum LinkKind {
     External,
     /// A footnote or note: its text is at the target.
     Footnote,
+    /// Another file on the card (a note of the same vault): `href` is its
+    /// path, from the card's top where it starts with `/`, else from the
+    /// book's folder. A reader opens it (`command.open` with a `path`
+    /// hand-over); an SDK before it reads `Other(3)`.
+    File,
     /// A kind a later host adds, by its number. Once a later SDK names that
     /// kind, its `Other(n)` arm stops matching: match the named kinds first and
     /// treat `Other` as "something else".
@@ -231,6 +236,7 @@ impl<'a> Link<'a> {
             0 => LinkKind::Internal,
             1 => LinkKind::External,
             2 => LinkKind::Footnote,
+            3 => LinkKind::File,
             other => LinkKind::Other(other),
         }
     }

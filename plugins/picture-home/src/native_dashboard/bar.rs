@@ -178,15 +178,23 @@ impl Dashboard {
         if key == "power" || !hidden {
             return Ok(None);
         }
-        self.revealed = Some(now_ms.saturating_add(BAR_MS));
-        let mut scratch = [0; 64];
-        let mut commands = CommandSender::new(host, &mut scratch);
-        if self
+        let hints_auto = self
             .laid
             .as_ref()
             .and_then(|laid| laid.bar.as_ref())
-            .is_some_and(|plan| plan.hints_auto)
-        {
+            .is_some_and(|plan| plan.hints_auto);
+        // A bar that comes with the row of hints is up while the row is: the
+        // host tells whether it showed (#369 L), so a press while it does is
+        // the page's, whatever this plugin's own clock says.
+        if hints_auto && snapshot::capture_snapshot(host).is_ok_and(|now| now.hints_shown()) {
+            self.revealed = Some(now_ms.saturating_add(BAR_MS));
+            redraw(host)?;
+            return Ok(None);
+        }
+        self.revealed = Some(now_ms.saturating_add(BAR_MS));
+        let mut scratch = [0; 64];
+        let mut commands = CommandSender::new(host, &mut scratch);
+        if hints_auto {
             // The row of hints is the kernel's: a refusal does not take the press.
             commands.show_hints().ok();
         }

@@ -1342,6 +1342,9 @@ struct Shared {
     native_filters: Option<native_host::input_chain::FilterCache>,
     /// Whether the last input had a native filter refused (told once).
     native_input_refused: bool,
+    /// Whether the row of hints was on screen when it was last drawn: the
+    /// snapshot's `hints_shown` (#369 L).
+    hints_shown: bool,
     /// The shells' device-wide callback depth, kept from the first native
     /// plugin: the host's own stage runs enter it at depth 0.
     native_depth: Option<native_host::flat::FlatDepth>,

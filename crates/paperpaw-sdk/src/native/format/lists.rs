@@ -327,6 +327,9 @@ pub enum LinkKind {
     External = 1,
     /// A footnote or note, shown at its target.
     Footnote = 2,
+    /// Another file on the card: `href` is its path, from the card's top
+    /// where it starts with `/`, else from the book's folder.
+    File = 3,
 }
 
 fn cut(text: &str, cap: usize) -> &str {

@@ -130,6 +130,7 @@ impl BuilderParts {
             native_input: crate::native_host::ui_input::InputFilters::new(),
             native_filters: None,
             native_input_refused: false,
+            hints_shown: false,
             native_depth: None,
             registry: Registry::default(),
             meter,

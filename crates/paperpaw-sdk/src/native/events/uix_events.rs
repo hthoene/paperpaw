@@ -115,6 +115,15 @@ event_fn!(screen_hidden, wire::EventScreenHidden<'_>, |r| {
     }
 });
 
+event_fn!(display_changed, wire::EventDisplayChanged, |r| {
+    Event::DisplayChanged {
+        now_ms: r.now_ms,
+        width: r.width,
+        height: r.height,
+        ppi: r.ppi,
+    }
+});
+
 event_fn!(stack_changed, wire::EventStackChanged, |r| {
     Event::StackChanged { now_ms: r.now_ms }
 });

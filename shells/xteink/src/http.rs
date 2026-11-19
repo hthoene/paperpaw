@@ -146,6 +146,9 @@ struct Call {
     fresh: bool,
     /// When it was asked for (the download's time in the log, #216).
     began: u64,
+    /// The user waits for it (`net_request.flags` bit 1, #369 H): the
+    /// larger window whatever its file's cap says.
+    foreground: bool,
 }
 
 /// A connection kept open for the next request to the same server.
@@ -182,17 +185,18 @@ impl Calls {
     /// replaces it (the kernel passes over the earlier one's answer), so
     /// that two never write one file.
     pub fn add(&mut self, call: HttpCall) {
-        self.add_as(call, false);
+        self.add_as(call, false, false);
     }
 
     /// Starts a request of core (interface 7): its `save_to` is the staged
     /// file core made (empty), which this appends to and never renames.
+    /// `foreground`: the user waits for it (core honoured the flag).
     #[cfg(feature = "ppn5")]
-    pub fn add_staged(&mut self, call: HttpCall) {
-        self.add_as(call, true);
+    pub fn add_staged(&mut self, call: HttpCall, foreground: bool) {
+        self.add_as(call, true, foreground);
     }
 
-    fn add_as(&mut self, call: HttpCall, staged: bool) {
+    fn add_as(&mut self, call: HttpCall, staged: bool, foreground: bool) {
         if !staged && let Some(path) = &call.save_to {
             for earlier in &mut self.calls {
                 if earlier
@@ -244,6 +248,7 @@ impl Calls {
             reused: false,
             fresh: false,
             began: now_ms(),
+            foreground,
         });
     }
 
@@ -818,7 +823,13 @@ impl Call {
         let plan = download_boost::plan(
             BUFFERS.receive,
             self.call.save_to.is_some(),
-            self.call.max_response,
+            // A download the user waits for is worth the buffers, whatever
+            // its cap; others by the cap (`BOOST_MIN_FILE`).
+            if self.foreground {
+                usize::MAX
+            } else {
+                self.call.max_response
+            },
             boost_free,
             cfg!(feature = "esp32c3"),
             crate::largest_block(),

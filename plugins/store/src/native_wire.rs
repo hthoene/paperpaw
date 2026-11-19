@@ -75,7 +75,9 @@ impl Handles {
         let request = Request::get(token, url)?
             .headers(&headers)?
             .save_to(FileRoot::Data, file)?
-            .max_file(max)?;
+            .max_file(max)?
+            // The store's screen shows while it fetches: the user waits.
+            .foreground();
         self.net(host)?
             .request(host, &request, &mut input, &mut out)
     }

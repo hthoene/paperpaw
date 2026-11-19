@@ -289,6 +289,15 @@ impl View {
                 Err(Error::Busy) => return Ok(Self::message("reader.not-ready")),
                 // The file is gone from the card (Beta 3's "no longer there").
                 Err(Error::NotFound) => return Ok(Self::message("reader.missing")),
+                // No format of this app reads it: the next reading app may
+                // (#369 G). Where the host does not pass it on, it says so here.
+                Err(Error::Unsupported) => {
+                    let mut scratch = [0; 64];
+                    CommandSender::new(host, &mut scratch)
+                        .pass_on(Error::Unsupported)
+                        .ok();
+                    return Ok(Self::message("reader.error"));
+                }
                 Err(_) => return Ok(Self::message("reader.error")),
             }
         };

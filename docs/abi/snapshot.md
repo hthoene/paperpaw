@@ -6,7 +6,8 @@ and `crates/paperpaw-core/src/abi7/snapshot_wire.rs`. No Rust struct layout
 crosses the ABI. The original raw ABI module stays unchanged.
 
 Host slot 4, `env.snapshot`, is a status operation with a 128-byte output cap.
-The encoder writes a complete 52-byte version 1 snapshot. The caller must
+The encoder writes a complete 56-byte version 1 snapshot (the 52-byte prefix and
+the extension below). The caller must
 provide that much storage; a short buffer returns `ERR_NO_SPACE` and receives
 no writes. This slot has no length query or partial-copy behavior. The encoder
 accepts uninitialized output storage and initializes exactly the returned
@@ -38,6 +39,15 @@ There is no alignment padding.
 | 48 | 1 | Touch input Boolean |
 | 49 | 2 | UTC offset in minutes, signed |
 | 51 | 1 | Reserved, zero |
+| 52 | 1 | `hints_shown` Boolean (extension) |
+| 53 | 3 | Reserved, zero (extension) |
+
+**Extension `hints_shown`** (#369 L, the descriptor's `extension`): 1 while the
+host's row of hints was on screen when the screen was last drawn, so a screen
+whose first press only shows the bars asks it instead of keeping the host's
+4 s timer. A snapshot of 52 bytes (a host without it) reads as false; a
+decoder of the first layout reads the 56 bytes as the prefix and trailing
+extension bytes, so plugins built before it keep running.
 
 Presence bits are battery `1`, voltage `2`, Unix time `4` and UTC offset `8`.
 Voltage requires battery presence. An absent Unix time requires zero seconds.
@@ -95,7 +105,7 @@ python3 -m unittest discover -s tools/tests -p test_abi_snapshot.py
 This includes standalone `no_std` compilation with warnings denied, Rust wire
 vectors, output initialization and capacity checks, every pixel format,
 malformed prefix checks, accepted extensions and descriptor release floors.
-The codec allocates no heap memory and uses one 52-byte encoding buffer.
+The codec allocates no heap memory and uses one 56-byte encoding buffer.
 
 ## Host integration
 
