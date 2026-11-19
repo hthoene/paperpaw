@@ -27,6 +27,8 @@ const LIGATURE: u8 = 2;
 const MULTIPLE: u8 = 3;
 const CONTEXT: u8 = 4;
 const CLASSES: u8 = 5;
+/// A multiple whose keys are each drawn as the same keys around it.
+const AROUND: u8 = 6;
 /// The most keys a ligature joins, or one key is drawn as, and the most a
 /// contextual rule looks at on each side and in its input.
 pub(crate) const MAX_KEYS: usize = 16;
@@ -347,7 +349,11 @@ impl<'a, B: Bytes + ?Sized> Substitutions<'a, B> {
             }
             _ => 0,
         };
-        matches!(kind, SINGLE | LIGATURE | MULTIPLE | CONTEXT | CLASSES).then_some(Lookup {
+        matches!(
+            kind,
+            SINGLE | LIGATURE | MULTIPLE | CONTEXT | CLASSES | AROUND
+        )
+        .then_some(Lookup {
             table: *self,
             entries,
             count,
@@ -552,6 +558,9 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
     /// The keys `key` is drawn as, by a multiple lookup, into `out`: how
     /// many.
     pub(crate) fn multiple(&self, key: u32, out: &mut [u32; MAX_KEYS]) -> Option<usize> {
+        if self.kind == AROUND {
+            return self.around(key, out);
+        }
         if self.kind != MULTIPLE {
             return None;
         }
@@ -564,6 +573,29 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
         let keys = at.checked_add(w.key + w.multiple)?;
         for (k, slot) in out.iter_mut().enumerate().take(count) {
             *slot = self.table.key_at(keys + k * w.key)?;
+        }
+        Some(count)
+    }
+
+    /// The keys `key` is drawn as by a lookup of kind 6, into `out`: how
+    /// many. Its entries: the offset of the key set of the keys it draws,
+    /// how many keys go before and after (u8 each; in version 1 2
+    /// reserved), those keys.
+    fn around(&self, key: u32, out: &mut [u32; MAX_KEYS]) -> Option<usize> {
+        let t = self.table;
+        if !t.set_has(t.offset_at(self.entries)?, key) {
+            return None;
+        }
+        let at = self.entries.checked_add(t.w.offset)?;
+        let [before, after] = t.bytes::<2>(at)?.map(usize::from);
+        let count = before + 1 + after;
+        if count > MAX_KEYS {
+            return None;
+        }
+        let keys = at + 2 + t.w.pad;
+        out[before] = key;
+        for (k, slot) in (0..before).chain(before + 1..count).enumerate() {
+            out[slot] = t.key_at(keys + k * t.w.key)?;
         }
         Some(count)
     }
@@ -636,7 +668,7 @@ impl<B: Bytes + ?Sized> Lookup<'_, B> {
                 run.join(i, len, to);
                 Some(i + 1)
             }
-            MULTIPLE => {
+            MULTIPLE | AROUND => {
                 let mut keys = [0u32; MAX_KEYS];
                 let n = self.multiple(run.key(i), &mut keys)?;
                 run.split(i, &keys[..n]).then_some(i + n)

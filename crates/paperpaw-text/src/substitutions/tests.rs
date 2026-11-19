@@ -205,3 +205,74 @@ fn any_damage_reads_as_less_never_as_a_panic() {
         }
     }
 }
+
+/// A table of version 1 (`compact` false) or 2 with one feature, `blws`,
+/// whose one lookup (kind 6) draws each of `keys` as `before`, itself and
+/// `after`.
+fn around(compact: bool, keys: &[u32], before: &[u32], after: &[u32]) -> Vec<u8> {
+    let (w, pad) = if compact { (2, 0) } else { (4, 2) };
+    let put = |out: &mut Vec<u8>, v: u32| {
+        out.extend_from_slice(&v.to_le_bytes()[..w]);
+    };
+    // A glyph's compact key (see `wide_key`).
+    let key = |k: u32| match k.checked_sub(crate::indic::GLYPHS) {
+        Some(n) if compact => u32::from(COMPACT_GLYPHS) + n,
+        _ => k,
+    };
+    let version = if compact { COMPACT } else { VERSION };
+    let mut out = vec![version, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];
+    out.extend_from_slice(b"blws");
+    out.extend_from_slice(&[0, 1, 0, 0, 0, 0, 0, 0]);
+    push_u32(&mut out, 28);
+    out.extend_from_slice(&[1, 0, 0, 0, AROUND, 0]);
+    out.extend_from_slice(&u16::try_from(keys.len()).unwrap().to_le_bytes());
+    push_u32(&mut out, 40);
+    let set = 40 + w + 2 + pad + (before.len() + after.len()) * w;
+    put(&mut out, u32::try_from(set).unwrap());
+    out.extend_from_slice(&[before.len() as u8, after.len() as u8]);
+    out.resize(out.len() + pad, 0);
+    for &k in before.iter().chain(after) {
+        put(&mut out, key(k));
+    }
+    assert_eq!(out.len(), set);
+    out.extend_from_slice(&u16::try_from(keys.len()).unwrap().to_le_bytes());
+    out.resize(out.len() + pad, 0);
+    for &k in keys {
+        put(&mut out, key(k));
+    }
+    let len = out.len();
+    set_u32(&mut out, 4, len);
+    out
+}
+
+#[test]
+fn a_key_of_a_set_is_drawn_with_the_same_keys_around_it() {
+    // Myanmar: a spacing glyph before the consonants (Noto Serif Myanmar's
+    // 13 lookups of 300 such keys each), one of the glyphs without a code
+    // point.
+    let space = crate::indic::GLYPHS + 7;
+    for compact in [false, true] {
+        let data = around(compact, &[0x1000, 0x1001, 0x1019], &[space], &[]);
+        let table = Substitutions::new(&data).unwrap();
+        let mut keys = vec![0x1000, 0x103A, 0x1019, 0x1002];
+        table.apply(0, "my", &mut keys, 32);
+        assert_eq!(keys, [space, 0x1000, 0x103A, space, 0x1019, 0x1002]);
+        // Keys after too; never past the limit.
+        let data = around(compact, &[0x1000], &[1, 2], &[3]);
+        let table = Substitutions::new(&data).unwrap();
+        let mut keys = vec![0x1000, 0x1000];
+        table.apply(0, "my", &mut keys, 5);
+        assert_eq!(keys, [1, 2, 0x1000, 3, 0x1000]);
+        for at in 0..data.len() {
+            for value in [0, 1, 0x7F, 0xFF] {
+                let mut damaged = data.clone();
+                damaged[at] = value;
+                if let Some(table) = Substitutions::new(&damaged) {
+                    let mut keys = vec![0x1000, 0x1000, 0x1001];
+                    table.apply(0, "my", &mut keys, 8);
+                    assert!(keys.len() <= 8);
+                }
+            }
+        }
+    }
+}
