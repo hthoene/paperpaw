@@ -2320,7 +2320,7 @@ dependencies = [
 name = "paperpaw-plugin-gloss"
 version = "1.0.0"
 dependencies = [
- "paperpaw-i18n",
+ "paperpaw-core",
  "paperpaw-plugin-reader",
  "paperpaw-sdk",
 ]
