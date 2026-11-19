@@ -42,6 +42,9 @@ Version 1.1:
 - Noto Serif Khmer, Noto Serif Lao and Noto Serif Tibetan, Copyright 2022
   The Noto Project Authors (https://github.com/notofonts/khmer, /lao,
   /tibetan), without Reserved Font Name
+- Noto Serif Georgian and Noto Serif Armenian, Copyright 2022 The Noto
+  Project Authors (https://github.com/notofonts/georgian, /armenian),
+  without Reserved Font Name
 - Noto Serif and Noto Sans, Copyright 2022 The Noto Project Authors
   (https://github.com/notofonts/latin-greek-cyrillic), without Reserved
   Font Name, cut to the letters of the Latin Extended letters plugin
@@ -67,8 +70,8 @@ Each of those plugins carries the licence's text with its packs
 NotoSerifBengali-OFL.txt, NotoSerifDevanagari-OFL.txt,
 NotoSerifEthiopic-OFL.txt, NotoSerifThai-OFL.txt, NotoSansThai-OFL.txt,
 NotoSerifKhmer-OFL.txt, NotoSerifLao-OFL.txt, NotoSerifTibetan-OFL.txt,
-NotoSerif-OFL.txt, NotoSans-OFL.txt, the
-text
+NotoSerifGeorgian-OFL.txt, NotoSerifArmenian-OFL.txt, NotoSerif-OFL.txt,
+NotoSans-OFL.txt, the text
 given for Literata; NanumMyeongjo-OFL.txt, the same licence under its
 own copyright and Reserved Font Names).
 

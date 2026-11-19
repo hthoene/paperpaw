@@ -250,6 +250,38 @@ description = "The letters Azerbaijani (ə), Hausa (ɓ ɗ ƙ ƴ) and Yoruba (ẹ
 de.name = "Erweiterte lateinische Schrift"
 de.description = "Die Buchstaben, die Aserbaidschanisch (ə), Hausa (ɓ ɗ ƙ ƴ) und Yoruba (ẹ ọ ṣ mit Tonzeichen) dem lateinischen Alphabet hinzufügen, in Literata."
 
+# script-georgian, script-armenian (#385): the Mkhedruli letters (U+10D0 to U+10FF) with
+# the Mtavruli capitals upper case gives (U+1C90 to U+1CBF), and the Armenian block, from
+# Noto Serif Georgian and Armenian, upright, a pack for each weight shared by the faces it
+# stands for (formats 5), 0.4 and 0.3 MiB.
+[script-georgian]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifGeorgian.ttf", "tools/fontgen"]
+name = "Georgian letters"
+description = "Georgian books in Noto Serif Georgian."
+de.name = "Georgische Schrift"
+de.description = "Bücher auf Georgisch in Noto Serif Georgian."
+
+[script-armenian]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifArmenian.ttf", "tools/fontgen"]
+name = "Armenian letters"
+description = "Armenian books in Noto Serif Armenian."
+de.name = "Armenische Schrift"
+de.description = "Bücher auf Armenisch in Noto Serif Armenian."
+
 [script-chinese-simplified]
 version = "1.0.0"
 group = "languages"
@@ -1518,3 +1550,37 @@ de.name = "Yoruba (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Yoruba. Braucht die Erweiterte lateinische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
 how = "PaperPaw's menus and settings in Yoruba.\n\nIt needs the Latin Extended letters pack (Latin Extended letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
 de.how = "PaperPaws Menüs und Einstellungen auf Yoruba.\n\nSie braucht die Erweiterte lateinische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-ka]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-georgian"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/ka.ini", "tools/language-pack.py", "tools/sign"]
+name = "Georgian (user interface)"
+description = "PaperPaw's menus and settings in Georgian. Needs Georgian letters. A machine translation, a draft."
+de.name = "Georgisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Georgisch. Braucht die Georgische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Georgian.\n\nIt needs the Georgian letters pack (Georgian letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Georgisch.\n\nSie braucht die Georgische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-hy]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-armenian"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/hy.ini", "tools/language-pack.py", "tools/sign"]
+name = "Armenian (user interface)"
+description = "PaperPaw's menus and settings in Armenian. Needs Armenian letters. A machine translation, a draft."
+de.name = "Armenisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Armenisch. Braucht die Armenische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Armenian.\n\nIt needs the Armenian letters pack (Armenian letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Armenisch.\n\nSie braucht die Armenische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
