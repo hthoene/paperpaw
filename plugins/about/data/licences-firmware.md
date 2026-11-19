@@ -314,8 +314,8 @@ Crates in the firmware of the Xteink readers used under the MIT License:
 - embedded-io-async 0.7.0: Copyright (c) 2023 The embedded-io-async authors
 - embedded-storage 0.3.2: Copyright Mathias Koch (https://github.com/rust-embedded-community/embedded-storage)
 - embedded-storage-async 0.4.2: Copyright (c) 2022 Diego Barrios Romero; Copyright (c) 2022 Dario Nieuwenhuis; Copyright (c) 2022 Ulf Lilleengen; Copyright (c) 2022 Mathias Koch
-- enumset 1.1.14: Copyright (c) 2017-2025 Alissa Rao <aura@aura.moe>
-- enumset_derive 0.15.0: Copyright (c) 2017-2025 Alissa Rao <aura@aura.moe>
+- enumset 1.1.15: Copyright (c) 2017-2025 Alissa Rao <aura@aura.moe>
+- enumset_derive 0.15.1: Copyright (c) 2017-2025 Alissa Rao <aura@aura.moe>
 - equivalent 1.0.3: Copyright (c) 2016--2023
 - esp-alloc 0.11.0: Copyright the esp-alloc contributors (https://github.com/esp-rs/esp-hal)
 - esp-backtrace 0.20.0: Copyright the esp-backtrace contributors (https://github.com/esp-rs/esp-hal)
@@ -365,7 +365,7 @@ Crates in the firmware of the Xteink readers used under the MIT License:
 - hash32 0.3.1: Copyright (c) 2018 Jorge Aparicio
 - hashbrown 0.17.1: Copyright (c) 2016 Amanieu d'Antras
 - heapless 0.8.0: Copyright (c) 2017 Jorge Aparicio
-- heapless 0.9.3: Copyright (c) 2017 Jorge Aparicio
+- heapless 0.9.4: Copyright (c) 2017 Jorge Aparicio
 - heck 0.5.0: Copyright (c) 2015 The Rust Project Developers
 - hkdf 0.12.4: Copyright (c) 2015-2018 Vlad Filippov; Copyright (c) 2018-2021 RustCrypto Developers
 - hmac 0.12.1: Copyright (c) 2017 Artyom Pavlov
@@ -375,11 +375,11 @@ Crates in the firmware of the Xteink readers used under the MIT License:
 - indoc 2.0.8: Copyright David Tolnay (https://github.com/dtolnay/indoc)
 - inout 0.1.4: Copyright (c) 2022 The RustCrypto Project Developers; Copyright (c) 2022 Artyom Pavlov
 - instability 0.3.14: Copyright (c) 2020 Stephen M. Coakley; Copyright (c) The Ratatui Developers
-- itoa 1.0.18: Copyright David Tolnay (https://github.com/dtolnay/itoa)
+- itoa 1.0.19: Copyright David Tolnay (https://github.com/dtolnay/itoa)
 - linked_list_allocator 0.10.6: Copyright (c) 2016 Philipp Oppermann
 - litrs 1.0.1: Copyright (c) 2020 Project Developers
 - lock_api 0.4.14: Copyright (c) 2016 The Rust Project Developers
-- log 0.4.34: Copyright (c) 2014 The Rust Project Developers
+- log 0.4.35: Copyright (c) 2014 The Rust Project Developers
 - mbedtls-rs 0.3.0: Copyright 2022 esp-rs; Copyright (c) 2022 esp-rs
 - mbedtls-rs-sys 0.3.1: Copyright 2022 esp-rs; Copyright (c) 2022 esp-rs
 - memchr 2.8.3: Copyright (c) 2015 Andrew Gallant
@@ -408,10 +408,10 @@ Crates in the firmware of the Xteink readers used under the MIT License:
 - riscv-macros 0.3.0: Copyright The RISC-V Team (https://github.com/rust-embedded/riscv)
 - riscv-rt-macros 0.6.1: Copyright The RISC-V Team, Jorge Aparicio (https://github.com/rust-embedded/riscv)
 - rlsf 0.2.3: Copyright yvt (https://github.com/yvt/rlsf)
-- rustls-pki-types 1.15.1: Copyright 2023 Dirkjan Ochtman; Copyright (c) 2023 Dirkjan Ochtman <dirkjan@ochtman.nl>
+- rustls-pki-types 1.16.0: Copyright 2023 Dirkjan Ochtman; Copyright (c) 2023 Dirkjan Ochtman <dirkjan@ochtman.nl>
 - rustversion 1.0.23: Copyright David Tolnay (https://github.com/dtolnay/rustversion)
 - scopeguard 1.2.0: Copyright (c) 2016-2019 Ulrik Sverdrup "bluss" and scopeguard developers
-- sdio 0.5.2: Copyright Johan Kristell, Richard Meadows (https://github.com/embassy-rs/sdio)
+- sdio 0.5.3: Copyright Johan Kristell, Richard Meadows (https://github.com/embassy-rs/sdio)
 - sec1 0.7.3: Copyright (c) 2021-2022 The RustCrypto Project Developers
 - semihosting 0.1.25: Copyright the semihosting contributors (https://github.com/taiki-e/semihosting)
 - serde 1.0.229: Copyright Erick Tryzelaar, David Tolnay (https://github.com/serde-rs/serde)
@@ -428,27 +428,27 @@ Crates in the firmware of the Xteink readers used under the MIT License:
 - strum 0.27.2: Copyright (c) 2019 Peter Glotfelty
 - strum_macros 0.27.2: Copyright (c) 2019 Peter Glotfelty
 - syn 2.0.119: Copyright David Tolnay (https://github.com/dtolnay/syn)
-- syn 3.0.9: Copyright David Tolnay (https://github.com/dtolnay/syn)
+- syn 3.0.10: Copyright David Tolnay (https://github.com/dtolnay/syn)
 - termcolor 1.4.1: Copyright (c) 2015 Andrew Gallant
 - thiserror 2.0.21: Copyright David Tolnay (https://github.com/dtolnay/thiserror)
 - thiserror-impl 2.0.21: Copyright David Tolnay (https://github.com/dtolnay/thiserror)
-- toml_datetime 1.1.2+spec-1.1.0: Copyright Individual contributors; Copyright (c) Individual contributors
-- toml_edit 0.25.17+spec-1.1.0: Copyright Individual contributors; Copyright (c) Individual contributors
+- toml_datetime 1.1.3+spec-1.1.0: Copyright Individual contributors; Copyright (c) Individual contributors
+- toml_edit 0.25.19+spec-1.1.0: Copyright Individual contributors; Copyright (c) Individual contributors
 - toml_parser 1.1.5+spec-1.1.0: Copyright Individual contributors; Copyright (c) Individual contributors
 - trouble-host 0.7.0: Copyright (c) Embassy project contributors
 - typenum 1.20.1: Copyright 2014 Paho Lurie-Gregg; Copyright (c) 2014 Paho Lurie-Gregg
 - ufmt-write 0.1.0: Copyright Jorge Aparicio (https://github.com/japaric/ufmt)
 - unicode-ident 1.0.27: COPYRIGHT AND PERMISSION NOTICE; Copyright © 1991-2023 Unicode, Inc.
 - unsafe-libyaml 0.2.11: Copyright David Tolnay (https://github.com/dtolnay/unsafe-libyaml)
-- uuid 1.29.0: Copyright (c) 2014 The Rust Project Developers; Copyright (c) 2018 Ashley Mannix, Christopher Armstrong, Dylan DPC, Hunar Roop Kahlon
+- uuid 1.29.3: Copyright (c) 2014 The Rust Project Developers; Copyright (c) 2018 Ashley Mannix, Christopher Armstrong, Dylan DPC, Hunar Roop Kahlon
 - vcell 0.1.3: Copyright (c) 2017 Jorge Aparicio
 - void 1.0.2: Copyright Jonathan Reem (https://github.com/reem/rust-void.git)
-- winnow 1.0.4: Copyright the winnow contributors (https://github.com/winnow-rs/winnow)
+- winnow 1.0.5: Copyright the winnow contributors (https://github.com/winnow-rs/winnow)
 - xtensa-lx 0.13.0: Copyright the xtensa-lx contributors (https://github.com/esp-rs/esp-hal)
 - xtensa-lx-rt 0.23.0: Copyright the xtensa-lx-rt contributors (https://github.com/esp-rs/esp-hal)
 - xtensa-lx-rt-proc-macros 0.5.0: Copyright the xtensa-lx-rt-proc-macros contributors (https://github.com/esp-rs/esp-hal)
 - zerocopy 0.8.63: Copyright 2023 The Fuchsia Authors; Copyright 2019 The Fuchsia Authors.
-- zeroize 1.9.1: Copyright (c) 2018-2026 The RustCrypto Project Developers
+- zeroize 1.9.2: Copyright (c) 2018-2026 The RustCrypto Project Developers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
@@ -530,7 +530,7 @@ Except as contained in this notice, the name of a copyright holder shall not be 
 
 Crates in the firmware of the Xteink readers used under the Community Data License Agreement Permissive 2.0:
 
-- webpki-roots 1.0.10: Copyright the webpki-roots contributors (https://github.com/rustls/webpki-roots)
+- webpki-roots 1.0.12: Copyright the webpki-roots contributors (https://github.com/rustls/webpki-roots)
 
 Community Data License Agreement - Permissive - Version 2.0
 

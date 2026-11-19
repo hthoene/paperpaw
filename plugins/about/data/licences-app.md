@@ -256,24 +256,24 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - bitflags 1.3.2: Copyright (c) 2014 The Rust Project Developers
 - bitflags 2.13.2: Copyright (c) 2014 The Rust Project Developers
 - block2 0.5.1: Copyright Steven Sheldon, Mads Marquart (https://github.com/madsmtm/objc2)
-- bumpalo 3.20.3: Copyright (c) 2019 Nick Fitzgerald
+- bumpalo 3.20.4: Copyright (c) 2019 Nick Fitzgerald
 - bytemuck 1.25.2: Copyright (c) 2019 Daniel "Lokathor" Gee.
 - bytemuck_derive 1.12.1: Copyright (c) 2019 Daniel "Lokathor" Gee.
-- bytes 1.12.1: Copyright (c) 2018 Carl Lerche
+- bytes 1.12.2: Copyright (c) 2018 Carl Lerche
 - calloop 0.13.0: Copyright (c) 2018 Victor Berger
 - calloop-wayland-source 0.3.0: Copyright (c) 2023 Kirill Chibisov
 - cesu8 1.1.0: Copyright (C) 2000-2010 Julian Seward.  All rights; Copyright (c) 2003-2013 University of Illinois at; Copyright (c) 2009-2014 by the contributors listed in; Copyright (C) 2008-2010 Tachyon Technologies.; Copyright (c) 2008, Natacha Porté; Copyright (c) 2011, Vicent Martí; Copyright (c) 2013, Devin Torres and the Hoedown authors; Copyright (C) 2012-2014 Free Software Foundation, Inc.; Copyright (C) 2002-2014 Jason Evans; Copyright (C) 2007-2012 Mozilla Foundation.; Copyright (C) 2009-2014 Facebook, Inc.
 - cfg-if 1.0.5: Copyright (c) 2014 Alex Crichton
 - chrono 0.4.45: Copyright (c) 2014, Kang Seonghoon.
 - cipher 0.4.4: Copyright (c) 2016-2020 RustCrypto Developers
-- combine 4.6.8: Copyright (c) 2015 Markus Westerlind
+- combine 4.6.9: Copyright (c) 2015 Markus Westerlind
 - core-foundation 0.9.4: Copyright (c) 2012-2013 Mozilla Foundation
 - core-foundation-sys 0.8.7: Copyright (c) 2012-2013 Mozilla Foundation
 - core-graphics 0.23.2: Copyright (c) 2012-2013 Mozilla Foundation
 - core-graphics-types 0.1.3: Copyright (c) 2012-2013 Mozilla Foundation
 - core_maths 0.1.1: Copyright (c) 2024 Robert Bastian
 - cpufeatures 0.2.17: Copyright (c) 2020-2025 The RustCrypto Project Developers
-- crc32fast 1.5.2: Copyright (c) 2018 Sam Rijs, Alex Crichton and contributors
+- crc32fast 1.5.5: Copyright (c) 2018 Sam Rijs, Alex Crichton and contributors
 - crypto-common 0.1.7: Copyright (c) 2021 RustCrypto Developers
 - ctor 0.10.1: Copyright Matt Mastracci (https://github.com/mmastrac/rust-ctor)
 - ctr 0.9.2: Copyright (c) 2018-2022 RustCrypto Developers; Copyright (c) 2018 Artyom Pavlov
@@ -292,10 +292,10 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - embedded-hal 1.0.0: Copyright (c) 2017-2018 Jorge Aparicio
 - env_filter 0.1.4: Copyright (c) Individual contributors
 - equivalent 1.0.3: Copyright (c) 2016--2023
-- errno 0.3.14: Copyright (c) 2014 Chris Wong
+- errno 0.3.15: Copyright (c) 2014 Chris Wong
 - fastrand 2.5.0: Copyright Stjepan Glavina (https://github.com/smol-rs/fastrand)
 - fdeflate 0.3.7: Copyright The image-rs Developers (https://github.com/image-rs/fdeflate)
-- flate2 1.1.10: Copyright (c) 2014-2026 Alex Crichton
+- flate2 1.1.11: Copyright (c) 2014-2026 Alex Crichton
 - font-types 0.12.7: Copyright 2019 Fontations Developers; Copyright (c) 2019 Fontations Developers
 - foreign-types 0.5.0: Copyright (c) 2017 The foreign-types Developers
 - foreign-types-macros 0.2.4: Copyright (c) 2017 The foreign-types Developers
@@ -318,15 +318,15 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - jni-sys 0.3.1: Copyright (c) 2015 The rust-jni-sys Developers
 - jni-sys 0.4.1: Copyright (c) 2015 The rust-jni-sys Developers
 - jni-sys-macros 0.4.1: Copyright Robert Bragg (https://github.com/jni-rs/jni-sys)
-- js-sys 0.3.106: Copyright (c) 2014 Alex Crichton
+- js-sys 0.3.107: Copyright (c) 2014 Alex Crichton
 - libc 0.2.191: Copyright (c) The Rust Project Developers
 - libm 0.2.16: Copyright (c) 2018 Jorge Aparicio; Copyright © 2005-2020 Rich Felker, et al.; Copyright © 1993,2004 Sun Microsystems or; Copyright © 2003-2011 David Schultz or; Copyright © 2003-2009 Steven G. Kargl or; Copyright © 2003-2009 Bruce D. Evans or; Copyright © 2008 Stephen L. Moshier or; Copyright © 2017-2018 Arm Limited
 - linux-raw-sys 0.12.1: Copyright Dan Gohman (https://github.com/sunfishcode/linux-raw-sys)
 - linux-raw-sys 0.4.15: Copyright Dan Gohman (https://github.com/sunfishcode/linux-raw-sys)
 - linux-raw-sys 0.9.4: Copyright Dan Gohman (https://github.com/sunfishcode/linux-raw-sys)
-- log 0.4.34: Copyright (c) 2014 The Rust Project Developers
+- log 0.4.35: Copyright (c) 2014 The Rust Project Developers
 - memchr 2.8.3: Copyright (c) 2015 Andrew Gallant
-- memmap2 0.9.11: Copyright (c) 2020 Yevhenii Reizner; Copyright (c) 2015 Dan Burkert
+- memmap2 0.9.12: Copyright (c) 2020 Yevhenii Reizner; Copyright (c) 2015 Dan Burkert
 - miniz_oxide 0.8.9: Copyright 2013-2014 RAD Game Tools and Valve Software; Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC; Copyright (c) 2017 Frommi; Copyright (c) 2017-2024 oyvindln; Copyright (c) 2020 Frommi
 - miniz_oxide 0.9.1: Copyright 2013-2014 RAD Game Tools and Valve Software; Copyright 2010-2014 Rich Geldreich and Tenacious Software LLC; Copyright (c) 2017 Frommi; Copyright (c) 2017-2024 oyvindln; Copyright (c) 2020 Frommi
 - ndk 0.9.0: Copyright The Rust Mobile contributors (https://github.com/rust-mobile/ndk)
@@ -367,9 +367,9 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - raw-window-handle 0.6.2: Copyright (c) 2019 Osspial; Copyright (c) 2020 Osspial
 - read-fonts 0.45.1: Copyright 2019 Fontations Developers; Copyright (c) 2019 Fontations Developers
 - rustix 0.38.44: Copyright Dan Gohman, Jakub Konka (https://github.com/bytecodealliance/rustix)
-- rustix 1.1.5: Copyright Dan Gohman, Jakub Konka (https://github.com/bytecodealliance/rustix)
+- rustix 1.1.6: Copyright Dan Gohman, Jakub Konka (https://github.com/bytecodealliance/rustix)
 - rustls 0.23.46: Copyright (c) 2016, Joseph Birr-Pixton <jpixton@gmail.com>; Copyright (c) 2016 Joseph Birr-Pixton <jpixton@gmail.com>
-- rustls-pki-types 1.15.1: Copyright 2023 Dirkjan Ochtman; Copyright (c) 2023 Dirkjan Ochtman <dirkjan@ochtman.nl>
+- rustls-pki-types 1.16.0: Copyright 2023 Dirkjan Ochtman; Copyright (c) 2023 Dirkjan Ochtman <dirkjan@ochtman.nl>
 - rustversion 1.0.23: Copyright David Tolnay (https://github.com/dtolnay/rustversion)
 - scoped-tls 1.0.1: Copyright (c) 2014 Alex Crichton
 - serde 1.0.229: Copyright Erick Tryzelaar, David Tolnay (https://github.com/serde-rs/serde)
@@ -380,21 +380,21 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - simdutf8 0.1.5: Copyright Hans Kratz (https://github.com/rusticstuff/simdutf8)
 - skrifa 0.48.0: Copyright 2019 Fontations Developers; Copyright (c) 2019 Fontations Developers
 - slab 0.4.12: Copyright (c) 2019 Carl Lerche
-- smallvec 1.16.3: Copyright (c) 2018 The Servo Project Developers
+- smallvec 1.16.6: Copyright (c) 2018 The Servo Project Developers
 - smithay-client-toolkit 0.19.2: Copyright (c) 2018 Victor Berger
 - smol_str 0.2.2: Copyright Aleksey Kladov (https://github.com/rust-analyzer/smol_str)
 - softbuffer 0.4.8: Copyright 2022 Kirill Chibisov
 - stable_deref_trait 1.2.1: Copyright (c) 2017 Robert Grosse
 - syn 2.0.119: Copyright David Tolnay (https://github.com/dtolnay/syn)
-- syn 3.0.9: Copyright David Tolnay (https://github.com/dtolnay/syn)
+- syn 3.0.10: Copyright David Tolnay (https://github.com/dtolnay/syn)
 - synstructure 0.14.0: Copyright 2016 Nika Layzell
 - thiserror 1.0.69: Copyright David Tolnay (https://github.com/dtolnay/thiserror)
 - thiserror 2.0.21: Copyright David Tolnay (https://github.com/dtolnay/thiserror)
 - thiserror-impl 1.0.69: Copyright David Tolnay (https://github.com/dtolnay/thiserror)
 - thiserror-impl 2.0.21: Copyright David Tolnay (https://github.com/dtolnay/thiserror)
 - tiny-xlib 0.2.5: Copyright (c) 2023 John Nunley
-- toml_datetime 1.1.2+spec-1.1.0: Copyright Individual contributors; Copyright (c) Individual contributors
-- toml_edit 0.25.17+spec-1.1.0: Copyright Individual contributors; Copyright (c) Individual contributors
+- toml_datetime 1.1.3+spec-1.1.0: Copyright Individual contributors; Copyright (c) Individual contributors
+- toml_edit 0.25.19+spec-1.1.0: Copyright Individual contributors; Copyright (c) Individual contributors
 - toml_parser 1.1.5+spec-1.1.0: Copyright Individual contributors; Copyright (c) Individual contributors
 - tracing 0.1.44: Copyright (c) 2019 Tokio Contributors
 - tracing-core 0.1.36: Copyright (c) 2019 Tokio Contributors
@@ -402,28 +402,28 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - unicode-ident 1.0.27: COPYRIGHT AND PERMISSION NOTICE; Copyright © 1991-2023 Unicode, Inc.
 - unicode-segmentation 1.13.3: Copyright (c) 2015 The Rust Project Developers
 - universal-hash 0.5.1: Copyright (c) 2019-2020 RustCrypto Developers
-- wasm-bindgen 0.2.129: Copyright (c) 2014 Alex Crichton
-- wasm-bindgen-futures 0.4.79: Copyright (c) 2014 Alex Crichton
-- wasm-bindgen-macro 0.2.129: Copyright (c) 2014 Alex Crichton
-- wasm-bindgen-macro-support 0.2.129: Copyright (c) 2014 Alex Crichton
-- wasm-bindgen-shared 0.2.129: Copyright (c) 2014 Alex Crichton
+- wasm-bindgen 0.2.130: Copyright (c) 2014 Alex Crichton
+- wasm-bindgen-futures 0.4.80: Copyright (c) 2014 Alex Crichton
+- wasm-bindgen-macro 0.2.130: Copyright (c) 2014 Alex Crichton
+- wasm-bindgen-macro-support 0.2.130: Copyright (c) 2014 Alex Crichton
+- wasm-bindgen-shared 0.2.130: Copyright (c) 2014 Alex Crichton
 - wayland-backend 0.3.17: Copyright (c) 2015 Elinor Berger
 - wayland-client 0.31.15: Copyright (c) 2015 Elinor Berger
 - wayland-csd-frame 0.3.0: Copyright (c) 2023 Kirill Chibisov
 - wayland-cursor 0.31.14: Copyright (c) 2015 Elinor Berger
-- wayland-protocols 0.32.12: Copyright (c) 2015 Elinor Berger
+- wayland-protocols 0.32.13: Copyright (c) 2015 Elinor Berger
 - wayland-protocols-plasma 0.3.12: Copyright (c) 2015 Elinor Berger
 - wayland-protocols-wlr 0.3.12: Copyright (c) 2015 Elinor Berger
 - wayland-scanner 0.31.11: Copyright (c) 2015 Elinor Berger
 - wayland-sys 0.31.11: Copyright (c) 2015 Elinor Berger
-- web-sys 0.3.106: Copyright (c) 2014 Alex Crichton
+- web-sys 0.3.107: Copyright (c) 2014 Alex Crichton
 - web-time 1.1.0: Copyright 2023 dAxpeDDa; Copyright (c) 2023 dAxpeDDa
 - windows-link 0.2.1: Copyright (c) Microsoft Corporation.
 - windows-sys 0.52.0: Copyright (c) Microsoft Corporation.
 - windows-sys 0.61.2: Copyright (c) Microsoft Corporation.
 - windows-targets 0.52.6: Copyright (c) Microsoft Corporation.
 - windows_x86_64_msvc 0.52.6: Copyright (c) Microsoft Corporation.
-- winnow 1.0.4: Copyright the winnow contributors (https://github.com/winnow-rs/winnow)
+- winnow 1.0.5: Copyright the winnow contributors (https://github.com/winnow-rs/winnow)
 - x11-dl 2.21.0: Copyright daggerbot, Erle Pereira, AltF02 (https://github.com/AltF02/x11-rs.git)
 - x11rb 0.13.2: Copyright 2019 x11rb Contributers
 - x11rb-protocol 0.13.2: Copyright 2019 x11rb Contributers
@@ -431,7 +431,7 @@ Crates in the apps (Android, the desktop and web emulators) used under the MIT L
 - xkbcommon-dl 0.4.2: Copyright (c) 2023 Kirill Chibisov
 - xkeysym 0.2.1: Copyright 2022-2023 John Nunley; Copyright (c) 2022-2023 John Nunley
 - zerocopy 0.8.63: Copyright 2023 The Fuchsia Authors; Copyright 2019 The Fuchsia Authors.
-- zeroize 1.9.1: Copyright (c) 2018-2026 The RustCrypto Project Developers
+- zeroize 1.9.2: Copyright (c) 2018-2026 The RustCrypto Project Developers
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
@@ -455,9 +455,9 @@ Its text is in the chapter on PaperPaw's own licence above.
 Crates in the apps (Android, the desktop and web emulators) used under the ISC License:
 
 - libloading 0.8.9: Copyright © 2015, Simonas Kazlauskas
-- libloading 0.9.0: Copyright © 2015, Simonas Kazlauskas
+- libloading 0.9.1: Copyright © 2015, Simonas Kazlauskas
 - ring 0.17.14: Copyright (c) 2009 The Go Authors. All rights reserved.; Copyright 2015 The Chromium Authors. All rights reserved.; Copyright 2015-2025 Brian Smith.
-- rustls-webpki 0.103.16: Copyright 2015 Brian Smith.
+- rustls-webpki 0.103.17: Copyright 2015 Brian Smith.
 - untrusted 0.9.0: Copyright 2015-2016 Brian Smith.
 
 Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
@@ -502,7 +502,7 @@ Permission is granted to anyone to use this software for any purpose, including 
 Crates in the apps (Android, the desktop and web emulators) used under the Unicode License v3:
 
 - unicode-ident 1.0.27: COPYRIGHT AND PERMISSION NOTICE; Copyright © 1991-2023 Unicode, Inc.
-- yoke 0.8.3: COPYRIGHT AND PERMISSION NOTICE; Copyright © 2020-2024 Unicode, Inc.
+- yoke 0.8.4: COPYRIGHT AND PERMISSION NOTICE; Copyright © 2020-2024 Unicode, Inc.
 - yoke-derive 0.8.4: COPYRIGHT AND PERMISSION NOTICE; Copyright © 2020-2024 Unicode, Inc.
 - zerofrom 0.1.8: COPYRIGHT AND PERMISSION NOTICE; Copyright © 2020-2024 Unicode, Inc.
 - zerofrom-derive 0.1.8: COPYRIGHT AND PERMISSION NOTICE; Copyright © 2020-2024 Unicode, Inc.
@@ -527,7 +527,7 @@ Except as contained in this notice, the name of a copyright holder shall not be 
 
 Crates in the apps (Android, the desktop and web emulators) used under the Community Data License Agreement Permissive 2.0:
 
-- webpki-roots 1.0.11: Copyright the webpki-roots contributors (https://github.com/rustls/webpki-roots)
+- webpki-roots 1.0.12: Copyright the webpki-roots contributors (https://github.com/rustls/webpki-roots)
 
 Community Data License Agreement - Permissive - Version 2.0
 
