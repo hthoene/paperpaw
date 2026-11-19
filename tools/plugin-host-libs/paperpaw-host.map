@@ -1,0 +1,1 @@
+{ global: PAPERPAW_ENTRY; PAPERPAW_METADATA; PAPERPAW_HEAP; local: *; };
