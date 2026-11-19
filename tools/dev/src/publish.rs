@@ -138,7 +138,10 @@ fn link_folder(to: &Path, link: &Path) -> bool {
     #[cfg(windows)]
     let made = std::os::windows::fs::symlink_dir(to, link);
     #[cfg(not(any(unix, windows)))]
-    let made: std::io::Result<()> = Err(std::io::ErrorKind::Unsupported.into());
+    let made: std::io::Result<()> = {
+        let _ = (to, link);
+        Err(std::io::ErrorKind::Unsupported.into())
+    };
     made.is_ok()
 }
 
