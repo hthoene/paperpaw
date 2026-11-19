@@ -215,7 +215,7 @@ impl PanelView {
             spacing: if self.touch { style.gap } else { style.gap / 2 },
             row: style.row,
             button: style.row.saturating_sub(style.gap),
-            border: (style.line * 2).max(2),
+            border: paperpaw_ui_kit::sheet::edge_thickness(style.line),
             label: 0,
             pager: style.row,
             margin: style.margin,
@@ -299,7 +299,7 @@ impl PanelView {
     ) -> Result<(), Error> {
         let r = layout.region;
         paint::push(body, Paint::Fill(r, style.paper))?;
-        let border = (style.line * 2).max(2);
+        let border = paperpaw_ui_kit::sheet::edge_thickness(style.line);
         let edge = if self.top {
             Rect::new(
                 r.x,

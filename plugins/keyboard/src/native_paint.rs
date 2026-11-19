@@ -47,11 +47,7 @@ pub fn paint(
 ) -> Result<(), Error> {
     let r = board.region;
     push(out, Paint::Fill(r, style.paper))?;
-    let rule = (u32::from(style.line) * 2).max(2) as u16;
-    push(
-        out,
-        Paint::Fill(Rect::new(r.x, r.y, r.width, rule), style.ink),
-    )?;
+    paperpaw_ui_kit::sheet::edge(out, style, r, style.ink)?;
     field(board, style, font, words, out)?;
     for row in 0..board.rows.len() {
         for index in 0..board.rows[row].len() {
@@ -514,7 +510,7 @@ fn variants(
     out: &mut Vec<Paint>,
 ) -> Result<(), Error> {
     let a = popup.area;
-    let border = (u32::from(style.line) * 2).max(2);
+    let border = u32::from(paperpaw_ui_kit::sheet::edge_thickness(style.line));
     let outer = border as u16 * 2;
     let frame = Rect::new(
         a.x.saturating_sub(outer),

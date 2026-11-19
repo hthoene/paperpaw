@@ -378,24 +378,15 @@ fn centred(
     bottom: i32,
     ink: Color,
 ) -> Result<(), Error> {
-    let lines = text::wrap_with(|line| font.measure_text(size, line), text, wide, LINES)?;
-    let high = geometry::line_px(font, size)?;
-    for line in &lines {
-        if *y + i32::from(high) > bottom {
-            break;
-        }
-        let measured = font.measure_text(size, line)?;
-        let x = f32::from(style.margin) + (wide - measured).max(0.0) / 2.0;
-        let row = Rect::new(
-            style.margin,
-            geometry::clamp_u16(i64::from(*y)),
-            geometry::clamp_u16(wide as i64),
-            high,
-        );
-        text::label(paint, font, line, size, x, row, ink, None)?;
-        *y += i32::from(high);
-    }
-    Ok(())
+    text::centred(
+        paint,
+        font,
+        text,
+        (size, ink),
+        (style.margin, wide),
+        (y, bottom),
+        LINES,
+    )
 }
 
 fn redraw(host: &Host<'_>) -> Result<(), Error> {
