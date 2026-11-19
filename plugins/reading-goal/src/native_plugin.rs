@@ -38,6 +38,7 @@ use crate::native_picture::{self, Next, Pictures, Source};
 use crate::native_sleep;
 use crate::native_widget::{self, TARGET};
 use crate::store;
+use paperpaw_sdk::native::snapshot::capture_snapshot;
 
 mod image {
     include!(concat!(env!("OUT_DIR"), "/reading_goal_declarations.rs"));
@@ -397,14 +398,20 @@ impl NativeReadingGoal {
         let mut bytes = [0u8; 256];
         let folder = picture_folder(host, &mut bytes);
         let own = !folder.is_empty();
-        // As large as the widest widget is drawn (0: the screen's, before any
-        // is measured).
-        let side = self
+        // As large as the widest widget is drawn. Before any is measured it
+        // is the display's width, the most a widget can be wide: never side 0,
+        // the screen's longer side, which a small heap cannot hold (#346).
+        let measured = self
             .items
             .iter()
             .map(|item| u32::from(item.width))
             .max()
             .unwrap_or(0);
+        let side = if measured > 0 {
+            measured
+        } else {
+            capture_snapshot(host).map_or(0, |snapshot| u32::from(snapshot.display_width()))
+        };
         let mut step = from;
         while step < native_picture::steps(own) {
             if let Some(candidate) = native_picture::candidate(folder, mood, step) {
@@ -535,6 +542,9 @@ impl NativeReadingGoal {
             width: 0,
         });
         self.statistics = read_statistics(host).unwrap_or(self.statistics);
+        // Asked for here, an event where commands are allowed: at the first
+        // widget the size is not measured yet, so the screen's is asked for.
+        self.want_picture(host);
         Ok(())
     }
 
@@ -559,7 +569,8 @@ impl NativeReadingGoal {
                 if let Some(item) = self.items.iter_mut().find(|item| item.instance == instance) {
                     item.width = width;
                 }
-                self.want_picture(host);
+                // No picture is asked for here: a stage call refuses commands
+                // (ERR_STATE), so the request would be lost (#370).
                 written
             }
             WidgetCall::Place { instance, .. } => {

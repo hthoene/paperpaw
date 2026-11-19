@@ -829,6 +829,9 @@ impl Kernel {
         if status.battery.is_some() {
             self.output.emit(&events::BATTERY_MEASURED, ());
         }
+        // The shell's wake about once a minute is the tick's too, where
+        // nothing else wakes the kernel (docs/abi/records.md, tick delivery).
+        self.native_tick();
         self.finish()
     }
 
