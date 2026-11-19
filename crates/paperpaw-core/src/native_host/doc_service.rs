@@ -5,15 +5,12 @@
 //! caller, the [`DocumentTable`] and the broker that calls the format plugin's
 //! `core.format` stage. This file and its parts own the contract: record
 //! order and values of every input, the lease of a document (only its opener),
-//! the state rules (preparing is `ERR_BUSY`), the paging rules and the
-//! checks of a format's answer before it is passed on.
-//!
-//! Memory (X4): the table is allocated once at its device limit (about 40
-//! bytes a document, 2 documents), open and close allocate nothing. A call
-//! runs in the 4,096-byte scratch the generic dispatcher lends: the format's
-//! answer is written into it, checked there and, for pictures, rewritten in
-//! place. No call keeps anything. The peak of the DOC host side beyond the
-//! scratch is the table: 80 bytes.
+//! the state rules (preparing is `ERR_BUSY`), the paging rules and the checks
+//! of a format's answer. Memory (X4): the table is allocated once at its
+//! device limit (about 40 bytes a document, 2 documents), open and close
+//! allocate nothing. A call runs in the 4,096-byte scratch the dispatcher
+//! lends: the answer is checked there and, for pictures, rewritten in place;
+//! nothing is kept. The DOC host side's peak beyond the scratch: the table, 80 bytes.
 use super::{
     host_services::Caller,
     registrations::{self as wire, Record},
