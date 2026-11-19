@@ -23,13 +23,16 @@ impl SettingSpec {
             kept_on_reset,
             extra: _,
         } = self;
-        let same_kind = match (kind, &other.kind) {
+        // The id first: a setting of another id differs there, before any
+        // choice list is walked (#393: the linked plugins' tables are looked
+        // through for each setting they declare).
+        let same_kind = || match (kind, &other.kind) {
             (SettingKind::Choice(a), SettingKind::Choice(b)) => a.iter().eq(b.iter()),
             (a, b) => a == b,
         };
         *id == other.id
             && *title == other.title
-            && same_kind
+            && same_kind()
             && *default == other.default
             && *group == other.group
             && *level == other.level
