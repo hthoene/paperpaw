@@ -189,7 +189,11 @@ const HEAP_SIZE: usize = (192 + WIFI_IN_FLASH_KB - BLUETOOTH_KB - S3_BAND_KB - X
 /// its margin. The heap takes it, the stack stays as it was (`build.rs` checks
 /// the stack's size). Measured on the image: the stack grew by as much as the
 /// code left RAM.
-const WIFI_IN_FLASH_KB: usize = if cfg!(target_arch = "riscv32") { 16 } else { 15 };
+const WIFI_IN_FLASH_KB: usize = if cfg!(target_arch = "riscv32") {
+    16
+} else {
+    15
+};
 /// The X4's band at the stack's end and its reserve (4 KB and the band's 2 KB,
 /// `paperpaw_x4::stack_band`) take the top 7.7 KB of a stack that had only
 /// 37.4 KB left once the interface-7 plugins were built in: the start's path

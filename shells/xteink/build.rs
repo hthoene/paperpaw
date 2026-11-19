@@ -193,7 +193,8 @@ fn compiler() {
 /// builder.
 fn device_messages() {
     let german = std::env::var_os("CARGO_FEATURE_BUILT_GERMAN").is_some();
-    let mut table = paperpaw_i18n::BuiltMessagesTable::new(if german { &["en", "de"] } else { &["en"] });
+    let mut table =
+        paperpaw_i18n::BuiltMessagesTable::new(if german { &["en", "de"] } else { &["en"] });
     for file in ["i18n/en.ini", "i18n/de.ini"] {
         if !german && file.ends_with("de.ini") {
             continue;
