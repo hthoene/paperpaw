@@ -1,7 +1,9 @@
 //! Indic shaping: Bengali (Bangla, Assamese) and Devanagari (Hindi,
-//! Marathi, Nepali, Sanskrit) set as their fonts draw them (#157), and
-//! Khmer, Lao and Tibetan (#314, [`rare`]: their own syllables and order,
-//! the same substitutions).
+//! Marathi, Nepali, Sanskrit) set as their fonts draw them (#157), the
+//! other Brahmic scripts of India and Sri Lanka the same way (#385,
+//! [`brahmic`]: Gujarati, Gurmukhi, Oriya, Tamil, Telugu, Kannada,
+//! Malayalam, Sinhala), and Khmer, Lao and Tibetan (#314, [`rare`]: their
+//! own syllables and order, the same substitutions).
 //!
 //! Text is cut into syllables ([`syllable_end`]): a consonant or vowel,
 //! the consonants joined to it by a virama (hasanta, halant), its vowel
@@ -28,6 +30,7 @@
 //! substitutions (a scalable one, or a pack made before) gets the
 //! reordering alone.
 
+mod brahmic;
 #[cfg(feature = "outline")]
 mod clusters;
 #[cfg(feature = "outline")]
@@ -40,6 +43,7 @@ use core::ops::Range;
 
 use crate::anchors::Bytes;
 use crate::substitutions::{Run, Substitutions};
+use brahmic::Reph;
 
 /// The first key of a glyph that has no code point: glyph `n` of the
 /// font is `GLYPHS + n` (below [`MAX_GLYPH`]). Above Arabic's keys
@@ -89,15 +93,31 @@ pub(crate) enum Script {
     Khmer,
     Lao,
     Tibetan,
+    Gujarati,
+    Oriya,
+    Gurmukhi,
+    Tamil,
+    Malayalam,
+    Sinhala,
+    Telugu,
+    Kannada,
 }
 
 /// The scripts, in [`Script`]'s order.
-const SCRIPTS: [Script; 5] = [
+const SCRIPTS: [Script; 13] = [
     Script::Bengali,
     Script::Devanagari,
     Script::Khmer,
     Script::Lao,
     Script::Tibetan,
+    Script::Gujarati,
+    Script::Oriya,
+    Script::Gurmukhi,
+    Script::Tamil,
+    Script::Malayalam,
+    Script::Sinhala,
+    Script::Telugu,
+    Script::Kannada,
 ];
 
 impl Script {
@@ -109,6 +129,14 @@ impl Script {
             '\u{1780}'..='\u{17FF}' => Some(Script::Khmer),
             '\u{E80}'..='\u{EFF}' => Some(Script::Lao),
             '\u{F00}'..='\u{FFF}' => Some(Script::Tibetan),
+            '\u{A80}'..='\u{AFF}' => Some(Script::Gujarati),
+            '\u{B00}'..='\u{B7F}' => Some(Script::Oriya),
+            '\u{A00}'..='\u{A7F}' => Some(Script::Gurmukhi),
+            '\u{B80}'..='\u{BFF}' => Some(Script::Tamil),
+            '\u{D00}'..='\u{D7F}' => Some(Script::Malayalam),
+            '\u{D80}'..='\u{DFF}' => Some(Script::Sinhala),
+            '\u{C00}'..='\u{C7F}' => Some(Script::Telugu),
+            '\u{C80}'..='\u{CFF}' => Some(Script::Kannada),
             _ => None,
         }
     }
@@ -121,19 +149,35 @@ impl Script {
             Script::Khmer => "Khmr",
             Script::Lao => "Laoo",
             Script::Tibetan => "Tibt",
+            Script::Gujarati => "Gujr",
+            Script::Oriya => "Orya",
+            Script::Gurmukhi => "Guru",
+            Script::Tamil => "Taml",
+            Script::Malayalam => "Mlym",
+            Script::Sinhala => "Sinh",
+            Script::Telugu => "Telu",
+            Script::Kannada => "Knda",
         }
     }
 
     /// Whether its syllables are found, ordered and given their forms as
     /// Bengali's and Devanagari's are (else as [`rare`] says).
     const fn is_brahmic(self) -> bool {
-        matches!(self, Script::Bengali | Script::Devanagari)
+        !matches!(self, Script::Khmer | Script::Lao | Script::Tibetan)
     }
 
     const fn ra(self) -> char {
         match self {
             Script::Bengali => '\u{9B0}',
             Script::Devanagari => '\u{930}',
+            Script::Gujarati => '\u{AB0}',
+            Script::Oriya => '\u{B30}',
+            Script::Gurmukhi => '\u{A30}',
+            Script::Tamil => '\u{BB0}',
+            Script::Malayalam => '\u{D30}',
+            Script::Sinhala => '\u{DBB}',
+            Script::Telugu => '\u{C30}',
+            Script::Kannada => '\u{CB0}',
             _ => '\0',
         }
     }
@@ -142,6 +186,14 @@ impl Script {
         match self {
             Script::Bengali => 0x9CD,
             Script::Devanagari => 0x94D,
+            Script::Gujarati => 0xACD,
+            Script::Oriya => 0xB4D,
+            Script::Gurmukhi => 0xA4D,
+            Script::Tamil => 0xBCD,
+            Script::Malayalam => 0xD4D,
+            Script::Sinhala => 0xDCA,
+            Script::Telugu => 0xC4D,
+            Script::Kannada => 0xCCD,
             _ => 0,
         }
     }
@@ -255,17 +307,18 @@ fn category(script: Script, ch: char) -> Cat {
             '\u{94D}' => Cat::Virama,
             _ => Cat::Other,
         },
-        _ => rare::category(script, ch),
+        Script::Khmer | Script::Lao | Script::Tibetan => rare::category(script, ch),
+        _ => brahmic::category(script, ch),
     }
 }
 
 /// Whether `text` has letters of a script shaped here: a quick look at
-/// its bytes (in UTF-8, U+0900 to U+09FF are `E0 A4` to `E0 A7`, Lao and
+/// its bytes (in UTF-8, U+0900 to U+0DFF are `E0 A4` to `E0 B7`, Lao and
 /// Tibetan U+0E80 to U+0FFF `E0 BA` to `E0 BF`, Khmer `E1 9E` and `E1 9F`).
 pub fn has_indic(text: &str) -> bool {
     !text.is_ascii()
         && text.as_bytes().windows(2).any(|w| match w[0] {
-            0xE0 => matches!(w[1], 0xA4..=0xA7 | 0xBA..=0xBF),
+            0xE0 => matches!(w[1], 0xA4..=0xB7 | 0xBA..=0xBF),
             0xE1 => matches!(w[1], 0x9E..=0x9F),
             _ => false,
         })
@@ -294,8 +347,8 @@ pub(crate) fn is_mark_key(key: char) -> bool {
     }
     match category(script, key) {
         Cat::Nukta | Cat::Virama | Cat::BelowMatra | Cat::AboveMatra => true,
-        // Anusvara and visarga take room; candrabindu does not.
-        Cat::Modifier => !matches!(key, '\u{982}' | '\u{983}' | '\u{903}'),
+        // Visarga and some anusvaras take room; candrabindu does not.
+        Cat::Modifier => !brahmic::spacing_modifier(key),
         _ => false,
     }
 }
@@ -460,6 +513,8 @@ const POS_REPH: u8 = 1;
 const POS_PRE_M: u8 = 2;
 const POS_PRE_C: u8 = 3;
 const POS_BASE: u8 = 4;
+const POS_AFTER_MAIN: u8 = 5;
+const POS_BEFORE_SUB: u8 = 7;
 const POS_BELOW_C: u8 = 8;
 const POS_AFTER_SUB: u8 = 9;
 const POS_POST_C: u8 = 11;
@@ -474,6 +529,8 @@ const POST: u8 = 8;
 const INIT: u8 = 16;
 /// Not a mask: the glyph is the reph.
 const IS_REPH: u8 = 128;
+/// Not a mask: the glyph may take a form drawn before the base (`pref`).
+const IS_PREF: u8 = 32;
 
 /// A glyph being shaped: what its character was, where it goes, where
 /// features apply.
@@ -633,7 +690,7 @@ pub(crate) struct Shaper<'a, B: Bytes + ?Sized> {
     table: Option<Substitutions<'a, B>>,
     /// The scripts' numbers in the table (index in
     /// `paperpaw_lang::scripts()` and 1), in [`Script`]'s order.
-    numbers: [u8; 5],
+    numbers: [u8; SCRIPTS.len()],
 }
 
 /// The number a table gives `script`.
@@ -683,7 +740,7 @@ impl<'a, B: Bytes + ?Sized> Shaper<'a, B> {
         pair.push(script.virama(), Cat::Virama);
         pair.push(consonant, Cat::Consonant);
         self.features(script, &mut pair, |tag| {
-            matches!(tag, b"blwf" | b"pstf").then_some(ALL)
+            matches!(tag, b"blwf" | b"pstf" | b"pref").then_some(ALL)
         });
         pair.len != 2 || pair.keys[0] != script.virama() || pair.keys[1] != consonant
     }
@@ -755,17 +812,15 @@ impl<'a, B: Bytes + ?Sized> Shaper<'a, B> {
             return;
         }
         for ch in syllable.chars() {
-            match (script, ch) {
-                // The split vowels as their parts.
-                (Script::Bengali, '\u{9CB}') => {
-                    out.push(0x9C7, Cat::PreMatra);
-                    out.push(0x9BE, Cat::PostMatra);
+            // The split vowels as their parts.
+            match brahmic::parts(ch) {
+                Some(parts) => {
+                    for &part in parts {
+                        let cat = char::from_u32(part).map_or(Cat::Other, |c| category(script, c));
+                        out.push(part, cat);
+                    }
                 }
-                (Script::Bengali, '\u{9CC}') => {
-                    out.push(0x9C7, Cat::PreMatra);
-                    out.push(0x9D7, Cat::PostMatra);
-                }
-                _ => out.push(u32::from(ch), category(script, ch)),
+                None => out.push(u32::from(ch), category(script, ch)),
             }
         }
         self.features(script, out, |tag| FIRST.contains(&tag).then_some(ALL));
@@ -794,7 +849,7 @@ impl<'a, B: Bytes + ?Sized> Shaper<'a, B> {
         let reph = n > 2
             && out.keys[0] == u32::from(script.ra())
             && virama(out, 1)
-            && out.cat(2) != Cat::Zwj
+            && script.reph_before(out.cat(2))
             && (2..n).any(|i| out.cat(i) == Cat::Consonant)
             && self.has_reph(script);
         let first = if reph { 2 } else { 0 };
@@ -821,18 +876,20 @@ impl<'a, B: Bytes + ?Sized> Shaper<'a, B> {
             }
         }
         let base = base.unwrap_or(first.min(n.saturating_sub(1)));
-        let mut post = POS_POST_C;
+        let (mut post, mut pref) = (POS_POST_C, 0);
         for i in (0..n).rev() {
             let cat = out.cat(i);
             let info = &mut out.info[i];
             (info.pos, info.mask) = match cat {
                 _ if reph && i < 2 => (POS_REPH, ALL | RPHF),
                 Cat::PreMatra => (POS_PRE_M, ALL),
-                Cat::SplitMatra | Cat::PostMatra | Cat::AboveMatra => match script {
-                    Script::Bengali => (POS_AFTER_POST, ALL),
-                    _ => (POS_AFTER_SUB, ALL),
-                },
-                Cat::BelowMatra => (POS_AFTER_SUB, ALL),
+                Cat::SplitMatra | Cat::PostMatra | Cat::AboveMatra | Cat::BelowMatra => {
+                    (brahmic::matra_position(script, cat, out.keys[i]), ALL)
+                }
+                // Oriya's candrabindu goes where a vowel sign above it does.
+                Cat::Modifier if script == Script::Oriya && out.keys[i] == 0xB01 => {
+                    (POS_AFTER_MAIN, ALL)
+                }
                 Cat::Modifier => (POS_SMVD, ALL),
                 _ if i >= end => (POS_AFTER_SUB, ALL),
                 _ if i < base => (POS_PRE_C, ALL | HALF),
@@ -841,33 +898,61 @@ impl<'a, B: Bytes + ?Sized> Shaper<'a, B> {
                 // together, below or after.
                 _ => {
                     if cat == Cat::Consonant {
-                        post = match self.below(script, out.keys[i]) {
+                        post = match self.takes(script, out.keys[i], b"blwf", true) {
                             true => POS_BELOW_C,
                             false => POS_POST_C,
                         };
+                        pref = match self.takes(script, out.keys[i], b"pref", false) {
+                            true => IS_PREF,
+                            false => 0,
+                        };
                     }
-                    (post, ALL | POST)
+                    (post, ALL | POST | pref)
                 }
             };
         }
+        // A nukta goes where its letter goes.
+        for i in 1..n {
+            if out.cat(i) == Cat::Nukta {
+                out.info[i] = Info {
+                    cat: out.info[i].cat,
+                    ..out.info[i - 1]
+                };
+            }
+        }
     }
 
-    /// Whether `consonant` after a virama takes a form below the base
-    /// (else after it).
-    fn below(&self, script: Script, consonant: u32) -> bool {
+    /// Whether `consonant` after a virama takes the form of feature `tag`
+    /// (`blwf`: below the base, else after it; `pref`: before it);
+    /// `without` where the pack has no substitutions.
+    fn takes(&self, script: Script, consonant: u32, tag: &[u8; 4], without: bool) -> bool {
         let Some(table) = self.table else {
-            return true;
+            return without;
         };
         let mut pair = Glyphs::default();
         pair.push(script.virama(), Cat::Virama);
         pair.push(consonant, Cat::Consonant);
         let number = self.number(script);
         for feature in table.features() {
-            if feature.tag == *b"blwf" && feature.applies(number, "") {
+            if feature.tag == *tag && feature.applies(number, "") {
                 feature.apply(&mut pair);
             }
         }
         pair.len != 2 || pair.keys[1] != consonant
+    }
+
+    /// A consonant's form drawn before the base (`pref`, Malayalam's ra
+    /// after a virama) moves there, after a vowel sign drawn left.
+    fn reorder_pref(out: &mut Glyphs) {
+        let Some(base) = (0..out.len).find(|&i| out.info[i].pos == POS_BASE) else {
+            return;
+        };
+        let formed = |key: u32| char::from_u32(key).is_some_and(|k| glyph_of_key(k).is_some());
+        if let Some(i) =
+            (base + 1..out.len).find(|&i| out.info[i].mask & IS_PREF != 0 && formed(out.keys[i]))
+        {
+            out.move_glyph(i, base);
+        }
     }
 
     /// After the forms: the reph and a vowel sign drawn left move where
@@ -879,11 +964,22 @@ impl<'a, B: Bytes + ?Sized> Shaper<'a, B> {
             let base = base.unwrap_or(1).max(1);
             // After a virama left standing before the base, else as the
             // script draws it.
-            let target = match (1..base).find(|&i| virama(out, i)) {
+            let left = match script.reph() {
+                Reph::AfterPost => None,
+                _ => (1..base).find(|&i| virama(out, i)),
+            };
+            let target = match left {
                 Some(v) if matches!(out.cat(v + 1), Cat::Zwj | Cat::Zwnj) => v + 1,
                 Some(v) => v,
-                None => match script {
-                    Script::Bengali => {
+                None => match script.reph() {
+                    Reph::AfterMain => {
+                        let mut t = base;
+                        while t + 1 < out.len && out.info[t + 1].pos <= POS_AFTER_MAIN {
+                            t += 1;
+                        }
+                        t
+                    }
+                    Reph::AfterSub => {
                         let mut t = base;
                         while t + 1 < out.len
                             && !matches!(
@@ -925,5 +1021,6 @@ impl<'a, B: Bytes + ?Sized> Shaper<'a, B> {
             };
             out.move_glyph(matra, to);
         }
+        Self::reorder_pref(out);
     }
 }

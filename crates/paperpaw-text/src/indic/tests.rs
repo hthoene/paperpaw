@@ -137,6 +137,7 @@ mod fonts {
     use alloc::rc::Rc;
     use alloc::string::String;
     use alloc::vec::Vec;
+    use core::ops::RangeInclusive;
     use std::sync::OnceLock;
 
     use proptest::prelude::*;
@@ -150,6 +151,14 @@ mod fonts {
     const KHMER: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifKhmer.ttf");
     const LAO: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifLao.ttf");
     const TIBETAN: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifTibetan.ttf");
+    const GUJARATI: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifGujarati.ttf");
+    const ORIYA: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifOriya.ttf");
+    const GURMUKHI: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifGurmukhi.ttf");
+    const TAMIL: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifTamil.ttf");
+    const MALAYALAM: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifMalayalam.ttf");
+    const SINHALA: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifSinhala.ttf");
+    const TELUGU: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifTelugu.ttf");
+    const KANNADA: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifKannada.ttf");
 
     /// A pack of `font` at 20 px with its script's letters (and their
     /// forms), made as the store's packs are.
@@ -273,6 +282,129 @@ mod fonts {
         }
     }
 
+    /// A script's font, the characters of its pack, words and their glyphs.
+    type Words<'a, C> = (&'a [u8], C, &'a [(&'a str, &'a [u16])]);
+
+    /// Gujarati's, Oriya's and Gurmukhi's reph, conjuncts, forms below and
+    /// after the base, vowel signs drawn left, Oriya's split o and nukta
+    /// forms, Gurmukhi's tippi and addak (#385): as HarfBuzz 11 shapes them
+    /// with Noto Serif Gujarati, Oriya and Gurmukhi.
+    #[test]
+    fn gujarati_oriya_and_gurmukhi_are_shaped_as_harfbuzz_shapes_them() {
+        let scripts: [Words<'_, RangeInclusive<char>>; 3] = [
+            (
+                GUJARATI,
+                '\u{A80}'..='\u{AFF}',
+                &[
+                    ("કર્મ", &[22, 47, 148]),
+                    ("ક્ષમા", &[243, 47, 60]),
+                    ("પ્રેમ", &[223, 68, 47]),
+                    ("સ્વતંત્રતા", &[199, 52, 38, 6, 218, 38, 60]),
+                    ("કિંમત", &[129, 22, 415, 47, 38]),
+                ],
+            ),
+            (
+                ORIYA,
+                '\u{B00}'..='\u{B7F}',
+                &[
+                    ("କର୍ମ", &[15, 39, 616]),
+                    ("ଓଡ଼ିଆ", &[13, 49, 585, 2]),
+                    ("ପ୍ରେମ", &[579, 35, 611, 39]),
+                    ("କୋଣ", &[579, 15, 577, 29]),
+                    ("ଶକ୍ତି", &[45, 15, 585, 649]),
+                ],
+            ),
+            (
+                GURMUKHI,
+                '\u{A00}'..='\u{A7F}',
+                &[
+                    ("ਪ੍ਰੇਮ", &[38, 112, 57, 42]),
+                    ("ਕਿਤਾਬ", &[53, 18, 33, 52, 40]),
+                    ("ਸ੍ਵਰ", &[49, 114, 44]),
+                    ("ਪੰਜਾਬੀ", &[38, 78, 25, 52, 40, 54]),
+                    ("ਬੱਚਾ", &[40, 79, 23, 52]),
+                ],
+            ),
+        ];
+        for (font, block, words) in scripts {
+            let pack = pack_of(font, block);
+            for &(word, want) in words {
+                assert_eq!(glyphs(&pack, font, word), want, "{word}");
+            }
+        }
+    }
+
+    /// Tamil's split vowels and ksha, Malayalam's ra drawn before the base
+    /// (`pref`) and vowel signs left of it, Sinhala's touching letters made
+    /// with a joiner (rakaransaya), Telugu's and Kannada's forms below and
+    /// after the base, the form of ra below that the consonant before it
+    /// chooses (a contextual lookup applied by another), reph after all
+    /// (#385): as HarfBuzz 11 shapes them with their Noto Serif faces.
+    #[test]
+    fn south_indic_and_sinhala_are_shaped_as_harfbuzz_shapes_them() {
+        let joiners = '\u{200C}'..='\u{200D}';
+        let scripts: [Words<'_, Vec<RangeInclusive<char>>>; 5] = [
+            (
+                TAMIL,
+                alloc::vec!['\u{B80}'..='\u{BFF}'],
+                &[
+                    ("தமிழ்", &[175, 92, 66, 84, 60]),
+                    ("கொண்டு", &[42, 72, 5, 107, 60, 185]),
+                    ("பேசும்", &[44, 133, 32, 92, 60]),
+                    ("ஸ்ரீ", &[165]),
+                    ("க்ஷேத்திரம்", &[44, 74, 175, 60, 175, 65, 149, 92, 60]),
+                ],
+            ),
+            (
+                MALAYALAM,
+                alloc::vec!['\u{D00}'..='\u{D7F}'],
+                &[
+                    ("മലയാളം", &[77, 81, 78, 209, 82, 111]),
+                    ("ക്രമീകരണം", &[319, 52, 77, 211, 52, 79, 66, 111]),
+                    ("കൊള്ളാം", &[112, 52, 209, 278, 209, 111]),
+                    ("ഡ്രൈവ്", &[114, 319, 64, 84, 200]),
+                ],
+            ),
+            (
+                SINHALA,
+                alloc::vec!['\u{D80}'..='\u{DFF}', joiners],
+                &[
+                    ("සිංහල", &[290, 4, 62, 57]),
+                    ("ක්\u{200D}රියා", &[248, 133, 55, 66]),
+                    ("ප්\u{200D}රධාන", &[49, 158, 46, 66, 47]),
+                    ("කෝපය", &[74, 24, 130, 49, 55]),
+                ],
+            ),
+            (
+                TELUGU,
+                alloc::vec!['\u{C00}'..='\u{C7F}'],
+                &[
+                    ("తెలుగు", &[272, 51, 63, 25, 63]),
+                    ("ప్రతి", &[43, 559, 192]),
+                    ("నిద్ర", &[196, 40, 556]),
+                    ("కర్మ", &[23, 49, 738]),
+                ],
+            ),
+            (
+                KANNADA,
+                alloc::vec!['\u{C80}'..='\u{CFF}'],
+                &[
+                    ("ಕನ್ನಡ", &[26, 45, 237, 38]),
+                    ("ಕರ್ಮ", &[26, 50, 94]),
+                    ("ಪ್ರೀತಿ", &[130, 244, 78, 125]),
+                    ("ಕೊಡು", &[158, 68, 38, 67]),
+                    ("ಸ್ವಾತಂತ್ರ್ಯ", &[294, 64, 248, 41, 7, 41, 244, 243]),
+                ],
+            ),
+        ];
+        for (font, blocks, words) in scripts {
+            let pack = pack_of(font, blocks.into_iter().flatten());
+            for &(word, want) in words {
+                assert_eq!(glyphs(&pack, font, word), want, "{word}");
+            }
+        }
+    }
+
     #[test]
     fn the_tables_fit_what_a_card_pack_keeps_in_memory() {
         for pack in [
@@ -371,6 +503,17 @@ mod fonts {
             Some("khmer") => khmer_pack().to_vec(),
             Some("lao") => lao_pack().to_vec(),
             Some("tibetan") => tibetan_pack().to_vec(),
+            Some(blocks)
+                if blocks
+                    .split(',')
+                    .all(|b| crate::charset::code_points(b).is_some()) =>
+            {
+                let ranges: Vec<_> = blocks
+                    .split(',')
+                    .filter_map(crate::charset::code_points)
+                    .collect();
+                pack_of(data, ranges.into_iter().flatten())
+            }
             _ => [pack(data, "bengali"), pack(data, "devanagari")]
                 .into_iter()
                 .max_by_key(Vec::len)

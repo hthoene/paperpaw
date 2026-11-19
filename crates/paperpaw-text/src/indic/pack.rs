@@ -1,5 +1,5 @@
-//! The substitutions of a font's Bengali, Devanagari, Khmer, Lao and
-//! Tibetan as a pack keeps them (slot 4, see `bitmap.rs`): what the shaper
+//! The substitutions of a font's Indic scripts (Bengali, Devanagari,
+//! Gujarati, Oriya, Gurmukhi; Khmer, Lao and Tibetan) as a pack keeps them (slot 4, see `bitmap.rs`): what the shaper
 //! ([`super::Shaper`]) applies, read from the font's GSUB for the scripts'
 //! second version (`bng2`, `dev2`; else the first), feature by feature in the order the
 //! shaper applies them; the presentation features as one (`pres`), their
@@ -958,6 +958,45 @@ fn outputs(font: &FontRef<'_>, index: u16, drawn: &mut BTreeSet<u16>, seen: &mut
     }
 }
 
+/// `list` with the contextual lookups its contextual lookups apply, each
+/// after the one that applies it: a pack's rules apply none, so such a
+/// lookup applies where its own context is (Noto Serif Telugu chooses the
+/// form of ra below by the consonant before it so).
+fn with_nested(font: &FontRef<'_>, list: Vec<u16>) -> Vec<u16> {
+    let Ok(lookups) = font.gsub().and_then(|g| g.lookup_list()) else {
+        return list;
+    };
+    let applies = |index: u16| -> Option<Vec<u16>> {
+        Some(
+            match lookups
+                .lookups()
+                .get(usize::from(index))
+                .ok()?
+                .subtables()
+                .ok()?
+            {
+                SubstitutionSubtables::Contextual(t) => {
+                    t.iter().flatten().flat_map(|t| applied(&t)).collect()
+                }
+                SubstitutionSubtables::ChainContextual(t) => {
+                    t.iter().flatten().flat_map(|t| chain_applied(&t)).collect()
+                }
+                _ => return None,
+            },
+        )
+    };
+    let mut out = Vec::with_capacity(list.len());
+    for &index in &list {
+        out.push(index);
+        for inner in applies(index).unwrap_or_default() {
+            if applies(inner).is_some() && !list.contains(&inner) && !out.contains(&inner) {
+                out.push(inner);
+            }
+        }
+    }
+    out
+}
+
 /// The lookups a contextual subtable applies.
 fn applied(t: &SequenceContext<'_>) -> Vec<u16> {
     let mut out = Vec::new();
@@ -1009,12 +1048,20 @@ fn chain_applied(t: &ChainedSequenceContext<'_>) -> Vec<u16> {
 }
 
 /// The scripts' OpenType tags: their second version's, else the first's.
-const TAGS: [(Script, [&[u8; 4]; 2]); 5] = [
+const TAGS: [(Script, [&[u8; 4]; 2]); 13] = [
     (Script::Bengali, [b"bng2", b"beng"]),
     (Script::Devanagari, [b"dev2", b"deva"]),
     (Script::Khmer, [b"khmr", b"khmr"]),
     (Script::Lao, [b"lao ", b"lao "]),
     (Script::Tibetan, [b"tibt", b"tibt"]),
+    (Script::Gujarati, [b"gjr2", b"gujr"]),
+    (Script::Oriya, [b"ory2", b"orya"]),
+    (Script::Gurmukhi, [b"gur2", b"guru"]),
+    (Script::Tamil, [b"tml2", b"taml"]),
+    (Script::Malayalam, [b"mlm2", b"mlym"]),
+    (Script::Sinhala, [b"sinh", b"sinh"]),
+    (Script::Telugu, [b"tel2", b"telu"]),
+    (Script::Kannada, [b"knd2", b"knda"]),
 ];
 
 /// The substitutions of the Indic scripts among `chars` in `font`, if it
@@ -1057,6 +1104,7 @@ pub(crate) fn make(font: FontRef<'_>, chars: &[char]) -> Option<Made> {
             };
             list.sort_unstable();
             list.dedup();
+            let list = with_nested(&font, list);
             if !list.is_empty() {
                 wanted.push((number, *feature, list));
             }
