@@ -11,6 +11,9 @@
 #
 # Steps (the files that trigger each one in brackets):
 #   fmt       always: cargo fmt --all --check and shells/xteink's rustfmt check; no tracked path starting with `-`
+#   generated the generated files and tables are current, CI's `--check` runs of a few seconds: the author tool's
+#             interface table (tools/abi-metadata-table.py: red on Nov 19, "Firmware author template"), abi-gen, the
+#             metadata fixtures, NOTICE/licences, the lock files, the plugins' stage codecs   [always]
 #   clippy    the changed packages, -D warnings           [any .rs/Cargo.toml of a package]
 #   doc       the workspace's API docs, -D warnings (CI's)   [a package with a library]
 #   interface the SDK's interface test: what plugins see changes only with the
@@ -96,7 +99,7 @@ step_limit="${QUICK_CHECK_STEP_LIMIT:-440}"
 
 base=origin/abi7/integration
 all=0 list=0 only="" skip=""
-steps=" fmt clippy doc interface checks libs desktop memory app snapshots publish wasm32 webemu x4tests frames frames-s3 "
+steps=" fmt generated clippy doc interface checks libs desktop memory app snapshots publish wasm32 webemu x4tests frames frames-s3 "
 while (($#)); do
     case "$1" in
         --base) base="${2:?--base needs a revision}"; shift 2 ;;
@@ -157,6 +160,7 @@ rs_pkg_change() { touches '(\.rs|Cargo\.toml)$'; }
 declare -A why
 if [[ $all = 1 ]]; then for s in $steps; do why[$s]="--all"; done; else
     why[fmt]="always"
+    why[generated]="always (a few seconds)"
     ((${#pkg_names[@]})) && rs_pkg_change && why[clippy]="changed: ${pkg_names[*]}"
     ((${#pkg_libs[@]})) && rs_pkg_change && why[doc]="changed: ${pkg_libs[*]}"
     touches '^crates/(paperpaw-(sdk|platform|graphics|i18n|config|text|document|layout|xml|zip|hyphen|image|update|digest|json|qr|native|lang|sort))/|^tools/plugin-files7/paperpaw-plugin7\.x$|^abi/|^tools/interface' && why[interface]="an interface crate or file changed"
@@ -256,6 +260,26 @@ fmt_step() {
     if git ls-files | grep -q '^-'; then git ls-files | grep '^-' | head -5; echo "a tracked path starts with '-' (#367)"; return 1; fi
     cargo fmt --all -- --check && rustfmt --edition 2024 --check shells/xteink/src/main.rs
 }
+# CI's generator checks that take seconds (they need cargo and rustfmt on the PATH, which is set above).
+# NOT here: `tools/interface.py --check` (api.txt/shape.txt: a nightly build; the `interface` step's test is its cheap half)
+# and the line-break table (it downloads the Unicode data).
+generated_step() {
+    local rc=0 c
+    for c in "tools/abi-metadata-table.py --check" "tools/abi-gen.py --check" "tools/abi-metadata-fixtures.py --check" \
+        "tools/licences/build.py --check" "tools/check-lockfiles.py" \
+        "tools/stage-codec.py plugins/about/stages plugins/about/src/stages.rs --check" \
+        "tools/stage-codec.py plugins/reader/stages plugins/reader/src/stages.rs --check --plugin reader" \
+        "tools/stage-codec.py plugins/aids/stages plugins/aids/src/reader_filter/stages.rs --check --plugin reader" \
+        "tools/stage-codec.py plugins/readwise/stages plugins/readwise/src/stages.rs --check" \
+        "tools/stage-codec.py plugins/wikipedia/stages/subscribed plugins/wikipedia/src/stages.rs --check" \
+        "tools/stage-codec.py plugins/joplin/stages plugins/joplin/src/stages.rs --check"; do
+        # shellcheck disable=SC2086
+        python3 $c || { echo "FAILED: python3 $c"; rc=1; }
+    done
+    cmp plugins/aids/stages/reader.filter@1.def plugins/reader/stages/reader.filter@1.def || rc=1
+    cmp plugins/reader/stages/reader.notes-exported@1.def plugins/readwise/stages/reader.notes-exported@1.def || rc=1
+    return $rc
+}
 clippy_step() {
     # The emulator's tests name `paperpaw_core::testing`: CI's feature on core.
     local rc=0 plain=() n
@@ -353,7 +377,7 @@ lane_wasm=$!
     lane desktop memory app snapshots
 ) &
 lane_tests=$!
-lane fmt clippy interface checks libs
+lane fmt generated clippy interface checks libs
 wait "$lane_s3" "$lane_frames" "$lane_doc" "$lane_wasm" "$lane_tests"
 
 echo
