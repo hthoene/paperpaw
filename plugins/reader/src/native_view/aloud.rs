@@ -58,6 +58,8 @@ pub(super) struct Stage<'a, 'h> {
     library: Option<&'a Library>,
     /// The reading settings and the display, read once for the call.
     setup: Option<Setup>,
+    /// The page is drawn again already (the underline moved).
+    redrawn: bool,
 }
 
 impl Pages for Stage<'_, '_> {
@@ -139,6 +141,20 @@ impl Scene for Stage<'_, '_> {
         // The page is drawn again for each sentence, not more than that.
         if self.open.mark != words {
             self.open.mark = words;
+            self.redrawn = true;
+            redraw(self.host, RedrawMode::Fast).ok();
+        }
+    }
+
+    fn spoken(&mut self, words: Option<Range<usize>>) {
+        if self.open.spoken == words {
+            return;
+        }
+        // A page layer that follows reading aloud is asked again: the page is
+        // drawn again unless the underline just asked for that.
+        self.open.spoken = words;
+        if self.open.layers.follows_aloud() && !self.redrawn {
+            self.redrawn = true;
             redraw(self.host, RedrawMode::Fast).ok();
         }
     }
@@ -197,6 +213,7 @@ impl View {
             docs,
             library,
             setup: None,
+            redrawn: false,
         };
         Some(f(&mut self.speaker, &mut stage))
     }

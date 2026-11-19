@@ -44,6 +44,9 @@ fn plugin_side(path: &str) -> bool {
         && !path.contains("test")
         && !path.ends_with("/records_wire.rs")
         && !path.contains("/wire/")
+        // The reader's stage schemas (tools/stage-codec.py): its `records_*` are the stage's own
+        // few records, not the wire's.
+        && !path.ends_with("/page_layers/codec.rs")
 }
 
 #[test]

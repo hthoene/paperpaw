@@ -230,3 +230,30 @@ fn a_description_longer_than_its_row_is_found() {
     );
     let _ = std::fs::remove_dir_all(&context.out);
 }
+
+/// A group whose icon a native plugin declares (`d.icon`) gets no
+/// `settings.group-icon` warning.
+#[test]
+fn a_group_icon_a_native_plugin_declares_is_not_missing() {
+    let mut context = Context::new(
+        Target {
+            plugins: vec!["launcher-simple".into()],
+            ..Target::default()
+        },
+        out("group-icon"),
+    );
+    context
+        .settings
+        .push(("plugins.launcher-simple".into(), "on".into()));
+    let mut report = Report::default();
+    lint::run(&context, &mut report).unwrap();
+    assert!(
+        report
+            .findings
+            .iter()
+            .all(|f| !(f.check == "settings.group-icon" && f.place.starts_with("launcher-simple"))),
+        "{}",
+        report.text(Level::Info)
+    );
+    let _ = std::fs::remove_dir_all(&context.out);
+}

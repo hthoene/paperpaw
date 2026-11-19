@@ -52,12 +52,21 @@ impl<'cb> Stage<'cb> {
     /// Run subscribers in host order, lending `out` to each reply in turn.
     /// Payloads use the stage owner's schema and are never decoded here.
     pub fn run<'r>(&'r self, input: &'r [u8], out: &'r mut [u8]) -> StageRun<'r> {
+        self.run_from(0, input, out)
+    }
+
+    /// [`run`](Self::run) from the subscriber at `cursor` on (0 is the first):
+    /// an owner that asks one subscriber again, chosen in an earlier run, takes
+    /// its [`StageReply::index`] and stops after its reply. The order is the
+    /// host's while no plugin is added or removed: check
+    /// [`StageReply::subscriber`] before trusting the reply.
+    pub fn run_from<'r>(&'r self, cursor: u32, input: &'r [u8], out: &'r mut [u8]) -> StageRun<'r> {
         StageRun {
             host: self.host,
             id: self.id,
             input,
             out,
-            cursor: 0,
+            cursor,
             finished: false,
         }
     }

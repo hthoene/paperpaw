@@ -99,7 +99,7 @@ impl Open {
             _ => return Ok(None),
         };
         let setup = self.settings.setup(host)?;
-        let area = self.area(&setup).ok_or(Error::NoSpace)?;
+        let area = self.page_area(&setup).ok_or(Error::NoSpace)?;
         let Some(place) = self.status_place(&setup, &area) else {
             return Ok(None);
         };

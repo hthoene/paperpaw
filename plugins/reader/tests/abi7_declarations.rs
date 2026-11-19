@@ -189,7 +189,7 @@ fn the_notes_stage_is_declared_with_the_codecs_bounds() {
             stages += 1;
         }
     }
-    assert_eq!(stages, 4);
+    assert_eq!(stages, 6);
     assert_eq!(declarations::NOTES_MAX_INPUT as usize, stage::MAX_INPUT);
     assert_eq!(declarations::NOTES_MAX_REPLY as usize, stage::MAX_REPLY);
     assert_eq!(
@@ -223,6 +223,14 @@ fn the_notes_stage_is_declared_with_the_codecs_bounds() {
         declarations::DECORATIONS_MAX_RECORDS as usize,
         marks::MAX_SUBSCRIBERS
     );
+    // The page layers take whole answers: as many records as their replies hold.
+    use paperpaw_plugin_reader::stages::{reader_layer_v1 as layer, reader_text_v1 as text};
+    assert_eq!(declarations::TEXT_MAX_INPUT as usize, text::MAX_INPUT);
+    assert_eq!(declarations::TEXT_MAX_REPLY as usize, text::MAX_REPLY);
+    assert_eq!(declarations::TEXT_MAX_RECORDS as usize, text::REPLY_ROWS);
+    assert_eq!(declarations::LAYER_MAX_INPUT as usize, layer::MAX_INPUT);
+    assert_eq!(declarations::LAYER_MAX_REPLY as usize, layer::MAX_REPLY);
+    assert_eq!(declarations::LAYER_MAX_RECORDS as usize, layer::REPLY_ROWS);
 }
 
 /// The reading app: `reader.app` with the reading screen, every format, as the

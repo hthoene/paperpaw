@@ -535,9 +535,10 @@ pub struct Block {
     /// them shorter than a page). Not run through the filters again;
     /// formats leave it empty.
     pub inserted: Vec<Block>,
-    /// Words or letters annotated above them: ruby, furigana, phonetics,
-    /// glosses ([`Annotation`]). Reserved: the layout does not set them
-    /// yet (see ADR 0032), formats and filters may fill it already.
+    /// Words or letters annotated over or under them: ruby, furigana,
+    /// phonetics, glosses ([`Annotation`]). The layout sets them by the
+    /// lines that hold their starts and gives every line of the block the
+    /// room they take (ADR 0032); formats and text filters fill it.
     pub annotations: Vec<Annotation>,
     /// The way its lines go (an EPUB's `dir`, CSS `direction`): `Auto`
     /// takes it from the first strong letter (UAX #9 P2, P3).
@@ -569,12 +570,16 @@ pub const MAX_INSERTED: usize = 4;
 /// The most text, in bytes, of the blocks inserted after one.
 pub const MAX_INSERTED_TEXT: usize = 4096;
 
-/// A text set small above a part of a block's text (see
-/// [`Block::annotations`]).
+/// A text set small over or under a part of a block's text (see
+/// [`Block::annotations`]): ruby and phonetics above the line, a gloss
+/// below it. One without text is room alone: the layout keeps `size`
+/// hundredths of an em of the block's text (at most
+/// [`MAX_LEADING_ABOVE`]) on its side of every line and sets nothing there
+/// (room below the lines for what a page layer draws).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Annotation {
-    /// The byte range of the block's text it stands above.
+    /// The byte range of the block's text it stands over or under.
     pub start: u32,
     pub end: u32,
     pub text: String,

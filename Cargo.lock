@@ -3022,6 +3022,7 @@ dependencies = [
  "paperpaw-publish",
  "paperpaw-update",
  "paperpaw-x4",
+ "webpki-roots",
 ]
 
 [[package]]

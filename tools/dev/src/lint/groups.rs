@@ -39,13 +39,13 @@ pub(super) fn groups(kernel: &Kernel, ours: &dyn Fn(&str) -> Option<String>) -> 
                 .plugin(&plugin),
             );
         }
-        if kernel.menus().icon(id).is_none() {
+        if kernel.menus().icon(id).is_none() && kernel.native_icon(id).is_none() {
             findings.push(
                 Finding::warning(
                     "settings.group-icon",
                     id,
                     "The settings group has no icon, so the settings show a plugin's; give it \
-                     one (`Registrar::add_icon` with the group's id).",
+                     one (`Registrar::add_icon` or `d.icon` with the group's id).",
                 )
                 .plugin(&plugin),
             );

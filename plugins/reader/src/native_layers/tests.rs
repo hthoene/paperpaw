@@ -1,0 +1,428 @@
+use super::*;
+use crate::stages::{reader_layer_v1 as layer, reader_text_v1 as text};
+use alloc::vec;
+use paperpaw_sdk::document::Locator;
+use paperpaw_sdk::layout::{LayoutContext, Page, Style, layout_page};
+use paperpaw_sdk::{NoStorage, Rect, reading::WordBox};
+
+/// An answer of the text stage made of `rows`.
+fn answer(rows: &[text::Record<'_>]) -> Vec<u8> {
+    let mut out = vec![0; text::MAX_REPLY];
+    let len = text::reply_encode(rows, &mut out).unwrap();
+    out.truncate(len);
+    out
+}
+
+fn layer_answer(rows: &[layer::Record<'_>]) -> Vec<u8> {
+    let mut out = vec![0; layer::MAX_REPLY];
+    let len = layer::reply_encode(rows, &mut out).unwrap();
+    out.truncate(len);
+    out
+}
+
+fn block(text: &str) -> Block {
+    Block::new(
+        BlockKind::Paragraph,
+        100,
+        100 + text.len() as u32,
+        text.into(),
+    )
+}
+
+#[test]
+fn an_answer_gives_the_block_room_words_glosses_and_blocks_after_it() {
+    let reply = answer(&[
+        text::Record::TextRoom(text::TextRoom::new(50, 900)),
+        text::Record::TextReplace(text::TextReplace::new(0, 5, "Alicia")),
+        text::Record::TextGloss(text::TextGloss::new(6, 9, 2, 60, "war")),
+        text::Record::TextGloss(text::TextGloss::new(0, 5, 0, 0, "on the replaced part")),
+        text::Record::TextGloss(text::TextGloss::new(3, 99, 2, 0, "off the text")),
+        text::Record::TextInsert(text::TextInsert::new("Alice war hier.", 80, 1)),
+    ]);
+    let mut b = block("Alice was here.");
+    apply(&reply, &mut b).unwrap();
+    assert_eq!(b.text, "Alicia was here.");
+    assert_eq!(b.leading_above, Some(50));
+    // The room below: an annotation without text, at most four ems.
+    let room = &b.annotations[0];
+    assert_eq!((room.text.as_str(), room.size), ("", 400));
+    // Moved with the replacement before it; the one on it and the one off the
+    // text left out.
+    assert_eq!(b.annotations.len(), 2);
+    let gloss = &b.annotations[1];
+    assert_eq!(
+        (gloss.start, gloss.end, gloss.text.as_str()),
+        (7, 10, "war")
+    );
+    assert_eq!((gloss.kind, gloss.size), (AnnotationKind::Gloss, 60));
+    assert_eq!(b.inserted.len(), 1);
+    assert_eq!(b.inserted[0].text, "Alice war hier.");
+    assert_eq!(b.inserted[0].size, Some(80));
+    assert_eq!(b.inserted[0].runs[0].style, TextStyle::ITALIC);
+    // The book's places stay: the block starts and ends where it did.
+    assert_eq!((b.start, b.end), (100, 115));
+}
+
+#[test]
+fn overlapping_or_broken_replacements_are_left_out_and_nothing_is_nothing() {
+    let reply = answer(&[
+        text::Record::TextReplace(text::TextReplace::new(0, 3, "A")),
+        text::Record::TextReplace(text::TextReplace::new(2, 4, "B")),
+        text::Record::TextReplace(text::TextReplace::new(7, 8, "C")),
+    ]);
+    // "é" takes bytes 6..8: 7 is inside it.
+    let mut b = block("abcdefé");
+    apply(&reply, &mut b).unwrap();
+    assert_eq!(b.text, "Adefé");
+    let mut plain = block("abc");
+    apply(&[], &mut plain).unwrap();
+    apply(&answer(&[]), &mut plain).unwrap();
+    assert_eq!(plain, block("abc"));
+    assert_eq!(apply(&[1, 2, 3], &mut plain), Err(Error::Invalid));
+}
+
+#[test]
+fn a_plugin_is_chosen_only_where_it_says_it_adds_to_the_book() {
+    let uses = answer(&[text::Record::TextUses(text::TextUses::new(5))]);
+    let chosen = Chosen::from_reply(Kind::Text, (2, "interlinear", 9), &uses).unwrap();
+    assert_eq!(
+        chosen,
+        Some(Chosen {
+            cursor: 2,
+            id: "interlinear".into(),
+            signature: 5_u64.rotate_left(7) ^ 9,
+            aloud: false,
+            region: None,
+            taps: Taps::None,
+            keys: false,
+        })
+    );
+    let none = answer(&[text::Record::TextUses(text::TextUses::new(0))]);
+    assert_eq!(Chosen::from_reply(Kind::Text, (0, "a", 0), &none), Ok(None));
+    assert_eq!(
+        Chosen::from_reply(Kind::Text, (0, "a", 0), &answer(&[])),
+        Ok(None)
+    );
+    assert_eq!(
+        Chosen::from_reply(Kind::Layer, (0, "a", 0), &uses),
+        Ok(None)
+    );
+    let input = book_input(Kind::Layer, "a.epub", "en").unwrap();
+    assert!(matches!(
+        layer::input_decode(&input).unwrap().next(),
+        Some(Ok(layer::Record::LayerBook(_)))
+    ));
+    let input = block_input(3, &block("é".repeat(2000).as_str())).unwrap();
+    let Some(Ok(text::Record::TextBlock(asked))) = text::input_decode(&input).unwrap().next()
+    else {
+        panic!("a block");
+    };
+    assert_eq!((asked.section, asked.offset, asked.kind), (3, 100, 0));
+    assert_eq!(asked.text.len(), 3200, "cut at a character");
+}
+
+#[test]
+fn answers_are_kept_by_block_and_the_oldest_go_past_their_bounds() {
+    let mut answers = Answers::default();
+    let big = vec![7_u8; 5000];
+    for n in 0..3_u32 {
+        let mut b = block("text");
+        b.start = n * 10;
+        b.end = n * 10 + 10;
+        answers.keep(0, &b, &big).unwrap();
+    }
+    // 15,000 bytes do not fit 12 KiB: the first went.
+    assert_eq!(answers.reply(0, 0), None);
+    assert_eq!(answers.reply(0, 10).map(<[u8]>::len), Some(5000));
+    assert_eq!(answers.around(0, 25), Some((30, 4)));
+    assert_eq!(answers.around(1, 25), None);
+    // An empty answer keeps only the place.
+    let mut b = block("text");
+    b.start = 40;
+    b.end = 50;
+    answers.keep(0, &b, &[0]).unwrap();
+    assert_eq!(answers.reply(0, 40), Some(&[][..]));
+    for n in 0..(KEPT_BLOCKS as u32 + 5) {
+        let mut b = block("t");
+        (b.start, b.end) = (1000 + n, 1001 + n);
+        answers.keep(0, &b, &[]).unwrap();
+    }
+    assert!(answers.kept.len() <= KEPT_BLOCKS);
+    answers.clear();
+    assert_eq!(answers.around(0, 1001), None);
+}
+
+/// A drawing pen that notes what it is asked.
+#[derive(Default)]
+struct Noted(Vec<alloc::string::String>);
+
+impl page::Pen for Noted {
+    fn fill(&mut self, at: (i32, i32), size: (u32, u32), gray: u8) -> Result<(), Error> {
+        self.0.push(alloc::format!("fill {at:?} {size:?} {gray}"));
+        Ok(())
+    }
+    fn segment(
+        &mut self,
+        from: (i32, i32),
+        to: (i32, i32),
+        width: u32,
+        gray: u8,
+    ) -> Result<(), Error> {
+        self.0
+            .push(alloc::format!("segment {from:?} {to:?} {width} {gray}"));
+        Ok(())
+    }
+    fn text(&mut self, at: (i32, i32), look: (f32, u8, bool), text: &str) -> Result<(), Error> {
+        self.0.push(alloc::format!("text {at:?} {look:?} {text}"));
+        Ok(())
+    }
+}
+
+/// A page of one block laid out 10 px a letter.
+fn laid(text: &str) -> Page {
+    struct Units;
+    impl paperpaw_sdk::layout::Typesetter for Units {
+        fn advance(&self, _: paperpaw_sdk::layout::Face, _: char) -> f32 {
+            10.0
+        }
+        fn line(&self, _: paperpaw_sdk::layout::Face) -> (f32, f32) {
+            (16.0, 20.0)
+        }
+    }
+    struct One(Block, paperpaw_sdk::document::Metadata);
+    impl paperpaw_sdk::document::Document for One {
+        fn metadata(&self) -> &paperpaw_sdk::document::Metadata {
+            &self.1
+        }
+        fn sections(&self) -> u32 {
+            1
+        }
+        fn section_len(&self, _: u32) -> u32 {
+            self.0.end
+        }
+        fn block_at(
+            &self,
+            _: &dyn paperpaw_sdk::Storage,
+            at: Locator,
+        ) -> Result<Option<Block>, paperpaw_sdk::document::DocumentError> {
+            Ok((at.offset < self.0.end).then(|| self.0.clone()))
+        }
+    }
+    let book = One(
+        Block::new(BlockKind::Paragraph, 0, text.len() as u32, text.into()),
+        paperpaw_sdk::document::Metadata::default(),
+    );
+    let style = Style::new(0.0, 0.0, 20.0, false);
+    let cx = LayoutContext::new(&book, &NoStorage, 100.0, &style, &Units);
+    layout_page(&cx, Locator::START, 400.0).unwrap()
+}
+
+#[test]
+fn a_page_is_shown_in_lines_with_its_words_and_its_answer_drawn_over_it() {
+    let page = laid("one two three four");
+    assert_eq!(page.lines.len(), 2);
+    // The reader's boxes, the text area 30 px from the left.
+    let boxes: Vec<WordBox> = [(0, "one"), (4, "two"), (8, "three"), (14, "four")]
+        .iter()
+        .enumerate()
+        .map(|(n, &(at, word))| {
+            let x = if n < 2 {
+                30 + at as u16 * 10
+            } else {
+                30 + (at as u16 - 8) * 10
+            };
+            let y = if n < 2 { 0 } else { 20 };
+            let area = Rect::new(x, y, word.len() as u16 * 10, 20);
+            WordBox::new(
+                area,
+                word,
+                Locator::new(0, at),
+                Locator::new(0, at + word.len() as u32),
+            )
+        })
+        .collect();
+    let rows = page::rows(&page, &boxes, (30, 0), (0, 0)).unwrap();
+    let (input, next) = page::fire(&page, &rows, (0, None), (100, 400)).unwrap();
+    assert_eq!(next, 2);
+    let mut asked = layer::input_decode(&input).unwrap();
+    let Some(Ok(layer::Record::LayerPage(head))) = asked.next() else {
+        panic!("the page first");
+    };
+    assert_eq!(
+        (head.width, head.height, head.lines, head.first),
+        (100, 400, 2, 0)
+    );
+    let Some(Ok(layer::Record::LayerLine(first))) = asked.next() else {
+        panic!("a line");
+    };
+    assert_eq!(
+        (first.text, first.baseline, first.offset),
+        ("one two", 16, 0)
+    );
+    // "two": 40 px in, 30 wide, at byte 4 of the line.
+    assert_eq!(&first.words[6..], &[40, 0, 30, 0, 4, 0]);
+    assert_eq!(first.width, 70);
+    // What the plugin answers is drawn at the text area's place.
+    let mut out = vec![0; layer::MAX_REPLY];
+    let rows = [
+        layer::Record::LayerBox(layer::LayerBox::new(40, 18, 30, 4, 128, 256, 0)),
+        layer::Record::LayerBox(layer::LayerBox::new(0, 0, 10, 10, 256, 0, 2)),
+        layer::Record::LayerSegment(layer::LayerSegment::new(0, 30, 70, 30, 0, 0)),
+        layer::Record::LayerText(layer::LayerText::new(40, 34, 8, 0, 1, "zwei")),
+        layer::Record::LayerText(layer::LayerText::new(0, 0, 8, 300, 0, "no ink")),
+    ];
+    let len = layer::reply_encode(&rows, &mut out).unwrap();
+    out.truncate(len);
+    let mut pen = Noted::default();
+    page::draw(&mut pen, &[out], (30, 50)).unwrap();
+    assert_eq!(
+        pen.0,
+        [
+            "fill (70, 68) (30, 4) 128",
+            "fill (30, 50) (10, 2) 0",
+            "fill (30, 58) (10, 2) 0",
+            "fill (30, 50) (2, 10) 0",
+            "fill (38, 50) (2, 10) 0",
+            "segment (30, 80) (100, 80) 1 0",
+            "text (70, 84) (8.0, 0, true) zwei",
+        ]
+    );
+}
+
+#[test]
+fn the_answers_of_two_pages_are_kept() {
+    let mut pages = page::Pages::default();
+    for n in 0..3 {
+        pages.keep(((0, n), None), vec![vec![n as u8]]).unwrap();
+    }
+    assert!(pages.get(((0, 0), None)).is_none());
+    assert_eq!(pages.get(((0, 2), None)), Some(&[vec![2_u8]][..]));
+    pages.keep(((0, 1), None), Vec::new()).unwrap();
+    assert_eq!(pages.get(((0, 1), None)), Some(&[][..]));
+    // The same page with other words read aloud is asked anew.
+    assert!(pages.get(((0, 1), Some((0, 2)))).is_none());
+    pages.clear();
+    assert!(pages.get(((0, 2), None)).is_none());
+}
+
+#[test]
+fn a_plugin_that_follows_reading_aloud_is_told_the_words_by_line_and_word() {
+    let uses = layer_answer(&[layer::Record::LayerUses(layer::LayerUses::new(5, 1))]);
+    let chosen = Chosen::from_reply(Kind::Layer, (0, "along", 0), &uses).unwrap();
+    assert!(chosen.is_some_and(|c| c.aloud));
+    let page = laid("one two three four");
+    // "two three": word 1 of line 0 up to word 1 of line 1 (exclusive).
+    let aloud = page::aloud(&page, 1..3).unwrap();
+    assert_eq!(
+        (aloud.line, aloud.word, aloud.end_line, aloud.end_word),
+        (0, 1, 1, 1)
+    );
+    // To the page's end, and nothing for no words.
+    let to_end = page::aloud(&page, 2..4).unwrap();
+    assert_eq!(
+        (to_end.line, to_end.word, to_end.end_line, to_end.end_word),
+        (1, 0, 1, 2)
+    );
+    assert!(page::aloud(&page, 2..2).is_none());
+    // A word without a box keeps its place in its line, 0 wide.
+    let rows = page::rows(&page, &[], (0, 0), (0, 0)).unwrap();
+    let (input, _) = page::fire(&page, &rows, (0, Some(&aloud)), (100, 400)).unwrap();
+    let mut asked = layer::input_decode(&input).unwrap();
+    assert!(matches!(
+        asked.next(),
+        Some(Ok(layer::Record::LayerPage(_)))
+    ));
+    assert_eq!(asked.next(), Some(Ok(layer::Record::LayerAloud(aloud))));
+    let Some(Ok(layer::Record::LayerLine(first))) = asked.next() else {
+        panic!("a line");
+    };
+    assert_eq!(first.words, &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0]);
+}
+
+#[test]
+fn a_region_gives_the_text_a_part_of_the_area_and_the_lines_say_where_it_is() {
+    let uses = layer_answer(&[
+        layer::Record::LayerUses(layer::LayerUses::new(5, 0)),
+        layer::Record::LayerRegion(layer::LayerRegion::new(0, 500, 1000, 500)),
+    ]);
+    let chosen = Chosen::from_reply(Kind::Layer, (0, "split", 0), &uses)
+        .unwrap()
+        .unwrap();
+    assert_eq!(chosen.region, Some([0, 500, 1000, 500]));
+    // Too small, or out of the area: not used.
+    for bad in [(0, 0, 50, 1000), (600, 0, 500, 1000)] {
+        let uses = layer_answer(&[
+            layer::Record::LayerUses(layer::LayerUses::new(5, 0)),
+            layer::Record::LayerRegion(layer::LayerRegion::new(bad.0, bad.1, bad.2, bad.3)),
+        ]);
+        let chosen = Chosen::from_reply(Kind::Layer, (0, "split", 0), &uses)
+            .unwrap()
+            .unwrap();
+        assert_eq!(chosen.region, None);
+    }
+    let reading = crate::native_pages::Reading::new(12, 120, 100, 5, 8, false);
+    let full = crate::native_pages::content_box(480, 800, 254, &reading).unwrap();
+    let text = page::within(full, [0, 500, 1000, 500]);
+    assert_eq!((text.x, text.width), (full.x, full.width));
+    assert_eq!(text.y, full.y + full.height / 2);
+    // The lines of the page laid out in the lower half are shown where they are.
+    let page = laid("one two three four");
+    let rows = page::rows(&page, &[], (0, 0), (0, 300)).unwrap();
+    let (input, _) = page::fire(&page, &rows, (0, None), (400, 600)).unwrap();
+    let line = layer::input_decode(&input).unwrap().find_map(|r| match r {
+        Ok(layer::Record::LayerLine(l)) => Some(l.baseline),
+        _ => None,
+    });
+    assert_eq!(line, Some(316));
+}
+
+#[test]
+fn a_plugin_that_asks_for_taps_and_keys_is_shown_them_and_says_what_it_takes() {
+    let uses = layer_answer(&[
+        layer::Record::LayerUses(layer::LayerUses::new(5, 0)),
+        layer::Record::LayerInput(layer::LayerInput::new(1, 1)),
+        layer::Record::LayerRegion(layer::LayerRegion::new(0, 0, 500, 1000)),
+    ]);
+    let chosen = Chosen::from_reply(Kind::Layer, (0, "split", 0), &uses)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (chosen.taps, chosen.keys, chosen.region),
+        (Taps::Off, true, Some([0, 0, 500, 1000]))
+    );
+    let tap = page::event_input(page::Event::Tap(300, 40, false), (2, 90), 12, (480, 700));
+    let tap = tap.unwrap();
+    let mut asked = layer::input_decode(&tap).unwrap();
+    assert_eq!(
+        asked.next(),
+        Some(Ok(layer::Record::LayerPage(layer::LayerPage::new(
+            480, 700, 12, 12
+        ))))
+    );
+    assert_eq!(
+        asked.next(),
+        Some(Ok(layer::Record::LayerTap(layer::LayerTap::new(
+            300, 40, 0, 2, 90
+        ))))
+    );
+    let key = page::event_input(page::Event::Key("core.next"), (2, 90), 12, (480, 700));
+    let key = key.unwrap();
+    let mut asked = layer::input_decode(&key).unwrap();
+    asked.next();
+    assert_eq!(
+        asked.next(),
+        Some(Ok(layer::Record::LayerKey(layer::LayerKey::new(
+            "core.next",
+            2,
+            90
+        ))))
+    );
+    let drawn = layer_answer(&[
+        layer::Record::LayerTaken(layer::LayerTaken::new(1)),
+        layer::Record::LayerBox(layer::LayerBox::new(0, 0, 4, 4, 0, 256, 0)),
+    ]);
+    assert_eq!(page::taken(&drawn), Some(true));
+    let kept = layer_answer(&[layer::Record::LayerTaken(layer::LayerTaken::new(0))]);
+    assert_eq!(page::taken(&kept), Some(false));
+    assert_eq!(page::taken(&layer_answer(&[])), None);
+}

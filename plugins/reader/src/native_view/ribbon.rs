@@ -106,7 +106,7 @@ impl Open {
     /// of it only, as Beta 3; the whole page when its box is not known.
     pub(super) fn redraw_ribbon(&self, host: &Host<'_>) -> Result<(), Error> {
         let setup = self.settings.setup(host)?;
-        let Some(area) = self.area(&setup) else {
+        let Some(area) = self.page_area(&setup) else {
             return redraw(host, RedrawMode::Partial);
         };
         let right = u32::from(area.x) + u32::from(area.width);

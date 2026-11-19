@@ -42,6 +42,7 @@ use breaking::block_lines;
 use levels::BlockLevels;
 pub use pieces::PieceStarts;
 
+mod annotate;
 mod breaking;
 mod decor;
 mod drop_cap;
@@ -595,8 +596,10 @@ pub struct PageLine {
     /// ([`Block::inserted`]): its words have no places (`words` is
     /// empty), nothing on it is chosen, kept or read as the book's.
     pub inserted: bool,
-    /// Annotations set above the line's words (ruby, glosses). Reserved:
-    /// empty until the layout sets them (ADR 0032).
+    /// Annotations set over or under the line's words ([`Block::annotations`]):
+    /// ruby and phonetics above, glosses below, each at the start of its
+    /// range on the line that has it (ADR 0032). Lines that run right to
+    /// left or need their runs put in order have none yet.
     pub annotations: Vec<LineAnnotation>,
     /// The direction of its paragraph and whether its runs need putting
     /// in order.
@@ -607,8 +610,8 @@ pub struct PageLine {
     pub hyphen: bool,
 }
 
-/// An annotation set above a line ([`Block::annotations`]), where the
-/// layout put it. Reserved: none are set yet (ADR 0032).
+/// An annotation set over or under a line ([`Block::annotations`]), where
+/// the layout put it (ADR 0032).
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct LineAnnotation {

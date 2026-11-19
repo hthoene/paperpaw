@@ -237,7 +237,6 @@ mbedtls-rs = { version = "0.3", default-features = false, features = [
     "kex-ecdhe-ecdsa", "kex-ecdhe-rsa",
     "ssl-in-content-len-16384", "ssl-out-content-len-4096",
 ] }
-webpki-roots = "1"
 rand_core = "0.10"
 
 # The ESP32-S3's mbedTLS is built with espup's Xtensa GCC.

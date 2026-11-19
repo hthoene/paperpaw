@@ -137,10 +137,13 @@ impl View {
             return;
         }
         open.decorate(host);
-        if open
-            .decorations
-            .as_ref()
-            .is_some_and(|found| !found.is_unmarked())
+        // The first page's layer too, asked in the same step.
+        let layered = open.layered_now(host);
+        if layered
+            || open
+                .decorations
+                .as_ref()
+                .is_some_and(|found| !found.is_unmarked())
         {
             open.redraw_page(
                 host,

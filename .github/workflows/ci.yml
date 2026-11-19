@@ -476,6 +476,15 @@ jobs:
       - name: SDK interface-7 entry packs and rejects misalignment
         if: matrix.target == 'riscv32imc-unknown-none-elf'
         run: CARGO_TARGET_DIR="$PWD/target/abi7-sdk-entry" samples/abi7-sdk-entry/check.sh
+      - name: The interlinear sample builds for the X4 and its tests pass
+        # Its own workspace (samples/interlinear): the page layers' sample plugin (#284).
+        if: matrix.target == 'riscv32imc-unknown-none-elf'
+        working-directory: samples/interlinear
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target/interlinear
+        run: |
+          cargo build --locked --release --target riscv32imc-unknown-none-elf
+          cargo test --locked --lib
       - name: The smallest interface-7 sample packs to its committed file
         # Built and packed by the real packer and compared with the file the
         # tests read (crates/paperpaw-native/tests/data); it had stopped
@@ -1065,6 +1074,10 @@ jobs:
           cmp 'plugins/aids/stages/reader.filter@1.def' 'plugins/reader/stages/reader.filter@1.def'
           python3 tools/stage-codec.py plugins/readwise/stages plugins/readwise/src/stages.rs --check
           cmp plugins/reader/stages/reader.notes-exported@1.def plugins/readwise/stages/reader.notes-exported@1.def
+          # The SDK's typed page layers (native::page_layers) use their copy of the reader's schemas.
+          python3 tools/stage-codec.py crates/paperpaw-sdk/stages/reader crates/paperpaw-sdk/src/native/page_layers/codec.rs --check --plugin reader
+          cmp 'crates/paperpaw-sdk/stages/reader/reader.text@1.def' 'plugins/reader/stages/reader.text@1.def'
+          cmp 'crates/paperpaw-sdk/stages/reader/reader.layer@1.def' 'plugins/reader/stages/reader.layer@1.def'
       - name: A subscriber's stage codec is its copy of the owner's schema
         # plugins/wikipedia/src/stages.rs from the copy of about.lines@1.def (a test holds
         # the copy to the owner's file); no --plugin: the stage is About's.
@@ -1098,7 +1111,7 @@ jobs:
         run: |
           status=0
           for manifest in plugins/*/Cargo.toml samples/*/Cargo.toml; do
-            case "$manifest" in samples/frame-test/*|samples/interlinear/*) continue ;; esac
+            case "$manifest" in samples/frame-test/*) continue ;; esac
             if awk '/^\[/ { part = $0 } part == "[dependencies]" && /^paperpaw-core/' "$manifest" | grep -q .; then
               echo "::error file=$manifest::plugins must depend on paperpaw-sdk, not paperpaw-core"
               status=1

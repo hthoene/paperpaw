@@ -1612,7 +1612,7 @@ reply 4,096 bytes, stage payload 3,840.
 | `env.hyphenation()`, `Hyphenator`, `CardTable`, `with_minimums` | slot 38 `text.hyphenate` (section 6.1) |
 | `cover`, `prepare_image`, `prepare_image_larger`, `ui::draw_image` | ops 15, 16; slots 36, 37; `image_prepare` |
 | `Document::extended` | none: new ops in a new revision |
-| `Registrar::add_text_filter`, `add_decorator`, `add_page_layer`, `add_page_frame`, `add_voice` | reader-defined stages (`reader.def`, #964), not DOC |
+| `Registrar::add_text_filter`, `add_decorator`, `add_page_layer`, `add_page_frame`, `add_voice` | reader-defined stages (`reader.def`, #964), not DOC; text filters and page layers: `reader.text@1`, `reader.layer@1` (`page-layers.md`) |
 | `Registrar::add_lookup_provider`, `lookup` | `lookup.spec`, stage and service `core.lookup` |
 | `add_book_cache`, `add_book_data`, `add_book_field`, `add_book_badge` | LIB |
 

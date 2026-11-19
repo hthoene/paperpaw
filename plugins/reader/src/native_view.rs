@@ -148,6 +148,8 @@ struct Open {
     language: String,
     /// The words of the page on show the sentence read aloud underlines.
     mark: Option<Range<usize>>,
+    /// The words of the page on show being read aloud, underlined or not.
+    spoken: Option<Range<usize>>,
     /// The book was reported read to the end.
     finished: bool,
     /// A refused write has been said (once for a book).
@@ -171,6 +173,8 @@ struct Open {
     undecorated: bool,
     /// The rules of `reader.filter@1` for this book (`filters.rs`).
     filters: Vec<crate::native_filter::Filter>,
+    /// What the plugins of `reader.text@1` and `reader.layer@1` add (`layers.rs`).
+    layers: layers::Layers,
     /// Pages are asked for marks: from the step after the first is shown.
     ask_marks: bool,
     /// The packs of letters this book asked for while open (`native_script_hint`).
@@ -411,6 +415,7 @@ impl View {
             title,
             language,
             mark: None,
+            spoken: None,
             finished: false,
             counter: None,
             class: None,
@@ -422,12 +427,14 @@ impl View {
             decorations: None,
             undecorated: false,
             filters: Vec::new(),
+            layers: layers::Layers::default(),
             ask_marks: false,
             packs_asked: 0,
             settings: Kept::default(),
         })
         .map_err(fail)?;
         open.ask_filters(host);
+        open.ask_layers(host);
         open.begin(host, root == Root::Library);
         open.load_bookmarks(host, library);
         open.ask_packs(host, docs, script);
@@ -901,6 +908,9 @@ impl View {
         if let Some(handled) = open.status_input(host, ui, input)? {
             return Ok(handled);
         }
+        if let Some(handled) = open.layer_input(host, docs, input)? {
+            return Ok(handled);
+        }
         if let Some(handled) = open.decoration_tap(host, input)? {
             return Ok(handled);
         }
@@ -1145,9 +1155,16 @@ impl Open {
         }
     }
 
+    /// Where the book's text is laid out: the content box, or the part of it
+    /// a page layer's region gives the text (`native_view/layers.rs`).
+    fn area(&self, setup: &Setup) -> Option<native_pages::Box> {
+        self.page_area(setup)
+            .map(|full| self.layers.text_area(full))
+    }
+
     /// The content box: the whole display for whole-page books (as Beta 3's
     /// margins of none), else inside the reading margins.
-    fn area(&self, setup: &Setup) -> Option<native_pages::Box> {
+    fn page_area(&self, setup: &Setup) -> Option<native_pages::Box> {
         let mut reading = setup.reading;
         if self.whole_pages {
             reading.margin = 0;
@@ -1333,6 +1350,7 @@ mod decorations;
 mod filters;
 mod goto;
 mod helpers;
+pub(crate) mod layers;
 mod laying;
 mod menu_bar;
 mod notes;
