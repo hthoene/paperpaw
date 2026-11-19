@@ -227,7 +227,7 @@ impl Plugin for NativeFiles {
         incoming: Incoming<'_>,
         _: &mut Reply<'_>,
     ) -> Result<(), Error> {
-        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenClosed, kinds::Answered, kinds::LibraryChanged)
+        let Some(event) = read_event!(incoming; kinds::ActionRun, kinds::ScreenOpened, kinds::ScreenShown, kinds::ScreenHidden, kinds::ScreenClosed, kinds::Answered, kinds::LibraryChanged)
         else {
             return Ok(());
         };
@@ -257,6 +257,10 @@ impl Plugin for NativeFiles {
             } if is_screen(token) => {
                 self.screens.shown(token, instance)?;
                 self.reread(host)
+            }
+            Event::ScreenHidden { instance, .. } if is_screen(token) => {
+                self.hidden(host, instance);
+                Ok(())
             }
             Event::ScreenClosed { instance, .. } => {
                 self.close(host, instance);
@@ -476,6 +480,18 @@ impl NativeFiles {
         if let Some(View::Books(old)) = old {
             Self::give_back(host, &mut old.covers, &[]);
             *old = fresh;
+        }
+    }
+
+    /// A full screen covers a list (a book opened from it): its covers go
+    /// back to the host while it is covered (#344). Nothing is lost: the
+    /// next `screen_shown` reads the list again and asks for the covers of
+    /// the rows it shows, as every return did.
+    fn hidden(&mut self, host: &Host<'_>, instance: Instance) {
+        match self.screens.get(instance) {
+            Some(View::Books(view)) => Self::give_back(host, &mut view.covers, &[]),
+            Some(View::Info(view)) => Self::give_back(host, &mut view.covers, &[]),
+            _ => {}
         }
     }
 
