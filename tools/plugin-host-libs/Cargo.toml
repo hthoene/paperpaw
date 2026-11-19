@@ -17,19 +17,15 @@ paperpaw-plugin-stats = { path = "../../plugins/stats", features = ["native-entr
 
 [[example]]
 name = "stats"
-crate-type = ["cdylib"]
 
 [[example]]
 name = "battery"
-crate-type = ["cdylib"]
 
 [[example]]
 name = "reading-goal"
-crate-type = ["cdylib"]
 
 [[example]]
 name = "keys"
-crate-type = ["cdylib"]
 
 [profile.release]
 opt-level = "s"
