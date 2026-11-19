@@ -54,6 +54,10 @@ fn _esp_alloc_alloc(heap: &EspHeap, _: EnumSet<MemoryCapability>, ptr: usize, si
         }
         #[cfg(not(feature = "textprobe"))]
         let _ = size;
+        #[cfg(feature = "heap-inventory")]
+        if ptr != 0 {
+            crate::inventory::allocated(ptr, size, _esp_alloc_alloc as *const () as usize);
+        }
         let peak = PEAK.borrow(cs);
         if ptr != 0 && used > peak.get() {
             peak.set(used);
@@ -73,6 +77,8 @@ fn _esp_alloc_dealloc(_: &EspHeap, ptr: usize, size: usize) {
             }
         });
     }
+    #[cfg(feature = "heap-inventory")]
+    critical_section::with(|_| crate::inventory::freed(ptr));
     #[cfg(not(feature = "textprobe"))]
     let _ = (ptr, size);
 }

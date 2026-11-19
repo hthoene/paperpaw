@@ -127,6 +127,9 @@ remote = [
     # The diagnostics screen, for bringing up devices.
     "paperpaw-app/diagnostics",
 ]
+# LAB ONLY (#400): the heap's inventory by caller (`src/inventory.rs`), written
+# to the log on the command `inventory`; its table takes 48 KB of the heap.
+heap-inventory = ["remote"]
 # Scoped slot14 qualification only; not included in any release/default build.
 textprobe = ["remote", "dep:paperpaw-text"]
 # LAB ONLY (#168): four power-down variants of the SSD1677, chosen by

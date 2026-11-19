@@ -27,6 +27,9 @@ extern crate alloc;
 #[cfg(all(feature = "test-image", feature = "release"))]
 compile_error!("a test image (the high-water log, decision 156) must never be a release");
 
+#[cfg(all(feature = "heap-inventory", feature = "release"))]
+compile_error!("the heap inventory is a lab tool (#400) and must never be a release");
+
 #[cfg(all(feature = "textprobe", not(feature = "x4")))]
 compile_error!("textprobe is restricted to the X4 ESP32-C3 test build");
 
@@ -74,6 +77,8 @@ mod high_water;
 mod host_net;
 mod http;
 mod input;
+#[cfg(feature = "heap-inventory")]
+mod inventory;
 #[cfg(feature = "turn-lab")]
 mod lab_presets;
 #[cfg(all(feature = "x4-pro", not(feature = "picco")))]
@@ -181,7 +186,13 @@ esp_bootloader_esp_idf::esp_app_desc!(
 /// for plugins' hot code, which the heap gets once plugins are loaded as
 /// far as they did not take it (`native::HOT_ARENA_LEN`).
 const HEAP_SIZE: usize = (192 + WIFI_IN_FLASH_KB - BLUETOOTH_KB - S3_BAND_KB - X4_BAND_KB) * 1024
-    - native::HOT_ARENA_LEN;
+    - native::HOT_ARENA_LEN
+    - INVENTORY_BYTES;
+/// What the heap inventory's table takes of the heap (`inventory.rs`, #400).
+#[cfg(feature = "heap-inventory")]
+const INVENTORY_BYTES: usize = inventory::BYTES;
+#[cfg(not(feature = "heap-inventory"))]
+const INVENTORY_BYTES: usize = 0;
 /// RAM the Xteink devices gain as the Wi-Fi send and receive code runs from
 /// flash (`build.rs`, #304 on the ESP32-C3 with `wifi-flash-x4.x`, #387 on the
 /// ESP32-S3 with `text-s3.x`): the 28 KB it took in IRAM on the C3, 15.4 KB on

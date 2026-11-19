@@ -34,6 +34,11 @@ impl Remote {
             return None;
         };
         let line = String::from_utf8_lossy(&line);
+        #[cfg(feature = "heap-inventory")]
+        if line.trim() == "inventory" {
+            crate::inventory::dump();
+            return None;
+        }
         #[cfg(feature = "textprobe")]
         if crate::textprobe::command(&line) {
             return None;
