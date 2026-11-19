@@ -1236,13 +1236,14 @@ impl<'a> FontHandle<'a> {
         let line = self.line();
         let shown = |c: &char| !paperpaw_text::is_mark(*c);
         let advance = |at: usize, ch: char| {
-            // A Bengali or Devanagari word, a Khmer, Lao or Tibetan
-            // syllable as wide as drawn, on its first character.
+            // An Indic word, a Khmer, Lao, Tibetan or Burmese syllable as
+            // wide as drawn, on its first character.
             if indic
                 && matches!(
                     ch,
-                    '\u{900}'..='\u{9FF}'
+                    '\u{900}'..='\u{DFF}'
                         | '\u{E80}'..='\u{FFF}'
+                        | '\u{1000}'..='\u{109F}'
                         | '\u{1780}'..='\u{17FF}'
                         | '\u{200C}'
                         | '\u{200D}'
@@ -1267,7 +1268,7 @@ impl<'a> FontHandle<'a> {
                 .and_then(|t| t.chars().find(shown));
             self.measure_in(size, one, &line.with_context(before, after))
         };
-        let indic_char = |c: char| matches!(c, '\u{900}'..='\u{9FF}' | '\u{E80}'..='\u{FFF}' | '\u{1780}'..='\u{17FF}');
+        let indic_char = |c: char| matches!(c, '\u{900}'..='\u{DFF}' | '\u{E80}'..='\u{FFF}' | '\u{1000}'..='\u{109F}' | '\u{1780}'..='\u{17FF}');
         let kern = |_: usize, left: char, right: char| match indic_char(left) || indic_char(right) {
             true => 0.0,
             false => self.kern(size, left, right),

@@ -206,13 +206,13 @@
 //! Indic packs' tables are of version 2.
 //!
 //! Words (version 1), slot 6: the words of a script written without
-//! spaces between them (Thai, Lao, Khmer), where the line breaker may
+//! spaces between them (Thai, Lao, Khmer, Burmese), where the line breaker may
 //! break a line (`crate::linebreak`), as `tools/thai-dictionary.py` and
 //! `tools/word-table.py` write them:
 //!
 //! ```text
-//! head       8 bytes   version 1, script u8 (0 Thai, 1 Lao, 2 Khmer), 2
-//!                      reserved, length u32
+//! head       8 bytes   version 1, script u8 (0 Thai, 1 Lao, 2 Khmer,
+//!                      3 Myanmar), 2 reserved, length u32
 //! counts     4 bytes   word count u16, block count u16 (a block per 16
 //!                      words)
 //! blocks     2 bytes   offset u16 of each block from the first's start

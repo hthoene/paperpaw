@@ -127,6 +127,18 @@ fn which_keys_are_marks() {
     ] {
         assert!(!is_mark_key(letter), "{letter:?}");
     }
+    // Burmese asat, virama, medial wa, dot below and vowels above and
+    // below; medial ya and ra, aa, e and visarga take room (#397).
+    for mark in [
+        '\u{103A}', '\u{1039}', '\u{103D}', '\u{1037}', '\u{102D}', '\u{102F}',
+    ] {
+        assert!(is_mark_key(mark), "{mark:?}");
+    }
+    for letter in [
+        'က', '\u{103B}', '\u{103C}', '\u{102C}', '\u{1031}', '\u{1038}',
+    ] {
+        assert!(!is_mark_key(letter), "{letter:?}");
+    }
     assert_eq!(glyph_of_key('\u{F_1010}'), Some(0x10));
     assert_eq!(glyph_of_key('\u{F_8010}'), Some(0x10));
     assert_eq!(glyph_of_key('ক'), None);
@@ -159,6 +171,7 @@ mod fonts {
     const SINHALA: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifSinhala.ttf");
     const TELUGU: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifTelugu.ttf");
     const KANNADA: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifKannada.ttf");
+    const MYANMAR: &[u8] = include_bytes!("../../../../tools/fonts/NotoSerifMyanmar.ttf");
 
     /// A pack of `font` at 20 px with its script's letters (and their
     /// forms), made as the store's packs are.
@@ -188,6 +201,12 @@ mod fonts {
     fn tibetan_pack() -> &'static [u8] {
         static PACK: OnceLock<Vec<u8>> = OnceLock::new();
         PACK.get_or_init(|| pack_of(TIBETAN, '\u{F00}'..='\u{FFF}'))
+    }
+
+    /// The pack of the store's Burmese letters (#397).
+    fn myanmar_pack() -> &'static [u8] {
+        static PACK: OnceLock<Vec<u8>> = OnceLock::new();
+        PACK.get_or_init(|| pack_of(MYANMAR, '\u{1000}'..='\u{104F}'))
     }
 
     fn bengali() -> &'static [u8] {
@@ -279,6 +298,31 @@ mod fonts {
         ];
         for (word, want) in tibetan {
             assert_eq!(glyphs(tibetan_pack(), TIBETAN, word), want, "{word}");
+        }
+    }
+
+    /// Burmese (#397): kinzi above the next consonant, the vowel e and
+    /// medial ra before the consonant, stacked consonants, medials and
+    /// asat: as HarfBuzz 11 shapes them with Noto Serif Myanmar (the forms
+    /// the pack leaves out to fit, such as na's short tail, aside).
+    #[test]
+    fn burmese_is_shaped_as_harfbuzz_shapes_it() {
+        let words: [(&str, &[u16]); 9] = [
+            ("မင်္ဂလာပါ", &[77, 44, 419, 82, 375, 73, 378]),
+            ("မြန်မာ", &[203, 77, 71, 411, 77, 375]),
+            ("ကြော်ငြာ", &[362, 233, 42, 375, 411, 203, 46, 375]),
+            ("သင်္ချိုင်း", &[84, 43, 419, 197, 46, 411, 408]),
+            ("ကမ္ဘာ", &[42, 77, 572, 375]),
+            (
+                "ပြည်ထောင်စု",
+                &[203, 73, 55, 411, 362, 68, 375, 46, 411, 47, 363],
+            ),
+            ("ကျွန်ုပ်", &[42, 191, 71, 411, 363, 73, 411]),
+            ("ရွှေ", &[362, 584]),
+            ("ဆက်တင်များ", &[48, 42, 411, 67, 46, 411, 77, 200, 408]),
+        ];
+        for (word, want) in words {
+            assert_eq!(glyphs(myanmar_pack(), MYANMAR, word), want, "{word}");
         }
     }
 
@@ -413,6 +457,7 @@ mod fonts {
             khmer_pack(),
             lao_pack(),
             tibetan_pack(),
+            myanmar_pack(),
         ] {
             let pack = BitmapFont::new(pack.to_vec()).unwrap();
             let table = pack.table(BitmapFont::SUBSTITUTIONS).unwrap();
@@ -465,8 +510,8 @@ mod fonts {
         /// Any mix of the scripts' characters, joiners and Latin shapes
         /// without a panic, within the keys a run may have.
         #[test]
-        fn any_text_shapes(text in "[\\u{980}-\\u{9FF}\\u{900}-\\u{97F}\\u{E80}-\\u{FFF}\\u{1780}-\\u{17FF}\\u{200C}\\u{200D}a ]{0,80}") {
-            for pack in [bengali(), devanagari(), khmer_pack(), lao_pack(), tibetan_pack()] {
+        fn any_text_shapes(text in "[\\u{980}-\\u{9FF}\\u{900}-\\u{97F}\\u{E80}-\\u{FFF}\\u{1780}-\\u{17FF}\\u{1000}-\\u{109F}\\u{200C}\\u{200D}a ]{0,80}") {
+            for pack in [bengali(), devanagari(), khmer_pack(), lao_pack(), tibetan_pack(), myanmar_pack()] {
                 let pack = BitmapFont::new(pack.to_vec()).unwrap();
                 let table = pack.table(BitmapFont::SUBSTITUTIONS).unwrap();
                 let shaper = Shaper::new(Substitutions::new(table));
@@ -503,6 +548,7 @@ mod fonts {
             Some("khmer") => khmer_pack().to_vec(),
             Some("lao") => lao_pack().to_vec(),
             Some("tibetan") => tibetan_pack().to_vec(),
+            Some("myanmar") => myanmar_pack().to_vec(),
             Some(blocks)
                 if blocks
                     .split(',')

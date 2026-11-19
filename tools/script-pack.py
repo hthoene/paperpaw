@@ -15,7 +15,9 @@ the interface's font too. The Latin letters Azerbaijani, Hausa and Yoruba add
 from Noto Serif and Noto Sans; Gujarati, Gurmukhi, Odia, Tamil, Telugu,
 Kannada, Malayalam and Sinhala from their Noto Serif faces (shaped as
 Bengali); Georgian (with its Mtavruli capitals, which
-upper case gives) and Armenian from Noto Serif Georgian and Armenian.
+upper case gives) and Armenian from Noto Serif Georgian and Armenian;
+Burmese (the Myanmar letters of Burmese and Pali) from Noto Serif Myanmar
+(shaped as Khmer, with its words).
 Chinese (the 6,763 ideographs of GB 2312, or the 5,401 frequently used ones
 of Big5 for Traditional) and Japanese (kana and 2,998 kanji: the Joyo and JIS X
 0208 level 1) come from Noto Serif SC, TC and JP in four sizes, as Korean's.
@@ -207,6 +209,12 @@ SETS = {
     "lao": ("Lao", shared("lao", OTHER_FONTS / "NotoSerifLao.ttf"),
             [OTHER_FONTS / "NotoSerifLao-OFL.txt", OTHER_FONTS / "ICU-word-lists-LICENSE.txt"],
             "Noto Serif Lao", ["U+0E80-0EFF"]),
+    # Burmese (#397): shaped as Khmer (paperpaw_text's indic module: medials, e and medial ra
+    # before the consonant, kinzi, stacks), its words for breaking lines; the letters of
+    # Burmese and Pali (U+1000 to U+104F), not those Mon, Shan and Karen add.
+    "myanmar": ("Burmese", shared("myanmar", OTHER_FONTS / "NotoSerifMyanmar.ttf"),
+                [OTHER_FONTS / "NotoSerifMyanmar-OFL.txt", OTHER_FONTS / "ICU-word-lists-LICENSE.txt"],
+                "Noto Serif Myanmar", ["U+1000-104F"]),
     "tibetan": ("Tibetan", shared("tibetan", OTHER_FONTS / "NotoSerifTibetan.ttf"),
                 OTHER_FONTS / "NotoSerifTibetan-OFL.txt", "Noto Serif Tibetan", ["U+0F00-0FFF"]),
     # Gujarati, Gurmukhi, Oriya (Odia), Tamil, Telugu, Kannada, Malayalam, Sinhala (#385):
@@ -289,8 +297,8 @@ def build(base, sets):
     if "thai" in sets:
         subprocess.run([sys.executable, str(ROOT / "tools/thai-dictionary.py"), "add",
                         str(out / "fonts/thai.ppfp"), str(out / "fonts/thai-sans.ppfp")], check=True)
-    # Khmer's and Lao's (#314): in both of their packs.
-    for script in [s for s in sets if s in ("khmer", "lao")]:
+    # Khmer's, Lao's (#314) and Burmese (#397): in all of their packs.
+    for script in [s for s in sets if s in ("khmer", "lao", "myanmar")]:
         subprocess.run([sys.executable, str(ROOT / "tools/word-table.py"), "add", script,
                         *(str(out / "fonts" / f"{name}.ppfp") for name, *_ in faces)], check=True)
     extends = "\n".join(

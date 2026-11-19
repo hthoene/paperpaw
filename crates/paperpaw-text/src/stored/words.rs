@@ -1,4 +1,4 @@
-//! The table of Thai, Lao or Khmer words a pack carries (slot 6, #313,
+//! The table of Thai, Lao, Khmer or Burmese words a pack carries (slot 6, #313,
 //! #314), for the line breaker (`crate::linebreak`), which is given no
 //! font: per script the first pack opened with one is noted (its table's
 //! head read for the script), and the table is read into memory
@@ -49,7 +49,7 @@ struct Noted {
 
 struct Held {
     /// Per script, in [`Script::ALL`]'s order.
-    noted: [Option<Noted>; 3],
+    noted: [Option<Noted>; 4],
     /// Tables that could not be read now, wrapping.
     failures: u32,
 }
@@ -59,7 +59,7 @@ type Slot = RefCell<Held>;
 
 #[cfg(any(test, feature = "kernel"))]
 const NONE: Held = Held {
-    noted: [None, None, None],
+    noted: [None, None, None, None],
     failures: 0,
 };
 
