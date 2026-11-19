@@ -400,10 +400,10 @@ fn each_batch_keeps_the_kinds_it_declares_and_only_those_are_walked() {
     let Batches::Starts(starts) = &owner.batches else {
         panic!("an image-only owner");
     };
-    // Two batches side by side: packed, one mask for the owner (D5).
+    // Two batches side by side: packed, a mask for each batch (D5, #393).
     let bit = |kind: Kind| 1_u64 << kind as u32;
     assert!(starts.is_packed());
-    assert_eq!(starts.kinds(1), bit(Kind::Action) | bit(Kind::Group));
+    assert_eq!((starts.kinds(0), starts.kinds(1)), (bit(Kind::Action), bit(Kind::Group)));
     assert_eq!(places(&store, Kind::Action), [(0, 0), (0, 1)]);
     assert_eq!(places(&store, Kind::Group), [(1, 0)]);
     // With a mask a batch (an owner whose batches are far apart), a batch
