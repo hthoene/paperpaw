@@ -1259,7 +1259,8 @@ and the SDK answers `Unsupported` there.
   (`registration.stage`, in stage order); input at most 640 bytes, reply 320, one reply row.
   - Input `picture.ask` (stage-local tag 1): `place: u32` (0 reader page, 1 comic page, 2 cover,
     3 thumbnail, 4 sleep screen, 5 a picture a plugin prepared for its own screen or widget;
-    a value a subscriber does not know is "somewhere else"), `width: u32`, `height: u32` (the
+    a value a subscriber does not know is "somewhere else"; how the host tells them is below),
+    `width: u32`, `height: u32` (the
     picture as the host keeps it), `flags: u32` (bit 0 kept in colour, bit 1 has transparency),
     `histogram: bytes 16` (16 gray bins from black to white, colour as luma, each 0 to 255 of the
     fullest bin, counted over up to 16 rows spread over the picture: one row in memory at a
@@ -1275,10 +1276,28 @@ and the SDK answers `Unsupported` there.
     with the image id: 256 bytes while the image lives, only where a subscriber answered a
     curve. A draw, a page turn and a band cost nothing more. A subscriber that fails or answers
     badly changes nothing; without a subscriber nothing is read and nothing is called.
-  - **This host asks for the pictures of `image_prepare`** (place 5). The places 0 to 4 are the
-    contract for the pictures of documents, covers, thumbnails and the sleep picture; a host
-    asks for them once it does (their id is made inside a document call, where no other plugin
-    is called today), and a subscriber must not count on it.
+  - **Every picture with an image id is asked for**, a plugin's own (`image_prepare`) and a
+    document's (a `fmt.image` of a block stream, op 16, a cover of op 15 or of the library's
+    `cover`). The place is the first that fits: **0 reader page** and **1 comic page**, a picture
+    of an open document that is not its cover (1 where the document's format declares
+    `whole_pages`: a comic, a folder of pictures, pages made beforehand), with `path` the book
+    where it is on root 1; **4 sleep screen**, any other picture of the plugin whose screen is
+    the sleep screen and on top when the host asks; **3 thumbnail**, a cover or a plugin's own
+    picture whose longer side is at most a quarter of the screen's; **2 cover**, another cover;
+    **5**, another picture of a plugin's own. `path` is empty for the places 2 to 5 on this host
+    (a cover's document is closed when the stage is asked).
+  - **When a document's picture is asked for.** The stage is called between callbacks only, so
+    the id of a document's picture is in its plugin's hands before the answer: the host asks in
+    its next pass, before the next frame. A plugin that draws the picture in a later frame than
+    the call that made the id (as the reader does: its pictures come in the frame after the
+    page's text) draws it with the answer. One that made the id inside its `draw` and drew it at
+    once has drawn it as it is; where the answer then says something, the host draws the screen
+    once more. The same image id is asked for once: a picture handed out again under its id
+    costs nothing, a picture whose id ended (a ninth document image, a closed document) is asked
+    for again when it gets a new one. A part of a cache file (`fmt.image.part`, a comic's panel)
+    takes the answer another picture of that file already has: the panels of a page look alike,
+    and a step to the next panel reads and asks nothing. A curve that changes no gray is kept
+    as none.
 - [D] `image.info` writes one `doc_image` record (`width`, `height`, `flags` bit 0 colour, bit 1
   not decoded yet) into
   `out`. `canvas.draw_image` draws the image scaled into the rectangle (keeping its shape,

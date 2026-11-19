@@ -299,7 +299,7 @@ fn panels_are_numbered_and_asked_for_through_the_provider() {
         // Its own number; the picture is the page's (decoded, its whole size)
         // and the panel a part inside it.
         assert_eq!(index, offset, "panel {offset} (one section: its offset)");
-        assert_eq!(path, "p0.gray");
+        assert!(path.ends_with("/p0.gray"), "the page's picture: {path}");
         assert_eq!(size, (200, 300));
         let words: Vec<u32> = part
             .as_chunks::<4>()
