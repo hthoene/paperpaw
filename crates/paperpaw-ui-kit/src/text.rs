@@ -372,9 +372,21 @@ const NEAR_EDGE: f32 = 0.04;
 ///
 /// # Errors
 /// Propagates errors of `measure` and allocation errors.
-#[inline(never)]
+#[inline]
 pub fn wrap_with(
     mut measure: impl FnMut(&str) -> Result<f32, Error>,
+    text: &str,
+    width: f32,
+    max_lines: usize,
+) -> Result<Vec<String>, Error> {
+    wrap_dyn(&mut measure, text, width, max_lines)
+}
+
+/// The one body of [`wrap_with`]: compiled once, not once for each closure
+/// that measures (24 copies of it were in the image, #388).
+#[inline(never)]
+fn wrap_dyn(
+    measure: &mut dyn FnMut(&str) -> Result<f32, Error>,
     text: &str,
     width: f32,
     max_lines: usize,
