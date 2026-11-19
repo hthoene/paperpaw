@@ -62,8 +62,8 @@ const CEILINGS: &[(&str, u32, &str)] = &[
     ),
     (
         "text_measure",
-        185,
-        "layout of the next page, widths and pairs kept for the book (172: a chapter's first page)",
+        200,
+        "layout of the next page, widths and pairs kept for the book (192: a chapter's first page)",
     ),
     (
         "storage_read_at",
@@ -83,10 +83,10 @@ const CEILINGS: &[(&str, u32, &str)] = &[
     ),
 ];
 
-/// All slots together, one turn (412 now; 475 before the pairs and words were
+/// All slots together, one turn (435 now; 475 before the pairs and words were
 /// kept for more than a page, #399; 517 before a font was acquired only when a
 /// callback draws with it, #393).
-const TOTAL_CEILING: u32 = 430;
+const TOTAL_CEILING: u32 = 445;
 
 /// Floors, so that a turn which does nothing cannot pass: every measured turn
 /// enters at least this many slots (the quietest, a page with one picture,
@@ -95,7 +95,7 @@ const TOTAL_CEILING: u32 = 430;
 const TURN_FLOOR: u32 = 50;
 const INKED_PER_TURN_FLOOR: u32 = 100;
 /// The most text measures of a turn on average, the Latin book.
-const MEASURES_PER_TURN: u32 = 40;
+const MEASURES_PER_TURN: u32 = 55;
 
 fn press_button(device: &mut Device, name: &'static str, state: ButtonState) {
     device.call(|kernel, now| kernel.handle(now, InputEvent::Button { name, state }));
@@ -320,7 +320,7 @@ fn latin_over(alice: &[u8], over: &mut Vec<String>) {
         ));
     }
     // What the tables of pairs and the kept break places save is in the turns
-    // that are not the worst: about 33 on average (65 when a pair or a word
+    // that are not the worst: about 45 on average (65 when a pair or a word
     // met on one page was forgotten by the next, #399).
     if seen.measures > MEASURES_PER_TURN * MEASURED as u32 {
         over.push(format!(

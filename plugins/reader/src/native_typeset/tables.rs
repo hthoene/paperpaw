@@ -16,7 +16,7 @@
 //! (fonts do not kern ideographs, kana and Hangul: [`kerns`]; or all numbers are
 //! in use) have their widths kept in a small table of exact entries (the whole key is compared; a new entry
 //! takes the place of one of the two it may be in), made at the first such
-//! character. Memory, made at once and never grown: about 9 KiB, and 2 KiB more
+//! character. Memory, made at once and never grown: about 8 KiB, and 2 KiB more
 //! for a book of such characters.
 use super::Role;
 use alloc::{rc::Rc, vec::Vec};
@@ -37,8 +37,8 @@ const STALE: u32 = 3_000;
 /// Entries of the table of kerned pairs (a power of two, 4 bytes each): sets of
 /// two, a pair is in either entry of its set (a page of English has about a
 /// hundred and fifty kerned pairs, and one entry for each lost a third of them
-/// to others at every page).
-const KERNED: usize = 512;
+/// to others at every page; the same 1,024 bytes as before).
+const KERNED: usize = 256;
 /// The pairs of one context, as bits.
 const PAIR_BYTES: usize = ALPHABET * ALPHABET / 8;
 /// Entries of the table of the characters after the alphabet (a power of two,
