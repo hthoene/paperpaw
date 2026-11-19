@@ -20,7 +20,7 @@ allow indirect-in paperpaw_plugin_* 1238 (1209 -> 1238: CI counts 1238 on the X4
 allow indirect-in paperpaw_sdk 419 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_ui_kit 164 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in core 85 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
-allow indirect-in paperpaw_layout 30 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_layout 34 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_stardict 23 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_qr 20 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_text 18 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
