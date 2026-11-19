@@ -145,6 +145,39 @@ pub fn handled(input: ListInput) -> Handled {
     }
 }
 
+/// The focus of a part that is not a row of a list (a key, a card, a cell of
+/// a grid, a letter): the theme's focus on exactly `rect`, a bar or, with a
+/// ring focus, a frame (round a pill, where `rect` is one band high). A row
+/// leaves room at its sides ([`crate::list::backdrop`]); this does not.
+/// Returns the ink of what is drawn on it ([`crate::list::ink`]).
+///
+/// # Errors
+/// [`paperpaw_sdk::native::Error::NoMemory`] when the paint list cannot grow.
+pub fn frame(
+    paint: &mut alloc::vec::Vec<crate::Paint>,
+    style: &crate::Style,
+    rect: paperpaw_sdk::Rect,
+) -> Result<paperpaw_sdk::Color, paperpaw_sdk::native::Error> {
+    let radius = if rect.width < rect.height || !style.pill || rect.height > style.row {
+        style.corner
+    } else {
+        u32::from(rect.height) / 2
+    };
+    crate::paint::push(
+        paint,
+        crate::Paint::Focus(
+            rect,
+            radius,
+            style
+                .ring
+                .then_some(u32::from(style.line) * 2)
+                .map(|line| line.max(3)),
+            style.bar(),
+        ),
+    )?;
+    Ok(crate::list::ink(style, true))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

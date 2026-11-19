@@ -611,13 +611,7 @@ impl View {
         *region = Rect::new(0, height - high, width, high);
         let mut paint = Vec::new();
         paint::push(&mut paint, Paint::Fill(*region, style.paper))?;
-        paint::push(
-            &mut paint,
-            Paint::Fill(
-                Rect::new(region.x, region.y, width, (style.line * 2).max(2)),
-                style.ink,
-            ),
-        )?;
+        paperpaw_ui_kit::sheet::edge(&mut paint, &style, *region, style.ink)?;
         let title_area = Rect::new(0, region.y.saturating_add(style.gap), width, style.row);
         let room = f32::from(width) - 2.0 * f32::from(style.margin);
         let fitted = text::fit(&font, style.title, title, room)?;

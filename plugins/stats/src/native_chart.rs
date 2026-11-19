@@ -136,7 +136,7 @@ pub(crate) fn bars(
                         bar.width as u16,
                         bar.height as u16,
                     ),
-                    paperpaw_sdk::Color::BLACK,
+                    style.ink,
                 ),
             )?;
             if bar.highest && !top.is_empty() {
@@ -183,7 +183,7 @@ pub(crate) fn bars(
                 plan.label_height,
             );
             let color = if highlight == Some(at) {
-                paperpaw_sdk::Color::BLACK
+                style.ink
             } else {
                 style.muted
             };

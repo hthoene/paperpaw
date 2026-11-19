@@ -4,18 +4,19 @@
 //! rest of the day (or goes at once), then it goes.
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
-    Point, Rect,
+    Rect,
     native::{Error, Host, callbacks::FrameRect, ui::WidgetTarget},
 };
 use paperpaw_ui_kit::{
     Paint,
     geometry::{line_metrics, line_px},
     mem, paint,
+    parts::{BoxShape, BoxTones, checkbox},
     text::{concat, fit},
     widget::{
         Align, Cx, Look, Settings, TextSize,
         layout::{caption, caption_height, label},
-        shape::{fill, fill_circle, line as stroke_line, stroke_circle},
+        shape::fill,
         text::fit_line,
     },
 };
@@ -312,33 +313,19 @@ fn draw_box(
     square: bool,
     (done, look): (bool, &Look),
 ) -> Result<(), Error> {
-    let line = (u32::from(place.width) / 10)
-        .max(u32::from(cx.style().line))
-        .max(1);
-    let r = u32::from(place.width / 2);
-    let radius = i32::try_from(r).unwrap_or(0);
-    let centre = Point::new(
-        i32::from(place.x).saturating_add(radius),
-        i32::from(place.y).saturating_add(radius),
-    );
-    match (square, done) {
-        (false, false) => stroke_circle(out, centre, r, line, look.ink)?,
-        (false, true) => fill_circle(out, centre, r, look.faint)?,
-        (true, false) => paint::push(out, Paint::Focus(place, r / 3, Some(line), look.ink))?,
-        (true, true) => paint::push(out, Paint::Focus(place, r / 3, None, look.faint))?,
-    }
-    if done {
-        // A tick in the paper's colour.
-        let s = i32::from(place.width);
-        let (x, y) = (i32::from(place.x), i32::from(place.y));
-        let width = (s as u32 / 9).max(2);
-        let a = Point::new(x + s * 28 / 100, y + s * 50 / 100);
-        let b = Point::new(x + s * 44 / 100, y + s * 66 / 100);
-        let c = Point::new(x + s * 72 / 100, y + s * 36 / 100);
-        stroke_line(out, a, b, width, look.paper)?;
-        stroke_line(out, b, c, width, look.paper)?;
-    }
-    Ok(())
+    let shape = if square {
+        BoxShape::Square
+    } else {
+        BoxShape::Round
+    };
+    checkbox(
+        out,
+        cx.style(),
+        place,
+        shape,
+        done,
+        BoxTones::new(look.ink, look.faint, look.paper),
+    )
 }
 
 /// Draws an item in `row`: its box, ticked if done, and its text, struck

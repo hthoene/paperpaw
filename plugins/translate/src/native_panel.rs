@@ -339,11 +339,7 @@ impl Panel {
         let mut messages = Messages::new()?;
         let mut ops: Vec<Paint> = Vec::new();
         paint::push(&mut ops, Paint::Fill(region, style.paper))?;
-        let bar = (style.line * 2).max(2);
-        paint::push(
-            &mut ops,
-            Paint::Fill(Rect::new(0, top, width, bar), style.ink),
-        )?;
+        paperpaw_ui_kit::sheet::edge(&mut ops, &style, region, style.ink)?;
         // The original at the left, the service at the right.
         let header = Rect::new(0, top, width, style.row);
         let source = messages.copy(host, "translate.source")?;

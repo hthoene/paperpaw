@@ -56,11 +56,37 @@ pub struct Geometry {
     pub pager: Option<Rect>,
 }
 
+/// The thickness of the line along the top edge of a sheet or a panel at the
+/// bottom of the screen for a style whose line is `line`: twice the line, at
+/// least 2. Every sheet draws its edge so ([`edge`]).
+#[must_use]
+pub const fn edge_thickness(line: u16) -> u16 {
+    let thick = line.saturating_mul(2);
+    if thick < 2 { 2 } else { thick }
+}
+
+/// The edge along the top of the sheet `region`, in `ink`: queued, and
+/// returned as the rectangle it covers.
+///
+/// # Errors
+/// [`Error::NoMemory`] when the paint list cannot grow.
+pub fn edge(
+    paint: &mut Vec<Paint>,
+    style: &Style,
+    region: Rect,
+    ink: paperpaw_sdk::Color,
+) -> Result<Rect, Error> {
+    let thick = edge_thickness(style.line).min(region.height);
+    let rect = Rect::new(region.x, region.y, region.width, thick);
+    paint::push(paint, Paint::Fill(rect, ink))?;
+    Ok(rect)
+}
+
 /// The sheet for items of `heights`: as high as they need, up to the header
 /// of the screen below; with a pager where they need more.
 #[must_use]
 pub fn geometry(heights: &[u16], m: &Metrics) -> Geometry {
-    let thick = m.line.saturating_mul(2).max(2);
+    let thick = edge_thickness(m.line);
     let border = u32::from(thick);
     let gap = u32::from(m.gap);
     let total = heights

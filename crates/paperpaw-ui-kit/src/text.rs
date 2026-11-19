@@ -44,6 +44,84 @@ pub fn fit(font: &Font<'_>, size: f32, text: &str, width: f32) -> Result<String,
     result.push('…');
     Ok(result)
 }
+/// `text` wrapped to `wide` pixels (at most `lines` lines) and each line centred
+/// in the column of `wide` pixels that starts at `x`, from `*y` down while a line
+/// ends above `bottom`; `*y` ends below the last line drawn.
+///
+/// # Errors
+/// A refused font reply and [`Error::NoMemory`].
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one text: where, how large, how wide"
+)]
+pub fn centred(
+    paint: &mut Vec<Paint>,
+    font: &Font<'_>,
+    text: &str,
+    (size, ink): (f32, Color),
+    (x, wide): (u16, f32),
+    (y, bottom): (&mut i32, i32),
+    lines: usize,
+) -> Result<(), Error> {
+    let broken = wrap_with(|line| font.measure_text(size, line), text, wide, lines)?;
+    let high = crate::geometry::line_px(font, size)?;
+    for line in &broken {
+        if *y + i32::from(high) > bottom {
+            break;
+        }
+        let measured = font.measure_text(size, line)?;
+        let left = f32::from(x) + (wide - measured).max(0.0) / 2.0;
+        let row = Rect::new(
+            x,
+            crate::geometry::clamp_u16(i64::from(*y)),
+            crate::geometry::clamp_u16(wide as i64),
+            high,
+        );
+        label(paint, font, line, size, left, row, ink, None)?;
+        *y += i32::from(high);
+    }
+    Ok(())
+}
+
+/// `text` cut to `width` at its start, so that its end stays: "…" and the
+/// longest tail that fits (a path, a file name with its extension, a version).
+/// The whole text where it fits.
+///
+/// # Errors
+/// A refused font reply and [`Error::NoMemory`].
+pub fn fit_end(font: &Font<'_>, size: f32, text: &str, width: f32) -> Result<String, Error> {
+    if font.measure_text(size, text)? <= width {
+        return copy(text);
+    }
+    let mut result = String::new();
+    result
+        .try_reserve_exact(text.len().checked_add(3).ok_or(Error::NoMemory)?)
+        .map_err(|_| Error::NoMemory)?;
+    // The most letters of the end that fit with the ellipsis, found by halving
+    // as `fit` does.
+    let total = text.chars().count();
+    let (mut fits, mut over) = (0, total);
+    let tail = |keep: usize| {
+        text.char_indices()
+            .nth(total - keep)
+            .map_or(text.len(), |(at, _)| at)
+    };
+    while over - fits > 1 {
+        let probe = fits + (over - fits) / 2;
+        result.clear();
+        result.push('…');
+        result.push_str(&text[tail(probe)..]);
+        if font.measure_text(size, &result)? > width {
+            over = probe;
+        } else {
+            fits = probe;
+        }
+    }
+    result.clear();
+    result.push('…');
+    result.push_str(&text[tail(fits)..]);
+    Ok(result)
+}
 #[allow(
     clippy::too_many_arguments,
     reason = "one measured text run and its target geometry"
