@@ -159,7 +159,11 @@ impl Starts {
         let Some(pair) = self.0.get(ids + batch / 2) else {
             return 0;
         };
-        let id = usize::from(if batch % 2 == 0 { pair & 0xff } else { pair >> 8 });
+        let id = usize::from(if batch.is_multiple_of(2) {
+            pair & 0xff
+        } else {
+            pair >> 8
+        });
         word_u64(&self.0, PACKED_HEAD + id * MASK_WORDS).unwrap_or(0)
     }
 

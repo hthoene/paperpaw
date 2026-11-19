@@ -76,6 +76,9 @@ struct Memo {
     order: Option<(u32, Vec<(Sort, DeclKey)>)>,
 }
 
+/// Gives the names of a record to hash (`add` once for each).
+type Names = dyn Fn(&Record<'_>, &mut dyn FnMut(&[&str]));
+
 fn hash(parts: &[&str]) -> u32 {
     let mut state = 0_u64;
     for part in parts {
@@ -119,11 +122,7 @@ impl<'a> Native<'a> {
 
     /// The hashes `name` gives the records of `kinds` (`None` to leave one
     /// out), sorted; `None` without memory.
-    fn hashes(
-        &self,
-        kinds: &[Kind],
-        name: &dyn Fn(&Record<'_>, &mut dyn FnMut(&[&str])),
-    ) -> Option<Vec<u32>> {
+    fn hashes(&self, kinds: &[Kind], name: &Names) -> Option<Vec<u32>> {
         let mut out = Vec::new();
         let mut failed = false;
         for kind in kinds {

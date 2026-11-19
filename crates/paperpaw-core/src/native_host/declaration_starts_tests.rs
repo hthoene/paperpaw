@@ -21,14 +21,24 @@ fn batches_near_each_other_share_one_start_and_keep_a_mask_each() {
     let at: Vec<_> = (0..4).map(|batch| starts.start(batch)).collect();
     assert_eq!(at, [Some(1000), Some(1040), Some(66_535), None]);
     assert_eq!(
-        (starts.kinds(0), starts.kinds(1), starts.kinds(2), starts.kinds(3)),
+        (
+            starts.kinds(0),
+            starts.kinds(1),
+            starts.kinds(2),
+            starts.kinds(3)
+        ),
         (1 << 3, 1 << 5, 1 << 3 | 1 << 40, 0)
     );
     // 10 bytes, 8 a distinct mask and 3 a batch (rounded to a word), where
     // wide starts take 12 a batch (and a word).
     assert_eq!(starts.bytes(), 10 + 8 * 3 + 2 * 3 + 4);
     // Masks repeat: kept once.
-    let same = [batch(0, &[1]), batch(10, &[2]), batch(20, &[1]), batch(30, &[2])];
+    let same = [
+        batch(0, &[1]),
+        batch(10, &[2]),
+        batch(20, &[1]),
+        batch(30, &[2]),
+    ];
     let starts = Starts::try_new(&same).unwrap();
     let kinds: Vec<_> = (0..5).map(|batch| starts.kinds(batch)).collect();
     assert_eq!(kinds, [1 << 1, 1 << 2, 1 << 1, 1 << 2, 0]);
