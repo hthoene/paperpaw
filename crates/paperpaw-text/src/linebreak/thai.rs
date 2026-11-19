@@ -66,7 +66,10 @@ impl Script {
     /// The letter's properties (the flags below; 0 for none): looked up in
     /// a table, since a `match` per script and property made jump tables.
     fn flags(self, l: u8) -> u8 {
-        FLAGS[self as usize].get(usize::from(l)).copied().unwrap_or(0)
+        FLAGS[self as usize]
+            .get(usize::from(l))
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Whether the letter is one words are made of (not a digit or
