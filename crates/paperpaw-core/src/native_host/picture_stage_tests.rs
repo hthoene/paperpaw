@@ -10,7 +10,12 @@ use paperpaw_sdk::MemoryStorage;
 use paperpaw_sdk::image::{GrayWriter, ImageSink};
 use std::vec::Vec;
 
+#[path = "picture_stage_place_tests.rs"]
+mod places;
+
 const A: u64 = 1;
+/// A plugin's own picture, of no book.
+const UI: (u32, &str) = (tone::PLACE_UI, "");
 
 /// Subscribers that answer in turn what the test wrote for them.
 struct Fake {
@@ -93,7 +98,7 @@ fn the_first_answer_that_says_something_is_kept_with_the_picture() {
         answers: std::vec![tone(&[], 0), tone(&darker(), 0)],
         asked: Vec::new(),
     };
-    ask(&mut fake, &subscribers, &storage, &t, &wanted);
+    ask(&mut fake, &subscribers, &storage, &t, &wanted, UI);
     assert_eq!(fake.asked.len(), 2);
     assert_eq!((fake.asked[0].0, fake.asked[1].0), (7, 8));
     assert_eq!(shown(&t, &storage, wanted.id), 50);
@@ -121,7 +126,7 @@ fn an_answer_ends_the_asking_and_a_failed_or_bad_one_does_not() {
         answers: std::vec![tone(&darker(), 0), tone(&[], 1)],
         asked: Vec::new(),
     };
-    ask(&mut fake, &subscribers, &storage, &t, &wanted);
+    ask(&mut fake, &subscribers, &storage, &t, &wanted, UI);
     assert_eq!(fake.asked.len(), 1);
     assert_eq!(shown(&t, &storage, wanted.id), 50);
     // A subscriber that fails, and one whose curve is no curve, change
@@ -131,7 +136,7 @@ fn an_answer_ends_the_asking_and_a_failed_or_bad_one_does_not() {
         answers: std::vec![Err(ERR_CANCELLED), tone(&[1, 2, 3], 0)],
         asked: Vec::new(),
     };
-    ask(&mut fake, &subscribers, &storage, &t, &wanted);
+    ask(&mut fake, &subscribers, &storage, &t, &wanted, UI);
     assert_eq!(fake.asked.len(), 2);
     assert_eq!(shown(&t, &storage, wanted.id), 100);
     // A picture that cannot be read is not asked about.
@@ -141,6 +146,6 @@ fn an_answer_ends_the_asking_and_a_failed_or_bad_one_does_not() {
         answers: std::vec![tone(&darker(), 0)],
         asked: Vec::new(),
     };
-    ask(&mut fake, &subscribers, &storage, &t, &wanted);
+    ask(&mut fake, &subscribers, &storage, &t, &wanted, UI);
     assert!(fake.asked.is_empty());
 }

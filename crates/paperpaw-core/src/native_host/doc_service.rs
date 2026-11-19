@@ -75,6 +75,10 @@ pub(crate) trait DocHost {
         0
     }
     fn table(&self) -> &DocumentTable;
+    /// What the picture stage is told of a picture of `owner`'s `document`
+    /// (`visit`ed once where the host knows the document): whether its format
+    /// reads whole pages, and its book's path on root 1 (empty for none).
+    fn picture_book(&self, _owner: u64, _document: u32, _visit: &mut dyn FnMut(bool, &str)) {}
     /// The screen's long side in pixels.
     fn screen_long_side(&self) -> u32;
     /// Root 0 is the caller's Data; root 1 needs `uses.storage`

@@ -208,8 +208,11 @@ pub(crate) struct ImageTable {
     /// How pictures are drawn (contrast, gamma, dither: #82), made once
     /// when a setting changes ([`ImageTable::set_look`]).
     look: RefCell<crate::kit::ui::picture_look::PictureLook>,
-    /// A prepared picture may wait for `core.picture` ([`tone`]).
+    /// A picture may wait for `core.picture` ([`tone`]).
     unasked: core::cell::Cell<bool>,
+    /// The declarations (their revision) in which the stage had no
+    /// subscriber: nothing is looked up again until they change.
+    unsubscribed: core::cell::Cell<Option<u64>>,
 }
 
 /// The X4's draw scratch (`document.md` 5): one transient block of 32 KiB.
@@ -276,6 +279,7 @@ impl ImageTable {
             scratch_max: core::cell::Cell::new(SCRATCH_X4),
             look: RefCell::new(crate::kit::ui::picture_look::PictureLook::standard()),
             unasked: core::cell::Cell::new(false),
+            unsubscribed: core::cell::Cell::new(None),
         }
     }
 
@@ -445,11 +449,9 @@ impl ImageTable {
             part,
             tone: None,
             forced: 0,
-            unasked: prepared,
+            unasked: true,
         };
-        if prepared {
-            self.unasked.set(true);
-        }
+        self.unasked.set(true);
         inner.next_id = id;
         match evict {
             Some(index) => inner.entries[index] = entry,
