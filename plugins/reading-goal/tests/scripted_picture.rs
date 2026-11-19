@@ -44,5 +44,6 @@ fn a_widget_without_custom_pictures_requests_the_bundled_cat_when_it_is_made() {
             _ => None,
         })
         .collect();
-    assert_eq!(pictures, [(2, "pictures/sad.png", 0)]);
+    // The display's width (480 here), not 0 (the screen's longer side).
+    assert_eq!(pictures, [(2, "pictures/sad.png", 480)]);
 }
