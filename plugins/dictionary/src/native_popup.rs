@@ -383,13 +383,7 @@ impl View {
         let note = self.note(host, font, &style, width, rows, &mut messages)?;
         let mut body = Vec::new();
         push(&mut body, Paint::Fill(region, style.paper))?;
-        push(
-            &mut body,
-            Paint::Fill(
-                Rect::new(region.x, region.y, region.width, style.line),
-                style.rule,
-            ),
-        )?;
+        paperpaw_ui_kit::sheet::edge(&mut body, &style, region, style.ink)?;
         let margin = f32::from(style.margin);
         let head = Rect::new(region.x, region.y, region.width, header);
         let online = if self.online && self.preparing.is_none() {

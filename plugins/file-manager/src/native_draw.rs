@@ -260,16 +260,7 @@ fn draw_with(
     }
     if let Some(note) = &browser.note {
         let line = note_text(host, &mut messages, note)?;
-        text::label(
-            &mut body,
-            font,
-            &line,
-            style.small,
-            f32::from(style.margin),
-            layout.note,
-            style.note,
-            None,
-        )?;
+        paperpaw_ui_kit::items::note_in(&mut body, font, &style, layout.note, &line)?;
     }
     let buttons = browser.buttons();
     draw_bar(
@@ -317,17 +308,7 @@ fn draw_bar(
         )?;
         let rect = layout.button(style.margin, style.gap, i, buttons.len());
         let focused = shown && browser.bar() == Some(i);
-        let ink = if focused { style.paper } else { style.ink };
-        if focused {
-            paint::push(body, Paint::Focus(rect, style.corner, None, style.ink))?;
-        }
-        paint::push(
-            body,
-            Paint::Focus(rect, style.corner, Some(u32::from(style.line)), style.ink),
-        )?;
-        let wide = font.measure_text(style.text, &label)?;
-        let x = f32::from(rect.x) + (f32::from(rect.width) - wide).max(0.0) / 2.0;
-        text::label(body, font, &label, style.text, x, rect, ink, Some(rect))?;
+        paperpaw_ui_kit::parts::button(body, font, style, rect, &label, focused)?;
     }
     Ok(())
 }

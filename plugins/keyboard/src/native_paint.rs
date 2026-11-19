@@ -157,7 +157,14 @@ fn field(
         false,
         false,
     )?;
-    boxed(out, box_area, style.corner, Some(thickness), style.ink)?;
+    // The ends of a one-line box are round on a theme of pills, as a list's
+    // field is.
+    let corner = if style.pill && !board.asked.multiline {
+        u32::from(box_area.height) / 2
+    } else {
+        style.corner
+    };
+    boxed(out, box_area, corner, Some(thickness), style.ink)?;
     let buttons_width = board.buttons.first().map_or(0.0, |(_, area)| {
         f32::from(box_area.x + box_area.width - area.x) + margin
     });
@@ -519,7 +526,7 @@ fn variants(
         a.height + 2 * outer,
     );
     push(out, Paint::Fill(frame, style.paper))?;
-    boxed(out, frame, 0, Some(border), style.ink)?;
+    boxed(out, frame, style.corner, Some(border), style.ink)?;
     for (index, c) in popup.chars.iter().enumerate() {
         let key = popup.key(index);
         let pad = style.line.max(1) * 3;

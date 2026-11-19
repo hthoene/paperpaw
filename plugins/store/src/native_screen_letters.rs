@@ -239,10 +239,11 @@ impl View {
                 continue;
             };
             let focused = index == self.focus;
-            if focused {
-                paint::push(&mut body, Paint::Fill(cell, style.ink))?;
-            }
-            let ink = if focused { style.paper } else { style.ink };
+            let ink = if focused {
+                paperpaw_ui_kit::focus::frame(&mut body, &style, cell)?
+            } else {
+                style.ink
+            };
             let wide = font.measure_text(size, letter)?;
             let x = f32::from(cell.x) + (f32::from(cell.width) - wide).max(0.0) / 2.0;
             text::label(&mut body, font, letter, size, x, cell, ink, Some(cell))?;

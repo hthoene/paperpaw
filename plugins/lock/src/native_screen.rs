@@ -154,7 +154,7 @@ pub fn room(
     })
 }
 
-/// A button: outlined, or filled when the focus is on it.
+/// A button: the one every screen draws.
 fn button(
     paint: &mut Vec<Paint>,
     font: &Font<'_>,
@@ -163,27 +163,7 @@ fn button(
     text: &str,
     focused: bool,
 ) -> Result<(), Error> {
-    let (ink, on) = if focused {
-        (style.ink, style.paper)
-    } else {
-        (style.ink, style.ink)
-    };
-    push(
-        paint,
-        Paint::Focus(
-            area,
-            style.corner,
-            if focused {
-                None
-            } else {
-                Some(u32::from(style.line).max(1))
-            },
-            ink,
-        ),
-    )?;
-    let wide = font.measure_text(style.text, text)?;
-    let x = f32::from(area.x) + (f32::from(area.width) - wide).max(0.0) / 2.0;
-    label(paint, font, text, style.text, x, area, on, None)
+    paperpaw_ui_kit::parts::button(paint, font, style, area, text, focused)
 }
 
 /// The dots that stand for the digits of a PIN, and the keys below them.
@@ -222,8 +202,7 @@ fn pin(
         // the buttons, a key is filled.
         let digit = *key != DELETE && *key != OK;
         let ink = if focused {
-            disc(paint, centre, radius, Color::BLACK)?;
-            Color::WHITE
+            paperpaw_ui_kit::focus::frame(paint, style, rect)?
         } else {
             if digit {
                 ring(paint, centre, radius, u32::from(style.line).max(1))?;

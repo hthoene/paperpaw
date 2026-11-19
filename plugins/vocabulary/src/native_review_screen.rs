@@ -467,7 +467,6 @@ impl ReviewScreen {
         buttons: &[Rect],
         waits: &[String],
     ) -> Result<(), Error> {
-        let thickness = u32::from(style.line).max(1);
         let small = geometry::line_px(font, style.small)?;
         for (i, rect) in buttons.iter().enumerate() {
             let key = if waits.is_empty() {
@@ -479,23 +478,7 @@ impl ReviewScreen {
             // The focus is the only button of *Show answer*, or the answer
             // the buttons are on.
             let focused = waits.is_empty() || i == self.review.focus;
-            let (fill, ink) = if focused {
-                (Some(style.ink), style.paper)
-            } else {
-                (None, style.ink)
-            };
-            match fill {
-                Some(color) => push(paint, Paint::Focus(*rect, style.corner, None, color))?,
-                None => push(
-                    paint,
-                    Paint::Focus(*rect, style.corner, Some(thickness), ink),
-                )?,
-            }
-            let room = f32::from(rect.width.saturating_sub(style.margin)).max(1.0);
-            let fitted = text::fit(font, style.text, &label, room)?;
-            let wide = font.measure_text(style.text, &fitted)?;
-            let x = f32::from(rect.x) + (f32::from(rect.width) - wide).max(0.0) / 2.0;
-            text::label(paint, font, &fitted, style.text, x, *rect, ink, Some(*rect))?;
+            paperpaw_ui_kit::parts::button(paint, font, style, *rect, &label, focused)?;
             if let Some(wait) = waits.get(i) {
                 // When it would come again, above its button.
                 let fitted = text::fit(font, style.small, wait, f32::from(rect.width))?;

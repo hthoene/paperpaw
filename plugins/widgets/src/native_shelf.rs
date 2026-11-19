@@ -14,7 +14,7 @@ use paperpaw_ui_kit::{
     Paint,
     covers::{Covered, Pictures, fitted},
     geometry, mem, paint,
-    widget::{Align, Cx, Look, layout, shape, text::Wrapped},
+    widget::{Align, Cx, Look, layout, shape},
 };
 
 /// The target of a book: this and its index among those that show.
@@ -419,7 +419,7 @@ pub fn draw_cover(
     }
 }
 
-/// A book without a cover: a frame with its title inside.
+/// A book without a cover: the one placeholder every screen draws.
 fn draw_placeholder(
     cx: &Cx<'_>,
     out: &mut Vec<Paint>,
@@ -427,31 +427,7 @@ fn draw_placeholder(
     at: Rect,
     title: &str,
 ) -> Result<(), Error> {
-    let style = cx.style();
-    let line = u32::from(style.line.max(1));
-    paint::push(
-        out,
-        Paint::Focus(at, style.corner.min(6), Some(line), look.ink),
-    )?;
-    let pad = (style.gap / 2).max(2);
-    let inner = Rect::new(
-        at.x.saturating_add(pad),
-        at.y.saturating_add(pad),
-        at.width.saturating_sub(pad.saturating_mul(2)),
-        at.height.saturating_sub(pad.saturating_mul(2)),
-    );
-    if inner.width < 8 || inner.height < 8 {
-        return Ok(());
-    }
-    let wrapped = Wrapped::fitting(
-        &cx.font,
-        title,
-        (style.small, (style.small * 0.6).max(6.0)),
-        (inner.width, inner.height),
-        false,
-    )?;
-    wrapped.draw(out, &cx.font, inner, Align::Center, look.ink)?;
-    Ok(())
+    paperpaw_ui_kit::parts::placeholder(out, &cx.font, cx.style(), at, title, look.ink)
 }
 
 /// A round mark with a tick at the top right corner of a cover: read.

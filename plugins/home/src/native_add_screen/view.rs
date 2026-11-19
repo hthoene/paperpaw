@@ -423,14 +423,12 @@ fn ring(paint: &mut Vec<Paint>, style: &Style, area: Rect, focused: bool) -> Res
         area.width.saturating_add(2 * pad),
         area.height.saturating_add(2 * pad),
     );
-    let (thickness, color) = if focused {
-        (u32::from(style.line) * 3, style.ink)
-    } else {
-        (u32::from(style.line), style.rule)
-    };
+    if focused {
+        return paperpaw_ui_kit::focus::ring(paint, style, rect);
+    }
     paint::push(
         paint,
-        Paint::Focus(rect, style.corner, Some(thickness), color),
+        Paint::Focus(rect, style.corner, Some(u32::from(style.line)), style.rule),
     )
 }
 

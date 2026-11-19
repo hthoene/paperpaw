@@ -364,13 +364,7 @@ pub(super) fn bottom_line(
     let (width, tall) = (display.display_width(), display.display_height());
     let bar = Rect::new(0, tall.saturating_sub(height), width, height);
     paint::push(ops, Paint::Fill(bar, style.paper))?;
-    paint::push(
-        ops,
-        Paint::Fill(
-            Rect::new(bar.x, bar.y, bar.width, style.line.max(2)),
-            style.ink,
-        ),
-    )?;
+    paperpaw_ui_kit::sheet::edge(ops, style, bar, style.ink)?;
     let margin = f32::from(style.margin);
     let room = f32::from(width) - 2.0 * margin;
     let mut top = bar.y;

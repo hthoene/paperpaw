@@ -463,10 +463,7 @@ impl PanelView {
                 paint::push(body, Paint::Focus(rect, style.corner, Some(thickness), ink))?;
             }
             if focused {
-                paint::push(
-                    body,
-                    Paint::Focus(rect.grow(2), style.corner, Some(thickness), style.ink),
-                )?;
+                paperpaw_ui_kit::focus::ring(body, style, rect.grow(2))?;
             }
             let color = if on && !faint { style.paper } else { ink };
             let room = f32::from(button_room(rect.width, style.margin)).max(1.0);
@@ -596,28 +593,10 @@ impl PanelView {
         };
         let radius = panel::knob_radius(track);
         let knob = panel::knob_x(track, now, (info.min, info.max)).clamp(0, i32::from(u16::MAX));
-        let middle = track.y.saturating_add(track.height / 2);
-        let (thin, thick) = (style.line.max(1), style.line.saturating_mul(3).max(3));
         let start = track.x.saturating_add(radius);
         let end = track.x.saturating_add(track.width).saturating_sub(radius);
-        let at = knob as u16;
-        let line = |from: u16, to: u16, height: u16| {
-            Rect::new(
-                from,
-                middle.saturating_sub(height / 2),
-                to.saturating_sub(from),
-                height,
-            )
-        };
-        paint::push(body, Paint::Fill(line(start, end, thin), ink))?;
-        paint::push(body, Paint::Fill(line(start, at, thick), ink))?;
-        let circle = Rect::new(
-            at.saturating_sub(radius),
-            middle.saturating_sub(radius),
-            radius.saturating_mul(2),
-            radius.saturating_mul(2),
-        );
-        paint::push(body, Paint::Focus(circle, u32::from(radius), None, ink))
+        let line = Rect::new(start, track.y, end.saturating_sub(start), track.height);
+        paperpaw_ui_kit::parts::slider(body, style, line, (knob as u16, radius), &[], ink)
     }
 
     /// A number's value between its `−` and its `+`, drawn beside the `+`.

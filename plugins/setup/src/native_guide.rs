@@ -458,9 +458,10 @@ impl Guide {
         let ink = style.ink;
         let focused = self.shown && self.focus == Target::Card;
         let line = u32::from(style.line).max(1);
-        let thickness = if focused { line * 3 } else { line };
-        if focused || layout.segments.is_none() {
-            paint::push(ops, Paint::Focus(card, style.corner, Some(thickness), ink))?;
+        if focused {
+            paperpaw_ui_kit::focus::ring(ops, style, card)?;
+        } else if layout.segments.is_none() {
+            paint::push(ops, Paint::Focus(card, style.corner, Some(line), ink))?;
         }
         let row = Rect::new(card.x, card.y, card.width, style.row.min(card.height));
         let setting = self.setting.as_ref();
@@ -646,7 +647,7 @@ fn centered(
     label(ops, font, &fitted, size, x, area, color, Some(area))
 }
 
-/// A button: outlined, or filled where `filled` (chosen) or `focused`.
+/// A button: the one every screen draws, highlighted where `chosen` or `focused`.
 fn button(
     ops: &mut Vec<Paint>,
     font: &Font<'_>,
@@ -656,24 +657,7 @@ fn button(
     focused: bool,
     chosen: bool,
 ) -> Result<(), Error> {
-    let line = u32::from(style.line).max(1);
-    let (fill, ink) = if focused || chosen {
-        (true, style.paper)
-    } else {
-        (false, style.ink)
-    };
-    if fill {
-        paint::push(ops, Paint::Focus(rect, style.corner, None, style.ink))?;
-    } else {
-        paint::push(ops, Paint::Focus(rect, style.corner, Some(line), style.ink))?;
-    }
-    let inside = Rect::new(
-        rect.x.saturating_add(style.margin / 2),
-        rect.y,
-        rect.width.saturating_sub(style.margin),
-        rect.height,
-    );
-    centered(ops, font, name, style.text, inside, ink)
+    paperpaw_ui_kit::parts::button(ops, font, style, rect, name, focused || chosen)
 }
 
 /// The host's font as the layout measures it.

@@ -178,6 +178,27 @@ pub fn frame(
     Ok(crate::list::ink(style, true))
 }
 
+/// The focus of a part that has content of its own (a card with a switch in
+/// it, a widget's preview, a key over a heat map): always a frame, never a bar
+/// the content would have to be redrawn on. In the theme's outline colour (the
+/// text's ink where it set none), `(line * 2).max(3)` thick, with the style's
+/// corners.
+///
+/// # Errors
+/// [`paperpaw_sdk::native::Error::NoMemory`] when the paint list cannot grow.
+pub fn ring(
+    paint: &mut alloc::vec::Vec<crate::Paint>,
+    style: &crate::Style,
+    rect: paperpaw_sdk::Rect,
+) -> Result<(), paperpaw_sdk::native::Error> {
+    let thickness = (u32::from(style.line) * 2).max(3);
+    let color = style.roles.outline.unwrap_or(style.ink);
+    crate::paint::push(
+        paint,
+        crate::Paint::Focus(rect, style.corner, Some(thickness), color),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -309,7 +309,6 @@ impl StudyScreen {
         host: &Host<'_>,
         buttons: &[Rect],
     ) -> Result<(), Error> {
-        let thickness = u32::from(style.line).max(1);
         for (i, rect) in buttons.iter().enumerate() {
             let key = if self.study.revealed {
                 ANSWER_KEYS[i]
@@ -320,23 +319,7 @@ impl StudyScreen {
             // The focus is the only button of *Show answer*, or the answer
             // the buttons are on.
             let focused = !self.study.revealed || i == self.study.focus;
-            let (fill, ink) = if focused {
-                (Some(style.ink), style.paper)
-            } else {
-                (None, style.ink)
-            };
-            match fill {
-                Some(color) => push(paint, Paint::Focus(*rect, style.corner, None, color))?,
-                None => push(
-                    paint,
-                    Paint::Focus(*rect, style.corner, Some(thickness), ink),
-                )?,
-            }
-            let room = f32::from(rect.width.saturating_sub(style.margin)).max(1.0);
-            let fitted = text::fit(font, style.text, &label, room)?;
-            let wide = font.measure_text(style.text, &fitted)?;
-            let x = f32::from(rect.x) + (f32::from(rect.width) - wide).max(0.0) / 2.0;
-            text::label(paint, font, &fitted, style.text, x, *rect, ink, Some(*rect))?;
+            paperpaw_ui_kit::parts::button(paint, font, style, *rect, &label, focused)?;
         }
         Ok(())
     }

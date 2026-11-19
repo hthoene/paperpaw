@@ -666,18 +666,9 @@ fn under(area: Rect, y: u16) -> Rect {
     Rect::new(area.x, y, area.width, bottom - y)
 }
 
-/// The bar: an outline, and the share done inside it.
+/// The bar: the one every screen draws, filled as far as the share done.
 fn bar(body: &mut Vec<Paint>, style: &Style, bar: Rect, permille: u16) -> Result<(), Error> {
-    let edge = style.line.max(1);
-    let inner = bar.inset(edge, edge);
-    let done = u32::from(inner.width) * u32::from(permille.min(1000)) / 1000;
-    let done = u16::try_from(done).unwrap_or(inner.width);
-    paint::push(body, Paint::Fill(bar, style.ink))?;
-    paint::push(body, Paint::Fill(inner, style.paper))?;
-    paint::push(
-        body,
-        Paint::Fill(Rect::new(inner.x, inner.y, done, inner.height), style.ink),
-    )
+    paperpaw_ui_kit::parts::progress_bar(body, style, bar, permille, style.ink)
 }
 
 /// The host's catalog said through stack buffers: nothing is held between
@@ -867,9 +858,7 @@ impl View {
         // those that fit under the bar's line and the rows.
         let hint_area = under(layout.hint, used);
         if hint_area.height >= geometry::line_px(&font, style.small)? {
-            let rule = Rect::new(0, hint_area.y, width, style.line.max(1));
-            paint::push(&mut body, Paint::Fill(rule, style.separator_ink))?;
-            text::message(&mut body, &font, &style, hint_area, hint)?;
+            paperpaw_ui_kit::items::note_in(&mut body, &font, &style, hint_area, hint)?;
         }
         paint::replay(frame, &font, page.paint.iter().chain(body.iter()))?;
         font.release()?;
