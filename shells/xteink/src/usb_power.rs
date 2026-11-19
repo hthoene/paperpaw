@@ -56,14 +56,14 @@ impl Sense for Input<'static> {
 
 #[cfg(any(feature = "esp32s3", feature = "x3"))]
 pub use outer::UsbPower;
-#[cfg(feature = "x3")]
+#[cfg(any(feature = "x3", feature = "picco"))]
 pub use outer::gauge_says;
 
 /// The boards that have to work it out from several inputs.
 #[cfg(any(feature = "esp32s3", feature = "x3"))]
 mod outer {
     use core::cell::Cell;
-    #[cfg(feature = "x3")]
+    #[cfg(any(feature = "x3", feature = "picco"))]
     use core::sync::atomic::{AtomicBool, Ordering};
 
     use esp_hal::delay::Delay;
@@ -73,13 +73,14 @@ mod outer {
     use super::{Readings, Sense};
 
     /// The X3's fuel gauge said the battery charges, at its last reading
-    /// (the main loop reads it with the battery).
-    #[cfg(feature = "x3")]
+    /// (the main loop reads it with the battery); on the Picco its charger
+    /// says so.
+    #[cfg(any(feature = "x3", feature = "picco"))]
     static GAUGE_CHARGING: AtomicBool = AtomicBool::new(false);
 
     /// What the X3's gauge said of charging; `None` where it did not answer
     /// (kept as it was).
-    #[cfg(feature = "x3")]
+    #[cfg(any(feature = "x3", feature = "picco"))]
     pub fn gauge_says(charging: Option<bool>) {
         if let Some(charging) = charging {
             GAUGE_CHARGING.store(charging, Ordering::Relaxed);
@@ -105,7 +106,7 @@ mod outer {
 
     impl UsbPower {
         /// With the charging pin, at `while_charging` while it charges.
-        #[cfg(feature = "esp32s3")]
+        #[cfg(all(feature = "esp32s3", not(feature = "picco")))]
         pub fn new(pin: Input<'static>, while_charging: Level) -> Self {
             Self {
                 pin: Some((pin, while_charging)),
@@ -113,8 +114,9 @@ mod outer {
             }
         }
 
-        /// The X3's: charging as its fuel gauge says it.
-        #[cfg(feature = "x3")]
+        /// The X3's: charging as its fuel gauge says it (the Picco's: as
+        /// its charger does).
+        #[cfg(any(feature = "x3", feature = "picco"))]
         pub fn from_gauge() -> Self {
             Self {
                 pin: None,
@@ -148,9 +150,9 @@ mod outer {
                 Some(charging) => charging,
                 // The X3 has no pin: its gauge, and a full cell on a
                 // cable has no current to show, so a computer too.
-                #[cfg(feature = "x3")]
+                #[cfg(any(feature = "x3", feature = "picco"))]
                 None => GAUGE_CHARGING.load(Ordering::Relaxed) || self.looked().talking(),
-                #[cfg(not(feature = "x3"))]
+                #[cfg(not(any(feature = "x3", feature = "picco")))]
                 None => false,
             }
         }

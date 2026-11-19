@@ -36,7 +36,7 @@ name: Release
 # Only tags of PaperPaw's versions: a plugin's update between releases is
 # published by store-plugin.yml.
 #
-# The plugins' files do not go into the release (#89): a release of 81
+# The plugins' files do not go into the release (#89): a release of 83
 # files is a page one can read. Every plugin file, the folders' ZIPs
 # included, goes to the store release of the year (`plugins-<year>`, a
 # pre-release that is added to and never replaced, `store_release.py`),
@@ -542,9 +542,70 @@ jobs:
         if: always() && matrix.device != 'x4' && matrix.device != 'x3'
         run: rm -rf "$(rustc +esp --print sysroot)/lib/rustlib/xtensa-esp32s3-none-elf"
 
+  # The Boox Picco (experimental, #368): the app image alone, for the stock
+  # firmware's app partition (flashed over USB at 0xE0000; its boot loader,
+  # partition table and recovery stay Onyx's). No image of the whole flash,
+  # no update files (one app partition: nothing to update into) and no
+  # plugins of its own (it runs the X4 Pro's). Not signed: nothing on the
+  # device checks it.
+  firmware-picco:
+    name: Firmware (picco)
+    needs: [xtensa-std]
+    runs-on: ubuntu-latest
+    env:
+      DEVICE: picco
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: The tag is the workspace's version
+        run: |
+          version="$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"/\1/p' Cargo.toml)"
+          if [[ "v$version" != "$RELEASE_TAG" ]]; then
+            echo "::error::tag $RELEASE_TAG, but Cargo.toml says $version"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - uses: ./.github/actions/xteink-tools
+        with:
+          device: picco
+          espflash: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: xtensa-std
+          path: ${{ runner.temp }}/xtensa-std
+      - uses: ./.github/actions/xtensa-std
+        with:
+          archive: ${{ runner.temp }}/xtensa-std/paperpaw-xtensa-std-${{ env.VERSION }}.tar.gz
+      - name: Build the firmware
+        working-directory: shells/xteink
+        # As the other devices' (job firmware): without remote control, the
+        # runner's paths remapped.
+        run: |
+          remap="$("$GITHUB_WORKSPACE/tools/ci/firmware-remap.sh" "$FIRMWARE_TARGET" "$FIRMWARE_TOOLCHAIN")"
+          cargo +"$FIRMWARE_TOOLCHAIN" build $FIRMWARE_CARGO --config "$remap" --features "$DEVICE,release"
+      - name: The install image
+        uses: ./.github/actions/install-image
+        with:
+          out: ${{ github.workspace }}/dist/paperpaw-picco-${{ env.VERSION }}-install.bin
+      - name: The image is not a test image
+        run: python3 -I tools/check-owner-image.py --release "dist/paperpaw-picco-$VERSION-install.bin"
+      - name: The install image has one data segment
+        run: cargo run -q --release -p paperpaw-sign -- check-app "dist/paperpaw-picco-$VERSION-install.bin"
+      - name: Its checksum
+        working-directory: dist
+        run: sha256sum "paperpaw-picco-$VERSION-install.bin" > "paperpaw-picco-$VERSION-install.bin.sha256"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: firmware-picco
+          path: dist/paperpaw-picco-*
+      - name: The core libraries out of the cached toolchain
+        if: always()
+        run: rm -rf "$(rustc +esp --print sysroot)/lib/rustlib/xtensa-esp32s3-none-elf"
+
   release:
     name: Release
-    needs: [guard, android, xtensa-std, firmware, web, emulator, handbook]
+    needs: [guard, android, xtensa-std, firmware, firmware-picco, web, emulator, handbook]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -645,7 +706,7 @@ jobs:
           else
             exit 1
           fi
-      # Before anything is uploaded: the release holds exactly its 81 files
+      # Before anything is uploaded: the release holds exactly its 83 files
       # and no plugin file, and every address in the catalogue has an asset,
       # in the store release's plan or in a release that has it already.
       - name: The lists are right

@@ -1,0 +1,14 @@
+# The Boox Picco's 16 MB of flash as its stock firmware lays it out (read
+# from a retail unit by CrossPoint Reader, `partitions_picco.csv`, MIT).
+# PaperPaw never writes this table to a Picco: it is here to make the app
+# image and to say where it goes (`app`, at 0xE0000). The stock boot loader,
+# NVS and `safeboot` recovery stay as they are. One app partition for
+# PaperPaw, so no update from the device (`paperpaw_x4::partitions`): a
+# newer PaperPaw is flashed over USB.
+# Name,   Type, SubType,  Offset,   Size
+nvs,      data, nvs,      0x9000,   0xC000
+otadata,  data, ota,      0x15000,  0x2000
+safeboot, app,  factory,  0x20000,  0xC0000
+app,      app,  ota_0,    0xE0000,  0xE70000
+spiffs,   data, spiffs,   0xF50000, 0x80000
+coredump, data, coredump, 0xFD0000, 0x10000

@@ -92,7 +92,9 @@ impl FlashKey {
             .flatten()
             .map(|p| (p.offset(), p.len()));
         let at = dk::locate(
-            dk::place(cfg!(feature = "x4-classic")),
+            // Outside the partitions on the Picco too: its `nvs` is the
+            // stock firmware's, never written.
+            dk::place(cfg!(any(feature = "x4-classic", feature = "picco"))),
             nvs,
             pt.iter().map(|p| (p.offset(), p.len())),
         )

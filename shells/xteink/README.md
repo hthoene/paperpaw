@@ -11,7 +11,8 @@ hardware parts are in [`paperpaw-x4`](../../crates/paperpaw-x4) and
 It is for the X4 and, built with the feature `x4-pro`, for the X4 Pro
 (ESP32-S3); the display controller (SSD1677, UC8179 or UC8279) is
 found at start. A build for the X4 Classic comes with each release too,
-experimental ([below](#the-x4-classic)).
+experimental ([below](#the-x4-classic)), and one for the Boox Picco, not
+yet tried on a device ([below](#the-boox-picco)).
 
 ## Build
 
@@ -226,6 +227,74 @@ panel's controller, stays whole from 0x9000 to 0xE000, and the OTA data
 follows it where the stock firmware has it. An image merged for the
 whole flash covers that NVS with erased bytes too, so a flasher writes
 its parts apart (or backs the flash up first).
+
+## The Boox Picco
+
+Experimental, and **not yet tried on a device**: PaperPaw's team has no
+Picco. It is built (`cargo +esp picco`) and its image is part of a
+release, `paperpaw-picco-<version>-install.bin`. It may show nothing,
+and it may not start at all.
+
+> **Save the stock firmware first.** Onyx publishes no image of it; the
+> only way back is a copy of the Picco's own flash, read before the first
+> install (below). Onyx has reportedly refused warranty for Piccos with
+> another firmware.
+
+The Picco is an ESP32-S3 with 16 MB of flash and 8 MB of PSRAM, as the X4
+Pro, and is built as one (the feature `picco` is `x4-pro` with the board
+`board_picco.rs`): a 3.97" panel of 800 × 480, touch, a warm and cool
+front light, two side buttons and power, no home key. Its pins and parts
+come from the FreeInk SDK and CrossPoint Reader (both MIT), who read them
+from the stock firmware.
+
+```sh
+cargo +esp picco          # build
+cargo +esp picco-clippy   # lints
+```
+
+PaperPaw goes into the stock firmware's app partition alone, at
+`0xE0000`. Onyx's boot loader, partition table, settings and recovery
+stay as they are; **never write a whole-flash image of another device
+to a Picco, and never flash it with `cargo run`**. With a cable (the
+Picco enters its download mode by itself; if it does not connect, try
+again with it awake):
+
+```sh
+# Once, before anything else: the whole flash into a file. Keep it.
+espflash read-flash --chip esp32s3 0x0 0x1000000 picco-stock-firmware.bin
+# Secure boot and flash encryption must be off (they are on retail units):
+espefuse.py --chip esp32s3 summary | grep -E "SECURE_BOOT_EN|SPI_BOOT_CRYPT_CNT"
+# PaperPaw:
+espflash write-bin --chip esp32s3 0xE0000 paperpaw-picco-<version>-install.bin
+# Back to the stock firmware:
+espflash write-bin --chip esp32s3 0x0 picco-stock-firmware.bin
+```
+
+A build of your own is made into that file with `espflash save-image
+--chip esp32s3 --flash-size 16mb --partition-table partitions-picco.csv
+--target-app-partition app <the ELF file> paperpaw-picco-install.bin`.
+
+What differs from the X4 Pro, and what is not known without a device:
+
+- its panel is one of four by unit. Three have an SSD1677, driven as
+  the X4's with the panel's own waveforms (the stock firmware loads
+  waveforms of its own for each; whether the panels' own look right is
+  not known); the fourth (SE0400NQW47, "SSD2677") has a driver of its
+  own with the stock firmware's black-and-white waveforms and shows no
+  grays. Which way the screen lies turned on its side is taken as the
+  X4 Pro's;
+- one app partition: PaperPaw cannot update itself on a Picco (*Update*
+  says there is no room); a newer version is flashed as above. The
+  store's plugins are the X4 Pro's;
+- the charger is only read: PaperPaw does not raise its charge voltage
+  as the stock firmware does (4.35 V), so the cell charges to the
+  charger's own setting and may show less than 100 % when full;
+- it sleeps as the stock firmware does (its power held, its parts' power
+  off) and wakes by the power button. Safe mode is the upper side button
+  held at power-on;
+- the slide switch and the motion sensor are not used. Wi-Fi and
+  Bluetooth are the X4 Pro's code; CrossPoint has open reports of Wi-Fi
+  not joining on the Picco.
 
 ## The X3
 

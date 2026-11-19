@@ -220,6 +220,36 @@ const X4_PRO_BODY: Body = Body {
     ],
 };
 
+/// The Boox Picco (experimental): two page keys on its right edge and the
+/// power key on top; no home key (where its keys sit is taken from
+/// pictures, not from a device).
+const PICCO_BODY: Body = Body {
+    bezel: [7, 7, 9, 7],
+    keys: &[
+        Key {
+            button: buttons::PAGE_BACK,
+            place: Place::Right,
+            at: 36,
+            length: 13,
+            keys: &["PageUp", "ArrowLeft", "ArrowUp"],
+        },
+        Key {
+            button: buttons::PAGE_FORWARD,
+            place: Place::Right,
+            at: 52,
+            length: 13,
+            keys: &["PageDown", "ArrowRight", "ArrowDown", " "],
+        },
+        Key {
+            button: buttons::POWER,
+            place: Place::Top,
+            at: 78,
+            length: 14,
+            keys: &["p"],
+        },
+    ],
+};
+
 /// The Boox Go 7: its page keys on the wide bezel beside the screen;
 /// back is Android's (a gesture) and so is its power key, not drawn.
 const BOOX_GO_7_BODY: Body = Body {
@@ -439,6 +469,45 @@ pub const PROFILES: &[Profile] = &[
         }),
         body: X4_PRO_BODY,
         summary: "ESP32-S3 with 8 MB PSRAM, 4.3\" 800x480, touch + buttons, 10 MiB heap budget",
+    },
+    // The Boox Picco (experimental, #368): the firmware builds it as an X4
+    // Pro with another board (`shells/xteink`, feature `picco`), so it is
+    // the X4 Pro's profile but for its name, its 3.97" screen's density and
+    // its keys (no home key).
+    Profile {
+        device: DeviceInfo::new(
+            "boox-picco",
+            "Boox Picco",
+            DisplayInfo::new(480, 800, 235, PixelFormat::Mono1, Rotation::Deg90, None),
+            InputCaps::new(true, true, false, &[]),
+            MemoryClass::Large,
+        ),
+        buttons: &[buttons::PAGE_BACK, buttons::PAGE_FORWARD, buttons::POWER],
+        heap_budget: Some(S3_HEAP),
+        glyph_cache: X4_GLYPH_CACHE,
+        busy_mark: true,
+        colors: false,
+        font_packs: true,
+        frame_rows: Some(192),
+        row_align: 8,
+        settings: &X4_PRO_SETTINGS,
+        speech: false,
+        ink_unwired: true,
+        wifi: true,
+        bluetooth: 2,
+        // It runs the X4 Pro's code plugins: the same chip and compiler.
+        catalog_device: Some("x4-pro"),
+        sleep: true,
+        power_off: true,
+        button_row: &[],
+        light: Some(Light {
+            max: 100,
+            step: 1,
+            percent: true,
+            warmth: Some(5),
+        }),
+        body: PICCO_BODY,
+        summary: "ESP32-S3 with 8 MB PSRAM, 3.97\" 800x480, touch + two page buttons, 10 MiB heap budget (experimental)",
     },
     Profile {
         device: DeviceInfo::new(
