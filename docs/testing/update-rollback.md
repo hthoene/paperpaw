@@ -18,7 +18,7 @@ The device rows (flash, update, rollback on hardware) are the plan in
 
 | Way | From Beta 1/2/3 | Where it is decided / tested |
 | --- | --- | --- |
-| In-app update ("Search online") | Not offered: the update server gives an interface-7 release only to a device that sends `abi_major` >= 7; Beta 1 to 3 send none (`git grep abi_major v0.6.0-beta.3` finds nothing). Decision 179: the way is flashing. | `paperpaw.org/src/updates.rs:1029` (`of_interface_7 && abi_major.is_none_or(<7)`), its tests; Beta 3 side: the origin's own installer on a device (open) |
+| In-app update ("Search online") | Offered (Decision 272, which replaces 179): the update server gives a device that sends no `abi_major` (Beta 3 and older) the interface-7 release's plain `-update.bin`, with no `waiting`, `missing` or `code` (they would hold the update for plugins that cannot come back). Beta 3's own installer takes it (CI `update-path`). | `paperpaw.org/src/updates.rs` (`a_device_of_beta_3_is_offered_beta_4_as_it_reads_it`, `a_device_of_beta_3_is_not_held_for_plugins_of_the_old_interface`); device: U2 |
 | Packed update `-update-packed.bin` (#304) | Offered to `abi_major` >= 7 only; the plain `-update.bin` to every other device | `UpdateFile::offered_to`, same file |
 | Flash (web flasher, `tools/flash-x4.py`) | The supported way; writes the table with 7.9 MB app slots | device (U1) |
 | Signed `-update.bin` from the card | The current installer takes it on the model (trial, kept, old slot kept, books kept); Beta 3's own installer takes it on the host (below); the device run is U2 | `update_path.rs`: `a_signed_card_update_installs_and_is_kept_without_network` |
