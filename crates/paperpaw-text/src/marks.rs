@@ -1,6 +1,6 @@
 //! Mark anchors read from OpenType fonts: the GPOS `mark` (mark to base)
-//! and `mkmk` (mark to mark) lookups of Arabic and Hebrew, and of Bengali,
-//! Devanagari, Khmer, Lao and Tibetan with their `abvm` and `blwm`, as
+//! and `mkmk` (mark to mark) lookups of Arabic and Hebrew, and of the
+//! Indic scripts (`crate::indic`) with their `abvm` and `blwm`, as
 //! packs keep them (see
 //! [`crate::anchors`]); for an Indic font also of its glyphs without code
 //! point (`crate::indic::GLYPHS`). Other scripts get none: their marks
@@ -516,12 +516,20 @@ fn number(first: u8, class: u16) -> Option<u8> {
 }
 
 /// The Indic scripts' tags: the second version first.
-const INDIC: [[&[u8; 4]; 2]; 5] = [
+const INDIC: [[&[u8; 4]; 2]; 13] = [
     [b"bng2", b"beng"],
     [b"dev2", b"deva"],
     [b"khmr", b"khmr"],
     [b"lao ", b"lao "],
     [b"tibt", b"tibt"],
+    [b"gjr2", b"gujr"],
+    [b"ory2", b"orya"],
+    [b"gur2", b"guru"],
+    [b"tml2", b"taml"],
+    [b"mlm2", b"mlym"],
+    [b"sinh", b"sinh"],
+    [b"tel2", b"telu"],
+    [b"knd2", b"knda"],
 ];
 
 /// The scripts marks are read for.

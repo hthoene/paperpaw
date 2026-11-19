@@ -12,7 +12,9 @@ Khmer, Lao and Tibetan (shaped as Bengali, Khmer's and Lao's packs with
 their words), one pack for each built-in face they extend,
 the interface's font too. The Latin letters Azerbaijani, Hausa and Yoruba add
 (latin-extended) come from Literata and Source Sans 3, with what those lack
-from Noto Serif and Noto Sans; Georgian (with its Mtavruli capitals, which
+from Noto Serif and Noto Sans; Gujarati, Gurmukhi, Odia, Tamil, Telugu,
+Kannada, Malayalam and Sinhala from their Noto Serif faces (shaped as
+Bengali); Georgian (with its Mtavruli capitals, which
 upper case gives) and Armenian from Noto Serif Georgian and Armenian.
 Chinese (the 6,763 ideographs of GB 2312, or the 5,401 frequently used ones
 of Big5 for Traditional) and Japanese (kana and 2,998 kanji: the Joyo and JIS X
@@ -207,6 +209,25 @@ SETS = {
             "Noto Serif Lao", ["U+0E80-0EFF"]),
     "tibetan": ("Tibetan", shared("tibetan", OTHER_FONTS / "NotoSerifTibetan.ttf"),
                 OTHER_FONTS / "NotoSerifTibetan-OFL.txt", "Noto Serif Tibetan", ["U+0F00-0FFF"]),
+    # Gujarati, Gurmukhi, Oriya (Odia), Tamil, Telugu, Kannada, Malayalam, Sinhala (#385):
+    # shaped as Bengali (paperpaw_text's indic module), with the dandas they share (and
+    # Sinhala's joiners, which its fonts draw its touching letters by).
+    "gujarati": ("Gujarati", shared("gujarati", OTHER_FONTS / "NotoSerifGujarati.ttf"),
+                 OTHER_FONTS / "NotoSerifGujarati-OFL.txt", "Noto Serif Gujarati", ["U+0A80-0AFF"]),
+    "gurmukhi": ("Gurmukhi", shared("gurmukhi", OTHER_FONTS / "NotoSerifGurmukhi.ttf"),
+                 OTHER_FONTS / "NotoSerifGurmukhi-OFL.txt", "Noto Serif Gurmukhi", ["U+0A00-0A7F", "U+0964-0965"]),
+    "oriya": ("Odia", shared("oriya", OTHER_FONTS / "NotoSerifOriya.ttf"),
+              OTHER_FONTS / "NotoSerifOriya-OFL.txt", "Noto Serif Oriya", ["U+0B00-0B7F", "U+0964-0965"]),
+    "tamil": ("Tamil", shared("tamil", OTHER_FONTS / "NotoSerifTamil.ttf"),
+              OTHER_FONTS / "NotoSerifTamil-OFL.txt", "Noto Serif Tamil", ["U+0B80-0BFF"]),
+    "telugu": ("Telugu", shared("telugu", OTHER_FONTS / "NotoSerifTelugu.ttf"),
+               OTHER_FONTS / "NotoSerifTelugu-OFL.txt", "Noto Serif Telugu", ["U+0C00-0C7F"]),
+    "kannada": ("Kannada", shared("kannada", OTHER_FONTS / "NotoSerifKannada.ttf"),
+                OTHER_FONTS / "NotoSerifKannada-OFL.txt", "Noto Serif Kannada", ["U+0C80-0CFF"]),
+    "malayalam": ("Malayalam", shared("malayalam", OTHER_FONTS / "NotoSerifMalayalam.ttf"),
+                  OTHER_FONTS / "NotoSerifMalayalam-OFL.txt", "Noto Serif Malayalam", ["U+0D00-0D7F"]),
+    "sinhala": ("Sinhala", shared("sinhala", OTHER_FONTS / "NotoSerifSinhala.ttf"),
+                OTHER_FONTS / "NotoSerifSinhala-OFL.txt", "Noto Serif Sinhala", ["U+0D80-0DFF", "U+200C-200D"]),
     "korean-extra": ("Korean", KOREAN_EXTRA, OTHER_FONTS / "NanumMyeongjo-OFL.txt",
                      "a Korean book face", [f"@{ROOT / 'tools/fontgen/sets/hangul-rest.txt'}"]),
 }

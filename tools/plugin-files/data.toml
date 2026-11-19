@@ -282,6 +282,124 @@ description = "Armenian books in Noto Serif Armenian."
 de.name = "Armenische Schrift"
 de.description = "Bücher auf Armenisch in Noto Serif Armenian."
 
+# script-gujarati … script-sinhala (#385): the blocks of Gujarati, Gurmukhi (Punjabi), Odia,
+# Tamil, Telugu, Kannada, Malayalam and Sinhala from their Noto Serif faces, shaped as
+# script-bengali's (crates/paperpaw-text/src/indic/brahmic.rs): conjuncts, reph, forms below,
+# after and before the base, vowel signs drawn left and split ones; a pack for each weight,
+# shared by the faces it stands for (formats 5).
+
+[script-gujarati]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifGujarati.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "crates/paperpaw-text/src/indic/brahmic.rs"]
+name = "Gujarati letters"
+description = "Gujarati books in Noto Serif Gujarati, its conjuncts joined and vowel signs in their places."
+de.name = "Gujaratische Schrift"
+de.description = "Bücher auf Gujarati in Noto Serif Gujarati, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
+
+[script-gurmukhi]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifGurmukhi.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "crates/paperpaw-text/src/indic/brahmic.rs"]
+name = "Gurmukhi letters"
+description = "Punjabi books in Noto Serif Gurmukhi, its conjuncts joined and vowel signs in their places."
+de.name = "Gurmukhi-Schrift"
+de.description = "Bücher auf Panjabi in Noto Serif Gurmukhi, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
+
+[script-oriya]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifOriya.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "crates/paperpaw-text/src/indic/brahmic.rs"]
+name = "Odia letters"
+description = "Odia books in Noto Serif Oriya, its conjuncts joined and vowel signs in their places."
+de.name = "Oriya-Schrift"
+de.description = "Bücher auf Oriya in Noto Serif Oriya, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
+
+[script-tamil]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifTamil.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "crates/paperpaw-text/src/indic/brahmic.rs"]
+name = "Tamil letters"
+description = "Tamil books in Noto Serif Tamil, its conjuncts joined and vowel signs in their places."
+de.name = "Tamilische Schrift"
+de.description = "Bücher auf Tamil in Noto Serif Tamil, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
+
+[script-telugu]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifTelugu.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "crates/paperpaw-text/src/indic/brahmic.rs"]
+name = "Telugu letters"
+description = "Telugu books in Noto Serif Telugu, its conjuncts joined and vowel signs in their places."
+de.name = "Telugu-Schrift"
+de.description = "Bücher auf Telugu in Noto Serif Telugu, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
+
+[script-kannada]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifKannada.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "crates/paperpaw-text/src/indic/brahmic.rs"]
+name = "Kannada letters"
+description = "Kannada books in Noto Serif Kannada, its conjuncts joined and vowel signs in their places."
+de.name = "Kannada-Schrift"
+de.description = "Bücher auf Kannada in Noto Serif Kannada, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
+
+[script-malayalam]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifMalayalam.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "crates/paperpaw-text/src/indic/brahmic.rs"]
+name = "Malayalam letters"
+description = "Malayalam books in Noto Serif Malayalam, its conjuncts joined and vowel signs in their places."
+de.name = "Malayalam-Schrift"
+de.description = "Bücher auf Malayalam in Noto Serif Malayalam, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
+
+[script-sinhala]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifSinhala.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "crates/paperpaw-text/src/indic/brahmic.rs"]
+name = "Sinhala letters"
+description = "Sinhala books in Noto Serif Sinhala, its conjuncts joined and vowel signs in their places."
+de.name = "Singhalesische Schrift"
+de.description = "Bücher auf Singhalesisch in Noto Serif Sinhala, mit verbundenen Ligaturen und Vokalzeichen an ihrem Platz."
+
 [script-chinese-simplified]
 version = "1.0.0"
 group = "languages"
@@ -1602,3 +1720,139 @@ de.name = "Armenisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Armenisch. Braucht die Armenische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
 how = "PaperPaw's menus and settings in Armenian.\n\nIt needs the Armenian letters pack (Armenian letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
 de.how = "PaperPaws Menüs und Einstellungen auf Armenisch.\n\nSie braucht die Armenische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-gu]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-gujarati"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/gu.ini", "tools/language-pack.py", "tools/sign"]
+name = "Gujarati (user interface)"
+description = "PaperPaw's menus and settings in Gujarati. Needs Gujarati letters. A machine translation, a draft."
+de.name = "Gujarati (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Gujarati. Braucht die Gujaratische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Gujarati.\n\nIt needs the Gujarati letters pack (Gujarati letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Gujarati.\n\nSie braucht die Gujaratische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-pa]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-gurmukhi"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/pa.ini", "tools/language-pack.py", "tools/sign"]
+name = "Punjabi (user interface)"
+description = "PaperPaw's menus and settings in Punjabi. Needs Gurmukhi letters. A machine translation, a draft."
+de.name = "Panjabi (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Panjabi. Braucht die Gurmukhi-Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Punjabi.\n\nIt needs the Gurmukhi letters pack (Gurmukhi letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Panjabi.\n\nSie braucht die Gurmukhi-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-or]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-oriya"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/or.ini", "tools/language-pack.py", "tools/sign"]
+name = "Odia (user interface)"
+description = "PaperPaw's menus and settings in Odia. Needs Odia letters. A machine translation, a draft."
+de.name = "Oriya (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Oriya. Braucht die Oriya-Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Odia.\n\nIt needs the Odia letters pack (Odia letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Oriya.\n\nSie braucht die Oriya-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-ta]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-tamil"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/ta.ini", "tools/language-pack.py", "tools/sign"]
+name = "Tamil (user interface)"
+description = "PaperPaw's menus and settings in Tamil. Needs Tamil letters. A machine translation, a draft."
+de.name = "Tamil (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Tamil. Braucht die Tamilische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Tamil.\n\nIt needs the Tamil letters pack (Tamil letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Tamil.\n\nSie braucht die Tamilische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-te]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-telugu"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/te.ini", "tools/language-pack.py", "tools/sign"]
+name = "Telugu (user interface)"
+description = "PaperPaw's menus and settings in Telugu. Needs Telugu letters. A machine translation, a draft."
+de.name = "Telugu (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Telugu. Braucht die Telugu-Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Telugu.\n\nIt needs the Telugu letters pack (Telugu letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Telugu.\n\nSie braucht die Telugu-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-kn]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-kannada"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/kn.ini", "tools/language-pack.py", "tools/sign"]
+name = "Kannada (user interface)"
+description = "PaperPaw's menus and settings in Kannada. Needs Kannada letters. A machine translation, a draft."
+de.name = "Kannada (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Kannada. Braucht die Kannada-Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Kannada.\n\nIt needs the Kannada letters pack (Kannada letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Kannada.\n\nSie braucht die Kannada-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-ml]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-malayalam"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/ml.ini", "tools/language-pack.py", "tools/sign"]
+name = "Malayalam (user interface)"
+description = "PaperPaw's menus and settings in Malayalam. Needs Malayalam letters. A machine translation, a draft."
+de.name = "Malayalam (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Malayalam. Braucht die Malayalam-Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Malayalam.\n\nIt needs the Malayalam letters pack (Malayalam letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Malayalam.\n\nSie braucht die Malayalam-Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-si]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-sinhala"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/si.ini", "tools/language-pack.py", "tools/sign"]
+name = "Sinhala (user interface)"
+description = "PaperPaw's menus and settings in Sinhala. Needs Sinhala letters. A machine translation, a draft."
+de.name = "Singhalesisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Singhalesisch. Braucht die Singhalesische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Sinhala.\n\nIt needs the Sinhala letters pack (Sinhala letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Singhalesisch.\n\nSie braucht die Singhalesische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
