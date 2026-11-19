@@ -6,6 +6,9 @@ use paperpaw_native::host_glue::{ERR_DENIED, ERR_FULL, ERR_NOT_FOUND};
 use paperpaw_platform::RefreshMode;
 use paperpaw_sdk::{IdError, Params, ScreenKey};
 
+/// The least `command.show_again.after_ms` (ms).
+const SHOW_AGAIN_MIN_MS: u32 = 60_000;
+
 pub(super) struct UiContext<'a> {
     env: &'a Place<'a>,
     screen: Option<ScreenKey>,
@@ -271,6 +274,39 @@ impl<'a> CommandStage<'a> {
             .ok_or(ERR_STATE)
     }
 
+    /// `command.show_again` (ui.md 1.4): a request needs a device that can
+    /// refresh asleep (`ERR_UNSUPPORTED`) and the device asleep (`ERR_STATE`),
+    /// for the submitter's own screen (instance 0 or its own, else
+    /// `ERR_STATE`); a cancel (`after_ms` 0) is accepted whenever the plugin
+    /// has a screen. `ERR_INVALID` for a flag (none are defined), a time
+    /// under [`SHOW_AGAIN_MIN_MS`] (`after_ms`, and `every_ms` unless 0) and a
+    /// cancel that names a repeat.
+    fn validate_show_again(
+        &self,
+        instance: u32,
+        (after_ms, every_ms): (u32, u32),
+        flags: u32,
+    ) -> Result<usize, i32> {
+        let short = |ms: u32| ms != 0 && ms < SHOW_AGAIN_MIN_MS;
+        if flags != 0 || short(after_ms) || short(every_ms) || (after_ms == 0 && every_ms != 0) {
+            return Err(ERR_INVALID);
+        }
+        let ui = self.ui.as_ref().ok_or(ERR_UNSUPPORTED)?;
+        if after_ms != 0 {
+            if !ui.env.refresh_asleep() {
+                return Err(ERR_UNSUPPORTED);
+            }
+            if !ui.env.asleep() {
+                return Err(ERR_STATE);
+            }
+        }
+        let key = self.own_redrawable()?;
+        if instance != 0 && instance != key.serial() {
+            return Err(ERR_STATE);
+        }
+        Ok(0)
+    }
+
     pub(super) fn validate_ui(&self, command: WireCommand<'_>) -> Result<usize, i32> {
         let ui = self.ui.as_ref().ok_or(ERR_UNSUPPORTED)?;
         match command {
@@ -300,6 +336,12 @@ impl<'a> CommandStage<'a> {
             WireCommand::Redraw { .. } => self.own_redrawable().map(|_| 0),
             WireCommand::CloseScreen => self.own_top().map(|_| 0),
             WireCommand::RedrawArea { mode, .. } => self.validate_redraw_area(mode),
+            WireCommand::ShowAgain {
+                instance,
+                after_ms,
+                every_ms,
+                flags,
+            } => self.validate_show_again(instance, (after_ms, every_ms), flags),
             command if super::nav::is_nav(&command) => self.validate_nav(command),
             WireCommand::SetHint {
                 action,
@@ -488,6 +530,13 @@ impl<'a> CommandStage<'a> {
                 Ok(Ask::RunAction(copy_id(action)?, Params::new()))
             }
             WireCommand::CloseScreen => Ok(Ask::Close(self.own_top()?)),
+            WireCommand::ShowAgain {
+                after_ms, every_ms, ..
+            } => Ok(Ask::ShowAgain {
+                screen: self.own_redrawable()?,
+                after_ms,
+                every_ms,
+            }),
             command if super::nav::is_nav(&command) => self.owned_nav(command),
             WireCommand::Notify { text, flags } => {
                 let mut owned = alloc::string::String::new();
@@ -1134,6 +1183,76 @@ mod tests {
         assert!(stage.take_ui_output().1.is_some());
         assert!(stage.take_ui_output().1.is_none());
     }
+    #[test]
+    fn show_again_needs_the_capability_the_device_asleep_and_the_own_screen() {
+        let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)
+            .build()
+            .unwrap();
+        let key = ScreenKey::new(7);
+        kernel.shared.stack.push(paperpaw_sdk::StackEntry::new(
+            Id::new_static("probe.screen"),
+            None,
+            false,
+            key,
+        ));
+        let owner = Id::new_static("probe");
+        let again = |instance, after_ms, every_ms, flags| WireCommand::ShowAgain {
+            instance,
+            after_ms,
+            every_ms,
+            flags,
+        };
+        let submit = |kernel: &crate::Kernel, owner: &Id, command: WireCommand<'_>| {
+            let env = kernel.shared.place(Instant(0));
+            let mut stage = CommandStage::new(owner, env.settings(), None, 8, 4096).with_ui(
+                &env,
+                Some(key),
+                0,
+                u32::MAX - kernel.next_serial,
+            );
+            let mut bytes = [0; 128];
+            let len = commands_encode(&[command], &mut bytes).unwrap();
+            let status = stage.stage(&commands_decode(&bytes[..len]).unwrap());
+            (status, stage.into_ui_output().0)
+        };
+        // A device that cannot refresh asleep: unsupported (a cancel is not).
+        assert_eq!(
+            submit(&kernel, &owner, again(0, 60_000, 0, 0)).0,
+            ERR_UNSUPPORTED
+        );
+        assert_eq!(submit(&kernel, &owner, again(0, 0, 0, 0)).0, OK);
+        kernel.shared.caps = kernel
+            .shared
+            .caps
+            .with(paperpaw_sdk::Capability::REFRESH_ASLEEP);
+        // Awake: a state error.
+        assert_eq!(submit(&kernel, &owner, again(0, 60_000, 0, 0)).0, ERR_STATE);
+        kernel.shared.asleep = true;
+        let (status, asked) = submit(&kernel, &owner, again(0, 900_000, 900_000, 0));
+        assert_eq!(status, OK);
+        assert!(matches!(
+            asked.as_slice(),
+            [Ask::ShowAgain { screen, after_ms: 900_000, every_ms: 900_000 }] if *screen == key
+        ));
+        // Its own instance by number, nobody else's.
+        assert_eq!(submit(&kernel, &owner, again(7, 60_000, 0, 0)).0, OK);
+        assert_eq!(submit(&kernel, &owner, again(8, 60_000, 0, 0)).0, ERR_STATE);
+        let foreign = Id::new_static("other");
+        assert_eq!(
+            submit(&kernel, &foreign, again(0, 60_000, 0, 0)).0,
+            ERR_STATE
+        );
+        // Under the least, a flag, a repeat of a cancel.
+        for bad in [
+            again(0, 59_999, 0, 0),
+            again(0, 60_000, 59_999, 0),
+            again(0, 60_000, 0, 1),
+            again(0, 0, 60_000, 0),
+        ] {
+            assert_eq!(submit(&kernel, &owner, bad).0, ERR_INVALID);
+        }
+    }
+
     #[test]
     fn an_area_redraw_marks_only_its_areas_weighed_one_by_one() {
         let mut kernel = crate::Kernel::builder(crate::tests::DEVICE)

@@ -1691,3 +1691,8 @@ field command.redraw_area x 1
 field command.redraw_area y 1
 field command.redraw_area width 1
 field command.redraw_area height 1
+record command.show_again 1
+field command.show_again instance 1
+field command.show_again after_ms 1
+field command.show_again every_ms 1
+field command.show_again flags 1

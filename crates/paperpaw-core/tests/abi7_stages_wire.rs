@@ -67,7 +67,7 @@ fn filter_records_round_trip_at_every_field_cap() {
     round_trip!(
         filter,
         FilterVerdict,
-        filter::FilterVerdict::new(5, &action, &input, &raise)
+        filter::FilterVerdict::new(5, &action, &input, &raise, "", &[])
     );
 }
 
@@ -137,7 +137,7 @@ fn every_filter_verdict_blob_cap_is_checked_in_both_directions() {
         (String::new(), vec![0; 129], String::new()),
         (String::new(), vec![], "r".repeat(65)),
     ] {
-        let value = filter::FilterVerdict::new(4, &action, &input, &raise);
+        let value = filter::FilterVerdict::new(4, &action, &input, &raise, "", &[]);
         assert_eq!(value.encode(&mut [0; 3840]), Err(ERR_INVALID));
         let mut body = vec![0];
         body.extend_from_slice(&4_u32.to_le_bytes());

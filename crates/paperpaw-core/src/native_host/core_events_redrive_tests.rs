@@ -237,6 +237,24 @@ fn a_native_plugin_gets_one_tick_a_minute_on_the_production_route() {
     assert_eq!(others, 0, "a tick is no other event");
 }
 
+/// The shell's status (about once a minute) is a wake that delivers the
+/// tick too, where nothing else wakes the kernel (#370: the reading-goal
+/// cat's retry never came in the emulator).
+#[test]
+fn the_status_wake_delivers_the_minute_tick() {
+    let mut w = world(ALL, &[]);
+    let status_at = |w: &mut World, ms: u64| {
+        let status = paperpaw_platform::SystemStatus::new(None, None);
+        w.kernel.set_status(Instant(ms), status);
+        while w.kernel.native_setting_pump() {}
+        ticks(w, 'a')
+    };
+    assert!(status_at(&mut w, 1_000).is_empty());
+    assert!(status_at(&mut w, 60_999).is_empty());
+    assert_eq!(status_at(&mut w, 61_000), [61_000]);
+    assert_eq!(status_at(&mut w, 70_000), [61_000]);
+}
+
 /// Was `a_failing_tick_plugin_does_not_stop_the_healthy_one`.
 #[test]
 fn a_failing_tick_plugin_does_not_stop_the_healthy_one_on_the_production_route() {

@@ -119,7 +119,8 @@ agree (a host test).
   none), `class` the memory class (0 small, 1 medium, 2 large), `caps` bit 0 touch, 1 network, 2
   Wi-Fi managed by PaperPaw, 3 Bluetooth, 4 firmware updates, 5 speech, 6 sleep, 7 rotation, 8
   colours, 9 button row, 10 system clipboard, 11 frontlight, 12 black and white, 13 power off, 14
-  pen (unknown bits ignored, new ones appended); `controls` the power controls (bit 0 radio, 1 CPU
+  pen, 15 the sleep screen can be shown again while asleep (`command.show_again`, `ui.md` 1.4; the X4
+  and X3) (unknown bits ignored, new ones appended); `controls` the power controls (bit 0 radio, 1 CPU
   clock, 2 buttons, 3 frontlight, 4 system saver); `start` 0 unknown, 1 power on, 2 woke, 3 restart,
   4 after a fault; `flags` bit 0 `slept_ms` known. The user's device name is the setting
   `core.device-name` (slot 5).

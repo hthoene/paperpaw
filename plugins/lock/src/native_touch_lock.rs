@@ -91,6 +91,8 @@ fn verdict(reply: &mut Reply<'_>, kind: u32, action: &str) -> Result<(), Error> 
         action,
         &[],
         "",
+        "",
+        &[],
     ))];
     let length = filter::reply_encode(&rows, &mut out).map_err(Error::Other)?;
     reply.write(out.get(..length).ok_or(Error::NoSpace)?)

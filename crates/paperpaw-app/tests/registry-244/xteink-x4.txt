@@ -561,6 +561,7 @@ setting sleep.group | sleep.overlay-position Choice(Fixed(["sleep.position.cente
 setting sleep.group | sleep.overlay-size Int { min: 10, max: 100 } default=Int(35) Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.overlay-size
 setting sleep.group | sleep.overlay-see-through Int { min: 0, max: 90 } default=Int(0) Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.overlay-see-through
 setting sleep.group | sleep.overlay-when Choice(Fixed(["sleep.when.always", "sleep.when.reading", "sleep.when.elsewhere"])) default=Text("sleep.when.always") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.overlay-when
+setting sleep.group | sleep.refresh-every Choice(Fixed(["sleep.refresh.off", "sleep.refresh.15", "sleep.refresh.30", "sleep.refresh.60"])) default=Text("sleep.refresh.off") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.refresh-every
 setting update.group | update.server Text default=Text("https://paperpaw.org") Basic scoped=false guarded=false secret=false kept=false title=update.setting.server
 setting update.group | update.look Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=update.setting.look
 setting update.group | update.betas Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=update.setting.betas
@@ -1757,6 +1758,7 @@ native Spec sleep | SettingSpec(SettingSpec { name: "overlay-position", kind: 2,
 native Spec sleep | SettingSpec(SettingSpec { name: "overlay-size", kind: 1, flags: 0, group: "sleep.group", title: "sleep.setting.overlay-size", help: "sleep.setting.overlay-size.help", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 35, 0, 0, 0, 0, 0, 0, 0], min: 10, max: 100, choices: "" })
 native Spec sleep | SettingSpec(SettingSpec { name: "overlay-see-through", kind: 1, flags: 0, group: "sleep.group", title: "sleep.setting.overlay-see-through", help: "sleep.setting.overlay-see-through.help", default: [1, 0, 0, 0, 2, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], min: 0, max: 90, choices: "" })
 native Spec sleep | SettingSpec(SettingSpec { name: "overlay-when", kind: 2, flags: 0, group: "sleep.group", title: "sleep.setting.overlay-when", help: "sleep.setting.overlay-when.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 17, 0, 0, 0, 115, 108, 101, 101, 112, 46, 119, 104, 101, 110, 46, 97, 108, 119, 97, 121, 115], min: 0, max: 0, choices: "sleep.when.always\nsleep.when.reading\nsleep.when.elsewhere" })
+native Spec sleep | SettingSpec(SettingSpec { name: "refresh-every", kind: 2, flags: 0, group: "sleep.group", title: "sleep.setting.refresh-every", help: "sleep.setting.refresh-every.help", default: [1, 0, 0, 0, 3, 0, 0,… (402 bytes, a109d57bf583bdc5)
 native Spec store | SettingSpec(SettingSpec { name: "catalog", kind: 3, flags: 0, group: "core.group.developer", title: "store.setting.catalog", help: "store.setting.catalog.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 40, 0… (427 bytes, 14f8d7f9e81b4ccf)
 native Spec store | SettingSpec(SettingSpec { name: "community", kind: 0, flags: 2, group: "core.group.system", title: "store.setting.community", help: "store.setting.community.help", default: [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0], min: 0, max: 0, choices: "" })
 native Spec update | SettingSpec(SettingSpec { name: "server", kind: 3, flags: 0, group: "update.group", title: "update.setting.server", help: "update.setting.server.help", default: [1, 0, 0, 0, 3, 0, 0, 0, 20, 0, 0, 0, 104, 116, 116, 112, 115, 58, 47, 47, 112, 97, 112, 101, 114, 112, 97, 119, 46, 111, 114, 103], min: 0, max: 0, choices: "" })
@@ -2672,6 +2674,7 @@ native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.overlay-position", need
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.overlay-size", need: 1, capability: 0 })
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.overlay-see-through", need: 1, capability: 0 })
 native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.overlay-when", need: 1, capability: 0 })
+native MenuNeed sleep | MenuNeed(MenuNeed { item: "sleep.refresh-every", need: 1, capability: 0 })
 native MenuNeed update | MenuNeed(MenuNeed { item: "update.group", need: 8, capability: 0 })
 native MenuNeed update | MenuNeed(MenuNeed { item: "update.server", need: 8, capability: 0 })
 native MenuNeed update | MenuNeed(MenuNeed { item: "update.look", need: 8, capability: 0 })

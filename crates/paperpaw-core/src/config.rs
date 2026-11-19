@@ -390,6 +390,8 @@ impl Kernel {
         &mut self,
         values: Vec<(Id, Option<paperpaw_sdk::SettingValue>)>,
     ) {
+        // Any preview set or ended is not a filter's from here on.
+        self.shared.filter_preview = false;
         let ending = values.is_empty();
         if ending && self.preview_owner.is_none() && !self.shared.settings.previewing() {
             return;

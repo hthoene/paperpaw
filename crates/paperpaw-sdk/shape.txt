@@ -460,6 +460,7 @@ const paperpaw_sdk::env::Capability::PAGE_KEYS: Self = Self(1 << 5)
 const paperpaw_sdk::env::Capability::PAGE_TURNER: Self = Self(1 << 13)
 const paperpaw_sdk::env::Capability::PEN_HOVER: Self = Self(1 << 16)
 const paperpaw_sdk::env::Capability::PEN_TILT: Self = Self(1 << 15)
+const paperpaw_sdk::env::Capability::REFRESH_ASLEEP: Self = Self(1 << 17)
 const paperpaw_sdk::env::Capability::RENDER_HOOK: Self = Self(1 << 8)
 const paperpaw_sdk::env::Capability::RENDER_REGIONS: Self = Self(1 << 9)
 const paperpaw_sdk::env::Capability::USB_DRIVE: Self = Self(1 << 11)
@@ -509,6 +510,7 @@ const paperpaw_sdk::native::canvas::describe::PartFlags::OFF: Self = Self(1 << 1
 const paperpaw_sdk::native::canvas::describe::PartFlags::ON: Self = Self((1 << 1) | (1 << 2))
 const paperpaw_sdk::native::commands::evidence::MAX_REVOCATIONS: usize = 16usize
 const paperpaw_sdk::native::commands::evidence::MAX_ROTATIONS: usize = 6usize
+const paperpaw_sdk::native::commands::uix::SHOW_AGAIN_MIN_MS: u32 = 60_000u32
 const paperpaw_sdk::native::declare::BATCH_MAX_BYTES: usize = 4_096usize
 const paperpaw_sdk::native::declare::BATCH_MAX_RECORDS: usize = 8usize
 const paperpaw_sdk::native::declare::CHOICES_MAX_VALUES: usize = 64usize
@@ -1714,8 +1716,10 @@ const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_INPUT_IN
 const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_INPUT_TAG: u32 = 1u32
 const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_VERDICT_ACTION_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_VERDICT_INPUT_MAX_BYTES: usize = 128usize
+const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_VERDICT_KEY_MAX_BYTES: usize = 128usize
 const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_VERDICT_RAISE_MAX_BYTES: usize = 64usize
 const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_VERDICT_TAG: u32 = 2u32
+const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FILTER_VERDICT_VALUE_MAX_BYTES: usize = 64usize
 const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterInput<'a>::TAG: u32 = FILTER_INPUT_TAG
 const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>::TAG: u32 = FILTER_VERDICT_TAG
 const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::INPUT_TAGS: &[u32] = &[1]
@@ -1726,7 +1730,7 @@ const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::MAX_REPLY: usiz
 const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::MAX_SUBSCRIBERS: usize = 4usize
 const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::REPLY_ROWS: usize = 1usize
 const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::REPLY_TAGS: &[u32] = &[2]
-const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::REVISION: u16 = 0u16
+const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::REVISION: u16 = 1u16
 const paperpaw_sdk::native::stage_schemas::core_input_filter_v1::TEST_ONLY: bool = false
 const paperpaw_sdk::native::stage_schemas::core_lookup_v1::INPUT_TAGS: &[u32] = &[1]
 const paperpaw_sdk::native::stage_schemas::core_lookup_v1::KEY: &str = "core.lookup"
@@ -1925,6 +1929,7 @@ const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_PLUGIN_ENABLED_TAG:
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_SCOPE_PATH_MAX_BYTES: usize = 512usize
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_SCOPE_TAG: u32 = 1_539u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_SET_SETTING_TAG: u32 = 4u32
+const paperpaw_sdk::native::wire::commands_wire::COMMAND_SHOW_AGAIN_TAG: u32 = 1_598u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_SHOW_HINTS_TAG: u32 = 1_551u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_SLEEP_TAG: u32 = 1_572u32
 const paperpaw_sdk::native::wire::commands_wire::COMMAND_SPEAK_LANGUAGE_MAX_BYTES: usize = 35usize
@@ -2341,7 +2346,7 @@ enum paperpaw_sdk::native::declare::registry::SetupPage<'a> { Setting(0: &'a str
 enum paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> { Absent, Bool(0: bool), Int(0: i64), Text(0: &'a str) }
 enum paperpaw_sdk::native::declare::uix::InputKind { Input, Gesture }
 enum paperpaw_sdk::native::declare::uix::WidgetLayout { Grid, Stack }
-enum paperpaw_sdk::native::device::rows::DeviceCapability { Touch, Network, Wifi, Bluetooth, Firmware, Speech, Sleep, Rotation, Colours, ButtonRow, Clipboard, Frontlight, Monochrome, PowerOff, Pen }
+enum paperpaw_sdk::native::device::rows::DeviceCapability { Touch, Network, Wifi, Bluetooth, Firmware, Speech, Sleep, Rotation, Colours, ButtonRow, Clipboard, Frontlight, Monochrome, PowerOff, Pen, RefreshAsleep }
 enum paperpaw_sdk::native::device::rows::DeviceClass { Small, Medium, Large, Unknown(0: u32) }
 enum paperpaw_sdk::native::device::rows::DeviceOutcome { Ok, Other, Declined, Dismissed, Damaged, OtherAuthor, KeyChanged, Revoked, Unsigned, UnknownKey, NewerInterface, OlderInterface, OtherChip, NoRoom, NotNewer, IdTaken, CardError, CardFull, ContentChanged, Unsupported, Cancelled, RestartPending }
 enum paperpaw_sdk::native::device::rows::FirmwareState { Idle, Waiting, Installing, Installed, Failed, Unknown(0: u32) }
@@ -2426,7 +2431,7 @@ enum paperpaw_sdk::native::ui::types::TextWrite { Continue, Last }
 enum paperpaw_sdk::native::ui::widgets::Compose<'cb> { Widget(0: paperpaw_sdk::native::ui::widgets::WidgetHandle), StatusItem(0: paperpaw_sdk::native::ui::widgets::StatusHandle<'cb>), StatusLine(0: paperpaw_sdk::native::ui::widgets::StatusLineHandle<'cb>) }
 enum paperpaw_sdk::native::ui::widgets::MadeWidget { Own, Widget(0: paperpaw_sdk::native::ui::widgets::WidgetHandle) }
 enum paperpaw_sdk::native::ui::widgets::WidgetInputKind { Tap, LongPress }
-enum paperpaw_sdk::native::wire::commands_wire::Command<'a> { SetSetting { key: &'a str, value: paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> }, OpenScreen { screen: &'a str }, RunAction { action: &'a str }, Redraw { mode: u32 }, CloseScreen, SetItemState { item: &'a str, flags: u32, label: &'a str, label_args: &'a [u8], badge: &'a str, badge_args: &'a [u8] }, ResetSetting { key: &'a str, flags: u32 }, PreviewSetting { key: &'a str, value: &'a [u8], flags: u32 }, PreviewEnd { flags: u32 }, SetScope { path: &'a str }, SetMenu { menu: &'a str, items: &'a str, flags: u32 }, BindKey { layer: &'a str, input: &'a str, action: &'a str, flags: u32 }, BindSlot { slot: &'a str, screen: &'a str }, SetPluginEnabled { plugin: &'a str, enabled: u32 }, RequestPlugins { plugins: &'a str }, AnswerPlugin { request: u32, plugin: &'a str, outcome: u32 }, ApplyPreset { preset: &'a str, flags: u32 }, Open { target: &'a str, mode: u32, slot: &'a str, handover: u32 }, Close { instance: u32 }, BackTo { target: &'a str }, SetKeyLayer { layer: &'a str }, ShowHints {  }, RaiseInput { input: &'a str }, WidgetChanged { instance: u32 }, ScreenReady {  }, Notify { text: &'a str, flags: u32 }, Speak { cookie: u32, text: &'a str, language: &'a str, rate: u32, flags: u32 }, StopSpeaking {  }, ScreenPolicy { instance: u32, flags: u32 }, ImagePrepare { root: u32, path: &'a str, side: u32, cookie: u32, flags: u32, tone: &'a [u8] }, ImageRelease { image: u32 }, WifiOn {  }, WifiOff {  }, WifiScan {  }, WifiJoin { request: u32, ssid: &'a str, password: paperpaw_sdk::native::wire::commands_wire::SecretText<'a>, flags: u32 }, WifiLeave {  }, WifiHost { request: u32, ssid: &'a str, password: paperpaw_sdk::native::wire::commands_wire::SecretText<'a> }, NetworkNone {  }, GoOnline { for_ms: u32 }, Sleep {  }, PowerOff {  }, Restart {  }, Wear { mode: &'a str, flags: u32 }, InstallPlugin { request: u32, root: u32, path: &'a str, flags: u32 }, RemovePlugin { request: u32, plugin: &'a str, flags: u32 }, InstallFirmware { request: u32, root: u32, path: &'a str, key: &'a [u8], flags: u32 }, FirmwareRestart {  }, InstallAuthor { request: u32, author: &'a [u8], recovery: &'a [u8], sha256: &'a [u8] }, InstallRotation { request: u32, to: &'a [u8], signature: &'a [u8] }, TrustRevoked { plugin: &'a str, key: &'a [u8], signature: &'a [u8] }, CheckFile { request: u32, root: u32, path: &'a str, kind: u32 }, BtScan { lasting_ms: u32 }, BtStopScan {  }, BtPair { device: u32 }, BtConnect { device: u32 }, BtDisconnect { device: u32 }, BtForget { device: u32 }, BtGive { device: u32, plugin: &'a str }, BtTakeBack { device: u32 }, BtKeys { device: u32, on: u32 }, LookupReady { text: &'a str, language: &'a str }, SetHint { action: &'a str, kind: u32, label: &'a str }, FirmwareDualBoot { request: u32, mode: u32 }, RedrawArea { mode: u32, x: i32, y: i32, width: u32, height: u32 } }
+enum paperpaw_sdk::native::wire::commands_wire::Command<'a> { SetSetting { key: &'a str, value: paperpaw_sdk::native::declare::settings_value::SettingValueRef<'a> }, OpenScreen { screen: &'a str }, RunAction { action: &'a str }, Redraw { mode: u32 }, CloseScreen, SetItemState { item: &'a str, flags: u32, label: &'a str, label_args: &'a [u8], badge: &'a str, badge_args: &'a [u8] }, ResetSetting { key: &'a str, flags: u32 }, PreviewSetting { key: &'a str, value: &'a [u8], flags: u32 }, PreviewEnd { flags: u32 }, SetScope { path: &'a str }, SetMenu { menu: &'a str, items: &'a str, flags: u32 }, BindKey { layer: &'a str, input: &'a str, action: &'a str, flags: u32 }, BindSlot { slot: &'a str, screen: &'a str }, SetPluginEnabled { plugin: &'a str, enabled: u32 }, RequestPlugins { plugins: &'a str }, AnswerPlugin { request: u32, plugin: &'a str, outcome: u32 }, ApplyPreset { preset: &'a str, flags: u32 }, Open { target: &'a str, mode: u32, slot: &'a str, handover: u32 }, Close { instance: u32 }, BackTo { target: &'a str }, SetKeyLayer { layer: &'a str }, ShowHints {  }, RaiseInput { input: &'a str }, WidgetChanged { instance: u32 }, ScreenReady {  }, Notify { text: &'a str, flags: u32 }, Speak { cookie: u32, text: &'a str, language: &'a str, rate: u32, flags: u32 }, StopSpeaking {  }, ScreenPolicy { instance: u32, flags: u32 }, ImagePrepare { root: u32, path: &'a str, side: u32, cookie: u32, flags: u32, tone: &'a [u8] }, ImageRelease { image: u32 }, WifiOn {  }, WifiOff {  }, WifiScan {  }, WifiJoin { request: u32, ssid: &'a str, password: paperpaw_sdk::native::wire::commands_wire::SecretText<'a>, flags: u32 }, WifiLeave {  }, WifiHost { request: u32, ssid: &'a str, password: paperpaw_sdk::native::wire::commands_wire::SecretText<'a> }, NetworkNone {  }, GoOnline { for_ms: u32 }, Sleep {  }, PowerOff {  }, Restart {  }, Wear { mode: &'a str, flags: u32 }, InstallPlugin { request: u32, root: u32, path: &'a str, flags: u32 }, RemovePlugin { request: u32, plugin: &'a str, flags: u32 }, InstallFirmware { request: u32, root: u32, path: &'a str, key: &'a [u8], flags: u32 }, FirmwareRestart {  }, InstallAuthor { request: u32, author: &'a [u8], recovery: &'a [u8], sha256: &'a [u8] }, InstallRotation { request: u32, to: &'a [u8], signature: &'a [u8] }, TrustRevoked { plugin: &'a str, key: &'a [u8], signature: &'a [u8] }, CheckFile { request: u32, root: u32, path: &'a str, kind: u32 }, BtScan { lasting_ms: u32 }, BtStopScan {  }, BtPair { device: u32 }, BtConnect { device: u32 }, BtDisconnect { device: u32 }, BtForget { device: u32 }, BtGive { device: u32, plugin: &'a str }, BtTakeBack { device: u32 }, BtKeys { device: u32, on: u32 }, LookupReady { text: &'a str, language: &'a str }, SetHint { action: &'a str, kind: u32, label: &'a str }, FirmwareDualBoot { request: u32, mode: u32 }, RedrawArea { mode: u32, x: i32, y: i32, width: u32, height: u32 }, ShowAgain { instance: u32, after_ms: u32, every_ms: u32, flags: u32 } }
 enum paperpaw_sdk::native::wire::services_wire::ServiceBound { None, Card }
 enum paperpaw_sdk::native::wire::snapshot_wire::PixelFormat { Mono1, Gray2, Gray4, Gray8, Rgb565, Rgb888, Other { code: u16, bits: u8 } }
 enum paperpaw_sdk::native::work::Hold { Offline, Saving, Other(0: u32) }
@@ -3212,7 +3217,7 @@ struct paperpaw_sdk::native::stage_schemas::core_format_v1::InputWriter<'w> { ou
 struct paperpaw_sdk::native::stage_schemas::core_format_v1::RecordStream<'a> { bytes: &'a [u8], remaining: usize }
 struct paperpaw_sdk::native::stage_schemas::core_format_v1::ReplyWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
 struct paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterInput<'a> { input: &'a [u8], flags: u32 }
-struct paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a> { kind: u32, action: &'a str, input: &'a [u8], raise: &'a str }
+struct paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a> { kind: u32, action: &'a str, input: &'a [u8], raise: &'a str, key: &'a str, value: &'a [u8] }
 struct paperpaw_sdk::native::stage_schemas::core_input_filter_v1::InputWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
 struct paperpaw_sdk::native::stage_schemas::core_input_filter_v1::RecordStream<'a> { bytes: &'a [u8], remaining: usize }
 struct paperpaw_sdk::native::stage_schemas::core_input_filter_v1::ReplyWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }

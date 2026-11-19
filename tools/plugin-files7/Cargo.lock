@@ -199,7 +199,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-edge-light"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -461,7 +461,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-lock"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reading-goal"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",
@@ -629,7 +629,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-sleep"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "paperpaw-sdk",
  "paperpaw-ui-kit",

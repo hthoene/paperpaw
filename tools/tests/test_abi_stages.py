@@ -371,10 +371,11 @@ mod tests {
     def test_compatible_growth_requires_new_revisions(self):
         grown = copy.deepcopy(self.schema)
         stage = self.stage(grown)
-        stage['revision'] = 1
-        stage['records'][0]['fields'].append(field())
-        stage['records'].append(dict(id=3, name='filter.extra', since=1,
-                                     fields=[field(since=1, optional=False)]))
+        # The repository's input filter is at revision 1 already (`key`, `value`).
+        stage['revision'] = self.stage(self.schema)['revision'] + 1
+        stage['records'][0]['fields'].append(field(since=stage['revision']))
+        stage['records'].append(dict(id=3, name='filter.extra', since=stage['revision'],
+                                     fields=[field(since=stage['revision'], optional=False)]))
         stage['input'].append('filter.extra')
         validate_stages(grown)
         compatible_stages(self.schema, grown, self.schema['minor'] + 1)
@@ -408,7 +409,7 @@ mod tests {
             with self.assertRaises(ValueError):
                 compatible_stages(self.schema, candidate, self.schema['minor'] + 1)
         prior = copy.deepcopy(self.schema)
-        self.stage(prior)['revision'] = 1
+        self.stage(prior)['revision'] += 1
         with self.assertRaises(ValueError):
             compatible_stages(prior, self.schema, self.schema['minor'] + 1)
 

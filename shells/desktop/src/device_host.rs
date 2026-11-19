@@ -64,6 +64,7 @@ pub fn caps_of(profile: &Profile) -> u64 {
         | bit(profile.speech, caps::SPEECH)
         | bit(profile.sleep, caps::SLEEP)
         | bit(profile.power_off, caps::POWER_OFF)
+        | bit(profile.refresh_asleep, caps::REFRESH_ASLEEP)
         | bit(profile.colors, caps::COLOURS)
         | bit(!profile.button_row.is_empty(), caps::BUTTON_ROW)
         | bit(profile.light.is_some(), caps::FRONTLIGHT)
