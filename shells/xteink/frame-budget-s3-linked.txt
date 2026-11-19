@@ -23,7 +23,7 @@ allow indirect-in core 85 calls through a register the scan does not follow, in 
 allow indirect-in paperpaw_layout 34 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_stardict 23 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_qr 20 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
-allow indirect-in paperpaw_text 53 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_text 21 (53 -> 21 with #396: the Burmese line breaker's per-script `match`es became one flag table, CI counts 48 of which 28 are `indic::shape` and `indic::category`, listed in the budgets) calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_digest 14 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_epub_family 14 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_sort 11 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)

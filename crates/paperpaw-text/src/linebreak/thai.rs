@@ -63,70 +63,122 @@ impl Script {
         u8::try_from(l).ok().filter(|&l| l < 0x80)
     }
 
+    /// The letter's properties (the flags below; 0 for none): looked up in
+    /// a table, since a `match` per script and property made jump tables.
+    fn flags(self, l: u8) -> u8 {
+        FLAGS[self as usize]
+            .get(usize::from(l))
+            .copied()
+            .unwrap_or(0)
+    }
+
     /// Whether the letter is one words are made of (not a digit or
     /// punctuation; for Thai not U+0E3F BAHT, U+0E4F FONGMAN, U+0E5A,
     /// U+0E5B).
-    const fn in_word(self, l: u8) -> bool {
-        match self {
-            Script::Thai => matches!(l, 0x01..=0x3A | 0x40..=0x4E),
-            Script::Lao => matches!(l, 0x01..=0x3D | 0x40..=0x4E | 0x5C..=0x5F),
-            Script::Khmer => matches!(l, 0x00..=0x53 | 0x57 | 0x5D),
-            Script::Myanmar => matches!(l, 0x00..=0x3F | 0x4C..=0x59),
-        }
+    fn in_word(self, l: u8) -> bool {
+        self.flags(l) & IN_WORD != 0
     }
 
     /// Whether the letter stays with the one before it: vowels above, below
     /// and after, tone marks and signs (Thai's U+0E45, MAIYAMOK and
     /// PAIYANNOI, Lao's KO LA and ellipsis, Khmer's coeng and repetition
     /// sign).
-    const fn follows(self, l: u8) -> bool {
-        match self {
-            Script::Thai => matches!(l, 0x2F..=0x3A | 0x45..=0x4E),
-            Script::Lao => matches!(l, 0x2F..=0x3D | 0x46..=0x4E),
-            Script::Khmer => matches!(l, 0x34..=0x53 | 0x57 | 0x5D),
-            Script::Myanmar => matches!(l, 0x2B..=0x3E | 0x56..=0x59),
-        }
+    fn follows(self, l: u8) -> bool {
+        self.flags(l) & FOLLOWS != 0
     }
 
     /// Whether the letter is a vowel written before the one it follows.
-    const fn leads(self, l: u8) -> bool {
-        match self {
-            Script::Thai | Script::Lao => matches!(l, 0x40..=0x44),
-            Script::Khmer | Script::Myanmar => false,
-        }
+    fn leads(self, l: u8) -> bool {
+        self.flags(l) & LEADS != 0
     }
 
     /// Whether the letter after this one stays with it: after Thai's MAI
     /// HAN-AKAT and Lao's MAI KAN their final letter, after coeng (Burmese
     /// virama) the consonant drawn below.
-    const fn holds_next(self, l: u8) -> bool {
-        match self {
-            Script::Thai | Script::Lao => l == 0x31,
-            Script::Khmer => l == 0x52,
-            Script::Myanmar => l == 0x39,
-        }
+    fn holds_next(self, l: u8) -> bool {
+        self.flags(l) & HOLDS != 0
     }
 
     /// Whether the letter silences the one before it, which so ends the
     /// syllable before (Thai's THANTHAKHAT, Lao's cancellation mark,
     /// Burmese asat and virama).
-    const fn silences(self, l: u8) -> bool {
-        match self {
-            Script::Thai | Script::Lao => l == 0x4C,
-            Script::Khmer => false,
-            Script::Myanmar => matches!(l, 0x39 | 0x3A),
-        }
+    fn silences(self, l: u8) -> bool {
+        self.flags(l) & SILENCES != 0
     }
 
     /// Whether the sign stays with the word before it: Thai's MAIYAMOK
     /// and PAIYANNOI, Lao's KO LA and ellipsis, Khmer's repetition sign.
-    const fn repeats(self, l: u8) -> bool {
-        match self {
-            Script::Thai | Script::Lao => matches!(l, 0x2F | 0x46),
-            Script::Khmer => l == 0x57,
-            Script::Myanmar => false,
-        }
+    fn repeats(self, l: u8) -> bool {
+        self.flags(l) & REPEATS != 0
     }
+}
+
+const IN_WORD: u8 = 1;
+const FOLLOWS: u8 = 2;
+const LEADS: u8 = 4;
+const HOLDS: u8 = 8;
+const SILENCES: u8 = 16;
+const REPEATS: u8 = 32;
+
+/// Each script's letters (a table's letter, below 0x80) with their flags,
+/// in [`Script::ALL`]'s order.
+static FLAGS: [[u8; 0x80]; 4] = [
+    flags_of(&[
+        (0x01, 0x3A, IN_WORD),
+        (0x40, 0x4E, IN_WORD),
+        (0x2F, 0x3A, FOLLOWS),
+        (0x45, 0x4E, FOLLOWS),
+        (0x40, 0x44, LEADS),
+        (0x31, 0x31, HOLDS),
+        (0x4C, 0x4C, SILENCES),
+        (0x2F, 0x2F, REPEATS),
+        (0x46, 0x46, REPEATS),
+    ]),
+    flags_of(&[
+        (0x01, 0x3D, IN_WORD),
+        (0x40, 0x4E, IN_WORD),
+        (0x5C, 0x5F, IN_WORD),
+        (0x2F, 0x3D, FOLLOWS),
+        (0x46, 0x4E, FOLLOWS),
+        (0x40, 0x44, LEADS),
+        (0x31, 0x31, HOLDS),
+        (0x4C, 0x4C, SILENCES),
+        (0x2F, 0x2F, REPEATS),
+        (0x46, 0x46, REPEATS),
+    ]),
+    flags_of(&[
+        (0x00, 0x53, IN_WORD),
+        (0x57, 0x57, IN_WORD),
+        (0x5D, 0x5D, IN_WORD),
+        (0x34, 0x53, FOLLOWS),
+        (0x57, 0x57, FOLLOWS),
+        (0x5D, 0x5D, FOLLOWS),
+        (0x52, 0x52, HOLDS),
+        (0x57, 0x57, REPEATS),
+    ]),
+    flags_of(&[
+        (0x00, 0x3F, IN_WORD),
+        (0x4C, 0x59, IN_WORD),
+        (0x2B, 0x3E, FOLLOWS),
+        (0x56, 0x59, FOLLOWS),
+        (0x39, 0x39, HOLDS),
+        (0x39, 0x3A, SILENCES),
+    ]),
+];
+
+/// A script's table from `(first, last, flag)` ranges of letters.
+const fn flags_of(ranges: &[(usize, usize, u8)]) -> [u8; 0x80] {
+    let mut t = [0u8; 0x80];
+    let mut r = 0;
+    while r < ranges.len() {
+        let mut l = ranges[r].0;
+        while l <= ranges[r].1 {
+            t[l] |= ranges[r].2;
+            l += 1;
+        }
+        r += 1;
+    }
+    t
 }
 
 /// The script of `c` if it is a letter, vowel or sign words of a script

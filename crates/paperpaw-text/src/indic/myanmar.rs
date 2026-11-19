@@ -12,49 +12,73 @@
 use super::{Cat, Glyphs, POS_AFTER_MAIN, POS_AFTER_SUB, POS_BASE, POS_BEFORE_SUB, POS_BELOW_C};
 use super::{POS_PRE_C, POS_PRE_M};
 
+/// What each character of the Myanmar block (U+1000 to U+109F) is in a
+/// syllable: a table, since a `match` of ranges made jump tables.
+static CATS: [Cat; 0xA0] = cats(&[
+    (0x1000, 0x1020, Cat::Consonant),
+    (0x103F, 0x103F, Cat::Consonant),
+    (0x104E, 0x104E, Cat::Consonant),
+    (0x1050, 0x1051, Cat::Consonant),
+    (0x105A, 0x105D, Cat::Consonant),
+    (0x1061, 0x1061, Cat::Consonant),
+    (0x1065, 0x1066, Cat::Consonant),
+    (0x106E, 0x1070, Cat::Consonant),
+    (0x1075, 0x1081, Cat::Consonant),
+    (0x108E, 0x108E, Cat::Consonant),
+    (0x1021, 0x102A, Cat::Vowel),
+    (0x104C, 0x104D, Cat::Vowel),
+    (0x104F, 0x104F, Cat::Vowel),
+    (0x1052, 0x1055, Cat::Vowel),
+    (0x1031, 0x1031, Cat::PreMatra),
+    (0x1084, 0x1084, Cat::PreMatra),
+    (0x103C, 0x103C, Cat::SplitMatra),
+    (0x102D, 0x102E, Cat::AboveMatra),
+    (0x1033, 0x1035, Cat::AboveMatra),
+    (0x1071, 0x1074, Cat::AboveMatra),
+    (0x1085, 0x1086, Cat::AboveMatra),
+    (0x109D, 0x109D, Cat::AboveMatra),
+    (0x102F, 0x1030, Cat::BelowMatra),
+    (0x1058, 0x1059, Cat::BelowMatra),
+    (0x102B, 0x102C, Cat::PostMatra),
+    (0x1056, 0x1057, Cat::PostMatra),
+    (0x1062, 0x1062, Cat::PostMatra),
+    (0x1067, 0x1068, Cat::PostMatra),
+    (0x1083, 0x1083, Cat::PostMatra),
+    (0x103B, 0x103B, Cat::Medial),
+    (0x103D, 0x103E, Cat::Medial),
+    (0x105E, 0x1060, Cat::Medial),
+    (0x1082, 0x1082, Cat::Medial),
+    (0x1032, 0x1032, Cat::Modifier),
+    (0x1036, 0x1036, Cat::Modifier),
+    (0x1037, 0x1038, Cat::Tone),
+    (0x1063, 0x1064, Cat::Tone),
+    (0x1069, 0x106D, Cat::Tone),
+    (0x1087, 0x108D, Cat::Tone),
+    (0x108F, 0x108F, Cat::Tone),
+    (0x109A, 0x109C, Cat::Tone),
+    (0x1039, 0x1039, Cat::Virama),
+    (0x103A, 0x103A, Cat::Nukta),
+]);
+
+/// The table from `(first, last, category)` ranges (the rest is `Other`).
+const fn cats(ranges: &[(usize, usize, Cat)]) -> [Cat; 0xA0] {
+    let mut t = [Cat::Other; 0xA0];
+    let mut r = 0;
+    while r < ranges.len() {
+        let mut c = ranges[r].0;
+        while c <= ranges[r].1 {
+            t[c - 0x1000] = ranges[r].2;
+            c += 1;
+        }
+        r += 1;
+    }
+    t
+}
+
 /// What `ch` (of the Myanmar block) is in a syllable.
 pub(super) fn category(ch: char) -> Cat {
-    match ch {
-        '\u{1000}'..='\u{1020}'
-        | '\u{103F}'
-        | '\u{104E}'
-        | '\u{1050}'..='\u{1051}'
-        | '\u{105A}'..='\u{105D}'
-        | '\u{1061}'
-        | '\u{1065}'..='\u{1066}'
-        | '\u{106E}'..='\u{1070}'
-        | '\u{1075}'..='\u{1081}'
-        | '\u{108E}' => Cat::Consonant,
-        '\u{1021}'..='\u{102A}'
-        | '\u{104C}'..='\u{104D}'
-        | '\u{104F}'
-        | '\u{1052}'..='\u{1055}' => Cat::Vowel,
-        '\u{1031}' | '\u{1084}' => Cat::PreMatra,
-        '\u{103C}' => Cat::SplitMatra,
-        '\u{102D}'..='\u{102E}'
-        | '\u{1033}'..='\u{1035}'
-        | '\u{1071}'..='\u{1074}'
-        | '\u{1085}'..='\u{1086}'
-        | '\u{109D}' => Cat::AboveMatra,
-        '\u{102F}'..='\u{1030}' | '\u{1058}'..='\u{1059}' => Cat::BelowMatra,
-        '\u{102B}'..='\u{102C}'
-        | '\u{1056}'..='\u{1057}'
-        | '\u{1062}'
-        | '\u{1067}'..='\u{1068}'
-        | '\u{1083}' => Cat::PostMatra,
-        '\u{103B}' | '\u{103D}'..='\u{103E}' | '\u{105E}'..='\u{1060}' | '\u{1082}' => Cat::Medial,
-        '\u{1032}' | '\u{1036}' => Cat::Modifier,
-        '\u{1037}'
-        | '\u{1038}'
-        | '\u{1063}'..='\u{1064}'
-        | '\u{1069}'..='\u{106D}'
-        | '\u{1087}'..='\u{108D}'
-        | '\u{108F}'
-        | '\u{109A}'..='\u{109C}' => Cat::Tone,
-        '\u{1039}' => Cat::Virama,
-        '\u{103A}' => Cat::Nukta,
-        _ => Cat::Other,
-    }
+    let at = (u32::from(ch)).wrapping_sub(0x1000) as usize;
+    CATS.get(at).copied().unwrap_or(Cat::Other)
 }
 
 /// Whether `ch` (category `cat`) is drawn on the letter before it, taking
