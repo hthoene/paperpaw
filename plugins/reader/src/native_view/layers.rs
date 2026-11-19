@@ -552,7 +552,7 @@ impl Pen for LayerPen<'_, '_> {
     ) -> Result<(), Error> {
         let role = if italic { Role::Italic } else { Role::Reading };
         draw_run(
-            self.fonts.font_of(role),
+            self.fonts.font_of(role)?,
             self.canvas,
             size,
             TextOrigin::new(x as f32, baseline),

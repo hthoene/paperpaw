@@ -31,12 +31,12 @@ use paperpaw_platform::{ButtonState, InputEvent, buttons};
 /// base's own, as nothing can be kept for most of them), a
 /// Cyrillic book that starts in Latin 22 (116), a page of Vietnamese 238 (535),
 /// kerning and ligatures off 151 (224).
-const CHINESE: (u32, u32) = (2_430, 2_742);
-const CYRILLIC: (u32, u32) = (40, 420);
+const CHINESE: (u32, u32) = (2_430, 2_510);
+const CYRILLIC: (u32, u32) = (40, 345);
 /// The same book declared Russian: no table, so one ask for the whole book.
-const RUSSIAN: (u32, u32) = (40, 295);
-const VIETNAMESE: (u32, u32) = (260, 560);
-const PLAIN: (u32, u32) = (200, 560);
+const RUSSIAN: (u32, u32) = (40, 245);
+const VIETNAMESE: (u32, u32) = (260, 485);
+const PLAIN: (u32, u32) = (200, 485);
 
 /// Turns that are not measured: the book opens and its caches fill over the
 /// first turns (the first four after opening read 162, 125, 22 and 113 times
@@ -70,6 +70,11 @@ const CEILINGS: &[(&str, u32, &str)] = &[
         150,
         "card reads; a chapter's first page (87)",
     ),
+    (
+        "font_acquire",
+        25,
+        "a font is acquired when a callback first draws with it, not all four at each band (#393; 30 to 34 before)",
+    ),
     ("service_call", 30, "document service and status line (17)"),
     (
         "other",
@@ -78,8 +83,9 @@ const CEILINGS: &[(&str, u32, &str)] = &[
     ),
 ];
 
-/// All slots together, one turn (517 now with hyphenation, 493 without).
-const TOTAL_CEILING: u32 = 525;
+/// All slots together, one turn (475 now with hyphenation; 517 before a font
+/// was acquired only when a callback draws with it, #393).
+const TOTAL_CEILING: u32 = 485;
 
 /// Floors, so that a turn which does nothing cannot pass: every measured turn
 /// enters at least this many slots (the quietest, a page with one picture,
