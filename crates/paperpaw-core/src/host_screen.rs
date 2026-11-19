@@ -13,6 +13,8 @@ mod notice;
 mod paint;
 mod placeholder;
 mod start_notice;
+#[cfg(feature = "turn-lab")]
+pub mod turn_lab;
 
 use crate::{Place, Turn};
 use alloc::boxed::Box;
@@ -38,6 +40,8 @@ pub(crate) enum Kind {
     Confirm,
     Literata,
     LowMemory,
+    #[cfg(feature = "turn-lab")]
+    TurnLab,
 }
 
 /// A host screen as the registry lists it: its id, the translation key of
@@ -74,6 +78,8 @@ impl HostEntry {
             Kind::Confirm => HostScreen::Confirm(Box::new(confirm::Confirm::new(env, params))),
             Kind::Literata => HostScreen::Start(Box::new(StartNotice::literata(env, params))),
             Kind::LowMemory => HostScreen::Start(Box::new(StartNotice::low_memory(env, params))),
+            #[cfg(feature = "turn-lab")]
+            Kind::TurnLab => HostScreen::TurnLab(Box::new(turn_lab::TurnLab::new(env, params))),
         }
     }
 }
@@ -99,6 +105,14 @@ pub(crate) static ENTRIES: [HostEntry; 5] = [
     ),
 ];
 
+/// LAB ONLY (#40): the page-turn lab's screen.
+#[cfg(feature = "turn-lab")]
+pub(crate) static TURN_LAB: [HostEntry; 1] = [HostEntry::new(
+    turn_lab::SCREEN,
+    turn_lab::TITLE,
+    Kind::TurnLab,
+)];
+
 /// The Literata hint's screen, listed only once it is due
 /// (`offer_literata_notice`).
 pub(crate) static LITERATA: HostEntry = HostEntry::new(
@@ -117,6 +131,8 @@ pub(crate) enum HostScreen {
     Notice(Box<Notice>),
     Confirm(Box<confirm::Confirm>),
     Start(Box<StartNotice>),
+    #[cfg(feature = "turn-lab")]
+    TurnLab(Box<turn_lab::TurnLab>),
 }
 
 impl HostScreen {
@@ -127,6 +143,8 @@ impl HostScreen {
             Self::Notice(screen) => screen.draw(canvas, env),
             Self::Confirm(screen) => screen.draw(canvas, env),
             Self::Start(screen) => screen.draw(canvas, env),
+            #[cfg(feature = "turn-lab")]
+            Self::TurnLab(screen) => screen.draw(canvas, env),
             Self::Gone => {}
         }
     }
@@ -172,6 +190,8 @@ impl HostScreen {
             Self::Confirm(screen) => screen.hint(action),
             Self::Start(screen) => screen.hint(action),
             Self::Finishing(screen) => screen.hint(action),
+            #[cfg(feature = "turn-lab")]
+            Self::TurnLab(screen) => screen.hint(action),
             _ => Hint::Default,
         }
     }
@@ -188,6 +208,8 @@ impl HostScreen {
         match self {
             Self::Confirm(screen) => screen.on_timer(cx),
             Self::Finishing(screen) => screen.on_timer(cx),
+            #[cfg(feature = "turn-lab")]
+            Self::TurnLab(screen) => screen.on_timer(cx),
             _ => {}
         }
     }
@@ -204,6 +226,8 @@ impl HostScreen {
         match self {
             Self::Confirm(screen) => screen.on_action(action, cx),
             Self::Start(screen) => screen.on_action(action, cx),
+            #[cfg(feature = "turn-lab")]
+            Self::TurnLab(screen) => screen.on_action(action, cx),
             Self::Finishing(screen) => screen.taken(),
             _ => Handled::No,
         }
@@ -213,6 +237,8 @@ impl HostScreen {
         match self {
             Self::Confirm(screen) => screen.on_gesture(gesture, cx),
             Self::Start(screen) => screen.on_gesture(gesture, cx),
+            #[cfg(feature = "turn-lab")]
+            Self::TurnLab(screen) => screen.on_gesture(gesture, cx),
             Self::Finishing(screen) => screen.taken(),
             _ => Handled::No,
         }

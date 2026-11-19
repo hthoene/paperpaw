@@ -132,9 +132,10 @@ textprobe = ["remote", "dep:paperpaw-text"]
 # LAB ONLY (#168): four power-down variants of the SSD1677, chosen by
 # `fade-lab.txt` on the card (0..4, read before each power-down).
 fade-lab = ["paperpaw-x4/fade-lab"]
-# LAB ONLY (#40): page-turn waveform variants of the SSD1677, chosen by
-# `turn-lab.txt` on the card (`src/firmware/turn_lab.rs`).
-turn-lab = []
+# LAB ONLY (#40): page-turn presets per controller, chosen in Settings >
+# Display and tried on the lab's test pages (`src/lab_presets.rs`,
+# `src/firmware/turn_lab.rs`); in no release.
+turn-lab = ["paperpaw-core/turn-lab"]
 # Bluetooth Low Energy, included by x4-pro (`src/bluetooth.rs`, ADR 0027):
 # trouble-host on esp-radio's controller, beside Wi-Fi. The radio stays
 # off until requested; remotes remain manual by default while connected

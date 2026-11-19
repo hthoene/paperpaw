@@ -67,6 +67,9 @@ mod gray_later;
 pub mod hear;
 mod hints;
 mod host_screen;
+/// LAB ONLY (#40): the page-turn lab's screen (feature `turn-lab`).
+#[cfg(feature = "turn-lab")]
+pub use host_screen::turn_lab;
 mod hyphen_feed;
 mod input;
 mod input_filters;

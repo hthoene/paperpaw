@@ -102,6 +102,22 @@ pub struct Display<SPI, DC, RST, BUSY, D> {
     powered: bool,
     rotation: Rotation,
     pending: Option<Pending>,
+    /// LAB ONLY (#40): which waveform a fast refresh takes.
+    table: Table,
+}
+
+/// LAB ONLY (#40): which of the stock firmware's waveforms a fast refresh
+/// (a page turn) is shown with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Table {
+    /// The stock firmware's choice: the page waveform, or the one for small
+    /// changes where an eighth of the frame or less changed.
+    #[default]
+    Auto,
+    /// Always the waveform for small changes, the power kept on (faster).
+    Small,
+    /// Always the full waveform (slowest, cleanest).
+    Full,
 }
 
 impl<SPI, DC, RST, BUSY, D> Display<SPI, DC, RST, BUSY, D>
@@ -126,7 +142,13 @@ where
             powered: false,
             rotation: Rotation::Deg0,
             pending: None,
+            table: Table::Auto,
         }
+    }
+
+    /// LAB ONLY (#40): the waveform fast refreshes take.
+    pub fn set_table(&mut self, table: Table) {
+        self.table = table;
     }
 
     /// How the screen PaperPaw draws is turned, as the X4 Pro's kept frame
@@ -249,6 +271,8 @@ where
         }
         let (lut, keep_power) = match refresh {
             Refresh::Full | Refresh::Half => (&luts::FULL, false),
+            Refresh::Fast if self.table == Table::Small => (&luts::SMALL, true),
+            Refresh::Fast if self.table == Table::Full => (&luts::FULL, false),
             Refresh::Fast => {
                 let changed = self
                     .frame

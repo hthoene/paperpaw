@@ -1,106 +1,139 @@
-//! LAB ONLY (#40, feature `turn-lab`, off by default and in no release): how a
-//! page turn (`RefreshMode::Partial`) is shown, chosen by the file
-//! `turn-lab.txt` on the card, one digit, read before each turn (none or
-//! another: 0). The numbers of frames are guesses to be judged on a device:
-//! the lab exists to find the fastest variant whose ghosting is acceptable.
-//!
-//! | digit | page turn |
-//! |---|---|
-//! | 0 | as the product: the panel's own fast waveform (about 505 ms) |
-//! | 1 | the panel's own fast tables for a warm panel (90 °C, the shortest phases the vendor made), whatever the real temperature |
-//! | 2 | direct drive, 6 frames |
-//! | 3 | direct drive, 4 frames |
-//! | 4 | A2-like: direct drive, 2 frames, every [`CLEAN_EVERY`]-th turn a half refresh (cleans all ghosts) |
-//!
-//! Every turn logs `turn-lab: variant N turn K [clean]: shown in X ms`.
+//! LAB ONLY (#40, feature `turn-lab`, off by default and in no release): how
+//! a page turn (`RefreshMode::Partial`) is shown, by the preset the setting
+//! `x4.turn-lab` names (Settings > Display; the presets of the panel's
+//! controller are in `lab_presets`). The setting is read before each turn, so
+//! a change shows at once. Every turn logs
+//! `turn-lab: <preset> turn K [clean]: shown in X ms`; the time also goes to
+//! the lab's screen.
 
-use paperpaw_platform::RefreshMode;
-use paperpaw_x4::display::{Experiment as Ssd1677, Refresh};
-use paperpaw_x4::panel::Experiment;
-use paperpaw_x4::waveform::Direct;
+#[cfg(not(feature = "turn-lab"))]
+pub(super) use off::*;
+#[cfg(feature = "turn-lab")]
+pub(super) use on::*;
 
-use super::Firmware;
-use log::info;
+#[cfg(feature = "turn-lab")]
+mod on {
+    use paperpaw_platform::RefreshMode;
+    use paperpaw_x4::display::Refresh;
+    use paperpaw_x4::panel::Experiment;
 
-/// Variant 4 cleans with a half refresh every this many turns.
-pub(super) const CLEAN_EVERY: u32 = 5;
-const MOST_VARIANT: u8 = 4;
+    use crate::firmware::Firmware;
+    use crate::lab_presets;
+    use log::info;
 
-/// Which variant runs and how many turns it has shown.
-#[derive(Debug, Default)]
-pub(super) struct Lab {
-    variant: u8,
-    turns: u32,
-}
+    /// Which preset runs and how many turns it has shown since the last clean.
+    #[derive(Debug, Default)]
+    pub(in crate::firmware) struct Lab {
+        name: &'static str,
+        turns: u32,
+    }
 
-/// What the lab does with the turn being shown.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Turn {
-    pub variant: u8,
-    pub number: u32,
-}
+    /// What the lab does with the turn being shown.
+    #[derive(Debug, Clone, Copy)]
+    pub(in crate::firmware) struct Turn {
+        name: &'static str,
+        number: u32,
+        experiment: Option<Experiment>,
+    }
 
-impl Turn {
-    /// The waveform of a turn that is a fast refresh.
-    pub(super) fn waveform(self) -> Option<Experiment> {
-        let ssd1677 = match self.variant {
-            1 => Ssd1677::Temperature(90),
-            2 => Ssd1677::Direct(Direct::new(6, 0)),
-            3 => Ssd1677::Direct(Direct::new(4, 0)),
-            4 => Ssd1677::Direct(Direct::new(2, 0)),
-            _ => return None,
-        };
-        Some(Experiment::Ssd1677(ssd1677))
+    impl Firmware {
+        /// The next page turn, if it is one of a fast refresh and a preset is
+        /// set: a change of preset starts the count again; a clean turn is a
+        /// half refresh.
+        pub(in crate::firmware) fn turn_lab(
+            &mut self,
+            mode: RefreshMode,
+            refresh: &mut Refresh,
+        ) -> Option<Turn> {
+            if mode != RefreshMode::Partial {
+                return None;
+            }
+            if *refresh != Refresh::Fast {
+                // Every pixel is driven anyway: nothing is left to clean.
+                self.state.turn_lab.turns = 0;
+                return None;
+            }
+            let value = self.kernel.settings().read(&lab_presets::PRESET);
+            let name = lab_presets::choices()
+                .iter()
+                .copied()
+                .find(|c| *c == value)?;
+            let preset = lab_presets::preset(name);
+            let lab = &mut self.state.turn_lab;
+            if lab.name != name {
+                lab.name = name;
+                lab.turns = 0;
+            }
+            lab.turns += 1;
+            let number = lab.turns;
+            if preset.clean_every > 0 && number.is_multiple_of(preset.clean_every) {
+                *refresh = Refresh::Half;
+                lab.turns = 0;
+            }
+            Some(Turn {
+                name,
+                number,
+                experiment: preset.experiment,
+            })
+        }
+
+        /// Sets the preset's waveform for a page turn shown as a fast refresh.
+        pub(in crate::firmware) fn turn_lab_waveform(
+            &mut self,
+            turn: Option<Turn>,
+            refresh: Refresh,
+        ) {
+            if refresh == Refresh::Fast
+                && let Some(turn) = turn
+                && turn.experiment.is_some()
+            {
+                let _supported = self.panel.set_experiment(turn.experiment);
+            }
+        }
+    }
+
+    /// Logs the page turn and the time the panel took.
+    pub(in crate::firmware) fn log(turn: Option<Turn>, refresh: Refresh, shown_ms: u64) {
+        if let Some(turn) = turn {
+            paperpaw_core::turn_lab::set_last_ms(u32::try_from(shown_ms).unwrap_or(u32::MAX));
+            info!(
+                "turn-lab: {} turn {}{}: shown in {shown_ms} ms",
+                turn.name,
+                turn.number,
+                if refresh == Refresh::Fast {
+                    ""
+                } else {
+                    " clean"
+                },
+            );
+        }
     }
 }
 
-impl Firmware {
-    /// The next page turn, if the lab is on and `mode` is one: a change of
-    /// variant starts the count again; a clean turn is a half refresh.
-    pub(super) fn turn_lab(&mut self, mode: RefreshMode, refresh: &mut Refresh) -> Option<Turn> {
-        if !cfg!(feature = "turn-lab") || mode != RefreshMode::Partial {
-            return None;
+#[cfg(not(feature = "turn-lab"))]
+mod off {
+    use paperpaw_platform::RefreshMode;
+    use paperpaw_x4::display::Refresh;
+
+    use crate::firmware::Firmware;
+
+    /// Never made: without the lab there is no turn to speak of.
+    pub(in crate::firmware) type Turn = core::convert::Infallible;
+
+    impl Firmware {
+        #[inline(always)]
+        pub(in crate::firmware) fn turn_lab(
+            &mut self,
+            _: RefreshMode,
+            _: &mut Refresh,
+        ) -> Option<Turn> {
+            None
         }
-        let mut digit = *b"0";
-        let _ = self.kernel.storage().read_at("turn-lab.txt", 0, &mut digit);
-        let variant = digit[0].saturating_sub(b'0').min(MOST_VARIANT);
-        let lab = &mut self.state.turn_lab;
-        if variant != lab.variant {
-            lab.variant = variant;
-            lab.turns = 0;
-        }
-        lab.turns += 1;
-        let number = lab.turns;
-        let clean = variant == MOST_VARIANT && number.is_multiple_of(CLEAN_EVERY);
-        if clean && *refresh == Refresh::Fast {
-            *refresh = Refresh::Half;
-        }
-        Some(Turn { variant, number })
+
+        #[inline(always)]
+        pub(in crate::firmware) fn turn_lab_waveform(&mut self, _: Option<Turn>, _: Refresh) {}
     }
 
-    /// Sets the variant's waveform for a page turn shown as a fast refresh.
-    pub(super) fn turn_lab_waveform(&mut self, turn: Option<Turn>, refresh: Refresh) {
-        if refresh == Refresh::Fast
-            && let Some(turn) = turn
-            && turn.variant != 0
-        {
-            let _supported = self.panel.set_experiment(turn.waveform());
-        }
-    }
-}
-
-/// Logs the page turn and the time the panel took.
-pub(super) fn log(turn: Option<Turn>, refresh: Refresh, shown_ms: u64) {
-    if let Some(turn) = turn {
-        info!(
-            "turn-lab: variant {} turn {}{}: shown in {shown_ms} ms",
-            turn.variant,
-            turn.number,
-            if refresh == Refresh::Fast {
-                ""
-            } else {
-                " clean"
-            },
-        );
-    }
+    #[inline(always)]
+    pub(in crate::firmware) fn log(_: Option<Turn>, _: Refresh, _: u64) {}
 }

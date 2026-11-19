@@ -400,6 +400,8 @@ pub fn register(r: &mut Staging) -> Result<(), RegisterError> {
     }
     #[cfg(feature = "x4-pro")]
     register_light(r)?;
+    #[cfg(feature = "turn-lab")]
+    crate::lab_presets::register(r)?;
     Ok(())
 }
 
