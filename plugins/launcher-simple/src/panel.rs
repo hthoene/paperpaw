@@ -170,7 +170,7 @@ fn measure(ui: &Ui<'_, '_>, model: &Model, area: B, key: Key) -> Result<Layout, 
         paperpaw_ui_kit::mem::push(&mut names, toggle.row.title.as_str())?;
     }
     let size = ui.common(&names, ui.small, cell_w - 8)?;
-    let label = (size * 1.9) as i32;
+    let label = (size * 2.3) as i32;
     // The bars at least `bar_min` each; the switches take the rest.
     let bar_min = ((ui.u * 1.6) as i32 + 2 * ui.stroke + 8).max(64);
     let bars_h = bars.len() as i32 * (bar_min + apart);
