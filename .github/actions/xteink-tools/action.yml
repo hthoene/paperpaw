@@ -8,7 +8,7 @@ description: >
   every build takes, the features left to add).
 inputs:
   device:
-    description: x4, x3, x4-pro or x4-classic.
+    description: x4, x3, x4-pro, x4-classic or picco.
     required: true
   espflash:
     description: Whether to install espflash too.

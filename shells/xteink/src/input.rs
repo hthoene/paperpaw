@@ -52,7 +52,7 @@ pub enum Touch {
     /// The home key (a touch key below the X4 Pro's screen) went down or
     /// up: a button.
     #[cfg_attr(
-        all(feature = "remote", not(feature = "x4-pro")),
+        any(all(feature = "remote", not(feature = "x4-pro")), feature = "picco"),
         expect(dead_code, reason = "only the X4 Pro has a home key")
     )]
     Home(bool),
@@ -461,6 +461,13 @@ pub fn keep_time(unix_ms: i64) {
     with_keys(|keys| keys.set_clock(unix_ms));
 }
 
+/// Shows the Picco's front light (`light_picco`): brightness and warmth in
+/// percent, or off. Its driver is on the touch screen's bus.
+#[cfg(feature = "picco")]
+pub fn light(show: Option<(u8, u8)>) {
+    with_keys(|keys| keys.light(show));
+}
+
 /// The battery's charge in percent and its voltage in millivolts (0 until
 /// read), read again when the last reading is [`BATTERY_MS`] old.
 fn battery() -> (u8, u16) {
@@ -602,6 +609,9 @@ pub fn power_pin_low() -> bool {
 /// Stops reading and gives back the power button, e.g. to wake the X4
 /// from its deep sleep.
 pub fn stop() -> Option<Input<'static>> {
+    // The Picco's touch controller sleeps with it.
+    #[cfg(feature = "picco")]
+    with_keys(Keys::sleep_touch);
     critical_section::with(|cs| {
         let mut sampler = SAMPLER.borrow_ref_mut(cs).take()?;
         sampler.timer.unlisten();

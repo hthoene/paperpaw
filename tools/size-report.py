@@ -21,7 +21,7 @@ import sys
 DEFAULT_BUDGET = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "shells", "xteink", "size-budget.txt"
 )
-DEVICES = ("x4", "x3", "x4-pro", "x4-classic")
+DEVICES = ("x4", "x3", "x4-pro", "x4-classic", "picco")
 
 
 class Unusable(Exception):

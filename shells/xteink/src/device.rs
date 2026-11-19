@@ -364,10 +364,15 @@ static LIGHT_SETTINGS: [SettingSpec; 3] = {
 pub fn manifest() -> Manifest {
     #[cfg(feature = "x4")]
     let (name, description) = ("Xteink X4", "What only the Xteink X4 has to set.");
-    #[cfg(feature = "x4-pro")]
+    #[cfg(all(feature = "x4-pro", not(feature = "picco")))]
     let (name, description) = (
         "Xteink X4 Pro",
         "What only the Xteink X4 Pro has to set: its front light.",
+    );
+    #[cfg(feature = "picco")]
+    let (name, description) = (
+        "Boox Picco",
+        "What only the Boox Picco has to set: its front light.",
     );
     #[cfg(feature = "x4-classic")]
     let (name, description) = (

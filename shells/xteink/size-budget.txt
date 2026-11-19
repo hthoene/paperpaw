@@ -69,3 +69,7 @@ image x4 6276352
 image x3 6288336
 image x4-pro 6845216
 image x4-classic 6395632
+# The Boox Picco (experimental, #368): the X4 Pro's build with another board, without the
+# UltraChip panels' drivers. Measured on `fw/368-boox-picco` (local build of the
+# release-like image, as above): 6,583,184; the line is that plus 16,000.
+image picco 6599184

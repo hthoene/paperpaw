@@ -46,7 +46,7 @@ Their notices are in the patterns' README.md files.
 
 The firmware of the Xteink readers also contains:
 
-- Display initialisation sequences and waveform tables derived from the FreeInk SDK, Copyright (c) 2026 FreeInk, and the OpenX4 E-Paper Community SDK, Copyright (c) 2025 Open X4 E-Paper Contributors, both licensed under the MIT License (its text is below, with the crates').
+- Display initialisation sequences and waveform tables (for the Boox Picco also its touch, front light and battery tables) derived from the FreeInk SDK, Copyright (c) 2026 FreeInk, and the OpenX4 E-Paper Community SDK, Copyright (c) 2025 Open X4 E-Paper Contributors, both licensed under the MIT License (its text is below, with the crates').
 
 - Battery gauge and board facts after Papyrix, Copyright (c) 2026 Pavel Liashkov, licensed under the MIT License.
 

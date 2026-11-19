@@ -5,8 +5,9 @@ description: >
   "SD firmware update" writes such a file into its other app slot. Made
   from the release build of shells/xteink after the action xteink-tools
   (with espflash), and checked to fit PaperPaw's own app partition of
-  0x7F0000 bytes: the build fails when it does not, and the log says how
-  much room is left. CrossPoint's smaller slots (0x640000) no longer
+  0x7F0000 bytes (the Boox Picco's against the stock firmware's app
+  partition of 0xE70000, which it is flashed into): the build fails when it
+  does not, and the log says how much room is left. CrossPoint's smaller slots (0x640000) no longer
   gate the build (Decision 179: from Beta 4 PaperPaw installs by
   flashing); the log says when the image is over them.
 inputs:
@@ -26,14 +27,25 @@ runs:
         if [[ "$DEVICE" == x4-classic ]]; then
           table=partitions-classic.csv
         fi
+        # The Boox Picco keeps its stock table: the image is for its `app`
+        # partition (the table's first app is the stock recovery).
+        app=()
+        if [[ "$DEVICE" == picco ]]; then
+          table=partitions-picco.csv
+          app=(--target-app-partition app)
+        fi
         mkdir -p "$(dirname "$OUT")"
         espflash save-image --chip "$FIRMWARE_CHIP" --flash-size 16mb --partition-table "$table" \
-          "target/$FIRMWARE_TARGET/release/paperpaw-xteink" "$OUT"
+          "${app[@]}" "target/$FIRMWARE_TARGET/release/paperpaw-xteink" "$OUT"
         # PaperPaw's own app partitions (partitions.csv, ota_0): the image must
         # fit them. CrossPoint's slots (its partitions.csv, as the stock X4's)
         # are 0x640000: over those the image installs by flashing only.
         slot=$((0x7F0000))
         crosspoint=$((0x640000))
+        if [[ "$DEVICE" == picco ]]; then
+          slot=$((0xE70000))
+          crosspoint=$slot
+        fi
         size=$(stat -c %s "$OUT")
         spare=$((slot - size))
         percent=$(awk -v s="$spare" -v t="$slot" 'BEGIN { printf "%.1f", 100 * s / t }')

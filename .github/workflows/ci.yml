@@ -501,13 +501,14 @@ jobs:
     # builds, the plugin packs; run 43647500792 hit 30 in its last step, #259), so
     # they get 45. An apt mirror that stalls once held a run for 45
     # (build-prerequisites.sh): fail then and rerun.
-    timeout-minutes: ${{ (matrix.device == 'x4-pro' || matrix.device == 'x4-classic') && 45 || 30 }}
+    timeout-minutes: ${{ (matrix.device != 'x4' && matrix.device != 'x3') && 45 || 30 }}
     strategy:
       fail-fast: false
       matrix:
         # The X4 and the X3 (ESP32-C3; the X3 experimental), the X4 Pro and
-        # the X4 Classic (ESP32-S3).
-        device: [x4, x3, x4-pro, x4-classic]
+        # the X4 Classic (ESP32-S3), and the Boox Picco (ESP32-S3,
+        # experimental: an X4 Pro with another board, #368).
+        device: [x4, x3, x4-pro, x4-classic, picco]
     env:
       DEVICE: ${{ matrix.device }}
     steps:
@@ -528,7 +529,7 @@ jobs:
           # Xtensa, esp-hal, mbedTLS) and the X4 and the X3 the same for RISC-V:
           # one cache for each pair, not four (the four held 6.8 of the 10 GB the
           # repository may keep, and evicted the small caches that matter more).
-          shared-key: ${{ (matrix.device == 'x4-pro' || matrix.device == 'x4-classic') && 'firmware-s3' || 'firmware-riscv' }}
+          shared-key: ${{ (matrix.device != 'x4' && matrix.device != 'x3') && 'firmware-s3' || 'firmware-riscv' }}
       # Code plugins for the ESP32-S3 link with core libraries built once,
       # as the release publishes them; installed first, as the release
       # does, so that everything after builds beside them.
@@ -636,7 +637,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: [x4-pro, x4-classic]
+        device: [x4-pro, x4-classic, picco]
     env:
       DEVICE: ${{ matrix.device }}
     steps:
@@ -672,7 +673,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        device: [x4-pro, x4-classic]
+        device: [x4-pro, x4-classic, picco]
     env:
       DEVICE: ${{ matrix.device }}
     steps:
@@ -708,7 +709,8 @@ jobs:
       - name: The S3's host frames and calls fit under the band
         run: |
           # The X4 Pro and the X4 Classic are two builds with their own symbols:
-          # one budget each.
+          # one budget each. The Boox Picco is the X4 Pro's build with another
+          # board and holds the X4 Pro's budget (#368).
           budget=shells/xteink/frame-budget-s3.txt
           [[ "$DEVICE" == x4-classic ]] && budget=shells/xteink/frame-budget-s3-classic.txt
           cargo run -q --release -p paperpaw-sign -- frames-s3 \
@@ -744,14 +746,17 @@ jobs:
           out: ${{ runner.temp }}/install.bin
       - name: The install image has one data segment
         run: cargo run -q --release -p paperpaw-sign -- check-app "$RUNNER_TEMP/install.bin"
-      # For the update path (job update-path).
+      # For the update path (job update-path); the Picco has none (one app
+      # partition), and runs the X4 Pro's plugins.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.device != 'picco'
         with:
           name: install-image-${{ matrix.device }}
           path: ${{ runner.temp }}/install.bin
           retention-days: 1
       # For firmware-s3-fit: the plugins must fit this build.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.device != 'picco'
         with:
           name: firmware-elf-${{ matrix.device }}
           path: shells/xteink/target/xtensa-esp32s3-none-elf/release/paperpaw-xteink
