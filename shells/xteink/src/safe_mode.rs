@@ -336,6 +336,7 @@ pub fn host_begin() {
 #[cfg(feature = "ppn5")]
 pub fn host_end() {
     with_inflight(Inflight::host_leave);
+    crate::power::host_work();
 }
 
 /// The escape resets the processor now (from the button interrupt): with a

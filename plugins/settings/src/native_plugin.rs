@@ -395,6 +395,10 @@ impl Plugin for NativeSettings {
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         let view = self.screens.top(token).ok_or(Error::State)?;
+        // Noted stale while it was not drawn (see `changed`): made anew now.
+        if *view.stale() {
+            Self::rebuild(host, view)?;
+        }
         let mut messages = Messages::new()?;
         match view {
             View::List(v) => {
@@ -667,6 +671,7 @@ impl NativeSettings {
     }
 
     /// Makes one view anew, keeping its focus.
+    #[inline(never)]
     fn rebuild(host: &Host<'_>, view: &mut View) -> Result<(), Error> {
         let mut reader = Reader::open(host)?;
         let made = match view {
@@ -693,39 +698,29 @@ impl NativeSettings {
         Ok(())
     }
 
-    /// A setting (`key`; empty: some) or the plugins changed: what shows is
-    /// made anew where it is on top, and noted where it is covered.
+    /// A setting (`key`; empty: some) or the plugins changed: a value of a row
+    /// alone changes that row; every other page is only noted as stale, and
+    /// made anew when it draws (it is on top then) or shows (it was covered).
+    /// Made here, a page below the plugin manager's cost two walks of every
+    /// settings group for each plugin switched (some 16 s on the X4, #375).
     fn changed(&mut self, host: &Host<'_>, key: &str) -> Result<(), Error> {
-        let tops = [LIST, GROUP, CHOOSE, THEMES];
+        for view in self.screens.all() {
+            *view.stale() = true;
+        }
         let mut any = false;
-        for token in tops {
+        for token in [LIST, GROUP, CHOOSE, THEMES] {
             let Some(top) = self.screens.top_instance(token) else {
                 continue;
             };
             let Some(view) = self.screens.get(top) else {
                 continue;
             };
-            // A value of a row alone changes that row; anything else, the page:
-            // the language changes the words of every row.
+            any = true;
             if let View::Group(v) = view
                 && !key.is_empty()
                 && key != model::LANGUAGE
                 && v.editing.is_none()
                 && refresh_row(host, v, key)?
-            {
-                any = true;
-                continue;
-            }
-            Self::rebuild(host, view)?;
-            any = true;
-        }
-        // Covered pages are made anew when they show.
-        for view in self.screens.all() {
-            *view.stale() = true;
-        }
-        for token in tops {
-            if let Some(top) = self.screens.top_instance(token)
-                && let Some(view) = self.screens.get(top)
             {
                 *view.stale() = false;
             }

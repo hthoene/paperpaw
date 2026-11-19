@@ -9,7 +9,7 @@
 //! work on the card keeps them fed for a while (see [`working`]).
 
 use core::cell::{Cell, RefCell};
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use critical_section::Mutex;
 use esp_hal::rtc_cntl::sleep::{LowPower, RtcSleepConfig};
@@ -371,6 +371,29 @@ pub fn working() {
             feed_watchdogs(cs);
         }
     });
+}
+
+/// The second (of the run) a host slot last kept the watchdogs fed.
+static SLOT_FED_S: AtomicU32 = AtomicU32::new(0);
+
+/// A plugin's call into the host returned (a host slot, see
+/// `paperpaw_core::native_host::host_slot`): the host is at work for a plugin
+/// (a list read, a page built from many service calls), so the watchdogs are
+/// told so, at most once a second and, as for the card, for [`WORK_S`] at
+/// most after the main loop came by. A safety net for work that runs long
+/// between two turns of the main loop, never a reason to make it long (#375).
+pub fn host_work() {
+    let second = u32::try_from(
+        esp_hal::time::Instant::now()
+            .duration_since_epoch()
+            .as_secs(),
+    )
+    .unwrap_or(u32::MAX);
+    // Load and store only: the chip has no atomic read-modify-write.
+    if SLOT_FED_S.load(Ordering::Relaxed) != second {
+        SLOT_FED_S.store(second, Ordering::Relaxed);
+        working();
+    }
 }
 
 fn feed_watchdogs(cs: critical_section::CriticalSection<'_>) {
