@@ -55,6 +55,8 @@ COMMANDS:
                 7: its crate, the X4's build configuration and what it calls of the
                 device (CODE.md says how to build it); --sdk names a PaperPaw
                 checkout's crates/paperpaw-sdk instead of the published SDK
+                (reached through a link in the new folder, .paperpaw, so that the
+                plugin builds to the same file on any computer)
     build [plugin's folder] [--device <x4|x3|x4-pro|x4-classic|emulator>]
           [--sign-tool <path>]
                 A plugin with code, from its repository to dist/<device>/<id>, its

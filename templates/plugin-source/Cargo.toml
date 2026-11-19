@@ -5,8 +5,10 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-# The repository is its own workspace.
+# The repository is its own workspace. `.paperpaw` is no part of it: a link
+# to a PaperPaw checkout, where the SDK is taken from one (`new --code --sdk`).
 [workspace]
+exclude = [".paperpaw"]
 
 # The plugin file is made from this program: no `main`, no standard library.
 [[bin]]
