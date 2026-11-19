@@ -9,12 +9,14 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::cell::RefCell;
 use paperpaw_sdk::{
-    Color, Point,
+    Color, Handled, Point,
     document::{Block, Locator},
     native::{
         Error, Host,
-        callbacks::FrameRect,
+        callbacks::{FrameRect, Input, InputGestureKind},
         canvas::Canvas,
+        commands::RedrawMode,
+        document::Documents,
         fonts::TextOrigin,
         stages::{Stage, StageRun},
     },
@@ -24,8 +26,8 @@ use super::{Open, View};
 use crate::native_document::HostDocument;
 use crate::native_draw::draw_run;
 use crate::native_layers::{
-    self as layers, Answers, Chosen, Kind,
-    page::{self, Pages, Pen},
+    self as layers, Answers, Chosen, Kind, Taps,
+    page::{self, Event, Pages, Pen},
 };
 use crate::native_look::Look;
 use crate::native_typeset::{HostFonts, Role};
@@ -408,6 +410,98 @@ impl Open {
             look,
         };
         page::draw(&mut pen, replies, at).ok();
+    }
+}
+
+impl Open {
+    /// A tap in the text area or a key action, nothing being chosen, shown
+    /// first to the layer stage's plugin where it asked for it
+    /// (`layer.input`). Taken, it is the plugin's; where its answer draws
+    /// anew, that drawing stands for the page's layer and the page is drawn
+    /// again. A refusal or no answer leaves it to the reader.
+    ///
+    /// # Errors
+    /// The host's refusal to redraw.
+    pub(super) fn layer_input(
+        &mut self,
+        host: &Host<'_>,
+        docs: &Documents,
+        input: &Input<'_>,
+    ) -> Result<Option<Handled>, Error> {
+        let chosen = self
+            .layers
+            .0
+            .try_borrow()
+            .ok()
+            .and_then(|i| i.as_ref().and_then(|i| i.layer.clone()));
+        let (Some(chosen), Some(page)) = (chosen, self.page.as_ref()) else {
+            return Ok(None);
+        };
+        if self.marking.is_active() || (chosen.taps == Taps::None && !chosen.keys) {
+            return Ok(None);
+        }
+        let Some(area) = self
+            .settings
+            .setup(host)
+            .ok()
+            .and_then(|s| self.page_area(&s))
+        else {
+            return Ok(None);
+        };
+        let event = match *input {
+            Input::Gesture {
+                position,
+                kind: InputGestureKind::Tap,
+                ..
+            } if chosen.taps != Taps::None => {
+                let text = self.layers.text_area(area);
+                let inside = |p: Point, b: crate::native_pages::Box| {
+                    (i32::from(b.x)..i32::from(b.x) + i32::from(b.width)).contains(&p.x)
+                        && (i32::from(b.y)..i32::from(b.y) + i32::from(b.height)).contains(&p.y)
+                };
+                let book = inside(position, text);
+                if !inside(position, area) || (book && chosen.taps == Taps::Off) {
+                    return Ok(None);
+                }
+                let (x, y) = (
+                    position.x - i32::from(area.x),
+                    position.y - i32::from(area.y),
+                );
+                Event::Tap(x, y, book)
+            }
+            Input::Action { action, .. } if chosen.keys => Event::Key(action),
+            _ => return Ok(None),
+        };
+        let start = (page.start.section, page.start.offset);
+        let size = (u32::from(area.width), u32::from(area.height));
+        let (Ok(ask), Ok(stage), Ok(mut out)) = (
+            page::event_input(event, start, page.lines.len(), size),
+            Stage::new(host, Kind::Layer.key()),
+            reply_buffer(),
+        ) else {
+            return Ok(None);
+        };
+        let mut run = stage.run_from(chosen.cursor, &ask, &mut out);
+        let Ok(reply) = reply_of(&mut run, &chosen) else {
+            return Ok(None);
+        };
+        let Some(redraw) = page::taken(reply) else {
+            return Ok(None);
+        };
+        if redraw {
+            let mut kept = Vec::new();
+            if kept.try_reserve_exact(reply.len()).is_ok() {
+                kept.extend_from_slice(reply);
+                let key = self.layer_key(start, Some(&chosen));
+                if let Ok(mut held) = self.layers.0.try_borrow_mut()
+                    && let Some(inner) = held.as_mut()
+                {
+                    inner.pages.keep(key, alloc::vec![kept]).ok();
+                }
+                self.redraw_page(host, docs, RedrawMode::Partial)?;
+            }
+        }
+        Ok(Some(Handled::Yes))
     }
 }
 

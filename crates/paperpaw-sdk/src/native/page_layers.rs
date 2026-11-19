@@ -18,7 +18,9 @@
 //!   page and draws it whenever the page is drawn. A plugin may follow
 //!   reading aloud ([`LayerAnswer::uses_reading_aloud`], [`LayerPage::spoken`])
 //!   and give the book's text a part of the page only
-//!   ([`LayerAnswer::region`]), drawing in the rest (a split page).
+//!   ([`LayerAnswer::region`]), drawing in the rest (a split page), and be
+//!   shown taps and key actions first ([`LayerAnswer::input`],
+//!   [`LayerAsk::Tap`], [`LayerAsk::Key`], [`LayerAnswer::taken`]).
 //!
 //! Without a subscriber nothing changes and nothing is kept. One plugin uses
 //! each stage at a time: the first in stage order whose book answer says so.
@@ -403,6 +405,50 @@ pub enum LayerAsk<'a> {
     },
     /// A page, once after its layout.
     Page(LayerPage<'a>),
+    /// A tap in the text area, for a plugin that asked for taps
+    /// ([`LayerAnswer::input`]).
+    Tap(LayerTap),
+    /// A key action while the book is on show, for a plugin that asked for
+    /// keys ([`LayerAnswer::input`]).
+    Key(LayerKey<'a>),
+}
+
+/// A tap on the page on show (nothing chosen), for [`LayerAsk::Tap`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct LayerTap {
+    /// Where, in pixels from the text area's top left (as the lines are).
+    pub x: i32,
+    pub y: i32,
+    /// On the book's region (or anywhere on the text area without one).
+    pub on_book: bool,
+    /// Where the page on show starts in the book (its first line's place).
+    pub section: u32,
+    pub offset: u32,
+}
+
+/// A key action on the page on show (nothing chosen), for [`LayerAsk::Key`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct LayerKey<'a> {
+    /// The action (`core.next`, `core.previous`, `core.confirm`, …).
+    pub action: &'a str,
+    /// Where the page on show starts in the book.
+    pub section: u32,
+    pub offset: u32,
+}
+
+/// Which taps in the text area a layer's plugin is shown first
+/// ([`LayerAnswer::input`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum LayerTaps {
+    /// None: they are the reader's.
+    None,
+    /// Those off the book's region ([`LayerAnswer::region`]): the plugin's part.
+    OffBook,
+    /// All of them, on the book's text too.
+    All,
 }
 
 impl<'a> LayerAsk<'a> {
@@ -419,6 +465,22 @@ impl<'a> LayerAsk<'a> {
             }),
             Some(Ok(layer::Record::LayerPage(page))) => {
                 let spoken = match rows.clone().next() {
+                    Some(Ok(layer::Record::LayerTap(t))) => {
+                        return Ok(Self::Tap(LayerTap {
+                            x: t.x,
+                            y: t.y,
+                            on_book: t.book != 0,
+                            section: t.section,
+                            offset: t.offset,
+                        }));
+                    }
+                    Some(Ok(layer::Record::LayerKey(k))) => {
+                        return Ok(Self::Key(LayerKey {
+                            action: k.action,
+                            section: k.section,
+                            offset: k.offset,
+                        }));
+                    }
                     Some(Ok(layer::Record::LayerAloud(a))) => Some(Spoken {
                         line: a.line,
                         word: a.word,
@@ -521,6 +583,38 @@ impl<'w> LayerAnswer<'w> {
             u32::from(height),
         );
         self.push(&layer::Record::LayerRegion(region))
+    }
+
+    /// For [`LayerAsk::Book`], right after [`uses`](Self::uses) (before or
+    /// after [`region`](Self::region)): the plugin is shown `taps` in the
+    /// text area ([`LayerAsk::Tap`]) and, with `keys`, every key action while
+    /// the book is on show ([`LayerAsk::Key`]) before the reader acts on
+    /// them; what it does not take ([`taken`](Self::taken)) stays the
+    /// reader's. Keys cost a call for each key press: ask for them only where
+    /// the plugin needs them.
+    ///
+    /// # Errors
+    /// As [`uses`](Self::uses).
+    pub fn input(&mut self, taps: LayerTaps, keys: bool) -> Result<(), Error> {
+        let taps = match taps {
+            LayerTaps::None => 0,
+            LayerTaps::OffBook => 1,
+            LayerTaps::All => 2,
+        };
+        let row = layer::LayerInput::new(taps, u32::from(keys));
+        self.push(&layer::Record::LayerInput(row))
+    }
+
+    /// For [`LayerAsk::Tap`] and [`LayerAsk::Key`]: the plugin takes it (the
+    /// reader does nothing with it). With `redraw`, the boxes, lines and text
+    /// of this answer stand for the page's layer from now on, and the page is
+    /// drawn again; without, the layer stays as it was.
+    ///
+    /// # Errors
+    /// As [`uses`](Self::uses).
+    pub fn taken(&mut self, redraw: bool) -> Result<(), Error> {
+        let row = layer::LayerTaken::new(u32::from(redraw));
+        self.push(&layer::Record::LayerTaken(row))
     }
 
     /// A box at `(x, y)`, `width` by `height`, filled with `fill` and framed

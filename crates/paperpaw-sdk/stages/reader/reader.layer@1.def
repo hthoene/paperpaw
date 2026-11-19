@@ -12,11 +12,15 @@
     "layer.book",
     "layer.page",
     "layer.aloud",
-    "layer.line"
+    "layer.line",
+    "layer.tap",
+    "layer.key"
   ],
   "reply": [
     "layer.uses",
     "layer.region",
+    "layer.input",
+    "layer.taken",
     "layer.box",
     "layer.segment",
     "layer.text"
@@ -491,6 +495,133 @@
         },
         {
           "name": "height",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "layer.input",
+      "since": 0,
+      "fields": [
+        {
+          "name": "taps",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "keys",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "layer.tap",
+      "since": 0,
+      "fields": [
+        {
+          "name": "x",
+          "type": "i32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "y",
+          "type": "i32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "book",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "section",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "offset",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "layer.key",
+      "since": 0,
+      "fields": [
+        {
+          "name": "action",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 64
+        },
+        {
+          "name": "section",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "offset",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "name": "layer.taken",
+      "since": 0,
+      "fields": [
+        {
+          "name": "redraw",
           "type": "u32",
           "since": 0,
           "optional": false,

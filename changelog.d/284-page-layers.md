@@ -18,6 +18,9 @@
   words being read (`LayerAnswer::uses_reading_aloud`, `LayerPage::spoken`), and marks them as
   it likes. It may give the book's text only a part of the page (`LayerAnswer::region`, in
   thousandths of the text area) and draw a second text, notes or a picture in the rest; its
-  lines say where in the book they are, so the plugin follows page turns. The lookup slots get
+  lines say where in the book they are, so the plugin follows page turns. It may be shown taps
+  (on its part of the page only, or all) and key actions before the reader acts on them
+  (`LayerAnswer::input`, `LayerAsk::Tap`, `LayerAsk::Key`), take them (`LayerAnswer::taken`) and
+  draw its layer anew, the page drawn again in one partial refresh. The lookup slots get
   the looked-up words' box on the screen (`anchor`), so a dictionary window can open next to
   the word.

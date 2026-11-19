@@ -1041,5 +1041,7 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
 - The layer stage is asked once a page after its words are made (the first page in the background
   step, as the decorations), its answer kept for two pages and drawn after the text, before the
   plugins' marks.
-- Not ported: taps on a layer (interface 6's `PAGE_LAYER_TAPPED`).
+- Taps on a layer (interface 6's `PAGE_LAYER_TAPPED`) come back as `layer.tap` for a plugin that
+  asks for them with `layer.input` (keys too, `layer.key`); `Open::layer_input` runs before the
+  marks' taps and the page turns.
 

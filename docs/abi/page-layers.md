@@ -65,7 +65,8 @@ fonts, as measured.
 
 ## 3. The layer stage `reader.layer@1`
 
-Input: one `layer.book` (tag 1, as `text.book`), or a page: one `layer.page`, for a plugin that
+Input: one `layer.book` (tag 1, as `text.book`); or a tap or a key: one `layer.page` (no lines,
+`first` = `lines`) and one `layer.tap` or `layer.key`; or a page: one `layer.page`, for a plugin that
 follows reading aloud one `layer.aloud` while the book is read aloud, and up to 62 `layer.line`
 records (a page of more lines, or of lines that do not fit 3,840 bytes, is asked in more than one
 call, each from line `first` on).
@@ -74,6 +75,8 @@ call, each from line `first` on).
 | --- | --- | --- |
 | 2 | `layer.page` | `width: u32`, `height: u32` (the text area), `lines: u32` (in all), `first: u32` |
 | 8 | `layer.aloud` | `line: u32`, `word: u32`, `end_line: u32`, `end_word: u32`: the words being read aloud, from word `word` of line `line` (lines counted on the page as `first` counts them, words as `words` counts them) to word `end_word` of line `end_line`, not included |
+| 11 | `layer.tap` | `x: i32`, `y: i32` (from the text area's top left), `book: u32` (1: on the book's region), `section: u32`, `offset: u32` (where the page on show starts) |
+| 12 | `layer.key` | `action: str 64` (`core.next`, `core.confirm`, …), `section: u32`, `offset: u32` |
 | 3 | `layer.line` | `x: i32`, `baseline: i32`, `width: u32`, `size: u32` (its words' boxes' height), `leading: u32` (the room above, pixels), `top: i32` (its words' boxes' top; the room below a line reaches to the next line's `top - leading`), `section: u32`, `offset: u32` (its first word's place), `inserted: u32`, `text: str 512`, `words: bytes 510` (per word 6 bytes: `x`, `width`, `at` (its byte in `text`), u16 little-endian; a word whose box is not known is 0 wide at 0 and keeps its number) |
 
 Positions are pixels from the text area's top left (the whole of it where a region is used).
@@ -83,6 +86,8 @@ Reply, at most 64 records:
 | --- | --- | --- |
 | 4 | `layer.uses` | `signature: u64`, `aloud: u32` (1: the plugin follows reading aloud), to `layer.book` |
 | 9 | `layer.region` | `x, y, width, height: u32`, to `layer.book` after `layer.uses`: the part of the text area the reader sets the book's text in, in thousandths of it (each side at least 100, inside the area; else not used) |
+| 10 | `layer.input` | `taps: u32` (0 none, 1 those off the book's region, 2 all in the text area), `keys: u32` (1: every key action while the book is on show), to `layer.book` after `layer.uses` (before or after `layer.region`) |
+| 13 | `layer.taken` | `redraw: u32`, to `layer.tap` / `layer.key`: the plugin takes it; with `redraw` 1 the drawing of this answer stands for the page's layer and the page is drawn again (partial refresh); without the record the reader acts on it as it would |
 | 5 | `layer.box` | `x, y: i32`, `width, height: u32`, `fill, ink: u32` (gray 0 black to 255 white; 256 or more none), `thickness: u32` (frame, at most 64) |
 | 6 | `layer.segment` | `x1, y1, x2, y2: i32`, `ink: u32`, `thickness: u32` (1 to 64) |
 | 7 | `layer.text` | `x, y: i32` (pen and baseline), `size: u32` (pixels, 4 to 200), `ink: u32`, `italic: u32`, `text: str 256` |
@@ -105,8 +110,18 @@ the background step after it is shown (as the decorations), and drawn again with
   the host's fonts, `native::fonts::Font::measure_text`), notes, a picture. The lines of each page
   say where in the book they are (`section`, `offset`), and the text stage's blocks say the same
   for each paragraph, so a plugin follows the book with its own text: a page turn asks the layer
-  of the new page, and the reader draws text and layer in one refresh. Keys and taps stay the
-  reader's (page turns, selection).
+  of the new page, and the reader draws text and layer in one refresh. A second document: the
+  plugin opens it as any opener does (`core.document`, `document.md`), lays it out with the SDK's
+  layout (`paperpaw_sdk::layout`) and draws its lines as `layer.text`, finding the place that goes
+  with the page from `section` / `offset` (its own map, e.g. by paragraph).
+- **Taps and keys** (#284). With `layer.input` the plugin is shown taps in the text area (those off
+  the book's region, or all) and key actions before the reader acts on them, while nothing is
+  chosen (a selection, zoom and the status lines keep theirs). It answers `layer.taken` for what it
+  takes, else the reader goes on as without it: a plugin that does not take `core.next` leaves
+  page turns to the reader, and follows them with the next page's ask. Its own focus between
+  regions, a button drawn in its part, a second text it scrolls: the plugin keeps that state and
+  draws it anew with `redraw`, only the page being drawn again. Keys cost one call per key press;
+  ask for them only where needed.
 
 ## 3.1 Anchored windows (#378)
 
@@ -127,15 +142,15 @@ windows at a word.
 - With a layer plugin: the answers of two pages (at most 3,840 bytes each), one callback per new
   page (more for a page of many lines), none for a page drawn again; for a plugin that follows
   reading aloud one more per sentence read (the page is drawn again for it anyway where the
-  sentence is underlined).
+  sentence is underlined); for one that asked for taps or keys one per tap or key press it is
+  shown (the answer it draws anew replaces the page's kept one).
 
 ## 5. Not yet
 
 - A word-by-word reading-aloud position (the host's speech says only when a sentence ends).
-- A second document laid out by the reader in a region (the plugin sets its own text there), and
-  keys or taps for a layer's region.
+- A second document laid out and drawn by the reader in a region (the plugin sets its text there
+  itself), and ui-kit widgets inside a region (a layer draws boxes, lines and text; a window of
+  its own opens as an overlay, 3.1).
 
-- No tap on what a layer drew (interface 6's `PAGE_LAYER_TAPPED`): `reader.decorations@1` takes
-  taps on marks.
 - Annotations on right-to-left and vertical lines; a gloss over a page break.
 - More than one plugin per stage and book.

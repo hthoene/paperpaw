@@ -908,6 +908,9 @@ impl View {
         if let Some(handled) = open.status_input(host, ui, input)? {
             return Ok(handled);
         }
+        if let Some(handled) = open.layer_input(host, docs, input)? {
+            return Ok(handled);
+        }
         if let Some(handled) = open.decoration_tap(host, input)? {
             return Ok(handled);
         }

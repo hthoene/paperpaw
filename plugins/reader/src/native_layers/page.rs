@@ -256,6 +256,63 @@ pub fn fire(
     Ok((out, next))
 }
 
+/// What the plugin is shown of the page on show with a tap or a key: the
+/// page's head (its lines not shown again) and the event.
+#[derive(Clone, Copy, Debug)]
+pub enum Event<'a> {
+    /// A tap at `(x, y)` from the text area's top left, on the book's region
+    /// or not.
+    Tap(i32, i32, bool),
+    /// A key action.
+    Key(&'a str),
+}
+
+/// The ask of `event` on the page of `lines` lines that starts at `start`,
+/// in a text area of `(width, height)`.
+///
+/// # Errors
+/// [`Error::NoMemory`], [`Error::Invalid`] where it cannot be encoded.
+pub fn event_input(
+    event: Event<'_>,
+    (section, offset): (u32, u32),
+    lines: usize,
+    (width, height): (u32, u32),
+) -> Result<Vec<u8>, Error> {
+    let mut out = buffer(160)?;
+    let mut writer = layer::InputWriter::new(&mut out).map_err(|_| Error::NoSpace)?;
+    let lines = u32::try_from(lines).unwrap_or(u32::MAX);
+    let head = layer::LayerPage::new(width, height, lines, lines);
+    let row = match event {
+        Event::Tap(x, y, book) => {
+            layer::Record::LayerTap(layer::LayerTap::new(x, y, u32::from(book), section, offset))
+        }
+        Event::Key(action) => layer::Record::LayerKey(layer::LayerKey::new(
+            super::cut(action, layer::LAYER_KEY_ACTION_MAX_BYTES),
+            section,
+            offset,
+        )),
+    };
+    for row in [layer::Record::LayerPage(head), row] {
+        writer.push(&row).map_err(|_| Error::Invalid)?;
+    }
+    let len = writer.finish().map_err(|_| Error::Invalid)?;
+    out.truncate(len);
+    Ok(out)
+}
+
+/// Whether `reply` (the answer to an [`event_input`]) takes the event, and
+/// whether its drawing then stands for the page's layer.
+#[must_use]
+pub fn taken(reply: &[u8]) -> Option<bool> {
+    layer::reply_decode(reply)
+        .ok()?
+        .flatten()
+        .find_map(|row| match row {
+            layer::Record::LayerTaken(t) => Some(t.redraw != 0),
+            _ => None,
+        })
+}
+
 /// What a layer is drawn with: in grays, the reading font for its text.
 pub trait Pen {
     /// Fills `width` by `height` at `(x, y)`.

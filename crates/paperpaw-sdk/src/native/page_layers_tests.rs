@@ -163,3 +163,51 @@ fn a_page_read_aloud_says_its_words_to_a_plugin_that_follows_it() {
         ))))
     );
 }
+
+#[test]
+fn taps_and_keys_are_read_and_answered() {
+    let ask = |row: layer::Record<'_>| {
+        let page = layer::Record::LayerPage(layer::LayerPage::new(400, 600, 30, 30));
+        let mut input = alloc::vec![0; layer::MAX_INPUT];
+        let len = layer::input_encode(&[page, row], &mut input).unwrap();
+        input.truncate(len);
+        input
+    };
+    let tap = ask(layer::Record::LayerTap(layer::LayerTap::new(
+        250, 30, 0, 1, 7,
+    )));
+    let LayerAsk::Tap(tap) = LayerAsk::decode(&tap).unwrap() else {
+        panic!("a tap");
+    };
+    assert_eq!(
+        (tap.x, tap.y, tap.on_book, tap.section, tap.offset),
+        (250, 30, false, 1, 7)
+    );
+    let key = ask(layer::Record::LayerKey(layer::LayerKey::new(
+        "core.next",
+        1,
+        7,
+    )));
+    let LayerAsk::Key(key) = LayerAsk::decode(&key).unwrap() else {
+        panic!("a key");
+    };
+    assert_eq!(key.action, "core.next");
+    let mut out = [0; 64];
+    let mut answer = LayerAnswer::new(&mut out).unwrap();
+    answer.uses(3).unwrap();
+    answer.input(LayerTaps::OffBook, true).unwrap();
+    answer.taken(true).unwrap();
+    let len = answer.finish().unwrap();
+    let rows: alloc::vec::Vec<_> = layer::reply_decode(&out[..len])
+        .unwrap()
+        .flatten()
+        .collect();
+    assert_eq!(
+        rows[1],
+        layer::Record::LayerInput(layer::LayerInput::new(1, 1))
+    );
+    assert_eq!(
+        rows[2],
+        layer::Record::LayerTaken(layer::LayerTaken::new(1))
+    );
+}

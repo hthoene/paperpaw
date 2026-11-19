@@ -93,6 +93,8 @@ fn a_plugin_is_chosen_only_where_it_says_it_adds_to_the_book() {
             signature: 5_u64.rotate_left(7) ^ 9,
             aloud: false,
             region: None,
+            taps: Taps::None,
+            keys: false,
         })
     );
     let none = answer(&[text::Record::TextUses(text::TextUses::new(0))]);
@@ -372,4 +374,55 @@ fn a_region_gives_the_text_a_part_of_the_area_and_the_lines_say_where_it_is() {
         _ => None,
     });
     assert_eq!(line, Some(316));
+}
+
+#[test]
+fn a_plugin_that_asks_for_taps_and_keys_is_shown_them_and_says_what_it_takes() {
+    let uses = layer_answer(&[
+        layer::Record::LayerUses(layer::LayerUses::new(5, 0)),
+        layer::Record::LayerInput(layer::LayerInput::new(1, 1)),
+        layer::Record::LayerRegion(layer::LayerRegion::new(0, 0, 500, 1000)),
+    ]);
+    let chosen = Chosen::from_reply(Kind::Layer, (0, "split", 0), &uses)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (chosen.taps, chosen.keys, chosen.region),
+        (Taps::Off, true, Some([0, 0, 500, 1000]))
+    );
+    let tap = page::event_input(page::Event::Tap(300, 40, false), (2, 90), 12, (480, 700));
+    let tap = tap.unwrap();
+    let mut asked = layer::input_decode(&tap).unwrap();
+    assert_eq!(
+        asked.next(),
+        Some(Ok(layer::Record::LayerPage(layer::LayerPage::new(
+            480, 700, 12, 12
+        ))))
+    );
+    assert_eq!(
+        asked.next(),
+        Some(Ok(layer::Record::LayerTap(layer::LayerTap::new(
+            300, 40, 0, 2, 90
+        ))))
+    );
+    let key = page::event_input(page::Event::Key("core.next"), (2, 90), 12, (480, 700));
+    let key = key.unwrap();
+    let mut asked = layer::input_decode(&key).unwrap();
+    asked.next();
+    assert_eq!(
+        asked.next(),
+        Some(Ok(layer::Record::LayerKey(layer::LayerKey::new(
+            "core.next",
+            2,
+            90
+        ))))
+    );
+    let drawn = layer_answer(&[
+        layer::Record::LayerTaken(layer::LayerTaken::new(1)),
+        layer::Record::LayerBox(layer::LayerBox::new(0, 0, 4, 4, 0, 256, 0)),
+    ]);
+    assert_eq!(page::taken(&drawn), Some(true));
+    let kept = layer_answer(&[layer::Record::LayerTaken(layer::LayerTaken::new(0))]);
+    assert_eq!(page::taken(&kept), Some(false));
+    assert_eq!(page::taken(&layer_answer(&[])), None);
 }

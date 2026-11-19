@@ -63,6 +63,22 @@ pub struct Chosen {
     /// Where the book's text goes in the text area, in thousandths of it
     /// (`x`, `y`, `width`, `height`): the rest is the layer's. None: all of it.
     pub region: Option<[u16; 4]>,
+    /// Which taps in the text area it is shown ([`Taps`]).
+    pub taps: Taps,
+    /// It is shown the key actions first while the book is on show.
+    pub keys: bool,
+}
+
+/// The taps in the text area a layer's plugin is shown first.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Taps {
+    /// None: they are the reader's.
+    #[default]
+    None,
+    /// Those off the book's region.
+    Off,
+    /// All of them.
+    All,
 }
 
 /// The smallest side of a region, in thousandths of the text area.
@@ -94,7 +110,7 @@ impl Chosen {
         (cursor, subscriber, registered): (u32, &str, u64),
         payload: &[u8],
     ) -> Result<Option<Self>, Error> {
-        let (mut region, mut rows) = (None, layer::reply_decode(payload).ok());
+        let (mut region, mut input, mut rows) = (None, None, layer::reply_decode(payload).ok());
         let (signature, aloud) = match kind {
             Kind::Text => match text::reply_decode(payload).ok().and_then(|mut r| r.next()) {
                 Some(Ok(text::Record::TextUses(uses))) => (uses.signature, false),
@@ -102,10 +118,12 @@ impl Chosen {
             },
             Kind::Layer => match rows.as_mut().and_then(Iterator::next) {
                 Some(Ok(layer::Record::LayerUses(uses))) => {
-                    if let Some(Ok(layer::Record::LayerRegion(r))) =
-                        rows.as_mut().and_then(Iterator::next)
-                    {
-                        region = region_of(&r);
+                    for row in rows.into_iter().flatten().take(2).flatten() {
+                        match row {
+                            layer::Record::LayerRegion(r) => region = region_of(&r),
+                            layer::Record::LayerInput(i) => input = Some(i),
+                            _ => {}
+                        }
                     }
                     (uses.signature, uses.aloud != 0)
                 }
@@ -121,6 +139,12 @@ impl Chosen {
             signature: signature.rotate_left(7) ^ registered,
             aloud,
             region,
+            taps: match input.map_or(0, |i| i.taps) {
+                0 => Taps::None,
+                1 => Taps::Off,
+                _ => Taps::All,
+            },
+            keys: input.is_some_and(|i| i.keys != 0),
         }))
     }
 }
