@@ -304,7 +304,7 @@ mod op {
 
 /// The `core.net` backend.
 pub(crate) fn backend(
-    _frame: &dyn Frame,
+    frame: &dyn Frame,
     who: &Caller<'_>,
     op: &ServiceOp,
     input: &[u8],
@@ -313,7 +313,12 @@ pub(crate) fn backend(
     let host = &*who.hosts.net_for_call()?.0;
     match op.id {
         op::REQUEST => {
-            let id = table::request(host, who, input)?;
+            let id = table::request(host, who, input).inspect_err(|code| {
+                crate::native_host::device_log::frame_line(
+                    frame,
+                    format_args!("net: request of {} refused ({code})", who.owner),
+                );
+            })?;
             reply(
                 &Record::ServiceNetStarted(wire::ServiceNetStarted { id }),
                 out,

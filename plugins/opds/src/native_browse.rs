@@ -64,6 +64,8 @@ pub enum Note {
     Loading(String),
     NoNetwork,
     FailedHost(String),
+    /// The server's certificate is not known (no `All certificates`).
+    CertificateUnknown,
     Unauthorized,
     Error {
         host: String,
@@ -342,6 +344,7 @@ impl Browser {
             Ended::Unauthorized => Note::Unauthorized,
             Ended::NoNetwork => Note::NoNetwork,
             Ended::Unreached => Note::FailedHost(copy(host(url))?),
+            Ended::Untrusted => Note::CertificateUnknown,
             Ended::Status(status) => Note::Error {
                 host: copy(host(url))?,
                 status,

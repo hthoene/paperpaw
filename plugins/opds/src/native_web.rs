@@ -250,6 +250,8 @@ pub enum Ended {
     Stopped,
     /// The host could not be reached, or the answer was too large.
     Unreached,
+    /// The secure connection failed: the certificate is not known.
+    Untrusted,
 }
 
 /// How `done` ended.
@@ -266,6 +268,7 @@ pub fn ended(done: &HttpDone) -> Ended {
             Ended::NoNetwork
         }
         Reason::Replaced | Reason::Cancelled => Ended::Stopped,
+        Reason::Tls => Ended::Untrusted,
         _ => Ended::Unreached,
     }
 }

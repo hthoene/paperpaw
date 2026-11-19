@@ -48,8 +48,10 @@ const LOOKED: &str = "looked.txt";
 const SERVER: &str = "update.server";
 pub const LOOK: &str = "update.look";
 const BETAS: &str = "update.betas";
-/// The longest answer read: below what a memory body is on the X4 (45,056).
-const MAX_ANSWER: u32 = 40 * 1024;
+/// The longest answer read: what the X4 allows a memory body (16 KiB,
+/// `NetLimits::max_body` in its shell); a request that asks for more is
+/// refused there (`ERR_NO_SPACE`).
+const MAX_ANSWER: u32 = 16 * 1024;
 const WEEK_MS: u32 = 7 * 24 * 3600 * 1000;
 /// A check from the action comes within this long, at a moment the network is up.
 const CHECK_WITHIN_MS: u32 = 3_600_000;
@@ -673,5 +675,15 @@ impl NativeUpdate {
             return tolerate(self.plan_look(host));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_answer_asked_for_fits_the_x4_body_limit() {
+        const { assert!(MAX_ANSWER <= 16 * 1024, "the X4 refuses a larger max_body") };
     }
 }

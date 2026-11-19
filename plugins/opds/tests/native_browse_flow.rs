@@ -526,6 +526,7 @@ fn what_goes_wrong_is_said() {
         (403, 0, "Unauthorized"),
         (0, 4, "FailedHost(\"www.gutenberg.org\")"),
         (0, 2, "FailedHost(\"www.gutenberg.org\")"),
+        (0, 3, "CertificateUnknown"),
         (0, 1, "NoNetwork"),
         (0, 11, "NoNetwork"),
         (0, 12, "NoNetwork"),

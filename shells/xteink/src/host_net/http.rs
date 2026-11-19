@@ -203,6 +203,7 @@ fn finish(
         None => HttpReason::Ok,
         Some(HttpError::NoNetwork) => HttpReason::NoNetwork,
         Some(HttpError::Dns) => HttpReason::Dns,
+        Some(HttpError::Tls) => HttpReason::Tls,
         Some(HttpError::Timeout) => HttpReason::Timeout,
         Some(HttpError::Refused) if too_large(&response.body) => HttpReason::TooLarge,
         Some(HttpError::Refused) => HttpReason::Refused,
