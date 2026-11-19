@@ -1,17 +1,19 @@
-"""The Khmer and Lao words the line breaker finds in books (#314).
+"""The Khmer, Lao and Burmese words the line breaker finds in books (#314,
+#397).
 
-Khmer and Lao are written without spaces between words, as Thai is
-(`tools/thai-dictionary.py`, #313). The packs of the plugins
-`script-khmer` and `script-lao` carry a table of words (slot 6 of a pack,
+Khmer, Lao and Burmese are written without spaces between words, as Thai
+is (`tools/thai-dictionary.py`, #313). The packs of the plugins
+`script-khmer`, `script-lao` and `script-myanmar` carry a table of words (slot 6 of a pack,
 see `crates/paperpaw-text/src/bitmap.rs`) in the Thai table's format, the
 script in its head: a line then breaks between two words found there
 (longest match, `crates/paperpaw-text/src/linebreak/thai.rs`).
 
-The words are `tools/khmer-words.txt` and `tools/lao-words.txt` (one a
-line): the words of ICU's word lists (`khmerdict.txt`, `laodict.txt` of
+The words are `tools/khmer-words.txt`, `tools/lao-words.txt` and
+`tools/myanmar-words.txt` (one a line): the words of ICU's word lists
+(`khmerdict.txt`, `laodict.txt`, `burmesedict.txt` of
 icu4c/source/data/brkitr/dictionaries; Unicode License V3, the Lao list
 also under its authors' BSD-style licence, NOTICE) of 2 to 15 letters
-found most often in the articles of the Khmer and Lao Wikipedias (a dump
+found most often in the articles of the Khmer, Lao and Burmese Wikipedias (a dump
 `pages-articles.xml.bz2`, its runs of letters cut by longest match).
 
     python3 tools/word-table.py make SCRIPT ICU_LIST WIKI_DUMP
@@ -23,10 +25,11 @@ found most often in the articles of the Khmer and Lao Wikipedias (a dump
         Prints the words and the table's bytes.
 
 The table (version 1): its head (version, the script: 0 Thai, 1 Lao,
-2 Khmer, 2 reserved, length u32), the word count u16, the block count
+2 Khmer, 3 Myanmar, 2 reserved, length u32), the word count u16, the block count
 u16, the offset u16 of each block from the first block's start, then the
 words sorted by their letters, 16 a block. A letter is one byte, its code
-point less the block's first (U+0E80 for Lao, U+1780 for Khmer); a word
+point less the block's first (U+0E80 for Lao, U+1780 for Khmer, U+1000
+for Burmese); a word
 is one byte, the letters it shares with the word before in the high four
 bits (0 for a block's first) and the count of those that follow in the
 low four, then those.
@@ -53,6 +56,8 @@ SCRIPTS = {
             "ຯະ-ຽໆ່-໎", "ເ-ໄ", 3000),
     "khmer": (2, 0x1780, "ក-៓ៗ៝",
               "឴-៓ៗ៝", "្", 3000),
+    "myanmar": (3, 0x1000, "က-ဿ၌-ၙ",
+                "ါ-ှၖ-ၙ", "္", 2000),
 }
 HEADER = """\
 # {Name} words for the line breaker (#314, tools/word-table.py): the

@@ -1,5 +1,5 @@
 //! The substitutions of a font's Indic scripts (Bengali, Devanagari,
-//! Gujarati, Oriya, Gurmukhi; Khmer, Lao and Tibetan) as a pack keeps them (slot 4, see `bitmap.rs`): what the shaper
+//! Gujarati, Oriya, Gurmukhi; Khmer, Lao, Tibetan and Myanmar) as a pack keeps them (slot 4, see `bitmap.rs`): what the shaper
 //! ([`super::Shaper`]) applies, read from the font's GSUB for the scripts'
 //! second version (`bng2`, `dev2`; else the first), feature by feature in the order the
 //! shaper applies them; the presentation features as one (`pres`), their
@@ -1048,7 +1048,7 @@ fn chain_applied(t: &ChainedSequenceContext<'_>) -> Vec<u16> {
 }
 
 /// The scripts' OpenType tags: their second version's, else the first's.
-const TAGS: [(Script, [&[u8; 4]; 2]); 13] = [
+const TAGS: [(Script, [&[u8; 4]; 2]); 14] = [
     (Script::Bengali, [b"bng2", b"beng"]),
     (Script::Devanagari, [b"dev2", b"deva"]),
     (Script::Khmer, [b"khmr", b"khmr"]),
@@ -1062,6 +1062,7 @@ const TAGS: [(Script, [&[u8; 4]; 2]); 13] = [
     (Script::Sinhala, [b"sinh", b"sinh"]),
     (Script::Telugu, [b"tel2", b"telu"]),
     (Script::Kannada, [b"knd2", b"knda"]),
+    (Script::Myanmar, [b"mym2", b"mymr"]),
 ];
 
 /// The substitutions of the Indic scripts among `chars` in `font`, if it

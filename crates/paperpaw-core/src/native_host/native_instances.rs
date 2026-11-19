@@ -307,6 +307,9 @@ pub(crate) struct NativeInstances {
     orphan_failure_reported: Cell<bool>,
     /// The event pump left events for another pass (see `service_pump`).
     service_more: Cell<bool>,
+    /// The start woke plugins: the idle ones are parked again once its
+    /// background work is over (`parked`, #393).
+    repark_after_jobs: Cell<bool>,
     /// The pump's event buffer, made once (see `service_pump`), and when it
     /// may try again after a refusal.
     service_buffer: core::cell::RefCell<Vec<u8>>,
@@ -1018,6 +1021,20 @@ impl NativeInstances {
 
     pub(crate) fn set_service_more(&self, more: bool) {
         self.service_more.set(more);
+    }
+
+    /// The idle plugins are to be parked again once the background work is
+    /// over (`Kernel::native_repark_after_jobs`).
+    pub(crate) fn repark_after_jobs(&self) {
+        self.repark_after_jobs.set(true);
+    }
+
+    pub(crate) fn repark_after_jobs_due(&self) -> bool {
+        self.repark_after_jobs.get()
+    }
+
+    pub(crate) fn repark_after_jobs_done(&self) {
+        self.repark_after_jobs.set(false);
     }
 
     /// The device's services that raise events (`core.net`, `core.sockets`,

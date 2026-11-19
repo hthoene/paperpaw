@@ -463,6 +463,9 @@ impl Kernel {
         // The shell hosted its native plugins before this call: what their
         // admission kept in reserve is given back.
         self.native_hosted();
+        // What the start makes of the sleeping plugins sleeps again once the
+        // start's work is over (#393).
+        self.shared.native_instances.repark_after_jobs();
         // Made while there is room: shown when a screen cannot open for a lack.
         self.reserve_memory_notice();
         // The passwords the sealer of `core.secrets` keeps are read before

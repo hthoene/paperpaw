@@ -232,6 +232,7 @@ impl crate::Kernel {
     #[inline(never)]
     pub(crate) fn native_service_pump(&mut self) {
         if !self.native_service_round().0 {
+            self.native_repark_after_jobs();
             return;
         }
         let (made, doc_more) = self.native_service_round();

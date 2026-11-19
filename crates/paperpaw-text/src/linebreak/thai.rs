@@ -4,7 +4,10 @@
 //! and Khmer, also written without spaces, break the same way between the
 //! words of their packs' tables (#314, `tools/word-table.py`), Lao's
 //! letters and signs where Thai's are, Khmer's clusters a consonant with
-//! those joined below it by coeng (U+17D2), its vowels and signs.
+//! those joined below it by coeng (U+17D2), its vowels and signs; and
+//! Burmese (#397), its clusters a consonant with its signs, the consonant
+//! asat or virama silence ending the syllable before, the one stacked
+//! after virama held with it.
 //!
 //! A run of Thai letters is read from a word's start: of the words that
 //! start there, the longest one after which the run ends or another word
@@ -30,17 +33,18 @@ const HEAD: usize = 12;
 const VERSION: u8 = 1;
 
 /// The scripts written without spaces whose words a pack may carry, as a
-/// table's head numbers them (0 Thai, 1 Lao, 2 Khmer).
+/// table's head numbers them (0 Thai, 1 Lao, 2 Khmer, 3 Myanmar).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Script {
     Thai,
     Lao,
     Khmer,
+    Myanmar,
 }
 
 impl Script {
     /// The scripts, in the order a table's head numbers them.
-    pub(crate) const ALL: [Script; 3] = [Script::Thai, Script::Lao, Script::Khmer];
+    pub(crate) const ALL: [Script; 4] = [Script::Thai, Script::Lao, Script::Khmer, Script::Myanmar];
 
     /// The first code point of its block: a letter in a table is its code
     /// point less it.
@@ -49,6 +53,7 @@ impl Script {
             Script::Thai => 0xE00,
             Script::Lao => 0xE80,
             Script::Khmer => 0x1780,
+            Script::Myanmar => 0x1000,
         }
     }
 
@@ -66,6 +71,7 @@ impl Script {
             Script::Thai => matches!(l, 0x01..=0x3A | 0x40..=0x4E),
             Script::Lao => matches!(l, 0x01..=0x3D | 0x40..=0x4E | 0x5C..=0x5F),
             Script::Khmer => matches!(l, 0x00..=0x53 | 0x57 | 0x5D),
+            Script::Myanmar => matches!(l, 0x00..=0x3F | 0x4C..=0x59),
         }
     }
 
@@ -78,6 +84,7 @@ impl Script {
             Script::Thai => matches!(l, 0x2F..=0x3A | 0x45..=0x4E),
             Script::Lao => matches!(l, 0x2F..=0x3D | 0x46..=0x4E),
             Script::Khmer => matches!(l, 0x34..=0x53 | 0x57 | 0x5D),
+            Script::Myanmar => matches!(l, 0x2B..=0x3E | 0x56..=0x59),
         }
     }
 
@@ -85,26 +92,29 @@ impl Script {
     const fn leads(self, l: u8) -> bool {
         match self {
             Script::Thai | Script::Lao => matches!(l, 0x40..=0x44),
-            Script::Khmer => false,
+            Script::Khmer | Script::Myanmar => false,
         }
     }
 
     /// Whether the letter after this one stays with it: after Thai's MAI
-    /// HAN-AKAT and Lao's MAI KAN their final letter, after coeng the
-    /// consonant drawn below.
+    /// HAN-AKAT and Lao's MAI KAN their final letter, after coeng (Burmese
+    /// virama) the consonant drawn below.
     const fn holds_next(self, l: u8) -> bool {
         match self {
             Script::Thai | Script::Lao => l == 0x31,
             Script::Khmer => l == 0x52,
+            Script::Myanmar => l == 0x39,
         }
     }
 
     /// Whether the letter silences the one before it, which so ends the
-    /// syllable before (Thai's THANTHAKHAT, Lao's cancellation mark).
+    /// syllable before (Thai's THANTHAKHAT, Lao's cancellation mark,
+    /// Burmese asat and virama).
     const fn silences(self, l: u8) -> bool {
         match self {
             Script::Thai | Script::Lao => l == 0x4C,
             Script::Khmer => false,
+            Script::Myanmar => matches!(l, 0x39 | 0x3A),
         }
     }
 
@@ -114,6 +124,7 @@ impl Script {
         match self {
             Script::Thai | Script::Lao => matches!(l, 0x2F | 0x46),
             Script::Khmer => l == 0x57,
+            Script::Myanmar => false,
         }
     }
 }
@@ -363,6 +374,7 @@ pub(crate) mod tests {
     pub(crate) fn words_of(script: Script) -> Vec<&'static str> {
         let list = match script {
             Script::Lao => include_str!("../../../../tools/lao-words.txt"),
+            Script::Myanmar => include_str!("../../../../tools/myanmar-words.txt"),
             _ => include_str!("../../../../tools/khmer-words.txt"),
         };
         list.lines()
