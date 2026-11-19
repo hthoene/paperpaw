@@ -231,6 +231,7 @@ fn plugin_driver() -> DriverRef {
             features: &[],
         },
         signers: &[],
+        host_code: None,
     });
     d
 }
@@ -892,6 +893,7 @@ fn firmware_dual_boot_is_unsupported_until_the_host_opens_it() {
             features: &[],
         },
         signers: &[],
+        host_code: None,
     });
     // The feature first, then the gate: nothing is queued either way.
     assert_eq!(

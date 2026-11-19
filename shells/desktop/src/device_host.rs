@@ -21,7 +21,7 @@ use std::time::Instant;
 
 use paperpaw_core::native_host::device_service::{
     BluetoothFacts, BondedRow, DEVICE_SERVICES, DeviceFacts, DeviceHost, DeviceServices,
-    MemoryFacts, NetworkRow, ProbeCache, WifiFacts, caps,
+    MemoryFacts, NativeFacts, NetworkRow, ProbeCache, WifiFacts, caps,
 };
 use paperpaw_core::native_host::shell::DATA_SERVICES;
 use paperpaw_core::sdk::power::Power;
@@ -29,6 +29,11 @@ use paperpaw_native::metadata::Service;
 use paperpaw_platform::{MemoryClass, PixelFormat};
 
 use crate::profiles::Profile;
+
+/// What plugin libraries call the Linux emulator of an X4-family device that
+/// installs code plugins built for this computer (`--trust-code`): its own
+/// name, as its builds are not the X4's `.ppn` files (#278).
+pub const HOST_CATALOG: &str = "emulator-linux-x86_64";
 
 /// The services this shell advertises to admission: the shared data services
 /// and `core.device`, which this module implements.
@@ -69,6 +74,14 @@ pub fn caps_of(profile: &Profile) -> u64 {
         | bit(device.input.pen, caps::PEN)
 }
 
+/// Whether the emulated device of `profile` installs code plugins built for
+/// this computer: Linux on x86-64, code plugins on, a device of the X4 family.
+fn card_code(profile: &Profile) -> bool {
+    cfg!(all(target_os = "linux", target_arch = "x86_64"))
+        && crate::device::code_plugins_on()
+        && matches!(profile.catalog_device, Some("x4" | "x4-pro" | "x4-classic"))
+}
+
 /// Whether the device's network is up (a closure has no `Debug`).
 struct Online(Rc<dyn Fn() -> bool>);
 
@@ -94,6 +107,8 @@ pub struct DesktopDevice {
     /// The device's own view of the network: where the pretend radio is joined
     /// the radio is online, whatever `wifi_state` was set to.
     online: Option<Online>,
+    /// The emulator installs and runs code plugins built for this computer.
+    card_code: bool,
 }
 
 impl DesktopDevice {
@@ -108,6 +123,7 @@ impl DesktopDevice {
             clock: Instant::now(),
             memory: ProbeCache::new(),
             online: None,
+            card_code: card_code(profile),
         }
     }
 
@@ -149,7 +165,11 @@ impl DeviceHost for DesktopDevice {
         visit(&DeviceFacts {
             id: device.id,
             model: device.name,
-            catalog: self.profile.catalog_device.unwrap_or(""),
+            catalog: if self.card_code {
+                HOST_CATALOG
+            } else {
+                self.profile.catalog_device.unwrap_or("")
+            },
             class: match device.memory {
                 MemoryClass::Small => 0,
                 _ => 2,
@@ -161,6 +181,29 @@ impl DeviceHost for DesktopDevice {
             // The emulator does not say how it started or how long it slept.
             start: 0,
             slept_ms: None,
+        });
+        Ok(())
+    }
+
+    /// Op 5 where code plugins built for this computer are installed: the
+    /// file they are in and the interface the library is built for.
+    fn native(&self, visit: &mut dyn FnMut(&NativeFacts<'_>)) -> Result<(), i32> {
+        if !self.card_code {
+            return Err(paperpaw_native::host_glue::ERR_NOT_FOUND);
+        }
+        let file = crate::native::file_name();
+        visit(&NativeFacts {
+            abi_major: u32::from(paperpaw_core::sdk::native::INTERFACE),
+            abi_draft: u32::from(paperpaw_core::sdk::native::DRAFT),
+            target: 0,
+            code_file: &file,
+            safe_mode: 0,
+            crashed: "",
+            last_loaded: "",
+            pending: 0,
+            not_installed: 0,
+            room_free: u64::MAX / 2,
+            room_largest: u64::MAX / 2,
         });
         Ok(())
     }
@@ -369,5 +412,43 @@ mod tests {
         ));
         device.power(&mut |p| level = Some(p.level)).unwrap();
         assert_eq!(level, Some(paperpaw_core::sdk::power::PowerLevel::Saving));
+    }
+
+    /// Where the emulator installs code plugins built for this computer it
+    /// has a catalogue name of its own and says which file they are in; where
+    /// it does not (the default), it is the X4 it emulates and says no code.
+    #[test]
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    fn code_plugins_on_give_the_emulator_its_own_catalogue_name_and_file() {
+        let _one = crate::one_device_at_a_time();
+        let x4 = crate::profiles::find("xteink-x4").unwrap();
+        let catalog = |device: &DesktopDevice| {
+            let mut name = String::new();
+            device
+                .device(&mut |f| name = f.catalog.to_string())
+                .unwrap();
+            name
+        };
+        let file = |device: &DesktopDevice| {
+            let mut file = None;
+            device
+                .native(&mut |f| file = Some((f.code_file.to_string(), f.abi_major)))
+                .map(|()| file)
+        };
+        let off = DesktopDevice::new(x4);
+        assert_eq!(catalog(&off), "x4");
+        assert_eq!(file(&off), Err(ERR_NOT_FOUND));
+        crate::device::set_code_plugins(true);
+        let on = DesktopDevice::new(x4);
+        let boox = DesktopDevice::new(crate::profiles::find("boox-go-7").unwrap());
+        crate::device::set_code_plugins(false);
+        assert_eq!(catalog(&on), HOST_CATALOG);
+        assert_eq!(
+            file(&on),
+            Ok(Some((crate::native::file_name(), 7))),
+            "libraries of this computer"
+        );
+        assert_ne!(catalog(&boox), HOST_CATALOG, "no X4 family, no host builds");
+        assert_eq!(file(&boox), Err(ERR_NOT_FOUND));
     }
 }

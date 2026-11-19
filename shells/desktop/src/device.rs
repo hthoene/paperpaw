@@ -54,6 +54,11 @@ pub(crate) fn wifi_online() -> bool {
     WIFI_ONLINE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Whether code plugins built for this computer load (`--trust-code`).
+pub(crate) fn code_plugins_on() -> bool {
+    CODE_PLUGINS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Loads code plugins built for this computer, or none (by default).
 pub fn set_code_plugins(on: bool) {
     CODE_PLUGINS.store(on, std::sync::atomic::Ordering::Relaxed);

@@ -43,6 +43,7 @@ fn host() -> PluginHost {
             features: &[],
         },
         signers: &[],
+        host_code: None,
     }
 }
 

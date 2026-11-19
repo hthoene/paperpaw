@@ -130,6 +130,7 @@ impl KernelBuilder {
             loader: Some(loader),
             offered,
             signers,
+            host_code: None,
         });
         self
     }

@@ -54,8 +54,20 @@ enum Phase {
     Verify,
     Metadata,
     Trust,
+    #[cfg(feature = "host-code")]
+    HostHeader,
+    #[cfg(feature = "host-code")]
+    HostBody,
+    #[cfg(feature = "host-code")]
+    HostVerify,
+    #[cfg(feature = "host-code")]
+    HostRecord,
     Ended,
 }
+
+#[cfg(feature = "host-code")]
+#[path = "plugin_check_host.rs"]
+pub(super) mod host;
 
 /// A plugin check in the queue.
 pub(crate) struct PluginCheck {
@@ -244,6 +256,11 @@ impl PluginCheck {
                 self.release();
                 self.phase = Phase::Ended;
                 JobStep::Done(Finished::checked(reason::OK, Some(facts)))
+            }
+            #[cfg(feature = "host-code")]
+            Some(index) if Self::is_host_code(env, index) => {
+                self.phase = Phase::HostHeader;
+                JobStep::More
             }
             // Only code of a computer: another kind of device. On a device
             // that loads no code (data plugins only) any code is.
@@ -506,6 +523,14 @@ impl PluginJob for PluginCheck {
             Phase::Verify => self.verify(),
             Phase::Metadata => self.metadata(env),
             Phase::Trust => self.trust(env),
+            #[cfg(feature = "host-code")]
+            Phase::HostHeader => self.host_header(env),
+            #[cfg(feature = "host-code")]
+            Phase::HostBody => self.host_body(env),
+            #[cfg(feature = "host-code")]
+            Phase::HostVerify => self.host_verify(),
+            #[cfg(feature = "host-code")]
+            Phase::HostRecord => self.host_record(env),
             Phase::Ended => JobStep::Done(Finished::refused(reason::OTHER)),
         }
     }

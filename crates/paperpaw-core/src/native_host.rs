@@ -101,6 +101,8 @@ pub(crate) mod plugin_install;
     reason = "the queue's plugin seam wires it; see plugin_check"
 )]
 pub(crate) mod plugin_job;
+#[cfg(feature = "host-code")]
+pub use plugin_job::HostCode;
 #[path = "native_host/plugin_jobs.rs"]
 pub(crate) mod plugin_jobs;
 #[path = "native_host/plugin_remove.rs"]

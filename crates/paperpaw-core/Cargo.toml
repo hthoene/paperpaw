@@ -44,6 +44,10 @@ x4-ink = []
 # kernel answers every Bluetooth command as `off` and is 17-22 KB smaller
 # (#306). The SDK's Bluetooth types are there either way.
 bluetooth = []
+# Plugin jobs that check and install a code file built for the computer the
+# kernel runs on (`code-host.so`, signed by its author's trailer): the Linux
+# emulator's, never a device's firmware (`native_host::HostCode`, #278).
+host-code = []
 # What the app's and the shells' tests ask the kernel and a shell never does
 # (`Kernel::native_is_parked`): never in a firmware build (#248, D1).
 testing = []
