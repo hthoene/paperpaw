@@ -234,9 +234,11 @@ g_miri-stage() {
 
 g_native() {
     run "native: the preflight accepts a real plugin library" "cargo test -p paperpaw-native --test real_plugin -- --ignored"
+    # Under the worktree's own target directory when CARGO_TARGET_DIR is set.
     run "native: the SDK keeps no mutable statics" '
-        CARGO_PROFILE_RELEASE_LTO=false cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-sdk --target-dir target/statics
-        CARGO_PROFILE_RELEASE_LTO=false cargo run --release -p paperpaw-sign -- statics target/statics/riscv32imc-unknown-none-elf/release/deps/*.rlib'
+        statics="${CARGO_TARGET_DIR:-target}/statics"
+        CARGO_PROFILE_RELEASE_LTO=false cargo build --release --target riscv32imc-unknown-none-elf -p paperpaw-sdk --target-dir "$statics"
+        CARGO_PROFILE_RELEASE_LTO=false cargo run --release -p paperpaw-sign -- statics "$statics"/riscv32imc-unknown-none-elf/release/deps/*.rlib'
     run "native: NOTICE names every crate that ships" "python3 tools/licences/build.py --check"
     run "native: every Cargo.lock agrees with its manifests" "python3 tools/check-lockfiles.py"
     run "native: the store's rules are the site's" '

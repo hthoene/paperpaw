@@ -643,7 +643,9 @@ impl NativeFontsBrowser {
                 copy(answer.final_url())?
             };
             let outlines = self.outlines(host)?;
-            Catalog::read_file(&base, outlines, &storage, PART)?
+            // No font this device can take is no list to show: a list of none
+            // would stay at "Loading fonts" for good.
+            Catalog::read_file(&base, outlines, &storage, PART)?.filter(|fonts| !fonts.is_empty())
         } else {
             None
         };

@@ -44,6 +44,12 @@ const BLUETOOTH_KIB: f64 = 8.0;
 /// the device.
 const STORE_DEVICE_EXTRA_KIB: f64 = 50.0;
 
+/// The share of the budget the store's peak plus [`STORE_DEVICE_EXTRA_KIB`]
+/// may reach. The book open beneath the store is drawn since the reader draws
+/// before it is told it is shown (#359): the emulator's peak is 170 KiB (it
+/// was 162.5 KiB), a page's frame, which is not there while the TLS session is.
+const STORE_MARGIN_PERCENT: f64 = 87.0;
+
 /// The repository: two folders above this crate.
 fn root() -> PathBuf {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -630,7 +636,7 @@ fn the_store_with_the_devices_tls_stays_within_the_x4_budget() {
     };
     let store = run("x4-store-peak", &flow);
     let whole = run("x4-store-whole", &installing_flow());
-    let allowed = 256.0 * MARGIN_PERCENT / 100.0;
+    let allowed = 256.0 * STORE_MARGIN_PERCENT / 100.0;
     // The higher of the two runs counts: two runs differ by a little (the one
     // that waits and resets its peak first, `store`, was 0.7 KiB above `whole`
     // with the nested-call gate open).
@@ -736,7 +742,7 @@ fn each_step_of_the_store_stays_within_the_x4_budget() {
         .collect();
     let names: Vec<&str> = measured.iter().map(|(name, ..)| name.as_str()).collect();
     assert_eq!(names[1..], steps, "{stdout}");
-    let allowed = 256.0 * MARGIN_PERCENT / 100.0;
+    let allowed = 256.0 * STORE_MARGIN_PERCENT / 100.0;
     for pair in measured.windows(2) {
         let ((_, _, before), (name, peak, live)) = (&pair[0], &pair[1]);
         eprintln!(

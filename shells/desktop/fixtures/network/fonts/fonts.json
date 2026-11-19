@@ -1,9 +1,9 @@
 {"format": 1, "fonts": [
  {"id": "airy-sans", "name": "Airy Sans", "category": "sans", "author": "Someone", "licence": "OFL-1.1",
   "version": "1.0.0", "styles": 2, "sample": "https://paperpaw.org/api/v1/fonts/airy-sans/sample.ppfp",
-  "packs": [{"path": "fonts/regular.ppfp", "url": "https://paperpaw.org/api/v1/fonts/airy-sans/regular.ppfp", "size": 51200, "sha1": "0000000000000000000000000000000000000000"}],
-  "outline": [{"path": "fonts/regular.ttf", "url": "https://paperpaw.org/api/v1/fonts/airy-sans/regular.ttf", "size": 204800, "sha1": "0000000000000000000000000000000000000000"}]},
+  "packs": [{"path": "plugin.ini", "url": "https://paperpaw.org/api/v1/fonts/airy-sans/plugin.ini", "size": 200, "sha1": "0000000000000000000000000000000000000000"}, {"path": "fonts/regular.ppfp", "url": "https://paperpaw.org/api/v1/fonts/airy-sans/regular.ppfp", "size": 51200, "sha1": "0000000000000000000000000000000000000000"}],
+  "outline": [{"path": "plugin.ini", "url": "https://paperpaw.org/api/v1/fonts/airy-sans/plugin.ini", "size": 200, "sha1": "0000000000000000000000000000000000000000"}, {"path": "fonts/regular.ttf", "url": "https://paperpaw.org/api/v1/fonts/airy-sans/regular.ttf", "size": 204800, "sha1": "0000000000000000000000000000000000000000"}]},
  {"id": "old-book-serif", "name": "Old Book Serif with a name far too long to fit", "category": "serif", "author": "Someone else", "licence": "OFL-1.1",
   "version": "2.1.0", "styles": 4, "sample": "https://paperpaw.org/api/v1/fonts/old-book-serif/sample.ppfp",
-  "packs": [{"path": "fonts/regular.ppfp", "url": "https://paperpaw.org/api/v1/fonts/old-book-serif/regular.ppfp", "size": 61440, "sha1": "0000000000000000000000000000000000000000"}],
-  "outline": [{"path": "fonts/regular.ttf", "url": "https://paperpaw.org/api/v1/fonts/old-book-serif/regular.ttf", "size": 307200, "sha1": "0000000000000000000000000000000000000000"}]}]}
+  "packs": [{"path": "plugin.ini", "url": "https://paperpaw.org/api/v1/fonts/old-book-serif/plugin.ini", "size": 200, "sha1": "0000000000000000000000000000000000000000"}, {"path": "fonts/regular.ppfp", "url": "https://paperpaw.org/api/v1/fonts/old-book-serif/regular.ppfp", "size": 61440, "sha1": "0000000000000000000000000000000000000000"}],
+  "outline": [{"path": "plugin.ini", "url": "https://paperpaw.org/api/v1/fonts/old-book-serif/plugin.ini", "size": 200, "sha1": "0000000000000000000000000000000000000000"}, {"path": "fonts/regular.ttf", "url": "https://paperpaw.org/api/v1/fonts/old-book-serif/regular.ttf", "size": 307200, "sha1": "0000000000000000000000000000000000000000"}]}]}
