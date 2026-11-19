@@ -412,17 +412,17 @@ fn opening_reads_each_sector_of_the_patterns_about_once() {
             "{}: {reads} reads to open, {blocks} blocks, {sectors} sectors",
             set.name
         );
-        // Not one read per block: at most about one per sector, plus the
-        // check, the index and the exceptions; a table with a filter of its
-        // keys is read a second time for it, again about once per sector.
-        let passes = if (1..=512).contains(&blocks) { 2 } else { 1 };
+        // Not one read per block: one pass makes the fences, the filter and
+        // the short patterns, in windows of whole blocks (a window ends
+        // before the block that does not fit, so a little over one read per
+        // sector), plus the check, the index and the exceptions.
         assert!(
-            reads <= passes * (sectors + sectors / 8) + 16,
+            reads <= sectors + sectors / 4 + 16,
             "{}: {reads} reads",
             set.name
         );
         assert!(
-            reads < passes * u64::from(blocks.max(1)) + 16,
+            reads < u64::from(blocks.max(1)) + 16,
             "{}: {reads} reads",
             set.name
         );
@@ -456,4 +456,73 @@ fn a_small_table_reads_few_blocks_for_a_word() {
         "{reads} reads for {} words",
         words.len()
     );
+}
+
+/// The large tables (no filter) keep their patterns of one or two letters,
+/// so a word costs about half the reads it did (30, 28 and 25 a word for `de`,
+/// `nb` and `nl` before): the ceiling pins that, and the breaks are the
+/// slice's.
+#[test]
+fn a_large_table_reads_about_half_the_blocks_for_a_word() {
+    for set in shipped()
+        .into_iter()
+        .filter(|s| ["de", "nb", "nl"].contains(&s.name))
+    {
+        let words: Vec<String> = words(&set, 6000, 7)
+            .into_iter()
+            .filter(|w| (6..=14).contains(&w.chars().count()) && w.chars().all(char::is_lowercase))
+            .take(1000)
+            .collect();
+        let count = std::rc::Rc::new(std::cell::Cell::new(0));
+        let mut stored =
+            StoredPatterns::open(Counted(Mem::new(set.table.clone()), count.clone()), 1, 8)
+                .unwrap();
+        let whole = Patterns::new(&set.table).unwrap();
+        let after_open = count.get();
+        for word in &words {
+            let (mut a, mut b) = (Vec::new(), Vec::new());
+            stored.hyphenate(word, &mut |at| a.push(at));
+            whole.hyphenate(word, &mut |at| b.push(at));
+            assert_eq!(a, b, "{}: {word}", set.name);
+        }
+        let reads = count.get() - after_open;
+        assert!(
+            reads <= 16 * words.len() as u64,
+            "{}: {reads} reads for {} words",
+            set.name,
+            words.len()
+        );
+    }
+}
+
+/// A table with more patterns of one or two letters than are kept (here 676
+/// of 26 letters) keeps none, and says the same as the slice.
+#[test]
+fn a_large_table_with_too_many_short_patterns_is_read_from_the_card() {
+    let letters: Vec<char> = ('a'..='z').collect();
+    let mut patterns = String::new();
+    for &a in &letters {
+        for &b in &letters {
+            patterns.push_str(&format!("{a}1{b} "));
+            for &c in &letters {
+                patterns.push_str(&format!("{a}{b}2{c} "));
+            }
+        }
+    }
+    let table = compile(&patterns, "", 1, 1);
+    assert!(check_table(&table).unwrap().blocks > 512);
+    let mut stored = open(&table, 8);
+    let whole = Patterns::new(&table).unwrap();
+    let mut rng = Rng(11);
+    for _ in 0..300 {
+        let word: String = (0..4 + rng.below(8))
+            .map(|_| letters[rng.below(letters.len())])
+            .collect();
+        assert_eq!(
+            stored_breaks(&mut stored, &word),
+            breaks_of(&whole, &word),
+            "{word}"
+        );
+    }
+    assert!(!stored.is_failed());
 }

@@ -53,6 +53,21 @@
 //! word cost about 290 reads for `de` (the binary search read a block per
 //! step); that is why they are kept.
 //!
+//! Short keys (#404): a word asks for every substring of it, and with no filter
+//! (`de`, `nb`, `nl`: more than 512 blocks) about half the reads were for keys of one
+//! or two letters, each start of the word being another letter and so another
+//! block. These tables keep their patterns of one or two letters (545, 532 and
+//! 554 of them; at most 640 are kept, else none) and the set of prefixes the
+//! longer ones start with, 4,096 bytes in all (`short`), and answer such keys
+//! without a read, a pattern or not. Their cache is 4 blocks, not 8 (about
+//! 1 KB back): measured heap at cache 8, `de` 16,376 to 19,456, `nb` 12,535 to
+//! 15,735, `nl` 7,306 to 10,574 (+3.1 to +3.3 KB; the other ten tables are
+//! unchanged, the bound of the two largest together is 45.7 KB of the 48 KiB). Reads a word (1,000 words of 6 to 14 letters, cache 8): `de`
+//! 30 to 14, `nb` 28 to 13, `nl` 25 to 11; the other tables are unchanged. The
+//! opening is one pass over the patterns for the fences, the filter and the
+//! short patterns together (it was two for a table with a filter): a little
+//! over one read per sector, as a window ends before the block that does not fit.
+//!
 //! What this does not say: the time of a read on the X4 (a FAT read of 5 to
 //! 350 bytes through the sector cache). That measurement waits for the owner
 //! (a device); the numbers above are read counts from `tests/stored_budget.rs`
@@ -65,6 +80,7 @@ use core::cmp::Ordering;
 use core::fmt;
 
 use crate::check::{CheckError, Layout, Source, TableError, check_source};
+use crate::short::{self, Short};
 use crate::{
     Access, BLOCK, HEADER, MAX_MINIMUM, Points, Rules, entry_at, exception_in, hyphenate_with,
 };
@@ -119,6 +135,8 @@ struct Slot {
 /// Tables of at most this many blocks (8,192 patterns, the shipped ones but
 /// the largest) keep a [`Filter`].
 const FILTER_BLOCKS: usize = 512;
+/// Blocks cached for the tables above that.
+const LARGE_TABLE_SLOTS: usize = 4;
 /// Bits kept for each pattern of the filter, and the places a key sets.
 const FILTER_BITS: usize = 8;
 const FILTER_HASHES: u32 = 5;
@@ -198,6 +216,8 @@ pub struct StoredPatterns<S: Source> {
     exception_count: usize,
     /// Which keys the table may have, where it is small enough to keep one.
     filter: Option<Filter>,
+    /// The patterns of one or two letters, for the tables without a filter.
+    short: Option<Short>,
     slots: Vec<Slot>,
     clock: u64,
     failed: bool,
@@ -219,13 +239,36 @@ impl<S: Source> fmt::Debug for StoredPatterns<S> {
 /// opened with `cache_blocks`: the index and the fences, the exceptions,
 /// the cache, and the scratch buffer of the opening.
 fn heap_needed(blocks: u32, exceptions_len: u32, largest_block: u32, cache_blocks: usize) -> usize {
-    let cache_blocks = cache_blocks.clamp(1, MAX_CACHE_BLOCKS);
     let blocks = blocks as usize;
+    let cache_blocks = cache_slots(blocks, cache_blocks);
     blocks * (core::mem::size_of::<u32>() + core::mem::size_of::<[u8; 4]>())
         + Filter::bytes_for(blocks)
+        + short_bytes(blocks)
         + exceptions_len as usize
         + cache_blocks * (core::mem::size_of::<Slot>() + largest_block as usize)
         + SCRATCH
+}
+
+/// Bytes of the short patterns kept for a table of `blocks` blocks: those
+/// without a filter keep them (see [`short`]).
+fn short_bytes(blocks: usize) -> usize {
+    if blocks > FILTER_BLOCKS {
+        short::BYTES
+    } else {
+        0
+    }
+}
+
+/// Blocks cached for a table of `blocks` blocks asked for `cache_blocks`: a
+/// table that keeps its short patterns needs few (the heap they take is
+/// paid back from the cache).
+fn cache_slots(blocks: usize, cache_blocks: usize) -> usize {
+    let cache_blocks = cache_blocks.clamp(1, MAX_CACHE_BLOCKS);
+    if blocks > FILTER_BLOCKS {
+        cache_blocks.min(LARGE_TABLE_SLOTS)
+    } else {
+        cache_blocks
+    }
 }
 
 /// Where each block starts, kept in 16-bit steps: every [`Offsets::EVERY`]th
@@ -294,10 +337,6 @@ impl Offsets {
         Some(mark + steps.iter().map(|&step| u32::from(step)).sum::<u32>())
     }
 
-    fn iter(&self) -> impl Iterator<Item = u32> + '_ {
-        (0..self.len).filter_map(|b| self.get(b))
-    }
-
     fn heap_bytes(&self) -> usize {
         self.marks.capacity() * 4 + self.steps.capacity() * 2
     }
@@ -326,6 +365,49 @@ fn raw_read<S: Source>(
     match at.checked_add(buf.len() as u64) {
         Some(end) if end <= len => src.read_at(at, buf).map_err(Unread::Io),
         _ => Err(Unread::Bounds),
+    }
+}
+
+/// What [`StoredPatterns::scan`] keeps.
+struct Scanned {
+    fences: Vec<[u8; 4]>,
+    filter: Option<Filter>,
+    short: Option<Short>,
+}
+
+/// The first four bytes of the key that starts `block`, zero padded.
+fn fence<E>(block: &[u8]) -> Result<[u8; 4], Unread<E>> {
+    let len = usize::from(*block.first().ok_or(Unread::Bounds)?);
+    let key = block.get(1..1 + len.min(4)).ok_or(Unread::Bounds)?;
+    // Zero is the padding: a key with it would not compare right.
+    if key.contains(&0) {
+        return Err(Unread::Bounds);
+    }
+    let mut fence = [0u8; 4];
+    fence[..key.len()].copy_from_slice(key);
+    Ok(fence)
+}
+
+/// The patterns of `block` go to the filter and the short patterns; where
+/// one does not parse, neither is kept.
+fn feed(block: &[u8], filter: &mut Option<Filter>, short: &mut Option<Short>) {
+    if filter.is_none() && short.is_none() {
+        return;
+    }
+    let mut at = 0;
+    while at < block.len() {
+        let Some((key, points, next)) = entry_at(block, at) else {
+            *filter = None;
+            *short = None;
+            return;
+        };
+        if let Some(filter) = filter {
+            filter.insert(key);
+        }
+        if short.as_mut().is_some_and(|short| !short.add(key, points)) {
+            *short = None;
+        }
+        at = next;
     }
 }
 
@@ -395,7 +477,11 @@ impl<S: Source> StoredPatterns<S> {
 
         let patterns_len = (u64::from(layout.exceptions_at) - layout.entries_at()) as u32;
         let index = Self::read_index(&mut src, &layout, &mut scratch).map_err(io)?;
-        let fences = Self::read_fences(&mut src, &layout, &index, &mut scratch).map_err(io)?;
+        let Scanned {
+            fences,
+            filter,
+            short,
+        } = Self::scan(&mut src, &layout, &index, &mut scratch).map_err(io)?;
         let mut exceptions = reserved::<u8>(u64::from(layout.exceptions_len) as usize)?;
         exceptions.resize(u64::from(layout.exceptions_len) as usize, 0);
         raw_read(
@@ -406,8 +492,7 @@ impl<S: Source> StoredPatterns<S> {
         )
         .map_err(io)?;
 
-        let filter = Self::read_filter(&mut src, &layout, &index, &mut scratch).map_err(io)?;
-        let cache_blocks = cache_blocks.clamp(1, MAX_CACHE_BLOCKS);
+        let cache_blocks = cache_slots(layout.blocks as usize, cache_blocks);
         let mut slots = reserved::<Slot>(cache_blocks)?;
         if (layout.blocks as usize) > 0 {
             for _ in 0..cache_blocks {
@@ -430,6 +515,7 @@ impl<S: Source> StoredPatterns<S> {
             exceptions,
             exception_count: (layout.exceptions as usize),
             filter,
+            short,
             slots,
             clock: 0,
             failed: false,
@@ -437,19 +523,25 @@ impl<S: Source> StoredPatterns<S> {
         })
     }
 
-    /// The filter of the keys of a small table, made from one read of its
-    /// patterns in windows of `scratch`, each holding whole blocks. `None` for a
-    /// table that is not small (`FILTER_BLOCKS`), where there is no room for
-    /// it, or where the patterns do not parse (the table is then used
-    /// without one).
-    fn read_filter(
+    /// One pass over the patterns, in windows of `scratch` that each hold
+    /// whole blocks, makes what is kept of them: the fences (the start of
+    /// each block's first key), the filter of a small table and the short
+    /// patterns of a large one. The filter and the short patterns are left
+    /// out where the patterns do not parse or there is no room for them (the
+    /// table is then used without); the fences are not optional.
+    fn scan(
         src: &mut S,
         layout: &Layout,
         index: &Offsets,
         scratch: &mut [u8],
-    ) -> Result<Option<Filter>, Unread<S::Error>> {
-        let Some(mut filter) = Filter::new(index.len()) else {
-            return Ok(None);
+    ) -> Result<Scanned, Unread<S::Error>> {
+        let mut fences = reserved::<[u8; 4]>(index.len()).map_err(|_| Unread::NoMemory)?;
+        let mut filter = Filter::new(index.len());
+        // The heap is taken like the fences': none is `NoMemory`.
+        let mut short = if index.len() > FILTER_BLOCKS {
+            Some(Short::new().ok_or(Unread::NoMemory)?)
+        } else {
+            None
         };
         let entries_at = layout.entries_at();
         let patterns = u64::from(layout.exceptions_at) - entries_at;
@@ -469,23 +561,21 @@ impl<S: Source> StoredPatterns<S> {
                     break;
                 }
                 let block = &window[from..to];
-                let mut at = 0;
-                while at < block.len() {
-                    let Some((key, _, next)) = entry_at(block, at) else {
-                        return Ok(None);
-                    };
-                    filter.insert(key);
-                    at = next;
-                }
+                fences.push(fence(block)?);
+                feed(block, &mut filter, &mut short);
                 b += 1;
                 taken += 1;
             }
             if taken == 0 {
                 // A block longer than the window: not what the check allowed.
-                return Ok(None);
+                return Err(Unread::Bounds);
             }
         }
-        Ok(Some(filter))
+        Ok(Scanned {
+            fences,
+            filter,
+            short,
+        })
     }
 
     /// The index, read again and checked again as it is copied.
@@ -518,56 +608,6 @@ impl<S: Source> StoredPatterns<S> {
             left -= n;
         }
         Ok(index)
-    }
-
-    /// The start of each block's first key. The keys are read in windows of
-    /// `scratch` aligned to its length (a card sector for 512): one read holds
-    /// the starts of all blocks that begin in it, so opening reads each sector
-    /// of the patterns about once instead of making one small read per block.
-    fn read_fences(
-        src: &mut S,
-        layout: &Layout,
-        index: &Offsets,
-        scratch: &mut [u8],
-    ) -> Result<Vec<[u8; 4]>, Unread<S::Error>> {
-        let mut fences = reserved::<[u8; 4]>(index.len()).map_err(|_| Unread::NoMemory)?;
-        let entries_at = layout.entries_at();
-        let patterns_end = u64::from(layout.exceptions_at);
-        let patterns = patterns_end - entries_at;
-        let size = scratch.len() as u64;
-        let (mut window_at, mut window_len) = (0u64, 0u64);
-        for (b, start) in index.iter().enumerate() {
-            let end = index.get(b + 1).map_or(patterns, u64::from);
-            let n = (end - u64::from(start)).min(5);
-            let at = entries_at + u64::from(start);
-            if at < window_at || at + n > window_at + window_len {
-                let aligned = at - at % size;
-                window_at = if aligned + size >= at + n {
-                    aligned
-                } else {
-                    at
-                };
-                // The patterns end at or after `at + n`, so the window holds it.
-                window_len = (patterns_end - window_at).min(size);
-                let window = scratch
-                    .get_mut(..usize::try_from(window_len).map_err(|_| Unread::Bounds)?)
-                    .ok_or(Unread::Bounds)?;
-                raw_read(src, layout.table_len(), window_at, window)?;
-            }
-            // Both below `size`, which is a `usize`.
-            let from = (at - window_at) as usize;
-            let buf = scratch.get(from..from + n as usize).ok_or(Unread::Bounds)?;
-            let key = buf.get(1..1 + usize::from(*buf.first().ok_or(Unread::Bounds)?).min(4));
-            let key = key.ok_or(Unread::Bounds)?;
-            // Zero is the padding: a key with it would not compare right.
-            if key.contains(&0) {
-                return Err(Unread::Bounds);
-            }
-            let mut fence = [0u8; 4];
-            fence[..key.len()].copy_from_slice(key);
-            fences.push(fence);
-        }
-        Ok(fences)
     }
 
     /// Minimum characters before and after a hyphen: those of the table,
@@ -644,6 +684,7 @@ impl<S: Source> StoredPatterns<S> {
             + self.fences.capacity() * 4
             + self.exceptions.capacity()
             + self.filter.as_ref().map_or(0, |f| f.bits.capacity())
+            + self.short.as_ref().map_or(0, Short::heap_bytes)
             + self.slots.capacity() * core::mem::size_of::<Slot>()
             + self.slots.iter().map(|s| s.data.capacity()).sum::<usize>()
     }
@@ -765,6 +806,10 @@ impl<S: Source> StoredPatterns<S> {
 
     /// [`Access::lookup`] on the cached blocks, `None` once failed.
     fn find(&mut self, key: &[u8], points: &mut Points) -> Option<(bool, bool)> {
+        // One or two letters: known in memory.
+        if let Some(answer) = self.short.as_ref().and_then(|s| s.lookup(key, points)) {
+            return Some(answer);
+        }
         // Not among the keys: no block to read. A longer pattern may start
         // with it (the search is only cut short by a sure no).
         if self.filter.as_ref().is_some_and(|f| !f.may_have(key)) {
