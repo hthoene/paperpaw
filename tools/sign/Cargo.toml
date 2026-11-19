@@ -20,6 +20,8 @@ paperpaw-i18n = { workspace = true }
 paperpaw-publish = { workspace = true }
 # The firmware's reading of the partition table (check-image).
 paperpaw-x4 = { workspace = true }
+# Mozilla's roots, for the lists of the X4's TLS (`roots-pack`).
+webpki-roots = "1"
 # Only for new keys.
 ed25519-compact = { version = "2.6", default-features = false, features = ["random"] }
 

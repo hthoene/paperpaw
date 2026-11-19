@@ -2813,6 +2813,7 @@ dependencies = [
  "miniz_oxide",
  "paperpaw-config",
  "paperpaw-core",
+ "paperpaw-digest",
  "paperpaw-native",
  "paperpaw-platform",
  "paperpaw-sdk",
@@ -2866,7 +2867,6 @@ dependencies = [
  "rand_core 0.10.1",
  "smoltcp",
  "trouble-host",
- "webpki-roots",
 ]
 
 [[package]]
@@ -3182,12 +3182,6 @@ dependencies = [
  "linux-raw-sys 0.12.1",
  "windows-sys 0.61.2",
 ]
-
-[[package]]
-name = "rustls-pki-types"
-version = "1.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "102f35f7de7b06d8c61f1cff6592f5253e0dea431c74867aad5dfd70f44663fb"
 
 [[package]]
 name = "rustversion"
@@ -3783,15 +3777,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b1f9c3798725016c6ee5f2f57869ec0831e8bbc0ab0310a86e787e97f41389e"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "1.0.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7265c9301c16a8711c992c2d8da90ee77ef54b1ed51482d6dfeb00dc756b1297"
-dependencies = [
- "rustls-pki-types",
 ]
 
 [[package]]

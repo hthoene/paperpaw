@@ -1,11 +1,21 @@
-//! The root certificates TLS trusts: Mozilla's, as `webpki-roots` keeps
-//! them (each one's name and public key), in flash. They are never all
-//! parsed into memory, as a list of trusted certificates for mbedTLS
-//! would be (well over 100 KB): mbedTLS checks the chain a server sends,
-//! and when its top is not signed by a certificate it knows, [`is_root`]
-//! and [`signed`] look it up here: a root itself, or signed by one (found
-//! by name, the signature checked with its key), as ESP-IDF's certificate
-//! bundle does.
+//! The root certificates TLS trusts, as a list in flash and a longer one on
+//! the card (#387). The firmware has about twenty roots built in
+//! (`roots-builtin.bin`, made from `tools/roots/builtin.txt`: those of
+//! PaperPaw's own services, of GitHub, of the services the first-party plugins
+//! use and of the largest hosts); Mozilla's whole list is the data plugin
+//! `tls-roots` ("All certificates" in the store, off at first), a file
+//! `plugins/tls-roots/roots.pack` signed with PaperPaw's plugin key. Both are
+//! looked up by name (`paperpaw_x4::tls_roots`) and never parsed into
+//! memory, as a list of trusted certificates for mbedTLS would be (well over
+//! 100 KB): mbedTLS checks the chain a server sends, and when its top is
+//! not signed by a certificate it knows, [`is_root`] and [`signed`] look it
+//! up here: a root itself, or signed by one (found by name, the signature
+//! checked with its key), as ESP-IDF's certificate bundle does. The built-in
+//! list is asked first; the card's is read only where it has no answer, and
+//! its signature is checked, as the file is read, once for all the
+//! certificates of a chain (a [`Scope`] of one step of the main loop). No
+//! file, or one that is not signed by the plugin key, means the built-in
+//! list alone: a server under another root fails as untrusted.
 //!
 //! Name constraints and path-length limits of roots are not applied:
 //! mbedTLS is given no roots (see `tls::Contexts::no_roots`), so it never
@@ -17,12 +27,117 @@
 
 use alloc::vec::Vec;
 
+use core::cell::Cell;
 use mbedtls_rs::sys::{
     mbedtls_md, mbedtls_md_get_size, mbedtls_md_info_from_type, mbedtls_pk_context,
     mbedtls_pk_free, mbedtls_pk_init, mbedtls_pk_parse_public_key, mbedtls_pk_verify_ext,
     mbedtls_x509_crt,
 };
-use webpki_roots::TLS_SERVER_ROOTS;
+
+use paperpaw_platform::Storage;
+use paperpaw_x4::tls_roots::{Roots, Source};
+
+/// The roots built in.
+static BUILTIN: &[u8] = include_bytes!("../roots-builtin.bin");
+/// Where the data plugin `tls-roots` keeps Mozilla's whole list.
+const PACK: &str = "plugins/tls-roots/roots.pack";
+/// The public key PaperPaw's own plugins are signed with
+/// (`plugins/store/src/native_item.rs`, `FIRST_PARTY_KEY`; a test of
+/// `paperpaw_x4::tls_roots` holds the two alike).
+const PLUGIN_KEY: [u8; 32] = paperpaw_x4::tls_roots::PLUGIN_KEY;
+
+/// What the card's list is while a step of the main loop runs: the storage to
+/// read it from, and whether it was found sound (`None` before it was
+/// looked at).
+struct Card {
+    storage: Cell<Option<*const (dyn Storage + 'static)>>,
+    sound: Cell<Option<bool>>,
+}
+
+// SAFETY: the firmware's main loop is the only code that uses it, and no
+// interrupt handler does.
+unsafe impl Sync for Card {}
+
+static CARD: Card = Card {
+    storage: Cell::new(None),
+    sound: Cell::new(None),
+};
+
+/// While it lives, TLS can read the list on the card from `storage`: a step
+/// of the network (`Network::step`) holds one, for the handshakes it moves
+/// on. Without one, only the built-in roots count.
+pub struct Scope;
+
+impl Scope {
+    pub fn enter(storage: &dyn Storage) -> Self {
+        // SAFETY: the pointer is cleared when the scope ends, which is
+        // before `storage` can be dropped; nothing keeps it longer.
+        let storage: &'static dyn Storage = unsafe { core::mem::transmute(storage) };
+        CARD.storage.set(Some(storage));
+        CARD.sound.set(None);
+        Scope
+    }
+}
+
+impl Drop for Scope {
+    fn drop(&mut self) {
+        CARD.storage.set(None);
+        CARD.sound.set(None);
+    }
+}
+
+/// The file on the card, as a source of bytes.
+struct File(&'static dyn Storage);
+
+impl core::fmt::Debug for File {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("File")
+    }
+}
+
+impl Source for File {
+    fn size(&self) -> u64 {
+        self.0.size(PACK).unwrap_or(0)
+    }
+
+    fn read_exact_at(&self, mut offset: u64, mut buf: &mut [u8]) -> bool {
+        while !buf.is_empty() {
+            match self.0.read_at(PACK, offset, buf) {
+                Ok(n) if n > 0 => {
+                    offset += n as u64;
+                    buf = &mut buf[n..];
+                }
+                _ => return false,
+            }
+        }
+        true
+    }
+}
+
+/// The list on the card where there is one, signed by the plugin key. The
+/// signature is checked at the first use in a [`Scope`] only.
+fn card() -> Option<Roots<File>> {
+    // SAFETY: set by a live `Scope` (see there).
+    let storage: &'static dyn Storage = unsafe { &*CARD.storage.get()? };
+    if CARD.sound.get() == Some(false) {
+        return None;
+    }
+    let roots = Roots::open_signed(File(storage), &PLUGIN_KEY);
+    CARD.sound.set(Some(roots.is_some()));
+    roots
+}
+
+/// Whether a root with this name and key is in the built-in list or on the card.
+fn known(name: &[u8], key: &[u8]) -> bool {
+    Roots::open(BUILTIN).is_some_and(|roots| roots.has(name, key))
+        || card().is_some_and(|roots| roots.has(name, key))
+}
+
+/// Whether a root named `name` has a key for which `check` says `true`.
+fn any_key(name: &[u8], mut check: impl FnMut(&[u8]) -> bool) -> bool {
+    Roots::open(BUILTIN).is_some_and(|roots| roots.any_key(name, &mut check))
+        || card().is_some_and(|roots| roots.any_key(name, &mut check))
+}
 
 /// The contents of a DER `SEQUENCE` (its tag and length taken off), if
 /// `der` is exactly one.
@@ -93,9 +208,7 @@ pub unsafe fn is_root(crt: &mbedtls_x509_crt) -> bool {
     let (Some(subject), Some(key)) = (sequence_contents(subject), sequence_contents(key)) else {
         return false;
     };
-    TLS_SERVER_ROOTS
-        .iter()
-        .any(|root| *root.subject == *subject && *root.subject_public_key_info == *key)
+    known(subject, key)
 }
 
 /// Whether `crt` is signed by one of the roots: one named as its issuer,
@@ -129,11 +242,9 @@ pub unsafe fn signed(crt: &mbedtls_x509_crt) -> bool {
     {
         return false;
     }
-    TLS_SERVER_ROOTS
-        .iter()
-        .filter(|root| *root.subject == *issuer)
-        .any(|root| {
-            let key = sequence(&root.subject_public_key_info);
+    any_key(issuer, |root_key| {
+        {
+            let key = sequence(root_key);
             // SAFETY: an mbedTLS key context, set up and freed here.
             unsafe {
                 let mut pk: mbedtls_pk_context = core::mem::zeroed();
@@ -152,5 +263,6 @@ pub unsafe fn signed(crt: &mbedtls_x509_crt) -> bool {
                 mbedtls_pk_free(&mut pk);
                 verified
             }
-        })
+        }
+    })
 }
