@@ -34,6 +34,12 @@ pub enum FatType {
 }
 
 impl FatType {
+    /// Whether entries are 32 bits wide: always, where FAT12 and FAT16 are not built in.
+    #[inline]
+    pub(crate) fn wide(self) -> bool {
+        !cfg!(feature = "fat16") || self == FatType::Fat32
+    }
+
     const FAT16_MIN_CLUSTERS: u32 = 4085;
     const FAT32_MIN_CLUSTERS: u32 = 65525;
     const FAT32_MAX_CLUSTERS: u32 = 0x0FFF_FFF4;
@@ -455,6 +461,10 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         let first_data_sector = bpb.first_data_sector();
         let total_clusters = bpb.total_clusters();
         let fat_type = FatType::from_clusters(total_clusters);
+        // Modified for PaperPaw: FAT12 and FAT16 volumes only where built in (feature `fat16`).
+        if !cfg!(feature = "fat16") && fat_type != FatType::Fat32 {
+            return Err(Error::CorruptedFileSystem);
+        }
 
         // read FSInfo sector if this is FAT32
         let mut fs_info = if fat_type == FatType::Fat32 {
@@ -1102,6 +1112,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
         trace!("root_dir");
         let root_rdr = {
             match self.fat_type {
+                #[cfg(feature = "fat16")]
                 FatType::Fat12 | FatType::Fat16 => DirRawStream::Root(DiskSlice::from_sectors(
                     self.first_data_sector - self.root_dir_sectors,
                     self.root_dir_sectors,
@@ -1109,7 +1120,7 @@ impl<IO: Read + Write + Seek, TP, OCC> FileSystem<IO, TP, OCC> {
                     &self.bpb,
                     FsIoAdapter { fs: self },
                 )),
-                FatType::Fat32 => {
+                _ => {
                     DirRawStream::File(File::new(Some(self.bpb.root_dir_first_cluster), None, self))
                 }
             }
@@ -1407,14 +1418,8 @@ impl OemCpConverter for LossyOemCpConverter {
     }
 }
 
-pub(crate) fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, mut len: u64) -> Result<(), IO::Error> {
-    const ZEROS: [u8; 512] = [0_u8; 512];
-    while len > 0 {
-        let write_size = len.min(ZEROS.len() as u64) as usize;
-        disk.write_all(&ZEROS[..write_size])?;
-        len -= write_size as u64;
-    }
-    Ok(())
+pub(crate) fn write_zeros<IO: ReadWriteSeek>(disk: &mut IO, len: u64) -> Result<(), IO::Error> {
+    disk.write_zeros(len)
 }
 
 // Modified for PaperPaw: clusters a cut would leave taken by no file.

@@ -20,12 +20,15 @@ name = "fatfs"
 [features]
 # `std::io` implementations of the driver's I/O traits (tests, host tools).
 std = []
+# FAT12 and FAT16 volumes (tests and tools; the firmware mounts FAT32 only, cards of
+# 32 GB and more being FAT32 or exFAT, and cards under 2 GB being no longer sold).
+fat16 = []
 # Formatting a volume (tests and tools; the firmware never formats).
 format = []
 
 [dev-dependencies]
 # The carried tests need the std I/O impls and formatting.
-paperpaw-volume = { path = ".", features = ["std", "format"] }
+paperpaw-volume = { path = ".", features = ["std", "format", "fat16"] }
 
 [dependencies]
 bitflags = { version = "2", default-features = false }

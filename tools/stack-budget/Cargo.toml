@@ -13,7 +13,7 @@ publish = false
 [dependencies]
 paperpaw-fat.workspace = true
 # It formats a card in memory.
-paperpaw-volume = { workspace = true, features = ["std", "format"] }
+paperpaw-volume = { workspace = true, features = ["std", "format", "fat16"] }
 
 [dev-dependencies]
 paperpaw-plugin-format-images.workspace = true

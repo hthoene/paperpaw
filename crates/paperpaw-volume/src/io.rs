@@ -120,6 +120,19 @@ pub trait Write: IoBase {
     ///
     /// It is considered an error if not all bytes could be written due to I/O errors or EOF being reached.
     fn flush(&mut self) -> Result<(), Self::Error>;
+
+    // Modified for PaperPaw: added.
+    /// Writes `len` zero bytes. A sink that writes whole blocks in one command overrides it:
+    /// a new directory's cluster is zeroed in one command, not one for each block.
+    fn write_zeros(&mut self, mut len: u64) -> Result<(), Self::Error> {
+        const ZEROS: [u8; 512] = [0_u8; 512];
+        while len > 0 {
+            let write_size = len.min(ZEROS.len() as u64) as usize;
+            self.write_all(&ZEROS[..write_size])?;
+            len -= write_size as u64;
+        }
+        Ok(())
+    }
 }
 
 /// Enumeration of possible methods to seek within an I/O object.
