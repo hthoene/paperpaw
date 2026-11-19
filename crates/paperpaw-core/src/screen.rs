@@ -43,6 +43,15 @@ impl Screen {
         }
     }
 
+    /// Its `screen.spec.flags` bits 11-12: 0 the device default, 1 shown,
+    /// 2 hidden. The host's own screens keep the default.
+    pub(crate) fn status_bar(&self) -> u32 {
+        match self {
+            Self::Native(s) => s.status_bar(),
+            Self::Host(_) => 0,
+        }
+    }
+
     pub(crate) fn dims_below(&self) -> bool {
         match self {
             Self::Native(s) => s.dims_below(),

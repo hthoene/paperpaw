@@ -21,11 +21,14 @@ use paperpaw_sdk::native::{SafeMode, SafeModeReason};
 #[allow(dead_code, reason = "named for the docs; the rules read it")]
 pub const FAILED_STARTS: u8 = paperpaw_x4::start_count::FAILED_STARTS;
 /// The key held at power-on for a start without code plugins: *Back* on
-/// the devices with the X4's buttons, *Home* on the X4 Pro.
+/// the devices with the X4's buttons, *Home* on the X4 Pro, the upper side
+/// button (*page back*) on the Picco, which has neither.
 #[cfg(not(feature = "x4-pro"))]
 pub const KEY: &str = paperpaw_platform::buttons::BACK;
-#[cfg(feature = "x4-pro")]
+#[cfg(all(feature = "x4-pro", not(feature = "picco")))]
 pub const KEY: &str = paperpaw_platform::buttons::HOME;
+#[cfg(feature = "picco")]
+pub const KEY: &str = paperpaw_platform::buttons::PAGE_BACK;
 
 /// The longest plugin id kept (the catalogue's ids have at most 48 bytes).
 const ID_LEN: usize = 48;

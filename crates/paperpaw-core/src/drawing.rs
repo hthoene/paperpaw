@@ -56,6 +56,8 @@ pub(crate) struct FrameState {
     /// The grays a screen with pictures gets after its frame in black and
     /// white, once calm (`gray_later.rs`).
     pub(crate) gray_later: crate::gray_later::GrayLater,
+    /// The minute the status bar's clock was drawn in (`status_band.rs`).
+    pub(crate) band_minute: i64,
 }
 
 /// How a framebuffer draws, kept while it is made anew.
@@ -425,10 +427,20 @@ impl Kernel {
             .map(|k| k > full && through[k + 1..].contains(&ShowsThrough::FullScreen))
             .collect();
         let row = self.hint_row();
+        let band = self.status_band_area();
         let dev_mark = self.developer.on.then(|| self.developer_mark_area().0);
         let mut canvas = self.framebuffer.canvas();
         let mut canvas = canvas.clipped(region);
         canvas.clear(Color::WHITE);
+        // The status bar above the full screen (#123), under the overlays.
+        if let Some(band) = band
+            && let Some(area) = band.intersection(&region)
+        {
+            crate::status_band::draw(&mut canvas.clipped(area), &env, band);
+            if (base + 1..dims.len()).any(|k| dims[k] && !hidden[k]) {
+                canvas.wash(area);
+            }
+        }
         for (index, (active, own)) in self.stack[base..]
             .iter_mut()
             .zip(&regions[base..])

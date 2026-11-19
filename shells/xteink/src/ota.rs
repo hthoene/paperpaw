@@ -34,16 +34,20 @@ const CHIP: u16 = paperpaw_sdk::firmware::CHIP_ESP32_S3;
 pub const PROJECT: &str = "paperpaw-xteink";
 #[cfg(feature = "x3")]
 pub const PROJECT: &str = "paperpaw-xteink-x3";
-#[cfg(feature = "x4-pro")]
+#[cfg(all(feature = "x4-pro", not(feature = "picco")))]
 pub const PROJECT: &str = "paperpaw-xteink-pro";
+#[cfg(feature = "picco")]
+pub const PROJECT: &str = "paperpaw-boox-picco";
 #[cfg(feature = "x4-classic")]
 pub const PROJECT: &str = "paperpaw-xteink-classic";
 /// This device in CrossPoint's board tag (its `FirmwareBoardTag`): the
 /// X4's and the X3's one image is `x4`.
 #[cfg(not(feature = "esp32s3"))]
 const BOARD_TAG: &str = "x4";
-#[cfg(feature = "x4-pro")]
+#[cfg(all(feature = "x4-pro", not(feature = "picco")))]
 const BOARD_TAG: &str = "x4pro";
+#[cfg(feature = "picco")]
+const BOARD_TAG: &str = "picco";
 #[cfg(feature = "x4-classic")]
 const BOARD_TAG: &str = "x4c";
 

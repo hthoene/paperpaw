@@ -209,10 +209,30 @@ events 83, 88 and 90 are free).
   - bit 10 `dims_below`: an overlay (bit 2) washes out what lies below it while it shows, so that
     it stands out and what it cuts through is not read as its own (interface 6
     `Screen::dims_below`: a menu, a panel; not a keyboard over its field). No effect on a screen
-    that is no overlay. Declared only; `screen_policy` cannot change it.
+    that is no overlay. Declared only; `screen_policy` cannot change it;
+  - bits 11-12 `status_bar` (#123): 0 the device default, 1 shown, 2 hidden, 3
+    `ERR_UNSUPPORTED`. Where it is resolved "shown", the host draws its status bar in a band
+    at the top of the display and the screen gets the rest: its `draw.frame` area and
+    `event.screen_shown.height` are below the band. Resolved in this order: the screen's line
+    in the kernel setting `core.status-bar.screens` (text, `<screen id>=shown|hidden` one per
+    line, only its first 512 bytes read; another value is no line), then these bits (or the
+    run-time policy), then the device default, the kernel setting `core.status-bar.all`
+    (*Status bar on all screens*, off). Old plugins (bits 0) see no change while the user leaves
+    it off. Overlays and screens with all of the panel their own never get the band. Other
+    plugins and the user override a screen through these settings like any setting (no new
+    record). `core.status-bar.line` names the status line the band shows (default the kernel's
+    line of items, `core.status-line.items`: the time and the battery, the values op 14 gives
+    for `core.status.clock` and `.battery`); empty is no band anywhere. A line the host does
+    not draw itself (another plugin's `status.line`) shows the kernel's line of items for now.
+    The band is the kernel line's height, 1.8 times the status text size, with a rule below.
+    `event.status_changed` and a new minute redraw only the band (a partial refresh of that
+    strip; the screen is not drawn). Home and the reader's page declare 2: they have status
+    lines of their own. `screen_policy` may change these bits at run time (below); there 0
+    keeps what the screen declared, so a policy sent for another bit leaves the bar as it was.
   Other bits stay `ERR_UNSUPPORTED`.
 - [D] **Policies change at run time** (the lock guards only while locked): `command.screen_policy`
-  (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4, 5 and 9 above) sets them for
+  (`instance: u32`, 0 for the own top one; `flags: u32` with bits 1, 4, 5, 9 and 11-12 above; 11-12
+  set to 3 is `ERR_INVALID`) sets them for
   one of the submitter's own instances (the policy is the whole set the screen ends with: one that
   declared `grays` and sets a policy without bit 9 turns it off); other bits `ERR_INVALID`, another plugin's instance
   `ERR_DENIED`. **Turning `guards` on** is allowed only for the submitter's own top instance (the

@@ -2311,6 +2311,7 @@ enum paperpaw_sdk::native::declare::EditorDecl<'a> { Screen(0: &'a str), Slot(0:
 enum paperpaw_sdk::native::declare::Instances { PerParams, Single, Many }
 enum paperpaw_sdk::native::declare::Kind<'a> { Bool(0: bool), Int { default: i64, min: i32, max: i32 }, Choice { default: &'a str, choices: &'a [&'a str] }, Text(0: &'a str), Language(0: &'a str), List(0: &'a str) }
 enum paperpaw_sdk::native::declare::Latched { Sink(0: i32), NoMemory, Refused(0: paperpaw_sdk::native::declare::DeclareError) }
+enum paperpaw_sdk::native::declare::StatusBar { Default, Show, Hide }
 enum paperpaw_sdk::native::declare::callbacks::EventKind { Tick, Started, Resume, Suspend, Stopping, BatteryMeasured, PageTurned, ScreenShown, ActionRun, SettingChanged, BookOpened, BookClosed, BookFinished, BookMoved, BookRemoved, LibraryChanged, PluginsChanged, WifiChanged, WifiScanned, WifiDone, NetworkWanted, NetworkIdle, FirmwareChanged, InstallDone, PowerChanged, StatusChanged, ChargeChanged, RegistryChanged, PreviewChanged, PluginsRequested, PluginAnswered, StackChanged, ScreenReady, HttpDone, HttpProgress, Server, ServedRequest, ImageReady, Socket, Broadcast, WorkDue, WorkRefused, WorkAllowed, LookupReady, DocumentClosed, WidgetChanged, Spoken, DocumentChanged }
 enum paperpaw_sdk::native::declare::library::BookDataKind { UserData, Cache }
 enum paperpaw_sdk::native::declare::menus::EntryPlacement<'a> { Order, After(0: &'a str), Before(0: &'a str), InSection(0: &'a str), First, Last }

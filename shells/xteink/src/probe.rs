@@ -76,8 +76,9 @@ pub fn ask<'d>(
         busy: Input::new(busy, InputConfig::default()),
     };
     let probe = probe::probe(&mut lines, &mut delay, reset_ms);
-    // What a UC8179's OTP holds, read while the lines are still ours.
-    #[cfg(feature = "x4-pro")]
+    // What a UC8179's OTP holds, read while the lines are still ours. Not
+    // on the Picco: its "SSD2677" answers as an UltraChip does, and is none.
+    #[cfg(all(feature = "x4-pro", not(feature = "picco")))]
     if probe.controller() == Some(probe::Controller::Uc8179) {
         // The voltages' part (about 65 ms): a waveform of the registers runs
         // at them.

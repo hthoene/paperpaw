@@ -36,6 +36,11 @@ pub enum Controller {
     /// driver); not told apart by [`Probe::controller`], the X3's build
     /// takes it for granted (see [`Probe::x3_uc8279d`]).
     Uc8253,
+    /// The controller of the Boox Picco's SE0400NQW47 panel, as its stock
+    /// firmware calls it (see [`ssd2677`](crate::ssd2677)); told by
+    /// [`Probe::picco_ssd2677`], the Picco's build asks it.
+    #[cfg(feature = "picco")]
+    Ssd2677,
 }
 
 impl Controller {
@@ -45,6 +50,8 @@ impl Controller {
             Controller::Uc8179 => "UC8179",
             Controller::Uc8279 => "UC8279",
             Controller::Uc8253 => "UC8253",
+            #[cfg(feature = "picco")]
+            Controller::Ssd2677 => "SSD2677",
         }
     }
 }
@@ -132,6 +139,14 @@ impl Probe {
     /// X3's build does not drive yet.
     pub fn x3_uc8279d(&self) -> bool {
         self.rev[2] == 0x66
+    }
+
+    /// On a Boox Picco: whether its panel is the SE0400NQW47 with the
+    /// "SSD2677" (its revision begins 07 01 01, as the stock firmware and
+    /// the FreeInk SDK's `piccoProbePanel` tell it); its other panels have
+    /// an SSD1677.
+    pub fn picco_ssd2677(&self) -> bool {
+        self.rev[..3] == [0x07, 0x01, 0x01]
     }
 }
 

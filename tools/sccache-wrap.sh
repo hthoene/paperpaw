@@ -18,7 +18,7 @@
 # Written for bash and `env` and not `sh`: dash drops the variables whose
 # names are no shell names (CARGO_BIN_EXE_paperpaw-emu), which tests need.
 command -v sccache > /dev/null || exec "$@"
-export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-8G}"
+export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-20G}"
 for argument in "$@"; do
     case "$argument" in
         *-none-elf) exec "$@" ;;
