@@ -99,8 +99,9 @@ the background step after it is shown (as the decorations), and drawn again with
 - **Following reading aloud** (read-along, #377). A plugin that answers `aloud` 1 is asked the page
   on show again for each sentence read aloud, with its words in `layer.aloud`, and once more when
   reading aloud ends (without it); the page is drawn with the newest answer. The reader underlines
-  the sentence only where its own setting says so: a plugin marks it as it likes (a box behind
-  the words, each word). Speech is spoken by the sentence (`ui.md` 7, `event.spoken` at its end),
+  the sentence only where its own setting says so: a plugin marks it as it likes (a frame or
+  a line over the words: a layer is drawn over the text, so a filled box would hide them;
+  `samples/read-along`). Speech is spoken by the sentence (`ui.md` 7, `event.spoken` at its end),
   so the words are a sentence's; a word-by-word mark needs the host to say where in a sentence
   the voice is, which interface 7 has not (section 5).
 - **A region** (#284, a split page). With `layer.region` the reader lays the book out in that
