@@ -8,3 +8,7 @@
   the same place. The translation window does the same where it is opened with a place (the
   param `anchor` of the hand-over, as for the lookups). Where there is no place (a lookup from a
   list) the window is the sheet at the bottom as before.
+- **Translate in the reader's selection bar** (#378). The bar of chosen words has *Translate* after
+  *Look up* where the translation plugin is installed and on; it opens the translation of the
+  chosen words in a window next to them (and the key action *Translate* does the same). Where the
+  plugin is off there is no button.

@@ -6,6 +6,7 @@ use paperpaw_sdk::{
     native::{
         Error, Host,
         commands::CommandSender,
+        registry::{PageCursor, Registry},
         ui::{Open, Param, TextWrite, Ui},
     },
     reading::WordBox,
@@ -69,9 +70,11 @@ pub fn sentence(words: &[WordBox], lo: usize, hi: usize) -> Result<String, Error
     text_of(words, first, last)
 }
 
-/// Copies `text` to the clipboard, in parts.
-pub fn copy(host: &Host<'_>, ui: &Ui, text: &str) -> Result<(), Error> {
-    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+/// Writes `text` in parts through `write(offset, part, finish)`.
+fn in_parts(
+    text: &str,
+    mut write: impl FnMut(u32, &str, TextWrite) -> Result<(), Error>,
+) -> Result<(), Error> {
     let mut offset = 0usize;
     loop {
         let mut end = (offset + PART).min(text.len());
@@ -80,8 +83,7 @@ pub fn copy(host: &Host<'_>, ui: &Ui, text: &str) -> Result<(), Error> {
         }
         let last = end >= text.len();
         let part = text.get(offset..end).unwrap_or("");
-        ui.clipboard_write(
-            host,
+        write(
             u32::try_from(offset).map_err(|_| Error::NoSpace)?,
             part,
             if last {
@@ -89,14 +91,76 @@ pub fn copy(host: &Host<'_>, ui: &Ui, text: &str) -> Result<(), Error> {
             } else {
                 TextWrite::Continue
             },
-            &mut input,
-            &mut out,
         )?;
         if last {
             return Ok(());
         }
         offset = end;
     }
+}
+
+/// Copies `text` to the clipboard, in parts.
+pub fn copy(host: &Host<'_>, ui: &Ui, text: &str) -> Result<(), Error> {
+    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    in_parts(text, |offset, part, finish| {
+        ui.clipboard_write(host, offset, part, finish, &mut input, &mut out)
+    })
+}
+
+/// Translates the words: opens the translation (`core.translate`) with the words
+/// as the hand-over text and the `anchor` param, so its window goes next to them.
+/// Words that are only punctuation translate nothing.
+pub fn translate(host: &Host<'_>, ctx: &Ctx<'_>, lo: usize, hi: usize) -> Result<(), Error> {
+    let text = text_of(ctx.words, lo, hi)?;
+    if !text.contains(char::is_alphanumeric) {
+        return Ok(());
+    }
+    let mut place = [0; ANCHOR_BYTES];
+    let anchor = anchor(ctx.words, lo, hi).map_or("", |r| anchor_text(r, &mut place));
+    let params = [Param::new("anchor", anchor)?];
+    let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+    let ui = ctx.ui.ok_or(Error::State)?;
+    let handover = ui.handover(host, &params, &mut input, &mut out)?;
+    in_parts(&text, |offset, part, finish| {
+        ui.text_write(
+            host,
+            handover.text(),
+            offset,
+            part,
+            finish,
+            &mut input,
+            &mut out,
+        )
+    })?;
+    let mut scratch = [0; 256];
+    CommandSender::new(host, &mut scratch).open(Open::slot(TRANSLATE_SLOT)?.handover(handover))
+}
+
+/// The slot of the screen that translates.
+pub const TRANSLATE_SLOT: &str = "core.translate";
+
+/// Whether a screen is offered for [`TRANSLATE_SLOT`] (the translate plugin is
+/// installed and on).
+///
+/// # Errors
+/// The host's refusals; `NoMemory`.
+pub fn translate_offered(host: &Host<'_>) -> Result<bool, Error> {
+    let registry = Registry::open(host)?;
+    let found = buffer(SERVICE_BUFFER).and_then(|mut input| {
+        let mut out = buffer(SERVICE_BUFFER)?;
+        let page = registry.slot_offers(
+            host,
+            TRANSLATE_SLOT,
+            PageCursor::start(),
+            &mut input,
+            &mut out,
+        )?;
+        Ok(!page.is_empty())
+    });
+    let released = registry.release(host);
+    let any = found?;
+    released?;
+    Ok(any)
 }
 
 /// Looks the words up: opens the lookup (`core.lookup`) with the phrase and the

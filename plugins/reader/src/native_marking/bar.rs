@@ -19,6 +19,8 @@ pub const MAX_ITEMS: usize = 6;
 pub enum Item {
     /// Looks the words up (the slot `core.lookup`).
     LookUp,
+    /// Translates the words (the slot `core.translate`).
+    Translate,
     /// Highlights the words.
     Highlight,
     /// Takes the highlight of the words away (they have one).
@@ -40,12 +42,13 @@ impl Item {
     /// reader declares them: a key bound to one, a remote) asks for. Beta 3 ran
     /// them from its selection menu; here they do what the bar's button does,
     /// whether the bar is shown yet or not. *Highlight* is the one action for
-    /// making and removing, as the button is one place. The actions the bar has
-    /// no button for (translate, read aloud from here) are none.
+    /// making and removing, as the button is one place. The action the bar has
+    /// no button for (read aloud from here) is none.
     #[must_use]
     pub fn of_action(action: &str) -> Option<Self> {
         Some(match action.strip_prefix("reader.selection.")? {
             "look-up" => Self::LookUp,
+            "translate" => Self::Translate,
             "highlight" => Self::Highlight,
             "note" => Self::Note,
             "copy" => Self::Copy,
@@ -60,6 +63,7 @@ impl Item {
     pub const fn key(self) -> &'static str {
         match self {
             Self::LookUp => "reader.select.look-up",
+            Self::Translate => "reader.select.translate",
             Self::Highlight => "reader.select.highlight",
             Self::Unhighlight => "reader.select.unhighlight",
             Self::Note => "reader.select.note",
@@ -71,10 +75,10 @@ impl Item {
     }
 }
 
-/// The items of a bar: up to five, in order.
+/// The items of a bar: up to six, in order.
 #[derive(Clone, Copy, Debug)]
 pub struct Items {
-    items: [Item; 5],
+    items: [Item; MAX_ITEMS],
     len: usize,
 }
 
@@ -100,13 +104,15 @@ impl Items {
 /// *Cancel*; buttons have *Extend* and Back cancels. `highlight` is how the
 /// chosen words stand with the highlights: `None` where none overlaps (*Highlight*,
 /// *Note*), `Some(false)` where one does (*Remove highlight*, *Note*) and
-/// `Some(true)` where it has a note (*Remove highlight*, *Edit note*). *Look up*
-/// and *Copy* are there only while the words are on one page (`one_page`): the
-/// text of a longer stretch is not kept.
+/// `Some(true)` where it has a note (*Remove highlight*, *Edit note*). *Look up*,
+/// *Translate* and *Copy* are there only while the words are on one page
+/// (`one_page`): the text of a longer stretch is not kept. *Translate* is there
+/// only where a screen is offered for `core.translate` (`translate`).
 #[must_use]
-pub fn items(touch: bool, highlight: Option<bool>, one_page: bool) -> Items {
+pub fn items(touch: bool, highlight: Option<bool>, one_page: bool, translate: bool) -> Items {
     let all = [
         Item::LookUp,
+        Item::Translate,
         if highlight.is_some() {
             Item::Unhighlight
         } else {
@@ -122,7 +128,8 @@ pub fn items(touch: bool, highlight: Option<bool>, one_page: bool) -> Items {
     ];
     let mut kept = Items { items: all, len: 0 };
     for item in all {
-        if one_page || !matches!(item, Item::LookUp | Item::Copy) {
+        let text = matches!(item, Item::LookUp | Item::Translate | Item::Copy);
+        if (one_page || !text) && (translate || item != Item::Translate) {
             kept.items[kept.len] = item;
             kept.len += 1;
         }
