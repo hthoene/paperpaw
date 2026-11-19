@@ -21,7 +21,7 @@ The device rows (flash, update, rollback on hardware) are the plan in
 | In-app update ("Search online") | Not offered: the update server gives an interface-7 release only to a device that sends `abi_major` >= 7; Beta 1 to 3 send none (`git grep abi_major v0.6.0-beta.3` finds nothing). Decision 179: the way is flashing. | `paperpaw.org/src/updates.rs:1029` (`of_interface_7 && abi_major.is_none_or(<7)`), its tests; Beta 3 side: the origin's own installer on a device (open) |
 | Packed update `-update-packed.bin` (#304) | Offered to `abi_major` >= 7 only; the plain `-update.bin` to every other device | `UpdateFile::offered_to`, same file |
 | Flash (web flasher, `tools/flash-x4.py`) | The supported way; writes the table with 7.9 MB app slots | device (U1) |
-| Signed `-update.bin` from the card | The current installer takes it on the model (trial, kept, old slot kept, books kept); what the origin's installer does with it is a device question (U2) | `update_path.rs`: `a_signed_card_update_installs_and_is_kept_without_network` |
+| Signed `-update.bin` from the card | The current installer takes it on the model (trial, kept, old slot kept, books kept); Beta 3's own installer takes it on the host (below); the device run is U2 | `update_path.rs`: `a_signed_card_update_installs_and_is_kept_without_network` |
 | OTA slots and rollback | All released origins: OTA data `0xd000`, app slots `0x10000` and `0x800000`, each `0x7f0000` B; the current code parses and transitions them (kept, successful trial, failed trial, torn entry write) | `qualify-release-origins.py` (real assets), `update_path.rs` (`an_update_that_fails_its_trial_is_undone`, `a_download_cut_short_is_not_installed`, `on_crosspoints_small_layout_…`, `an_update_from_beta_3_leaves_english_hyphenation_on_the_card`) |
 
 ## Forward: Beta N card, this build
@@ -36,8 +36,17 @@ The device rows (flash, update, rollback on hardware) are the plan in
 | Passwords: veiled `secrets.txt` lines kept; passwords in `kosync/account.ini` and `opds/catalogs.txt` move into the passwords and keys (#81): those plugins' tests read the beta fixtures (`native_store.rs`, `native_catalogs.rs`). `stats/webdav.ini` moves in `native_webdav_net.rs`: `plugins/stats/tests/webdav_migration.rs` runs the real host on each tag's own fixture (#323): kept at the first start with the file untouched, the file gone at the second, nothing moved after | pass | pass | pass |
 | Released images (X4 and Pro: full, install, update; checksum, chip/project, signature against today's keys, ESP checksum/hash, table, OTA transitions) | pass (#673) | pass | pass |
 
-Not shown by the host: an old installer running a Beta 4 image, real card
-timing, screens' wording, store plugins with code on a card, the Pro.
+**Beta 3's own installer on the Beta 4 file** (#402): CI job `update-path`
+(`tools/ci/update-path.sh`) makes a worktree of the release before's tag and
+runs *its* `tests/update_path.rs` (its kernel, update plugin and
+`paperpaw_x4::updates`) with the release before's update as the flashed image
+and this run's signed install image as the update, the run's key built in.
+Beta 3's installer downloads it online through the update plugin, writes the
+other slot, starts it on trial and keeps it, and refuses the damaged, cut-short,
+too-large and failing-trial files. Run by hand on the X4's real image of the
+tree (restamped 0.6.0-beta.4; the tree's version is still beta.3): 9 / 9 pass.
+
+Not shown by the host: real card timing, screens' wording, store plugins with code on a card, the Pro.
 
 ## Rollback: Beta N's code on a card Beta 4 has used
 

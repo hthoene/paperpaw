@@ -449,6 +449,10 @@ class UpdatePath(unittest.TestCase):
         self.work = self.root / "work"
         self.log = self.root / "tested"
         self.tags = ["v0.5.0-beta.11", "v0.4.0", "v9.9.9"]
+        # The release before's tree (the installer of the devices in the field).
+        self.old_tree = self.root / "old-tree"
+        self.old_tree.mkdir()
+        self.old_log = self.root / "tested-old"
         for device in ("x4", "x3", "x4-pro", "x4-classic"):
             image = self.images / f"install-image-{device}"
             image.mkdir(parents=True)
@@ -466,7 +470,7 @@ class UpdatePath(unittest.TestCase):
         path.chmod(0o755)
         return path
 
-    def run_job(self, test="true"):
+    def run_job(self, test="true", old_test="true"):
         gh = self.tool("gh", f"""
 if [ "$1 $2" = "release list" ]; then printf '%s\\n' {" ".join(self.tags)}; exit 0; fi
 if [ "$1 $2" = "release download" ]; then
@@ -487,9 +491,16 @@ if [ "$1" = sign ]; then cp "$2" "$3"; exit 0; fi
 exit 2
 """)
         run = self.tool("run-test", f'echo "$PAPERPAW_UPDATE_DEVICE" >> {self.log}\n{test}\n')
+        old = self.tool(
+            "run-old-test",
+            f'echo "$PAPERPAW_UPDATE_DEVICE $PWD $PAPERPAW_UPDATE_KEY $(basename "$PAPERPAW_UPDATE_NEW")" >> {self.old_log}\n{old_test}\n',
+        )
         return subprocess.run(
             [str(HERE / "ci" / "update-path.sh"), str(self.images), str(self.work)],
-            env={**os.environ, "GH": str(gh), "SIGN": str(sign), "UPDATE_PATH_TEST": str(run)},
+            env={
+                **os.environ, "GH": str(gh), "SIGN": str(sign), "UPDATE_PATH_TEST": str(run),
+                "UPDATE_PATH_OLD_TEST": str(old), "OLD_TREE": str(self.old_tree),
+            },
             capture_output=True, text=True,
         )
 
@@ -502,6 +513,22 @@ exit 2
         result = self.run_job()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.devices_run(), ["x4", "x3", "x4-pro", "x4-classic"])
+
+    def test_the_release_befores_own_installer_takes_this_runs_file_with_its_key(self):
+        for device in ("x4", "x3"):
+            self.asset(device)
+        result = self.run_job()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            self.old_log.read_text().splitlines(),
+            [f"{d} {self.old_tree} abcd {d}-new.bin" for d in ("x4", "x3")],
+        )
+
+    def test_a_failing_old_installer_fails_the_job(self):
+        self.asset("x4")
+        result = self.run_job(old_test="exit 1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(self.devices_run(), ["x4"])
 
     def test_devices_added_after_the_release_are_only_warned_about(self):
         self.asset("x4")
