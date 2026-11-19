@@ -11,10 +11,12 @@
   "input": [
     "layer.book",
     "layer.page",
+    "layer.aloud",
     "layer.line"
   ],
   "reply": [
     "layer.uses",
+    "layer.region",
     "layer.box",
     "layer.segment",
     "layer.text"
@@ -203,6 +205,15 @@
         {
           "name": "signature",
           "type": "u64",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "aloud",
+          "type": "u32",
           "since": 0,
           "optional": false,
           "ordinal": null,
@@ -400,6 +411,92 @@
           "ordinal": null,
           "default": null,
           "max_bytes": 256
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "layer.aloud",
+      "since": 0,
+      "fields": [
+        {
+          "name": "line",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "word",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "end_line",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "end_word",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "layer.region",
+      "since": 0,
+      "fields": [
+        {
+          "name": "x",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "y",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "width",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "height",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
         }
       ]
     }

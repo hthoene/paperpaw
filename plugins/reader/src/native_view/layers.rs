@@ -216,6 +216,37 @@ impl Layers {
         }
     }
 
+    /// The part of the content box `full` the book's text is laid out in:
+    /// the layer stage's plugin's region, or all of it.
+    pub(super) fn text_area(&self, full: crate::native_pages::Box) -> crate::native_pages::Box {
+        self.region().map_or(full, |r| page::within(full, r))
+    }
+
+    /// The region of the layer stage's plugin, if it asked for one.
+    fn region(&self) -> Option<[u16; 4]> {
+        self.0.try_borrow().ok().and_then(|i| {
+            i.as_ref()
+                .and_then(|i| i.layer.as_ref())
+                .and_then(|c| c.region)
+        })
+    }
+
+    /// What the region adds to the layout's key (0: none).
+    pub(super) fn region_key(&self) -> u64 {
+        self.region().map_or(0, |[x, y, w, h]| {
+            u64::from(x) | u64::from(y) << 16 | u64::from(w) << 32 | u64::from(h) << 48
+        })
+    }
+
+    /// Whether the layer stage's plugin follows reading aloud.
+    pub(super) fn follows_aloud(&self) -> bool {
+        self.0.try_borrow().ok().is_some_and(|i| {
+            i.as_ref()
+                .and_then(|i| i.layer.as_ref())
+                .is_some_and(|c| c.aloud)
+        })
+    }
+
     /// Forgets the answers of the pages (their layout changed).
     pub(super) fn forget_pages(&self) {
         if let Ok(mut held) = self.0.try_borrow_mut()
@@ -227,6 +258,16 @@ impl Layers {
 }
 
 impl Open {
+    /// What the answer of the page on show is kept by, for `chosen`: the
+    /// words read aloud are part of it where the plugin follows them.
+    fn layer_key(&self, start: (u32, u32), chosen: Option<&Chosen>) -> page::Key {
+        let spoken = chosen
+            .filter(|c| c.aloud)
+            .and(self.spoken.as_ref())
+            .map(|w| (w.start as u32, w.end as u32));
+        (start, spoken)
+    }
+
     /// Asks the page layers' stages for the book: whether that changed what
     /// they add.
     pub(super) fn ask_layers(&mut self, host: &Host<'_>) -> bool {
@@ -258,8 +299,14 @@ impl Open {
     }
 
     /// The layer stage's plugin shown the page on show, once (its answer is
-    /// kept with it). Never fails the draw: a refusal leaves the page without.
+    /// kept with it), positions from the top left of the content box `area`.
+    /// Never fails the draw: a refusal leaves the page without.
     pub(super) fn ask_layer(&self, host: &Host<'_>, area: crate::native_pages::Box) {
+        let text = self.layers.text_area(area);
+        let shift = (
+            i32::from(text.x) - i32::from(area.x),
+            i32::from(text.y) - i32::from(area.y),
+        );
         let (Some(page), Ok(mut held)) = (self.page.as_ref(), self.layers.0.try_borrow_mut())
         else {
             return;
@@ -270,13 +317,16 @@ impl Open {
         let Some(chosen) = inner.layer.clone() else {
             return;
         };
-        let start = (page.start.section, page.start.offset);
+        let start = self.layer_key((page.start.section, page.start.offset), Some(&chosen));
         if inner.pages.get(start).is_some() || page.lines.is_empty() {
             return;
         }
+        let aloud = start
+            .1
+            .and_then(|(a, b)| page::aloud(page, a as usize..b as usize));
         let (Ok(stage), Ok(rows), Ok(mut out)) = (
             Stage::new(host, Kind::Layer.key()),
-            page::rows(page, &self.words, (area.x, area.y)),
+            page::rows(page, &self.words, (area.x, area.y), shift),
             reply_buffer(),
         ) else {
             return;
@@ -284,7 +334,7 @@ impl Open {
         let (mut replies, mut bytes, mut first) = (Vec::new(), 0, 0);
         let size = (u32::from(area.width), u32::from(area.height));
         while first < rows.len() {
-            let Ok((input, next)) = page::fire(page, &rows, first, size) else {
+            let Ok((input, next)) = page::fire(page, &rows, (first, aloud.as_ref()), size) else {
                 break;
             };
             let mut run = stage.run_from(chosen.cursor, &input, &mut out);
@@ -316,7 +366,12 @@ impl Open {
     /// The first page's layer, asked in the step after it is shown: whether
     /// it got something to draw (the page is drawn again then).
     pub(super) fn layered_now(&self, host: &Host<'_>) -> bool {
-        let Some(area) = self.settings.setup(host).ok().and_then(|s| self.area(&s)) else {
+        let Some(area) = self
+            .settings
+            .setup(host)
+            .ok()
+            .and_then(|s| self.page_area(&s))
+        else {
             return false;
         };
         self.ask_layer(host, area);
@@ -325,7 +380,7 @@ impl Open {
         };
         let start = (page.start.section, page.start.offset);
         held.as_ref()
-            .and_then(|i| i.pages.get(start))
+            .and_then(|i| i.pages.get(self.layer_key(start, i.layer.as_ref())))
             .is_some_and(|replies| !replies.is_empty())
     }
 
@@ -341,7 +396,10 @@ impl Open {
             return;
         };
         let start = (page.start.section, page.start.offset);
-        let Some(replies) = held.as_ref().and_then(|i| i.pages.get(start)) else {
+        let Some(replies) = held
+            .as_ref()
+            .and_then(|i| i.pages.get(self.layer_key(start, i.layer.as_ref())))
+        else {
             return;
         };
         let mut pen = LayerPen {

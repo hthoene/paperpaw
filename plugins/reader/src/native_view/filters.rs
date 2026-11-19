@@ -20,7 +20,8 @@ impl Open {
     pub(super) fn key(&self, setup: &Setup) -> LayoutKey {
         LayoutKey {
             filtered: native_filter::signature(&self.filters)
-                ^ self.layers.signature().rotate_left(29),
+                ^ self.layers.signature().rotate_left(29)
+                ^ self.layers.region_key().rotate_left(41),
             ..setup.key()
         }
     }

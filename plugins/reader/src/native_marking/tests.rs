@@ -151,3 +151,18 @@ fn the_selecting_keys_are_the_actions_the_marking_knows() {
         );
     }
 }
+
+#[test]
+fn a_lookup_is_anchored_at_the_box_of_its_words_in_their_first_line() {
+    let at = |x, y| WordBox::new(Rect::new(x, y, 30, 20), "w", Locator::START, Locator::START);
+    let page = [at(10, 100), at(50, 100), at(90, 100), at(10, 124)];
+    let anchor = act::anchor(&page, 1, 3).unwrap();
+    assert_eq!(anchor, Rect::new(50, 100, 70, 20));
+    let mut out = [0; 24];
+    assert_eq!(act::anchor_text(anchor, &mut out), "50,100,70,20");
+    assert_eq!(
+        act::anchor_text(Rect::new(0, 65535, 0, 7), &mut out),
+        "0,65535,0,7"
+    );
+    assert!(act::anchor(&page, 9, 9).is_none());
+}

@@ -65,20 +65,24 @@ fonts, as measured.
 
 ## 3. The layer stage `reader.layer@1`
 
-Input: one `layer.book` (tag 1, as `text.book`), or a page: one `layer.page` and up to 63
-`layer.line` records (a page of more lines, or of lines that do not fit 3,840 bytes, is asked in
-more than one call, each from line `first` on).
+Input: one `layer.book` (tag 1, as `text.book`), or a page: one `layer.page`, for a plugin that
+follows reading aloud one `layer.aloud` while the book is read aloud, and up to 62 `layer.line`
+records (a page of more lines, or of lines that do not fit 3,840 bytes, is asked in more than one
+call, each from line `first` on).
 
 | Tag | Record | Fields |
 | --- | --- | --- |
 | 2 | `layer.page` | `width: u32`, `height: u32` (the text area), `lines: u32` (in all), `first: u32` |
-| 3 | `layer.line` | `x: i32`, `baseline: i32`, `width: u32`, `size: u32` (its words' boxes' height), `leading: u32` (the room above, pixels), `top: i32` (its words' boxes' top; the room below a line reaches to the next line's `top - leading`), `section: u32`, `offset: u32` (its first word's place), `inserted: u32`, `text: str 512`, `words: bytes 510` (per word 6 bytes: `x`, `width`, `at` (its byte in `text`), u16 little-endian) |
+| 8 | `layer.aloud` | `line: u32`, `word: u32`, `end_line: u32`, `end_word: u32`: the words being read aloud, from word `word` of line `line` (lines counted on the page as `first` counts them, words as `words` counts them) to word `end_word` of line `end_line`, not included |
+| 3 | `layer.line` | `x: i32`, `baseline: i32`, `width: u32`, `size: u32` (its words' boxes' height), `leading: u32` (the room above, pixels), `top: i32` (its words' boxes' top; the room below a line reaches to the next line's `top - leading`), `section: u32`, `offset: u32` (its first word's place), `inserted: u32`, `text: str 512`, `words: bytes 510` (per word 6 bytes: `x`, `width`, `at` (its byte in `text`), u16 little-endian; a word whose box is not known is 0 wide at 0 and keeps its number) |
 
-Positions are pixels from the text area's top left. Reply, at most 64 records:
+Positions are pixels from the text area's top left (the whole of it where a region is used).
+Reply, at most 64 records:
 
 | Tag | Record | Fields |
 | --- | --- | --- |
-| 4 | `layer.uses` | `signature: u64`, to `layer.book` |
+| 4 | `layer.uses` | `signature: u64`, `aloud: u32` (1: the plugin follows reading aloud), to `layer.book` |
+| 9 | `layer.region` | `x, y, width, height: u32`, to `layer.book` after `layer.uses`: the part of the text area the reader sets the book's text in, in thousandths of it (each side at least 100, inside the area; else not used) |
 | 5 | `layer.box` | `x, y: i32`, `width, height: u32`, `fill, ink: u32` (gray 0 black to 255 white; 256 or more none), `thickness: u32` (frame, at most 64) |
 | 6 | `layer.segment` | `x1, y1, x2, y2: i32`, `ink: u32`, `thickness: u32` (1 to 64) |
 | 7 | `layer.text` | `x, y: i32` (pen and baseline), `size: u32` (pixels, 4 to 200), `ink: u32`, `italic: u32`, `text: str 256` |
@@ -87,6 +91,33 @@ The reader draws a page's layer over its text, under the reader's own highlights
 the records; boxes and lines larger than 4,096 pixels are cut. The first page of a book is asked in
 the background step after it is shown (as the decorations), and drawn again with its layer.
 
+- **Following reading aloud** (read-along, #377). A plugin that answers `aloud` 1 is asked the page
+  on show again for each sentence read aloud, with its words in `layer.aloud`, and once more when
+  reading aloud ends (without it); the page is drawn with the newest answer. The reader underlines
+  the sentence only where its own setting says so: a plugin marks it as it likes (a box behind
+  the words, each word). Speech is spoken by the sentence (`ui.md` 7, `event.spoken` at its end),
+  so the words are a sentence's; a word-by-word mark needs the host to say where in a sentence
+  the voice is, which interface 7 has not (section 5).
+- **A region** (#284, a split page). With `layer.region` the reader lays the book out in that
+  part of its text area only (the layout's key holds it: the pages are laid out anew when it
+  changes); the status lines and the ribbon stay where they were. The layer draws on the whole
+  area: in the rest of it, a second text (a translation set by the plugin, its lines broken with
+  the host's fonts, `native::fonts::Font::measure_text`), notes, a picture. The lines of each page
+  say where in the book they are (`section`, `offset`), and the text stage's blocks say the same
+  for each paragraph, so a plugin follows the book with its own text: a page turn asks the layer
+  of the new page, and the reader draws text and layer in one refresh. Keys and taps stay the
+  reader's (page turns, selection).
+
+## 3.1 Anchored windows (#378)
+
+The reader opens the lookup slots (`core.lookup`, `core.lookup-online`, `ui.md` slot table) with
+the hand-over param `anchor`: `x,y,width,height` in the screen's pixels, the box of the looked-up
+words in the first line they are in. An overlay that fills the slot places its window next to
+that box (below it where there is room, else above) instead of at the bottom; one that does not
+know the key ignores it. A plugin's own overlay opened from its layer takes the places it was
+shown (`layer.line`, `words`) the same way, in its own params: no interface change is needed for
+windows at a word.
+
 ## 4. Memory and time (X4)
 
 - Without a plugin: nothing (`Layers` holds no heap), one `stage.run` per stage at a book's open.
@@ -94,9 +125,15 @@ the background step after it is shown (as the decorations), and drawn again with
   buffer (3.9 KB) and one block's ask; each block costs one callback once per open book. A page
   whose blocks were all asked costs no callback.
 - With a layer plugin: the answers of two pages (at most 3,840 bytes each), one callback per new
-  page (more for a page of many lines), none for a page drawn again.
+  page (more for a page of many lines), none for a page drawn again; for a plugin that follows
+  reading aloud one more per sentence read (the page is drawn again for it anyway where the
+  sentence is underlined).
 
 ## 5. Not yet
+
+- A word-by-word reading-aloud position (the host's speech says only when a sentence ends).
+- A second document laid out by the reader in a region (the plugin sets its own text there), and
+  keys or taps for a layer's region.
 
 - No tap on what a layer drew (interface 6's `PAGE_LAYER_TAPPED`): `reader.decorations@1` takes
   taps on marks.

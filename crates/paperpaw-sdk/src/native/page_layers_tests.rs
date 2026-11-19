@@ -130,3 +130,36 @@ fn a_page_shows_its_lines_and_words_and_is_answered_with_drawing() {
     let len = answer.finish().unwrap();
     assert_eq!(layer::reply_decode(&out[..len]).unwrap().len(), 3);
 }
+
+#[test]
+fn a_page_read_aloud_says_its_words_to_a_plugin_that_follows_it() {
+    let rows = [
+        layer::Record::LayerPage(layer::LayerPage::new(400, 600, 30, 4)),
+        layer::Record::LayerAloud(layer::LayerAloud::new(3, 2, 5, 1)),
+    ];
+    let mut input = alloc::vec![0; layer::MAX_INPUT];
+    let len = layer::input_encode(&rows, &mut input).unwrap();
+    let LayerAsk::Page(page) = LayerAsk::decode(&input[..len]).unwrap() else {
+        panic!("a page");
+    };
+    let spoken = page.spoken.unwrap();
+    assert!(spoken.holds(3, 2) && spoken.holds(4, 40) && spoken.holds(5, 0));
+    assert!(!spoken.holds(3, 1) && !spoken.holds(5, 1));
+    assert_eq!(page.lines().count(), 0);
+    let mut out = [0; 64];
+    let mut answer = LayerAnswer::new(&mut out).unwrap();
+    answer.uses_reading_aloud(7).unwrap();
+    answer.region((0, 0), (1000, 500)).unwrap();
+    let len = answer.finish().unwrap();
+    let mut rows = layer::reply_decode(&out[..len]).unwrap();
+    assert_eq!(
+        rows.next(),
+        Some(Ok(layer::Record::LayerUses(layer::LayerUses::new(7, 1))))
+    );
+    assert_eq!(
+        rows.next(),
+        Some(Ok(layer::Record::LayerRegion(layer::LayerRegion::new(
+            0, 0, 1000, 500
+        ))))
+    );
+}

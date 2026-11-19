@@ -13,3 +13,11 @@
   `Stage::run_from` asks one subscriber of a stage again. The sample `samples/interlinear`
   shows a translation line under each sentence of a book from a text file beside it
   (`docs/abi/page-layers.md`). Interface 7 is unchanged: plugins built before run as they did.
+- **Building blocks for read-along, windows at a word and split pages** (#284, #377, #378,
+  #379). A page layer may follow reading aloud: it is asked again for each sentence, with the
+  words being read (`LayerAnswer::uses_reading_aloud`, `LayerPage::spoken`), and marks them as
+  it likes. It may give the book's text only a part of the page (`LayerAnswer::region`, in
+  thousandths of the text area) and draw a second text, notes or a picture in the rest; its
+  lines say where in the book they are, so the plugin follows page turns. The lookup slots get
+  the looked-up words' box on the screen (`anchor`), so a dictionary window can open next to
+  the word.

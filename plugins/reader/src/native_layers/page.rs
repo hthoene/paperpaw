@@ -3,6 +3,7 @@
 //! what the plugin answers is kept with the page ([`Pages`]) and drawn over
 //! its text whenever the page is drawn ([`draw`]).
 use alloc::vec::Vec;
+use core::ops::Range;
 use paperpaw_sdk::{layout::Page, native::Error, reading::WordBox};
 
 use super::buffer;
@@ -21,8 +22,12 @@ const MOST_SIDE: u32 = 4096;
 const MOST_THICKNESS: u32 = 64;
 const SIZES: (u32, u32) = (4, 200);
 
-/// A page's start and the answers kept for it.
-type KeptPage = ((u32, u32), Vec<Vec<u8>>);
+/// What a page's answer is kept by: where the page starts, and the words
+/// read aloud on it where the plugin follows reading aloud.
+pub type Key = ((u32, u32), Option<(u32, u32)>);
+
+/// A page's key and the answers kept for it.
+type KeptPage = (Key, Vec<Vec<u8>>);
 
 /// The answers kept for pages, by where they start, the newest last.
 #[derive(Debug, Default)]
@@ -31,20 +36,20 @@ pub struct Pages {
 }
 
 impl Pages {
-    /// The answers of the page starting at `start`, if it was asked.
+    /// The answers of the page kept by `start`, if it was asked.
     #[must_use]
-    pub fn get(&self, start: (u32, u32)) -> Option<&[Vec<u8>]> {
+    pub fn get(&self, start: Key) -> Option<&[Vec<u8>]> {
         self.kept
             .iter()
             .find(|(at, _)| *at == start)
             .map(|(_, replies)| replies.as_slice())
     }
 
-    /// Keeps `replies` for the page at `start`; the oldest page goes.
+    /// Keeps `replies` for the page kept by `start`; the oldest page goes.
     ///
     /// # Errors
     /// [`Error::NoMemory`].
-    pub fn keep(&mut self, start: (u32, u32), replies: Vec<Vec<u8>>) -> Result<(), Error> {
+    pub fn keep(&mut self, start: Key, replies: Vec<Vec<u8>>) -> Result<(), Error> {
         self.kept.retain(|(at, _)| *at != start);
         while self.kept.len() >= PAGES {
             self.kept.remove(0);
@@ -87,19 +92,27 @@ fn starts(text: &str) -> impl Iterator<Item = usize> + '_ {
 }
 
 /// The rows of `page`, its words those of `words` (the reader's word boxes,
-/// drawn with the text area's top left at `(left, top)`). A word without a
-/// box is left out of its line.
+/// drawn with the text area's top left at `(left, top)`; the page's own
+/// lines are laid out `(dx, dy)` from there, in a layer's region). A word without a
+/// box is in its line 0 wide at 0, so that the words of a line are counted
+/// as reading aloud counts them ([`aloud`]).
 ///
 /// # Errors
 /// [`Error::NoMemory`].
-pub fn rows(page: &Page, words: &[WordBox], (left, top): (u16, u16)) -> Result<Vec<Row>, Error> {
+pub fn rows(
+    page: &Page,
+    words: &[WordBox],
+    (left, top): (u16, u16),
+    (dx, dy): (i32, i32),
+) -> Result<Vec<Row>, Error> {
     let mut rows = Vec::new();
     rows.try_reserve_exact(page.lines.len())
         .map_err(|_| Error::NoMemory)?;
     let mut next = 0;
     for line in &page.lines {
         let mut packed = Vec::new();
-        let (mut right, mut size) = (line.x, 0_u32);
+        let line_x = line.x + dx as f32;
+        let (mut right, mut size) = (line_x, 0_u32);
         let mut high = i32::MAX;
         if !line.inserted {
             for (&(source, _), at) in line.words.iter().zip(starts(&line.text)).take(WORDS) {
@@ -110,28 +123,30 @@ pub fn rows(page: &Page, words: &[WordBox], (left, top): (u16, u16)) -> Result<V
                     .iter()
                     .take(4)
                     .position(|w| w.start.section == line.section && w.start.offset == source);
+                packed
+                    .try_reserve(WORD_BYTES)
+                    .map_err(|_| Error::NoMemory)?;
+                let at = u16::try_from(at).unwrap_or(u16::MAX).to_le_bytes();
                 let Some(found) = found else {
+                    packed.extend_from_slice(&[0, 0, 0, 0, at[0], at[1]]);
                     continue;
                 };
                 let word = &words[next + found];
                 next += found + 1;
                 let x = word.area.x.saturating_sub(left);
-                packed
-                    .try_reserve(WORD_BYTES)
-                    .map_err(|_| Error::NoMemory)?;
                 packed.extend_from_slice(&x.to_le_bytes());
                 packed.extend_from_slice(&word.area.width.to_le_bytes());
-                packed.extend_from_slice(&u16::try_from(at).unwrap_or(u16::MAX).to_le_bytes());
+                packed.extend_from_slice(&at);
                 right = right.max(f32::from(x) + f32::from(word.area.width));
                 size = size.max(u32::from(word.area.height));
                 high = high.min(i32::from(word.area.y) - i32::from(top));
             }
         }
-        let baseline = (line.baseline + 0.5) as i32;
+        let baseline = (line.baseline + 0.5) as i32 + dy;
         rows.push(Row {
-            x: line.x as i32,
+            x: line_x as i32,
             baseline,
-            width: (right - line.x).max(0.0) as u32,
+            width: (right - line_x).max(0.0) as u32,
             size,
             leading: line.leading as u32,
             // Where its words' boxes start; without any, its baseline.
@@ -145,16 +160,60 @@ pub fn rows(page: &Page, words: &[WordBox], (left, top): (u16, u16)) -> Result<V
     Ok(rows)
 }
 
+/// The part of the text area `full` a layer's region (thousandths of it)
+/// gives the book's text: never empty.
+#[must_use]
+pub fn within(full: crate::native_pages::Box, [x, y, w, h]: [u16; 4]) -> crate::native_pages::Box {
+    let part = |side: u16, n: u16| (u32::from(side) * u32::from(n) / 1000) as u16;
+    let mut text = full;
+    text.x = full.x.saturating_add(part(full.width, x));
+    text.y = full.y.saturating_add(part(full.height, y));
+    text.width = part(full.width, w).max(1);
+    text.height = part(full.height, h).max(1);
+    text
+}
+
+/// The words `spoken` of `page` (numbered as `native_speech::words` numbers
+/// them: the lines a plugin inserted have none) as the stage says them: the
+/// line and the word in it of the first, and of the one after the last.
+/// None for no words.
+#[must_use]
+pub fn aloud(page: &Page, spoken: Range<usize>) -> Option<layer::LayerAloud> {
+    if spoken.is_empty() {
+        return None;
+    }
+    let (mut from, mut to, mut seen) = (None, None, 0_usize);
+    let mut lines = 0_usize;
+    for (n, line) in page.lines.iter().enumerate() {
+        lines = n + 1;
+        if line.inserted {
+            continue;
+        }
+        let count = line.text.split(' ').filter(|w| !w.is_empty()).count();
+        let place = |word: usize| (n as u32, (word - seen) as u32);
+        if from.is_none() && spoken.start < seen + count {
+            from = Some(place(spoken.start));
+        }
+        if spoken.end <= seen + count {
+            to = Some(place(spoken.end));
+            break;
+        }
+        seen += count;
+    }
+    let ((line, word), (end_line, end_word)) = (from?, to.unwrap_or((lines as u32, 0)));
+    Some(layer::LayerAloud::new(line, word, end_line, end_word))
+}
+
 /// The ask of the lines of `page` from line `first` on, as many as one ask
-/// holds, the text area `size`; with the number of the line after the last
-/// it holds.
+/// holds, the text area `size`, with the words read aloud; with the number
+/// of the line after the last it holds.
 ///
 /// # Errors
 /// [`Error::NoMemory`]; [`Error::Invalid`] where not one line fits.
 pub fn fire(
     page: &Page,
     rows: &[Row],
-    first: usize,
+    (first, aloud): (usize, Option<&layer::LayerAloud>),
     (width, height): (u32, u32),
 ) -> Result<(Vec<u8>, usize), Error> {
     let mut out = buffer(layer::MAX_INPUT)?;
@@ -164,6 +223,11 @@ pub fn fire(
     writer
         .push(&layer::Record::LayerPage(head))
         .map_err(|_| Error::Invalid)?;
+    if let Some(aloud) = aloud {
+        writer
+            .push(&layer::Record::LayerAloud(*aloud))
+            .map_err(|_| Error::Invalid)?;
+    }
     let mut next = first;
     for (row, line) in rows.iter().zip(&page.lines).skip(first) {
         let line = layer::LayerLine::new(

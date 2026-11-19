@@ -308,6 +308,9 @@ pub trait Scene: Pages {
     fn stop(&mut self);
     /// Underlines these words of the page on show; none ends it.
     fn mark(&mut self, words: Option<Range<usize>>);
+    /// These words of the page on show are being read aloud (underlined or
+    /// not: for a page layer that follows reading aloud); none ends it.
+    fn spoken(&mut self, _words: Option<Range<usize>>) {}
     /// Says `key` to the reader (a notice over the page).
     fn say(&mut self, key: &'static str);
     /// The settings of reading aloud.
@@ -460,7 +463,7 @@ impl Speaker {
         };
         scene.stop();
         self.resume = Some(aloud.now.sentence.at);
-        scene.mark(None);
+        unmark(scene);
         if notice {
             scene.say("reader.aloud.paused");
         }
@@ -470,7 +473,7 @@ impl Speaker {
     pub fn stop<S: Scene>(&mut self, scene: &mut S) {
         if self.aloud.take().is_some() {
             scene.stop();
-            scene.mark(None);
+            unmark(scene);
         }
         self.resume = None;
     }
@@ -515,7 +518,7 @@ impl Speaker {
         let Some(next) = aloud.next else {
             // The end of the book, or of the page.
             self.aloud = None;
-            scene.mark(None);
+            unmark(scene);
             if !options.turn {
                 scene.say("reader.aloud.page-done");
             }
@@ -541,6 +544,13 @@ impl Speaker {
 /// Underlines `sentence` where the setting says so.
 fn mark<S: Scene>(scene: &mut S, options: Options, sentence: &Sentence) {
     scene.mark(options.highlight.then(|| sentence.range()));
+    scene.spoken(Some(sentence.range()));
+}
+
+/// Nothing is read aloud any more: no underline, no words spoken.
+fn unmark<S: Scene>(scene: &mut S) {
+    scene.mark(None);
+    scene.spoken(None);
 }
 
 /// What failed reading aloud, said to the reader.

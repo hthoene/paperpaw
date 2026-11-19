@@ -76,9 +76,9 @@ pub mod reader_layer_v1 {
     /// Schema reply_rows.
     pub const REPLY_ROWS: usize = 64;
     /// Schema input_tags.
-    pub const INPUT_TAGS: &[u32] = &[1, 2, 3];
+    pub const INPUT_TAGS: &[u32] = &[1, 2, 3, 8];
     /// Schema reply_tags.
-    pub const REPLY_TAGS: &[u32] = &[4, 5, 6, 7];
+    pub const REPLY_TAGS: &[u32] = &[4, 5, 6, 7, 9];
     /// Schema input_rows: the most records of one input batch.
     pub const INPUT_ROWS: usize = 64;
     struct Reader<'a> {
@@ -405,6 +405,8 @@ pub mod reader_layer_v1 {
     pub struct LayerUses {
         /// Little-endian u64.
         pub signature: u64,
+        /// Little-endian u32.
+        pub aloud: u32,
     }
 
     impl LayerUses {
@@ -412,24 +414,27 @@ pub mod reader_layer_v1 {
             body.bitmap()?;
             Ok(Record::LayerUses(Self {
                 signature: u64::from_le_bytes(body.scalar()?),
+                aloud: u32::from_le_bytes(body.scalar()?),
             }))
         }
 
         fn body_len(&self) -> Result<usize, i32> {
             let mut len = 1; // The initial bitmap is empty.
             len += 8;
+            len += 4;
             Ok(len)
         }
 
         fn write(&self, out: &mut [u8], offset: &mut usize) {
             write_bytes(&self.signature.to_le_bytes(), out, offset);
+            write_bytes(&self.aloud.to_le_bytes(), out, offset);
         }
     }
 
     impl LayerUses {
         /// Build a record; encoding validates its bounds.
-        pub const fn new(signature: u64) -> Self {
-            Self { signature }
+        pub const fn new(signature: u64, aloud: u32) -> Self {
+            Self { signature, aloud }
         }
     }
     /// Wire tag of the `layer.box` record.
@@ -652,6 +657,118 @@ pub mod reader_layer_v1 {
             }
         }
     }
+    /// Wire tag of the `layer.aloud` record.
+    pub const LAYER_ALOUD_TAG: u32 = 8;
+
+    /// The `layer.aloud` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct LayerAloud {
+        /// Little-endian u32.
+        pub line: u32,
+        /// Little-endian u32.
+        pub word: u32,
+        /// Little-endian u32.
+        pub end_line: u32,
+        /// Little-endian u32.
+        pub end_word: u32,
+    }
+
+    impl LayerAloud {
+        fn decode_body<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::LayerAloud(Self {
+                line: u32::from_le_bytes(body.scalar()?),
+                word: u32::from_le_bytes(body.scalar()?),
+                end_line: u32::from_le_bytes(body.scalar()?),
+                end_word: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.line.to_le_bytes(), out, offset);
+            write_bytes(&self.word.to_le_bytes(), out, offset);
+            write_bytes(&self.end_line.to_le_bytes(), out, offset);
+            write_bytes(&self.end_word.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl LayerAloud {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(line: u32, word: u32, end_line: u32, end_word: u32) -> Self {
+            Self {
+                line,
+                word,
+                end_line,
+                end_word,
+            }
+        }
+    }
+    /// Wire tag of the `layer.region` record.
+    pub const LAYER_REGION_TAG: u32 = 9;
+
+    /// The `layer.region` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct LayerRegion {
+        /// Little-endian u32.
+        pub x: u32,
+        /// Little-endian u32.
+        pub y: u32,
+        /// Little-endian u32.
+        pub width: u32,
+        /// Little-endian u32.
+        pub height: u32,
+    }
+
+    impl LayerRegion {
+        fn decode_body<'a>(body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+            body.bitmap()?;
+            Ok(Record::LayerRegion(Self {
+                x: u32::from_le_bytes(body.scalar()?),
+                y: u32::from_le_bytes(body.scalar()?),
+                width: u32::from_le_bytes(body.scalar()?),
+                height: u32::from_le_bytes(body.scalar()?),
+            }))
+        }
+
+        fn body_len(&self) -> Result<usize, i32> {
+            let mut len = 1; // The initial bitmap is empty.
+            len += 4;
+            len += 4;
+            len += 4;
+            len += 4;
+            Ok(len)
+        }
+
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            write_bytes(&self.x.to_le_bytes(), out, offset);
+            write_bytes(&self.y.to_le_bytes(), out, offset);
+            write_bytes(&self.width.to_le_bytes(), out, offset);
+            write_bytes(&self.height.to_le_bytes(), out, offset);
+        }
+    }
+
+    impl LayerRegion {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(x: u32, y: u32, width: u32, height: u32) -> Self {
+            Self {
+                x,
+                y,
+                width,
+                height,
+            }
+        }
+    }
 
     /// A record with a tag local to this stage.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -671,6 +788,10 @@ pub mod reader_layer_v1 {
         LayerSegment(LayerSegment),
         /// A `layer.text` record.
         LayerText(LayerText<'a>),
+        /// A `layer.aloud` record.
+        LayerAloud(LayerAloud),
+        /// A `layer.region` record.
+        LayerRegion(LayerRegion),
     }
     impl<'a> Reader<'a> {
         fn blob(&mut self, cap: usize) -> Result<&'a [u8], i32> {
@@ -715,6 +836,8 @@ pub mod reader_layer_v1 {
                 Record::LayerBox(_) => LAYER_BOX_TAG,
                 Record::LayerSegment(_) => LAYER_SEGMENT_TAG,
                 Record::LayerText(_) => LAYER_TEXT_TAG,
+                Record::LayerAloud(_) => LAYER_ALOUD_TAG,
+                Record::LayerRegion(_) => LAYER_REGION_TAG,
             }
         }
         fn body_len(&self) -> Result<usize, i32> {
@@ -726,6 +849,8 @@ pub mod reader_layer_v1 {
                 Record::LayerBox(r) => r.body_len(),
                 Record::LayerSegment(r) => r.body_len(),
                 Record::LayerText(r) => r.body_len(),
+                Record::LayerAloud(r) => r.body_len(),
+                Record::LayerRegion(r) => r.body_len(),
             }
         }
         fn write(&self, out: &mut [u8], offset: &mut usize) {
@@ -737,6 +862,8 @@ pub mod reader_layer_v1 {
                 Record::LayerBox(r) => r.write(out, offset),
                 Record::LayerSegment(r) => r.write(out, offset),
                 Record::LayerText(r) => r.write(out, offset),
+                Record::LayerAloud(r) => r.write(out, offset),
+                Record::LayerRegion(r) => r.write(out, offset),
             }
         }
         fn validate(&self) -> Result<(), i32> {
@@ -755,6 +882,8 @@ pub mod reader_layer_v1 {
             LAYER_BOX_TAG => LayerBox::decode_body(body)?,
             LAYER_SEGMENT_TAG => LayerSegment::decode_body(body)?,
             LAYER_TEXT_TAG => LayerText::decode_body(body)?,
+            LAYER_ALOUD_TAG => LayerAloud::decode_body(body)?,
+            LAYER_REGION_TAG => LayerRegion::decode_body(body)?,
             _ => return Err(-2),
         };
         // Unknown appended fields are bounded by the record framing.
@@ -1163,6 +1292,44 @@ pub mod reader_layer_v1 {
             }
             match records.next() {
                 Some(Ok(Record::LayerText(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl LayerAloud {
+        /// Local tag of this record.
+        pub const TAG: u32 = LAYER_ALOUD_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            input_encode(&[Record::LayerAloud(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
+            let mut records = input_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::LayerAloud(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl LayerRegion {
+        /// Local tag of this record.
+        pub const TAG: u32 = LAYER_REGION_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::LayerRegion(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &[u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::LayerRegion(r))) => Ok(r),
                 _ => Err(-2),
             }
         }

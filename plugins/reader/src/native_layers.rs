@@ -58,6 +58,28 @@ pub struct Chosen {
     pub id: String,
     /// The plugin's answer folded with its registration's.
     pub signature: u64,
+    /// Its pages are asked again with each sentence read aloud.
+    pub aloud: bool,
+    /// Where the book's text goes in the text area, in thousandths of it
+    /// (`x`, `y`, `width`, `height`): the rest is the layer's. None: all of it.
+    pub region: Option<[u16; 4]>,
+}
+
+/// The smallest side of a region, in thousandths of the text area.
+const LEAST_REGION: u32 = 100;
+
+/// The region a `layer.region` record asks for, where it is one inside the
+/// text area at least a tenth of it on each side.
+fn region_of(r: &layer::LayerRegion) -> Option<[u16; 4]> {
+    let fits = |at: u32, side: u32| {
+        side >= LEAST_REGION && at.checked_add(side).is_some_and(|end| end <= 1000)
+    };
+    (fits(r.x, r.width) && fits(r.y, r.height)).then_some([
+        r.x as u16,
+        r.y as u16,
+        r.width as u16,
+        r.height as u16,
+    ])
 }
 
 impl Chosen {
@@ -72,14 +94,22 @@ impl Chosen {
         (cursor, subscriber, registered): (u32, &str, u64),
         payload: &[u8],
     ) -> Result<Option<Self>, Error> {
-        let signature = match kind {
+        let (mut region, mut rows) = (None, layer::reply_decode(payload).ok());
+        let (signature, aloud) = match kind {
             Kind::Text => match text::reply_decode(payload).ok().and_then(|mut r| r.next()) {
-                Some(Ok(text::Record::TextUses(uses))) => uses.signature,
-                _ => 0,
+                Some(Ok(text::Record::TextUses(uses))) => (uses.signature, false),
+                _ => (0, false),
             },
-            Kind::Layer => match layer::reply_decode(payload).ok().and_then(|mut r| r.next()) {
-                Some(Ok(layer::Record::LayerUses(uses))) => uses.signature,
-                _ => 0,
+            Kind::Layer => match rows.as_mut().and_then(Iterator::next) {
+                Some(Ok(layer::Record::LayerUses(uses))) => {
+                    if let Some(Ok(layer::Record::LayerRegion(r))) =
+                        rows.as_mut().and_then(Iterator::next)
+                    {
+                        region = region_of(&r);
+                    }
+                    (uses.signature, uses.aloud != 0)
+                }
+                _ => (0, false),
             },
         };
         if signature == 0 {
@@ -89,6 +119,8 @@ impl Chosen {
             cursor,
             id: copy(subscriber)?,
             signature: signature.rotate_left(7) ^ registered,
+            aloud,
+            region,
         }))
     }
 }

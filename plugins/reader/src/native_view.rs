@@ -148,6 +148,8 @@ struct Open {
     language: String,
     /// The words of the page on show the sentence read aloud underlines.
     mark: Option<Range<usize>>,
+    /// The words of the page on show being read aloud, underlined or not.
+    spoken: Option<Range<usize>>,
     /// The book was reported read to the end.
     finished: bool,
     /// A refused write has been said (once for a book).
@@ -413,6 +415,7 @@ impl View {
             title,
             language,
             mark: None,
+            spoken: None,
             finished: false,
             counter: None,
             class: None,
@@ -1149,9 +1152,16 @@ impl Open {
         }
     }
 
+    /// Where the book's text is laid out: the content box, or the part of it
+    /// a page layer's region gives the text (`native_view/layers.rs`).
+    fn area(&self, setup: &Setup) -> Option<native_pages::Box> {
+        self.page_area(setup)
+            .map(|full| self.layers.text_area(full))
+    }
+
     /// The content box: the whole display for whole-page books (as Beta 3's
     /// margins of none), else inside the reading margins.
-    fn area(&self, setup: &Setup) -> Option<native_pages::Box> {
+    fn page_area(&self, setup: &Setup) -> Option<native_pages::Box> {
         let mut reading = setup.reading;
         if self.whole_pages {
             reading.margin = 0;

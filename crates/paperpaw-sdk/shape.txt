@@ -1615,8 +1615,9 @@ const paperpaw_sdk::native::page_layers::Tone::BLACK: paperpaw_sdk::native::page
 const paperpaw_sdk::native::page_layers::Tone::NONE: paperpaw_sdk::native::page_layers::Tone = Tone(256)
 const paperpaw_sdk::native::page_layers::WORD_BYTES: usize = 6usize
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::INPUT_ROWS: usize = 64usize
-const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::INPUT_TAGS: &[u32] = &[1, 2, 3]
+const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::INPUT_TAGS: &[u32] = &[1, 2, 3, 8]
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::KEY: &str = "reader.layer"
+const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LAYER_ALOUD_TAG: u32 = 8u32
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LAYER_BOOK_LANGUAGE_MAX_BYTES: usize = 16usize
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LAYER_BOOK_PATH_MAX_BYTES: usize = 512usize
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LAYER_BOOK_TAG: u32 = 1u32
@@ -1625,14 +1626,17 @@ const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LAYER_LINE_TAG:
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LAYER_LINE_TEXT_MAX_BYTES: usize = 512usize
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LAYER_LINE_WORDS_MAX_BYTES: usize = 510usize
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LAYER_PAGE_TAG: u32 = 2u32
+const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LAYER_REGION_TAG: u32 = 9u32
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LAYER_SEGMENT_TAG: u32 = 6u32
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LAYER_TEXT_TAG: u32 = 7u32
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LAYER_TEXT_TEXT_MAX_BYTES: usize = 256usize
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LAYER_USES_TAG: u32 = 4u32
+const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerAloud::TAG: u32 = LAYER_ALOUD_TAG
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerBook<'a>::TAG: u32 = LAYER_BOOK_TAG
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerBox::TAG: u32 = LAYER_BOX_TAG
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerLine<'a>::TAG: u32 = LAYER_LINE_TAG
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerPage::TAG: u32 = LAYER_PAGE_TAG
+const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerRegion::TAG: u32 = LAYER_REGION_TAG
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerSegment::TAG: u32 = LAYER_SEGMENT_TAG
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerText<'a>::TAG: u32 = LAYER_TEXT_TAG
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerUses::TAG: u32 = LAYER_USES_TAG
@@ -1641,7 +1645,7 @@ const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::MAX_INPUT: usiz
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::MAX_REPLY: usize = 3_840usize
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::MAX_SUBSCRIBERS: usize = 4usize
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::REPLY_ROWS: usize = 64usize
-const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::REPLY_TAGS: &[u32] = &[4, 5, 6, 7]
+const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::REPLY_TAGS: &[u32] = &[4, 5, 6, 7, 9]
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::REVISION: u16 = 0u16
 const paperpaw_sdk::native::page_layers::codec::reader_layer_v1::TEST_ONLY: bool = false
 const paperpaw_sdk::native::page_layers::codec::reader_text_v1::INPUT_TAGS: &[u32] = &[1, 2]
@@ -2474,7 +2478,7 @@ enum paperpaw_sdk::native::page_layers::BlockKind { Paragraph, Heading, Other }
 enum paperpaw_sdk::native::page_layers::GlossKind { Ruby, Phonetic, Gloss }
 enum paperpaw_sdk::native::page_layers::LayerAsk<'a> { Book { path: &'a str, language: &'a str }, Page(0: paperpaw_sdk::native::page_layers::LayerPage<'a>) }
 enum paperpaw_sdk::native::page_layers::TextAsk<'a> { Book { path: &'a str, language: &'a str }, Block(0: paperpaw_sdk::native::page_layers::TextBlock<'a>) }
-enum paperpaw_sdk::native::page_layers::codec::reader_layer_v1::Record<'a> { LayerBook(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerBook<'a>), LayerPage(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerPage), LayerLine(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerLine<'a>), LayerUses(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerUses), LayerBox(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerBox), LayerSegment(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerSegment), LayerText(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerText<'a>) }
+enum paperpaw_sdk::native::page_layers::codec::reader_layer_v1::Record<'a> { LayerBook(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerBook<'a>), LayerPage(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerPage), LayerLine(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerLine<'a>), LayerUses(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerUses), LayerBox(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerBox), LayerSegment(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerSegment), LayerText(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerText<'a>), LayerAloud(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerAloud), LayerRegion(0: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerRegion) }
 enum paperpaw_sdk::native::page_layers::codec::reader_text_v1::Record<'a> { TextBook(0: paperpaw_sdk::native::page_layers::codec::reader_text_v1::TextBook<'a>), TextBlock(0: paperpaw_sdk::native::page_layers::codec::reader_text_v1::TextBlock<'a>), TextUses(0: paperpaw_sdk::native::page_layers::codec::reader_text_v1::TextUses), TextRoom(0: paperpaw_sdk::native::page_layers::codec::reader_text_v1::TextRoom), TextReplace(0: paperpaw_sdk::native::page_layers::codec::reader_text_v1::TextReplace<'a>), TextGloss(0: paperpaw_sdk::native::page_layers::codec::reader_text_v1::TextGloss<'a>), TextInsert(0: paperpaw_sdk::native::page_layers::codec::reader_text_v1::TextInsert<'a>) }
 enum paperpaw_sdk::native::registry::MenuQuery { Current, All, Declared }
 enum paperpaw_sdk::native::registry::ValuesQuery<'a> { Preset(0: &'a str), Placement(0: &'a str) }
@@ -3221,20 +3225,23 @@ struct paperpaw_sdk::native::net::serve::Response<'a> { request: u32, status: u1
 struct paperpaw_sdk::native::net::serve::Server { token: u32, port: u16, max_body: u64 }
 struct paperpaw_sdk::native::page_layers::LayerAnswer<'w> { writer: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::ReplyWriter<'w> }
 struct paperpaw_sdk::native::page_layers::LayerLine<'a> { x: i32, baseline: i32, width: u32, size: u32, leading: u32, top: i32, section: u32, offset: u32, inserted: bool, text: &'a str, words: &'a [u8] }
-struct paperpaw_sdk::native::page_layers::LayerPage<'a> { width: u32, height: u32, lines: u32, first: u32, rows: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::RecordStream<'a> }
+struct paperpaw_sdk::native::page_layers::LayerPage<'a> { width: u32, height: u32, lines: u32, first: u32, spoken: core::option::Option<paperpaw_sdk::native::page_layers::Spoken>, rows: paperpaw_sdk::native::page_layers::codec::reader_layer_v1::RecordStream<'a> }
 struct paperpaw_sdk::native::page_layers::LayerWord { x: u16, width: u16, at: u16 }
+struct paperpaw_sdk::native::page_layers::Spoken { line: u32, word: u32, end_line: u32, end_word: u32 }
 struct paperpaw_sdk::native::page_layers::TextAnswer<'w> { writer: paperpaw_sdk::native::page_layers::codec::reader_text_v1::ReplyWriter<'w> }
 struct paperpaw_sdk::native::page_layers::TextBlock<'a> { section: u32, offset: u32, kind: paperpaw_sdk::native::page_layers::BlockKind, text: &'a str }
 struct paperpaw_sdk::native::page_layers::Tone(0: u32)
 struct paperpaw_sdk::native::page_layers::codec::StageSchema { key: &'static str, major: u16, revision: u16, test_only: bool, max_subscribers: usize, max_input: usize, max_reply: usize, reply_rows: usize, input_tags: &'static [u32], reply_tags: &'static [u32] }
 struct paperpaw_sdk::native::page_layers::codec::reader_layer_v1::InputWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
+struct paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerAloud { line: u32, word: u32, end_line: u32, end_word: u32 }
 struct paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerBook<'a> { path: &'a str, language: &'a str }
 struct paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerBox { x: i32, y: i32, width: u32, height: u32, fill: u32, ink: u32, thickness: u32 }
 struct paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerLine<'a> { x: i32, baseline: i32, width: u32, size: u32, leading: u32, top: i32, section: u32, offset: u32, inserted: u32, text: &'a str, words: &'a [u8] }
 struct paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerPage { width: u32, height: u32, lines: u32, first: u32 }
+struct paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerRegion { x: u32, y: u32, width: u32, height: u32 }
 struct paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerSegment { x1: i32, y1: i32, x2: i32, y2: i32, ink: u32, thickness: u32 }
 struct paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerText<'a> { x: i32, y: i32, size: u32, ink: u32, italic: u32, text: &'a str }
-struct paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerUses { signature: u64 }
+struct paperpaw_sdk::native::page_layers::codec::reader_layer_v1::LayerUses { signature: u64, aloud: u32 }
 struct paperpaw_sdk::native::page_layers::codec::reader_layer_v1::RecordStream<'a> { bytes: &'a [u8], remaining: usize }
 struct paperpaw_sdk::native::page_layers::codec::reader_layer_v1::ReplyWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
 struct paperpaw_sdk::native::page_layers::codec::reader_text_v1::InputWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }

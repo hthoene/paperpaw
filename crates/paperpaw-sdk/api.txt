@@ -3529,9 +3529,11 @@ impl<'w> paperpaw_sdk::native::page_layers::LayerAnswer<'w>
 pub fn paperpaw_sdk::native::page_layers::LayerAnswer<'w>::finish(self) -> core::result::Result<usize, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::page_layers::LayerAnswer<'w>::new(&'w mut [u8]) -> core::result::Result<Self, paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::page_layers::LayerAnswer<'w>::rect(&mut self, (i32, i32), (u32, u32), (paperpaw_sdk::native::page_layers::Tone, paperpaw_sdk::native::page_layers::Tone), u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::page_layers::LayerAnswer<'w>::region(&mut self, (u16, u16), (u16, u16)) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::page_layers::LayerAnswer<'w>::segment(&mut self, (i32, i32), (i32, i32), paperpaw_sdk::native::page_layers::Tone, u32) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::page_layers::LayerAnswer<'w>::text(&mut self, (i32, i32), (u32, paperpaw_sdk::native::page_layers::Tone, bool), &str) -> core::result::Result<(), paperpaw_sdk::native::Error>
 pub fn paperpaw_sdk::native::page_layers::LayerAnswer<'w>::uses(&mut self, u64) -> core::result::Result<(), paperpaw_sdk::native::Error>
+pub fn paperpaw_sdk::native::page_layers::LayerAnswer<'w>::uses_reading_aloud(&mut self, u64) -> core::result::Result<(), paperpaw_sdk::native::Error>
 #[non_exhaustive] pub struct paperpaw_sdk::native::page_layers::LayerLine<'a>
 pub paperpaw_sdk::native::page_layers::LayerLine::baseline: i32
 pub paperpaw_sdk::native::page_layers::LayerLine::inserted: bool
@@ -3549,6 +3551,7 @@ pub fn paperpaw_sdk::native::page_layers::LayerLine<'a>::words(&self) -> impl co
 pub paperpaw_sdk::native::page_layers::LayerPage::first: u32
 pub paperpaw_sdk::native::page_layers::LayerPage::height: u32
 pub paperpaw_sdk::native::page_layers::LayerPage::lines: u32
+pub paperpaw_sdk::native::page_layers::LayerPage::spoken: core::option::Option<paperpaw_sdk::native::page_layers::Spoken>
 pub paperpaw_sdk::native::page_layers::LayerPage::width: u32
 impl<'a> paperpaw_sdk::native::page_layers::LayerPage<'a>
 pub fn paperpaw_sdk::native::page_layers::LayerPage<'a>::lines(&self) -> impl core::iter::traits::iterator::Iterator<Item = paperpaw_sdk::native::page_layers::LayerLine<'a>> + 'a
@@ -3556,6 +3559,13 @@ pub fn paperpaw_sdk::native::page_layers::LayerPage<'a>::lines(&self) -> impl co
 pub paperpaw_sdk::native::page_layers::LayerWord::at: u16
 pub paperpaw_sdk::native::page_layers::LayerWord::width: u16
 pub paperpaw_sdk::native::page_layers::LayerWord::x: u16
+#[non_exhaustive] pub struct paperpaw_sdk::native::page_layers::Spoken
+pub paperpaw_sdk::native::page_layers::Spoken::end_line: u32
+pub paperpaw_sdk::native::page_layers::Spoken::end_word: u32
+pub paperpaw_sdk::native::page_layers::Spoken::line: u32
+pub paperpaw_sdk::native::page_layers::Spoken::word: u32
+impl paperpaw_sdk::native::page_layers::Spoken
+pub fn paperpaw_sdk::native::page_layers::Spoken::holds(&self, u32, u32) -> bool
 pub struct paperpaw_sdk::native::page_layers::TextAnswer<'w>
 impl<'w> paperpaw_sdk::native::page_layers::TextAnswer<'w>
 pub fn paperpaw_sdk::native::page_layers::TextAnswer<'w>::finish(self) -> core::result::Result<usize, paperpaw_sdk::native::Error>

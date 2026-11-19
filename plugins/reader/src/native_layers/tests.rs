@@ -13,6 +13,13 @@ fn answer(rows: &[text::Record<'_>]) -> Vec<u8> {
     out
 }
 
+fn layer_answer(rows: &[layer::Record<'_>]) -> Vec<u8> {
+    let mut out = vec![0; layer::MAX_REPLY];
+    let len = layer::reply_encode(rows, &mut out).unwrap();
+    out.truncate(len);
+    out
+}
+
 fn block(text: &str) -> Block {
     Block::new(
         BlockKind::Paragraph,
@@ -83,7 +90,9 @@ fn a_plugin_is_chosen_only_where_it_says_it_adds_to_the_book() {
         Some(Chosen {
             cursor: 2,
             id: "interlinear".into(),
-            signature: 5_u64.rotate_left(7) ^ 9
+            signature: 5_u64.rotate_left(7) ^ 9,
+            aloud: false,
+            region: None,
         })
     );
     let none = answer(&[text::Record::TextUses(text::TextUses::new(0))]);
@@ -230,8 +239,8 @@ fn a_page_is_shown_in_lines_with_its_words_and_its_answer_drawn_over_it() {
             )
         })
         .collect();
-    let rows = page::rows(&page, &boxes, (30, 0)).unwrap();
-    let (input, next) = page::fire(&page, &rows, 0, (100, 400)).unwrap();
+    let rows = page::rows(&page, &boxes, (30, 0), (0, 0)).unwrap();
+    let (input, next) = page::fire(&page, &rows, (0, None), (100, 400)).unwrap();
     assert_eq!(next, 2);
     let mut asked = layer::input_decode(&input).unwrap();
     let Some(Ok(layer::Record::LayerPage(head))) = asked.next() else {
@@ -282,12 +291,85 @@ fn a_page_is_shown_in_lines_with_its_words_and_its_answer_drawn_over_it() {
 fn the_answers_of_two_pages_are_kept() {
     let mut pages = page::Pages::default();
     for n in 0..3 {
-        pages.keep((0, n), vec![vec![n as u8]]).unwrap();
+        pages.keep(((0, n), None), vec![vec![n as u8]]).unwrap();
     }
-    assert!(pages.get((0, 0)).is_none());
-    assert_eq!(pages.get((0, 2)), Some(&[vec![2_u8]][..]));
-    pages.keep((0, 1), Vec::new()).unwrap();
-    assert_eq!(pages.get((0, 1)), Some(&[][..]));
+    assert!(pages.get(((0, 0), None)).is_none());
+    assert_eq!(pages.get(((0, 2), None)), Some(&[vec![2_u8]][..]));
+    pages.keep(((0, 1), None), Vec::new()).unwrap();
+    assert_eq!(pages.get(((0, 1), None)), Some(&[][..]));
+    // The same page with other words read aloud is asked anew.
+    assert!(pages.get(((0, 1), Some((0, 2)))).is_none());
     pages.clear();
-    assert!(pages.get((0, 2)).is_none());
+    assert!(pages.get(((0, 2), None)).is_none());
+}
+
+#[test]
+fn a_plugin_that_follows_reading_aloud_is_told_the_words_by_line_and_word() {
+    let uses = layer_answer(&[layer::Record::LayerUses(layer::LayerUses::new(5, 1))]);
+    let chosen = Chosen::from_reply(Kind::Layer, (0, "along", 0), &uses).unwrap();
+    assert!(chosen.is_some_and(|c| c.aloud));
+    let page = laid("one two three four");
+    // "two three": word 1 of line 0 up to word 1 of line 1 (exclusive).
+    let aloud = page::aloud(&page, 1..3).unwrap();
+    assert_eq!(
+        (aloud.line, aloud.word, aloud.end_line, aloud.end_word),
+        (0, 1, 1, 1)
+    );
+    // To the page's end, and nothing for no words.
+    let to_end = page::aloud(&page, 2..4).unwrap();
+    assert_eq!(
+        (to_end.line, to_end.word, to_end.end_line, to_end.end_word),
+        (1, 0, 1, 2)
+    );
+    assert!(page::aloud(&page, 2..2).is_none());
+    // A word without a box keeps its place in its line, 0 wide.
+    let rows = page::rows(&page, &[], (0, 0), (0, 0)).unwrap();
+    let (input, _) = page::fire(&page, &rows, (0, Some(&aloud)), (100, 400)).unwrap();
+    let mut asked = layer::input_decode(&input).unwrap();
+    assert!(matches!(
+        asked.next(),
+        Some(Ok(layer::Record::LayerPage(_)))
+    ));
+    assert_eq!(asked.next(), Some(Ok(layer::Record::LayerAloud(aloud))));
+    let Some(Ok(layer::Record::LayerLine(first))) = asked.next() else {
+        panic!("a line");
+    };
+    assert_eq!(first.words, &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0]);
+}
+
+#[test]
+fn a_region_gives_the_text_a_part_of_the_area_and_the_lines_say_where_it_is() {
+    let uses = layer_answer(&[
+        layer::Record::LayerUses(layer::LayerUses::new(5, 0)),
+        layer::Record::LayerRegion(layer::LayerRegion::new(0, 500, 1000, 500)),
+    ]);
+    let chosen = Chosen::from_reply(Kind::Layer, (0, "split", 0), &uses)
+        .unwrap()
+        .unwrap();
+    assert_eq!(chosen.region, Some([0, 500, 1000, 500]));
+    // Too small, or out of the area: not used.
+    for bad in [(0, 0, 50, 1000), (600, 0, 500, 1000)] {
+        let uses = layer_answer(&[
+            layer::Record::LayerUses(layer::LayerUses::new(5, 0)),
+            layer::Record::LayerRegion(layer::LayerRegion::new(bad.0, bad.1, bad.2, bad.3)),
+        ]);
+        let chosen = Chosen::from_reply(Kind::Layer, (0, "split", 0), &uses)
+            .unwrap()
+            .unwrap();
+        assert_eq!(chosen.region, None);
+    }
+    let reading = crate::native_pages::Reading::new(12, 120, 100, 5, 8, false);
+    let full = crate::native_pages::content_box(480, 800, 254, &reading).unwrap();
+    let text = page::within(full, [0, 500, 1000, 500]);
+    assert_eq!((text.x, text.width), (full.x, full.width));
+    assert_eq!(text.y, full.y + full.height / 2);
+    // The lines of the page laid out in the lower half are shown where they are.
+    let page = laid("one two three four");
+    let rows = page::rows(&page, &[], (0, 0), (0, 300)).unwrap();
+    let (input, _) = page::fire(&page, &rows, (0, None), (400, 600)).unwrap();
+    let line = layer::input_decode(&input).unwrap().find_map(|r| match r {
+        Ok(layer::Record::LayerLine(l)) => Some(l.baseline),
+        _ => None,
+    });
+    assert_eq!(line, Some(316));
 }

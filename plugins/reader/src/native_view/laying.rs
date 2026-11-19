@@ -190,9 +190,13 @@ impl Open {
             // Highlights of another conversion that this page has the text of.
             self.marks.accept_foreign(&self.words);
             self.decorate(host);
-            if self.ask_marks {
-                self.ask_layer(host, area);
-            }
+        }
+        // Asked once for the page (and for each sentence read aloud where the
+        // plugin follows it); a page kept is not asked again.
+        // The whole content box: a layer's region leaves the text a part of it.
+        let full = self.page_area(setup).unwrap_or(area);
+        if self.ask_marks {
+            self.ask_layer(host, full);
         }
         let page = self.page.as_ref().ok_or(Error::State)?;
         let rect = frame.rect;
@@ -228,13 +232,13 @@ impl Open {
             (self.mark.clone(), pictures),
         )?;
         // What a plugin's page layer draws, over the text.
-        let at = (rect.x + i32::from(area.x), rect.y + i32::from(area.y));
+        let at = (rect.x + i32::from(full.x), rect.y + i32::from(full.y));
         self.draw_layer(&canvas, (fonts, &look), at);
         // Other plugins' marks under the reader's own, as Beta 3 drew them.
         self.draw_over(&canvas, gauge, (rect.x, rect.y)).ok();
         painted.over(&mut CanvasPen(&canvas)).ok();
-        self.draw_ribbon(&canvas, rect, (&area, setup.display.display_dpi()))?;
-        self.paint_status(host, ui, frame, (setup, &area))?;
+        self.draw_ribbon(&canvas, rect, (&full, setup.display.display_dpi()))?;
+        self.paint_status(host, ui, frame, (setup, &full))?;
         let ctx = Ctx::new(
             Locator::new(self.at.0, self.at.1),
             &self.words,

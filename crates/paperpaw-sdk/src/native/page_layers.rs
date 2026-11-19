@@ -15,7 +15,10 @@
 //!   shown each laid-out page once, its lines and the places of their words
 //!   ([`LayerAsk::Page`]), and answers what it draws over the text: boxes,
 //!   lines and text ([`LayerAnswer`]). The reader keeps the answer with the
-//!   page and draws it whenever the page is drawn.
+//!   page and draws it whenever the page is drawn. A plugin may follow
+//!   reading aloud ([`LayerAnswer::uses_reading_aloud`], [`LayerPage::spoken`])
+//!   and give the book's text a part of the page only
+//!   ([`LayerAnswer::region`]), drawing in the rest (a split page).
 //!
 //! Without a subscriber nothing changes and nothing is kept. One plugin uses
 //! each stage at a time: the first in stage order whose book answer says so.
@@ -296,7 +299,8 @@ pub struct LayerLine<'a> {
 }
 
 /// A word of a [`LayerLine`]: where it is drawn and where it is in the
-/// line's text.
+/// line's text. A word whose place the reader does not know is 0 wide at 0
+/// (it keeps its number in the line).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct LayerWord {
@@ -335,7 +339,32 @@ pub struct LayerPage<'a> {
     /// The page's lines in all, and the number of the first in this ask.
     pub lines: u32,
     pub first: u32,
+    /// The words being read aloud, for a plugin that follows reading aloud
+    /// ([`LayerAnswer::uses_reading_aloud`]); none otherwise.
+    pub spoken: Option<Spoken>,
     rows: layer::RecordStream<'a>,
+}
+
+/// The words of a page being read aloud: from word [`word`](Self::word) of
+/// line [`line`](Self::line) (lines counted on the page, as
+/// [`LayerPage::first`] counts them; words as [`LayerLine::words`] counts
+/// them) up to, not including, word `end_word` of line `end_line`. The same
+/// words in every ask of the page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Spoken {
+    pub line: u32,
+    pub word: u32,
+    pub end_line: u32,
+    pub end_word: u32,
+}
+
+impl Spoken {
+    /// Whether word `word` of line `line` is one of them.
+    #[must_use]
+    pub fn holds(&self, line: u32, word: u32) -> bool {
+        (line, word) >= (self.line, self.word) && (line, word) < (self.end_line, self.end_word)
+    }
 }
 
 impl<'a> LayerPage<'a> {
@@ -388,13 +417,25 @@ impl<'a> LayerAsk<'a> {
                 path: book.path,
                 language: book.language,
             }),
-            Some(Ok(layer::Record::LayerPage(page))) => Ok(Self::Page(LayerPage {
-                width: page.width,
-                height: page.height,
-                lines: page.lines,
-                first: page.first,
-                rows,
-            })),
+            Some(Ok(layer::Record::LayerPage(page))) => {
+                let spoken = match rows.clone().next() {
+                    Some(Ok(layer::Record::LayerAloud(a))) => Some(Spoken {
+                        line: a.line,
+                        word: a.word,
+                        end_line: a.end_line,
+                        end_word: a.end_word,
+                    }),
+                    _ => None,
+                };
+                Ok(Self::Page(LayerPage {
+                    width: page.width,
+                    height: page.height,
+                    lines: page.lines,
+                    first: page.first,
+                    spoken,
+                    rows,
+                }))
+            }
             _ => Err(Error::Invalid),
         }
     }
@@ -444,7 +485,42 @@ impl<'w> LayerAnswer<'w> {
     /// # Errors
     /// `Invalid` past [`MAX_ROWS`], `NoSpace` past the buffer.
     pub fn uses(&mut self, signature: u64) -> Result<(), Error> {
-        self.push(&layer::Record::LayerUses(layer::LayerUses::new(signature)))
+        self.push(&layer::Record::LayerUses(layer::LayerUses::new(
+            signature, 0,
+        )))
+    }
+
+    /// [`uses`](Self::uses), and the plugin follows reading aloud: while the
+    /// book is read aloud, the page on show is asked again for each sentence,
+    /// with the words being read ([`LayerPage::spoken`]); what it answers is
+    /// drawn in place of the answer before.
+    ///
+    /// # Errors
+    /// As [`uses`](Self::uses).
+    pub fn uses_reading_aloud(&mut self, signature: u64) -> Result<(), Error> {
+        self.push(&layer::Record::LayerUses(layer::LayerUses::new(
+            signature, 1,
+        )))
+    }
+
+    /// For [`LayerAsk::Book`], right after [`uses`](Self::uses): the reader
+    /// sets the book's text only in this part of its text area, in
+    /// thousandths of it (`x`, `y`, `width`, `height`, each side at least
+    /// 100): the rest of the area is the layer's to draw on (the other half
+    /// of a split page, a margin for notes). Positions in [`LayerAsk::Page`]
+    /// stay those of the whole text area. A region outside the area or
+    /// smaller is not used. Changing it lays the pages out anew.
+    ///
+    /// # Errors
+    /// As [`uses`](Self::uses).
+    pub fn region(&mut self, (x, y): (u16, u16), (width, height): (u16, u16)) -> Result<(), Error> {
+        let region = layer::LayerRegion::new(
+            u32::from(x),
+            u32::from(y),
+            u32::from(width),
+            u32::from(height),
+        );
+        self.push(&layer::Record::LayerRegion(region))
     }
 
     /// A box at `(x, y)`, `width` by `height`, filled with `fill` and framed
