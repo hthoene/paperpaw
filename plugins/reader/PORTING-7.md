@@ -1027,3 +1027,19 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
     (`plugins/settings/PORTING-7.md`, ignored case `settings-group-preview`); the host lists it
     (`reg_widget.previews`, op 19 flag). Untested on a host (no scripted widget call); the layout and the
     draw are tested over a fixed-width measure.
+
+## The page layers (#284)
+
+- `reader.text@1` and `reader.layer@1` (`stages/`, `docs/abi/page-layers.md`) take interface 6's
+  text filters that change a block (room, words, glosses, inserted blocks) and page layers (drawing
+  over a page). The book is asked of both when it opens and when another plugin's setting changes
+  (`native_view/layers.rs`); one plugin each is used, from its cursor (`Stage::run_from`).
+- The text stage's answers are kept by block (`native_layers::Answers`, 12 KiB) and applied in
+  `HostDocument::block_at` after the filters; the blocks of a page are asked before its layout
+  (`Layers::prepare`), a block the layout read unasked after it, and the page is laid out once more.
+  Its signature is part of the layout key (`filters.rs`).
+- The layer stage is asked once a page after its words are made (the first page in the background
+  step, as the decorations), its answer kept for two pages and drawn after the text, before the
+  plugins' marks.
+- Not ported: taps on a layer (interface 6's `PAGE_LAYER_TAPPED`).
+

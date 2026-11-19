@@ -171,6 +171,8 @@ struct Open {
     undecorated: bool,
     /// The rules of `reader.filter@1` for this book (`filters.rs`).
     filters: Vec<crate::native_filter::Filter>,
+    /// What the plugins of `reader.text@1` and `reader.layer@1` add (`layers.rs`).
+    layers: layers::Layers,
     /// Pages are asked for marks: from the step after the first is shown.
     ask_marks: bool,
     /// The packs of letters this book asked for while open (`native_script_hint`).
@@ -422,12 +424,14 @@ impl View {
             decorations: None,
             undecorated: false,
             filters: Vec::new(),
+            layers: layers::Layers::default(),
             ask_marks: false,
             packs_asked: 0,
             settings: Kept::default(),
         })
         .map_err(fail)?;
         open.ask_filters(host);
+        open.ask_layers(host);
         open.begin(host, root == Root::Library);
         open.load_bookmarks(host, library);
         open.ask_packs(host, docs, script);
@@ -1333,6 +1337,7 @@ mod decorations;
 mod filters;
 mod goto;
 mod helpers;
+pub(crate) mod layers;
 mod laying;
 mod menu_bar;
 mod notes;

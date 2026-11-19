@@ -13,6 +13,7 @@ use crate::native_typeset::{Faces, HostFonts, Measure, Role};
 use core::ops::Range;
 use paperpaw_sdk::{
     Color,
+    document::AnnotationKind,
     layout::{Page, Typesetter},
     native::{
         Error,
@@ -131,7 +132,10 @@ pub fn draw_page<M: Measure>(
             .fold(0.0, f32::max);
         let (high, low) = (
             baseline - (tallest * ABOVE + line.leading) as i32,
-            baseline + (tallest * BELOW) as i32,
+            line.annotations
+                .iter()
+                .map(|a| (top + a.baseline + a.size * BELOW) as i32)
+                .fold(baseline + (tallest * BELOW) as i32, i32::max),
         );
         if !ink.shows(high, low) {
             number += words_of(line);
@@ -175,12 +179,31 @@ pub fn draw_page<M: Measure>(
             decorate(ink, run.face.style, size, (from, x - from), baseline)?;
         }
         under.end(ink)?;
+        draw_annotations(ink, line, (left, top))?;
     }
     draw_rules(ink, &page.rules, (left, top))?;
     match pictures {
         Pictures::Drawn => draw_images(ink, page, (left, top)),
         Pictures::Places => Ok(()),
     }
+}
+
+/// The annotations the layout set over and under `line` (ruby, glosses a
+/// plugin's text stage gave): upright above, italic below, as measured.
+fn draw_annotations(
+    ink: &mut impl Ink,
+    line: &paperpaw_sdk::layout::PageLine,
+    (left, top): (f32, f32),
+) -> Result<(), Error> {
+    for note in &line.annotations {
+        let role = match note.kind {
+            AnnotationKind::Ruby | AnnotationKind::Phonetic => Role::Reading,
+            _ => Role::Italic,
+        };
+        let baseline = (top + note.baseline + 0.5) as i32;
+        ink.run(role, note.size, left + note.x, baseline, &note.text)?;
+    }
+    Ok(())
 }
 
 /// How many words `line` adds to the count of the words of the page (the numbers

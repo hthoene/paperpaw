@@ -689,6 +689,18 @@ pub const DECORATIONS_MAX_INPUT: u32 = 3840;
 pub const DECORATIONS_MAX_REPLY: u32 = 3840;
 pub const DECORATIONS_MAX_RECORDS: u32 = 4;
 
+/// The bounds of `reader.text`, as `stages/reader.text@1.def` says.
+pub const TEXT_SCHEMA: u32 = 1;
+pub const TEXT_MAX_INPUT: u32 = 3840;
+pub const TEXT_MAX_REPLY: u32 = 3840;
+pub const TEXT_MAX_RECORDS: u32 = 64;
+
+/// The bounds of `reader.layer`, as `stages/reader.layer@1.def` says.
+pub const LAYER_SCHEMA: u32 = 1;
+pub const LAYER_MAX_INPUT: u32 = 3840;
+pub const LAYER_MAX_REPLY: u32 = 3840;
+pub const LAYER_MAX_RECORDS: u32 = 64;
+
 /// The stage the reader runs after it wrote a book's notes as Markdown
 /// (`core.notes-exported` of interface 6): a notes app or a sync subscribes
 /// (`registration.stage`) and answers each run with one `notes.done` record
@@ -730,6 +742,24 @@ pub fn stages<F: FnMut(&[u8]) -> Result<(), i32>>(
         DECORATIONS_MAX_INPUT,
         DECORATIONS_MAX_REPLY,
         DECORATIONS_MAX_RECORDS,
+    ))?;
+    // The page layers (`docs/abi/page-layers.md`): a block's text before its
+    // layout (room, replacements, glosses, inserted blocks), and what is drawn
+    // over a laid-out page. One plugin each for a book, asked once a block
+    // and once a page.
+    d.stage(StageDecl::new(
+        "text",
+        TEXT_SCHEMA,
+        TEXT_MAX_INPUT,
+        TEXT_MAX_REPLY,
+        TEXT_MAX_RECORDS,
+    ))?;
+    d.stage(StageDecl::new(
+        "layer",
+        LAYER_SCHEMA,
+        LAYER_MAX_INPUT,
+        LAYER_MAX_REPLY,
+        LAYER_MAX_RECORDS,
     ))?;
     d.submit()
 }

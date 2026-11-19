@@ -270,6 +270,7 @@ generated_step() {
         "tools/stage-codec.py plugins/about/stages plugins/about/src/stages.rs --check" \
         "tools/stage-codec.py plugins/reader/stages plugins/reader/src/stages.rs --check --plugin reader" \
         "tools/stage-codec.py plugins/aids/stages plugins/aids/src/reader_filter/stages.rs --check --plugin reader" \
+        "tools/stage-codec.py crates/paperpaw-sdk/stages/reader crates/paperpaw-sdk/src/native/page_layers/codec.rs --check --plugin reader" \
         "tools/stage-codec.py plugins/readwise/stages plugins/readwise/src/stages.rs --check" \
         "tools/stage-codec.py plugins/wikipedia/stages/subscribed plugins/wikipedia/src/stages.rs --check" \
         "tools/stage-codec.py plugins/joplin/stages plugins/joplin/src/stages.rs --check"; do
@@ -277,6 +278,9 @@ generated_step() {
         python3 $c || { echo "FAILED: python3 $c"; rc=1; }
     done
     cmp plugins/aids/stages/reader.filter@1.def plugins/reader/stages/reader.filter@1.def || rc=1
+    for d in reader.text@1.def reader.layer@1.def; do
+        cmp "crates/paperpaw-sdk/stages/reader/$d" "plugins/reader/stages/$d" || rc=1
+    done
     cmp plugins/reader/stages/reader.notes-exported@1.def plugins/readwise/stages/reader.notes-exported@1.def || rc=1
     return $rc
 }

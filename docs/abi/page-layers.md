@@ -1,0 +1,104 @@
+# Interface 7: page layers (`reader.text@1`, `reader.layer@1`)
+
+What a plugin adds to the reader's pages (#284, #261, ADR 0032): room above and below the lines,
+words replaced, glosses, ruby and phonetics over or under words, small blocks inserted after a
+paragraph, and drawing over a laid-out page. Interface 6 had these as `add_text_filter` and
+`add_page_layer`; interface 7 has them as two stages the reader owns (`stages-services.md` 1),
+so nothing of the plugin interface changed: no record, slot or shape of `abi.def`, and the
+fingerprint is the one before. The schemas are `plugins/reader/stages/reader.text@1.def` and
+`reader.layer@1.def`; the SDK has them typed as `paperpaw_sdk::native::page_layers` (its copy of
+the schemas is `crates/paperpaw-sdk/stages/reader/`, kept equal by the quick check). The sample
+`samples/interlinear` uses the text stage.
+
+## 1. Principles
+
+- **Default off.** Without a subscriber, or where no subscriber says it adds to the book, nothing
+  changes: no block is asked, nothing is kept, the layout is the one before.
+- **One plugin per stage and book.** The reader asks the book of each stage once when the book
+  opens and when a setting of another plugin changes; the first subscriber in stage order that
+  answers `uses` with a signature other than 0 is the one the stage is used with for that book.
+  The reader then calls only it (`stage.run` from its cursor, SDK `Stage::run_from`) and checks
+  that the reply comes from it; where another plugin is at its place, the stage is not used until
+  the book is asked again.
+- **Asked once, kept.** A block is asked once while the book is open, a page once after its
+  layout. Page turns ask nothing they asked before (the snappy rule): the reader asks the blocks
+  of a page ahead of its layout, applies the kept answers as the layout reads the blocks, and
+  draws a page's kept layer with it.
+- **Bounded.** Answers are at most 3,840 bytes and 64 records each. The reader keeps at most
+  12 KiB of block answers (64 blocks, the oldest go first) and the layer answers of two pages
+  (the one on show and the one before), and none of it where no plugin is used.
+- **Signatures.** The text stage's signature (the plugin's `uses` folded with its registration's)
+  is part of the layout's key and of the page index's file name: a plugin answers another one when
+  what it adds changes (its settings), and the pages are laid out anew. The layer's signature
+  only decides whether the kept pages are drawn again.
+
+## 2. The text stage `reader.text@1`
+
+Input, one record:
+
+| Tag | Record | Fields |
+| --- | --- | --- |
+| 1 | `text.book` | `path: str 512` (the book's library path), `language: str 16` |
+| 2 | `text.block` | `section: u32`, `offset: u32` (the block's start in the section's source), `kind: u32` (0 paragraph, 1 heading, 2 other), `text: str 3200` (the text as the layout sets it, cut at a character) |
+
+Reply, at most 64 records:
+
+| Tag | Record | Fields | What the reader does |
+| --- | --- | --- | --- |
+| 3 | `text.uses` | `signature: u64` | to `text.book`: the plugin adds to the book (0: it does not) |
+| 4 | `text.room` | `above: u32`, `below: u32` | room above and below each of the block's lines, in hundredths of an em of its text, at most 400 each (`Block::leading_above`; below: an annotation without text, which the layout keeps as room alone) |
+| 5 | `text.replace` | `from: u32`, `to: u32`, `with: str 256` | the byte range of the asked text shown as `with`; the block's places stay. Ranges off the text, off its characters or overlapping one before are left out |
+| 6 | `text.gloss` | `from: u32`, `to: u32`, `kind: u32` (0 ruby, 1 phonetic, 2 gloss), `size: u32` (percent of the text, 20 to 100, 0 for 50), `text: str 1024` | an annotation of the range (`Block::annotations`); ranges refer to the text as asked, moved with the replacements before them; one on a replaced part is left out |
+| 7 | `text.insert` | `text: str 1024`, `size: u32` (percent, 0 for the text's), `italic: u32` | a block inserted after this one (`Block::insert_after`: at most four, 4 KiB in all; no place of its own) |
+
+Nothing of what crosses changed for this: `Block`, `Annotation` and `PageLine` have the fields
+they had (their sizes are part of the fingerprint). The layout (`paperpaw-layout`, ADR 0032) sets
+a block's annotations by its lines: ruby and
+phonetics in the room above a line, upright, glosses in the room below, in italics; every line of
+the block gets the room its annotations take, so its lines keep one distance. Each annotation
+starts where its range starts; one that would run into the one before it on its side moves on
+behind it, and what does not fit the line goes on at the start of the block's next line, at whole
+words (a sentence's translation runs under the sentence); on the block's last line it is cut. A
+translation that goes on over a page break is cut there. Lines that run right to left, go down a
+column or put their runs in order get no annotations yet. The reader draws them with the reading
+fonts, as measured.
+
+## 3. The layer stage `reader.layer@1`
+
+Input: one `layer.book` (tag 1, as `text.book`), or a page: one `layer.page` and up to 63
+`layer.line` records (a page of more lines, or of lines that do not fit 3,840 bytes, is asked in
+more than one call, each from line `first` on).
+
+| Tag | Record | Fields |
+| --- | --- | --- |
+| 2 | `layer.page` | `width: u32`, `height: u32` (the text area), `lines: u32` (in all), `first: u32` |
+| 3 | `layer.line` | `x: i32`, `baseline: i32`, `width: u32`, `size: u32` (its words' boxes' height), `leading: u32` (the room above, pixels), `top: i32` (its words' boxes' top; the room below a line reaches to the next line's `top - leading`), `section: u32`, `offset: u32` (its first word's place), `inserted: u32`, `text: str 512`, `words: bytes 510` (per word 6 bytes: `x`, `width`, `at` (its byte in `text`), u16 little-endian) |
+
+Positions are pixels from the text area's top left. Reply, at most 64 records:
+
+| Tag | Record | Fields |
+| --- | --- | --- |
+| 4 | `layer.uses` | `signature: u64`, to `layer.book` |
+| 5 | `layer.box` | `x, y: i32`, `width, height: u32`, `fill, ink: u32` (gray 0 black to 255 white; 256 or more none), `thickness: u32` (frame, at most 64) |
+| 6 | `layer.segment` | `x1, y1, x2, y2: i32`, `ink: u32`, `thickness: u32` (1 to 64) |
+| 7 | `layer.text` | `x, y: i32` (pen and baseline), `size: u32` (pixels, 4 to 200), `ink: u32`, `italic: u32`, `text: str 256` |
+
+The reader draws a page's layer over its text, under the reader's own highlights, in the order of
+the records; boxes and lines larger than 4,096 pixels are cut. The first page of a book is asked in
+the background step after it is shown (as the decorations), and drawn again with its layer.
+
+## 4. Memory and time (X4)
+
+- Without a plugin: nothing (`Layers` holds no heap), one `stage.run` per stage at a book's open.
+- With a text plugin: the kept answers (at most 12 KiB), and while a page is laid out the reply
+  buffer (3.9 KB) and one block's ask; each block costs one callback once per open book. A page
+  whose blocks were all asked costs no callback.
+- With a layer plugin: the answers of two pages (at most 3,840 bytes each), one callback per new
+  page (more for a page of many lines), none for a page drawn again.
+
+## 5. Not yet
+
+- No tap on what a layer drew (interface 6's `PAGE_LAYER_TAPPED`): `reader.decorations@1` takes
+  taps on marks.
+- Annotations on right-to-left and vertical lines; a gloss over a page break.
+- More than one plugin per stage and book.
