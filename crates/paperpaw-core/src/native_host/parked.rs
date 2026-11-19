@@ -162,12 +162,13 @@ impl crate::Kernel {
 }
 
 impl crate::Kernel {
-    /// The start's work and the details run are over: the sleeping plugins
-    /// they made (a format that read a book's details or cover, a plugin told
-    /// of a setting at the start) are parked again where idle, instead of
-    /// keeping their state on the heap until the next standby (#393). Only
-    /// after the background work: a plugin the user's screens use is no
-    /// background plugin, and nothing is parked between two books of a run.
+    /// The start's work is over, its details run included: the sleeping
+    /// plugins it made (a format that read a book's details or cover, a plugin
+    /// told of a setting at the start) are parked again where idle, instead of
+    /// keeping their state on the heap until the next standby (#393). Once a
+    /// start, after the background work: nothing is parked between two books
+    /// of a run, and a plugin the user goes on using is not made again and
+    /// again (as on standby, only one idle then sleeps).
     /// At the end of a service pump, outside every callback.
     pub(crate) fn native_repark_after_jobs(&mut self) {
         let instances = &self.shared.native_instances;

@@ -319,8 +319,8 @@ fn without_standby_or_pressure_nothing_sleeps_again() {
 
 #[test]
 fn after_the_start_s_work_an_idle_plugin_it_made_sleeps_again() {
-    // #393: what the start (or a details run) made is not kept on the heap
-    // until the next standby, once the background work is over.
+    // #393: what the start made is not kept on the heap until the next
+    // standby, once the start's background work is over.
     let mut w = world(&[Ok(()), Ok(())]);
     w.change_stack();
     w.kernel.native_stack_pump();

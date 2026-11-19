@@ -307,8 +307,8 @@ pub(crate) struct NativeInstances {
     orphan_failure_reported: Cell<bool>,
     /// The event pump left events for another pass (see `service_pump`).
     service_more: Cell<bool>,
-    /// The start or a background run woke plugins: the idle ones are parked
-    /// again once the background work is over (`parked`, #393).
+    /// The start woke plugins: the idle ones are parked again once its
+    /// background work is over (`parked`, #393).
     repark_after_jobs: Cell<bool>,
     /// The pump's event buffer, made once (see `service_pump`), and when it
     /// may try again after a refusal.
