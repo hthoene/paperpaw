@@ -260,6 +260,11 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     #[cfg(feature = "native-linked-store")]
     ("pomodoro", &paperpaw_plugin_pomodoro::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
+    (
+        "launcher-simple",
+        &paperpaw_plugin_launcher_simple::NATIVE_ENTRY,
+    ),
+    #[cfg(feature = "native-linked-store")]
     ("smart-home", &paperpaw_plugin_smart_home::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("puzzles", &paperpaw_plugin_puzzles::NATIVE_ENTRY),
@@ -284,6 +289,7 @@ pub const LINKED_STORE_PLUGINS: &[&str] = &[
     "end-of-book",
     "keys",
     "koreader",
+    "launcher-simple",
     "menu-editor",
     "notes-overview",
     "pomodoro",

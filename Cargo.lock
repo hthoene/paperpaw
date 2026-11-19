@@ -1676,6 +1676,7 @@ dependencies = [
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-keys",
  "paperpaw-plugin-koreader",
+ "paperpaw-plugin-launcher-simple",
  "paperpaw-plugin-lock",
  "paperpaw-plugin-mail",
  "paperpaw-plugin-menu",
@@ -2413,6 +2414,20 @@ dependencies = [
  "paperpaw-plugin-keyboard",
  "paperpaw-plugin-menu",
  "paperpaw-plugin-reader",
+ "paperpaw-scripted-host",
+ "paperpaw-sdk",
+ "paperpaw-ui-kit",
+]
+
+[[package]]
+name = "paperpaw-plugin-launcher-simple"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-platform",
+ "paperpaw-plugin-fonts-default",
  "paperpaw-scripted-host",
  "paperpaw-sdk",
  "paperpaw-ui-kit",
