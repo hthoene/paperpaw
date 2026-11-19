@@ -929,9 +929,16 @@ fn members(of: &BTreeMap<u16, Vec<u16>>, class: u16) -> Option<Vec<u16>> {
     (class != 0).then(|| of.get(&class).cloned().unwrap_or_default())
 }
 
-/// Adds what GSUB lookup `index` (and the lookups it applies) draws to
-/// `drawn`.
-fn outputs(font: &FontRef<'_>, index: u16, drawn: &mut BTreeSet<u16>, seen: &mut BTreeSet<u16>) {
+/// Adds to `drawn` the glyphs lookup `index` (and those it applies) draws
+/// where its keys are among `reached`, the glyphs text of the pack's
+/// characters may come to; `seen` the lookups already read.
+fn outputs(
+    font: &FontRef<'_>,
+    index: u16,
+    reached: &BTreeSet<u16>,
+    drawn: &mut BTreeSet<u16>,
+    seen: &mut BTreeSet<u16>,
+) {
     if !seen.insert(index) {
         return;
     }
@@ -954,28 +961,47 @@ fn outputs(font: &FontRef<'_>, index: u16, drawn: &mut BTreeSet<u16>, seen: &mut
                             drawn.extend(
                                 coverage(&c)
                                     .into_iter()
+                                    .filter(|g| reached.contains(g))
                                     .map(|g| (i32::from(g) + i32::from(delta)) as u16),
                             );
                         }
                     }
                     SingleSubst::Format2(t) => {
-                        drawn.extend(t.substitute_glyph_ids().iter().map(|g| g.get().to_u16()));
+                        if let Ok(c) = t.coverage() {
+                            drawn.extend(
+                                coverage(&c)
+                                    .into_iter()
+                                    .zip(t.substitute_glyph_ids())
+                                    .filter(|(g, _)| reached.contains(g))
+                                    .map(|(_, to)| to.get().to_u16()),
+                            );
+                        }
                     }
                 }
             }
         }
         Ok(SubstitutionSubtables::Multiple(subtables)) => {
             for t in subtables.iter().flatten() {
-                for seq in t.sequences().iter().flatten() {
-                    drawn.extend(seq.substitute_glyph_ids().iter().map(|g| g.get().to_u16()));
+                let Ok(c) = t.coverage() else { continue };
+                for (g, seq) in coverage(&c).into_iter().zip(t.sequences().iter()) {
+                    if let Ok(seq) = seq
+                        && reached.contains(&g)
+                    {
+                        drawn.extend(seq.substitute_glyph_ids().iter().map(|g| g.get().to_u16()));
+                    }
                 }
             }
         }
         Ok(SubstitutionSubtables::Ligature(subtables)) => {
             for t in subtables.iter().flatten() {
-                for set in t.ligature_sets().iter().flatten() {
+                let Ok(c) = t.coverage() else { continue };
+                for (g, set) in coverage(&c).into_iter().zip(t.ligature_sets().iter()) {
+                    let Ok(set) = set else { continue };
                     for lig in set.ligatures().iter().flatten() {
-                        drawn.insert(lig.ligature_glyph().to_u16());
+                        let parts = lig.component_glyph_ids().iter().map(|g| g.get().to_u16());
+                        if reached.contains(&g) && { parts }.all(|p| reached.contains(&p)) {
+                            drawn.insert(lig.ligature_glyph().to_u16());
+                        }
                     }
                 }
             }
@@ -993,8 +1019,33 @@ fn outputs(font: &FontRef<'_>, index: u16, drawn: &mut BTreeSet<u16>, seen: &mut
         _ => {}
     }
     for index in nested {
-        outputs(font, index, drawn, seen);
+        outputs(font, index, reached, drawn, seen);
     }
+}
+
+/// The glyphs text of `cmap`'s characters may come to through the lookups
+/// of `wanted`: theirs, and what lookups draw where their keys are among
+/// them, until no more come.
+fn reachable_from(
+    font: &FontRef<'_>,
+    cmap: &BTreeMap<u16, u32>,
+    wanted: &[(u8, [u8; 4], Vec<u16>)],
+) -> BTreeSet<u16> {
+    let mut reached: BTreeSet<u16> = cmap.keys().copied().collect();
+    // Each round adds a glyph or ends; a font has at most 65,536.
+    for _ in 0..=u16::MAX {
+        let (mut drawn, mut seen) = (reached.clone(), BTreeSet::new());
+        for (_, _, list) in wanted {
+            for &index in list {
+                outputs(font, index, &reached, &mut drawn, &mut seen);
+            }
+        }
+        if drawn.len() == reached.len() {
+            break;
+        }
+        reached = drawn;
+    }
+    reached
 }
 
 /// `list` with the contextual lookups its contextual lookups apply, each
@@ -1153,13 +1204,7 @@ pub(crate) fn make(font: FontRef<'_>, chars: &[char]) -> Option<Made> {
     if wanted.is_empty() {
         return None;
     }
-    let (mut reachable, mut seen) = (BTreeSet::new(), BTreeSet::new());
-    for (_, _, list) in &wanted {
-        for &index in list {
-            outputs(&font, index, &mut reachable, &mut seen);
-        }
-    }
-    reachable.extend(cmap.keys().copied());
+    let reachable = reachable_from(&font, &cmap, &wanted);
     // Within what a pack read from a card keeps in memory: the largest
     // presentation lookups left out until it fits (forms chosen by
     // context, such as the length of Devanagari's i), never the forms of
@@ -1181,11 +1226,21 @@ pub(crate) fn make(font: FontRef<'_>, chars: &[char]) -> Option<Made> {
         too_wide: false,
         skips: Vec::new(),
     };
+    let burmese = wanted.iter().all(|w| w.0 == super::number(Script::Myanmar));
     let mut skip = BTreeSet::new();
     for _ in 0..16 {
         let (made, sizes) = write(writer(false), &wanted, &skip);
         let made = made?;
-        let over = made.table.len().saturating_sub(MAX_HELD);
+        let compact = write(writer(true), &wanted, &skip).0;
+        // Burmese reads wrong without its presentation forms (a spacing
+        // glyph before hundreds of letters): its table counts as kept, in
+        // its compact form. Others count as written wide, so that their
+        // tables do not grow.
+        let kept_len = match &compact {
+            Some(c) if burmese => c.table.len(),
+            _ => made.table.len(),
+        };
+        let over = kept_len.saturating_sub(MAX_HELD);
         // Too large for a script whose clusters are kept shaped: those.
         if over > 0
             && skip.is_empty()
@@ -1194,7 +1249,7 @@ pub(crate) fn make(font: FontRef<'_>, chars: &[char]) -> Option<Made> {
             return Some(kept);
         }
         if over == 0 {
-            return Some(write(writer(true), &wanted, &skip).0.unwrap_or(made));
+            return Some(compact.unwrap_or(made));
         }
         // Rules by classes first (hundreds of them choose among a vowel
         // sign's lengths), then the largest.

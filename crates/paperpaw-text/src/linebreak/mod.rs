@@ -18,7 +18,7 @@ mod tests;
 /// The Unicode version of the line-breaking table: `(major, minor, update)`.
 /// One release does not mix versions: the bidi and Arabic tables are of the
 /// same one (a test compares them).
-pub(crate) use breaker::{LineBreaker, Opportunity, lifts_filter};
+pub(crate) use breaker::{LineBreaker, Opportunity};
 pub(crate) use thai::Words;
 
 pub const UNICODE_VERSION: (u8, u8, u8) = table_data::UNICODE;

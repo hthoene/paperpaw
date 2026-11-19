@@ -454,14 +454,14 @@ fn balanced_paragraph(
     for k in range.start..start {
         breaker.feed(' ', &text[k + 1..range.end]);
     }
-    // The list of places to break: its capacity is a hint (a paragraph
-    // may have more places than the count says, see `places_hint`); every
-    // push goes through `push_break`, which asks for room and gives up (the
+    // The list of places to break: as long as the paragraph has (and its
+    // start and end), hyphenation points added as they come; every push
+    // goes through `push_break`, which asks for room and gives up (the
     // paragraph is broken greedily) where there is none, instead of
     // aborting.
     let mut breaks: Vec<Break> = Vec::new();
     breaks
-        .try_reserve_exact(places_hint(&text[start..range.end], options))
+        .try_reserve_exact(places(text, start..range.end, breaker)? + 2)
         .ok()?;
     let at = |end: usize, next: usize, to_end: f32, to_next: f32, hyphen: f32| Break {
         end: end as u16,
@@ -594,26 +594,29 @@ fn push_break(breaks: &mut Vec<Break>, place: Break) -> Option<()> {
     Some(())
 }
 
-/// How many places a paragraph may have to break, as a hint for the
-/// capacity of the list: spaces and dashes, two for each flagged
-/// character (a place before it and one after), and every character when
-/// the options break anywhere; never more than [`MAX_BREAKS`] (a paragraph
-/// with more is broken greedily). A hint only: the list grows through
-/// [`push_break`].
-fn places_hint(paragraph: &str, options: u32) -> usize {
-    let places = if crate::linebreak::lifts_filter(options) {
-        paragraph.chars().count()
-    } else {
-        paragraph
-            .chars()
-            .map(|c| match c {
-                ' ' | '-' | '\u{2010}' | '\u{2013}' | '\u{2014}' => 1,
-                c if !c.is_ascii() && LineBreaker::flagged(c) => 2,
-                _ => 0,
-            })
-            .sum()
-    };
-    places.min(MAX_BREAKS) + 3
+/// How many places the scan of [`balanced_paragraph`] finds to break
+/// `range` of `text` (where its words start, not counting hyphenation
+/// points), `breaker` having read what is before it; `None` past
+/// [`MAX_BREAKS`] (the paragraph is broken greedily). Counted before the
+/// scan measures anything, so that the list is no longer than they are
+/// (in scripts written without spaces, a place may come before any
+/// letter, but comes before a few).
+fn places(text: &str, range: Range<usize>, mut breaker: LineBreaker) -> Option<usize> {
+    let mut places = 0;
+    let mut i = range.start;
+    while i < range.end {
+        let c = text[i..].chars().next()?;
+        let len = c.len_utf8();
+        let opportunity = breaker.feed(c, &text[i + len..range.end]);
+        if c != ' ' && opportunity != Opportunity::No && i > range.start {
+            places += 1;
+            if places > MAX_BREAKS {
+                return None;
+            }
+        }
+        i += len;
+    }
+    Some(places)
 }
 
 /// Prefix counts fit in the padding of each break. Counting once keeps

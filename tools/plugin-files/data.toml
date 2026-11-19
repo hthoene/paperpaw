@@ -212,6 +212,25 @@ description = "Tibetan and Dzongkha books in Noto Serif Tibetan, with stacked co
 de.name = "Tibetische Schrift"
 de.description = "Bücher auf Tibetisch und Dzongkha in Noto Serif Tibetan, mit gestapelten Konsonanten und Zeilenumbrüchen nach dem Tsheg jeder Silbe."
 
+# script-myanmar (#397): the Myanmar letters of Burmese and Pali (U+1000 to U+104F) from
+# Noto Serif Myanmar, shaped (paperpaw_text's indic module: medials, the vowel e and medial
+# ra before the consonant, kinzi and stacked consonants), a pack for each weight shared by
+# the faces it stands for (formats 5). Burmese is written without spaces: the packs carry
+# the 2,000 words most frequent in its Wikipedia (tools/word-table.py, from ICU's list).
+[script-myanmar]
+version = "1.0.0"
+group = "languages"
+licence = "OFL-1.1"
+formats = 5
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/script-pack.py"
+inputs = ["tools/fonts/NotoSerifMyanmar.ttf", "tools/fontgen", "crates/paperpaw-text/src/marks.rs", "crates/paperpaw-text/src/indic/pack.rs", "crates/paperpaw-text/src/indic/myanmar.rs", "tools/word-table.py", "tools/myanmar-words.txt"]
+name = "Burmese letters"
+description = "Burmese books in Noto Serif Myanmar, with medials, stacked consonants and vowel signs in their places and lines broken between the words."
+de.name = "Birmanische Schrift"
+de.description = "Bücher auf Birmanisch in Noto Serif Myanmar, mit Medialen, gestapelten Konsonanten und Vokalzeichen an ihrem Platz und Zeilenumbrüchen zwischen den Wörtern."
+
 # script-ethiopic (#159): the Ethiopic syllabary with its punctuation (the
 # wordspace ፡, the full stop ።) and numerals, and the Supplement, Extended and
 # Extended-A blocks, 495 characters from Noto Serif Ethiopic: seven sizes, a
@@ -1873,3 +1892,20 @@ de.name = "Singhalesisch (Oberfläche)"
 de.description = "PaperPaws Menüs und Einstellungen auf Singhalesisch. Braucht die Singhalesische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
 how = "PaperPaw's menus and settings in Sinhala.\n\nIt needs the Sinhala letters pack (Sinhala letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
 de.how = "PaperPaws Menüs und Einstellungen auf Singhalesisch.\n\nSie braucht die Singhalesische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
+
+[language-my]
+version = "1.0.0"
+group = "languages"
+licence = "Apache-2.0"
+formats = 4
+requires = ["script-myanmar"]
+devices = ["x4", "x4-pro", "x4-classic"]
+off_by_default = true
+build = "tools/language-pack.py"
+inputs = ["tools/plugin-files/languages/my.ini", "tools/language-pack.py", "tools/sign"]
+name = "Burmese (user interface)"
+description = "PaperPaw's menus and settings in Burmese. Needs Burmese letters. A machine translation, a draft."
+de.name = "Birmanisch (Oberfläche)"
+de.description = "PaperPaws Menüs und Einstellungen auf Birmanisch. Braucht die Birmanische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Burmese.\n\nIt needs the Burmese letters pack (Burmese letters, in the store): without it the menus show boxes instead of letters. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Birmanisch.\n\nSie braucht die Birmanische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt Buchstaben. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."

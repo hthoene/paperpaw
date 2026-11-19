@@ -43,6 +43,24 @@ pub(crate) fn lay_page(
         in_table: false,
         carried: Vec::new(),
     };
+    // Room for as many lines as body text fills the page with, so that the
+    // list does not double past them; what is left is given back.
+    let lines = (height / run.body_line) as usize + 1;
+    let _ = run
+        .page
+        .lines
+        .try_reserve_exact(lines.min(MAX_RESERVED_LINES));
+    let mut page = lay_blocks(run)?;
+    page.lines.shrink_to_fit();
+    Ok(page)
+}
+
+/// The most lines a page reserves room for before it is laid out.
+const MAX_RESERVED_LINES: usize = 128;
+
+/// The blocks of `run` from its start, until the page is full.
+fn lay_blocks(mut run: Run<'_, '_>) -> Result<Page, DocumentError> {
+    let cx = run.cx;
     loop {
         let Some(block) = cx.document.block_at(cx.storage, run.at)? else {
             if run.next_section() {
