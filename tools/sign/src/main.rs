@@ -26,6 +26,7 @@ mod pack;
 mod pack5;
 mod plugin;
 mod relocation;
+mod roots;
 mod source;
 mod statics;
 
@@ -36,6 +37,10 @@ USAGE:
     paperpaw-sign key <secret-key-file>
         Makes a new signing key, keeps it in the file (keep it safe) and
         prints its public key.
+    paperpaw-sign roots-pack list | builtin <list.txt> <out.bin> | all <out.pack> [--key <file>]
+        The root certificates of the X4's TLS (#387): the labels of Mozilla's
+        roots, the small list built into the firmware, and the full list as the
+        data plugin `tls-roots` holds it (signed with the plugin key).
     paperpaw-sign sign <image.bin> <update.bin> [--key <secret-key-file>]
         Signs an app image (`espflash save-image`, not merged) as an update
         file. Without --key, the key comes from PAPERPAW_SIGNING_KEY (64
@@ -222,6 +227,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         ["sign-plugin", file, "--key", key] => plugin::sign(file, Some(key)),
         ["check-plugin", file] => plugin::check(file),
         ["statics", archives @ ..] if !archives.is_empty() => plugin::statics(archives),
+        ["roots-pack", rest @ ..] => roots::run(rest),
         ["check-publish", rest @ ..] => check_publish(rest),
         ["pack-source", input, out, rest @ ..] => source::pack(input, out, rest),
         ["sign-source", list] => source::sign(list, None),

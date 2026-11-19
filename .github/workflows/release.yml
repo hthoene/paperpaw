@@ -638,6 +638,11 @@ jobs:
       - name: The first-party plugins' folders and catalogue entries
         env:
           GH_TOKEN: ${{ github.token }}
+          # The data plugin `tls-roots` (all of Mozilla's roots) is signed
+          # as it is built (tools/roots-pack.py: the key is on the disk only
+          # while paperpaw-sign signs; a dry run has none and gets a file
+          # no device reads).
+          PAPERPAW_PLUGIN_KEY: ${{ github.event_name == 'push' && secrets.PAPERPAW_PLUGIN_KEY || '' }}
         run: |
           mkdir -p dist/plugins
           mv dist/*.ppn dist/plugins/

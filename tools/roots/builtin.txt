@@ -1,0 +1,35 @@
+# The root certificates built into the X4's firmware (#387): what
+# `paperpaw-sign roots-pack builtin tools/roots/builtin.txt shells/xteink/roots-builtin.bin`
+# makes `shells/xteink/roots-builtin.bin` from (a test checks the file is what
+# this makes). One root a line: its label as `paperpaw-sign roots-pack list`
+# prints it, ` # `, and why it is in. The other Mozilla roots are the data plugin
+# `tls-roots` ("All certificates" in the store); a server under one of them
+# fails until it is installed. The chains below are those the servers sent on
+# 2026-11-19 (`openssl s_client -showcerts`): a chain is trusted where its top
+# certificate is a root of this list, or is signed by one.
+#
+# PaperPaw's own services and their hosting
+ISRG Root X1 / Internet Security Research Group / US # Let's Encrypt (RSA); signs ISRG Root X2 and the Let's Encrypt roots YE/YR that paperpaw.org, raw/objects/release-assets.githubusercontent.com, Standard Ebooks, Open-Meteo (geocoding), Readwise and tagesschau.de send; most self-hosted servers
+ISRG Root X2 / Internet Security Research Group / US # Let's Encrypt (ECDSA): paperpaw.org, Codeberg, DeepL, Open-Meteo, Wikipedia (the top of the chain they send)
+Sectigo Public Server Authentication Root E46 / Sectigo Limited / GB # github.com, api.github.com (the top of the chain GitHub sends)
+Sectigo Public Server Authentication Root R46 / Sectigo Limited / GB # Sectigo's RSA twin of E46; GitHub's older and other Sectigo sites
+USERTrust ECC Certification Authority / The USERTRUST Network / Jersey City / New Jersey / US # signs Sectigo E46: the root a device that does not know E46 still ends in; Sectigo/Comodo sites
+USERTrust RSA Certification Authority / The USERTRUST Network / Jersey City / New Jersey / US # Sectigo's RSA root for most of the older certificates (GitHub Pages, self-hosts)
+# The services first-party plugins use
+SSL.com TLS RSA Root CA 2022 / SSL Corporation / US # Project Gutenberg (www.gutenberg.org)
+SSL.com TLS ECC Root CA 2022 / SSL Corporation / US # SSL.com's ECDSA twin
+DigiCert Global Root G2 / www.digicert.com / DigiCert Inc / US # DuckDuckGo (html.duckduckgo.com) and a large share of commercial sites
+DigiCert Global Root G3 / www.digicert.com / DigiCert Inc / US # DigiCert's ECDSA root
+DigiCert TLS RSA4096 Root G5 / DigiCert, Inc. / US # DigiCert's new roots, which its certificates move to
+DigiCert TLS ECC P384 Root G5 / DigiCert, Inc. / US # and their ECDSA twin
+Amazon Root CA 1 / Amazon / US # Joplin Cloud (api.joplincloud.com) and every site on AWS certificates
+# Hosts many readers' own servers and common services are on
+GTS Root R1 / Google Trust Services LLC / US # Google Trust Services (RSA); Google services and many Cloudflare sites
+GTS Root R3 / Google Trust Services LLC / US # (ECDSA P-384)
+GTS Root R4 / Google Trust Services LLC / US # (ECDSA P-384)
+GlobalSign / GlobalSign / GlobalSign Root CA - R3 # signs GTS R1 and many Cloudflare and Let's-Encrypt-free hosts
+GlobalSign Root R46 / GlobalSign nv-sa / BE # GlobalSign's newer RSA root
+GlobalSign Root E46 / GlobalSign nv-sa / BE # and its ECDSA twin
+Microsoft RSA Root Certificate Authority 2017 / Microsoft Corporation / US # Azure-hosted servers, Microsoft services
+Microsoft ECC Root Certificate Authority 2017 / Microsoft Corporation / US # and their ECDSA twin
+Go Daddy Root Certificate Authority - G2 / GoDaddy.com, Inc. / Scottsdale / Arizona / US # GoDaddy-hosted self-hosted servers (common for WordPress, Nextcloud)

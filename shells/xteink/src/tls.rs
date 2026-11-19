@@ -6,8 +6,9 @@
 //! X4 stays usable during a handshake (a second or two of arithmetic) and
 //! a download.
 //!
-//! Certificates: the chain must lead to one of Mozilla's roots
-//! ([`roots`](crate::roots), checked in mbedTLS's verify callback) and be
+//! Certificates: the chain must lead to one of the roots built in or of
+//! Mozilla's list on the card ([`roots`](crate::roots), checked in mbedTLS's
+//! verify callback) and be
 //! for the host asked; mbedTLS checks the rest of the chain. Their dates
 //! are checked in the same callback against the time set over the
 //! network ([`crate::clock`]). A plugin's socket may instead pin the
@@ -92,7 +93,7 @@ impl Error {
     /// The reason, for the plugin that asked.
     pub fn reason(self) -> &'static str {
         match self {
-            Error::Untrusted => "the server's certificate is not trusted",
+            Error::Untrusted => "Certificate not known. Install 'All certificates' from the store.",
             Error::OtherHost => "the server's certificate is for another host",
             Error::Dates => "the server's certificate has expired or is not valid yet",
             Error::Memory => "not enough memory for a secure connection",
