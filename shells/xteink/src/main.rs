@@ -182,12 +182,18 @@ esp_bootloader_esp_idf::esp_app_desc!(
 /// far as they did not take it (`native::HOT_ARENA_LEN`).
 const HEAP_SIZE: usize = (192 + WIFI_IN_FLASH_KB - BLUETOOTH_KB - S3_BAND_KB - X4_BAND_KB) * 1024
     - native::HOT_ARENA_LEN;
-/// RAM the ESP32-C3 devices gain as the Wi-Fi send and receive code runs from
-/// flash (`build.rs`, `wifi-flash-x4.x`, #304): the 28 KB it took in IRAM,
-/// less what the stack keeps as its margin. The heap takes it, the stack stays
-/// as it was (`build.rs` checks the stack's size). Measured on the image: the
-/// stack grew by as much as the code left RAM.
-const WIFI_IN_FLASH_KB: usize = if cfg!(target_arch = "riscv32") { 16 } else { 0 };
+/// RAM the Xteink devices gain as the Wi-Fi send and receive code runs from
+/// flash (`build.rs`, #304 on the ESP32-C3 with `wifi-flash-x4.x`, #387 on the
+/// ESP32-S3 with `text-s3.x`): the 28 KB it took in IRAM on the C3, 15.4 KB on
+/// the S3 (`.rwtext.wifi` 32,012 -> 16,576 B), less what the stack keeps as
+/// its margin. The heap takes it, the stack stays as it was (`build.rs` checks
+/// the stack's size). Measured on the image: the stack grew by as much as the
+/// code left RAM.
+const WIFI_IN_FLASH_KB: usize = if cfg!(target_arch = "riscv32") {
+    16
+} else {
+    15
+};
 /// The X4's band at the stack's end and its reserve (4 KB and the band's 2 KB,
 /// `paperpaw_x4::stack_band`) take the top 7.7 KB of a stack that had only
 /// 37.4 KB left once the interface-7 plugins were built in: the start's path

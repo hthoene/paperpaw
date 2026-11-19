@@ -58,7 +58,7 @@ The firmware of the Xteink readers also contains:
 
 Unicode data: the bidirectional and Arabic joining tables of crates/paperpaw-text (src/bidi/tables.rs, src/arabic/tables.rs, made by tools/unicode-tables.py), and its line-break class table (src/linebreak/table_data.rs, made by tools/linebreak-table.py), are derived from the Unicode Character Database, and crates/paperpaw-text/tests/data/BidiCharacterTest-part.txt is a part of its BidiCharacterTest.txt, Copyright (c) 1991-2026 Unicode, Inc., under the Unicode License v3 (https://www.unicode.org/license.txt).
 
-Patched copies of trouble-host and jni-macros (patches/) keep their licences; their changes are marked "Modified for PaperPaw".
+Patched copies of trouble-host, mbedtls-rs and jni-macros (patches/) keep their licences; their changes are marked "Modified for PaperPaw".
 
 crates/paperpaw-volume is PaperPaw's file-system driver. Its FAT code is rust-fatfs 0.4 (https://github.com/rafalh/rust-fatfs), Copyright 2017 Rafał Harabień, under the MIT licence (crates/paperpaw-volume/LICENSE.txt), cut down and changed for PaperPaw; the changes are marked "Modified for PaperPaw".
 

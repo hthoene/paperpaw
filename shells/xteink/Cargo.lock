@@ -2120,8 +2120,6 @@ checksum = "0ca88d725a0a943b096803bd34e73a4437208b6077654cc4ecb2947a5f91618d"
 [[package]]
 name = "mbedtls-rs"
 version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a34f68c0c7f08ef1279be80a23f454f66735de9324e4958aa5e90ff66de7d078"
 dependencies = [
  "critical-section",
  "embedded-io 0.7.1",

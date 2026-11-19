@@ -37,6 +37,8 @@ fn main() {
     println!("cargo::rerun-if-changed=../../Cargo.toml");
     println!("cargo::rerun-if-changed=memory-x4.x");
     println!("cargo::rerun-if-changed=rwtext-x4.x");
+    println!("cargo::rerun-if-changed=rwtext-s3.x");
+    println!("cargo::rerun-if-changed=text-s3.x");
     println!("cargo::rerun-if-changed=wifi-flash-x4.x");
     plugins();
     device_messages();
@@ -46,6 +48,12 @@ fn main() {
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     if std::env::var_os("CARGO_FEATURE_ESP32S3").is_some() {
         println!("cargo::rustc-link-arg=-nostartfiles");
+        // esp-hal's `rwtext.x` less the Wi-Fi send and receive code, which its
+        // `text.x` with them at the end links in flash (found first as they
+        // are in `out`, #387).
+        std::fs::copy("rwtext-s3.x", out.join("rwtext.x")).expect("rwtext-s3.x");
+        std::fs::copy("text-s3.x", out.join("text.x")).expect("text-s3.x");
+        println!("cargo::rustc-link-search={}", out.display());
         println!("cargo::rustc-link-arg=-Wl,-Tlinkall.x");
         stack_floor(&out);
         no_rodata_gap(&out);
@@ -185,7 +193,8 @@ fn compiler() {
 /// builder.
 fn device_messages() {
     let german = std::env::var_os("CARGO_FEATURE_BUILT_GERMAN").is_some();
-    let mut table = paperpaw_i18n::BuiltMessagesTable::new(if german { &["en", "de"] } else { &["en"] });
+    let mut table =
+        paperpaw_i18n::BuiltMessagesTable::new(if german { &["en", "de"] } else { &["en"] });
     for file in ["i18n/en.ini", "i18n/de.ini"] {
         if !german && file.ends_with("de.ini") {
             continue;
