@@ -12,7 +12,10 @@ use paperpaw_sdk::{
         ui::{Open, Param, Ui},
     },
 };
-use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
+use paperpaw_ui_kit::{
+    anchored,
+    mem::{SERVICE_BUFFER, buffer},
+};
 
 /// The slot of the screens that look a word up online.
 pub const SLOT: &str = "core.lookup-online";
@@ -70,12 +73,26 @@ pub fn asks(input: &Input<'_>, area: Option<Rect>) -> bool {
 }
 
 /// Closes the panel and opens the screen offered for [`SLOT`] for `word` in
-/// `language` (as Beta 3: back, then the slot with the word and the language).
+/// `language` (as Beta 3: back, then the slot with the word and the language),
+/// at `anchor` where the panel was next to the word.
 ///
 /// # Errors
 /// The host's refusals; `NoMemory`.
-pub fn go(host: &Host<'_>, ui: &Ui, word: &str, language: &str) -> Result<(), Error> {
-    let params = [Param::new("word", word)?, Param::new("language", language)?];
+pub fn go(
+    host: &Host<'_>,
+    ui: &Ui,
+    word: &str,
+    language: &str,
+    anchor: Option<Rect>,
+) -> Result<(), Error> {
+    let mut place = [0; anchored::TEXT_BYTES];
+    let anchor = anchor.map_or("", |area| anchored::text(area, &mut place));
+    // The screen that answers takes its place next to the word the panel was at.
+    let params = [
+        Param::new("word", word)?,
+        Param::new("language", language)?,
+        Param::new("anchor", anchor)?,
+    ];
     let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
     let handover = ui.handover(host, &params, &mut input, &mut out)?;
     let mut scratch = [0; 256];
