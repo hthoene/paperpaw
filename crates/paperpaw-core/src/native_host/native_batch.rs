@@ -36,29 +36,36 @@ pub struct NativeTimes {
     pub fonts: u32,
     /// The widgets' font settings and the configuration values kept for them.
     pub widget_fonts: u32,
+    /// [`Kernel::start`] before the start event: the reading apps, the
+    /// reserves given back, the passwords and the memory notice (#403).
+    pub start_prepare: u32,
+    /// The start event and the commands it and the home slot gave.
+    pub start_events: u32,
+    /// The passes after them until nothing more is due (`finish_settled`).
+    pub start_settle: u32,
 }
 
 impl Kernel {
-    /// Sets the clock (microseconds, wrapping) the phases of hosting are
-    /// timed with ([`Self::native_times`]). Shells that log start-up times
+    /// Sets the clock (microseconds, wrapping) the phases of hosting and of
+    /// the start are timed with ([`Self::native_times`]). Shells that log start-up times
     /// set it; none, no time is taken.
     pub fn set_native_clock(&mut self, clock: fn() -> u32) {
         self.native_clock = Some(clock);
     }
 
-    /// Where the time of hosting went so far ([`NativeTimes`]).
+    /// Where the time of hosting and of the start went so far ([`NativeTimes`]).
     #[must_use]
     pub fn native_times(&self) -> NativeTimes {
         self.native_times
     }
 
     /// The clock now, zero without one.
-    pub(super) fn native_now(&self) -> u32 {
+    pub(crate) fn native_now(&self) -> u32 {
         self.native_clock.map_or(0, |clock| clock())
     }
 
     /// Adds the time since `from` to the phase `of` points at.
-    pub(super) fn native_took(&mut self, from: u32, of: fn(&mut NativeTimes) -> &mut u32) {
+    pub(crate) fn native_took(&mut self, from: u32, of: fn(&mut NativeTimes) -> &mut u32) {
         if self.native_clock.is_some() {
             let spent = self.native_now().wrapping_sub(from);
             let phase = of(&mut self.native_times);

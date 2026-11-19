@@ -1101,19 +1101,17 @@ fn map_declarations(
     // Without a table, a setting whose record lies in the plugin's image is
     // described from there on demand: one place for all of those, too.
     let mut described = 0;
-    view.visit_placed(&mut |record, place| match record {
-        Record::SettingSpec(_) if !fixed.is_empty() => declared_settings += 1,
-        Record::SettingSpec(_) if place.is_some() => described += 1,
-        Record::ScreenSpec(_)
-        | Record::ActionSpec(_)
-        | Record::SettingSpec(_)
-        | Record::SettingGroup(_)
-        | Record::ResourceFontFace(_)
-        | Record::ResourceFontExtension(_)
-        | Record::ResourceHyphenation(_)
-        | Record::SlotOffer(_) => upcoming += 1,
+    // Counted by kind from the index: no record is decoded twice (#403).
+    let [group, spec, hyphenation, font, screen, action, offer] =
+        [0, 1, 3, 4, 5, 6, 10].map(|at| super::declaration_index::KIND_TABLE[at].1);
+    view.visit_kinds(&mut |kind, place| match kind {
+        kind if kind == spec && !fixed.is_empty() => declared_settings += 1,
+        kind if kind == spec && place.is_some() => described += 1,
+        kind if [screen, action, spec, group, font, hyphenation, offer].contains(&kind) => {
+            upcoming += 1;
+        }
         _ => {}
-    })?;
+    });
     owned
         .try_reserve_exact(upcoming + usize::from(described > 0))
         .map_err(|_| ERR_NO_MEMORY)?;

@@ -262,6 +262,14 @@ impl Firmware {
             (waited - started) / 1000,
             (crate::micros() - waited) / 1000,
         );
+        // The kernel's start in its parts (#403).
+        let times = self.kernel.native_times();
+        info!(
+            "startup: kernel start {} ms before the start event, {} ms the start event and its commands, {} ms settling",
+            times.start_prepare / 1000,
+            times.start_events / 1000,
+            times.start_settle / 1000,
+        );
         self.finishing_update();
         // Its first frame is shown: its code plugins started cleanly.
         crate::safe_mode::started();

@@ -73,6 +73,8 @@ pub fn validate_batch(plugin_id: &str, batch: &RecordBatch<'_>) -> Check {
     reason = "one explicit arm per record kind (no catch-all): a new record fails to compile here until it is classified"
 )]
 pub fn validate_record(plugin_id: &str, record: &Record<'_>) -> Check {
+    #[cfg(feature = "slot-counts")]
+    super::host_slot::slot_counts::note_validation();
     match record {
         Record::SettingGroup(group) => group_check(plugin_id, group),
         Record::SettingSpec(spec) => spec_check(plugin_id, spec),

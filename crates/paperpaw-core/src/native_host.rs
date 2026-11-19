@@ -829,6 +829,7 @@ impl<C, M> HostOwner<C, M> {
             image: None,
             submitted: false,
             refused: None,
+            checked: false,
         })
     }
 
@@ -917,6 +918,8 @@ pub struct Construction<'a, C, M, T> {
     submitted: bool,
     /// The declaration cap the batch was refused at, once `finish` said so.
     refused: Option<declaration_checks::Cap>,
+    /// `finish` checked every record: the rest of the commit reads them unchecked (#403).
+    checked: bool,
 }
 
 type StoredConstruction<'a, C, M, T, R> = (
@@ -950,6 +953,7 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
             image: self.image,
             plugin: self.plugin_id,
             refused: core::cell::Cell::new(None),
+            checked: core::cell::Cell::new(self.checked),
         }
     }
 
@@ -957,7 +961,9 @@ impl<'a, C, M, T> Construction<'a, C, M, T> {
         self.raw.sort_index();
         let view = self.declaration_view();
         let result = view.finish();
-        self.refused = view.refused.get();
+        let (refused, checked) = (view.refused.get(), result.is_ok() && view.checked.get());
+        self.refused = refused;
+        self.checked = checked;
         result
     }
 

@@ -503,6 +503,7 @@ fn finish(records: &[Record<'_>]) -> Result<(), i32> {
         image: Some(&bytes),
         plugin: "fixture",
         refused: Default::default(),
+        checked: Default::default(),
     }
     .finish()
 }
