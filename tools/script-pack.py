@@ -12,7 +12,8 @@ Khmer, Lao and Tibetan (shaped as Bengali, Khmer's and Lao's packs with
 their words), one pack for each built-in face they extend,
 the interface's font too. The Latin letters Azerbaijani, Hausa and Yoruba add
 (latin-extended) come from Literata and Source Sans 3, with what those lack
-from Noto Serif and Noto Sans.
+from Noto Serif and Noto Sans; Georgian (with its Mtavruli capitals, which
+upper case gives) and Armenian from Noto Serif Georgian and Armenian.
 Chinese (the 6,763 ideographs of GB 2312, or the 5,401 frequently used ones
 of Big5 for Traditional) and Japanese (kana and 2,998 kanji: the Joyo and JIS X
 0208 level 1) come from Noto Serif SC, TC and JP in four sizes, as Korean's.
@@ -147,6 +148,13 @@ SETS = {
                        [FONTS / "Literata-OFL.txt", FONTS / "SourceSans3-OFL.txt",
                         OTHER_FONTS / "NotoSerif-OFL.txt", OTHER_FONTS / "NotoSans-OFL.txt"],
                        "Literata", LATIN_OWN),
+    # Georgian and Armenian (#385): alphabets, no shaping; upright, a pack for each weight.
+    # Georgian's Mtavruli: what upper case (a word clock's grid, "In capitals") makes of it.
+    "georgian": ("Georgian", shared("georgian", OTHER_FONTS / "NotoSerifGeorgian.ttf"),
+                 OTHER_FONTS / "NotoSerifGeorgian-OFL.txt", "Noto Serif Georgian",
+                 ["U+10D0-10FF", "U+1C90-1CBF"]),
+    "armenian": ("Armenian", shared("armenian", OTHER_FONTS / "NotoSerifArmenian.ttf"),
+                 OTHER_FONTS / "NotoSerifArmenian-OFL.txt", "Noto Serif Armenian", ["U+0531-058F"]),
     # Source Sans 3 has these letters: the interface's face keeps its look.
     "cyrillic": ("Cyrillic", with_sans(LITERATA, FONTS / "SourceSans3.ttf", "cyrillic-sans"),
                  [FONTS / "Literata-OFL.txt", FONTS / "SourceSans3-OFL.txt"], "Literata", None),
