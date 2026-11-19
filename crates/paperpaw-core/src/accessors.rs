@@ -172,6 +172,28 @@ impl Kernel {
         )
     }
 
+    /// The icon a natively declared plugin gave `item` (`icon.spec`), the
+    /// last declared; e.g. for a tool that checks a plugin's icons. `None`
+    /// when no plugin declared one (or the declarations are in use).
+    pub fn native_icon(&self, item: &str) -> Option<String> {
+        use crate::native_host::{declaration_store::Kind, registrations::Record};
+        let directory = self.shared.registry.native_declarations.as_ref()?;
+        let store = directory.store.try_borrow().ok()?;
+        let mut keys = Vec::new();
+        store.keys(Kind::Icon, &mut |key| keys.push(key));
+        let mut icon = None;
+        for key in keys {
+            store.with_record(key, &mut |record| {
+                if let Record::IconSpec(row) = record
+                    && row.item == item
+                {
+                    icon = Some(String::from(row.icon));
+                }
+            });
+        }
+        icon
+    }
+
     /// Every plugin with its state, `core` first.
     pub fn plugins(&self) -> &Plugins {
         &self.shared.plugins
