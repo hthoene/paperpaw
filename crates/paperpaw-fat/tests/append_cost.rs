@@ -127,6 +127,44 @@ fn picture_sized_appends_cost_about_one_command_each() {
     }
 }
 
+/// A new folder's cluster is zeroed in one write command (whole blocks go together), where
+/// it took one for each block (eight for 4 KiB clusters).
+#[test]
+fn a_new_folder_zeroes_its_cluster_in_one_command() {
+    let (storage, counted) = card(4096, 300 << 20);
+    storage.create_dir("books").unwrap();
+    storage.sync().unwrap();
+    let before = counted.counts.borrow().write_commands;
+    storage.create_dir("books/shard").unwrap();
+    storage.sync().unwrap();
+    let c = counted.counts.borrow();
+    let commands = c.write_commands - before;
+    assert!(
+        c.log.iter().rev().take(commands).any(|&(_, n)| n == 8),
+        "no run of 8 blocks was written: {:?}",
+        c.log
+    );
+    // The FAT (and its copy, and FSInfo) for the cluster, the zeroed blocks in one, the
+    // entry in the parent and the dot entries: 6 measured, 13 with a command for each block.
+    assert!(commands <= 8, "{commands} write commands for a new folder");
+}
+
+/// A block of a file read again is not asked of the card again.
+#[test]
+fn a_block_read_twice_is_one_read_command() {
+    let counted = Counted {
+        bytes: Rc::new(RefCell::new(vec![7u8; 1 << 20])),
+        counts: Rc::default(),
+    };
+    let mut disk = BlockDisk::new(counted.clone()).unwrap();
+    let mut block = [0u8; BLOCK];
+    for _ in 0..3 {
+        disk.seek(SeekFrom::Start(40 * BLOCK as u64)).unwrap();
+        paperpaw_fat::fatfs::Read::read_exact(&mut disk, &mut block).unwrap();
+    }
+    assert_eq!(counted.counts.borrow().read_commands, 1);
+}
+
 /// The FAT of a card's bytes: its first copy's entries, for the clusters (index 0 is
 /// cluster 2), and the clusters' count.
 fn fat_entries(bytes: &[u8]) -> Vec<u32> {

@@ -53,7 +53,7 @@ paperpaw-native = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
 # Tests format a card in memory.
-paperpaw-volume = { workspace = true, features = ["std", "format"] }
+paperpaw-volume = { workspace = true, features = ["std", "format", "fat16"] }
 # Counts the host slots a page turn enters (`tests/page_turn_cost.rs`).
 paperpaw-core = { workspace = true, features = ["color", "outline", "slot-counts", "bluetooth", "host-code"] }
 paperpaw-sdk.workspace = true

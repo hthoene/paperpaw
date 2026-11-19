@@ -39,7 +39,7 @@ proptest.workspace = true
 # A FAT card in memory, as the X4's, for tests that count the memory
 # taken beside it.
 paperpaw-fat.workspace = true
-paperpaw-volume = { workspace = true, features = ["std", "format"] }
+paperpaw-volume = { workspace = true, features = ["std", "format", "fat16"] }
 # Scalable fonts in tests that draw text (the UI font of fonts-default).
 paperpaw-text = { workspace = true, features = ["outline"] }
 

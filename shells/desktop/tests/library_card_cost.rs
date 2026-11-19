@@ -185,23 +185,22 @@ fn the_walk_and_first_open_of_the_library_stay_within_their_card_commands() {
     report("open", &paperpaw_emulator::trace::take_log());
     eprintln!("card: start and walk of {BOOKS} books {walk:?}; first open {open:?}");
     assert!(!device.shown.is_empty(), "the screen drew nothing");
-    // Measured with 14 books: 607 read and 684 write commands for the start
-    // and the walk (a stand-in details file written for every native book
-    // before the host's job wrote the real one: two writes of a book, 22
-    // commands each); 541 and 515 with the job's write alone.
+    // Measured with 14 books: 561 read and 527 write commands for the start
+    // and the walk with the folder's cluster zeroed block by block, 530 and
+    // 415 with it zeroed in one command and a block read again kept (#54).
     assert!(
-        walk.writes <= 560,
+        walk.writes <= 440,
         "the walk sent {} write commands: {walk:?}",
         walk.writes
     );
     assert!(
-        walk.reads <= 580,
+        walk.reads <= 550,
         "the walk sent {} read commands: {walk:?}",
         walk.reads
     );
-    // The first open reads a little and writes nothing (20 and 0 measured).
+    // The first open reads a little and writes nothing (17 and 0 measured).
     assert!(
-        open.writes == 0 && open.reads <= 40,
+        open.writes == 0 && open.reads <= 30,
         "the first open sent {open:?}"
     );
 }

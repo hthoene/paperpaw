@@ -10,7 +10,9 @@ struct Fat<S> {
     phantom: PhantomData<S>,
 }
 
+#[cfg(feature = "fat16")]
 type Fat12 = Fat<u8>;
+#[cfg(feature = "fat16")]
 type Fat16 = Fat<u16>;
 type Fat32 = Fat<u32>;
 
@@ -73,9 +75,11 @@ where
     Error<E>: From<S::Error>,
 {
     match fat_type {
+        #[cfg(feature = "fat16")]
         FatType::Fat12 => Fat12::get(fat, cluster),
+        #[cfg(feature = "fat16")]
         FatType::Fat16 => Fat16::get(fat, cluster),
-        FatType::Fat32 => Fat32::get(fat, cluster),
+        _ => Fat32::get(fat, cluster),
     }
 }
 
@@ -92,9 +96,11 @@ where
 {
     trace!("write FAT - cluster {} value {:?}", cluster, value);
     match fat_type {
+        #[cfg(feature = "fat16")]
         FatType::Fat12 => Fat12::set(fat, cluster, value),
+        #[cfg(feature = "fat16")]
         FatType::Fat16 => Fat16::set(fat, cluster, value),
-        FatType::Fat32 => Fat32::set(fat, cluster, value),
+        _ => Fat32::set(fat, cluster, value),
     }
 }
 
@@ -127,9 +133,11 @@ where
     Error<E>: From<S::Error>,
 {
     match fat_type {
+        #[cfg(feature = "fat16")]
         FatType::Fat12 => Fat12::find_free(fat, start_cluster, end_cluster),
+        #[cfg(feature = "fat16")]
         FatType::Fat16 => Fat16::find_free(fat, start_cluster, end_cluster),
-        FatType::Fat32 => Fat32::find_free(fat, start_cluster, end_cluster),
+        _ => Fat32::find_free(fat, start_cluster, end_cluster),
     }
 }
 
@@ -257,7 +265,7 @@ where
     // straddle two blocks it is cut short at the end of the block; where the cluster before it
     // lies in another block it is one cluster, and `before` is told that the link is a write of
     // its own.
-    let entries_per_block = 512 / if fat_type == FatType::Fat32 { 4 } else { 2 };
+    let entries_per_block = 512 / if fat_type.wide() { 4 } else { 2 };
     let same_block =
         prev_cluster.is_some_and(|n| n / entries_per_block == first / entries_per_block);
     let want = if same_block || prev_cluster.is_none() {
@@ -319,7 +327,7 @@ where
 pub(crate) const BLOCK: usize = 512;
 
 fn entry_size(fat_type: FatType) -> u64 {
-    if fat_type == FatType::Fat32 { 4 } else { 2 }
+    if fat_type.wide() { 4 } else { 2 }
 }
 
 /// Where in the FAT the block holding the entry of `cluster` starts.
@@ -393,7 +401,7 @@ pub(crate) fn set_in_block(
         FatValue::EndOfChain => 0x0FFF_FFFF,
         FatValue::Data(n) => n,
     };
-    if fat_type == FatType::Fat32 {
+    if fat_type.wide() {
         let old = u32::from_le_bytes([block[at], block[at + 1], block[at + 2], block[at + 3]]);
         block[at..at + 4]
             .copy_from_slice(&((raw & 0x0FFF_FFFF) | (old & 0xF000_0000)).to_le_bytes());
@@ -478,9 +486,10 @@ where
     loop {
         // As the disk has it; freed here already (a chain that comes back to it), it reads free.
         let at = (u64::from(cluster) * entry_size(fat_type) - begin) as usize;
-        let cleared = match fat_type {
-            FatType::Fat32 => block[at..at + 4] == [0, 0, 0, block[at + 3] & 0xF0],
-            _ => block[at..at + 2] == [0, 0],
+        let cleared = if fat_type.wide() {
+            block[at..at + 4] == [0, 0, 0, block[at + 3] & 0xF0]
+        } else {
+            block[at..at + 2] == [0, 0]
         };
         let value = read_fat(fat, fat_type, cluster)?;
         if cleared || value == FatValue::Free {
@@ -513,8 +522,8 @@ where
     E: IoError,
     Error<E>: From<S::Error>,
 {
-    match fat_type {
-        FatType::Fat32 => {
+    match fat_type.wide() {
+        true => {
             let reserved = Fat32::get_raw(fat, cluster)? & 0xF000_0000;
             let raw = match value {
                 FatValue::Free => 0,
@@ -525,7 +534,7 @@ where
             out[..4].copy_from_slice(&raw.to_le_bytes());
             Ok(4)
         }
-        _ => {
+        false => {
             let raw: u16 = match value {
                 FatValue::Free => 0,
                 FatValue::Bad => 0xFFF7,
@@ -556,7 +565,7 @@ where
     Error<E>: From<S::Error>,
 {
     const BLOCK: u64 = 512;
-    let size: u64 = if fat_type == FatType::Fat32 { 4 } else { 2 };
+    let size: u64 = if fat_type.wide() { 4 } else { 2 };
     let begin = u64::from(cluster) * size;
     let end = begin + bytes.len() as u64;
     // The cut points: every block boundary inside. The entries of a run are fewer bytes than a
@@ -596,19 +605,25 @@ where
 {
     // check MSB (except in FAT12)
     let val = match fat_type {
+        #[cfg(feature = "fat16")]
         FatType::Fat12 => 0xFFF,
+        #[cfg(feature = "fat16")]
         FatType::Fat16 => Fat16::get_raw(fat, 1)?,
-        FatType::Fat32 => Fat32::get_raw(fat, 1)?,
+        _ => Fat32::get_raw(fat, 1)?,
     };
     let dirty = match fat_type {
+        #[cfg(feature = "fat16")]
         FatType::Fat12 => false,
+        #[cfg(feature = "fat16")]
         FatType::Fat16 => val & (1 << 15) == 0,
-        FatType::Fat32 => val & (1 << 27) == 0,
+        _ => val & (1 << 27) == 0,
     };
     let io_error = match fat_type {
+        #[cfg(feature = "fat16")]
         FatType::Fat12 => false,
+        #[cfg(feature = "fat16")]
         FatType::Fat16 => val & (1 << 14) == 0,
-        FatType::Fat32 => val & (1 << 26) == 0,
+        _ => val & (1 << 26) == 0,
     };
     Ok(FsStatusFlags { dirty, io_error })
 }
@@ -625,9 +640,11 @@ where
 {
     let end_cluster = total_clusters + RESERVED_FAT_ENTRIES;
     match fat_type {
+        #[cfg(feature = "fat16")]
         FatType::Fat12 => Fat12::count_free(fat, end_cluster),
+        #[cfg(feature = "fat16")]
         FatType::Fat16 => Fat16::count_free(fat, end_cluster),
-        FatType::Fat32 => Fat32::count_free(fat, end_cluster),
+        _ => Fat32::count_free(fat, end_cluster),
     }
 }
 
@@ -676,6 +693,7 @@ where
     Ok(())
 }
 
+#[cfg(feature = "fat16")]
 impl FatTrait for Fat12 {
     fn get_raw<S, E>(fat: &mut S, cluster: u32) -> Result<u32, Error<E>>
     where
@@ -801,6 +819,7 @@ impl FatTrait for Fat12 {
     }
 }
 
+#[cfg(feature = "fat16")]
 impl FatTrait for Fat16 {
     fn get_raw<S, E>(fat: &mut S, cluster: u32) -> Result<u32, Error<E>>
     where

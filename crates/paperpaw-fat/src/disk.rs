@@ -468,7 +468,9 @@ impl<B: Blocks> Read for BlockDisk<B> {
             let (index, offset) = self.place();
             let whole = if offset == 0 { (len - done) / BLOCK } else { 0 };
             let passing = self.passing(index, whole);
-            if passing > 0 {
+            // A single block goes by the cache: read again (a zip's headers
+            // are read in turn), it is not asked of the card again.
+            if passing > 1 {
                 let bytes = &mut buf[done..done + passing * BLOCK];
                 self.disk.read_blocks(index, bytes)?;
                 done += passing * BLOCK;
@@ -518,6 +520,23 @@ impl<B: Blocks> Write for BlockDisk<B> {
 
     fn flush(&mut self) -> Result<(), DiskError> {
         self.write_back(self.changes)
+    }
+
+    /// Whole blocks of zeros go out `MAX_RUN` blocks at a time in one command each
+    /// (a new folder's cluster: one command, not one for each block), in the
+    /// order the single blocks went; where there is no room for the zeros
+    /// they go block by block.
+    fn write_zeros(&mut self, mut len: u64) -> Result<(), DiskError> {
+        let big = len.min((MAX_RUN * BLOCK) as u64) as usize;
+        // Up to a block on the stack, more on the heap for the moment.
+        let zeros = if big > BLOCK { zeroed(big) } else { None };
+        let zeros = zeros.as_deref().unwrap_or(&[0; BLOCK]);
+        while len > 0 {
+            let n = len.min(zeros.len() as u64);
+            self.write_all(&zeros[..n as usize])?;
+            len -= n;
+        }
+        Ok(())
     }
 }
 
@@ -583,6 +602,10 @@ impl<B: Blocks> Write for SharedDisk<B> {
 
     fn flush(&mut self) -> Result<(), DiskError> {
         self.0.borrow_mut().flush()
+    }
+
+    fn write_zeros(&mut self, len: u64) -> Result<(), DiskError> {
+        self.0.borrow_mut().write_zeros(len)
     }
 }
 

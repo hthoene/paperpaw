@@ -27,7 +27,7 @@ paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
 [dev-dependencies]
 # Tests format a card in memory.
-paperpaw-volume = { workspace = true, features = ["std", "format"] }
+paperpaw-volume = { workspace = true, features = ["std", "format", "fat16"] }
 paperpaw-core.workspace = true
 paperpaw-digest.workspace = true
 paperpaw-native.workspace = true
