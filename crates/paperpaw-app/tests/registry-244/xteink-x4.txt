@@ -135,6 +135,8 @@ setting bluetooth.group | bluetooth.remotes Choice(Fixed(["bluetooth.remotes.han
 setting core.group.controls | core.edge-ends Int { min: 0, max: 25 } default=Int(10) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.edge-ends
 setting core.group.controls | core.edge-sides Int { min: 0, max: 25 } default=Int(5) Advanced scoped=false guarded=false secret=false kept=false title=core.setting.edge-sides
 setting core.group.controls | core.keymap-preset Choice(Owned(["core.standard", "core.two-buttons", "core.left-handed"])) default=Text("core.standard") Basic scoped=false guarded=false secret=false kept=false title=core.setting.keymap-preset
+setting core.group.controls | core.tap-layout Choice(Fixed(["core.tap-thirds", "core.tap-halves", "core.tap-l-shape", "core.tap-top-bottom"])) default=Text("core.tap-thirds") Basic scoped=false guarded=false secret=false kept=false title=core.setting.tap-layout
+setting core.group.controls | core.tap-swap Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=core.setting.tap-swap
 setting core.group.controls | core.button-hints Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=core.setting.button-hints
 setting core.group.controls | core.swap-page-buttons Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=core.setting.swap-page-buttons
 setting core.group.controls | core.arrows-stay-on-page Bool default=Bool(false) Basic scoped=false guarded=false secret=false kept=false title=core.setting.arrows-stay-on-page

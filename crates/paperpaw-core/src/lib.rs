@@ -96,6 +96,7 @@ mod screen_names;
 mod shell_asks;
 mod show_again;
 pub mod start_picture;
+mod tap_layout;
 pub use screen_names::ScreenNames;
 mod room;
 mod screen;
@@ -167,7 +168,7 @@ pub use crate::io::{
     PairQuestion, SOCKET_PART, ServedCharacteristic, ServedFile, ServedService, ServerCall,
     ServerEvent, SocketCall, SocketEvent, SpeechCall, TlsSetup, WifiEvent,
 };
-use crate::keymap::{InputKey, Keymap, Origin, Zone};
+use crate::keymap::{InputKey, Keymap, Origin};
 pub use crate::language_seed::{LanguageSeed, Sink};
 use crate::refresh::RefreshPolicy;
 use crate::registry::Registry;

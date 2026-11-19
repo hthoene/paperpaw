@@ -477,6 +477,15 @@ impl Kernel {
         {
             keymap.load_kept(source, Origin::Preset, true);
         }
+        // The tap zones' layout, after the buttons' preset: taps are theirs.
+        let settings = &self.shared.settings;
+        let layout = settings.text(crate::tap_layout::LAYOUT.as_str());
+        keymap.layout = crate::tap_layout::layout_of(layout);
+        if let Some(source) =
+            crate::tap_layout::source(layout, settings.bool(crate::tap_layout::SWAP.as_str()))
+        {
+            keymap.load(&source, Origin::Preset, true);
+        }
         for (_, source) in &self.keys.plugins {
             keymap.load_kept(source, Origin::Plugin, true);
         }

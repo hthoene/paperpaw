@@ -45,7 +45,7 @@ impl Zone {
         }
     }
 
-    const ALL: [Zone; 9] = [
+    pub(crate) const ALL: [Zone; 9] = [
         Zone::TopLeft,
         Zone::Top,
         Zone::TopRight,
@@ -57,7 +57,7 @@ impl Zone {
         Zone::BottomRight,
     ];
 
-    fn id(self) -> &'static str {
+    pub(crate) fn id(self) -> &'static str {
         match self {
             Zone::TopLeft => "top-left",
             Zone::Top => "top",
@@ -521,6 +521,8 @@ pub(crate) struct Keymap {
     /// and where it is, in percent of the screen (left, top, width,
     /// height).
     zones: Vec<(String, String, [u8; 4])>,
+    /// Where the nine tap zones are (`core.tap-layout`).
+    pub(crate) layout: crate::tap_layout::TapLayout,
 }
 
 impl Keymap {
