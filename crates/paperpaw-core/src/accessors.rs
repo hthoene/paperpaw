@@ -245,7 +245,7 @@ impl Kernel {
     }
 
     /// The update on trial is kept, its mark written for good
-    /// ([`KernelBuilder::native_after_trial`]): plugins now see what the
+    /// ([`crate::KernelBuilder::native_after_trial`]): plugins now see what the
     /// firmware takes, and the store, opened or opened again, asks for the
     /// builds that fit. Nothing is told where the update is not (the mark
     /// could not be written: it may still go back).

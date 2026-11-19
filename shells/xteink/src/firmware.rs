@@ -33,9 +33,9 @@ mod clean;
 mod dozing;
 mod low_memory;
 mod paced;
-mod sleep;
 #[cfg(feature = "remote")]
 mod remote_commands;
+mod sleep;
 #[cfg(feature = "asleep-light")]
 mod sleeping_board;
 mod start_screens;
