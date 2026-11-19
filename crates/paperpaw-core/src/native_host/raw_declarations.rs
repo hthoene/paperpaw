@@ -380,6 +380,26 @@ impl RawDeclarations {
         }
         Ok(())
     }
+    /// The kind (`declaration_index::key`'s) and place of every record
+    /// [`Self::visit_placed`] visits, in its order, none decoded (#403).
+    pub(crate) fn visit_kinds(&self, visit: &mut dyn FnMut(u8, Option<Place>)) {
+        for entry in &self.index {
+            visit(entry.kind(), self.place(*entry));
+        }
+    }
+    /// [`Self::visit_placed`] without `validate_record`: for records that
+    /// passed it earlier in the same commit, no plugin code run since (the
+    /// bytes are the host's copy or the read-only image, `declaration_checks::View`).
+    pub(crate) fn visit_placed_checked<'a>(
+        &'a self,
+        image: Option<&'a [u8]>,
+        visit: &mut dyn FnMut(Record<'a>, Option<Place>),
+    ) -> Result<(), i32> {
+        for entry in &self.index {
+            visit(self.record(image, *entry)?, self.place(*entry));
+        }
+        Ok(())
+    }
     fn place(&self, entry: NameEntry) -> Option<Place> {
         let batch = self.batches.get(usize::from(entry.batch))?;
         let at = u32::from(*batch.offsets.get(entry.record())?);

@@ -64,14 +64,18 @@ pub(super) struct Native<'a> {
 /// memory for it, the lookup scans.
 #[derive(Default)]
 struct Memo {
-    /// The menus some row names (`menu.entry`, `menu.section`, `menu.hide`).
-    menus: Option<Vec<u32>>,
+    /// The menus some row names (`menu.entry`, `menu.section`, `menu.hide`):
+    /// the hash of each, sorted, with the key of the first row read that
+    /// gives it, which tells a collision from the menu (#403).
+    menus: Option<Vec<(u32, DeclKey)>>,
     /// The items with a `menu.need`.
     needs: Option<Vec<u32>>,
     /// The (menu, item) pairs of `menu.hide`.
     hides: Option<Vec<u32>>,
-    /// The items with an `icon.spec`.
-    icons: Option<Vec<u32>>,
+    /// The `icon.spec` rows: the hash of the item, the place in the order
+    /// read and the record's key, sorted by hash then place. The icon of an
+    /// item is then one record read, not a scan of every icon (#403).
+    icons: Option<Vec<(u32, u16, DeclKey)>>,
     /// The menu whose rows `rows` holds, and its rows by sort key.
     order: Option<(u32, Vec<(Sort, DeclKey)>)>,
 }
@@ -90,6 +94,19 @@ fn hash(parts: &[&str]) -> u32 {
 /// Whether `wanted` is among `hashes` (sorted).
 fn among(hashes: &[u32], wanted: &[&str]) -> bool {
     hashes.binary_search(&hash(wanted)).is_ok()
+}
+
+/// The kinds whose rows name a menu.
+const MENU_KINDS: [Kind; 3] = [Kind::MenuEntry, Kind::MenuSection, Kind::MenuHide];
+
+/// The menu a row of [`MENU_KINDS`] names.
+fn menu_of<'r>(record: &Record<'r>) -> Option<&'r str> {
+    match record {
+        Record::MenuEntry(row) => Some(row.menu),
+        Record::MenuSection(row) => Some(row.menu),
+        Record::MenuHide(row) => Some(row.menu),
+        _ => None,
+    }
 }
 
 /// The sort key of a row in `menu`: those placed first, then those by order (a
@@ -172,32 +189,66 @@ impl<'a> Native<'a> {
 
     /// Whether some plugin put a row into `menu`.
     pub(super) fn names_menu(&self, menu: &str) -> bool {
-        let read = || {
-            self.hashes(
-                &[Kind::MenuEntry, Kind::MenuSection, Kind::MenuHide],
-                &|record, add| match record {
-                    Record::MenuEntry(row) => add(&[row.menu]),
-                    Record::MenuSection(row) => add(&[row.menu]),
-                    Record::MenuHide(row) => add(&[row.menu]),
-                    _ => {}
-                },
-            )
-        };
-        if !self.may_hold(|memo| &mut memo.menus, &read, &[menu]) {
-            return false;
+        let mut memo = self.memo.borrow_mut();
+        if memo.menus.is_none() {
+            memo.menus = self.menu_keys();
+        }
+        if let Some(menus) = memo.menus.as_deref() {
+            let wanted = hash(&[menu]);
+            let Ok(at) = menus.binary_search_by_key(&wanted, |(hash, _)| *hash) else {
+                return false;
+            };
+            let key = menus.get(at).map(|(_, key)| *key);
+            drop(memo);
+            let mut named = false;
+            if let Some(key) = key {
+                let _ignored = ordered::with_plugin(self.store, key, &mut |record, _| {
+                    named = menu_of(&record) == Some(menu);
+                    core::ops::ControlFlow::Continue(())
+                });
+            }
+            // Another menu of the same hash: the scan decides.
+            if named {
+                return true;
+            }
+        } else {
+            drop(memo);
         }
         let mut found = false;
-        for kind in [Kind::MenuEntry, Kind::MenuSection, Kind::MenuHide] {
+        for kind in MENU_KINDS {
             self.scan(kind, &mut |record, _| {
-                found |= match record {
-                    Record::MenuEntry(row) => row.menu == menu,
-                    Record::MenuSection(row) => row.menu == menu,
-                    Record::MenuHide(row) => row.menu == menu,
-                    _ => false,
-                };
+                found |= menu_of(record) == Some(menu);
             });
         }
         found
+    }
+
+    /// The menus rows name for [`Memo::menus`]; `None` without memory.
+    fn menu_keys(&self) -> Option<Vec<(u32, DeclKey)>> {
+        let mut out: Vec<(u32, DeclKey)> = Vec::new();
+        let mut failed = false;
+        for kind in MENU_KINDS {
+            self.store.keys(kind, &mut |key| {
+                let _ignored = ordered::with_plugin(self.store, key, &mut |record, _| {
+                    if let Some(menu) = menu_of(&record) {
+                        let wanted = hash(&[menu]);
+                        if out.iter().all(|(hash, _)| *hash != wanted) {
+                            if out.try_reserve(1).is_ok() {
+                                out.push((wanted, key));
+                            } else {
+                                failed = true;
+                            }
+                        }
+                    }
+                    core::ops::ControlFlow::Continue(())
+                });
+            });
+        }
+        if failed {
+            return None;
+        }
+        paperpaw_sort::sort_unstable_by_key(&mut out, |(hash, _)| *hash);
+        Some(out)
     }
 
     /// The row after `after` in the order of `menu`'s declared rows.
@@ -278,7 +329,7 @@ impl<'a> Native<'a> {
         if failed {
             return None;
         }
-        rows.sort_unstable_by_key(|(sort, _)| *sort);
+        paperpaw_sort::sort_unstable_by_key(&mut rows, |(sort, _)| *sort);
         Some(rows)
     }
 
@@ -334,15 +385,36 @@ impl<'a> Native<'a> {
 
     /// The icon of `item`, the last declared.
     pub(super) fn icon(&self, item: &str) -> Option<Fixed<64>> {
-        let read = || {
-            self.hashes(&[Kind::Icon], &|record, add| {
-                if let Record::IconSpec(row) = record {
-                    add(&[row.item]);
+        let mut memo = self.memo.borrow_mut();
+        if memo.icons.is_none() {
+            memo.icons = self.icon_keys();
+        }
+        if let Some(icons) = memo.icons.as_deref() {
+            let wanted = hash(&[item]);
+            // The last row of the item's hash is the last read with it.
+            let end = icons.partition_point(|(hash, ..)| *hash <= wanted);
+            let &(_, _, key) = end
+                .checked_sub(1)
+                .and_then(|at| icons.get(at))
+                .filter(|(hash, ..)| *hash == wanted)?;
+            drop(memo);
+            let (mut icon, mut read) = (None, false);
+            let _ignored = ordered::with_plugin(self.store, key, &mut |record, _| {
+                if let Record::IconSpec(row) = record
+                    && row.item == item
+                {
+                    icon = Fixed::of(&[row.icon]);
+                    read = true;
                 }
-            })
-        };
-        if !self.may_hold(|memo| &mut memo.icons, &read, &[item]) {
-            return None;
+                core::ops::ControlFlow::Continue(())
+            });
+            // Another item of the same hash read last, or a record that no
+            // longer reads: the scan decides.
+            if read {
+                return icon;
+            }
+        } else {
+            drop(memo);
         }
         let mut icon = None;
         self.scan(Kind::Icon, &mut |record, _| {
@@ -353,6 +425,31 @@ impl<'a> Native<'a> {
             }
         });
         icon
+    }
+
+    /// The `icon.spec` rows for [`Memo::icons`]; `None` without memory.
+    fn icon_keys(&self) -> Option<Vec<(u32, u16, DeclKey)>> {
+        let mut out = Vec::new();
+        let mut failed = false;
+        self.store.keys(Kind::Icon, &mut |key| {
+            let _ignored = ordered::with_plugin(self.store, key, &mut |record, _| {
+                if let Record::IconSpec(row) = record {
+                    let place = u16::try_from(out.len());
+                    match place {
+                        Ok(place) if out.try_reserve(1).is_ok() => {
+                            out.push((hash(&[row.item]), place, key));
+                        }
+                        _ => failed = true,
+                    }
+                }
+                core::ops::ControlFlow::Continue(())
+            });
+        });
+        if failed {
+            return None;
+        }
+        paperpaw_sort::sort_unstable_by_key(&mut out, |(hash, place, _)| (*hash, *place));
+        Some(out)
     }
 
     /// The message key of the line under `item`, from the plugin that owns it.

@@ -141,8 +141,13 @@ impl crate::Kernel {
     /// `Started` and a book the reader opens at the start is opened before the
     /// first frame, as interface 6 did inside the start. Home is not drawn first.
     pub(crate) fn finish_start(&mut self) -> crate::Effects {
+        let from = self.native_now();
         self.run_commands();
-        self.finish_started()
+        self.native_took(from, |times| &mut times.start_events);
+        let from = self.native_now();
+        let effects = self.finish_started();
+        self.native_took(from, |times| &mut times.start_settle);
+        effects
     }
 
     /// The end of `Kernel::start`: its effects, then cover jobs of the library

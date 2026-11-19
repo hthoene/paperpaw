@@ -196,6 +196,31 @@ pub mod slot_counts {
             .unwrap_or_default()
     }
 
+    std::thread_local! {
+        /// Declaration records checked (`declarations::validate_record`) and
+        /// read back from the declaration store, for the start's cost guard (#403).
+        static DECLARATIONS: [Cell<u32>; 2] = const { [const { Cell::new(0) }; 2] };
+    }
+
+    /// One record checked with `validate_record`.
+    pub(in super::super) fn note_validation() {
+        let _ = DECLARATIONS.try_with(|counts| counts[0].set(counts[0].get().saturating_add(1)));
+    }
+
+    /// One record read back from the declaration store.
+    pub(in super::super) fn note_read() {
+        let _ = DECLARATIONS.try_with(|counts| counts[1].set(counts[1].get().saturating_add(1)));
+    }
+
+    /// The declaration records checked and those read from the store since
+    /// `reset`, on this thread.
+    #[must_use]
+    pub fn declarations() -> (u32, u32) {
+        DECLARATIONS
+            .try_with(|counts| (counts[0].get(), counts[1].get()))
+            .unwrap_or_default()
+    }
+
     pub(super) fn note(id: Id) {
         // A thread being torn down has no counts to keep.
         let _ = COUNTS.try_with(|counts| {
@@ -208,6 +233,7 @@ pub mod slot_counts {
     /// here on ([`service_calls`]).
     pub fn reset() {
         let _ = COUNTS.try_with(|counts| counts.iter().for_each(|count| count.set(0)));
+        let _ = DECLARATIONS.try_with(|counts| counts.iter().for_each(|count| count.set(0)));
         let _ = SERVICES.try_with(|calls| calls.borrow_mut().clear());
         let _ = RECORDING.try_with(|on| on.set(true));
     }

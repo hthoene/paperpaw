@@ -50,6 +50,7 @@ fn finish(batches: &[&[Record<'_>]]) -> Result<(), i32> {
         image: None,
         plugin: "reader",
         refused: Default::default(),
+        checked: Default::default(),
     }
     .finish()
 }

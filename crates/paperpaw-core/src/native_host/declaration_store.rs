@@ -689,7 +689,11 @@ impl PendingDeclarations {
             return Err(ERR_STATE);
         }
         let bytes = input.bytes();
-        let (kinds, counts) = classify(self.kept.id.as_str(), bytes)?;
+        // A committed batch passed `validate_record` when it was submitted and
+        // at its commit, the admission this is part of, with no plugin code run
+        // since: its records are not checked a third time (#403).
+        let checked = !matches!(input, Input::Borrowed(_));
+        let (kinds, counts) = classify(self.kept.id.as_str(), bytes, checked)?;
         let expected = match &input {
             Input::Committed(raw) => Some(raw.entries),
             Input::Image { entries, .. } => Some(*entries),
@@ -1256,6 +1260,8 @@ impl DeclarationStore {
         {
             return false;
         }
+        #[cfg(feature = "slot-counts")]
+        super::host_slot::slot_counts::note_read();
         let mut found = false;
         // Even Owned batches require a live owner. The bridge returns None after
         // unloading, and holds the module guard throughout decode and the visit.
@@ -1398,7 +1404,7 @@ type Classes = [Option<(Kind, u32)>; REGISTRATION_MAX_RECORDS];
 /// batch at once: they would take most of the X4's 2 KiB stack band
 /// (`abi/heap-word.md` section 6) under a plugin's own frames.
 #[inline(never)]
-fn classify(id: &str, bytes: &[u8]) -> Result<(Classes, [usize; KIND_COUNT]), i32> {
+fn classify(id: &str, bytes: &[u8], checked: bool) -> Result<(Classes, [usize; KIND_COUNT]), i32> {
     let mut counts = [0usize; KIND_COUNT];
     let mut kinds = [None; REGISTRATION_MAX_RECORDS];
     let mut index = 0;
@@ -1406,7 +1412,9 @@ fn classify(id: &str, bytes: &[u8]) -> Result<(Classes, [usize; KIND_COUNT]), i3
     // decoded the whole batch once before the first record is visited, so a
     // decoding error anywhere still comes before any record's own status.
     let len = host_records_visit(bytes, REGISTRATION_MAX_RECORDS, &mut |record| {
-        declarations::validate_record(id, &record)?;
+        if !checked {
+            declarations::validate_record(id, &record)?;
+        }
         if let Some(kind) = Kind::of(&record) {
             let hash = super::declaration_index::record_hash(record).ok_or(ERR_INVALID)?;
             *kinds.get_mut(index).ok_or(ERR_INVALID)? = Some((kind, hash));

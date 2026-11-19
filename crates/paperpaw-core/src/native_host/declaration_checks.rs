@@ -71,6 +71,9 @@ pub(crate) struct View<'a> {
     pub(crate) plugin: &'a str,
     /// The cap `finish` refused the batch at, if it was one.
     pub(crate) refused: core::cell::Cell<Option<Cap>>,
+    /// Every record was read and passed `validate_record` in this commit:
+    /// a later visit of it reads them without checking them again (#403).
+    pub(crate) checked: core::cell::Cell<bool>,
 }
 impl<'a> View<'a> {
     /// [`Self::visit`], each record with its place in the image (`None` for
@@ -79,14 +82,39 @@ impl<'a> View<'a> {
         &self,
         visit: &mut dyn FnMut(Record<'a>, Option<super::raw_declarations::Place>),
     ) -> Result<(), i32> {
-        self.raw.visit_placed(self.plugin, self.image, visit)?;
+        if self.checked.get() {
+            self.raw.visit_placed_checked(self.image, visit)?;
+        } else {
+            self.raw.visit_placed(self.plugin, self.image, visit)?;
+            self.checked.set(true);
+        }
         self.visit_decoded(&mut |record| visit(record, None));
         Ok(())
     }
+    /// The kind (`declaration_index::key`'s) and place of every record
+    /// [`Self::visit_placed`] visits, none decoded: for counting (#403).
+    pub(crate) fn visit_kinds(
+        &self,
+        visit: &mut dyn FnMut(u8, Option<super::raw_declarations::Place>),
+    ) {
+        use super::declaration_index::KIND_TABLE;
+        self.raw.visit_kinds(visit);
+        let owned = [
+            (KIND_TABLE[0].1, self.owned.groups().len()),
+            (KIND_TABLE[1].1, self.owned.specs().len()),
+            (KIND_TABLE[2].1, self.owned.extras().len()),
+            (KIND_TABLE[3].1, self.owned.hyphenations().len()),
+            (KIND_TABLE[4].1, self.owned.font_faces().len()),
+            (KIND_TABLE[4].1, self.owned.font_extensions().len()),
+        ];
+        for (kind, count) in owned {
+            for _ in 0..count {
+                visit(kind, None);
+            }
+        }
+    }
     pub(crate) fn visit(&self, visit: &mut dyn FnMut(Record<'a>)) -> Result<(), i32> {
-        self.raw.visit(self.plugin, self.image, visit)?;
-        self.visit_decoded(visit);
-        Ok(())
+        self.visit_placed(&mut |record, _| visit(record))
     }
     fn visit_decoded(&self, visit: &mut dyn FnMut(Record<'a>)) {
         // Decoded host submissions have no raw batch.

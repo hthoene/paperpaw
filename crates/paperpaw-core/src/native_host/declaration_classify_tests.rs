@@ -33,16 +33,19 @@ fn classify_reports_the_statuses_of_a_decoded_batch_in_the_same_order() {
     };
     // Record 2 refused, the batch decodes: record 2's status.
     assert_eq!(whole(&bytes), Err(ERR_UNSUPPORTED));
-    assert_eq!(classify("fixture", &bytes).map(|_| ()), whole(&bytes));
+    assert_eq!(
+        classify("fixture", &bytes, false).map(|_| ()),
+        whole(&bytes)
+    );
     // Record 2 refused and record 5 cut short: the decoding status first.
     let cut = &bytes[..bytes.len() - 1];
     assert_eq!(whole(cut), Err(ERR_INVALID));
-    assert_eq!(classify("fixture", cut).map(|_| ()), whole(cut));
+    assert_eq!(classify("fixture", cut, false).map(|_| ()), whole(cut));
     // Without the refused record, each record is classified in its place.
     let mut good = vec![0; REGISTRATION_MAX_BYTES];
     let len = records_encode(&[records[0], records[2]], &mut good).unwrap();
     good.truncate(len);
-    let (kinds, counts) = classify("fixture", &good).unwrap();
+    let (kinds, counts) = classify("fixture", &good, false).unwrap();
     assert!(kinds[0].is_some() && kinds[1].is_some() && kinds[2].is_none());
     assert_eq!(counts.iter().sum::<usize>(), 2);
 }

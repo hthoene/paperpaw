@@ -66,6 +66,7 @@ fn refused(batches: &[&[Record<'_>]]) -> (Result<(), i32>, Option<Cap>) {
         image: None,
         plugin: "epub",
         refused: Default::default(),
+        checked: Default::default(),
     };
     let result = view.finish();
     (result, view.refused.get())

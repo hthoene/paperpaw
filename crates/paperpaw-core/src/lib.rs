@@ -455,6 +455,7 @@ impl Kernel {
     pub fn start(&mut self, now: Instant) -> Effects {
         // The kernel's work, but for the plugins' it calls.
         let _running = self.shared.meter.enter(meter::CORE);
+        let from = self.native_now();
         self.shared.now = now;
         self.last_activity = now;
         // The reading-app settings of the hosted apps, before the values no
@@ -474,6 +475,7 @@ impl Kernel {
         self.open_sealed_secrets();
         // The reading apps kept for books and folders: read once.
         self.read_reading_apps();
+        self.native_took(from, |times| &mut times.start_prepare);
         // Replace what the shell showed before startup, also under a home overlay.
         self.invalidate(self.framebuffer.bounds());
         self.output.commands.push(Ask::open_slot(slots::HOME));
