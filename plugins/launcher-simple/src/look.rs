@@ -4,7 +4,11 @@
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     Color, Point, Rect,
-    native::{Error, Host, canvas::PartRole, fonts::{Font, IconGlyph}},
+    native::{
+        Error, Host,
+        canvas::PartRole,
+        fonts::{Font, IconGlyph},
+    },
 };
 use paperpaw_ui_kit::{
     Messages, Paint, Style, focus, icons, paint, parts,

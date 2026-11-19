@@ -178,12 +178,7 @@ fn measure(ui: &Ui<'_, '_>, model: &Model, area: B, key: Key) -> Result<Layout, 
     let radius = (cell_w * 2 / 5).min(room / 2).max(24);
     let row_h = 2 * radius + label + 12 + apart / 2;
     // The bars share the room below the switches.
-    let bar_area = B::new(
-        area.x,
-        area.y + rows * row_h,
-        area.w,
-        area.h - rows * row_h,
-    );
+    let bar_area = B::new(area.x, area.y + rows * row_h, area.w, area.h - rows * row_h);
     let count = bars.len() as i32;
     let mut boxes = Vec::new();
     for index in 0..bars.len() {
@@ -257,12 +252,7 @@ pub fn draw(
         label,
         ..
     } = *layout;
-    for (index, (toggle, glyph)) in model
-        .toggles
-        .iter()
-        .zip(&layout.toggle_icons)
-        .enumerate()
-    {
+    for (index, (toggle, glyph)) in model.toggles.iter().zip(&layout.toggle_icons).enumerate() {
         let (row_at, col_at) = ((index / columns) as i32, (index % columns) as i32);
         let cell = B::new(
             area.x + col_at * (cell_w + apart / 2),
