@@ -56,3 +56,4 @@ edge-light
 smart-home
 format-rtf status=complete   # new on interface 7 (#30): no interface-6 port, so no PORTING-7.md
 launcher-simple
+gloss status=complete   # new on interface 7 (#379): no interface-6 port, so no PORTING-7.md

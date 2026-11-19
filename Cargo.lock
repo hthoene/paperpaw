@@ -1663,6 +1663,7 @@ dependencies = [
  "paperpaw-plugin-format-mobi",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
+ "paperpaw-plugin-gloss",
  "paperpaw-plugin-help",
  "paperpaw-plugin-home",
  "paperpaw-plugin-keyboard",
@@ -2313,6 +2314,15 @@ dependencies = [
  "paperpaw-native",
  "paperpaw-sdk",
  "proptest",
+]
+
+[[package]]
+name = "paperpaw-plugin-gloss"
+version = "1.0.0"
+dependencies = [
+ "paperpaw-i18n",
+ "paperpaw-plugin-reader",
+ "paperpaw-sdk",
 ]
 
 [[package]]
