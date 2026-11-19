@@ -108,10 +108,18 @@ mod tests {
 
     #[test]
     fn every_short_capacity_is_untouched_and_success_writes_only_prefix() {
-        for cap in 0..SNAPSHOT_EXTENDED_BYTES {
+        for cap in 0..SNAPSHOT_BYTES {
             let mut out = [MaybeUninit::new(0xa5); SNAPSHOT_MAX_BYTES];
             assert_eq!(snapshot_encode(&base(), &mut out[..cap]), Err(-3));
             assert!(out.into_iter().all(|byte| unsafe { byte.assume_init() } == 0xa5));
+        }
+        // A reader of the first layout gets the prefix, at a field boundary.
+        for cap in SNAPSHOT_BYTES..SNAPSHOT_EXTENDED_BYTES {
+            let mut out = [MaybeUninit::new(0xa5); SNAPSHOT_MAX_BYTES];
+            assert_eq!(snapshot_encode(&base(), &mut out[..cap]), Ok(SNAPSHOT_BYTES));
+            let bytes = out.map(|byte| unsafe { byte.assume_init() });
+            assert!(bytes[SNAPSHOT_BYTES..].iter().all(|&byte| byte == 0xa5));
+            assert_eq!(snapshot_decode(&bytes[..SNAPSHOT_BYTES]), Ok(base()));
         }
         let mut out = [MaybeUninit::new(0xa5); SNAPSHOT_MAX_BYTES];
         assert_eq!(snapshot_encode(&base(), &mut out), Ok(SNAPSHOT_EXTENDED_BYTES));

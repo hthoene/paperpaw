@@ -172,10 +172,14 @@ fn pixel_decode(kind: u16, code: u16, bits: u8) -> Result<PixelFormat, i32> {
     Ok(pixel)
 }
 
-/// Encode exactly SNAPSHOT_EXTENDED_BYTES, leaving every output byte unchanged on error.
+/// Encode the longest snapshot the output holds, leaving every output byte unchanged on error.
 ///
 /// Output may be uninitialized. Validation and capacity checks precede writes.
-/// This is a status operation: a short output is ERR_NO_SPACE, never a prefix copy.
+/// This is a status operation: output below SNAPSHOT_BYTES is ERR_NO_SPACE.
+/// Extensions are appended and written only where the output has room for
+/// them whole: SNAPSHOT_BYTES through SNAPSHOT_EXTENDED_BYTES - 1 bytes get
+/// the prefix alone (a reader of the first layout), more get the extension
+/// too. The declared total is the written length, which is returned.
 pub fn snapshot_encode(
     value: &Snapshot,
     out: &mut [core::mem::MaybeUninit<u8>],
@@ -187,9 +191,14 @@ pub fn snapshot_encode(
     {
         return Err(-2);
     }
-    if out.len() < SNAPSHOT_EXTENDED_BYTES {
+    if out.len() < SNAPSHOT_BYTES {
         return Err(-3);
     }
+    let total = if out.len() >= SNAPSHOT_EXTENDED_BYTES {
+        SNAPSHOT_EXTENDED_BYTES
+    } else {
+        SNAPSHOT_BYTES
+    };
     let mut bytes = [0_u8; SNAPSHOT_EXTENDED_BYTES];
     let mut presence = 0_u32;
     if let Some(battery) = value.battery {
@@ -211,7 +220,7 @@ pub fn snapshot_encode(
         bytes[49..51].copy_from_slice(&minutes.to_le_bytes());
     }
     bytes[0..4].copy_from_slice(&SNAPSHOT_VERSION.to_le_bytes());
-    bytes[4..8].copy_from_slice(&(SNAPSHOT_EXTENDED_BYTES as u32).to_le_bytes());
+    bytes[4..8].copy_from_slice(&(total as u32).to_le_bytes());
     bytes[8..12].copy_from_slice(&presence.to_le_bytes());
     bytes[16..24].copy_from_slice(&value.monotonic_ms.to_le_bytes());
     bytes[32..34].copy_from_slice(&value.width.to_le_bytes());
@@ -223,10 +232,10 @@ pub fn snapshot_encode(
     bytes[42] = bits;
     bytes[48] = u8::from(value.touch);
     bytes[52] = u8::from(value.hints_shown);
-    for (slot, byte) in out.iter_mut().zip(bytes) {
-        slot.write(byte);
+    for (slot, byte) in out.iter_mut().zip(&bytes[..total]) {
+        slot.write(*byte);
     }
-    Ok(SNAPSHOT_EXTENDED_BYTES)
+    Ok(total)
 }
 
 fn scalar<const N: usize>(bytes: &[u8], offset: usize) -> [u8; N] {

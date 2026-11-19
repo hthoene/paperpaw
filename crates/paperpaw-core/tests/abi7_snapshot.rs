@@ -26,7 +26,9 @@ use paperpaw_platform::{
     SystemStatus, WallClock,
 };
 use paperpaw_sdk::{Id, Manifest, RegisterError, Settings, Version};
-use snapshot_wire::{SNAPSHOT_EXTENDED_BYTES, SNAPSHOT_MAX_BYTES, Snapshot, snapshot_decode};
+use snapshot_wire::{
+    SNAPSHOT_BYTES, SNAPSHOT_EXTENDED_BYTES, SNAPSHOT_MAX_BYTES, Snapshot, snapshot_decode,
+};
 use std::{cell::RefCell, mem::MaybeUninit, pin::pin, ptr, rc::Rc};
 
 const DEVICE: DeviceInfo = DeviceInfo::new(
@@ -168,7 +170,7 @@ fn short_invalid_and_uninitialized_outputs_have_bounded_writes() {
     let frame = view(SystemStatus::default()).unwrap();
     slot.as_ref()
         .scope(&frame, || {
-            for length in [0, SNAPSHOT_EXTENDED_BYTES - 1] {
+            for length in [0, SNAPSHOT_BYTES - 1] {
                 let mut out = vec![0xa5; length];
                 assert_eq!(output(&slot, &mut out), ERR_NO_SPACE);
                 assert!(out.iter().all(|b| *b == 0xa5));
@@ -209,6 +211,35 @@ fn short_invalid_and_uninitialized_outputs_have_bounded_writes() {
             let mut extra = [0xa5; SNAPSHOT_MAX_BYTES];
             assert_eq!(output(&slot, &mut extra), OK);
             assert!(extra[SNAPSHOT_EXTENDED_BYTES..].iter().all(|b| *b == 0xa5));
+        })
+        .unwrap();
+}
+
+#[test]
+fn a_reader_of_the_first_layout_gets_the_52_byte_prefix() {
+    // Draft-36 plugins (and the abi7-tick-draw sample before #369) ask for
+    // exactly SNAPSHOT_BYTES: the host writes the prefix without the
+    // extension, at a field boundary, and declares that length.
+    let slot = pin!(FrameSlot::new());
+    let frame = view(SystemStatus::default()).unwrap();
+    slot.as_ref()
+        .scope(&frame, || {
+            for length in SNAPSHOT_BYTES..SNAPSHOT_EXTENDED_BYTES {
+                let mut out = vec![0xa5; length];
+                assert_eq!(output(&slot, &mut out), OK);
+                assert_eq!(&out[4..8], &(SNAPSHOT_BYTES as u32).to_le_bytes());
+                assert!(out[SNAPSHOT_BYTES..].iter().all(|b| *b == 0xa5));
+                let decoded = snapshot_decode(&out[..SNAPSHOT_BYTES]).unwrap();
+                assert_eq!(
+                    (decoded.width, decoded.height),
+                    (frame.value.width, frame.value.height)
+                );
+                assert!(!decoded.hints_shown);
+            }
+            let mut out = [0xa5; SNAPSHOT_EXTENDED_BYTES];
+            assert_eq!(output(&slot, &mut out), OK);
+            assert_eq!(&out[4..8], &(SNAPSHOT_EXTENDED_BYTES as u32).to_le_bytes());
+            assert_eq!(snapshot_decode(&out).unwrap(), frame.value);
         })
         .unwrap();
 }

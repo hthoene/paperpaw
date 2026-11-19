@@ -26,8 +26,8 @@ pub(super) struct Observations {
 /// Table/context stay live; host callbacks synchronously initialize their outputs.
 pub(super) unsafe fn read(host: &PpHost, ctx: *mut c_void) -> Result<Observations, i32> {
     // Request the current complete version-1 layout, extension included. A
-    // snapshot that cannot fit is refused by the host; no header offsets are
-    // reconstructed here.
+    // 52-byte buffer would get the prefix alone; one below that is refused.
+    // No header offsets are reconstructed here.
     let mut bytes = [0u8; snapshot::SNAPSHOT_EXTENDED_BYTES];
     // SAFETY: exclusive initialized output is disjoint from table and context.
     let status = unsafe {

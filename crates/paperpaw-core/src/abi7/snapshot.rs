@@ -83,8 +83,10 @@ pub(crate) fn capture(
     })
 }
 
-/// Slot-4 copy-out backend. Returns OK after complete encoding.
-/// Short buffers fail before any write; bytes beyond that count are untouched.
+/// Slot-4 copy-out backend. Returns OK after encoding the longest snapshot
+/// that fits (the 52-byte prefix, plus each extension the output holds whole).
+/// Buffers below SNAPSHOT_BYTES fail before any write; bytes beyond the
+/// written count are untouched.
 /// No frame, or a query-only frame, returns ERR_STATE.
 ///
 /// # Safety
