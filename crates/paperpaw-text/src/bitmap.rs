@@ -206,13 +206,13 @@
 //! Indic packs' tables are of version 2.
 //!
 //! Words (version 1), slot 6: the words of a script written without
-//! spaces between them (Thai, Lao, Khmer), where the line breaker may
+//! spaces between them (Thai, Lao, Khmer, Burmese), where the line breaker may
 //! break a line (`crate::linebreak`), as `tools/thai-dictionary.py` and
 //! `tools/word-table.py` write them:
 //!
 //! ```text
-//! head       8 bytes   version 1, script u8 (0 Thai, 1 Lao, 2 Khmer), 2
-//!                      reserved, length u32
+//! head       8 bytes   version 1, script u8 (0 Thai, 1 Lao, 2 Khmer,
+//!                      3 Myanmar), 2 reserved, length u32
 //! counts     4 bytes   word count u16, block count u16 (a block per 16
 //!                      words)
 //! blocks     2 bytes   offset u16 of each block from the first's start
@@ -275,13 +275,6 @@ const KERNING: usize = HEADER + 28;
 pub struct BitmapFont {
     data: Cow<'static, [u8]>,
     strikes: u16,
-    /// The strikes last found nearest, each with the size (quarter pixels)
-    /// it was found for (the size of the text and 0, for what characters a
-    /// pack has): text is drawn and measured a character at a time, and each
-    /// character asked the strikes' headers again.
-    nearest: [core::cell::Cell<(i32, u16)>; 2],
-    /// The most glyphs any strike has (read once, with the strikes checked).
-    full: usize,
 }
 
 impl fmt::Debug for BitmapFont {
@@ -318,12 +311,7 @@ impl BitmapFont {
             return Err(FontError::UnsupportedVersion);
         }
         let strikes = u16_at(&data, 8).ok_or(FontError::Invalid)?;
-        let mut font = BitmapFont {
-            data,
-            strikes,
-            nearest: [const { core::cell::Cell::new((i32::MIN, 0)) }; 2],
-            full: 0,
-        };
+        let font = BitmapFont { data, strikes };
         if strikes == 0 {
             return Err(FontError::Invalid);
         }
@@ -337,7 +325,6 @@ impl BitmapFont {
             if end.is_none_or(|end| end > font.data.len()) || strike.bitmaps > font.data.len() {
                 return Err(FontError::Invalid);
             }
-            font.full = font.full.max(strike.glyphs);
         }
         Ok(font)
     }
@@ -423,31 +410,33 @@ impl BitmapFont {
     /// The index of the strike closest to `wanted` quarter pixels; of two
     /// as close, the smaller, whatever their order in the pack.
     fn nearest_quarters(&self, wanted: i32) -> Option<usize> {
-        for memo in &self.nearest {
-            let (known, index) = memo.get();
-            if known == wanted {
-                return Some(usize::from(index));
-            }
-        }
-        let found = (0..usize::from(self.strikes))
+        (0..usize::from(self.strikes))
             .filter_map(|i| Some((i, i32::from(u16_at(&self.data, HEADER + i * STRIKE)?))))
             .min_by_key(|&(_, quarters)| (quarters.abs_diff(wanted), quarters))
-            .map(|(i, _)| i)?;
-        // The size of the text is kept, and 0 (asked as often) is not
-        // pushed out by it: the first place is for 0.
-        let place = usize::from(wanted != 0);
-        // `strikes` is a `u16`, so the index is too.
-        self.nearest[place].set((wanted, found as u16));
-        Some(found)
+            .map(|(i, _)| i)
     }
 
     /// The strike closest to `wanted` quarter pixels (as
     /// [`BitmapFont::nearest_quarters`]), its number of glyphs and the
-    /// largest number any strike has.
+    /// largest number any strike has, in one pass over the strikes.
     fn nearest_and_full(&self, wanted: i32) -> Option<(usize, usize, usize)> {
-        let i = self.nearest_quarters(wanted)?;
-        let glyphs = u32_at(&self.data, HEADER + i * STRIKE + 16).map_or(0, |n| n as usize);
-        Some((i, glyphs, self.full))
+        let mut nearest: Option<(usize, (u32, u16), usize)> = None;
+        let mut full = 0;
+        for i in 0..usize::from(self.strikes) {
+            let base = HEADER + i * STRIKE;
+            // `new` read every strike's header: only the count is needed.
+            let glyphs = u32_at(&self.data, base + 16).map_or(0, |n| n as usize);
+            full = full.max(glyphs);
+            let Some(quarters) = u16_at(&self.data, base) else {
+                continue;
+            };
+            // Of two as close, the smaller (as `nearest_quarters`).
+            let distance = (i32::from(quarters).abs_diff(wanted), quarters);
+            if nearest.is_none_or(|(_, closest, _)| distance < closest) {
+                nearest = Some((i, distance, glyphs));
+            }
+        }
+        nearest.map(|(i, _, glyphs)| (i, glyphs, full))
     }
 
     /// The strike closest to `size`.
