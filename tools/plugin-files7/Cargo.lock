@@ -268,6 +268,7 @@ dependencies = [
  "paperpaw-plugin-format-rtf",
  "paperpaw-plugin-format-txt",
  "paperpaw-plugin-format-xtc",
+ "paperpaw-plugin-gloss",
  "paperpaw-plugin-help",
  "paperpaw-plugin-home",
  "paperpaw-plugin-joplin",
@@ -399,6 +400,13 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-format-xtc"
 version = "1.0.2"
+dependencies = [
+ "paperpaw-sdk",
+]
+
+[[package]]
+name = "paperpaw-plugin-gloss"
+version = "1.0.0"
 dependencies = [
  "paperpaw-sdk",
 ]

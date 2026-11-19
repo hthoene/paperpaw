@@ -1,0 +1,13 @@
+Gloss setzt kleinen Text über Wörter eines Buchs: wie ein Wort gelesen wird (Furigana, Pinyin, eine Aussprache) oder was es in ein, zwei Wörtern bedeutet. Es ist zum Sprachenlernen gedacht und tut nichts, bis du ihm eine Wortliste gibst.
+
+Lege die Liste als einfache Textdatei (UTF-8) auf der Karte in den Ordner .paperpaw/plugins/gloss/. Eine Zeile je Wort: das Wort, ein Tabulator, der kleine Text. Zeilen, die mit # beginnen, sind Kommentare. Zum Beispiel:
+
+Haus<Tab>house
+well-known<Tab>bekannt
+日本語<Tab>にほんご
+
+Nenne die Datei wie das Buch ohne Endung, damit sie nur für dieses Buch gilt (faust.epub: faust.txt), oder wie die Sprache des Buchs, damit sie für alle Bücher dieser Sprache gilt (de.txt, ja.txt). Die Datei des Buchs hat Vorrang. Ein Wort wird in jeder Groß- und Kleinschreibung gefunden, nur ganze Wörter; bei Japanisch und Chinesisch gilt die längste Wortgruppe der Liste. Steht ein Wort zweimal in der Liste, gilt seine erste Zeile.
+
+Von einer Liste werden höchstens 2.048 Wörter, je 96 Byte kleiner Text und insgesamt 24 KB kleiner Text genutzt; eine längere Zeile entfällt. Die Liste wird beim Öffnen des Buchs einmal gelesen, das Umblättern liest also nichts. Änderst du die Liste, öffne das Buch neu.
+
+Einstellungen, unter Lesen, im Abschnitt Lesehilfen: Größe des kleinen Texts (klein, mittel, groß). Die Zeilen bekommen den Platz darüber, den der kleine Text braucht. Ein Absatz zeigt den kleinen Text seiner ersten etwa 60 Wörter. Die Buchdatei selbst wird nicht verändert.

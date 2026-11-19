@@ -221,6 +221,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "gloss"
+path = "src/bin/gloss.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "tasks"
 path = "src/bin/tasks.rs"
 test = false
@@ -464,6 +470,7 @@ paperpaw-plugin-smart-home = { path = "../../plugins/smart-home", features = ["n
 paperpaw-plugin-puzzles = { path = "../../plugins/puzzles", features = ["native-entry"] }
 paperpaw-plugin-edge-light = { path = "../../plugins/edge-light", features = ["native-entry"] }
 paperpaw-plugin-launcher-simple = { path = "../../plugins/launcher-simple", features = ["native-entry"] }
+paperpaw-plugin-gloss = { path = "../../plugins/gloss", features = ["native-entry"] }
 paperpaw-plugin-tasks = { path = "../../plugins/tasks", features = ["native-entry"] }
 paperpaw-plugin-calendar = { path = "../../plugins/calendar", features = ["native-entry"] }
 paperpaw-plugin-power = { path = "../../plugins/power", features = ["native-entry"] }
