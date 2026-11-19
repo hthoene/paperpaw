@@ -127,6 +127,8 @@ pub struct HostDocument<'h> {
     buffers: RefCell<(Vec<u8>, Vec<u8>)>,
     /// The text filters a block goes through, and the book's path they see.
     filters: (&'h [Filter], &'h str),
+    /// What a plugin's text stage answered for the book's blocks.
+    layers: Option<&'h crate::native_view::layers::Layers>,
 }
 
 impl<'h> HostDocument<'h> {
@@ -158,6 +160,7 @@ impl<'h> HostDocument<'h> {
             metadata: Metadata::default(),
             buffers: RefCell::new((input, out)),
             filters: (&[], ""),
+            layers: None,
         })
     }
 
@@ -168,6 +171,24 @@ impl<'h> HostDocument<'h> {
     pub fn filtered(mut self, filters: &'h [Filter], path: &'h str) -> Self {
         self.filters = (filters, path);
         self
+    }
+
+    /// The same book with the answers of a plugin's text stage applied to its
+    /// blocks after the filters (`native_view/layers.rs`).
+    #[must_use]
+    pub(crate) fn layered(mut self, layers: &'h crate::native_view::layers::Layers) -> Self {
+        self.layers = Some(layers);
+        self
+    }
+
+    /// The block at `at` through the filters, without the text stage's answers:
+    /// what the text stage is shown.
+    ///
+    /// # Errors
+    /// As [`Document::block_at`].
+    pub fn unlayered_at(&self, at: Locator) -> Result<Option<Block>, DocumentError> {
+        let (filters, path) = self.filters;
+        filtered_block(|at| block_result(self.read_at(at)), (filters, path), at)
     }
 }
 
@@ -203,8 +224,11 @@ impl Document for HostDocument<'_> {
         _storage: &dyn Storage,
         at: Locator,
     ) -> Result<Option<Block>, DocumentError> {
-        let (filters, path) = self.filters;
-        filtered_block(|at| block_result(self.read_at(at)), (filters, path), at)
+        let mut block = self.unlayered_at(at)?;
+        if let (Some(layers), Some(block)) = (self.layers, block.as_mut()) {
+            layers.apply_kept(at.section, block);
+        }
+        Ok(block)
     }
 }
 

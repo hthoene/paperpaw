@@ -710,6 +710,108 @@ fn room_above_the_lines_moves_them_down_and_breaks_the_page_sooner() {
     assert_eq!(most.end.offset, plain.lines[1].words[0].0);
 }
 
+#[test]
+fn an_annotation_without_text_is_room_below_the_lines() {
+    let mut block = words();
+    let mut room = paperpaw_document::Annotation::new(0, 0, "", AnnotationKind::Gloss);
+    room.size = 50;
+    block.annotations.push(room);
+    let (spaced, _) = styled_page(block, &STYLE);
+    // Half an em at 10 px: 5 px below every line, the first baseline where
+    // it was, nothing set.
+    assert_eq!(spaced.lines[0].baseline, 8.0);
+    assert_eq!(spaced.lines[1].baseline - spaced.lines[0].baseline, 15.0);
+    assert!(
+        spaced
+            .lines
+            .iter()
+            .all(|l| l.annotations.is_empty() && l.leading == 0.0)
+    );
+}
+
+/// `words()` with `notes` on it.
+fn annotated(notes: &[(u32, &str, AnnotationKind)]) -> Block {
+    let mut block = words();
+    for &(start, text, kind) in notes {
+        block.annotations.push(paperpaw_document::Annotation::new(
+            start,
+            start + 4,
+            text,
+            kind,
+        ));
+    }
+    block
+}
+
+#[test]
+fn annotations_are_set_above_and_below_the_lines_that_have_them() {
+    let block = annotated(&[
+        (0, "A", AnnotationKind::Ruby),
+        (5, "B", AnnotationKind::Gloss),
+        (40, "I", AnnotationKind::Gloss),
+    ]);
+    let (page, _) = styled_page(block, &STYLE);
+    // A line of 10 px for each side: every line of the block gets both.
+    assert_eq!(page.lines[0].leading, 10.0);
+    assert_eq!(page.lines[0].baseline, 18.0);
+    assert_eq!(page.lines[1].baseline - page.lines[0].baseline, 30.0);
+    let set = |n: usize| -> Vec<(f32, f32, &str, AnnotationKind)> {
+        page.lines[n]
+            .annotations
+            .iter()
+            .map(|a| (a.x, a.baseline, a.text.as_str(), a.kind))
+            .collect()
+    };
+    // Ruby at the bottom of the room above, the gloss in the room below,
+    // each where its word starts; half the text's size.
+    assert_eq!(
+        set(0),
+        [
+            (0.0, 8.0, "A", AnnotationKind::Ruby),
+            (5.0, 28.0, "B", AnnotationKind::Gloss)
+        ]
+    );
+    assert_eq!(set(1), [(0.0, 58.0, "I", AnnotationKind::Gloss)]);
+    assert_eq!(page.lines[0].annotations[0].size, 5.0);
+}
+
+#[test]
+fn annotations_do_not_run_into_each_other_and_go_on_under_the_next_line() {
+    let block = annotated(&[
+        (0, "xxxxxxxx", AnnotationKind::Gloss),
+        (5, "y", AnnotationKind::Gloss),
+        (35, "zzzzzzzzzz", AnnotationKind::Ruby),
+        (30, "", AnnotationKind::Gloss),
+        (35, "aa bb cc dd", AnnotationKind::Gloss),
+        (
+            75,
+            "the last line cuts what does not fit",
+            AnnotationKind::Gloss,
+        ),
+    ]);
+    let (page, _) = styled_page(block, &STYLE);
+    let notes = |n: usize| -> Vec<(f32, &str)> {
+        page.lines[n]
+            .annotations
+            .iter()
+            .map(|a| (a.x, a.text.as_str()))
+            .collect()
+    };
+    // Behind the one before, a space apart; a word that does not fit goes on
+    // at the next line's start, the words that fit stay; an empty one is none.
+    assert_eq!(notes(0), [(0.0, "xxxxxxxx"), (9.0, "y"), (35.0, "aa bb")]);
+    // The last line: what is carried first, what starts on it cut at its end
+    // (at a word where one fits).
+    assert_eq!(
+        notes(1),
+        [(0.0, "zzzzzzzzzz"), (0.0, "cc dd"), (35.0, "the")]
+    );
+    // A block without any keeps its lines as they were.
+    let (plain, _) = styled_page(words(), &STYLE);
+    assert!(plain.lines.iter().all(|l| l.annotations.is_empty()));
+    assert_eq!(plain.lines[0].baseline, 8.0);
+}
+
 /// A page `height` high from `start`, of the one block `block`.
 fn page_of(block: Block, start: u32, height: f32) -> Page {
     let end = block.end;

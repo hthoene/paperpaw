@@ -2738,6 +2738,8 @@ native Stage reader | StageSpec(StageSpec { name: "notes-exported", schema: 1, f
 native Stage reader | StageSpec(StageSpec { name: "word-looked-up", schema: 1, flags: 0, max_input: 2560, max_reply: 16, max_records: 8 })
 native Stage reader | StageSpec(StageSpec { name: "filter", schema: 1, flags: 0, max_input: 160, max_reply: 3840, max_records: 4 })
 native Stage reader | StageSpec(StageSpec { name: "decorations", schema: 1, flags: 0, max_input: 3840, max_reply: 3840, max_records: 4 })
+native Stage reader | StageSpec(StageSpec { name: "text", schema: 1, flags: 0, max_input: 3840, max_reply: 3840, max_records: 64 })
+native Stage reader | StageSpec(StageSpec { name: "layer", schema: 1, flags: 0, max_input: 3840, max_reply: 3840, max_records: 64 })
 native Subscription aids | RegistrationStage(RegistrationStage { stage: "reader.filter", token: 1, order: 0, signature: 0 })
 native Subscription lock | RegistrationStage(RegistrationStage { stage: "core.input-filter", token: 33, order: 0, signature: 0 })
 native Subscription lock | RegistrationStage(RegistrationStage { stage: "core.status", token: 34, order: 0, signature: 0 })

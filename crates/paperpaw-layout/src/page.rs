@@ -11,7 +11,7 @@ use crate::drop_cap::{self, Cap};
 use crate::levels::BlockLevels;
 use crate::{
     BookStyles, Face, HEADING_SPACE, LayoutContext, MAX_JUSTIFY_GAP, MIN_LINE_HEIGHT, Page,
-    PageImage, PageLine, ScriptOptions, block_align, block_em, block_face, block_leading,
+    PageImage, PageLine, ScriptOptions, annotate, block_align, block_em, block_face, block_leading,
     block_line, decor, ended, first_indent, hanging, inserted, line_bidi, line_runs, malformed,
     measure, placed_x, table, word_sources,
 };
@@ -41,6 +41,7 @@ pub(crate) fn lay_page(
         body_line: cx.typesetter.line(Face::default()).1.max(MIN_LINE_HEIGHT),
         heading_before: None,
         in_table: false,
+        carried: Vec::new(),
     };
     loop {
         let Some(block) = cx.document.block_at(cx.storage, run.at)? else {
@@ -86,6 +87,8 @@ struct Run<'c, 'm> {
     heading_before: Option<(usize, Locator, bool)>,
     /// Whether the block laid out last was a table's row set in columns.
     in_table: bool,
+    /// The rests of annotations that go on under the next line.
+    carried: Vec<annotate::Pending>,
 }
 
 /// A block of text being set, with what all of its lines share.
@@ -100,6 +103,8 @@ struct Paragraph<'b> {
     /// The line height without the room a plugin asked for.
     letters: f32,
     leading: f32,
+    /// The faces and rooms of its annotations, where it has any.
+    annotated: Option<annotate::Rooms>,
     /// The page's lines before this block.
     lines_before: usize,
     had_content: bool,
@@ -233,9 +238,13 @@ impl Run<'_, '_> {
         let (heading, base) = block_face(block, style);
         let em = block_em(block, style);
         let (ascent, line_height) = block_line(block, style, cx.typesetter.line(base), em);
-        // Room a plugin asked for above every line. It is part of each
-        // line's height, so the page breaks with it.
-        let leading = block_leading(block, em);
+        // Room a plugin asked for above and below every line, and what its
+        // annotations take. It is part of each line's height, so the page
+        // breaks with it.
+        let annotated = annotate::rooms(cx, block, em);
+        self.carried.clear();
+        let (above, below) = annotated.as_ref().map_or((0.0, 0.0), annotate::Rooms::room);
+        let leading = block_leading(block, em).max(above);
         let had_content = !self.page.is_past_end();
         let at_block_start = from == 0 && !block.continues;
         // The book's space where it sets one. At the top of a page only
@@ -289,9 +298,10 @@ impl Run<'_, '_> {
             base,
             heading,
             ascent: ascent + leading,
-            line_height: line_height + leading,
+            line_height: line_height + leading + below,
             letters: line_height,
             leading,
+            annotated,
             lines_before: self.page.lines.len(),
             had_content,
             after_heading,
@@ -435,6 +445,17 @@ impl Run<'_, '_> {
             &p.levels,
         );
         let bidi = line_bidi(&p.levels, &runs, line.range.start == 0 && !block.continues);
+        let annotations = annotate::place(
+            self.cx,
+            p.annotated.as_ref(),
+            (block, range.clone(), &runs, bidi),
+            (x, word_spacing),
+            (
+                self.y + p.leading,
+                self.y + p.ascent + p.letters - (p.ascent - p.leading),
+            ),
+            (&mut self.carried, line.range.end >= block.text.len()),
+        );
         self.page.lines.push(PageLine {
             x,
             baseline: self.y + p.ascent,
@@ -445,7 +466,7 @@ impl Run<'_, '_> {
             words,
             leading: p.leading,
             inserted: false,
-            annotations: Vec::new(),
+            annotations,
             bidi,
             hyphen: line.hyphen,
         });

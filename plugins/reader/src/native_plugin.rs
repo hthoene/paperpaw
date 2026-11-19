@@ -776,6 +776,7 @@ impl NativeReader {
         if !key.starts_with("core.") && !key.starts_with("reader.") {
             for view in self.screens.all() {
                 refiltered |= view.refilter(host);
+                refiltered |= view.relayer(host);
             }
         }
         let layout = refiltered || native_pages::affects_layout(key);

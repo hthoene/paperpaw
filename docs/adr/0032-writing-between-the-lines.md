@@ -1,7 +1,9 @@
 # 0032. Writing between a book's lines
 
 - Status: Accepted; annotations reserved in plugin interface 4, carried
-  out later
+  out in interface 7 (#284): the layout sets them, and the reader's stages
+  `reader.text@1` and `reader.layer@1` take text filters and page layers
+  (`docs/abi/page-layers.md`)
 - Date: 2026-10-25
 
 ## Context
