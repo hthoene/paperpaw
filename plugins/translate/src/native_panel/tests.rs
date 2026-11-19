@@ -146,3 +146,24 @@ fn a_text_of_too_many_lines_ends_in_an_ellipsis() {
     assert_eq!(wrapped.len(), MAX_LINES);
     assert!(!wrapped.last().unwrap().ends_with('…'));
 }
+
+#[test]
+fn the_panel_goes_next_to_the_words_it_was_given_and_is_the_bottom_sheet_without() {
+    let mut panel = panel();
+    let sheet = panel.window(480, 800, 8);
+    assert!(!sheet.anchored);
+    assert_eq!(sheet.region, Rect::new(0, 360, 480, 440));
+    // A word in the upper part: below it.
+    panel.anchor_at("50,100,70,20");
+    let below = panel.window(480, 800, 8);
+    assert!(below.anchored);
+    assert_eq!(below.region, Rect::new(0, 128, 480, 440));
+    // A word in the lower part: above it, never over it.
+    panel.anchor_at("50,600,70,20");
+    let above = panel.window(480, 800, 8);
+    assert!(above.anchored);
+    assert!(above.region.bottom() <= 600);
+    // A place that cannot be read is no place.
+    panel.anchor_at("nowhere");
+    assert_eq!(panel.window(480, 800, 8), sheet);
+}

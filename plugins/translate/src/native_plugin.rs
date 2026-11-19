@@ -183,7 +183,34 @@ impl NativeTranslate {
             }
             None => String::new(),
         };
-        self.screens.open(instance, Panel::new(original)?)
+        let mut panel = Panel::new(original)?;
+        if let Some(handover) = handover {
+            // No place, or one that cannot be read: the sheet at the bottom.
+            if let Some(place) = self.anchor_of(host, handover)? {
+                panel.anchor_at(&place);
+            }
+        }
+        self.screens.open(instance, panel)
+    }
+
+    /// The param `anchor` of `handover`: where the selected words are.
+    fn anchor_of(
+        &mut self,
+        host: &Host<'_>,
+        handover: paperpaw_sdk::native::ui::HandoverId,
+    ) -> Result<Option<String>, Error> {
+        let ui = self.ui(host)?;
+        let (mut input, mut out) = (buffer(SERVICE_BUFFER)?, buffer(SERVICE_BUFFER)?);
+        let Ok(params) = ui.params(host, handover, &mut input, &mut out) else {
+            return Ok(None);
+        };
+        for param in params {
+            let Ok(param) = param else { break };
+            if param.key() == "anchor" {
+                return paperpaw_ui_kit::text::copy(param.value()).map(Some);
+            }
+        }
+        Ok(None)
     }
 
     /// Sends the text off when the panel is first shown.
