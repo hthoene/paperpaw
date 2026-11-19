@@ -184,7 +184,8 @@ pub struct State {
     /// The panel showed grays until the frame being drawn: its refresh drives
     /// every pixel ([`clean`]).
     after_gray: bool,
-    /// LAB ONLY (#40, feature `turn-lab`): the page-turn variant.
+    /// LAB ONLY (#40, feature `turn-lab`): the page-turn preset.
+    #[cfg(feature = "turn-lab")]
     turn_lab: turn_lab::Lab,
 }
 

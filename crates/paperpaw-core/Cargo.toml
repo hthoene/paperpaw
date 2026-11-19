@@ -33,6 +33,9 @@ outline = ["paperpaw-sdk/outline"]
 # the device measurement passed (#250: lowest stack left 14,720 B on the X4); this
 # feature is the way back if a route turns out too deep.
 x4-gate-closed = []
+# LAB ONLY (#40): the page-turn lab's screen (`host_screen/turn_lab.rs`), for the
+# device firmware's `turn-lab` feature; in no release.
+turn-lab = []
 # Wires host slot 30 (`text.ink`) on the X4 and the X4 Pro too, where it stays
 # unwired until it is timed on the device (`docs/abi/screens-input.md`): text
 # and icons are then centred by their ink, as in the emulator. For the owner's

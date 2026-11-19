@@ -74,6 +74,8 @@ mod high_water;
 mod host_net;
 mod http;
 mod input;
+#[cfg(feature = "turn-lab")]
+mod lab_presets;
 #[cfg(all(feature = "x4-pro", not(feature = "picco")))]
 mod light;
 #[cfg(feature = "picco")]
@@ -695,6 +697,8 @@ fn prepare() -> Ready {
     // Only an SSD1677's waveforms can be set (`device`).
     #[cfg(feature = "x4")]
     device::set_ssd1677(panel.controller() == paperpaw_x4::probe::Controller::Ssd1677);
+    #[cfg(feature = "turn-lab")]
+    lab_presets::set_controller(panel.controller());
     if let Err(e) = panel.init() {
         warn!("display: {e:?}");
     }
