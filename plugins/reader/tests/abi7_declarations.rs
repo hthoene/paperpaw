@@ -73,7 +73,8 @@ fn the_decoded_batches_are_the_pinned_ones() {
     assert_eq!(native.screens.len(), 6);
     // The instance policy, decoded: one for each set of parameters (flags 0),
     // the note and the skim bar overlays (bit 2): the page shows above them.
-    // The reading page has its button-hint row hidden (bit 8, 256).
+    // The reading page has its button-hint row hidden (bit 8, 256) and no
+    // status bar of the host (bits 11-12 = 2, 4096).
     let flags: Vec<u32> = batches(|d| declarations::screens(d).unwrap())
         .iter()
         .flat_map(|batch| {
@@ -87,7 +88,7 @@ fn the_decoded_batches_are_the_pinned_ones() {
                 .collect::<Vec<_>>()
         })
         .collect();
-    assert_eq!(flags, [256, 0, 0, 4, 4, 0]);
+    assert_eq!(flags, [256 | 4096, 0, 0, 4, 4, 0]);
     assert_eq!(native.slots.len(), 6);
     assert_eq!(native.actions.len(), 35);
     assert_eq!(native.menu_entries.len(), 34);
