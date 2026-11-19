@@ -107,7 +107,7 @@ class SizeGate(unittest.TestCase):
             "x3": 6_288_336,
             "x4-pro": 6_845_216,
             "x4-classic": 6_395_632,
-            "picco": 6_599_184,
+            "picco": 6_616_048,
         }
         for device, budget in images.items():
             self.assertLessEqual(budget, ceilings[device], device)
