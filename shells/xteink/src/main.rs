@@ -707,6 +707,10 @@ fn prepare() -> Ready {
         board.timers1.wdt,
         WATCHDOG_S,
     );
+    // Host work for plugins keeps the watchdogs fed (a safety net, #375); the
+    // code plugins' host slots replace this pair with one that also keeps the
+    // record of calls (`safe_mode::host_end` feeds too).
+    paperpaw_core::native_host::host_slot::set(|| {}, power::host_work);
     // The radio (on when the kernel says so) and what goes over it.
     #[cfg_attr(not(feature = "ppn5"), allow(unused_mut))]
     let mut network = network::Network::new(wifi::Parts {
