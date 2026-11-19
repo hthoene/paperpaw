@@ -1,6 +1,6 @@
 [package]
 name = "paperpaw-xteink"
-description = "PaperPaw's firmware for the Xteink X4 (ESP32-C3), X4 Pro and X4 Classic (ESP32-S3)"
+description = "PaperPaw's firmware for the Xteink X4 (ESP32-C3), X4 Pro and X4 Classic (ESP32-S3), and the Boox Picco (ESP32-S3, experimental)"
 # No version of its own: the firmware is PaperPaw's, whose version (the
 # workspace's) `build.rs` gives it. Its Rust is the pinned one of
 # `rust-toolchain.toml` and `versions.env`, not the workspace's.
@@ -91,6 +91,13 @@ esp32c3 = [
 # out.
 x4-pro = ["esp32s3", "asleep-light", "bluetooth", "usb-drive", "log/release_max_level_info", "native-on"]
 x4-classic = ["esp32s3", "usb-drive", "native-on"]
+# The Boox Picco (experimental, not tried on a device, #368): an ESP32-S3 as
+# the X4 Pro, with the Pro's memory, screen size, touch, light and Bluetooth,
+# so it is built as one: `x4-pro` and everything that feature turns on, with a
+# board of its own (`src/board_picco.rs`) and the few names and paths that
+# differ, each under `picco` (`cargo +esp picco`). Its image is the app alone,
+# for the stock firmware's app partition (`partitions-picco.csv`).
+picco = ["x4-pro", "paperpaw-x4/picco"]
 # The card shown to a computer as a USB drive (`src/usb_drive.rs`, #32): the
 # ESP32-S3's USB OTG core on the cable's pins, embassy-usb's device stack and
 # a mass-storage class of our own (`paperpaw_x4::usb_drive`). Not on the

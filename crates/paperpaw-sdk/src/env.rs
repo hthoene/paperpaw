@@ -129,6 +129,11 @@ impl Capability {
     /// Reserved: no shell says so yet, and the kernel passes it to no
     /// screen.
     pub const PEN_HOVER: Self = Self(1 << 16);
+    /// The sleep screen can be shown again while the device sleeps
+    /// (`command.show_again`): the shell wakes for a moment, redraws it and
+    /// sleeps on (the X4 and X3; the X4 Pro and Classic boot fully to
+    /// refresh, so they do not say so).
+    pub const REFRESH_ASLEEP: Self = Self(1 << 17);
 }
 
 impl Capabilities {

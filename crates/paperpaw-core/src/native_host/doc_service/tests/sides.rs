@@ -82,6 +82,7 @@ fn no_stage_call_carries_a_zero_side() {
             document: id,
             index,
             side,
+            flags: 0,
         })
     };
     // The cover (document op 15 and op 16 with the cover index), and a

@@ -42,8 +42,13 @@ mod board;
 #[cfg(feature = "x3")]
 #[path = "board_x3.rs"]
 mod board;
-#[cfg(feature = "x4-pro")]
+#[cfg(all(feature = "x4-pro", not(feature = "picco")))]
 #[path = "board_pro.rs"]
+mod board;
+// The Boox Picco (experimental): built as an X4 Pro (`picco` turns `x4-pro`
+// on), with a board, a light and a few names of its own.
+#[cfg(feature = "picco")]
+#[path = "board_picco.rs"]
 mod board;
 #[cfg(feature = "x4-classic")]
 #[path = "board_classic.rs"]
@@ -69,7 +74,10 @@ mod high_water;
 mod host_net;
 mod http;
 mod input;
-#[cfg(feature = "x4-pro")]
+#[cfg(all(feature = "x4-pro", not(feature = "picco")))]
+mod light;
+#[cfg(feature = "picco")]
+#[path = "light_picco.rs"]
 mod light;
 mod link;
 mod native;
@@ -259,7 +267,7 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
 
 /// The X4 Pro: touch besides its page and power buttons, and the memory
 /// of larger devices (8 MB of PSRAM).
-#[cfg(feature = "x4-pro")]
+#[cfg(all(feature = "x4-pro", not(feature = "picco")))]
 const DEVICE: DeviceInfo = DeviceInfo::new(
     "xteink-x4-pro",
     "Xteink X4 Pro",
@@ -281,6 +289,30 @@ const DEVICE: DeviceInfo = DeviceInfo::new(
             names::HOME,
             names::POWER,
         ],
+    ),
+    MemoryClass::Large,
+);
+
+/// The Boox Picco (experimental, not yet tried on one): a 3.97" panel of
+/// the X4 Pro's 480 × 800 (about 235 dpi), touch, two page buttons and
+/// power, no home key; the X4 Pro's memory.
+#[cfg(feature = "picco")]
+const DEVICE: DeviceInfo = DeviceInfo::new(
+    "boox-picco",
+    "Boox Picco",
+    DisplayInfo::new(
+        display::WIDTH,
+        display::HEIGHT,
+        235,
+        PixelFormat::Mono1,
+        Rotation::Deg90,
+        None,
+    ),
+    InputCaps::new(
+        true,
+        true,
+        false,
+        &[names::PAGE_BACK, names::PAGE_FORWARD, names::POWER],
     ),
     MemoryClass::Large,
 );
@@ -819,8 +851,15 @@ fn x3_panel_or_back(
 }
 
 /// The name of this device in the note on the card.
+/// The sleep screen can be drawn again while asleep (`command.show_again`,
+/// the `core.device` caps bit 15): where the light sleep wakes now and then
+/// and the wake is written (the X4 and X3).
+const REFRESH_ASLEEP: bool = cfg!(all(feature = "asleep-light", not(feature = "x4-pro")));
+
 const DEVICE_NAME: &str = if cfg!(feature = "x3") {
     "Xteink X3"
+} else if cfg!(feature = "picco") {
+    "Boox Picco"
 } else if cfg!(feature = "x4-pro") {
     "Xteink X4 Pro"
 } else if cfg!(feature = "x4-classic") {
@@ -1028,6 +1067,15 @@ fn kernel(
         // TLS sockets (and HTTPS with them): one session at a time on the
         // X4's 256 KiB, two on the X4 Pro and Classic (`tls_slots`).
         .tls_sessions(tls_slots::SESSIONS);
+    // The light sleep wakes now and then (`paperpaw_x4::sleeping`), so the
+    // sleep screen can be drawn again meanwhile (`command.show_again`): the X4
+    // and X3. The X4 Pro sleeps lightly too but its wake is not written for
+    // it (#319), the Classic boots fully.
+    let builder = if REFRESH_ASLEEP {
+        builder.capability(paperpaw_sdk::Capability::REFRESH_ASLEEP)
+    } else {
+        builder
+    };
     // Every Xteink device has the USB serial unit the developer link
     // (*Customise > Developer*, #12) talks over.
     let builder = builder.capability(paperpaw_sdk::Capability::USB_LINK);

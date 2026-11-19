@@ -184,6 +184,9 @@ pub enum DeviceCapability {
     PowerOff,
     /// Pen input.
     Pen,
+    /// The sleep screen can be shown again while the device sleeps
+    /// (`command.show_again`).
+    RefreshAsleep,
 }
 impl DeviceCapability {
     const fn bit(self) -> u32 {
@@ -203,6 +206,7 @@ impl DeviceCapability {
             Self::Monochrome => 12,
             Self::PowerOff => 13,
             Self::Pen => 14,
+            Self::RefreshAsleep => 15,
         }
     }
 }

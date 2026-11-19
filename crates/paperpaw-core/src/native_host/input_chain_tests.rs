@@ -46,7 +46,7 @@ impl FilterRunner for Scripted {
 }
 
 fn pass() -> Result<stage::FilterVerdict<'static>, i32> {
-    Ok(stage::FilterVerdict::new(0, "", &[], ""))
+    Ok(stage::FilterVerdict::new(0, "", &[], "", "", &[]))
 }
 
 /// The bytes of a `replace` verdict's input: a one-record batch.
@@ -206,7 +206,7 @@ fn a_replaced_event_is_known_or_it_is_not() {
 
 #[test]
 fn a_filter_swallows_a_key() {
-    let take = Ok(stage::FilterVerdict::new(1, "", &[], ""));
+    let take = Ok(stage::FilterVerdict::new(1, "", &[], "", "", &[]));
     assert_eq!(run(press("up"), vec![take]), (Native::Taken, 0, 1));
 }
 
@@ -218,7 +218,14 @@ fn a_filter_replaces_a_key_with_a_known_one_and_an_unknown_one_passes() {
             key: name,
             state: 0,
         });
-        Ok(stage::FilterVerdict::new(4, "", batch(&record), ""))
+        Ok(stage::FilterVerdict::new(
+            4,
+            "",
+            batch(&record),
+            "",
+            "",
+            &[],
+        ))
     };
     assert_eq!(
         run(press("up"), vec![replace("down")]),
@@ -259,7 +266,14 @@ fn a_gesture_replaced_by_a_key_or_a_finger_is_refused_and_counted() {
     for made in [&key, &finger_down] {
         let mut chain = InputFilters::new();
         let mut runner = Scripted {
-            answers: vec![Ok(stage::FilterVerdict::new(4, "", batch(made), ""))],
+            answers: vec![Ok(stage::FilterVerdict::new(
+                4,
+                "",
+                batch(made),
+                "",
+                "",
+                &[],
+            ))],
             called: 0,
         };
         let policy = Policy {
@@ -291,7 +305,14 @@ fn a_filter_replaces_a_pointer_and_it_is_clamped() {
         phase: 0,
         contact: Some(3),
     });
-    let replace = Ok(stage::FilterVerdict::new(4, "", batch(&record), ""));
+    let replace = Ok(stage::FilterVerdict::new(
+        4,
+        "",
+        batch(&record),
+        "",
+        "",
+        &[],
+    ));
     let (native, refused, _) = run(finger(PointerPhase::Down, 10, 20), vec![replace]);
     assert_eq!(refused, 0);
     assert_eq!(
@@ -302,7 +323,7 @@ fn a_filter_replaces_a_pointer_and_it_is_clamped() {
 
 #[test]
 fn a_filter_raises_an_input_it_declared_and_nothing_else() {
-    let raise = |name| Ok(stage::FilterVerdict::new(5, "", &[], name));
+    let raise = |name| Ok(stage::FilterVerdict::new(5, "", &[], name, "", &[]));
     let own = |plugin: u64, name: &str| plugin == 1 && name == "gesture.demo.flick";
     // Declared: the input is raised, no event goes on.
     assert_eq!(
@@ -328,7 +349,14 @@ fn a_filter_replaces_an_input_with_a_gesture() {
             x,
             y,
         });
-        Ok(stage::FilterVerdict::new(4, "", batch(&record), ""))
+        Ok(stage::FilterVerdict::new(
+            4,
+            "",
+            batch(&record),
+            "",
+            "",
+            &[],
+        ))
     };
     let made = |kind, x, y, tool| {
         let point = Point::new(x, y);
@@ -367,16 +395,16 @@ fn power_is_never_filtered() {
 fn a_filter_that_fails_or_answers_badly_passes_the_input() {
     assert_eq!(run(press("up"), vec![Err(ERR_STATE)]), (Native::Pass, 1, 1));
     // A verdict the host does not know.
-    let strange = Ok(stage::FilterVerdict::new(99, "", &[], ""));
+    let strange = Ok(stage::FilterVerdict::new(99, "", &[], "", "", &[]));
     assert_eq!(run(press("up"), vec![strange]), (Native::Pass, 1, 1));
     assert_eq!(run(press("up"), vec![pass()]), (Native::Pass, 0, 1));
 }
 
 #[test]
 fn cancel_and_run_are_told_as_they_are() {
-    let cancel = Ok(stage::FilterVerdict::new(3, "", &[], ""));
+    let cancel = Ok(stage::FilterVerdict::new(3, "", &[], "", "", &[]));
     assert_eq!(run(press("up"), vec![cancel]).0, Native::Cancelled);
-    let action = Ok(stage::FilterVerdict::new(2, "lock.open", &[], ""));
+    let action = Ok(stage::FilterVerdict::new(2, "lock.open", &[], "", "", &[]));
     assert_eq!(
         run(press("up"), vec![action]).0,
         Native::Run("lock.open".into())
@@ -459,15 +487,15 @@ mod kernel {
         });
         let length = codec::encode_batch(core::slice::from_ref(&record), &mut bytes).unwrap();
         match mode {
-            RAISE => stage::FilterVerdict::new(5, "", &[], "input.f.chord").encode(out),
+            RAISE => stage::FilterVerdict::new(5, "", &[], "input.f.chord", "", &[]).encode(out),
             RAISE_UNDECLARED => {
-                stage::FilterVerdict::new(5, "", &[], "input.f.nothing").encode(out)
+                stage::FilterVerdict::new(5, "", &[], "input.f.nothing", "", &[]).encode(out)
             }
-            GESTURE => stage::FilterVerdict::new(4, "", &bytes[..length], "").encode(out),
+            GESTURE => stage::FilterVerdict::new(4, "", &bytes[..length], "", "", &[]).encode(out),
             FAIL => Err(ERR_STATE),
-            TAKE => stage::FilterVerdict::new(1, "", &[], "").encode(out),
-            CANCEL => stage::FilterVerdict::new(3, "", &[], "").encode(out),
-            _ => stage::FilterVerdict::new(0, "", &[], "").encode(out),
+            TAKE => stage::FilterVerdict::new(1, "", &[], "", "", &[]).encode(out),
+            CANCEL => stage::FilterVerdict::new(3, "", &[], "", "", &[]).encode(out),
+            _ => stage::FilterVerdict::new(0, "", &[], "", "", &[]).encode(out),
         }
     }
 

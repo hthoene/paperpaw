@@ -6,4 +6,11 @@ rustflags = [
     "-C", "link-arg=-nostartfiles",
     "-C", "link-arg=-Wl,-Tpaperpaw-host.ld",
     "-C", "jump-tables=no",
+    # A library, as `paperpaw-dev build --device emulator` links one: the
+    # examples are programs linked with -shared, so that the version script
+    # below (and not rustc's, which a cdylib gets) says what is exported:
+    # the two entry symbols and the heap word. Without the heap word in the
+    # dynamic table the loader gives the plugin no heap (#278).
+    "-C", "link-arg=-shared",
+    "-C", "link-arg=-Wl,--version-script=paperpaw-host.map",
 ]

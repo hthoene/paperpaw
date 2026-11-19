@@ -9,6 +9,8 @@ use paperpaw_platform::{FrameView, Rotation};
 
 use crate::display::{self, Error, Planes, Refresh};
 use crate::probe::Controller;
+#[cfg(feature = "picco")]
+use crate::ssd2677;
 use crate::uc8179::{self, Chip, Frame};
 use crate::uc8253;
 
@@ -29,6 +31,10 @@ pub enum Device {
     /// The X3: a UC8253 at 792 × 528, whichever controller was found (see
     /// [`uc8253`]); no frame of its own, as the X4.
     X3,
+    /// The Boox Picco: an SSD1677 driven as the X4 Pro's, or its
+    /// "SSD2677" ([`crate::ssd2677`]), by unit; turned as the X4 Pro (not
+    /// yet seen on one).
+    Picco,
 }
 
 /// A way to show fast refreshes other than the panel's own, for the
@@ -50,6 +56,9 @@ pub enum Panel<SPI, DC, RST, BUSY, D> {
     },
     UltraChip(uc8179::Display<SPI, DC, RST, BUSY, D>),
     Uc8253(uc8253::Display<SPI, DC, RST, BUSY, D>),
+    /// The Boox Picco's, in its firmware alone (the feature `picco`).
+    #[cfg(feature = "picco")]
+    Ssd2677(ssd2677::Display<SPI, DC, RST, BUSY, D>),
 }
 
 /// The same call to whichever driver.
@@ -61,6 +70,8 @@ macro_rules! each {
             } => $call,
             Panel::UltraChip($display) => $call,
             Panel::Uc8253($display) => $call,
+            #[cfg(feature = "picco")]
+            Panel::Ssd2677($display) => $call,
         }
     };
 }
@@ -91,15 +102,22 @@ where
             Controller::Ssd1677 => {
                 return Panel::Ssd1677 {
                     display: display::Display::new(spi, dc, reset, busy, delay),
-                    sides_swapped: matches!(device, Device::X4Pro | Device::X4Classic),
+                    sides_swapped: matches!(
+                        device,
+                        Device::X4Pro | Device::X4Classic | Device::Picco
+                    ),
                 };
+            }
+            #[cfg(feature = "picco")]
+            Controller::Ssd2677 => {
+                return Panel::Ssd2677(ssd2677::Display::new(spi, dc, reset, busy, delay));
             }
             Controller::Uc8179 => Chip::Uc8179,
             Controller::Uc8279 | Controller::Uc8253 => Chip::Uc8279,
         };
         let frame = match device {
             Device::X4 | Device::X3 => Frame::InController,
-            Device::X4Pro | Device::X4Classic => Frame::Kept,
+            Device::X4Pro | Device::X4Classic | Device::Picco => Frame::Kept,
         };
         let display = uc8179::Display::new(chip, frame, spi, dc, reset, busy, delay);
         Panel::UltraChip(if device == Device::X4Classic {
@@ -118,6 +136,8 @@ where
                 Chip::Uc8279 => Controller::Uc8279,
             },
             Panel::Uc8253(_) => Controller::Uc8253,
+            #[cfg(feature = "picco")]
+            Panel::Ssd2677(_) => Controller::Ssd2677,
         }
     }
 
@@ -131,6 +151,8 @@ where
             } => display.set_rotation(swapped(rotation, *sides_swapped)),
             Panel::UltraChip(display) => display.set_rotation(rotation),
             Panel::Uc8253(display) => display.set_rotation(rotation),
+            #[cfg(feature = "picco")]
+            Panel::Ssd2677(display) => display.set_rotation(rotation),
         }
     }
 
@@ -142,6 +164,8 @@ where
             } => swapped(display.rotation(), *sides_swapped),
             Panel::UltraChip(display) => display.rotation(),
             Panel::Uc8253(display) => display.rotation(),
+            #[cfg(feature = "picco")]
+            Panel::Ssd2677(display) => display.rotation(),
         }
     }
 
@@ -165,9 +189,15 @@ where
 
     /// Whether the driver keeps the frame and sends it as the one shown
     /// after every refresh by itself (the X4 Pro's and the X4 Classic's
-    /// UltraChip controllers): what was sent need not go again.
+    /// UltraChip controllers, the Picco's SSD2677): what was sent need not
+    /// go again.
     pub fn keeps_frame(&self) -> bool {
-        matches!(self, Panel::UltraChip(display) if display.keeps_frame())
+        match self {
+            Panel::UltraChip(display) => display.keeps_frame(),
+            #[cfg(feature = "picco")]
+            Panel::Ssd2677(_) => true,
+            _ => false,
+        }
     }
 
     /// Whether a refresh of every pixel to white can run while the next frame
@@ -222,6 +252,8 @@ where
                 _ => None,
             }),
             Panel::Uc8253(_) => false,
+            #[cfg(feature = "picco")]
+            Panel::Ssd2677(_) => false,
         }
     }
 
@@ -306,6 +338,8 @@ where
         match self {
             Panel::Ssd1677 { .. } => 0,
             Panel::UltraChip(_) | Panel::Uc8253(_) => 130,
+            #[cfg(feature = "picco")]
+            Panel::Ssd2677(_) => 130,
         }
     }
 }
@@ -389,6 +423,26 @@ mod tests {
             assert_eq!(panel.size(), (528, 792));
             assert_eq!(panel.power_up_ms(), 130);
         }
+    }
+
+    /// A Picco's panel: the SSD1677's driver turned as the X4 Pro's, or the
+    /// SSD2677's, which keeps its frame.
+    #[cfg(feature = "picco")]
+    #[test]
+    fn a_picco_has_one_of_two_drivers() {
+        let mut ssd = panel(Device::Picco, Controller::Ssd1677);
+        assert_eq!(ssd.controller(), Controller::Ssd1677);
+        assert!(!ssd.keeps_frame());
+        ssd.set_rotation(Rotation::Deg90);
+        let Panel::Ssd1677 { display, .. } = &ssd else {
+            unreachable!()
+        };
+        assert_eq!(display.rotation(), Rotation::Deg270);
+        let other = panel(Device::Picco, Controller::Ssd2677);
+        assert_eq!(other.controller(), Controller::Ssd2677);
+        assert!(other.keeps_frame());
+        assert_eq!(other.size(), (480, 800));
+        assert_eq!(other.power_up_ms(), 130);
     }
 
     #[test]

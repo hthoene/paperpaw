@@ -272,6 +272,7 @@ impl<'b, M: Iterator<Item = (u32, u32)>> Walk<'b, M> {
                             width: image.width,
                             height: image.height,
                             flags: 0,
+                            part: &[],
                         }));
                     }
                 }

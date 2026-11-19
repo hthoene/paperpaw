@@ -579,6 +579,25 @@ fn take_plugin_jobs(kernel: &mut Kernel, profile: &Profile, on: Wired) -> bool {
         lookup: false,
         wifi: on.wifi,
     };
+    // With code plugins on, the device installs libraries built for this
+    // computer (`code-host.so`, signed by a trailer), checked against what the
+    // loader admits; `code.ppn` is another kind of device's (#278).
+    if crate::device::code_plugins_on() {
+        let loader = family.loader();
+        let offered = paperpaw_x4::native_offer::card_host(
+            wired,
+            loader.abi_major,
+            loader.minor,
+            crate::native_runtime::host_profile(),
+        );
+        static FILE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+        let file: &'static str = FILE.get_or_init(crate::native::file_name);
+        let host_code = paperpaw_core::native_host::HostCode {
+            file,
+            record: crate::native_runtime::exported_record,
+        };
+        return kernel.set_host_code_plugin_host(offered, &[], host_code);
+    }
     paperpaw_x4::host_jobs::offer_plugin_jobs(kernel, family.loader(), family, wired)
 }
 

@@ -59,6 +59,7 @@ pub(super) fn input_for(op: u32, document: u32) -> Vec<u8> {
             document,
             index: 6,
             side: 0,
+            flags: 0,
         }),
         _ => unreachable!(),
     };
@@ -280,6 +281,7 @@ fn arguments_reach_the_format_as_the_contract_maps_them() {
             document: id,
             index: 6,
             side,
+            flags: 0,
         })
     };
     call(&fake, 16, &[ask(0)]).unwrap();
@@ -296,6 +298,50 @@ fn arguments_reach_the_format_as_the_contract_maps_them() {
 }
 
 #[test]
+fn a_picture_asked_for_turned_is_answered_turned_and_unknown_flags_are_refused() {
+    let fake = Fake::new(Limits::X4);
+    let id = opened(&fake);
+    fake.say(&[picture()]);
+    fake.image.set(Some(Some(9)));
+    let ask = |flags| {
+        Record::ServiceDocImageAsk(wire::ServiceDocImageAsk {
+            document: id,
+            index: 6,
+            side: 800,
+            flags,
+        })
+    };
+    let answer = |flags| {
+        let out = call(&fake, 16, &[ask(flags)])?;
+        let image: Image = super::super::check::only(&out)?;
+        Ok::<_, i32>(image)
+    };
+    // As it always was without the flag.
+    let plain = answer(0).unwrap();
+    assert_eq!((plain.image, plain.flags & 4), (9, 0));
+    // Turned: the host's turned picture with the format's number of it.
+    let turned = answer(1).unwrap();
+    assert_eq!((turned.image, turned.width, turned.height), (109, 4, 8));
+    assert_eq!((turned.index, turned.flags), (plain.index, 4));
+    // A picture that came without an id is passed on as it is, not turned.
+    fake.image.set(Some(Some(0)));
+    assert_eq!(
+        answer(1).map(|image| (image.image, image.flags & 4)),
+        Err(ERR_BUSY)
+    );
+    // A bit this host does not know is refused before the format is asked.
+    let before = fake.calls.borrow().len();
+    for flags in [2, 3, 1 << 31] {
+        assert_eq!(
+            answer(flags).map(|_| ()),
+            Err(ERR_UNSUPPORTED),
+            "flags {flags}"
+        );
+    }
+    assert_eq!(fake.calls.borrow().len(), before);
+}
+
+#[test]
 fn image_index_max_is_the_cover() {
     let last = |fake: &Rc<Fake>| *fake.calls.borrow().last().unwrap();
     let fake = Fake::new(Limits::X4);
@@ -307,6 +353,7 @@ fn image_index_max_is_the_cover() {
             document: id,
             index: u32::MAX,
             side,
+            flags: 0,
         })
     };
     call(&fake, 16, &[cover(0)]).unwrap();
@@ -812,12 +859,12 @@ fn a_bad_toc_or_link_row_is_dropped_and_the_others_are_delivered() {
         last(),
     ]);
     assert_eq!(call_raw(&fake, 7, &input_for(7, id)).unwrap(), good);
-    // `end < start` and a kind over 2: dropped.
+    // `end < start` and a kind over 3: dropped.
     let good = stream(&[range_link(1, 3, 0), range_link(5, 5, 2), last()]);
     *fake.answer.borrow_mut() = stream(&[
         range_link(1, 3, 0),
         range_link(4, 3, 0),
-        range_link(5, 5, 3),
+        range_link(5, 5, 4),
         range_link(5, 5, 2),
         last(),
     ]);

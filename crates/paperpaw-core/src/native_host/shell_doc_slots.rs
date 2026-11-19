@@ -1,15 +1,16 @@
-//! The host slots of images, hyphenation and icons (36, 37, 38, 40): the C
+//! The host slots of images, hyphenation and icons (36, 37, 38, 40, 44): the C
 //! entry points the host table names, each a thin hop into its service.
 use super::{Context, PpBuffer, PpBytes, PpHost, c_void, host_glue};
 use crate::native_host::{fonts, host_slot, hyphen_service, image_service};
 use paperpaw_native::host_glue::Services;
 
-/// Names the four entry points in the host table.
+/// Names the five entry points in the host table.
 pub(super) const fn install<S: Services + 'static>(table: &mut PpHost) {
     table.text_hyphenate = text_hyphenate::<S>;
     table.icon_glyph = icon_glyph::<S>;
     table.image_info = image_info::<S>;
     table.canvas_draw_image = canvas_draw_image::<S>;
+    table.canvas_draw_image_part = canvas_draw_image_part::<S>;
 }
 
 pub(super) unsafe extern "C" fn image_info<S: 'static>(
@@ -53,6 +54,37 @@ pub(super) unsafe extern "C" fn canvas_draw_image<S: 'static>(
         height,
         flags,
     )
+}
+
+#[allow(clippy::too_many_arguments, reason = "the slot's scalars")]
+pub(super) unsafe extern "C" fn canvas_draw_image_part<S: 'static>(
+    ctx: *mut c_void,
+    image: u32,
+    source: PpBytes,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    flags: u32,
+) -> i32 {
+    // SAFETY: nonnull ctx is the pinned Context<S> provided to make.
+    let Some(context) = (unsafe { ctx.cast::<Context<S>>().as_ref() }) else {
+        return host_glue::ERR_INVALID;
+    };
+    // The plugin waits for the host from here to the return.
+    let _slot = host_slot::enter_as(host_slot::Id::ImageDraw);
+    // SAFETY: the generated slot contract supplies a live input pair.
+    unsafe {
+        image_service::draw_part_slot(
+            &context.canvas,
+            &context.environment,
+            &context.resources,
+            image,
+            source,
+            (x, y, width, height),
+            flags,
+        )
+    }
 }
 
 pub(super) unsafe extern "C" fn icon_glyph<S: 'static>(

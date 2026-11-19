@@ -1,11 +1,14 @@
 //! The real plugin driven by the scripted host as the kernel drives it: every finger
 //! goes to its input filter as a stage call, and its verdict is what the kernel acts
-//! on. A swipe along the edge answers *run* `edge-light.step` for each step and the
-//! action sets the light; the vertical swipe the finger ends with is taken; a swipe
-//! anywhere else, and a tap, pass.
+//! on. A swipe along the edge answers *preview* of the level the finger is at (the
+//! light follows it without a card write) and, when the finger lifts, *run*
+//! `edge-light.step`, whose action sets the light once; the vertical swipe the
+//! finger ends with is taken; a swipe anywhere else, and a tap, pass.
 #![cfg(feature = "linked")]
 #![allow(clippy::unwrap_used, reason = "test assertions")]
-use paperpaw_core::native_host::environment::{SNAPSHOT_BYTES, SNAPSHOT_VERSION, SettingValueRef};
+use paperpaw_core::native_host::environment::{
+    SNAPSHOT_BYTES, SNAPSHOT_VERSION, SettingValueRef, settings_decode,
+};
 use paperpaw_core::native_host::registrations::{
     EventActionRun, InputGesture, InputPointer, Record, ServiceDevDevice, StageCall,
     record_encode_one,
@@ -21,6 +24,7 @@ use paperpaw_sdk::{Id, SettingSpec};
 const PASS: u32 = 0;
 const TAKE: u32 = 1;
 const RUN: u32 = 2;
+const PREVIEW: u32 = 6;
 
 const DOWN: u32 = 0;
 const MOVE: u32 = 1;
@@ -88,8 +92,9 @@ fn world(caps: u32) -> ScriptedHost {
     host
 }
 
-/// What the filter answered one input: the verdict's kind and action.
-fn ask(plugin: &Plugin<'_>, record: &Record<'_>) -> (u32, String) {
+/// What the filter answered one input: the verdict's kind and action, and the
+/// setting and level of a preview.
+fn ask_all(plugin: &Plugin<'_>, record: &Record<'_>) -> (u32, String, String, Option<i64>) {
     let input = event_batch(record).unwrap();
     let mut payload = vec![0; 512];
     let used = FilterInput::new(&input, 0).encode(&mut payload).unwrap();
@@ -102,7 +107,37 @@ fn ask(plugin: &Plugin<'_>, record: &Record<'_>) -> (u32, String) {
     let (done, reply) = plugin.stage_call(FILTER_TOKEN, &call, 256).unwrap();
     assert_eq!(done.status, 0);
     let verdict = FilterVerdict::decode(&reply).unwrap();
-    (verdict.kind, verdict.action.to_string())
+    let level =
+        (!verdict.value.is_empty()).then(|| match settings_decode(verdict.value).unwrap() {
+            SettingValueRef::Int(level) => level,
+            other => panic!("{other:?}"),
+        });
+    (
+        verdict.kind,
+        verdict.action.to_string(),
+        verdict.key.to_string(),
+        level,
+    )
+}
+
+fn ask(plugin: &Plugin<'_>, record: &Record<'_>) -> (u32, String) {
+    let (kind, action, ..) = ask_all(plugin, record);
+    (kind, action)
+}
+
+/// The setting and level a preview shows (anything else is no preview).
+fn preview(plugin: &Plugin<'_>, phase: u32, x: i32, y: i32) -> Option<(String, i64)> {
+    let (kind, _, key, level) = ask_all(
+        plugin,
+        &Record::InputPointer(InputPointer {
+            now_ms: 0,
+            x,
+            y,
+            phase,
+            contact: Some(0),
+        }),
+    );
+    (kind == PREVIEW).then(|| (key, level.unwrap()))
 }
 
 fn finger(plugin: &Plugin<'_>, phase: u32, x: i32, y: i32) -> (u32, String) {
@@ -141,16 +176,26 @@ fn step(plugin: &Plugin<'_>) -> Callback {
 }
 
 #[test]
-fn a_swipe_up_the_left_edge_runs_the_step_and_its_swipe_is_taken() {
+fn a_swipe_up_the_left_edge_previews_the_level_and_keeps_it_when_the_finger_lifts() {
     let host = world(1 | 1 << 11);
     let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
     assert_eq!(finger(&plugin, DOWN, 10, 700).0, PASS);
     assert_eq!(finger(&plugin, MOVE, 10, 690).0, PASS);
-    // It is a swipe from here: the level is where it was.
-    assert_eq!(finger(&plugin, MOVE, 10, 660).0, PASS);
-    // 240 pixels up are 50 %: 40 to 90.
+    // It is a swipe from here: the filter takes the finger, the level is where it was.
     assert_eq!(
-        finger(&plugin, MOVE, 10, 420),
+        preview(&plugin, MOVE, 10, 660),
+        Some(("core.frontlight".into(), 40))
+    );
+    // 240 pixels up are 50 %: 40 to 90. Nothing is written yet.
+    assert_eq!(
+        preview(&plugin, MOVE, 10, 420),
+        Some(("core.frontlight".into(), 90))
+    );
+    // The same place again shows nothing new.
+    assert_eq!(finger(&plugin, MOVE, 10, 421).0, PASS);
+    // Lifted: the level is kept, once, by the action.
+    assert_eq!(
+        finger(&plugin, UP, 10, 421),
         (RUN, "edge-light.step".into())
     );
     let done = step(&plugin);
@@ -161,12 +206,27 @@ fn a_swipe_up_the_left_edge_runs_the_step_and_its_swipe_is_taken() {
         "{:?}",
         done.batches
     );
-    // The same place again asks for nothing.
-    assert_eq!(finger(&plugin, MOVE, 10, 421).0, PASS);
-    assert_eq!(finger(&plugin, UP, 10, 421).0, PASS);
     // The vertical swipe the kernel makes of it is taken: no page turns.
     assert_eq!(swipe_up(&plugin).0, TAKE);
     assert_eq!(swipe_up(&plugin).0, PASS);
+}
+
+#[test]
+fn a_swipe_that_ends_where_it_began_or_is_cancelled_keeps_nothing() {
+    let host = world(1 | 1 << 11);
+    let plugin = host.load(NATIVE_ENTRY.entry()).unwrap();
+    finger(&plugin, DOWN, 10, 700);
+    assert!(preview(&plugin, MOVE, 10, 660).is_some());
+    assert!(preview(&plugin, MOVE, 10, 420).is_some());
+    // Back to where it began: the level is the one kept.
+    assert_eq!(preview(&plugin, MOVE, 10, 660).unwrap().1, 40);
+    assert_eq!(finger(&plugin, UP, 10, 660).0, PASS);
+    // A cancel after a change keeps nothing either.
+    finger(&plugin, DOWN, 10, 700);
+    assert!(preview(&plugin, MOVE, 10, 660).is_some());
+    assert!(preview(&plugin, MOVE, 10, 420).is_some());
+    assert_eq!(finger(&plugin, 3, 10, 420).0, PASS);
+    assert!(step(&plugin).batches.is_empty());
 }
 
 #[test]
@@ -176,7 +236,11 @@ fn the_right_edge_sets_the_warmth() {
     finger(&plugin, DOWN, 470, 300);
     finger(&plugin, MOVE, 470, 340);
     // 96 pixels down are 20 %: 30 to 10.
-    assert_eq!(finger(&plugin, MOVE, 470, 436).0, RUN);
+    assert_eq!(
+        preview(&plugin, MOVE, 470, 436),
+        Some(("core.frontlight-warmth".into(), 10))
+    );
+    assert_eq!(finger(&plugin, UP, 470, 436).0, RUN);
     let done = step(&plugin);
     assert_eq!(done.status, 0);
     assert!(done.batches_contain(b"core.frontlight-warmth"));

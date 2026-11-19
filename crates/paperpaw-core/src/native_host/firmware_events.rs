@@ -123,6 +123,30 @@ impl Kernel {
                 loader: Some(loader),
                 offered,
                 signers,
+                host_code: None,
+            })
+        })
+    }
+
+    /// [`Self::set_plugin_host`] for a device that runs libraries built for
+    /// its own computer (the Linux emulator): a plugin file of that kind
+    /// (`host_code.file`) is checked and installed as a device's `code.ppn` is,
+    /// with the author's signature after the library; `code.ppn` is code of
+    /// another kind of device. `offered` is what the loader admits a library
+    /// against, its profile the computer's.
+    #[cfg(feature = "host-code")]
+    pub fn set_host_code_plugin_host(
+        &mut self,
+        offered: paperpaw_native::metadata::Host<'static>,
+        signers: &'static [(&'static str, [u8; 32])],
+        host_code: super::plugin_job::HostCode,
+    ) -> bool {
+        self.firmware.as_ref().is_some_and(|cell| {
+            cell.set_plugin_host(super::plugin_job::PluginHost {
+                loader: None,
+                offered,
+                signers,
+                host_code: Some(host_code),
             })
         })
     }

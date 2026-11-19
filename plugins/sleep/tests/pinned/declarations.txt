@@ -13,6 +13,7 @@ overlay-position|2|0|sleep.group|sleep.setting.overlay-position|sleep.setting.ov
 overlay-size|1|0|sleep.group|sleep.setting.overlay-size|sleep.setting.overlay-size.help|i:35|10|100|""
 overlay-see-through|1|0|sleep.group|sleep.setting.overlay-see-through|sleep.setting.overlay-see-through.help|i:0|0|90|""
 overlay-when|2|0|sleep.group|sleep.setting.overlay-when|sleep.setting.overlay-when.help|t:sleep.when.always|0|0|"sleep.when.always\nsleep.when.reading\nsleep.when.elsewhere"
+refresh-every|2|0|sleep.group|sleep.setting.refresh-every|sleep.setting.refresh-every.help|t:sleep.refresh.off|0|0|"sleep.refresh.off\nsleep.refresh.15\nsleep.refresh.30\nsleep.refresh.60"
 [extras]
 folder||||=|2:core.choose-folder|0|0
 widgets||||=|2:core.edit-widgets|0|0
@@ -46,6 +47,7 @@ sleep.overlay-see-through|Sleep
 sleep.overlay-size|Sleep
 sleep.overlay-when|Sleep
 sleep.overlay-widget|Sleep
+sleep.refresh-every|Sleep
 sleep.restart-show|Sleep
 sleep.show|Sleep
 sleep.start-show|Sleep

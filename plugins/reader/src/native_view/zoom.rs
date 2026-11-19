@@ -15,7 +15,13 @@
 //! block. A picture the host cannot decode larger (no memory, too big) stays at
 //! fit with a short note. The host's picture rule shows every frame in black
 //! and white first and in grays once the device has rested.
-use super::{Body, Open, View, helpers::note, redraw};
+//!
+//! With the setting *Turn wide pictures* a picture that lies the other way
+//! than the screen stands (a wide picture on a tall screen) is shown turned a
+//! quarter clockwise, so that it fills the screen: the host turns it once
+//! (`ask_image_turned`) and the view draws that picture, its own until it
+//! closes. Where the host cannot turn it, it is shown as it is.
+use super::{Body, Open, View, helpers::note, redraw, setup::flag};
 use crate::native_draw::{picture_boxes, picture_of};
 use paperpaw_sdk::{
     Color, Handled, Point,
@@ -32,6 +38,9 @@ use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 /// The action that holding Select is bound to: the picture of the page full
 /// screen where it has one, else the bookmark (what holding Select did before).
 pub const HOLD: &str = "reader.hold-select";
+
+/// The setting that shows a wide picture turned to the screen.
+pub const TURN_WIDE: &str = "reader.turn-wide-pictures";
 
 /// The zoom levels: fit, 2x, 3x (the level is the factor less one).
 const LEVELS: u8 = 3;
@@ -69,6 +78,9 @@ pub(super) struct Zoom {
     note: bool,
     /// The last tap, for a double tap.
     tap: Option<(u64, Point)>,
+    /// The picture turned to the screen (the setting), shown at fit: the
+    /// host's turned copy, the view's own.
+    turned: Option<ImageId>,
 }
 
 impl Zoom {
@@ -82,6 +94,7 @@ impl Zoom {
             big: None,
             note: false,
             tap: None,
+            turned: None,
         }
     }
 
@@ -91,6 +104,17 @@ impl Zoom {
             image, owned: true, ..
         }) = self.big.take()
         {
+            let mut scratch = [0; 32];
+            CommandSender::new(host, &mut scratch)
+                .image_release(image)
+                .ok();
+        }
+    }
+
+    /// The view of this picture ends: every picture it asked for goes back.
+    fn end(&mut self, host: &Host<'_>) {
+        self.release(host);
+        if let Some(image) = self.turned.take() {
             let mut scratch = [0; 32];
             CommandSender::new(host, &mut scratch)
                 .image_release(image)
@@ -177,7 +201,7 @@ impl Open {
         let Some(first) = first else {
             return Ok(None);
         };
-        self.zoom = Some(Zoom::new(first));
+        self.zoom = Some(self.zoom_of(host, docs, first));
         redraw(host, RedrawMode::Partial)?;
         Ok(Some(Handled::Yes))
     }
@@ -243,8 +267,50 @@ impl Open {
         );
         if let Some(other) = other {
             self.ask_missing(host, docs);
-            self.zoom = Some(Zoom::new(other));
+            let next = self.zoom_of(host, docs, other);
+            if let Some(mut old) = self.zoom.replace(next) {
+                old.end(host);
+            }
         }
+    }
+
+    /// The view of the picture at `at`, turned to the screen where the
+    /// setting says so and the host can.
+    fn zoom_of(&self, host: &Host<'_>, docs: &Documents, at: usize) -> Zoom {
+        let mut zoom = Zoom::new(at);
+        zoom.turned = self.turned_for(host, docs, at);
+        zoom
+    }
+
+    /// The picture at `at` turned a quarter clockwise at the screen's size,
+    /// where *Turn wide pictures* is on and it lies the other way than the
+    /// screen stands. `None` shows it as it is: the setting is off, the
+    /// picture already stands as the screen, or the host cannot turn it (an
+    /// older host, no room, a picture too large for the device).
+    fn turned_for(&self, host: &Host<'_>, docs: &Documents, at: usize) -> Option<ImageId> {
+        if !flag(host, TURN_WIDE).unwrap_or(false) {
+            return None;
+        }
+        let screen = self.screen(host)?;
+        let image = self.page.as_ref()?.images.get(at)?;
+        let (handle @ 1.., Some(index)) = picture_of(&image.image.path)? else {
+            return None;
+        };
+        let size = ImageInfo::read(host, ImageId::new(handle).ok()?).ok()?;
+        if !lies_across((size.width(), size.height()), screen) {
+            return None;
+        }
+        let side = screen.0.max(screen.1).max(1).unsigned_abs().min(SIDE_MAX);
+        let mut out = buffer(SERVICE_BUFFER).ok()?;
+        let mut input = [0; 64];
+        let answer = docs
+            .ask_image_turned(host, self.id, index, side, &mut input, &mut out)
+            .ok()?;
+        // Only a picture the host turned is the view's own to give back.
+        answer
+            .turned()
+            .then(|| ImageId::new(answer.image()).ok())
+            .flatten()
     }
 
     /// Pans the zoomed picture: four fifths of the screen, kept in the frame.
@@ -294,7 +360,9 @@ impl Open {
         let Some(image) = self.page.as_ref().and_then(|page| page.images.get(at)) else {
             return;
         };
-        let outcome = enlarge(host, docs, self.id, &image.image.path, (screen, level));
+        let turned = self.zoom.as_ref().is_some_and(|zoom| zoom.turned.is_some());
+        let wanted = (screen, level, turned);
+        let outcome = enlarge(host, docs, self.id, &image.image.path, wanted);
         let Some(zoom) = self.zoom.as_mut() else {
             return;
         };
@@ -326,7 +394,7 @@ impl Open {
     /// Back to the page, drawn again as a page turn shows it.
     fn zoom_close(&mut self, host: &Host<'_>, docs: &Documents) -> Result<Handled, Error> {
         if let Some(mut zoom) = self.zoom.take() {
-            zoom.release(host);
+            zoom.end(host);
         }
         self.redraw_page(host, docs, RedrawMode::Partial)?;
         Ok(Handled::Yes)
@@ -349,7 +417,7 @@ impl Open {
         };
         let Some(fit) = self.zoomed(at) else {
             if let Some(mut zoom) = self.zoom.take() {
-                zoom.release(host);
+                zoom.end(host);
             }
             return Ok(false);
         };
@@ -369,7 +437,8 @@ impl Open {
                     zoom.size.1.unsigned_abs(),
                 ),
             ),
-            None => (fit, rect),
+            // Fit: the turned copy where there is one, else the page's own.
+            None => (zoom.turned.unwrap_or(fit), rect),
         };
         let showing_note = zoom.note && !counting;
         let canvas = frame.draw_canvas()?;
@@ -388,7 +457,9 @@ impl Open {
                 redraw(host, RedrawMode::Partial)?;
             }
             Err(Error::NotFound) => {
-                // The host ended the id: asked for again, drawn the next frame.
+                // The host ended the id: asked for again, drawn the next frame
+                // (a turned copy that ended is not asked for again).
+                zoom.turned = None;
                 self.ask_missing(host, docs);
                 redraw(host, RedrawMode::Partial)?;
             }
@@ -419,23 +490,37 @@ fn enlarge(
     docs: &Documents,
     document: paperpaw_sdk::native::document::DocId,
     path: &str,
-    (screen, level): ((i32, i32), u8),
+    (screen, level, turned): ((i32, i32), u8, bool),
 ) -> Result<(Big, (i32, i32)), Error> {
     let (handle, Some(index)) = picture_of(path).ok_or(Error::Invalid)? else {
         return Err(Error::Invalid);
     };
     let page_size = ImageInfo::read(host, ImageId::new(handle)?)?;
-    let fit = fit_size((page_size.width(), page_size.height()), screen);
+    // A picture shown turned is as wide as the page's is tall.
+    let page_size = if turned {
+        (page_size.height(), page_size.width())
+    } else {
+        (page_size.width(), page_size.height())
+    };
+    let fit = fit_size(page_size, screen);
     let side = side_for(zoomed_size(fit, level));
     let mut out = buffer(SERVICE_BUFFER)?;
     let mut input = [0; 64];
-    let answer = docs.ask_image(host, document, index, side, &mut input, &mut out)?;
+    let answer = if turned {
+        docs.ask_image_turned(host, document, index, side, &mut input, &mut out)?
+    } else {
+        docs.ask_image(host, document, index, side, &mut input, &mut out)?
+    };
     // Id 0: not decoded (no room, a picture the format cannot decode larger).
     let image = ImageId::new(answer.image())?;
+    // Asked for turned and not turned (no id was free): not this picture.
+    if turned != answer.turned() {
+        return Err(Error::Busy);
+    }
     Ok((
         Big {
             image,
-            owned: image.get() != handle,
+            owned: turned || image.get() != handle,
         },
         fit,
     ))
@@ -505,6 +590,12 @@ fn stepped(mut places: impl Iterator<Item = usize>, here: usize, forward: bool) 
     } else {
         places.filter(|at| *at < here).last()
     }
+}
+
+/// Whether a picture of `(width, height)` lies the other way than the
+/// `screen` stands: wide on a tall screen, or tall on a wide one.
+const fn lies_across((width, height): (u32, u32), screen: (i32, i32)) -> bool {
+    width != height && screen.0 != screen.1 && (width > height) != (screen.0 > screen.1)
 }
 
 /// Whether the point is in the box `(x, y, width, height)`.

@@ -220,6 +220,36 @@ const X4_PRO_BODY: Body = Body {
     ],
 };
 
+/// The Boox Picco (experimental): two page keys on its right edge and the
+/// power key on top; no home key (where its keys sit is taken from
+/// pictures, not from a device).
+const PICCO_BODY: Body = Body {
+    bezel: [7, 7, 9, 7],
+    keys: &[
+        Key {
+            button: buttons::PAGE_BACK,
+            place: Place::Right,
+            at: 36,
+            length: 13,
+            keys: &["PageUp", "ArrowLeft", "ArrowUp"],
+        },
+        Key {
+            button: buttons::PAGE_FORWARD,
+            place: Place::Right,
+            at: 52,
+            length: 13,
+            keys: &["PageDown", "ArrowRight", "ArrowDown", " "],
+        },
+        Key {
+            button: buttons::POWER,
+            place: Place::Top,
+            at: 78,
+            length: 14,
+            keys: &["p"],
+        },
+    ],
+};
+
 /// The Boox Go 7: its page keys on the wide bezel beside the screen;
 /// back is Android's (a gesture) and so is its power key, not drawn.
 const BOOX_GO_7_BODY: Body = Body {
@@ -339,6 +369,10 @@ pub struct Profile {
     /// *Switch off*): the X4s do; here the device is as asleep, the power button
     /// wakes it.
     pub power_off: bool,
+    /// The sleep screen can be drawn again while the device sleeps
+    /// (`command.show_again`): the X4 and X3 wake from their light sleep now
+    /// and then; the emulator does it on its timer.
+    pub refresh_asleep: bool,
     /// The buttons in a row below the screen, left to right (see
     /// `KernelBuilder::button_row`).
     pub button_row: &'static [&'static str],
@@ -392,6 +426,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: Some("x4"),
         sleep: true,
         power_off: true,
+        refresh_asleep: true,
         button_row: &X4_ROW,
         light: None,
         body: X4_BODY,
@@ -428,6 +463,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: Some("x4-pro"),
         sleep: true,
         power_off: true,
+        refresh_asleep: false,
         button_row: &[],
         // As the X4 Pro's shell has it: brightness in single percents,
         // cool and warm LEDs mixed in fives.
@@ -439,6 +475,46 @@ pub const PROFILES: &[Profile] = &[
         }),
         body: X4_PRO_BODY,
         summary: "ESP32-S3 with 8 MB PSRAM, 4.3\" 800x480, touch + buttons, 10 MiB heap budget",
+    },
+    // The Boox Picco (experimental, #368): the firmware builds it as an X4
+    // Pro with another board (`shells/xteink`, feature `picco`), so it is
+    // the X4 Pro's profile but for its name, its 3.97" screen's density and
+    // its keys (no home key).
+    Profile {
+        device: DeviceInfo::new(
+            "boox-picco",
+            "Boox Picco",
+            DisplayInfo::new(480, 800, 235, PixelFormat::Mono1, Rotation::Deg90, None),
+            InputCaps::new(true, true, false, &[]),
+            MemoryClass::Large,
+        ),
+        buttons: &[buttons::PAGE_BACK, buttons::PAGE_FORWARD, buttons::POWER],
+        heap_budget: Some(S3_HEAP),
+        glyph_cache: X4_GLYPH_CACHE,
+        busy_mark: true,
+        colors: false,
+        font_packs: true,
+        frame_rows: Some(192),
+        row_align: 8,
+        settings: &X4_PRO_SETTINGS,
+        speech: false,
+        ink_unwired: true,
+        wifi: true,
+        bluetooth: 2,
+        // It runs the X4 Pro's code plugins: the same chip and compiler.
+        catalog_device: Some("x4-pro"),
+        sleep: true,
+        power_off: true,
+        refresh_asleep: false,
+        button_row: &[],
+        light: Some(Light {
+            max: 100,
+            step: 1,
+            percent: true,
+            warmth: Some(5),
+        }),
+        body: PICCO_BODY,
+        summary: "ESP32-S3 with 8 MB PSRAM, 3.97\" 800x480, touch + two page buttons, 10 MiB heap budget (experimental)",
     },
     Profile {
         device: DeviceInfo::new(
@@ -465,6 +541,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: Some("x4-classic"),
         sleep: true,
         power_off: true,
+        refresh_asleep: false,
         button_row: &X4_ROW,
         light: None,
         body: X4_BODY,
@@ -498,6 +575,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: Some("x4"),
         sleep: true,
         power_off: true,
+        refresh_asleep: true,
         button_row: &X4_ROW,
         light: None,
         body: X4_BODY,
@@ -536,6 +614,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: Some("android"),
         sleep: false,
         power_off: false,
+        refresh_asleep: false,
         button_row: &[],
         // Unverified: Onyx's levels from 0 to 255, warm and cool LEDs;
         // the Android shell takes the device's range, in steps of 1.
@@ -579,6 +658,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: None,
         sleep: true,
         power_off: false,
+        refresh_asleep: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,
@@ -608,6 +688,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: None,
         sleep: true,
         power_off: false,
+        refresh_asleep: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,
@@ -637,6 +718,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: None,
         sleep: true,
         power_off: false,
+        refresh_asleep: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,
@@ -667,6 +749,7 @@ pub const PROFILES: &[Profile] = &[
         catalog_device: None,
         sleep: true,
         power_off: false,
+        refresh_asleep: false,
         button_row: &[],
         light: None,
         body: Body::PLAIN,

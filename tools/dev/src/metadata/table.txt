@@ -84,6 +84,7 @@ host icon.glyph 1
 host text.draw_inked 1
 host canvas.describe 1
 host canvas.fill_pattern 1
+host canvas.draw_image_part 1
 callback drop 1
 callback dispatch_event 1
 callback draw 1
@@ -977,6 +978,7 @@ record service.doc_image_ask 1
 field service.doc_image_ask document 1
 field service.doc_image_ask index 1
 field service.doc_image_ask side 1
+field service.doc_image_ask flags 1
 record command.image_prepare 1
 field command.image_prepare root 1
 field command.image_prepare path 1
@@ -1691,3 +1693,8 @@ field command.redraw_area x 1
 field command.redraw_area y 1
 field command.redraw_area width 1
 field command.redraw_area height 1
+record command.show_again 1
+field command.show_again instance 1
+field command.show_again after_ms 1
+field command.show_again every_ms 1
+field command.show_again flags 1

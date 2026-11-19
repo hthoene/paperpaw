@@ -24,6 +24,7 @@ fn plugin_host() -> PluginHost {
         loader: Some(loader),
         offered,
         signers: &[],
+        host_code: None,
     }
 }
 

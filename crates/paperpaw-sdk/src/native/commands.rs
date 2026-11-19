@@ -25,6 +25,7 @@ pub use item_state::ItemState;
 pub use registry::{
     KeyBinding, PluginEnabled, PluginOutcome, PresetMode, PreviewSetting, ResetTarget,
 };
+pub use uix::SHOW_AGAIN_MIN_MS;
 
 /// Refresh requested after redrawing the submitting plugin's top screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -948,11 +948,11 @@ impl Firmware {
         input::escape_off();
         self.wait_for_power_release();
         let mut power = input::stop().expect("the power button");
-        // The X4 Classic keeps its power on and holds its lines, as its
-        // stock firmware sleeps (see its board).
-        #[cfg(feature = "x4-classic")]
+        // The X4 Classic and the Picco keep their power on and hold their
+        // lines, as their stock firmware sleeps (see their boards).
+        #[cfg(any(feature = "x4-classic", feature = "picco"))]
         crate::board::hold_for_sleep(&mut self.power_latch);
-        #[cfg(not(feature = "x4-classic"))]
+        #[cfg(not(any(feature = "x4-classic", feature = "picco")))]
         {
             // The X4 Pro holds its latch through resets: let go first.
             #[cfg(feature = "esp32s3")]

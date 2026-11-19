@@ -21,6 +21,9 @@ pub const SETTING_CHANGED: u32 = 14;
 pub const IMAGE_READY: u32 = 16;
 /// A cover the host was making is ready (`event.library_changed` bit 6).
 pub const LIBRARY_CHANGED: u32 = 19;
+/// The device goes to sleep (`event.suspend`): the screen asks to be shown
+/// again now and then (`sleep.refresh-every`).
+pub const SUSPEND: u32 = 20;
 /// The picker of the picture or the widget over the page (`native_picker`).
 pub const PICK: u32 = 17;
 /// The editor of a list of widgets above each other (slot `core.edit-widgets`).
@@ -65,8 +68,17 @@ const WHEN: [&str; 3] = [
     "sleep.when.elsewhere",
 ];
 
+/// How often the sleep screen is drawn again while the device sleeps
+/// (`sleep.refresh-every`): never, or every 15, 30 or 60 minutes.
+pub const REFRESH: [&str; 4] = [
+    "sleep.refresh.off",
+    "sleep.refresh.15",
+    "sleep.refresh.30",
+    "sleep.refresh.60",
+];
+
 /// The settings that need a device that sleeps (the group too).
-const NEEDS: [&str; 13] = [
+const NEEDS: [&str; 14] = [
     "sleep.group",
     "sleep.show",
     "sleep.off-show",
@@ -80,6 +92,7 @@ const NEEDS: [&str; 13] = [
     "sleep.overlay-size",
     "sleep.overlay-see-through",
     "sleep.overlay-when",
+    "sleep.refresh-every",
 ];
 
 /// What the off, the start and the restart screen show (the slots
@@ -216,6 +229,15 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
         extra.slider = true;
         d.extra(extra)?;
     }
+    when_specs(d)?;
+    d.submit()
+}
+
+/// When the picture over the page shows, and how often the screen is drawn
+/// again while asleep.
+fn when_specs<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+) -> Result<(), DeclareError> {
     let mut when = SpecDecl::new(
         "overlay-when",
         Kind::Choice {
@@ -227,7 +249,18 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     );
     when.help = "sleep.setting.overlay-when.help";
     d.spec(when)?;
-    d.submit()
+    let mut refresh = SpecDecl::new(
+        "refresh-every",
+        Kind::Choice {
+            default: REFRESH[0],
+            choices: &REFRESH,
+        },
+        GROUP,
+        "sleep.setting.refresh-every",
+    );
+    refresh.help = "sleep.setting.refresh-every.help";
+    d.spec(refresh)?;
+    Ok(())
 }
 
 /// The picker of what goes over the page, the editor of a list of widgets
@@ -260,7 +293,8 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The device waking closes the screen (`event.resume`); a change of
+/// The device waking closes the screen (`event.resume`); going to sleep asks
+/// for the screen to be shown again (`event.suspend`, `command.show_again`); a change of
 /// `sleep.show` (or a reset of every setting) binds or unbinds the slot
 /// `core.sleep` for the mode chosen, and the start and a change of the plugins
 /// bind a stored foreign mode where the reader has not bound the slot.
@@ -268,6 +302,7 @@ pub fn events<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.subscribe_event(EventKind::Resume, EVENTS)?;
+    d.subscribe_event(EventKind::Suspend, SUSPEND)?;
     d.subscribe_event(EventKind::Started, STARTED)?;
     d.subscribe_event(EventKind::PluginsChanged, PLUGINS_CHANGED)?;
     d.subscribe_event(EventKind::SettingChanged, SETTING_CHANGED)?;

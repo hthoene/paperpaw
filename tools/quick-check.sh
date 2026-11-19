@@ -11,6 +11,9 @@
 #
 # Steps (the files that trigger each one in brackets):
 #   fmt       always: cargo fmt --all --check and shells/xteink's rustfmt check; no tracked path starting with `-`
+#   generated the generated files and tables are current, CI's `--check` runs of a few seconds: the author tool's
+#             interface table (tools/abi-metadata-table.py: red on Nov 19, "Firmware author template"), abi-gen, the
+#             metadata fixtures, NOTICE/licences, the lock files, the plugins' stage codecs   [always]
 #   clippy    the changed packages, -D warnings           [any .rs/Cargo.toml of a package]
 #   doc       the workspace's API docs, -D warnings (CI's)   [a package with a library]
 #   interface the SDK's interface test: what plugins see changes only with the
@@ -33,6 +36,10 @@
 #             the plugins' own manifests (red twice on Nov 18)   [plugins/*/Cargo.toml, tools/publish]
 #   wasm32    CI's "no_std targets (wasm32-unknown-unknown)" build, release, of the kernel with every first-party
 #             plugin: for the changed packages that build for it, or the lock file [a crate or plugin under the app, Cargo.lock]
+#   webemu   CI's "Lint the web emulator" (clippy -D warnings of paperpaw-web for wasm32: a function only the
+#             native host reads is dead there)           [shells/desktop, shells/web, paperpaw-x4/core/sdk/emulator]
+#   x4tests   the X4 crate's update tests (update_path, updates): the boards, partition tables and the constants
+#             of shells/xteink/src/ota.rs they check      [crates/paperpaw-x4, shells/xteink, .github/actions/install-image]
 #   frames    the changed plugins (at most 4; `store` stands in when a library under them changed) built for the X4's
 #             C3 as CI builds them and packed: a frame of 2,048 B or more is refused  [plugins/, ui-kit, sdk, core native, text, layout]
 #   frames-s3 the same plugins built for the X4 Pro / Classic (ESP32-S3, espup's `esp` toolchain,
@@ -44,9 +51,11 @@
 # directory it prints.
 #
 # It has to fit PlainBoard's 10 minutes, so (#328):
-#  - four lanes run side by side, each with one cargo at a time (CARGO_BUILD_JOBS=8 each) and a build
+#  - six lanes run side by side, each with one cargo at a time (CARGO_BUILD_JOBS=8 each) and a build
 #    directory of its own, so nothing waits on cargo's directory lock: the host lane (fmt, clippy,
-#    interface, checks, libs, desktop, memory, app, snapshots, publish), the doc lane (doc, wasm32), and one
+#    interface, checks, libs), the tests lane (desktop, memory, app, snapshots), the doc lane (doc alone: a cold
+#    `cargo doc --workspace` is 300-400 s on a busy machine, rustdoc is not cached by sccache, and behind
+#    it wasm32 and webemu were cut for the budget on Nov 19), the wasm lane (wasm32, webemu, publish, x4tests), and one
 #    lane each for the plugin frames, `frames` (C3) and `frames-s3` (Xtensa). On a cold directory
 #    `frames-s3` alone takes ~2 min (115 s for `store`, #3864): behind doc and wasm32 it was the step the
 #    budget cut, so the first run of a branch failed and the second, warm, passed;
@@ -57,9 +66,9 @@
 #    each other's artifacts;
 #  - a library change (ui-kit, SDK, core ...) builds the frames of `store` alone, the largest plugin
 #    and the one at the limit; changed plugins are built themselves (at most 4);
-#  - every step has a time limit (QUICK_CHECK_STEP_LIMIT, 400 s) and the whole run a budget
-#    (QUICK_CHECK_BUDGET, 440 s: with the ~25 s of the python checks in front of it, the whole quick-check
-#    command ends within 8 minutes, PlainBoard's limit being 10). A step that is cut, or not started for the budget, FAILS the run with
+#  - every step has a time limit (QUICK_CHECK_STEP_LIMIT, 440 s) and the whole run a budget
+#    (QUICK_CHECK_BUDGET, 470 s: with the ~25 s of the python checks in front of it, the whole quick-check
+#    command ends within 8.5 minutes, PlainBoard's limit being 10). A step that is cut, or not started for the budget, FAILS the run with
 #    a message (exit 1): it checked nothing, and the build directories are warm for the next run. NOT checked here: the S3 `allow indirect` band
 # (tools/check-s3-budget.sh: it needs a full Xtensa firmware build of the whole
 # kernel, far beyond a quick check; CI and the landing check keep it), the
@@ -77,16 +86,20 @@ case ":$PATH:" in *":$HOME/.cargo/bin:"*) ;; *) PATH="$HOME/.cargo/bin:$PATH" ;;
 
 # Builds: sccache in front of rustc and no incremental builds (they do not mix with it).
 export CARGO_INCREMENTAL=0
+# The sccache store: with the default 8 GiB it was full, so it evicted the entries of the feature sets of
+# the last base before the next worktree could hit them (Nov 19: 90 % misses, cold hand-overs cut on time).
+# The server reads the size when it starts, so this only counts for the first compile after a restart.
+export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-20G}"
 # A branch started before the wrapper landed has none: take it from the base. (A branch started before THIS
 # script landed runs its own, older script, with no limits: run the base's copy instead,
 #   git show origin/abi7/integration:tools/quick-check.sh > ~/qc.sh && bash ~/qc.sh )
 t_start=$SECONDS
-budget="${QUICK_CHECK_BUDGET:-440}"
-step_limit="${QUICK_CHECK_STEP_LIMIT:-400}"
+budget="${QUICK_CHECK_BUDGET:-470}"
+step_limit="${QUICK_CHECK_STEP_LIMIT:-440}"
 
 base=origin/abi7/integration
 all=0 list=0 only="" skip=""
-steps=" fmt clippy doc interface checks libs desktop memory app snapshots publish wasm32 frames frames-s3 "
+steps=" fmt generated clippy doc interface checks libs desktop memory app snapshots publish wasm32 webemu x4tests frames frames-s3 "
 while (($#)); do
     case "$1" in
         --base) base="${2:?--base needs a revision}"; shift 2 ;;
@@ -147,6 +160,7 @@ rs_pkg_change() { touches '(\.rs|Cargo\.toml)$'; }
 declare -A why
 if [[ $all = 1 ]]; then for s in $steps; do why[$s]="--all"; done; else
     why[fmt]="always"
+    why[generated]="always (a few seconds)"
     ((${#pkg_names[@]})) && rs_pkg_change && why[clippy]="changed: ${pkg_names[*]}"
     ((${#pkg_libs[@]})) && rs_pkg_change && why[doc]="changed: ${pkg_libs[*]}"
     touches '^crates/(paperpaw-(sdk|platform|graphics|i18n|config|text|document|layout|xml|zip|hyphen|image|update|digest|json|qr|native|lang|sort))/|^tools/plugin-files7/paperpaw-plugin7\.x$|^abi/|^tools/interface' && why[interface]="an interface crate or file changed"
@@ -163,6 +177,8 @@ if [[ $all = 1 ]]; then for s in $steps; do why[$s]="--all"; done; else
         wasm_hit="$(comm -12 <(printf '%s\n' "${pkg_names[@]}" | sort -u) <(printf '%s\n' "$wasm_closure") | tr '\n' ' ')"
         [[ -z "$wasm_hit" ]] || why[wasm32]="changed, in the no_std build: $wasm_hit"
     fi
+    touches '^(shells/(desktop|web)/|crates/paperpaw-(x4|core|sdk|emulator)/)' && why[webemu]="the emulator, the web shell or a crate under them changed"
+    touches '^(crates/paperpaw-x4/|shells/xteink/|\.github/actions/install-image/)' && why[x4tests]="the X4 crate or the firmware's constants and tables changed"
     touches '^(plugins/|crates/paperpaw-(ui-kit|sdk|core|native|text|layout|i18n)/|tools/plugin-files7/)' && why[frames]="plugin code or what it builds with changed"
     touches '^(plugins/|crates/paperpaw-(ui-kit|sdk|core|native|text|layout|i18n)/|tools/plugin-files7/)' && why[frames-s3]="plugin code or what it builds with changed (S3 frames differ from the C3's)"
 fi
@@ -190,6 +206,8 @@ echo "quick-check: base $base ($(wc -l <<< "$files") changed files); logs in $lo
 jobs_n="${QUICK_CHECK_JOBS:-8}"
 lane2_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane2"
 lane3_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane3"
+lane4_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane4"
+lane5_target="${CARGO_TARGET_DIR:-$root/target}-qc-lane5"
 # One step: run in its own process group, cut after its time limit or when the total budget is used up.
 # Writes "$logs/NAME.res": the summary line of the step, FAIL or ok.
 step() { # NAME COMMAND...
@@ -229,7 +247,9 @@ step() { # NAME COMMAND...
         echo "ok    $name (${dt}s)" > "$logs/$name.res"
     fi
 }
-publish_step() { cargo test -j"$jobs_n" -p paperpaw-publish; }
+publish_step() { CARGO_TARGET_DIR="$lane2_target" cargo test -j"$jobs_n" -p paperpaw-publish; }
+webemu_step() { CARGO_TARGET_DIR="$lane2_target" cargo clippy -j"$jobs_n" --target wasm32-unknown-unknown -p paperpaw-web -- -D warnings; }
+x4tests_step() { CARGO_TARGET_DIR="$lane2_target" cargo test -j"$jobs_n" -p paperpaw-x4 --features paperpaw-core/testing --test update_path --test updates; }
 # CI's job "no_std targets", its wasm32 leg (the riscv32 leg builds the same packages for the C3
 # firmware, which `frames` covers by the plugins): the same command, in the build lane's directory.
 wasm32_step() { CARGO_TARGET_DIR="$lane2_target" cargo build -j"$jobs_n" --release --target wasm32-unknown-unknown "${wasm_pkgs[@]}"; }
@@ -239,6 +259,26 @@ pk() { local a=(); for n in "$@"; do a+=(-p "$n"); done; printf '%s\n' "${a[@]}"
 fmt_step() {
     if git ls-files | grep -q '^-'; then git ls-files | grep '^-' | head -5; echo "a tracked path starts with '-' (#367)"; return 1; fi
     cargo fmt --all -- --check && rustfmt --edition 2024 --check shells/xteink/src/main.rs
+}
+# CI's generator checks that take seconds (they need cargo and rustfmt on the PATH, which is set above).
+# NOT here: `tools/interface.py --check` (api.txt/shape.txt: a nightly build; the `interface` step's test is its cheap half)
+# and the line-break table (it downloads the Unicode data).
+generated_step() {
+    local rc=0 c
+    for c in "tools/abi-metadata-table.py --check" "tools/abi-gen.py --check" "tools/abi-metadata-fixtures.py --check" \
+        "tools/licences/build.py --check" "tools/check-lockfiles.py" \
+        "tools/stage-codec.py plugins/about/stages plugins/about/src/stages.rs --check" \
+        "tools/stage-codec.py plugins/reader/stages plugins/reader/src/stages.rs --check --plugin reader" \
+        "tools/stage-codec.py plugins/aids/stages plugins/aids/src/reader_filter/stages.rs --check --plugin reader" \
+        "tools/stage-codec.py plugins/readwise/stages plugins/readwise/src/stages.rs --check" \
+        "tools/stage-codec.py plugins/wikipedia/stages/subscribed plugins/wikipedia/src/stages.rs --check" \
+        "tools/stage-codec.py plugins/joplin/stages plugins/joplin/src/stages.rs --check"; do
+        # shellcheck disable=SC2086
+        python3 $c || { echo "FAILED: python3 $c"; rc=1; }
+    done
+    cmp plugins/aids/stages/reader.filter@1.def plugins/reader/stages/reader.filter@1.def || rc=1
+    cmp plugins/reader/stages/reader.notes-exported@1.def plugins/readwise/stages/reader.notes-exported@1.def || rc=1
+    return $rc
 }
 clippy_step() {
     # The emulator's tests name `paperpaw_core::testing`: CI's feature on core.
@@ -252,7 +292,7 @@ clippy_step() {
 # CI's `cargo doc --workspace --no-deps`, not the changed packages alone: with the workspace's
 # features unified (the kernel turns the SDK's `kernel` feature on; text's `outline` is on)
 # links resolve that a single package's docs cannot. Warm, only what changed is documented.
-doc_step() { CARGO_TARGET_DIR="$lane2_target" RUSTDOCFLAGS="-D warnings" cargo doc -j"$jobs_n" --workspace --no-deps; }
+doc_step() { CARGO_TARGET_DIR="$lane4_target" RUSTDOCFLAGS="-D warnings" cargo doc -j"$jobs_n" --workspace --no-deps; }
 interface_step() { cargo test -j"$jobs_n" -p paperpaw-sdk --test interface; }
 checks_step() { cargo test -j"$jobs_n" --no-fail-fast -p paperpaw-checks; }
 libs_step() {
@@ -326,10 +366,19 @@ lane frames-s3 &
 lane_s3=$!
 lane frames &
 lane_frames=$!
-lane doc wasm32 &
+lane doc &
 lane_doc=$!
-lane fmt clippy interface checks libs desktop memory app snapshots publish
-wait "$lane_s3" "$lane_frames" "$lane_doc"
+lane wasm32 webemu publish x4tests &
+lane_wasm=$!
+# The tests of the workspace build (desktop, memory, snapshots) and the app's: the longest chain when cold, so
+# a lane of their own (the one lane of all host steps ran 700 s cold while the others were done after 300).
+(
+    export CARGO_TARGET_DIR="$lane5_target"
+    lane desktop memory app snapshots
+) &
+lane_tests=$!
+lane fmt generated clippy interface checks libs
+wait "$lane_s3" "$lane_frames" "$lane_doc" "$lane_wasm" "$lane_tests"
 
 echo
 echo "quick-check summary ($((SECONDS - t_start))s of ${budget}s):"

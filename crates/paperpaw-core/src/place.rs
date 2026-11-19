@@ -349,6 +349,19 @@ impl<'a> Place<'a> {
         self.shared.slept_for
     }
 
+    /// The device is asleep (after `core.suspend`, before it wakes).
+    pub(crate) fn asleep(&self) -> bool {
+        self.shared.asleep
+    }
+
+    /// The device can show the sleep screen again while it sleeps
+    /// (`command.show_again`).
+    pub(crate) fn refresh_asleep(&self) -> bool {
+        self.shared
+            .caps
+            .has(paperpaw_sdk::Capability::REFRESH_ASLEEP)
+    }
+
     /// What the panel can do, and how the last frame went (see
     /// [`realtime`](paperpaw_sdk::realtime)): for screens that pace themselves.
     pub fn panel(&self) -> paperpaw_sdk::realtime::PanelInfo {

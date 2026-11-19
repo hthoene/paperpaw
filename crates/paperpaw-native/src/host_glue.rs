@@ -409,6 +409,22 @@ unsafe extern "C" fn unsupported_icon_glyph(_: *mut c_void, _: PpBytes, _: PpBuf
     clippy::too_many_arguments,
     reason = "one argument per field of the C slot"
 )]
+unsafe extern "C" fn unsupported_canvas_draw_image_part(
+    _: *mut c_void,
+    _: u32,
+    _: PpBytes,
+    _: i32,
+    _: i32,
+    _: u32,
+    _: u32,
+    _: u32,
+) -> i32 {
+    ERR_UNSUPPORTED
+}
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one argument per field of the C slot"
+)]
 unsafe extern "C" fn unsupported_canvas_fill_pattern(
     _: *mut c_void,
     _: i32,
@@ -574,6 +590,7 @@ pub const fn host_table() -> PpHost {
         text_draw_inked: unsupported_text_draw_inked,
         canvas_describe: unsupported_canvas_describe,
         canvas_fill_pattern: unsupported_canvas_fill_pattern,
+        canvas_draw_image_part: unsupported_canvas_draw_image_part,
     }
 }
 

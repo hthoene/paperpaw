@@ -67,7 +67,7 @@ fn filter_records_round_trip_at_every_field_cap() {
     round_trip!(
         filter,
         FilterVerdict,
-        filter::FilterVerdict::new(5, &action, &input, &raise)
+        filter::FilterVerdict::new(5, &action, &input, &raise, "", &[])
     );
 }
 
@@ -137,7 +137,7 @@ fn every_filter_verdict_blob_cap_is_checked_in_both_directions() {
         (String::new(), vec![0; 129], String::new()),
         (String::new(), vec![], "r".repeat(65)),
     ] {
-        let value = filter::FilterVerdict::new(4, &action, &input, &raise);
+        let value = filter::FilterVerdict::new(4, &action, &input, &raise, "", &[]);
         assert_eq!(value.encode(&mut [0; 3840]), Err(ERR_INVALID));
         let mut body = vec![0];
         body.extend_from_slice(&4_u32.to_le_bytes());
@@ -252,9 +252,9 @@ fn local_tags_are_interpreted_only_by_the_selected_stage_schema() {
 
 #[test]
 fn stage_catalog_exposes_the_schema_caps_and_local_tags() {
-    // The three UIX stages, DOC's `core.format` and `core.lookup`, and LIB's
-    // `core.book-badge`.
-    assert_eq!(STAGES.len(), 6);
+    // The three UIX stages, DOC's `core.format`, `core.lookup` and
+    // `core.picture`, and LIB's `core.book-badge`.
+    assert_eq!(STAGES.len(), 7);
     assert_eq!(filter::MAX_SUBSCRIBERS, 4);
     assert_eq!(widget::MAX_SUBSCRIBERS, 32);
     assert_eq!(status::MAX_SUBSCRIBERS, 32);

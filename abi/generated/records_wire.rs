@@ -8774,14 +8774,17 @@ pub struct ServiceDocImageAsk {
     pub index: u32,
     /// Little-endian u32.
     pub side: u32,
+    /// Little-endian u32. Appended and optional; 0 when absent.
+    pub flags: u32,
 }
 
 wire_fields! {
     /// The fields of `service.doc_image_ask` as the codec walks them.
-    SERVICE_DOC_IMAGE_ASK_FIELDS: [ServiceDocImageAsk; 3] {
+    SERVICE_DOC_IMAGE_ASK_FIELDS: [ServiceDocImageAsk; 4] {
         document: u32, 0, 0;
         index: u32, 0, 0;
         side: u32, 0, 0;
+        flags: u32, 1, 0;
     }
 }
 
@@ -8791,7 +8794,8 @@ impl WireEncode for ServiceDocImageAsk {
     }
 
     fn wire_body_len(&self) -> Result<usize, i32> {
-        Ok(13)
+        // SAFETY: `SERVICE_DOC_IMAGE_ASK_FIELDS` is the table of this struct.
+        unsafe { fields_len_of(&SERVICE_DOC_IMAGE_ASK_FIELDS, self) }
     }
 
     fn wire_write(&self, out: &mut [u8], offset: &mut usize, _: seal::Seal) {

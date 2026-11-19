@@ -30,6 +30,10 @@ x4classic-run = [
     'target.xtensa-esp32s3-none-elf.runner = "espflash flash --monitor --chip esp32s3 --erase-parts otadata --partition-table partitions-classic.csv"',
 ]
 x4classic-clippy = "clippy --release --target xtensa-esp32s3-none-elf --no-default-features --features x4-classic,remote -Zbuild-std=core,alloc"
+# The Boox Picco (experimental): the X4 Pro's chip. Never flashed whole:
+# only the app goes into the stock firmware's app partition (see the README).
+picco = "build --release --target xtensa-esp32s3-none-elf --no-default-features --features picco,remote -Zbuild-std=core,alloc"
+picco-clippy = "clippy --release --target xtensa-esp32s3-none-elf --no-default-features --features picco,remote -Zbuild-std=core,alloc"
 # The X3 (experimental): the X4's chip, built as the X4 is.
 x3 = "build --release --no-default-features --features x3,remote"
 x3-run = "run --release --no-default-features --features x3,remote"

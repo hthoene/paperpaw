@@ -13,7 +13,7 @@
 use super::{CommandBatch, CommandStage, WireCommand};
 use crate::Ask;
 use alloc::vec::Vec;
-use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
+use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
 use paperpaw_sdk::{Id, SettingValue};
 
 /// The most bytes of keys and encoded values of one preview set.
@@ -145,6 +145,28 @@ impl CommandStage<'_> {
 }
 
 impl crate::Kernel {
+    /// The setting and the value a filter's verdict `preview` shows (ui.md
+    /// 4.1), checked as `command.preview_setting` checks a row: registered,
+    /// not secret, not a grant, this plugin's to set (`owner` is its host
+    /// key), a value the setting takes.
+    pub(crate) fn filter_preview_row(
+        &self,
+        owner: u64,
+        key: &str,
+        value: &[u8],
+    ) -> Result<(Id, SettingValue), i32> {
+        let owner = self.shared.native_instances.id(owner).ok_or(ERR_STATE)?;
+        if key.starts_with("core.grant.") {
+            return Err(ERR_DENIED);
+        }
+        let exempt = self.command_settings_authority(owner).guarded_exempt;
+        let spec = super::admitted(&self.shared.settings, owner, exempt, key)?;
+        let decoded =
+            crate::abi7::settings_wire::settings_decode(value).map_err(|_| ERR_INVALID)?;
+        let shown = CommandStage::owned_value(spec, decoded)?;
+        Ok((CommandStage::owned_key(spec, key)?, shown))
+    }
+
     /// Whose the preview is for a callback of `owner`: the plugin of the
     /// screen that shows it. One whose screen is gone is nobody's (it ends at
     /// the kernel's next look, `check_preview_owner`).

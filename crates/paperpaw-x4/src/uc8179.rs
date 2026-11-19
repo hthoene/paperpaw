@@ -65,7 +65,7 @@ pub const HEIGHT: u16 = PANEL_WIDTH;
 /// Lines the controller addresses; those past the panel's are white.
 const ADDRESSED_LINES: u16 = 600;
 /// Bytes of a line.
-const LINE: usize = PANEL_WIDTH as usize / 8;
+pub(crate) const LINE: usize = PANEL_WIDTH as usize / 8;
 
 /// The controller's commands used here.
 mod cmd {
@@ -1103,7 +1103,7 @@ fn partial_window(x: u16, width: u16, y: u16, height: u16) -> [u8; 9] {
 
 /// Sets the bit at `place` (from [`Display::place`]) of `plane`, or
 /// clears it.
-fn put(plane: &mut [u8], (at, bit): (usize, u8), on: bool) {
+pub(crate) fn put(plane: &mut [u8], (at, bit): (usize, u8), on: bool) {
     if let Some(byte) = plane.get_mut(at) {
         if on {
             *byte |= bit;
@@ -1115,7 +1115,7 @@ fn put(plane: &mut [u8], (at, bit): (usize, u8), on: bool) {
 
 /// The upright screen's pixel of the turned screen's `(x, y)`, with the
 /// frame kept (the X4 Pro's turns).
-fn upright(rotation: Rotation, x: u16, y: u16) -> (u16, u16) {
+pub(crate) fn upright(rotation: Rotation, x: u16, y: u16) -> (u16, u16) {
     match rotation {
         Rotation::Deg0 => (x, y),
         // Turned clockwise: the turned screen's top is the upright one's
@@ -1141,7 +1141,7 @@ pub fn turned(rotation: Rotation, x: u16, y: u16) -> (u16, u16) {
 
 /// Where the upright screen's pixel `(x, y)` lies in the frame: its
 /// column (bit) and line (the screen's left column the panel's last line).
-fn panel_place(x: u16, y: u16) -> (u16, u16) {
+pub(crate) fn panel_place(x: u16, y: u16) -> (u16, u16) {
     (y, WIDTH - 1 - x)
 }
 

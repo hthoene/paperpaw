@@ -5,13 +5,13 @@
 use paperpaw_core::native_host::{
     commands::{WireCommand, commands_decode},
     environment::{SNAPSHOT_BYTES, SNAPSHOT_VERSION},
-    registrations::{EventWidgetMade, Record, tick_encode},
+    registrations::{EventWidgetMade, Record},
 };
 use paperpaw_plugin_reading_goal::NATIVE_ENTRY;
 use paperpaw_scripted_host::{ScriptedHost, event_batch};
 
 #[test]
-fn a_widget_without_custom_pictures_requests_the_bundled_cat() {
+fn a_widget_without_custom_pictures_requests_the_bundled_cat_when_it_is_made() {
     let host = ScriptedHost::new();
     let mut snapshot = vec![0; SNAPSHOT_BYTES];
     snapshot[0..4].copy_from_slice(&SNAPSHOT_VERSION.to_le_bytes());
@@ -29,10 +29,9 @@ fn a_widget_without_custom_pictures_requests_the_bundled_cat() {
         place: "",
     }))
     .unwrap();
-    assert_eq!(plugin.event(2, &made).unwrap().status, 0);
-    let mut tick = [0; 64];
-    let n = tick_encode(60_000, &mut tick).unwrap();
-    let done = plugin.event(3, &tick[..n]).unwrap();
+    // Asked for when the widget is made, not at a tick (a minute later) and
+    // not in the measure (a stage call refuses commands): #370.
+    let done = plugin.event(2, &made).unwrap();
     assert_eq!(done.status, 0);
     let pictures: Vec<_> = done
         .batches
@@ -45,5 +44,6 @@ fn a_widget_without_custom_pictures_requests_the_bundled_cat() {
             _ => None,
         })
         .collect();
-    assert_eq!(pictures, [(2, "pictures/sad.png", 0)]);
+    // The display's width (480 here), not 0 (the screen's longer side).
+    assert_eq!(pictures, [(2, "pictures/sad.png", 480)]);
 }

@@ -33,6 +33,9 @@ pub struct Features {
     pub frontlight: bool,
     /// PaperPaw's own updates run (the firmware has its OTA data).
     pub firmware: bool,
+    /// The sleep screen can be shown again while asleep: the light sleep wakes
+    /// now and then (the X4 and X3, `command.show_again`).
+    pub refresh_asleep: bool,
 }
 
 /// `dev_device.caps` of an X4: the parts [`crate::device_host::X4Device`]
@@ -53,6 +56,7 @@ pub fn caps_for(features: &Features) -> u64 {
         | bit(features.bluetooth, caps::BLUETOOTH)
         | bit(features.frontlight, caps::FRONTLIGHT)
         | bit(features.firmware, caps::FIRMWARE)
+        | bit(features.refresh_asleep, caps::REFRESH_ASLEEP)
 }
 
 /// `dev_device.controls`: bit 0 radio, 1 CPU clock, 2 buttons, 3 frontlight,

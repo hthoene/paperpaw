@@ -2,7 +2,10 @@
 # CI's S3 frame-budget scan, run locally (job "Firmware interface-7 build (x4-pro)" and
 # "(x4-classic)", step "The S3's host frames and calls fit under the band"):
 #
-#   tools/check-s3-budget.sh <worktree> [x4-pro|x4-classic|both]
+#   tools/check-s3-budget.sh <worktree> [x4-pro|x4-classic|picco|both]
+#
+# (`picco`: the Boox Picco's build, only when asked; it is the X4 Pro's with another board and is
+# held to the X4 Pro's budget, `frame-budget-s3.txt`, as CI holds it.)
 #
 # LOCAL ONLY: this is for a machine's smoke runs, CI does its own build and
 # does not call it.
@@ -80,7 +83,7 @@ set -uo pipefail
 ci_path=/home/runner/work/paperpaw/paperpaw
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then
-    echo "usage: $0 <worktree> [x4-pro|x4-classic|both]" >&2
+    echo "usage: $0 <worktree> [x4-pro|x4-classic|picco|both]" >&2
     exit 2
 fi
 worktree="$(cd "$1" 2> /dev/null && pwd)" || { echo "check-s3-budget: no such directory: $1" >&2; exit 2; }
@@ -88,8 +91,9 @@ which_device="${2:-both}"
 case "$which_device" in
     x4-pro) devices=(x4-pro) ;;
     x4-classic) devices=(x4-classic) ;;
+    picco) devices=(picco) ;;
     both) devices=(x4-pro x4-classic) ;;
-    *) echo "usage: $0 <worktree> [x4-pro|x4-classic|both]" >&2; exit 2 ;;
+    *) echo "usage: $0 <worktree> [x4-pro|x4-classic|picco|both]" >&2; exit 2 ;;
 esac
 [[ -f "$worktree/shells/xteink/frame-budget-s3.txt" ]] \
     || { echo "check-s3-budget: $worktree is no PaperPaw worktree (no shells/xteink/frame-budget-s3.txt)" >&2; exit 2; }

@@ -5,7 +5,7 @@ catalogue names has an asset (#89).
 The firmware release `v<version>` keeps only what belongs to the firmware:
 the app, the images of each device, the emulators, the handbook, the web
 emulator, the ESP32-S3's core libraries and the plugin library's catalogue
-with its checksums (81 files). Plugin files are in the store release
+with its checksums (83 files). Plugin files are in the store release
 (`store_release.py`).
 
     release_assets.py names <version>
@@ -43,13 +43,16 @@ DEVICE_PARTS = [
     "-update-packed.bin", "-update-packed.bin.sha256",
     "-install.bin", "-install.bin.sha256", "-plugins.txt", "-abi.txt",
 ]
+# The Boox Picco (experimental): its app image alone, flashed into the stock
+# firmware's app partition (release.yml, job firmware-picco).
+PICCO_PARTS = ["-install.bin", "-install.bin.sha256"]
 EMULATORS = ["windows-x64", "macos-arm64", "macos-x64", "linux-x64"]
 SIGNED = ["", ".sha256", ".sig"]
 # What a store release holds, never a firmware release: a plugin's file
 # (`.ppn`) or its folder's ZIP (a plugin's id never begins with `paperpaw-`,
 # as every firmware asset does).
 PLUGIN_FILE = re.compile(r"(.*\.ppn|(?!paperpaw-).*\.zip)$")
-EXPECTED = 81
+EXPECTED = 83
 
 
 def names(version):
@@ -57,6 +60,7 @@ def names(version):
     out = [f"paperpaw-{version}.apk", f"paperpaw-{version}.apk.sha256"]
     for device in DEVICES:
         out += [f"paperpaw-{device}-{version}{part}" for part in DEVICE_PARTS]
+    out += [f"paperpaw-picco-{version}{part}" for part in PICCO_PARTS]
     out += [f"paperpaw-web-{version}.zip{part}" for part in SIGNED]
     for target in EMULATORS:
         out += [f"paperpaw-emu-{version}-{target}.zip{part}" for part in SIGNED]

@@ -490,3 +490,24 @@ fn the_off_screen_shows_what_the_sleep_screen_does_unless_it_has_a_mode() {
         Bind::Default
     );
 }
+
+#[test]
+fn the_refresh_setting_means_minutes_and_a_redraw_comes_just_after_a_mark_of_the_clock() {
+    assert_eq!(refresh_minutes("sleep.refresh.off"), 0);
+    assert_eq!(refresh_minutes("sleep.refresh.15"), 15);
+    assert_eq!(refresh_minutes("sleep.refresh.30"), 30);
+    assert_eq!(refresh_minutes("sleep.refresh.60"), 60);
+    assert_eq!(refresh_minutes("a word of a later version"), 0);
+    // 10:07:00 is 8 minutes before the quarter: that, and 20 s past it.
+    let ten_seven = 10 * 3600 + 7 * 60;
+    assert_eq!(refresh_wait_ms(15, Some(ten_seven)), (8 * 60 + 20) * 1000);
+    // A mark under a minute away is the next one.
+    assert_eq!(
+        refresh_wait_ms(15, Some(10 * 3600 + 14 * 60 + 30)),
+        (15 * 60 + 30 + 20) * 1000
+    );
+    // On the mark: the next one, a whole period away.
+    assert_eq!(refresh_wait_ms(30, Some(36_000)), (30 * 60 + 20) * 1000);
+    // No clock: a period from now.
+    assert_eq!(refresh_wait_ms(60, None), (3600 + 20) * 1000);
+}

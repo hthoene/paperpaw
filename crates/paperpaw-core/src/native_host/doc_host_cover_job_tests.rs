@@ -50,6 +50,7 @@ fn cover(w: &World<'_>) {
             8,
             4,
             0,
+            &[],
         ))],
         &mut bytes,
     )

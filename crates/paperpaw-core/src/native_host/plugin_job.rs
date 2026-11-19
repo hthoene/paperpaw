@@ -85,6 +85,31 @@ pub(crate) struct PluginHost {
     /// The signing keys the firmware itself knows by name (PaperPaw's own);
     /// every other key is shown by its fingerprint.
     pub(crate) signers: &'static [(&'static str, [u8; 32])],
+    /// The code file of this computer's own kind, where the device loads
+    /// such files (the Linux emulator, feature `host-code`); `None` on every
+    /// device that loads `code.ppn` or no code.
+    #[cfg_attr(
+        not(feature = "host-code"),
+        allow(dead_code, reason = "read by the host-code checks only")
+    )]
+    pub(crate) host_code: Option<HostCode>,
+}
+
+/// How a device that runs a library built for its own computer (the
+/// emulator's `code-host.so`) checks one. Such a file is the library with the
+/// author's signature trailer after it (`paperpaw_native::signature`), signed
+/// over the library; its digest is that of the whole file, as the loader
+/// holds it (`CodeFile::sha256`). It has no header: its metadata record is
+/// found in the library itself.
+#[derive(Clone, Copy, Debug)]
+pub struct HostCode {
+    /// The file's name in a plugin's folder (one of `CODE_FILES`).
+    pub file: &'static str,
+    /// The metadata record the library at `path` exports (`len` bytes, the
+    /// trailer not counted) as read from `storage`: the shell reads the file
+    /// as it holds its own memory, `None` where it is no library of an
+    /// interface-7 plugin.
+    pub record: fn(&dyn Storage, &str, u64) -> Option<Vec<u8>>,
 }
 
 impl PluginHost {
@@ -104,6 +129,7 @@ impl PluginHost {
             features: &[],
         },
         signers: &[],
+        host_code: None,
     };
 }
 

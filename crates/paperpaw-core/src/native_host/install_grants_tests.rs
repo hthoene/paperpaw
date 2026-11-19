@@ -51,6 +51,7 @@ fn kernel() -> Kernel {
             features: &[],
         },
         signers: &[],
+        host_code: None,
     });
     kernel
 }

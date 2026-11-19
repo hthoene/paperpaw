@@ -101,6 +101,8 @@ pub(crate) mod plugin_install;
     reason = "the queue's plugin seam wires it; see plugin_check"
 )]
 pub(crate) mod plugin_job;
+#[cfg(feature = "host-code")]
+pub use plugin_job::HostCode;
 #[path = "native_host/plugin_jobs.rs"]
 pub(crate) mod plugin_jobs;
 #[path = "native_host/plugin_remove.rs"]
@@ -332,6 +334,8 @@ pub(crate) mod net_service;
 mod network_demand;
 pub(crate) mod owner_paths;
 pub(crate) mod paths_in_use;
+#[path = "native_host/picture_stage.rs"]
+pub(crate) mod picture_stage;
 mod reading_events;
 pub(crate) mod save_files;
 pub(crate) mod screen_apply;

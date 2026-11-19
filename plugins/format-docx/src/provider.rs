@@ -665,6 +665,7 @@ impl DocxProvider {
                 image.width,
                 image.height,
                 0,
+                &[],
             )),
             out,
         )
@@ -883,6 +884,7 @@ fn records<'a>(
             image.width,
             image.height,
             u32::from(!decoded),
+            &[],
         )));
     }
     Ok(())

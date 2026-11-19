@@ -68,7 +68,7 @@ fn a_writer_keeps_the_row_cap_and_the_byte_cap() {
     // MAX_REPLY counts even where `out` has room: 64 images of 256-byte paths
     // are more than a format reply holds.
     let path = "p".repeat(256);
-    let image = format::Record::FmtImage(format::FmtImage::new(&path, 1, 2, 3, 0));
+    let image = format::Record::FmtImage(format::FmtImage::new(&path, 1, 2, 3, 0, &[]));
     let mut out = vec![0; 3 * format::MAX_REPLY];
     let mut writer = format::ReplyWriter::new(&mut out).unwrap();
     let mut pushed = 0;

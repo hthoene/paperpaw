@@ -473,7 +473,7 @@ impl FormatProvider {
             }
             op::COVER => {
                 let image = document.cover(io).map_err(|e| document_error(&e))?;
-                Self::picture(decoded(document, io, image), cache, u32::MAX, out)
+                Self::picture(decoded(document, io, image), cache, u32::MAX, &[], out)
             }
             op::IMAGE => {
                 // The picture numbered `index`: a page of a whole-page
@@ -491,7 +491,15 @@ impl FormatProvider {
                     .map_err(|e| document_error(&e))?
                     .filter(|b| whole || b.start == call.index)
                     .ok_or(Error::NotFound)?;
-                Self::picture(decoded(document, io, block.image), cache, call.index, out)
+                let part = part_at(document, io, at);
+                let image = decoded(document, io, block.image);
+                Self::picture(
+                    image,
+                    cache,
+                    call.index,
+                    part.as_deref().unwrap_or(&[]),
+                    out,
+                )
             }
             op::PROGRESS => {
                 let ppm = document.progress(at) * 1_000_000.0;
@@ -641,6 +649,7 @@ impl FormatProvider {
         image: Option<ImageRef>,
         cache: &str,
         index: u32,
+        part: &[u8],
         out: &mut [u8],
     ) -> Result<usize, Error> {
         let image = image.ok_or(Error::NotFound)?;
@@ -652,6 +661,7 @@ impl FormatProvider {
                 image.width,
                 image.height,
                 0,
+                part,
             )),
             out,
         )
@@ -800,7 +810,12 @@ impl FormatProvider {
         } else {
             block.start
         };
-        let picture = (image_index, u32::from(pending));
+        let part = part_at(document, io, at);
+        let picture = (
+            image_index,
+            u32::from(pending),
+            part.as_deref().unwrap_or(&[]),
+        );
         records(&block, cache, &weights, &mut tags, picture, &mut list)?;
         // The last of its section: nothing begins at its end. The section's length
         // is known once a block was read from it (asking for the next block read
@@ -846,6 +861,17 @@ fn settle(document: &dyn Document, io: &dyn Storage, block: &mut Block) -> bool 
     }
     block.image = decoded(document, io, block.image.take());
     false
+}
+
+/// The part of its picture the block at `at` shows (`fmt.image.part`), where
+/// the document says one ([`crate::document::IMAGE_PART`]: a comic's panel).
+fn part_at(document: &dyn Document, io: &dyn Storage, at: Locator) -> Option<Vec<u8>> {
+    let mut params = [0_u8; 8];
+    params[..4].copy_from_slice(&at.section.to_le_bytes());
+    params[4..].copy_from_slice(&at.offset.to_le_bytes());
+    document
+        .extended(io, crate::document::IMAGE_PART, &params)
+        .filter(|part| part.len() == 16)
 }
 
 /// `path` as a path in the document cache (root 6), if it lies in `cache`.
@@ -898,7 +924,7 @@ fn records<'a>(
     cache: &'a str,
     weights: &'a [u8],
     tags: &'a mut [[u8; 16]; 16],
-    (image_index, image_flags): (u32, u32),
+    (image_index, image_flags, part): (u32, u32, &'a [u8]),
     list: &mut Vec<Record<'a>>,
 ) -> Result<(), Error> {
     let (first, others) = tags.split_first_mut().ok_or(Error::Invalid)?;
@@ -990,6 +1016,7 @@ fn records<'a>(
             image.width,
             image.height,
             image_flags,
+            part,
         )));
     }
     table_records(block, weights, list);

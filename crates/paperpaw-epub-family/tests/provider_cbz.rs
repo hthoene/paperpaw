@@ -238,8 +238,9 @@ fn every_allocation_of_a_read_may_be_refused() {
 }
 
 /// Panel by panel, through the provider: a page is sixteen positions, the
-/// panels' pictures are numbered after the sections and asked for by number,
-/// and a manga is told as pages that run right to left.
+/// panels are numbered after the sections and asked for by number, each is a
+/// part of the page's one picture (`fmt.image.part`, no copy of it is
+/// written), and a manga is told as pages that run right to left.
 #[test]
 fn panels_are_numbered_and_asked_for_through_the_provider() {
     use paperpaw_sdk::image::PngWriter;
@@ -283,25 +284,43 @@ fn panels_are_numbered_and_asked_for_through_the_provider() {
     let mut numbers = Vec::new();
     for offset in 0..3u32 {
         let reply = run(&mut p, &io, &call(8, |c| c.offset = offset)).unwrap();
-        let (path, index) = rows(&reply)
+        let (path, index, size, part) = rows(&reply)
             .into_iter()
             .find_map(|r| match r {
-                stage::Record::FmtImage(i) => Some((i.path.to_string(), i.index)),
+                stage::Record::FmtImage(i) => Some((
+                    i.path.to_string(),
+                    i.index,
+                    (i.width, i.height),
+                    i.part.to_vec(),
+                )),
                 _ => None,
             })
             .expect("an image row");
-        // Its own number, and its picture made when a page shows it.
+        // Its own number; the picture is the page's (decoded, its whole size)
+        // and the panel a part inside it.
         assert_eq!(index, offset, "panel {offset} (one section: its offset)");
+        assert!(path.ends_with("/p0.gray"), "the page's picture: {path}");
+        assert_eq!(size, (200, 300));
+        let words: Vec<u32> = part
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|w| u32::from_le_bytes(*w))
+            .collect();
+        let [x, y, w, h] = words[..] else {
+            panic!("panel {offset}: no part of 16 bytes: {part:?}")
+        };
+        assert!(w > 0 && h > 0 && x + w <= 200 && y + h <= 300);
         let reply = run(&mut p, &io, &call(18, |c| c.index = index)).unwrap();
         match rows(&reply)[0] {
-            stage::Record::FmtImage(i) => assert_eq!(i.path, path),
+            stage::Record::FmtImage(i) => assert_eq!((i.path, i.part), (&path[..], &part[..])),
             other => panic!("not an image: {other:?}"),
         }
-        numbers.push(path);
+        numbers.push(part);
     }
     numbers.sort();
     numbers.dedup();
-    assert_eq!(numbers.len(), 3, "three pictures");
+    assert_eq!(numbers.len(), 3, "three parts");
     // After the last panel there is none.
     assert!(run(&mut p, &io, &call(8, |c| c.offset = 3)).is_err());
 }

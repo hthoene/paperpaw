@@ -60,6 +60,7 @@ fn driver() -> Driver {
             features: &[],
         },
         signers: &[],
+        host_code: None,
     });
     d
 }

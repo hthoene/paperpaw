@@ -521,6 +521,11 @@ impl Kernel {
             }
             Ask::RequestPlugins { by, plugins } => self.request_plugins(by, plugins),
             Ask::Sleep => self.sleep = self.shared.caps.sleep,
+            Ask::ShowAgain {
+                screen,
+                after_ms,
+                every_ms,
+            } => self.plan_show_again(screen, after_ms, every_ms),
             Ask::PowerOff => self.power_off = self.shared.caps.power_off,
             Ask::UsbDrive => {
                 self.usb_drive = self.shared.caps.has(paperpaw_sdk::Capability::USB_DRIVE);

@@ -96,6 +96,7 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
         ("open-last", true, BEHAVIOUR, true),
         ("corner-bookmark", true, CONTROLS, true),
         ("hold-chapters", false, CONTROLS, true),
+        ("turn-wide-pictures", false, BEHAVIOUR, true),
     ] {
         let title = ["reader.setting.", name].concat();
         let help = [title.as_str(), ".help"].concat();

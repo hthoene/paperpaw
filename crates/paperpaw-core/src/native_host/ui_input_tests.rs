@@ -60,6 +60,8 @@ enum Answer {
     Raise(&'static str),
     Replace(Vec<u8>),
     Kind(u32),
+    /// Verdict 6: show this value of this setting until the capture ends.
+    Preview(&'static str, &'static [u8]),
     /// A failed callback.
     Fail,
     /// Bytes that are no `filter.verdict` batch.
@@ -68,13 +70,14 @@ enum Answer {
 
 fn verdict(answer: &Answer, out: &mut [u8]) -> Result<usize, i32> {
     let record = match answer {
-        Answer::Pass => stage::FilterVerdict::new(0, "", &[], ""),
-        Answer::Take => stage::FilterVerdict::new(1, "", &[], ""),
-        Answer::Run(action) => stage::FilterVerdict::new(2, action, &[], ""),
-        Answer::Cancel => stage::FilterVerdict::new(3, "", &[], ""),
-        Answer::Replace(input) => stage::FilterVerdict::new(4, "", input, ""),
-        Answer::Raise(name) => stage::FilterVerdict::new(5, "", &[], name),
-        Answer::Kind(kind) => stage::FilterVerdict::new(*kind, "", &[], ""),
+        Answer::Pass => stage::FilterVerdict::new(0, "", &[], "", "", &[]),
+        Answer::Take => stage::FilterVerdict::new(1, "", &[], "", "", &[]),
+        Answer::Run(action) => stage::FilterVerdict::new(2, action, &[], "", "", &[]),
+        Answer::Cancel => stage::FilterVerdict::new(3, "", &[], "", "", &[]),
+        Answer::Replace(input) => stage::FilterVerdict::new(4, "", input, "", "", &[]),
+        Answer::Raise(name) => stage::FilterVerdict::new(5, "", &[], name, "", &[]),
+        Answer::Kind(kind) => stage::FilterVerdict::new(*kind, "", &[], "", "", &[]),
+        Answer::Preview(key, value) => stage::FilterVerdict::new(6, "", &[], "", key, value),
         Answer::Fail => return Err(ERR_STATE),
         Answer::Garbage => {
             out[..3].copy_from_slice(&[7, 7, 7]);
@@ -1030,4 +1033,115 @@ fn a_malformed_verdict_on_the_rest_of_a_capture_is_counted() {
     assert!(is_taken(&moved));
     assert_eq!(moved.refused, 1);
     assert_eq!(chain.held(), 1);
+}
+
+fn shown(d: &Dispatched) -> Option<(u64, &str, Vec<u8>, bool)> {
+    match d.routed {
+        Routed::Preview {
+            owner,
+            ref preview,
+            begun_mid,
+        } => Some((owner, preview.key(), preview.value().to_vec(), begun_mid)),
+        _ => None,
+    }
+}
+
+#[test]
+fn a_preview_of_a_down_takes_the_finger_and_ends_with_its_up() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    let rows = [row(A)];
+    script.set(A, Answer::Preview("core.frontlight", &[1, 2]));
+    let down = dispatch(&mut chain, &mut script, &rows, &pointer(0, 0));
+    assert_eq!(
+        shown(&down),
+        Some((A, "core.frontlight", vec![1, 2], false))
+    );
+    assert_eq!(chain.held(), 1);
+    assert!(!chain.take_preview_ended());
+    // The next value for a move of the capture; the flag says it is the
+    // capturer's.
+    script.set(A, Answer::Preview("core.frontlight", &[3]));
+    let moved = dispatch(&mut chain, &mut script, &rows, &pointer(0, 1));
+    assert_eq!(shown(&moved), Some((A, "core.frontlight", vec![3], false)));
+    assert_eq!(script.flags.last(), Some(&FLAG_CAPTURED));
+    // Nothing new: taken, the preview stays.
+    script.set(A, Answer::Pass);
+    assert!(is_taken(&dispatch(
+        &mut chain,
+        &mut script,
+        &rows,
+        &pointer(0, 1)
+    )));
+    assert!(!chain.take_preview_ended());
+    // The up with a run keeps the value by the action; the preview has ended.
+    script.set(A, Answer::Run("edge.step"));
+    let up = dispatch(&mut chain, &mut script, &rows, &pointer(0, 2));
+    assert!(matches!(up.routed, Routed::Run(_)));
+    assert_eq!(chain.held(), 0);
+    assert!(chain.take_preview_ended());
+    assert!(!chain.take_preview_ended(), "told once");
+}
+
+#[test]
+fn a_preview_of_a_move_begins_the_capture_and_a_cancel_ends_it() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    let rows = [row(A)];
+    // The down passed; the filter makes up its mind at a move.
+    assert!(is_pass(&dispatch(
+        &mut chain,
+        &mut script,
+        &rows,
+        &pointer(0, 0)
+    )));
+    script.set(A, Answer::Preview("core.frontlight", &[9]));
+    let moved = dispatch(&mut chain, &mut script, &rows, &pointer(0, 1));
+    assert_eq!(shown(&moved), Some((A, "core.frontlight", vec![9], true)));
+    assert_eq!(chain.held(), 1);
+    // A cancel ends the preview too, and whatever the filter answers.
+    script.set(A, Answer::Preview("core.frontlight", &[5]));
+    let cancel = dispatch(&mut chain, &mut script, &rows, &pointer(0, 3));
+    assert!(is_taken(&cancel));
+    assert!(chain.take_preview_ended());
+}
+
+#[test]
+fn a_preview_where_no_capture_can_be_is_a_pass() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    let rows = [row(A)];
+    script.set(A, Answer::Preview("core.frontlight", &[1]));
+    // A key repeat, an up and a gesture have no capture to live in.
+    for record in [
+        key("button.up", 2),
+        key("button.up", 1),
+        pointer(0, 2),
+        Record::InputGesture(InputGesture {
+            now_ms: 5,
+            kind: 4,
+            x: 1,
+            y: 1,
+        }),
+    ] {
+        let out = dispatch(&mut chain, &mut script, &rows, &record);
+        assert!(is_pass(&out), "{record:?}");
+    }
+    assert_eq!(chain.held(), 0);
+    // And one without a setting is invalid: passed and counted.
+    script.set(A, Answer::Preview("", &[1]));
+    let out = dispatch(&mut chain, &mut script, &rows, &pointer(1, 0));
+    assert!(is_pass(&out));
+    assert_eq!(out.refused, 1);
+    assert_eq!(chain.held(), 0);
+}
+
+#[test]
+fn a_reset_of_the_input_path_ends_the_preview_it_held() {
+    let mut chain = InputFilters::new();
+    let mut script = Script::default();
+    script.set(A, Answer::Preview("core.frontlight", &[1]));
+    dispatch(&mut chain, &mut script, &[row(A)], &pointer(0, 0));
+    chain.clear();
+    assert!(chain.take_preview_ended());
 }
