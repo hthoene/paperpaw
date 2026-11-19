@@ -1,7 +1,7 @@
 [package]
 name = "paperpaw-plugin-launcher-simple"
 description = "PaperPaw Simple home: a large clock, cards, a dock and a quick panel of round switches, for those who need only the core"
-version = "1.0.0"
+version = "1.0.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
