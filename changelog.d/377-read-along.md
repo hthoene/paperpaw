@@ -1,0 +1,3 @@
+### Added
+
+- **Read-along: mark the sentence being read aloud** (#377). The sample plugin `samples/read-along` follows reading aloud on the reader's page layer (#284): for each sentence read it draws a frame around the words being read on each line of the sentence, or a thick line under them (setting *Mark the sentence read aloud*), and the page is drawn again in one fast refresh. Nothing is drawn or asked while no book is read aloud, and with *Not marked* the plugin does not follow reading aloud at all. A word-by-word mark needs the host to say where in a sentence the voice is, which interface 7 has not (the host's speech reports a sentence at its end); interface 7 is unchanged.

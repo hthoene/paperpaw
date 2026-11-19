@@ -1,0 +1,36 @@
+[package]
+name = "read-along"
+description = "Read-along, a PaperPaw sample: marks the sentence being read aloud on the page"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+# The sample is its own workspace, as a plugin of its own repository is.
+[workspace]
+
+# What the plugin does without a device (the side file, the sentences, the
+# answers): tested with `cargo test --lib` on the computer.
+[lib]
+name = "read_along"
+path = "src/lib.rs"
+
+# The plugin file is made from this program: no `main`, no standard library.
+[[bin]]
+name = "read-along"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+# In a plugin of its own repository: the SDK of the PaperPaw release it is
+# built for (`paperpaw-sdk = "=0.6.0-beta.4"`).
+paperpaw-sdk = { path = "../../crates/paperpaw-sdk" }
+
+# As the firmware is built: small code, one unit, no unwinding.
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+debug = "line-tables-only"

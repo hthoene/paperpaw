@@ -485,6 +485,15 @@ jobs:
         run: |
           cargo build --locked --release --target riscv32imc-unknown-none-elf
           cargo test --locked --lib
+      - name: The read-along sample builds for the X4 and its tests pass
+        # Its own workspace (samples/read-along): the layer stage's sample plugin (#377).
+        if: matrix.target == 'riscv32imc-unknown-none-elf'
+        working-directory: samples/read-along
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target/read-along
+        run: |
+          cargo build --locked --release --target riscv32imc-unknown-none-elf
+          cargo test --locked --lib
       - name: The smallest interface-7 sample packs to its committed file
         # Built and packed by the real packer and compared with the file the
         # tests read (crates/paperpaw-native/tests/data); it had stopped
