@@ -33,6 +33,10 @@
 #             the plugins' own manifests (red twice on Nov 18)   [plugins/*/Cargo.toml, tools/publish]
 #   wasm32    CI's "no_std targets (wasm32-unknown-unknown)" build, release, of the kernel with every first-party
 #             plugin: for the changed packages that build for it, or the lock file [a crate or plugin under the app, Cargo.lock]
+#   webemu   CI's "Lint the web emulator" (clippy -D warnings of paperpaw-web for wasm32: a function only the
+#             native host reads is dead there)           [shells/desktop, shells/web, paperpaw-x4/core/sdk/emulator]
+#   x4tests   the X4 crate's update tests (update_path, updates): the boards, partition tables and the constants
+#             of shells/xteink/src/ota.rs they check      [crates/paperpaw-x4, shells/xteink, .github/actions/install-image]
 #   frames    the changed plugins (at most 4; `store` stands in when a library under them changed) built for the X4's
 #             C3 as CI builds them and packed: a frame of 2,048 B or more is refused  [plugins/, ui-kit, sdk, core native, text, layout]
 #   frames-s3 the same plugins built for the X4 Pro / Classic (ESP32-S3, espup's `esp` toolchain,
@@ -86,7 +90,7 @@ step_limit="${QUICK_CHECK_STEP_LIMIT:-400}"
 
 base=origin/abi7/integration
 all=0 list=0 only="" skip=""
-steps=" fmt clippy doc interface checks libs desktop memory app snapshots publish wasm32 frames frames-s3 "
+steps=" fmt clippy doc interface checks libs desktop memory app snapshots publish wasm32 webemu x4tests frames frames-s3 "
 while (($#)); do
     case "$1" in
         --base) base="${2:?--base needs a revision}"; shift 2 ;;
@@ -163,6 +167,8 @@ if [[ $all = 1 ]]; then for s in $steps; do why[$s]="--all"; done; else
         wasm_hit="$(comm -12 <(printf '%s\n' "${pkg_names[@]}" | sort -u) <(printf '%s\n' "$wasm_closure") | tr '\n' ' ')"
         [[ -z "$wasm_hit" ]] || why[wasm32]="changed, in the no_std build: $wasm_hit"
     fi
+    touches '^(shells/(desktop|web)/|crates/paperpaw-(x4|core|sdk|emulator)/)' && why[webemu]="the emulator, the web shell or a crate under them changed"
+    touches '^(crates/paperpaw-x4/|shells/xteink/|\.github/actions/install-image/)' && why[x4tests]="the X4 crate or the firmware's constants and tables changed"
     touches '^(plugins/|crates/paperpaw-(ui-kit|sdk|core|native|text|layout|i18n)/|tools/plugin-files7/)' && why[frames]="plugin code or what it builds with changed"
     touches '^(plugins/|crates/paperpaw-(ui-kit|sdk|core|native|text|layout|i18n)/|tools/plugin-files7/)' && why[frames-s3]="plugin code or what it builds with changed (S3 frames differ from the C3's)"
 fi
@@ -230,6 +236,8 @@ step() { # NAME COMMAND...
     fi
 }
 publish_step() { cargo test -j"$jobs_n" -p paperpaw-publish; }
+webemu_step() { CARGO_TARGET_DIR="$lane2_target" cargo clippy -j"$jobs_n" --target wasm32-unknown-unknown -p paperpaw-web -- -D warnings; }
+x4tests_step() { cargo test -j"$jobs_n" -p paperpaw-x4 --features paperpaw-core/testing --test update_path --test updates; }
 # CI's job "no_std targets", its wasm32 leg (the riscv32 leg builds the same packages for the C3
 # firmware, which `frames` covers by the plugins): the same command, in the build lane's directory.
 wasm32_step() { CARGO_TARGET_DIR="$lane2_target" cargo build -j"$jobs_n" --release --target wasm32-unknown-unknown "${wasm_pkgs[@]}"; }
@@ -326,9 +334,9 @@ lane frames-s3 &
 lane_s3=$!
 lane frames &
 lane_frames=$!
-lane doc wasm32 &
+lane doc wasm32 webemu &
 lane_doc=$!
-lane fmt clippy interface checks libs desktop memory app snapshots publish
+lane fmt clippy interface checks libs desktop memory app snapshots publish x4tests
 wait "$lane_s3" "$lane_frames" "$lane_doc"
 
 echo
