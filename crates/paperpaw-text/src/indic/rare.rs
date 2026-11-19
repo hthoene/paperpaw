@@ -18,11 +18,12 @@
 
 use super::{Cat, Glyphs, POST, Script};
 
-/// What `ch` (of `script`, one of the three) is in a syllable.
+/// What `ch` (of `script`, one of the three or Myanmar) is in a syllable.
 pub(super) fn category(script: Script, ch: char) -> Cat {
     match script {
         Script::Khmer => khmer(ch),
         Script::Lao => lao(ch),
+        Script::Myanmar => super::myanmar::category(ch),
         _ => tibetan(ch),
     }
 }
@@ -79,6 +80,9 @@ fn tibetan(ch: char) -> Cat {
 /// Whether `ch` (of `script`, category `cat`) is drawn on the letter before
 /// it, taking no room of its own.
 pub(super) fn is_mark(script: Script, ch: char, cat: Cat) -> bool {
+    if script == Script::Myanmar {
+        return super::myanmar::is_mark(ch, cat);
+    }
     match cat {
         Cat::Virama | Cat::AboveMatra | Cat::BelowMatra => true,
         // Reahmuk and yuukaleapintu take room.
@@ -91,6 +95,9 @@ pub(super) fn is_mark(script: Script, ch: char, cat: Cat) -> bool {
 /// character `next` (category `cat`, after `before`, category
 /// `before_cat`) belongs to it.
 pub(super) fn takes(script: Script, first: Cat, before_cat: Cat, cat: Cat) -> bool {
+    if script == Script::Myanmar {
+        return super::myanmar::takes(first, before_cat, cat);
+    }
     let sign = |c: Cat| c.is_matra() || matches!(c, Cat::Modifier | Cat::Virama | Cat::Nukta);
     match cat {
         // A consonant joined by coeng.

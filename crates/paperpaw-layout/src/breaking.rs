@@ -109,10 +109,16 @@ pub(crate) fn block_lines(
     (lines, cap)
 }
 
-/// Whether `c` is of a script set by syllables (Bengali, Devanagari,
-/// Khmer, Lao, Tibetan): as wide as its shaped part, not kerned.
+/// Whether `c` is of a script set by syllables (the Indic ones, Khmer,
+/// Lao, Tibetan, Burmese): as wide as its shaped part, not kerned.
 fn shaped(c: char) -> bool {
-    matches!(c, '\u{900}'..='\u{9FF}' | '\u{E80}'..='\u{FFF}' | '\u{1780}'..='\u{17FF}')
+    matches!(
+        c,
+        '\u{900}'..='\u{DFF}'
+            | '\u{E80}'..='\u{FFF}'
+            | '\u{1000}'..='\u{109F}'
+            | '\u{1780}'..='\u{17FF}'
+    )
 }
 
 /// The advance of `c` at byte `i` of `block`'s text: letters that join are

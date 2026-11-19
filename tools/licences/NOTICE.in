@@ -49,6 +49,8 @@ Version 1.1:
   and Sinhala, Copyright 2022 The Noto Project Authors
   (https://github.com/notofonts/gujarati, /gurmukhi, /oriya, /tamil,
   /telugu, /kannada, /malayalam, /sinhala), without Reserved Font Name
+- Noto Serif Myanmar, Copyright 2022 The Noto Project Authors
+  (https://github.com/notofonts/myanmar), without Reserved Font Name
 - Noto Serif and Noto Sans, Copyright 2022 The Noto Project Authors
   (https://github.com/notofonts/latin-greek-cyrillic), without Reserved
   Font Name, cut to the letters of the Latin Extended letters plugin
@@ -77,14 +79,15 @@ NotoSerifKhmer-OFL.txt, NotoSerifLao-OFL.txt, NotoSerifTibetan-OFL.txt,
 NotoSerifGeorgian-OFL.txt, NotoSerifArmenian-OFL.txt, NotoSerifGujarati-OFL.txt,
 NotoSerifGurmukhi-OFL.txt, NotoSerifOriya-OFL.txt, NotoSerifTamil-OFL.txt,
 NotoSerifTelugu-OFL.txt, NotoSerifKannada-OFL.txt, NotoSerifMalayalam-OFL.txt,
-NotoSerifSinhala-OFL.txt, NotoSerif-OFL.txt,
+NotoSerifSinhala-OFL.txt, NotoSerifMyanmar-OFL.txt, NotoSerif-OFL.txt,
 NotoSans-OFL.txt, the text
 given for Literata; NanumMyeongjo-OFL.txt, the same licence under its
 own copyright and Reserved Font Names).
 
-The words of the Khmer and Lao letters plugins (tools/khmer-words.txt,
-tools/lao-words.txt, which their packs carry for breaking lines) are taken
-from ICU's word lists (khmerdict.txt, laodict.txt), Copyright (C) 2016 and
+The words of the Khmer, Lao and Burmese letters plugins
+(tools/khmer-words.txt, tools/lao-words.txt, tools/myanmar-words.txt,
+which their packs carry for breaking lines) are taken from ICU's word
+lists (khmerdict.txt, laodict.txt, burmesedict.txt), Copyright (C) 2016 and
 later Unicode, Inc. and others, licensed under the Unicode License V3; the
 Lao list also Copyright (C) 2013 Brian Eugene Wilson, Robert Martin
 Campbell, under its BSD-style licence. Those plugins carry both texts

@@ -516,7 +516,7 @@ fn number(first: u8, class: u16) -> Option<u8> {
 }
 
 /// The Indic scripts' tags: the second version first.
-const INDIC: [[&[u8; 4]; 2]; 13] = [
+const INDIC: [[&[u8; 4]; 2]; 14] = [
     [b"bng2", b"beng"],
     [b"dev2", b"deva"],
     [b"khmr", b"khmr"],
@@ -530,6 +530,7 @@ const INDIC: [[&[u8; 4]; 2]; 13] = [
     [b"sinh", b"sinh"],
     [b"tel2", b"telu"],
     [b"knd2", b"knda"],
+    [b"mym2", b"mymr"],
 ];
 
 /// The scripts marks are read for.
@@ -537,7 +538,7 @@ enum Of {
     Thai,
     Arabic,
     Hebrew,
-    /// Bengali, Devanagari, Khmer, Lao, Tibetan and the keys of glyphs
+    /// Bengali, Devanagari, Khmer, Lao, Tibetan, Myanmar and the keys of glyphs
     /// without code point.
     Indic,
 }
@@ -554,6 +555,7 @@ fn script_of(ch: char) -> Option<Of> {
         '\u{900}'..='\u{9ff}'
         | '\u{e80}'..='\u{eff}'
         | '\u{f00}'..='\u{fff}'
+        | '\u{1000}'..='\u{109f}'
         | '\u{1780}'..='\u{17ff}' => Some(Of::Indic),
         '\u{e01}'..='\u{e5b}' => Some(Of::Thai),
         _ if crate::indic::glyph_of_key(ch).is_some() => Some(Of::Indic),

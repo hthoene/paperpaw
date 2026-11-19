@@ -3,7 +3,8 @@
 //! other Brahmic scripts of India and Sri Lanka the same way (#385,
 //! [`brahmic`]: Gujarati, Gurmukhi, Oriya, Tamil, Telugu, Kannada,
 //! Malayalam, Sinhala), and Khmer, Lao and Tibetan (#314, [`rare`]: their
-//! own syllables and order, the same substitutions).
+//! own syllables and order, the same substitutions), and Burmese (#397,
+//! [`myanmar`]).
 //!
 //! Text is cut into syllables ([`syllable_end`]): a consonant or vowel,
 //! the consonants joined to it by a virama (hasanta, halant), its vowel
@@ -33,6 +34,7 @@
 mod brahmic;
 #[cfg(feature = "outline")]
 mod clusters;
+mod myanmar;
 #[cfg(feature = "outline")]
 pub(crate) mod pack;
 mod rare;
@@ -101,10 +103,11 @@ pub(crate) enum Script {
     Sinhala,
     Telugu,
     Kannada,
+    Myanmar,
 }
 
 /// The scripts, in [`Script`]'s order.
-const SCRIPTS: [Script; 13] = [
+const SCRIPTS: [Script; 14] = [
     Script::Bengali,
     Script::Devanagari,
     Script::Khmer,
@@ -118,6 +121,7 @@ const SCRIPTS: [Script; 13] = [
     Script::Sinhala,
     Script::Telugu,
     Script::Kannada,
+    Script::Myanmar,
 ];
 
 impl Script {
@@ -137,6 +141,7 @@ impl Script {
             '\u{D80}'..='\u{DFF}' => Some(Script::Sinhala),
             '\u{C00}'..='\u{C7F}' => Some(Script::Telugu),
             '\u{C80}'..='\u{CFF}' => Some(Script::Kannada),
+            '\u{1000}'..='\u{109F}' => Some(Script::Myanmar),
             _ => None,
         }
     }
@@ -157,13 +162,17 @@ impl Script {
             Script::Sinhala => "Sinh",
             Script::Telugu => "Telu",
             Script::Kannada => "Knda",
+            Script::Myanmar => "Mymr",
         }
     }
 
     /// Whether its syllables are found, ordered and given their forms as
     /// Bengali's and Devanagari's are (else as [`rare`] says).
     const fn is_brahmic(self) -> bool {
-        !matches!(self, Script::Khmer | Script::Lao | Script::Tibetan)
+        !matches!(
+            self,
+            Script::Khmer | Script::Lao | Script::Tibetan | Script::Myanmar
+        )
     }
 
     const fn ra(self) -> char {
@@ -221,6 +230,10 @@ enum Cat {
     Modifier,
     Zwj,
     Zwnj,
+    /// A medial consonant sign (Burmese ya, ra, wa, ha).
+    Medial,
+    /// A tone mark (Burmese dot below, visarga).
+    Tone,
 }
 
 impl Cat {
@@ -244,7 +257,7 @@ impl Cat {
     }
 }
 
-const CATS: [Cat; 13] = [
+const CATS: [Cat; 15] = [
     Cat::Other,
     Cat::Consonant,
     Cat::Vowel,
@@ -258,6 +271,8 @@ const CATS: [Cat; 13] = [
     Cat::Modifier,
     Cat::Zwj,
     Cat::Zwnj,
+    Cat::Medial,
+    Cat::Tone,
 ];
 
 /// What `ch` is in a syllable of `script`.
@@ -307,19 +322,22 @@ fn category(script: Script, ch: char) -> Cat {
             '\u{94D}' => Cat::Virama,
             _ => Cat::Other,
         },
-        Script::Khmer | Script::Lao | Script::Tibetan => rare::category(script, ch),
+        Script::Khmer | Script::Lao | Script::Tibetan | Script::Myanmar => {
+            rare::category(script, ch)
+        }
         _ => brahmic::category(script, ch),
     }
 }
 
 /// Whether `text` has letters of a script shaped here: a quick look at
 /// its bytes (in UTF-8, U+0900 to U+0DFF are `E0 A4` to `E0 B7`, Lao and
-/// Tibetan U+0E80 to U+0FFF `E0 BA` to `E0 BF`, Khmer `E1 9E` and `E1 9F`).
+/// Tibetan U+0E80 to U+0FFF `E0 BA` to `E0 BF`, Khmer `E1 9E` and `E1 9F`,
+/// Myanmar U+1000 to U+109F `E1 80` to `E1 82`).
 pub fn has_indic(text: &str) -> bool {
     !text.is_ascii()
         && text.as_bytes().windows(2).any(|w| match w[0] {
             0xE0 => matches!(w[1], 0xA4..=0xB7 | 0xBA..=0xBF),
-            0xE1 => matches!(w[1], 0x9E..=0x9F),
+            0xE1 => matches!(w[1], 0x80..=0x82 | 0x9E..=0x9F),
             _ => false,
         })
 }
@@ -808,6 +826,12 @@ impl<'a, B: Bytes + ?Sized> Shaper<'a, B> {
                 self.features(script, out, |tag| FIRST.contains(&tag).then_some(ALL));
                 rare::khmer_order(out);
                 self.features(script, out, basic_mask);
+            } else if script == Script::Myanmar {
+                self.features(script, out, |tag| FIRST.contains(&tag).then_some(ALL));
+                myanmar::order(out);
+                self.features(script, out, |tag| {
+                    matches!(tag, b"rphf" | b"pref" | b"blwf" | b"pstf").then_some(ALL)
+                });
             }
             return;
         }

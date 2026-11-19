@@ -679,15 +679,28 @@ fn thai_lines_never_break_inside_a_cluster() {
     }
 }
 
-/// Lao and Khmer break between the words of their packs' tables (#314),
+/// Lao, Khmer and Burmese break between the words of their packs' tables
+/// (#314, #397),
 /// each script by its own while Thai's is open too, and only at spaces
 /// without them; Tibetan after its syllables' tsheg (U+0F0B), which a
 /// line ends with.
 #[test]
-fn lao_khmer_and_tibetan_break_between_their_words() {
+fn lao_khmer_burmese_and_tibetan_break_between_their_words() {
     use crate::linebreak::thai::{Script, tests};
     let lao = "ຂ້ອຍຮັກປະເທດລາວ ຄົນເວົ້າພາສາລາວ";
     let khmer = "ប្រទេសកម្ពុជាមានប្រជាជនច្រើន ខ្ញុំចង់ទៅសាលារៀន";
+    let burmese = "ကျွန်တော်စာအုပ်ဖတ်သည် လူများကျောင်းသွားသည်";
+    let burmese_words = [
+        "ကျွန်",
+        "တော်",
+        "စာအုပ်",
+        "ဖတ်",
+        "သည်",
+        "လူ",
+        "များ",
+        "ကျောင်း",
+        "သွား",
+    ];
     let lao_words = ["ຂ້ອຍ", "ຮັກ", "ປະເທດ", "ລາວ", "ຄົນ", "ເວົ້າ", "ພາສາ"];
     let khmer_words = [
         "ប្រទេស",
@@ -714,6 +727,7 @@ fn lao_khmer_and_tibetan_break_between_their_words() {
                 .all(|l| starts(text, words).contains(&l.range.start))
     };
     assert!(!breaks_between(lao, &lao_words) && !breaks_between(khmer, &khmer_words));
+    assert!(!breaks_between(burmese, &burmese_words));
     let _thai = thai_pack();
     let _lao = words_pack(
         'ກ',
@@ -723,7 +737,15 @@ fn lao_khmer_and_tibetan_break_between_their_words() {
         'ក',
         &tests::table_of(Script::Khmer, &tests::words_of(Script::Khmer)),
     );
-    for (text, words) in [(lao, &lao_words[..]), (khmer, &khmer_words[..])] {
+    let _burmese = words_pack(
+        'က',
+        &tests::table_of(Script::Myanmar, &tests::words_of(Script::Myanmar)),
+    );
+    for (text, words) in [
+        (lao, &lao_words[..]),
+        (khmer, &khmer_words[..]),
+        (burmese, &burmese_words[..]),
+    ] {
         assert!(
             breaks_between(text, words),
             "{:?}",
