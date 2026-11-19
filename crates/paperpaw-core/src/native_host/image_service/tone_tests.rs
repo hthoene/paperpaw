@@ -324,10 +324,7 @@ fn the_stage_is_asked_once_for_a_prepared_picture_and_its_curve_is_drawn_through
     t.draw(A, id, &mut fb.canvas(), &storage, 0, 0, 8, 4, GRAYS)
         .unwrap();
     assert_eq!(gray(&mut fb, 3, 2), 100);
-    // A document's picture is not asked for here; without a subscriber
-    // nothing waits.
-    t.add(A, document(0), "c/a.gray", 8, 4, false).unwrap();
-    assert!(!t.tone_pending());
+    // Without a subscriber nothing waits.
     t.add_prepared(A, 6, 8, 4, false).unwrap();
     assert!(t.tone_pending());
     t.tones_skip();

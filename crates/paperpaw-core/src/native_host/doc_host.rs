@@ -712,6 +712,9 @@ impl super::doc_service::DocHost for DocState {
     fn as_dyn(&self) -> &dyn super::doc_service::DocHost {
         self
     }
+    fn picture_book(&self, owner: u64, document: u32, visit: &mut dyn FnMut(bool, &str)) {
+        self.picture_book_of(owner, document, visit);
+    }
     fn serve(
         &self,
         frame: &dyn Frame,
@@ -1479,6 +1482,8 @@ mod cover_make;
 #[path = "doc_details_job.rs"]
 mod details_job;
 pub(crate) use cover_make::CoverAt;
+#[path = "doc_host_picture.rs"]
+mod picture;
 #[path = "doc_prepare.rs"]
 mod prepare;
 #[path = "doc_host_turned.rs"]

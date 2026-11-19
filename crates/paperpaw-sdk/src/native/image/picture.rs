@@ -24,15 +24,17 @@ pub const HISTOGRAM_BINS: usize = 16;
 pub enum Place {
     /// A picture on a page of a book.
     ReaderPage,
-    /// A page of a comic.
+    /// A page of a comic: a picture of a book whose format reads whole pages.
     ComicPage,
     /// A book's cover.
     Cover,
-    /// A small picture of a list or a grid.
+    /// A small picture of a list or a grid: a cover or a plugin's own
+    /// picture no longer than a quarter of the screen's long side.
     Thumbnail,
-    /// The picture of the sleep screen.
+    /// A picture of the sleep screen: a cover or a picture its plugin
+    /// prepared while its screen is shown.
     SleepScreen,
-    /// A picture a plugin prepared for its own screen or widget.
+    /// Another picture a plugin prepared for its own screen or widget.
     Ui,
     /// A place a newer host added.
     Other,
@@ -83,7 +85,7 @@ impl<'a> Asked<'a> {
         })
     }
 
-    /// Where the picture is shown.
+    /// Where the picture is shown, as the host can tell (`docs/abi/document.md` 5).
     #[must_use]
     pub const fn place(&self) -> Place {
         self.place

@@ -1223,6 +1223,8 @@ mod cache;
 #[path = "doc_host_protected_tests.rs"]
 mod protected_tests;
 
+#[path = "doc_host_picture_tests.rs"]
+mod picture_tests;
 #[path = "doc_host_root5_tests.rs"]
 mod root5_tests;
 
