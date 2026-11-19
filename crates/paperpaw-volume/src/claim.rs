@@ -447,7 +447,7 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     /// After a mount, before anything is changed: frees the clusters a cut left taken by no
     /// file, where the FS information sector holds a claim of them that still holds (see the
-    /// [module documentation](self)), and takes the claim away. How many clusters were freed;
+    /// module documentation), and takes the claim away. How many clusters were freed;
     /// they are counted in `cluster_changes`. Nothing is read where the mount found no claim.
     ///
     /// # Errors
