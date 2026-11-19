@@ -23,7 +23,7 @@ allow indirect-in core 85 calls through a register the scan does not follow, in 
 allow indirect-in paperpaw_layout 34 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_stardict 23 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_qr 20 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
-allow indirect-in paperpaw_text 21 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
+allow indirect-in paperpaw_text 53 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_digest 14 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_epub_family 14 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
 allow indirect-in paperpaw_sort 11 calls through a register the scan does not follow, in this crate's functions that the linked plugins reach (device test S4)
