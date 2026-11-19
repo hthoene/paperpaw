@@ -3,8 +3,10 @@
 //! (`Panel::draw`). The state is host-free and tested without a host; the
 //! drawing needs the font and the style, so it runs in the draw callback only.
 //!
-//! The panel is an overlay over the lower 11 twentieths of the page it was
-//! opened over (as interface 6 drew in a `region`): a bar along its top, the
+//! The panel is an overlay next to the selected words (below them, or above
+//! where there is no room, #378) or, where the reader gives no place, over the
+//! lower 11 twentieths of the page it was opened over (as interface 6 drew in a
+//! `region`): a bar along its top, the
 //! original in one line at the left of the header and the service's name at the
 //! right, then the translation (or why there is none) wrapped, scrolled by the
 //! page buttons or taps; *Select* or a tap at the end closes it.
@@ -24,7 +26,7 @@ use paperpaw_sdk::{
         snapshot,
     },
 };
-use paperpaw_ui_kit::{Messages, Paint, Style, geometry, paint, text};
+use paperpaw_ui_kit::{Messages, Paint, Style, anchored, geometry, paint, text};
 
 /// The most lines a body wraps to.
 pub const MAX_LINES: usize = 400;
@@ -124,6 +126,9 @@ pub struct Panel {
     lines: Option<Vec<String>>,
     /// Lines the last drawing showed.
     rows: usize,
+    /// Where the text is on the screen (the hand-over param `anchor`): the
+    /// panel goes next to it.
+    anchor: Option<Rect>,
     /// Where the panel and the offer's buttons were drawn.
     region: Rect,
     buttons: [Rect; 2],
@@ -148,10 +153,24 @@ impl Panel {
             top: 0,
             lines: None,
             rows: 1,
+            anchor: None,
             region: Rect::new(0, 0, 0, 0),
             buttons: [Rect::new(0, 0, 0, 0); 2],
             started: false,
         })
+    }
+
+    /// Puts the panel next to the text at `anchor` (the box of the selected
+    /// words on the screen, as the hand-over's param says it).
+    pub fn anchor_at(&mut self, anchor: &str) {
+        self.anchor = anchored::parse(anchor);
+    }
+
+    /// Where the panel is on a screen of `width` x `height`: next to the text
+    /// it translates where that is known, else the sheet at the bottom.
+    #[must_use]
+    pub fn window(&self, width: u16, height: u16, gap: u16) -> anchored::Window {
+        anchored::place(self.anchor, width, height, gap)
     }
 
     /// The text to translate.
@@ -334,12 +353,13 @@ impl Panel {
     ) -> Result<(), Error> {
         let style = Style::read(host, display, font)?;
         let (width, height) = (display.display_width(), display.display_height());
-        let top = height * 9 / 20;
-        let region = Rect::new(0, top, width, height.saturating_sub(top));
+        let window = self.window(width, height, style.gap);
+        let region = window.region;
+        let top = region.y;
         let mut messages = Messages::new()?;
         let mut ops: Vec<Paint> = Vec::new();
         paint::push(&mut ops, Paint::Fill(region, style.paper))?;
-        paperpaw_ui_kit::sheet::edge(&mut ops, &style, region, style.ink)?;
+        anchored::edges(&mut ops, &style, window, style.ink)?;
         // The original at the left, the service at the right.
         let header = Rect::new(0, top, width, style.row);
         let source = messages.copy(host, "translate.source")?;
