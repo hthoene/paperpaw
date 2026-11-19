@@ -1693,6 +1693,16 @@ field command.redraw_area x 1
 field command.redraw_area y 1
 field command.redraw_area width 1
 field command.redraw_area height 1
+record command.pass_on 1
+field command.pass_on instance 1
+field command.pass_on reason 1
+field command.pass_on flags 1
+record event.display_changed 1
+field event.display_changed now_ms 1
+field event.display_changed width 1
+field event.display_changed height 1
+field event.display_changed ppi 1
+field event.display_changed flags 1
 record command.show_again 1
 field command.show_again instance 1
 field command.show_again after_ms 1
