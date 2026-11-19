@@ -90,7 +90,8 @@ fn describe(device: &Device) -> String {
         );
     }
     out.push_str("\n],\n\"widgets\": [");
-    for (i, (id, title)) in kernel.widgets().iter().enumerate() {
+    // The widgets plugins registered and those native plugins declared.
+    for (i, (id, title, _kind)) in kernel.widgets().everywhere().iter().enumerate() {
         let comma = if i > 0 { "," } else { "" };
         let _ = write!(
             out,
@@ -192,6 +193,15 @@ mod tests {
             Some(f64::from(VERSION))
         );
         assert!(text.contains("\"id\": \"core.device-name\""));
+        // What native plugins declare is listed as well as what the kernel
+        // registered itself (#372).
+        assert!(text.contains("{\"id\": \"core.space\""), "{text}");
+        assert!(text.contains("{\"id\": \"widgets.word-clock\""), "{text}");
+        assert!(text.contains("{\"id\": \"widgets.todo.open\""), "{text}");
+        assert!(
+            text.contains("\"id\": \"widgets.word-clock.font\""),
+            "{text}"
+        );
         assert_eq!(text.matches("\"colour_screen\":").count(), PROFILES.len());
         assert_eq!(
             text.matches("\"body\": {\"bezel\":").count(),
