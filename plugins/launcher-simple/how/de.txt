@@ -1,0 +1,7 @@
+Einfacher Start ist ein ruhiger Startbildschirm für alle, die nur das Wesentliche brauchen: eine große Uhr, das Buch, das du gerade liest, Bibliothek und Store als große Karten und unten eine Leiste mit drei Symbolen. Er braucht keine Einrichtung.
+
+Wähle ihn in den Einstellungen beim Startbildschirm. Sein Schnellpanel (in den Einstellungen ebenfalls als Panel wählen) hat große runde Schalter, einen Balken für das Frontlicht, wo das Gerät eines hat, und einen Balken für die Textgröße. Mit Tasten bewegen die Pfeiltasten den Fokus, Auswählen tut, was der Teil sagt; bei einem Balken addiert es ein Zehntel und springt vom Ende zurück zum Anfang. Mit Touch tippst du einen Teil an, oder einen Balken dort, wo du ihn haben willst.
+
+Die Bibliothek zeigt deine Bücher als Karten, das zuletzt geöffnete zuerst, Seite für Seite, und öffnet den normalen Leser.
+
+Mach ihn zu deinem: in den Einstellungen unter Einfacher Start gibt es drei Listen, die du bearbeitest wie das Hauptmenü. Karten: welche Karten der Start zeigt und in welcher Reihenfolge. Leiste: welche Symbole die Leiste hat, jede Aktion jedes Plugins. Schnellpanel: welche Schalter und Balken es zeigt. Eine Karte, für die der Bildschirm keinen Platz hat, entfällt, von hinten. Unter Einfacher Start wählst du auch, ob Datum und Akku erscheinen.

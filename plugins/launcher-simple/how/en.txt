@@ -1,0 +1,7 @@
+Simple home is a calm start screen for those who need only the core: a large clock, the book you are reading, the library and the store as big cards, and a dock of three icons at the bottom. It needs no setup.
+
+Choose it in Settings, under the home screen. Its quick panel (choose it as the panel in Settings too) has big round switches, a bar for the front light where the device has one and a bar for the text size. With buttons, the arrow keys move the focus and Select does what the part says; on a bar it adds a tenth, and from the end goes back to the start. With touch, tap a part, or tap a bar where you want it.
+
+The library lists your books as cards, the book opened last first, a page at a time, and opens the normal reader.
+
+Make it yours in Settings, under Simple home: three lists you edit as you edit the main menu. Cards: which cards the home shows and in which order. Dock: which icons the dock holds, any action of any plugin. Quick panel: which switches and bars it shows. A card the screen has no room for is left out, from the end. Under Simple home you also choose whether the date and the battery show.

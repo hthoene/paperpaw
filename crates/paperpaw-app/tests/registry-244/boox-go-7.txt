@@ -55,6 +55,7 @@ plugin | end-of-book Off enabled=false BuiltIn
 plugin | diagnostics Off enabled=false BuiltIn
 plugin | translate Off enabled=false BuiltIn
 plugin | pomodoro Off enabled=false BuiltIn
+plugin | launcher-simple Off enabled=false BuiltIn
 plugin | smart-home Off enabled=false BuiltIn
 plugin | puzzles Off enabled=false BuiltIn
 plugin | tasks Off enabled=false BuiltIn
