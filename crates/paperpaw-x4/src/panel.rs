@@ -32,8 +32,8 @@ pub enum Device {
     /// [`uc8253`]); no frame of its own, as the X4.
     X3,
     /// The Boox Picco: an SSD1677 driven as the X4 Pro's, or its
-    /// "SSD2677" ([`ssd2677`]), by unit; turned as the X4 Pro (not yet
-    /// seen on one).
+    /// "SSD2677" ([`crate::ssd2677`]), by unit; turned as the X4 Pro (not
+    /// yet seen on one).
     Picco,
 }
 
