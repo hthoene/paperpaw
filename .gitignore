@@ -4,6 +4,7 @@
 # A build run from inside a plugin's folder (CARGO_TARGET_DIR=$PWD/target there).
 /plugins/*/target/
 /crates/*/target/
+/samples/*/target/
 /crates/*/tests/*/target/
 /tools/*/target/
 # The X4's firmware builds on its own (see shells/xteink).

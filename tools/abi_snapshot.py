@@ -133,12 +133,27 @@ def _extension(descriptor, offset):
     """The extension's pieces of the codec; all empty for the first layout,
     which then renders exactly as before the extension existed."""
     if 'extension' not in descriptor:
-        return {'@WIRE@': 'SNAPSHOT_BYTES', '@EXT_CONST@': '', '@EXT_FIELD@': '',
+        return {'@WIRE@': 'SNAPSHOT_BYTES', '@TOTAL@': 'SNAPSHOT_BYTES',
+                '@ENCODE_DOC@': 'exactly SNAPSHOT_BYTES', '@EXT_ENCODE_DOC@': '',
+                '@EXT_TOTAL@': '', '@EXT_CONST@': '', '@EXT_FIELD@': '',
                 '@EXT_NEW@': '', '@EXT_ENCODE@': '', '@EXT_DECODE@': '', '@EXT_VALUE@': ''}
     flag = offset
     end = offset + sum(SIZES[t] for _, t in EXTENSION)
     return {
         '@WIRE@': 'SNAPSHOT_EXTENDED_BYTES',
+        '@TOTAL@': 'total',
+        '@ENCODE_DOC@': 'the longest snapshot the output holds',
+        '@EXT_ENCODE_DOC@': '''
+/// Extensions are appended and written only where the output has room for
+/// them whole: SNAPSHOT_BYTES through SNAPSHOT_EXTENDED_BYTES - 1 bytes get
+/// the prefix alone (a reader of the first layout), more get the extension
+/// too. The declared total is the written length, which is returned.''',
+        '@EXT_TOTAL@': '''
+    let total = if out.len() >= SNAPSHOT_EXTENDED_BYTES {
+        SNAPSHOT_EXTENDED_BYTES
+    } else {
+        SNAPSHOT_BYTES
+    };''',
         '@EXT_CONST@': f'''
 /// Length with the appended extension (`hints_shown` and three reserved
 /// bytes): what a host writes. A shorter snapshot (52 bytes) is one from a
@@ -332,10 +347,10 @@ fn pixel_decode(kind: u16, code: u16, bits: u8) -> Result<PixelFormat, i32> {
     Ok(pixel)
 }
 
-/// Encode exactly @WIRE@, leaving every output byte unchanged on error.
+/// Encode @ENCODE_DOC@, leaving every output byte unchanged on error.
 ///
 /// Output may be uninitialized. Validation and capacity checks precede writes.
-/// This is a status operation: a short output is ERR_NO_SPACE, never a prefix copy.
+/// This is a status operation: output below SNAPSHOT_BYTES is ERR_NO_SPACE.@EXT_ENCODE_DOC@
 pub fn snapshot_encode(
     value: &Snapshot,
     out: &mut [core::mem::MaybeUninit<u8>],
@@ -347,9 +362,9 @@ pub fn snapshot_encode(
     {
         return Err(@ERR_INVALID@);
     }
-    if out.len() < @WIRE@ {
+    if out.len() < SNAPSHOT_BYTES {
         return Err(@ERR_NO_SPACE@);
-    }
+    }@EXT_TOTAL@
     let mut bytes = [0_u8; @WIRE@];
     let mut presence = 0_u32;
     if let Some(battery) = value.battery {
@@ -371,7 +386,7 @@ pub fn snapshot_encode(
         bytes[@UTC_OFFSET_MINUTES_OFFSET@..@UTC_OFFSET_MINUTES_END@].copy_from_slice(&minutes.to_le_bytes());
     }
     bytes[@VERSION_OFFSET@..@VERSION_END@].copy_from_slice(&SNAPSHOT_VERSION.to_le_bytes());
-    bytes[@TOTAL_BYTES_OFFSET@..@TOTAL_BYTES_END@].copy_from_slice(&(@WIRE@ as u32).to_le_bytes());
+    bytes[@TOTAL_BYTES_OFFSET@..@TOTAL_BYTES_END@].copy_from_slice(&(@TOTAL@ as u32).to_le_bytes());
     bytes[@PRESENCE_OFFSET@..@PRESENCE_END@].copy_from_slice(&presence.to_le_bytes());
     bytes[@MONOTONIC_MS_OFFSET@..@MONOTONIC_MS_END@].copy_from_slice(&value.monotonic_ms.to_le_bytes());
     bytes[@WIDTH_OFFSET@..@WIDTH_END@].copy_from_slice(&value.width.to_le_bytes());
@@ -382,10 +397,10 @@ pub fn snapshot_encode(
     bytes[@PIXEL_CODE_OFFSET@..@PIXEL_CODE_END@].copy_from_slice(&code.to_le_bytes());
     bytes[@PIXEL_BITS_OFFSET@] = bits;
     bytes[@TOUCH_OFFSET@] = u8::from(value.touch);@EXT_ENCODE@
-    for (slot, byte) in out.iter_mut().zip(bytes) {
-        slot.write(byte);
+    for (slot, byte) in out.iter_mut().zip(&bytes[..@TOTAL@]) {
+        slot.write(*byte);
     }
-    Ok(@WIRE@)
+    Ok(@TOTAL@)
 }
 
 fn scalar<const N: usize>(bytes: &[u8], offset: usize) -> [u8; N] {

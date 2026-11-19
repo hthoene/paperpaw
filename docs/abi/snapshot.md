@@ -6,10 +6,13 @@ and `crates/paperpaw-core/src/abi7/snapshot_wire.rs`. No Rust struct layout
 crosses the ABI. The original raw ABI module stays unchanged.
 
 Host slot 4, `env.snapshot`, is a status operation with a 128-byte output cap.
-The encoder writes a complete 56-byte version 1 snapshot (the 52-byte prefix and
-the extension below). The caller must
-provide that much storage; a short buffer returns `ERR_NO_SPACE` and receives
-no writes. This slot has no length query or partial-copy behavior. The encoder
+The encoder writes the longest version 1 snapshot the output holds, ending at a
+field boundary: the 52-byte prefix, then each appended extension only when the
+output has room for it whole. A buffer of 52 through 55 bytes (a reader of the
+first layout) gets the 52-byte prefix; 56 bytes or more get the extension
+below too. The declared total (offset 4) is the written length, and the
+encoder returns it. Only a buffer below 52 bytes returns `ERR_NO_SPACE`, and it
+receives no writes. This slot has no length query. The encoder
 accepts uninitialized output storage and initializes exactly the returned
 prefix, leaving spare capacity untouched. It validates the complete value
 before writing. Percentages above 100 return `ERR_INVALID`.
@@ -21,7 +24,7 @@ There is no alignment padding.
 | Offset | Bytes | Field |
 | --- | --- | --- |
 | 0 | 4 | Version, currently 1 |
-| 4 | 4 | Total bytes, currently 52 when encoded |
+| 4 | 4 | Total bytes written: 56, or 52 into a buffer below 56 |
 | 8 | 4 | Presence bitmap |
 | 12 | 4 | Reserved, zero |
 | 16 | 8 | Monotonic milliseconds, unsigned |
@@ -47,7 +50,8 @@ host's row of hints was on screen when the screen was last drawn, so a screen
 whose first press only shows the bars asks it instead of keeping the host's
 4 s timer. A snapshot of 52 bytes (a host without it) reads as false; a
 decoder of the first layout reads the 56 bytes as the prefix and trailing
-extension bytes, so plugins built before it keep running.
+extension bytes, and one that asks for exactly 52 bytes gets the prefix
+without it, so plugins built before it keep running.
 
 Presence bits are battery `1`, voltage `2`, Unix time `4` and UTC offset `8`.
 Voltage requires battery presence. An absent Unix time requires zero seconds.
@@ -114,8 +118,8 @@ Call `scope(env, callback)` around synchronous dispatch, then forward slot 4
 through unsafe `copy(out.ptr, out.cap)`. The caller must provide live exclusive
 output storage disjoint from host state; uninitialized output is supported.
 The host method returns `OK` on success; the generated `total_bytes` header
-field carries the encoded length. The standalone encoder returns a byte count. Short buffers
-fail without writes; no active environment returns `ERR_STATE` for valid output.
+field carries the written length. The standalone encoder returns a byte count. Buffers
+below 52 bytes fail without writes; no active environment returns `ERR_STATE` for valid output.
 Scope cleanup runs on normal return and unwind, and nested installation is Busy.
 Only owned snapshot values leave the borrowed frame.
 
