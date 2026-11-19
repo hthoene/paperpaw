@@ -16,7 +16,7 @@ pub const ENTRIES: [(&str, &str, &str, &str); 3] = [
         crate::declarations::MENU_CARDS,
         "launcher-simple.customise.cards",
         "launcher-simple.customise.cards.note",
-        "layout-list",
+        "layout-grid",
     ),
     (
         crate::declarations::MENU_DOCK,

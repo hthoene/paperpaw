@@ -155,7 +155,7 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     }
     d.icon(GROUP, "layout-grid")?;
     d.icon("launcher-simple.continue", "book")?;
-    d.icon("launcher-simple.customise", "layout-list")?;
+    d.icon("launcher-simple.customise", "layout-grid")?;
     d.submit()
 }
 
