@@ -62,7 +62,11 @@ trait FatTrait {
         Error<E>: From<S::Error>;
 }
 
-pub(crate) fn read_fat<S, E>(fat: &mut S, fat_type: FatType, cluster: u32) -> Result<FatValue, Error<E>>
+pub(crate) fn read_fat<S, E>(
+    fat: &mut S,
+    fat_type: FatType,
+    cluster: u32,
+) -> Result<FatValue, Error<E>>
 where
     S: Read + Seek,
     E: IoError,
@@ -75,7 +79,12 @@ where
     }
 }
 
-pub(crate) fn write_fat<S, E>(fat: &mut S, fat_type: FatType, cluster: u32, value: FatValue) -> Result<(), Error<E>>
+pub(crate) fn write_fat<S, E>(
+    fat: &mut S,
+    fat_type: FatType,
+    cluster: u32,
+    value: FatValue,
+) -> Result<(), Error<E>>
 where
     S: Read + Write + Seek,
     E: IoError,
@@ -89,7 +98,11 @@ where
     }
 }
 
-fn get_next_cluster<S, E>(fat: &mut S, fat_type: FatType, cluster: u32) -> Result<Option<u32>, Error<E>>
+fn get_next_cluster<S, E>(
+    fat: &mut S,
+    fat_type: FatType,
+    cluster: u32,
+) -> Result<Option<u32>, Error<E>>
 where
     S: Read + Seek,
     E: IoError,
@@ -135,14 +148,25 @@ where
     E: IoError,
     Error<E>: From<S::Error>,
 {
-    alloc_cluster_said(fat, fat_type, prev_cluster, hint, total_clusters, taken, &mut |_, _, _, _| Ok(()))
+    alloc_cluster_said(
+        fat,
+        fat_type,
+        prev_cluster,
+        hint,
+        total_clusters,
+        taken,
+        &mut |_, _, _, _| Ok(()),
+    )
 }
 
 /// Called before clusters are marked taken: with the FAT, the first of them, the bytes about to
 /// be written at its entry (none where one cluster is taken as `alloc_cluster` does, and where
 /// the next says so) and whether they go in one write with the link to them (a cut cannot leave
 /// them taken and linked from nowhere then). See `FileSystem::claim_taking`.
-pub(crate) trait Before<S, E>: FnMut(&mut S, u32, &[u8], bool) -> Result<(), Error<E>> {}
+pub(crate) trait Before<S, E>:
+    FnMut(&mut S, u32, &[u8], bool) -> Result<(), Error<E>>
+{
+}
 impl<S, E, F: FnMut(&mut S, u32, &[u8], bool) -> Result<(), Error<E>>> Before<S, E> for F {}
 
 // Modified for PaperPaw: `alloc_cluster` with `before` called before the cluster is marked.
@@ -205,7 +229,15 @@ where
     Error<E>: From<S::Error>,
 {
     if fat_type == FatType::Fat12 {
-        let first = alloc_cluster_said(fat, fat_type, prev_cluster, hint, total_clusters, taken, before)?;
+        let first = alloc_cluster_said(
+            fat,
+            fat_type,
+            prev_cluster,
+            hint,
+            total_clusters,
+            taken,
+            before,
+        )?;
         return Ok((first, 1));
     }
     let end_cluster = total_clusters + RESERVED_FAT_ENTRIES;
@@ -226,7 +258,8 @@ where
     // lies in another block it is one cluster, and `before` is told that the link is a write of
     // its own.
     let entries_per_block = 512 / if fat_type == FatType::Fat32 { 4 } else { 2 };
-    let same_block = prev_cluster.is_some_and(|n| n / entries_per_block == first / entries_per_block);
+    let same_block =
+        prev_cluster.is_some_and(|n| n / entries_per_block == first / entries_per_block);
     let want = if same_block || prev_cluster.is_none() {
         want.min(entries_per_block - first % entries_per_block)
     } else {
@@ -234,7 +267,10 @@ where
     }
     .clamp(1, MAX_RUN);
     let mut count = 1;
-    while count < want && first + count < end_cluster && read_fat(fat, fat_type, first + count)? == FatValue::Free {
+    while count < want
+        && first + count < end_cluster
+        && read_fat(fat, fat_type, first + count)? == FatValue::Free
+    {
         count += 1;
     }
     if let Some(prev) = prev_cluster.filter(|&n| same_block && n + 1 != first) {
@@ -283,11 +319,7 @@ where
 pub(crate) const BLOCK: usize = 512;
 
 fn entry_size(fat_type: FatType) -> u64 {
-    if fat_type == FatType::Fat32 {
-        4
-    } else {
-        2
-    }
+    if fat_type == FatType::Fat32 { 4 } else { 2 }
 }
 
 /// Where in the FAT the block holding the entry of `cluster` starts.
@@ -314,7 +346,12 @@ where
 
 /// A hash (FNV-1a) of the block holding the entry of `cluster`, as it is with `entries` written
 /// at that entry (they must end inside the block). Read a part at a time: no block on the stack.
-pub(crate) fn hash_block<S, E>(fat: &mut S, fat_type: FatType, cluster: u32, entries: &[u8]) -> Result<u32, Error<E>>
+pub(crate) fn hash_block<S, E>(
+    fat: &mut S,
+    fat_type: FatType,
+    cluster: u32,
+    entries: &[u8],
+) -> Result<u32, Error<E>>
 where
     S: Read + Seek,
     E: IoError,
@@ -329,7 +366,10 @@ where
         let mut bytes = [0u8; PART];
         fat.read_exact(&mut bytes)?;
         for (i, byte) in bytes.iter_mut().enumerate() {
-            if let Some(new) = (part * PART + i).checked_sub(from).and_then(|k| entries.get(k)) {
+            if let Some(new) = (part * PART + i)
+                .checked_sub(from)
+                .and_then(|k| entries.get(k))
+            {
                 *byte = *new;
             }
             hash = (hash ^ u32::from(*byte)).wrapping_mul(0x0100_0193);
@@ -340,7 +380,12 @@ where
 
 /// Writes `value` at the entry of `cluster` in `block`, the block of the FAT that holds it (a
 /// FAT32 entry keeps its four reserved bits).
-pub(crate) fn set_in_block(block: &mut [u8; BLOCK], fat_type: FatType, cluster: u32, value: FatValue) {
+pub(crate) fn set_in_block(
+    block: &mut [u8; BLOCK],
+    fat_type: FatType,
+    cluster: u32,
+    value: FatValue,
+) {
     let at = (u64::from(cluster) * entry_size(fat_type) - block_of(fat_type, cluster)) as usize;
     let raw = match value {
         FatValue::Free => 0,
@@ -350,7 +395,8 @@ pub(crate) fn set_in_block(block: &mut [u8; BLOCK], fat_type: FatType, cluster: 
     };
     if fat_type == FatType::Fat32 {
         let old = u32::from_le_bytes([block[at], block[at + 1], block[at + 2], block[at + 3]]);
-        block[at..at + 4].copy_from_slice(&((raw & 0x0FFF_FFFF) | (old & 0xF000_0000)).to_le_bytes());
+        block[at..at + 4]
+            .copy_from_slice(&((raw & 0x0FFF_FFFF) | (old & 0xF000_0000)).to_le_bytes());
     } else {
         block[at..at + 2].copy_from_slice(&(raw as u16).to_le_bytes());
     }
@@ -358,7 +404,11 @@ pub(crate) fn set_in_block(block: &mut [u8; BLOCK], fat_type: FatType, cluster: 
 
 /// Where the chain from `start` leaves the block of the FAT its entry is in: the first of its
 /// clusters whose entry lies in another block, if it goes on.
-pub(crate) fn leaves_block<S, E>(fat: &mut S, fat_type: FatType, start: u32) -> Result<Option<u32>, Error<E>>
+pub(crate) fn leaves_block<S, E>(
+    fat: &mut S,
+    fat_type: FatType,
+    start: u32,
+) -> Result<Option<u32>, Error<E>>
 where
     S: Read + Seek,
     E: IoError,
@@ -380,7 +430,13 @@ where
 /// chain), all in one block of the FAT, which is written once. The block is on the stack here
 /// only.
 #[inline(never)]
-fn link_in_block<S, E>(fat: &mut S, fat_type: FatType, prev: u32, first: u32, count: u32) -> Result<(), Error<E>>
+fn link_in_block<S, E>(
+    fat: &mut S,
+    fat_type: FatType,
+    prev: u32,
+    first: u32,
+    count: u32,
+) -> Result<(), Error<E>>
 where
     S: Read + Write + Seek,
     E: IoError,
@@ -445,7 +501,13 @@ pub(crate) const MAX_RUN: u32 = 32;
 
 /// The bytes of one FAT16/FAT32 entry, as `Fat16::set` and `Fat32::set` write it (a FAT32 entry
 /// keeps its four reserved bits).
-fn put_entry<S, E>(out: &mut [u8], fat: &mut S, fat_type: FatType, cluster: u32, value: FatValue) -> Result<usize, Error<E>>
+fn put_entry<S, E>(
+    out: &mut [u8],
+    fat: &mut S,
+    fat_type: FatType,
+    cluster: u32,
+    value: FatValue,
+) -> Result<usize, Error<E>>
 where
     S: Read + Seek,
     E: IoError,
@@ -523,7 +585,10 @@ where
     Ok(())
 }
 
-pub(crate) fn read_fat_flags<S, E>(fat: &mut S, fat_type: FatType) -> Result<FsStatusFlags, Error<E>>
+pub(crate) fn read_fat_flags<S, E>(
+    fat: &mut S,
+    fat_type: FatType,
+) -> Result<FsStatusFlags, Error<E>>
 where
     S: Read + Seek,
     E: IoError,
@@ -548,7 +613,11 @@ where
     Ok(FsStatusFlags { dirty, io_error })
 }
 
-pub(crate) fn count_free_clusters<S, E>(fat: &mut S, fat_type: FatType, total_clusters: u32) -> Result<u32, Error<E>>
+pub(crate) fn count_free_clusters<S, E>(
+    fat: &mut S,
+    fat_type: FatType,
+    total_clusters: u32,
+) -> Result<u32, Error<E>>
 where
     S: Read + Seek,
     E: IoError,
@@ -592,7 +661,8 @@ where
     }
     // mark entries at the end of FAT as used (after FAT but before sector end)
     let start_cluster = total_clusters + RESERVED_FAT_ENTRIES;
-    let end_cluster = (bytes_per_fat * BITS_PER_BYTE / u64::from(fat_type.bits_per_fat_entry())) as u32;
+    let end_cluster =
+        (bytes_per_fat * BITS_PER_BYTE / u64::from(fat_type.bits_per_fat_entry())) as u32;
     for cluster in start_cluster..end_cluster {
         write_fat(fat, fat_type, cluster, FatValue::EndOfChain)?;
     }
@@ -861,7 +931,10 @@ impl FatTrait for Fat32 {
                 } else {
                     "end-of-chain"
                 };
-                warn!("cluster number {} is a special value in FAT to indicate {}; hiding potential FAT chain value {} and instead reporting as a bad sector", cluster, tmp, n);
+                warn!(
+                    "cluster number {} is a special value in FAT to indicate {}; hiding potential FAT chain value {} and instead reporting as a bad sector",
+                    cluster, tmp, n
+                );
                 FatValue::Bad // avoid accidental use or allocation into a FAT chain
             }
             n => FatValue::Data(n),
@@ -996,7 +1069,12 @@ where
             if value == FatValue::Free {
                 self.taken += 1;
             }
-            write_fat(self.fat.borrow_mut(), self.fat_type, n, FatValue::EndOfChain)?;
+            write_fat(
+                self.fat.borrow_mut(),
+                self.fat_type,
+                n,
+                FatValue::EndOfChain,
+            )?;
             // Free rest of chain
             self.free()
         } else {
@@ -1048,13 +1126,14 @@ where
             return None;
         }
         if let Some(current_cluster) = self.cluster {
-            self.cluster = match get_next_cluster(self.fat.borrow_mut(), self.fat_type, current_cluster) {
-                Ok(next_cluster) => next_cluster,
-                Err(err) => {
-                    self.err = true;
-                    return Some(Err(err));
+            self.cluster =
+                match get_next_cluster(self.fat.borrow_mut(), self.fat_type, current_cluster) {
+                    Ok(next_cluster) => next_cluster,
+                    Err(err) => {
+                        self.err = true;
+                        return Some(Err(err));
+                    }
                 }
-            }
         }
         self.cluster.map(Ok)
     }
@@ -1069,20 +1148,53 @@ mod tests {
     fn test_fat<S: Read + Write + Seek>(fat_type: FatType, mut cur: S) {
         // based on cluster maps from Wikipedia:
         // https://en.wikipedia.org/wiki/Design_of_the_FAT_file_system#Cluster_map
-        assert_eq!(read_fat(&mut cur, fat_type, 1).ok(), Some(FatValue::EndOfChain));
-        assert_eq!(read_fat(&mut cur, fat_type, 4).ok(), Some(FatValue::Data(5)));
-        assert_eq!(read_fat(&mut cur, fat_type, 5).ok(), Some(FatValue::Data(6)));
-        assert_eq!(read_fat(&mut cur, fat_type, 8).ok(), Some(FatValue::EndOfChain));
-        assert_eq!(read_fat(&mut cur, fat_type, 9).ok(), Some(FatValue::Data(0xA)));
-        assert_eq!(read_fat(&mut cur, fat_type, 0xA).ok(), Some(FatValue::Data(0x14)));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x12).ok(), Some(FatValue::Free));
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 1).ok(),
+            Some(FatValue::EndOfChain)
+        );
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 4).ok(),
+            Some(FatValue::Data(5))
+        );
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 5).ok(),
+            Some(FatValue::Data(6))
+        );
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 8).ok(),
+            Some(FatValue::EndOfChain)
+        );
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 9).ok(),
+            Some(FatValue::Data(0xA))
+        );
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0xA).ok(),
+            Some(FatValue::Data(0x14))
+        );
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x12).ok(),
+            Some(FatValue::Free)
+        );
         assert_eq!(read_fat(&mut cur, fat_type, 0x17).ok(), Some(FatValue::Bad));
         assert_eq!(read_fat(&mut cur, fat_type, 0x18).ok(), Some(FatValue::Bad));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x1B).ok(), Some(FatValue::Free));
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x1B).ok(),
+            Some(FatValue::Free)
+        );
 
-        assert_eq!(find_free_cluster(&mut cur, fat_type, 2, 0x20).ok(), Some(0x12));
-        assert_eq!(find_free_cluster(&mut cur, fat_type, 0x12, 0x20).ok(), Some(0x12));
-        assert_eq!(find_free_cluster(&mut cur, fat_type, 0x13, 0x20).ok(), Some(0x1B));
+        assert_eq!(
+            find_free_cluster(&mut cur, fat_type, 2, 0x20).ok(),
+            Some(0x12)
+        );
+        assert_eq!(
+            find_free_cluster(&mut cur, fat_type, 0x12, 0x20).ok(),
+            Some(0x12)
+        );
+        assert_eq!(
+            find_free_cluster(&mut cur, fat_type, 0x13, 0x20).ok(),
+            Some(0x1B)
+        );
         assert!(find_free_cluster(&mut cur, fat_type, 0x13, 0x14).is_err());
 
         assert_eq!(count_free_clusters(&mut cur, fat_type, 0x1E).ok(), Some(5));
@@ -1092,23 +1204,33 @@ mod tests {
             alloc_cluster(&mut cur, fat_type, None, Some(0x13), 0x1E, &Cell::new(0)).ok(),
             Some(0x1B)
         );
-        assert_eq!(read_fat(&mut cur, fat_type, 0x1B).ok(), Some(FatValue::EndOfChain));
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x1B).ok(),
+            Some(FatValue::EndOfChain)
+        );
         assert_eq!(
             alloc_cluster(&mut cur, fat_type, Some(0x1B), None, 0x1E, &Cell::new(0)).ok(),
             Some(0x12)
         );
-        assert_eq!(read_fat(&mut cur, fat_type, 0x1B).ok(), Some(FatValue::Data(0x12)));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x12).ok(), Some(FatValue::EndOfChain));
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x1B).ok(),
+            Some(FatValue::Data(0x12))
+        );
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x12).ok(),
+            Some(FatValue::EndOfChain)
+        );
         assert_eq!(count_free_clusters(&mut cur, fat_type, 0x1E).ok(), Some(3));
         // test reading from iterator
         {
             let iter = ClusterIterator::<&mut S, S::Error, S>::new(&mut cur, fat_type, 0x9);
             let actual_cluster_numbers = iter.map(Result::ok).collect::<Vec<_>>();
-            let expected_cluster_numbers = [0xA_u32, 0x14_u32, 0x15_u32, 0x16_u32, 0x19_u32, 0x1A_u32]
-                .iter()
-                .copied()
-                .map(Some)
-                .collect::<Vec<_>>();
+            let expected_cluster_numbers =
+                [0xA_u32, 0x14_u32, 0x15_u32, 0x16_u32, 0x19_u32, 0x1A_u32]
+                    .iter()
+                    .copied()
+                    .map(Some)
+                    .collect::<Vec<_>>();
             assert_eq!(actual_cluster_numbers, expected_cluster_numbers);
         }
         // test truncating a chain
@@ -1117,9 +1239,18 @@ mod tests {
             assert_eq!(iter.nth(3).map(Result::ok), Some(Some(0x16)));
             assert!(iter.truncate().is_ok());
         }
-        assert_eq!(read_fat(&mut cur, fat_type, 0x16).ok(), Some(FatValue::EndOfChain));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x19).ok(), Some(FatValue::Free));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x1A).ok(), Some(FatValue::Free));
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x16).ok(),
+            Some(FatValue::EndOfChain)
+        );
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x19).ok(),
+            Some(FatValue::Free)
+        );
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x1A).ok(),
+            Some(FatValue::Free)
+        );
         // test freeing a chain
         {
             let mut iter = ClusterIterator::<&mut S, S::Error, S>::new(&mut cur, fat_type, 0x9);
@@ -1127,9 +1258,18 @@ mod tests {
         }
         assert_eq!(read_fat(&mut cur, fat_type, 0x9).ok(), Some(FatValue::Free));
         assert_eq!(read_fat(&mut cur, fat_type, 0xA).ok(), Some(FatValue::Free));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x14).ok(), Some(FatValue::Free));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x15).ok(), Some(FatValue::Free));
-        assert_eq!(read_fat(&mut cur, fat_type, 0x16).ok(), Some(FatValue::Free));
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x14).ok(),
+            Some(FatValue::Free)
+        );
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x15).ok(),
+            Some(FatValue::Free)
+        );
+        assert_eq!(
+            read_fat(&mut cur, fat_type, 0x16).ok(),
+            Some(FatValue::Free)
+        );
     }
 
     #[test]
@@ -1138,28 +1278,33 @@ mod tests {
             let mut fat = StdIoWrapper::new(Cursor::new(vec![0u8; 64]));
             // A corrupt link points into an already-free entry.
             write_fat(&mut fat, fat_type, 2, FatValue::Data(3)).unwrap();
-            let mut iter =
-                ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(&mut fat, fat_type, 2);
+            let mut iter = ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(
+                &mut fat, fat_type, 2,
+            );
             assert_eq!(iter.free().unwrap(), 1);
             assert_eq!((iter.taken(), iter.freed()), (0, 1));
             // Freeing that chain again changes nothing.
-            let mut iter =
-                ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(&mut fat, fat_type, 2);
+            let mut iter = ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(
+                &mut fat, fat_type, 2,
+            );
             assert_eq!(iter.free().unwrap(), 0);
             assert_eq!(iter.freed(), 0);
             // A cross-link into an already-freed chain cannot count it twice.
             write_fat(&mut fat, fat_type, 4, FatValue::Data(2)).unwrap();
-            let mut iter =
-                ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(&mut fat, fat_type, 4);
+            let mut iter = ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(
+                &mut fat, fat_type, 4,
+            );
             assert_eq!(iter.free().unwrap(), 1);
             assert_eq!(iter.freed(), 1);
             // Truncating a free cluster takes it, rather than freeing anything.
-            let mut iter =
-                ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(&mut fat, fat_type, 2);
+            let mut iter = ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(
+                &mut fat, fat_type, 2,
+            );
             assert_eq!(iter.truncate().unwrap(), 0);
             assert_eq!((iter.taken(), iter.freed()), (1, 0));
-            let mut iter =
-                ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(&mut fat, fat_type, 2);
+            let mut iter = ClusterIterator::<_, std::io::Error, StdIoWrapper<Cursor<Vec<u8>>>>::new(
+                &mut fat, fat_type, 2,
+            );
             assert_eq!(iter.truncate().unwrap(), 0);
             assert_eq!((iter.taken(), iter.freed()), (0, 0));
         }
@@ -1168,36 +1313,49 @@ mod tests {
     #[test]
     fn test_fat12() {
         let fat: Vec<u8> = vec![
-            0xF0, 0xFF, 0xFF, 0x03, 0x40, 0x00, 0x05, 0x60, 0x00, 0x07, 0x80, 0x00, 0xFF, 0xAF, 0x00, 0x14, 0xC0, 0x00,
-            0x0D, 0xE0, 0x00, 0x0F, 0x00, 0x01, 0x11, 0xF0, 0xFF, 0x00, 0xF0, 0xFF, 0x15, 0x60, 0x01, 0x19, 0x70, 0xFF,
-            0xF7, 0xAF, 0x01, 0xFF, 0x0F, 0x00, 0x00, 0x70, 0xFF, 0x00, 0x00, 0x00,
+            0xF0, 0xFF, 0xFF, 0x03, 0x40, 0x00, 0x05, 0x60, 0x00, 0x07, 0x80, 0x00, 0xFF, 0xAF,
+            0x00, 0x14, 0xC0, 0x00, 0x0D, 0xE0, 0x00, 0x0F, 0x00, 0x01, 0x11, 0xF0, 0xFF, 0x00,
+            0xF0, 0xFF, 0x15, 0x60, 0x01, 0x19, 0x70, 0xFF, 0xF7, 0xAF, 0x01, 0xFF, 0x0F, 0x00,
+            0x00, 0x70, 0xFF, 0x00, 0x00, 0x00,
         ];
-        test_fat(FatType::Fat12, StdIoWrapper::new(Cursor::<Vec<u8>>::new(fat)));
+        test_fat(
+            FatType::Fat12,
+            StdIoWrapper::new(Cursor::<Vec<u8>>::new(fat)),
+        );
     }
 
     #[test]
     fn test_fat16() {
         let fat: Vec<u8> = vec![
-            0xF0, 0xFF, 0xFF, 0xFF, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00, 0x08, 0x00, 0xFF, 0xFF,
-            0x0A, 0x00, 0x14, 0x00, 0x0C, 0x00, 0x0D, 0x00, 0x0E, 0x00, 0x0F, 0x00, 0x10, 0x00, 0x11, 0x00, 0xFF, 0xFF,
-            0x00, 0x00, 0xFF, 0xFF, 0x15, 0x00, 0x16, 0x00, 0x19, 0x00, 0xF7, 0xFF, 0xF7, 0xFF, 0x1A, 0x00, 0xFF, 0xFF,
-            0x00, 0x00, 0x00, 0x00, 0xF7, 0xFF, 0x00, 0x00, 0x00, 0x00,
+            0xF0, 0xFF, 0xFF, 0xFF, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, 0x06, 0x00, 0x07, 0x00,
+            0x08, 0x00, 0xFF, 0xFF, 0x0A, 0x00, 0x14, 0x00, 0x0C, 0x00, 0x0D, 0x00, 0x0E, 0x00,
+            0x0F, 0x00, 0x10, 0x00, 0x11, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xFF, 0xFF, 0x15, 0x00,
+            0x16, 0x00, 0x19, 0x00, 0xF7, 0xFF, 0xF7, 0xFF, 0x1A, 0x00, 0xFF, 0xFF, 0x00, 0x00,
+            0x00, 0x00, 0xF7, 0xFF, 0x00, 0x00, 0x00, 0x00,
         ];
-        test_fat(FatType::Fat16, StdIoWrapper::new(Cursor::<Vec<u8>>::new(fat)));
+        test_fat(
+            FatType::Fat16,
+            StdIoWrapper::new(Cursor::<Vec<u8>>::new(fat)),
+        );
     }
 
     #[test]
     fn test_fat32() {
         let fat: Vec<u8> = vec![
-            0xF0, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF, 0xFF, 0x0F, 0x04, 0x00, 0x00, 0x00, 0x05, 0x00,
-            0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x0F,
-            0x0A, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0x0E, 0x00,
-            0x00, 0x00, 0x0F, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x0F,
-            0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x0F, 0x15, 0x00, 0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x19, 0x00,
-            0x00, 0x00, 0xF7, 0xFF, 0xFF, 0x0F, 0xF7, 0xFF, 0xFF, 0x0F, 0x1A, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x0F,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF7, 0xFF, 0xFF, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xF0, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF, 0xFF, 0x0F, 0x04, 0x00,
+            0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00,
+            0x08, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x0F, 0x0A, 0x00, 0x00, 0x00, 0x14, 0x00,
+            0x00, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00, 0x0E, 0x00, 0x00, 0x00,
+            0x0F, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0xFF, 0xFF,
+            0xFF, 0x0F, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x0F, 0x15, 0x00, 0x00, 0x00,
+            0x16, 0x00, 0x00, 0x00, 0x19, 0x00, 0x00, 0x00, 0xF7, 0xFF, 0xFF, 0x0F, 0xF7, 0xFF,
+            0xFF, 0x0F, 0x1A, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x0F, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0xF7, 0xFF, 0xFF, 0x0F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00,
         ];
-        test_fat(FatType::Fat32, StdIoWrapper::new(Cursor::<Vec<u8>>::new(fat)));
+        test_fat(
+            FatType::Fat32,
+            StdIoWrapper::new(Cursor::<Vec<u8>>::new(fat)),
+        );
     }
 }

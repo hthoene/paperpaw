@@ -38,7 +38,8 @@
 
 use super::*;
 use crate::table::{
-    block_of, free_in_block, hash_block, leaves_block, read_block, read_fat, set_in_block, write_fat, FatValue, BLOCK,
+    BLOCK, FatValue, block_of, free_in_block, hash_block, leaves_block, read_block, read_fat,
+    set_in_block, write_fat,
 };
 
 /// What is to point at a chain, or did.
@@ -99,9 +100,9 @@ impl Claim {
 }
 
 fn fnv(bytes: &[u8]) -> u32 {
-    bytes
-        .iter()
-        .fold(0x811C_9DC5_u32, |hash, &byte| (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193))
+    bytes.iter().fold(0x811C_9DC5_u32, |hash, &byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+    })
 }
 
 fn word(bytes: &[u8], at: usize) -> u32 {
@@ -110,7 +111,8 @@ fn word(bytes: &[u8], at: usize) -> u32 {
 
 /// The first cluster a directory entry's 32 bytes hold (FAT32).
 fn first_cluster(entry: &[u8; 32]) -> u32 {
-    u32::from(u16::from_le_bytes([entry[26], entry[27]])) | u32::from(u16::from_le_bytes([entry[20], entry[21]])) << 16
+    u32::from(u16::from_le_bytes([entry[26], entry[27]]))
+        | u32::from(u16::from_le_bytes([entry[20], entry[21]])) << 16
 }
 
 /// Whether the 32 bytes are an entry of a file or a directory that is there.
@@ -132,7 +134,8 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         if let Some(claim) = claim {
             reserved[..4].copy_from_slice(MAGIC);
             reserved[4..8].copy_from_slice(&self.total_clusters.to_le_bytes());
-            reserved[8..12].copy_from_slice(&fs_info.next_free_cluster.unwrap_or(UNKNOWN).to_le_bytes());
+            reserved[8..12]
+                .copy_from_slice(&fs_info.next_free_cluster.unwrap_or(UNKNOWN).to_le_bytes());
             reserved[12..16].copy_from_slice(&claim.kind.to_le_bytes());
             reserved[16..20].copy_from_slice(&claim.start.to_le_bytes());
             reserved[20..24].copy_from_slice(&claim.then.to_le_bytes());
@@ -145,7 +148,9 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         }
         let mut disk = self.disk.borrow_mut();
         let was = disk.seek(SeekFrom::Current(0))?;
-        disk.seek(SeekFrom::Start(self.offset_from_sector(u32::from(self.bpb.fs_info_sector))))?;
+        disk.seek(SeekFrom::Start(
+            self.offset_from_sector(u32::from(self.bpb.fs_info_sector)),
+        ))?;
         let hint = fs_info.next_free_cluster;
         if claim.is_some() {
             fs_info.next_free_cluster = None;
@@ -182,7 +187,9 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// failed, would take the removal for its own.
     pub(crate) fn drop_free_claim_of(&self, cluster: Option<u32>) -> Result<(), Error<IO::Error>> {
         match self.claim.get() {
-            Some(claim) if claim.frees() && (claim.kind == STALE || Some(claim.start) == cluster) => {
+            Some(claim)
+                if claim.frees() && (claim.kind == STALE || Some(claim.start) == cluster) =>
+            {
                 self.write_claim(None)
             }
             _ => Ok(()),
@@ -195,7 +202,11 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// means nothing in a removed entry is changed. The claim then cannot take a cluster that
     /// got its entry for one that never did.
     pub(crate) fn unlike_claim(&self, at: u64) -> Result<(), Error<IO::Error>> {
-        let Some(claim) = self.claim.get().filter(|claim| claim.kind == NEW_ENTRY && claim.at == at) else {
+        let Some(claim) = self
+            .claim
+            .get()
+            .filter(|claim| claim.kind == NEW_ENTRY && claim.at == at)
+        else {
             return Ok(());
         };
         let entry = self.entry_at(at)?;
@@ -212,7 +223,11 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// Before an entry that holds no cluster is written: it may be, byte for byte, the entry a
     /// claim of a new file's first cluster names.
     pub(crate) fn drop_entry_claim(&self) -> Result<(), Error<IO::Error>> {
-        if self.claim.get().is_some_and(|claim| matches!(claim.kind, NEW_ENTRY | STALE)) {
+        if self
+            .claim
+            .get()
+            .is_some_and(|claim| matches!(claim.kind, NEW_ENTRY | STALE))
+        {
             self.write_claim(None)?;
         }
         Ok(())
@@ -274,7 +289,11 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     /// Before what points at the chain from `start` (`referrer`) is taken away and the chain
     /// freed (`free_claimed`): says so on the disk.
-    pub(crate) fn claim_freeing(&self, start: u32, referrer: Referrer) -> Result<(), Error<IO::Error>> {
+    pub(crate) fn claim_freeing(
+        &self,
+        start: u32,
+        referrer: Referrer,
+    ) -> Result<(), Error<IO::Error>> {
         if !self.claims() {
             return Ok(());
         }
@@ -285,7 +304,8 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         };
         // A link out of the volume (a damaged chain) is not followed: freeing fails there, as
         // it did, after what comes before it is freed.
-        let then = leaves_block(&mut self.fat_slice(), self.fat_type, start)?.filter(|&next| self.is_cluster(next));
+        let then = leaves_block(&mut self.fat_slice(), self.fat_type, start)?
+            .filter(|&next| self.is_cluster(next));
         let then_block = match then {
             Some(then) => self.fat_block_hash(then)?,
             None => 0,
@@ -304,7 +324,11 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
     /// Frees the chain from `start`, a block of the FAT at a time (each written once), saying
     /// first on the disk where it goes on. `claimed`: `claim_freeing` said so for the first
     /// block already, and what pointed at the chain is gone since.
-    pub(crate) fn free_claimed(&self, mut start: u32, mut claimed: bool) -> Result<(), Error<IO::Error>> {
+    pub(crate) fn free_claimed(
+        &self,
+        mut start: u32,
+        mut claimed: bool,
+    ) -> Result<(), Error<IO::Error>> {
         if self.fat_type == FatType::Fat12 {
             return self.free_chain_one_by_one(start);
         }
@@ -342,7 +366,9 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         };
         // Counted once written: a write that failed part of the way leaves the count low.
         self.note_freed(freed);
-        self.fs_info.borrow_mut().map_free_clusters(|n| n.saturating_add(freed));
+        self.fs_info
+            .borrow_mut()
+            .map_free_clusters(|n| n.saturating_add(freed));
         Ok(next.filter(|_| freed > 0))
     }
 
@@ -361,7 +387,12 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
                 None => Ok(()),
             }
         } else {
-            write_fat(&mut self.fat_slice(), self.fat_type, keep, FatValue::EndOfChain)?;
+            write_fat(
+                &mut self.fat_slice(),
+                self.fat_type,
+                keep,
+                FatValue::EndOfChain,
+            )?;
             self.free_claimed(first, true)
         }
     }
@@ -378,7 +409,8 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
             return Ok(None);
         };
         let whole = &reserved[..4] == MAGIC && word(&reserved, 44) == fnv(&reserved[..44]);
-        if !whole || free != UNKNOWN || next != UNKNOWN || word(&reserved, 4) != self.total_clusters {
+        if !whole || free != UNKNOWN || next != UNKNOWN || word(&reserved, 4) != self.total_clusters
+        {
             return Ok(None);
         }
         let claim = Claim {
@@ -398,7 +430,8 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         Ok(match claim.kind {
             LINK | CUT => match u32::try_from(claim.at) {
                 Ok(cluster) if self.is_cluster(cluster) => {
-                    read_fat(&mut self.fat_slice(), self.fat_type, cluster)? != FatValue::Data(claim.start)
+                    read_fat(&mut self.fat_slice(), self.fat_type, cluster)?
+                        != FatValue::Data(claim.start)
                 }
                 _ => false,
             },
@@ -414,7 +447,7 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
 
     /// After a mount, before anything is changed: frees the clusters a cut left taken by no
     /// file, where the FS information sector holds a claim of them that still holds (see the
-    /// [module documentation](self)), and takes the claim away. How many clusters were freed;
+    /// module documentation), and takes the claim away. How many clusters were freed;
     /// they are counted in `cluster_changes`. Nothing is read where the mount found no claim.
     ///
     /// # Errors
@@ -441,7 +474,9 @@ impl<IO: ReadWriteSeek, TP, OCC> FileSystem<IO, TP, OCC> {
         if self.is_cluster(claim.start) && self.is_unreferenced(&claim)? {
             if self.fat_block_hash(claim.start)? == claim.block {
                 self.free_claimed(claim.start, false)?;
-            } else if self.is_cluster(claim.then) && self.fat_block_hash(claim.then)? == claim.then_block {
+            } else if self.is_cluster(claim.then)
+                && self.fat_block_hash(claim.then)? == claim.then_block
+            {
                 self.free_claimed(claim.then, false)?;
             }
         }

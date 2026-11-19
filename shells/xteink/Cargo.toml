@@ -307,6 +307,7 @@ paperpaw-plugin-reader = { opt-level = "s" }
 paperpaw-sdk = { opt-level = "s" }
 paperpaw-sort = { opt-level = "s" }
 paperpaw-text = { opt-level = "s" }
+paperpaw-volume = { opt-level = "s" }
 paperpaw-x4 = { opt-level = "s" }
 paperpaw-xml = { opt-level = "s" }
 paperpaw-xteink = { opt-level = "s" }
@@ -360,12 +361,6 @@ opt-level = "s"
 lto = "fat"
 codegen-units = 1
 debug = 2
-
-# rust-fatfs as the workspace patches it (patches/fatfs, "Modified for
-# PaperPaw"): a removed file's entry goes before its clusters, and a new
-# entry is written before the old one goes (rename, `Dir::replace`).
-[patch."https://github.com/rafalh/rust-fatfs"]
-fatfs = { path = "../../patches/fatfs" }
 
 # trouble-host (feature `bluetooth`) stopped its whole host where the
 # controller refused to switch address resolution on again after a sync

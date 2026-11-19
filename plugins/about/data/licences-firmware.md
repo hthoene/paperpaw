@@ -58,7 +58,9 @@ The firmware of the Xteink readers also contains:
 
 Unicode data: the bidirectional and Arabic joining tables of crates/paperpaw-text (src/bidi/tables.rs, src/arabic/tables.rs, made by tools/unicode-tables.py), and its line-break class table (src/linebreak/table_data.rs, made by tools/linebreak-table.py), are derived from the Unicode Character Database, and crates/paperpaw-text/tests/data/BidiCharacterTest-part.txt is a part of its BidiCharacterTest.txt, Copyright (c) 1991-2026 Unicode, Inc., under the Unicode License v3 (https://www.unicode.org/license.txt).
 
-Patched copies of fatfs, trouble-host and jni-macros (patches/) keep their licences; their changes are marked "Modified for PaperPaw".
+Patched copies of trouble-host and jni-macros (patches/) keep their licences; their changes are marked "Modified for PaperPaw".
+
+crates/paperpaw-volume is PaperPaw's file-system driver. Its FAT code is rust-fatfs 0.4 (https://github.com/rafalh/rust-fatfs), Copyright 2017 Rafał Harabień, under the MIT licence (crates/paperpaw-volume/LICENSE.txt), cut down and changed for PaperPaw; the changes are marked "Modified for PaperPaw".
 
 The cats (the sleeping cat in plugins/sleep/pictures, the reading cats in plugins/reading-goal/pictures, the README's pictures in docs/images/readme and their dark versions) are PaperPaw artwork, generated with an AI image model (Google Nano Banana) for the project, and licensed under the Apache License, Version 2.0, as the rest of PaperPaw.
 
@@ -346,7 +348,6 @@ Crates in the firmware of the Xteink readers used under the MIT License:
 - esp32s3 0.36.0: Copyright the esp32s3 contributors (https://github.com/esp-rs/esp-pacs)
 - esp32s3 0.37.0: Copyright the esp32s3 contributors (https://github.com/esp-rs/esp-pacs)
 - esp32s31 0.3.0: Copyright the esp32s31 contributors (https://github.com/esp-rs/esp-pacs)
-- fatfs 0.4.0: Copyright 2017 Rafał Harabień
 - ff 0.13.1: Copyright (c) 2017 Sean Bowe
 - fnv 1.0.7: Copyright (c) 2017 Contributors
 - fugit 0.5.0: Copyright 2021 Emil Fresk; Copyright (c) 2021 Emil Fresk

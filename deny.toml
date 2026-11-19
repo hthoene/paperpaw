@@ -28,10 +28,9 @@ ignore = [
     # libsqlite3-sys 0.39.
     { id = "RUSTSEC-2026-0459", reason = "tests only: rusqlite is a dev-dependency of paperpaw-sqlite, files our own writer made" },
     # chrono is flagged unmaintained (no vulnerability): the desktop emulator
-    # reads the local time with it and the vendored fatfs patch takes it for
-    # file times. Neither is in a build of the firmware. To go when the
-    # emulator and the fatfs patch move to `time` or `jiff`.
-    { id = "RUSTSEC-2026-0543", reason = "unmaintained, host only: desktop emulator clock and the fatfs patch, not in firmware" },
+    # reads the local time with it. It is not in a build of the firmware. To
+    # go when the emulator moves to `time` or `jiff`.
+    { id = "RUSTSEC-2026-0543", reason = "unmaintained, host only: desktop emulator clock, not in firmware" },
 ]
 
 [licenses]
@@ -75,6 +74,3 @@ allow-wildcard-paths = true
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
-# FAT with long file names and no_std (paperpaw-fat, the X4's SD card):
-# not released yet, so pinned to a commit.
-allow-git = ["https://github.com/rafalh/rust-fatfs"]

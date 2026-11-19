@@ -1,18 +1,14 @@
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::string::String;
 use bitflags::bitflags;
 use core::char;
 use core::fmt;
-#[cfg(not(feature = "unicode"))]
-use core::iter;
 
-#[cfg(feature = "lfn")]
-use crate::dir::LfnBuffer;
 use crate::dir::{Dir, DirRawStream};
 use crate::error::{Error, IoError};
 use crate::file::File;
 use crate::fs::{FatType, FileSystem, OemCpConverter, ReadWriteSeek};
 use crate::io::{self, Read, Write};
+use crate::names::LfnBuffer;
 use crate::time::{Date, DateTime};
 
 bitflags! {
@@ -47,17 +43,11 @@ pub(crate) const SFN_PADDING: u8 = b' ';
 pub(crate) const LFN_PART_LEN: usize = 13;
 
 // Bit used in order field to mark last LFN entry
-#[cfg(feature = "lfn")]
 pub(crate) const LFN_ENTRY_LAST_FLAG: u8 = 0x40;
 
 // Character to upper case conversion which supports Unicode only if `unicode` feature is enabled
-#[cfg(feature = "unicode")]
 fn char_to_uppercase(c: char) -> char::ToUppercase {
     c.to_uppercase()
-}
-#[cfg(not(feature = "unicode"))]
-fn char_to_uppercase(c: char) -> iter::Once<char> {
-    iter::once(c.to_ascii_uppercase())
 }
 
 /// Decoded file short name
@@ -104,7 +94,6 @@ impl ShortName {
         &self.name[..usize::from(self.len)]
     }
 
-    #[cfg(feature = "alloc")]
     fn to_string<OCC: OemCpConverter>(&self, oem_cp_converter: &OCC) -> String {
         // Strip non-ascii characters from short name
         self.as_bytes()
@@ -165,7 +154,6 @@ impl DirFileEntryData {
         &self.name
     }
 
-    #[cfg(feature = "alloc")]
     fn lowercase_name(&self) -> ShortName {
         let mut name_copy: [u8; SFN_SIZE] = self.name;
         if self.lowercase_basename() {
@@ -184,11 +172,7 @@ impl DirFileEntryData {
             0
         };
         let n = (u32::from(first_cluster_hi) << 16) | u32::from(self.first_cluster_lo);
-        if n == 0 {
-            None
-        } else {
-            Some(n)
-        }
+        if n == 0 { None } else { Some(n) }
     }
 
     pub(crate) fn set_first_cluster(&mut self, cluster: Option<u32>, fat_type: FatType) {
@@ -259,7 +243,8 @@ impl DirFileEntryData {
 
     /// The caller's mark in the creation time fields, where `set_mark` put one.
     pub(crate) fn mark(&self) -> Option<u32> {
-        (self.create_time_0 == MARK).then(|| (u32::from(self.create_date) << 16) | u32::from(self.create_time_1))
+        (self.create_time_0 == MARK)
+            .then(|| (u32::from(self.create_date) << 16) | u32::from(self.create_time_1))
     }
 
     pub(crate) fn set_mark(&mut self, mark: u32) {
@@ -411,7 +396,10 @@ pub(crate) enum DirEntryData {
 }
 
 impl DirEntryData {
-    pub(crate) fn serialize<E: IoError, W: Write<Error = Error<E>>>(&self, wrt: &mut W) -> Result<(), Error<E>> {
+    pub(crate) fn serialize<E: IoError, W: Write<Error = Error<E>>>(
+        &self,
+        wrt: &mut W,
+    ) -> Result<(), Error<E>> {
         trace!("DirEntryData::serialize");
         match self {
             DirEntryData::File(file) => file.serialize(wrt),
@@ -419,7 +407,9 @@ impl DirEntryData {
         }
     }
 
-    pub(crate) fn deserialize<E: IoError, R: Read<Error = Error<E>>>(rdr: &mut R) -> Result<Self, Error<E>> {
+    pub(crate) fn deserialize<E: IoError, R: Read<Error = Error<E>>>(
+        rdr: &mut R,
+    ) -> Result<Self, Error<E>> {
         trace!("DirEntryData::deserialize");
         // Modified for PaperPaw: the entry is read whole, in one read where it can be, not field
         // by field: each read goes through the file, the file system and the disk. Its end comes
@@ -589,7 +579,10 @@ impl DirEntryEditor {
         }
     }
 
-    pub(crate) fn flush<IO: ReadWriteSeek, TP, OCC>(&mut self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error> {
+    pub(crate) fn flush<IO: ReadWriteSeek, TP, OCC>(
+        &mut self,
+        fs: &FileSystem<IO, TP, OCC>,
+    ) -> Result<(), IO::Error> {
         if self.dirty {
             self.write(fs)?;
             self.dirty = false;
@@ -597,7 +590,10 @@ impl DirEntryEditor {
         Ok(())
     }
 
-    fn write<IO: ReadWriteSeek, TP, OCC>(&self, fs: &FileSystem<IO, TP, OCC>) -> Result<(), IO::Error> {
+    fn write<IO: ReadWriteSeek, TP, OCC>(
+        &self,
+        fs: &FileSystem<IO, TP, OCC>,
+    ) -> Result<(), IO::Error> {
         let mut disk = fs.disk.borrow_mut();
         disk.seek(io::SeekFrom::Start(self.pos))?;
         self.data.serialize(&mut *disk)
@@ -611,7 +607,6 @@ impl DirEntryEditor {
 pub struct DirEntry<'a, IO: ReadWriteSeek, TP, OCC> {
     pub(crate) data: DirFileEntryData,
     pub(crate) short_name: ShortName,
-    #[cfg(feature = "lfn")]
     pub(crate) lfn_utf16: LfnBuffer,
     pub(crate) entry_pos: u64,
     pub(crate) offset_range: (u64, u64),
@@ -623,7 +618,6 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
     /// Returns short file name.
     ///
     /// Non-ASCII characters are replaced by the replacement character (U+FFFD).
-    #[cfg(feature = "alloc")]
     #[must_use]
     pub fn short_file_name(&self) -> String {
         self.short_name.to_string(&self.fs.options.oem_cp_converter)
@@ -640,7 +634,6 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
     /// Returns long file name as u16 array slice.
     ///
     /// Characters are encoded in the UCS-2 encoding.
-    #[cfg(feature = "lfn")]
     #[must_use]
     pub fn long_file_name_as_ucs2_units(&self) -> Option<&[u16]> {
         if self.lfn_utf16.len() > 0 {
@@ -651,10 +644,8 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
     }
 
     /// Returns long file name or if it doesn't exist fallbacks to short file name.
-    #[cfg(feature = "alloc")]
     #[must_use]
     pub fn file_name(&self) -> String {
-        #[cfg(feature = "lfn")]
         {
             let lfn_opt = self.long_file_name_as_ucs2_units();
             if let Some(lfn) = lfn_opt {
@@ -662,7 +653,9 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
             }
         }
 
-        self.data.lowercase_name().to_string(&self.fs.options.oem_cp_converter)
+        self.data
+            .lowercase_name()
+            .to_string(&self.fs.options.oem_cp_converter)
     }
 
     /// Returns file attributes.
@@ -780,7 +773,6 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
         &self.data.name
     }
 
-    #[cfg(feature = "lfn")]
     fn eq_name_lfn(&self, name: &str) -> bool {
         if let Some(lfn) = self.long_file_name_as_ucs2_units() {
             let self_decode_iter = char::decode_utf16(lfn.iter().copied());
@@ -807,14 +799,14 @@ impl<'a, IO: ReadWriteSeek, TP, OCC: OemCpConverter> DirEntry<'a, IO, TP, OCC> {
     }
 
     pub(crate) fn eq_name(&self, name: &str) -> bool {
-        #[cfg(feature = "lfn")]
         {
             if self.eq_name_lfn(name) {
                 return true;
             }
         }
 
-        self.short_name.eq_ignore_case(name, &self.fs.options.oem_cp_converter)
+        self.short_name
+            .eq_ignore_case(name, &self.fs.options.oem_cp_converter)
     }
 }
 
@@ -832,28 +824,49 @@ mod tests {
     #[test]
     fn short_name_with_ext() {
         let oem_cp_conv = LossyOemCpConverter::new();
-        assert_eq!(ShortName::new(b"FOO     BAR").to_string(&oem_cp_conv), "FOO.BAR");
-        assert_eq!(ShortName::new(b"LOOK AT M E").to_string(&oem_cp_conv), "LOOK AT.M E");
+        assert_eq!(
+            ShortName::new(b"FOO     BAR").to_string(&oem_cp_conv),
+            "FOO.BAR"
+        );
+        assert_eq!(
+            ShortName::new(b"LOOK AT M E").to_string(&oem_cp_conv),
+            "LOOK AT.M E"
+        );
         assert_eq!(
             ShortName::new(b"\x99OOK AT M \x99").to_string(&oem_cp_conv),
             "\u{FFFD}OOK AT.M \u{FFFD}"
         );
-        assert!(ShortName::new(b"\x99OOK AT M \x99").eq_ignore_case("\u{FFFD}OOK AT.M \u{FFFD}", &oem_cp_conv));
+        assert!(
+            ShortName::new(b"\x99OOK AT M \x99")
+                .eq_ignore_case("\u{FFFD}OOK AT.M \u{FFFD}", &oem_cp_conv)
+        );
     }
 
     #[test]
     fn short_name_without_ext() {
         let oem_cp_conv = LossyOemCpConverter::new();
-        assert_eq!(ShortName::new(b"FOO        ").to_string(&oem_cp_conv), "FOO");
-        assert_eq!(ShortName::new(b"LOOK AT    ").to_string(&oem_cp_conv), "LOOK AT");
+        assert_eq!(
+            ShortName::new(b"FOO        ").to_string(&oem_cp_conv),
+            "FOO"
+        );
+        assert_eq!(
+            ShortName::new(b"LOOK AT    ").to_string(&oem_cp_conv),
+            "LOOK AT"
+        );
     }
 
     #[test]
     fn short_name_eq_ignore_case() {
         let oem_cp_conv = LossyOemCpConverter::new();
         let raw_short_name: &[u8; SFN_SIZE] = b"\x99OOK AT M \x99";
-        assert!(ShortName::new(raw_short_name).eq_ignore_case("\u{FFFD}OOK AT.M \u{FFFD}", &oem_cp_conv));
-        assert!(ShortName::new(raw_short_name).eq_ignore_case("\u{FFFD}ook AT.m \u{FFFD}", &oem_cp_conv));
+        assert!(
+            ShortName::new(raw_short_name)
+                .eq_ignore_case("\u{FFFD}OOK AT.M \u{FFFD}", &oem_cp_conv)
+        );
+        assert!(
+            ShortName::new(raw_short_name)
+                .eq_ignore_case("\u{FFFD}ook AT.m \u{FFFD}", &oem_cp_conv)
+        );
     }
 
     #[test]
@@ -861,7 +874,9 @@ mod tests {
         let raw_short_name = [0x05; SFN_SIZE];
         assert_eq!(
             ShortName::new(&raw_short_name).as_bytes(),
-            [0xE5, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, b'.', 0x05, 0x05, 0x05]
+            [
+                0xE5, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, 0x05, b'.', 0x05, 0x05, 0x05
+            ]
         );
     }
 
@@ -926,7 +941,9 @@ mod tests {
     #[test]
     fn entries_are_read_and_written_whole() {
         let mut short = b"FOO     BAR\x20".to_vec();
-        short.extend_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
+        short.extend_from_slice(&[
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+        ]);
         let Ok(DirEntryData::File(file)) = DirEntryData::deserialize(&mut Bytes(&short)) else {
             panic!("not a file's entry");
         };
@@ -937,16 +954,24 @@ mod tests {
             (1, 2, 0x0403)
         );
         assert_eq!((file.create_date, file.access_date), (0x0605, 0x0807));
-        assert_eq!((file.first_cluster_hi, file.first_cluster_lo), (0x0a09, 0x100f));
+        assert_eq!(
+            (file.first_cluster_hi, file.first_cluster_lo),
+            (0x0a09, 0x100f)
+        );
         assert_eq!((file.modify_time, file.modify_date), (0x0c0b, 0x0e0d));
         assert_eq!(file.size, 0x1413_1211);
         assert_eq!(reread(&short).unwrap(), short);
 
-        let long: Vec<u8> = (0..32u8).map(|i| if i == 11 { 0x0f } else { i + 0x41 }).collect();
+        let long: Vec<u8> = (0..32u8)
+            .map(|i| if i == 11 { 0x0f } else { i + 0x41 })
+            .collect();
         let Ok(DirEntryData::Lfn(lfn)) = DirEntryData::deserialize(&mut Bytes(&long)) else {
             panic!("not a long name's entry");
         };
-        assert_eq!((lfn.order, lfn.entry_type, lfn.checksum), (0x41, 0x4d, 0x4e));
+        assert_eq!(
+            (lfn.order, lfn.entry_type, lfn.checksum),
+            (0x41, 0x4d, 0x4e)
+        );
         assert_eq!(lfn.name_0, [0x4342, 0x4544, 0x4746, 0x4948, 0x4b4a]);
         assert_eq!(lfn.name_1[0], 0x504f);
         assert_eq!((lfn.reserved_0, lfn.name_2[1]), (0x5c5b, 0x605f));

@@ -116,8 +116,13 @@ and crates/paperpaw-text/tests/data/BidiCharacterTest-part.txt is a part of
 its BidiCharacterTest.txt, Copyright (c) 1991-2026 Unicode, Inc., under the
 Unicode License v3 (https://www.unicode.org/license.txt).
 
-Patched copies of fatfs, trouble-host and jni-macros (patches/) keep their
+Patched copies of trouble-host and jni-macros (patches/) keep their
 licences; their changes are marked "Modified for PaperPaw".
+
+crates/paperpaw-volume is PaperPaw's file-system driver. Its FAT code is
+rust-fatfs 0.4 (https://github.com/rafalh/rust-fatfs), Copyright 2017 Rafał
+Harabień, under the MIT licence (crates/paperpaw-volume/LICENSE.txt), cut down
+and changed for PaperPaw; the changes are marked "Modified for PaperPaw".
 
 The cats (the sleeping cat in plugins/sleep/pictures, the reading cats in
 plugins/reading-goal/pictures, the README's pictures in docs/images/readme
@@ -453,8 +458,6 @@ esp32s31 0.3.0 (MIT OR Apache-2.0, used under MIT)
     Copyright the esp32s31 contributors (https://github.com/esp-rs/esp-pacs)
 fastrand 2.5.0 (Apache-2.0 OR MIT, used under MIT)
     Copyright Stjepan Glavina (https://github.com/smol-rs/fastrand)
-fatfs 0.4.0 (MIT)
-    Copyright 2017 Rafał Harabień
 fdeflate 0.3.7 (MIT OR Apache-2.0, used under MIT)
     Copyright The image-rs Developers (https://github.com/image-rs/fdeflate)
 ff 0.13.1 (MIT/Apache-2.0, used under MIT)
