@@ -376,7 +376,7 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
   *Go to the note* is carried by the plugin, which follows it in the reading screen when that is shown again.
   `native_view.rs` asks the marking first about every input and draws its overlay last.
 - **Differences from Beta 3, named:** the bar has fixed items (look up, copy, extend/cancel): *Highlight*,
-  *Note*, *Read aloud* and *Translate* and the plugins' items need the annotations (R5), the aloud and the
+  *Note*, *Read aloud* and the plugins' items need the annotations (R5), the aloud and the
   selection-bar contract, which the stage does not replace. The book's language is not read (native metadata
   has none), so the lookup is asked with an empty language. Words on a line set for mixed directions
   (`LineBidi::REORDER`) are read in logical order, not where drawn. At most 2,048 words of a page are
@@ -973,7 +973,8 @@ reader's own highlights' drawing, so they look as Beta 3's decorations did) and 
 - The selection bar has five items: *Look up*, *Highlight* (*Remove highlight* where a highlight overlaps the chosen words),
   *Note* (*Edit note* where that highlight has a note), *Copy*, *Extend* / *Cancel*. The labels were Beta 3's keys
   (`reader.select.highlight|unhighlight|note|edit-note`). Chips that do not fit one row go on the next; the bar is as high as
-  its rows (`Chips::height_for`). The *More …* item, *Read from here* and *Translate* are the next slice.
+  its rows (`Chips::height_for`). The *More …* item and *Read from here* are the next slice.
+- **Translate** (`act::translate`, #378): the sixth item, after *Look up*, on one page only and only where a screen is offered for `core.translate` (`act::translate_offered`: `Registry::slot_offers`, asked once per selection, `Marking::translate_on`). It opens the slot `core.translate` with the chosen words as the hand-over text (written in parts of 1,000 bytes, at most 16 KiB as *Copy*) and the param `anchor` (`act::anchor`/`anchor_text`), so the translation's window comes up next to the words; the words stay chosen. The action `reader.selection.translate` does the same (nothing where the plugin is off).
 - **Highlight** (`edit::toggle`): the highlights that overlap the words are removed (at most 24 at once), else one is added: the
   words' text on one line (512 bytes), the progress at its start in whole percent, the conversion and the time. **Note**
   (`edit::begin_note`): the first overlapping highlight, made if there is none (as Beta 3 made it before asking); the plugin asks

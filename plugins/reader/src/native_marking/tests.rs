@@ -49,7 +49,12 @@ fn a_broken_word_is_said_once_in_the_text_of_chosen_words() {
 
 #[test]
 fn the_bar_has_extend_on_buttons_and_cancel_on_touch() {
-    let last = |touch| *bar::items(touch, None, true).as_slice().last().unwrap();
+    let last = |touch| {
+        *bar::items(touch, None, true, false)
+            .as_slice()
+            .last()
+            .unwrap()
+    };
     assert_eq!(last(false), Item::Extend);
     assert_eq!(last(true), Item::Cancel);
 }
@@ -57,7 +62,7 @@ fn the_bar_has_extend_on_buttons_and_cancel_on_touch() {
 #[test]
 fn the_bar_names_highlight_and_note_by_what_is_there() {
     let names = |highlight| {
-        let items = bar::items(true, highlight, true);
+        let items = bar::items(true, highlight, true, false);
         (items.as_slice()[1], items.as_slice()[2])
     };
     assert_eq!(names(None), (Item::Highlight, Item::Note));
@@ -118,13 +123,27 @@ fn the_bar_is_named_by_the_highlight_the_chosen_words_overlap() {
 
 #[test]
 fn the_bar_of_a_stretch_over_pages_has_no_look_up_and_copy() {
-    let items = |one_page| bar::items(false, None, one_page);
+    let items = |one_page| bar::items(false, None, one_page, true);
     let all = items(true);
-    assert_eq!(all.as_slice().len(), 5);
-    assert_eq!(all.highlight_at(), 1);
+    assert_eq!(all.as_slice().len(), 6);
+    assert_eq!(all.highlight_at(), 2);
     let over = items(false);
     assert_eq!(over.as_slice(), [Item::Highlight, Item::Note, Item::Extend]);
     assert_eq!(over.highlight_at(), 0);
+}
+
+#[test]
+fn the_bar_has_translate_after_look_up_where_the_plugin_is_on() {
+    let with = bar::items(true, None, true, true);
+    assert_eq!(with.as_slice()[..2], [Item::LookUp, Item::Translate]);
+    let without = bar::items(true, None, true, false);
+    assert!(!without.as_slice().contains(&Item::Translate));
+    assert_eq!(without.as_slice().len(), 5);
+    assert_eq!(
+        Item::of_action("reader.selection.translate"),
+        Some(Item::Translate)
+    );
+    assert_eq!(Item::Translate.key(), "reader.select.translate");
 }
 
 #[test]

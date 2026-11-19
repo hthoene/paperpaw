@@ -8,6 +8,7 @@
 //! reference; this is its host-free movement (`native_selection::moves`) with
 //! the bar, the clipboard and the lookup done through the interface-7 services.
 use alloc::{string::String, vec::Vec};
+use core::cell::Cell;
 use paperpaw_sdk::{
     Point, Rect,
     document::Locator,
@@ -204,6 +205,9 @@ pub struct Marking {
     returns: Returns,
     /// The note that is to be asked for (see [`Marking::take_note`]).
     note: Option<act::NoteAsk>,
+    /// Whether a screen is offered for `core.translate`, asked once for the
+    /// selection (the bar's *Translate* is there only then).
+    translate: Cell<Option<bool>>,
 }
 
 /// The action that starts choosing text with the buttons.
@@ -263,6 +267,7 @@ impl Marking {
             returns: Returns::new(),
             note: None,
             limit: None,
+            translate: Cell::new(None),
         }
     }
 
@@ -274,6 +279,7 @@ impl Marking {
         self.lead = None;
         self.pending = None;
         self.limit = None;
+        self.translate.set(None);
         self.links = None;
     }
 
@@ -402,8 +408,18 @@ impl Marking {
             self.lead = None;
             self.pending = None;
             self.limit = None;
+            self.translate.set(None);
         }
         Outcome::Redraw
+    }
+
+    /// Whether the bar has *Translate*: the translate plugin is on.
+    fn translate_on(&self, host: &Host<'_>) -> bool {
+        self.translate.get().unwrap_or_else(|| {
+            let offered = act::translate_offered(host).unwrap_or(false);
+            self.translate.set(Some(offered));
+            offered
+        })
     }
 
     /// The page on show is the one a turn was asked for: the selection's end
@@ -554,7 +570,7 @@ impl Marking {
     /// Select: done, the bar with *Highlight* in focus.
     fn show_bar(&mut self, host: &Host<'_>, ctx: &Ctx<'_>, live: Live) -> Outcome {
         let touch = snapshot::capture_snapshot(host).is_ok_and(|s| s.has_touch());
-        let items = bar_items(ctx, &live, touch);
+        let items = bar_items(ctx, &live, touch, self.translate_on(host));
         self.set(Some(Live {
             mode: Mode::Bar,
             focus: Some(items.highlight_at()),
@@ -570,7 +586,7 @@ impl Marking {
         action: &str,
     ) -> Result<Outcome, Error> {
         let touch = snapshot::capture_snapshot(host)?.has_touch();
-        let items = bar_items(ctx, &live, touch);
+        let items = bar_items(ctx, &live, touch, self.translate_on(host));
         let items = items.as_slice();
         let focus = live.focus.unwrap_or(0);
         let last = items.len() - 1;
@@ -665,7 +681,7 @@ impl Marking {
         );
         let found = UiStyle::read(host, &display, &font)
             .and_then(|style| {
-                let items = bar_items(ctx, &live, display.has_touch());
+                let items = bar_items(ctx, &live, display.has_touch(), self.translate_on(host));
                 Bar::new(host, &font, &style, &display, items.as_slice())
             })
             .map(|bar| bar.item_at(at));
@@ -694,7 +710,7 @@ impl Marking {
         live: Live,
         item: Item,
     ) -> Result<Outcome, Error> {
-        // Look up and copy take the words of the page: only where all are on it.
+        // Look up, translate and copy take the words of the page: only where all are on it.
         let one_page = live.on_page(ctx.words).and_then(|(lo, hi)| {
             let (first, last) = (ctx.words.get(lo)?, ctx.words.get(hi)?);
             Some((lo, hi, first.start, last.end))
@@ -705,6 +721,15 @@ impl Marking {
                     act::look_up(host, ctx, lo, hi, (start, end))?;
                 }
                 // The words stay chosen under the lookup, as in Beta 3.
+                Ok(Outcome::Handled)
+            }
+            Item::Translate => {
+                if let Some((lo, hi, ..)) = one_page
+                    && self.translate_on(host)
+                {
+                    act::translate(host, ctx, lo, hi)?;
+                }
+                // The words stay chosen under the window, as under the lookup.
                 Ok(Outcome::Handled)
             }
             Item::Copy => {
@@ -778,7 +803,7 @@ impl Marking {
                 ctx.words.get(i).is_some_and(|w| live.covers(w))
             })?;
             if live.mode == Mode::Bar {
-                let items = bar_items(ctx, &live, display.has_touch());
+                let items = bar_items(ctx, &live, display.has_touch(), self.translate_on(host));
                 let bar = Bar::new(host, font, &style, &display, items.as_slice())?;
                 bar.prepare(&mut ops, font, &style, live.focus)?;
             } else {
@@ -808,12 +833,14 @@ impl Marking {
     }
 }
 
-/// The items of the bar of `live`: *Look up* and *Copy* only on one page.
-fn bar_items(ctx: &Ctx<'_>, live: &Live, touch: bool) -> bar::Items {
+/// The items of the bar of `live`: *Look up*, *Translate* and *Copy* only on one
+/// page, *Translate* only where the plugin is on (`translate`).
+fn bar_items(ctx: &Ctx<'_>, live: &Live, touch: bool, translate: bool) -> bar::Items {
     bar::items(
         touch,
         act::standing(ctx, &act::span_of(live.span())),
         live.on_page(ctx.words).is_some(),
+        translate,
     )
 }
 
