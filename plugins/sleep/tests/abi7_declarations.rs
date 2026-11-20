@@ -40,10 +40,10 @@ fn the_declarations_are_the_pinned_ones() {
     }
     let native = declared::native("sleep", &all);
     declared::assert_pinned("declarations", &native);
-    assert_eq!(native.specs.len(), 13);
+    assert_eq!(native.specs.len(), 17);
     assert_eq!(native.screens.len(), 3);
     assert_eq!(native.widget_places.len(), 2);
-    assert_eq!(native.needs.len(), 14);
+    assert_eq!(native.needs.len(), 18);
     assert!(native.events.is_empty());
     assert!(native.others.is_empty(), "{:?}", native.others);
     assert_eq!(batches(|d| declarations::screens(d).unwrap()).len(), 1);

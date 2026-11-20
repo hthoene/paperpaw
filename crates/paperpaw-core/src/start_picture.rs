@@ -266,6 +266,7 @@ impl Kernel {
         {
             return false;
         }
+        self.sync_look();
         let mut top = 0;
         while top < bounds.height {
             if clock().since(now) > LIMIT_MS {

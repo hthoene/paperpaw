@@ -56,6 +56,32 @@ pub const OFF_SHOW: &str = "sleep.off-show";
 pub const START_SHOW: &str = "sleep.start-show";
 pub const RESTART_SHOW: &str = "sleep.restart-show";
 
+/// The settings that say whether the sleep, the off, the start and the
+/// restart screen are drawn light or dark (#420); the kernel draws the
+/// frame as they say, whoever draws the screen.
+pub const LOOK: &str = "sleep.look";
+pub const OFF_LOOK: &str = "sleep.off-look";
+pub const START_LOOK: &str = "sleep.start-look";
+pub const RESTART_LOOK: &str = "sleep.restart-look";
+/// The values of the four: as the device is (night mode), light, dark.
+pub const LOOK_DEVICE: &str = "sleep.look.device";
+pub const LOOK_LIGHT: &str = "sleep.look.light";
+pub const LOOK_DARK: &str = "sleep.look.dark";
+
+/// Whether the cat has to be made light on dark by the plugin: the screen is
+/// dark (its `look`, or night mode where it follows the device), and the
+/// framebuffer would keep the picture as it is (`core.night-pictures` off)
+/// rather than invert it.
+#[must_use]
+pub fn cat_inverted(look: &str, night: bool, pictures_inverted: bool) -> bool {
+    let dark = match look {
+        LOOK_LIGHT => false,
+        LOOK_DARK => true,
+        _ => night,
+    };
+    dark && !pictures_inverted
+}
+
 /// The setting that says how often the screen is drawn again while asleep.
 pub const REFRESH: &str = "sleep.refresh-every";
 

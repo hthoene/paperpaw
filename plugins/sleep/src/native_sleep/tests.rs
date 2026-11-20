@@ -511,3 +511,16 @@ fn the_refresh_setting_means_minutes_and_a_redraw_comes_just_after_a_mark_of_the
     // No clock: a period from now.
     assert_eq!(refresh_wait_ms(60, None), (3600 + 20) * 1000);
 }
+
+#[test]
+fn the_cat_is_inverted_by_the_plugin_only_where_the_screen_is_dark_and_pictures_stay() {
+    // Dark by its own look, or as the device is at night.
+    assert!(cat_inverted(LOOK_DARK, false, false));
+    assert!(cat_inverted(LOOK_DEVICE, true, false));
+    assert!(cat_inverted("a value of a later version", true, false));
+    // Light: not, whatever night mode says.
+    assert!(!cat_inverted(LOOK_LIGHT, true, false));
+    assert!(!cat_inverted(LOOK_DEVICE, false, false));
+    // The framebuffer inverts the pictures itself (Invert pictures on).
+    assert!(!cat_inverted(LOOK_DARK, true, true));
+}
