@@ -62,6 +62,9 @@ enum View {
     Sync(SyncView),
 }
 
+/// The sleep screen's name.
+const SLEEP: &str = crate::declarations::SLEEP_SCREEN;
+
 /// Stats' interface-7 entry state.
 #[derive(Default)]
 pub struct NativeStats {
@@ -137,9 +140,7 @@ impl Plugin for NativeStats {
                 action: "stats.open",
                 ..
             } if token == crate::declarations::OPEN_TOKEN => return self.open_overview(host),
-            Event::ScreenOpened { screen, .. } if screen == crate::declarations::SLEEP_SCREEN => {
-                return self.opened_sleep(host);
-            }
+            Event::ScreenOpened { screen: SLEEP, .. } => return self.opened_sleep(host),
             Event::ScreenOpened {
                 screen,
                 instance,
