@@ -135,7 +135,7 @@ impl Sections<'_> {
 }
 
 /// Tokenizes an archive entry while it is inflated.
-fn tokenize(
+pub(crate) fn tokenize(
     storage: &dyn Storage,
     archive: &ZipArchive,
     name: &str,
@@ -191,7 +191,7 @@ fn capture(text: &mut String, more: &str) -> bool {
 }
 
 /// The directory part of an archive path, with trailing slash.
-fn dir_of(path: &str) -> &str {
+pub(crate) fn dir_of(path: &str) -> &str {
     path.rfind('/').map_or("", |i| &path[..=i])
 }
 
@@ -741,7 +741,10 @@ pub(crate) fn build(
 }
 
 /// Where the package document is (`META-INF/container.xml` says).
-fn package_path(storage: &dyn Storage, archive: &ZipArchive) -> Result<String, DocumentError> {
+pub(crate) fn package_path(
+    storage: &dyn Storage,
+    archive: &ZipArchive,
+) -> Result<String, DocumentError> {
     // container.xml → path of the OPF package document.
     let mut opf_path = None;
     tokenize(storage, archive, "META-INF/container.xml", &mut |token| {

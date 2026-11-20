@@ -132,6 +132,29 @@ fn natural(a: &str, b: &str) -> Ordering {
 }
 
 impl CbzDocument {
+    /// A book of whole pages whose list (`pages.bin` in `cache`) is made: a
+    /// fixed-layout EPUB's.
+    pub(crate) fn from_pages(
+        archive: ZipArchive,
+        pages: u32,
+        cache: String,
+        metadata: Metadata,
+        options: &paperpaw_sdk::OpenOptions,
+        rtl: bool,
+    ) -> Self {
+        Self {
+            archive,
+            pages,
+            cache,
+            metadata,
+            color: options.color,
+            image_fit: options.image_fit,
+            cover_fit: options.cover_fit,
+            panels: false,
+            rtl,
+        }
+    }
+
     pub fn open(storage: &dyn Storage, path: &str) -> Result<Self, DocumentError> {
         Self::open_options(storage, path, &paperpaw_sdk::OpenOptions::default())
     }

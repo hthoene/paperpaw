@@ -132,7 +132,7 @@ differently; a plugin must keep that mapping.
 
 | Files | Owner | Stamp |
 |-------|-------|-------|
-| `.paperpaw/plugins/format-epub/<hash>/` | format-epub | `CACHE_VERSION` and the book's size and start; HTML, Markdown, FB2 and CBZ in folders of their own, `html-<hash>/`, `md-<hash>/`, `fb2-<hash>/` and `cbz-<hash>/` |
+| `.paperpaw/plugins/format-epub/<hash>/` | format-epub | `CACHE_VERSION` and the book's size and start; HTML, Markdown, FB2 and CBZ in folders of their own, `html-<hash>/`, `md-<hash>/`, `fb2-<hash>/` and `cbz-<hash>/`; the store plugin format-epub-plus keeps the page list of a fixed-layout book in `fxd-<hash>/` |
 | `.paperpaw/plugins/format-txt/<hash>.txt` | format-txt | a UTF-16 book as UTF-8; `<hash>.source`: the book's size and a hash of its first and last 4 KiB |
 | `.paperpaw/plugins/widgets/picture.pixels` | widgets | `picture.stamp`: the picture's path and size, the screen's size and colour |
 | `.paperpaw/logo.pixels` | SDK `logo` | `logo.stamp`: the picture's path and size, the size drawn, colour or not |

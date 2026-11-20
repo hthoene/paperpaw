@@ -274,6 +274,11 @@ pub static NATIVE_PLUGINS: &[(&str, &paperpaw_core::sdk::native::Linked)] = &[
     ("tasks", &paperpaw_plugin_tasks::NATIVE_ENTRY),
     #[cfg(feature = "native-linked-store")]
     ("calendar", &paperpaw_plugin_calendar::NATIVE_ENTRY),
+    #[cfg(feature = "native-linked-store")]
+    (
+        "format-epub-plus",
+        &paperpaw_plugin_format_epub_plus::NATIVE_ENTRY,
+    ),
     ("wifi", &paperpaw_plugin_wifi::NATIVE_ENTRY),
 ];
 
@@ -289,6 +294,7 @@ pub const LINKED_STORE_PLUGINS: &[&str] = &[
     "calibre",
     "diagnostics",
     "end-of-book",
+    "format-epub-plus",
     "gloss",
     "keys",
     "koreader",

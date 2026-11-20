@@ -144,6 +144,7 @@ native-linked-store = [
     "dep:paperpaw-plugin-puzzles",
     "dep:paperpaw-plugin-tasks",
     "dep:paperpaw-plugin-calendar",
+    "dep:paperpaw-plugin-format-epub-plus",
     "paperpaw-plugin-aids/linked",
     "paperpaw-plugin-fonts-browser/linked",
     "paperpaw-plugin-mail/linked",
@@ -172,6 +173,7 @@ native-linked-store = [
     "paperpaw-plugin-puzzles/linked",
     "paperpaw-plugin-tasks/linked",
     "paperpaw-plugin-calendar/linked",
+    "paperpaw-plugin-format-epub-plus/linked",
 ]
 
 [build-dependencies]
@@ -249,6 +251,7 @@ paperpaw-plugin-smart-home = { workspace = true, optional = true }
 paperpaw-plugin-puzzles = { workspace = true, optional = true }
 paperpaw-plugin-tasks = { workspace = true, optional = true }
 paperpaw-plugin-calendar = { workspace = true, optional = true }
+paperpaw-plugin-format-epub-plus = { workspace = true, optional = true }
 paperpaw-plugin-reader.workspace = true
 paperpaw-plugin-settings.workspace = true
 

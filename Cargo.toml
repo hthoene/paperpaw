@@ -50,6 +50,7 @@ members = [
     "plugins/format-txt",
     "crates/paperpaw-epub-family",
     "plugins/format-epub",
+    "plugins/format-epub-plus",
     "plugins/format-html",
     "plugins/format-fb2",
     "plugins/format-markdown",
@@ -236,6 +237,7 @@ paperpaw-plugin-files = { path = "plugins/files", version = "1.0.3" }
 paperpaw-plugin-reader = { path = "plugins/reader", version = "1.0.3" }
 paperpaw-epub-family = { path = "crates/paperpaw-epub-family", version = "1.0.5" }
 paperpaw-plugin-format-epub = { path = "plugins/format-epub", version = "1.0.5" }
+paperpaw-plugin-format-epub-plus = { path = "plugins/format-epub-plus", version = "1.0.0" }
 paperpaw-plugin-format-html = { path = "plugins/format-html", version = "1.0.5" }
 paperpaw-plugin-format-fb2 = { path = "plugins/format-fb2", version = "1.0.5" }
 paperpaw-plugin-format-markdown = { path = "plugins/format-markdown", version = "1.0.5" }

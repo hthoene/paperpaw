@@ -16,10 +16,12 @@ const PDI: char = '\u{2069}';
 
 /// What a book's chapters start with: its language, and the direction of
 /// its text where nothing else says it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Default)]
 pub(crate) struct BookText {
     pub lang: Lang,
     pub dir: Direction,
+    /// How a `<math>` is read, where the plugin reads MathML.
+    pub formulas: Option<super::FormulaMaker>,
 }
 
 impl BookText {
@@ -31,7 +33,17 @@ impl BookText {
             true => Direction::Rtl,
             false => Direction::Auto,
         };
-        BookText { lang, dir }
+        BookText {
+            lang,
+            dir,
+            formulas: None,
+        }
+    }
+
+    /// The book's formulas read as `maker` says.
+    pub(crate) fn with_formulas(mut self, maker: Option<super::FormulaMaker>) -> BookText {
+        self.formulas = maker;
+        self
     }
 }
 

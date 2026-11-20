@@ -50,6 +50,7 @@
 //! browsers do (see [`Source::Html`]), and FictionBooks, their elements
 //! read as the HTML ones they look like (see [`Source::Fb2`]).
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -68,12 +69,40 @@ mod decode;
 mod direction;
 mod elements;
 mod lists;
+pub(crate) mod math;
 mod start;
 mod tables;
 use crate::package::error;
 pub(crate) use chapter::convert;
 pub(crate) use decode::{decode_entry, decode_file, decode_image};
 pub(crate) use direction::{BookText, dir_from_bits};
+
+/// A formula (`<math>`) being read: the chapter hands it what it reads inside
+/// the element, and has it as text when the element ends. Only the plugin that
+/// reads MathML makes one (`BookText::with_formulas`), so the other plugins do
+/// not link the code that does.
+pub(crate) trait Formula {
+    /// An element inside the formula starts.
+    fn start(
+        &mut self,
+        tag: &str,
+        attrs: &paperpaw_sdk::xml::Attrs<'_>,
+    ) -> Result<(), DocumentError>;
+    /// Text inside it, with entities to decode unless `cdata`.
+    fn text(&mut self, text: &str, cdata: bool) -> Result<(), DocumentError>;
+    /// An element inside it ends: the formula, once its own element does.
+    fn end(&mut self) -> Result<Option<Done>, DocumentError>;
+}
+
+/// A finished formula.
+pub(crate) struct Done {
+    pub(crate) text: String,
+    pub(crate) display: bool,
+}
+
+/// Makes the formula of the `<math>` element with these attributes.
+pub(crate) type FormulaMaker =
+    fn(&paperpaw_sdk::xml::Attrs<'_>) -> Result<Box<dyn Formula>, DocumentError>;
 use elements::{is_block, is_capital};
 pub(crate) use tables::{MAX_DATA, read_row};
 
@@ -459,6 +488,8 @@ struct Converter<'a> {
     /// Style where the pending space was, e.g. inside a bold word group.
     space_style: TextStyle,
     failed: Option<DocumentError>,
+    /// The formula being read (`<math>`), while one is.
+    math: Option<Box<dyn Formula>>,
 }
 
 impl Converter<'_> {
@@ -693,6 +724,15 @@ impl Converter<'_> {
     }
 
     fn end(&mut self, name: &str) -> Result<(), DocumentError> {
+        if let Some(math) = self.math.as_mut() {
+            match math.end()? {
+                None => return Ok(()),
+                Some(done) => {
+                    self.math = None;
+                    self.formula(&done)?;
+                }
+            }
+        }
         self.end_node();
         let tag = element_name(name)?;
         let tag = match self.dialect.as_mut() {
@@ -767,10 +807,35 @@ impl Converter<'_> {
         Ok(())
     }
 
+    /// A finished formula, as text: inline, or a block of its own.
+    fn formula(&mut self, done: &Done) -> Result<(), DocumentError> {
+        if self.hidden > 0 || done.text.is_empty() {
+            return Ok(());
+        }
+        if done.display {
+            self.flush()?;
+            self.align = Some(Align::Center);
+        }
+        for (n, line) in done.text.split('\n').enumerate() {
+            if n > 0 {
+                self.push('\n')?;
+                self.space = false;
+            }
+            self.characters(line, true)?;
+        }
+        if done.display {
+            self.flush()?;
+        }
+        Ok(())
+    }
+
     /// Text of the chapter: with entities to decode, or as written (CDATA).
     fn characters(&mut self, text: &str, cdata: bool) -> Result<(), DocumentError> {
         if self.full {
             return Ok(());
+        }
+        if let Some(math) = self.math.as_mut() {
+            return math.text(text, cdata);
         }
         if self.stack.last().is_some_and(|f| f.tag == "style") {
             if self.styles {
