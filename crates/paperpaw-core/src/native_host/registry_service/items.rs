@@ -78,7 +78,7 @@ fn groups(
     };
     let native = store
         .as_deref()
-        .map(|store| Native::new(store, sources.env.caps()));
+        .map(|store| Native::new(store, sources.env.caps()).sharing(sources.generation));
     for group in sources.env.settings().groups() {
         let parent = group.parent.as_ref().map_or("", Id::as_str);
         if !scope.is_empty() && parent != scope {
