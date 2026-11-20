@@ -201,6 +201,11 @@ pub fn keep(storage: &dyn Storage, name: &str) {
     let Ok(updated) = kept_with(list, name, KEPT, &mut evicted) else {
         return;
     };
+    // Already the newest, nothing to remove: the card is not written (a book
+    // opened again at the start, #403).
+    if updated == list {
+        return;
+    }
     if storage.write(KEPT_FILE, updated.as_bytes()).is_err() {
         return;
     }

@@ -36,7 +36,7 @@ impl NativeReader {
         if self
             .screens
             .top(SCREEN)
-            .is_some_and(|view| view.counting() || view.marks_due())
+            .is_some_and(|view| view.counting() || view.marks_due() || view.packs_due())
         {
             self.declare_work(
                 host,
@@ -58,7 +58,9 @@ impl NativeReader {
         }
         let more = match (self.screens.top(SCREEN), &self.docs) {
             (Some(view), Some(docs)) => {
-                // The first page's marks are asked here, after it is shown.
+                // The packs of letters the book lacks and the first page's
+                // marks are asked here, after it is shown.
+                view.packs_step(host, docs);
                 view.marks_step(host, docs);
                 view.count_step(host, docs)
             }
