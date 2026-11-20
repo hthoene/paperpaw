@@ -138,9 +138,7 @@ impl Plugin for NativeStats {
                 ..
             } if token == crate::declarations::OPEN_TOKEN => return self.open_overview(host),
             Event::ScreenOpened { screen, .. } if screen == crate::declarations::SLEEP_SCREEN => {
-                let counted = with_cx(host, 0, |cx| self.recorder.read_today(cx));
-                self.sleeping = Some(crate::native_sleep::Prepared::read(host, counted));
-                return Ok(());
+                return self.opened_sleep(host);
             }
             Event::ScreenOpened {
                 screen,
@@ -417,6 +415,13 @@ impl NativeStats {
             "stats.book" => self.opened_book(host, instance, handover),
             _ => Ok(()),
         }
+    }
+
+    /// The sleep screen opens: its log of days is read now, a draw cannot.
+    fn opened_sleep(&mut self, host: &Host<'_>) -> Result<(), Error> {
+        let counted = with_cx(host, 0, |cx| self.recorder.read_today(cx));
+        self.sleeping = Some(crate::native_sleep::Prepared::read(host, counted));
+        Ok(())
     }
 
     #[inline(never)]
