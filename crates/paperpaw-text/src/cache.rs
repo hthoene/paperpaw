@@ -160,16 +160,6 @@ impl GlyphCache {
     }
 }
 
-/// The block of a built-in pack's deflated bitmaps that was inflated last,
-/// and which it is: the pack's bytes lie at an address, so that it is told
-/// from another pack's.
-#[cfg(feature = "kernel")]
-#[derive(Debug, Default)]
-struct Blocks {
-    data: Vec<u8>,
-    of: Option<(usize, usize)>,
-}
-
 /// The most a bitmap of a cold glyph is, in bytes, for the glyph cache to keep it.
 /// A clock's digits are larger and are not kept (see `Lru::large`).
 #[cfg(feature = "kernel")]
@@ -177,38 +167,31 @@ const KEPT: usize = 1024;
 
 /// The bitmap of the cold glyph `found` of a built-in pack whose bitmaps are
 /// deflated (`deflated.rs`), inflated out of the block or the two it lies in
-/// (the last one inflated is kept, so that glyphs side by side in the pack
-/// inflate it once) into `bitmap`; `None` where that could not be done.
+/// into `bitmap`; `None` where that could not be done. The block is held while
+/// it is read and let go, so that nothing but the glyph stays in memory.
 #[cfg(feature = "kernel")]
 fn read_deflated(
     font: &crate::bitmap::BitmapFont,
     found: crate::bitmap::Located,
     mut bitmap: Vec<u8>,
-    blocks: &mut Blocks,
 ) -> Option<Glyph> {
     use crate::deflated::BLOCK;
     let (deflated, pack) = font.deflated()?;
     bitmap.clear();
     bitmap.try_reserve_exact(found.len).ok()?;
-    let (of, end) = (pack.as_ptr() as usize, found.start.checked_add(found.len)?);
+    let end = found.start.checked_add(found.len)?;
+    let mut block = Vec::new();
     let mut at = found.start;
     while at < end {
-        let block = at / BLOCK;
-        if blocks.of != Some((of, block)) {
-            blocks.of = None;
-            if !deflated.inflate(pack, block, &mut blocks.data) {
-                return None;
-            }
-            blocks.of = Some((of, block));
+        let number = at / BLOCK;
+        if !deflated.inflate(pack, number, &mut block) {
+            return None;
         }
-        let from = at - block * BLOCK;
-        let to = (end - block * BLOCK).min(blocks.data.len());
-        let piece = blocks
-            .data
-            .get(from..to)
-            .filter(|piece| !piece.is_empty())?;
+        let from = at - number * BLOCK;
+        let to = (end - number * BLOCK).min(block.len());
+        let piece = block.get(from..to).filter(|piece| !piece.is_empty())?;
         bitmap.extend_from_slice(piece);
-        at = block * BLOCK + to;
+        at = number * BLOCK + to;
     }
     Some(Glyph {
         format: found.format,
@@ -233,10 +216,6 @@ struct Lru {
     clock: u32,
     /// Bitmaps of glyphs let go, at most [`SPARE`] (see there).
     spare: Vec<Vec<u8>>,
-    /// The last block of a built-in pack's deflated bitmaps that was
-    /// inflated (see [`Blocks`]).
-    #[cfg(feature = "kernel")]
-    blocks: alloc::rc::Rc<core::cell::RefCell<Blocks>>,
     /// The glyph of such a pack too large to keep (a clock's digit), until the
     /// next glyph is asked for.
     #[cfg(feature = "kernel")]
@@ -369,8 +348,6 @@ impl Lru {
             clock: 0,
             spare: Vec::new(),
             #[cfg(feature = "kernel")]
-            blocks: alloc::rc::Rc::default(),
-            #[cfg(feature = "kernel")]
             large: None,
         }
     }
@@ -396,9 +373,8 @@ impl Lru {
         if !found.cold {
             return font.glyph_of(found);
         }
-        let blocks = self.blocks.clone();
         if found.len > KEPT {
-            self.large = read_deflated(font, found, Vec::new(), &mut blocks.borrow_mut());
+            self.large = read_deflated(font, found, Vec::new());
             return self.large.as_ref().map_or(
                 GlyphRef {
                     advance: found.advance,
@@ -409,7 +385,7 @@ impl Lru {
         }
         match self.cached_with(font_index, ch, size, |s, spare| {
             let found = font.locate(ch, s)?;
-            read_deflated(font, found, spare, &mut blocks.borrow_mut())
+            read_deflated(font, found, spare)
         }) {
             Some(glyph) => glyph,
             None => GlyphRef {
@@ -419,10 +395,9 @@ impl Lru {
         }
     }
 
-    /// Lets the block go, and the memory that held it.
+    /// Lets the held glyph go, and the memory that held it.
     #[cfg(feature = "kernel")]
     fn let_blocks_go(&mut self) {
-        *self.blocks.borrow_mut() = Blocks::default();
         self.large = None;
     }
 
