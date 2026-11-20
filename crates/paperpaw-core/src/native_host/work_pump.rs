@@ -145,9 +145,6 @@ impl crate::Kernel {
                 break;
             };
             index += 1;
-            let Ok(lease) = lease.try_clone() else {
-                continue;
-            };
             if instances.subscribed(owner, wire::EVENT_WORK_ALLOWED_TAG) {
                 // A hint: how the plugin took it is its own; what it staged
                 // runs before the next callback.

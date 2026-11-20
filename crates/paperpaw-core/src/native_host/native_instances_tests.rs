@@ -384,11 +384,13 @@ fn lost_orphan_retirement_reports_queue_full_once_and_backs_off() {
 #[test]
 fn an_instance_row_is_eight_words() {
     // #248 B: the replacement folder is a box of its bytes and the
-    // failure-said flag is a bit of the retry time (40 bytes on the X4, was 48).
+    // failure-said flag is a bit of the retry time; #405 D4: the row is the
+    // owner directory's and the linked set's too (40 bytes on the X4).
+    use crate::native_host::owner_directory::Row;
     assert!(
-        core::mem::size_of::<Entry>() <= 8 * core::mem::size_of::<usize>(),
+        core::mem::size_of::<Row>() <= 8 * core::mem::size_of::<usize>(),
         "{} bytes",
-        core::mem::size_of::<Entry>()
+        core::mem::size_of::<Row>()
     );
 }
 

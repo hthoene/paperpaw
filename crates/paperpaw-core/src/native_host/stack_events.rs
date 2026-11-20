@@ -71,7 +71,7 @@ impl crate::Kernel {
         }
         let mut index = 0;
         let mut next = None;
-        while let Some((owner, _)) = instances.running_nth(index) {
+        while let Some(owner) = instances.running_key_nth(index) {
             index += 1;
             if !instances.subscribed(owner, wire::EVENT_STACK_CHANGED_TAG) {
                 continue;

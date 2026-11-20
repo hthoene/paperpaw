@@ -159,8 +159,8 @@ impl crate::Kernel {
         if key.starts_with("core.grant.") {
             return Err(ERR_DENIED);
         }
-        let exempt = self.command_settings_authority(owner).guarded_exempt;
-        let spec = super::admitted(&self.shared.settings, owner, exempt, key)?;
+        let exempt = self.command_settings_authority(&owner).guarded_exempt;
+        let spec = super::admitted(&self.shared.settings, &owner, exempt, key)?;
         let decoded =
             crate::abi7::settings_wire::settings_decode(value).map_err(|_| ERR_INVALID)?;
         let shown = CommandStage::owned_value(spec, decoded)?;

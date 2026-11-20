@@ -102,7 +102,7 @@ impl SettingEvents {
     /// captured for it).
     pub(crate) fn wanted(instances: &NativeInstances) -> bool {
         let mut n = 0;
-        while let Some((owner, _)) = instances.running_nth(n) {
+        while let Some(owner) = instances.running_key_nth(n) {
             if instances.subscribed(owner, TAG) {
                 return true;
             }
@@ -178,7 +178,7 @@ impl SettingEvents {
             return;
         };
         let mut n = 0;
-        while let Some((owner, _)) = instances.running_nth(n) {
+        while let Some(owner) = instances.running_key_nth(n) {
             n += 1;
             if !instances.subscribed(owner, TAG) {
                 continue;
@@ -186,7 +186,7 @@ impl SettingEvents {
             let Some(id) = instances.id(owner) else {
                 continue;
             };
-            let seen = readable(settings, id, key);
+            let seen = readable(settings, &id, key);
             // A drop sets the reread bit inside `Pending::setting`; with no
             // queue to hold even that, the plugin has nothing to be told by.
             if let Ok(queue) = self.queue_of(&mut queues, owner) {
@@ -206,7 +206,7 @@ impl SettingEvents {
             return;
         };
         let mut n = 0;
-        while let Some((owner, _)) = instances.running_nth(n) {
+        while let Some(owner) = instances.running_key_nth(n) {
             n += 1;
             if !instances.subscribed(owner, tag) {
                 continue;
@@ -245,7 +245,7 @@ impl SettingEvents {
             return;
         };
         let mut n = 0;
-        while let Some((owner, _)) = instances.running_nth(n) {
+        while let Some(owner) = instances.running_key_nth(n) {
             n += 1;
             if !instances.subscribed(owner, wire::EVENT_REGISTRY_CHANGED_TAG) {
                 continue;
@@ -582,7 +582,7 @@ impl crate::Kernel {
             }
             _ => {
                 let settings = &self.shared.settings;
-                match ready.setting_record(now, |key| readable(settings, id, key)) {
+                match ready.setting_record(now, |key| readable(settings, &id, key)) {
                     // Revoked since it was queued: nothing to tell.
                     Ok(None) => return true,
                     Ok(Some(record)) => {

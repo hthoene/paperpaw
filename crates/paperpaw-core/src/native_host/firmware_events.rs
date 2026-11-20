@@ -535,11 +535,8 @@ impl Kernel {
             else {
                 break;
             };
-            let id = self
-                .shared
-                .native_instances
-                .id(outcome.owner)
-                .map_or("", |id| id.as_str());
+            let id = self.shared.native_instances.id(outcome.owner);
+            let id = id.as_ref().map_or("", |id| id.as_str());
             let record = Record::EventInstallDone(wire::EventInstallDone {
                 now_ms: self.shared.now.millis(),
                 request: outcome.request,

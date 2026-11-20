@@ -6,7 +6,9 @@ use super::{
     linked_entry::{self, Refusal},
     shell,
 };
-use paperpaw_native::host_glue::{ERR_DENIED, ERR_INVALID, ERR_UNSUPPORTED, PpEntry, Services};
+use paperpaw_native::host_glue::{
+    ERR_DENIED, ERR_INVALID, ERR_NO_MEMORY, ERR_UNSUPPORTED, PpEntry, Services,
+};
 use paperpaw_native::{bundle, metadata};
 use paperpaw_sdk::Id;
 
@@ -186,13 +188,17 @@ impl crate::Kernel {
         })?;
         // The id is a linked plugin's for `core.files` before the plugin can
         // run; a registration that fails takes it back.
-        let linked = resources.hosts().linked().clone();
-        linked.add(id).map_err(shell::Error::Status)?;
+        let linked = resources
+            .hosts()
+            .owners()
+            .and_then(|owners| owners.try_clone().ok_or(ERR_NO_MEMORY))
+            .map_err(shell::Error::Status)?;
+        linked.add_linked(id).map_err(shell::Error::Status)?;
         // SAFETY: the caller guarantees the factory contract and static code.
         let host = match unsafe { admitted.hosted(services, caller, teardown, resources, image) } {
             Ok(host) => host,
             Err(error) => {
-                linked.remove(id);
+                linked.remove_linked(id);
                 return Err(error);
             }
         };
@@ -208,7 +214,7 @@ impl crate::Kernel {
         }
         let registered = self.register_native_fixed(host, depth, report, fixed, park);
         if registered.is_err() {
-            linked.remove(id);
+            linked.remove_linked(id);
         }
         registered
     }

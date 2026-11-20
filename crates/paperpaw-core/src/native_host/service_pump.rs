@@ -76,7 +76,7 @@ pub(super) fn pump(
     };
     let mut more = false;
     let running = (0..)
-        .take_while(|&n| instances.running_nth(n).is_some())
+        .take_while(|&n| instances.running_key_nth(n).is_some())
         .count();
     // Each pass starts where the last one stopped for a staged batch, so a
     // plugin whose every event stages commands does not keep the others
@@ -88,7 +88,7 @@ pub(super) fn pump(
             break;
         };
         for service in services.iter().flatten() {
-            more |= drain(*service, (key, lease), &mut buffer, &delivery);
+            more |= drain(*service, (key, &lease), &mut buffer, &delivery);
             if instances.outbox.full() {
                 break;
             }
@@ -417,7 +417,7 @@ impl crate::Kernel {
         let services = instances.event_services();
         let mut result = Ok(());
         let mut index = 0;
-        while let Some((owner, _)) = instances.running_nth(index) {
+        while let Some(owner) = instances.running_key_nth(index) {
             index += 1;
             for service in services.iter().flatten() {
                 result = result.and(each(*service, owner));

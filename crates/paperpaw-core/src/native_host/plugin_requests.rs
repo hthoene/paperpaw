@@ -324,7 +324,7 @@ impl Kernel {
     fn native_installer_listening(&self) -> bool {
         let instances = &self.shared.native_instances;
         let mut n = 0;
-        while let Some((owner, _)) = instances.running_nth(n) {
+        while let Some(owner) = instances.running_key_nth(n) {
             n += 1;
             if instances.is_installer(owner)
                 && instances.subscribed(owner, wire::EVENT_PLUGINS_REQUESTED_TAG)

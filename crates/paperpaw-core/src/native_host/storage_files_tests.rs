@@ -10,7 +10,11 @@ use paperpaw_native::host_glue::ERR_STATE;
 use paperpaw_sdk::MemoryStorage;
 
 fn files(storage: &Rc<MemoryStorage>) -> StorageFiles {
-    StorageFiles::new(storage.clone(), Rc::default(), Rc::default())
+    StorageFiles::new(
+        storage.clone(),
+        Rc::default(),
+        crate::native_host::owner_directory::OwnerDirectory::fresh(),
+    )
 }
 
 fn card() -> Rc<MemoryStorage> {
@@ -74,7 +78,12 @@ fn an_8_3_alias_of_a_host_folder_is_refused_and_a_name_that_is_nothing_is_not() 
     empty.write("PAPERP~1/x", b"x").unwrap();
     assert!(!files.excluded(0, "nowhere", "RECEIV~1"));
     assert!(
-        !super::StorageFiles::new(empty, Rc::default(), Rc::default()).excluded(1, "", "PAPERP~1")
+        !super::StorageFiles::new(
+            empty,
+            Rc::default(),
+            crate::native_host::owner_directory::OwnerDirectory::fresh()
+        )
+        .excluded(1, "", "PAPERP~1")
     );
 }
 
@@ -114,7 +123,11 @@ impl BusySource for Source {
 #[test]
 fn busy_and_moving_come_from_the_registered_sources_and_nothing_is_busy_without() {
     let sources = Rc::new(BusySources::default());
-    let files = StorageFiles::new(card(), sources.clone(), Rc::default());
+    let files = StorageFiles::new(
+        card(),
+        sources.clone(),
+        crate::native_host::owner_directory::OwnerDirectory::fresh(),
+    );
     assert!(!files.busy("Books/a.epub", Access::Write));
     assert!(!files.moving());
     let one = Rc::new(Source {
@@ -219,12 +232,15 @@ fn what_the_network_holds_in_use_is_the_network_source_of_core_files() {
 
 #[test]
 fn a_linked_plugin_is_built_in_and_a_loaded_one_is_not() {
-    let linked = Rc::new(crate::native_host::linked_plugins::LinkedPlugins::default());
-    let files = StorageFiles::new(card(), Rc::default(), linked.clone());
+    let linked = crate::native_host::shared::Shared::try_new(
+        crate::native_host::owner_directory::OwnerDirectory::new(),
+    )
+    .unwrap();
+    let files = StorageFiles::new(card(), Rc::default(), linked.try_clone().unwrap());
     assert!(!files.built_in("home"));
-    linked.add("home").unwrap();
+    linked.add_linked("home").unwrap();
     assert!(files.built_in("home"));
     assert!(!files.built_in("other") && !files.built_in("hom"));
-    linked.remove("home");
+    linked.remove_linked("home");
     assert!(!files.built_in("home"));
 }
