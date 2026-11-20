@@ -1,9 +1,10 @@
 use super::*;
+use crate::native_word::Word;
 use crate::stages::{reader_layer_v1 as layer, reader_text_v1 as text};
 use alloc::vec;
 use paperpaw_sdk::document::Locator;
 use paperpaw_sdk::layout::{LayoutContext, Page, Style, layout_page};
-use paperpaw_sdk::{NoStorage, Rect, reading::WordBox};
+use paperpaw_sdk::{NoStorage, Rect};
 
 /// An answer of the text stage made of `rows`.
 fn answer(rows: &[text::Record<'_>]) -> Vec<u8> {
@@ -222,7 +223,7 @@ fn a_page_is_shown_in_lines_with_its_words_and_its_answer_drawn_over_it() {
     let page = laid("one two three four");
     assert_eq!(page.lines.len(), 2);
     // The reader's boxes, the text area 30 px from the left.
-    let boxes: Vec<WordBox> = [(0, "one"), (4, "two"), (8, "three"), (14, "four")]
+    let boxes: Vec<Word> = [(0, "one"), (4, "two"), (8, "three"), (14, "four")]
         .iter()
         .enumerate()
         .map(|(n, &(at, word))| {
@@ -233,7 +234,7 @@ fn a_page_is_shown_in_lines_with_its_words_and_its_answer_drawn_over_it() {
             };
             let y = if n < 2 { 0 } else { 20 };
             let area = Rect::new(x, y, word.len() as u16 * 10, 20);
-            WordBox::new(
+            Word::new(
                 area,
                 word,
                 Locator::new(0, at),

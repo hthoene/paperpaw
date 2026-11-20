@@ -8,6 +8,7 @@
 //! A line whose runs are put in order for mixed directions (`LineBidi::REORDER`)
 //! is read in logical order, each word where the logical flow puts it (a named
 //! gap in `PORTING-7.md`: the interface-6 reader set each where it is drawn).
+use crate::native_word::{Text, Word};
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::{
@@ -15,7 +16,6 @@ use paperpaw_sdk::{
     document::Locator,
     layout::{Page, Typesetter},
     native::Error,
-    reading::WordBox,
     text::Around,
 };
 
@@ -35,9 +35,9 @@ pub fn word_boxes<M: Measure>(
     faces: &Faces<M>,
     page: &Page,
     area: native_pages::Box,
-) -> Result<Vec<WordBox>, Error> {
+) -> Result<Vec<Word>, Error> {
     let (left, top) = (f32::from(area.x), f32::from(area.y));
-    let mut words: Vec<WordBox> = Vec::new();
+    let mut words: Vec<Word> = Vec::new();
     // Room for the page's words at once, not by doubling (#400): a page of 45
     // words took a table of 64 rows of 80 bytes, 1.9 KB kept all the time the
     // page is on show. A word the layout did not count grows it by one.
@@ -78,7 +78,7 @@ pub fn word_boxes<M: Measure>(
                 let width = faces.advance_text(run.face, part, &Around::NONE);
                 match words.last_mut() {
                     Some(last) if joined => {
-                        push_str(&mut last.text, part)?;
+                        last.text.try_push_str(part)?;
                         last.area.width = ((x + width) as u16).saturating_sub(last.area.x);
                     }
                     _ => {
@@ -87,11 +87,10 @@ pub fn word_boxes<M: Measure>(
                         }
                         let (start, end) = line.words.get(ordinal).copied().unwrap_or_default();
                         ordinal += 1;
-                        let mut text = String::new();
-                        push_str(&mut text, part)?;
+                        let text = Text::try_from_str(part)?;
                         words.try_reserve(1).map_err(|_| Error::NoMemory)?;
                         words.push(
-                            WordBox::new(
+                            Word::new(
                                 Rect::new(x as u16, box_top as u16, width as u16, height as u16),
                                 text,
                                 Locator::new(line.section, start),
@@ -117,7 +116,7 @@ pub fn word_boxes<M: Measure>(
 
 /// `words` without the room a joined word left over (a word is one box where
 /// the layout counted its parts).
-fn kept(mut words: Vec<WordBox>) -> Vec<WordBox> {
+fn kept(mut words: Vec<Word>) -> Vec<Word> {
     if words.capacity() > words.len() {
         words.shrink_to_fit();
     }
@@ -128,21 +127,15 @@ fn kept(mut words: Vec<WordBox>) -> Vec<WordBox> {
 /// and the word after it, its other part: each is the whole word (without that
 /// hyphen) with its whole place in the book, so that a touch on either part
 /// chooses the word, and what is kept of it is the word, by its place.
-fn join_broken(words: &mut [WordBox], head: usize) -> Result<(), Error> {
+fn join_broken(words: &mut [Word], head: usize) -> Result<(), Error> {
     let tail = head + 1;
     let Some((front, back)) = words.get(head).zip(words.get(tail)) else {
         return Ok(());
     };
     let part = front.text.strip_suffix('-').unwrap_or(&front.text);
-    let mut whole = String::new();
-    whole
-        .try_reserve(part.len() + back.text.len())
-        .map_err(|_| Error::NoMemory)?;
-    whole.push_str(part);
-    whole.push_str(&back.text);
+    let whole = Text::joined(part, &back.text)?;
     let (start, end) = (front.start, back.end);
-    let mut again = String::new();
-    push_str(&mut again, &whole)?;
+    let again = whole.clone();
     for (at, text) in [(head, whole), (tail, again)] {
         if let Some(word) = words.get_mut(at) {
             word.text = text;
@@ -156,7 +149,7 @@ fn join_broken(words: &mut [WordBox], head: usize) -> Result<(), Error> {
 /// Whether the page's last word is one the layout broke at the page's end: its
 /// other part is the first word of the next page, which this page does not hold.
 #[must_use]
-pub fn ends_open(words: &[WordBox], page: &Page) -> bool {
+pub fn ends_open(words: &[Word], page: &Page) -> bool {
     let Some(line) = page.lines.iter().rev().find(|l| !l.inserted) else {
         return false;
     };
@@ -207,18 +200,12 @@ pub fn first_word(page: &Page) -> Result<Option<(String, Locator)>, Error> {
 ///
 /// # Errors
 /// `NoMemory` when the word cannot be allocated.
-pub fn join_open_end(words: &mut [WordBox], rest: &str, end: Locator) -> Result<(), Error> {
+pub fn join_open_end(words: &mut [Word], rest: &str, end: Locator) -> Result<(), Error> {
     let Some(word) = words.last_mut() else {
         return Ok(());
     };
     let part = word.text.strip_suffix('-').unwrap_or(&word.text);
-    let mut whole = String::new();
-    whole
-        .try_reserve(part.len() + rest.len())
-        .map_err(|_| Error::NoMemory)?;
-    whole.push_str(part);
-    whole.push_str(rest);
-    word.text = whole;
+    word.text = Text::joined(part, rest)?;
     word.end = end;
     Ok(())
 }
@@ -236,7 +223,7 @@ pub const SLACK: i32 = 4;
 /// sides (as the interface-6 reader: none above or below, the lines do not
 /// touch), else none.
 #[must_use]
-pub fn word_at(words: &[WordBox], x: i32, y: i32) -> Option<usize> {
+pub fn word_at(words: &[Word], x: i32, y: i32) -> Option<usize> {
     words.iter().position(|w| {
         let a = w.area;
         x >= i32::from(a.x) - SLACK

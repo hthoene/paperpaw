@@ -3,11 +3,12 @@
 //! `reader-selection-host-flow` and `reader-link-follow-back` in
 //! `tests/acceptance_pending.rs`.
 use super::*;
+use crate::native_word::Word;
 use paperpaw_sdk::Rect;
 
-fn words(text: &str) -> Vec<WordBox> {
+fn words(text: &str) -> Vec<Word> {
     text.split(' ')
-        .map(|word| WordBox::new(Rect::new(0, 0, 1, 1), word, Locator::START, Locator::START))
+        .map(|word| Word::new(Rect::new(0, 0, 1, 1), word, Locator::START, Locator::START))
         .collect()
 }
 
@@ -70,8 +71,8 @@ fn the_bar_names_highlight_and_note_by_what_is_there() {
     assert_eq!(names(Some(true)), (Item::Unhighlight, Item::EditNote));
 }
 
-fn placed(text: &str, start: u32, end: u32) -> WordBox {
-    WordBox::new(
+fn placed(text: &str, start: u32, end: u32) -> Word {
+    Word::new(
         Rect::new(0, 0, 1, 1),
         text,
         Locator::new(0, start),
@@ -173,7 +174,7 @@ fn the_selecting_keys_are_the_actions_the_marking_knows() {
 
 #[test]
 fn a_lookup_is_anchored_at_the_box_of_its_words_in_their_first_line() {
-    let at = |x, y| WordBox::new(Rect::new(x, y, 30, 20), "w", Locator::START, Locator::START);
+    let at = |x, y| Word::new(Rect::new(x, y, 30, 20), "w", Locator::START, Locator::START);
     let page = [at(10, 100), at(50, 100), at(90, 100), at(10, 124)];
     let anchor = act::anchor(&page, 1, 3).unwrap();
     assert_eq!(anchor, Rect::new(50, 100, 70, 20));

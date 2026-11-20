@@ -168,8 +168,8 @@ fn a_word_broken_with_a_hyphen_of_the_layout_is_one_word_in_both_its_parts() {
     }
     let words = word_boxes(&faces, &page, BOX).unwrap();
     let whole = format!("{}{}", before[head].text, before[tail].text);
-    assert_eq!(words[head].text, whole);
-    assert_eq!(words[tail].text, whole);
+    assert_eq!(words[head].text, whole.as_str());
+    assert_eq!(words[tail].text, whole.as_str());
     // Each part has its own box, and both the whole word's place in the book.
     assert_eq!(words[head].area.x, before[head].area.x);
     assert_eq!(words[tail].area, before[tail].area);
@@ -214,7 +214,7 @@ fn a_word_broken_at_the_end_of_a_page_is_whole_with_the_first_word_of_the_next()
     assert_eq!((rest.as_str(), end), (after[0].text.as_str(), after[0].end));
     join_open_end(&mut words, &rest, end).unwrap();
     let last = &words[words.len() - 1];
-    assert_eq!(last.text, format!("{part}{rest}"));
+    assert_eq!(last.text, format!("{part}{rest}").as_str());
     assert_eq!(last.end, end);
     assert!(!ends_open(&words, &first));
 }

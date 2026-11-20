@@ -1,8 +1,9 @@
 use super::*;
+use crate::native_word::Word;
 use paperpaw_sdk::document::Locator;
 
-fn word(text: &str, x: u16, y: u16, start: u32, end: u32) -> WordBox {
-    WordBox::new(
+fn word(text: &str, x: u16, y: u16, start: u32, end: u32) -> Word {
+    Word::new(
         Rect::new(x, y, 20, 10),
         text,
         Locator::new(0, start),
@@ -257,7 +258,7 @@ fn a_list_of_highlights_has_a_number_that_changes_with_a_place_a_note_and_the_co
 }
 
 /// A page of the words of `text`, each 6 offsets long from `start` on.
-fn page_of(text: &str, start: u32) -> Vec<WordBox> {
+fn page_of(text: &str, start: u32) -> Vec<Word> {
     let mut at = start;
     text.split(' ')
         .map(|w| {
@@ -367,7 +368,7 @@ fn short(from: u32, to: u32, text: &str) -> Foreign {
     }
 }
 
-fn accepted(words: &[WordBox], held: Foreign) -> Vec<Span> {
+fn accepted(words: &[Word], held: Foreign) -> Vec<Span> {
     let mut marks = Marks::new(Vec::new()).with_foreign(Vec::from([held]));
     marks.accept_foreign(words);
     marks.highlights().to_vec()

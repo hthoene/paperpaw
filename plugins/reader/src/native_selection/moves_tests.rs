@@ -5,6 +5,7 @@
 
 extern crate std;
 
+use crate::native_word::Word;
 use alloc::vec::Vec;
 
 use paperpaw_sdk::Rect;
@@ -12,7 +13,7 @@ use paperpaw_sdk::document::Locator;
 use proptest::prelude::*;
 
 use super::*;
-use paperpaw_sdk::reading::{LineBidi, WordBox};
+use paperpaw_sdk::layout::LineBidi;
 /// The navigation actions, as the host names them.
 mod actions {
     pub const LEFT: &str = "core.left";
@@ -27,14 +28,14 @@ mod actions {
 }
 
 /// A page of `lines`, each with that many words of `width` pixels.
-fn page(lines: &[(u8, u8)]) -> Vec<WordBox> {
+fn page(lines: &[(u8, u8)]) -> Vec<Word> {
     let mut words = Vec::new();
     let mut offset = 0;
     for (line, &(count, width)) in lines.iter().enumerate() {
         let mut x = 10u16;
         for _ in 0..count {
             let width = u16::from(width.max(1));
-            words.push(WordBox::new(
+            words.push(Word::new(
                 Rect::new(x, 20 + line as u16 * 30, width, 24),
                 "word",
                 Locator::new(0, offset),
@@ -179,7 +180,7 @@ fn lines_go_by_the_page_buttons_and_stop_at_the_ends() {
 #[test]
 fn a_cursor_past_the_words_moves_without_panicking() {
     let word = |x: u16, y: u16| {
-        WordBox::new(
+        Word::new(
             Rect::new(x, y, 10, 10),
             "word",
             Locator::START,
@@ -197,8 +198,8 @@ fn a_cursor_past_the_words_moves_without_panicking() {
 
 /// A word `x` from the left on the first line, running right to left
 /// where `rtl`.
-fn at(x: u16, rtl: bool) -> WordBox {
-    WordBox::new(Rect::new(x, 0, 10, 10), "w", Locator::START, Locator::START).rtl(rtl)
+fn at(x: u16, rtl: bool) -> Word {
+    Word::new(Rect::new(x, 0, 10, 10), "w", Locator::START, Locator::START).rtl(rtl)
 }
 
 /// The bidi of a line of a paragraph running right to left where `rtl`.
@@ -207,8 +208,8 @@ fn para(rtl: bool) -> LineBidi {
 }
 
 /// A word on the line below the first, in a paragraph of `rtl`'s way.
-fn below(rtl: bool) -> WordBox {
-    WordBox::new(
+fn below(rtl: bool) -> Word {
+    Word::new(
         Rect::new(60, 20, 10, 10),
         "w",
         Locator::START,
@@ -274,8 +275,8 @@ fn left_and_right_move_as_the_words_are_drawn() {
 /// A line of words `(x, rtl)` in reading order, of a paragraph running
 /// right to left where `paragraph_rtl`, then one word on the line
 /// below.
-fn page_of(paragraph_rtl: bool, line: &[(u16, bool)]) -> Vec<WordBox> {
-    let mut words: Vec<WordBox> = line
+fn page_of(paragraph_rtl: bool, line: &[(u16, bool)]) -> Vec<Word> {
+    let mut words: Vec<Word> = line
         .iter()
         .map(|&(x, rtl)| at(x, rtl).bidi(para(paragraph_rtl)))
         .collect();
@@ -301,7 +302,7 @@ fn at_the_edge_of_an_arabic_line_a_latin_word_or_number_goes_on_as_the_line_does
     assert_eq!(on(0, actions::LEFT), Some(1));
     // The last word of the page, left of the line's end: wraps to the first.
     let line = [(60, true), (40, true), (20, true)];
-    let words: Vec<WordBox> = line
+    let words: Vec<Word> = line
         .iter()
         .map(|&(x, rtl)| at(x, rtl).bidi(para(true)))
         .collect();
@@ -340,7 +341,7 @@ fn a_line_that_runs_left_to_right_keeps_its_way_with_a_hebrew_word_at_its_edge()
 
 /// Two lines of three words; word 2 ends the first line broken with a hyphen
 /// of the layout's, and word 3 is its second part, at the start of the next.
-fn page_with_a_broken_word() -> Vec<WordBox> {
+fn page_with_a_broken_word() -> Vec<Word> {
     let mut words = page(&[(3, 30), (3, 30)]);
     let (start, end) = (words[2].start, words[2].end);
     words[3].start = start;

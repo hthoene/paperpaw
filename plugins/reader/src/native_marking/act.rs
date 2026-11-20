@@ -1,4 +1,5 @@
 //! What the bar's buttons do with the chosen words: copy them, look them up.
+use crate::native_word::Word;
 use alloc::string::String;
 use paperpaw_sdk::{
     Rect,
@@ -9,7 +10,6 @@ use paperpaw_sdk::{
         registry::{PageCursor, Registry},
         ui::{Open, Param, TextWrite, Ui},
     },
-    reading::WordBox,
 };
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 
@@ -36,7 +36,7 @@ pub fn ends_sentence(word: &str) -> bool {
 }
 
 /// The text of the page's words `lo..=hi`, a space between them.
-pub fn text_of(words: &[WordBox], lo: usize, hi: usize) -> Result<String, Error> {
+pub fn text_of(words: &[Word], lo: usize, hi: usize) -> Result<String, Error> {
     let mut text = String::new();
     for (at, word) in words.iter().enumerate().take(hi + 1).skip(lo) {
         // The second part of a word the layout broke says the word again.
@@ -57,8 +57,8 @@ pub fn text_of(words: &[WordBox], lo: usize, hi: usize) -> Result<String, Error>
 }
 
 /// The sentence around words `lo..=hi` of a page, as far as the page has it.
-pub fn sentence(words: &[WordBox], lo: usize, hi: usize) -> Result<String, Error> {
-    let ends = |w: &WordBox| ends_sentence(&w.text);
+pub fn sentence(words: &[Word], lo: usize, hi: usize) -> Result<String, Error> {
+    let ends = |w: &Word| ends_sentence(&w.text);
     let mut first = lo;
     while first > 0 && lo - first < SENTENCE_WORDS && !ends(&words[first - 1]) {
         first -= 1;
@@ -215,7 +215,7 @@ const ANCHOR_BYTES: usize = 24;
 /// The box the words `lo..=hi` take in the first line they are in: where a
 /// lookup's window goes next to them (the hand-over param `anchor`).
 #[must_use]
-pub fn anchor(words: &[WordBox], lo: usize, hi: usize) -> Option<Rect> {
+pub fn anchor(words: &[Word], lo: usize, hi: usize) -> Option<Rect> {
     let first = words.get(lo)?.area;
     let line = words.iter().take(hi + 1).skip(lo).map(|w| w.area);
     let same = line.filter(|a| a.y == first.y && a.height == first.height);

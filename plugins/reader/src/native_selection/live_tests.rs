@@ -1,15 +1,16 @@
 //! The selection by place: it holds over pages, its keys go to the page's
 //! edge and turn it, *Widen* goes word, sentence, paragraph, and it takes in
 //! at most five pages (#235).
+use crate::native_word::Word;
 use alloc::{string::String, vec::Vec};
-use paperpaw_sdk::{Rect, document::Locator, layout::LineBidi, reading::WordBox};
+use paperpaw_sdk::{Rect, document::Locator, layout::LineBidi};
 
 use super::live::*;
 use super::moves::Mode;
 
 /// A page of `lines` of words; `first` is the offset of its first word and a
 /// line that starts a paragraph is marked as the layout does.
-fn page(first: u32, lines: &[(&str, bool)]) -> Vec<WordBox> {
+fn page(first: u32, lines: &[(&str, bool)]) -> Vec<Word> {
     let mut words = Vec::new();
     let mut offset = first;
     for (y, (line, starts)) in lines.iter().enumerate() {
@@ -22,7 +23,7 @@ fn page(first: u32, lines: &[(&str, bool)]) -> Vec<WordBox> {
                 0
             };
             words.push(
-                WordBox::new(
+                Word::new(
                     Rect::new(x, 20 + y as u16 * 30, 40, 24),
                     text,
                     Locator::new(0, offset),
@@ -37,7 +38,7 @@ fn page(first: u32, lines: &[(&str, bool)]) -> Vec<WordBox> {
     words
 }
 
-fn text(words: &[WordBox], (lo, hi): (usize, usize)) -> String {
+fn text(words: &[Word], (lo, hi): (usize, usize)) -> String {
     words[lo..=hi]
         .iter()
         .map(|w| w.text.as_str())
@@ -45,7 +46,7 @@ fn text(words: &[WordBox], (lo, hi): (usize, usize)) -> String {
         .join(" ")
 }
 
-fn on(words: &[WordBox], index: usize) -> Live {
+fn on(words: &[Word], index: usize) -> Live {
     Live::choosing(At::of(&words[index]))
 }
 
@@ -234,9 +235,9 @@ fn a_selection_takes_in_at_most_five_pages() {
 
 #[test]
 fn the_start_of_the_text_is_kept_in_512_bytes() {
-    let long: Vec<WordBox> = (0..200)
+    let long: Vec<Word> = (0..200)
         .map(|i| {
-            WordBox::new(
+            Word::new(
                 Rect::new(0, 0, 1, 1),
                 "wordwordword",
                 Locator::new(0, i * 20),
@@ -249,6 +250,6 @@ fn the_start_of_the_text_is_kept_in_512_bytes() {
     assert!(lead.starts_with("wordwordword wordwordword"));
     // A word the layout broke is said once.
     let mut broken = page(0, &[("a bro-", false), ("ken word", false)]);
-    broken[2] = WordBox::new(broken[2].area, "ken", broken[1].start, broken[1].end);
+    broken[2] = Word::new(broken[2].area, "ken", broken[1].start, broken[1].end);
     assert_eq!(lead_of(&broken, 0).unwrap(), "a bro- word");
 }

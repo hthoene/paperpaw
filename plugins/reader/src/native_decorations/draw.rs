@@ -5,7 +5,8 @@
 //! and frames over it, over the word boxes a mark covers joined on a line.
 //! The first subscriber's look wins where marks meet: marks are drawn last
 //! to first.
-use paperpaw_sdk::{Rect, decorations::Decoration, native::Error, reading::WordBox};
+use crate::native_word::Word;
+use paperpaw_sdk::{Rect, decorations::Decoration, native::Error};
 
 use super::{Covered, Decorations, Look};
 use crate::native_marks::{self, Gauge, Pen};
@@ -20,7 +21,7 @@ pub fn draw_behind(
     pen: &mut impl Pen,
     gauge: Gauge,
     decorations: &Decorations,
-    words: &[WordBox],
+    words: &[Word],
     at: (i32, i32),
 ) -> Result<(), Error> {
     for (look, covered) in decorations.marked(words).rev() {
@@ -43,7 +44,7 @@ pub fn draw_over(
     pen: &mut impl Pen,
     gauge: Gauge,
     decorations: &Decorations,
-    words: &[WordBox],
+    words: &[Word],
     at: (i32, i32),
 ) -> Result<(), Error> {
     for (look, covered) in decorations.marked(words).rev() {
