@@ -17,6 +17,10 @@
 //! script = down,confirm
 //! # Parameters of the screen.
 //! param.book = books/alice-in-wonderland.epub
+//! # A file put on the card before the start: `<card path> <- <file in
+//! # data/ beside cases.ini>` (the data a screen shows, kept as its plugin
+//! # keeps it).
+//! file = .paperpaw/plugins/tasks/tasks.txt <- tasks.txt
 //! # Keys with a dot are settings.
 //! core.night-mode = true
 //!
@@ -90,6 +94,9 @@ pub struct Case {
     pub settings: Vec<(String, String)>,
     /// Script steps after it is shown (`down,confirm,wait:300`).
     pub script: String,
+    /// Files put on the card before the start, as `(path on the card, file
+    /// in `data/` beside `cases.ini`)`.
+    pub files: Vec<(String, String)>,
 }
 
 impl Case {
@@ -100,6 +107,7 @@ impl Case {
             profile: String::from("xteink-x4"),
             settings: Vec::new(),
             script: String::new(),
+            files: Vec::new(),
         }
     }
 
@@ -242,6 +250,13 @@ pub fn read_cases(source: &str) -> Result<Vec<Case>, String> {
                 case.profile = value;
             }
             "script" => case.script = value,
+            "file" => {
+                let (path, name) = value
+                    .split_once(" <- ")
+                    .ok_or_else(|| at("a file is `file = <card path> <- <file in data/>`"))?;
+                case.files
+                    .push((path.trim().to_string(), name.trim().to_string()));
+            }
             key if key.starts_with("param.") => {
                 let key = key.trim_start_matches("param.").to_string();
                 match &mut case.subject {
@@ -307,6 +322,7 @@ pub struct Outcome {
 struct Running {
     profile: String,
     settings: Vec<(String, String)>,
+    files: Vec<(String, String)>,
     session: Session,
 }
 
@@ -376,23 +392,31 @@ pub fn compare(
         };
         let mut settings = context.settings.clone();
         settings.extend(case.settings.iter().cloned());
-        let reuse = current
-            .as_ref()
-            .is_some_and(|r| r.profile == case.profile && r.settings == settings)
-            && case.script.is_empty();
+        let reuse = current.as_ref().is_some_and(|r| {
+            r.profile == case.profile && r.settings == settings && r.files == case.files
+        }) && case.script.is_empty();
         if !reuse {
             // The session before goes first, as one device runs at a time.
             drop(current.take());
             let profile = profiles::find(&case.profile)
                 .ok_or_else(|| format!("{name}: unknown profile `{}`", case.profile))?;
+            let mut files = Vec::new();
+            for (path, name) in &case.files {
+                let source = dir.join("data").join(name);
+                let bytes = std::fs::read(&source)
+                    .map_err(|e| format!("{name}: {}: {e}", source.display()))?;
+                files.push((path.clone(), bytes));
+            }
             let start = Start {
                 settings: settings.clone(),
+                files,
                 ..Start::default()
             };
             let session = Session::start(context, &Variant::of(profile), &start)?;
             current = Some(Running {
                 profile: case.profile.clone(),
                 settings,
+                files: case.files.clone(),
                 session,
             });
         }

@@ -35,6 +35,7 @@ pub mod link;
 pub mod model;
 mod native_entry;
 pub mod native_plugin;
+mod native_sleep;
 mod native_widgets;
 mod pick;
 mod say;

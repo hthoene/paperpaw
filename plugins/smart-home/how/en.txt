@@ -7,3 +7,5 @@ Choose entities opens a list of what your server has: search by name or id and s
 Widgets (hold the home screen, then add a widget): Smart home value shows one reading large, group lists the entities of a room, switch is a button for one light or switch, and room is a card with a room's readings and switches. Each widget's settings say which entity or room it shows.
 
 The home is read when you open the dashboard, when you ask (the Refresh row or a tap on a value or group widget), when the reader wakes where Wi-Fi is up already, and on the schedule you set while the charger is plugged in. It never turns the radio on by itself and never keeps it on.
+
+The sleep screen can show your entities as tiles with the states last read (a switch that is on is a dark tile): choose Smart home under Sleep screen in the settings. It never asks the server; the foot says when the states were read.

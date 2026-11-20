@@ -42,6 +42,7 @@ pub mod native_notes;
 #[cfg(test)]
 mod native_notes_tests;
 pub mod native_plugin;
+pub mod pin;
 
 /// The settings the plugin declares, made by its build script from the same
 /// declarations as tables.
@@ -75,6 +76,7 @@ pub mod native_run;
 pub mod native_scan;
 #[cfg(test)]
 mod native_scan_tests;
+pub mod native_sleep;
 pub mod native_staged;
 
 #[cfg(feature = "linked")]

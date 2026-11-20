@@ -7,3 +7,5 @@ Geräte wählen öffnet eine Liste dessen, was dein Server hat: Suche nach Name 
 Widgets (Startbildschirm gedrückt halten, dann ein Widget hinzufügen): Smart-Home-Wert zeigt einen Wert groß, Gruppe listet die Geräte eines Raums, Schalter ist ein Knopf für eine Lampe oder einen Schalter, und Raum ist eine Karte mit den Werten und Schaltern eines Raums. In den Einstellungen jedes Widgets steht, welches Gerät oder welchen Raum es zeigt.
 
 Das Zuhause wird gelesen, wenn du die Übersicht öffnest, wenn du es verlangst (die Zeile Jetzt aktualisieren oder ein Tipp auf ein Wert- oder Gruppen-Widget), wenn das Gerät aufwacht und WLAN schon verbunden ist, und nach dem eingestellten Takt, solange das Ladegerät steckt. Es schaltet das Funkmodul nie von selbst ein und hält es nie an.
+
+Der Ruhebildschirm kann deine Geräte und Werte als Kacheln mit den zuletzt gelesenen Zuständen zeigen (ein eingeschalteter Schalter ist eine dunkle Kachel): wähle Smart Home unter Ruhebildschirm in den Einstellungen. Er fragt nie den Server; unten steht, wann die Zustände gelesen wurden.

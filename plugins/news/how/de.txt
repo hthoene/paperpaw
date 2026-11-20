@@ -3,3 +3,5 @@ Nachrichten macht aus RSS- oder Atom-Feeds Bücher. Jeder Feed wird ein Buch im 
 Öffne Nachrichten im Menü Werkzeuge und wähle Feed hinzufügen; die Adresse steht auf der Website der Zeitung oder des Blogs. Nachrichten abrufen holt alle Feeds und ersetzt die früheren Bücher. Einen Feed lange drücken (mit Tasten: Wählen halten) ruft ihn allein ab oder entfernt ihn. Ein entfernter Feed lässt sein Buch in der Bibliothek.
 
 Abrufen braucht ein Netzwerk. Artikel je Feed (Einstellungen, Bibliothek) legt fest, wie viele Artikel ein Buch enthält. Das Widget Schlagzeilen zeigt sie auf der Startseite.
+
+Der Ruhebildschirm kann die neuesten Schlagzeilen der zuletzt geholten Feeds wie eine Titelseite zeigen: wähle Nachrichten unter Ruhebildschirm in den Einstellungen. Er zeigt nur, was der letzte Abruf gebracht hat.

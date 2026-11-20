@@ -140,7 +140,12 @@ pub fn stages(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareE
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
-    d.screen(ScreenDecl::new("sleep", SLEEP_SCREEN, SLEEP_TOKEN).instances(Instances::Single))?;
+    // The page has the whole screen: no row of button hints over it.
+    d.screen(
+        ScreenDecl::new("sleep", SLEEP_SCREEN, SLEEP_TOKEN)
+            .instances(Instances::Single)
+            .hints_hidden(),
+    )?;
     d.submit()?;
     Ok(())
 }

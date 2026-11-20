@@ -273,7 +273,11 @@ impl Plugin for NativeNews {
         self.state()?.event(host, token, incoming, reply)
     }
 
-    fn draw(&mut self, host: &Host<'_>, token: u32, frame: DrawFrame<'_>) -> Result<(), Error> {
+    fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        // The front page needs no state: it reads two small files.
+        if token == crate::declarations::SLEEP_TOKEN {
+            return crate::native_sleep::draw(host, &mut frame);
+        }
         self.state
             .first_mut()
             .ok_or(Error::State)?

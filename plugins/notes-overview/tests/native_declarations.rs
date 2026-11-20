@@ -43,6 +43,8 @@ fn the_screens_action_menu_entry_and_icon_are_as_interface_6_registered_them() {
                     menus.push((e.menu.to_string(), e.item.to_string(), e.order))
                 }
                 Record::IconSpec(i) => icons.push((i.item.to_string(), i.icon.to_string())),
+                // The sleep screen: offered to the slot, a choice of `sleep.show`.
+                Record::SlotOffer(_) | Record::SettingChoice(_) => {}
                 other => panic!("{other:?}"),
             }
         }
@@ -50,11 +52,22 @@ fn the_screens_action_menu_entry_and_icon_are_as_interface_6_registered_them() {
     screens.sort();
     // What the interface-6 plugin registered (`lib.rs` before this port left it).
     let screen = |id: &str| (id.to_string(), "notes-overview.title".to_string(), true);
+    // The sleep screen opens one at a time (bits 6-7 of the flags: 1) and is
+    // titled by its own name, which is also its choice of `sleep.show`.
     assert_eq!(
         screens,
         [
             screen("notes-overview.book"),
-            screen("notes-overview.screen")
+            (
+                "notes-overview.screen".to_string(),
+                "notes-overview.title".to_string(),
+                true
+            ),
+            (
+                "notes-overview.sleep".to_string(),
+                "notes-overview.sleep".to_string(),
+                false
+            ),
         ]
     );
     assert_eq!(
