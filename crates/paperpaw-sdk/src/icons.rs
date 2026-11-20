@@ -217,7 +217,7 @@ mod tests {
     /// tables were before they were packed (#428).
     #[test]
     fn the_hashes_ascend_and_each_has_its_code_point() {
-        assert!(COUNT > 5000);
+        const { assert!(COUNT > 5000) };
         let ones_at: Vec<usize> = (0..HIGH.len() * 8)
             .filter(|&at| bit(&HIGH, at) == 1)
             .collect();

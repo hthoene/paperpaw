@@ -97,11 +97,8 @@ fn combine(mut first: u32, second: u32, mut len: u32) -> u32 {
         return first;
     }
     // The operator for one zero bit, then (by squaring) two, four and eight bits.
-    let mut odd = [0u32; 32];
-    odd[0] = 0xedb8_8320;
-    for n in 1..32 {
-        odd[n] = 1 << (n - 1);
-    }
+    let mut odd: [u32; 32] =
+        core::array::from_fn(|n| if n == 0 { 0xedb8_8320 } else { 1 << (n - 1) });
     let mut even = square(&odd);
     odd = square(&even);
     loop {
