@@ -27,7 +27,7 @@ pub const MAX_DATA_FILE: u64 = 64 * 1024;
 pub const MAX_MANIFEST: u64 = 4 * 1024;
 /// The plugin library's rules (`tools/publish/store-rules.json`, the
 /// site's own): the kinds of files it takes in a package (font packs,
-/// `ppfp`, only in `fonts/`, hyphenation tables, `pphp`, only in `hyphenation/`, as the kernel reads them), the most a package
+/// `ppfp`, only in `fonts/`, hyphenation tables, `pphp`, only in `hyphenation/`, the root certificates of `tls-roots`, `roots.pack` only in the folder, as the kernel reads them), the most a package
 /// holds unpacked, the longest id, the groups.
 fn rules() -> &'static paperpaw_publish::Rules {
     static RULES: std::sync::OnceLock<paperpaw_publish::Rules> = std::sync::OnceLock::new();
@@ -844,6 +844,9 @@ fn read_as(folder: &Folder, path: &str, id: &str) -> Option<&'static str> {
     if parts.len() == 2 && parts[0] == "i18n" && ext == "ppcat" {
         return Some("catalog");
     }
+    if path == "roots.pack" {
+        return Some("root certificates");
+    }
     if parts.len() == 2 && parts[0] == "points" && ext == "txt" {
         return Some("points");
     }
@@ -920,6 +923,13 @@ fn files_and_kinds(plugin: &DataPlugin, folder: &Folder, add: &mut dyn FnMut(Fin
                 "package.website",
                 path,
                 "Font packs (.ppfp) belong in fonts/, where the kernel reads them.",
+            ));
+        }
+        if ext == "pack" && path != "roots.pack" {
+            add(Finding::error(
+                "package.website",
+                path,
+                "Only roots.pack (.pack), directly in the plugin's folder, is read, as the root certificates of `tls-roots`.",
             ));
         }
         if ext == "pphp" && !path.starts_with("hyphenation/") {
