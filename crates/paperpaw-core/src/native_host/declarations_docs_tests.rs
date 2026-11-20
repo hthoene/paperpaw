@@ -64,9 +64,11 @@ fn a_format_names_its_extensions_lowercase_without_the_dot() {
 }
 
 #[test]
-fn a_format_has_a_name_a_title_and_only_the_five_flags() {
+fn a_format_has_a_name_a_title_and_only_the_six_flags() {
+    // Bit 5 `asks` (#242) is the last.
+    assert_eq!(format_check(PLUGIN, &format("epub", 1 << 5)), Ok(()));
     assert_eq!(
-        format_check(PLUGIN, &format("epub", 1 << 5)),
+        format_check(PLUGIN, &format("epub", 1 << 6)),
         Err(ERR_INVALID)
     );
     let mut spec = format("epub", 0);

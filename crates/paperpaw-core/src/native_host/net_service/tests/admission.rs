@@ -215,9 +215,9 @@ fn urls_follow_the_grammar() {
 #[test]
 fn flags_timeouts_and_caps_hold_at_their_limits() {
     let mut h = head(1, "http://a.b/");
-    h.flags = 4;
+    h.flags = 8;
     assert_eq!(call(&with_head(h)), Err(ERR_UNSUPPORTED));
-    for flags in [1, 2, 3] {
+    for flags in [1, 2, 3, 4, 5] {
         h.flags = flags;
         assert!(call(&with_head(h)).is_ok());
     }
