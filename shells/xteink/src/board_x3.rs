@@ -21,8 +21,9 @@
 //! Uncertain without a device: whether the ladders' levels and the
 //! up/down order are the X4's (the SDK has the same ranges). The tilt
 //! sensor (QMI8658, 0x6B) is left out, and NFC, which the maker mentions,
-//! is not used. Newer X3s have a UC8279d, driven
-//! at 20 MHz elsewhere; this build does not drive it (see `main`).
+//! is not used. Newer X3s have a UC8279d (told at start by the probe: the
+//! revision's third byte 0x66) with its own set-up and waveforms (see
+//! `paperpaw_x4::uc8253`); the bus stays at 10 MHz.
 
 use alloc::boxed::Box;
 use core::cell::RefCell;
@@ -165,9 +166,9 @@ impl Board {
     pub fn take(mut p: Peripherals) -> Self {
         let card_power = Output::new(p.GPIO13, Level::High, OutputConfig::default());
         let delay = Delay::new();
-        // The controller's answers, for the log: an X3 is driven as a
-        // UC8253 whatever they say; one with the newer UC8279d is not
-        // driven yet (its waveforms are not taken over).
+        // The controller's answers, for the log and to tell the newer
+        // UC8279d from the UC8253 (whatever else they say, an X3 is
+        // driven as a UC8253).
         let card_select = Output::new(p.GPIO12, Level::High, OutputConfig::default());
         let display = crate::probe::ask(
             p.GPIO8.reborrow(),
@@ -197,7 +198,11 @@ impl Board {
         let display_select = Output::new(p.GPIO21, Level::High, OutputConfig::default());
         let panel = Panel::new(
             Device::X3,
-            Controller::Uc8253,
+            if display.x3_uc8279d() {
+                Controller::Uc8279
+            } else {
+                Controller::Uc8253
+            },
             RefCellDevice::new(bus, display_select, delay).expect("display SPI"),
             Output::new(p.GPIO4, Level::High, OutputConfig::default()),
             Output::new(p.GPIO5, Level::High, OutputConfig::default()),

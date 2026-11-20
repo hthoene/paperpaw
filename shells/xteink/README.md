@@ -339,8 +339,8 @@ without a device, and marked so in the code:
   says TI's 3000 mAh: the firmware writes 650 mAh back at the next start
   (some seconds, then sealed again), as the FreeInk SDK and Papyrix do;
 - units with the newer UC8279d controller (from about July 2026) are
-  not driven: nothing shows on them. The log says so, and an update that
-  brought this build goes back to the firmware before. Grays fall back
-  to black and white on the UC8253;
+  driven with that controller's own set-up and waveforms (the FreeInk
+  SDK's); tried on one real unit only after the first beta 4 test.
+  Grays fall back to black and white, as on the UC8253;
 - the tilt sensor (QMI8658) is left out, and NFC, which the maker
   mentions, is not used.
