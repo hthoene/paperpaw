@@ -739,6 +739,12 @@ fn controller_config() -> ControllerConfig {
         .with_static_rx_buf_num(STATIC_RX)
         .with_dynamic_rx_buf_num(DYNAMIC)
         .with_dynamic_tx_buf_num(DYNAMIC)
+        // The queue between the driver and the stack (5 frames by default):
+        // what comes while the main loop writes to the card waits here, and
+        // what does not fit is dropped and sent again (#419). A window of
+        // 8 KB is six frames; the queued frames sit in the receive buffers
+        // above, so the most it takes is three more of them.
+        .with_rx_queue_size(RX_QUEUE)
         // Below the receive buffers, as the driver requires.
         .with_rx_ba_win(STATIC_RX - 1)
         // Aggregated sending: what PaperPaw sends is small (requests, a
@@ -746,6 +752,8 @@ fn controller_config() -> ControllerConfig {
         .with_ampdu_tx_enable(false)
 }
 
+/// Frames waiting for the stack at most.
+const RX_QUEUE: usize = 8;
 /// Receive buffers kept while the radio is on.
 const STATIC_RX: u8 = 4;
 /// Buffers taken as frames come and go, at most, each way: a connection's

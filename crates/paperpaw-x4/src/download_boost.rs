@@ -58,8 +58,13 @@ pub struct Plan {
     pub boosted: bool,
 }
 
-/// The write chunk of a download that gets no boost (`FILE_BUF`).
-pub const BASE_CHUNK: usize = 4 * 1024;
+/// The write chunk of a download that gets no boost: the card takes a
+/// command for each chunk (a wait of its own), so 8 KiB halve them against
+/// 4 KiB (#419). A multiple of the card's block, as every chunk is.
+pub const BASE_CHUNK: usize = 8 * 1024;
+
+/// The chunk where the heap has no room for [`BASE_CHUNK`].
+pub const MIN_CHUNK: usize = 4 * 1024;
 
 /// The window and chunk of a download: the `base` window, or on a large
 /// file (`file`, a limit that is the size the plugin asked for) that is the

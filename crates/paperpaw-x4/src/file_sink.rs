@@ -52,7 +52,7 @@ impl FileSink {
         Self {
             part,
             buf: Vec::new(),
-            chunk: chunk.max(crate::download_boost::BASE_CHUNK),
+            chunk: chunk.max(crate::download_boost::MIN_CHUNK),
             started: staged,
             staged,
         }
@@ -61,7 +61,7 @@ impl FileSink {
     /// A larger (or the base) chunk, before anything was taken.
     pub fn set_chunk(&mut self, chunk: usize) {
         if self.buf.is_empty() && !self.started {
-            self.chunk = chunk.max(crate::download_boost::BASE_CHUNK);
+            self.chunk = chunk.max(crate::download_boost::MIN_CHUNK);
         }
     }
 
@@ -87,46 +87,46 @@ impl FileSink {
             .map_err(|_| SinkError::Write)
     }
 
-    /// Takes a piece: gathered up to a chunk, written in one append; a
-    /// piece of a chunk or more is written itself.
-    pub fn push(&mut self, storage: &dyn Storage, piece: &[u8]) -> Result<(), SinkError> {
-        if self.buf.len() + piece.len() > self.chunk && !self.buf.is_empty() {
-            let buf = core::mem::take(&mut self.buf);
-            let written = self.write(storage, &buf);
-            // The buffer stays for the next chunk.
-            self.buf = buf;
-            self.buf.clear();
-            written?;
-        }
-        if piece.len() >= self.chunk {
-            return self.write(storage, piece);
-        }
-        if self.buf.capacity() < self.chunk
-            && self
-                .buf
-                .try_reserve_exact(self.chunk - self.buf.len())
-                .is_err()
-        {
-            // The larger buffer is not to be had: the base one.
-            self.chunk = crate::download_boost::BASE_CHUNK;
-            if self.buf.capacity() < self.chunk
-                && self
-                    .buf
-                    .try_reserve_exact(self.chunk - self.buf.len())
-                    .is_err()
-            {
-                return Err(SinkError::Memory);
-            }
-            if self.buf.len() + piece.len() > self.chunk {
+    /// Takes a piece: gathered in the buffer, written in one append each
+    /// time it holds a whole chunk. Every append but the last is a chunk, a
+    /// multiple of the card's block: the FAT layer then writes whole blocks
+    /// in one command, where a piece of any length would leave a part of a
+    /// block to read and write again with each append (#419).
+    pub fn push(&mut self, storage: &dyn Storage, mut piece: &[u8]) -> Result<(), SinkError> {
+        self.reserve()?;
+        while !piece.is_empty() {
+            let take = (self.chunk - self.buf.len()).min(piece.len());
+            self.buf.extend_from_slice(&piece[..take]);
+            piece = &piece[take..];
+            if self.buf.len() == self.chunk {
                 let buf = core::mem::take(&mut self.buf);
                 let written = self.write(storage, &buf);
+                // The buffer stays for the next chunk.
                 self.buf = buf;
                 self.buf.clear();
                 written?;
             }
         }
-        self.buf.extend_from_slice(piece);
         Ok(())
+    }
+
+    /// Room for a chunk in the buffer: the chunk asked for, or the smallest
+    /// where the heap has no block for it.
+    fn reserve(&mut self) -> Result<(), SinkError> {
+        if self.buf.capacity() >= self.chunk {
+            return Ok(());
+        }
+        let missing = self.chunk - self.buf.len();
+        if self.buf.try_reserve_exact(missing).is_ok() {
+            return Ok(());
+        }
+        self.chunk = crate::download_boost::MIN_CHUNK;
+        if self.buf.capacity() >= self.chunk || self.buf.len() > self.chunk {
+            return Ok(());
+        }
+        self.buf
+            .try_reserve_exact(self.chunk - self.buf.len())
+            .map_err(|_| SinkError::Memory)
     }
 
     /// The body is whole. Core's staged file: what is gathered is appended
@@ -143,7 +143,12 @@ impl FileSink {
                     .map_err(|_| SinkError::Write)
             };
         }
-        let replaced = self.write(storage, &buf).and_then(|()| {
+        let replaced = (if buf.is_empty() && self.started {
+            Ok(())
+        } else {
+            self.write(storage, &buf)
+        })
+        .and_then(|()| {
             storage.sync().map_err(|_| SinkError::Write)?;
             let _ = storage.remove(target);
             storage
@@ -178,6 +183,7 @@ mod tests {
         card: MemoryStorage,
         writes: Cell<u32>,
         appends: Cell<u32>,
+        sizes: core::cell::RefCell<Vec<usize>>,
         syncs: Cell<u32>,
         fail_appends: Cell<bool>,
     }
@@ -198,6 +204,7 @@ mod tests {
                 return Err(StorageError::Io);
             }
             self.appends.set(self.appends.get() + 1);
+            self.sizes.borrow_mut().push(d.len());
             self.card.append(p, d)
         }
         fn sync(&self) -> Result<(), StorageError> {
@@ -244,6 +251,22 @@ mod tests {
         assert_eq!(card.syncs.get(), 1);
         // The first chunk is no whole-file write (a temporary file, a sync).
         assert_eq!(card.writes.get(), 0);
+    }
+
+    #[test]
+    fn every_append_but_the_last_is_a_whole_chunk_whatever_the_pieces() {
+        // Pieces as a socket hands them out: of any length. The card's
+        // blocks are 512 bytes; an append that ends inside one is read and
+        // written again by the next (#419).
+        for piece in [1, 511, 1460, 3000, 8191, 8192, 9000, 20_000] {
+            let card = Counting::default();
+            let data = download(&card, 8192, piece, 100_001);
+            assert_eq!(read(&card.card, "a.bin"), data);
+            let sizes = card.sizes.borrow();
+            let (last, whole) = sizes.split_last().unwrap();
+            assert!(whole.iter().all(|&n| n == 8192), "piece {piece}: {sizes:?}");
+            assert_eq!(*last, 100_001 % 8192);
+        }
     }
 
     #[test]
