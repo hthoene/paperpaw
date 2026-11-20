@@ -102,7 +102,14 @@ where
         delay: D,
     ) -> Self {
         if device == Device::X3 {
-            return Panel::Uc8253(uc8253::Display::new(spi, dc, reset, busy, delay));
+            let display = uc8253::Display::new(spi, dc, reset, busy, delay);
+            // The newer X3's UC8279d (told by the caller, from its probe):
+            // the same bus and memories, its own set-up and waveforms.
+            return Panel::Uc8253(if controller == Controller::Uc8279 {
+                display.uc8279d()
+            } else {
+                display
+            });
         }
         let chip = match controller {
             Controller::Ssd1677 => {
@@ -141,6 +148,7 @@ where
                 Chip::Uc8179 => Controller::Uc8179,
                 Chip::Uc8279 => Controller::Uc8279,
             },
+            Panel::Uc8253(display) if display.is_uc8279d() => Controller::Uc8279,
             Panel::Uc8253(_) => Controller::Uc8253,
             #[cfg(feature = "picco")]
             Panel::Ssd2677(_) => Controller::Ssd2677,
@@ -431,8 +439,8 @@ mod tests {
         assert!(!panel(Device::X3, Controller::Uc8253).keeps_frame());
     }
 
-    /// An X3 gets its UC8253 driver whatever the probe said, and draws
-    /// 528 × 792 upright.
+    /// An X3 gets its UC8253 driver unless told it has the newer UC8279d,
+    /// and draws 528 × 792 upright.
     #[test]
     fn an_x3_has_its_uc8253() {
         for controller in [Controller::Ssd1677, Controller::Uc8179, Controller::Uc8253] {
@@ -441,6 +449,9 @@ mod tests {
             assert_eq!(panel.size(), (528, 792));
             assert_eq!(panel.power_up_ms(), 130);
         }
+        let panel = panel(Device::X3, Controller::Uc8279);
+        assert_eq!(panel.controller(), Controller::Uc8279);
+        assert_eq!(panel.size(), (528, 792));
     }
 
     /// A Picco's panel: the SSD1677's driver turned as the X4 Pro's, or the

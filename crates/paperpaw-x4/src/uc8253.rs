@@ -57,6 +57,17 @@
 //! fast one ("the first differential after a full garbles"); here that
 //! pass comes at the start of the next fast refresh, from the frame shown.
 //!
+//! Newer X3s have a UC8279d instead (`Display::uc8279d`): the same
+//! memories, window and command set, but its module's own memory of
+//! waveforms and settings is blank too, so the whole set-up comes from
+//! here (`init8279d`): power, booster and a 792 × 528 window; and its
+//! waveforms are its own (the [`lut8279d`] module: one full, one fast),
+//! sent with a one-byte `CDI`. Its refreshes compare the new frame with
+//! the frame shown, as a fast one does here, and the first two after
+//! [`Display::init`] use the full waveform. Its facts come from the
+//! FreeInk SDK (`Uc8279X3Luts.h`, `docs/xteink-x3-uc8279-support.md`,
+//! MIT, recovered there from the stock firmware).
+//!
 //! Four grays ([`Display::write_gray_rows`], [`Display::refresh_gray`])
 //! are shown in black and white. The SDK's grays on the UC8253 first show
 //! the frame in black and white, then the two bits of each gray in both
@@ -193,11 +204,65 @@ mod lut {
     ];
 }
 
+/// The UC8279d's waveforms (the FreeInk SDK's `Uc8279X3Luts.h`, `BW_GC`
+/// and `BW_DU`), the first bytes of each register, the rest 0.
+mod lut8279d {
+    /// Full (and half): clears through the true old-to-new transition.
+    pub const GC: [&[u8]; 5] = [
+        &[0x01, 0x1A, 0x1A, 0x01, 0x00, 0x01, 0x01],
+        &[0x01, 0x5A, 0x9A, 0x01, 0x00, 0x01, 0x01],
+        &[0x01, 0x1A, 0x9A, 0x01, 0x00, 0x01, 0x01],
+        &[0x01, 0x1A, 0x5A, 0x01, 0x00, 0x01, 0x01],
+        &[0x01, 0x9A, 0x5A, 0x01, 0x00, 0x01, 0x01],
+    ];
+    /// Fast: drives only where the two frames differ.
+    pub const DU: [&[u8]; 5] = [
+        &[
+            0x01, 0x07, 0x01, 0x06, 0x06, 0x01, 0x01, 0x01, 0x06, 0x01, 0x00, 0x00, 0x01,
+        ],
+        &[
+            0x01, 0x07, 0x81, 0x06, 0x06, 0x01, 0x01, 0x01, 0x06, 0x01, 0x00, 0x00, 0x01,
+        ],
+        &[
+            0x01, 0x87, 0x81, 0x86, 0x86, 0x01, 0x01, 0x01, 0x86, 0x01, 0x00, 0x00, 0x01,
+        ],
+        &[
+            0x01, 0x47, 0x41, 0x46, 0x46, 0x01, 0x01, 0x01, 0x46, 0x01, 0x00, 0x00, 0x01,
+        ],
+        &[
+            0x01, 0x07, 0x01, 0x06, 0x06, 0x01, 0x01, 0x01, 0x06, 0x01, 0x00, 0x00, 0x01,
+        ],
+    ];
+    /// `CDI` of the first refresh after the controller's set-up, and of
+    /// the later ones.
+    pub const CDI_FIRST: u8 = 0x97;
+    pub const CDI_LATER: u8 = 0xD7;
+    /// Refreshes after the set-up that use the full waveform.
+    pub const FULLS: u8 = 2;
+    /// Its set-up after the reset (`FUN_42014ad4` of the stock firmware):
+    /// command, data.
+    pub const INIT: [(u8, &[u8]); 9] = [
+        (0x00, &[0x3F, 0x4A]),
+        (0x91, &[]),
+        (
+            0x90,
+            &[0x00, 0x00, 0x03, 0x17, 0x00, 0x00, 0x02, 0x0F, 0x01],
+        ),
+        (0x03, &[0x20]),
+        (0x01, &[0x43, 0x00, 0x78, 0x78, 0x17]),
+        (0x82, &[0x24]),
+        (0x06, &[0x25, 0x25, 0x3C]),
+        (0x30, &[0x0F]),
+        (0xE1, &[0x02]),
+    ];
+}
+
 /// `table` with the frame counts of its phases (bytes 1 to 4 and 7 to 10 of
 /// its two groups) scaled to `percent`, none that was there less than one
 /// frame; what drives and what holds keep their proportions.
-fn scaled(table: &Lut, percent: u8) -> Lut {
-    let mut out = *table;
+fn scaled(table: &[u8], percent: u8) -> [u8; LUT_LEN] {
+    let mut out = [0u8; LUT_LEN];
+    out[..table.len()].copy_from_slice(table);
     for group in [1..5, 7..11] {
         for byte in &mut out[group] {
             if *byte > 0 {
@@ -214,7 +279,7 @@ fn scaled(table: &Lut, percent: u8) -> Lut {
 /// black to black.
 struct Bank {
     interval: [u8; 2],
-    luts: [&'static Lut; 5],
+    luts: [&'static [u8]; 5],
 }
 
 /// A full refresh: the SDK's full waveform from a white frame shown, here
@@ -388,6 +453,12 @@ pub struct Display<SPI, DC, RST, BUSY, D> {
     fast_percent: Option<u8>,
     /// A band's bytes on their way.
     buffer: Vec<u8>,
+    /// The controller is a UC8279d (see [`Display::uc8279d`]).
+    uc8279d: bool,
+    /// A UC8279d: refreshes still to come with the full waveform.
+    fulls_left: u8,
+    /// A UC8279d: no refresh was done since [`Display::init`] (its `CDI`).
+    first_refresh: bool,
 }
 
 impl<SPI, DC, RST, BUSY, D> Display<SPI, DC, RST, BUSY, D>
@@ -413,7 +484,22 @@ where
             pending: None,
             fast_percent: None,
             buffer: Vec::new(),
+            uc8279d: false,
+            fulls_left: 0,
+            first_refresh: false,
         }
+    }
+
+    /// Drives a UC8279d (the newer X3's controller) instead of a UC8253.
+    #[must_use]
+    pub fn uc8279d(mut self) -> Self {
+        self.uc8279d = true;
+        self
+    }
+
+    /// Whether this drives a UC8279d.
+    pub fn is_uc8279d(&self) -> bool {
+        self.uc8279d
     }
 
     /// LAB ONLY (#40): shows fast refreshes with the SDK's fast waveform
@@ -459,6 +545,9 @@ where
             .map_err(|_| Error::Pin)?;
             self.delay.delay_ms(ms);
         }
+        if self.uc8279d {
+            return self.init8279d();
+        }
         self.wait_idle()?;
         self.command(cmd::PANEL_SETTING, &[0x3F, 0x0A])?;
         // 792 sources, 600 gates, as the SDK sets it.
@@ -482,6 +571,36 @@ where
         self.condition = true;
         self.powered = false;
         self.pending = None;
+        Ok(())
+    }
+
+    /// [`Display::init`] of a UC8279d: its blank module needs the whole
+    /// script (the stock firmware's), then both memories white inside its
+    /// window.
+    fn init8279d(&mut self) -> Result<(), Error> {
+        // Idle after a reset within 300 ms as the stock firmware's probe
+        // waits; a controller that does not say so is told on regardless.
+        for _ in 0..300 {
+            if self.busy.is_high().map_err(|_| Error::Pin)? {
+                break;
+            }
+            self.delay.delay_ms(1);
+        }
+        for (command, data) in lut8279d::INIT {
+            self.command(command, data)?;
+        }
+        self.fill(cmd::OLD, 0xFF)?;
+        self.command(cmd::DATA_STOP, &[])?;
+        self.fill(cmd::NEW, 0xFF)?;
+        self.command(cmd::DATA_STOP, &[])?;
+        self.command(cmd::PARTIAL_OUT, &[])?;
+        self.old_valid = false;
+        self.settle = false;
+        self.condition = false;
+        self.powered = false;
+        self.pending = None;
+        self.fulls_left = lut8279d::FULLS;
+        self.first_refresh = true;
         Ok(())
     }
 
@@ -565,6 +684,9 @@ where
     /// refresh's time more, waited for here).
     pub fn start_refresh(&mut self, refresh: Refresh, power_off: bool) -> Result<(), Error> {
         self.wait()?;
+        if self.uc8279d {
+            return self.start_refresh8279d(refresh, power_off);
+        }
         // As in the SDK: every pixel driven without the frame shown, and
         // as a half refresh after the panel's power was off (a waking panel
         // needs the stronger waveform; a full refresh stays full).
@@ -597,6 +719,39 @@ where
         self.command(cmd::REFRESH, &[])?;
         // Seen busy, the CPU goes back to other work; if not yet,
         // [`Display::wait`] waits for both of its phases.
+        let started = self.busy_starts(REFRESH_EDGE_MS)?;
+        self.pending = Some(Pending {
+            refresh,
+            started,
+            power_off,
+        });
+        Ok(())
+    }
+
+    /// [`Display::start_refresh`] of a UC8279d: the full waveform for a
+    /// full or half refresh, for the first ones after the set-up and for
+    /// one without the frame shown; the fast waveform else.
+    fn start_refresh8279d(&mut self, refresh: Refresh, power_off: bool) -> Result<(), Error> {
+        let refresh = if refresh == Refresh::Fast && (!self.old_valid || self.fulls_left > 0) {
+            Refresh::Half
+        } else {
+            refresh
+        };
+        let bank = if refresh == Refresh::Fast {
+            &lut8279d::DU
+        } else {
+            &lut8279d::GC
+        };
+        let cdi = if self.first_refresh {
+            lut8279d::CDI_FIRST
+        } else {
+            lut8279d::CDI_LATER
+        };
+        self.command(cmd::VCOM_DATA_INTERVAL, &[cdi])?;
+        self.load_luts(bank, 100)?;
+        self.power_on()?;
+        self.window_in()?;
+        self.command(cmd::REFRESH, &[])?;
         let started = self.busy_starts(REFRESH_EDGE_MS)?;
         self.pending = Some(Pending {
             refresh,
@@ -639,7 +794,14 @@ where
             self.old_valid = false;
             return Err(e);
         }
-        if pending.refresh != Refresh::Fast {
+        if self.uc8279d {
+            // The stock firmware's `CDI` for the refreshes after it.
+            self.command(cmd::VCOM_DATA_INTERVAL, &[lut8279d::CDI_LATER])?;
+            self.first_refresh = false;
+            if pending.refresh != Refresh::Fast {
+                self.fulls_left = self.fulls_left.saturating_sub(1);
+            }
+        } else if pending.refresh != Refresh::Fast {
             self.delay.delay_ms(SETTLE_MS);
         }
         match pending.refresh {
@@ -713,21 +875,28 @@ where
     /// Loads a refresh's waveforms into their registers.
     fn load(&mut self, bank: &Bank) -> Result<(), Error> {
         self.command(cmd::VCOM_DATA_INTERVAL, &bank.interval)?;
-        let mut lut = [0u8; LUT_LEN];
-        for (register, table) in (cmd::LUT_VCOM..).zip(bank.luts) {
-            lut[..table.len()].copy_from_slice(table);
-            self.command(register, &lut)?;
-        }
-        Ok(())
+        self.load_luts(&bank.luts, 100)
     }
 
     /// [`Display::load`] with the frame counts of every phase scaled to
     /// `percent` (LAB ONLY, #40; see [`scaled`]).
     fn load_scaled(&mut self, bank: &Bank, percent: u8) -> Result<(), Error> {
         self.command(cmd::VCOM_DATA_INTERVAL, &bank.interval)?;
-        let mut lut = [0u8; LUT_LEN];
-        for (register, table) in (cmd::LUT_VCOM..).zip(bank.luts) {
-            lut[..table.len()].copy_from_slice(&scaled(table, percent));
+        self.load_luts(&bank.luts, percent)
+    }
+
+    /// Sends five waveform tables (VCOM, white to white, black to white,
+    /// white to black, black to black) to their registers, padded with 0s,
+    /// their frame counts scaled to `percent` where that is not 100.
+    fn load_luts(&mut self, luts: &[&[u8]; 5], percent: u8) -> Result<(), Error> {
+        for (register, table) in (cmd::LUT_VCOM..).zip(luts) {
+            let lut = if percent == 100 {
+                let mut lut = [0u8; LUT_LEN];
+                lut[..table.len()].copy_from_slice(table);
+                lut
+            } else {
+                scaled(table, percent)
+            };
             self.command(register, &lut)?;
         }
         Ok(())

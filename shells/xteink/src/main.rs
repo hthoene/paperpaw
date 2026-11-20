@@ -675,10 +675,6 @@ fn prepare() -> Ready {
     if going_back && ota.as_ref().is_some_and(|ota| ota.failed_trial().is_none()) {
         crash::take_last();
     }
-    // After the card, which the note below goes to; before anything else
-    // is written to it.
-    #[cfg(feature = "x3")]
-    let ota = x3_panel_or_back(ota, &board.display, storage.as_ref());
     power::mark(power::at::START_CARD);
     install_note(ota.as_ref(), storage.as_ref(), panicked.as_deref());
     // What the card keeps under PaperPaw's old name, moved before anything
@@ -839,44 +835,6 @@ fn prepare() -> Ready {
         staged,
         flash,
     }
-}
-
-/// An X3 with the newer UC8279d, which this build does not drive (its
-/// waveforms are not taken over): its screen would stay as it was. Said
-/// in the log and in a note on the card (the firmware before it, which it
-/// goes back to, says nothing of it), and an update on trial that brought
-/// it goes back at once to that firmware.
-#[cfg(feature = "x3")]
-fn x3_panel_or_back(
-    mut ota: Option<ota::Ota>,
-    probe: &paperpaw_x4::probe::Probe,
-    storage: &dyn Storage,
-) -> Option<ota::Ota> {
-    if probe.x3_uc8279d() {
-        log::error!("display: a UC8279d ({probe}), which this build does not drive: nothing shows");
-        // Only an update on trial goes back (`give_up` below); a cable or
-        // web-flasher install, or one already kept, stays with a blank
-        // screen, and the note says that instead.
-        let note = alloc::format!(
-            "{}",
-            paperpaw_x4::probe::X3Note {
-                probe,
-                version: env!("PAPERPAW_VERSION"),
-                went_back: ota.as_ref().is_some_and(ota::Ota::on_trial),
-            }
-        );
-        // Not again at every start of the same note.
-        let file = paperpaw_x4::probe::X3_NOTE_FILE;
-        if storage.size(file).ok() != Some(note.len() as u64)
-            && let Err(e) = storage.write(file, note.as_bytes())
-        {
-            log::warn!("card: the display note was not written: {e:?}");
-        }
-        if let Some(ota) = ota.as_mut() {
-            ota.give_up("this X3's display is not driven");
-        }
-    }
-    ota
 }
 
 /// The name of this device in the note on the card.
