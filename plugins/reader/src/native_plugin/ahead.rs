@@ -58,9 +58,9 @@ impl NativeReader {
         }
         let more = match (self.screens.top(SCREEN), &self.docs) {
             (Some(view), Some(docs)) => {
-                // The packs of letters the book lacks and the first page's
-                // marks are asked here, after it is shown.
-                view.packs_step(host, docs);
+                // What the book's text lacks is kept, and the first page's
+                // marks are asked, here, after it is shown.
+                view.packs_step(host);
                 view.marks_step(host, docs);
                 view.count_step(host, docs)
             }

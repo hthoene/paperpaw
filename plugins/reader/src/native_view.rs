@@ -181,12 +181,9 @@ struct Open {
     layers: layers::Layers,
     /// Pages are asked for marks: from the step after the first is shown.
     ask_marks: bool,
-    /// The packs of letters this book asked for while open (`native_script_hint`).
-    packs_asked: crate::native_script_hint::Asked,
-    /// The script of the book's declared language while the packs it lacks are
-    /// still to be asked for: in the first step after its page is shown, not in
-    /// the open (the hint reads the book's first blocks, each a host call; #403).
-    packs_due: Option<Option<&'static str>>,
+    /// The packs of letters this book asked for while open, and what its first
+    /// blocks lack while it is still to be kept (`script_hint.rs`).
+    packs: script_hint::Packs,
     /// The reading settings as last read, until one changes (`setup::Kept`).
     settings: Kept,
 }
@@ -438,8 +435,7 @@ impl View {
             filters: Vec::new(),
             layers: layers::Layers::default(),
             ask_marks: false,
-            packs_asked: 0,
-            packs_due: Some(script),
+            packs: script_hint::Packs::default(),
             settings: Kept::default(),
         })
         .map_err(fail)?;
@@ -447,6 +443,7 @@ impl View {
         open.ask_layers(host);
         open.begin(host, root == Root::Library);
         open.load_bookmarks(host, library);
+        open.ask_packs(host, docs, script);
         // The host's book events start here (`document.md` 2.4); a book whose
         // first page cannot be laid out is told with its first draw.
         open.announce(host, docs);

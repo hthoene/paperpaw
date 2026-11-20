@@ -431,3 +431,24 @@ fn a_language_of_the_store_has_its_hyphenation_pack() {
     assert_ne!(bit("hyphenation-de"), bit(KOREAN_EXTRA));
     assert_ne!(bit("hyphenation-de"), 0);
 }
+
+#[test]
+fn what_a_scan_found_reads_back_for_its_key_only() {
+    let mut found = Lacking::default();
+    found.add(index_of("Kore").unwrap());
+    found.add(index_of("Grek").unwrap());
+    found.syllable = true;
+    let key = "00000000000000ab Literata";
+    let text = scanned_text(key, &found).unwrap();
+    assert_eq!(scanned_of(&text, key), Some(found));
+    // Nothing lacking reads back as nothing, not as no scan.
+    let none = scanned_text(key, &Lacking::default()).unwrap();
+    assert_eq!(scanned_of(&none, key), Some(Lacking::default()));
+    // Another book's conversion or another font: read again.
+    assert_eq!(scanned_of(&text, "00000000000000ac Literata"), None);
+    assert_eq!(scanned_of(&text, "00000000000000ab "), None);
+    // A damaged file: read again.
+    assert_eq!(scanned_of(&format!("{key}\nGrek Xxxx\n"), key), None);
+    assert_eq!(scanned_of(key, key), None);
+    assert_eq!(scanned_of("", key), None);
+}

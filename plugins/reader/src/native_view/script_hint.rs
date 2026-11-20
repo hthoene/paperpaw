@@ -1,12 +1,24 @@
 //! The open book as the script hint reads it (`native_script_hint`): the packs
-//! of letters it asks for once its first page is shown, and those it asked for
-//! while open.
+//! of letters it asks for when it opens, and those it asked for while open.
 use super::{Body, Documents, Host, Open, View};
 use crate::native_script_hint::{self as hint, Asked, Book};
+use alloc::string::String;
+
+/// What the script hint keeps of an open book.
+#[derive(Debug, Default)]
+pub(super) struct Packs {
+    /// The packs it asked for while open (`native_script_hint`).
+    asked: Asked,
+    /// What its first blocks lack, read at this opening: kept in the step
+    /// after its page is shown, not before (a card write; #403).
+    scanned: Option<String>,
+}
 
 impl Open {
     /// The packs of letters the reading font lacks, asked for once a book;
-    /// `script` is that of the book's declared language.
+    /// `script` is that of the book's declared language. What its first
+    /// blocks lack, where they were read now, is kept after its first page
+    /// is shown (`packs_step`).
     pub(super) fn ask_packs(
         &mut self,
         host: &Host<'_>,
@@ -20,25 +32,27 @@ impl Open {
             path: &self.path,
             script,
             language: &self.language,
+            conversion: self.conversion,
         };
-        self.packs_asked = hint::ask(host, docs, &book);
+        let (asked, scanned) = hint::ask_part(host, docs, &book, hint::Part::Opening);
+        self.packs = Packs { asked, scanned };
     }
 }
 
 impl View {
-    /// Whether the packs the book lacks are still to be asked for.
+    /// Whether what the book's first blocks lack is still to be kept.
     #[must_use]
     pub fn packs_due(&self) -> bool {
-        matches!(&self.body, Body::Open(open) if open.packs_due.is_some())
+        matches!(&self.body, Body::Open(open) if open.packs.scanned.is_some())
     }
 
-    /// The step after the first page is shown: the packs the book lacks are
-    /// asked for (once an opening).
-    pub fn packs_step(&mut self, host: &Host<'_>, docs: &Documents) {
+    /// The step after the first page is shown: what the book's first blocks
+    /// lack is kept, so that the next opening does not read them again.
+    pub fn packs_step(&mut self, host: &Host<'_>) {
         if let Body::Open(open) = &mut self.body
-            && let Some(script) = open.packs_due.take()
+            && let Some(text) = open.packs.scanned.take()
         {
-            open.ask_packs(host, docs, script);
+            hint::keep_scanned(host, &open.path, &text);
         }
     }
 
@@ -54,6 +68,7 @@ impl View {
                 path: &open.path,
                 script: hint::declared(&open.language),
                 language: &open.language,
+                conversion: open.conversion,
             }),
             Body::Message(_) | Body::Preparing(_) => None,
         }
@@ -62,7 +77,7 @@ impl View {
     /// The packs of letters the open book asked for, to take an answer off.
     pub(crate) fn packs_asked(&mut self) -> Option<&mut Asked> {
         match &mut self.body {
-            Body::Open(open) => Some(&mut open.packs_asked),
+            Body::Open(open) => Some(&mut open.packs.asked),
             Body::Message(_) | Body::Preparing(_) => None,
         }
     }

@@ -104,6 +104,9 @@ pub const MOST: usize = 4;
 
 /// The file of the packs asked for, in the book's folder.
 const FILE: &str = "packs-asked.txt";
+/// The file of what the first blocks of the book lack, in its folder: they
+/// are read once, not at every opening ([`scanned_text`], #403).
+pub const SCANNED: &str = "scripts.txt";
 /// The most of it that is read (Beta 3's).
 const KEPT_MAX: usize = 1024;
 /// Bytes of letters asked about at once (`text.covers` takes up to 1,024).
@@ -437,10 +440,15 @@ fn joined<'a>(lines: impl Iterator<Item = &'a str> + Clone) -> Result<String, Er
 /// # Errors
 /// [`Error::NoMemory`].
 pub fn kept_path(path: &str) -> Result<String, Error> {
+    book_file(path, FILE)
+}
+
+/// The file `file` in the folder of the book at `path`.
+fn book_file(path: &str, file: &str) -> Result<String, Error> {
     let mut name = String::new();
-    name.try_reserve_exact(23 + FILE.len())
+    name.try_reserve_exact(23 + file.len())
         .map_err(|_| Error::NoMemory)?;
-    write!(name, "books/{:016x}/{FILE}", fnv1a64(path)).map_err(|_| Error::NoMemory)?;
+    write!(name, "books/{:016x}/{file}", fnv1a64(path)).map_err(|_| Error::NoMemory)?;
     Ok(name)
 }
 
@@ -511,6 +519,8 @@ pub struct Book<'a> {
     pub script: Option<&'static str>,
     /// The language it is read in (its own, else the UI's).
     pub language: &'a str,
+    /// Its conversion (`native_place`): what a scan of its text holds for.
+    pub conversion: u64,
 }
 
 /// A book opened (or its letters came): the packs it needs and that were not
@@ -520,9 +530,38 @@ pub struct Book<'a> {
 /// an answer), never from a draw. The packs asked for now.
 #[inline(never)]
 pub fn ask(host: &Host<'_>, docs: &Documents, book: &Book<'_>) -> Asked {
-    let Ok((wanted, kept)) = decide(host, docs, book) else {
-        return 0;
+    ask_part(host, docs, book, Part::Whole).0
+}
+
+/// How [`ask_part`] learns what the book's text lacks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Part {
+    /// From its first blocks (its letters came: the font is another).
+    Whole,
+    /// As the book opens: from what an earlier opening with the same reading
+    /// font found ([`SCANNED`]), else from its first blocks.
+    Opening,
+}
+
+/// As [`ask`]; with [`Part::Opening`] the text read at an earlier opening
+/// is not read again (#403: the first blocks are a host call each, about
+/// 10 ms on the X4, before the first page). The packs asked for now, and
+/// what to keep as found where the blocks were read ([`keep_scanned`]).
+#[inline(never)]
+pub fn ask_part(
+    host: &Host<'_>,
+    docs: &Documents,
+    book: &Book<'_>,
+    part: Part,
+) -> (Asked, Option<String>) {
+    let Ok((wanted, kept, scanned)) = decide(host, docs, book, part) else {
+        return (0, None);
     };
+    (asked_for(host, book, &wanted, &kept), scanned)
+}
+
+/// Asks for `wanted` and keeps them as asked; the packs asked for.
+fn asked_for(host: &Host<'_>, book: &Book<'_>, wanted: &Wanted, kept: &str) -> Asked {
     if wanted.is_empty() {
         return 0;
     }
@@ -537,23 +576,40 @@ pub fn ask(host: &Host<'_>, docs: &Documents, book: &Book<'_>) -> Asked {
     {
         return 0;
     }
-    if let Ok(text) = with_asked(&kept, wanted.ids()) {
+    if let Ok(text) = with_asked(kept, wanted.ids()) {
         keep(host, book.path, &text);
     }
     bits(wanted.ids())
 }
 
-/// The packs `book` needs, and the file of those asked for before.
-fn decide(host: &Host<'_>, docs: &Documents, book: &Book<'_>) -> Result<(Wanted, String), Error> {
+/// The packs `book` needs, the file of those asked for before, and what to
+/// keep as found where its first blocks were read now.
+fn decide(
+    host: &Host<'_>,
+    docs: &Documents,
+    book: &Book<'_>,
+    part: Part,
+) -> Result<(Wanted, String, Option<String>), Error> {
     let font = Font::acquire_role(host, FontRole::Reading)?;
     let mut covers = |text: &str| font.covers(text);
-    let found = {
-        let document = HostDocument::new(host, docs, book.id, book.sections, book.whole_pages)?;
-        let read = |section, offset| {
-            let block = document.read_at(Locator::new(section, offset)).ok()?;
-            Some((block.text, block.end))
-        };
-        lacking(book.sections, read, &mut covers)?
+    let key = scan_key(host, book.conversion)?;
+    let known = match part {
+        Part::Opening => read_scanned(host, book.path)?
+            .as_deref()
+            .and_then(|text| scanned_of(text, &key)),
+        Part::Whole => None,
+    };
+    let (found, scanned) = match known {
+        Some(found) => (found, None),
+        None => {
+            let document = HostDocument::new(host, docs, book.id, book.sections, book.whole_pages)?;
+            let read = |section, offset| {
+                let block = document.read_at(Locator::new(section, offset)).ok()?;
+                Some((block.text, block.end))
+            };
+            let found = lacking(book.sections, read, &mut covers)?;
+            (found, Some(scanned_text(&key, &found)?))
+        }
     };
     let kept = read_kept(host, book.path)?;
     let mut korean = || installed(host, KOREAN);
@@ -563,7 +619,83 @@ fn decide(host: &Host<'_>, docs: &Documents, book: &Book<'_>) -> Result<(Wanted,
     {
         wanted.push(pack);
     }
-    Ok((wanted, kept))
+    Ok((wanted, kept, scanned))
+}
+
+/// What a scan is valid for: the book's conversion and the reading font
+/// chosen (`core.reading-font`; a font with more letters only makes a pack
+/// asked for that is there already, which the host answers at once).
+fn scan_key(host: &Host<'_>, conversion: u64) -> Result<String, Error> {
+    let mut bytes = [0; 128];
+    let font = match settings::read_setting(host, "core.reading-font", &mut bytes) {
+        Ok(SettingValue::Text(name)) => name,
+        _ => "",
+    };
+    let mut key = String::new();
+    key.try_reserve_exact(17 + font.len())
+        .map_err(|_| Error::NoMemory)?;
+    write!(key, "{conversion:016x} {font}").map_err(|_| Error::NoMemory)?;
+    Ok(key)
+}
+
+/// The text of [`SCANNED`]: `key` on the first line, then the scripts the
+/// font lacks letters of, by name, and `+` where a Hangul syllable was among
+/// them.
+///
+/// # Errors
+/// [`Error::NoMemory`].
+pub fn scanned_text(key: &str, found: &Lacking) -> Result<String, Error> {
+    let mut text = String::new();
+    text.try_reserve_exact(key.len() + 2 + 5 * SCRIPTS.len() + 2)
+        .map_err(|_| Error::NoMemory)?;
+    text.push_str(key);
+    text.push('\n');
+    for script in found.scripts() {
+        text.push_str(script);
+        text.push(' ');
+    }
+    if found.syllable {
+        text.push('+');
+    }
+    text.push('\n');
+    Ok(text)
+}
+
+/// What [`SCANNED`] says the font lacks, where it was found with `key`; none
+/// where it is of another key or does not read.
+#[must_use]
+pub fn scanned_of(text: &str, key: &str) -> Option<Lacking> {
+    let mut lines = text.lines();
+    if lines.next()? != key {
+        return None;
+    }
+    let mut found = Lacking::default();
+    for word in lines.next()?.split(' ').filter(|w| !w.is_empty()) {
+        match word {
+            "+" => found.syllable = true,
+            name => found.add(index_of(name)?),
+        }
+    }
+    Some(found)
+}
+
+/// The text of [`SCANNED`] of the book at `path`, none where there is none.
+fn read_scanned(host: &Host<'_>, path: &str) -> Result<Option<String>, Error> {
+    let name = book_file(path, SCANNED)?;
+    match read_file(&DataStorage::new(host), &name, KEPT_MAX) {
+        Ok(bytes) => Ok(String::from_utf8(bytes).ok()),
+        Err(StorageError::OutOfMemory) => Err(Error::NoMemory),
+        Err(_) => Ok(None),
+    }
+}
+
+/// Keeps `text` ([`scanned_text`]) as what the book at `path` lacks: after
+/// its first page is shown, not before it. Best effort: a book without it is
+/// read again at the next opening.
+pub fn keep_scanned(host: &Host<'_>, path: &str, text: &str) {
+    if let Ok(name) = book_file(path, SCANNED) {
+        write_made(host, &name, text);
+    }
 }
 
 /// The store's hyphenation pack for the book's language where hyphenation is on
@@ -604,18 +736,24 @@ fn keep(host: &Host<'_>, path: &str, text: &str) {
     let Ok(name) = kept_path(path) else {
         return;
     };
-    let storage = DataStorage::new(host);
     if text.is_empty() {
-        storage.remove(&name).ok();
+        DataStorage::new(host).remove(&name).ok();
         return;
     }
-    if storage.write(&name, text.as_bytes()).is_ok() {
+    write_made(host, &name, text);
+}
+
+/// Writes `text` as the file `name` in the reader's data, its folder made
+/// where it is missing. Best effort.
+fn write_made(host: &Host<'_>, name: &str, text: &str) {
+    let storage = DataStorage::new(host);
+    if storage.write(name, text.as_bytes()).is_ok() {
         return;
     }
     if let Some((dir, _)) = name.rsplit_once('/') {
         make_dir(host, dir);
     }
-    storage.write(&name, text.as_bytes()).ok();
+    storage.write(name, text.as_bytes()).ok();
 }
 
 /// Makes the book's folder in the reader's data.
