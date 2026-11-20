@@ -456,8 +456,8 @@ impl Style {
             paper: color("paper", Color::WHITE),
             disabled: color("disabled", Color::gray(150)),
             rule: color("rule", Color::gray(150)),
-            muted: faint("muted", Color::gray(90)),
-            note: faint("note", Color::gray(60)),
+            muted: faint("muted", Color::gray(60)),
+            note: faint("note", Color::gray(40)),
             heading: narrow(
                 (crate::geometry::line_height(font, small)? * 1.25) as u32 + u32::from(gap),
             ),

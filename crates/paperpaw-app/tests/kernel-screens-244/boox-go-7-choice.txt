@@ -7,4 +7,4 @@ Row "Title" at 0,1324 1264x83
 Row "Author" at 0,1407 1264x83
 Row "Recently read" at 0,1490 1264x83
 Row "Size" at 0,1573 1264x83
-frame 1680 rows, fnv1a64 e7cde05424040091
+frame 1680 rows, fnv1a64 df878518b06528f1
