@@ -43,7 +43,8 @@
 #   pkgtests  the own tests (unit, integration, doc) of the changed packages, with CI's `paperpaw-core/testing` where a
 #             package has core as a dependency: a red test of the package itself (settings scripted_pages, epub-family,
 #             battery, dev perf ... were 11 of the 18 red bases of Nov 18/19)   [any .rs/Cargo.toml of a package but the app]
-#   python    CI's python checks of seconds: the changelog fragments and their tests, the store plugins' versions and folders
+#   python    CI's python checks of seconds: the changelog fragments and their tests,
+#             every UI language pack drawable by the interface font (tools/glyph-coverage.py), the store plugins' versions and folders
 #             (tools/plugin-files unittests), the size gate, the owner-image check, the x4 remote tool   [always]
 #   frames    the changed plugins (at most 4; `store` stands in when a library under them changed) built for the X4's
 #             C3 as CI builds them and packed: a frame of 2,048 B or more is refused  [plugins/, ui-kit, sdk, core native, text, layout]
@@ -265,7 +266,7 @@ wasm32_step() { CARGO_TARGET_DIR="$lane2_target" cargo build -j"$jobs_n" --relea
 # CI's python checks that take seconds (job "Architecture rules" and the changelog workflow); no cargo.
 python_step() {
     local rc=0 c
-    for c in "tools/changelog.py check" "tools/plugin-files/versions.py"; do
+    for c in "tools/changelog.py check" "tools/plugin-files/versions.py" "tools/glyph-coverage.py"; do
         # shellcheck disable=SC2086
         python3 $c || { echo "FAILED: python3 $c"; rc=1; }
     done
