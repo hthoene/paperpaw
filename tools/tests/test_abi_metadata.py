@@ -146,6 +146,10 @@ class MetadataTests(unittest.TestCase):
             fields = ('major', 'semantic_revision', 'min_table_bytes') if kind == 'service' else ('revision',)
             for field in fields:
                 changed = self.record_change(location, field, 99)
+                if kind == 'service' and field == 'semantic_revision':
+                    # A revision only appends ops (#242): any is admitted.
+                    ABI.decode(self.schema, changed)
+                    continue
                 if kind == 'service':
                     self.reject(changed)
                     continue

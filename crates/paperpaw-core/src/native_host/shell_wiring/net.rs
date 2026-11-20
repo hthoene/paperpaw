@@ -86,6 +86,10 @@ pub struct HttpJob<'a> {
     /// screen that shows): the shell gives it its larger receive window and
     /// write chunks where memory allows, whatever `max_file` says.
     pub foreground: bool,
+    /// Never boosted (`net_request.flags` bit 2, #242): the shell keeps its
+    /// base window and chunks whatever the download's size; a background
+    /// sync that must not take the heap from what the user does.
+    pub lean: bool,
 }
 
 /// The URL, headers and body are the plugin's data (they can hold
@@ -99,12 +103,14 @@ impl core::fmt::Debug for HttpJob<'_> {
             .field("max_file", &self.max_file)
             .field("timeout_ms", &self.timeout_ms)
             .field("foreground", &self.foreground)
+            .field("lean", &self.lean)
             .finish_non_exhaustive()
     }
 }
 
 impl<'a> HttpJob<'a> {
     #[allow(clippy::too_many_arguments, reason = "one job, built in one place")]
+    #[allow(clippy::fn_params_excessive_bools, reason = "the request's two flags")]
     pub(crate) fn new(
         id: u32,
         method: &'a str,
@@ -117,6 +123,7 @@ impl<'a> HttpJob<'a> {
         max_file: u64,
         timeout_ms: u32,
         foreground: bool,
+        lean: bool,
     ) -> Self {
         Self {
             id,
@@ -130,6 +137,7 @@ impl<'a> HttpJob<'a> {
             max_file,
             timeout_ms,
             foreground,
+            lean,
         }
     }
 }

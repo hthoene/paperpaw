@@ -95,6 +95,36 @@ class MetadataSchemaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             GEN.check_lock(GEN.lock_record(prior), candidate)
 
+    def test_a_released_service_gains_ops_by_its_next_revision(self):
+        # #242: a frozen service schema appends ops under its next revision, and its
+        # catalog entry moves to that revision; nothing else of either changes.
+        schema = GEN.validate(GEN.with_services(GEN.load(ROOT / 'abi/abi.def'),
+                                                ROOT / 'abi/services'))
+        released = GEN.lock_record(schema, 1)
+        grown = copy.deepcopy(schema)
+        echo = next(s for s in grown['services'] if s['key'] == 'core.test-echo')
+        entry = next(s for s in grown['metadata']['services'] if s['key'] == 'core.test-echo')
+        echo['revision'] = 1
+        echo['ops'].append(dict(copy.deepcopy(echo['ops'][0]), id=2, name='echo_again', since=1))
+        entry['semantic_revision'] = 1
+        GEN.check_lock(released, grown)
+        changes = [
+            lambda e: e.update(semantic_revision=0),
+            lambda e: e.update(major=2),
+            lambda e: e.update(since=2),
+            lambda e: e.update(min_table_bytes=4),
+        ]
+        for index, change in enumerate(changes):
+            candidate = copy.deepcopy(grown)
+            change(next(s for s in candidate['metadata']['services']
+                        if s['key'] == 'core.test-echo'))
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                GEN.check_lock(released, candidate)
+        removed = copy.deepcopy(grown)
+        removed['metadata']['services'].pop()
+        with self.assertRaises(ValueError):
+            GEN.check_lock(released, removed)
+
     def test_data_services_have_revision_0_and_no_table(self):
         # PR #198: a data service's first version is semantic revision 0 and it
         # has no call table (min_table_bytes 0); a table has its size word.

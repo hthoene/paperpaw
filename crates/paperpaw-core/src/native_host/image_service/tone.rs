@@ -46,6 +46,8 @@ pub(crate) struct Wanted {
     pub(crate) part: bool,
     /// It has been drawn already (its id was made and drawn in one frame).
     pub(crate) drawn: bool,
+    /// A whole page's picture (`fmt.image.flags` bit 1, #242).
+    pub(crate) page: bool,
 }
 
 /// What the host knows of where a picture is shown.
@@ -65,7 +67,7 @@ impl Wanted {
     pub(crate) fn place(&self, shown: Shown) -> u32 {
         match self.document {
             Some((document, index)) if document != super::LIBRARY_COVER && index != u32::MAX => {
-                if shown.whole_pages {
+                if shown.whole_pages || self.page {
                     PLACE_COMIC
                 } else {
                     PLACE_READER
@@ -133,6 +135,7 @@ impl ImageTable {
                 document,
                 part: e.part.is_some(),
                 drawn: e.drawn != 0,
+                page: e.page,
             });
         }
     }

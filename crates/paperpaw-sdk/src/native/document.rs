@@ -230,6 +230,13 @@ impl<'a> DocState<'a> {
     pub const fn whole_pages(&self) -> bool {
         self.0.flags & 1 != 0
     }
+    /// Some sections are whole-page pictures and others are not (#242): read
+    /// [`SectionEntry::whole_page_picture`](SectionEntry::whole_page_picture)
+    /// of each. A host before it never says so.
+    #[must_use]
+    pub const fn some_whole_pages(&self) -> bool {
+        self.0.flags & (1 << 7) != 0
+    }
     /// The book has a table of contents.
     #[must_use]
     pub const fn has_toc(&self) -> bool {

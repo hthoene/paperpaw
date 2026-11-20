@@ -153,6 +153,8 @@ struct Call {
     /// The user waits for it (`net_request.flags` bit 1, #369 H): the
     /// larger window whatever its file's cap says.
     foreground: bool,
+    /// Never boosted (`net_request.flags` bit 2, #242).
+    lean: bool,
     /// What the log line of the download tells (#419): steps of the main
     /// loop it was moved in, the longest wait between two of them, and the
     /// time its writes to the card took.
@@ -201,18 +203,20 @@ impl Calls {
     /// replaces it (the kernel passes over the earlier one's answer), so
     /// that two never write one file.
     pub fn add(&mut self, call: HttpCall) {
-        self.add_as(call, false, false);
+        self.add_as(call, false, false, false);
     }
 
     /// Starts a request of core (interface 7): its `save_to` is the staged
     /// file core made (empty), which this appends to and never renames.
-    /// `foreground`: the user waits for it (core honoured the flag).
+    /// `foreground`: the user waits for it (core honoured the flag); `lean`:
+    /// never boosted.
     #[cfg(feature = "ppn5")]
-    pub fn add_staged(&mut self, call: HttpCall, foreground: bool) {
-        self.add_as(call, true, foreground);
+    pub fn add_staged(&mut self, call: HttpCall, foreground: bool, lean: bool) {
+        self.add_as(call, true, foreground, lean);
     }
 
-    fn add_as(&mut self, call: HttpCall, staged: bool, foreground: bool) {
+    #[allow(clippy::fn_params_excessive_bools, reason = "the request's flags")]
+    fn add_as(&mut self, call: HttpCall, staged: bool, foreground: bool, lean: bool) {
         if !staged && let Some(path) = &call.save_to {
             for earlier in &mut self.calls {
                 if earlier
@@ -265,6 +269,7 @@ impl Calls {
             fresh: false,
             began: now_ms(),
             foreground,
+            lean,
             steps: 0,
             gap_max: 0,
             last_step: 0,
@@ -878,7 +883,8 @@ impl Call {
             } else {
                 self.call.max_response
             },
-            boost_free,
+            // A lean request never takes the larger pair.
+            boost_free && !self.lean,
             cfg!(feature = "esp32c3"),
             crate::largest_block(),
         );

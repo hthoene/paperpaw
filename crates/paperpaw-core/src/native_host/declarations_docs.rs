@@ -15,8 +15,9 @@ use crate::native_host::registrations::{
     BookBadgeSpec, BookDataSpec, BookFieldSpec, FormatSpec, LookupSpec, ReaderSpec,
 };
 
-/// `format.spec.flags`: prepared, sniffs, folder, whole_pages, siblings.
-const FORMAT_FLAGS: u32 = 0b1_1111;
+/// `format.spec.flags`: prepared, sniffs, folder, whole_pages, siblings,
+/// asks (#242).
+const FORMAT_FLAGS: u32 = 0b11_1111;
 /// Most extensions of one format, and the longest.
 pub(crate) const EXTENSIONS_MAX: usize = 16;
 pub(crate) const EXTENSION_MAX_BYTES: usize = 31;

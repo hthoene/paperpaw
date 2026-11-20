@@ -158,7 +158,7 @@ fn service(bytes: &mut Vec<u8>, key: &str, major: u16, revision: u16, table: u32
 }
 
 #[test]
-fn services_match_exactly_and_requirement_keys_are_unique_and_sorted() {
+fn services_match_key_and_major_and_requirement_keys_are_unique_and_sorted() {
     with_host(|host| {
         let base = bytes("valid-empty-requirements.hex");
         let wanted = host.services.first().unwrap();
@@ -172,15 +172,22 @@ fn services_match_exactly_and_requirement_keys_are_unique_and_sorted() {
         );
         finish(&mut valid, 1, 0);
         assert!(metadata::check(&valid, host).is_ok());
+        // A revision only appends ops (#242): a plugin of a later revision
+        // runs, and opens what this host has.
+        let mut later = base.clone();
+        service(
+            &mut later,
+            wanted.key,
+            wanted.major,
+            wanted.semantic_revision + 1,
+            wanted.min_table_bytes,
+        );
+        finish(&mut later, 1, 0);
+        assert!(metadata::check(&later, host).is_ok());
         for (major, revision, table) in [
             (
                 wanted.major + 1,
                 wanted.semantic_revision,
-                wanted.min_table_bytes,
-            ),
-            (
-                wanted.major,
-                wanted.semantic_revision + 1,
                 wanted.min_table_bytes,
             ),
             (
@@ -265,5 +272,55 @@ fn declared_services_borrow_validated_records_in_canonical_order() {
             assert!((start..start + bytes.len()).contains(&key));
             assert!(key + service.key.len() <= start + bytes.len());
         }
+    });
+}
+
+/// A plugin built before a service gained an op (the host's schema of
+/// `core.test-echo` at revision 1, one op appended, #242) declares the older
+/// revision and still runs.
+#[test]
+fn a_plugin_of_an_older_service_revision_runs_after_ops_were_appended() {
+    with_host(|host| {
+        let echo = *host
+            .services
+            .iter()
+            .find(|service| service.key == "core.test-echo")
+            .unwrap();
+        let grown: Vec<Service<'_>> = host
+            .services
+            .iter()
+            .map(|service| {
+                if service.key == echo.key {
+                    Service {
+                        semantic_revision: echo.semantic_revision + 1,
+                        ..*service
+                    }
+                } else {
+                    *service
+                }
+            })
+            .collect();
+        let host = Host {
+            services: &grown,
+            ..*host
+        };
+        let mut older = bytes("valid-empty-requirements.hex");
+        service(
+            &mut older,
+            echo.key,
+            echo.major,
+            echo.semantic_revision,
+            echo.min_table_bytes,
+        );
+        finish(&mut older, 1, 0);
+        let checked = metadata::check(&older, &host).unwrap();
+        assert_eq!(
+            checked.services().collect::<Vec<_>>(),
+            [metadata::Declared {
+                key: echo.key,
+                major: echo.major,
+                semantic_revision: echo.semantic_revision,
+            }]
+        );
     });
 }

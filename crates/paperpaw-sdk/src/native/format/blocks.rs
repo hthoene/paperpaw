@@ -36,6 +36,7 @@ pub struct BlockReply<'a> {
     image_index: u32,
     last_in_section: bool,
     next: u32,
+    page: bool,
 }
 impl<'a> BlockReply<'a> {
     /// The reply for `block`, which is not the last of its section, with no picture
@@ -47,7 +48,17 @@ impl<'a> BlockReply<'a> {
             image_index: 0,
             last_in_section: false,
             next: block.end,
+            page: false,
         }
+    }
+    /// The block's picture is a whole page (`fmt.image.flags` bit 1, #242):
+    /// a picture page of a book whose sections differ
+    /// ([`FormatFeatures::some_whole_pages`](super::FormatFeatures::some_whole_pages)).
+    /// The host treats it as a comic's page (the picture stage's place 1).
+    #[must_use]
+    pub const fn whole_page(mut self) -> Self {
+        self.page = true;
+        self
     }
     /// The format's own number of the block's picture (op 18's `index`).
     #[must_use]
@@ -98,6 +109,7 @@ impl FormatCall<'_> {
         let mut walk = Walk {
             block,
             image_index: reply.image_index,
+            page: reply.page,
             columns,
             maps: block.map.checkpoints(),
             phase: Phase::Head,
@@ -213,6 +225,7 @@ enum Phase {
 struct Walk<'b, M> {
     block: &'b Block,
     image_index: u32,
+    page: bool,
     columns: &'b [u8],
     maps: M,
     phase: Phase,
@@ -271,7 +284,7 @@ impl<'b, M: Iterator<Item = (u32, u32)>> Walk<'b, M> {
                             index: self.image_index,
                             width: image.width,
                             height: image.height,
-                            flags: 0,
+                            flags: if self.page { 2 } else { 0 },
                             part: &[],
                         }));
                     }

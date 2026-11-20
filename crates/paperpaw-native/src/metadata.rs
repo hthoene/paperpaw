@@ -18,7 +18,9 @@ pub use crate::profile::{BUILD_PROFILE, Profile, retarget, retargeted_len};
 const _: () =
     assert!(PREFIX_SIZE == crate::profile::PREFIX_SIZE && MAX_BYTES == crate::profile::MAX_BYTES);
 
-/// An implemented service. Every requirement field must match exactly.
+/// An implemented service. A requirement matches its key and major; its
+/// revision may be any (a revision only appends ops, #242) and its table
+/// at most this one.
 #[derive(Clone, Copy, Debug)]
 pub struct Service<'a> {
     pub key: &'a str,
@@ -51,7 +53,7 @@ pub enum Refusal<'a> {
     Malformed,
     /// ABI version, target profile or entry layout is not supported.
     Incompatible,
-    /// A service is absent or differs from its exact catalog contract.
+    /// A service is absent, of another major, or needs a larger table.
     Service { key: &'a str },
     /// A required feature is absent or needs a newer revision.
     RequiredFeature { key: &'a str, revision: u16 },
@@ -260,11 +262,16 @@ fn services<'a>(cursor: &mut Cursor<'a>, count: usize, host: &Host<'_>) -> Resul
         let min_table_bytes = cursor.u32()?;
         let key = cursor.text(len)?;
         canonical(&mut previous, key)?;
+        // A revision only appends ops (#242): a plugin built against any
+        // revision of the service runs. One built against a later revision
+        // than this host's opens what the host has and gets
+        // `ERR_UNSUPPORTED` for an op the host lacks; one that needs more
+        // than the host's table is refused.
+        let _ = semantic_revision;
         if !host.services.iter().any(|service| {
             service.key == key
                 && service.major == major
-                && service.semantic_revision == semantic_revision
-                && service.min_table_bytes == min_table_bytes
+                && min_table_bytes <= service.min_table_bytes
         }) {
             return Err(Refusal::Service { key });
         }

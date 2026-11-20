@@ -57,6 +57,41 @@ impl Service {
         })
     }
 
+    /// Open a call service at the newest revision both this build and the
+    /// host know: this build's revision first, then each older one the host
+    /// refuses as unsupported (a host of an older release, #242). A
+    /// revision only appends ops, so every op of the opened one works as
+    /// this build knows it; ask [`Self::has_op`] before an op a newer
+    /// revision appended, which is [`Error::Unsupported`] otherwise.
+    ///
+    /// # Errors
+    /// As [`Self::open`]; Unsupported where the host has no revision of it.
+    pub fn open_newest(host: &Host<'_>, key: &str, major: u16) -> Result<Self, Error> {
+        let schema = service_schema(key, major).ok_or(Error::Unsupported)?;
+        let mut minor = schema.revision;
+        loop {
+            match Self::open(host, key, major, minor) {
+                Err(Error::Unsupported) if minor > 0 => minor -= 1,
+                other => return other,
+            }
+        }
+    }
+
+    /// The revision this handle was opened at: its ops are those of that
+    /// revision and before.
+    #[must_use]
+    pub const fn revision(&self) -> u16 {
+        self.minor
+    }
+
+    /// Whether op `op` can be called on this handle: this build knows it and
+    /// the revision opened has it. A call of an op it has not is
+    /// [`Error::Unsupported`], never sent to the host.
+    #[must_use]
+    pub fn has_op(&self, op: u32) -> bool {
+        self.operation(op).is_some()
+    }
+
     /// Invoke an operation using the current callback's host and caller buffers.
     /// The stage or service family decodes the returned payload.
     ///

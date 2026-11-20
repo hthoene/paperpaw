@@ -596,6 +596,14 @@ impl DocState {
 
 macro_rules! frameless {
     () => {
+        fn format_asks(&self, format: FormatRef) -> bool {
+            self.state()
+                .index()
+                .is_ok_and(|index| index.has_flag(format, super::format_index::ASKS))
+        }
+        fn next_format(&self, document: u32, passed: &[FormatRef]) -> Option<FormatRef> {
+            self.state().next_after(document, passed)
+        }
         fn format_prepared(&self, format: FormatRef) -> bool {
             self.state()
                 .index()
@@ -762,6 +770,14 @@ impl super::doc_service::DocHost for DocState {
         let step = self.prepare_next(hosts, route);
         self.cover_job_stepped(step);
         step
+    }
+    fn settle_asks(
+        &self,
+        frame: &dyn Frame,
+        hosts: &super::host_services::HostServices,
+        route: &dyn super::fmt_call::Route,
+    ) -> super::doc_service::PrepareStep {
+        self.ask_waiting(frame, hosts, route)
     }
     fn cover_job_step(
         &self,
@@ -987,57 +1003,6 @@ impl Bound<'_> {
 
     fn discard_cache(&self, document: u32) {
         self.state.discard_cache(self.who.hosts, document);
-    }
-
-    /// The version of the plugin `plugin` as the registry says it (a new
-    /// version of a format makes its caches stale).
-    fn format_version(&self, plugin: &str) -> Result<String, i32> {
-        let asker = super::registry_service::Asker {
-            owner: self.who.owner,
-            plugin: self.who.plugin,
-        };
-        // The row is encoded into a buffer of the heap, not of the opener's
-        // stack (a frame on the X4 is small), and freed with this call.
-        let mut bytes = Vec::new();
-        bytes.try_reserve_exact(1024).map_err(|_| ERR_NO_MEMORY)?;
-        bytes.resize(1024, 0);
-        let mut version = Err(ERR_NOT_FOUND);
-        self.frame
-            .registry()?
-            .detail(6, plugin, &asker, &mut |row| {
-                if version.is_ok() {
-                    return Ok(());
-                }
-                let used = row.encode(&mut bytes)?;
-                // One bare record, exactly (the frame is the whole encoding).
-                let (raw, length) = wire::RawRecord::prefix(&bytes[..used])?;
-                if length != used {
-                    return Err(ERR_INVALID);
-                }
-                if raw.tag() == wire::SERVICE_REG_PLUGIN_TAG {
-                    let row: wire::ServiceRegPlugin<'_> = raw.decode()?;
-                    version = copy(row.version);
-                }
-                Ok(())
-            })?;
-        version
-    }
-
-    /// The card path of the user's CSS file of an open (`""`: none, or a call
-    /// that does not read it), root 4 of the format's call.
-    fn css_card_path(&self, call: &FormatCall<'_>) -> Result<String, i32> {
-        if call.op != super::doc_service::fmt::OPEN || call.css_path.is_empty() {
-            return Ok(String::new());
-        }
-        if call.css_root == 1 {
-            let path = call.css_path.trim_start_matches('/');
-            let mut copy = String::new();
-            copy.try_reserve_exact(path.len())
-                .map_err(|_| ERR_NO_MEMORY)?;
-            copy.push_str(path);
-            return Ok(copy);
-        }
-        super::owner_paths::OwnerPaths::join_for(self.who, call.css_root, call.css_path)
     }
 
     /// The format's call for `call.document` begins: its roots 3, 4 and 6 are
@@ -1365,6 +1330,10 @@ impl super::doc_service::DocHost for Bound<'_> {
         self.prepare_cache(call, &css)
     }
 
+    fn ask_format(&self, document: u32, format: FormatRef) -> Result<bool, i32> {
+        self.ask(document, format)
+    }
+
     fn keep_open(&self, document: u32, batch: &[u8]) -> Result<(), i32> {
         self.state.keep_open(document, batch)
     }
@@ -1482,6 +1451,8 @@ mod cover_make;
 #[path = "doc_details_job.rs"]
 mod details_job;
 pub(crate) use cover_make::CoverAt;
+#[path = "doc_host_asks.rs"]
+mod asks;
 #[path = "doc_host_picture.rs"]
 mod picture;
 #[path = "doc_prepare.rs"]
