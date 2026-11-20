@@ -7,9 +7,10 @@
 //! Memory (#248): the runs of a page (12 bytes each), at most [`MAX_MARKS`]
 //! marks of 8 bytes and the looks they use are kept; the run texts are made
 //! only for a fire and dropped before its reply buffer is taken.
+use crate::native_word::Word;
 use alloc::string::String;
 use alloc::vec::Vec;
-use paperpaw_sdk::{native::Error, reading::WordBox};
+use paperpaw_sdk::native::Error;
 
 use crate::native_marks_codes as codes;
 use crate::stages::reader_decorations_v1 as stage;
@@ -86,7 +87,7 @@ pub struct Fire {
 
 /// A run's text appended to `to`: its words apart by one space; a word
 /// broken over two lines (two boxes, one place) once, whole.
-fn run_text(words: &[WordBox], run: &Run, to: &mut String) -> Result<(), Error> {
+fn run_text(words: &[Word], run: &Run, to: &mut String) -> Result<(), Error> {
     let words = run_words(words, run);
     for n in 0..words.len() {
         if n > 0 && !continues(words, n) {
@@ -98,12 +99,12 @@ fn run_text(words: &[WordBox], run: &Run, to: &mut String) -> Result<(), Error> 
 }
 
 /// Box `n` goes on the word of the box before it (a word broken over lines).
-fn continues(words: &[WordBox], n: usize) -> bool {
+fn continues(words: &[Word], n: usize) -> bool {
     n > 0 && words.get(n - 1).map(|w| w.start) == words.get(n).map(|w| w.start)
 }
 
 /// The text box `n` gives its run: without the hyphen of a break.
-fn piece(words: &[WordBox], n: usize) -> &str {
+fn piece(words: &[Word], n: usize) -> &str {
     let Some(word) = words.get(n) else {
         return "";
     };
@@ -114,7 +115,7 @@ fn piece(words: &[WordBox], n: usize) -> &str {
     }
 }
 
-fn run_words<'w>(words: &'w [WordBox], run: &Run) -> &'w [WordBox] {
+fn run_words<'w>(words: &'w [Word], run: &Run) -> &'w [Word] {
     let first = usize::from(run.first);
     words
         .get(first..first + usize::from(run.count))
@@ -129,10 +130,7 @@ fn push(to: &mut String, text: &str) -> Result<(), Error> {
 
 /// Each word of `run` with its byte range in the run's text (both pieces of
 /// a broken word get the whole word's range).
-fn spans<'w>(
-    words: &'w [WordBox],
-    run: &Run,
-) -> impl Iterator<Item = (&'w WordBox, u16, u16)> + 'w {
+fn spans<'w>(words: &'w [Word], run: &Run) -> impl Iterator<Item = (&'w Word, u16, u16)> + 'w {
     let words = run_words(words, run);
     let mut at = 0_usize;
     let mut group = (0_usize, 0_usize);
@@ -164,7 +162,7 @@ impl Decorations {
     ///
     /// # Errors
     /// `NoMemory`.
-    pub fn new(words: &[WordBox]) -> Result<Self, Error> {
+    pub fn new(words: &[Word]) -> Result<Self, Error> {
         let mut runs: Vec<Run> = Vec::new();
         for (n, word) in words.iter().enumerate().take(usize::from(u16::MAX)) {
             let n = clamp16(n);
@@ -215,7 +213,7 @@ impl Decorations {
     /// `NoMemory`; `Invalid` where the codec refuses (a path over 512 bytes).
     pub fn fire(
         &self,
-        words: &[WordBox],
+        words: &[Word],
         (path, language): (&str, &str),
         from: usize,
     ) -> Result<Option<Fire>, Error> {
@@ -389,7 +387,7 @@ impl Decorations {
     /// the subscribers answered.
     pub fn marked<'a>(
         &'a self,
-        words: &'a [WordBox],
+        words: &'a [Word],
     ) -> impl DoubleEndedIterator<Item = (&'a Look, Covered<'a>)> + 'a {
         self.marks.iter().filter_map(move |mark| {
             let look = self.looks.get(usize::from(mark.look))?;
@@ -411,7 +409,7 @@ impl Decorations {
     #[must_use]
     pub fn tapped<'a>(
         &'a self,
-        words: &'a [WordBox],
+        words: &'a [Word],
         x: i32,
         y: i32,
     ) -> Option<(&'a Look, Covered<'a>)> {
@@ -431,7 +429,7 @@ pub type TapText = (String, (u32, u32), (u32, u32));
 /// The words a mark covers.
 #[derive(Clone, Copy, Debug)]
 pub struct Covered<'a> {
-    words: &'a [WordBox],
+    words: &'a [Word],
     run: Run,
     from: u16,
     to: u16,
@@ -439,7 +437,7 @@ pub struct Covered<'a> {
 
 impl<'a> Covered<'a> {
     /// The words (word boxes) the mark touches.
-    pub fn words(&self) -> impl Iterator<Item = &'a WordBox> + 'a {
+    pub fn words(&self) -> impl Iterator<Item = &'a Word> + 'a {
         let (from, to) = (self.from, self.to);
         spans(self.words, &self.run)
             .filter(move |(_, start, end)| *start < to && from < *end)
@@ -456,7 +454,7 @@ impl<'a> Covered<'a> {
         let mut first = None;
         let mut last = None;
         for word in self.words() {
-            let joined = last.is_some_and(|l: &WordBox| l.start == word.start);
+            let joined = last.is_some_and(|l: &Word| l.start == word.start);
             if first.is_some() && !joined {
                 push(&mut text, " ")?;
             }

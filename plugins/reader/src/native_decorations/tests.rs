@@ -1,10 +1,11 @@
 use super::*;
+use crate::native_word::Word;
 use alloc::string::ToString;
 use alloc::vec;
 use paperpaw_sdk::{Color, Rect, document::Locator};
 
-fn word(text: &str, (section, offset): (u32, u32), (x, y): (u16, u16)) -> WordBox {
-    WordBox::new(
+fn word(text: &str, (section, offset): (u32, u32), (x, y): (u16, u16)) -> Word {
+    Word::new(
         Rect::new(x, y, 10 * text.len() as u16, 20),
         text.to_string(),
         Locator::new(section, offset),
@@ -13,7 +14,7 @@ fn word(text: &str, (section, offset): (u32, u32), (x, y): (u16, u16)) -> WordBo
 }
 
 /// "The cat sat" on one line of section 0, "Dogs run" on the next of 1.
-fn page() -> Vec<WordBox> {
+fn page() -> Vec<Word> {
     vec![
         word("The", (0, 0), (0, 0)),
         word("cat", (0, 4), (40, 0)),
@@ -54,7 +55,7 @@ fn reply(records: &[stage::Record<'_>]) -> Vec<u8> {
     out
 }
 
-fn asked(words: &[WordBox]) -> (Decorations, Fire) {
+fn asked(words: &[Word]) -> (Decorations, Fire) {
     let d = Decorations::new(words).unwrap();
     let fire = d.fire(words, ("Books/a.epub", "en"), 0).unwrap().unwrap();
     (d, fire)
@@ -166,7 +167,7 @@ fn marks_are_checked_alone_and_a_bad_row_or_look_drops_its_row() {
         .map(|(look, c)| {
             (
                 look.role.as_str(),
-                c.words().map(|w| w.text.clone()).collect::<Vec<_>>(),
+                c.words().map(|w| w.text.to_string()).collect::<Vec<_>>(),
             )
         })
         .collect();

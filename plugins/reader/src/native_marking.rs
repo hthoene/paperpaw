@@ -7,6 +7,7 @@
 //! The interface-6 screen (`screen/selecting.rs`, `selection.rs`) is the
 //! reference; this is its host-free movement (`native_selection::moves`) with
 //! the bar, the clipboard and the lookup done through the interface-7 services.
+use crate::native_word::Word;
 use alloc::{string::String, vec::Vec};
 use core::cell::Cell;
 use paperpaw_sdk::{
@@ -21,7 +22,6 @@ use paperpaw_sdk::{
         snapshot::{self, Snapshot},
         ui::Ui,
     },
-    reading::WordBox,
 };
 use paperpaw_ui_kit::{
     Messages, Style as UiStyle,
@@ -67,7 +67,7 @@ pub struct Ctx<'a> {
     pub page_start: Locator,
     /// The words of the page with their boxes in the pane, in reading order
     /// (`native_wordbox::word_boxes`).
-    pub words: &'a [WordBox],
+    pub words: &'a [Word],
     /// The book's file, for the word-looked-up stage.
     pub path: &'a str,
     /// The book's title where known.
@@ -92,7 +92,7 @@ impl<'a> Ctx<'a> {
     #[must_use]
     pub const fn new(
         page_start: Locator,
-        words: &'a [WordBox],
+        words: &'a [Word],
         path: &'a str,
         title: &'a str,
         language: &'a str,
@@ -845,7 +845,7 @@ fn bar_items(ctx: &Ctx<'_>, live: &Live, touch: bool, translate: bool) -> bar::I
 }
 
 /// The box round the page's chosen words.
-fn box_of(words: &[WordBox], live: &Live) -> Option<Rect> {
+fn box_of(words: &[Word], live: &Live) -> Option<Rect> {
     words
         .iter()
         .filter(|w| live.covers(w))
@@ -858,7 +858,7 @@ fn box_of(words: &[WordBox], live: &Live) -> Option<Rect> {
 fn frame_words(
     ops: &mut Vec<Paint>,
     style: &UiStyle,
-    words: &[WordBox],
+    words: &[Word],
     picked: impl Fn(usize) -> bool,
 ) -> Result<(), Error> {
     let line = u32::from(style.line).max(2);
@@ -878,7 +878,7 @@ fn frame_words(
 ///
 /// # Errors
 /// `NoMemory`.
-pub fn text_of(words: &[WordBox], lo: usize, hi: usize) -> Result<String, Error> {
+pub fn text_of(words: &[Word], lo: usize, hi: usize) -> Result<String, Error> {
     act::text_of(words, lo, hi)
 }
 

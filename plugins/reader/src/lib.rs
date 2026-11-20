@@ -124,6 +124,7 @@ pub mod native_toc;
 pub mod native_toc_view;
 pub mod native_typeset;
 pub mod native_view;
+pub mod native_word;
 pub mod native_wordbox;
 pub mod native_words;
 

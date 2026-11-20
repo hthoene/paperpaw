@@ -2,9 +2,10 @@
 //! whole lines, as many as one ask holds, each with the places of its words;
 //! what the plugin answers is kept with the page ([`Pages`]) and drawn over
 //! its text whenever the page is drawn ([`draw`]).
+use crate::native_word::Word;
 use alloc::vec::Vec;
 use core::ops::Range;
-use paperpaw_sdk::{layout::Page, native::Error, reading::WordBox};
+use paperpaw_sdk::{layout::Page, native::Error};
 
 use super::buffer;
 use crate::stages::reader_layer_v1 as layer;
@@ -101,7 +102,7 @@ fn starts(text: &str) -> impl Iterator<Item = usize> + '_ {
 /// [`Error::NoMemory`].
 pub fn rows(
     page: &Page,
-    words: &[WordBox],
+    words: &[Word],
     (left, top): (u16, u16),
     (dx, dy): (i32, i32),
 ) -> Result<Vec<Row>, Error> {

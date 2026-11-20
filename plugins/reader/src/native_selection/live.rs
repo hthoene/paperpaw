@@ -6,10 +6,11 @@
 //! needed (the cache). Host-free: the movement over the words of one page is
 //! [`Selection::moved`](super::Selection::moved); this adds what the page edge,
 //! the paragraph and the *Widen* step need, and the pages a selection may span.
+use crate::native_word::Word;
 use core::cmp::Ordering;
 
 use paperpaw_sdk::document::Locator;
-use paperpaw_sdk::{layout::LineBidi, reading::WordBox};
+use paperpaw_sdk::layout::LineBidi;
 
 use super::moves::{Mode, Selection, continues};
 
@@ -33,7 +34,7 @@ const fn pos(at: Locator) -> Pos {
 impl At {
     /// The place of `word`.
     #[must_use]
-    pub const fn of(word: &WordBox) -> Self {
+    pub const fn of(word: &Word) -> Self {
         Self {
             start: pos(word.start),
             end: pos(word.end),
@@ -43,13 +44,13 @@ impl At {
     /// The first box of the page that starts where this word does: the cache of
     /// the place, none where the page does not have the word.
     #[must_use]
-    pub fn index_in(&self, words: &[WordBox]) -> Option<usize> {
+    pub fn index_in(&self, words: &[Word]) -> Option<usize> {
         words.iter().position(|w| pos(w.start) == self.start)
     }
 
     /// Where the word is to the page: before it, on it, after it.
     #[must_use]
-    pub fn relation(&self, words: &[WordBox]) -> Ordering {
+    pub fn relation(&self, words: &[Word]) -> Ordering {
         match (words.first(), words.last()) {
             (Some(first), _) if self.start < pos(first.start) => Ordering::Less,
             (_, Some(last)) if self.start > pos(last.start) => Ordering::Greater,
@@ -191,7 +192,7 @@ impl Live {
     /// Whether `word` is one of the chosen: it starts between the first chosen
     /// word's start and the last one's (both parts of a broken word do).
     #[must_use]
-    pub fn covers(&self, word: &WordBox) -> bool {
+    pub fn covers(&self, word: &Word) -> bool {
         let at = pos(word.start);
         self.from.start <= at && at <= self.to.start
     }
@@ -199,7 +200,7 @@ impl Live {
     /// The first and last box of the page that are chosen, where both ends are
     /// on it (a broken word's parts all included).
     #[must_use]
-    pub fn on_page(&self, words: &[WordBox]) -> Option<(usize, usize)> {
+    pub fn on_page(&self, words: &[Word]) -> Option<(usize, usize)> {
         let lo = self.from.index_in(words)?;
         let mut hi = self.to.index_in(words)?;
         while continues(words, hi + 1) {
@@ -220,7 +221,7 @@ impl Live {
 
     /// Where `mv` takes the `side` of the selection on this page.
     #[must_use]
-    pub fn step(&self, words: &[WordBox], mv: Move, side: Side) -> Went {
+    pub fn step(&self, words: &[Word], mv: Move, side: Side) -> Went {
         let at = if side == Side::Start {
             self.from
         } else {
@@ -258,7 +259,7 @@ impl Live {
 
     /// Puts the `side` on word `index` of the page: an end does not go past the
     /// other (a selection shrinks to one word, not to nothing).
-    pub fn put(&mut self, words: &[WordBox], side: Side, index: usize) {
+    pub fn put(&mut self, words: &[Word], side: Side, index: usize) {
         let Some(word) = words.get(index) else {
             return;
         };
@@ -287,7 +288,7 @@ impl Live {
 
     /// After a turn: puts the `side` on the first word of the new page after the
     /// word it was on (`forward`), or the last one before it. Whether it did.
-    pub fn land(&mut self, words: &[WordBox], side: Side, forward: bool) -> bool {
+    pub fn land(&mut self, words: &[Word], side: Side, forward: bool) -> bool {
         let edge = if side == Side::Start {
             self.from
         } else {
@@ -310,7 +311,7 @@ impl Live {
 
     /// The end moved to `word` of the page by a touch: a word before the first
     /// moves the start instead.
-    pub fn touch_to(&mut self, words: &[WordBox], index: usize) {
+    pub fn touch_to(&mut self, words: &[Word], index: usize) {
         let Some(word) = words.get(index) else {
             return;
         };
@@ -324,7 +325,7 @@ impl Live {
 
     /// One step wider: the word, its sentence, its paragraph, the word again
     /// (cut at the page's edges). Whether the page has the word to go out from.
-    pub fn widen(&mut self, words: &[WordBox]) -> bool {
+    pub fn widen(&mut self, words: &[Word]) -> bool {
         if self.unit == Unit::Word {
             self.base = self.from;
         }
@@ -349,7 +350,7 @@ impl Live {
 }
 
 /// The first word that has letters, or any first one.
-fn first_word(words: &[WordBox]) -> Option<usize> {
+fn first_word(words: &[Word]) -> Option<usize> {
     words
         .iter()
         .position(|w| !w.lookup_text().is_empty())
@@ -357,7 +358,7 @@ fn first_word(words: &[WordBox]) -> Option<usize> {
 }
 
 /// The last word that has letters, or any last one.
-fn last_word(words: &[WordBox]) -> Option<usize> {
+fn last_word(words: &[Word]) -> Option<usize> {
     words
         .iter()
         .rposition(|w| !w.lookup_text().is_empty())
@@ -365,7 +366,7 @@ fn last_word(words: &[WordBox]) -> Option<usize> {
 }
 
 /// Whether word `i` is the first of a paragraph (on the first line of one).
-fn starts_paragraph(words: &[WordBox], i: usize) -> bool {
+fn starts_paragraph(words: &[Word], i: usize) -> bool {
     words.get(i).is_some_and(|w| {
         w.bidi.has(LineBidi::PARAGRAPH_START)
             && (i == 0 || words.get(i - 1).is_none_or(|b| b.area.y != w.area.y))
@@ -375,7 +376,7 @@ fn starts_paragraph(words: &[WordBox], i: usize) -> bool {
 /// The first word of the paragraph after (`down`) or before word `cur`; before:
 /// the start of its own paragraph first, as an editor goes. The page's ends
 /// are the paragraph's where the layout did not begin one there.
-fn paragraph_move(words: &[WordBox], cur: usize, down: bool) -> Went {
+fn paragraph_move(words: &[Word], cur: usize, down: bool) -> Went {
     if down {
         return (cur + 1..words.len())
             .find(|&i| starts_paragraph(words, i) && !continues(words, i))
@@ -400,7 +401,7 @@ fn paragraph_move(words: &[WordBox], cur: usize, down: bool) -> Went {
 }
 
 /// The words of the sentence word `at` is in, cut at the page's ends.
-fn sentence_range(words: &[WordBox], at: usize) -> (usize, usize) {
+fn sentence_range(words: &[Word], at: usize) -> (usize, usize) {
     let ends = |i: usize| {
         words
             .get(i)
@@ -418,7 +419,7 @@ fn sentence_range(words: &[WordBox], at: usize) -> (usize, usize) {
 }
 
 /// The words of the paragraph word `at` is in, cut at the page's ends.
-fn paragraph_range(words: &[WordBox], at: usize) -> (usize, usize) {
+fn paragraph_range(words: &[Word], at: usize) -> (usize, usize) {
     let first = (0..=at)
         .rev()
         .find(|&i| starts_paragraph(words, i))
@@ -440,7 +441,7 @@ pub const LEAD_BYTES: usize = 512;
 /// # Errors
 /// `NoMemory`.
 pub fn lead_of(
-    words: &[WordBox],
+    words: &[Word],
     first: usize,
 ) -> Result<alloc::string::String, paperpaw_sdk::native::Error> {
     let mut text = alloc::string::String::new();
