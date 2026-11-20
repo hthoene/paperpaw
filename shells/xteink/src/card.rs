@@ -78,6 +78,27 @@ impl Restart for Card {
     }
 }
 
+/// What the card took since the start, for the log of a download (#419):
+/// calls to write, blocks written, and the milliseconds they took (including
+/// what the radio's tasks did meanwhile); the main loop alone writes them.
+pub static WRITES: [core::sync::atomic::AtomicU32; 3] =
+    [const { core::sync::atomic::AtomicU32::new(0) }; 3];
+
+fn count(into: &core::sync::atomic::AtomicU32, by: u32) {
+    into.store(
+        into.load(core::sync::atomic::Ordering::Relaxed)
+            .wrapping_add(by),
+        core::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+/// The counters of [`WRITES`] now.
+pub fn written() -> [u32; 3] {
+    WRITES
+        .each_ref()
+        .map(|c| c.load(core::sync::atomic::Ordering::Relaxed))
+}
+
 impl Blocks for Card {
     fn read_block(&mut self, index: u32, block: &mut [u8; BLOCK]) -> Result<(), DiskError> {
         self.read_blocks(index, block)
@@ -101,7 +122,12 @@ impl Blocks for Card {
         let blocks = data.as_chunks::<BLOCK>().0;
         #[cfg(feature = "remote")]
         crate::traced::blocks(index, 0, blocks.len() as u32);
-        self.sd.write(index, blocks).map_err(|_| DiskError)
+        let began = crate::now().0;
+        let done = self.sd.write(index, blocks).map_err(|_| DiskError);
+        count(&WRITES[0], 1);
+        count(&WRITES[1], blocks.len() as u32);
+        count(&WRITES[2], crate::now().0.saturating_sub(began) as u32);
+        done
     }
 
     fn blocks(&mut self) -> Result<u32, DiskError> {

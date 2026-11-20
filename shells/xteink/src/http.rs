@@ -32,10 +32,14 @@ const OFFLINE_MS: u64 = 20_000;
 const STALL_MS: u64 = 20_000;
 /// Redirects followed at most.
 const MAX_REDIRECTS: u32 = 10;
-/// Rounds of receiving over TLS in one step at most: the connection's
-/// bytes go to mbedTLS 2 KB at a time (`tls::IN_LIMIT`, for the memory),
-/// so one round would move no more than that per pass of the main loop.
-const TLS_ROUNDS: usize = 8;
+/// Rounds of receiving in one step at most: the connection's bytes go to
+/// mbedTLS 2 KB at a time (`tls::IN_LIMIT`, for the memory) and to the file
+/// in pieces of a chunk, so one round would move no more than that per pass
+/// of the main loop.
+const TLS_ROUNDS: usize = 32;
+/// The longest a step of one request keeps receiving (#419): the buttons
+/// and the frames wait this long at most.
+const STEP_MS: u64 = 40;
 /// Bytes of an error's body kept (its reason) where a file was asked for.
 const ERROR_BODY: usize = 4096;
 /// A connection that stalled without a byte of the answer
@@ -149,7 +153,19 @@ struct Call {
     /// The user waits for it (`net_request.flags` bit 1, #369 H): the
     /// larger window whatever its file's cap says.
     foreground: bool,
+    /// What the log line of the download tells (#419): steps of the main
+    /// loop it was moved in, the longest wait between two of them, and the
+    /// time its writes to the card took.
+    steps: u32,
+    gap_max: u64,
+    last_step: u64,
+    card_ms: u64,
+    /// The card's counters ([`crate::card::written`]) when it began.
+    card_from: [u32; 3],
 }
+
+/// Milliseconds spent in writes of downloaded bytes to the card (#419).
+static CARD_MS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
 
 /// A connection kept open for the next request to the same server.
 struct Idle {
@@ -249,6 +265,11 @@ impl Calls {
             fresh: false,
             began: now_ms(),
             foreground,
+            steps: 0,
+            gap_max: 0,
+            last_step: 0,
+            card_ms: 0,
+            card_from: crate::card::written(),
         });
     }
 
@@ -455,12 +476,18 @@ impl Calls {
                         let host = url.split("://").nth(1).unwrap_or(url);
                         let host = host.split(['/', '?']).next().unwrap_or(host);
                         log::info!(
-                            "http: {} {host} {} B in {ms} ms ({} KB/s){}{}",
+                            "http: {} {host} {} B in {ms} ms ({} KB/s){}{} [{} steps, longest gap {} ms, card {} ms; {} writes, {} blocks, {} ms]",
                             call.call.method,
                             call.got,
                             call.got * 1000 / 1024 / ms,
                             if call.boosted { " boosted" } else { "" },
                             if call.reused { " kept-connection" } else { "" },
+                            call.steps,
+                            call.gap_max,
+                            call.card_ms,
+                            crate::card::written()[0].wrapping_sub(call.card_from[0]),
+                            crate::card::written()[1].wrapping_sub(call.card_from[1]),
+                            crate::card::written()[2].wrapping_sub(call.card_from[2]),
                         );
                     }
                     if result.is_ok()
@@ -664,6 +691,12 @@ impl Call {
         }
         let max = self.call.max_response as u64;
         let mut rounds = 0;
+        if self.last_step != 0 {
+            self.gap_max = self.gap_max.max(now.saturating_sub(self.last_step));
+        }
+        self.last_step = now;
+        self.steps += 1;
+        let card_before = CARD_MS.load(core::sync::atomic::Ordering::Relaxed);
         let ended = loop {
             let (moved, ended) = match receive(
                 link,
@@ -678,24 +711,39 @@ impl Call {
                 Err(problem) => return Some(Err(problem)),
             };
             progress |= moved;
-            // Over TLS the connection's bytes pass 2 KB at a time: where
-            // more waits and the answer goes on, they pass again in this
-            // step, not one pass of the main loop for each 2 KB.
+            // Over TLS the connection's bytes pass 2 KB at a time, and no
+            // plain byte comes out before a record (up to 16 KB) is whole;
+            // plain ones pass in pieces of a file chunk. Where more waits
+            // and the answer goes on, it passes again in this step (up to
+            // `STEP_MS`), not one pass of the main loop for each piece: it
+            // goes on while the encrypted bytes move too (#419). The stack
+            // is moved on between the pieces: the card writes of one piece
+            // would else leave the radio's queue to overflow, and what it
+            // drops is sent again.
             rounds += 1;
-            if !moved
-                || ended
+            if ended
                 || rounds >= TLS_ROUNDS
-                || !link.secure()
+                || now_ms().saturating_sub(now) >= STEP_MS
                 || parser.done()
                 || parser.head().is_some_and(|head| head.is_redirect())
             {
                 break ended;
             }
-            match link.pump(net) {
-                Ok(moved) => progress |= moved,
+            net.poll();
+            let pumped = match link.pump(net) {
+                Ok(moved) => moved,
                 Err(problem) => return Some(Err(problem.reason())),
+            };
+            progress |= pumped;
+            if !moved && !pumped {
+                break false;
             }
         };
+        self.card_ms += u64::from(
+            CARD_MS
+                .load(core::sync::atomic::Ordering::Relaxed)
+                .wrapping_sub(card_before),
+        );
         if parser.head().is_some_and(|head| head.is_redirect()) {
             return self.redirect(net);
         }
@@ -1160,7 +1208,16 @@ fn keep(
             if *got > max {
                 return Err("too large");
             }
-            file.push(storage, piece).map_err(|e| e.reason())?;
+            let began = now_ms();
+            let pushed = file.push(storage, piece);
+            // The main loop alone writes it (no atomic add on the C3).
+            CARD_MS.store(
+                CARD_MS
+                    .load(core::sync::atomic::Ordering::Relaxed)
+                    .wrapping_add(now_ms().saturating_sub(began) as u32),
+                core::sync::atomic::Ordering::Relaxed,
+            );
+            pushed.map_err(|e| e.reason())?;
         }
     }
     Ok(())
