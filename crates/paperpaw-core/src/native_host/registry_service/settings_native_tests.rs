@@ -202,9 +202,52 @@ fn a_native_setting_shows_while_its_governing_setting_has_the_value() {
     let row = rows(&reply).remove(0);
     let bits: u32 = row.split(' ').nth(1).unwrap().parse().unwrap();
     assert_ne!(bits & GOVERNS, 0);
-    // Without the store nothing is declared: shown, governing nothing.
+    // Without the store nothing is declared: shown, governing nothing. Another
+    // store is another generation (what a list keeps of one holds for it).
+    kernel.shared.registry_generation.bump();
     assert_ne!(flags(&kernel, None, "nat.size") & SHOWN, 0);
     assert_eq!(flags(&kernel, None, "nat.flag") & GOVERNS, 0);
+}
+
+#[test]
+fn the_settings_ops_read_the_items_with_a_need_once_a_generation() {
+    use super::menu_native::need_reads;
+    // `nat.plain` needs a front light, which the device lacks.
+    let store = declarations(&[
+        extra("size", 1, "edit", "nat.flag"),
+        extra("flag", 0, "", ""),
+        Record::MenuNeed(wire::MenuNeed {
+            item: "nat.plain",
+            need: 10,
+            capability: 0,
+        }),
+    ]);
+    let kernel = kernel();
+    need_reads::take();
+    // Three lists (a page each) and a row alone: one read (#422: one a row).
+    for _ in 0..3 {
+        assert_eq!(flags(&kernel, Some(&store), "nat.plain") & SHOWN, 0);
+        assert_ne!(flags(&kernel, Some(&store), "nat.flag") & SHOWN, 0);
+    }
+    let reply = call_in(
+        &kernel,
+        Some(&store),
+        schema::OP_SETTING,
+        &key("nat.plain"),
+        4096,
+    );
+    let bits: u32 = rows(&reply.unwrap())[0]
+        .split(' ')
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(bits & SHOWN, 0, "op 2 says the same");
+    assert_eq!(need_reads::take(), 1);
+    // A change reads them again.
+    kernel.shared.registry_generation.bump();
+    assert_eq!(flags(&kernel, Some(&store), "nat.plain") & SHOWN, 0);
+    assert_eq!(need_reads::take(), 1);
 }
 
 #[test]

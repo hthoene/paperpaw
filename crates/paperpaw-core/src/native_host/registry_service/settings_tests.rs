@@ -563,18 +563,22 @@ fn every_rows_governs_flag_is_what_settings_governs_says() {
     };
     let ids = settings::governing(&sources, settings).unwrap();
     assert!(ids.windows(2).all(|pair| pair[0] < pair[1]));
-    assert!(ids.contains(&"cfg.flag"));
+    assert!(ids.contains(&settings::id_hash("cfg.flag")));
     let rows = pages(&kernel, schema::OP_SETTINGS, "");
     let mut seen = 0;
     for row in rows.iter().filter(|row| row.starts_with("setting ")) {
         let key = row.split(' ').nth(1).unwrap();
         let flagged = flags_of(row) & 1024 != 0;
         assert_eq!(flagged, settings.governs(key), "{key}");
-        assert_eq!(flagged, ids.binary_search(&key).is_ok(), "{key}");
+        assert_eq!(
+            flagged,
+            ids.binary_search(&settings::id_hash(key)).is_ok(),
+            "{key}"
+        );
         seen += 1;
     }
     assert_eq!(seen, settings.specs().count());
-    // One setting alone asks `governs` itself: the same flag.
+    // One setting alone: the same flag.
     let flag = detail_as(&kernel, "reader", schema::OP_SETTING, "cfg.flag").unwrap();
     assert_eq!(flags_of(&flag[0]) & 1024, 1024);
 }

@@ -308,6 +308,12 @@ impl RegistryView for CoreFrame<'_> {
     ) -> Result<(), i32> {
         self.sources().detail(op, key, asker, visit)
     }
+    fn counted(&self, op: u32, scope: &str) -> Option<u32> {
+        self.sources().counted(op, scope)
+    }
+    fn keep_count(&self, op: u32, scope: &str, total: u32) {
+        self.sources().keep_count(op, scope, total);
+    }
 }
 
 impl CoreFrame<'_> {

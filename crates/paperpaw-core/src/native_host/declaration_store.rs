@@ -15,10 +15,16 @@ use super::{
 #[cfg(test)]
 use alloc::rc::Rc;
 use alloc::{boxed::Box, vec::Vec};
+use core::cell::Cell;
 use core::mem::size_of;
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::{ERR_INVALID, ERR_NO_MEMORY, ERR_NO_SPACE, ERR_STATE};
 use paperpaw_sdk::Id;
+
+/// Where the last lookup of a walk found its record (an owner's place and a
+/// batch of it), for [`DeclarationStore::find_near`]; held for one op call,
+/// while the store is borrowed and cannot change.
+pub(crate) type FindNear = Cell<Option<(usize, usize)>>;
 
 /// The bridge holds the module guard and excludes image release during a visit.
 /// Methods must not invoke plugin callbacks or reenter the store.
@@ -1175,6 +1181,21 @@ impl DeclarationStore {
         self.find_parts(plugin, kind, &[name], visit)
     }
 
+    /// [`DeclarationStore::find`] for names looked up in about the order they
+    /// were declared (a settings list, #422): an image-only owner's batches
+    /// are walked from where the last lookup with `near` found one. A name is
+    /// declared once (admission refused duplicates), so it is the same record.
+    pub(crate) fn find_near(
+        &self,
+        plugin: &str,
+        kind: Kind,
+        name: &str,
+        near: &FindNear,
+        visit: &mut dyn for<'a> FnMut(Record<'a>),
+    ) -> bool {
+        self.find_from(plugin, kind, &[name], Some(near), visit)
+    }
+
     /// Lookup by every key field of the kind (one for a plain name; a slot
     /// offer is `[slot, screen]`, a key binding `[layer, input, when_key,
     /// when_value]`, a choice `[key, value]`, a preset value `[preset, key]`).
@@ -1183,6 +1204,17 @@ impl DeclarationStore {
         plugin: &str,
         kind: Kind,
         parts: &[&str],
+        visit: &mut dyn for<'a> FnMut(Record<'a>),
+    ) -> bool {
+        self.find_from(plugin, kind, parts, None, visit)
+    }
+
+    fn find_from(
+        &self,
+        plugin: &str,
+        kind: Kind,
+        parts: &[&str],
+        near: Option<&FindNear>,
         visit: &mut dyn for<'a> FnMut(Record<'a>),
     ) -> bool {
         let Some((index, owner)) = self.owners.iter().enumerate().find_map(|(index, owner)| {
@@ -1196,7 +1228,15 @@ impl DeclarationStore {
         if let Batches::Starts(starts) = &owner.batches {
             // Every record of the kind, in declaration order: the first that
             // matches is the one an index would give.
-            return scan::find_in_image(owner, starts, kind, parts, visit);
+            let from = near
+                .and_then(Cell::get)
+                .filter(|(of, _)| *of == index)
+                .map_or(0, |(_, batch)| batch);
+            let found = scan::find_in_image(owner, starts, kind, parts, from, visit);
+            if let (Some(near), Some(batch)) = (near, found) {
+                near.set(Some((index, batch)));
+            }
+            return found.is_some();
         }
         let category = kind.category();
         let mut found = false;

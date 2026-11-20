@@ -112,16 +112,24 @@ fn list(
     }
     let generation = view.generation();
     let scope = scope_of(op.id, query);
-    let mut total = 0_u32;
-    // A row that cannot be framed (an id over its field's cap, which no
-    // declaration check bounds for plugin ids) is skipped, here and in the
-    // page walk alike, so `total`, the cursor and the rows agree.
-    view.rows(op.id, scope, query.flags, asker, &mut |row| {
-        if row.frames() {
-            total = total.saturating_add(1);
+    let total = match view.counted(op.id, scope) {
+        Some(total) => total,
+        None => {
+            let mut total = 0_u32;
+            // A row that cannot be framed (an id over its field's cap, which
+            // no declaration check bounds for plugin ids) is skipped, here
+            // and in the page walk alike, so `total`, the cursor and the rows
+            // agree.
+            view.rows(op.id, scope, query.flags, asker, &mut |row| {
+                if row.frames() {
+                    total = total.saturating_add(1);
+                }
+                ControlFlow::Continue(())
+            })?;
+            view.keep_count(op.id, scope, total);
+            total
         }
-        ControlFlow::Continue(())
-    })?;
+    };
     let room = op.max_reply.min(out.len());
     let out = out.get_mut(..room).ok_or(ERR_INVALID)?;
     let mut page = RegistryPage::new(query, generation, total, out)?;
