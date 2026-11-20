@@ -10,9 +10,8 @@ impl Kernel {
         shared
             .translator
             .set_language(shared.settings.read(&core_settings::LANGUAGE));
+        self.sync_look();
         let settings = &self.shared.settings;
-        self.framebuffer
-            .set_inverted(settings.bool(core_settings::NIGHT_MODE.as_str()));
         self.framebuffer
             .set_pictures_kept(!settings.bool(core_settings::NIGHT_PICTURES.as_str()));
         self.framebuffer.set_mono_coverage(mono_coverage(settings));

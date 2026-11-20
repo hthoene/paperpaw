@@ -245,7 +245,7 @@ impl Kernel {
     /// [`tick`](Kernel::tick) whose effects contain a refresh, then refresh
     /// the panel.
     pub fn render(&mut self, out: &mut dyn FnMut(u16, FrameView<'_>)) {
-        let Some(region) = self.frame.unrendered.take() else {
+        let Some(region) = (self.frame.unrendered.take()).map(|r| self.region_for_look(r)) else {
             return;
         };
         self.shared

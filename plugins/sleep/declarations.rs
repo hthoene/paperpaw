@@ -51,6 +51,9 @@ const OFF_SHOW: [&str; 5] = [
 ];
 /// The start and the restart screen (slots `core.start`, `core.restart`):
 /// the device's own, or a screen another plugin adds as a choice.
+/// Light or dark, for each screen (`sleep.look` and the others): as the
+/// device is (night mode), light, dark.
+const LOOK: [&str; 3] = ["sleep.look.device", "sleep.look.light", "sleep.look.dark"];
 const START_SHOW: [&str; 1] = ["sleep.start-show.built-in"];
 const RESTART_SHOW: [&str; 1] = ["sleep.restart-show.built-in"];
 const POSITIONS: [&str; 7] = [
@@ -78,9 +81,13 @@ pub const REFRESH: [&str; 4] = [
 ];
 
 /// The settings that need a device that sleeps (the group too).
-const NEEDS: [&str; 14] = [
+const NEEDS: [&str; 18] = [
     "sleep.group",
     "sleep.show",
+    "sleep.look",
+    "sleep.off-look",
+    "sleep.start-look",
+    "sleep.restart-look",
     "sleep.off-show",
     "sleep.start-show",
     "sleep.restart-show",
@@ -131,7 +138,46 @@ fn screen_specs<F: FnMut(&[u8]) -> Result<(), i32>>(
         );
         spec.help = help;
         d.spec(spec)?;
+        look(d, name)?;
     }
+    Ok(())
+}
+
+/// The row under the choice `name` of what a screen shows: whether it is
+/// drawn light or dark (#420).
+fn look<F: FnMut(&[u8]) -> Result<(), i32>>(
+    d: &mut Declarations<F>,
+    name: &str,
+) -> Result<(), DeclareError> {
+    let (id, title, help) = match name {
+        "show" => ("look", "sleep.setting.look", "sleep.setting.look.help"),
+        "off-show" => (
+            "off-look",
+            "sleep.setting.off-look",
+            "sleep.setting.off-look.help",
+        ),
+        "start-show" => (
+            "start-look",
+            "sleep.setting.start-look",
+            "sleep.setting.start-look.help",
+        ),
+        _ => (
+            "restart-look",
+            "sleep.setting.restart-look",
+            "sleep.setting.restart-look.help",
+        ),
+    };
+    let mut spec = SpecDecl::new(
+        id,
+        Kind::Choice {
+            default: LOOK[0],
+            choices: &LOOK,
+        },
+        GROUP,
+        title,
+    );
+    spec.help = help;
+    d.spec(spec)?;
     Ok(())
 }
 
@@ -154,6 +200,7 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     );
     show.help = "sleep.setting.show.help";
     d.spec(show)?;
+    look(d, "show")?;
     screen_specs(d)?;
     let mut folder = SpecDecl::new("folder", Kind::Text("sleep"), GROUP, "sleep.setting.folder");
     folder.help = "sleep.setting.folder.help";

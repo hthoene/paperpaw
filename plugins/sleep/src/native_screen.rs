@@ -101,6 +101,9 @@ pub struct Sleeping {
     setting: String,
     /// The device is switched off after this screen, not put to sleep.
     off: bool,
+    /// The cat is asked for inverted: the screen is dark and pictures stay as
+    /// they are in the dark (#420).
+    invert_cat: bool,
     /// The device woke since the screen opened.
     pub woke: bool,
     /// Minutes between redraws while asleep (`sleep.refresh-every`); 0 never.
@@ -126,6 +129,7 @@ impl Sleeping {
         Self {
             setting: String::new(),
             off,
+            invert_cat: false,
             woke: false,
             refresh: 0,
             list: String::new(),
@@ -186,6 +190,11 @@ impl Sleeping {
                 view.setting = off_show;
             }
         }
+        view.invert_cat = model::cat_inverted(
+            &read_text(host, if off { model::OFF_LOOK } else { model::LOOK })?,
+            read_flag(host, "core.night-mode")?,
+            read_flag(host, "core.night-pictures")?,
+        );
         view.facts = facts_before(off);
         if !off {
             view.refresh = model::refresh_minutes(&read_text(host, model::REFRESH)?);
@@ -773,6 +782,18 @@ pub fn read_text(host: &Host<'_>, key: &str) -> Result<String, Error> {
         SettingValue::Text(text) => copy(text),
         _ => Ok(String::new()),
     }
+}
+
+/// A switch; off where the setting has none.
+///
+/// # Errors
+/// Allocation and the host's refusals.
+pub fn read_flag(host: &Host<'_>, key: &str) -> Result<bool, Error> {
+    let mut bytes = [0; 64];
+    Ok(matches!(
+        settings::read_setting(host, key, &mut bytes)?,
+        SettingValue::Bool(true)
+    ))
 }
 
 /// A number setting; `default` where the setting has none.
