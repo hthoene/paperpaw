@@ -97,9 +97,9 @@ fn a_start_into_the_last_book_reads_only_its_page_and_writes_nothing() {
     // English is hyphenated as on a fresh install (the firmware seeds the pack).
     let files = Rc::new(
         paperpaw_default_packs::english()
-            .iter()
+            .into_iter()
             .fold(files, |files, (path, bytes)| {
-                files.with(&format!("plugins/hyphenation/{path}"), *bytes)
+                files.with(&format!("plugins/hyphenation/{path}"), bytes)
             }),
     );
     paperpaw_emulator::budget::override_limit(None);
