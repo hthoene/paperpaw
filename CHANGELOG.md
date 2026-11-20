@@ -6,7 +6,7 @@ change the plugin SDK.
 
 ## [Unreleased]
 
-## [0.6.0-beta.4] - 2026-11-20
+## [0.6.0-beta.4] - 2026-11-21
 
 - Interface 7 SDK: `native::storage::DataStorage`, the plugin's data folder as a
   `Storage`. Reads and appends over 4 KiB are split; a longer write is staged in
@@ -4759,6 +4759,8 @@ change the plugin SDK.
 - **Settings open quickly again** (#422). Opening the settings (from the home screen or the menu) took about 7.5 seconds on the X3 and as long on the other devices: for every setting row, and again for every page of rows, the kernel read all plugins' declarations anew. What a settings list needs from them (which settings have a device need or a declared editor, which settings others depend on, how many rows a list has) is now read once and kept until a plugin changes, and the rows look up their plugin's records in order. Nothing else changes in what the settings show.
 
 - **Pictures after the first chapter** (#427). A picture in a later chapter of an EPUB, FictionBook or HTML book (for example the author's photo in *Byttet*) stayed an empty box with only its caption: the reader asked for it by a number that named the block but not its chapter, and the format looked for it in the first chapter. The number now holds both.
+
+- **"Skip setup" leaves the setup assistant again** (#433). The answer of a question reaches the asking plugin as an event, and an event had no screen stack, so its close was refused: the setup assistant stayed on its first page and the setup was never marked done; typing the lock's password and removing a stored secret in Settings did not leave their screen either. The answer's callback may now close the asker's own screen (as an action may), and the dialog's own close is applied before the answer is delivered.
 
 - **A deflated book chapter of some sizes (about 27 to 28 KiB) was refused as "entry longer than its size"** (#4309). When the reader's window, sized to the entry, was filled to the last byte before the decoder had seen the end of the stream, the first "more output" answer was taken for an overlong entry. Only an answer that still wants to write after the window is full counts now.
 
