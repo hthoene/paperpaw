@@ -486,6 +486,7 @@ pub mod callbacks;
 pub mod canvas;
 pub mod clock;
 pub mod commands;
+pub mod convert;
 pub mod declare;
 pub mod device;
 pub mod document;

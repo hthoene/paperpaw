@@ -1,0 +1,78 @@
+{
+  "key": "core.convert",
+  "major": 1,
+  "revision": 0,
+  "since": 1,
+  "test_only": false,
+  "max_subscribers": 4,
+  "max_input": 1088,
+  "max_reply": 2112,
+  "input": [
+    "conv.ask"
+  ],
+  "reply": [
+    "conv.text"
+  ],
+  "reply_rows": 1,
+  "records": [
+    {
+      "id": 1,
+      "name": "conv.ask",
+      "since": 0,
+      "fields": [
+        {
+          "name": "element",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 32
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        },
+        {
+          "name": "markup",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 1024
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "conv.text",
+      "since": 0,
+      "fields": [
+        {
+          "name": "text",
+          "type": "str",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 2048
+        },
+        {
+          "name": "flags",
+          "type": "u32",
+          "since": 0,
+          "optional": false,
+          "ordinal": null,
+          "default": null,
+          "max_bytes": 0
+        }
+      ]
+    }
+  ]
+}

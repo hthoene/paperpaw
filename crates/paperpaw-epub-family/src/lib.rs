@@ -52,6 +52,14 @@ pub use native_io::{NativeIo, serve, serve_with_settings};
 pub use providers::epub_plus_provider;
 pub use providers::{cbz_provider, epub_provider, fb2_provider, html_provider, markdown_provider};
 
+/// The text of the markup of a foreign element of the EPUB format
+/// (`core.convert`, `docs/abi/document.md` 4.1): a `<math>` as the formula in its
+/// linear form. `None` for markup that is no formula or gives no text.
+#[must_use]
+pub fn math_text(markup: &str) -> Option<alloc::string::String> {
+    convert::math::text_of(markup)
+}
+
 pub const PLUGIN: Id = Id::new_static("format-epub");
 
 /// Bytes at each end of a file that tell it from another of its size.
@@ -1160,15 +1168,26 @@ mod tests {
     }
     /// The texts of the blocks of section 1 of the test book.
     fn texts(ch2: &str) -> Vec<String> {
+        math_blocks(ch2, true)
+    }
+
+    /// The texts of the blocks of section 1: with the foreign elements replaced
+    /// by the text of the hook (`math_text`, as the host does) where `hook`.
+    fn math_blocks(ch2: &str, hook: bool) -> Vec<String> {
         let storage = epub(String::from(ch2));
-        let doc = EpubDocument::open(&storage, "books/test.epub")
-            .unwrap()
-            .with_formulas(convert::math::MAKER);
+        let doc = EpubDocument::open(&storage, "books/test.epub").unwrap();
         let mut at = Locator::new(1, 0);
         let mut out = Vec::new();
         while let Some(block) = doc.block_at(&storage, at).unwrap() {
             at = Locator::new(1, block.end);
-            out.push(block.text);
+            let mut text = block.text.clone();
+            for note in block.annotations.iter().rev().filter(|n| n.is_foreign()) {
+                assert!(note.text.starts_with("<math"), "{}", note.text);
+                if hook && let Some(said) = math_text(&note.text) {
+                    text.replace_range(note.start as usize..note.end as usize, &said);
+                }
+            }
+            out.push(text);
         }
         out
     }
@@ -1198,6 +1217,102 @@ mod tests {
         // Display math is a block of its own, between the paragraph's halves.
         let block = r#"<math display="block"><mrow><mo>&#x2212;</mo><mn>3</mn></mrow></math>"#;
         assert_eq!(texts(&html(block)), ["Es gilt", "−3", "immer."]);
+    }
+
+    #[test]
+    fn without_a_hook_a_formula_is_its_alttext_or_its_leaves() {
+        let html =
+            |math: &str| alloc::format!("<html><body><p>Es gilt {math} immer.</p></body></html>");
+        let alt = r#"<math alttext="a durch b"><mfrac><mi>a</mi><mi>b</mi></mfrac></math>"#;
+        assert_eq!(math_blocks(&html(alt), false), ["Es gilt a durch b immer."]);
+        let leaves = "<math><mi>x</mi><mo>=</mo><mn>1</mn><semantics><annotation>TeX</annotation></semantics></math>";
+        assert_eq!(math_blocks(&html(leaves), false), ["Es gilt x = 1 immer."]);
+        // An element with no text says nothing and is no foreign element.
+        assert_eq!(math_blocks(&html("<math/>"), false), ["Es gilt immer."]);
+        // The hook's text goes where the formula's was, and where a space
+        // before it was collapsed it does not eat the space.
+        assert_eq!(math_blocks(&html(alt), true), ["Es gilt a/b immer."]);
+    }
+
+    /// The format's answer to the host (`core.format`, ops 2 and 8) for the
+    /// block of section 1 at `offset`: the foreign element it writes into the
+    /// block stream, as the host reads it.
+    #[test]
+    fn a_math_book_hands_its_formula_to_the_host_in_its_block_stream() {
+        use paperpaw_sdk::native::stage_schemas::core_format_v1 as stage;
+        let html = r#"<html><body><p>Es gilt <math alttext="a durch b"><mfrac><mi>a</mi><mi>b</mi></mfrac></math> immer.</p></body></html>"#;
+        let storage = epub(String::from(html));
+        let mut provider = epub_provider();
+        let mut ask = |op: u32, document: u32, section: u32| {
+            let call = stage::FmtCall::new(
+                op,
+                document,
+                section,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                0,
+                0,
+                "books/test.epub",
+                &[],
+            );
+            let mut input = vec![0_u8; 2048];
+            let n = stage::input_encode(&[stage::Record::FmtCall(call)], &mut input).unwrap();
+            let mut out = vec![0_u8; 4096];
+            let used = provider.call(&storage, &input[..n], &mut out).unwrap();
+            out.truncate(used);
+            out
+        };
+        ask(2, 1, 0);
+        let reply = ask(8, 1, 1);
+        let rows: Vec<_> = stage::reply_decode(&reply)
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        let mut text = String::new();
+        let mut foreign = Vec::new();
+        for row in &rows {
+            match row {
+                stage::Record::FmtTextPart(part) => text.push_str(part.text),
+                stage::Record::FmtRuby(ruby) => {
+                    foreign.push((ruby.kind, ruby.start, ruby.end, ruby.text))
+                }
+                _ => {}
+            }
+        }
+        // The text the format says for the formula without a hook, and the
+        // element over it as a `doc_ruby` of the foreign kind.
+        assert_eq!(text, "Es gilt a durch b immer.");
+        let [(kind, start, end, markup)] = foreign[..] else {
+            panic!("{foreign:?}");
+        };
+        assert_eq!(
+            kind,
+            3 + u32::from(paperpaw_sdk::document::Annotation::FOREIGN)
+        );
+        assert_eq!(&text[start as usize..end as usize], "a durch b");
+        assert!(
+            markup.starts_with(
+                "<math alttext=\"a durch b\"><mfrac><mi>a</mi><mi>b</mi></mfrac></math>"
+            )
+        );
+        // The hook plugin's text for it, as the host puts it there.
+        assert_eq!(math_text(markup).as_deref(), Some("a/b"));
+    }
+
+    #[test]
+    fn a_formula_too_long_for_a_record_keeps_its_own_text() {
+        let long = "<mi>x</mi>".repeat(120);
+        let html =
+            alloc::format!("<html><body><p>Es gilt <math>{long}</math> immer.</p></body></html>");
+        let storage = epub(html);
+        let doc = EpubDocument::open(&storage, "books/test.epub").unwrap();
+        let block = doc.block_at(&storage, Locator::new(1, 0)).unwrap().unwrap();
+        assert!(block.annotations.is_empty(), "{:?}", block.annotations);
+        assert!(block.text.starts_with("Es gilt x x x"));
     }
 
     #[test]

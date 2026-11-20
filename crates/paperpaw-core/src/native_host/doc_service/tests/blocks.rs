@@ -563,3 +563,138 @@ fn a_block_has_at_most_one_columns_record_and_only_a_table_row_has_it() {
     );
     assert!(block_call(&fake, id, 2, 77, &[cell(), end(1, 77, 9)]).is_ok());
 }
+
+/// A block "Es gilt  immer." (two spaces where the foreign element stood: the
+/// format's text "x") with `markup` over bytes 8..9, a run over the rest.
+fn foreign_block<'a>(markup: &'a str, kind: u32) -> Vec<Record<'a>> {
+    std::vec![
+        header(0, 15),
+        part("Es gilt x immer."),
+        run(0, 7),
+        run(10, 15),
+        Record::ServiceDocMap(Map {
+            text: 10,
+            source: 40,
+        }),
+        Record::ServiceDocRuby(Ruby {
+            start: 0,
+            end: 2,
+            kind: 0,
+            size: 10,
+            text: "r",
+        }),
+        Record::ServiceDocRuby(Ruby {
+            start: 8,
+            end: 9,
+            kind,
+            size: 0,
+            text: markup,
+        }),
+        end(1, 0, 91),
+    ]
+}
+
+fn decoded(reply: &[u8]) -> Vec<Record<'_>> {
+    let mut at = 0;
+    let mut all = Vec::new();
+    while at < reply.len() {
+        let (record, used) = crate::native_host::codec::decode_any_prefix(&reply[at..]).unwrap();
+        all.push(record);
+        at += used;
+    }
+    all
+}
+
+#[test]
+fn a_foreign_element_is_replaced_by_its_hooks_text_and_what_follows_moves() {
+    let fake = Fake::new(Limits::X4);
+    let id = opened(&fake);
+    *fake.hook.borrow_mut() = Some("a/b\nc".into());
+    let markup = "<math><mi>x</mi></math>";
+    // The format's text is 16 bytes with the one it says; the header says 16.
+    let mut record = foreign_block(markup, splice::FOREIGN);
+    record[0] = header(0, 16);
+    let reply = block_call(&fake, id, 0, 0, &record).unwrap();
+    assert_eq!(*fake.hooked.borrow(), ["math:<math><mi>x</mi></math>"]);
+    let got = decoded(&reply);
+    // "Es gilt " + "a/b\nc" + " immer.": 8 + 5 + 7 bytes.
+    let mut text = std::string::String::new();
+    for record in &got {
+        match record {
+            Record::ServiceDocBlock(block) => assert_eq!(block.text_bytes, 20),
+            Record::ServiceDocTextPart(part) => text.push_str(part.text),
+            Record::ServiceDocRun(run) if run.start == 0 => assert_eq!(run.end, 7),
+            // The run after the element moved by 4 (5 new bytes for 1).
+            Record::ServiceDocRun(run) => assert_eq!((run.start, run.end), (14, 19)),
+            Record::ServiceDocMap(map) => assert_eq!((map.text, map.source), (14, 40)),
+            Record::ServiceDocRuby(ruby) => {
+                // The foreign record is gone; the other annotation stays.
+                assert_eq!((ruby.kind, ruby.start, ruby.end, ruby.text), (0, 0, 2, "r"));
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(text, "Es gilt a/b\nc immer.");
+}
+
+#[test]
+fn without_a_hook_the_foreign_element_goes_and_the_formats_text_stays() {
+    let fake = Fake::new(Limits::X4);
+    let id = opened(&fake);
+    let mut record = foreign_block("<math/>", splice::FOREIGN);
+    record[0] = header(0, 16);
+    let reply = block_call(&fake, id, 0, 0, &record).unwrap();
+    let mut plain = foreign_block("", splice::FOREIGN);
+    plain[0] = header(0, 16);
+    plain.remove(6);
+    assert_eq!(reply, stream(&plain));
+}
+
+#[test]
+fn a_foreign_element_of_a_block_in_fragments_is_never_asked_for() {
+    let fake = Fake::new(Limits::X4);
+    let id = opened(&fake);
+    *fake.hook.borrow_mut() = Some("zz".into());
+    let first = [header(0, 8), part("hel"), end(2, 77, 2)];
+    block_call(&fake, id, 0, 0, &first).unwrap();
+    let rest = [
+        part("lo!!!"),
+        Record::ServiceDocRuby(Ruby {
+            start: 1,
+            end: 2,
+            kind: splice::FOREIGN,
+            size: 0,
+            text: "<math/>",
+        }),
+        end(1, 77, 9),
+    ];
+    let reply = block_call(&fake, id, 2, 77, &rest).unwrap();
+    assert!(fake.hooked.borrow().is_empty());
+    assert_eq!(reply, stream(&[rest[0], rest[2]]));
+}
+
+#[test]
+fn a_hook_text_that_does_not_fit_leaves_the_formats_text() {
+    let fake = Fake::new(Limits::X4);
+    let id = opened(&fake);
+    *fake.hook.borrow_mut() = Some("w".repeat(2048));
+    let text = "t".repeat(3072);
+    let rest = "u".repeat(400);
+    let record = [
+        header(0, 3472),
+        part(&text),
+        part(&rest),
+        Record::ServiceDocRuby(Ruby {
+            start: 10,
+            end: 11,
+            kind: splice::FOREIGN,
+            size: 0,
+            text: "<math/>",
+        }),
+        end(1, 0, 91),
+    ];
+    let reply = block_call(&fake, id, 0, 0, &record).unwrap();
+    let mut plain = record.to_vec();
+    plain.remove(3);
+    assert_eq!(reply, stream(&plain));
+}

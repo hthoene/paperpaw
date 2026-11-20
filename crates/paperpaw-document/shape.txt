@@ -2,6 +2,7 @@
 # tools/interface.py writes them: fields, variants and trait items in
 # the source's order, private fields and the private types they reach
 # too, every feature on but the kernel's (ADR 0026).
+const paperpaw_document::Annotation::FOREIGN: u16 = 0xFFF0
 const paperpaw_document::LETTER_SPACING_STEPS: u8 = 40u8
 const paperpaw_document::Locator::START: paperpaw_document::Locator = Locator { section: 0, offset: 0, }
 const paperpaw_document::MAX_FAMILIES: u8 = 31u8

@@ -24,6 +24,7 @@ fn batches() -> Vec<Vec<u8>> {
             Ok(())
         });
         declarations::formats(&mut d).unwrap();
+        declarations::stages(&mut d).unwrap();
     }
     out
 }
@@ -31,8 +32,8 @@ fn batches() -> Vec<Vec<u8>> {
 #[test]
 fn the_image_is_what_the_builder_makes() {
     let built = batches();
-    assert_eq!(built.len(), image::FORMATS.len());
-    for (built, image) in built.iter().zip(image::FORMATS) {
+    assert_eq!(built.len(), image::FORMATS.len() + image::STAGES.len());
+    for (built, image) in built.iter().zip(image::FORMATS.iter().chain(image::STAGES)) {
         assert_eq!(built.as_slice(), *image);
     }
 }
@@ -40,8 +41,8 @@ fn the_image_is_what_the_builder_makes() {
 #[test]
 fn one_format_claims_epub_above_the_built_in_one() {
     let built = batches();
-    let [batch] = built.as_slice() else {
-        panic!("one batch");
+    let [batch, _] = built.as_slice() else {
+        panic!("a batch of formats and one of stages");
     };
     let records = records_decode(batch).unwrap();
     let rows: Vec<_> = records.iter().collect();
@@ -52,10 +53,22 @@ fn one_format_claims_epub_above_the_built_in_one() {
         (spec.name, spec.title, spec.extensions),
         ("epub", "format-epub-plus.title", "epub")
     );
-    // Not `prepared`; flags: sniffs (the `mimetype` entry), a book is the file itself.
-    assert_eq!(spec.flags, 0b10);
+    // Not `prepared`; flags: asks (#242: it reads only the fixed-layout books), a book is the file itself.
+    assert_eq!(spec.flags, 1 << 5);
     assert_eq!(spec.priority, declarations::PRIORITY);
     assert_eq!(spec.token, declarations::FORMAT_TOKEN);
+}
+
+#[test]
+fn the_plugin_subscribes_to_the_conversion_hook() {
+    let built = batches();
+    let records = records_decode(&built[1]).unwrap();
+    let rows: Vec<_> = records.iter().collect();
+    let [Record::RegistrationStage(stage)] = rows.as_slice() else {
+        panic!("one subscription: {rows:?}");
+    };
+    assert_eq!(stage.stage, "core.convert");
+    assert_eq!(stage.token, declarations::CONVERT_TOKEN);
 }
 
 /// The host checks the format and admits it (`document.md` section 1): its

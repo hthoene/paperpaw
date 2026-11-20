@@ -77,6 +77,10 @@ pub paperpaw_document::Annotation::size: u16
 pub paperpaw_document::Annotation::start: u32
 pub paperpaw_document::Annotation::text: alloc::string::String
 impl paperpaw_document::Annotation
+pub const paperpaw_document::Annotation::FOREIGN: u16
+pub fn paperpaw_document::Annotation::foreign(u32, u32, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn paperpaw_document::Annotation::is_foreign(&self) -> bool
+impl paperpaw_document::Annotation
 pub fn paperpaw_document::Annotation::new(u32, u32, impl core::convert::Into<alloc::string::String>, paperpaw_document::AnnotationKind) -> Self
 #[non_exhaustive] pub struct paperpaw_document::Block
 pub paperpaw_document::Block::align: paperpaw_document::Align

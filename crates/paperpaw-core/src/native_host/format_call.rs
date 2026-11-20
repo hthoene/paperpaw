@@ -30,6 +30,9 @@ use paperpaw_native::host_glue::{
 
 /// The host-defined stage key and its major.
 pub(crate) const STAGE: &str = "core.format";
+/// The conversion hook's stage (`document.md` 4.1, #429): called at the level
+/// of the format's own calls.
+pub(crate) const CONVERT: &str = "core.convert";
 pub(crate) const MAJOR: u32 = 1;
 /// A fragment is a stage payload at most (`document.md` 4).
 pub(crate) const PAYLOAD_MAX: usize = 3840;
@@ -62,11 +65,19 @@ fn scratch(capacity: usize) -> Result<Vec<u8>, i32> {
 /// `ERR_NO_SPACE` for a payload over 3,840 bytes or a framed call over 4 KiB,
 /// `ERR_NO_MEMORY`.
 pub(crate) fn framed(payload: &[u8]) -> Result<Vec<u8>, i32> {
+    framed_for(STAGE, payload)
+}
+
+/// [`framed`] for a call of the stage `stage`.
+///
+/// # Errors
+/// As [`framed`].
+pub(crate) fn framed_for(stage: &str, payload: &[u8]) -> Result<Vec<u8>, i32> {
     if payload.len() > PAYLOAD_MAX {
         return Err(ERR_NO_SPACE);
     }
     let record = Record::StageCall(wire::StageCall {
-        stage: STAGE,
+        stage,
         schema: MAJOR,
         payload,
     });
@@ -104,9 +115,24 @@ pub(crate) fn call(
     target: Target,
     payload: &[u8],
     out: &mut [u8],
+    env: (&Place<'_>, &core::cell::Cell<bool>),
+) -> Result<usize, i32> {
+    call_stage(registry, STAGE, target, payload, out, env)
+}
+
+/// [`call`] of the stage `stage` (`core.format` or `core.convert`).
+///
+/// # Errors
+/// As [`call`].
+pub(crate) fn call_stage(
+    registry: &NativeInstances,
+    stage: &str,
+    target: Target,
+    payload: &[u8],
+    out: &mut [u8],
     (env, entered): (&Place<'_>, &core::cell::Cell<bool>),
 ) -> Result<usize, i32> {
-    let framed = framed(payload)?;
+    let framed = framed_for(stage, payload)?;
     let room = out.len().min(PAYLOAD_MAX);
     // The retained epoch keeps start requests from flushing under this call.
     let _epoch = registry.callback()?;

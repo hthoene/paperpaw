@@ -126,6 +126,8 @@ impl<'a> Converter<'a> {
             index,
             anchors: String::new(),
             links: String::new(),
+            foreign: String::new(),
+            block_foreign: false,
             chapter: fallible::string(name)?,
             positions: String::new(),
             xpointers: String::new(),
@@ -254,6 +256,7 @@ impl<'a> Converter<'a> {
         self.write_index();
         self.write_anchors();
         self.write_links();
+        self.write_foreign();
         self.write_positions();
         self.write_xpointers();
         self.write_pictures();

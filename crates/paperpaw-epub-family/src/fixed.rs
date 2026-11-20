@@ -341,6 +341,15 @@ fn list_pages(
     Ok(records.len() as u32)
 }
 
+/// Whether the book at `path` is one this reads: a fixed-layout book of
+/// pictures (what `open` gives a document for).
+pub(crate) fn claims(storage: &dyn Storage, path: &str) -> bool {
+    matches!(
+        open(storage, path, &paperpaw_sdk::OpenOptions::default()),
+        Ok(Some(_))
+    )
+}
+
 /// The book at `path` as a document of whole pages, if it is a fixed-layout
 /// book of pictures; `None` for any other, which the reflowing conversion
 /// reads.
@@ -504,6 +513,14 @@ mod tests {
             .unwrap();
         assert_eq!(again.sections(), 3);
         assert_eq!(again.metadata().direction, PageProgression::RightToLeft);
+    }
+
+    #[test]
+    fn only_a_book_of_pictures_is_claimed() {
+        // What the format answers the host's question before an open (#242).
+        assert!(claims(&book(LAYOUT, "", PICTURES), "b/pic.epub"));
+        assert!(!claims(&book("", "", PICTURES), "b/pic.epub"));
+        assert!(!claims(&MemoryStorage::new(), "b/none.epub"));
     }
 
     #[test]

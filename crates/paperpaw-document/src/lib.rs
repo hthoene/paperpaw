@@ -600,6 +600,28 @@ impl Annotation {
     }
 }
 
+impl Annotation {
+    /// The number of [`AnnotationKind::Other`] a foreign element is carried as
+    /// (#429): not an annotation to show, but an element of the book's markup
+    /// that the format leaves to another plugin to convert (`core.convert`,
+    /// `docs/abi/document.md` 4.1). `start..end` is the text the format wrote
+    /// for it, `text` its markup. The host replaces that text with the hook's
+    /// and never passes this on to a reader.
+    pub const FOREIGN: u16 = 0xFFF0;
+
+    /// A foreign element: `text` its markup, `start..end` what the block's text
+    /// says for it without a hook.
+    pub fn foreign(start: u32, end: u32, markup: impl Into<String>) -> Self {
+        Self::new(start, end, markup, AnnotationKind::Other(Self::FOREIGN))
+    }
+
+    /// Whether this is a foreign element ([`Annotation::FOREIGN`]).
+    #[must_use]
+    pub fn is_foreign(&self) -> bool {
+        self.kind == AnnotationKind::Other(Self::FOREIGN)
+    }
+}
+
 /// What an [`Annotation`] is.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 #[non_exhaustive]
