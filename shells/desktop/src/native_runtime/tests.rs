@@ -415,13 +415,14 @@ fn core_device_is_offered_by_the_emulator_and_not_by_the_data_catalog() {
         checked_metadata(&bytes, &host, data),
         Err(RuntimeError::Metadata)
     ));
-    for (major, revision) in [(2, 0), (1, 1)] {
-        let bytes = service_metadata("core.device", major, revision);
-        assert!(matches!(
-            checked_metadata(&bytes, &host, offered),
-            Err(RuntimeError::Metadata)
-        ));
-    }
+    // Another major is refused; a later revision only appends ops and runs (#242).
+    let bytes = service_metadata("core.device", 2, 0);
+    assert!(matches!(
+        checked_metadata(&bytes, &host, offered),
+        Err(RuntimeError::Metadata)
+    ));
+    let bytes = service_metadata("core.device", 1, 1);
+    assert!(checked_metadata(&bytes, &host, offered).is_ok());
 }
 
 #[test]
@@ -441,13 +442,14 @@ fn data_service_admission_is_enabled_only_for_the_implemented_host() {
             checked_metadata(&bytes, &host, &[]),
             Err(RuntimeError::Metadata)
         ));
-        for (major, revision) in [(2, 0), (1, 1)] {
-            let bytes = service_metadata(service.key, major, revision);
-            assert!(matches!(
-                checked_metadata(&bytes, &host, catalog),
-                Err(RuntimeError::Metadata)
-            ));
-        }
+        // Another major is refused; a later revision only appends ops and runs (#242).
+        let bytes = service_metadata(service.key, 2, 0);
+        assert!(matches!(
+            checked_metadata(&bytes, &host, catalog),
+            Err(RuntimeError::Metadata)
+        ));
+        let bytes = service_metadata(service.key, 1, 1);
+        assert!(checked_metadata(&bytes, &host, catalog).is_ok());
     }
     let bytes = service_metadata("test.unknown", 1, 0);
     assert!(matches!(
