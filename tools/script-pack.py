@@ -126,7 +126,7 @@ def han(name, file):
 # combining tone marks, from Literata's faces and Source Sans 3; what those lack (Hausa's
 # hooked letters, n and m with a grave or acute) from Noto Serif, a pack for each weight
 # shared by the faces it stands for (as `shared`), and Noto Sans for the interface's font.
-LATIN_OWN = ["U+018F", "U+0259", "U+1E62-1E63", "U+1EB8-1EB9", "U+1ECC-1ECD",
+LATIN_OWN = ["U+018F", "U+0218-021B", "U+0259", "U+1E62-1E63", "U+1EB8-1EB9", "U+1ECC-1ECD",
              "U+0300-0304", "U+030C", "U+0323"]
 LATIN_NOTO = "U+0181,U+0253,U+018A,U+0257,U+0198-0199,U+01B3-01B4,U+01F8-01F9,U+1E3E-1E3F"
 LATIN_EXTENDED = [

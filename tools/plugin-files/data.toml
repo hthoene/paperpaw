@@ -265,9 +265,9 @@ off_by_default = true
 build = "tools/script-pack.py"
 inputs = ["plugins/fonts-default/fonts/Literata.ttf", "plugins/fonts-default/fonts/Literata-Italic.ttf", "plugins/fonts-default/fonts/SourceSans3.ttf", "tools/fonts/NotoSerif-subset.ttf", "tools/fonts/NotoSans-subset.ttf", "tools/fontgen"]
 name = "Latin Extended letters"
-description = "The letters Azerbaijani (ə), Hausa (ɓ ɗ ƙ ƴ) and Yoruba (ẹ ọ ṣ with tone marks) add to the Latin alphabet, in Literata."
+description = "The letters Azerbaijani (ə), Hausa (ɓ ɗ ƙ ƴ), Romanian (ș ț) and Yoruba (ẹ ọ ṣ with tone marks) add to the Latin alphabet, in Literata."
 de.name = "Erweiterte lateinische Schrift"
-de.description = "Die Buchstaben, die Aserbaidschanisch (ə), Hausa (ɓ ɗ ƙ ƴ) und Yoruba (ẹ ọ ṣ mit Tonzeichen) dem lateinischen Alphabet hinzufügen, in Literata."
+de.description = "Die Buchstaben, die Aserbaidschanisch (ə), Hausa (ɓ ɗ ƙ ƴ), Rumänisch (ș ț) und Yoruba (ẹ ọ ṣ mit Tonzeichen) dem lateinischen Alphabet hinzufügen, in Literata."
 
 # script-georgian, script-armenian (#385): the Mkhedruli letters (U+10D0 to U+10FF) with
 # the Mtavruli capitals upper case gives (U+1C90 to U+1CBF), and the Armenian block, from
@@ -707,14 +707,17 @@ version = "1.0.0"
 group = "languages"
 licence = "Apache-2.0"
 formats = 4
+requires = ["script-latin-extended"]
 devices = ["x4", "x4-pro", "x4-classic"]
 off_by_default = true
 build = "tools/language-pack.py"
 inputs = ["tools/plugin-files/languages/ro.ini", "tools/language-pack.py", "tools/sign"]
 name = "Romanian (user interface)"
-description = "PaperPaw's menus and settings in Romanian. A machine translation, a draft."
+description = "PaperPaw's menus and settings in Romanian. Needs Latin Extended letters. A machine translation, a draft."
 de.name = "Rumänisch (Oberfläche)"
-de.description = "PaperPaws Menüs und Einstellungen auf Rumänisch. Eine maschinelle Übersetzung, ein Entwurf."
+de.description = "PaperPaws Menüs und Einstellungen auf Rumänisch. Braucht die Erweiterte lateinische Schrift. Eine maschinelle Übersetzung, ein Entwurf."
+how = "PaperPaw's menus and settings in Romanian.\n\nIt needs the Latin Extended letters pack (Latin Extended letters, in the store): without it the menus show boxes instead of ș and ț. Install both; PaperPaw does not fetch the letters by itself yet."
+de.how = "PaperPaws Menüs und Einstellungen auf Rumänisch.\n\nSie braucht die Erweiterte lateinische Schrift (im Store): ohne sie zeigen die Menüs Kästchen statt ș und ț. Installiere beide; PaperPaw holt die Schrift noch nicht selbst."
 
 [language-el]
 version = "1.0.0"

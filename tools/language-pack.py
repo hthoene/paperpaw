@@ -16,7 +16,8 @@ This tool helps to make it and checks it:
         What is wrong with the translations in FILE (default:
         tools/plugin-files/languages/LANG.ini): keys English does not have,
         placeholders that differ, empty messages, plural forms, messages
-        longer than a compiled catalog holds.
+        longer than a compiled catalog holds, and (for its own file)
+        letters the interface's font lacks (tools/glyph-coverage.py).
     python3 tools/language-pack.py merge LANG OUT.ini CHUNK ...
         The messages of the translated chunks, in the order of the English
         catalogs, with the language's [meta], as OUT.ini.
@@ -251,6 +252,11 @@ def main(args):
             split(out, int(n[0]) if n else 8)
         case ["check", lang, *files]:
             problems = check(lang, files or [LANGUAGES / f"{lang}.ini"])
+            if not files and lang != "de":
+                # Every letter in the interface's font (tools/glyph-coverage.py).
+                glyphs = subprocess.run([sys.executable, str(ROOT / "tools/glyph-coverage.py"), lang],
+                                        capture_output=True, text=True)
+                problems += (glyphs.stdout + glyphs.stderr).splitlines()
             print("\n".join(problems[:200]))
             sys.exit(1 if problems else 0)
         case ["merge", lang, out, *chunks] if chunks:
