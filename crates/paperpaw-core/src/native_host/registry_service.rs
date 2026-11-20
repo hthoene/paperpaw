@@ -135,9 +135,15 @@ fn list(
     let room = op.max_reply.min(out.len());
     let out = out.get_mut(..room).ok_or(ERR_INVALID)?;
     let mut page = RegistryPage::new(query, generation, total, out)?;
-    let mut index = 0_u32;
+    // Where the page before stopped, where the view knows it (#422).
+    let start = if all_framed && query.cursor != 0 && view.starts_at(op.id, scope, query.cursor) {
+        query.cursor
+    } else {
+        0
+    };
+    let mut index = start;
     let mut failure = None;
-    view.rows(op.id, scope, query.flags, asker, &mut |row| {
+    view.rows_from(op.id, scope, query.flags, asker, start, &mut |row| {
         // Where every row frames, one before the cursor is passed unasked
         // (asking costs a lookup a row, #422).
         if all_framed && index < query.cursor {

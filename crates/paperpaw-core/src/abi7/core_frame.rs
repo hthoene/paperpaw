@@ -314,6 +314,21 @@ impl RegistryView for CoreFrame<'_> {
     fn keep_count(&self, op: u32, scope: &str, total: u32, all_framed: bool) {
         self.sources().keep_count(op, scope, total, all_framed);
     }
+    fn starts_at(&self, op: u32, scope: &str, from: u32) -> bool {
+        self.sources().starts_at(op, scope, from)
+    }
+    fn rows_from(
+        &self,
+        op: u32,
+        scope: &str,
+        flags: u32,
+        asker: &Asker<'_>,
+        from: u32,
+        visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
+    ) -> Result<(), i32> {
+        self.sources()
+            .rows_from(op, scope, flags, asker, from, visit)
+    }
 }
 
 impl CoreFrame<'_> {

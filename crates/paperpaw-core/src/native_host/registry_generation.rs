@@ -41,6 +41,9 @@ pub(crate) struct ListMemo {
     /// whether every row it walked frames (then a page passes those before
     /// its cursor without asking).
     pub(crate) total: Option<(u64, u32, bool)>,
+    /// The last row op 1 visited: the hash of its scope, the row's index and
+    /// its place in the settings' order (`settings::resume_place`).
+    pub(crate) last_row: Option<(u64, u32, usize)>,
 }
 
 impl ListMemo {
@@ -52,6 +55,7 @@ impl ListMemo {
             extras: None,
             icons: None,
             total: None,
+            last_row: None,
         }
     }
 }
