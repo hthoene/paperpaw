@@ -554,7 +554,7 @@ setting power.group | power.saving-below Int { min: 5, max: 50 } default=Int(20)
 setting power.group | power.offline-below Int { min: 0, max: 30 } default=Int(10) Basic scoped=false guarded=false secret=false kept=false title=power.setting.offline-below
 setting power.group | power.normal-while-charging Bool default=Bool(true) Basic scoped=false guarded=false secret=false kept=false title=power.setting.normal-while-charging
 setting sleep.group | core.logo Text default=Text("") Advanced scoped=false guarded=false secret=false kept=false title=core.setting.logo
-setting sleep.group | sleep.show Choice(Owned(["sleep.show.cat", "sleep.show.cover", "sleep.show.picture", "sleep.show.overlay", "sleep.show.widgets", "sleep.show.message", "sleep.show.page", "vocabulary.sleep-card"])) default=Text("sleep.show.cat") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.show
+setting sleep.group | sleep.show Choice(Owned(["sleep.show.cat", "sleep.show.cover", "sleep.show.picture", "sleep.show.overlay", "sleep.show.widgets", "sleep.show.message", "sleep.show.page", "news.sleep", "vocabulary.sleep-card"])) default=Text("sleep.show.cat") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.show
 setting sleep.group | sleep.look Choice(Fixed(["sleep.look.device", "sleep.look.light", "sleep.look.dark"])) default=Text("sleep.look.device") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.look
 setting sleep.group | sleep.off-show Choice(Fixed(["sleep.off-show.same", "sleep.off-show.message", "sleep.show.cat", "sleep.show.cover", "sleep.show.picture"])) default=Text("sleep.off-show.same") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.off-show
 setting sleep.group | sleep.off-look Choice(Fixed(["sleep.look.device", "sleep.look.light", "sleep.look.dark"])) default=Text("sleep.look.device") Basic scoped=false guarded=false secret=false kept=false title=sleep.setting.off-look
@@ -1108,6 +1108,7 @@ screen lock.screen | title=lock.setting.kind
 screen menu.list | title=menu.title
 screen menu.panel | title=menu.title
 screen news.list | title=news.title
+screen news.sleep | title=news.sleep
 screen notes-vault.list | title=notes-vault.title
 screen notes-vault.screen | title=notes-vault.title
 screen notes-vault.tags | title=notes-vault.tags
@@ -1196,6 +1197,7 @@ slot-offer core.settings | core.placeholder Priority(-32768)
 slot-offer core.settings | settings.list Priority(0)
 slot-offer core.setup | setup.guide Priority(0)
 slot-offer core.skim | reader.skim-screen Priority(0)
+slot-offer core.sleep | news.sleep Priority(-6)
 slot-offer core.sleep | sleep.screen Priority(0)
 slot-offer core.sleep | vocabulary.sleep-card Priority(-1)
 slot-offer core.toc | reader.toc Priority(0)
@@ -2338,6 +2340,7 @@ native Screen lock | ScreenSpec(ScreenSpec { name: "screen", title: "lock.settin
 native Screen menu | ScreenSpec(ScreenSpec { name: "list", title: "menu.title", token: 10, flags: 4 })
 native Screen menu | ScreenSpec(ScreenSpec { name: "panel", title: "menu.title", token: 11, flags: 4 })
 native Screen news | ScreenSpec(ScreenSpec { name: "list", title: "news.title", token: 10, flags: 64 })
+native Screen news | ScreenSpec(ScreenSpec { name: "sleep", title: "news.sleep", token: 22, flags: 320 })
 native Screen notes-vault | ScreenSpec(ScreenSpec { name: "screen", title: "notes-vault.title", token: 10, flags: 64 })
 native Screen notes-vault | ScreenSpec(ScreenSpec { name: "list", title: "notes-vault.title", token: 11, flags: 128 })
 native Screen notes-vault | ScreenSpec(ScreenSpec { name: "tags", title: "notes-vault.tags", token: 12, flags: 64 })
@@ -2711,6 +2714,7 @@ native SlotOffer keyboard | SlotOffer(SlotOffer { slot: "core.choice", screen: "
 native SlotOffer keyboard | SlotOffer(SlotOffer { slot: "core.confirm", screen: "keyboard.ask", priority: 0 })
 native SlotOffer menu | SlotOffer(SlotOffer { slot: "core.menu", screen: "menu.list", priority: 0 })
 native SlotOffer menu | SlotOffer(SlotOffer { slot: "core.panel", screen: "menu.panel", priority: 0 })
+native SlotOffer news | SlotOffer(SlotOffer { slot: "core.sleep", screen: "news.sleep", priority: -6 })
 native SlotOffer picture-home | SlotOffer(SlotOffer { slot: "core.home", screen: "picture-home.dashboard", priority: 100 })
 native SlotOffer reader | SlotOffer(SlotOffer { slot: "core.reader", screen: "reader.screen", priority: 0 })
 native SlotOffer reader | SlotOffer(SlotOffer { slot: "core.toc", screen: "reader.toc", priority: 0 })
@@ -2745,6 +2749,7 @@ native KeyBind reader | KeyBind(KeyBind { layer: "reader.selecting", input: "lon
 native KeyBind reader | KeyBind(KeyBind { layer: "reader.selecting", input: "long.page-forward", action: "reader.sel-hold-down", when_key: "", when_value: "" })
 native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "long.page-forward", action: "reader.next-chapter", when_key: "reader.hold-chapters", when_value: "true" })
 native KeyBind reader | KeyBind(KeyBind { layer: "core.reader", input: "long.page-back", action: "reader.prev-chapter", when_key: "reader.hold-chapters", when_value: "true" })
+native SettingChoice news | SettingChoice(SettingChoice { key: "sleep.show", value: "news.sleep", title: "news.sleep" })
 native SettingChoice vocabulary | SettingChoice(SettingChoice { key: "sleep.show", value: "vocabulary.sleep-card", title: "vocabulary.sleep-card" })
 native Stage about | StageSpec(StageSpec { name: "lines", schema: 1, flags: 0, max_input: 64, max_reply: 640, max_records: 32 })
 native Stage keyboard | StageSpec(StageSpec { name: "layouts", schema: 1, flags: 0, max_input: 64, max_reply: 3200, max_records: 3 })
