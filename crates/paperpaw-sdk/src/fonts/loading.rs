@@ -219,6 +219,20 @@ impl Fonts {
         }
     }
 
+    /// Lets go of what the packs open hold in memory and read again when
+    /// needed (a script pack's substitution table, the advances of its
+    /// sizes), to make room (#410): a Devanagari book left open at start
+    /// kept 15 KB of its table at Home and through every secure request.
+    /// Drawing goes on, a read slower until they are read again.
+    #[cfg(feature = "kernel")]
+    pub fn trim_packs(&self) {
+        for entry in &self.entries {
+            if let Some(Font::Stored(pack)) = &entry.font {
+                pack.trim();
+            }
+        }
+    }
+
     /// Sets the glyph cache for the packs open: while one holds thousands
     /// of characters (Hangul, ideographs), whose glyphs are read from the
     /// card one by one, the device's larger cache for them

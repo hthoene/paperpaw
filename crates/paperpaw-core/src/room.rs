@@ -45,14 +45,15 @@ enum WifiWas {
 
 impl Kernel {
     /// Gives back what idle state holds before a secure connection takes the
-    /// heap (#287): the hyphenation tables open and the plugins that may sleep
-    /// and run idle (made again at their next use, as at standby). The
+    /// heap (#287): the hyphenation tables open, what font packs hold (#410) and
+    /// the plugins that may sleep and run idle (made again at their next use, as at standby). The
     /// shell's, at a safe point outside every callback; how many plugins were
     /// parked. Requests started by native plugins do not pass the commands that
     /// close the tables, so the shell asks for this.
     pub fn make_room(&mut self) -> usize {
         let _running = self.shared.meter.enter(meter::CORE);
         self.shared.hyphenation.close_tables();
+        self.shared.fonts.trim_packs();
         self.native_repark_idle(usize::MAX)
     }
 
@@ -149,6 +150,7 @@ impl Kernel {
     /// Glyphs drawn at runtime and what was read for the last frame.
     fn room_from_caches(&mut self) -> Option<RoomSteps> {
         self.shared.fonts.clear_cache();
+        self.shared.fonts.trim_packs();
         self.shared.recall.clear();
         Some(RoomSteps::CACHES)
     }
