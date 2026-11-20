@@ -2,12 +2,14 @@
 //! one book, over the library service, and the export of every note to
 //! `My Clippings.txt`. A note opens its book at its place in the reader the
 //! user bound to `core.reader` (`PORTING-7.md`).
-use crate::declarations::{BOOK_TOKEN, LIST_TOKEN, OPEN_TOKEN};
+use crate::declarations::{BOOK_TOKEN, LIST_TOKEN, OPEN_TOKEN, SLEEP_TOKEN};
 use crate::model::{self, Counted, Handle, Kind};
 use crate::native_library::{BUFFER, HostSource};
 use crate::native_notes::{self, Choice, HostReplies, Layout, Place, Row, Show, Start};
 use crate::native_run::run;
 use crate::native_scan::scan;
+use crate::native_sleep;
+use crate::pin::{FILE, Pinned};
 use alloc::string::String;
 use alloc::vec::Vec;
 use paperpaw_sdk::{
@@ -21,6 +23,8 @@ use paperpaw_sdk::{
         library::{AnnotationCursor, BookRef, Library},
         registrations,
         reply::Reply,
+        snapshot::capture_snapshot,
+        storage::{self, Root},
         ui::{HandoverId, Instance, Notify, Open, Param, Ui},
     },
 };
@@ -168,6 +172,9 @@ impl Plugin for NativeNotesOverview {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        if token == SLEEP_TOKEN {
+            return crate::native_sleep::draw(host, &mut frame);
+        }
         let view = self.screens.top(token).ok_or(Error::State)?;
         let View {
             title, list, empty, ..
@@ -188,6 +195,11 @@ impl Plugin for NativeNotesOverview {
             return Ok(Handled::No);
         };
         let step = view.list.input(host, &input)?;
+        // Held on a note: pinned to (or let go from) the sleep screen.
+        if let ItemStep::Held(index) = step {
+            self.pin(host, token, index)?;
+            return Ok(Handled::Yes);
+        }
         let ItemStep::Chosen(index) = step else {
             return Ok(ItemList::handled(step));
         };
@@ -214,6 +226,38 @@ impl Plugin for NativeNotesOverview {
 }
 
 impl NativeNotesOverview {
+    /// Pins the note on row `index` of a notes screen to the sleep screen; the
+    /// note that is pinned already is let go. Other rows do nothing.
+    fn pin(&mut self, host: &Host<'_>, token: u32, index: usize) -> Result<(), Error> {
+        let Some(view) = self.screens.top(token) else {
+            return Ok(());
+        };
+        let Rows::Notes(layout) = view.rows else {
+            return Ok(());
+        };
+        if layout.choice(index) != Choice::Note {
+            return Ok(());
+        }
+        let Some(Item::Row(row)) = view.list.items().get(index) else {
+            return Ok(());
+        };
+        let at = capture_snapshot(host)?.unix_seconds().unwrap_or(0);
+        let note = Pinned::new(at, &view.title, &row.title, &row.note)?;
+        let same = native_sleep::pinned(host)?
+            .is_some_and(|old| old.text == note.text && old.book == note.book);
+        let mut messages = Messages::new()?;
+        let key = if same {
+            storage::remove(host, Root::Data, FILE)?;
+            "notes-overview.unpinned"
+        } else {
+            storage::write(host, Root::Data, FILE, note.encode()?.as_bytes())?;
+            "notes-overview.pinned"
+        };
+        let text = messages.copy(host, key)?;
+        let mut scratch = [0; 256];
+        CommandSender::new(host, &mut scratch).notify(Notify::new(&text)?)
+    }
+
     fn ensure(&mut self, host: &Host<'_>) -> Result<(), Error> {
         if self.ui.is_none() {
             self.ui = Some(Ui::open(host)?);

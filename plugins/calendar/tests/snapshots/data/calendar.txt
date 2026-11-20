@@ -1,0 +1,11 @@
+calendar 1
+S	1	F	1	1791965460	0	Home		
+E	1	E	20740	30600	15	0	1	-	-	Standup	Office
+E	1	E	20740	41400	60	0	2	-	-	Dentist Dr. Weber	Main St. 12
+E	1	E	20740	46800	60	0	3	-	-	Lunch with Anna	
+E	1	E	20740	59400	90	0	4	-	-	Parents' evening	School, room 204
+E	1	E	20740	68400	120	0	5	-	-	Book club	
+E	1	E	20741	32400	120	0	6	-	-	Farmers' market	
+E	1	E	20741	50400	120	0	7	-	-	Grandma's birthday	
+E	1	E	20741	72900	150	0	8	-	-	Cinema	
+X	1	8

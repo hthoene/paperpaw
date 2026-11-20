@@ -125,6 +125,14 @@
     {
       "kind": "host",
       "name": "i18n.digits"
+    },
+    {
+      "kind": "host",
+      "name": "storage.size"
+    },
+    {
+      "kind": "host",
+      "name": "storage.read_at"
     }
   ],
   "services": [

@@ -5,7 +5,7 @@
 //! it subscribes to. `build.rs` turns it into the image's batches.
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Instances,
-    Kind, MenuEntryDecl, ScreenDecl, SpecDecl, WidgetDecl,
+    Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, WidgetDecl,
 };
 use paperpaw_ui_kit::widget::options::{Opt, declare_all, shared_look};
 
@@ -21,6 +21,10 @@ pub const SYNC_TOKEN: u32 = 5;
 /// The screens: the lists, and the account.
 pub const SCREEN_TOKEN: u32 = 10;
 pub const ACCOUNT_TOKEN: u32 = 11;
+/// The sleep screen's token, and its full id (the value of `sleep.show` that
+/// chooses it).
+pub const SLEEP_TOKEN: u32 = 12;
+pub const SLEEP_SCREEN: &str = "tasks.sleep";
 /// The widgets: today's tasks, one list, the count, the next task.
 pub const TODAY_TOKEN: u32 = 20;
 pub const LIST_TOKEN: u32 = 21;
@@ -88,7 +92,7 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The screens: the lists, and the account, one of each at a time.
+/// The screens: the lists, the account and the sleep screen, one of each at a time.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
@@ -97,10 +101,18 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
         ScreenDecl::new("account", "tasks.account.title", ACCOUNT_TOKEN)
             .instances(Instances::Single),
     )?;
+    // The page has the whole screen: no row of button hints over it.
+    d.screen(
+        ScreenDecl::new("sleep", SLEEP_SCREEN, SLEEP_TOKEN)
+            .instances(Instances::Single)
+            .hints_hidden(),
+    )?;
     d.submit()
 }
 
-/// The actions, the Tools menu entry and the icons.
+/// The actions, the Tools menu entry and the icons, and the sleep screen
+/// offered to the slot `core.sleep` below the sleep plugin's own and the other
+/// plugins', with its place among the choices of `sleep.show`.
 pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
@@ -112,6 +124,10 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.icon("tasks.open", "list-check")?;
     d.icon("tasks.sync", "refresh")?;
     d.icon(GROUP, "list-check")?;
+    let mut offer = SlotOfferDecl::new("core.sleep", SLEEP_SCREEN);
+    offer.priority = -3;
+    d.slot_offer(offer)?;
+    d.setting_choice("sleep.show", SLEEP_SCREEN, SLEEP_SCREEN)?;
     d.submit()
 }
 

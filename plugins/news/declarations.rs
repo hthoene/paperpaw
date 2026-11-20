@@ -7,7 +7,7 @@
 use paperpaw_sdk::builtin::groups;
 use paperpaw_sdk::native::declare::{
     ActionDecl, Declarations, DeclareError, EventKind, ExtraDecl, GroupDecl, Instances, Kind,
-    MenuEntryDecl, ScreenDecl, SpecDecl, WidgetDecl,
+    MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, WidgetDecl,
 };
 use paperpaw_ui_kit::widget::options::{Opt, declare_all};
 
@@ -15,6 +15,10 @@ use paperpaw_ui_kit::widget::options::{Opt, declare_all};
 pub const OPEN_TOKEN: u32 = 1;
 pub const FETCH_TOKEN: u32 = 2;
 pub const SCREEN: u32 = 10;
+/// The sleep screen's token, and its full id (the value of `sleep.show` that
+/// chooses it).
+pub const SLEEP_TOKEN: u32 = 22;
+pub const SLEEP_SCREEN: &str = "news.sleep";
 /// The end of a request (`core.net`).
 pub const HTTP_TOKEN: u32 = 4;
 /// The work that fetches the news in the background.
@@ -116,11 +120,17 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     Ok(())
 }
 
-/// The list of feeds, one at a time.
+/// The list of feeds and the sleep screen, one of each at a time.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
     d.screen(ScreenDecl::new("list", "news.title", SCREEN).instances(Instances::Single))?;
+    // The front page has the whole screen: no row of button hints over it.
+    d.screen(
+        ScreenDecl::new("sleep", SLEEP_SCREEN, SLEEP_TOKEN)
+            .instances(Instances::Single)
+            .hints_hidden(),
+    )?;
     d.submit()?;
     Ok(())
 }
@@ -136,6 +146,12 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.menu_entry(entry)?;
     d.icon("news.open", "rss")?;
     d.icon("news.fetch", "refresh")?;
+    // The screen is offered to the slot `core.sleep` below the sleep plugin's
+    // own and the other plugins', and is a choice of `sleep.show`.
+    let mut offer = SlotOfferDecl::new("core.sleep", SLEEP_SCREEN);
+    offer.priority = -6;
+    d.slot_offer(offer)?;
+    d.setting_choice("sleep.show", SLEEP_SCREEN, SLEEP_SCREEN)?;
     d.submit()?;
     Ok(())
 }

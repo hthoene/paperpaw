@@ -45,6 +45,7 @@ pub mod json;
 pub mod list;
 pub mod mem;
 pub mod messages;
+pub mod page;
 pub mod paint;
 pub mod parts;
 pub mod screens;

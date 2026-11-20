@@ -3,3 +3,5 @@ Die Lesestatistik zeichnet auf, wie lange du jede Seite liest. Du siehst sie als
 Öffne sie unter Werkzeuge oder im Leser unter Weitere. In den Einstellungen unter Lesestatistik schaltest du Lesen aufzeichnen aus, setzt ein Tagesziel und legst mit Kürzeste Seite und Längste Seite fest, was zählt, damit Durchblättern oder ein offenes Buch die Zahlen nicht verfälscht.
 
 Mit KOReader abgleichen teilt die Statistik über einen WebDAV-Ordner mit KOReader. Dabei wird auch die Statistik eines KOReader auf demselben Gerät übernommen. Zum Aufzeichnen muss die Uhr gestellt sein: Verbinde dich dafür einmal mit dem WLAN.
+
+Der Ruhebildschirm kann zeigen, was du heute gelesen hast, die letzten sieben Tage gegen dein Ziel und deine Serie: wähle Lesestatistik unter Ruhebildschirm in den Einstellungen.

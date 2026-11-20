@@ -22,7 +22,9 @@ widget.headlines.paper||||=|0:|0|4
 widget.headlines.ink||||=|0:|0|4
 [screens]
 list|news.title
+sleep|news.sleep
 [slots]
+core.sleep|news.sleep|-6
 [widget_places]
 [status_places]
 [keys]
@@ -37,4 +39,5 @@ fetch|news.fetch
 open|news.title
 [events]
 [others]
+SettingChoice
 WidgetSpec

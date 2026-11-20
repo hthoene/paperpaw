@@ -36,6 +36,7 @@ mod native_entry;
 mod native_left;
 mod native_overview;
 mod native_screens;
+mod native_sleep;
 mod native_sync_screen;
 mod native_sync_shell;
 mod native_webdav;

@@ -3,3 +3,5 @@ News turns RSS or Atom feeds into books. Each feed becomes one book in the News 
 Open News from the Tools menu and choose Add a feed; its address is on the website of the newspaper or blog. Fetch the news fetches all feeds and replaces the earlier books. Hold a feed (with buttons, hold Select) to fetch or remove it alone. A feed removed leaves its book in the library.
 
 Fetching needs a network. Articles a feed (Settings, Library) sets how many articles each book holds. The News headlines widget shows them on the home screen.
+
+The sleep screen can show the newest headlines of the feeds fetched last, like a front page: choose News under Sleep screen in the settings. It only shows what the last fetch brought.
