@@ -31,6 +31,7 @@ mod compile;
 mod short;
 #[cfg(feature = "kernel")]
 mod stored;
+mod xor;
 
 use alloc::vec::Vec;
 use core::cmp::Ordering;

@@ -3,7 +3,7 @@
 //! on a card needs no copy in memory ([`check_source`]). The kernel's card
 //! reader and `paperpaw-dev package` ([`check_table`], the slice form) share it.
 
-use crate::MAGIC;
+use crate::{MAGIC, xor};
 
 use core::fmt;
 
@@ -35,7 +35,8 @@ pub enum TableError {
     Index,
     /// The exceptions are cut off, or one is not UTF-8.
     Exceptions,
-    /// The exceptions do not end at the end of the file.
+    /// The exceptions do not end at the end of the file, or what follows them
+    /// is not a filter that fits it.
     Trailing,
     /// More than PaperPaw reads: more than [`MAX_BLOCKS`] blocks, a block longer
     /// than [`MAX_BLOCK_BYTES`] or exceptions longer than [`MAX_EXCEPTION_BYTES`].
@@ -71,8 +72,13 @@ pub struct Layout {
     pub exceptions_at: u32,
     /// The header's exception count.
     pub exceptions: u32,
-    /// The file length minus `exceptions_at`.
+    /// The bytes of the exceptions (the file length minus `exceptions_at`,
+    /// but for the filter that may follow them).
     pub exceptions_len: u32,
+    /// The bytes of the filter after the exceptions (`compile` writes one for
+    /// a table of up to 8,192 patterns), 0 for none: a table made before it
+    /// has none.
+    pub filter_len: u32,
 }
 
 impl core::error::Error for TableError {}
@@ -85,6 +91,11 @@ impl Layout {
 
     /// The size of the whole table in bytes.
     pub fn table_len(&self) -> u64 {
+        u64::from(self.exceptions_at) + u64::from(self.exceptions_len) + u64::from(self.filter_len)
+    }
+
+    /// Where the filter is (see [`Layout::filter_len`]).
+    pub fn filter_at(&self) -> u64 {
         u64::from(self.exceptions_at) + u64::from(self.exceptions_len)
     }
 }
@@ -160,7 +171,8 @@ fn word(bytes: &[u8], at: usize) -> u32 {
 ///   and each points before the exceptions; otherwise [`TableError::Index`],
 ///   which is only about the index's contents.
 /// - The exceptions are walked: `count` entries of a length byte and that many
-///   bytes of UTF-8. The walk must end exactly at the end of the file, so a
+///   bytes of UTF-8. The walk must end exactly at the end of the file, or at the
+///   start of a filter (`PPXF`, see [`crate::compile`]) that ends there, so a
 ///   truncated or padded table is refused. An entry of length 0 is accepted
 ///   (an empty word hyphenates nothing); `compile` never writes one.
 ///
@@ -202,15 +214,21 @@ pub fn check_source<S: Source>(
     if blocks > MAX_BLOCKS {
         return Err(TableError::TooLarge.into());
     }
-    let exceptions_len = len - u64::from(exceptions_at);
-    if exceptions_len > u64::from(MAX_EXCEPTION_BYTES) {
+    // The exceptions and the filter that may follow them.
+    let tail = len - u64::from(exceptions_at);
+    if tail > u64::from(MAX_EXCEPTION_BYTES) + (xor::HEADER + xor::MAX_DATA) as u64 {
         return Err(TableError::TooLarge.into());
     }
     let largest_block = check_index(src, scratch, blocks, entries, exceptions_at)?;
     if largest_block > MAX_BLOCK_BYTES {
         return Err(TableError::TooLarge.into());
     }
-    check_exceptions(src, scratch, u64::from(exceptions_at), exceptions)?;
+    let end = check_exceptions(src, scratch, u64::from(exceptions_at), exceptions)?;
+    let exceptions_len = end - u64::from(exceptions_at);
+    if exceptions_len > u64::from(MAX_EXCEPTION_BYTES) {
+        return Err(TableError::TooLarge.into());
+    }
+    let filter_len = check_filter(src, scratch, end)?;
     Ok(Layout {
         blocks,
         largest_block,
@@ -218,6 +236,8 @@ pub fn check_source<S: Source>(
         exceptions,
         // At most MAX_EXCEPTION_BYTES, checked above.
         exceptions_len: exceptions_len as u32,
+        // At most the header and MAX_DATA, checked in `check_filter`.
+        filter_len: filter_len as u32,
     })
 }
 
@@ -261,13 +281,39 @@ fn check_index<S: Source>(
     Ok(largest)
 }
 
-/// `count` entries from `pos` that end exactly at the end of `src`.
+/// The bytes after the exceptions, which end at `pos`: none, or exactly a filter
+/// (its header and the fingerprints it asks for). Their count.
+fn check_filter<S: Source>(
+    src: &mut S,
+    scratch: &mut [u8],
+    pos: u64,
+) -> Result<u64, CheckError<S::Error>> {
+    let rest = src.len() - pos;
+    if rest == 0 {
+        return Ok(0);
+    }
+    let head = &mut scratch[..xor::HEADER];
+    if rest < xor::HEADER as u64 {
+        return Err(TableError::Trailing.into());
+    }
+    src.read_at(pos, head).map_err(CheckError::Source)?;
+    let wanted = xor::Header::parse(head)
+        .and_then(|header| header.data_len())
+        .map(|data| (xor::HEADER + data) as u64);
+    if wanted == Some(rest) {
+        Ok(rest)
+    } else {
+        Err(TableError::Trailing.into())
+    }
+}
+
+/// `count` entries from `pos`, where they end.
 fn check_exceptions<S: Source>(
     src: &mut S,
     scratch: &mut [u8],
     mut pos: u64,
     mut count: u32,
-) -> Result<(), CheckError<S::Error>> {
+) -> Result<u64, CheckError<S::Error>> {
     let len = src.len();
     while count > 0 {
         // At most the scratch length, which is a `usize`.
@@ -293,11 +339,7 @@ fn check_exceptions<S: Source>(
         }
         pos += at as u64;
     }
-    if pos == len {
-        Ok(())
-    } else {
-        Err(TableError::Trailing.into())
-    }
+    Ok(pos)
 }
 
 /// A slice as a [`Source`].
@@ -403,7 +445,10 @@ mod tests {
         assert_eq!(layout.exceptions_at, u32_at(&table, 16).unwrap());
         assert_eq!(layout.exceptions, 2);
         let tail = table.len() - layout.exceptions_at as usize;
-        assert_eq!(layout.exceptions_len as usize, tail);
+        // The filter `compile` writes follows the exceptions.
+        assert!(layout.filter_len > 0);
+        assert_eq!((layout.exceptions_len + layout.filter_len) as usize, tail);
+        assert_eq!(layout.table_len() as usize, table.len());
         // The only block runs from its offset to the exceptions.
         let entries = 24 + 4 * layout.blocks;
         let offset = u32_at(&table, 24).unwrap();
@@ -472,15 +517,44 @@ mod tests {
     #[test]
     fn every_truncation_fails() {
         let table = compiled();
-        for len in 0..table.len() {
+        // Cut where the filter begins, it is a table made before there was one.
+        let whole = check_table(&table).unwrap().filter_at() as usize;
+        for len in (0..table.len()).filter(|&len| len != whole) {
             assert!(
                 check_table(&table[..len]).is_err(),
                 "{len} of {}",
                 table.len()
             );
         }
+        assert_eq!(check_table(&table[..whole]).unwrap().filter_len, 0);
         assert_eq!(check_table(&table[..3]), Err(TableError::Magic));
         assert_eq!(check_table(&table[..10]), Err(TableError::Header));
+    }
+
+    #[test]
+    fn a_damaged_filter_is_trailing() {
+        let table = compiled();
+        let at = check_table(&table).unwrap().filter_at() as usize;
+        for (what, change) in [
+            ("magic", (at, b'Y')),
+            ("version", (at + 4, 2)),
+            ("bits", (at + 5, 3)),
+            ("size", (at + 10, 0xff)),
+        ] {
+            let mut bad = table.clone();
+            bad[change.0] = change.1;
+            assert_eq!(check_table(&bad), Err(TableError::Trailing), "{what}");
+        }
+        // Fingerprints missing or too many.
+        assert_eq!(
+            check_table(&table[..table.len() - 1]),
+            Err(TableError::Trailing)
+        );
+        let mut more = table.clone();
+        more.push(0);
+        assert_eq!(check_table(&more), Err(TableError::Trailing));
+        // Not even a header.
+        assert_eq!(check_table(&table[..at + 3]), Err(TableError::Trailing));
     }
 
     #[test]

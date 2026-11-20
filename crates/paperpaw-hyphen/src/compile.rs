@@ -89,5 +89,14 @@ pub fn compile(patterns: &str, exceptions: &str, left_min: u8, right_min: u8) ->
         out.push(word.len() as u8);
         out.extend_from_slice(word.as_bytes());
     }
+    // The filter of a small table's keys, for the reader to keep as it is
+    // (#405); a larger table has none, and neither has one no seed made.
+    if entries.len() <= crate::xor::MAX_KEYS {
+        let keys: Vec<&[u8]> = entries.iter().map(|(key, _)| key.as_bytes()).collect();
+        if let Some((header, data)) = crate::xor::build(&keys, crate::xor::BITS) {
+            header.write(&mut out);
+            out.extend_from_slice(&data);
+        }
+    }
     out
 }

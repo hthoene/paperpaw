@@ -81,6 +81,7 @@ use core::fmt;
 
 use crate::check::{CheckError, Layout, Source, TableError, check_source};
 use crate::short::{self, Short};
+use crate::xor;
 use crate::{
     Access, BLOCK, HEADER, MAX_MINIMUM, Points, Rules, entry_at, exception_in, hyphenate_with,
 };
@@ -135,6 +136,7 @@ struct Slot {
 /// Tables of at most this many blocks (8,192 patterns, the shipped ones but
 /// the largest) keep a [`Filter`].
 const FILTER_BLOCKS: usize = 512;
+const _: () = assert!(FILTER_BLOCKS * BLOCK == xor::MAX_KEYS);
 /// Blocks cached for the tables above that.
 const LARGE_TABLE_SLOTS: usize = 4;
 /// Bits kept for each pattern of the filter, and the places a key sets.
@@ -145,11 +147,55 @@ const FILTER_HASHES: u32 = 5;
 /// does not know is no pattern, and the block that would hold it is not read
 /// (most of what a word asks is no pattern). One it knows is looked up in its
 /// block as before, so a false yes (about 6 in 100 keys) only costs a read.
-struct Filter {
-    bits: Vec<u8>,
+enum Filter {
+    /// Made while the table was opened, eight bits a pattern.
+    Bloom { bits: Vec<u8> },
+    /// Written into the table by `compile` (#405): about five bits a pattern.
+    Xor { header: xor::Header, data: Vec<u8> },
 }
 
 impl Filter {
+    /// The filter the table brings after its exceptions, read as it is; `None`
+    /// where there is none, or it does not fit the table's blocks.
+    fn written<S: Source>(
+        src: &mut S,
+        layout: &Layout,
+        blocks: usize,
+    ) -> Result<Option<Self>, Unread<S::Error>> {
+        if layout.filter_len == 0 || !(1..=FILTER_BLOCKS).contains(&blocks) {
+            return Ok(None);
+        }
+        let mut head = [0u8; xor::HEADER];
+        raw_read(src, layout.table_len(), layout.filter_at(), &mut head)?;
+        let Some(header) = xor::Header::parse(&head) else {
+            return Err(Unread::Bounds);
+        };
+        let size = header.data_len().ok_or(Unread::Bounds)?;
+        let mut data = reserved::<u8>(size).map_err(|_| Unread::NoMemory)?;
+        data.resize(size, 0);
+        let at = layout.filter_at() + xor::HEADER as u64;
+        raw_read(src, layout.table_len(), at, &mut data)?;
+        Ok(Some(Self::Xor { header, data }))
+    }
+
+    /// Bytes of heap.
+    fn heap_bytes(&self) -> usize {
+        match self {
+            Self::Bloom { bits } => bits.capacity(),
+            Self::Xor { data, .. } => data.capacity(),
+        }
+    }
+
+    /// Bytes a table of `blocks` blocks keeps for its filter, `filter_len`
+    /// being what the table brings.
+    fn bytes_kept(blocks: usize, filter_len: u32) -> usize {
+        if filter_len > 0 && (1..=FILTER_BLOCKS).contains(&blocks) {
+            (filter_len as usize).saturating_sub(xor::HEADER)
+        } else {
+            Self::bytes_for(blocks)
+        }
+    }
+
     /// Bytes for a table of `blocks` blocks, 0 where it has none.
     fn bytes_for(blocks: usize) -> usize {
         if (1..=FILTER_BLOCKS).contains(&blocks) {
@@ -166,7 +212,7 @@ impl Filter {
         }
         let mut bits = reserved::<u8>(bytes).ok()?;
         bits.resize(bytes, 0);
-        Some(Self { bits })
+        Some(Self::Bloom { bits })
     }
 
     /// The places of `key` (byte, mask) in `bits` bytes: double hashing of
@@ -186,15 +232,21 @@ impl Filter {
         })
     }
 
+    /// Adds a key to a filter made here (a written one has all its keys).
     fn insert(&mut self, key: &[u8]) {
-        for (at, mask) in Self::places(key, self.bits.len()) {
-            self.bits[at] |= mask;
+        if let Self::Bloom { bits } = self {
+            for (at, mask) in Self::places(key, bits.len()) {
+                bits[at] |= mask;
+            }
         }
     }
 
     fn may_have(&self, key: &[u8]) -> bool {
-        Self::places(key, self.bits.len())
-            .all(|(at, mask)| self.bits.get(at).is_some_and(|b| b & mask != 0))
+        match self {
+            Self::Bloom { bits } => Self::places(key, bits.len())
+                .all(|(at, mask)| bits.get(at).is_some_and(|b| b & mask != 0)),
+            Self::Xor { header, data } => xor::contains(data, header, key),
+        }
     }
 }
 
@@ -238,11 +290,15 @@ impl<S: Source> fmt::Debug for StoredPatterns<S> {
 /// bytes) and `exceptions_len` bytes of exceptions takes while it is
 /// opened with `cache_blocks`: the index and the fences, the exceptions,
 /// the cache, and the scratch buffer of the opening.
-fn heap_needed(blocks: u32, exceptions_len: u32, largest_block: u32, cache_blocks: usize) -> usize {
+fn heap_needed(
+    (blocks, exceptions_len, largest_block): (u32, u32, u32),
+    filter_len: u32,
+    cache_blocks: usize,
+) -> usize {
     let blocks = blocks as usize;
     let cache_blocks = cache_slots(blocks, cache_blocks);
     blocks * (core::mem::size_of::<u32>() + core::mem::size_of::<[u8; 4]>())
-        + Filter::bytes_for(blocks)
+        + Filter::bytes_kept(blocks, filter_len)
         + short_bytes(blocks)
         + exceptions_len as usize
         + cache_blocks * (core::mem::size_of::<Slot>() + largest_block as usize)
@@ -439,9 +495,8 @@ impl<S: Source> StoredPatterns<S> {
         scratch.resize(SCRATCH, 0);
         let layout = check_source(&mut src, &mut scratch).map_err(OpenError::Check)?;
         let needed = heap_needed(
-            layout.blocks,
-            layout.exceptions_len,
-            layout.largest_block,
+            (layout.blocks, layout.exceptions_len, layout.largest_block),
+            layout.filter_len,
             cache_blocks,
         );
         if needed > budget {
@@ -477,11 +532,15 @@ impl<S: Source> StoredPatterns<S> {
 
         let patterns_len = (u64::from(layout.exceptions_at) - layout.entries_at()) as u32;
         let index = Self::read_index(&mut src, &layout, &mut scratch).map_err(io)?;
+        // A filter the table brings is read as it is; else the pass over the
+        // patterns makes one.
+        let written = Filter::written(&mut src, &layout, index.len()).map_err(io)?;
         let Scanned {
             fences,
             filter,
             short,
-        } = Self::scan(&mut src, &layout, &index, &mut scratch).map_err(io)?;
+        } = Self::scan(&mut src, &layout, &index, &mut scratch, written.is_some()).map_err(io)?;
+        let filter = written.or(filter);
         let mut exceptions = reserved::<u8>(u64::from(layout.exceptions_len) as usize)?;
         exceptions.resize(u64::from(layout.exceptions_len) as usize, 0);
         raw_read(
@@ -534,9 +593,14 @@ impl<S: Source> StoredPatterns<S> {
         layout: &Layout,
         index: &Offsets,
         scratch: &mut [u8],
+        written: bool,
     ) -> Result<Scanned, Unread<S::Error>> {
         let mut fences = reserved::<[u8; 4]>(index.len()).map_err(|_| Unread::NoMemory)?;
-        let mut filter = Filter::new(index.len());
+        let mut filter = if written {
+            None
+        } else {
+            Filter::new(index.len())
+        };
         // The heap is taken like the fences': none is `NoMemory`.
         let mut short = if index.len() > FILTER_BLOCKS {
             Some(Short::new().ok_or(Unread::NoMemory)?)
@@ -670,10 +734,12 @@ impl<S: Source> StoredPatterns<S> {
             .len()
             .saturating_sub(u64::from(word(16)))
             .min(u64::from(MAX_EXCEPTION_BYTES)) as u32;
+        // The most it can be: a filter the table brings is never larger than
+        // the one made while opening (and what follows the exceptions counts
+        // with them here).
         Ok(heap_needed(
-            blocks,
-            exceptions_len,
-            MAX_BLOCK_BYTES,
+            (blocks, exceptions_len, MAX_BLOCK_BYTES),
+            0,
             cache_blocks,
         ))
     }
@@ -683,7 +749,7 @@ impl<S: Source> StoredPatterns<S> {
         self.index.heap_bytes()
             + self.fences.capacity() * 4
             + self.exceptions.capacity()
-            + self.filter.as_ref().map_or(0, |f| f.bits.capacity())
+            + self.filter.as_ref().map_or(0, Filter::heap_bytes)
             + self.short.as_ref().map_or(0, Short::heap_bytes)
             + self.slots.capacity() * core::mem::size_of::<Slot>()
             + self.slots.iter().map(|s| s.data.capacity()).sum::<usize>()

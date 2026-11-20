@@ -125,6 +125,9 @@ fn truncation_and_padding_are_refused() {
         let mut cuts = boundaries(&table);
         // Every length near the end walks through the exceptions.
         cuts.extend(table.len().saturating_sub(40)..table.len());
+        // Cut where the filter begins, a table made before there was one.
+        let filterless = check_table(&table).unwrap().filter_at() as usize;
+        cuts.retain(|&cut| cut != filterless);
         for cut in cuts {
             assert!(check_table(&table[..cut]).is_err(), "cut at {cut}");
             let opened = StoredPatterns::open(Mem::new(table[..cut].to_vec()), 0, 2);
@@ -173,8 +176,8 @@ fn header_faults_name_their_part() {
     assert_eq!(check_table(&flat), Err(TableError::Index));
     // Exceptions that are not UTF-8.
     let mut bad = table.clone();
-    let n = bad.len();
-    bad[n - 1] = 0xff;
+    let end = check_table(&table).unwrap().filter_at() as usize;
+    bad[end - 1] = 0xff;
     assert_eq!(check_table(&bad), Err(TableError::Exceptions));
 }
 
@@ -525,4 +528,55 @@ fn a_large_table_with_too_many_short_patterns_is_read_from_the_card() {
         );
     }
     assert!(!stored.is_failed());
+}
+
+/// Reads for 2,000 words, and the heap kept, with the table as `compile` makes
+/// it and without the filter it writes (as made before, #405).
+#[test]
+fn the_filter_a_table_brings_keeps_less_and_hyphenates_the_same() {
+    let (mut with_total, mut without_total) = (0, 0);
+    for set in shipped() {
+        let layout = check_table(&set.table).unwrap();
+        let old = &set.table[..layout.filter_at() as usize];
+        assert_eq!(check_table(old).unwrap().filter_len, 0, "{}", set.name);
+        let (mut with, mut without) = (open(&set.table, 8), open(old, 8));
+        let (opened_with, opened_without) = (with.reads(), without.reads());
+        // One written for a small table, none for the tables of more than 512 blocks.
+        assert_eq!(layout.filter_len > 0, layout.blocks <= 512, "{}", set.name);
+        for word in words(&set, 2000, 0x9e37_79b9) {
+            assert_eq!(
+                stored_breaks(&mut with, &word),
+                stored_breaks(&mut without, &word),
+                "{}: {word}",
+                set.name
+            );
+        }
+        assert!(!with.is_failed() && !without.is_failed());
+        if layout.filter_len == 0 {
+            assert_eq!(with.heap_bytes(), without.heap_bytes(), "{}", set.name);
+            continue;
+        }
+        assert!(
+            with.heap_bytes() < without.heap_bytes(),
+            "{}: {} against {}",
+            set.name,
+            with.heap_bytes(),
+            without.heap_bytes()
+        );
+        let (a, b) = (with.reads() - opened_with, without.reads() - opened_without);
+        eprintln!(
+            "{}: filter {} B, heap {} against {}, reads for 2,000 words {a} against {b}, opening {opened_with} against {opened_without}",
+            set.name,
+            layout.filter_len,
+            with.heap_bytes(),
+            without.heap_bytes()
+        );
+        with_total += a;
+        without_total += b;
+    }
+    // Not more reads than the Bloom filter had, by more than a tenth.
+    assert!(
+        with_total * 10 <= without_total * 11,
+        "{with_total} reads against {without_total}"
+    );
 }
