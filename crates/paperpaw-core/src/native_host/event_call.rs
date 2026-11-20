@@ -138,7 +138,34 @@ impl crate::Kernel {
         lease: &NativeLease,
         bytes: &[u8],
     ) -> Result<i32, i32> {
-        let status = self.native_staged_call(owner, false, |env, stage| {
+        self.native_event_call_nav(owner, lease, bytes, false)
+    }
+
+    /// As [`Self::native_event_call`] for `event.answered`: the answer of a
+    /// question may close the asker's own screen (the dialog closed with the
+    /// answer, so the asker's screen is on top again), as an action may: the
+    /// guide, the lock and the settings leave their screen with it (#433). No
+    /// other event stages navigation commands.
+    ///
+    /// # Errors
+    /// As [`Self::native_event_call`].
+    pub(crate) fn native_answer_call(
+        &self,
+        owner: u64,
+        lease: &NativeLease,
+        bytes: &[u8],
+    ) -> Result<i32, i32> {
+        self.native_event_call_nav(owner, lease, bytes, true)
+    }
+
+    fn native_event_call_nav(
+        &self,
+        owner: u64,
+        lease: &NativeLease,
+        bytes: &[u8],
+        navigates: bool,
+    ) -> Result<i32, i32> {
+        let status = self.native_staged_call(owner, navigates, |env, stage| {
             lease.service_event_staged(bytes, env, stage)
         });
         // A failure of the plugin's callback is noted, for a warning
@@ -172,7 +199,7 @@ impl crate::Kernel {
     }
 
     /// The staged call of `owner`'s callback that `call` makes. An action's
-    /// (`navigates`) may also stage the navigation commands (`close` ...,
+    /// and an answer's (`navigates`) may also stage the navigation commands (`close` ...,
     /// `commands_nav.rs`): it has the stack as a screen's callback has.
     fn native_staged_call(
         &self,
