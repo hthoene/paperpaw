@@ -3,6 +3,7 @@
 //! (the library says where it went), and the book's path and the feed's new
 //! headlines are kept in the data folder for the list and the widget.
 use alloc::string::String;
+use paperpaw_sdk::native::snapshot::capture_snapshot;
 use paperpaw_sdk::native::{
     Error, Host,
     library::{Existing, Import, Library},
@@ -18,7 +19,7 @@ use crate::native_book::Failure;
 use crate::native_books::{BOOKS_CAP, BOOKS_FILE, with as books_with};
 use crate::native_convert::Converted;
 use crate::native_fetch::Shelf;
-use crate::native_news::{Feed, HEADLINES_CAP, HEADLINES_FILE, Mark, headlines};
+use crate::native_news::{FETCHED_FILE, Feed, HEADLINES_CAP, HEADLINES_FILE, Mark, headlines};
 use crate::native_plugin::DataVolume;
 
 /// The folder of the news, below the library's.
@@ -97,6 +98,12 @@ impl HostShelf<'_, '_> {
         let old = lenient(read_all_on(&volume, HEADLINES_FILE, HEADLINES_CAP + 1))?;
         let lines = headlines(&converted.headlines, path, old.as_deref())?;
         write(&volume, HEADLINES_FILE, &lines)?;
+        // When they were kept, for the sleep screen; without the clock, none.
+        let unix = capture_snapshot(self.host)
+            .ok()
+            .and_then(|snapshot| snapshot.unix_seconds())
+            .unwrap_or(0);
+        write(&volume, FETCHED_FILE, &alloc::format!("{unix}\n"))?;
         Ok(())
     }
 }

@@ -18,6 +18,9 @@ pub const FEEDS_CAP: usize = 64 * 1024;
 pub const HEADLINES_CAP: usize = 32 * 1024;
 /// Where the newest headlines are kept (`title<TAB>book` lines), in the data folder.
 pub const HEADLINES_FILE: &str = "headlines.txt";
+/// When the headlines were kept last (seconds since 1970), in the data folder:
+/// the sleep screen says how old they are.
+pub const FETCHED_FILE: &str = "fetched.txt";
 /// The most headlines kept in all.
 pub const HEADLINES_KEPT: usize = 40;
 /// The largest feed taken, as in interface 6 (4 MiB): the answer is read as

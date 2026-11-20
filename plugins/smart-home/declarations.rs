@@ -1,12 +1,12 @@
 //! What the smart home plugin declares: its settings (the server, how often it
 //! is fetched while charging, whether servers outside the home network are
-//! allowed), its three screens (the dashboard, the entity picker and the
-//! connection), the actions that open or fetch, its place in the Tools menu,
+//! allowed), its four screens (the dashboard, the entity picker, the
+//! connection and the sleep screen), the actions that open or fetch, its place in the Tools menu,
 //! the four home widgets with their look and settings, and the events it
 //! subscribes to. `build.rs` turns it into the image's batches.
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Kind,
-    MenuEntryDecl, ScreenDecl, SpecDecl, WidgetDecl,
+    ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Instances,
+    Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, WidgetDecl,
 };
 use paperpaw_ui_kit::widget::options::{Opt, declare_all, shared_look};
 
@@ -28,6 +28,10 @@ pub const CHOOSE_TOKEN: u32 = 7;
 pub const DASH_SCREEN: u32 = 10;
 pub const PICK_SCREEN: u32 = 11;
 pub const CONNECT_SCREEN: u32 = 12;
+/// The sleep screen's token, and its full id (the value of `sleep.show` that
+/// chooses it).
+pub const SLEEP_TOKEN: u32 = 13;
+pub const SLEEP_SCREEN: &str = "smart-home.sleep";
 /// The widgets: a single value, a group, a switch and a room card.
 pub const VALUE_TOKEN: u32 = 20;
 pub const GROUP_TOKEN: u32 = 21;
@@ -100,7 +104,7 @@ pub fn settings<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.submit()
 }
 
-/// The three screens.
+/// The dashboard, the entity picker, the connection and the sleep screen.
 pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
     d: &mut Declarations<F>,
 ) -> Result<(), DeclareError> {
@@ -115,6 +119,12 @@ pub fn screens<F: FnMut(&[u8]) -> Result<(), i32>>(
         "smart-home.connect.title",
         CONNECT_SCREEN,
     ))?;
+    // The tiles have the whole screen: no row of button hints over them.
+    d.screen(
+        ScreenDecl::new("sleep", SLEEP_SCREEN, SLEEP_TOKEN)
+            .instances(Instances::Single)
+            .hints_hidden(),
+    )?;
     d.submit()
 }
 
@@ -138,6 +148,12 @@ pub fn navigation<F: FnMut(&[u8]) -> Result<(), i32>>(
     d.menu_entry(entry)?;
     d.icon("smart-home.open", "home")?;
     d.icon(GROUP, "home")?;
+    // The tiles are offered to the slot `core.sleep` below the sleep plugin's
+    // own and the other plugins', and are a choice of `sleep.show`.
+    let mut offer = SlotOfferDecl::new("core.sleep", SLEEP_SCREEN);
+    offer.priority = -7;
+    d.slot_offer(offer)?;
+    d.setting_choice("sleep.show", SLEEP_SCREEN, SLEEP_SCREEN)?;
     d.icon("smart-home.refresh", "refresh")?;
     d.submit()
 }

@@ -141,6 +141,10 @@
     {
       "kind": "host",
       "name": "canvas.clip"
+    },
+    {
+      "kind": "host",
+      "name": "i18n.digits"
     }
   ],
   "services": [

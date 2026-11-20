@@ -34,6 +34,7 @@ mod native_entry;
 pub mod native_plugin;
 mod native_screens;
 mod native_secret;
+mod native_sleep;
 mod native_widgets;
 pub mod sync;
 #[cfg(test)]

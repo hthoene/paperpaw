@@ -48,8 +48,8 @@ use paperpaw_ui_kit::{
 
 use crate::declarations::{
     ACCOUNT_TOKEN, ADDRESS, COUNT_TOKEN, HTTP_TOKEN, KEEP_DONE, KEEP_DONE_DEFAULT, KEEP_DONE_MOST,
-    LIFECYCLE_TOKEN, LIST_TOKEN, NEXT_TOKEN, OPEN_TOKEN, SCREEN_TOKEN, SYNC_TOKEN, TODAY_TOKEN,
-    USER, WORK_TOKEN,
+    LIFECYCLE_TOKEN, LIST_TOKEN, NEXT_TOKEN, OPEN_TOKEN, SCREEN_TOKEN, SLEEP_TOKEN, SYNC_TOKEN,
+    TODAY_TOKEN, USER, WORK_TOKEN,
 };
 use crate::keep::{self, Loaded};
 use crate::model::{FIRST, Seed, Store, View as Tasks};
@@ -457,6 +457,10 @@ impl Plugin for NativeTasks {
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         if token == SCREEN_TOKEN || token == ACCOUNT_TOKEN {
             return self.draw_screen(host, token, &mut frame);
+        }
+        if token == SLEEP_TOKEN {
+            self.load(host)?;
+            return crate::native_sleep::draw(host, &mut frame, &self.store);
         }
         if frame.purpose != DrawPurpose::Widget {
             return Err(Error::Unsupported);

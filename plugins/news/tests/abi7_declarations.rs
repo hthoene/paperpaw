@@ -49,11 +49,13 @@ fn the_decoded_batches_are_the_pinned_declarations() {
     assert!(native.extras[0].contains("news.plugin.name"));
     assert_eq!(native.menu_entries, ["core.tools|news.open|44"]);
     assert_eq!(native.icons.len(), 2);
-    // The widget record is the one the comparison does not read.
-    assert_eq!(native.others, ["WidgetSpec"]);
+    // The widget record is the one the comparison does not read; the choice of
+    // `sleep.show` is the other.
+    assert_eq!(native.others, ["SettingChoice", "WidgetSpec"]);
+    assert_eq!(native.slots, ["core.sleep|news.sleep|-6"]);
 }
 
-/// The list opens one at a time: the decoded `screen.spec` flags (bits 6 and
+/// The list and the sleep screen open one at a time: the decoded `screen.spec` flags (bits 6 and
 /// 7: 0 per parameters, 1 single, 2 many) say so.
 #[test]
 fn the_list_opens_one_at_a_time() {
@@ -65,5 +67,8 @@ fn the_list_opens_one_at_a_time() {
             }
         }
     }
-    assert_eq!(new, [("news.list".to_string(), 1)]);
+    assert_eq!(
+        new,
+        [("news.list".to_string(), 1), ("news.sleep".to_string(), 1)]
+    );
 }

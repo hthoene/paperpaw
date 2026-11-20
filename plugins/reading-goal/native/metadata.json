@@ -127,6 +127,10 @@
       "name": "services.query"
     },
     {
+      "kind": "host",
+      "name": "i18n.digits"
+    },
+    {
       "kind": "callback",
       "name": "drop"
     },

@@ -1,8 +1,9 @@
 //! Stats' declarations as borrowed builders, shared by the build script (which
 //! writes them into the plugin image) and the tests.
 use paperpaw_sdk::native::declare::{
-    ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Kind,
-    MenuEntryDecl, ScreenDecl, SpecDecl, StatusItemDecl, SubscribeDecl, WidgetDecl,
+    ActionDecl, Declarations, DeclareError, EditorDecl, EventKind, ExtraDecl, GroupDecl, Instances,
+    Kind, MenuEntryDecl, ScreenDecl, SlotOfferDecl, SpecDecl, StatusItemDecl, SubscribeDecl,
+    WidgetDecl,
 };
 use paperpaw_ui_kit::widget::options::{Opt, declare_all};
 
@@ -15,6 +16,10 @@ pub const BOOKS_TOKEN: u32 = 21;
 pub const BOOK_TOKEN: u32 = 22;
 pub const CALENDAR_TOKEN: u32 = 23;
 pub const SYNC_TOKEN: u32 = 24;
+/// The sleep screen's token, and its full id (the value of `sleep.show` that
+/// chooses it).
+pub const SLEEP_TOKEN: u32 = 25;
+pub const SLEEP_SCREEN: &str = "stats.sleep";
 /// The action that opens the overview.
 pub const OPEN_TOKEN: u32 = 30;
 /// The minute tick, for the widgets that must show a new day.
@@ -114,6 +119,18 @@ pub fn ui(sink: impl FnMut(&[u8]) -> Result<(), i32>) -> Result<(), DeclareError
         CALENDAR_TOKEN,
     ))?;
     declarations.screen(ScreenDecl::new("sync", "stats.sync.title", SYNC_TOKEN))?;
+    // The page has the whole screen: no row of button hints over it. It is
+    // offered to the slot `core.sleep` below the sleep plugin's own and the
+    // other plugins', and is a choice of `sleep.show`.
+    declarations.screen(
+        ScreenDecl::new("sleep", SLEEP_SCREEN, SLEEP_TOKEN)
+            .instances(Instances::Single)
+            .hints_hidden(),
+    )?;
+    let mut offer = SlotOfferDecl::new("core.sleep", SLEEP_SCREEN);
+    offer.priority = -4;
+    declarations.slot_offer(offer)?;
+    declarations.setting_choice("sleep.show", SLEEP_SCREEN, SLEEP_SCREEN)?;
     declarations.action(ActionDecl::new("open", "stats.title", OPEN_TOKEN))?;
     for (menu, order) in [("core.tools", 35), ("core.reader-more", 30)] {
         let mut entry = MenuEntryDecl::new(menu, "stats.open");

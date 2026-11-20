@@ -217,6 +217,10 @@ impl Plugin for NativeStats {
         if frame.purpose == DrawPurpose::Widget {
             return self.widgets.draw(host, frame);
         }
+        if token == crate::declarations::SLEEP_TOKEN {
+            let counted = with_cx(host, 0, |cx| self.recorder.read_today(cx));
+            return crate::native_sleep::draw(host, &mut frame, counted);
+        }
         match self.screens.top(token).ok_or(Error::State)? {
             View::Overview(view) => view.draw(host, &mut frame),
             View::Books(view) => view.draw(host, &mut frame),

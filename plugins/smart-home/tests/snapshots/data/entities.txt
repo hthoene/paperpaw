@@ -1,0 +1,8 @@
+v1	1791964260
+sensor.living_temp	Living room	Living room	21.5	°C	temperature
+sensor.outdoor_temp	Outside	Outside	4.2	°C	temperature
+sensor.humidity	Humidity	Living room	48	%	humidity
+sensor.power	Power now	Hall	312	W	power
+light.living	Living room light	Living room	on		
+binary_sensor.front_door	Front door	Hall	off		door
+switch.coffee	Coffee machine	Kitchen	off		
