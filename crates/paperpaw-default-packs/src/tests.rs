@@ -47,14 +47,9 @@ impl Card {
     }
 }
 
-impl Storage for Card {
-    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
-        self.files.read_at(path, offset, buf)
-    }
-    fn size(&self, path: &str) -> Result<u64, StorageError> {
-        self.files.size(path)
-    }
-    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+impl Card {
+    /// A write or an append: counted against the writes allowed and the room.
+    fn spend(&self, data: &[u8]) -> Result<(), StorageError> {
         if let Some(left) = self.writes.get() {
             if left == 0 {
                 return Err(StorageError::Io);
@@ -67,6 +62,19 @@ impl Storage for Card {
             }
             self.room.set(Some(room - data.len()));
         }
+        Ok(())
+    }
+}
+
+impl Storage for Card {
+    fn read_at(&self, path: &str, offset: u64, buf: &mut [u8]) -> Result<usize, StorageError> {
+        self.files.read_at(path, offset, buf)
+    }
+    fn size(&self, path: &str) -> Result<u64, StorageError> {
+        self.files.size(path)
+    }
+    fn write(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.spend(data)?;
         self.files.write(path, data)
     }
     fn sync(&self) -> Result<(), StorageError> {
@@ -74,6 +82,7 @@ impl Storage for Card {
         Ok(())
     }
     fn append(&self, path: &str, data: &[u8]) -> Result<(), StorageError> {
+        self.spend(data)?;
         self.files.append(path, data)
     }
     fn list(&self, dir: &str, visit: &mut dyn FnMut(DirEntry<'_>)) -> Result<(), StorageError> {
@@ -106,7 +115,7 @@ fn the_package_has_a_manifest_and_a_table_the_kernel_accepts() {
         .iter()
         .find(|(p, _)| *p == "plugin.ini")
         .expect("plugin.ini");
-    let ini = core::str::from_utf8(ini.1).unwrap();
+    let ini = core::str::from_utf8(&ini.1).unwrap();
     assert!(ini.contains("id = hyphenation"), "{ini}");
     assert!(ini.contains("formats = 5"), "{ini}");
     assert!(ini.contains("en = hyphenation/en.pphp"), "{ini}");
@@ -114,7 +123,7 @@ fn the_package_has_a_manifest_and_a_table_the_kernel_accepts() {
         .iter()
         .find(|(p, _)| *p == "hyphenation/en.pphp")
         .expect("the table");
-    paperpaw_hyphen::check_table(table.1).expect("a table the reader opens");
+    paperpaw_hyphen::check_table(&table.1).expect("a table the reader opens");
     let bytes: usize = files.iter().map(|(_, b)| b.len()).sum();
     assert!(bytes < ROOM as usize / 2, "{bytes} bytes");
 }
@@ -137,7 +146,7 @@ fn a_card_without_the_pack_gets_it_once_as_after_a_beta_3_update() {
             bytes.len(),
             "{at}"
         );
-        assert_eq!(&read[..], *bytes, "{at}");
+        assert_eq!(read, bytes, "{at}");
     }
     assert!(card.exists(MARK));
     // The next start does nothing.
@@ -246,7 +255,7 @@ fn a_failed_write_over_a_broken_plugin_ini_keeps_the_readers_files() {
     for path in theirs {
         assert!(card.exists(path), "{path}");
     }
-    for &(path, _) in english() {
+    for (path, _) in english() {
         let at = format!("plugins/hyphenation/{path}");
         assert!(!card.exists(&at), "{at} was left behind");
     }
