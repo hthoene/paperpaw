@@ -1,3 +1,0 @@
-### Changed
-
-- **A new canvas slot draws the stippled separators in one call** (#291, owner Decision 210). Interface 7 has one more host slot, 43 `canvas.fill_pattern` (a checker of pixels in a rectangle, clipped like a fill; `screens-input.md` 6.2), and the SDK a `Canvas::fill_checker`. The faint row and header separators of black and white lists were one host call for each pixel (about 200 for a separator, 836 for the first frame of Settings > Manage plugins); they are one call each now, the same pixels. A host without the slot answers `ERR_UNSUPPORTED` and the lists draw the pixels one by one as before.

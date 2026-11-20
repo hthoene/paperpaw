@@ -1,7 +1,0 @@
-### Changed
-
-- **A release's version is set by one command** (#3528). `python3 tools/bump-version.py 0.6.0-beta.N` rewrites the workspace version, the internal requirements, the docs and store texts that name the release, the SDK's user agent and the Android version name and code; the lockfiles are refreshed with `cargo metadata`. The Release workflow's comments name the 81 assets of a firmware release.
-- **The store byte check no longer fails against a release before interface 7** (#3528). `versions.py --release --bytes` built the baseline release with the interface-7 script that release does not have; it now says the files cannot be compared (another firmware) and leaves it to the version rules.
-- **`paperpaw-core` and three plugins no longer wait for each other when the crates are published** (#3528). Core's tests use `battery`, `widgets` and `fonts-default`, which depend on core: the dev-dependencies are by path alone now, so `cargo publish --workspace` finds an order (the dry run stopped at `paperpaw-plugin-battery`).
-- **`paperpaw-x4` can be published** (#3528). Its tests use `paperpaw-default-packs`, a crate that is not published; the workspace names it by path alone now (as `paperpaw-fat`), so the package no longer asks the registry for it.
-- **`paperpaw-plugin-stats` can be packaged** (#3528). It read a source file of Reading goal's folder, which a crates.io package does not hold (`cargo publish` verify failed: "couldn't find file `src/../../reading-goal/src/read_today.rs`"); it has its own copy now, and a test keeps the two equal.

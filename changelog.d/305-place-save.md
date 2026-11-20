@@ -1,4 +1,0 @@
-### Changed
-
-- **Saving the reading place writes one block instead of a whole file** (#305). Each page turn that saved the place wrote the place file anew through a temporary file and two renames, 13 to 25 block writes on the card, after searching the library list for the book. The file is now two slots of one block each: a save writes the slot that does not hold the newest place, where it is, and a book that is on the card is no longer looked up in the library list first. After a power cut the card holds the place saved before or the new one. Place files written by earlier versions, or by a reader itself, are read as before and get their slots with the next save; a place with a long XPointer is still written as a whole file.
-- **Files can be written in place on the card** (#305). `Storage::write_at` now works on the memory card for bytes within a file or at its end; it said "unsupported" there before.

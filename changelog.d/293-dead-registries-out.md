@@ -1,3 +1,0 @@
-### Changed
-
-- **Kernel: the old in-process registries nothing filled are gone (#293, step S1).** Text, block, input and refresh filters, page layers and frames, lookup providers, voices, reading apps, book fields and badges, action overrides and observers, plugin inputs and gestures, points, screen hints, menu descriptions, GATT services, UI looks and render hooks of the old plugin API had no producer left (interface-7 plugins declare theirs as records). Their `Items` calls, `Contribution` kinds, `Env` parts, kernel state and SDK modules (`layers`, `voices`, `render`) are removed; what reading, refreshing, speaking and opening books do is unchanged.

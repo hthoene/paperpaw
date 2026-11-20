@@ -1,3 +1,0 @@
-### Changed
-
-- **The linked plugins are hosted as one batch at start-up** (#306). Each plugin's admission used to rebuild the key map (which reads the user's configuration again), the font choices and the fonts in use, the slot list and the widgets' font settings, so the 28 plugins repeated them up to 28 times (1,841 ms in all on the X4). They are now done once, after the last plugin; the plugin lists are sized once before the first, and the `[plugins]` section of the configuration is read once for all the on/off decisions, not twice for each plugin. The start log names where the time of hosting goes (admit, key map, fonts, widget fonts).

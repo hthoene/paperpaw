@@ -1,3 +1,0 @@
-### Added
-
-- Thai books break their lines between words (#313): the packs of `script-thai` carry a table of 4,203 Thai words (the 4,000 most frequent of the Thai National Corpus, PyThaiNLP's list, CC0 1.0, and the interface's, less the long ones that shorter words make up; `tools/thai-dictionary.py`, slot 6 of a pack), which `paperpaw-text` reads the first time it breaks Thai text into lines (16.0 KiB, held while the pack is open, let go when memory is short). A line breaks after the longest word that another word follows; letters no word explains break between clusters, never between a letter and its vowels or tone marks. The reader, the library and the screens break Thai this way; without the pack, Thai breaks as before (at spaces and zero width spaces).

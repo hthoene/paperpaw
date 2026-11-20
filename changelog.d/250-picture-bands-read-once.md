@@ -1,3 +1,0 @@
-### Fixed
-
-- **A page's picture is read once for the frame that draws it** (#250). On devices that draw a frame in bands (the X4 family), every band dithered a plugin's picture from its first row again, reading and working through all rows above it: a cover over four bands was read 2.5 times, about 4 s on the X4 for a full-page cover, on every visit of that page. The frame now keeps the dithering between its bands (4 bytes a column, at most 4 KiB, freed when the frame ends), so each band goes on where the one above ended. The pixels are the same; a band drawn alone or again starts from the first row as before.

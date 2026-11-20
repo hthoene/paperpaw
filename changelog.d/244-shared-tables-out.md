@@ -1,3 +1,0 @@
-### Changed
-
-- **The shared function tables are gone** (#244). Interface 7 never used them: a plugin file carries its own copies. Removed: the crate `paperpaw-table` with `shared!`, `shared.list`, `table.sig` and `table.body`, the SDK's `shared` module (kernel feature), `tools/shared-table.py` with its tests and CI step, and the "shared functions" line of the X4 remote control's description. The about 160 functions that were declared with `shared!` are plain functions with the same bodies. `Native::family_revs` and `family_min` stay as unused fields, all 0, so that the fingerprint does not change. A change to the body of such a function no longer needs `table.body` written anew.

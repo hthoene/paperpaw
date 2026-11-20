@@ -1,3 +1,0 @@
-### Changed
-
-- **A JPEG takes about half the computing to decode** (#250). A cover or photograph shown at more than half its size is decoded at full size, and most of that time went into the general sums of the inverse transform and into a call for every code and byte of the data. The transform now takes a third of the multiplications for the same numbers, and the bits are looked at where they are asked for. For a book's 896 × 1400 cover shown at 512 × 800 the decoder runs 123 million instructions instead of 262 million (measured on the emulator's build, not on a device); every pixel is as before.

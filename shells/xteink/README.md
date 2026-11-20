@@ -1,7 +1,7 @@
 # PaperPaw on the Xteink X4
 
 The firmware for the Xteink X4 and the X4 Pro, in beta with
-0.6.0-beta.3. See
+0.6.0-beta.4. See
 [ADR 0013](../../docs/adr/0013-x4-firmware.md) for how it is built; its
 hardware parts are in [`paperpaw-x4`](../../crates/paperpaw-x4) and
 [`paperpaw-fat`](../../crates/paperpaw-fat), tested on a computer.
