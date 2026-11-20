@@ -1,0 +1,1 @@
+- Language packs: the exFAT card hint ("exFAT support is experimental") and the plugin manager's "How it works" messages are translated in all languages.
