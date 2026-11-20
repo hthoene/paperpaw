@@ -117,10 +117,12 @@ const BUNDLED: &str = "plugins/a/pictures/cat.png";
 
 /// Wires the files host that says which plugins are linked: `linked` ones.
 fn wire_files(w: &World, linked: &[&'static str]) {
-    use crate::native_host::{linked_plugins::LinkedPlugins, storage_files::StorageFiles};
-    let set = Rc::new(LinkedPlugins::default());
+    use crate::native_host::{
+        owner_directory::OwnerDirectory, shared::Shared, storage_files::StorageFiles,
+    };
+    let set = Shared::try_new(OwnerDirectory::new()).unwrap();
     for id in linked {
-        set.add(id).unwrap();
+        set.add_linked(id).unwrap();
     }
     let storage: Rc<dyn paperpaw_platform::Storage> = Rc::new(MemoryStorage::new());
     w.kernel
@@ -257,8 +259,12 @@ fn root_one_reaches_a_running_data_plugins_files_only() {
     let storage: Rc<dyn paperpaw_platform::Storage> = Rc::new(MemoryStorage::new());
     hosts
         .wire_files(Rc::new(
-            StorageFiles::new(storage, Rc::default(), Rc::default())
-                .with_data_plugins(folders.clone()),
+            StorageFiles::new(
+                storage,
+                Rc::default(),
+                crate::native_host::owner_directory::OwnerDirectory::fresh(),
+            )
+            .with_data_plugins(folders.clone()),
         ))
         .unwrap();
     let roots = Roots {

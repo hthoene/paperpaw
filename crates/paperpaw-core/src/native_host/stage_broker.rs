@@ -297,9 +297,15 @@ fn select<'s>(
         let position = selected
             .iter()
             .position(|before| {
-                let before_id = registry.id(before.plugin).map(Id::as_str).unwrap_or("");
-                (registration.order, id.as_str(), registration.index)
-                    < (before.order, before_id, before.index)
+                registry
+                    .with_plugin_id(before.plugin, |before_id| {
+                        (registration.order, id.as_str(), registration.index)
+                            < (before.order, before_id.as_str(), before.index)
+                    })
+                    .unwrap_or_else(|| {
+                        (registration.order, id.as_str(), registration.index)
+                            < (before.order, "", before.index)
+                    })
             })
             .unwrap_or(selected.len());
         if position < schema.max_subscribers {

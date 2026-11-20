@@ -155,8 +155,12 @@ fn wiring_registers_the_busy_source_once_and_a_files_move_starts_the_job() {
         Some(ERR_STATE)
     );
     // `core.files` moves of the user's files are the job; others are not.
-    let files = StorageFiles::new(storage.clone(), hosts.busy_sources().clone(), Rc::default())
-        .with_moves(moves.clone());
+    let files = StorageFiles::new(
+        storage.clone(),
+        hosts.busy_sources().clone(),
+        crate::native_host::owner_directory::OwnerDirectory::fresh(),
+    )
+    .with_moves(moves.clone());
     files
         .rename(&*storage, "Books/old", "Books/new", false, true)
         .unwrap();

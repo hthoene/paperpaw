@@ -22,7 +22,8 @@ use super::{
     data_plugin_folders::DataPluginFolders,
     files_service::{Access, FilesHost},
     lib_moves_service::LibraryMoves,
-    linked_plugins::LinkedPlugins,
+    owner_directory::OwnerDirectory,
+    shared::Shared,
 };
 use alloc::{rc::Rc, vec::Vec};
 use core::cell::RefCell;
@@ -177,7 +178,7 @@ pub(crate) fn excluded_on(
 pub(crate) struct StorageFiles {
     storage: Rc<dyn Storage>,
     sources: Rc<BusySources>,
-    linked: Rc<LinkedPlugins>,
+    linked: Shared<OwnerDirectory>,
     /// The library's move job: a move of the user's files goes through it.
     /// `None` where no job is wired (tests): the storage's own rename.
     moves: Option<Rc<LibraryMoves>>,
@@ -190,7 +191,7 @@ impl StorageFiles {
     pub(crate) fn new(
         storage: Rc<dyn Storage>,
         sources: Rc<BusySources>,
-        linked: Rc<LinkedPlugins>,
+        linked: Shared<OwnerDirectory>,
     ) -> Self {
         Self {
             storage,
@@ -237,7 +238,7 @@ impl FilesHost for StorageFiles {
     /// A plugin linked into the firmware (`Kernel::register_linked`); a loaded
     /// `.ppn` plugin never is, and a card plugin never takes a linked id.
     fn built_in(&self, plugin: &str) -> bool {
-        self.linked.contains(plugin)
+        self.linked.is_linked(plugin)
     }
 
     fn data_folder(&self, name: &str) -> bool {

@@ -632,7 +632,7 @@ impl crate::Kernel {
             {
                 continue;
             }
-            let Some(owner) = owner.try_clone() else {
+            let Some(owner) = owner else {
                 continue;
             };
             self.unload_plugin(&owner);

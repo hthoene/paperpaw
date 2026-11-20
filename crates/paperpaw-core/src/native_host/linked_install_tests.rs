@@ -253,16 +253,16 @@ fn a_good_entry_runs_make_once_and_its_id_is_taken() {
 fn a_linked_id_is_known_to_core_files_only_while_the_plugin_is_registered() {
     let mut kernel = kernel();
     let resources = HostResources::try_new().unwrap();
-    let linked = resources.hosts().linked().clone();
+    let linked = resources.hosts().owners().unwrap().try_clone().unwrap();
     let host = shell_host(&[]);
     // A refused entry leaves no id behind.
     let bad = entry(|entry| entry.abi_major += 1);
     let refused = install_with(&mut kernel, bad, METADATA, &host, "linked", resources);
     assert_eq!(status(refused), ERR_INVALID);
-    assert!(!linked.contains("linked"));
+    assert!(!linked.is_linked("linked"));
     // A good one records its id, and only its id.
     let resources = HostResources::try_new().unwrap();
-    let linked = resources.hosts().linked().clone();
+    let linked = resources.hosts().owners().unwrap().try_clone().unwrap();
     install_with(
         &mut kernel,
         entry(|_| {}),
@@ -272,11 +272,11 @@ fn a_linked_id_is_known_to_core_files_only_while_the_plugin_is_registered() {
         resources,
     )
     .unwrap();
-    assert!(linked.contains("linked"));
-    assert!(!linked.contains("other"));
+    assert!(linked.is_linked("linked"));
+    assert!(!linked.is_linked("other"));
     // A taken id is refused before it is recorded again anywhere.
     let resources = HostResources::try_new().unwrap();
-    let other = resources.hosts().linked().clone();
+    let other = resources.hosts().owners().unwrap().try_clone().unwrap();
     let again = install_with(
         &mut kernel,
         entry(|_| {}),
@@ -286,7 +286,7 @@ fn a_linked_id_is_known_to_core_files_only_while_the_plugin_is_registered() {
         resources,
     );
     assert_eq!(status(again), ERR_INVALID);
-    assert!(!other.contains("linked"));
+    assert!(!other.is_linked("linked"));
 }
 
 #[test]

@@ -663,7 +663,7 @@ fn wire_files(
         StorageFiles::new(
             storage,
             hosts.busy_sources().clone(),
-            hosts.linked().clone(),
+            hosts.owners()?.try_clone().ok_or(ERR_NO_MEMORY)?,
         )
         .with_moves(moves.clone())
         .with_data_plugins(hosts.data_plugins().clone()),

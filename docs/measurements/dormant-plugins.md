@@ -83,6 +83,11 @@ starts); linked ids stay `&'static str`. Owner directory, linked set and declara
 become views on that row. Target ~200 B per plugin, for all 32. No `unsafe`; Core co-owns the
 owner directory and the store.
 
+Built (#405, 2026-11-20): the owner directory's row is the one row (key, id, lease, retirement,
+flags incl. linked); `NativeInstances` and `core.files` read it, subscriptions are asked of the
+lease. 40 B per plugin on the X4 where the three rows took 80; emulator Home and reader -2.0 KiB.
+The store's owner header keeps its id (it outlives a row across generations).
+
 **D5 (item 4). Packed batch starts.** An image-only owner kept 12 B per batch (start and kind bits,
 `declaration_scan.rs`). A plugin's batches are separate statics, so the image cannot be walked from
 one batch to the next; but they lie close together. Built: an owner whose batches lie within 64 KiB

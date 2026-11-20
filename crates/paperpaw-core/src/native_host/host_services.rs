@@ -91,9 +91,6 @@ pub(crate) struct HostServices {
     pub(super) library_moves: OnceCell<Rc<super::lib_moves_service::LibraryMoves>>,
     /// What the host holds in use, for `core.files` to answer busy about.
     busy: OnceCell<Rc<super::storage_files::BusySources>>,
-    /// The ids of the plugins linked into the firmware (root 2 of the file
-    /// service has no install folder for them).
-    linked: OnceCell<Rc<super::linked_plugins::LinkedPlugins>>,
     /// The folders of the running data plugins (root 1 shows them read only).
     data_plugins: OnceCell<Rc<super::data_plugin_folders::DataPluginFolders>>,
     /// The device's facts the library's transactions read (memory class,
@@ -182,7 +179,6 @@ impl HostServices {
             secrets: OnceCell::new(),
             library_moves: OnceCell::new(),
             busy: OnceCell::new(),
-            linked: OnceCell::new(),
             data_plugins: OnceCell::new(),
             edit_policy: OnceCell::new(),
             in_use: OnceCell::new(),
@@ -547,14 +543,9 @@ impl HostServices {
 
     /// Gives back the room kept while the plugins were hosted one by one.
     pub(crate) fn shrink_to_fit(&self) {
-        if let Some(linked) = self.linked.get() {
-            linked.shrink_to_fit();
+        if let Some(owners) = self.owners.get() {
+            owners.shrink_to_fit();
         }
-    }
-
-    /// The linked plugin ids, made on first use.
-    pub(crate) fn linked(&self) -> &Rc<super::linked_plugins::LinkedPlugins> {
-        self.linked.get_or_init(Default::default)
     }
 
     /// The running data plugins' folders, made on first use.

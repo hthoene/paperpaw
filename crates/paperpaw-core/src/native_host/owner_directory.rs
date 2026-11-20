@@ -1,45 +1,130 @@
-//! Who the running plugin owners are, for the host services that must name a
-//! plugin or ask about its subscriptions (`core.net`: the `.received/` folder,
-//! the root-0 saves, "did the plugin subscribe to the done event").
+//! The one row each native plugin owner has (#405, D4): its key, plugin id,
+//! lease and lifecycle state. The kernel's owner registry
+//! ([`super::native_instances::NativeInstances`]) keeps its plugins here; the
+//! host services that must name a plugin or ask about its subscriptions
+//! (`core.net`: the `.received/` folder, the root-0 saves, "did the plugin
+//! subscribe to the done event") and `core.files` (which ids are linked into
+//! the firmware) read the same rows: no second table copies a key or an id.
 //!
-//! The owner registry ([`super::native_instances::NativeInstances`]) lives in
-//! the kernel and cannot be borrowed by a device adapter, so it keeps this
-//! read-only copy up to date: a row when an enabled owner is admitted, its
-//! subscribed event tags when its instance is installed, no row once it
-//! stops. Nothing here runs plugin code, and a read never allocates.
+//! Only the registry adds or takes rows away, outside every visit; the state
+//! of a row is in cells, so that stopping or installing an owner is a shared
+//! borrow, as a service's read is. Nothing here runs plugin code, and a read
+//! never allocates. A row's lease holds the plugin, whose host context holds
+//! this table: the registry empties it when it is dropped (no cycle stays).
 
-use super::{event_tags::EventTags, stack_rows::StackRows, work_sched::WorkSched};
-use alloc::{rc::Rc, vec::Vec};
-use core::cell::{Cell, RefCell};
+use super::{native_instances::NativeLease, stack_rows::StackRows, work_sched::WorkSched};
+use alloc::{boxed::Box, rc::Rc, vec::Vec};
+use core::cell::{Cell, OnceCell, Ref, RefCell, RefMut};
 use paperpaw_native::host_glue::{ERR_BUSY, ERR_INVALID, ERR_NO_MEMORY, ERR_STATE};
 use paperpaw_sdk::Id;
 
-struct Row {
-    key: u64,
+/// In [`Row::flags`]: the owner is enabled (admitted, not stopped).
+pub(super) const ENABLED: u8 = 1;
+/// Its start is asked for (a lazy owner, made at the next pass).
+pub(super) const START: u8 = 1 << 1;
+/// It is being retired.
+pub(super) const RETIRING: u8 = 1 << 2;
+/// It declared `uses.install` (it may answer plugin requests).
+pub(super) const INSTALLER: u8 = 1 << 3;
+/// It is linked into the firmware (`Kernel::register_linked`).
+pub(super) const LINKED: u8 = 1 << 4;
+
+/// The bit of [`Row::retry_at`] that says its failed retirement was said
+/// already (a time never reaches it).
+pub(super) const FAILURE_REPORTED: u64 = 1 << 63;
+
+/// One plugin owner: 40 bytes on the X4 where its instance row, its
+/// directory row and its linked-set entry took 80 (#405, D4).
+pub(crate) struct Row {
+    pub(super) key: u64,
     /// A linked plugin's id is kept in the firmware: no heap (#248, D4).
-    id: Id,
-    tags: EventTags,
+    pub(super) id: Id,
+    /// Set once: at the admission, or by the install of a lazy owner.
+    pub(super) instance: OnceCell<NativeLease>,
+    /// The folder of the version that replaces it once it is retired: a box
+    /// of its bytes, not a `String`.
+    pub(super) replacement: OnceCell<Box<str>>,
+    /// When a failed retirement is tried again (ms), with
+    /// [`FAILURE_REPORTED`].
+    pub(super) retry_at: Cell<u64>,
+    /// [`ENABLED`], [`START`], [`RETIRING`], [`INSTALLER`], [`LINKED`].
+    pub(super) flags: Cell<u8>,
+    /// The registry the row is of ([`OwnerDirectory::new_registry`]): a
+    /// pool may outlive a kernel, and tests share one between kernels.
+    pub(super) registry: u16,
 }
 
-/// The enabled owners: key, plugin id and subscribed event tags.
+impl Row {
+    pub(super) fn new(
+        registry: u16,
+        key: u64,
+        id: Id,
+        instance: Option<NativeLease>,
+        flags: u8,
+    ) -> Self {
+        let lease = OnceCell::new();
+        if let Some(instance) = instance {
+            let _ = lease.set(instance);
+        }
+        Self {
+            key,
+            id,
+            instance: lease,
+            replacement: OnceCell::new(),
+            retry_at: Cell::new(0),
+            flags: Cell::new(flags),
+            registry,
+        }
+    }
+
+    pub(super) fn has(&self, flag: u8) -> bool {
+        self.flags.get() & flag != 0
+    }
+
+    pub(super) fn set(&self, flag: u8, on: bool) {
+        let flags = self.flags.get();
+        self.flags
+            .set(if on { flags | flag } else { flags & !flag });
+    }
+
+    pub(super) fn enabled(&self) -> bool {
+        self.has(ENABLED)
+    }
+
+    pub(super) fn lease(&self) -> Option<&NativeLease> {
+        self.instance.get()
+    }
+
+    /// When its failed retirement is tried again (ms; 0: at once).
+    pub(super) fn retry_at(&self) -> u64 {
+        self.retry_at.get() & !FAILURE_REPORTED
+    }
+}
+
+/// The plugin owners, one row each, with what the services read beside them.
 #[derive(Default)]
 pub(crate) struct OwnerDirectory {
     rows: RefCell<Vec<Row>>,
+    /// Linked plugin ids without a row: registered but not admitted yet (its
+    /// `make` runs before the row is added), or retired. Empty almost always.
+    linked_loose: RefCell<Vec<Id>>,
     /// The kernel's screen stack, once a native owner was admitted.
     screens: RefCell<Option<Rc<StackRows>>>,
     /// The scheduler, once `core.work` is wired.
     sched: RefCell<Option<super::shared::Shared<WorkSched>>>,
-    /// Updates ([`Self::subscribe`], [`Self::withdraw`]) that found the table
-    /// held and were skipped; the kernel reports them ([`Self::take_missed`]).
-    /// A missed subscribe fails closed (nothing is admitted); a missed
-    /// withdraw leaves a row for an owner that never comes back (keys never
-    /// repeat).
+    /// Closes of work runs that overflowed [`Self::late_closes`] since the
+    /// kernel last asked ([`Self::take_missed`]).
     missed: Cell<u32>,
     /// Closes of a request or socket of a work run that the scheduler, in
     /// use at that moment, could not take: asked again at the next pass
     /// ([`Self::retry_closes`]). Fixed room, so that letting go never
     /// allocates; a close past it is counted in `missed`.
     late_closes: Cell<[Option<u32>; LATE_CLOSES]>,
+    /// The registries made so far ([`Self::new_registry`]).
+    registries: Cell<u16>,
+    /// The subscriptions the service tests give an owner.
+    #[cfg(test)]
+    test_tags: RefCell<Vec<(u64, super::event_tags::EventTags)>>,
 }
 
 /// How many closes wait for the scheduler at most.
@@ -55,10 +140,100 @@ impl OwnerDirectory {
     pub(crate) const fn new() -> Self {
         Self {
             rows: RefCell::new(Vec::new()),
+            linked_loose: RefCell::new(Vec::new()),
             screens: RefCell::new(None),
             sched: RefCell::new(None),
             missed: Cell::new(0),
             late_closes: Cell::new([None; LATE_CLOSES]),
+            registries: Cell::new(0),
+            #[cfg(test)]
+            test_tags: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// A tag no other registry of this pool has (never 0).
+    pub(super) fn new_registry(&self) -> u16 {
+        let next = self.registries.get().wrapping_add(1).max(1);
+        self.registries.set(next);
+        next
+    }
+
+    /// The rows, for the registry's reads (`None` while it adds or takes one).
+    pub(super) fn rows(&self) -> Option<Ref<'_, Vec<Row>>> {
+        self.rows.try_borrow().ok()
+    }
+
+    /// The rows, for the registry to add or take one: never held while a
+    /// row's plugin can run.
+    pub(super) fn rows_mut(&self) -> Result<RefMut<'_, Vec<Row>>, i32> {
+        self.rows.try_borrow_mut().map_err(|_| ERR_BUSY)
+    }
+
+    /// Adds `row`. A linked id waiting for its row ([`Self::add_linked`])
+    /// goes into it. Nothing is added on a failure.
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY`, `ERR_BUSY` (the rows are in use).
+    pub(super) fn push(&self, row: Row) -> Result<(), i32> {
+        let mut rows = self.rows_mut()?;
+        rows.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        if let Ok(mut loose) = self.linked_loose.try_borrow_mut()
+            && let Some(at) = loose.iter().position(|id| *id == row.id)
+        {
+            loose.swap_remove(at);
+            row.set(LINKED, true);
+        }
+        rows.push(row);
+        Ok(())
+    }
+
+    /// Takes the row of `key` out, to be dropped by the caller once no borrow
+    /// is held (its plugin may run as it goes). A linked plugin's id stays
+    /// linked; where there is no room to keep it, the row stays.
+    ///
+    /// # Errors
+    /// `ERR_STATE` (no such row), `ERR_NO_MEMORY`, `ERR_BUSY`.
+    pub(super) fn take(&self, key: u64) -> Result<Row, i32> {
+        let mut rows = self.rows_mut()?;
+        let at = rows
+            .iter()
+            .position(|row| row.key == key)
+            .ok_or(ERR_STATE)?;
+        if rows[at].has(LINKED) {
+            let mut loose = self.linked_loose.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+            loose.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+            loose.push(rows[at].id.try_clone().ok_or(ERR_NO_MEMORY)?);
+        }
+        Ok(rows.swap_remove(at))
+    }
+
+    /// Every row of `registry`, to be dropped by the caller (the registry
+    /// goes). Moves rows only: nothing is allocated.
+    pub(super) fn take_all(&self, registry: u16) -> Vec<Row> {
+        let Ok(mut rows) = self.rows.try_borrow_mut() else {
+            return Vec::new();
+        };
+        if rows.iter().all(|row| row.registry == registry) {
+            return core::mem::take(&mut *rows);
+        }
+        // Another registry's rows stay: take its own one by one (they are
+        // dropped by the caller, outside the borrow).
+        let mut mine = Vec::new();
+        while let Some(at) = rows.iter().position(|row| row.registry == registry) {
+            if mine.try_reserve(1).is_err() {
+                // No room to hand it out: dropped here, under the borrow.
+                drop(rows.swap_remove(at));
+                continue;
+            }
+            mine.push(rows.swap_remove(at));
+        }
+        mine
+    }
+
+    /// Room for `more` rows, asked for once before the plugins are hosted.
+    pub(super) fn reserve_exact(&self, more: usize) {
+        if let Ok(mut rows) = self.rows.try_borrow_mut() {
+            let _ = rows.try_reserve_exact(more);
         }
     }
 
@@ -111,7 +286,7 @@ impl OwnerDirectory {
             return true;
         };
         rows.iter()
-            .filter(|row| row.id.as_str() == id)
+            .filter(|row| row.enabled() && row.id.as_str() == id)
             .any(|row| screens.has_screen(row.key).unwrap_or(true))
     }
 
@@ -192,54 +367,12 @@ impl OwnerDirectory {
         if let Ok(mut rows) = self.rows.try_borrow_mut() {
             super::shrink::shrink(&mut rows);
         }
-    }
-
-    /// Adds the row of an enabled owner (no subscriptions yet).
-    ///
-    /// # Errors
-    /// `ERR_NO_MEMORY` (nothing is added), `ERR_BUSY` (a reader is visiting).
-    pub(crate) fn admit(&self, key: u64, id: &Id) -> Result<(), i32> {
-        super::net_service::gate()?;
-        let mut rows = self.rows.try_borrow_mut().map_err(|_| ERR_BUSY)?;
-        rows.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
-        super::net_service::gate()?;
-        let copy = id.try_clone().ok_or(ERR_NO_MEMORY)?;
-        rows.retain(|row| row.key != key);
-        rows.push(Row {
-            key,
-            id: copy,
-            tags: EventTags::default(),
-        });
-        Ok(())
-    }
-
-    /// Records the event tags the owner's instance subscribed to. An owner
-    /// that has no row (stopped) is left alone.
-    pub(crate) fn subscribe(&self, key: u64, tags: EventTags) {
-        let Ok(mut rows) = self.rows.try_borrow_mut() else {
-            self.miss();
-            return;
-        };
-        if let Some(row) = rows.iter_mut().find(|row| row.key == key) {
-            row.tags = tags;
+        if let Ok(mut loose) = self.linked_loose.try_borrow_mut() {
+            super::shrink::shrink(&mut loose);
         }
     }
 
-    /// Drops the owner's row (it stopped or was retired).
-    pub(crate) fn withdraw(&self, key: u64) {
-        let Ok(mut rows) = self.rows.try_borrow_mut() else {
-            self.miss();
-            return;
-        };
-        rows.retain(|row| row.key != key);
-    }
-
-    fn miss(&self) {
-        self.missed.set(self.missed.get().saturating_add(1));
-    }
-
-    /// How many updates were skipped since the last call (the table was held,
-    /// or the closes of work runs waiting for the scheduler overflowed).
+    /// How many closes of work runs found no room since the last call.
     pub(crate) fn take_missed(&self) -> u32 {
         self.missed.replace(0)
     }
@@ -247,29 +380,148 @@ impl OwnerDirectory {
     /// Hands the plugin id of an enabled owner to `visit`.
     ///
     /// # Errors
-    /// `ERR_STATE` for an owner that is unknown or stopped, or while another
-    /// reader or writer holds the table.
+    /// `ERR_STATE` for an owner that is unknown or stopped, or while the
+    /// rows are being changed.
     pub(crate) fn with_id(&self, key: u64, visit: &mut dyn FnMut(&str)) -> Result<(), i32> {
         let rows = self.rows.try_borrow().map_err(|_| ERR_STATE)?;
-        let row = rows.iter().find(|row| row.key == key).ok_or(ERR_STATE)?;
+        let row = rows
+            .iter()
+            .find(|row| row.key == key && row.enabled())
+            .ok_or(ERR_STATE)?;
         visit(row.id.as_str());
         Ok(())
     }
 
-    /// Whether the running instance of `key` subscribed to the event `tag`;
-    /// `false` for an owner that is unknown, stopped or busy.
+    /// Whether the running instance of `key` subscribed to the event `tag`
+    /// (asked of its lease, which reads the committed registrations or a
+    /// parked plugin's recipe: nothing is made); `false` for an owner that
+    /// is unknown, stopped, not installed yet or busy.
     pub(crate) fn subscribed(&self, key: u64, tag: u32) -> bool {
         self.rows.try_borrow().ok().is_some_and(|rows| {
-            rows.iter()
-                .any(|row| row.key == key && row.tags.contains(tag))
+            rows.iter().any(|row| {
+                row.key == key
+                    && row.enabled()
+                    && (row.lease().is_some_and(|lease| lease.subscribed(tag))
+                        || self.test_subscribed(key, tag))
+            })
         })
+    }
+
+    /// Records `id` as a linked plugin's before the plugin can run; a
+    /// registration that fails takes it back ([`Self::remove_linked`]).
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY`; `ERR_BUSY` when the table is in use.
+    pub(crate) fn add_linked(&self, id: &'static str) -> Result<(), i32> {
+        if let Ok(rows) = self.rows.try_borrow()
+            && let Some(row) = rows.iter().find(|row| row.id.as_str() == id)
+        {
+            row.set(LINKED, true);
+            return Ok(());
+        }
+        let mut loose = self.linked_loose.try_borrow_mut().map_err(|_| ERR_BUSY)?;
+        if loose.iter().any(|have| have.as_str() == id) {
+            return Ok(());
+        }
+        loose.try_reserve(1).map_err(|_| ERR_NO_MEMORY)?;
+        loose.push(Id::new_static(id));
+        Ok(())
+    }
+
+    /// Takes the linked id `id` back (a registration that failed).
+    pub(crate) fn remove_linked(&self, id: &str) {
+        if let Ok(mut loose) = self.linked_loose.try_borrow_mut() {
+            loose.retain(|have| have.as_str() != id);
+        }
+        if let Ok(rows) = self.rows.try_borrow() {
+            for row in rows.iter().filter(|row| row.id.as_str() == id) {
+                row.set(LINKED, false);
+            }
+        }
+    }
+
+    /// Whether `id` is a linked plugin's. A table in use says yes.
+    pub(crate) fn is_linked(&self, id: &str) -> bool {
+        let (Ok(loose), Ok(rows)) = (self.linked_loose.try_borrow(), self.rows.try_borrow()) else {
+            return true;
+        };
+        loose.iter().any(|have| have.as_str() == id)
+            || rows
+                .iter()
+                .any(|row| row.has(LINKED) && row.id.as_str() == id)
+    }
+}
+
+impl OwnerDirectory {
+    #[cfg(not(test))]
+    #[allow(clippy::unused_self, reason = "the tests' subscriptions")]
+    fn test_subscribed(&self, _: u64, _: u32) -> bool {
+        false
+    }
+
+    #[cfg(test)]
+    fn test_subscribed(&self, key: u64, tag: u32) -> bool {
+        self.test_tags.try_borrow().is_ok_and(|told| {
+            told.iter()
+                .any(|(owner, tags)| *owner == key && tags.contains(tag))
+        })
+    }
+}
+
+#[cfg(test)]
+impl OwnerDirectory {
+    /// An empty table of its own, shared.
+    pub(crate) fn fresh() -> super::shared::Shared<Self> {
+        super::shared::Shared::try_new(Self::new()).unwrap_or_else(|_| unreachable!())
+    }
+
+    /// Adds the row of an enabled owner (no subscriptions yet), as the
+    /// registry does when it admits one; an owner the registry admitted
+    /// keeps its row.
+    ///
+    /// # Errors
+    /// `ERR_NO_MEMORY` (nothing is added), `ERR_BUSY` (a reader is visiting).
+    pub(crate) fn admit(&self, key: u64, id: &Id) -> Result<(), i32> {
+        super::net_service::gate()?;
+        let copy = id.try_clone().ok_or(ERR_NO_MEMORY)?;
+        super::net_service::gate()?;
+        if self
+            .rows()
+            .ok_or(ERR_BUSY)?
+            .iter()
+            .any(|row| row.key == key)
+        {
+            return Ok(());
+        }
+        self.push(Row::new(0, key, copy, None, ENABLED))
+    }
+
+    /// The services see the owner subscribed to `tags` besides what its
+    /// lease says. An owner that has no row is left alone.
+    pub(crate) fn subscribe(&self, key: u64, tags: super::event_tags::EventTags) {
+        if self
+            .rows()
+            .is_some_and(|rows| rows.iter().any(|row| row.key == key))
+        {
+            let mut told = self.test_tags.borrow_mut();
+            told.retain(|(owner, _)| *owner != key);
+            told.push((key, tags));
+        }
+    }
+
+    /// Drops the owner's row (it stopped or was retired).
+    pub(crate) fn withdraw(&self, key: u64) {
+        drop(self.take(key));
+        self.test_tags
+            .borrow_mut()
+            .retain(|(owner, _)| *owner != key);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::native_host::net_service::fail_nth;
+    use crate::native_host::{event_tags::EventTags, net_service::fail_nth};
     use alloc::string::String;
 
     fn tags(of: &[u32]) -> EventTags {
@@ -378,19 +630,53 @@ mod tests {
         dir.with_id(1, &mut |_| {
             inner = dir.with_id(1, &mut |_| {});
             assert_eq!(dir.admit(2, &Id::new_static("b")), Err(ERR_BUSY));
-            dir.withdraw(1);
+            assert!(matches!(dir.take(1), Err(ERR_BUSY)));
         })
         .unwrap();
         assert_eq!(inner, Ok(()), "readers share");
         assert_eq!(
             id_of(&dir, 1).as_deref(),
             Ok("a"),
-            "the busy withdraw was skipped, so the row stays"
+            "the busy take was refused, so the row stays"
         );
-        assert_eq!(dir.take_missed(), 1, "and the skip is counted");
-        assert_eq!(dir.take_missed(), 0, "once");
         dir.withdraw(1);
         assert_eq!(id_of(&dir, 1), Err(ERR_STATE), "free again: it goes");
+    }
+
+    #[test]
+    fn a_linked_id_is_known_with_or_without_its_row() {
+        let dir = OwnerDirectory::new();
+        assert!(!dir.is_linked("home"));
+        // Before its row: the plugin's `make` runs first.
+        dir.add_linked("home").unwrap();
+        dir.add_linked("home").unwrap();
+        assert!(dir.is_linked("home") && !dir.is_linked("hom") && !dir.is_linked("homes"));
+        // Its row takes it over; the id stays linked while the row lives
+        // and once it is retired.
+        dir.admit(3, &Id::new_static("home")).unwrap();
+        assert!(dir.linked_loose.borrow().is_empty(), "no second copy");
+        assert!(dir.is_linked("home"));
+        dir.withdraw(3);
+        assert!(dir.is_linked("home"));
+        dir.remove_linked("home");
+        assert!(!dir.is_linked("home"));
+        // A registration that failed after its row was added takes it back.
+        dir.add_linked("news").unwrap();
+        dir.admit(4, &Id::new_static("news")).unwrap();
+        dir.remove_linked("news");
+        assert!(!dir.is_linked("news"));
+        // A card plugin's row is no linked one.
+        dir.admit(5, &Id::new_static("card")).unwrap();
+        assert!(!dir.is_linked("card"));
+    }
+
+    #[test]
+    fn a_plugin_owner_is_one_row_of_five_words_on_the_x4() {
+        // Key, id, lease, replacement, retry time and flags: the instance
+        // row, the directory row and the linked-set entry together took 80
+        // bytes on the X4 (#405, D4); 64-bit hosts take 64.
+        let expected = if usize::BITS == 32 { 40 } else { 64 };
+        assert_eq!(core::mem::size_of::<Row>(), expected);
     }
 
     #[test]

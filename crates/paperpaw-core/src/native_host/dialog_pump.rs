@@ -119,12 +119,7 @@ impl crate::Kernel {
         // Answers: one callback each; what a callback staged runs before the
         // next is called.
         let mut index = 0;
-        while let Some(owner) = self
-            .shared
-            .native_instances
-            .running_nth(index)
-            .map(|(owner, _)| owner)
-        {
+        while let Some(owner) = self.shared.native_instances.running_key_nth(index) {
             index += 1;
             let Ok(super::native_instances::InstanceState::Running(lease)) =
                 self.shared.native_instances.state(owner)
