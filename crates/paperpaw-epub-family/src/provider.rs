@@ -476,20 +476,16 @@ impl FormatProvider {
                 Self::picture(decoded(document, io, image), cache, u32::MAX, &[], out)
             }
             op::IMAGE => {
-                // The picture numbered `index`: a page of a whole-page
-                // document (its section), else the block that starts there
-                // (until the parsers number their pictures).
+                // The picture numbered `index`: the block that starts at
+                // `index / sections` in section `index % sections` (a page of
+                // a whole-page document: its section).
                 let whole = document.whole_pages();
-                let at = if whole {
-                    let sections = document.sections().max(1);
-                    Locator::new(call.index % sections, call.index / sections)
-                } else {
-                    Locator::new(call.section, call.index)
-                };
+                let sections = document.sections().max(1);
+                let at = Locator::new(call.index % sections, call.index / sections);
                 let block = document
                     .block_at(io, at)
                     .map_err(|e| document_error(&e))?
-                    .filter(|b| whole || b.start == call.index)
+                    .filter(|b| whole || b.start == at.offset)
                     .ok_or(Error::NotFound)?;
                 let part = part_at(document, io, at);
                 let image = decoded(document, io, block.image);
@@ -800,16 +796,14 @@ impl FormatProvider {
             }
         }
         let mut list = Vec::new();
-        let image_index = if document.whole_pages() {
-            // A page's first picture is numbered by its section; the next of
-            // a page of several (panels) follow the sections' numbers.
-            block
-                .start
-                .saturating_mul(document.sections().max(1))
-                .saturating_add(call.section)
-        } else {
-            block.start
-        };
+        // A picture's number is where its block starts and its section, as `op::IMAGE`
+        // takes them apart: the host asks for a picture by this number only, so
+        // a block of a later section is not mistaken for one of the first (#427).
+        let image_index = block
+            .start
+            .saturating_mul(document.sections().max(1))
+            .saturating_add(call.section)
+            .min(u32::MAX - 1);
         let part = part_at(document, io, at);
         let picture = (
             image_index,
