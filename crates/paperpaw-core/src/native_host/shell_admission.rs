@@ -201,12 +201,17 @@ mod tests {
                 key: "core.nothing"
             })
         );
-        // Another revision than the catalog's is not the same service.
+        // Another major is not the same service, nor a larger table; another
+        // revision is (a revision only appends ops, #242).
+        for (major, table) in [(2, 0), (1, 4)] {
+            let bytes = record(&[("core.plugin", major, 0, table)]);
+            assert!(matches!(
+                admit(&bytes, &host()).unwrap_err(),
+                Admission::Refused(Refusal::Service { .. })
+            ));
+        }
         let bytes = record(&[("core.plugin", 1, 1, 0)]);
-        assert!(matches!(
-            admit(&bytes, &host()).unwrap_err(),
-            Admission::Refused(Refusal::Service { .. })
-        ));
+        assert_eq!(admit(&bytes, &host()).unwrap().declared.count(), 1);
     }
 
     #[test]
