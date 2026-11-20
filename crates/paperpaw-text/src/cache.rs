@@ -170,20 +170,23 @@ struct Blocks {
     of: Option<(usize, usize)>,
 }
 
-/// The glyph for `ch` at `size` of a built-in pack whose bitmaps are deflated
-/// (`deflated.rs`), its bitmap inflated out of the block or the two it lies
-/// in (the last one inflated is kept, so that glyphs side by side in the pack
+/// The most a bitmap of a cold glyph is, in bytes, for the glyph cache to keep it.
+/// A clock's digits are larger and are not kept (see `Lru::large`).
+#[cfg(feature = "kernel")]
+const KEPT: usize = 1024;
+
+/// The bitmap of the cold glyph `found` of a built-in pack whose bitmaps are
+/// deflated (`deflated.rs`), inflated out of the block or the two it lies in
+/// (the last one inflated is kept, so that glyphs side by side in the pack
 /// inflate it once) into `bitmap`; `None` where that could not be done.
 #[cfg(feature = "kernel")]
 fn read_deflated(
     font: &crate::bitmap::BitmapFont,
-    ch: char,
-    size: f32,
+    found: crate::bitmap::Located,
     mut bitmap: Vec<u8>,
     blocks: &mut Blocks,
 ) -> Option<Glyph> {
     use crate::deflated::BLOCK;
-    let found = font.locate(ch, size)?;
     let (deflated, pack) = font.deflated()?;
     bitmap.clear();
     bitmap.try_reserve_exact(found.len).ok()?;
@@ -234,6 +237,10 @@ struct Lru {
     /// inflated (see [`Blocks`]).
     #[cfg(feature = "kernel")]
     blocks: alloc::rc::Rc<core::cell::RefCell<Blocks>>,
+    /// The glyph of such a pack too large to keep (a clock's digit), until the
+    /// next glyph is asked for.
+    #[cfg(feature = "kernel")]
+    large: Option<Glyph>,
 }
 
 impl Cache for Lru {
@@ -259,20 +266,7 @@ impl Cache for Lru {
         match font {
             #[cfg(feature = "kernel")]
             Font::Bitmap(font) if font.is_deflated() => {
-                // A glyph is inflated once and kept like one read from a card:
-                // text draws a glyph again and again.
-                let blocks = self.blocks.clone();
-                match self.cached_with(font_index, ch, size, |s, spare| {
-                    read_deflated(font, ch, s, spare, &mut blocks.borrow_mut())
-                }) {
-                    Some(glyph) => glyph,
-                    // Not read now (no memory, a damaged block): drawn as
-                    // nothing, its advance kept.
-                    None => GlyphRef {
-                        advance: font.advance(ch, size),
-                        ..NOT_READ
-                    },
-                }
+                self.deflated_glyph(font_index, font, ch, size)
             }
             Font::Bitmap(font) => font.glyph(ch, size),
             // Not read now (the card pulled): drawn as nothing, its
@@ -376,6 +370,52 @@ impl Lru {
             spare: Vec::new(),
             #[cfg(feature = "kernel")]
             blocks: alloc::rc::Rc::default(),
+            #[cfg(feature = "kernel")]
+            large: None,
+        }
+    }
+
+    /// The glyph of a built-in pack with deflated bitmaps (`deflated.rs`): a
+    /// hot one is read in place as ever; a cold one (an icon, a letter few
+    /// texts use) is inflated once and kept like a glyph read from a card (text
+    /// draws a glyph again and again), unless it is large (a clock's digit),
+    /// which is held until the next glyph is asked for. Not read now (no memory,
+    /// a damaged block): drawn as nothing, its advance kept.
+    #[cfg(feature = "kernel")]
+    fn deflated_glyph<'a>(
+        &'a mut self,
+        font_index: u16,
+        font: &'a crate::bitmap::BitmapFont,
+        ch: char,
+        size: f32,
+    ) -> GlyphRef<'a> {
+        self.large = None;
+        let Some(found) = font.locate(ch, size) else {
+            return font.glyph(ch, size);
+        };
+        if !found.cold {
+            return font.glyph_of(found);
+        }
+        let blocks = self.blocks.clone();
+        if found.len > KEPT {
+            self.large = read_deflated(font, found, Vec::new(), &mut blocks.borrow_mut());
+            return self.large.as_ref().map_or(
+                GlyphRef {
+                    advance: found.advance,
+                    ..NOT_READ
+                },
+                Glyph::as_ref,
+            );
+        }
+        match self.cached_with(font_index, ch, size, |s, spare| {
+            let found = font.locate(ch, s)?;
+            read_deflated(font, found, spare, &mut blocks.borrow_mut())
+        }) {
+            Some(glyph) => glyph,
+            None => GlyphRef {
+                advance: found.advance,
+                ..NOT_READ
+            },
         }
     }
 
@@ -383,6 +423,7 @@ impl Lru {
     #[cfg(feature = "kernel")]
     fn let_blocks_go(&mut self) {
         *self.blocks.borrow_mut() = Blocks::default();
+        self.large = None;
     }
 
     /// The glyph of a key, made by `rasterize` if it is not kept: `None`

@@ -243,7 +243,7 @@ use core::fmt;
 use crate::anchors::{self, Anchors};
 #[cfg(feature = "kernel")]
 use crate::deflated::Deflated;
-use crate::deflated::VERSION_FLAG;
+use crate::deflated::{COLD, VERSION_FLAG};
 use crate::font::{FontError, LineMetrics};
 use crate::glyph::{Glyph, GlyphRef};
 use crate::kern_table;
@@ -353,21 +353,11 @@ impl BitmapFont {
                 .glyphs
                 .checked_mul(RECORD)
                 .and_then(|table| table.checked_add(strike.glyph_table));
-            if end.is_none_or(|end| end > font.data.len()) || strike.bitmaps > font.bitmap_space() {
+            if end.is_none_or(|end| end > font.data.len()) || strike.bitmaps > font.data.len() {
                 return Err(FontError::Invalid);
             }
         }
         Ok(font)
-    }
-
-    /// The bytes the strikes' bitmaps are addressed in: the pack's, or where
-    /// they are deflated, their stream's.
-    fn bitmap_space(&self) -> usize {
-        #[cfg(feature = "kernel")]
-        if let Some(deflated) = &self.deflated {
-            return deflated.len;
-        }
-        self.data.len()
     }
 
     /// The slot of the anchors table (see the module's documentation).
@@ -608,22 +598,26 @@ impl BitmapFont {
     /// strike lacks it (a large one made for digits), at the nearest that
     /// has it. Missing characters fall back to U+FFFD, then `?`.
     pub fn glyph(&self, ch: char, size: f32) -> GlyphRef<'_> {
-        let empty = GlyphRef {
-            format: crate::glyph::COVERAGE4,
-            left: 0,
-            top: 0,
-            width: 0,
-            height: 0,
-            advance: 0.0,
-            data: &[],
-        };
-        let Some(found) = self.locate(ch, size) else {
-            return empty;
-        };
-        // Where the bitmaps are deflated they are not read in place: the
-        // glyph cache reads them (`Located`, `BitmapFont::inflated`); what
-        // this gives is the glyph's metrics, enough to measure.
-        let data = if self.is_deflated() {
+        match self.locate(ch, size) {
+            Some(found) => self.glyph_of(found),
+            None => GlyphRef {
+                format: crate::glyph::COVERAGE4,
+                left: 0,
+                top: 0,
+                width: 0,
+                height: 0,
+                advance: 0.0,
+                data: &[],
+            },
+        }
+    }
+
+    /// The glyph `found` (by [`BitmapFont::locate`]), its bitmap read in
+    /// place. A cold glyph of a pack with deflated bitmaps (`deflated.rs`)
+    /// has none to give here: the glyph cache inflates it, so that what this
+    /// gives of it is its metrics, enough to measure.
+    pub(crate) fn glyph_of(&self, found: Located) -> GlyphRef<'_> {
+        let data = if found.cold {
             Some(&[][..])
         } else if found.format == crate::glyph::PACKED4 {
             // The data does not bound the decoding, the size does.
@@ -634,15 +628,27 @@ impl BitmapFont {
                 .checked_add(found.len)
                 .and_then(|end| self.data.get(found.start..end))
         };
-        data.map_or(empty, |data| GlyphRef {
-            format: found.format,
-            advance: found.advance,
-            left: found.left,
-            top: found.top,
-            width: found.width,
-            height: found.height,
-            data,
-        })
+        match data {
+            Some(data) => GlyphRef {
+                format: found.format,
+                advance: found.advance,
+                left: found.left,
+                top: found.top,
+                width: found.width,
+                height: found.height,
+                data,
+            },
+            // Damaged: nothing, as ever.
+            None => GlyphRef {
+                format: crate::glyph::COVERAGE4,
+                left: 0,
+                top: 0,
+                width: 0,
+                height: 0,
+                advance: 0.0,
+                data: &[],
+            },
+        }
     }
 
     /// Where the glyph for `ch` at `size` is (see [`BitmapFont::glyph`] for
@@ -662,25 +668,35 @@ impl BitmapFont {
         let d = &self.data;
         let width = u16_at(d, offset + 12)?;
         let height = u16_at(d, offset + 14)?;
-        let start = strike
-            .bitmaps
-            .checked_add(u32_at(d, offset + 16)? as usize)?;
+        let at = u32_at(d, offset + 16)?;
+        // Cold: in the stream of deflated bitmaps, where the offset says so.
+        let cold = self.is_deflated() && at & COLD != 0;
+        let start = if cold {
+            (at & !COLD) as usize
+        } else {
+            strike.bitmaps.checked_add(at as usize)?
+        };
+        let space = if cold { self.cold_len() } else { d.len() };
         let (format, len) = if strike.packed {
             if !crate::glyph::fits(usize::from(width), usize::from(height), strike.size) {
                 return None;
             }
-            // At most a byte for a pixel (a one pixel run takes two nibbles),
-            // and what lies before the next glyph's bitmap, which follows it
-            // in the strike as the builder lays them out.
-            let room = self.bitmap_space().saturating_sub(start);
-            let mut most = (usize::from(width) * usize::from(height)).min(room);
-            let next = offset + RECORD < strike.glyph_table + strike.glyphs * RECORD;
-            if let Some(next) = u32_at(d, offset + RECORD + 16)
-                .filter(|_| next)
-                .and_then(|n| strike.bitmaps.checked_add(n as usize))
-                .filter(|&n| n >= start)
-            {
-                most = most.min(next - start);
+            // Read in place, a glyph is as long as its data goes; cold, at
+            // most a byte for a pixel (a one pixel run takes two nibbles) and
+            // what lies before the next cold glyph's bitmap, which follows
+            // it in the strike as the builder lays them out.
+            let mut most = 0;
+            if cold {
+                most = (usize::from(width) * usize::from(height)).min(space.saturating_sub(start));
+                let following = (offset + RECORD..strike.glyph_table + strike.glyphs * RECORD)
+                    .step_by(RECORD)
+                    .filter_map(|next| u32_at(d, next + 16))
+                    .find(|next| next & COLD != 0);
+                if let Some(next) = following.map(|next| (next & !COLD) as usize)
+                    && next >= start
+                {
+                    most = most.min(next - start);
+                }
             }
             (crate::glyph::PACKED4, most)
         } else {
@@ -690,9 +706,7 @@ impl BitmapFont {
             )
         };
         // Past the bitmaps the glyph is not one.
-        if start > self.bitmap_space()
-            || (!strike.packed && start.checked_add(len)? > self.bitmap_space())
-        {
+        if start > space || (!strike.packed && start.checked_add(len)? > space) {
             return None;
         }
         Some(Located {
@@ -704,7 +718,17 @@ impl BitmapFont {
             height,
             start,
             len,
+            cold,
         })
+    }
+
+    /// The bytes of the cold stream (0 for a pack without deflated bitmaps).
+    fn cold_len(&self) -> usize {
+        #[cfg(feature = "kernel")]
+        if let Some(deflated) = &self.deflated {
+            return deflated.len;
+        }
+        0
     }
 
     /// Whether the pack's bitmaps are deflated (`deflated.rs`).
@@ -761,6 +785,9 @@ pub(crate) struct Located {
     pub(crate) advance: f32,
     pub(crate) start: usize,
     pub(crate) len: usize,
+    /// The bitmap is in the stream of deflated bitmaps (`start` its place
+    /// there), not in the pack's bytes.
+    pub(crate) cold: bool,
 }
 
 /// Where a strike's glyphs are (see [`BitmapFont::tables`]).
