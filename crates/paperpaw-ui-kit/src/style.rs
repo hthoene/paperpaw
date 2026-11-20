@@ -400,8 +400,12 @@ impl Style {
         let palette = inputs.palette.as_str();
         let color = |name, default| palette_color(palette, name, default);
         let strong = inputs.strong;
+        // On a panel of black and white the frame draws gray text black, and
+        // the pass in four grays (after a calm) would show it as the second
+        // gray, pale on the panel: both show it black, as the frame does.
+        let black_text = strong || display.display_gray_levels() == Some(2);
         let faint = |name, default| {
-            if strong {
+            if black_text {
                 color("text", Color::BLACK)
             } else {
                 color(name, default)

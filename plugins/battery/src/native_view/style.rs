@@ -102,8 +102,9 @@ impl Style {
         let strong = setting_text(host, UI_CONTRAST)? == "core.contrast.strong";
         let palette = setting_text(host, UI_PALETTE)?;
         let color = |name, default| palette_color(&palette, name, default);
+        let black_text = strong || display.display_gray_levels() == Some(2);
         let faint = |name, default| {
-            if strong {
+            if black_text {
                 color("text", Color::BLACK)
             } else {
                 color(name, default)
@@ -126,8 +127,8 @@ impl Style {
             separators: setting_text(host, UI_SEPARATORS)?,
             ink: color("text", Color::BLACK),
             paper: color("paper", Color::WHITE),
-            muted: faint("muted", Color::gray(90)),
-            note: faint("note", Color::gray(60)),
+            muted: faint("muted", Color::gray(60)),
+            note: faint("note", Color::gray(40)),
             disabled: color("disabled", Color::gray(150)),
             rule: color("rule", Color::gray(150)),
         })

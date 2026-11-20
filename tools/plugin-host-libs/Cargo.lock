@@ -107,7 +107,7 @@ version = "0.6.0-beta.3"
 
 [[package]]
 name = "paperpaw-plugin-battery"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "paperpaw-sdk",
 ]
