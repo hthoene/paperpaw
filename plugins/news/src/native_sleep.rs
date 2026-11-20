@@ -73,11 +73,19 @@ fn fetched(host: &Host<'_>) -> i64 {
     }
 }
 
-/// Draws the sleep screen.
+/// What the screen shows, read when it opens: the newest headlines (at most
+/// six) and when they were fetched.
+#[derive(Debug)]
+pub struct Prepared {
+    headlines: Vec<Headline>,
+    fetched: i64,
+}
+
+/// Reads the headlines and the time they were fetched.
 ///
 /// # Errors
-/// Font and host refusals, `NoMemory`.
-pub fn draw(host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
+/// `NoMemory`.
+pub fn read(host: &Host<'_>) -> Result<Prepared, Error> {
     let bytes = match read_all_on(&DataVolume(host), HEADLINES_FILE, HEADLINES_CAP) {
         Ok(Some(bytes)) => bytes,
         Ok(None) => Vec::new(),
@@ -88,6 +96,18 @@ pub fn draw(host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
     let headlines = read_lines(&file, MOST, &|book| {
         storage::size(host, Root::Files, book).is_ok()
     })?;
+    Ok(Prepared {
+        headlines,
+        fetched: fetched(host),
+    })
+}
+
+/// Draws the sleep screen from what was read when it opened.
+///
+/// # Errors
+/// Font and host refusals, `NoMemory`.
+pub fn draw(host: &Host<'_>, frame: &mut DrawFrame<'_>, prepared: &Prepared) -> Result<(), Error> {
+    let Prepared { headlines, fetched } = prepared;
     let look = Look::open(host)?;
     let mut page = look.page(frame)?;
     let mut words = Words::new(host)?;
@@ -120,7 +140,7 @@ pub fn draw(host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
             (&none, 6),
         )?;
     }
-    for headline in &headlines {
+    for headline in headlines {
         if y + 17 + 29 > END {
             break;
         }
@@ -136,7 +156,7 @@ pub fn draw(host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
         y += 17 + used + 14;
         page.rule(y - 6, 1)?;
     }
-    let foot = words.stand(("news.sleep.stand", "news.sleep.never"), fetched(host), &[])?;
+    let foot = words.stand(("news.sleep.stand", "news.sleep.never"), *fetched, &[])?;
     page.footer(&foot)?;
     page.show(frame)
 }

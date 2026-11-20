@@ -33,7 +33,7 @@ use paperpaw_ui_kit::{
     widget::Cx,
 };
 
-use crate::model::{Kept, Mood, Statistics, parse_stage};
+use crate::model::{Kept, Mood, Statistics, Today, parse_stage};
 use crate::native_picture::{self, Next, Pictures, Source};
 use crate::native_sleep;
 use crate::native_widget::{self, TARGET};
@@ -102,6 +102,8 @@ pub struct NativeReadingGoal {
     asked: Option<(RequestId, Statistics, bool)>,
     /// The cat's picture of the mood shown, and what is asked for it.
     pictures: Pictures,
+    /// What the sleep screen shows, read when it opened.
+    sleeping: Option<Today>,
 }
 
 impl Default for NativeReadingGoal {
@@ -112,6 +114,7 @@ impl Default for NativeReadingGoal {
             items: Vec::new(),
             asked: None,
             pictures: Pictures::default(),
+            sleeping: None,
         }
     }
 }
@@ -180,6 +183,7 @@ impl Plugin for NativeReadingGoal {
             // The sleep screen opens: its picture is asked for (it comes
             // later, and the screen shows words until it does).
             Event::ScreenOpened { .. } if token == SLEEP => {
+                self.sleeping = native_widget::facts(host, &self.kept, self.statistics).ok();
                 self.want_picture(host);
                 Ok(())
             }
@@ -373,7 +377,7 @@ impl NativeReadingGoal {
     /// The sleep screen: the cat of today's mood and the minutes.
     fn draw_sleep(&self, host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
         let mut cx = Cx::open(host, crate::declarations::WIDGET_GROUP)?;
-        let today = native_widget::facts(host, &self.kept, self.statistics)?;
+        let today = self.sleeping.ok_or(Error::State)?;
         let picture = self
             .pictures
             .of(today.mood)

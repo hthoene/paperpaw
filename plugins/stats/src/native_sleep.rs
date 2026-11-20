@@ -38,29 +38,46 @@ fn top_of(seconds: &[u32; DAYS], goal: Option<u64>) -> u32 {
         .max(900)
 }
 
-/// Draws the sleep screen; `counted` is today and the seconds read on it as
-/// the recorder has them (`None`: not known, then the log's).
+/// What the screen shows, read when it opens: today and the seconds read on
+/// it as the recorder has them (`None`: not known, then the log's), and the
+/// log of days.
+#[derive(Debug)]
+pub(crate) struct Prepared {
+    counted: Option<(i32, u32)>,
+    days: Vec<Day>,
+}
+
+impl Prepared {
+    /// Reads the log of days.
+    pub(crate) fn read(host: &Host<'_>, counted: Option<(i32, u32)>) -> Self {
+        let storage = DataStorage::new(host);
+        let days = store::days(&DataFolder(&storage), utc_day).unwrap_or_default();
+        Self { counted, days }
+    }
+}
+
+/// Draws the sleep screen from what was read when it opened.
 ///
 /// # Errors
 /// Font and host refusals, `NoMemory`.
 pub(crate) fn draw(
     host: &Host<'_>,
     frame: &mut DrawFrame<'_>,
-    counted: Option<(i32, u32)>,
+    prepared: &Prepared,
 ) -> Result<(), Error> {
+    let Prepared { counted, days } = prepared;
+    let counted = *counted;
     let unix = capture_snapshot(host)?.unix_seconds();
     let today = counted
         .map(|(day, _)| day)
         .or_else(|| unix.and_then(|unix| u32::try_from(unix).ok()).map(utc_day));
-    let storage = DataStorage::new(host);
-    let days: Vec<Day> = store::days(&DataFolder(&storage), utc_day).unwrap_or_default();
     let look = Look::open(host)?;
     let mut page = look.page(frame)?;
     let mut words = Dates::new(host)?;
     let mut say = HostWords::new(host)?;
     let goal = goal(host)?;
     let today = today.unwrap_or(0);
-    let read = counted.map_or_else(|| seconds_on(&days, today), |(_, seconds)| seconds);
+    let read = counted.map_or_else(|| seconds_on(days, today), |(_, seconds)| seconds);
 
     let label = words.copy("stats.sleep.today")?;
     page.put(
@@ -93,7 +110,7 @@ pub(crate) fn draw(
         *slot = if day == today {
             read
         } else {
-            seconds_on(&days, day)
+            seconds_on(days, day)
         };
     }
     let week = seconds.iter().map(|s| u64::from(*s)).sum::<u64>();
@@ -111,7 +128,7 @@ pub(crate) fn draw(
     }
 
     page.rule(646, 1)?;
-    let current = streaks(&days, today, 1);
+    let current = streaks(days, today, 1);
     let streak = say.format(
         "stats.streak-note",
         &[Arg::Count(i64::from(current.current))],
