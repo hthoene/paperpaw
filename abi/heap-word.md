@@ -268,7 +268,9 @@ typedef struct PpHeap {
     or the window state: `rsil`, `wsr`, `xsr`, `rotw`, `s32e`, `l32e`, `waiti` and every `rf*`
     return-from-exception. `rsr`, `rur` and `wur` stay (no ring or level is changed by them).
   - **Armed:** `stack::band_armed()` is true on the S3 only after the monitor's bounds and enables
-    read back as set and a self-test at start passed: with its interrupt not yet enabled, one store
+    read back as set (the bound registers hold 26 address bits and 16-byte steps, measured on an
+    X4 Classic in #415: a bound reads back as `held()`, not as written; the monitor compares the
+    same way and sees exactly the band's words) and a self-test at start passed: with its interrupt not yet enabled, one store
     into the band sets the monitor's raw bit, which is then cleared and the interrupt enabled. The
     loader refuses every format-5 file while it is false, as on the X4.
   - **Device checklist (S3), owner-approved tests:** S1 the monitor fires on a plain store and on a

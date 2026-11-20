@@ -156,6 +156,13 @@ const TRIGGER: u32 = 2;
 /// where it is (the loader's `load_native` refuses them otherwise).
 static ARMED: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
+/// Why the S3's band did not arm last time (0: it did, or was not tried): 1 no
+/// room, 2 read-back, 3 raw bit stuck, 4 no fire, 5 interrupt not set, 6 not
+/// delivered, 7 other. Read by [`report_band`], which logs it (the start arms
+/// before the log exists).
+#[cfg(all(target_arch = "xtensa", feature = "ppn5"))]
+static WHY: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
 /// Set when a re-arm found the trigger taken after the band had been armed.
 static LOST: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 /// Set when a plugin with native code was let through [`band_armed`]'s gate.
@@ -478,6 +485,7 @@ pub fn arm_band() {
     let top = core::ptr::addr_of!(_stack_start) as u32;
     let Some(start) = paperpaw_x4::s3_band::band(end, top) else {
         ARMED.store(false, core::sync::atomic::Ordering::Relaxed);
+        WHY.store(1, core::sync::atomic::Ordering::Relaxed);
         return;
     };
     s3::bind();
@@ -493,6 +501,19 @@ pub fn arm_band() {
     }
     let was = band_armed();
     ARMED.store(armed.is_ok(), core::sync::atomic::Ordering::Relaxed);
+    {
+        use paperpaw_x4::s3_band::ArmError;
+        let code = match armed {
+            Ok(()) => 0,
+            Err(ArmError::Readback) => 2,
+            Err(ArmError::RawStuck) => 3,
+            Err(ArmError::NoFire) => 4,
+            Err(ArmError::InterruptNotSet) => 5,
+            Err(ArmError::NotDelivered) => 6,
+            Err(_) => 7,
+        };
+        WHY.store(code, core::sync::atomic::Ordering::Relaxed);
+    }
     if let Err(why) = armed
         && was
     {
@@ -561,6 +582,12 @@ pub fn report_band() {
         log::warn!(
             "stack: the band at the stack's end is NOT armed (no trigger or monitor free, or no \
              room): plugins with native code are not run"
+        );
+        #[cfg(all(target_arch = "xtensa", feature = "ppn5"))]
+        log::warn!(
+            "stack: the S3's band failed with code {} (1 no room, 2 read-back, 3 raw bit stuck, \
+             4 no fire, 5 interrupt not set, 6 not delivered)",
+            WHY.load(core::sync::atomic::Ordering::Relaxed)
         );
     }
 }
