@@ -1829,6 +1829,31 @@ change the plugin SDK.
 
 - Language packs: `tools/glyph-coverage.py` (run by `language-pack.py check` and the quick check) checks that the interface font plus the required script pack can draw every message. Romanian now requires Latin Extended letters (ș ț added to that pack); arrows, № and foreign-script language names that drew as boxes are reworded in fi, hu, tr, bg, uk, ru, zu.
 
+- Store rules: the plugin store takes hyphenation tables (`.pphp`, in `hyphenation/` only), and `paperpaw-dev` checks them there (#237).
+
+- **Interface 7 grew for Beta 4, draft 37** (#242). For plugin authors; plugins built for
+  draft 36 run unchanged (no op id, record layout or snapshot byte of theirs moved), and are
+  rebuilt only to use what is new:
+  - a frozen service schema can gain ops: a revision only appends, a plugin built against an
+    older or newer revision of a service still loads, and an op the opened revision lacks is
+    refused as unsupported (`Service::open_newest`, `Service::revision`, `Service::has_op`;
+    `docs/abi/stages-services.md` 2.3);
+  - a format can read only some books of its extensions and hand the others on to the next
+    format (`FormatDecl::asks`, `FormatCall::claimed`; `docs/abi/document.md` 1), for example
+    a format of picture books for EPUB beside the built-in one;
+  - a book can mix whole-page picture sections with reflowed ones
+    (`FormatFeatures::some_whole_pages`, `DocState::some_whole_pages`, `BlockReply::whole_page`;
+    each `SectionEntry::whole_page_picture` says which);
+  - a download can ask never to take the larger buffers (`Request::priority` with
+    `Priority::Lean`; `Priority::Boost` is `Request::foreground`, `Priority::Normal` the device's
+    own choice as before).
+
+- Light or dark sleep, off, start and restart screens, each on its own (#420): Settings, Sleep screen has the rows *Sleep screen is*, *Off screen is*, *Start screen is* and *Restart screen is*, each Like the device (as night mode says, the default), Light or Dark. It holds for the screens of other plugins too and for the start picture that is drawn ahead. In dark the sleeping cat shows white on black; a cover or a picture of yours stays as it is, or is inverted, as *Invert pictures* says.
+
+- More sleep screens from plugins (#421), each a choice under *Sleep screen* in the settings (and so also the start and restart screen): *Calendar* shows today's and tomorrow's events, *Tasks* what is overdue, due today and due this week, *Reading statistics* what you read today with the last seven days against your goal and your streak, *Reading goal* the cat with a bar of today's progress, *All notes* the note you pinned (hold a note in All notes to pin it) as a large quote, *News* the newest headlines like a front page, and *Smart home* your entities as tiles with the states last read. Each says at the foot how old its data is and draws only what is already on the reader: nothing is fetched while it sleeps. Updates of the store plugins Calendar, Tasks, Reading statistics, Reading goal, All notes, News and Smart home.
+
+- **Math in EPUB books reads through a hook, and EPUB Plus is half its size** (#429). A plugin can now convert an element another format hands on (the new host stage `core.convert`, interface 7 draft 37, additions only). The built-in EPUB reader leaves MathML to such a plugin and writes the formula's own text (its `alttext`, else the text of its symbols) where there is none. EPUB: picture books and math (1.1.0) is that plugin now: it converts the formulas as before (fractions `a/b`, powers `x²`, roots, sums, matrices; a formula on its own line stands centered) and reads only the fixed-layout picture books, which the EPUB reader hands to it. It no longer carries a second EPUB reader: its file is about 180 KB smaller on the X4 (365 KB to 185 KB). Books read from the first page; the cache of EPUB books is made again once (a math book then has its formulas in the hook's form). The first page with a formula after the plugin starts may show the formula's own text until it is turned back to.
+
 ### Changed
 
 - Interface-7 slot 6 `i18n.copy` returns `ERR_NOT_FOUND` for a missing translation key,
@@ -3622,6 +3647,31 @@ change the plugin SDK.
 
 - **Emulator memory tests count the reader's covered page** (#4003). Since the reader draws its page when a question or the store is over it (#359), the status-line frame test allows 13 KiB above live (12.7 measured) and the store tests 87 % of the heap (the store's emulator peak is 170 KiB, was 162.5).
 
+- **Less memory for every plugin** (#405). The kernel kept each built-in plugin in three of its tables (its instance, the directory the services ask, and the list of plugins built into the firmware); it is now one row, which the services and the file service read too. That is about 40 bytes less per plugin on the X4. Nothing else changes.
+
+- **Less memory for the reader's letter tables** (#405). A book's page tables of letter widths and kerning pairs (about 1.5 KB per font and size) are now made when a font and size is first set, not all four at once: a plain-text book or one without italics holds 1.5 to 3 KB less while it is read. Page turns are as fast as before.
+
+- **Less memory for the words of the page on show** (#405). The reader keeps each word's text inside the word's box record when it is short (up to ten bytes, nine words of ten in English), where each word had a small block of its own: about 1.5 KB less on a typical page of ninety words, and ninety fewer allocations at every page turn.
+
+- **Much faster Wi-Fi downloads on the X4 and X3** (#419). Updates, plugins and
+  language packs download over Wi-Fi about twice as fast: the reader keeps
+  receiving while it writes to the card, writes the card in larger aligned
+  pieces, and secure connections use the cipher (ChaCha20-Poly1305) that the
+  small processor decrypts about ten times faster than AES-GCM, where the
+  server offers it.
+
+- Grey text (secondary text, labels, hints and notes) is a step darker everywhere, so it stays readable on e-ink screens where it was too faint (#425).
+
+- **Grey hints and notes are black in the pass in four grays too** (#425). On the X4, X4 Pro, X4 Classic and X3 the screen is drawn in black and white, where grey text is black; the pass in four grays after a rest (and the pages with pictures) drew it in the second gray, which is pale on the panel. On a panel of black and white the interface's secondary text and notes are now black in both, so a page keeps its text when the grays come. Panels with many grays draw them a step darker than before (gray 60 and 40 instead of 90 and 60). *Battery* 1.0.11.
+
+- The firmware is about 30 KB smaller on every device: the interface font's large sizes (the clock's digits on Home) and the letters few texts need (beyond Latin-1, the usual punctuation and the ligatures) keep their bitmaps deflated in blocks, and the glyph cache inflates the block a glyph lies in when it is first drawn (#428). The letters text is drawn with, and the icons, stay in place and cost what they cost; text looks as before, pixel for pixel. A first drawing of a deflated glyph takes about 1 ms on the X4, a clock's digit is inflated at each drawing of Home and takes a few milliseconds in all; no block is kept in memory.
+
+- The firmware is about 21 KB smaller on every device: the English hyphenation pack it puts on a fresh card is carried deflated and inflated as it is written (#428). Nothing changes for readers; the files on the card are the same.
+
+- The table of icon names the firmware carries (every name of Tabler's icons by its hash, so that plugins can name any icon) is stored as an Elias-Fano sequence, about 10 KB smaller on every device (#428). Icons are found by the same names as before.
+
+- The web page of *Transfer* is kept gzip in the firmware and sent as it is, with `Content-Encoding: gzip`: about 7 KB less flash, and the browser gets 3 KB instead of 11 KB (#428).
+
 ### Fixed
 
 - `paperpaw-sqlite` never copies over a database: a storage that cannot move files is refused
@@ -4705,6 +4755,12 @@ change the plugin SDK.
 - **The hints note no longer hides a hint under its box at the largest text** (#350, #347). Where the note's box covers the text of a hint, that text is now said in the box instead of being drawn under it.
 
 - Language packs: the exFAT card hint ("exFAT support is experimental") and the plugin manager's "How it works" messages are translated in all languages.
+
+- **Settings open quickly again** (#422). Opening the settings (from the home screen or the menu) took about 7.5 seconds on the X3 and as long on the other devices: for every setting row, and again for every page of rows, the kernel read all plugins' declarations anew. What a settings list needs from them (which settings have a device need or a declared editor, which settings others depend on, how many rows a list has) is now read once and kept until a plugin changes, and the rows look up their plugin's records in order. Nothing else changes in what the settings show.
+
+- **Pictures after the first chapter** (#427). A picture in a later chapter of an EPUB, FictionBook or HTML book (for example the author's photo in *Byttet*) stayed an empty box with only its caption: the reader asked for it by a number that named the block but not its chapter, and the format looked for it in the first chapter. The number now holds both.
+
+- **A deflated book chapter of some sizes (about 27 to 28 KiB) was refused as "entry longer than its size"** (#4309). When the reader's window, sized to the entry, was filled to the last byte before the decoder had seen the end of the stream, the first "more output" answer was taken for an overlong entry. Only an answer that still wants to write after the window is full counts now.
 
 ## [0.6.0-beta.3] - 2026-11-05
 
