@@ -28,6 +28,8 @@ paperpaw-sdk = { workspace = true, features = ["kernel"] }
 
 [build-dependencies]
 paperpaw-text = { workspace = true, features = ["outline"] }
+# Deflates the packs' bitmaps in blocks (`paperpaw_text::deflate_bitmaps`, #428).
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 
 [dev-dependencies]
 # The tests look at what the plugin adds, as the kernel does.
@@ -35,7 +37,8 @@ paperpaw-sdk = { workspace = true, features = ["kernel"] }
 paperpaw-graphics.workspace = true
 paperpaw-i18n.workspace = true
 paperpaw-platform.workspace = true
-paperpaw-text.workspace = true
+# `kernel`: reads the packs, whose bitmaps are deflated, as the kernel does.
+paperpaw-text = { workspace = true, features = ["kernel"] }
 
 # The test builds packs from the scalable fonts, which only `outline` brings.
 [[test]]

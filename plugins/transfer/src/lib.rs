@@ -37,6 +37,7 @@ mod native_cable;
 mod native_draw;
 mod native_entry;
 mod native_files;
+mod native_gzip;
 mod native_install;
 mod native_install_host;
 mod native_key;

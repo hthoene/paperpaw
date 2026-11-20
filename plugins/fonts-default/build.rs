@@ -107,7 +107,7 @@ fn main() {
         } else {
             paperpaw_text::build_pack_hinted(&font, &sizes, chars, hinting)
         };
-        write(&out.join(format!("{name}.ppfp")), &pack);
+        write(&out.join(format!("{name}.ppfp")), &deflated(&pack));
     }
     // Icons sit in the private use area and above it, Tabler's newer ones
     // (`tag`) past U+FFFF.
@@ -118,7 +118,7 @@ fn main() {
     let pack = paperpaw_text::build_pack_compact(&font, &sizes, chars.clone());
     let plain = paperpaw_text::build_pack(&font, &sizes, chars);
     assert!(pack.len() * 10 < plain.len() * 7, "icons: not packed");
-    write(&out.join("icons.ppfp"), &pack);
+    write(&out.join("icons.ppfp"), &deflated(&pack));
 }
 
 /// The pack of the UI font: `chars` at `sizes`, and [`DISPLAY_CHARS`] at
@@ -153,6 +153,28 @@ fn with_display(
         builder.add_strike(size, font.line_metrics(size), glyphs);
     }
     builder.build()
+}
+
+/// `pack` with its bitmaps deflated in blocks of 4 KiB, read back a block at a
+/// time by the kernel's glyph cache (`paperpaw_text::deflate_bitmaps`): the
+/// built-in packs are two thirds of what they were, #428.
+fn deflated(pack: &[u8]) -> Vec<u8> {
+    let block = |bytes: &[u8]| {
+        let mut compress = flate2::Compress::new(flate2::Compression::best(), false);
+        // Room for what does not compress, too.
+        let mut out = Vec::with_capacity(bytes.len() + 1024);
+        let status = compress
+            .compress_vec(bytes, &mut out, flate2::FlushCompress::Finish)
+            .unwrap_or_else(|e| panic!("a block is deflated: {e}"));
+        assert_eq!(
+            status,
+            flate2::Status::StreamEnd,
+            "a block is deflated whole"
+        );
+        out
+    };
+    paperpaw_text::deflate_bitmaps(pack, &block)
+        .unwrap_or_else(|| panic!("a pack as the builder lays it out"))
 }
 
 fn write(path: &Path, data: &[u8]) {

@@ -121,7 +121,8 @@ def icon_table(names):
 
     Without pointers (a table of string slices went partly into RAM on
     the X4) and without the names (#258: 64 KB the firmware never showed):
-    each name's hash, ascending, and its code point, 6 bytes a name. The
+    each name's hash, ascending, and its code point, in about 35 bits a
+    name (`compact`, #428). The
     names themselves, for tools and tests (`icons::names`): one text
     of all, sorted, a name that begins the next one kept only in it (`a-b`
     in `a-b-2`), and where each starts and how long it is.
@@ -158,23 +159,7 @@ def icon_table(names):
         f"pub(crate) const CODE_BASE: u32 = 0x{CODE_BASE:X};",
         "",
     ]
-    lines += array(
-        "The hashes ([`hash`]) of the names of all of Tabler's icons, ascending,\n"
-        "/// no two the same. The icon font holds the icons PaperPaw uses, packs add\n"
-        "/// others.",
-        "HASHES",
-        "u32",
-        sorted(hashed),
-        LOOKED_UP,
-    )
-    lines += array(
-        "The code point of the icon whose name's hash is `HASHES[i]`: its\n"
-        "/// distance from [`CODE_BASE`].",
-        "CODES",
-        "u16",
-        [hashed[value][1] for value in sorted(hashed)],
-        LOOKED_UP,
-    )
+    lines += compact(sorted(hashed), [hashed[value][1] for value in sorted(hashed)])
     lines += [
         "/// The names of all of Tabler's icons, sorted, one after another; a",
         "/// name that begins the next one is kept only in it.",
@@ -190,6 +175,106 @@ def icon_table(names):
         [len(name) for name, _ in ordered],
     )
     return "\n".join(lines[:-1]) + "\n"
+
+
+# Buckets of the hashes' high bits between two samples (see `compact`).
+SAMPLE_BUCKETS = 32
+
+
+def bits_to_bytes(bits):
+    """A list of bits (0 or 1), the first in the lowest bit of the first byte."""
+    out = bytearray((len(bits) + 7) // 8)
+    for at, bit in enumerate(bits):
+        out[at >> 3] |= bit << (at & 7)
+    return list(out)
+
+
+def compact(hashes, codes):
+    """The arrays of icon_table.rs for the sorted `hashes` and their `codes`.
+
+    The hashes as an Elias-Fano sequence: each one's low `LOW_BITS` bits one
+    after another in LOW, its high bits (`hash >> LOW_BITS`, `BUCKET_BITS` of
+    them) as a bit for each element and a zero for each value of the high
+    bits, in HIGH (the `i`th element's bit at the high bits' value plus
+    `i`); SAMPLES says where in HIGH the 0th, 32nd, ... value starts, so that
+    a lookup reads a few dozen bits. The codes, `CODE_BITS` each, in CODES.
+    `paperpaw_sdk::icons` reads them back (`find`).
+    """
+    count = len(hashes)
+    low_bits = (0xFFFFFFFF // count).bit_length() - 1
+    bucket_bits = 32 - low_bits
+    assert all(a < b for a, b in zip(hashes, hashes[1:])), "hashes ascend, each once"
+    low = [(value >> bit) & 1 for value in hashes for bit in range(low_bits)]
+    # Zeros end the buckets: one for each of the 2**bucket_bits values.
+    high, bucket, starts = [], 0, [0]
+    pending = sorted(value >> low_bits for value in hashes)
+    for value in pending:
+        while bucket < value:
+            high.append(0)
+            bucket += 1
+            if bucket % SAMPLE_BUCKETS == 0:
+                starts.append(len(high))
+        high.append(1)
+    while bucket < 1 << bucket_bits:
+        high.append(0)
+        bucket += 1
+        if bucket % SAMPLE_BUCKETS == 0 and bucket < 1 << bucket_bits:
+            starts.append(len(high))
+    code_bits = max(codes).bit_length()
+    packed_codes = [(code >> bit) & 1 for code in codes for bit in range(code_bits)]
+    lines = [
+        "/// The number of icons: the hashes and the codes.",
+        LOOKED_UP,
+        f"pub(crate) const COUNT: usize = {count};",
+        "",
+        "/// Bits of a hash that LOW holds, of its 32 (the rest are HIGH's).",
+        LOOKED_UP,
+        f"pub(crate) const LOW_BITS: usize = {low_bits};",
+        "",
+        "/// Buckets of HIGH's bits between two entries of SAMPLES.",
+        LOOKED_UP,
+        f"pub(crate) const SAMPLE_BUCKETS: usize = {SAMPLE_BUCKETS};",
+        "",
+        "/// Bits of a code that CODES holds for each icon.",
+        LOOKED_UP,
+        f"pub(crate) const CODE_BITS: usize = {code_bits};",
+        "",
+    ]
+    lines += array(
+        "The low bits of the hashes ([`hash`]) of the names of all of Tabler's\n"
+        "/// icons, which ascend and are no two the same, `LOW_BITS` for each, the\n"
+        "/// first in a byte's lowest bit (Elias-Fano, see tools/icons/subset.py).\n"
+        "/// The icon font holds the icons PaperPaw uses, packs add others.",
+        "LOW",
+        "u8",
+        bits_to_bytes(low),
+        LOOKED_UP,
+    )
+    lines += array(
+        "The high bits of the hashes: a bit for each icon, and a zero ending each\n"
+        "/// value of them.",
+        "HIGH",
+        "u8",
+        bits_to_bytes(high),
+        LOOKED_UP,
+    )
+    lines += array(
+        "Where in HIGH the values 0, `SAMPLE_BUCKETS`, twice that and so on\n"
+        "/// start.",
+        "SAMPLES",
+        "u16",
+        starts,
+        LOOKED_UP,
+    )
+    lines += array(
+        "The code point of the icon whose hash is the `i`th: its distance from\n"
+        "/// [`CODE_BASE`], `CODE_BITS` for each, the first in a byte's lowest bit.",
+        "CODES",
+        "u8",
+        bits_to_bytes(packed_codes),
+        LOOKED_UP,
+    )
+    return lines
 
 
 def array(doc, name, kind, values, attribute=None):
