@@ -33,8 +33,8 @@ use paperpaw_sdk::{
         formatting::Arg,
         library::Library,
         net::{
-            FileRoot, MAX_SERVED_BODY, Net, REQUEST_INPUT, Reason, Response, ServedRequest, Server,
-            ServerState,
+            FileRoot, Header, MAX_SERVED_BODY, Net, REQUEST_INPUT, Reason, Response, ServedRequest,
+            Server, ServerState,
         },
         registrations,
         registry::Registry,
@@ -718,6 +718,11 @@ impl NativeTransfer {
     /// Sends `answer` to request `number`.
     fn send(&mut self, host: &Host<'_>, number: u32, answer: &Answer) -> Result<(), Error> {
         let mut response = Response::new(number, answer.status)?.content_type(answer.kind)?;
+        // The page is kept gzip (`native_gzip.rs`) and sent as it is.
+        let gzip = [Header::new("Content-Encoding", "gzip")?];
+        if matches!(answer.body, Body::Data(file) if file == native_web::PAGE_FILE) {
+            response = response.headers(&gzip)?;
+        }
         response = match &answer.body {
             Body::Text(words) => response.body(words.as_bytes())?,
             Body::Owned(words) => response.body(words.as_bytes())?,

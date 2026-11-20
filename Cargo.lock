@@ -2188,6 +2188,7 @@ dependencies = [
 name = "paperpaw-plugin-fonts-default"
 version = "1.0.3"
 dependencies = [
+ "flate2",
  "paperpaw-graphics",
  "paperpaw-i18n",
  "paperpaw-platform",
@@ -2836,6 +2837,7 @@ dependencies = [
 name = "paperpaw-plugin-transfer"
 version = "1.0.6"
 dependencies = [
+ "flate2",
  "paperpaw-core",
  "paperpaw-digest",
  "paperpaw-fat",
@@ -3093,11 +3095,13 @@ name = "paperpaw-text"
 version = "0.6.0-beta.4"
 dependencies = [
  "font-types",
+ "miniz_oxide 0.9.1",
  "paperpaw-graphics",
  "paperpaw-hyphen",
  "paperpaw-lang",
  "paperpaw-platform",
  "paperpaw-sort",
+ "paperpaw-text",
  "proptest",
  "read-fonts",
  "skrifa",

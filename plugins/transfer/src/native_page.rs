@@ -23,7 +23,10 @@ use paperpaw_ui_kit::{
 
 use crate::native_web::{PAGE_FILE, push_json};
 
+/// The page as written, for the tests (the program carries it deflated).
+#[cfg(test)]
 const PAGE: &str = include_str!("../data/page.html");
+#[cfg(test)]
 const PLACEHOLDER: &str = "/*STRINGS*/{}";
 const DEVICE_NAME: &str = "core.device-name";
 pub(crate) const LIBRARY: &str = "core.library-folder";
@@ -130,17 +133,9 @@ fn join(json: &mut String, name: &str, text: &str) -> Result<(), Error> {
     push_json(json, text)
 }
 
-/// The page with `json` where the strings go.
+/// The page, gzip, with `json` where the strings go (`native_gzip.rs`).
 fn assemble(json: &str) -> Result<Vec<u8>, Error> {
-    let at = PAGE.find(PLACEHOLDER).ok_or(Error::Invalid)?;
-    let (head, tail) = (&PAGE[..at], &PAGE[at + PLACEHOLDER.len()..]);
-    let mut page = Vec::new();
-    page.try_reserve_exact(head.len() + json.len() + tail.len())
-        .map_err(|_| Error::NoMemory)?;
-    page.extend_from_slice(head.as_bytes());
-    page.extend_from_slice(json.as_bytes());
-    page.extend_from_slice(tail.as_bytes());
-    Ok(page)
+    crate::native_gzip::page(json)
 }
 
 /// Writes the page for the requests of this time of serving.
@@ -158,8 +153,12 @@ mod tests {
 
     #[test]
     fn the_strings_go_where_the_page_names_them_and_nowhere_else() {
-        let page = assemble("{a:1}").unwrap();
-        let page = core::str::from_utf8(&page).unwrap();
+        use std::io::Read;
+        let gzip = assemble("{a:1}").unwrap();
+        let mut page = String::new();
+        flate2::read::GzDecoder::new(&gzip[..])
+            .read_to_string(&mut page)
+            .unwrap();
         assert!(page.contains("const T = {a:1};"));
         assert!(!page.contains(PLACEHOLDER));
         assert_eq!(page.len(), PAGE.len() - PLACEHOLDER.len() + 5);

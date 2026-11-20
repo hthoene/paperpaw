@@ -160,6 +160,64 @@ impl GlyphCache {
     }
 }
 
+/// The block of a built-in pack's deflated bitmaps that was inflated last,
+/// and which it is: the pack's bytes lie at an address, so that it is told
+/// from another pack's.
+#[cfg(feature = "kernel")]
+#[derive(Debug, Default)]
+struct Blocks {
+    data: Vec<u8>,
+    of: Option<(usize, usize)>,
+}
+
+/// The glyph for `ch` at `size` of a built-in pack whose bitmaps are deflated
+/// (`deflated.rs`), its bitmap inflated out of the block or the two it lies
+/// in (the last one inflated is kept, so that glyphs side by side in the pack
+/// inflate it once) into `bitmap`; `None` where that could not be done.
+#[cfg(feature = "kernel")]
+fn read_deflated(
+    font: &crate::bitmap::BitmapFont,
+    ch: char,
+    size: f32,
+    mut bitmap: Vec<u8>,
+    blocks: &mut Blocks,
+) -> Option<Glyph> {
+    use crate::deflated::BLOCK;
+    let found = font.locate(ch, size)?;
+    let (deflated, pack) = font.deflated()?;
+    bitmap.clear();
+    bitmap.try_reserve_exact(found.len).ok()?;
+    let (of, end) = (pack.as_ptr() as usize, found.start.checked_add(found.len)?);
+    let mut at = found.start;
+    while at < end {
+        let block = at / BLOCK;
+        if blocks.of != Some((of, block)) {
+            blocks.of = None;
+            if !deflated.inflate(pack, block, &mut blocks.data) {
+                return None;
+            }
+            blocks.of = Some((of, block));
+        }
+        let from = at - block * BLOCK;
+        let to = (end - block * BLOCK).min(blocks.data.len());
+        let piece = blocks
+            .data
+            .get(from..to)
+            .filter(|piece| !piece.is_empty())?;
+        bitmap.extend_from_slice(piece);
+        at = block * BLOCK + to;
+    }
+    Some(Glyph {
+        format: found.format,
+        left: found.left,
+        top: found.top,
+        width: found.width,
+        height: found.height,
+        advance: found.advance,
+        data: bitmap,
+    })
+}
+
 /// The least recently used glyphs go first.
 #[derive(Debug)]
 struct Lru {
@@ -172,6 +230,10 @@ struct Lru {
     clock: u32,
     /// Bitmaps of glyphs let go, at most [`SPARE`] (see there).
     spare: Vec<Vec<u8>>,
+    /// The last block of a built-in pack's deflated bitmaps that was
+    /// inflated (see [`Blocks`]).
+    #[cfg(feature = "kernel")]
+    blocks: alloc::rc::Rc<core::cell::RefCell<Blocks>>,
 }
 
 impl Cache for Lru {
@@ -195,6 +257,23 @@ impl Cache for Lru {
     ) -> GlyphRef<'a> {
         let ch = font.shown(ch);
         match font {
+            #[cfg(feature = "kernel")]
+            Font::Bitmap(font) if font.is_deflated() => {
+                // A glyph is inflated once and kept like one read from a card:
+                // text draws a glyph again and again.
+                let blocks = self.blocks.clone();
+                match self.cached_with(font_index, ch, size, |s, spare| {
+                    read_deflated(font, ch, s, spare, &mut blocks.borrow_mut())
+                }) {
+                    Some(glyph) => glyph,
+                    // Not read now (no memory, a damaged block): drawn as
+                    // nothing, its advance kept.
+                    None => GlyphRef {
+                        advance: font.advance(ch, size),
+                        ..NOT_READ
+                    },
+                }
+            }
             Font::Bitmap(font) => font.glyph(ch, size),
             // Not read now (the card pulled): drawn as nothing, its
             // advance kept, so that the line stays as it was measured.
@@ -271,10 +350,14 @@ impl Cache for Lru {
     fn trim(&mut self, keep: usize) {
         self.shrink_to(keep);
         self.spare = Vec::new();
+        #[cfg(feature = "kernel")]
+        self.let_blocks_go();
         self.entries.shrink_to_fit();
     }
 
     fn clear(&mut self) {
+        #[cfg(feature = "kernel")]
+        self.let_blocks_go();
         self.entries = Vec::new();
         self.anchored = Vec::new();
         self.spare = Vec::new();
@@ -291,7 +374,15 @@ impl Lru {
             capacity,
             clock: 0,
             spare: Vec::new(),
+            #[cfg(feature = "kernel")]
+            blocks: alloc::rc::Rc::default(),
         }
+    }
+
+    /// Lets the block go, and the memory that held it.
+    #[cfg(feature = "kernel")]
+    fn let_blocks_go(&mut self) {
+        *self.blocks.borrow_mut() = Blocks::default();
     }
 
     /// The glyph of a key, made by `rasterize` if it is not kept: `None`

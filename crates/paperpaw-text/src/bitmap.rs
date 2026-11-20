@@ -241,6 +241,9 @@ use alloc::vec::Vec;
 use core::fmt;
 
 use crate::anchors::{self, Anchors};
+#[cfg(feature = "kernel")]
+use crate::deflated::Deflated;
+use crate::deflated::VERSION_FLAG;
 use crate::font::{FontError, LineMetrics};
 use crate::glyph::{Glyph, GlyphRef};
 use crate::kern_table;
@@ -282,6 +285,10 @@ const KERNING: usize = HEADER + 28;
 pub struct BitmapFont {
     data: Cow<'static, [u8]>,
     strikes: u16,
+    /// Where the bitmaps are, where the pack carries them deflated
+    /// (`deflated.rs`).
+    #[cfg(feature = "kernel")]
+    deflated: Option<Deflated>,
 }
 
 impl fmt::Debug for BitmapFont {
@@ -314,11 +321,28 @@ impl BitmapFont {
         if !Self::is_pack(&data) || data.len() < HEADER {
             return Err(FontError::Invalid);
         }
-        if data[4] != VERSION && data[4] != VERSION_TABLES {
+        let version = data[4] & !VERSION_FLAG;
+        if version != VERSION && version != VERSION_TABLES {
+            return Err(FontError::UnsupportedVersion);
+        }
+        // Deflated bitmaps: for a program that inflates them (the kernel's).
+        #[cfg(feature = "kernel")]
+        let deflated = if data[4] & VERSION_FLAG != 0 {
+            Some(Deflated::of(&data).ok_or(FontError::Invalid)?)
+        } else {
+            None
+        };
+        #[cfg(not(feature = "kernel"))]
+        if data[4] & VERSION_FLAG != 0 {
             return Err(FontError::UnsupportedVersion);
         }
         let strikes = u16_at(&data, 8).ok_or(FontError::Invalid)?;
-        let font = BitmapFont { data, strikes };
+        let font = BitmapFont {
+            data,
+            strikes,
+            #[cfg(feature = "kernel")]
+            deflated,
+        };
         if strikes == 0 {
             return Err(FontError::Invalid);
         }
@@ -329,11 +353,21 @@ impl BitmapFont {
                 .glyphs
                 .checked_mul(RECORD)
                 .and_then(|table| table.checked_add(strike.glyph_table));
-            if end.is_none_or(|end| end > font.data.len()) || strike.bitmaps > font.data.len() {
+            if end.is_none_or(|end| end > font.data.len()) || strike.bitmaps > font.bitmap_space() {
                 return Err(FontError::Invalid);
             }
         }
         Ok(font)
+    }
+
+    /// The bytes the strikes' bitmaps are addressed in: the pack's, or where
+    /// they are deflated, their stream's.
+    fn bitmap_space(&self) -> usize {
+        #[cfg(feature = "kernel")]
+        if let Some(deflated) = &self.deflated {
+            return deflated.len;
+        }
+        self.data.len()
     }
 
     /// The slot of the anchors table (see the module's documentation).
@@ -354,7 +388,7 @@ impl BitmapFont {
     /// Table `slot` of the pack (see the module's documentation), from
     /// its head to its end, if it has one whole: read in place.
     pub fn table(&self, slot: usize) -> Option<&[u8]> {
-        if self.data.get(4) != Some(&VERSION_TABLES) {
+        if self.data.get(4).map(|version| version & !VERSION_FLAG) != Some(VERSION_TABLES) {
             return None;
         }
         let mut directory = HEADER.checked_add(usize::from(self.strikes) * STRIKE)?;
@@ -583,54 +617,110 @@ impl BitmapFont {
             advance: 0.0,
             data: &[],
         };
-        let Some(nearest) = self.nearest_index(size).and_then(|i| self.tables(i)) else {
+        let Some(found) = self.locate(ch, size) else {
             return empty;
         };
-        let found = match self.record(&nearest, ch) {
-            Some(record) => Some((nearest, record)),
+        // Where the bitmaps are deflated they are not read in place: the
+        // glyph cache reads them (`Located`, `BitmapFont::inflated`); what
+        // this gives is the glyph's metrics, enough to measure.
+        let data = if self.is_deflated() {
+            Some(&[][..])
+        } else if found.format == crate::glyph::PACKED4 {
+            // The data does not bound the decoding, the size does.
+            self.data.get(found.start..)
+        } else {
+            found
+                .start
+                .checked_add(found.len)
+                .and_then(|end| self.data.get(found.start..end))
+        };
+        data.map_or(empty, |data| GlyphRef {
+            format: found.format,
+            advance: found.advance,
+            left: found.left,
+            top: found.top,
+            width: found.width,
+            height: found.height,
+            data,
+        })
+    }
+
+    /// Where the glyph for `ch` at `size` is (see [`BitmapFont::glyph`] for
+    /// the strike and the character it falls back to); `None` where the
+    /// pack has none or it is damaged.
+    pub(crate) fn locate(&self, ch: char, size: f32) -> Option<Located> {
+        let nearest = self.nearest_index(size).and_then(|i| self.tables(i))?;
+        let (strike, offset) = match self.record(&nearest, ch) {
+            Some(record) => (nearest, record),
             None => self.nearest_with(size, ch).or_else(|| {
                 let fallback = ['\u{fffd}', '?']
                     .into_iter()
                     .find_map(|c| self.nearest_with(size, c))?;
                 Some(fallback)
-            }),
-        };
-        let Some((strike, offset)) = found else {
-            return empty;
+            })?,
         };
         let d = &self.data;
-        let read = || -> Option<GlyphRef<'_>> {
-            let width = u16_at(d, offset + 12)?;
-            let height = u16_at(d, offset + 14)?;
-            let start = strike
-                .bitmaps
-                .checked_add(u32_at(d, offset + 16)? as usize)?;
-            // Packed: the glyph's stream, as far as the pack goes (the
-            // decoder stops at the glyph's last pixel).
-            let (format, data) = if strike.packed {
-                // The data does not bound the decoding, the size does.
-                if !crate::glyph::fits(usize::from(width), usize::from(height), strike.size) {
-                    return None;
-                }
-                (crate::glyph::PACKED4, d.get(start..)?)
-            } else {
-                let len = usize::from(width).div_ceil(2) * usize::from(height);
-                (
-                    crate::glyph::COVERAGE4,
-                    d.get(start..start.checked_add(len)?)?,
-                )
-            };
-            Some(GlyphRef {
-                format,
-                advance: q6(i32_at(d, offset + 4)?).max(0.0),
-                left: i16_at(d, offset + 8)?,
-                top: i16_at(d, offset + 10)?,
-                width,
-                height,
-                data,
-            })
+        let width = u16_at(d, offset + 12)?;
+        let height = u16_at(d, offset + 14)?;
+        let start = strike
+            .bitmaps
+            .checked_add(u32_at(d, offset + 16)? as usize)?;
+        let (format, len) = if strike.packed {
+            if !crate::glyph::fits(usize::from(width), usize::from(height), strike.size) {
+                return None;
+            }
+            // At most a byte for a pixel (a one pixel run takes two nibbles),
+            // and what lies before the next glyph's bitmap, which follows it
+            // in the strike as the builder lays them out.
+            let room = self.bitmap_space().saturating_sub(start);
+            let mut most = (usize::from(width) * usize::from(height)).min(room);
+            let next = offset + RECORD < strike.glyph_table + strike.glyphs * RECORD;
+            if let Some(next) = u32_at(d, offset + RECORD + 16)
+                .filter(|_| next)
+                .and_then(|n| strike.bitmaps.checked_add(n as usize))
+                .filter(|&n| n >= start)
+            {
+                most = most.min(next - start);
+            }
+            (crate::glyph::PACKED4, most)
+        } else {
+            (
+                crate::glyph::COVERAGE4,
+                usize::from(width).div_ceil(2) * usize::from(height),
+            )
         };
-        read().unwrap_or(empty)
+        // Past the bitmaps the glyph is not one.
+        if start > self.bitmap_space()
+            || (!strike.packed && start.checked_add(len)? > self.bitmap_space())
+        {
+            return None;
+        }
+        Some(Located {
+            format,
+            advance: q6(i32_at(d, offset + 4)?).max(0.0),
+            left: i16_at(d, offset + 8)?,
+            top: i16_at(d, offset + 10)?,
+            width,
+            height,
+            start,
+            len,
+        })
+    }
+
+    /// Whether the pack's bitmaps are deflated (`deflated.rs`).
+    pub(crate) fn is_deflated(&self) -> bool {
+        self.data
+            .get(4)
+            .is_some_and(|version| version & VERSION_FLAG != 0)
+    }
+
+    /// The pack's bytes and where its bitmaps are deflated, for a cache that
+    /// reads them (`None` for a pack with bitmaps in place).
+    #[cfg(feature = "kernel")]
+    pub(crate) fn deflated(&self) -> Option<(&Deflated, &[u8])> {
+        self.deflated
+            .as_ref()
+            .map(|deflated| (deflated, &self.data[..]))
     }
 
     pub fn advance(&self, ch: char, size: f32) -> f32 {
@@ -657,6 +747,20 @@ impl BitmapFont {
         };
         f32::from(units) * f32::from(quarters) / (4.0 * kern_table::UNITS)
     }
+}
+
+/// Where a glyph is: its metrics, and its bitmap's place among the strikes'
+/// bitmaps (`start`) and its size (`len`: of a packed glyph, at most).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Located {
+    pub(crate) format: u8,
+    pub(crate) left: i16,
+    pub(crate) top: i16,
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+    pub(crate) advance: f32,
+    pub(crate) start: usize,
+    pub(crate) len: usize,
 }
 
 /// Where a strike's glyphs are (see [`BitmapFont::tables`]).

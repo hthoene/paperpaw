@@ -28,6 +28,13 @@ skrifa = { version = "=0.48.0", default-features = false, features = ["libm"], o
 read-fonts = { version = "=0.45.1", default-features = false, optional = true }
 font-types = { version = "=0.12.7", default-features = false, optional = true }
 
+# Inflates built-in packs' bitmaps, kept deflated in blocks (`deflated.rs`,
+# #428); the kernel's, never a plugin's. The same version as the firmware's.
+[dependencies.miniz_oxide]
+version = "=0.9.1"
+default-features = false
+optional = true
+
 [features]
 default = []
 # Render OpenType/TrueType fonts at runtime: on computers, phones and in
@@ -41,9 +48,12 @@ outline = ["dep:skrifa", "dep:read-fonts", "dep:font-types"]
 # the table of Thai words held while text is broken into lines, a static
 # a native plugin may not have (ADR 0024). Adds no item: without it, Thai
 # breaks only at spaces and U+200B.
-kernel = []
+kernel = ["dep:miniz_oxide"]
 
 [dev-dependencies]
+# The tests of what the kernel's feature adds (`deflated.rs`).
+paperpaw-text = { path = ".", features = ["kernel"] }
+miniz_oxide = { version = "=0.9.1", default-features = false, features = ["with-alloc"] }
 paperpaw-hyphen.workspace = true
 proptest.workspace = true
 
