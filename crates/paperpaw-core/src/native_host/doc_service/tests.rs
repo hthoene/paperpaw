@@ -114,6 +114,10 @@ pub(crate) struct Fake {
     pub(crate) guard_fails: Cell<bool>,
     /// The paths the marker was written for, and whether it was removed.
     pub(crate) guarded: RefCell<Vec<std::string::String>>,
+    /// What the conversion hook answers (`DocHost::convert`): the text for an
+    /// element, or `None` for no hook; the markups it was asked about.
+    pub(crate) hook: RefCell<Option<std::string::String>>,
+    pub(crate) hooked: RefCell<Vec<std::string::String>>,
 }
 impl Fake {
     pub(crate) fn new(limits: Limits) -> Rc<Self> {
@@ -132,6 +136,8 @@ impl Fake {
             ending: Cell::new(None),
             stops_during_call: Cell::new(false),
             closed: RefCell::new(Vec::new()),
+            hook: RefCell::new(None),
+            hooked: RefCell::new(Vec::new()),
             image: Cell::new(Some(Some(41))),
             rows: RefCell::new(Vec::new()),
             generation: Cell::new(5),
@@ -192,6 +198,12 @@ impl DocHost for Fake {
     }
     fn open_cache(&self, _call: &FormatCall<'_>) -> Result<(), i32> {
         self.cache_fails.get().map_or(Ok(()), Err)
+    }
+    fn convert(&self, element: &str, markup: &str) -> Result<Option<std::string::String>, i32> {
+        self.hooked
+            .borrow_mut()
+            .push(std::format!("{element}:{markup}"));
+        Ok(self.hook.borrow().clone())
     }
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32> {
         let mut options = 0;

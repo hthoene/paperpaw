@@ -511,6 +511,9 @@ const paperpaw_sdk::native::canvas::describe::PartFlags::ON: Self = Self((1 << 1
 const paperpaw_sdk::native::commands::evidence::MAX_REVOCATIONS: usize = 16usize
 const paperpaw_sdk::native::commands::evidence::MAX_ROTATIONS: usize = 6usize
 const paperpaw_sdk::native::commands::uix::SHOW_AGAIN_MIN_MS: u32 = 60_000u32
+const paperpaw_sdk::native::convert::MARKUP_MAX: usize = 1_024usize
+const paperpaw_sdk::native::convert::STAGE: &str = stage::KEY
+const paperpaw_sdk::native::convert::TEXT_MAX: usize = 2_048usize
 const paperpaw_sdk::native::declare::BATCH_MAX_BYTES: usize = 4_096usize
 const paperpaw_sdk::native::declare::BATCH_MAX_RECORDS: usize = 8usize
 const paperpaw_sdk::native::declare::CHOICES_MAX_VALUES: usize = 64usize
@@ -1721,6 +1724,23 @@ const paperpaw_sdk::native::stage_schemas::core_book_badge_v1::REPLY_ROWS: usize
 const paperpaw_sdk::native::stage_schemas::core_book_badge_v1::REPLY_TAGS: &[u32] = &[2]
 const paperpaw_sdk::native::stage_schemas::core_book_badge_v1::REVISION: u16 = 0u16
 const paperpaw_sdk::native::stage_schemas::core_book_badge_v1::TEST_ONLY: bool = false
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::CONV_ASK_ELEMENT_MAX_BYTES: usize = 32usize
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::CONV_ASK_MARKUP_MAX_BYTES: usize = 1_024usize
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::CONV_ASK_TAG: u32 = 1u32
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::CONV_TEXT_TAG: u32 = 2u32
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::CONV_TEXT_TEXT_MAX_BYTES: usize = 2_048usize
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::ConvAsk<'a>::TAG: u32 = CONV_ASK_TAG
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::ConvText<'a>::TAG: u32 = CONV_TEXT_TAG
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::INPUT_TAGS: &[u32] = &[1]
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::KEY: &str = "core.convert"
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::MAJOR: u16 = 1u16
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::MAX_INPUT: usize = 1_088usize
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::MAX_REPLY: usize = 2_112usize
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::MAX_SUBSCRIBERS: usize = 4usize
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::REPLY_ROWS: usize = 1usize
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::REPLY_TAGS: &[u32] = &[2]
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::REVISION: u16 = 0u16
+const paperpaw_sdk::native::stage_schemas::core_convert_v1::TEST_ONLY: bool = false
 const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_AT_TAG: u32 = 19u32
 const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_BLOCK_LANG_MAX_BYTES: usize = 35usize
 const paperpaw_sdk::native::stage_schemas::core_format_v1::FMT_BLOCK_TAG: u32 = 10u32
@@ -2513,6 +2533,7 @@ enum paperpaw_sdk::native::sockets::SocketKind { Connected, Secured, Untrusted, 
 enum paperpaw_sdk::native::sockets::Untrusted { UnknownIssuer, NotPinned, Other(0: u32) }
 enum paperpaw_sdk::native::sockets::reader::Progress { Queued, Waiting }
 enum paperpaw_sdk::native::stage_schemas::core_book_badge_v1::Record<'a> { BadgeAsk(0: paperpaw_sdk::native::stage_schemas::core_book_badge_v1::BadgeAsk<'a>), BadgeValue(0: paperpaw_sdk::native::stage_schemas::core_book_badge_v1::BadgeValue<'a>) }
+enum paperpaw_sdk::native::stage_schemas::core_convert_v1::Record<'a> { ConvAsk(0: paperpaw_sdk::native::stage_schemas::core_convert_v1::ConvAsk<'a>), ConvText(0: paperpaw_sdk::native::stage_schemas::core_convert_v1::ConvText<'a>) }
 enum paperpaw_sdk::native::stage_schemas::core_format_v1::Record<'a> { FmtCall(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtCall<'a>), FmtOption(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtOption<'a>), FmtYes(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtYes), FmtImage(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtImage<'a>), FmtState(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtState<'a>), FmtMeta(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtMeta<'a>), FmtText(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtText<'a>), FmtSection(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtSection), FmtEnd(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtEnd), FmtBlock(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtBlock<'a>), FmtTextPart(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtTextPart<'a>), FmtRun(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtRun), FmtMap(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtMap), FmtColumns(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtColumns<'a>), FmtCell(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtCell), FmtRuby(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtRuby<'a>), FmtInlineLang(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtInlineLang<'a>), FmtToc(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtToc<'a>), FmtAt(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtAt), FmtLabel(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtLabel<'a>), FmtXpointer(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtXpointer<'a>), FmtLink(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtLink<'a>), FmtFont(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtFont), FmtProgress(0: paperpaw_sdk::native::stage_schemas::core_format_v1::FmtProgress) }
 enum paperpaw_sdk::native::stage_schemas::core_input_filter_v1::Record<'a> { FilterInput(0: paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterInput<'a>), FilterVerdict(0: paperpaw_sdk::native::stage_schemas::core_input_filter_v1::FilterVerdict<'a>) }
 enum paperpaw_sdk::native::stage_schemas::core_lookup_v1::Record<'a> { LookupAsk(0: paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupAsk<'a>), LookupEntry(0: paperpaw_sdk::native::stage_schemas::core_lookup_v1::LookupEntry<'a>) }
@@ -2721,6 +2742,8 @@ struct paperpaw_sdk::native::commands::evidence::Revocation<'a> { plugin: &'a st
 struct paperpaw_sdk::native::commands::evidence::Rotation<'a> { to: &'a [u8; 32], signature: &'a [u8; 64] }
 struct paperpaw_sdk::native::commands::item_state::ItemState<'a> { flags: u32, label: &'a str, label_args: &'a [paperpaw_sdk::native::formatting::Arg<'a>], badge: &'a str, badge_args: &'a [paperpaw_sdk::native::formatting::Arg<'a>] }
 struct paperpaw_sdk::native::commands::registry::PreviewSetting<'a> { key: &'a str, value: paperpaw_sdk::native::settings::SettingValue<'a> }
+struct paperpaw_sdk::native::convert::Asked<'a> { element: &'a str, markup: &'a str }
+struct paperpaw_sdk::native::convert::Converted<'a> { text: &'a str }
 struct paperpaw_sdk::native::declare::ActionDecl<'a> { name: &'a str, title: &'a str, token: u32, needs_screen: bool }
 struct paperpaw_sdk::native::declare::Declarations<F> { sink: F, bytes: alloc::vec::Vec<u8>, used: usize, count: usize, total: usize, failed: core::option::Option<paperpaw_sdk::native::declare::Latched>, abort_sent: bool }
 struct paperpaw_sdk::native::declare::ExtraDecl<'a> { name: &'a str, unit: &'a str, section: &'a str, follows: &'a str, shown_if: core::option::Option<(&'a str, &'a str)>, editor: core::option::Option<paperpaw_sdk::native::declare::EditorDecl<'a>>, step: i32, slider: bool, section_of_plugin: bool, keeps_unknown: bool }
@@ -3327,6 +3350,11 @@ struct paperpaw_sdk::native::stage_schemas::core_book_badge_v1::BadgeValue<'a> {
 struct paperpaw_sdk::native::stage_schemas::core_book_badge_v1::InputWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
 struct paperpaw_sdk::native::stage_schemas::core_book_badge_v1::RecordStream<'a> { bytes: &'a [u8], remaining: usize }
 struct paperpaw_sdk::native::stage_schemas::core_book_badge_v1::ReplyWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
+struct paperpaw_sdk::native::stage_schemas::core_convert_v1::ConvAsk<'a> { element: &'a str, flags: u32, markup: &'a str }
+struct paperpaw_sdk::native::stage_schemas::core_convert_v1::ConvText<'a> { text: &'a str, flags: u32 }
+struct paperpaw_sdk::native::stage_schemas::core_convert_v1::InputWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
+struct paperpaw_sdk::native::stage_schemas::core_convert_v1::RecordStream<'a> { bytes: &'a [u8], remaining: usize }
+struct paperpaw_sdk::native::stage_schemas::core_convert_v1::ReplyWriter<'w> { out: &'w mut [u8], offset: usize, rows: usize }
 struct paperpaw_sdk::native::stage_schemas::core_format_v1::FmtAt { document: u32, section: u32, offset: u32, insert: u32, cursor: u32, generation: u32 }
 struct paperpaw_sdk::native::stage_schemas::core_format_v1::FmtBlock<'a> { kind: u32, level: u32, flags: u32, start: u32, end: u32, align: u32, indent: i32, space: u32, size: u32, margin_start: u32, margin_end: u32, line_height: u32, dir: u32, writing_mode: u32, lang: &'a str, drop_cap: u32, text_bytes: u32 }
 struct paperpaw_sdk::native::stage_schemas::core_format_v1::FmtCall<'a> { op: u32, document: u32, section: u32, offset: u32, index: u32, cursor: u32, generation: u32, flags: u32, image_side: u32, cover_side: u32, conversion: u64, text: &'a str, arg: &'a [u8] }

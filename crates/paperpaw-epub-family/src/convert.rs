@@ -22,6 +22,11 @@
 //! - `<n>.lnk`: `start<TAB>end<TAB>href` lines for links, in order: `href`
 //!   as an archive path with its fragment (`text/ch2.xhtml#note3`), or as
 //!   written for links out of the book.
+//! - `<n>.fgn`: `start<TAB>end<TAB>markup` lines for the elements the format
+//!   leaves to another plugin (`<math>`; `docs/abi/document.md` 4.1), in
+//!   order: `start..end` the text written for it (as the links' positions), the
+//!   markup on one line. A block that has one says so in the high bit of its
+//!   index entry's language count.
 //! - `<n>.pos`: `offset<TAB>path` lines: the element each record comes
 //!   from, as a path below `<body>` such as `div[2]/p[22]`, for positions
 //!   other readers understand (KOReader's XPointers).
@@ -68,6 +73,7 @@ mod chapter;
 mod decode;
 mod direction;
 mod elements;
+pub(crate) mod foreign;
 mod lists;
 pub(crate) mod math;
 mod start;
@@ -77,10 +83,10 @@ pub(crate) use chapter::convert;
 pub(crate) use decode::{decode_entry, decode_file, decode_image};
 pub(crate) use direction::{BookText, dir_from_bits};
 
-/// A formula (`<math>`) being read: the chapter hands it what it reads inside
-/// the element, and has it as text when the element ends. Only the plugin that
-/// reads MathML makes one (`BookText::with_formulas`), so the other plugins do
-/// not link the code that does.
+/// An element (`<math>`) being read: the chapter hands it what it reads inside
+/// the element, and has it as text when the element ends. In the chapter it is
+/// the capture of `foreign`; the plugin that converts MathML reads it with
+/// `math`.
 pub(crate) trait Formula {
     /// An element inside the formula starts.
     fn start(
@@ -98,6 +104,9 @@ pub(crate) trait Formula {
 pub(crate) struct Done {
     pub(crate) text: String,
     pub(crate) display: bool,
+    /// The element as markup, for the plugin that converts it (`foreign`);
+    /// `None` where the text is all there is.
+    pub(crate) markup: Option<String>,
 }
 
 /// Makes the formula of the `<math>` element with these attributes.
@@ -488,8 +497,13 @@ struct Converter<'a> {
     /// Style where the pending space was, e.g. inside a bold word group.
     space_style: TextStyle,
     failed: Option<DocumentError>,
-    /// The formula being read (`<math>`), while one is.
+    /// The element being read to be left to another plugin (`<math>`), while
+    /// one is.
     math: Option<Box<dyn Formula>>,
+    /// Pending `<n>.fgn` lines.
+    foreign: String,
+    /// The block being collected has one.
+    block_foreign: bool,
 }
 
 impl Converter<'_> {
@@ -816,6 +830,7 @@ impl Converter<'_> {
             self.flush()?;
             self.align = Some(Align::Center);
         }
+        let from = self.text.len();
         for (n, line) in done.text.split('\n').enumerate() {
             if n > 0 {
                 self.push('\n')?;
@@ -823,8 +838,37 @@ impl Converter<'_> {
             }
             self.characters(line, true)?;
         }
+        if let Some(markup) = &done.markup {
+            self.note_foreign(from, markup)?;
+        }
         if done.display {
             self.flush()?;
+        }
+        Ok(())
+    }
+
+    /// The text just written from `from` on stands for an element the format
+    /// leaves to another plugin: `<n>.fgn` says where it is and what it is.
+    fn note_foreign(&mut self, from: usize, markup: &str) -> Result<(), DocumentError> {
+        // A space the text began with is the paragraph's, not the element's.
+        let skipped = self
+            .text
+            .get(from..)
+            .map_or(0, |t| t.len() - t.trim_start_matches(' ').len());
+        let (start, end) = (from + skipped, self.text.len());
+        if start >= end || self.full {
+            return Ok(());
+        }
+        let base = self.length + HEADER;
+        fallible::try_write!(
+            &mut self.foreign,
+            "{}\t{}\t{markup}\n",
+            base + start as u32,
+            base + end as u32
+        )?;
+        self.block_foreign = true;
+        if self.foreign.len() >= FLUSH_SMALL {
+            self.write_foreign();
         }
         Ok(())
     }
@@ -1050,6 +1094,7 @@ impl Converter<'_> {
         self.dir = None;
         self.lang = None;
         self.inline_langs.clear();
+        self.block_foreign = false;
         self.drop_cap = (0, None);
         self.indent = None;
         self.size = None;
@@ -1099,7 +1144,7 @@ impl Converter<'_> {
         let line_height = self.line_height.unwrap_or(0);
         self.index.extend_from_slice(&line_height.to_le_bytes());
         self.index.extend_from_slice(&lang.to_bits().to_le_bytes());
-        let langs = self.inline_langs.len() as u8;
+        let langs = self.inline_langs.len() as u8 | (u8::from(self.block_foreign) << 7);
         self.index
             .extend_from_slice(&[direction::dir_bits(dir), langs, self.drop_cap.0, table]);
     }
@@ -1118,6 +1163,7 @@ impl Converter<'_> {
             + self.index.len()
             + self.anchors.len()
             + self.links.len()
+            + self.foreign.len()
             + self.positions.len()
             + self.xpointers.len();
         if self.full || self.written.get() + pending as u64 >= self.budget {
@@ -1282,6 +1328,12 @@ impl Converter<'_> {
         let failed = self.append(&self.paths.links, self.links.as_bytes());
         self.failed = self.failed.take().or(failed);
         self.links.clear();
+    }
+
+    fn write_foreign(&mut self) {
+        let failed = self.append(&self.paths.foreign, self.foreign.as_bytes());
+        self.failed = self.failed.take().or(failed);
+        self.foreign.clear();
     }
 
     fn write_pictures(&mut self) {

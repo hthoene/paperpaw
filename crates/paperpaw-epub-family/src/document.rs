@@ -65,8 +65,6 @@ enum Held {
 /// 8 bytes per archive entry and 12 per chapter.
 #[derive(Debug)]
 pub struct EpubDocument {
-    /// How a `<math>` is read, where the plugin reads MathML.
-    formulas: Option<convert::FormulaMaker>,
     archive: LazyArchive,
     /// The spine: archive record and uncompressed size per chapter.
     spine: Vec<Chapter>,
@@ -382,13 +380,6 @@ fn plain_cache(cache: &str) -> Result<String, DocumentError> {
 }
 
 impl EpubDocument {
-    /// The book with its `<math>` elements read as `maker` says.
-    #[must_use]
-    pub(crate) fn with_formulas(mut self, maker: convert::FormulaMaker) -> Self {
-        self.formulas = Some(maker);
-        self
-    }
-
     /// Copies the face named by `params` (see [`FONT_COPY`]) to its file in
     /// chunks as it is inflated, through a temporary name that is renamed at
     /// the end and removed on any error: no more than a chunk is held. `None`
@@ -616,7 +607,6 @@ impl EpubDocument {
             .map_err(|_| DocumentError::OutOfMemory)?;
         lengths.resize_with(package.spine.len(), || Cell::new(UNKNOWN));
         Ok(EpubDocument {
-            formulas: None,
             lengths,
             spine: package.spine,
             metadata,
@@ -765,8 +755,7 @@ impl EpubDocument {
                     self.styles,
                     self.color,
                     self.image_fit,
-                    convert::BookText::of(self.metadata.language.as_deref())
-                        .with_formulas(self.formulas),
+                    convert::BookText::of(self.metadata.language.as_deref()),
                 );
                 // Short of memory, it is tried again: with more free, it
                 // may convert.

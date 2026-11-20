@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use core::cell::Cell;
 
 use paperpaw_sdk::document::{
-    Align, Block, BlockKind, DocumentError, Link, OffsetMap, Run, TextStyle,
+    Align, Annotation, Block, BlockKind, DocumentError, Link, OffsetMap, Run, TextStyle,
 };
 use paperpaw_sdk::lang::Lang;
 use paperpaw_sdk::{Storage, StorageError};
@@ -209,7 +209,8 @@ fn record_sizes(
 ) -> Result<(usize, usize, usize, usize), DocumentError> {
     let len = usize::from(u16::from_le_bytes([header[4], header[5]]));
     let run_count = usize::from(u16::from_le_bytes([header[6], header[7]]));
-    let langs = usize::from(entry[21]);
+    // The high bit says the block has a foreign element (`convert.rs`).
+    let langs = usize::from(entry[21] & 0x7f);
     let table = usize::from(entry[23]);
     if len > convert::LIMIT
         || run_count > len
@@ -407,7 +408,48 @@ fn read_entry(
     // The list as a boxed slice of exactly its size (no growth to refuse).
     block.inline_langs = (!inline_langs.is_empty()).then(|| inline_langs.into_boxed_slice());
     block.table = row;
+    if entry[21] & 0x80 != 0 {
+        attach_foreign(storage, paths, &mut block);
+    }
     Ok(block)
+}
+
+/// The foreign elements of the block, from the chapter's `<n>.fgn`, as
+/// annotations of the kind `Annotation::FOREIGN` over the text written for
+/// each (`document.md` 4.1). No room, or a line that does not fit the block,
+/// leaves the element to its text.
+fn attach_foreign(storage: &dyn Storage, paths: &CachePaths, block: &mut Block) {
+    let (from, to) = (block.start, block.end);
+    let _ = lines(storage, &paths.foreign, |line| {
+        let mut parts = line.splitn(3, '\t');
+        let (Some(start), Some(end), Some(markup)) = (parts.next(), parts.next(), parts.next())
+        else {
+            return true;
+        };
+        let (Ok(start), Ok(end)) = (start.parse::<u32>(), end.parse::<u32>()) else {
+            return true;
+        };
+        if start >= to {
+            return false;
+        }
+        if start < from || end > to || end <= start {
+            return true;
+        }
+        let (start, end) = (start - from, end - from);
+        if !block.text.is_char_boundary(start as usize)
+            || !block.text.is_char_boundary(end as usize)
+            || block.annotations.try_reserve(1).is_err()
+        {
+            return true;
+        }
+        let Ok(markup) = crate::fallible::string(markup) else {
+            return false;
+        };
+        block
+            .annotations
+            .push(Annotation::foreign(start, end, markup));
+        true
+    });
 }
 
 /// The row of a block of kind `kind` and `text`: one whose cells end on

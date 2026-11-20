@@ -6,14 +6,13 @@
 //! Only presentation markup is read; what `<semantics>` carries besides its
 //! first child (`<annotation>`) is left out.
 
-use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
 use paperpaw_sdk::document::DocumentError;
 use paperpaw_sdk::xml::{Attrs, try_decode};
 
-use super::{Done, Formula, FormulaMaker};
+use super::{Done, Formula};
 use crate::fallible;
 
 /// Most text of a formula kept (more is left out).
@@ -192,6 +191,7 @@ impl Formula for Math {
                 Ok(Some(Done {
                     text,
                     display: self.display,
+                    markup: None,
                 }))
             }
         }
@@ -491,8 +491,57 @@ fn tidy(text: &str) -> Result<String, DocumentError> {
     Ok(out)
 }
 
-/// The formula of a `<math>` element with `attrs`.
-pub(crate) const MAKER: FormulaMaker = |attrs| {
-    let math: Box<dyn Formula> = fallible::try_box(Math::new(attrs)?)?;
-    Ok(math)
-};
+/// The text of a foreign element's markup (`convert/foreign.rs` keeps it as
+/// `<math …>…</math>` in the chapter's cache): the formula in its linear
+/// form, `\n` between the lines of a matrix. `None` for markup that is no
+/// `<math>`, gives no text or finds no room.
+pub fn text_of(markup: &str) -> Option<String> {
+    use paperpaw_sdk::xml::{Token, Tokenizer, local_name};
+    let mut math: Option<Math> = None;
+    let mut done: Option<String> = None;
+    let mut failed = false;
+    let mut feed = |token: Token<'_>| {
+        if failed || done.is_some() {
+            return;
+        }
+        let step = (|| -> Result<Option<Done>, DocumentError> {
+            match token {
+                Token::Start {
+                    name,
+                    attrs,
+                    self_closing,
+                } => {
+                    match math.as_mut() {
+                        Some(math) => math.start(local_name(name), &attrs)?,
+                        None if local_name(name) == "math" => math = Some(Math::new(&attrs)?),
+                        None => return Ok(None),
+                    }
+                    match (self_closing, math.as_mut()) {
+                        (true, Some(math)) => math.end(),
+                        _ => Ok(None),
+                    }
+                }
+                Token::End { .. } => math.as_mut().map_or(Ok(None), Formula::end),
+                Token::Text(text) => {
+                    if let Some(math) = math.as_mut() {
+                        math.text(&text, false)?;
+                    }
+                    Ok(None)
+                }
+                Token::CData(text) => {
+                    if let Some(math) = math.as_mut() {
+                        math.text(text, true)?;
+                    }
+                    Ok(None)
+                }
+            }
+        })();
+        match step {
+            Ok(Some(finished)) => done = Some(finished.text),
+            Ok(None) => {}
+            Err(_) => failed = true,
+        }
+    };
+    Tokenizer::parse(markup.as_bytes(), &mut feed);
+    done.filter(|text| !text.is_empty())
+}

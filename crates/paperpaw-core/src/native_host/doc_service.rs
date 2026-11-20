@@ -36,6 +36,7 @@ pub(crate) mod cover;
 pub(crate) mod details;
 pub(crate) mod pending;
 mod report;
+mod splice;
 mod steps;
 mod table;
 mod turned;
@@ -119,6 +120,14 @@ pub(crate) trait DocHost {
     /// Call the format plugin. On success the answer (service-tag records)
     /// is at the start of `out`; the count is at most `out.len()`.
     fn call_format(&self, call: &FormatCall<'_>, out: &mut [u8]) -> Result<usize, i32>;
+    /// The text the hook plugins (`core.convert`, `document.md` 4.1) give for
+    /// the foreign element `element`, whose markup is `markup`: the first
+    /// subscriber's answer that says something, `None` where there is none.
+    /// The call is made at the level of the format's own (no deeper). A
+    /// host without hooks has none.
+    fn convert(&self, _element: &str, _markup: &str) -> Result<Option<alloc::string::String>, i32> {
+        Ok(None)
+    }
     /// Before an open's `call_format`: the book's cache (root 6) is made
     /// ready (`document.md` 3). Its own step, so that a busy format is told
     /// apart from a busy cache (`pending`).
@@ -625,6 +634,9 @@ impl DocHost for OwnedHost<'_> {
     }
     fn open_cache(&self, call: &FormatCall<'_>) -> Result<(), i32> {
         self.host.open_cache(call)
+    }
+    fn convert(&self, element: &str, markup: &str) -> Result<Option<alloc::string::String>, i32> {
+        self.host.convert(element, markup)
     }
     fn format_asks(&self, format: FormatRef) -> bool {
         self.host.format_asks(format)
@@ -1374,6 +1386,10 @@ fn block_verify(
     if end.flags & 2 == 0 && fragment.picture_missing() {
         host.picture_left_out(document.id);
     }
+    // A foreign element goes, replaced by its hook's text where the block is
+    // whole in this fragment (`document.md` 4.1).
+    let whole = at.cursor == 0 && end.flags & 2 == 0;
+    let length = splice::foreign(host, whole, out, length)?;
     let kept = images(host, document, out, length, true)?;
     let pending = (end.flags & 2 != 0).then_some(table::Pending {
         section: at.section,

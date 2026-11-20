@@ -12,8 +12,8 @@ no draft steps, no carrier pull requests just to bless, no baseline replacements
 - **What CI still checks.** The lock and the generated files match the code (`tools/abi-check.sh`), the
   reference files match what plugins see (the SDK's interface test), and `native::INTERFACE` and
   `native::DRAFT` never move back (`tools/abi-reference-check.py`). `native::DRAFT` stays at its value until
-  the freeze, but for an owner-approved round (draft 37 for Beta 4, #242: additions only, plugins of
-  draft 36 run unchanged); plugins built from an earlier tree are built again.
+  the freeze, but for an owner-approved round (draft 37 for Beta 4, #242 and #429, the conversion hook
+  `core.convert`: additions only, plugins of draft 36 run unchanged); plugins built from an earlier tree are built again.
 - **What it no longer checks.** Whether a change is an addition only, and whether it is named in
   `blessings.txt`. Both come back at the release: once a minor is released (`released_minor` in the lock), the
   lock is append-only against the trusted base again, and the frozen reference files change only with a raise.

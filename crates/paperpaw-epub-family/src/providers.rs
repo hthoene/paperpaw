@@ -5,7 +5,7 @@ use crate::{
     CbzDocument, EpubDocument, Fb2Document, HtmlDocument, MarkdownDocument, PLUGIN, is_epub,
     provider,
 };
-use paperpaw_sdk::document::Document;
+use paperpaw_sdk::document::{Document, DocumentError};
 
 /// The `core.format` provider of EPUB books (`epub`): sniffed by its
 /// `mimetype` entry, the opened file named by the call's `text`.
@@ -23,24 +23,22 @@ pub fn epub_provider() -> provider::FormatProvider {
     )
 }
 
-/// The `core.format` provider of EPUB books that also reads fixed-layout
-/// books of pictures (a page each, shown whole) and MathML.
+/// The `core.format` provider of fixed-layout EPUB books of pictures (a page
+/// each, shown whole). It asks before it opens a book (`FormatDecl::asks`,
+/// #242): any other EPUB goes on to the next format.
 #[must_use]
 pub fn epub_plus_provider() -> provider::FormatProvider {
     let dir = paperpaw_sdk::data::plugin_dir(PLUGIN.as_str());
     provider::FormatProvider::new(
         "format-epub-plus.epub",
-        |storage, name, options| {
-            if let Some(d) = crate::fixed::open(storage, name, options)? {
-                return Ok(Box::new(d) as Box<dyn Document>);
-            }
-            EpubDocument::open_options(storage, name, options).map(|d| {
-                Box::new(d.with_formulas(crate::convert::math::MAKER)) as Box<dyn Document>
-            })
+        |storage, name, options| match crate::fixed::open(storage, name, options)? {
+            Some(d) => Ok(Box::new(d) as Box<dyn Document>),
+            None => Err(DocumentError::UnsupportedFormat),
         },
         dir,
         is_epub,
     )
+    .with_claims(|storage, name| crate::fixed::claims(storage, name))
 }
 
 /// The `core.format` provider of FictionBooks (`fb2`, `fb2.zip`): a

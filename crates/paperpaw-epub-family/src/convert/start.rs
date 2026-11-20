@@ -10,7 +10,7 @@ use paperpaw_sdk::xml::{Attrs, local_name, try_decode};
 use super::elements::{self, element_props, furniture, heading_level, is_block, styled};
 use super::{
     Converter, Dialect, FLUSH_SMALL, Frame, MAX_CHILD_NAMES, MAX_DEPTH, MAX_HREF, MAX_PATH,
-    direction, element_name, larger, lists, tables,
+    direction, element_name, foreign, larger, lists, tables,
 };
 use crate::css::{self, Props};
 use crate::fallible::{self, TryPush, TryPushStr};
@@ -110,12 +110,8 @@ impl Converter<'_> {
             closer: controls.map(|(_, close)| close),
         })?;
         let started = self.started(&tag, &attrs, hides, controls);
-        if started.is_ok()
-            && self.hidden == 0
-            && tag == "math"
-            && let Some(make) = self.book.formulas
-        {
-            self.math = Some(make(&attrs)?);
+        if started.is_ok() && self.hidden == 0 && tag == "math" {
+            self.math = Some(foreign::MAKER(&attrs)?);
         }
         started
     }

@@ -44,6 +44,18 @@ pub static STAGES: &[StageSchema] = &[
         reply_tags: core_book_badge_v1::REPLY_TAGS,
     },
     StageSchema {
+        key: core_convert_v1::KEY,
+        major: core_convert_v1::MAJOR,
+        revision: core_convert_v1::REVISION,
+        test_only: core_convert_v1::TEST_ONLY,
+        max_subscribers: core_convert_v1::MAX_SUBSCRIBERS,
+        max_input: core_convert_v1::MAX_INPUT,
+        max_reply: core_convert_v1::MAX_REPLY,
+        reply_rows: core_convert_v1::REPLY_ROWS,
+        input_tags: core_convert_v1::INPUT_TAGS,
+        reply_tags: core_convert_v1::REPLY_TAGS,
+    },
+    StageSchema {
         key: core_format_v1::KEY,
         major: core_format_v1::MAJOR,
         revision: core_format_v1::REVISION,
@@ -1122,6 +1134,491 @@ pub mod core_book_badge_v1 {
             }
             match records.next() {
                 Some(Ok(Record::BadgeValue(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+}
+
+/// Local records of `core.convert` major 1.
+pub mod core_convert_v1 {
+    /// Schema key.
+    pub const KEY: &str = "core.convert";
+    /// Schema major.
+    pub const MAJOR: u16 = 1;
+    /// Schema revision.
+    pub const REVISION: u16 = 0;
+    /// Schema test_only.
+    pub const TEST_ONLY: bool = false;
+    /// Schema max_subscribers.
+    pub const MAX_SUBSCRIBERS: usize = 4;
+    /// Schema max_input.
+    pub const MAX_INPUT: usize = 1088;
+    /// Schema max_reply.
+    pub const MAX_REPLY: usize = 2112;
+    /// Schema reply_rows.
+    pub const REPLY_ROWS: usize = 1;
+    /// Schema input_tags.
+    pub const INPUT_TAGS: &[u32] = &[1];
+    /// Schema reply_tags.
+    pub const REPLY_TAGS: &[u32] = &[2];
+    use super::*;
+    /// Wire tag of the `conv.ask` record.
+    pub const CONV_ASK_TAG: u32 = 1;
+    /// Maximum bytes of `conv.ask.element`.
+    pub const CONV_ASK_ELEMENT_MAX_BYTES: usize = 32;
+    /// Maximum bytes of `conv.ask.markup`.
+    pub const CONV_ASK_MARKUP_MAX_BYTES: usize = 1024;
+
+    /// The `conv.ask` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct ConvAsk<'a> {
+        /// UTF-8 text of at most 32 bytes.
+        pub element: &'a str,
+        /// Little-endian u32.
+        pub flags: u32,
+        /// UTF-8 text of at most 1024 bytes.
+        pub markup: &'a str,
+    }
+
+    wire_fields! {
+        /// The fields of `conv.ask` as the codec walks them.
+        CONV_ASK_FIELDS: [ConvAsk<'static>; 3] {
+            element: text, 0, 32;
+            flags: u32, 0, 0;
+            markup: text, 0, 1024;
+        }
+    }
+
+    impl<'a> ConvAsk<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(element: &'a str, flags: u32, markup: &'a str) -> Self {
+            Self {
+                element,
+                flags,
+                markup,
+            }
+        }
+    }
+    /// Wire tag of the `conv.text` record.
+    pub const CONV_TEXT_TAG: u32 = 2;
+    /// Maximum bytes of `conv.text.text`.
+    pub const CONV_TEXT_TEXT_MAX_BYTES: usize = 2048;
+
+    /// The `conv.text` record, borrowed from its batch.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub struct ConvText<'a> {
+        /// UTF-8 text of at most 2048 bytes.
+        pub text: &'a str,
+        /// Little-endian u32.
+        pub flags: u32,
+    }
+
+    wire_fields! {
+        /// The fields of `conv.text` as the codec walks them.
+        CONV_TEXT_FIELDS: [ConvText<'static>; 2] {
+            text: text, 0, 2048;
+            flags: u32, 0, 0;
+        }
+    }
+
+    impl<'a> ConvText<'a> {
+        /// Build a record; encoding validates its bounds.
+        pub const fn new(text: &'a str, flags: u32) -> Self {
+            Self { text, flags }
+        }
+    }
+
+    /// A record with a tag local to this stage.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub enum Record<'a> {
+        /// A `conv.ask` record.
+        ConvAsk(ConvAsk<'a>),
+        /// A `conv.text` record.
+        ConvText(ConvText<'a>),
+    }
+    /// The tag and the table of each record and where its struct lies in a [`Record`]
+    /// (read off a record of that variant), in the order of the variants.
+    #[allow(
+        unreachable_patterns,
+        reason = "a schema of one record has one variant"
+    )]
+    static ROWS: [(u32, &[WireField], usize); 2] = [
+        (CONV_ASK_TAG, &CONV_ASK_FIELDS, {
+            let record = Record::ConvAsk(ConvAsk::new("", 0, ""));
+            // SAFETY: `inner` is the struct inside `record`.
+            match &record {
+                Record::ConvAsk(inner) => unsafe { wire_offset(&record, inner) },
+                _ => 0,
+            }
+        }),
+        (CONV_TEXT_TAG, &CONV_TEXT_FIELDS, {
+            let record = Record::ConvText(ConvText::new("", 0));
+            // SAFETY: `inner` is the struct inside `record`.
+            match &record {
+                Record::ConvText(inner) => unsafe { wire_offset(&record, inner) },
+                _ => 0,
+            }
+        }),
+    ];
+    impl<'a> Record<'a> {
+        /// Local wire tag.
+        pub fn tag(&self) -> u32 {
+            self.row().0
+        }
+        /// Its tag, its table and where its struct lies in it.
+        fn row(&self) -> (u32, &'static [WireField], usize) {
+            let place: usize = match self {
+                Record::ConvAsk(_) => 0,
+                Record::ConvText(_) => 1,
+            };
+            ROWS.get(place).copied().unwrap_or((0, &[], 0))
+        }
+        /// Its struct.
+        fn at(&self) -> *const u8 {
+            // SAFETY: `ROWS` holds, at the place of each variant, where that variant's struct
+            // lies in a `Record`: inside `self`.
+            unsafe { core::ptr::from_ref(self).cast::<u8>().add(self.row().2) }
+        }
+        fn body_len(&self) -> Result<usize, i32> {
+            // SAFETY: `ROWS` holds each record's own table at the place of its variant.
+            unsafe { fields_len(self.row().1, self.at()) }
+        }
+        /// Its presence bitmap and its fields.
+        fn write(&self, out: &mut [u8], offset: &mut usize) {
+            // SAFETY: `ROWS` holds each record's own table at the place of its variant.
+            unsafe { fields_write(self.row().1, self.at(), out, offset) }
+        }
+        fn validate(&self) -> Result<(), i32> {
+            match self {
+                _ => {}
+            }
+            Ok(())
+        }
+    }
+    fn decode_body<'a>(tag: u32, body: &mut Reader<'a>) -> Result<Record<'a>, i32> {
+        // SAFETY: each arm decodes with the table of the record it makes, which borrows
+        // from the body alone.
+        let record = unsafe {
+            match tag {
+                CONV_ASK_TAG => {
+                    Record::ConvAsk(fields_decode_as(&CONV_ASK_FIELDS, body.remaining)?)
+                }
+                CONV_TEXT_TAG => {
+                    Record::ConvText(fields_decode_as(&CONV_TEXT_FIELDS, body.remaining)?)
+                }
+                _ => return Err(-2),
+            }
+        };
+        // Unknown appended fields are bounded by the record framing.
+        record.validate()?;
+        Ok(record)
+    }
+    /// A validated stage batch, borrowed without keeping a decoded array.
+    #[derive(Clone, Debug)]
+    pub struct RecordStream<'a> {
+        bytes: &'a [u8],
+        remaining: usize,
+    }
+    impl RecordStream<'_> {
+        /// Records still to iterate.
+        pub fn len(&self) -> usize {
+            self.remaining
+        }
+        /// Whether iteration is complete.
+        pub fn is_empty(&self) -> bool {
+            self.remaining == 0
+        }
+    }
+    impl<'a> Iterator for RecordStream<'a> {
+        type Item = Result<Record<'a>, i32>;
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.remaining == 0 {
+                return None;
+            }
+            let mut reader = Reader {
+                remaining: self.bytes,
+            };
+            let decoded = (|| {
+                let (tag, mut body) = reader.record()?;
+                decode_body(tag, &mut body)
+            })();
+            self.bytes = reader.remaining;
+            self.remaining -= 1;
+            Some(decoded)
+        }
+    }
+    /// Tooling-only, side-agnostic batch validation. Runtime callers use a direction.
+    pub(crate) fn records_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_INPUT.max(MAX_REPLY), REPLY_ROWS.max(1), &[])
+    }
+    /// Decode exactly one stage input using only input tags and its byte cap.
+    pub fn input_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        let records = decode_with(bytes, MAX_INPUT, 1, INPUT_TAGS)?;
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        Ok(records)
+    }
+    /// Decode a subscriber's reply using only reply tags, rows and byte cap.
+    pub fn reply_decode(bytes: &[u8]) -> Result<RecordStream<'_>, i32> {
+        decode_with(bytes, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn decode_with<'a>(
+        bytes: &'a [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<RecordStream<'a>, i32> {
+        if bytes.len() > cap {
+            return Err(-2);
+        }
+        let mut reader = Reader { remaining: bytes };
+        let count = reader.varint()? as usize;
+        if count > rows {
+            return Err(-2);
+        }
+        let records = reader.remaining;
+        for _ in 0..count {
+            let (tag, mut body) = reader.record()?;
+            if !tags.is_empty() && !tags.contains(&tag) {
+                return Err(-2);
+            }
+            decode_body(tag, &mut body)?;
+        }
+        reader.finish()?;
+        Ok(RecordStream {
+            bytes: records,
+            remaining: count,
+        })
+    }
+    /// Tooling-only, side-agnostic encoding. Runtime callers use a direction.
+    pub(crate) fn records_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(
+            records,
+            out,
+            MAX_INPUT.max(MAX_REPLY),
+            REPLY_ROWS.max(1),
+            &[],
+        )
+    }
+    /// Encode exactly one input using its tag and byte bounds.
+    pub fn input_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        if records.len() != 1 {
+            return Err(-2);
+        }
+        encode_with(records, out, MAX_INPUT, 1, INPUT_TAGS)
+    }
+    /// Encode a subscriber reply using its tag, row and byte bounds.
+    pub fn reply_encode(records: &[Record<'_>], out: &mut [u8]) -> Result<usize, i32> {
+        encode_with(records, out, MAX_REPLY, REPLY_ROWS, REPLY_TAGS)
+    }
+    fn encode_with(
+        records: &[Record<'_>],
+        out: &mut [u8],
+        cap: usize,
+        rows: usize,
+        tags: &[u32],
+    ) -> Result<usize, i32> {
+        if records.len() > rows {
+            return Err(-2);
+        }
+        let mut required = varint_len(records.len() as u32);
+        for record in records {
+            if !tags.is_empty() && !tags.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            required += varint_len(record.tag()) + varint_len(body as u32) + body;
+        }
+        if required > cap {
+            return Err(-3);
+        }
+        if out.len() < required {
+            return Err(-3);
+        }
+        let mut offset = 0;
+        write_varint(records.len() as u32, out, &mut offset);
+        for record in records {
+            let body = record.body_len()?;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+
+            record.write(out, &mut offset);
+        }
+        Ok(offset)
+    }
+    /// Writes one reply batch record by record, straight into `out`: the
+    /// bytes [`reply_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct ReplyWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> ReplyWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= REPLY_ROWS {
+                return Err(-2);
+            }
+            if !REPLY_TAGS.is_empty() && !REPLY_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_REPLY || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
+    /// Writes one input batch record by record, straight into `out`: the
+    /// bytes [`input_encode`] would write for the same records, without a
+    /// slice of them. Each [`push`](Self::push) checks the record before it
+    /// writes; a refused one leaves the rows before it as they were.
+    #[derive(Debug)]
+    pub struct InputWriter<'w> {
+        out: &'w mut [u8],
+        offset: usize,
+        rows: usize,
+    }
+    impl<'w> InputWriter<'w> {
+        /// A writer over `out`; `ERR_NO_SPACE` (-3) if `out` is empty.
+        pub fn new(out: &'w mut [u8]) -> Result<Self, i32> {
+            let first = out.first_mut().ok_or(-3)?;
+            *first = 0;
+            Ok(Self {
+                out,
+                offset: 1,
+                rows: 0,
+            })
+        }
+        /// Records written so far.
+        pub fn len(&self) -> usize {
+            self.rows
+        }
+        /// Whether no record is written yet.
+        pub fn is_empty(&self) -> bool {
+            self.rows == 0
+        }
+        /// Append `record`: -2 for a tag of the other side, a field out of its
+        /// bounds or one row too many; -3 when it does not fit the byte cap or
+        /// `out`. Nothing is written then.
+        pub fn push(&mut self, record: &Record<'_>) -> Result<(), i32> {
+            if self.rows >= 1 {
+                return Err(-2);
+            }
+            if !INPUT_TAGS.is_empty() && !INPUT_TAGS.contains(&record.tag()) {
+                return Err(-2);
+            }
+            record.validate()?;
+            let body = record.body_len()?;
+            let need = varint_len(record.tag()) + varint_len(body as u32) + body;
+            let end = self.offset.checked_add(need).ok_or(-3)?;
+            if end > MAX_INPUT || end > self.out.len() {
+                return Err(-3);
+            }
+            let out = &mut *self.out;
+            let mut offset = self.offset;
+            write_varint(record.tag(), out, &mut offset);
+            write_varint(body as u32, out, &mut offset);
+
+            record.write(out, &mut offset);
+            self.offset = offset;
+            self.rows += 1;
+            Ok(())
+        }
+        /// The batch's length in `out`, its count written; -2 for an input
+        /// batch of no record.
+        pub fn finish(self) -> Result<usize, i32> {
+            if self.rows == 0 {
+                return Err(-2);
+            }
+            let count = u8::try_from(self.rows).map_err(|_| -2)?;
+            let first = self.out.first_mut().ok_or(-3)?;
+            *first = count;
+            Ok(self.offset)
+        }
+    }
+    impl<'a> ConvAsk<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = CONV_ASK_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            input_encode(&[Record::ConvAsk(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = input_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::ConvAsk(r))) => Ok(r),
+                _ => Err(-2),
+            }
+        }
+    }
+    impl<'a> ConvText<'a> {
+        /// Local tag of this record.
+        pub const TAG: u32 = CONV_TEXT_TAG;
+        /// Encode this record as a one-record batch.
+        pub fn encode(&self, out: &mut [u8]) -> Result<usize, i32> {
+            reply_encode(&[Record::ConvText(*self)], out)
+        }
+        /// Decode a batch holding exactly this record.
+        pub fn decode(bytes: &'a [u8]) -> Result<Self, i32> {
+            let mut records = reply_decode(bytes)?;
+            if records.len() != 1 {
+                return Err(-2);
+            }
+            match records.next() {
+                Some(Ok(Record::ConvText(r))) => Ok(r),
                 _ => Err(-2),
             }
         }
