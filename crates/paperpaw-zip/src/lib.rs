@@ -776,9 +776,13 @@ impl EntryReader<'_> {
             };
             match status {
                 TINFLStatus::Done => self.done = true,
-                // A whole window that is full and asked for more: the
-                // content is longer than the entry's size.
-                TINFLStatus::HasMoreOutput if whole && self.position == window.len() => {
+                // A whole window that is full and, asked again, still wants
+                // to write: the content is longer than the entry's size. A
+                // first answer of "more output" only says the decoder has
+                // not yet seen the end of the stream.
+                TINFLStatus::HasMoreOutput
+                    if whole && self.position == window.len() && written == 0 =>
+                {
                     return Err(ZipError::Invalid("entry longer than its size"));
                 }
                 TINFLStatus::HasMoreOutput => {}
