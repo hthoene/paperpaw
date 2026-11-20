@@ -1,3 +1,0 @@
-### Fixed
-
-- **The first book walk writes less to the card** (#297). A book of a format plugin (EPUB and the others) had a stand-in details file written when the walk first saw it, and the host's details job wrote the real one soon after: two writes of a book, each many card commands. Only the job writes now (14 books on a FAT card in the emulator: 515 write commands for the start and the walk, 684 before; the Library's first open reads 20 and writes none). The day a book came is taken from the day its details were read, so a book the job has not read for a day or more is listed as new on the later day.

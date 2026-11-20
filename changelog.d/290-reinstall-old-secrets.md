@@ -1,2 +1,0 @@
-### Fixed
-- Reinstalling a plugin whose saved passwords could not be erased when it was removed no longer fails with "id taken": the install question now says the old data is still on the card and is erased first (en/de), and the trusted-installer grant never skips it. On yes the old secrets are erased before the plugin is put in place (if they still cannot be, nothing is installed, reason 16); declined or dismissed, the plugin is not installed, so it never starts with the old secrets.

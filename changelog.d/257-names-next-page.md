@@ -1,3 +1,0 @@
-### Changed
-
-- **The next page of a long list of authors, series or tags no longer starts from the top of the catalog** (#257). The host keeps where the last page of names ended (one place, at most 0.7 KiB) and goes on from there: a page after a page reads the catalog twice, however far down it is. Loading all 700 authors of a 1,000-book library 32 at a time took about 320 reads of the catalog and takes 46 now (counted in a host test, not timed on a device). The answers are the same; the place is dropped when the catalog, the list, its filters or the day change, and is not used while a book is being deleted.

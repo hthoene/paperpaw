@@ -314,8 +314,8 @@ library crate, tested on a computer and tried in the emulator.
 ### The key (once per author)
 
 ```sh
-# paperpaw-sign of the release built for (its tag, here v0.6.0-beta.3):
-cargo install --locked --git https://github.com/hthoene/paperpaw --tag v0.6.0-beta.3 paperpaw-sign
+# paperpaw-sign of the release built for (its tag, here v0.6.0-beta.4):
+cargo install --locked --git https://github.com/hthoene/paperpaw --tag v0.6.0-beta.4 paperpaw-sign
 mkdir -p ~/.paperpaw
 paperpaw-sign key ~/.paperpaw/author.key
 ```
@@ -357,7 +357,7 @@ files with its own. *About* on the reader shows its fingerprint and
 compiler; each PaperPaw release lists the fingerprints in its files
 `paperpaw-<reader>-<version>-abi.txt`.
 
-- Name the SDK of the release in `Cargo.toml` (`paperpaw-sdk = "0.6.0-beta.3"`),
+- Name the SDK of the release in `Cargo.toml` (`paperpaw-sdk = "0.6.0-beta.4"`),
   never a path or a development version.
 - Build for the readers without the SDK's `outline` feature: it is in the
   fingerprint, and the readers' firmware has none. Give it to the
@@ -639,7 +639,7 @@ site's newest, `https://paperpaw.org/api/v1/store-rules.json`). The
 workflow runs the same check before it builds and again on the files it
 made (`--release-dir`), and releases nothing where it fails. paperpaw-dev
 comes from PaperPaw's repository at the release's tag (`cargo install
---git https://github.com/hthoene/paperpaw --tag v0.6.0-beta.3
+--git https://github.com/hthoene/paperpaw --tag v0.6.0-beta.4
 paperpaw-dev`); paperpaw-sign the same way, and much smaller.
 
 1. **The repository**: public on `github.com`, not archived, not a

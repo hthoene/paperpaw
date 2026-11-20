@@ -2323,7 +2323,7 @@ const paperpaw_sdk::ui_old::style::Ink::WARNING: paperpaw_sdk::ui_old::style::In
 const paperpaw_sdk::version::DATA_FORMATS: u32 = 5u32
 const paperpaw_sdk::version::MAX_PRE_NUMBER: u16 = 8_190u16
 const paperpaw_sdk::version::SDK_VERSION: paperpaw_sdk::version::Version = crate::package_version!()
-const paperpaw_sdk::web::USER_AGENT: &str = "PaperPaw/0.6.0-beta.3 (e-reader)"
+const paperpaw_sdk::web::USER_AGENT: &str = "PaperPaw/0.6.0-beta.4 (e-reader)"
 const paperpaw_sdk::widgets_old::categories::ALL: &[&str] = &[ TIME, BOOKS, READING, WORDS, PERSONAL, WORLD, DEVICE, LAYOUT, OTHER, ]
 const paperpaw_sdk::widgets_old::categories::BOOKS: &str = "core.widgets.books"
 const paperpaw_sdk::widgets_old::categories::DEVICE: &str = "core.widgets.device"

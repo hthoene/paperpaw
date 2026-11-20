@@ -1,3 +1,0 @@
-### Changed
-
-- **The card's free space is no longer counted again at every start** (#305). After each start the reader read the card's whole allocation table to learn how much space is free: 6.9 MB and several seconds of card activity on a 16 GB card. The count is now kept on the card (FAT32) once it is known and taken from there at the next start. It is taken back on the card before the table is next changed, so after a power cut, on a card marked as not closed properly, or after a computer changed the card, the table is counted as before. Cards written by PaperPaw are no longer left marked as not closed properly.

@@ -1,9 +1,0 @@
-### Fixed
-
-- **A start once an update is kept sees interface-7 card plugins** (#244). An update on trial starts without code plugins; once it is kept the firmware asks whether a start with them would load any, and starts again if so. That question (`paperpaw_core::code_to_load`, now with what the loader reads of interface-7 files) and the list of plugins fetched for an update only knew plugin files of the format before interface 7, so a card whose code plugins are all interface 7 stayed without them until some later start.
-- **The web flasher's bundle takes interface-7 code plugins** (#244). A store code plugin chosen in the web flasher together with the firmware was refused as damaged when its file is interface 7 (`paperpaw_app::flasher::prepare` read the older header only). A code file of either format is now checked whole (`paperpaw_sdk::native::check_code`, kernel feature). Data plugins were not affected.
-
-### Changed
-
-- **Plugin files of the format before interface 7 are no longer loaded anywhere** (#244). The kernel's `CodeLoader::load` is gone: a shell's loader hosts interface-7 files (`load_native`), and for any other file the kernel itself says why it does not run. A plugin file of Beta 3 on a card is listed as *built for an older PaperPaw* (switched on, not loaded, never taken for damaged, its file left alone), tested with a file Beta 3 shipped. The X4 firmware loses the old load path, its placement in flash and PSRAM and the function table those files called; such a file is no longer code to start again for after an update.
-- **The emulator hosts interface-7 libraries with `--trust-code` alone** (#244; Linux x86-64). `--abi7-dev-loader` is no longer needed for that. A library built with `plugin!` (interface 6) is listed as built for an older PaperPaw and nothing of it is loaded; on other computers a card's code is listed as not supported.

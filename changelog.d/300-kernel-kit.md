@@ -1,3 +1,0 @@
-### Changed
-
-- **Kernel: the old kit the kernel still used now lives in the kernel (#300, Decision 209, step S6b-2c).** Actions, dialogs, decorations, help, install records, the library catalog, logo, menus, readers, setup steps, status items, time, the UI helpers and widgets that take the kernel's state are in `paperpaw_core::kit` and read it through `Place`; the kernel no longer makes an SDK `Env` anywhere. Names plugins see stay the SDK's (the kernel re-exports them). The SDK's own copies go in the next step. The SDK's kernel-only `presets::widget_look_settings`/`widget_look_changes` take a predicate for widget ids in place of the old `Widgets` registry. What the kernel draws and does is unchanged.

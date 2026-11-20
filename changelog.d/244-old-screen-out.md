@@ -1,3 +1,0 @@
-### Changed
-
-- **The old SDK screen API is gone (#244, Decisions 194/206).** The kernel's own screens, its stock screens (the choice and yes-or-no question every plugin asks, the status items chooser, the widget list editor) and the shells' and tools' screens are now the kernel's layers. The SDK's kernel-only `Screen` trait, `ScreenSpec`, `FixedScreen`, `ScreenFactory`, `call_since`, `revision_holding`, `Env::make_screen`, the screen host (`host::ScreenHost`) and `chrome::ChromeSpec` are removed. Chrome bars are added with the kernel's `ChromeSpec`, and `chrome::Edge` is now `ui::look::Edge`. Interface 7 is unchanged: `api.txt` and the FINGERPRINT are the same.

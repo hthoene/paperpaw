@@ -1,4 +1,0 @@
-### Changed
-
-- `paperpaw-dev build` makes the same plugin file from the same source in any folder and on any computer, so the plugin store can rebuild a community plugin of plugin interface 7 and compare: the paths in a build are written as `/plugin` (the plugin's folder) and `/cargo` (Cargo's home), for the readers and for the emulator's library. `paperpaw-dev new --code --sdk <checkout>` names the SDK through a link in the plugin's folder (`.paperpaw`, ignored by git and left out of the workspace) instead of by its path on the computer, which Cargo made a part of the build.
-- `paperpaw-dev check <file>.ppn` reads a plugin file of plugin interface 7 (file format 5) as a reader of its chip does and shows what it is made for (the chip, `7.<minor>`), its sizes and who signed it. It said "the device refuses it: a plugin file of a newer format" for every such file, also in the store's check of a submission.

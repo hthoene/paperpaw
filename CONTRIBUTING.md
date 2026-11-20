@@ -1,6 +1,6 @@
 # Contributing to PaperPaw
 
-Thank you for helping! PaperPaw is in beta (0.6.0-beta.3); the plugin SDK
+Thank you for helping! PaperPaw is in beta (0.6.0-beta.4); the plugin SDK
 may still change before 1.0. Be kind and constructive: see the
 [Code of Conduct](CODE_OF_CONDUCT.md). Everything in the repository is in
 **English**: code, comments, documentation, commits. The UI is English and
@@ -67,7 +67,7 @@ shows the frames); a frame is at most 2,047 B.
   a version of its own. Until 1.0 only published versions count: a plugin at
   its Beta 3 version gets exactly one patch bump, one already above it gets
   none; where no reader sees a change, a commit says
-  `Plugin-unchanged: <id>`. Reviews check against the `v0.6.0-beta.3` tag.
+  `Plugin-unchanged: <id>`. Reviews check against the `v0.6.0-beta.4` tag.
 - `tools/xtensa-std`, `tools/fontgen`, `tools/hyphenation-packs`,
   `tools/x4-remote.py` (an X4 over USB): see their READMEs or `--help`.
 

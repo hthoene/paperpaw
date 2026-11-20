@@ -1,4 +1,0 @@
-### Fixed
-
-- **A power cut no longer costs card space** (#238, #269). When the reader lost power while it was writing or removing a file, parts of the card could stay marked as used although no file held them, so the free space shrank a little with every such cut until a computer checked the card. A file that is being written now holds its space from the first moment, and where the card must be changed in two steps the reader notes the step on the card first and finishes it at the next start. This needs no search of the card: a start reads nothing more unless a change was cut off. It holds for FAT32 cards (every card of 4 GB or more as sold); the few smaller FAT16 cards keep the small gaps they had.
-- **Removing a large file writes the card far less often** (#238). Its space is now given back a block of the card's table at a time instead of one piece at a time, so removing a file of many megabytes takes a handful of writes where it took hundreds.

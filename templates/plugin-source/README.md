@@ -42,7 +42,7 @@ and from then on takes only lists and code signed with it.
 
 ```sh
 # paperpaw-sign of the PaperPaw release the plugin is built for:
-cargo install --locked --git https://github.com/hthoene/paperpaw --tag v0.6.0-beta.3 paperpaw-sign
+cargo install --locked --git https://github.com/hthoene/paperpaw --tag v0.6.0-beta.4 paperpaw-sign
 mkdir -p ~/.paperpaw
 paperpaw-sign key ~/.paperpaw/source.key
 ```

@@ -1,4 +1,0 @@
-### Changed
-
-- **SDK: the code for plugin files of the format before interface 7 is gone** (#244). `paperpaw_sdk::plugin!`, `native::take` and the hidden module `native::support` (what the macro expanded to), and `Native::fits` and `Native::problem`, which judged such a file's header against this build. In `paperpaw-native`, `Relocator`, `check_relocations` and `Header::check_file` leave the public surface (they are built for the crate's tests only). Nothing in PaperPaw called them since the old loader went; a plugin is made with `native_plugin!`. A Beta 3 `code.ppn` is still named as made for an older PaperPaw (`Header::read`, `Header::read_older`, `Native::problem_of_file`).
-- **`paperpaw-sign plugin` fails on a plugin file of a format before 5** (#244). It used to name the file as made for an older PaperPaw in one line and succeed; it now refuses it with that line as its error, as `sign-plugin` and `check-plugin` do.

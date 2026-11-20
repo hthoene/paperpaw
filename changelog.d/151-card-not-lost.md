@@ -1,3 +1,0 @@
-### Fixed
-
-- **A memory card with a loose contact no longer keeps the device awake and reading the library over and over** (#151). A card that only failed for a moment and never left keeps its mount, with everything not yet written to it. A card that lost its power and is back is mounted anew, and where it is the same card as it was left (its serial number and its FS information sector, FAT32) the library is not read again and the time to sleep is not started anew; the same card found again and again is mounted anew less and less often (every 3, 10, 30, then 60 seconds). Another card, or a card a computer has written to, is read anew at once, as before.

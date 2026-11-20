@@ -1,3 +1,0 @@
-### Added
-
-- Gloss (a store plugin, #379): small text above the words of a book, for those who learn a language: how a word is read (furigana, pinyin, a pronunciation) or what it means in a word or two. The words come from a plain list on the card, `.paperpaw/plugins/gloss/<book>.txt` for one book or `<language>.txt` (`de.txt`) for every book in a language: a line each, the word, a tab, the small text. The list is read once when the book opens, so turning pages reads nothing. *Settings → Reading aids* sets the size of the small text. It uses the page layers of interface 7 and is off until you switch it on.

@@ -35,7 +35,7 @@ env:
   # The PaperPaw release the plugin is built for: its tools build, pack and
   # sign (paperpaw-dev, paperpaw-sign), Cargo.toml names its SDK and
   # rust-toolchain.toml its compiler. Move all three together.
-  PAPERPAW: "0.6.0-beta.3"
+  PAPERPAW: "0.6.0-beta.4"
   # The compiler of the X4 Pro and X4 Classic (espup's `esp` toolchain), as
   # that release's shells/xteink/versions.env names it.
   ESP_RUST: "1.97.0.0"

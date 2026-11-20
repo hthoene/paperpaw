@@ -1,3 +1,0 @@
-### Changed
-
-- **A store plugin's texts no longer sit in memory whole** (#248). A code plugin's `i18n/*.ini` catalogs were read into the heap in every language, the one in use or not: some 27 KB for `stats`, which on the X4 split the largest free block (65 KB → 39 KB at Home, 54 KB → 27 KB with a book open) and brought the "memory is short" notice with that one plugin. The larger text catalogs of a code plugin are now compiled once into `.paperpaw/cache/catalogs/` and read from the card as they are needed, about a kilobyte of memory a language; a changed text makes a new copy and removes the old.

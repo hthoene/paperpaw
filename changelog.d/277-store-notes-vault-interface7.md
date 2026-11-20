@@ -1,3 +1,0 @@
-### Fixed
-
-- Restore notes-vault to the store catalogue for interface-7 X4 plugin files (#277).

@@ -1,3 +1,0 @@
-### Added
-
-- **Better comics** (#312). Comic book archives (.cbz) show their series and number in the library from the book's ComicInfo.xml (title, series, number, writer, language), and read manga from right to left: with `Manga` set to `YesAndRightToLeft` in the book, or with the new setting "Comic pages run" (Reading, Behaviour: as the book says, left to right, right to left), the page turns are mirrored, the left side and key go on. A new setting "Panel by panel" (off to begin with) shows one panel of a page at a time, as large as the screen allows, and the page turns step through the panels in reading order (right to left for manga); a page without panels is shown whole.
