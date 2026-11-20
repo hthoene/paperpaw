@@ -374,3 +374,24 @@ fn reads_that_failed_are_counted_over_the_fonts() {
     assert_eq!(font.advance(10.0, 'x'), 6.0);
     assert_eq!(fonts.failed_reads(), failed);
 }
+
+#[test]
+fn trimming_the_packs_lets_go_of_what_they_hold() {
+    let mut fonts = with_builtin();
+    let card = Rc::new(Card(pack("xy", 6.0), std::cell::Cell::new(false)));
+    let stored = paperpaw_text::StoredPack::open(card).unwrap();
+    fonts
+        .add(FontSpec::new(
+            Id::new_static("a.card"),
+            Font::Stored(stored.clone()),
+        ))
+        .unwrap();
+    let font = fonts.get("a.card").unwrap();
+    assert_eq!(font.advance(10.0, 'x'), 6.0);
+    let held = stored.bytes();
+    assert_ne!(held, 0, "the advance is kept");
+    fonts.trim_packs();
+    assert!(stored.bytes() < held, "{} < {held}", stored.bytes());
+    // Read again where it is needed.
+    assert_eq!(font.advance(10.0, 'x'), 6.0);
+}
