@@ -312,14 +312,32 @@ fn check_publish(args: &[&str]) -> Result<(), String> {
 fn store_rules(file: &str) -> Result<(), String> {
     let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
     let theirs = paperpaw_publish::Rules::parse(&text).map_err(|e| format!("{file}: {e}"))?;
-    if theirs == paperpaw_publish::Rules::built_in() {
+    let ours = paperpaw_publish::Rules::built_in();
+    if theirs == ours {
         println!("the same rules");
+        Ok(())
+    } else if site_is_behind(&theirs, &ours) {
+        // A new kind of file lands here before the site is deployed with it.
+        println!("the site takes fewer kinds of files than this tool: not yet deployed");
         Ok(())
     } else {
         Err(format!(
             "{file} has other rules than tools/publish/store-rules.json: bring them in step"
         ))
     }
+}
+
+/// Whether `theirs` is `ours` without some of the kinds of files `ours` takes
+/// (the site not yet deployed with a new kind): everything else the same.
+fn site_is_behind(theirs: &paperpaw_publish::Rules, ours: &paperpaw_publish::Rules) -> bool {
+    let fewer = theirs.package_kinds.len() < ours.package_kinds.len()
+        && theirs
+            .package_kinds
+            .iter()
+            .all(|k| ours.package_kinds.contains(k));
+    let mut same_otherwise = theirs.clone();
+    same_otherwise.package_kinds = ours.package_kinds.clone();
+    fewer && same_otherwise == *ours
 }
 
 /// The secret key from `key_file`, else from PAPERPAW_SIGNING_KEY.
