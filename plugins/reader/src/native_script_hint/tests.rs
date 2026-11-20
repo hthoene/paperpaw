@@ -448,7 +448,7 @@ fn what_a_scan_found_reads_back_for_its_key_only() {
     assert_eq!(scanned_of(&text, "00000000000000ac Literata"), None);
     assert_eq!(scanned_of(&text, "00000000000000ab "), None);
     // A damaged file: read again.
-    assert_eq!(scanned_of(&format!("{key}\nGrek Xxxx\n"), key), None);
+    assert_eq!(scanned_of(&alloc::format!("{key}\nGrek Xxxx\n"), key), None);
     assert_eq!(scanned_of(key, key), None);
     assert_eq!(scanned_of("", key), None);
 }
