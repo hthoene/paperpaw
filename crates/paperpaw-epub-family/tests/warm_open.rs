@@ -249,3 +249,17 @@ fn a_zip_that_cannot_be_read_fails_where_it_is_first_needed_not_with_a_whole_cac
     let error = third.block_at(&card, Locator::new(1, 0)).unwrap_err();
     assert!(!error.to_string().is_empty());
 }
+
+#[test]
+fn the_records_of_blocks_read_one_after_the_other_share_a_read() {
+    // Each read of the cache is a call of the host's storage, on the X4 one that
+    // misses the flash's cache through most of its code (#403): the records that
+    // follow the one asked are read with it. Alice's paragraphs are short: 9 reads
+    // for its first 25 blocks and 246 for all 866 (one read a block before).
+    let (page, (blocks, reads)) = warm("alice-in-wonderland", 25);
+    assert!(page <= 12, "{page} reads for 25 blocks");
+    assert!(
+        (reads as usize) * 3 <= blocks,
+        "{reads} reads for {blocks} blocks"
+    );
+}

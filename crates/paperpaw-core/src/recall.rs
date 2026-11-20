@@ -23,6 +23,9 @@ const MAX_ENTRIES: usize = 64;
 
 #[derive(Debug)]
 struct Entry {
+    /// The hash of `path` ([`Recall::key`]), compared first: the paths of a
+    /// book's cache files share 70 bytes and more (#403).
+    key: u32,
     path: String,
     size: Result<u64, StorageError>,
     /// The whole file, once read.
@@ -58,7 +61,24 @@ impl Recall {
     }
 
     fn position(&self, entries: &[Entry], path: &str) -> Option<usize> {
-        entries.iter().position(|e| self.same(&e.path, path))
+        let key = self.key(path);
+        entries
+            .iter()
+            .position(|e| e.key == key && self.same(&e.path, path))
+    }
+
+    /// The FNV-1a hash of `path`, of its letters in one case where the
+    /// storage ignores case: the same for every spelling [`same`](Self::same)
+    /// takes for one.
+    fn key(&self, path: &str) -> u32 {
+        path.bytes().fold(0x811c_9dc5, |hash: u32, byte| {
+            let byte = if self.ignores_case {
+                byte.to_ascii_lowercase()
+            } else {
+                byte
+            };
+            (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
+        })
     }
 
     /// The same file: so a write under another spelling of a path forgets
@@ -81,9 +101,10 @@ impl Recall {
 
     /// Forgets `path` (written, removed).
     fn forget(&self, path: &str) {
+        let key = self.key(path);
         self.entries
             .borrow_mut()
-            .retain(|e| !self.same(&e.path, path));
+            .retain(|e| e.key != key || !self.same(&e.path, path));
     }
 
     fn remember_size(&self, path: &str, size: Result<u64, StorageError>) {
@@ -97,6 +118,7 @@ impl Recall {
             }
             copy.push_str(path);
             entries.push(Entry {
+                key: self.key(path),
                 path: copy,
                 size,
                 data: None,
