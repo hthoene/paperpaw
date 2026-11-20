@@ -1,0 +1,3 @@
+### Changed
+
+- The firmware is about 30 KB smaller on every device: the interface font's large sizes (the clock's digits on Home) and the letters few texts need (beyond Latin-1, the usual punctuation and the ligatures) keep their bitmaps deflated in blocks, and the glyph cache inflates the block a glyph lies in when it is first drawn (#428). The letters text is drawn with, and the icons, stay in place and cost what they cost; text looks as before, pixel for pixel. A first drawing of a deflated glyph takes about 1 ms on the X4, a clock's digit is inflated at each drawing of Home and takes a few milliseconds in all; no block is kept in memory.

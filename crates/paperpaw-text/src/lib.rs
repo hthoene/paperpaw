@@ -37,6 +37,7 @@ mod cache;
 pub mod charset;
 mod curve;
 mod curve_text;
+mod deflated;
 mod font;
 #[cfg(fuzzing)]
 pub mod fuzz;
@@ -75,6 +76,7 @@ pub use around::{Around, draw_text_in, measure_in};
 pub use bitmap::{BitmapFont, PackBuilder};
 pub use cache::GlyphCache;
 pub use curve::ToneCurve;
+pub use deflated::deflate_bitmaps;
 pub use font::{Font, FontError, LineMetrics};
 pub use ink::TextInk;
 pub use stored::{LARGE_SCRIPT, PackLimits, PackSource, StoredPack};

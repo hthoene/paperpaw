@@ -160,6 +160,50 @@ impl GlyphCache {
     }
 }
 
+/// The most a bitmap of a cold glyph is, in bytes, for the glyph cache to keep it.
+/// A clock's digits are larger and are not kept (see `Lru::large`).
+#[cfg(feature = "kernel")]
+const KEPT: usize = 1024;
+
+/// The bitmap of the cold glyph `found` of a built-in pack whose bitmaps are
+/// deflated (`deflated.rs`), inflated out of the block or the two it lies in
+/// into `bitmap`; `None` where that could not be done. The block is held while
+/// it is read and let go, so that nothing but the glyph stays in memory.
+#[cfg(feature = "kernel")]
+fn read_deflated(
+    font: &crate::bitmap::BitmapFont,
+    found: crate::bitmap::Located,
+    mut bitmap: Vec<u8>,
+) -> Option<Glyph> {
+    use crate::deflated::BLOCK;
+    let (deflated, pack) = font.deflated()?;
+    bitmap.clear();
+    bitmap.try_reserve_exact(found.len).ok()?;
+    let end = found.start.checked_add(found.len)?;
+    let mut block = Vec::new();
+    let mut at = found.start;
+    while at < end {
+        let number = at / BLOCK;
+        if !deflated.inflate(pack, number, &mut block) {
+            return None;
+        }
+        let from = at - number * BLOCK;
+        let to = (end - number * BLOCK).min(block.len());
+        let piece = block.get(from..to).filter(|piece| !piece.is_empty())?;
+        bitmap.extend_from_slice(piece);
+        at = number * BLOCK + to;
+    }
+    Some(Glyph {
+        format: found.format,
+        left: found.left,
+        top: found.top,
+        width: found.width,
+        height: found.height,
+        advance: found.advance,
+        data: bitmap,
+    })
+}
+
 /// The least recently used glyphs go first.
 #[derive(Debug)]
 struct Lru {
@@ -172,6 +216,10 @@ struct Lru {
     clock: u32,
     /// Bitmaps of glyphs let go, at most [`SPARE`] (see there).
     spare: Vec<Vec<u8>>,
+    /// The glyph of such a pack too large to keep (a clock's digit), until the
+    /// next glyph is asked for.
+    #[cfg(feature = "kernel")]
+    large: Option<Glyph>,
 }
 
 impl Cache for Lru {
@@ -195,6 +243,10 @@ impl Cache for Lru {
     ) -> GlyphRef<'a> {
         let ch = font.shown(ch);
         match font {
+            #[cfg(feature = "kernel")]
+            Font::Bitmap(font) if font.is_deflated() => {
+                self.deflated_glyph(font_index, font, ch, size)
+            }
             Font::Bitmap(font) => font.glyph(ch, size),
             // Not read now (the card pulled): drawn as nothing, its
             // advance kept, so that the line stays as it was measured.
@@ -271,10 +323,14 @@ impl Cache for Lru {
     fn trim(&mut self, keep: usize) {
         self.shrink_to(keep);
         self.spare = Vec::new();
+        #[cfg(feature = "kernel")]
+        self.let_blocks_go();
         self.entries.shrink_to_fit();
     }
 
     fn clear(&mut self) {
+        #[cfg(feature = "kernel")]
+        self.let_blocks_go();
         self.entries = Vec::new();
         self.anchored = Vec::new();
         self.spare = Vec::new();
@@ -291,7 +347,58 @@ impl Lru {
             capacity,
             clock: 0,
             spare: Vec::new(),
+            #[cfg(feature = "kernel")]
+            large: None,
         }
+    }
+
+    /// The glyph of a built-in pack with deflated bitmaps (`deflated.rs`): a
+    /// hot one is read in place as ever; a cold one (an icon, a letter few
+    /// texts use) is inflated once and kept like a glyph read from a card (text
+    /// draws a glyph again and again), unless it is large (a clock's digit),
+    /// which is held until the next glyph is asked for. Not read now (no memory,
+    /// a damaged block): drawn as nothing, its advance kept.
+    #[cfg(feature = "kernel")]
+    fn deflated_glyph<'a>(
+        &'a mut self,
+        font_index: u16,
+        font: &'a crate::bitmap::BitmapFont,
+        ch: char,
+        size: f32,
+    ) -> GlyphRef<'a> {
+        self.large = None;
+        let Some(found) = font.locate(ch, size) else {
+            return font.glyph(ch, size);
+        };
+        if !found.cold {
+            return font.glyph_of(found);
+        }
+        if found.len > KEPT {
+            self.large = read_deflated(font, found, Vec::new());
+            return self.large.as_ref().map_or(
+                GlyphRef {
+                    advance: found.advance,
+                    ..NOT_READ
+                },
+                Glyph::as_ref,
+            );
+        }
+        match self.cached_with(font_index, ch, size, |s, spare| {
+            let found = font.locate(ch, s)?;
+            read_deflated(font, found, spare)
+        }) {
+            Some(glyph) => glyph,
+            None => GlyphRef {
+                advance: found.advance,
+                ..NOT_READ
+            },
+        }
+    }
+
+    /// Lets the held glyph go, and the memory that held it.
+    #[cfg(feature = "kernel")]
+    fn let_blocks_go(&mut self) {
+        self.large = None;
     }
 
     /// The glyph of a key, made by `rasterize` if it is not kept: `None`

@@ -13,6 +13,8 @@ const DEFAULT_SIZES: &str = "20,24,28,32,36,40,48";
 /// About 14 % apart, so a clock fills its place closely: some 150 KB
 /// of flash, no memory while running (packs are read in place).
 const DISPLAY_SIZES: &[f32] = &[56.0, 64.0, 74.0, 84.0, 96.0, 110.0, 126.0, 144.0, 164.0];
+/// The largest size text is drawn at: the sizes above are a clock's.
+const LARGEST_TEXT: f32 = 48.0;
 /// The digits and the colon, and the dashes of a clock not yet set.
 const DISPLAY_CHARS: &str = "0123456789:-";
 
@@ -107,7 +109,7 @@ fn main() {
         } else {
             paperpaw_text::build_pack_hinted(&font, &sizes, chars, hinting)
         };
-        write(&out.join(format!("{name}.ppfp")), &pack);
+        write(&out.join(format!("{name}.ppfp")), &deflated(&pack));
     }
     // Icons sit in the private use area and above it, Tabler's newer ones
     // (`tag`) past U+FFFF.
@@ -153,6 +155,41 @@ fn with_display(
         builder.add_strike(size, font.line_metrics(size), glyphs);
     }
     builder.build()
+}
+
+/// `pack` with the bitmaps of its cold glyphs deflated in blocks of 4 KiB, read
+/// back a block at a time by the kernel's glyph cache
+/// (`paperpaw_text::deflate_bitmaps`), #428. Cold: the large sizes (a clock's
+/// digits, drawn once a minute) and the characters few texts use; the letters
+/// of Latin-1, the usual punctuation and the ligatures are what text is drawn
+/// with, and stay in place, as quick and as free of memory as they were. The
+/// icons stay in place too: a screen draws many of them, and the cache would
+/// keep them all.
+fn deflated(pack: &[u8]) -> Vec<u8> {
+    let block = |bytes: &[u8]| {
+        let mut compress = flate2::Compress::new(flate2::Compression::best(), false);
+        // Room for what does not compress, too.
+        let mut out = Vec::with_capacity(bytes.len() + 1024);
+        let status = compress
+            .compress_vec(bytes, &mut out, flate2::FlushCompress::Finish)
+            .unwrap_or_else(|e| panic!("a block is deflated: {e}"));
+        assert_eq!(
+            status,
+            flate2::Status::StreamEnd,
+            "a block is deflated whole"
+        );
+        out
+    };
+    let cold = |ch: char, size: f32| {
+        size > LARGEST_TEXT
+            || !matches!(
+                u32::from(ch),
+                0x20..=0x7e | 0xa0..=0xff | 0x2010..=0x2027 | 0xfb00..=0xfb06
+                    | 0x20ac | 0x2122 | 0x2030 | 0xfffd
+            )
+    };
+    paperpaw_text::deflate_bitmaps(pack, &block, &cold)
+        .unwrap_or_else(|| panic!("a pack as the builder lays it out"))
 }
 
 fn write(path: &Path, data: &[u8]) {
