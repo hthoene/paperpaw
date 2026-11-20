@@ -2055,7 +2055,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-calendar"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "paperpaw-caldav",
  "paperpaw-core",
@@ -2510,7 +2510,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-news"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2526,7 +2526,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-notes-overview"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2693,7 +2693,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-reading-goal"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2774,7 +2774,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-smart-home"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2788,7 +2788,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-stats"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "paperpaw-core",
  "paperpaw-i18n",
@@ -2820,7 +2820,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-tasks"
-version = "1.1.0"
+version = "1.1.1"
 dependencies = [
  "paperpaw-caldav",
  "paperpaw-core",

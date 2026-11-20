@@ -469,6 +469,8 @@ impl Plugin for NativeCalendar {
                 ..
             } => self.stage(host, payload, reply),
             Event::ScreenOpened { instance, .. } if ours => self.opened(host, token, instance),
+            // The sleep screen draws from the kept events: read when it opens.
+            Event::ScreenOpened { .. } if token == SLEEP_TOKEN => self.load(host),
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
@@ -485,7 +487,6 @@ impl Plugin for NativeCalendar {
         match token {
             SCREEN_TOKEN | SOURCES_TOKEN => return self.draw_screen(host, token, &mut frame),
             SLEEP_TOKEN => {
-                self.load(host)?;
                 let env = self.env(host)?;
                 return native_sleep::draw(host, &mut frame, &self.store, &env);
             }

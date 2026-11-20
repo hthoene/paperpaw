@@ -442,6 +442,8 @@ impl Plugin for NativeTasks {
                 ..
             } => self.stage(host, payload, reply),
             Event::ScreenOpened { instance, .. } if ours => self.opened(host, token, instance),
+            // The sleep screen draws from the kept tasks: read when it opens.
+            Event::ScreenOpened { .. } if token == SLEEP_TOKEN => self.load(host),
             Event::ScreenShown {
                 instance: Some(instance),
                 ..
@@ -459,7 +461,6 @@ impl Plugin for NativeTasks {
             return self.draw_screen(host, token, &mut frame);
         }
         if token == SLEEP_TOKEN {
-            self.load(host)?;
             return crate::native_sleep::draw(host, &mut frame, &self.store);
         }
         if frame.purpose != DrawPurpose::Widget {

@@ -75,6 +75,8 @@ pub struct NativeStats {
     sync: SyncShell,
     /// The reading speed for the status items "time left".
     left: Left,
+    /// What the sleep screen shows, read when it opened.
+    sleeping: Option<crate::native_sleep::Prepared>,
 }
 
 impl core::fmt::Debug for NativeStats {
@@ -135,6 +137,11 @@ impl Plugin for NativeStats {
                 action: "stats.open",
                 ..
             } if token == crate::declarations::OPEN_TOKEN => return self.open_overview(host),
+            Event::ScreenOpened { screen, .. } if screen == crate::declarations::SLEEP_SCREEN => {
+                let counted = with_cx(host, 0, |cx| self.recorder.read_today(cx));
+                self.sleeping = Some(crate::native_sleep::Prepared::read(host, counted));
+                return Ok(());
+            }
             Event::ScreenOpened {
                 screen,
                 instance,
@@ -218,8 +225,8 @@ impl Plugin for NativeStats {
             return self.widgets.draw(host, frame);
         }
         if token == crate::declarations::SLEEP_TOKEN {
-            let counted = with_cx(host, 0, |cx| self.recorder.read_today(cx));
-            return crate::native_sleep::draw(host, &mut frame, counted);
+            let prepared = self.sleeping.as_ref().ok_or(Error::State)?;
+            return crate::native_sleep::draw(host, &mut frame, prepared);
         }
         match self.screens.top(token).ok_or(Error::State)? {
             View::Overview(view) => view.draw(host, &mut frame),

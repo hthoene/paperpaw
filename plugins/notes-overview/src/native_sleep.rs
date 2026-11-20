@@ -37,17 +37,20 @@ fn size_for(text: &str) -> u16 {
     }
 }
 
-/// Draws the sleep screen.
+/// Draws the sleep screen with the note read when it opened.
 ///
 /// # Errors
 /// Font and host refusals, `NoMemory`.
-pub fn draw(host: &Host<'_>, frame: &mut DrawFrame<'_>) -> Result<(), Error> {
-    let note = pinned(host)?;
+pub fn draw(
+    host: &Host<'_>,
+    frame: &mut DrawFrame<'_>,
+    note: Option<&Pinned>,
+) -> Result<(), Error> {
     let look = Look::open(host)?;
     let mut page = look.page(frame)?;
     let mut words = Words::new(host)?;
-    let unix = note.as_ref().map_or(0, |note| note.at);
-    match &note {
+    let unix = note.map_or(0, |note| note.at);
+    match note {
         Some(note) => {
             let used = page.wrap(
                 page.rect(0, 70, 0, 560),

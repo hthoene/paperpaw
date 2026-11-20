@@ -210,6 +210,8 @@ impl Volume for DataVolume<'_, '_> {
 pub struct NativeNews {
     /// None before the first need; at most one.
     state: Vec<News>,
+    /// What the sleep screen shows, read when it opened.
+    sleeping: Option<crate::native_sleep::Prepared>,
 }
 
 impl NativeNews {
@@ -255,6 +257,13 @@ impl Plugin for NativeNews {
         incoming: Incoming<'_>,
         reply: &mut Reply<'_>,
     ) -> Result<(), Error> {
+        // The sleep screen reads its two small files when it opens.
+        if token == crate::declarations::SLEEP_TOKEN {
+            if incoming.is::<kinds::ScreenOpened>() {
+                self.sleeping = Some(crate::native_sleep::read(host)?);
+            }
+            return Ok(());
+        }
         if self.state.is_empty() {
             // Without state, the action that opens the list needs none, and
             // nothing a setting change, a dropped widget or a closed screen
@@ -274,9 +283,10 @@ impl Plugin for NativeNews {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
-        // The front page needs no state: it reads two small files.
+        // The front page needs no state: it draws what it read when it opened.
         if token == crate::declarations::SLEEP_TOKEN {
-            return crate::native_sleep::draw(host, &mut frame);
+            let prepared = self.sleeping.as_ref().ok_or(Error::State)?;
+            return crate::native_sleep::draw(host, &mut frame, prepared);
         }
         self.state
             .first_mut()
