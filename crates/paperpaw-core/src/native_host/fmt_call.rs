@@ -90,6 +90,16 @@ pub(crate) trait Route {
         self.call(target, payload, out)
     }
 
+    /// One call of the conversion hook `core.convert` at `target` (`document.md`
+    /// 4.1): the same route, another stage. A route that cannot make it (the
+    /// jobs' pump route) has none.
+    ///
+    /// # Errors
+    /// `ERR_UNSUPPORTED` for a route without hooks, else as [`Route::call`].
+    fn convert(&self, _target: Target, _payload: &[u8], _out: &mut [u8]) -> Result<usize, i32> {
+        Err(ERR_UNSUPPORTED)
+    }
+
     /// Whether the parked format plugin `plugin` gave up being made (its
     /// longest wait without memory, #248): what waits for it fails then
     /// rather than waiting on. Taken once (the wait starts over). `false`
@@ -117,6 +127,16 @@ impl Route for Registry<'_> {
     ) -> Result<usize, i32> {
         format_call::call(self.registry, target, payload, out, (self.env, entered))
     }
+    fn convert(&self, target: Target, payload: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        format_call::call_stage(
+            self.registry,
+            format_call::CONVERT,
+            target,
+            payload,
+            out,
+            (self.env, &Cell::new(false)),
+        )
+    }
     fn gave_up(&self, plugin: u64) -> bool {
         self.registry.format_gave_up(plugin)
     }
@@ -140,6 +160,17 @@ impl Route for FrameRoute<'_> {
         let framed = format_call::framed(payload)?;
         let room = out.len().min(PAYLOAD_MAX);
         entered.set(true);
+        self.0.call_native(
+            target.plugin,
+            target.token,
+            &framed,
+            &mut out[..room],
+            &mut |reply| format_call::accept_reply(reply),
+        )
+    }
+    fn convert(&self, target: Target, payload: &[u8], out: &mut [u8]) -> Result<usize, i32> {
+        let framed = format_call::framed_for(format_call::CONVERT, payload)?;
+        let room = out.len().min(PAYLOAD_MAX);
         self.0.call_native(
             target.plugin,
             target.token,

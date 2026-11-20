@@ -18688,6 +18688,84 @@
     },
     {
       "input": [
+        "conv.ask"
+      ],
+      "key": "core.convert",
+      "major": 1,
+      "max_input": 1088,
+      "max_reply": 2112,
+      "max_subscribers": 4,
+      "records": [
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 32,
+              "name": "element",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            },
+            {
+              "default": null,
+              "max_bytes": 1024,
+              "name": "markup",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            }
+          ],
+          "id": 1,
+          "name": "conv.ask",
+          "since": 0
+        },
+        {
+          "fields": [
+            {
+              "default": null,
+              "max_bytes": 2048,
+              "name": "text",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "str"
+            },
+            {
+              "default": null,
+              "max_bytes": 0,
+              "name": "flags",
+              "optional": false,
+              "ordinal": null,
+              "since": 0,
+              "type": "u32"
+            }
+          ],
+          "id": 2,
+          "name": "conv.text",
+          "since": 0
+        }
+      ],
+      "reply": [
+        "conv.text"
+      ],
+      "reply_rows": 1,
+      "revision": 0,
+      "since": 1,
+      "test_only": false
+    },
+    {
+      "input": [
         "fmt.call",
         "fmt.option"
       ],

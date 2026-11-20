@@ -30,6 +30,7 @@ use super::{
         Document, DocumentTable, FormatCall, FormatRef, Limits, Options, format_stopped,
     },
     fmt_call::{FrameRoute, ImageMap, Opener, Route, Stage},
+    format_call::Target,
     format_index::FormatIndex,
     format_scope::BookKind,
     host_services::Caller,
@@ -1330,6 +1331,10 @@ impl super::doc_service::DocHost for Bound<'_> {
         self.prepare_cache(call, &css)
     }
 
+    fn convert(&self, element: &str, markup: &str) -> Result<Option<String>, i32> {
+        self.convert_foreign(element, markup)
+    }
+
     fn ask_format(&self, document: u32, format: FormatRef) -> Result<bool, i32> {
         self.ask(document, format)
     }
@@ -1453,6 +1458,8 @@ mod details_job;
 pub(crate) use cover_make::CoverAt;
 #[path = "doc_host_asks.rs"]
 mod asks;
+#[path = "doc_host_convert.rs"]
+mod convert;
 #[path = "doc_host_picture.rs"]
 mod picture;
 #[path = "doc_prepare.rs"]

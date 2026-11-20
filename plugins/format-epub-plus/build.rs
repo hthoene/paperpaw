@@ -37,6 +37,7 @@ fn main() -> Result<(), String> {
     println!("cargo:rerun-if-changed=declarations.rs");
     let mut source = String::new();
     emit!(source, "FORMATS", declarations::formats);
+    emit!(source, "STAGES", declarations::stages);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("Cargo OUT_DIR is missing")?);
     std::fs::write(out.join("format_epub_plus_declarations.rs"), source)
         .map_err(|error| format!("write declarations: {error}"))

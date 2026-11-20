@@ -2220,7 +2220,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-epub"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "paperpaw-core",
  "paperpaw-epub-family",
@@ -2232,7 +2232,7 @@ dependencies = [
 
 [[package]]
 name = "paperpaw-plugin-format-epub-plus"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "paperpaw-core",
  "paperpaw-epub-family",

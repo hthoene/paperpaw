@@ -73,6 +73,10 @@ const FLAG_RTL: u32 = 1 << 5;
 /// How a format opens its book: from the callback's storage, the file's name
 /// in its folder (`""` when the book is the file itself) and the options of
 /// the call.
+/// Whether a format reads a book it is asked about (`format.spec` `asks`): from
+/// the callback's storage and the file's name in its folder.
+pub type Claims = fn(&dyn Storage, &str) -> bool;
+
 pub type Opener = fn(&dyn Storage, &str, &OpenOptions) -> Result<Box<dyn Document>, DocumentError>;
 
 struct Slot {
@@ -92,6 +96,8 @@ pub struct FormatProvider {
     /// The folder the parsers keep their conversions in (routed to root 6).
     cache: String,
     sniffs: fn(&[u8]) -> bool,
+    /// Whether the format reads the book (`sniff` with `claimed`, #242).
+    claims: Option<Claims>,
     slots: Vec<Slot>,
     /// The values of the format's own settings the next open is given
     /// ([`OpenOptions::setting`]).
@@ -161,10 +167,19 @@ impl FormatProvider {
             format,
             cache,
             sniffs,
+            claims: None,
             slots: Vec::new(),
             settings: Vec::new(),
             file_links: false,
         }
+    }
+
+    /// The format asks before it opens a book (`FormatDecl::asks`): a `sniff`
+    /// call with `claimed` is answered by `claims`, which reads the book.
+    #[must_use]
+    pub const fn with_claims(mut self, claims: Claims) -> Self {
+        self.claims = Some(claims);
+        self
     }
 
     /// Lists the links `file:<path>` its documents make as files on the card
@@ -221,7 +236,11 @@ impl FormatProvider {
         };
         match call.op {
             op::SNIFF => {
-                if (self.sniffs)(call.arg) {
+                let yes = match self.claims {
+                    Some(claims) if call.flags & 1 != 0 => claims(io, call.text),
+                    _ => (self.sniffs)(call.arg),
+                };
+                if yes {
                     one(Record::FmtYes(stage::FmtYes::new(0)), out)
                 } else {
                     empty(out)

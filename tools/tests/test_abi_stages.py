@@ -191,11 +191,11 @@ class StageTests(unittest.TestCase):
     def test_repository_schemas_are_stage_local_and_copies_match(self):
         stages = self.schema['stages']
         self.assertEqual([s['key'] for s in stages],
-                         ['core.book-badge', 'core.format', 'core.input-filter', 'core.lookup',
+                         ['core.book-badge', 'core.convert', 'core.format', 'core.input-filter', 'core.lookup',
                           'core.picture', 'core.status', 'core.widget'])
         self.assertTrue(all(s['records'][0]['id'] == 1 for s in stages))
         source = rust_stages(self.schema)
-        for module in ['core_book_badge_v1', 'core_format_v1', 'core_input_filter_v1',
+        for module in ['core_book_badge_v1', 'core_convert_v1', 'core_format_v1', 'core_input_filter_v1',
                        'core_lookup_v1', 'core_picture_v1', 'core_status_v1', 'core_widget_v1']:
             self.assertIn(f'pub mod {module}', source)
         self.assertIn('pub static STAGES:', source)
