@@ -23,6 +23,26 @@ pub fn epub_provider() -> provider::FormatProvider {
     )
 }
 
+/// The `core.format` provider of EPUB books that also reads fixed-layout
+/// books of pictures (a page each, shown whole) and MathML.
+#[must_use]
+pub fn epub_plus_provider() -> provider::FormatProvider {
+    let dir = paperpaw_sdk::data::plugin_dir(PLUGIN.as_str());
+    provider::FormatProvider::new(
+        "format-epub-plus.epub",
+        |storage, name, options| {
+            if let Some(d) = crate::fixed::open(storage, name, options)? {
+                return Ok(Box::new(d) as Box<dyn Document>);
+            }
+            EpubDocument::open_options(storage, name, options).map(|d| {
+                Box::new(d.with_formulas(crate::convert::math::MAKER)) as Box<dyn Document>
+            })
+        },
+        dir,
+        is_epub,
+    )
+}
+
 /// The `core.format` provider of FictionBooks (`fb2`, `fb2.zip`): a
 /// `siblings` format, the opened file named by the call's `text`.
 #[must_use]

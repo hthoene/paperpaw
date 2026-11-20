@@ -1,0 +1,7 @@
+Once installed, this plugin opens your EPUB books instead of the built-in EPUB reader, and adds two things.
+
+Picture books and comics made as fixed-layout EPUBs (pages of fixed size, one picture each) show page by page, each picture whole on its page, in the order and direction the book says. A fixed-layout book with text on its pages opens as a normal book.
+
+Math formulas in EPUB textbooks (MathML) read as plain text: fractions as a/b, powers as x², roots as √(x), sums with their limits. A formula set on its own line stands as its own centered line.
+
+Everything else works as in the built-in EPUB reader. To read EPUB books with the built-in reader again, remove this plugin, or choose the format in the settings under Reading.

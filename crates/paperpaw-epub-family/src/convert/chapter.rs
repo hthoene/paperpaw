@@ -179,6 +179,7 @@ impl<'a> Converter<'a> {
             space: false,
             space_style: TextStyle::REGULAR,
             failed: None,
+            math: None,
         })
     }
 

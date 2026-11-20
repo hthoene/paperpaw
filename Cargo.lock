@@ -1656,6 +1656,7 @@ dependencies = [
  "paperpaw-plugin-format-cbz",
  "paperpaw-plugin-format-docx",
  "paperpaw-plugin-format-epub",
+ "paperpaw-plugin-format-epub-plus",
  "paperpaw-plugin-format-fb2",
  "paperpaw-plugin-format-html",
  "paperpaw-plugin-format-images",
@@ -2218,6 +2219,18 @@ dependencies = [
 [[package]]
 name = "paperpaw-plugin-format-epub"
 version = "1.0.5"
+dependencies = [
+ "paperpaw-core",
+ "paperpaw-epub-family",
+ "paperpaw-i18n",
+ "paperpaw-native",
+ "paperpaw-sdk",
+ "paperpaw-zip",
+]
+
+[[package]]
+name = "paperpaw-plugin-format-epub-plus"
+version = "1.0.0"
 dependencies = [
  "paperpaw-core",
  "paperpaw-epub-family",

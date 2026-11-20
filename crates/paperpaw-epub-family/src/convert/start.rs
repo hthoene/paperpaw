@@ -33,6 +33,9 @@ impl Converter<'_> {
         if self.full {
             return Ok(());
         }
+        if let Some(math) = self.math.as_mut() {
+            return math.start(local_name(name), &attrs);
+        }
         self.end_node();
         let tag = self.entered(element_name(name)?, &attrs)?;
         let props = if self.hidden == 0 {
@@ -106,7 +109,15 @@ impl Converter<'_> {
             hides,
             closer: controls.map(|(_, close)| close),
         })?;
-        self.started(&tag, &attrs, hides, controls)
+        let started = self.started(&tag, &attrs, hides, controls);
+        if started.is_ok()
+            && self.hidden == 0
+            && tag == "math"
+            && let Some(make) = self.book.formulas
+        {
+            self.math = Some(make(&attrs)?);
+        }
+        started
     }
 
     /// The name `tag` is read as, and what the markup's dialect asks for

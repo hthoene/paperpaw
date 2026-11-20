@@ -28,6 +28,7 @@ mod css;
 mod document;
 mod fallible;
 mod fb2;
+mod fixed;
 mod html;
 mod markdown;
 mod native_io;
@@ -48,6 +49,7 @@ pub use fb2::Fb2Document;
 pub use html::HtmlDocument;
 pub use markdown::MarkdownDocument;
 pub use native_io::{NativeIo, serve, serve_with_settings};
+pub use providers::epub_plus_provider;
 pub use providers::{cbz_provider, epub_provider, fb2_provider, html_provider, markdown_provider};
 
 pub const PLUGIN: Id = Id::new_static("format-epub");
@@ -1155,5 +1157,59 @@ mod tests {
         }
         assert!(!super::is_epub(b"PK"));
         assert!(!super::is_epub(b""));
+    }
+    /// The texts of the blocks of section 1 of the test book.
+    fn texts(ch2: &str) -> Vec<String> {
+        let storage = epub(String::from(ch2));
+        let doc = EpubDocument::open(&storage, "books/test.epub")
+            .unwrap()
+            .with_formulas(convert::math::MAKER);
+        let mut at = Locator::new(1, 0);
+        let mut out = Vec::new();
+        while let Some(block) = doc.block_at(&storage, at).unwrap() {
+            at = Locator::new(1, block.end);
+            out.push(block.text);
+        }
+        out
+    }
+
+    #[test]
+    fn mathml_is_read_as_linear_text() {
+        let html =
+            |math: &str| alloc::format!("<html><body><p>Es gilt {math} immer.</p></body></html>");
+        let m = |inner: &str| {
+            alloc::format!(r#"<math xmlns="http://www.w3.org/1998/Math/MathML">{inner}</math>"#)
+        };
+        let fraction = m("<mfrac><mi>a</mi><mrow><mi>b</mi><mo>+</mo><mn>1</mn></mrow></mfrac>");
+        assert_eq!(texts(&html(&fraction)), ["Es gilt a/(b + 1) immer."]);
+        let power = m(
+            "<msup><mi>x</mi><mn>2</mn></msup><mo>+</mo><msub><mi>y</mi><mi>i</mi></msub>\
+            <mo>=</mo><msup><mi>e</mi><mrow><mi>n</mi><mo>+</mo><mn>1</mn></mrow></msup>",
+        );
+        assert_eq!(
+            texts(&html(&power)),
+            ["Es gilt x² + y_i = e^(n + 1) immer."]
+        );
+        let root = m(
+            "<msqrt><msup><mi>a</mi><mn>2</mn></msup><mo>+</mo><msup><mi>b</mi><mn>2</mn></msup></msqrt>\
+            <mo>&#x2212;</mo><mroot><mi>x</mi><mn>3</mn></mroot>",
+        );
+        assert_eq!(texts(&html(&root)), ["Es gilt √(a² + b²) − ³√x immer."]);
+        // Display math is a block of its own, between the paragraph's halves.
+        let block = r#"<math display="block"><mrow><mo>&#x2212;</mo><mn>3</mn></mrow></math>"#;
+        assert_eq!(texts(&html(block)), ["Es gilt", "−3", "immer."]);
+    }
+
+    #[test]
+    fn mathml_with_a_sum_matrix_and_annotation() {
+        let m = |inner: &str| alloc::format!("<html><body><p>{inner}</p></body></html>");
+        let sum = "<math><munderover><mo>&#x2211;</mo><mrow><mi>i</mi><mo>=</mo><mn>1</mn></mrow><mi>n</mi></munderover>\
+            <msub><mi>a</mi><mi>i</mi></msub></math>";
+        assert_eq!(texts(&m(sum)), ["∑_(i = 1)^n a_i"]);
+        let semantics = "<math><semantics><mi>x</mi><annotation encoding=\"TeX\">x_{1}</annotation></semantics></math>";
+        assert_eq!(texts(&m(semantics)), ["x"]);
+        let matrix = "<math><mfenced open=\"[\" close=\"]\"><mtable><mtr><mtd><mn>1</mn></mtd><mtd><mn>2</mn></mtd></mtr>\
+            <mtr><mtd><mn>3</mn></mtd><mtd><mn>4</mn></mtd></mtr></mtable></mfenced></math>";
+        assert_eq!(texts(&m(matrix)), ["[1 2\n3 4]"]);
     }
 }
