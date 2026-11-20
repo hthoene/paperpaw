@@ -4762,6 +4762,8 @@ change the plugin SDK.
 
 - **"Skip setup" leaves the setup assistant again** (#433). The answer of a question reaches the asking plugin as an event, and an event had no screen stack, so its close was refused: the setup assistant stayed on its first page and the setup was never marked done; typing the lock's password and removing a stored secret in Settings did not leave their screen either. The answer's callback may now close the asker's own screen (as an action may), and the dialog's own close is applied before the answer is delivered.
 
+- The sleep screens of Calendar, Tasks, Reading statistics, Reading goal, All notes, News and Smart home read what they show when they open, not while they draw (#421). Updates of those store plugins.
+
 - **A deflated book chapter of some sizes (about 27 to 28 KiB) was refused as "entry longer than its size"** (#4309). When the reader's window, sized to the entry, was filled to the last byte before the decoder had seen the end of the stream, the first "more output" answer was taken for an overlong entry. Only an answer that still wants to write after the window is full counts now.
 
 ## [0.6.0-beta.3] - 2026-11-05
