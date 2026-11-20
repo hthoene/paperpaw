@@ -1,8 +1,9 @@
 use super::*;
+use crate::native_word::Word;
 use paperpaw_sdk::Rect;
 
-fn word(text: &str, start: u32, end: u32) -> WordBox {
-    WordBox::new(
+fn word(text: &str, start: u32, end: u32) -> Word {
+    Word::new(
         Rect::new(0, 0, 1, 1),
         text,
         Locator::new(0, start),

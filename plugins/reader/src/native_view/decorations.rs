@@ -1,6 +1,7 @@
 //! The reading screen's side of `reader.decorations@1` (`native_decorations`):
 //! a page's marks asked once its words are made, drawn with it, and a tap
 //! on a mark that takes taps handed to the plugin whose mark it is.
+use crate::native_word::Word;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicBool, Ordering};
 use paperpaw_sdk::{
@@ -11,7 +12,6 @@ use paperpaw_sdk::{
         canvas::Canvas,
         stages::Stage,
     },
-    reading::WordBox,
 };
 
 use super::{Body, Open, View};
@@ -161,11 +161,7 @@ static NO_STAGES: AtomicBool = AtomicBool::new(false);
 
 /// The marks `words` are given, fired in whole runs; `None` where no plugin
 /// subscribed (or the device runs no stages yet).
-fn ask(
-    host: &Host<'_>,
-    words: &[WordBox],
-    page: (&str, &str),
-) -> Result<Option<Decorations>, Error> {
+fn ask(host: &Host<'_>, words: &[Word], page: (&str, &str)) -> Result<Option<Decorations>, Error> {
     let stage = Stage::new(host, stage::KEY)?;
     // A device that runs no stages (the X4 until its stack gate) says so
     // before it looks at any buffer: nothing is encoded or taken there.

@@ -4,6 +4,7 @@
 //! (a followed link is returned from with *Back*) and the text of a note are
 //! here too. The interface-6 screen (`screen/linking.rs`, `footnote.rs`) is the
 //! reference. What is host-free is tested without a host.
+use crate::native_word::Word;
 use alloc::{string::String, vec::Vec};
 use paperpaw_sdk::{
     NoStorage,
@@ -12,7 +13,6 @@ use paperpaw_sdk::{
         Error, Host,
         document::{DocCursor, DocId, DocPosition, DocSpan, Documents, LinkKind},
     },
-    reading::WordBox,
 };
 use paperpaw_ui_kit::mem::buffer;
 
@@ -65,7 +65,7 @@ impl<'a> DocRef<'a> {
 
 /// The source range each section of the page's words covers: `(section, from,
 /// to)`, in the order the sections come on the page.
-fn spans(words: &[WordBox]) -> Result<Vec<(u32, u32, u32)>, Error> {
+fn spans(words: &[Word]) -> Result<Vec<(u32, u32, u32)>, Error> {
     let mut spans: Vec<(u32, u32, u32)> = Vec::new();
     for word in words {
         let section = word.start.section;
@@ -92,7 +92,7 @@ fn spans(words: &[WordBox]) -> Result<Vec<(u32, u32, u32)>, Error> {
 pub fn read_links(
     host: &Host<'_>,
     doc: &DocRef<'_>,
-    words: &[WordBox],
+    words: &[Word],
 ) -> Result<Vec<PageLink>, Error> {
     let mut found: Vec<PageLink> = Vec::new();
     if doc.whole_pages || words.is_empty() {
@@ -150,7 +150,7 @@ pub fn read_links(
 /// The link `word` is part of, if any: the first of the page's links its source
 /// range overlaps.
 #[must_use]
-pub fn link_of<'a>(links: &'a [PageLink], word: &WordBox) -> Option<&'a PageLink> {
+pub fn link_of<'a>(links: &'a [PageLink], word: &Word) -> Option<&'a PageLink> {
     links.iter().find(|l| {
         word.start.section == l.section && word.end.offset > l.start && word.start.offset < l.end
     })
@@ -158,7 +158,7 @@ pub fn link_of<'a>(links: &'a [PageLink], word: &WordBox) -> Option<&'a PageLink
 
 /// The place in `links` of the one a word is in (as [`link_of`]).
 #[must_use]
-pub fn link_index_of(links: &[PageLink], word: &WordBox) -> Option<usize> {
+pub fn link_index_of(links: &[PageLink], word: &Word) -> Option<usize> {
     links.iter().position(|l| {
         word.start.section == l.section && word.end.offset > l.start && word.start.offset < l.end
     })
@@ -169,7 +169,7 @@ pub fn link_index_of(links: &[PageLink], word: &WordBox) -> Option<usize> {
 ///
 /// # Errors
 /// `NoMemory`.
-pub fn label_of(words: &[WordBox], link: &PageLink) -> Result<String, Error> {
+pub fn label_of(words: &[Word], link: &PageLink) -> Result<String, Error> {
     let mut label = String::new();
     for word in words.iter().filter(|w| {
         w.start.section == link.section && w.end.offset > link.start && w.start.offset < link.end

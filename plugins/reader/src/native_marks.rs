@@ -5,7 +5,7 @@
 //! a frame, a line through).
 //!
 //! Host-free but for [`load`] and [`read_decoration`]: the spans are
-//! compared with the page's words (`WordBox` places), the boxes are one a line
+//! compared with the page's words (`Word` places), the boxes are one a line
 //! (`native_selection::line_boxes`), and the drawing goes through [`Pen`] so a
 //! test sees what would be painted.
 //!
@@ -13,6 +13,7 @@
 //! [`MAX_HIGHLIGHTS`]); Beta 3 held every note with its text. A book with more
 //! highlights draws the first ones the library gives.
 use crate::native_selection::line_boxes;
+use crate::native_word::Word;
 use alloc::string::String;
 use alloc::vec::Vec;
 use lead::{LEAD_MAX, Lead};
@@ -26,7 +27,6 @@ use paperpaw_sdk::{
         library::{AnnotationCursor, AnnotationKind, BookRef, Library},
         settings::{self, SettingValue},
     },
-    reading::WordBox,
 };
 use paperpaw_ui_kit::mem::{SERVICE_BUFFER, buffer};
 
@@ -54,7 +54,7 @@ pub struct Span {
 impl Span {
     /// Whether `word` is (partly) inside the stretch.
     #[must_use]
-    pub fn covers(&self, word: &WordBox) -> bool {
+    pub fn covers(&self, word: &Word) -> bool {
         let (start, end) = (
             (word.start.section, word.start.offset),
             (word.end.section, word.end.offset),
@@ -116,7 +116,7 @@ impl Marks {
     /// of the page on show) have where the highlight starts: they are drawn from
     /// here on, in memory only. A highlight that continues on the next page is
     /// found by the page it starts on.
-    pub fn accept_foreign(&mut self, words: &[WordBox]) {
+    pub fn accept_foreign(&mut self, words: &[Word]) {
         let (Some(first), Some(last)) = (words.first(), words.last()) else {
             return;
         };
@@ -202,7 +202,7 @@ impl Marks {
     /// Whether the page of `words` has anything to draw: a highlight or the
     /// hit inside it.
     #[must_use]
-    pub fn on_page(&self, words: &[WordBox], hit: Option<Span>) -> bool {
+    pub fn on_page(&self, words: &[Word], hit: Option<Span>) -> bool {
         let (Some(first), Some(last)) = (words.first(), words.last()) else {
             return false;
         };
@@ -278,7 +278,7 @@ pub fn load(
 /// being near its place: it is there only where the words the highlight covers
 /// are that text and no other (Beta 3's short highlights were never drawn
 /// before, #265).
-fn is_there(words: &[WordBox], held: &Foreign) -> bool {
+fn is_there(words: &[Word], held: &Foreign) -> bool {
     if held.lead.is_short() {
         covered_says(words, &held.span, &held.lead)
     } else {
@@ -288,7 +288,7 @@ fn is_there(words: &[WordBox], held: &Foreign) -> bool {
 
 /// Whether the words `span` covers say `lead` and nothing else (or its start,
 /// where the page ends inside the highlight).
-fn covered_says(words: &[WordBox], span: &Span, lead: &Lead) -> bool {
+fn covered_says(words: &[Word], span: &Span, lead: &Lead) -> bool {
     let mut text = String::new();
     let mut last = None;
     for (at, word) in words.iter().enumerate() {
@@ -316,7 +316,7 @@ fn covered_says(words: &[WordBox], span: &Span, lead: &Lead) -> bool {
 /// few words, as a highlight keeps the text of its words. The stretch starts
 /// [`SHIFT`] before the place, as another conversion of the same text may count
 /// a character or two otherwise.
-fn has_text(words: &[WordBox], at: (u32, u32), lead: &Lead) -> bool {
+fn has_text(words: &[Word], at: (u32, u32), lead: &Lead) -> bool {
     let mut text = String::new();
     let from = (at.0, at.1.saturating_sub(SHIFT));
     let first = words.partition_point(|w| (w.end.section, w.end.offset) <= from);
@@ -427,7 +427,7 @@ impl Painted {
     pub fn new(
         host: &Host<'_>,
         marks: &Marks,
-        words: &[WordBox],
+        words: &[Word],
         hit: Option<Span>,
         gauge: Gauge,
     ) -> Result<Self, Error> {
@@ -572,7 +572,7 @@ impl Pen for CanvasPen<'_, '_> {
 
 /// The boxes, one a line, round the words of `words` that `spans` cover.
 #[must_use]
-pub fn boxes(words: &[WordBox], spans: &[Span]) -> Vec<Rect> {
+pub fn boxes(words: &[Word], spans: &[Span]) -> Vec<Rect> {
     line_boxes(words, |i| {
         words
             .get(i)

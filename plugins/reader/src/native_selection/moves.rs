@@ -5,8 +5,8 @@
 //! (this is its movement code and its tests, with action names as text).
 use alloc::vec::Vec;
 
+use crate::native_word::Word;
 use paperpaw_sdk::Rect;
-use paperpaw_sdk::reading::WordBox;
 
 /// What the buttons do with the selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,9 +57,9 @@ impl Selection {
     }
 
     /// The first and last selected word with every part of a word the layout
-    /// broke (`WordBox`es that share a place in the book): both parts are
+    /// broke (`Word`es that share a place in the book): both parts are
     /// chosen, framed and looked up together.
-    pub fn whole(&self, words: &[WordBox]) -> (usize, usize) {
+    pub fn whole(&self, words: &[Word]) -> (usize, usize) {
         let (mut lo, mut hi) = self.range();
         while lo > 0 && continues(words, lo) {
             lo -= 1;
@@ -73,7 +73,7 @@ impl Selection {
     /// Moves the cursor for a navigation action, over the second part of a word
     /// the layout broke as over the word it is a part of; `None` if `action`
     /// is another one.
-    pub fn moved(&self, action: &str, words: &[WordBox]) -> Option<usize> {
+    pub fn moved(&self, action: &str, words: &[Word]) -> Option<usize> {
         let last = words.len().checked_sub(1)?;
         let mut to = self.moved_by_box(action, words)?;
         if to == self.cursor {
@@ -104,7 +104,7 @@ impl Selection {
     /// last word and goes on, or on the first and goes back): `Some(true)` at
     /// the end, `Some(false)` at the start, `None` where it moves on the page or
     /// is no navigation action. The selection turns the page there.
-    pub fn edge(&self, action: &str, words: &[WordBox]) -> Option<bool> {
+    pub fn edge(&self, action: &str, words: &[Word]) -> Option<bool> {
         let last = words.len().checked_sub(1)?;
         let a = action;
         if a == "core.left" || a == "core.right" {
@@ -137,7 +137,7 @@ impl Selection {
     /// page buttons too, a device with two page buttons has no others).
     /// Words wrap round the page: left from the first word reaches the
     /// last, right from the last the first; lines stop at the ends.
-    fn moved_by_box(&self, action: &str, words: &[WordBox]) -> Option<usize> {
+    fn moved_by_box(&self, action: &str, words: &[Word]) -> Option<usize> {
         let last = words.len().checked_sub(1)?;
         let a = action;
         if a == "core.left" || a == "core.right" {
@@ -184,7 +184,7 @@ impl Selection {
 
 /// Whether word `index` is the second part (or a later one) of a word the
 /// layout broke at a line end: it has the place in the book of the word before.
-pub fn continues(words: &[WordBox], index: usize) -> bool {
+pub fn continues(words: &[Word], index: usize) -> bool {
     index > 0
         && words
             .get(index - 1)
@@ -197,7 +197,7 @@ pub fn continues(words: &[WordBox], index: usize) -> bool {
 
 /// Boxes around runs of words on one line, e.g. to draw a selection or
 /// highlight as one shape per line.
-pub fn line_boxes(words: &[WordBox], picked: impl Fn(usize) -> bool) -> Vec<Rect> {
+pub fn line_boxes(words: &[Word], picked: impl Fn(usize) -> bool) -> Vec<Rect> {
     let mut boxes: Vec<Rect> = Vec::new();
     let mut previous: Option<usize> = None;
     for (index, word) in words.iter().enumerate() {
@@ -227,12 +227,7 @@ pub fn line_boxes(words: &[WordBox], picked: impl Fn(usize) -> bool) -> Vec<Rect
 /// no word between them that is not `in_box`. Words that follow each
 /// other in reading order may stand apart where a line runs both ways
 /// (#33): a box around both would take in a word between them.
-pub fn drawn_together(
-    words: &[WordBox],
-    a: usize,
-    b: usize,
-    in_box: impl Fn(usize) -> bool,
-) -> bool {
+pub fn drawn_together(words: &[Word], a: usize, b: usize, in_box: impl Fn(usize) -> bool) -> bool {
     let (Some(wa), Some(wb)) = (words.get(a), words.get(b)) else {
         return false;
     };
@@ -257,7 +252,7 @@ pub fn drawn_together(
 /// The first and the last word, in reading order, of the line of word
 /// `index` (the words drawn at its height); none where `index` is past
 /// the page's words.
-fn line_span(words: &[WordBox], index: usize) -> Option<(usize, usize)> {
+fn line_span(words: &[Word], index: usize) -> Option<(usize, usize)> {
     let y = words.get(index)?.area.y;
     let mut line = words.iter().enumerate().filter(|(_, w)| w.area.y == y);
     let first = line.next()?.0;
@@ -266,7 +261,7 @@ fn line_span(words: &[WordBox], index: usize) -> Option<(usize, usize)> {
 
 /// The word drawn next to word `index` on its line, on its right or its
 /// left: none at the line's edge.
-fn beside(words: &[WordBox], index: usize, right: bool) -> Option<usize> {
+fn beside(words: &[Word], index: usize, right: bool) -> Option<usize> {
     let current = words.get(index)?.area;
     words
         .iter()
@@ -281,7 +276,7 @@ fn beside(words: &[WordBox], index: usize, right: bool) -> Option<usize> {
 }
 
 /// The word on the line above (or below) word `index` nearest to it.
-fn nearest_on_line(words: &[WordBox], index: usize, below: bool) -> usize {
+fn nearest_on_line(words: &[Word], index: usize, below: bool) -> usize {
     let Some(current) = words.get(index).map(|w| &w.area) else {
         return index;
     };

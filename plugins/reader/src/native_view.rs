@@ -5,6 +5,7 @@
 //! in `native_pages`, `native_open`, `native_typeset` and `native_draw`; what is
 //! not ported yet (the place saved last time, progress, menus, selection,
 //! links, annotations) is in `PORTING-7.md`.
+use crate::native_word::Word;
 use crate::{
     native_actions,
     native_breaks::Breaks,
@@ -41,7 +42,6 @@ use paperpaw_sdk::{
         snapshot,
         ui::{HandoverId, Notify, Open as NavOpen, Param, Ui},
     },
-    reading::WordBox,
 };
 use paperpaw_ui_kit::{
     Messages,
@@ -108,7 +108,7 @@ struct Open {
     /// The page on show, laid out at the first draw after it changed.
     page: Option<Page>,
     /// The words of `page` with their boxes (made with it): what a touch hits.
-    words: Vec<WordBox>,
+    words: Vec<Word>,
     /// What is chosen, looked up and followed on the page.
     marking: Marking,
     /// The book's highlights and the search hit shown on its page.
