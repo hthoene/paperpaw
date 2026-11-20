@@ -13,6 +13,8 @@ const DEFAULT_SIZES: &str = "20,24,28,32,36,40,48";
 /// About 14 % apart, so a clock fills its place closely: some 150 KB
 /// of flash, no memory while running (packs are read in place).
 const DISPLAY_SIZES: &[f32] = &[56.0, 64.0, 74.0, 84.0, 96.0, 110.0, 126.0, 144.0, 164.0];
+/// The largest size text is drawn at: the sizes above are a clock's.
+const LARGEST_TEXT: f32 = 48.0;
 /// The digits and the colon, and the dashes of a clock not yet set.
 const DISPLAY_CHARS: &str = "0123456789:-";
 
@@ -107,7 +109,7 @@ fn main() {
         } else {
             paperpaw_text::build_pack_hinted(&font, &sizes, chars, hinting)
         };
-        write(&out.join(format!("{name}.ppfp")), &deflated(&pack));
+        write(&out.join(format!("{name}.ppfp")), &deflated(&pack, false));
     }
     // Icons sit in the private use area and above it, Tabler's newer ones
     // (`tag`) past U+FFFF.
@@ -118,7 +120,7 @@ fn main() {
     let pack = paperpaw_text::build_pack_compact(&font, &sizes, chars.clone());
     let plain = paperpaw_text::build_pack(&font, &sizes, chars);
     assert!(pack.len() * 10 < plain.len() * 7, "icons: not packed");
-    write(&out.join("icons.ppfp"), &deflated(&pack));
+    write(&out.join("icons.ppfp"), &deflated(&pack, true));
 }
 
 /// The pack of the UI font: `chars` at `sizes`, and [`DISPLAY_CHARS`] at
@@ -155,10 +157,14 @@ fn with_display(
     builder.build()
 }
 
-/// `pack` with its bitmaps deflated in blocks of 4 KiB, read back a block at a
-/// time by the kernel's glyph cache (`paperpaw_text::deflate_bitmaps`): the
-/// built-in packs are two thirds of what they were, #428.
-fn deflated(pack: &[u8]) -> Vec<u8> {
+/// `pack` with the bitmaps of its cold glyphs deflated in blocks of 4 KiB, read
+/// back a block at a time by the kernel's glyph cache
+/// (`paperpaw_text::deflate_bitmaps`), #428. Cold: every glyph of a pack
+/// of icons (`icons`), and of a pack of letters the large sizes (a clock's
+/// digits, drawn once a minute) and the characters few texts use; the letters
+/// of Latin-1, the usual punctuation and the ligatures are what text is drawn
+/// with, and stay in place, as quick and as free of memory as they were.
+fn deflated(pack: &[u8], icons: bool) -> Vec<u8> {
     let block = |bytes: &[u8]| {
         let mut compress = flate2::Compress::new(flate2::Compression::best(), false);
         // Room for what does not compress, too.
@@ -173,7 +179,16 @@ fn deflated(pack: &[u8]) -> Vec<u8> {
         );
         out
     };
-    paperpaw_text::deflate_bitmaps(pack, &block)
+    let cold = |ch: char, size: f32| {
+        icons
+            || size > LARGEST_TEXT
+            || !matches!(
+                u32::from(ch),
+                0x20..=0x7e | 0xa0..=0xff | 0x2010..=0x2027 | 0xfb00..=0xfb06
+                    | 0x20ac | 0x2122 | 0x2030 | 0xfffd
+            )
+    };
+    paperpaw_text::deflate_bitmaps(pack, &block, &cold)
         .unwrap_or_else(|| panic!("a pack as the builder lays it out"))
 }
 

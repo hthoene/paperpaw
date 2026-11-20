@@ -18,9 +18,15 @@ fn what_a_page_costs() {
     };
     let flat = std::fs::read(path).unwrap();
     let pack = if std::env::var("PP_BENCH_MODE").is_ok_and(|m| m == "deflated") {
-        deflate_bitmaps(&flat, &|block| {
-            miniz_oxide::deflate::compress_to_vec(block, 9)
-        })
+        deflate_bitmaps(
+            &flat,
+            &|block| miniz_oxide::deflate::compress_to_vec(block, 9),
+            &|ch, size| {
+                size > 48.0
+                    || !(matches!(ch as u32, 0x20..=0x7e | 0xa0..=0xff | 0x2010..=0x2027 | 0xfb00..=0xfb06)
+                        || matches!(ch as u32, 0x20ac | 0x2122 | 0x2030 | 0xfffd))
+            },
+        )
         .unwrap()
     } else {
         flat
