@@ -46,3 +46,17 @@ fn every_key_the_plugin_asks_for_is_in_both_languages() {
     }
     assert!(asked >= 20, "{asked}");
 }
+
+/// A copied code plugin runs: its row says "not signed" and fits the X4 row
+/// (it once read "Not installed: ...", which sounds like it does not run).
+#[test]
+fn the_unsigned_note_says_it_runs_and_is_short() {
+    for (text, bad) in [(EN, "install"), (DE, "install")] {
+        let line = text
+            .lines()
+            .find_map(|l| l.strip_prefix("plugin-manager.code.unsigned = "))
+            .unwrap();
+        assert!(line.len() <= 40, "{line}");
+        assert!(!line.to_lowercase().contains(bad), "{line}");
+    }
+}
