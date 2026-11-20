@@ -13,8 +13,8 @@ use crate::native_host::{
 use core::ops::ControlFlow;
 use paperpaw_native::host_glue::ERR_UNSUPPORTED;
 
-/// The hash a kept count names its scope by.
-fn scope_hash(scope: &str) -> u64 {
+/// The hash a kept count or resume point names its scope by.
+pub(super) fn scope_hash(scope: &str) -> u64 {
     paperpaw_digest::fnv1a64(scope.as_bytes())
 }
 
@@ -84,6 +84,25 @@ impl RegistryView for Sources<'_> {
         let memo = self.generation.memo()?;
         let (of, total, all_framed) = memo.total?;
         (op == schema::OP_SETTINGS && of == scope_hash(scope)).then_some((total, all_framed))
+    }
+
+    fn starts_at(&self, op: u32, scope: &str, from: u32) -> bool {
+        op == schema::OP_SETTINGS && settings::resume_place(self, scope, from).is_some()
+    }
+
+    fn rows_from(
+        &self,
+        op: u32,
+        scope: &str,
+        flags: u32,
+        asker: &Asker<'_>,
+        from: u32,
+        visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
+    ) -> Result<(), i32> {
+        if op == schema::OP_SETTINGS && from != 0 {
+            return settings::settings_from(self, scope, asker, from, visit);
+        }
+        self.rows(op, scope, flags, asker, visit)
     }
 
     fn keep_count(&self, op: u32, scope: &str, total: u32, all_framed: bool) {

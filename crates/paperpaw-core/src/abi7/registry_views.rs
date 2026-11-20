@@ -82,4 +82,27 @@ pub(crate) trait RegistryView {
     /// Keeps `total` as the rows of `op` for `scope`, `all_framed` whether
     /// every row walked framed (see [`RegistryView::counted`]).
     fn keep_count(&self, _op: u32, _scope: &str, _total: u32, _all_framed: bool) {}
+
+    /// Whether [`RegistryView::rows_from`] can start at row `from` of `op`
+    /// for `scope` (where the page before it stopped, #422); a list whose
+    /// every row frames asks it.
+    fn starts_at(&self, _op: u32, _scope: &str, _from: u32) -> bool {
+        false
+    }
+
+    /// [`RegistryView::rows`] from row `from` on, which [`starts_at`] said
+    /// it can start at (0: from the first).
+    ///
+    /// [`starts_at`]: RegistryView::starts_at
+    fn rows_from(
+        &self,
+        op: u32,
+        scope: &str,
+        flags: u32,
+        asker: &Asker<'_>,
+        _from: u32,
+        visit: &mut dyn FnMut(&dyn Row) -> ControlFlow<()>,
+    ) -> Result<(), i32> {
+        self.rows(op, scope, flags, asker, visit)
+    }
 }
