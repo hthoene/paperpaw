@@ -27,7 +27,7 @@ pub const MAX_DATA_FILE: u64 = 64 * 1024;
 pub const MAX_MANIFEST: u64 = 4 * 1024;
 /// The plugin library's rules (`tools/publish/store-rules.json`, the
 /// site's own): the kinds of files it takes in a package (font packs,
-/// `ppfp`, only in `fonts/`, as the kernel reads them), the most a package
+/// `ppfp`, only in `fonts/`, hyphenation tables, `pphp`, only in `hyphenation/`, as the kernel reads them), the most a package
 /// holds unpacked, the longest id, the groups.
 fn rules() -> &'static paperpaw_publish::Rules {
     static RULES: std::sync::OnceLock<paperpaw_publish::Rules> = std::sync::OnceLock::new();
@@ -920,6 +920,13 @@ fn files_and_kinds(plugin: &DataPlugin, folder: &Folder, add: &mut dyn FnMut(Fin
                 "package.website",
                 path,
                 "Font packs (.ppfp) belong in fonts/, where the kernel reads them.",
+            ));
+        }
+        if ext == "pphp" && !path.starts_with("hyphenation/") {
+            add(Finding::error(
+                "package.website",
+                path,
+                "Hyphenation tables (.pphp) belong in hyphenation/, where the kernel reads them.",
             ));
         }
         if is_test(path) {

@@ -13,7 +13,7 @@
   "max_screenshot_bytes": 500000,
   "screenshot_types": ["png", "jpg", "jpeg", "webp"],
   "max_alt": 200,
-  "package_kinds": ["ini", "css", "ttf", "otf", "ttc", "ppfp", "ppcat", "txt", "md", "png"],
+  "package_kinds": ["ini", "css", "ttf", "otf", "ttc", "ppfp", "pphp", "ppcat", "txt", "md", "png"],
   "max_files": 64,
   "max_path": 100,
   "max_package": 20971520,
