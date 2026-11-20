@@ -117,6 +117,8 @@ pub struct NativeNotesOverview {
     ui: Option<Ui>,
     library: Option<Library>,
     screens: Screens<View>,
+    /// The note pinned, read when the sleep screen opened (`Some(None)`: none).
+    sleeping: Option<Option<Pinned>>,
 }
 
 impl Plugin for NativeNotesOverview {
@@ -147,6 +149,10 @@ impl Plugin for NativeNotesOverview {
                 let mut scratch = [0; 128];
                 CommandSender::new(host, &mut scratch).open(Open::screen("notes-overview.screen")?)
             }
+            Event::ScreenOpened { .. } if token == SLEEP_TOKEN => {
+                self.sleeping = Some(native_sleep::pinned(host)?);
+                Ok(())
+            }
             Event::ScreenOpened { instance, .. } if token == LIST_TOKEN => {
                 self.opened_list(host, instance)
             }
@@ -173,7 +179,8 @@ impl Plugin for NativeNotesOverview {
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
         if token == SLEEP_TOKEN {
-            return crate::native_sleep::draw(host, &mut frame);
+            let note = self.sleeping.as_ref().ok_or(Error::State)?;
+            return native_sleep::draw(host, &mut frame, note.as_ref());
         }
         let view = self.screens.top(token).ok_or(Error::State)?;
         let View {

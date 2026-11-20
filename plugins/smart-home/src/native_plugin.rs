@@ -204,11 +204,12 @@ impl Plugin for NativeSmartHome {
     }
 
     fn draw(&mut self, host: &Host<'_>, token: u32, mut frame: DrawFrame<'_>) -> Result<(), Error> {
+        // The sleep screen draws what was read when it opened.
+        if token == crate::declarations::SLEEP_TOKEN {
+            return crate::native_sleep::draw(host, &mut frame, &self.store);
+        }
         self.load(host)?;
         match token {
-            crate::declarations::SLEEP_TOKEN => {
-                crate::native_sleep::draw(host, &mut frame, &self.store)
-            }
             DASH_SCREEN => {
                 let mut say = HostSay::new(host)?;
                 let title = say.copy("smart-home.title")?;
