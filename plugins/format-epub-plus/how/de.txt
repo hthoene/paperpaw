@@ -2,6 +2,6 @@ Ist dieses Plugin installiert, öffnet es deine EPUB-Bücher anstelle des eingeb
 
 Bilderbücher und Comics als EPUB mit festem Layout (Seiten fester Größe, je ein Bild) erscheinen Seite für Seite, jedes Bild ganz auf seiner Seite, in der Reihenfolge und Richtung, die das Buch angibt. Ein Buch mit festem Layout und Text auf den Seiten öffnet sich wie ein normales Buch.
 
-Mathe-Formeln in EPUB-Lehrbüchern (MathML) erscheinen als lesbarer Text: Brüche als a/b, Potenzen als x², Wurzeln als √(x), Summen mit ihren Grenzen. Eine Formel in einer eigenen Zeile steht als eigene, zentrierte Zeile.
+Mathe-Formeln in EPUB-Lehrbüchern (MathML) erscheinen als lesbarer Text: Brüche als a/b, Potenzen als x², Wurzeln als sqrt(x), Summen mit ihren Grenzen. Eine Formel in einer eigenen Zeile steht als eigene, zentrierte Zeile.
 
 Alles andere funktioniert wie im eingebauten EPUB-Leser. Um EPUB-Bücher wieder mit dem eingebauten Leser zu lesen, entferne dieses Plugin oder wähle das Format in den Einstellungen unter Lesen.
