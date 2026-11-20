@@ -16,8 +16,9 @@
 //! (fonts do not kern ideographs, kana and Hangul: [`kerns`]; or all numbers are
 //! in use) have their widths kept in a small table of exact entries (the whole key is compared; a new entry
 //! takes the place of one of the two it may be in), made at the first such
-//! character. Memory, made at once and never grown: about 8 KiB, and 2 KiB more
-//! for a book of such characters.
+//! character. Memory: about 2.5 KiB made at once, 1.5 KiB for each font and size
+//! (a context) at its first ask (up to four: about 8 KiB), and 2 KiB more for a
+//! book of such characters.
 use super::Role;
 use alloc::{rc::Rc, vec::Vec};
 use core::cell::{RefCell, RefMut};
@@ -59,10 +60,11 @@ struct State {
     next: usize,
     chars: Vec<u32>,
     used: Vec<u32>,
-    /// The widths of each context's letters (NaN: not known).
-    widths: Vec<f32>,
-    /// A bit for each pair of each context: its kerning is known.
-    known: Vec<u8>,
+    /// The contexts made so far, in the order of `heads`: made at the first
+    /// ask of each, so a book that sets one font and size holds one (a book
+    /// with a heading, an italic and a bold holds up to [`CONTEXTS`]). Room
+    /// for the list is made at once; empty and without capacity: no room.
+    contexts: Vec<Context>,
     /// The kerned pairs: the context (2 bits), the pair (14) and the kerning in
     /// sixty-fourths of a pixel (16); 0 is no entry.
     kerned: Vec<u32>,
@@ -70,6 +72,36 @@ struct State {
     /// [`extra_key`]), none until one is met; `no_extra`: there was no room.
     extra: Vec<u64>,
     no_extra: bool,
+}
+
+/// What one context keeps: made when the context first is asked for, and
+/// emptied and used again for the next one it gives way to.
+struct Context {
+    /// The widths of the letters (NaN: not known).
+    widths: Vec<f32>,
+    /// A bit for each pair: its kerning is known.
+    known: Vec<u8>,
+}
+
+impl Context {
+    fn new() -> Result<Self, Error> {
+        Ok(Self {
+            widths: filled(ALPHABET, f32::NAN)?,
+            known: filled(PAIR_BYTES, 0)?,
+        })
+    }
+
+    fn clear(&mut self) {
+        self.widths.fill(f32::NAN);
+        self.known.fill(0);
+    }
+
+    /// Takes the pair out of what is known.
+    fn forget(&mut self, pair: usize) {
+        if let Some(byte) = self.known.get_mut(pair / 8) {
+            *byte &= !(1 << (pair % 8));
+        }
+    }
 }
 
 /// What the tables know of the kerning of a pair.
@@ -112,6 +144,10 @@ impl Tables {
         others
             .try_reserve_exact(ALPHABET)
             .map_err(|_| Error::NoMemory)?;
+        let mut contexts = Vec::new();
+        contexts
+            .try_reserve_exact(CONTEXTS)
+            .map_err(|_| Error::NoMemory)?;
         Ok(Self(Some(Rc::new(RefCell::new(State {
             heads: [(0, 0); CONTEXTS],
             clock: 0,
@@ -120,8 +156,7 @@ impl Tables {
             next: 0,
             chars: filled(ALPHABET, 0)?,
             used: filled(ALPHABET, 0)?,
-            widths: filled(CONTEXTS * ALPHABET, f32::NAN)?,
-            known: filled(CONTEXTS * PAIR_BYTES, 0)?,
+            contexts,
             kerned: filled(KERNED, 0)?,
             extra: Vec::new(),
             no_extra: false,
@@ -134,7 +169,7 @@ impl Tables {
         self.0
             .as_ref()
             .and_then(|state| state.try_borrow().ok())
-            .is_some_and(|state| !state.widths.is_empty())
+            .is_some_and(|state| state.has_room())
     }
 
     fn state(&self) -> Option<RefMut<'_, State>> {
@@ -177,7 +212,7 @@ impl Tables {
         let Some(letter) = state.letter(c, false) else {
             return state.extra_get(extra_key(context, c)).map(unit);
         };
-        let width = *state.widths.get(context * ALPHABET + letter)?;
+        let width = *state.contexts.get(context)?.widths.get(letter)?;
         (!width.is_nan()).then_some(width)
     }
 
@@ -193,7 +228,11 @@ impl Tables {
         };
         match state.letter(c, true) {
             Some(letter) => {
-                if let Some(slot) = state.widths.get_mut(context * ALPHABET + letter) {
+                if let Some(slot) = state
+                    .contexts
+                    .get_mut(context)
+                    .and_then(|made| made.widths.get_mut(letter))
+                {
                     *slot = width;
                 }
                 width
@@ -257,7 +296,11 @@ impl Tables {
         } else if let Some(place) = mine {
             state.kerned[at + place] = 0;
         }
-        if let Some(byte) = state.known.get_mut(context * PAIR_BYTES + pair / 8) {
+        if let Some(byte) = state
+            .contexts
+            .get_mut(context)
+            .and_then(|made| made.known.get_mut(pair / 8))
+        {
             *byte |= 1 << (pair % 8);
         }
     }
@@ -308,10 +351,15 @@ pub(super) fn quantised(kern: f32) -> i16 {
 }
 
 impl State {
+    /// Whether there is room to keep anything (made by [`Tables::new`]).
+    fn has_room(&self) -> bool {
+        self.contexts.capacity() != 0
+    }
+
     /// The kerning kept for the pair of numbers `pair` (`a * ALPHABET + b`).
     fn kept_pair(&mut self, role: Role, size: f32, pair: usize) -> Option<f32> {
         let context = self.context(role, size, false)?;
-        if self.known.get(context * PAIR_BYTES + pair / 8)? >> (pair % 8) & 1 == 0 {
+        if self.contexts.get(context)?.known.get(pair / 8)? >> (pair % 8) & 1 == 0 {
             return None;
         }
         let key = (context as u32) << 14 | pair as u32;
@@ -329,7 +377,7 @@ impl State {
     /// `assign` (the number of the letter used least lately where all are
     /// taken). `None` for a character that is not kept.
     fn letter(&mut self, c: char, assign: bool) -> Option<usize> {
-        if self.widths.is_empty() || !kerns(c) {
+        if !self.has_room() || !kerns(c) {
             return None;
         }
         let ascii = (c as u32) < 128;
@@ -391,16 +439,13 @@ impl State {
         } else {
             self.others.retain(|&o| (o & 0xff) as usize != number);
         }
-        for context in 0..CONTEXTS {
-            if let Some(width) = self.widths.get_mut(context * ALPHABET + number) {
+        for context in &mut self.contexts {
+            if let Some(width) = context.widths.get_mut(number) {
                 *width = f32::NAN;
             }
             for other in 0..ALPHABET {
-                for pair in [number * ALPHABET + other, other * ALPHABET + number] {
-                    if let Some(byte) = self.known.get_mut(context * PAIR_BYTES + pair / 8) {
-                        *byte &= !(1 << (pair % 8));
-                    }
-                }
+                context.forget(number * ALPHABET + other);
+                context.forget(other * ALPHABET + number);
             }
         }
         Some(number)
@@ -409,7 +454,7 @@ impl State {
     /// The context of `role` at `size`. One that is not there is made only if
     /// `assign` (the one used least long ago is emptied for it).
     fn context(&mut self, role: Role, size: f32, assign: bool) -> Option<usize> {
-        if self.widths.is_empty() {
+        if !self.has_room() {
             return None;
         }
         let key = (role as u64) << 32 | u64::from(size.to_bits()) | 1 << 40;
@@ -429,13 +474,13 @@ impl State {
                 (k != 0, u32::MAX - clock.wrapping_sub(used))
             })
             .unwrap_or(0);
+        match self.contexts.get_mut(at) {
+            Some(made) => made.clear(),
+            // The next one to be made (the free ones are taken in order): no
+            // room for it leaves the font and size without tables.
+            None => self.contexts.push(Context::new().ok()?),
+        }
         self.heads[at] = (key, clock);
-        if let Some(widths) = self.widths.get_mut(at * ALPHABET..(at + 1) * ALPHABET) {
-            widths.fill(f32::NAN);
-        }
-        if let Some(bits) = self.known.get_mut(at * PAIR_BYTES..(at + 1) * PAIR_BYTES) {
-            bits.fill(0);
-        }
         for entry in &mut self.extra {
             if *entry >> 61 & 3 == at as u64 {
                 *entry = 0;
@@ -493,8 +538,8 @@ impl State {
     fn forget_pair(&mut self, entry: u32) {
         let key = (entry >> 16).wrapping_sub(1);
         let (context, pair) = ((key >> 14) as usize, (key & 0x3fff) as usize);
-        if let Some(byte) = self.known.get_mut(context * PAIR_BYTES + pair / 8) {
-            *byte &= !(1 << (pair % 8));
+        if let Some(made) = self.contexts.get_mut(context) {
+            made.forget(pair);
         }
     }
 }
