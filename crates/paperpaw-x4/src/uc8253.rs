@@ -61,7 +61,7 @@
 //! memories, window and command set, but its module's own memory of
 //! waveforms and settings is blank too, so the whole set-up comes from
 //! here (`init8279d`): power, booster and a 792 × 528 window; and its
-//! waveforms are its own (the [`lut8279d`] module: one full, one fast),
+//! waveforms are its own (its `lut8279d` module: one full, one fast),
 //! sent with a one-byte `CDI`. Its refreshes compare the new frame with
 //! the frame shown, as a fast one does here, and the first two after
 //! [`Display::init`] use the full waveform. Its facts come from the
