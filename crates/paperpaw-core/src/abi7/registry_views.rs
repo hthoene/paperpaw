@@ -72,14 +72,14 @@ pub(crate) trait RegistryView {
     ) -> Result<(), i32>;
 
     /// How many rows list op `op` gave for `scope` when the view last
-    /// counted them under the current generation, where it keeps that (a
-    /// list read a page at a time counts its rows for every page, #422);
-    /// `None`: count them.
-    fn counted(&self, _op: u32, _scope: &str) -> Option<u32> {
+    /// counted them under the current generation, and whether every row
+    /// walked framed, where it keeps that (a list read a page at a time
+    /// counts its rows for every page, #422); `None`: count them.
+    fn counted(&self, _op: u32, _scope: &str) -> Option<(u32, bool)> {
         None
     }
 
-    /// Keeps `total` as the rows of `op` for `scope` (see
-    /// [`RegistryView::counted`]).
-    fn keep_count(&self, _op: u32, _scope: &str, _total: u32) {}
+    /// Keeps `total` as the rows of `op` for `scope`, `all_framed` whether
+    /// every row walked framed (see [`RegistryView::counted`]).
+    fn keep_count(&self, _op: u32, _scope: &str, _total: u32, _all_framed: bool) {}
 }

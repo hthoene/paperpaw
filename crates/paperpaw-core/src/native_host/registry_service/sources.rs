@@ -80,18 +80,18 @@ impl RegistryView for Sources<'_> {
 
     /// Op 1 alone: its rows are the settings specs (of a scope), which only
     /// change with the generation; whether a row frames is its key and group.
-    fn counted(&self, op: u32, scope: &str) -> Option<u32> {
+    fn counted(&self, op: u32, scope: &str) -> Option<(u32, bool)> {
         let memo = self.generation.memo()?;
-        let (of, total) = memo.total?;
-        (op == schema::OP_SETTINGS && of == scope_hash(scope)).then_some(total)
+        let (of, total, all_framed) = memo.total?;
+        (op == schema::OP_SETTINGS && of == scope_hash(scope)).then_some((total, all_framed))
     }
 
-    fn keep_count(&self, op: u32, scope: &str, total: u32) {
+    fn keep_count(&self, op: u32, scope: &str, total: u32, all_framed: bool) {
         if op != schema::OP_SETTINGS {
             return;
         }
         if let Some(mut memo) = self.generation.memo() {
-            memo.total = Some((scope_hash(scope), total));
+            memo.total = Some((scope_hash(scope), total, all_framed));
         }
     }
 }

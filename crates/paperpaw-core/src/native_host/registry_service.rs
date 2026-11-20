@@ -112,22 +112,24 @@ fn list(
     }
     let generation = view.generation();
     let scope = scope_of(op.id, query);
-    let total = match view.counted(op.id, scope) {
-        Some(total) => total,
+    let (total, all_framed) = match view.counted(op.id, scope) {
+        Some(counted) => counted,
         None => {
             let mut total = 0_u32;
+            let mut walked = 0_u32;
             // A row that cannot be framed (an id over its field's cap, which
             // no declaration check bounds for plugin ids) is skipped, here
             // and in the page walk alike, so `total`, the cursor and the rows
             // agree.
             view.rows(op.id, scope, query.flags, asker, &mut |row| {
+                walked = walked.saturating_add(1);
                 if row.frames() {
                     total = total.saturating_add(1);
                 }
                 ControlFlow::Continue(())
             })?;
-            view.keep_count(op.id, scope, total);
-            total
+            view.keep_count(op.id, scope, total, walked == total);
+            (total, walked == total)
         }
     };
     let room = op.max_reply.min(out.len());
@@ -136,6 +138,12 @@ fn list(
     let mut index = 0_u32;
     let mut failure = None;
     view.rows(op.id, scope, query.flags, asker, &mut |row| {
+        // Where every row frames, one before the cursor is passed unasked
+        // (asking costs a lookup a row, #422).
+        if all_framed && index < query.cursor {
+            index = index.saturating_add(1);
+            return ControlFlow::Continue(());
+        }
         if !row.frames() {
             return ControlFlow::Continue(());
         }
