@@ -50,3 +50,27 @@ fn what_a_page_costs() {
     assert!(ink > 0);
     eprintln!("cache {} bytes", cache.bytes());
 }
+
+/// What the first drawing of the cold glyphs of a built-in pack costs, one at
+/// a time (`PP_BENCH_PACK` a pack as the firmware carries it, `PP_BENCH_COLD`
+/// the characters drawn at `PP_BENCH_SIZE`, `PP_BENCH_LOOPS` times each from
+/// an empty cache).
+#[test]
+#[ignore = "a measurement, run by hand"]
+fn what_a_cold_glyph_costs() {
+    let Ok(path) = std::env::var("PP_BENCH_PACK") else {
+        return;
+    };
+    let font = Font::from_data(std::fs::read(path).unwrap(), &[]).unwrap();
+    let size: f32 = std::env::var("PP_BENCH_SIZE").unwrap().parse().unwrap();
+    let chars = std::env::var("PP_BENCH_COLD").unwrap();
+    let loops: usize = std::env::var("PP_BENCH_LOOPS").unwrap().parse().unwrap();
+    let mut ink = 0usize;
+    for _ in 0..loops {
+        let mut cache = GlyphCache::new(12 * 1024);
+        for ch in chars.chars() {
+            ink += usize::from(cache.glyph(0, &font, ch, size).width);
+        }
+    }
+    assert!(ink > 0 || loops == 0);
+}
