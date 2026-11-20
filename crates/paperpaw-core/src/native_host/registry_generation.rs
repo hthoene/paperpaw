@@ -35,8 +35,15 @@ pub(crate) struct ListMemo {
     /// The hashes of the settings with a declared `setting.extra`, sorted
     /// (`menu_native::Native::extra_hashes`).
     pub(crate) extras: Option<Rc<[u32]>>,
-    /// The rows op 1 counted last: the hash of its scope and how many.
-    pub(crate) total: Option<(u64, u32)>,
+    /// The `icon.spec` rows (`menu_native::Native::sharing`).
+    pub(crate) icons: Option<Rc<[(u32, u16, DeclKey)]>>,
+    /// The rows op 1 counted last: the hash of its scope, how many, and
+    /// whether every row it walked frames (then a page passes those before
+    /// its cursor without asking).
+    pub(crate) total: Option<(u64, u32, bool)>,
+    /// The last row op 1 visited: the hash of its scope, the row's index and
+    /// its place in the settings' order (`settings::resume_place`).
+    pub(crate) last_row: Option<(u64, u32, usize)>,
 }
 
 impl ListMemo {
@@ -46,7 +53,9 @@ impl ListMemo {
             needs: None,
             governing: None,
             extras: None,
+            icons: None,
             total: None,
+            last_row: None,
         }
     }
 }
@@ -141,14 +150,14 @@ mod tests {
     #[test]
     fn the_memo_holds_for_one_generation() {
         let generation = RegistryGeneration::new();
-        generation.memo().unwrap().total = Some((7, 3));
-        assert_eq!(generation.memo().unwrap().total, Some((7, 3)));
+        generation.memo().unwrap().total = Some((7, 3, true));
+        assert_eq!(generation.memo().unwrap().total, Some((7, 3, true)));
         let held = generation.memo();
         assert!(generation.memo().is_none());
         drop(held);
         generation.bump();
         assert_eq!(generation.memo().unwrap().total, None);
-        generation.memo().unwrap().total = Some((7, 3));
+        generation.memo().unwrap().total = Some((7, 3, true));
         generation.rest();
         assert_eq!(generation.memo().unwrap().total, None);
     }

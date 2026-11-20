@@ -309,6 +309,11 @@ fn page(kernel: &crate::Kernel, id: u32, scope: &str) -> (Vec<String>, wire::Ser
 }
 
 fn pages(kernel: &crate::Kernel, id: u32, scope: &str) -> Vec<String> {
+    pages_of(kernel, id, scope, 4096)
+}
+
+/// [`pages`] with `room` bytes a reply.
+fn pages_of(kernel: &crate::Kernel, id: u32, scope: &str, room: usize) -> Vec<String> {
     let mut all = Vec::new();
     let (mut cursor, mut generation) = (0, 0);
     loop {
@@ -317,7 +322,7 @@ fn pages(kernel: &crate::Kernel, id: u32, scope: &str) -> Vec<String> {
             "reader",
             id,
             &query(scope, cursor, generation, 0),
-            4096,
+            room,
         )
         .unwrap();
         let (rows, end) = read(&reply);
@@ -1128,4 +1133,16 @@ fn a_setting_no_row_can_carry_is_passed_by_and_a_long_title_or_value_is_not() {
     );
     let (page_rows, end) = page(&kernel, schema::OP_SETTINGS, "many");
     assert_eq!((page_rows.len(), end.total as usize), (32, MANY));
+}
+
+#[test]
+fn settings_read_in_small_pages_are_the_rows_of_large_ones() {
+    // A page goes on where the one before stopped (#422): the same rows.
+    let kernel = kernel();
+    for scope in ["", "cfg.top", "cfg"] {
+        let small = pages_of(&kernel, schema::OP_SETTINGS, scope, 300);
+        let large = pages_of(&kernel, schema::OP_SETTINGS, scope, 4096);
+        assert!(small.len() > 2, "{scope}: {}", small.len());
+        assert_eq!(small, large, "{scope}");
+    }
 }
