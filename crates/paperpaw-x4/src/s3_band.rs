@@ -107,6 +107,28 @@ pub const fn bounds(start: u32) -> (u32, u32) {
     (start, start + BAND - 1)
 }
 
+/// The address bits the monitor's bound registers hold (measured on an
+/// X4 Classic, #415): 26. The upper six read back as zero, so what is read back
+/// of `0x3fcc_e800` is `0x03cc_e800`; the monitor compares addresses the same
+/// way.
+pub const ADDRESS_MASK: u32 = 0x03ff_ffff;
+
+/// The low bits of the registers that read back as zero (measured likewise):
+/// the monitor works in steps of 16 bytes, both bounds inclusive of their step.
+/// A band 16-aligned at both ends loses nothing by it: a store at its first
+/// word fires, one at its last word fires, the words next to it do not.
+pub const STEP_MASK: u32 = 0xf;
+
+/// What the bound registers read back after `(min, max)` of [`bounds`] was
+/// written: the value the chip keeps, not the one written.
+#[must_use]
+pub const fn held(min: u32, max: u32) -> (u32, u32) {
+    (
+        min & ADDRESS_MASK & !STEP_MASK,
+        max & ADDRESS_MASK & !STEP_MASK,
+    )
+}
+
 /// Whether plugin code may be entered with `ps` (the `PS` register): never at
 /// an interrupt level of 3 or more, where the band's interrupt cannot fire. The
 /// level is `PS.INTLEVEL`, its low four bits; a call at level 0 is the only one
@@ -121,7 +143,7 @@ pub const fn dispatch_allowed(ps: u32) -> bool {
 pub trait Monitor {
     /// Writes the area's bounds.
     fn set_bounds(&mut self, min: u32, max: u32);
-    /// Reads the bounds back.
+    /// Reads the bounds back: what the registers hold ([`held`]).
     fn bounds(&self) -> (u32, u32);
     /// Switches the area's write monitoring.
     fn set_write(&mut self, on: bool);
@@ -181,7 +203,8 @@ pub fn arm<M: Monitor>(monitor: &mut M, start: u32) -> Result<(), ArmError> {
     }
     monitor.set_bounds(min, max);
     monitor.set_write(true);
-    if monitor.bounds() != (min, max) || !monitor.write_enabled() || monitor.interrupt_enabled() {
+    if monitor.bounds() != held(min, max) || !monitor.write_enabled() || monitor.interrupt_enabled()
+    {
         stop(monitor);
         return Err(ArmError::Readback);
     }
@@ -236,7 +259,7 @@ mod tests {
     impl Monitor for Fake {
         fn set_bounds(&mut self, min: u32, max: u32) {
             if !self.bounds_stuck {
-                (self.min, self.max) = (min, max);
+                (self.min, self.max) = held(min, max);
             }
         }
         fn bounds(&self) -> (u32, u32) {
@@ -278,7 +301,9 @@ mod tests {
         }
         fn probe_store(&mut self, at: u32) {
             self.stores += 1;
-            if self.write && !self.never_fires && at >= self.min && at <= self.max {
+            // As the chip compares: 26 bits, in steps of 16 bytes.
+            let step = (at & ADDRESS_MASK) & !STEP_MASK;
+            if self.write && !self.never_fires && step >= self.min && step <= self.max {
                 self.since.set(Some(0));
             }
         }
@@ -372,6 +397,24 @@ mod tests {
         }
     }
 
+    /// What an X4 Classic read back of a band at `0x3fcc_e7f0` (#415): the
+    /// upper six address bits and the low four of the maximum gone. The
+    /// read-back must expect that, or the band never arms there.
+    #[test]
+    fn the_read_back_is_what_the_chip_holds_not_what_was_written() {
+        let start = 0x3fcc_e7f0;
+        let (min, max) = bounds(start);
+        assert_eq!(held(min, max), (0x03cc_e7f0, 0x03cc_efe0));
+        // The held bounds still cover exactly the band's words, as probed on
+        // the device: the word before is not seen, the first and last are.
+        let (lo, hi) = held(min, max);
+        let seen = |at: u32| {
+            let step = (at & ADDRESS_MASK) & !STEP_MASK;
+            step >= lo && step <= hi
+        };
+        assert!(!seen(start - 4) && seen(start) && seen(start + BAND - 4) && !seen(start + BAND));
+    }
+
     #[test]
     fn the_level_check_refuses_every_level_but_zero() {
         assert!(dispatch_allowed(0));
@@ -387,7 +430,8 @@ mod tests {
     fn a_working_monitor_arms_and_ends_with_the_interrupt_on() {
         let mut fake = Fake::default();
         assert_eq!(run(&mut fake, START), Ok(()));
-        assert_eq!(fake.bounds(), bounds(START));
+        let (min, max) = bounds(START);
+        assert_eq!(fake.bounds(), held(min, max));
         assert!(fake.write && fake.interrupt);
         // The self-test's raw bit is cleared before the interrupt is enabled.
         assert!(!fake.raw.get());
