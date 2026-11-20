@@ -419,9 +419,11 @@ jobs:
             table=partitions-classic.csv
           fi
           # The X4's flash (Puya PY25Q128HA, rated 104 MHz for DIO) is read at
-          # 80 MHz by the bootloader; the other devices' chips stay at 40 MHz.
+          # 80 MHz by the bootloader, and so are the X4 Pro's and the X4
+          # Classic's (verified and booted at 80 MHz on both, #4296); the X3
+          # and the Picco stay at 40 MHz (not tried at 80).
           freq=()
-          if [[ "$DEVICE" == x4 ]]; then
+          if [[ "$DEVICE" == x4 || "$DEVICE" == x4-pro || "$DEVICE" == x4-classic ]]; then
             freq=(--flash-freq 80mhz)
           fi
           espflash save-image --chip "$FIRMWARE_CHIP" --merge --skip-padding --flash-size 16mb \

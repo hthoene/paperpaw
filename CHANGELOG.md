@@ -3409,7 +3409,7 @@ change the plugin SDK.
 
 - **A smaller firmware: identical functions folded and TLS trimmed** (#304). The X4's linker folds functions with identical code. mbedTLS drops TLS 1.3, SHA-1, the CBC suites, RSA key exchange and the P-521 curve: HTTPS keeps TLS 1.2 with ECDHE and AES-GCM or ChaCha20-Poly1305 (X25519, P-256, P-384), which every server the firmware knows negotiates; a server that offers only TLS 1.3 or only CBC suites no longer connects.
 
-- **The X4's boot reads its flash at 80 MHz** (#304). The X4's flash chip (Puya PY25Q128HA, rated 104 MHz for DIO reads) is now clocked at 80 MHz by the boot loader instead of 40 MHz, which shortens the start. The X4 Pro, X4 Classic and X3 keep 40 MHz until their flash chips are known.
+- **The boot reads the flash at 80 MHz on the X4, the X4 Pro and the X4 Classic** (#304). The X4's flash chip (Puya PY25Q128HA, rated 104 MHz for DIO reads) is now clocked at 80 MHz by the boot loader instead of 40 MHz, which shortens the start; the X4 Pro and the X4 Classic verify and boot at 80 MHz too (the app loads 430 to 460 ms earlier). The X3 keeps 40 MHz until its flash chip is known.
 
 - **More free heap and fewer big one-piece blocks on the X4** (#304). The Wi-Fi send and receive code (16.7 KB) runs from flash instead of RAM, and the heap takes the RAM (16 KB). The small heap region is filled first at start-up, so the large one stays whole for big temporaries. An HTTP answer of known length is taken at that length, not at 32 KiB; a small PNG inflates into a window of its own size; a progressive JPEG probes its headroom in 8 KiB pieces, not one 48 KiB block; and a TLS session is opened only where a 20 KiB block is free.
 
