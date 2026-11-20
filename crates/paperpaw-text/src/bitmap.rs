@@ -48,6 +48,13 @@
 //! made before it ignore the field, and packs made before it read
 //! without kerning: the version stays 1.
 //!
+//! # Deflated bitmaps
+//!
+//! A pack a firmware carries may have the bitmaps of some of its glyphs
+//! deflated in blocks (the version byte has its top bit set; `deflated.rs`
+//! has the layout). Only the kernel reads such a pack, through its glyph
+//! cache; the packs of cards and stores are never made so.
+//!
 //! # Tables (version 2)
 //!
 //! A pack of version 2 is one of version 1 with a directory of eight
