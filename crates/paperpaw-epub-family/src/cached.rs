@@ -44,6 +44,31 @@ pub(crate) struct Seek {
     /// The index entries from block `first` on.
     window: Vec<u8>,
     first: u32,
+    /// Bytes of the text file from `text_at` on, read with the record of a
+    /// block for the records after it ([`TEXT_WINDOW`]), of the file as long
+    /// as `text_of`.
+    text: Vec<u8>,
+    text_at: u32,
+    text_of: u32,
+}
+
+/// Bytes of a chapter's text file read at once and kept for the records of
+/// the blocks after the one asked (2,048 bytes of heap per open book): a page
+/// is laid out a block at a time, and each read of the file is a call of the
+/// host's storage, which on the X4 runs through so much code that the flash's
+/// cache misses most of it (#403). A record longer than this is read alone.
+const TEXT_WINDOW: usize = 2048;
+
+impl Seek {
+    /// The `len` bytes at `at` of a text file `length` bytes long, where the
+    /// window kept holds them.
+    fn text_kept(&self, at: u32, len: usize, length: u32) -> Option<&[u8]> {
+        if self.text_of != length {
+            return None;
+        }
+        let from = usize::try_from(at.checked_sub(self.text_at)?).ok()?;
+        self.text.get(from..from.checked_add(len)?)
+    }
 }
 
 impl Seek {
@@ -123,7 +148,7 @@ fn read_block(
             (entry, next.unwrap_or(length), record_end(next, length))
         }
     };
-    read_entry(storage, paths, entry, (end, stop), color)
+    read_entry(storage, paths, entry, (end, stop), (color, length, seek))
 }
 
 /// Where the record of a block ends in the text file: where the next record
@@ -205,12 +230,21 @@ fn record_sizes(
 fn whole_record(
     storage: &dyn Storage,
     path: &str,
-    at: u32,
-    len: usize,
+    (at, len): (u32, usize),
+    (length, seek): (u32, &mut Seek),
 ) -> Result<Option<Vec<u8>>, DocumentError> {
     let Ok(mut record) = crate::fallible::zeroed(len) else {
         return Ok(None);
     };
+    if len <= TEXT_WINDOW {
+        if seek.text_kept(at, len, length).is_none() {
+            fill_window(storage, path, at, length, seek)?;
+        }
+        if let Some(bytes) = seek.text_kept(at, len, length) {
+            record.copy_from_slice(bytes);
+            return Ok(Some(record));
+        }
+    }
     let mut filled = 0;
     while filled < len {
         let n = storage.read_at(path, u64::from(at) + filled as u64, &mut record[filled..])?;
@@ -222,6 +256,43 @@ fn whole_record(
     Ok(Some(record))
 }
 
+/// Reads up to [`TEXT_WINDOW`] bytes of the text file from `at` into the
+/// window. Where there is no room for it the window stays empty and records
+/// are read alone, as before.
+fn fill_window(
+    storage: &dyn Storage,
+    path: &str,
+    at: u32,
+    length: u32,
+    seek: &mut Seek,
+) -> Result<(), DocumentError> {
+    let want = usize::try_from(length.saturating_sub(at))
+        .unwrap_or(usize::MAX)
+        .min(TEXT_WINDOW);
+    seek.text.clear();
+    seek.text_of = 0;
+    if seek.text.try_reserve_exact(want).is_err() {
+        return Ok(());
+    }
+    seek.text.resize(want, 0);
+    let mut filled = 0;
+    while filled < want {
+        let n = storage.read_at(
+            path,
+            u64::from(at) + filled as u64,
+            &mut seek.text[filled..],
+        )?;
+        if n == 0 {
+            break;
+        }
+        filled += n;
+    }
+    seek.text.truncate(filled);
+    seek.text_at = at;
+    seek.text_of = length;
+    Ok(())
+}
+
 /// Reads the block of index entry `entry`, ending at `end`. `record_end` is
 /// where its record ends in the text file, where it is known (the next
 /// record begins there): the record is then read whole, with one read.
@@ -230,7 +301,7 @@ fn read_entry(
     paths: &CachePaths,
     entry: Entry,
     (end, record_end): (u32, Option<u32>),
-    color: bool,
+    (color, length, seek): (bool, u32, &mut Seek),
 ) -> Result<Block, DocumentError> {
     let start = u32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]);
     let mut header = [0u8; HEADER as usize];
@@ -241,9 +312,12 @@ fn read_entry(
                 "cache index",
             )))?;
     let whole = match record_end {
-        Some(stop) if stop > at && (stop - at) as usize <= MAX_RECORD => {
-            whole_record(storage, &paths.text, at, (stop - at) as usize)?
-        }
+        Some(stop) if stop > at && (stop - at) as usize <= MAX_RECORD => whole_record(
+            storage,
+            &paths.text,
+            (at, (stop - at) as usize),
+            (length, seek),
+        )?,
         _ => None,
     };
     let whole = whole.filter(|record| record.len() >= header.len());
@@ -398,7 +472,7 @@ pub(crate) fn block_at(
                         paths,
                         entry,
                         (next.unwrap_or(length), record_end(next, length)),
-                        color,
+                        (color, length, seek),
                     )
                     .map(Some);
                 }
@@ -568,6 +642,7 @@ mod kept_tests {
             last: None,
             window: alloc::vec![7; entries * INDEX as usize],
             first,
+            ..Seek::default()
         }
     }
 
@@ -634,6 +709,7 @@ mod huge_chapter_tests {
             last: None,
             window: Vec::new(),
             first: 0,
+            ..Seek::default()
         }
     }
 
