@@ -109,7 +109,7 @@ fn main() {
         } else {
             paperpaw_text::build_pack_hinted(&font, &sizes, chars, hinting)
         };
-        write(&out.join(format!("{name}.ppfp")), &deflated(&pack, false));
+        write(&out.join(format!("{name}.ppfp")), &deflated(&pack));
     }
     // Icons sit in the private use area and above it, Tabler's newer ones
     // (`tag`) past U+FFFF.
@@ -120,7 +120,7 @@ fn main() {
     let pack = paperpaw_text::build_pack_compact(&font, &sizes, chars.clone());
     let plain = paperpaw_text::build_pack(&font, &sizes, chars);
     assert!(pack.len() * 10 < plain.len() * 7, "icons: not packed");
-    write(&out.join("icons.ppfp"), &deflated(&pack, true));
+    write(&out.join("icons.ppfp"), &pack);
 }
 
 /// The pack of the UI font: `chars` at `sizes`, and [`DISPLAY_CHARS`] at
@@ -159,12 +159,13 @@ fn with_display(
 
 /// `pack` with the bitmaps of its cold glyphs deflated in blocks of 4 KiB, read
 /// back a block at a time by the kernel's glyph cache
-/// (`paperpaw_text::deflate_bitmaps`), #428. Cold: every glyph of a pack
-/// of icons (`icons`), and of a pack of letters the large sizes (a clock's
+/// (`paperpaw_text::deflate_bitmaps`), #428. Cold: the large sizes (a clock's
 /// digits, drawn once a minute) and the characters few texts use; the letters
 /// of Latin-1, the usual punctuation and the ligatures are what text is drawn
-/// with, and stay in place, as quick and as free of memory as they were.
-fn deflated(pack: &[u8], icons: bool) -> Vec<u8> {
+/// with, and stay in place, as quick and as free of memory as they were. The
+/// icons stay in place too: a screen draws many of them, and the cache would
+/// keep them all.
+fn deflated(pack: &[u8]) -> Vec<u8> {
     let block = |bytes: &[u8]| {
         let mut compress = flate2::Compress::new(flate2::Compression::best(), false);
         // Room for what does not compress, too.
@@ -180,8 +181,7 @@ fn deflated(pack: &[u8], icons: bool) -> Vec<u8> {
         out
     };
     let cold = |ch: char, size: f32| {
-        icons
-            || size > LARGEST_TEXT
+        size > LARGEST_TEXT
             || !matches!(
                 u32::from(ch),
                 0x20..=0x7e | 0xa0..=0xff | 0x2010..=0x2027 | 0xfb00..=0xfb06
