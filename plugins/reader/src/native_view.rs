@@ -181,8 +181,9 @@ struct Open {
     layers: layers::Layers,
     /// Pages are asked for marks: from the step after the first is shown.
     ask_marks: bool,
-    /// The packs of letters this book asked for while open (`native_script_hint`).
-    packs_asked: crate::native_script_hint::Asked,
+    /// The packs of letters this book asked for while open, and what its first
+    /// blocks lack while it is still to be kept (`script_hint.rs`).
+    packs: script_hint::Packs,
     /// The reading settings as last read, until one changes (`setup::Kept`).
     settings: Kept,
 }
@@ -434,7 +435,7 @@ impl View {
             filters: Vec::new(),
             layers: layers::Layers::default(),
             ask_marks: false,
-            packs_asked: 0,
+            packs: script_hint::Packs::default(),
             settings: Kept::default(),
         })
         .map_err(fail)?;
