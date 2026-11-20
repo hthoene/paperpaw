@@ -1759,6 +1759,8 @@ dependencies = [
 name = "paperpaw-default-packs"
 version = "0.6.0-beta.3"
 dependencies = [
+ "flate2",
+ "miniz_oxide 0.9.1",
  "paperpaw-core",
  "paperpaw-hyphen",
  "paperpaw-hyphenation-packs",

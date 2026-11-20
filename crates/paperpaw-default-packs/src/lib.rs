@@ -48,7 +48,9 @@
 //! (`sync`) before `plugin.ini` is written. Nothing here allocates more than a
 //! path and, to judge a `plugin.ini` that is there, a copy of it (4 KB at
 //! most, a refused allocation is "not judged"); the files are written
-//! straight from the program's image. Nothing panics.
+//! straight from the program's image, where they are kept deflated (half their size, #428): inflated piece by piece
+//! as they are written, with 4 KiB of history and the decoder (some 11 KB) on the heap for a moment; a start
+//! that has no room for them fails like one whose card is full. Nothing panics.
 
 #![no_std]
 
@@ -69,15 +71,93 @@ const MARK: &str = ".paperpaw/seeded/hyphenation";
 /// (about 60 KB) and a card's clusters.
 pub const ROOM: u64 = 256 * 1024;
 
-/// The files of a package: path inside its folder, and content.
-pub type Files = &'static [(&'static str, &'static [u8])];
+/// A file of a package as the program carries it: path inside its folder,
+/// its length, and its content raw-deflated with a history of [`WINDOW`]
+/// bytes.
+type Packed = (&'static str, usize, &'static [u8]);
 
 /// The English package, as `tools/hyphenation-packs` builds it.
-static ENGLISH: Files = include!(concat!(env!("OUT_DIR"), "/english.rs"));
+static ENGLISH: &[Packed] = include!(concat!(env!("OUT_DIR"), "/english.rs"));
 
-/// The files of the English package.
-pub fn english() -> Files {
+/// The history the files are deflated with (`build.rs`), in bytes: a power of
+/// two, so that the position wraps with a mask.
+const WINDOW: usize = 4096;
+
+/// The files of the English package: path inside its folder, and content
+/// (inflated: for tests and tools; [`seed_hyphenation`] does not hold them).
+pub fn english() -> Vec<(&'static str, Vec<u8>)> {
     ENGLISH
+        .iter()
+        .map(|&(path, len, packed)| {
+            let mut bytes = Vec::with_capacity(len);
+            let whole = inflate_to(packed, &mut |piece| {
+                bytes.extend_from_slice(piece);
+                true
+            });
+            assert!(whole && bytes.len() == len, "{path} is inflated whole");
+            (path, bytes)
+        })
+        .collect()
+}
+
+/// Inflates the raw deflate stream `packed`, handing what comes out to
+/// `sink` in pieces of at most [`WINDOW`] bytes, in order; `false` where the
+/// data is corrupt or short, `sink` said stop (`false`) or the room for the
+/// history and the decoder is not there.
+fn inflate_to(packed: &[u8], sink: &mut dyn FnMut(&[u8]) -> bool) -> bool {
+    use miniz_oxide::inflate::TINFLStatus;
+    use miniz_oxide::inflate::core::{DecompressorOxide, decompress};
+
+    let mut window: Vec<u8> = Vec::new();
+    if window.try_reserve_exact(WINDOW).is_err() {
+        return false;
+    }
+    window.resize(WINDOW, 0);
+    // Made in place on the heap: the decoder is 11 KB, no frame may hold it.
+    let mut decoder: Vec<DecompressorOxide> = Vec::new();
+    if decoder.try_reserve_exact(1).is_err() {
+        return false;
+    }
+    decoder.resize_with(1, DecompressorOxide::default);
+    let Some(state) = decoder.first_mut() else {
+        return false;
+    };
+    let (mut input, mut at) = (packed, 0_usize);
+    loop {
+        let (status, used, made) = decompress(state, input, &mut window, at, 0);
+        input = input.get(used..).unwrap_or_default();
+        if made > 0 && !window.get(at..at + made).is_some_and(&mut *sink) {
+            return false;
+        }
+        at = (at + made) & (WINDOW - 1);
+        match status {
+            TINFLStatus::Done => return true,
+            TINFLStatus::HasMoreOutput => {}
+            _ => return false,
+        }
+    }
+}
+
+/// Writes the file `path` from its deflated form: the first piece writes it,
+/// the others are appended. `false` where a write failed or the stream was
+/// not `len` bytes.
+fn write_file(storage: &dyn Storage, path: &str, len: usize, packed: &[u8]) -> bool {
+    let (mut written, mut failed) = (0_usize, false);
+    let whole = inflate_to(packed, &mut |piece| {
+        let result = if written == 0 {
+            storage.write(path, piece)
+        } else {
+            storage.append(path, piece)
+        };
+        failed = result.is_err();
+        written += piece.len();
+        !failed
+    });
+    if written == 0 && !failed {
+        // An empty file: nothing came out to write.
+        return len == 0 && storage.write(path, b"").is_ok();
+    }
+    whole && !failed && written == len
 }
 
 /// What [`seed_hyphenation`] did.
@@ -172,7 +252,7 @@ const MAX_FILES: usize = 32;
 /// before (a broken `plugin.ini` beside the reader's other tables), only the
 /// files this start made: never the folder, and never a file that was there.
 fn take_back(storage: &dyn Storage, folder: &str, before: Option<&[bool; MAX_FILES]>) {
-    for (at, &(path, _)) in ENGLISH.iter().enumerate() {
+    for (at, &(path, ..)) in ENGLISH.iter().enumerate() {
         let there_before = before.is_some_and(|b| b.get(at).copied().unwrap_or(true));
         if before.is_none() || !there_before {
             let _ = storage.remove(&format!("{folder}/{path}"));
@@ -231,7 +311,7 @@ pub fn seed_hyphenation(storage: &dyn Storage) -> Seeded {
     }
     let mut before = [false; MAX_FILES];
     if held {
-        for (at, &(path, _)) in ENGLISH.iter().enumerate().take(MAX_FILES) {
+        for (at, &(path, ..)) in ENGLISH.iter().enumerate().take(MAX_FILES) {
             before[at] = storage.exists(&format!("{folder}/{path}"));
         }
     }
@@ -248,8 +328,8 @@ pub fn seed_hyphenation(storage: &dyn Storage) -> Seeded {
     // cannot leave a manifest over files that were not written back.
     let manifest = |path: &str| path == "plugin.ini";
     for pass in [false, true] {
-        for &(path, bytes) in ENGLISH.iter().filter(|(p, _)| manifest(p) == pass) {
-            if storage.write(&format!("{folder}/{path}"), bytes).is_err() {
+        for &(path, len, packed) in ENGLISH.iter().filter(|(p, ..)| manifest(p) == pass) {
+            if !write_file(storage, &format!("{folder}/{path}"), len, packed) {
                 return failed(storage, &folder, before);
             }
         }

@@ -14,10 +14,16 @@ publish = false
 [dependencies]
 paperpaw-core.workspace = true
 paperpaw-platform.workspace = true
+# Inflates the files the program carries deflated (as `paperpaw-x4`'s
+# language pack does).
+miniz_oxide = { version = "=0.9.1", default-features = false }
 
 [build-dependencies]
 # The one place a hyphenation package is made from its sources (`plugins/<id>/`).
 paperpaw-hyphenation-packs = { path = "../../tools/hyphenation-packs" }
+# Deflates them with a history of 4 KiB (`PACKED_WINDOW`'s way, #352):
+# miniz_oxide's compressor always takes 32 KiB.
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 
 [dev-dependencies]
 paperpaw-hyphen = { workspace = true, features = ["kernel"] }
